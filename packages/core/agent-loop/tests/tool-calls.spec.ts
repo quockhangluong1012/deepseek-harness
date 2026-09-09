@@ -6,7 +6,7 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { createUserMessage, ToolCallId, StreamChunk  } from '@deepseek-ai/dsh-llm'
-import SessionStore, { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
+import SessionStore, { SessionEvent, SessionId, TOOL_OUTCOME_UNKNOWN } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import LlmRuntime from '@deepseek-ai/dsh-llm'
 import ToolRuntime, { defineContentToolFixture, TOOL_ABORTED_BEFORE_DISPATCH, TOOL_RUNTIME_SCHEDULER, type PostToolDecision, type PreToolDecision } from '@deepseek-ai/dsh-tools'
@@ -693,6 +693,64 @@ describe('tool-call scheduler: failure quiescence', () => {
     expect(events(agent).findLast(event => event.type === 'turn/end')).toMatchObject({
       data: { reason: { kind: 'error', error: { message: schedulerError.message, code: 'UNKNOWN' } } },
     })
+    // Started-but-uncommitted calls keep a provider-valid transcript: each
+    // gets a synthetic unknown-outcome result citing its own tool/call seq,
+    // and no tool/call is left without its tool/result — including c3, whose
+    // call was logged before its gated prepare ever ran.
+    const calls = events(agent).filter(event => event.type === 'tool/call')
+    const results = events(agent).filter(event => event.type === 'tool/result')
+    expect(calls.map(event => event.data.callId)).toEqual([ToolCallId('c1'), ToolCallId('c2'), ToolCallId('c3')])
+    expect(results).toHaveLength(3)
+    for (const result of results) {
+      expect(result).toMatchObject({ data: { error: { code: TOOL_OUTCOME_UNKNOWN } } })
+    }
+    const callSeqs = new Map(calls.map(event => [event.data.callId, event.seq]))
+    for (const result of results) {
+      const source = result.data.message.source
+      expect(source.kind).toBe('tool')
+      const callId = source.kind === 'tool' ? source.callId : undefined
+      expect(result.sourceEventSeqs).toEqual([callSeqs.get(callId)])
+    }
+  })
+
+  it('fabricates unknown-outcome results when result finalization fails during the drain', async () => {
+    const adapter = new MockAdapter([
+      multiCall([
+        { id: 'c1', name: 'p', args: { id: '1' } },
+        { id: 'c2', name: 'p', args: { id: '2' } },
+      ]),
+    ])
+    const ctx = await harness(adapter, 2)
+    const gated = gatedParallelTool('p')
+    ctx.tools.register(gated.tool)
+    const scheduler = ctx.tools[TOOL_RUNTIME_SCHEDULER]
+    const finalize = scheduler.finalize.bind(scheduler)
+    const finalizeError = new Error('finalize exploded')
+    scheduler.finalize = (exec, result) => exec.callId === ToolCallId('c1')
+      ? Promise.reject(finalizeError)
+      : finalize(exec, result)
+    const agent = await ctx.agentLoop.create(SessionId('scheduler-finalize-failure'), { provider: 'mock', model: 'mock' })
+
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
+    await until(() => gated.started.length === 2)
+    gated.release('1')
+    gated.release('2')
+    await waitForIdle(ctx, agent)
+
+    expect(events(agent).findLast(event => event.type === 'turn/end')).toMatchObject({
+      data: { reason: { kind: 'error', error: { message: finalizeError.message, code: 'UNKNOWN' } } },
+    })
+    // Both started calls keep a provider-valid transcript, but the settled
+    // body result behind the failed finalization is not committed: each
+    // started call receives a synthetic unknown-outcome result instead.
+    const calls = events(agent).filter(event => event.type === 'tool/call')
+    const results = events(agent).filter(event => event.type === 'tool/result')
+    expect(calls.map(event => event.data.callId)).toEqual([ToolCallId('c1'), ToolCallId('c2')])
+    expect(results).toHaveLength(2)
+    for (const result of results) {
+      expect(result).toMatchObject({ data: { error: { code: TOOL_OUTCOME_UNKNOWN } } })
+    }
+    expect(JSON.stringify(results)).not.toContain('done-2')
   })
 })
 

@@ -46,6 +46,8 @@ Agents declared in the config start automatically when the plugin loads. Each en
 | Field | Default | Meaning |
 |---|---|---|
 | `maxParallelToolCalls` | `10` | Parallel-safe tool calls in flight per step; `1` is serial |
+| `maxSteps` | `100` | Entered steps per turn; a turn that would run past the ceiling ends `max-steps` |
+| `maxRequestRetries` | `10` | Honored `agent/request-error` retries per step; a recovery past the ceiling stays terminal (`0` disables recovery) |
 | `agents[].id` | required | Stable label; a fresh session mints `${id}-session-<uuid>` unless `sessionId` is set |
 | `agents[].provider` / `agents[].model` | — | Model route; both required before dispatch |
 | `agents[].reasoningEffort` | — | Non-empty initial reasoning effort; `agent/request` may override it |
@@ -54,7 +56,7 @@ Agents declared in the config start automatically when the plugin loads. Each en
 | `agents[].sessionId` | — | Exact identity: first use creates, a remount resumes materialized history |
 | `agents[].resumeSessionId` | — | Load this persisted session instead of creating one; mutually exclusive with `sessionId` |
 
-The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-agent-loop) is the exhaustive source for every accepted field. The adapter validates the effective reasoning effort and the loop records it in the request header. `maxParallelToolCalls` is also the whole `agent-loop` settings section, so a user layer over this entry caps the next tool group without a restart.
+The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-agent-loop) is the exhaustive source for every accepted field. The adapter validates the effective reasoning effort and the loop records it in the request header. `maxParallelToolCalls` is also the whole `agent-loop` settings section, so a user layer over this entry caps the next tool group without a restart. `maxSteps` is in the same settings section: a turn that would enter more steps than the ceiling ends `max-steps` instead of running unbounded, even when a steer queued more work. `maxRequestRetries` is in the same settings section: it caps honored request recoveries per step, so a listener that recovers unconditionally cannot retry forever; provider retry policies stay authoritative below the ceiling.
 
 ### Create or resume agents programmatically
 
@@ -122,7 +124,7 @@ Prompt admission uses the actual `prepareCall()` result, not the preceding `requ
 
 ### Failure and cancellation
 
-Final adapter selection, dispatch, and iteration failures arrive as terminal finishes and enter `agent/request-error`; a handling listener returns `{ kind: 'retry' }` without calling `next()`, while an unhandled failure is terminal. Middleware, result-processing, tool, and other extension failures remain thrown and close the turn directly — plugin failure ends the turn, not the loop. Undispatched model tool calls after cancellation receive synthetic `tool/call` plus `ABORTED_BEFORE_DISPATCH` result pairs. The [explicit-cancellation decision](../../../.agents/notes/implemented/architecture/2026-07-16-explicit-turn-cancellation.md) owns the signal lifecycle.
+Final adapter selection, dispatch, and iteration failures arrive as terminal finishes and enter `agent/request-error`; a handling listener returns `{ kind: 'retry' }` without calling `next()`, while an unhandled failure is terminal. Honored retries per step are capped by `maxRequestRetries`; a recovery past the ceiling stays terminal and warns, so unconditional recovery cannot retry forever. Middleware, result-processing, tool, and other extension failures remain thrown and close the turn directly — plugin failure ends the turn, not the loop. Undispatched model tool calls after cancellation receive synthetic `tool/call` plus `ABORTED_BEFORE_DISPATCH` result pairs. The [explicit-cancellation decision](../../../.agents/notes/implemented/architecture/2026-07-16-explicit-turn-cancellation.md) owns the signal lifecycle.
 
 </details>
 
@@ -197,7 +199,7 @@ These limits define when the loop needs special care. They are current package c
 - **Classification is unary** — calls whose safety depends on comparing siblings or resources must remain exclusive ([rationale](../../../.agents/notes/implemented/feature/2026-07-10-parallel-tool-call-execution.md)).
 - **Config labels are fresh by default** — omitting `sessionId` creates a fresh `${id}-session-<uuid>` on every startup; exact resume-or-create behavior requires an explicit stable `sessionId`, while `resumeSessionId` requires existing persisted history.
 - **Config agents have no per-agent persona field or setup hook** — they use the deployment persona; scoped persona and tool composition are available only through the programmatic `ctx.agents.create()` / `resume()` factory options.
-- **No built-in turn budget** — tool calls or steering continue the current turn; a policy that bounds runaway turns must cancel from an existing lifecycle extension point such as `agent/turn-stopping`.
+- **Turns and retries have ceilings, not budgets** — `maxSteps` ends a runaway turn with `max-steps` and `maxRequestRetries` leaves a past-ceiling recovery terminal; neither bounds tokens, time, or cost, so a policy that bounds those still cancels from an existing lifecycle extension point such as `agent/turn-stopping` ([rationale](../../../.agents/notes/implemented/feature/2026-09-09-agent-loop-bounds.md)).
 
 <a id="dev-note"></a>
 ### Dev Note

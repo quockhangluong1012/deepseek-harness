@@ -5,7 +5,7 @@ import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import type { SandboxMode } from '@deepseek-ai/dsh-sandbox'
 import type { ApprovalPolicy } from '@deepseek-ai/dsh-user-approval'
 import PermissionPresetService, {
-  CUSTOM_PRESET, PERMISSION_SETTINGS_NAMESPACE,
+  CUSTOM_PRESET, DEFAULT_APPROVAL_TOOLS, PERMISSION_SETTINGS_NAMESPACE, requiresApproval,
 } from '@deepseek-ai/dsh-permission-presets'
 import type { Config } from '@deepseek-ai/dsh-permission-presets'
 import { SettingsProvider } from '@deepseek-ai/dsh-settings'
@@ -344,5 +344,48 @@ describe('new-session default', () => {
       defaultPreset: 'missing',
     })).rejects.toThrow()
     expect(ctx.permissionPresets.defaultPreset).toBe('workspace-write')
+  })
+})
+
+describe('approval gate (tools/pre-execute producer)', () => {
+  it('gates mutating tools and third-party bridges, allows observation tools', () => {
+    expect(requiresApproval('bash')).toBe(true)
+    expect(requiresApproval('pwsh')).toBe(true)
+    expect(requiresApproval('write')).toBe(true)
+    expect(requiresApproval('mcp__srv__tool')).toBe(true)
+    expect(requiresApproval('schedule_run')).toBe(true)
+    expect(requiresApproval('cordis_host_run')).toBe(true)
+    expect(requiresApproval('read')).toBe(false)
+    expect(requiresApproval('glob')).toBe(false)
+    expect(requiresApproval('ask_user_question')).toBe(false)
+    expect(requiresApproval('exit_plan_mode')).toBe(false)
+    expect(DEFAULT_APPROVAL_TOOLS.length).toBeGreaterThan(0)
+  })
+
+  it('registers a tools/pre-execute listener that asks for gated tools', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(SessionProjectionRegistry)
+    ctx.provide('shell', {
+      sandboxMode: 'workspace-write',
+      resolve() { throw new Error('no exec') },
+      run() { throw new Error('no exec') },
+      start() { throw new Error('no exec') },
+    })
+    ctx.provide('approval', { config: { policy: 'ask' } })
+    const seen: string[] = []
+    const originalOn = ctx.on.bind(ctx) as (...args: never[]) => unknown
+    let gated: ((exec: { name: string }, next: () => Promise<{ kind: string }>) => Promise<{ kind: string }>) | undefined
+    vi.spyOn(ctx, 'on').mockImplementation(((...args: never[]) => {
+      const [event, handler] = args as unknown as [string, typeof gated]
+      if (event === 'tools/pre-execute') gated = handler
+      seen.push(event)
+      return originalOn(...args)
+    }) as never)
+    await ctx.plugin(PermissionPresetService, {})
+    expect(seen).toContain('tools/pre-execute')
+    expect(gated).toBeDefined()
+    await expect(gated!({ name: 'bash' }, async () => ({ kind: 'allow' }))).resolves.toMatchObject({ kind: 'ask' })
+    await expect(gated!({ name: 'read' }, async () => ({ kind: 'allow' }))).resolves.toMatchObject({ kind: 'allow' })
   })
 })

@@ -627,7 +627,7 @@ describe('sandbox escalation through ctx.approval', () => {
 
   it('rejects injected escalation without a sandbox and non-widening escalation without prompting', async () => {
     const plain = await setup()
-    expect(text(await call(plain.ctx, 'pwsh', escalate))).toContain('not available in this composition')
+    expect(text(await call(plain.ctx, 'pwsh', escalate))).toContain('is not a declared property')
 
     const { ctx } = await setupSandboxed(true)
     const prompted = vi.fn()
@@ -835,10 +835,11 @@ describe('background execution through the job runtime', () => {
     expect(schema.description).toContain('Background execution is not available')
     expect(schema.description).not.toContain('run_in_background')
 
-    // Schema omission is advertising; execution must also enforce the opt-out.
+    // Schema omission is advertising; the closed parameter root also enforces
+    // the opt-out before execute.
     const forced = await call(ctx, 'pwsh', { command: 'Write-Output hi', description: 'test command', run_in_background: true })
     expect(forced.isError).toBe(true)
-    expect(text(forced)).toContain('run_in_background is disabled for this deployment')
+    expect(text(forced)).toContain('is not a declared property')
     const foreground = await call(ctx, 'pwsh', { command: 'Write-Output hi', description: 'test command' })
     expect(foreground.isError).toBe(false)
   })

@@ -59,7 +59,24 @@ interface DiscoverOptions {
 interface LoadOptions extends DiscoverOptions {
   maxBytes: number
   maxSourceBytes?: number
+  maxTotalSourceBytes?: number
   replacePreviousBaseline?: boolean
+}
+
+/** An instruction source skipped before rendering, reported so callers can log it. */
+export interface DroppedInstructionSource {
+  /** Display path of the skipped file. */
+  displayPath: string
+  /** `over-source-cap` when the file alone exceeds the per-file cap, `over-total-budget` when earlier files exhausted the batch budget. */
+  reason: 'over-source-cap' | 'over-total-budget'
+}
+
+/** Mutable per-load read budget shared by every source read in one batch. */
+export interface SourceReadBudget {
+  /** Bytes still available to later files in this batch. */
+  remaining: number
+  /** Sources skipped so far in this batch, in discovery order. */
+  dropped: DroppedInstructionSource[]
 }
 
 /** Rendered baseline plus the successfully read and byte-budget-retained files. */
@@ -69,6 +86,8 @@ export interface RenderedInstructionSet {
   observed: LoadedInstructionFile[]
   /** Candidates retained by content deduplication and byte budgeting. */
   included: LoadedInstructionFile[]
+  /** Candidates skipped by the per-file cap or the batch read budget, in discovery order. */
+  dropped: DroppedInstructionSource[]
 }
 /** Tri-state scope probe that distinguishes confirmed absence from provider failure. */
 export type ScopeInstructionProbe =
@@ -266,7 +285,18 @@ async function allExistingInstructionFiles(
         assertNever(probe, 'StatFileProbe')
     }
   }
-  return found
+  // `CLAUDE.md` is a fallback candidate only: when a sibling `AGENTS.md` (or the
+  // same `AGENTS`+suffix form for local overlays) exists in the same directory,
+  // the fallback is skipped so the model receives exactly one instruction source
+  // per directory. This removes the whole stub-symlink class without relying on
+  // filesystem symlink semantics.
+  const present = new Set(found.map(file => file.absolutePath))
+  return found.filter((file) => {
+    const base = file.absolutePath.slice(dir.length + 1)
+    if (!base.startsWith('CLAUDE')) return true
+    const sibling = join(dir, `AGENTS${base.slice('CLAUDE'.length)}`)
+    return !present.has(sibling)
+  })
 }
 
 async function discoverInstructionFiles(
@@ -332,16 +362,17 @@ async function* nodeTextChunks(path: string, signal?: AbortSignal): AsyncIterabl
 }
 
 async function readBounded(
-  file: { absolutePath: string; target?: FsTarget; size?: number },
+  file: { absolutePath: string; displayPath: string; target?: FsTarget; size?: number },
   maxSourceBytes: number,
+  budget: SourceReadBudget,
   fileSystem?: FileSystem,
   signal?: AbortSignal,
 ): Promise<string | undefined> {
-  // TODO(total-instruction-read-bound): enforce an aggregate source budget
-  // across a complete baseline or reconciliation batch; the render budget is
-  // applied only after every accepted file has been read under this per-file cap.
   signal?.throwIfAborted()
-  if (file.size !== undefined && file.size > maxSourceBytes) return undefined
+  if (file.size !== undefined && file.size > maxSourceBytes) {
+    budget.dropped.push({ displayPath: file.displayPath, reason: 'over-source-cap' })
+    return undefined
+  }
   try {
     const chunks = fileSystem === undefined || file.target === undefined
       ? nodeTextChunks(file.absolutePath, signal)
@@ -351,10 +382,18 @@ async function readBounded(
     for await (const chunk of chunks) {
       signal?.throwIfAborted()
       bytes += Buffer.byteLength(chunk, 'utf8')
-      if (bytes > maxSourceBytes) return undefined
+      if (bytes > maxSourceBytes) {
+        budget.dropped.push({ displayPath: file.displayPath, reason: 'over-source-cap' })
+        return undefined
+      }
+      if (bytes > budget.remaining) {
+        budget.dropped.push({ displayPath: file.displayPath, reason: 'over-total-budget' })
+        return undefined
+      }
       parts.push(chunk)
     }
     signal?.throwIfAborted()
+    budget.remaining -= bytes
     return parts.join('')
   } catch {
     signal?.throwIfAborted()
@@ -367,8 +406,9 @@ async function readBounded(
  * Drop later candidates whose trimmed content duplicates an earlier sibling in
  * the same directory. Different directories never collapse even when identical;
  * within one directory the earliest candidate in discovery order is kept and its
- * original bytes are rendered. A candidate that symlinks a sibling resolves to
- * the same content and collapses here like any byte-identical real file.
+ * original bytes are rendered. `CLAUDE*` fallbacks are already skipped at
+ * discovery when their `AGENTS*` sibling exists, so this stage only collapses
+ * genuinely byte-identical files.
  * @param files - loaded files in discovery order.
  * @returns the retained files in the same order.
  */
@@ -418,10 +458,12 @@ export async function loadBaselineInstructionSet(
   const config = resolveConfig(options)
   if (config.maxBytes <= 0 || !Number.isFinite(config.maxBytes)) return undefined
   if (config.maxSourceBytes <= 0 || !Number.isFinite(config.maxSourceBytes)) return undefined
+  if (config.maxTotalSourceBytes <= 0 || !Number.isFinite(config.maxTotalSourceBytes)) return undefined
   const discovered = await discoverInstructionFiles(options, fileSystem)
+  const budget: SourceReadBudget = { remaining: config.maxTotalSourceBytes, dropped: [] }
   const loaded: LoadedInstructionFile[] = []
   for (const file of discovered) {
-    const content = await readBounded(file, config.maxSourceBytes, fileSystem, options.signal)
+    const content = await readBounded(file, config.maxSourceBytes, budget, fileSystem, options.signal)
     if (content !== undefined) {
       loaded.push({
         absolutePath: file.absolutePath,
@@ -433,15 +475,27 @@ export async function loadBaselineInstructionSet(
   }
   const deduped = dedupInstructionFilesByDirectory(loaded)
   if (deduped.length === 0) {
-    if (options.replacePreviousBaseline !== true) return undefined
-    const { rendered, included } = renderWorkspaceInstructionSet([], {
-      maxBytes: config.maxBytes,
-      replacePreviousBaseline: true,
-    })
+    if (options.replacePreviousBaseline !== true && budget.dropped.length === 0) return undefined
+    if (options.replacePreviousBaseline === true) {
+      const { rendered, included } = renderWorkspaceInstructionSet([], {
+        maxBytes: config.maxBytes,
+        replacePreviousBaseline: true,
+      })
+      return {
+        rendered,
+        observed: [],
+        included,
+        dropped: budget.dropped,
+      }
+    }
+    // Every source was skipped by a read cap: report the drops with empty
+    // rendering (instead of resolving undefined) so callers can log the skip.
+    // Text stays empty so no intro-only baseline message enters the context.
     return {
-      rendered,
+      rendered: { text: '', omitted: [], truncated: [] },
       observed: [],
-      included,
+      included: [],
+      dropped: budget.dropped,
     }
   }
   const { rendered, included } = renderWorkspaceInstructionSet(deduped, {
@@ -454,6 +508,7 @@ export async function loadBaselineInstructionSet(
     rendered,
     observed: loaded,
     included,
+    dropped: budget.dropped,
   }
 }
 
@@ -502,9 +557,10 @@ export async function probeScopeInstruction(
 }
 
 /**
- * Read one already-probed scope candidate under the configured source cap.
+ * Read one already-probed scope candidate under the configured source caps.
  * @param file - winning provider candidate and its metadata snapshot.
  * @param maxSourceBytes - maximum UTF-8 bytes accepted from the source.
+ * @param budget - batch read budget shared with the other scope reads.
  * @param fileSystem - provider used for the streaming read.
  * @param signal - cancellation for provider streaming.
  * @returns loaded content with the probed version, or undefined when unavailable.
@@ -512,10 +568,11 @@ export async function probeScopeInstruction(
 export async function readScopeInstruction(
   file: ProbedInstructionFile,
   maxSourceBytes: number,
+  budget: SourceReadBudget,
   fileSystem: FileSystem,
   signal?: AbortSignal,
 ): Promise<LoadedInstructionFile | undefined> {
-  const content = await readBounded(file, maxSourceBytes, fileSystem, signal)
+  const content = await readBounded(file, maxSourceBytes, budget, fileSystem, signal)
   if (content === undefined) return undefined
   return {
     absolutePath: file.absolutePath,

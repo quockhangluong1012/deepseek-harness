@@ -310,8 +310,21 @@ function ciSharedStaticGates(): Gate[] {
     pnpmScript('client-packages', 'verify-client-packages', { label: 'client packages' }),
     pnpmScript('client-ui-i18n', 'verify-client-ui-i18n', { label: 'client UI i18n' }),
     pnpmScript('no-bare-dispatcher', 'verify-no-bare-dispatcher', { label: 'proxy-aware dispatchers' }),
+    ...sharedComplianceGates(),
     pnpmScript('issue-management', 'test:issue-management', { label: 'Issue management policy' }),
     pnpmScript('request-review', 'test:request-review', { label: 'Review request policy' }),
+  ]
+}
+
+/**
+ * Compliance gates shared by the static and hygiene aggregates: each new
+ * cross-cutting executable check lands here once rather than in two places.
+ */
+function sharedComplianceGates(): Gate[] {
+  return [
+    pnpmScript('ci-lane-coverage', 'verify-ci-lane-coverage', { label: 'CI lane coverage' }),
+    pnpmScript('no-fixme', 'verify-no-fixme', { label: 'release FIXME markers' }),
+    pnpmScript('no-hardcoded-tunables', 'verify-no-hardcoded-tunables', { label: 'hardcoded tunables' }),
   ]
 }
 
@@ -481,6 +494,14 @@ function ciConsumerGates(): Gate[] {
     pnpmScript('node-next-types', 'verify-node-next-types', {
       label: 'node-next types',
       needs: validatedBuild,
+    }),
+    pnpmScript('python-tests', 'test:python', {
+      label: 'Python SDK tests',
+      needs: validatedBuild,
+    }),
+    pnpmScript('native-system-tests', 'test:native-system', {
+      label: 'native system tests',
+      needs: ['build'],
     }),
     builtBinSmokeGate(validatedBuild),
   ]
@@ -694,6 +715,7 @@ function hygieneLeafGates(options: { artifactNeeds?: string[] } = {}): Gate[] {
     pnpmScript('rescope-vendor', 'rescope-vendor:check', { label: 'vendor rescope' }),
     pnpmScript('publint', 'publint', artifactOptions),
     pnpmScript('constraints', 'constraints'),
+    ...sharedComplianceGates(),
     pnpmScript('package-dependencies', 'verify-package-dependencies', { label: 'package dependencies' }),
     pnpmScript('application-entrypoints', 'verify-application-entrypoints', { label: 'application entrypoints' }),
     pnpmScript('dsh-package-licenses', 'verify-dsh-package-licenses', { label: 'DSH package licenses' }),
@@ -753,6 +775,7 @@ function docSyncLeafGates(options: {
     pnpmScript('package-readme-model-experience', 'verify-package-readme-model-experience', { label: 'package README model experience', quick: true }),
     pnpmScript('agent-note-classification', 'verify-agent-note-classification', { label: 'agent note classification', quick: true }),
     pnpmScript('agent-note-format', 'verify-agent-note-format', { label: 'agent note format', quick: true }),
+    pnpmScript('agent-note-refs', 'verify-agent-note-refs', { label: 'agent note refs', quick: true }),
     pnpmScript('archived-agent-notes', 'verify-archived-agent-notes', { label: 'archived agent notes', quick: true }),
     pnpmScript('skill-invocation-metadata', 'verify-skill-invocation-metadata', { label: 'skill invocation metadata', quick: true }),
     pnpmScript('translation-prompt', 'verify-translation-prompt', { label: 'translation prompt', quick: true }),

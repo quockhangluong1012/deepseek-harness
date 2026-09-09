@@ -38,6 +38,12 @@ interface Config {
    * sandbox and approval defaults is used.
    */
   defaultPreset?: string
+  /**
+   * Tool names gated behind an approval ask. Exact names match exactly; a
+   * trailing `*` matches a name prefix (`mcp__*`). Defaults to
+   * {@link DEFAULT_APPROVAL_TOOLS}.
+   */
+  approvalTools?: string[]
 }
 ```
 

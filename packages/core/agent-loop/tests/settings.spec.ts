@@ -67,12 +67,42 @@ describe('agent-loop settings section', () => {
     await bench.ctx.fiber.dispose()
   })
 
+  it('layers the stored step ceiling over the composition entry and refuses a non-positive one', async () => {
+    const bench = await boot()
+    expect(bench.ctx.agentLoop.config.maxSteps).toBe(100)
+
+    await bench.ctx.settings.update(AGENT_LOOP_SETTINGS_NAMESPACE, { maxSteps: 25 })
+
+    expect(bench.ctx.agentLoop.config.maxSteps).toBe(25)
+
+    await expect(bench.ctx.settings.update(AGENT_LOOP_SETTINGS_NAMESPACE, { maxSteps: 0 }))
+      .rejects.toThrow()
+
+    expect(bench.ctx.agentLoop.config.maxSteps).toBe(25)
+    await bench.ctx.fiber.dispose()
+  })
+
+  it('layers the stored retry ceiling over the composition entry and refuses a negative one', async () => {
+    const bench = await boot()
+    expect(bench.ctx.agentLoop.config.maxRequestRetries).toBe(10)
+
+    await bench.ctx.settings.update(AGENT_LOOP_SETTINGS_NAMESPACE, { maxRequestRetries: 3 })
+
+    expect(bench.ctx.agentLoop.config.maxRequestRetries).toBe(3)
+
+    await expect(bench.ctx.settings.update(AGENT_LOOP_SETTINGS_NAMESPACE, { maxRequestRetries: -1 }))
+      .rejects.toThrow()
+
+    expect(bench.ctx.agentLoop.config.maxRequestRetries).toBe(3)
+    await bench.ctx.fiber.dispose()
+  })
+
   it('never offers the composed agents array to the settings document', async () => {
     const bench = await boot()
 
     const descriptor = bench.ctx.settings.describe().find(row => String(row.ns) === 'agent-loop')
 
-    expect(Object.keys(descriptor?.value as object)).toEqual(['maxParallelToolCalls'])
+    expect(Object.keys(descriptor?.value as object)).toEqual(['maxParallelToolCalls', 'maxSteps', 'maxRequestRetries'])
     await bench.ctx.fiber.dispose()
   })
 

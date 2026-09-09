@@ -5,7 +5,7 @@
  * packages, and unbuilt `lib/` output are outside the check.
  */
 
-import { existsSync, globSync } from 'node:fs'
+import { existsSync, globSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import {
   findReferenceViolations,
@@ -88,17 +88,63 @@ function findViolations(absPath: string): Violation[] {
   )
 }
 
-const files = uniqueRepoFiles(root, PATTERNS, isExcluded)
-const all = files.flatMap(file => findViolations(file.real))
-const checked = files.length
+/** One `` [`<group>/`](<group>/README.md) `` row target in the group table. */
+const GROUP_ROW = /\|\s*\[`([A-Za-z0-9-]+)\/`\]/g
 
-if (all.length === 0) {
-  console.log(`verify-package-paths: ${checked} file(s) checked, all packages/* references resolve.`)
-  process.exit(0)
+/**
+ * Collect package-group drift between the `packages/` directory listing and
+ * the group table in `packages/README.md` (the delegated home for the
+ * package-group map — the root `AGENTS.md` carries no competing copy).
+ * @param root - Repository root containing `packages/` and its README.
+ * @returns human-readable violations; empty means the table matches the disk.
+ */
+export function collectPackageGroupTableViolations(root: string): string[] {
+  const violations: string[] = []
+  const onDisk = new Set(
+    globSync('packages/*', { cwd: root, withFileTypes: true })
+      .filter(entry => entry.isDirectory())
+      .map(entry => entry.name)
+      .sort(),
+  )
+  let table: string
+  try {
+    table = readFileSync(resolve(root, 'packages/README.md'), 'utf8')
+  } catch {
+    return ['packages/README.md is missing; the package-group map has no home']
+  }
+  const inTable = new Set<string>()
+  for (const match of table.matchAll(GROUP_ROW)) {
+    const group = match[1]
+    if (group !== undefined) inTable.add(group)
+  }
+  for (const group of onDisk) {
+    if (!inTable.has(group)) violations.push(`packages/README.md: group \`${group}/\` exists on disk but has no table row`)
+  }
+  for (const group of [...inTable].sort()) {
+    if (!onDisk.has(group)) violations.push(`packages/README.md: table row \`${group}/\` names no directory on disk`)
+  }
+  return violations
 }
 
-console.error('verify-package-paths: broken packages/* references found (target does not exist):')
-for (const v of all) {
-  console.error(`  ${v.file}:${v.line}  ${v.ref}`)
+if (process.argv[1] !== undefined && import.meta.filename === resolve(process.argv[1])) {
+  const files = uniqueRepoFiles(root, PATTERNS, isExcluded)
+  const all = files.flatMap(file => findViolations(file.real))
+  const groupViolations = collectPackageGroupTableViolations(root)
+
+  if (all.length === 0 && groupViolations.length === 0) {
+    console.log(`verify-package-paths: ${String(files.length)} file(s) checked, all packages/* references resolve.`)
+    process.exit(0)
+  }
+
+  if (all.length > 0) {
+    console.error('verify-package-paths: broken packages/* references found (target does not exist):')
+    for (const v of all) {
+      console.error(`  ${v.file}:${v.line}  ${v.ref}`)
+    }
+  }
+  if (groupViolations.length > 0) {
+    console.error('verify-package-paths: package-group table drift found:')
+    for (const violation of groupViolations) console.error(`  ${violation}`)
+  }
+  process.exit(1)
 }
-process.exit(1)

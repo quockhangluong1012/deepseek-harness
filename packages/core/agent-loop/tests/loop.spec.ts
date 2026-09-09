@@ -15,7 +15,7 @@ function driverDone(agent: Agent): Promise<void> {
   return (agent as Agent & { done: Promise<void> }).done
 }
 
-async function harness(adapter: MockAdapter, persona = '') {
+async function harness(adapter: MockAdapter, persona = '', maxSteps?: number) {
   const ctx = new Context()
   await ctx.plugin(LlmRuntime)
   await ctx.plugin(SessionStore)
@@ -23,7 +23,10 @@ async function harness(adapter: MockAdapter, persona = '') {
   await ctx.plugin(SystemPrompt, { personaPrefix: persona })
   await ctx.plugin(ToolRuntime)
   await ctx.plugin(AgentRegistry)
-  await ctx.plugin(AgentLoop, { agents: [] })
+  await ctx.plugin(AgentLoop, {
+    agents: [],
+    ...maxSteps === undefined ? {} : { maxSteps },
+  })
   ctx.llm.registerAdapter(['mock'], adapter)
   return ctx
 }
@@ -1376,6 +1379,138 @@ describe('agent loop', () => {
     await waitForIdle(ctx, agent)
 
     expect(reasons).toEqual([{ kind: 'max-tokens' }, { kind: 'completed' }])
+  })
+
+  it('ends max-steps when a tool loop would run past the ceiling', async () => {
+    // Every model call issues another echo call, so without a ceiling the
+    // turn never ends. The ceiling stops it after exactly maxSteps steps.
+    // (Script entries are one-shot; five identical calls outlast the ceiling.)
+    const adapter = new MockAdapter([1, 2, 3, 4, 5].map(n => toolCallResponse(`c${n}`, 'echo', { text: 'again' })))
+    const ctx = await harness(adapter, '', 3)
+    ctx.tools.register(defineContentToolFixture({
+      name: 'echo',
+      description: 'echo back',
+      parameters: { text: { type: 'string' } },
+      async execute(args) {
+        return [{ type: 'text', text: `echo: ${args.text}` }]
+      },
+    }))
+    const agent = await ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+
+    let steps = 0
+    const reasons: TurnEndReason[] = []
+    ctx.on('session/event', (_s, event) => {
+      if (event.type === 'step/end') steps += 1
+      if (event.type === 'turn/end') reasons.push(event.data.reason)
+    })
+
+    send(agent, 'go')
+    await waitForIdle(ctx, agent)
+
+    expect(steps).toBe(3)
+    expect(reasons).toEqual([{ kind: 'max-steps' }])
+    // Assert the durable row, not only the live listener.
+    const turnEnd = agent.session.snapshotEvents().findLast(e => e.type === 'turn/end')
+    expect(turnEnd!.data.reason).toEqual({ kind: 'max-steps' })
+  })
+
+  it('a turn finishing exactly at the ceiling still ends normally', async () => {
+    const adapter = new MockAdapter([textResponse('done')])
+    const ctx = await harness(adapter, '', 1)
+    const agent = await ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+
+    const reasons: TurnEndReason[] = []
+    ctx.on('session/event', (_s, event) => { if (event.type === 'turn/end') reasons.push(event.data.reason) })
+
+    send(agent, 'go')
+    await waitForIdle(ctx, agent)
+
+    expect(adapter.requests).toHaveLength(1)
+    expect(reasons).toEqual([{ kind: 'completed' }])
+  })
+
+  it('stops a steered continuation at the ceiling instead of running on', async () => {
+    // Step 1 stops cleanly, but a turn-stopping steer queues more work. The
+    // ceiling ends turn 1 anyway; the queued message drains in turn 2, which
+    // finishes exactly at the ceiling and ends normally.
+    const adapter = new MockAdapter([textResponse('one'), textResponse('two')])
+    const ctx = await harness(adapter, '', 1)
+    const agent = await ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+
+    let steps = 0
+    ctx.on('session/event', (_s, event) => { if (event.type === 'step/end') steps += 1 })
+    let steered = false
+    ctx.on('agent/turn-stopping', ({ agent: subject }) => {
+      if (steered) return
+      steered = true
+      subject.steer(createUserMessage({ content: [{ type: 'text', text: 'keep going' }], source: { kind: 'plugin', plugin: 'max-steps-test' } }))
+    })
+    const reasons: TurnEndReason[] = []
+    ctx.on('session/event', (_s, event) => { if (event.type === 'turn/end') reasons.push(event.data.reason) })
+
+    send(agent, 'go')
+    await waitForIdle(ctx, agent)
+
+    expect(steps).toBe(2)
+    expect(adapter.requests).toHaveLength(2)
+    expect(reasons).toEqual([{ kind: 'max-steps' }, { kind: 'completed' }])
+  })
+
+  it('an earlier max-tokens ceiling still owns the turn when the step ceiling also trips', async () => {
+    // Step 1 is cut off (max-tokens), continuation is forced, step 2 runs
+    // past a maxSteps of 1. The first ceiling hit owns the outcome.
+    const adapter = new MockAdapter([
+      maxTokensResponse('first half'),
+      textResponse('second half'),
+    ])
+    const ctx = await harness(adapter, '', 1)
+    const agent = await ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+
+    let steps = 0
+    ctx.on('session/event', (_s, event) => { if (event.type === 'step/end') steps += 1 })
+    ctx.on('agent/turn-stopping', ({ agent: subject }) => {
+      if (steps < 2) {
+        subject.steer(createUserMessage({ content: [{ type: 'text', text: 'continue after truncation' }], source: { kind: 'plugin', plugin: 'max-steps-test' } }))
+      }
+    })
+    const reasons: TurnEndReason[] = []
+    ctx.on('session/event', (_s, event) => { if (event.type === 'turn/end') reasons.push(event.data.reason) })
+
+    send(agent, 'go')
+    await waitForIdle(ctx, agent)
+
+    expect(steps).toBe(2)
+    expect(reasons).toEqual([{ kind: 'max-tokens' }])
+  })
+
+  it('uses 100 steps per turn when maxSteps is unconfigured', async () => {
+    const ctx = await harness(new MockAdapter([textResponse('done')]))
+
+    expect(ctx.agentLoop.config.maxSteps).toBe(100)
+    await ctx.fiber.dispose()
+  })
+
+  it('defaults the ceiling when direct construction bypasses the config schema', async () => {
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(SessionProjectionRegistry)
+    await ctx.plugin(SystemPrompt, { personaPrefix: '' })
+    await ctx.plugin(ToolRuntime)
+    await ctx.plugin(AgentRegistry)
+
+    const loop = new AgentLoop(ctx, { agents: [] })
+    expect(loop.config.maxSteps).toBe(100)
+    expect(loop.config.maxParallelToolCalls).toBe(10)
+    await ctx.fiber.dispose()
+  })
+
+  it('rejects a non-positive maxSteps at load', async () => {
+    await expect(harness(new MockAdapter([]), '', 0)).rejects.toThrow()
+    await expect(harness(new MockAdapter([]), '', 1.5)).rejects.toThrow()
+    // Direct construction bypasses the config schema, so the resolver owns the message.
+    expect(() => new AgentLoop(new Context(), { agents: [], maxSteps: 0 }))
+      .toThrow('maxSteps must be a positive integer')
   })
 
   it('does not dispatch tool calls from a max-tokens-truncated step', async () => {

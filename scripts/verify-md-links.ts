@@ -5,11 +5,20 @@
  * URL and root-absolute targets are excluded; query strings do not affect
  * resolution against the source file. The checker never rewrites, and
  * symlinked instruction files are deduped.
+ *
+ * `verify-md-links --since <ref>` checks only the Markdown sources changed
+ * since `<ref>` (committed, staged, unstaged, and untracked via
+ * `change-scope`), while anchor targets still resolve against the full
+ * corpus. The incremental run is a subset of the full scan: it finds what the
+ * changed sources break, not what unchanged sources break against changed
+ * targets — the full scan remains the gate.
  */
 
 import { existsSync, readFileSync } from 'node:fs'
-import { dirname, relative, resolve } from 'node:path'
+import { dirname, relative, resolve, sep } from 'node:path'
+import { parseArgs } from 'node:util'
 import type { Nodes } from 'mdast'
+import { renderChangeScope } from './change-scope.ts'
 import { markdownHeadingLines, parseMarkdown, visitMarkdown } from './markdown.ts'
 import { isArchivedAgentNotePath, uniqueRepoFiles } from './repo-files.ts'
 
@@ -194,21 +203,63 @@ export function findViolations(
   return out
 }
 
+/**
+ * Markdown sources changed since a Git ref, scoped to the same corpus the
+ * full scan checks. Deleted paths fall out naturally (the corpus glob only
+ * sees the worktree), and anchor targets still resolve against every file.
+ * @param scanRoot - repository root (and Git worktree) to inspect.
+ * @param since - the `--since` ref both committed history and the worktree are compared against.
+ * @returns changed Markdown sources as absolute paths, sorted, deduplicated.
+ */
+export function changedMarkdownSources(scanRoot: string, since: string): { abs: string }[] {
+  const report = JSON.parse(renderChangeScope(['--base', since], scanRoot)) as {
+    paths: { committed: string[]; staged: string[]; untracked: string[]; unstaged: string[] }
+  }
+  const changed = new Set([...report.paths.committed, ...report.paths.staged, ...report.paths.unstaged, ...report.paths.untracked]
+    .map(path => path.replaceAll('\\', '/'))
+    .filter(path => path.endsWith('.md') && !isArchivedAgentNotePath(path)))
+  const absByRel = new Map(
+    uniqueRepoFiles(scanRoot, PATTERNS, isArchivedAgentNotePath)
+      .map(file => [relative(scanRoot, file.abs).split(sep).join('/'), file.abs] as const),
+  )
+  const out: { abs: string }[] = []
+  for (const path of [...changed].sort()) {
+    const abs = absByRel.get(path)
+    if (abs !== undefined) out.push({ abs })
+  }
+  return out
+}
+
 if (process.argv[1] && import.meta.filename === resolve(process.argv[1])) {
   // Archived notes remain valid link targets, but their historical outbound links are frozen.
-  const files = uniqueRepoFiles(root, PATTERNS, isArchivedAgentNotePath)
-  const anchorsOf = anchorCache()
-  const all = files.flatMap(file => findViolations(file.abs, anchorsOf))
-  const checked = files.length
+  try {
+    const { values } = parseArgs({
+      args: process.argv.slice(2),
+      options: { since: { type: 'string' } },
+      strict: true,
+      allowPositionals: false,
+    })
+    const files = values.since === undefined
+      ? uniqueRepoFiles(root, PATTERNS, isArchivedAgentNotePath)
+      : changedMarkdownSources(root, values.since)
+    const anchorsOf = anchorCache()
+    const all = files.flatMap(file => findViolations(file.abs, anchorsOf))
+    const checked = files.length
+    const scope = values.since === undefined ? '' : ` changed since ${values.since}`
 
-  if (all.length === 0) {
-    console.log(`verify-md-links: ${checked} file(s) checked, all relative cross-links and fragments resolve.`)
-    process.exit(0)
-  }
+    if (all.length === 0) {
+      console.log(`verify-md-links: ${checked} file(s)${scope} checked, all relative cross-links and fragments resolve.`)
+      process.exit(0)
+    }
 
-  console.error('verify-md-links: broken relative cross-links found:')
-  for (const v of all) {
-    console.error(`  ${v.file}:${v.line}  ${v.url}  (${v.reason === 'target' ? 'target does not exist' : 'no such anchor in target'})`)
+    console.error('verify-md-links: broken relative cross-links found:')
+    for (const v of all) {
+      console.error(`  ${v.file}:${v.line}  ${v.url}  (${v.reason === 'target' ? 'target does not exist' : 'no such anchor in target'})`)
+    }
+    process.exit(1)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    console.error(`verify-md-links: ${message}`)
+    process.exit(1)
   }
-  process.exit(1)
 }

@@ -49,6 +49,7 @@ harness 由 `packages/` 下的 npm 包组装而成，按能力系列分组：会
 | [`context/`](context/README.zh.md) | 模型可见请求上下文：workspace 指令、时间上下文、引用 |
 | [`subagent/`](subagent/README.zh.md) | subagent 能力系列：提供方注册表约定和面向模型的委托工具 |
 | [`jobs/`](jobs/README.zh.md) | 通用后台任务运行时和面向模型的作业控制工具 |
+| [`mcp/`](mcp/README.zh.md) | Model Context Protocol 桥接：外部 MCP 服务器作为原生工具 |
 | [`experimental/`](experimental/README.zh.md) | 私有原型与内部专用插件 |
 | [`workflow/`](workflow/README.zh.md) | 工作流 seam、worker 线程引擎、面向模型的 `workflow`/`ralph` 工具 |
 | [`webhook/`](webhook/README.zh.md) | 已验证外部事件、受信规则与即发即弃 Workspace Session |

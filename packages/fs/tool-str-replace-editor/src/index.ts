@@ -8,11 +8,9 @@ import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { FsError } from '@deepseek-ai/dsh-fs'
 import type { FsInfo, FsTarget, FsWriteIntent } from '@deepseek-ai/dsh-fs'
-import { ESCALATION_TARGETS, approveEscalation, escalationHintMarker, sandboxDenialMarker, validateEscalationArgs } from '@deepseek-ai/dsh-sandbox'
-import type { SandboxExecutionPolicy, SandboxMode } from '@deepseek-ai/dsh-sandbox'
-import type { SandboxPolicyService } from '@deepseek-ai/dsh-sandbox-policy'
+import { FsSandboxController } from '@deepseek-ai/dsh-tool-fs/src/sandbox.ts'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import type { ToolCallView, ToolExecution, ToolRunContext } from '@deepseek-ai/dsh-tools'
+import type { ToolCallView, ToolRunContext } from '@deepseek-ai/dsh-tools'
 
 const TRUNCATED_MESSAGE = '<response clipped><NOTE>To save on context only part of this file has been shown to you. You should retry this tool after you have searched inside the file with `grep -n` in order to find the line numbers of what you are looking for.</NOTE>'
 
@@ -51,11 +49,12 @@ const MAX_SEARCH_BYTES = 1_000_000
  * Reject a file operation whose known size exceeds the editor's buffer bound.
  * @param info - stat result carrying the backend-reported size, when available.
  * @param displayPath - model-facing path for the guidance message.
+ * @param maxFileBytes - deployment's buffer bound for one file.
  */
-function assertEditableSize(info: FsInfo, displayPath: string): void {
-  if (info.size !== undefined && info.size > MAX_EDITOR_FILE_BYTES) {
+function assertEditableSize(info: FsInfo, displayPath: string, maxFileBytes: number): void {
+  if (info.size !== undefined && info.size > maxFileBytes) {
     throw new Error(
-      `File ${displayPath} is too large for str_replace_editor (${info.size} bytes, limit ${MAX_EDITOR_FILE_BYTES}). Use grep -n to locate lines, then view with view_range, or use bash for large files.`,
+      `File ${displayPath} is too large for str_replace_editor (${info.size} bytes, limit ${maxFileBytes}). Use grep -n to locate lines, then view with view_range, or use bash for large files.`,
     )
   }
 }
@@ -81,96 +80,6 @@ function lineNumbersAt(content: string, offsets: readonly number[]): number[] {
     }
     return line
   })
-}
-
-class MutationPolicy {
-  private readonly ctx: Context
-  private readonly policy: SandboxPolicyService | undefined
-  /** Escalation targets advertised when a confining backend is mounted. */
-  readonly escalationModes: readonly SandboxMode[]
-
-  constructor(ctx: Context) {
-    this.ctx = ctx
-    this.policy = ctx.fs.sandboxMode === undefined ? undefined : ctx.get('sandboxPolicy')
-    if (ctx.fs.sandboxMode !== undefined && this.policy === undefined) {
-      throw new Error('tool-str-replace-editor: the mounted filesystem confines but ctx.sandboxPolicy is missing')
-    }
-    this.escalationModes = ctx.fs.sandboxMode === undefined ? [] : ESCALATION_TARGETS
-  }
-
-  resolve(exec: ToolRunContext): SandboxExecutionPolicy | undefined {
-    return this.policy?.resolve({
-      ...exec.agent === undefined ? {} : { session: exec.agent.session },
-    })
-  }
-
-  /**
-   * The escalation schema fields for the mutating commands. Advertised only
-   * under a confining backend, mirroring `tool-fs` write/edit.
-   * @returns the two escalation parameter specs.
-   */
-  schemaFields(): {
-    sandbox_permissions: { type: 'string'; enum: string[]; description: string }
-    justification: { type: 'string'; description: string }
-  } {
-    return {
-      sandbox_permissions: {
-        type: 'string',
-        enum: [...this.escalationModes],
-        description: 'The wider sandbox mode this file operation needs. Only valid as a one-shot retry '
-          + 'of an operation the sandbox just denied; requires justification and user approval.',
-      },
-      justification: {
-        type: 'string',
-        description: 'Required with sandbox_permissions: one sentence for the user explaining '
-          + 'why this exact file operation needs the wider access.',
-      },
-    }
-  }
-
-  /**
-   * The policy to stamp onto a mutation: an approved escalation grant, else
-   * the session's standing mode.
-   * @param toolName - the mutating tool name, for the approval audit trail.
-   * @param args - the call's escalation arguments.
-   * @param exec - the tool-execution context.
-   * @returns the policy to pass to the mutation, or undefined unsandboxed.
-   */
-  async resolvePolicy(
-    toolName: string,
-    args: { sandbox_permissions?: string; justification?: string },
-    exec: ToolExecution,
-  ): Promise<SandboxExecutionPolicy | undefined> {
-    validateEscalationArgs(args.sandbox_permissions, args.justification)
-    const standingPolicy = this.policy?.resolve({ ...exec.agent ? { session: exec.agent.session } : {} })
-    if (args.sandbox_permissions === undefined || args.justification === undefined) {
-      return standingPolicy
-    }
-    if (this.escalationModes.length === 0) {
-      throw new Error('sandbox_permissions is not available in this composition (no sandboxing filesystem to escalate)')
-    }
-    if (standingPolicy === undefined) {
-      throw new Error('sandbox_permissions is not available for direct calls without a resolved sandbox policy')
-    }
-    const approvedMode = await approveEscalation(
-      { requestedMode: args.sandbox_permissions, justification: args.justification, effectiveMode: standingPolicy.mode, subject: 'operation' },
-      {
-        approver: this.ctx.get('approval'),
-        agent: exec.agent,
-        callId: exec.callId,
-        toolName,
-        signal: exec.signal,
-      },
-    )
-    return { ...standingPolicy, mode: approvedMode }
-  }
-
-  mapError(error: unknown, policy: SandboxExecutionPolicy | undefined): unknown {
-    if (!(error instanceof FsError) || error.code !== 'FS_SANDBOX_DENIED') return error
-    if (policy === undefined) return error
-    const mode = policy.mode
-    return new FsError(`${sandboxDenialMarker(mode)}\n${escalationHintMarker('operation')}`, 'FS_SANDBOX_DENIED', { cause: error })
-  }
 }
 
 async function resolveTarget(
@@ -273,7 +182,7 @@ function formatFileView(
 async function listDirectory(
   ctx: Context,
   target: FsTarget,
-  maxOutputChars: number,
+  caps: Pick<ResolvedConfig, 'maxOutputChars' | 'maxListEntries'>,
   exec: ToolRunContext,
 ): Promise<string> {
   const seen = new Set<string>([target.displayPath])
@@ -285,7 +194,7 @@ async function listDirectory(
       !candidate.name.startsWith('.')
       && candidate.name !== 'node_modules'
       && candidate.name !== '__pycache__')) {
-      if (total >= MAX_LIST_ENTRIES) break
+      if (total >= caps.maxListEntries) break
       if (seen.has(entry.target.displayPath)) continue
       seen.add(entry.target.displayPath)
       total += 1
@@ -303,7 +212,7 @@ async function listDirectory(
     const rightPath = right.slice(right.indexOf('\t') + 1)
     return codepointCompare(leftPath, rightPath)
   })
-  const listing = maybeTruncate(rows.join('\n') + '\n', maxOutputChars)
+  const listing = maybeTruncate(rows.join('\n') + '\n', caps.maxOutputChars)
   return `Here're the files and directories up to 2 levels deep in ${target.displayPath}, excluding hidden items, node_modules, and Python cache directories:\n${listing}\n`
 }
 
@@ -311,7 +220,7 @@ async function viewPath(
   ctx: Context,
   path: string,
   viewRange: number[] | undefined,
-  maxOutputChars: number,
+  caps: Pick<ResolvedConfig, 'maxOutputChars' | 'maxFileBytes' | 'maxListEntries'>,
   exec: ToolRunContext,
 ): Promise<string> {
   const target = await resolveTarget(ctx, path, exec.signal)
@@ -320,20 +229,20 @@ async function viewPath(
     if (viewRange !== undefined) {
       throw new Error('The `view_range` parameter is not allowed when `path` points to a directory.')
     }
-    return listDirectory(ctx, target, maxOutputChars, exec)
+    return listDirectory(ctx, target, caps, exec)
   }
   if (info.type !== 'file') {
     throw new FsError(`cannot view "${target.displayPath}": not a regular file or directory`, 'FS_NOT_REGULAR_FILE')
   }
-  assertEditableSize(info, target.displayPath)
+  assertEditableSize(info, target.displayPath, caps.maxFileBytes)
   const content = await ctx.fs.readText(target, exec.signal)
   ctx.emit('fs/observed', target, { kind: 'present', version: info.version }, exec)
-  return formatFileView(target.displayPath, content, maxOutputChars, viewRange)
+  return formatFileView(target.displayPath, content, caps.maxOutputChars, viewRange)
 }
 
 async function createFile(
   ctx: Context,
-  policy: MutationPolicy,
+  policy: FsSandboxController,
   path: string,
   fileText: string | undefined,
   exec: ToolRunContext,
@@ -369,10 +278,11 @@ async function createFile(
 
 async function replaceInFile(
   ctx: Context,
-  policy: MutationPolicy,
+  policy: FsSandboxController,
   path: string,
   oldStr: string | undefined,
   newStr: string | null | undefined,
+  caps: Pick<ResolvedConfig, 'maxFileBytes' | 'maxSearchBytes'>,
   exec: ToolRunContext,
   escalation?: { sandbox_permissions?: string; justification?: string },
 ): Promise<string> {
@@ -388,10 +298,10 @@ async function replaceInFile(
   if (info.type !== 'file') {
     throw new FsError(`cannot edit "${target.displayPath}": not a regular file`, 'FS_NOT_REGULAR_FILE')
   }
-  assertEditableSize(info, target.displayPath)
+  assertEditableSize(info, target.displayPath, caps.maxFileBytes)
   const before = await ctx.fs.readText(target, exec.signal)
-  if (Buffer.byteLength(oldValue, 'utf8') > MAX_SEARCH_BYTES) {
-    throw new Error(`old_str is too large (${Buffer.byteLength(oldValue, 'utf8')} bytes, limit ${MAX_SEARCH_BYTES}). Narrow it to the unique lines to replace.`)
+  if (Buffer.byteLength(oldValue, 'utf8') > caps.maxSearchBytes) {
+    throw new Error(`old_str is too large (${Buffer.byteLength(oldValue, 'utf8')} bytes, limit ${caps.maxSearchBytes}). Narrow it to the unique lines to replace.`)
   }
   const offsets = matchOffsets(before, oldValue)
   const offset = offsets[0]
@@ -428,10 +338,11 @@ async function replaceInFile(
 
 async function insertInFile(
   ctx: Context,
-  policy: MutationPolicy,
+  policy: FsSandboxController,
   path: string,
   insertLine: number | undefined,
   newStr: string | undefined,
+  maxFileBytes: number,
   exec: ToolRunContext,
   escalation?: { sandbox_permissions?: string; justification?: string },
 ): Promise<string> {
@@ -444,7 +355,7 @@ async function insertInFile(
   if (info.type !== 'file') {
     throw new FsError(`cannot insert into "${target.displayPath}": not a regular file`, 'FS_NOT_REGULAR_FILE')
   }
-  assertEditableSize(info, target.displayPath)
+  assertEditableSize(info, target.displayPath, maxFileBytes)
   const before = await ctx.fs.readText(target, exec.signal)
   const lines = before.split('\n')
   if (!Number.isInteger(insertLine) || insertLine < 0 || insertLine > lines.length) {
@@ -472,6 +383,9 @@ async function insertInFile(
 
 interface ResolvedConfig {
   maxOutputChars: number
+  maxFileBytes: number
+  maxListEntries: number
+  maxSearchBytes: number
   description: string
 }
 
@@ -526,7 +440,7 @@ function presentEditorCall(args: {
 
 /** Register the model-facing `str_replace_editor` tool. */
 function registerStrReplaceEditor(ctx: Context, config: ResolvedConfig): void {
-  const policy = new MutationPolicy(ctx)
+  const policy = new FsSandboxController(ctx)
   ctx.tools.register(defineTool({
     name: 'str_replace_editor',
     description: config.description,
@@ -578,7 +492,7 @@ function registerStrReplaceEditor(ctx: Context, config: ResolvedConfig): void {
       }
       switch (args.command) {
         case 'view':
-          return viewPath(ctx, args.path, args.view_range ?? undefined, config.maxOutputChars, exec)
+          return viewPath(ctx, args.path, args.view_range ?? undefined, config, exec)
         case 'create':
           return createFile(ctx, policy, args.path, args.file_text ?? undefined, exec, escalation)
         case 'str_replace':
@@ -588,6 +502,7 @@ function registerStrReplaceEditor(ctx: Context, config: ResolvedConfig): void {
             args.path,
             args.old_str ?? undefined,
             args.new_str,
+            config,
             exec,
             escalation,
           )
@@ -598,6 +513,7 @@ function registerStrReplaceEditor(ctx: Context, config: ResolvedConfig): void {
             args.path,
             args.insert_line ?? undefined,
             args.new_str ?? undefined,
+            config.maxFileBytes,
             exec,
             escalation,
           )
@@ -614,6 +530,12 @@ export const inject = ['tools', 'fs']
 export interface Config {
   /** Maximum returned view characters before clipping (default 16000). */
   maxOutputChars?: number
+  /** Maximum file bytes buffered by view/str_replace/insert before refusing with guidance. */
+  maxFileBytes?: number
+  /** Maximum entries listed by one directory view. */
+  maxListEntries?: number
+  /** Maximum search-string bytes accepted by str_replace. */
+  maxSearchBytes?: number
   /** Model-facing tool description. */
   description?: string
 }
@@ -621,6 +543,9 @@ export interface Config {
 /** Runtime configuration schema for the string-replacement editor tool. */
 export const Config: z<Config> = z.object({
   maxOutputChars: z.number().default(16_000),
+  maxFileBytes: z.number().step(1).min(1).default(MAX_EDITOR_FILE_BYTES),
+  maxListEntries: z.number().step(1).min(1).default(MAX_LIST_ENTRIES),
+  maxSearchBytes: z.number().step(1).min(1).default(MAX_SEARCH_BYTES),
   description: z.string().default(DEFAULT_DESCRIPTION),
 })
 
@@ -628,10 +553,22 @@ export const Config: z<Config> = z.object({
 export function apply(ctx: Context, config: Config): void {
   const resolved: ResolvedConfig = {
     maxOutputChars: config.maxOutputChars ?? 16_000,
+    maxFileBytes: config.maxFileBytes ?? MAX_EDITOR_FILE_BYTES,
+    maxListEntries: config.maxListEntries ?? MAX_LIST_ENTRIES,
+    maxSearchBytes: config.maxSearchBytes ?? MAX_SEARCH_BYTES,
     description: config.description ?? DEFAULT_DESCRIPTION,
   }
   if (!Number.isSafeInteger(resolved.maxOutputChars) || resolved.maxOutputChars <= 0) {
     throw new Error('tool-str-replace-editor: maxOutputChars must be a positive safe integer')
+  }
+  for (const [name, value] of [
+    ['maxFileBytes', resolved.maxFileBytes],
+    ['maxListEntries', resolved.maxListEntries],
+    ['maxSearchBytes', resolved.maxSearchBytes],
+  ] as const) {
+    if (!Number.isSafeInteger(value) || value <= 0) {
+      throw new Error(`tool-str-replace-editor: ${name} must be a positive safe integer`)
+    }
   }
   if (resolved.description.trim().length === 0) {
     throw new Error('tool-str-replace-editor: description must be non-empty')

@@ -122,7 +122,7 @@ type ParameterPropertySpec = ValueSchemaSpec & { required?: true }
 
 ```ts type-equiv
 /**
- * Tool parameter schema. The map itself is an implicit open object root;
+ * Tool parameter schema. The map itself is an implicit closed object root;
  * requiredness remains a per-property `required: true` annotation.
  */
 type ParameterSchemaSpec = {

@@ -533,6 +533,40 @@ describe('the session-persistence Agent Note: AgentLoop factory create/resume', 
     await ctx2.fiber.dispose()
   })
 
+  it('keeps attempt ids unique across a reload resume', async () => {
+    // Lifecycle 1: one turn over a fresh session.
+    const sessionId = SessionId('attempt-resume')
+    const first: string[] = []
+    const { ctx: ctx1, root } = await persistentHarness(new MockAdapter([textResponse('one')]))
+    const created = await ctx1.agentLoop.create(sessionId, { provider: 'mock', model: 'mock' })
+    ctx1.on('agent/assistant-stream', ({ frame }) => {
+      if (frame.type === 'start') first.push(frame.attemptId)
+    })
+    created.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
+    await waitForIdle(ctx1, created)
+    await ctx1.fiber.dispose()
+
+    // Lifecycle 2: resume the stored session and run another turn. The
+    // reattached loop derives its attempt counter from the durable
+    // settlements, so `${sessionId}:${attempt}` never repeats.
+    const second: string[] = []
+    const ctx2 = await mountPersistentHarness(root, new MockAdapter([textResponse('two')]))
+    const resumed = await ctx2.agents.resume({
+      resumeSessionId: sessionId,
+      agentOptions: { provider: 'mock', model: 'mock' },
+    })
+    ctx2.on('agent/assistant-stream', ({ frame }) => {
+      if (frame.type === 'start') second.push(frame.attemptId)
+    })
+    resumed.agent.followup(createUserMessage({ content: [{ type: 'text', text: 'again' }], source: { kind: 'user' } }))
+    await waitForIdle(ctx2, resumed.agent)
+    await ctx2.fiber.dispose()
+
+    expect(first).toHaveLength(1)
+    expect(second).toHaveLength(1)
+    expect(new Set([...first, ...second]).size).toBe(2)
+  })
+
   it('resume over a torn physical tail continues from the committed prefix', async () => {
     const sessionId = SessionId('torn-tail-resume')
     const root = await mkdtemp(join(tmpdir(), 'dsh-resume-torn-'))

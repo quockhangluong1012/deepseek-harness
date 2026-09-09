@@ -635,6 +635,12 @@ interface TurnEndReasonMap {
   /** At least one step reached its output-token ceiling, even if a plugin continued the turn. */
   'max-tokens': { kind: 'max-tokens' }
   /**
+   * The turn entered more steps than the agent-loop `maxSteps` ceiling, even
+   * if a plugin steered it further. Like `max-tokens`, the first ceiling hit
+   * owns the turn outcome; a later step must not downgrade it.
+   */
+  'max-steps': { kind: 'max-steps' }
+  /**
    * A crash-orphaned turn was closed after the fact: agent-loop resume appends
    * this closer for a stored log whose last turn never ended, and session-query
    * synthesizes it on cold reads. The loop never emits this marker live, and
@@ -644,7 +650,7 @@ interface TurnEndReasonMap {
 }
 ```
 
-`max-tokens` mirrors the model-call `FinishReason` of the same name: any `max-tokens` step in a turn makes the whole turn end `max-tokens` rather than `completed` (the cut-short fact wins over a later continuation), so a consumer can tell a clean stop from a truncated one. Cancellation and errors remain distinct outcomes. `interrupted` is the one reason no loop emits—it is synthesized by crash recovery (see [persistence.md](persistence.md)). The map is merge-extensible.
+`max-tokens` mirrors the model-call `FinishReason` of the same name: any `max-tokens` step in a turn makes the whole turn end `max-tokens` rather than `completed` (the cut-short fact wins over a later continuation), so a consumer can tell a clean stop from a truncated one. `max-steps` is the loop's own work bound: a turn that would enter more steps than the `maxSteps` ceiling ends `max-steps` even when a steer queued more work, and the first ceiling hit owns the outcome. Cancellation and errors remain distinct outcomes. `interrupted` is the one reason no loop emits—it is synthesized by crash recovery (see [persistence.md](persistence.md)). The map is merge-extensible.
 
 ## Execution enclosure and standalone events
 

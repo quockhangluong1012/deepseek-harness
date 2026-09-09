@@ -40,11 +40,17 @@ export interface Config {
    * rejected.
    */
   allowParallelInProgress: boolean
+  /** Maximum todos accepted in one whole-list replacement. */
+  maxTodos?: number
+  /** Maximum UTF-16 chars accepted per todo content. */
+  maxTodoContentChars?: number
 }
 
 /** Schemastery configuration for the todo tool consumer. */
 export const Config: z<Config> = z.object({
   allowParallelInProgress: z.boolean().required(),
+  maxTodos: z.number().step(1).min(1).default(MAX_TODOS),
+  maxTodoContentChars: z.number().step(1).min(1).default(MAX_TODO_CONTENT_CHARS),
 })
 
 const DESCRIPTION_HEAD =
@@ -91,11 +97,16 @@ function describe(allowParallel: boolean): string {
  * silently flattening); the cast below records that guarantee.
  * @param raw - the model-supplied list, already schema-checked.
  * @param allowParallel - whether several items may be `in_progress` at once.
+ * @param caps - the deployment's list-size and content-size bounds.
  * @returns the canonical list.
  */
-function toTodoList(raw: { content: string; status: string }[], allowParallel: boolean): TodoItem[] {
-  if (raw.length > MAX_TODOS) {
-    throw new Error(`invalid todos: at most ${MAX_TODOS} items per list (got ${raw.length})`)
+function toTodoList(
+  raw: { content: string; status: string }[],
+  allowParallel: boolean,
+  caps: { maxTodos: number; maxTodoContentChars: number },
+): TodoItem[] {
+  if (raw.length > caps.maxTodos) {
+    throw new Error(`invalid todos: at most ${caps.maxTodos} items per list (got ${raw.length})`)
   }
   const todos: TodoItem[] = []
   const seen = new Set<string>()
@@ -105,8 +116,8 @@ function toTodoList(raw: { content: string; status: string }[], allowParallel: b
     if (content.length === 0) {
       throw new Error('invalid todo: `content` must be a non-empty string')
     }
-    if (content.length > MAX_TODO_CONTENT_CHARS) {
-      throw new Error(`invalid todo: \`content\` exceeds ${MAX_TODO_CONTENT_CHARS} chars`)
+    if (content.length > caps.maxTodoContentChars) {
+      throw new Error(`invalid todo: \`content\` exceeds ${caps.maxTodoContentChars} chars`)
     }
     if (seen.has(content)) {
       throw new Error(`invalid todos: duplicate content ${JSON.stringify(content)}`)
@@ -138,6 +149,10 @@ const todosProjectionSchema: ZodType<TodoItem[] | null> = zod.union([
  */
 export function apply(ctx: Context, config: Config): void {
   const allowParallel = config.allowParallelInProgress
+  const caps = {
+    maxTodos: config.maxTodos ?? MAX_TODOS,
+    maxTodoContentChars: config.maxTodoContentChars ?? MAX_TODO_CONTENT_CHARS,
+  }
   // Standing-plan fold: latest whole todo/write list, cleared by the next
   // turn/start (turn/end keeps the finished checklist visible); null before the
   // first write or after a later turn begins; every other event returns the
@@ -212,7 +227,7 @@ export function apply(ctx: Context, config: Config): void {
       }],
     },
     execute(args, exec) {
-      const todos = toTodoList(args.todos, allowParallel)
+      const todos = toTodoList(args.todos, allowParallel, caps)
       if (!exec.agent) {
         // The list is per-agent-session state; a non-agent caller (no owning
         // session) has nowhere to write it. Reject rather than silently no-op.

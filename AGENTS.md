@@ -10,54 +10,7 @@ Public APIs are pre-stable; update every consumer. Released Session JSONL follow
 
 ## Repository layout
 
-```
-vendor/      Vendored Cordis source — manifest + sync procedure in vendor/README.md
-packages/    @deepseek-ai/dsh-<pkg> workspaces at packages/<group>/<pkg>/
-  core/        product API spine: session, system-prompt, tools, agent, agent-loop
-  api/         Remote BFF assembly and Typert RPC gateway
-  typert/      type graph generator, loader, and runtime registry
-  llm/         LLM capability: Service Definition/Consumer + DeepSeek providers
-  e2b/         E2B POC: sandbox + FS/subprocess adapters
-  shell/        bash capability: Service Definition + local/pwsh providers + shell Consumers
-  subprocess/  subprocess capability + local process-tree provider + shared Win32 library
-  terminal/         persistent sessions
-  fs/          filesystem capability + policy
-  lsp/         language-server capability
-  skill/       skill provider registry + local impl + catalog/loader tool
-  web/         web capability: Service Definition + search/fetch providers + tool Consumer
-  compaction/     compaction capability + basic provider
-  context/     request-context plugins
-  subagent/    subagent capability: Service Definition + providers + delegation Consumers
-  bundle/      installable dsh --profile patch-layer bundles
-  workflow/    workflow capability + worker-thread provider + tool Consumer
-  webhook/     webhook ingress
-  todo/        todo_write tool
-  plan/        plan mode as logged state
-  preset/      per-session agent composition from preset cordis.yml files
-  guard/       loop-hygiene + tool-timeout plugins
-  self-modification/  the agent inspects/mounts its own plugins
-  hooks/       Claude Code/Codex hook bridges + wire-protocol library
-  session/     durable session data: persistence, projection, titles, telemetry
-  identity/    anonymous identity
-  settings/    user-settings capability + file provider
-  credentials/ credential/authorization capabilities + env/.env provider
-  acp/         automation-only Agent Client Protocol server
-  interaction/ approval/interaction capabilities, permission, commands, ask-user
-  boot/        shared profile/application boot glue
-  sdk/         JSON-RPC protocol + TypeScript client/server
-  experimental/ private prototypes excluded from official releases
-  support/     dev/test infrastructure
-  util/        zero-dependency utilities
-python/      Python SDK/runtime (see python/README.md)
-native/      @deepseek-ai/node-addon-system source of record (see native/README.md)
-benchmarks/  performance gates
-.agents/     Agent workflows and Agent Notes (`notes/`)
-docs/        architecture, generated catalogs, postmortems, cookbook (see docs/AGENTS.md)
-scripts/     gates and generators
-website/     VitePress projection of selected bilingual docs/ sources
-```
-
-Package groups: [packages/README.md](packages/README.md).
+`packages/README.md` owns the package-group map; `apps/cli` owns the `dsh` bin; `vendor/` holds pinned Cordis sources (manifest + sync in `vendor/README.md`); `python/` and `native/` own their runtimes (see their READMEs); `benchmarks/` owns perf gates; `.agents/notes/` owns decision records; `docs/` owns architecture and generated catalogs (see `docs/AGENTS.md`); `scripts/run-gates.ts` owns gate inventories.
 
 ## Commands
 
@@ -65,7 +18,7 @@ Package groups: [packages/README.md](packages/README.md).
 pnpm install            # pnpm workspaces, node ^22.19 || >=24
 pnpm run clean           # remove build outputs and safe residue from deleted packages
 pnpm run test           # unit tests
-pnpm run test:coverage  # CI coverage gate: per-file 100% on packages/*/*/src
+pnpm run test:coverage  # CI coverage gate: per-file 100% on covered packages/*/*/src (client/experimental/typert trees excluded; see vitest.config.ts)
 pnpm run test:e2e       # real-API tests; self-skip without DEEPSEEK_API_KEY
 pnpm run test:expected  # owner-local process expectations
 pnpm run test:snapshot  # keyless recorded-session replay through shipped profiles; filter: -t <name>
@@ -73,7 +26,10 @@ pnpm run test:snapshot:record  # re-record expected outputs (needs key)
 pnpm run typecheck
 pnpm run lint
 pnpm run duplication    # cross-file TypeScript clone detection
-pnpm run build          # tsc emits lib/types, tsdown bundles runtime
+pnpm run check:all      # full local aggregate (fallback until GitLab CI proves green)
+pnpm run check:ci       # CI primary lane; check:ci:* family mirrors .gitlab-ci.yml jobs
+pnpm run change-scope   # files changed vs merge base (drives incremental gates)
+pnpm run build          # tsc emits lib/types, tsdown bundles runtime; run once on a clean tree before pnpm dsh or built-output checks
 pnpm run hygiene        # publint + workspace/package/dependency checks + NodeNext consumer check
 pnpm run check:windows-wine  # ONLY when diagnosing a known Windows failure (needs wine); CI owns this signal
 pnpm run doc-sync       # all documentation gates; leaf list in scripts/run-gates.ts
@@ -82,6 +38,8 @@ pnpm run website:build  # VitePress build (doubles as dead-link check)
 pnpm dsh --profile headless "task"  # run one task from source (needs DEEPSEEK_API_KEY)
 pnpm run demo:ptc -- "task"  # headless PTC mode run (needs key)
 ```
+
+Use the public `typecheck` / `lint` / `doc-typecheck` commands; their `*:contracts-ready` variants skip the Typert contract pass and assume a prior public run or build ([layout](docs/development.md#typescript-project-layout)). `pnpm dsh` and built smokes consume built `lib/` without rebuilding.
 
 ### Host sandbox failures
 
@@ -92,7 +50,7 @@ If a required `gh`, `pnpm`, build, test, or generator command fails because the 
 Run checks before pushes via [dsh-pre-push-checks](.agents/skills/dsh-pre-push-checks/SKILL.md); report only commands run. After `gh stack sync`, validate immediately; do not merge before checks pass.
 
 - Match evidence to the surface: focused behavior tests, model/user-output snapshots, `doc-sync` for docs, built smokes for published paths, and real-API e2e for providers.
-- Never default to the full suite or repeat a passing check for commit or push. CI owns exhaustive coverage and the platform matrix; rehearse all locally only by explicit request, for CI diagnosis, or for an irreducibly repository-wide change.
+- Never default to the full suite or repeat a passing check for commit or push. CI owns exhaustive coverage and the platform matrix; rehearse all locally only by explicit request, for CI diagnosis, or for an irreducibly repository-wide change. Until the restored GitLab pipeline proves green on main, treat `check:all` as the fallback for repository-wide changes.
 - `test:coverage`, not `test`, is the CI coverage gate ([why](docs/testing.md)).
 
 ## Secrets / .env
@@ -125,7 +83,7 @@ Real-API tests and demos read `DEEPSEEK_API_KEY`, optional `DEEPSEEK_BASE_URL`, 
 - **Tests describe behavior, not correctness.** Change obsolete behavior with its tests; explain why in the PR.
 - **Non-trivial changes MUST include an Agent Note in the same PR;** only mechanical/local edits are exempt ([scope](.agents/notes/README.md#when-to-write-one)). Archived notes are frozen: never edit or treat them as current authority ([archive policy](.agents/notes/README.md#archiving-and-deletion)).
 - **Client UI copy is locale-owned.** Route product text through typed dictionaries and `t` or localized primitive props; `verify-client-ui-i18n` rejects hardcoded copy ([decision](.agents/notes/implemented/architecture/2026-08-23-locale-owned-client-ui-copy.md)).
-- **Testing policy** — [docs/testing.md](docs/testing.md). Every non-trivial model- or product-user-visible change updates a keyless recorded-session snapshot; [snapshot ownership](snapshots/AGENTS.md) reserves the top-level tree for session-driven cases and keeps other expected output owner-local. Fixtures replay on macOS/Linux; fix fixtures, not normalizers.
+- **Testing policy** — [docs/testing.md](docs/testing.md). Every non-trivial model- or product-user-visible change updates a keyless recorded-session snapshot (`test:snapshot:refresh` rewrites expected outputs from fixtures already on disk and needs no API key; `test:snapshot:record` needs a key); [snapshot ownership](snapshots/AGENTS.md) reserves the top-level tree for session-driven cases and keeps other expected output owner-local. Fixtures replay on macOS/Linux; fix fixtures, not normalizers.
 - **Design each tool's UI presentation up front.** Host presenters stay pure; Web cards derive from raw events and persisted result metadata ([cookbook](docs/cookbook/adding-a-tool.md)).
 - **Plan unit, e2e, and snapshot coverage** for capability seams, lifecycle paths, and transcript output; include missing snapshot-harness support in the same change.
 - **Both SDKs project the loop.** Agent-loop, session-lifecycle, and `SessionEventMap` changes update the TypeScript and Python SDK expected outputs in the same PR; `pnpm run test` covers neither ([surfaces](docs/testing.md#when-a-snapshot-test-is-required)).
@@ -142,13 +100,11 @@ Read [docs/defensive-patterns.md](docs/defensive-patterns.md) before lifecycle, 
 
 Everything compiles under `strict: true` with `noImplicitAny`; every remaining `any` explains why narrowing is infeasible. Every module and export has concise JSDoc for its non-obvious contract; function-like exports include `@param`/`@returns`, as enforced by `verify-export-jsdoc`. Heritage-declared members, plugin-protocol slots, and constructors keep their docs at the declaring Service Definition, protocol, or class.
 
-Comments and docs state complete contracts and context, not reasoning transcripts. Use direct, concrete terms. Do not use metaphors. Before writing `contract`, `boundary`, or `shape`, ask whether a more exact term names the subject: write `response fields`, `JSON validation`, or `ESM exports` instead of `response shape`, `validation boundary`, or `module shape`. Keep `contract` for preconditions, postconditions, invariants, compatibility promises, and other obligations that callers, callees, implementers, providers, producers, or consumers rely on. Keep a literal process, wire, security, transaction, or lifecycle boundary. Do not narrate control flow or tests, preserve review history, or restate code. Keep behavior, failure, timing, ownership, and safe-use facts; link the rationale. Use [dsh-prose-standard](.agents/skills/dsh-prose-standard/SKILL.md) for decisions. Wire mechanically checkable invariants into an executed top-level gate and prove each changed acceptance path rejects an invalid case. Use narrow, justified exceptions instead of disabling a rule globally.
-
-Docs accompany every code change: update affected README and JSDoc contracts together. Routine bilingual work follows [docs/AGENTS.md](docs/AGENTS.md); only explicit user invocation may run `dsh-translate-docs`. Current-state prose, one physical line per paragraph, one home per fact, and word budgets live there.
+Comments and docs state complete contracts and context, not reasoning transcripts. Use direct, concrete terms. Do not use metaphors. Before writing `contract`, `boundary`, or `shape`, ask whether a more exact term names the subject: write `response fields`, `JSON validation`, or `ESM exports` instead of `response shape`, `validation boundary`, or `module shape`. Keep `contract` for preconditions, postconditions, invariants, compatibility promises, and other obligations that callers, callees, implementers, providers, producers, or consumers rely on. Keep a literal process, wire, security, transaction, or lifecycle boundary. Do not narrate control flow or tests, preserve review history, or restate code. Keep behavior, failure, timing, ownership, and safe-use facts; link the rationale. Use [dsh-prose-standard](.agents/skills/dsh-prose-standard/SKILL.md) for decisions. Wire mechanically checkable invariants into an executed top-level gate and prove each changed acceptance path rejects an invalid case. Use narrow, justified exceptions instead of disabling a rule globally. Docs accompany every code change: update affected README and JSDoc contracts together. Routine bilingual work follows [docs/AGENTS.md](docs/AGENTS.md); only explicit user invocation may run `dsh-translate-docs`.
 
 ## Editing these instructions
 
-`CLAUDE.md` symlinks `AGENTS.md` at root and `packages/`; edit the real file. Keep each rule self-contained while linking high-level docs. Condense when clarity survives; raise a `verify-doc-budgets` ceiling when the required content genuinely needs more space.
+`CLAUDE.md` is a fallback candidate skipped when a sibling `AGENTS.md` exists; edit `AGENTS.md`. Keep each rule self-contained while linking high-level docs. Condense when clarity survives; raise a `verify-doc-budgets` ceiling when the required content genuinely needs more space.
 
 ## Vendoring policy
 

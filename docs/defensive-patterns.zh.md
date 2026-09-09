@@ -33,3 +33,19 @@
 ## 用 unlink 删除链接形态的路径
 
 可能是符号链接或 Windows junction 的路径，应先用 `lstatSync().isSymbolicLink()` 判断，再用 `unlinkSync` 删除：unlink 只删除链接本身并拒绝真实目录，因此绝不会跟随链接进入其目标。Windows 上对 junction 调用 `rmSync(link)` 会抛 `ERR_FS_EISDIR`；递归删除可能穿过 junction 进入其目标。真实目录才使用带 `recursive` 的 `rmSync`。
+
+## 把输出上限声明为 Config，而非常量
+
+每个面向模型的文本表面都携带校验过的 `Config` 上限：无界输出是这里最大的复发缺陷类别。部署方无法从 `cordis.yml` 更改的模块级 `MAX_*`/`DEFAULT_*` 数字就是缺陷本身。由 `verify-no-hardcoded-tunables` 强制执行。
+
+## 关闭参数根，并在信任边界校验
+
+工具参数对象拒绝未声明的键：schema DSL 把根编译为闭合，模型笔误以 `INVALID_ARGS` 失败。跨越信任边界的值——线上传输的 schema、提供方载荷、模型 JSON、第三方服务器——使用前必须校验：MCP 桥接按通告的 schema 校验，而不是把畸形输入强制转为空对象。由 schema 编译器与 MCP 桥接的单元测试强制执行。
+
+## 共享守卫只解析一次，绝不在每个调用点各写一份
+
+常驻策略检查、后台注册中止守卫、workdir 推导各自只住在一个辅助函数里；在几个副本之一落地的修复就是缺陷本身。平行的工具系列消费该辅助函数，而不是镜像它。由 `duplication`（jscpd）与共享辅助函数的单元测试强制执行。
+
+## 从持久状态播种恢复时的身份计数器
+
+attempt、job 与 turn 身份从重放的日志前缀推导，绝不从零重启：在自己的历史上重发 id 的恢复生命周期会与历史碰撞。在第一个新步骤之前先数持久化结算事件。由恢复路径的 attempt-id 唯一性测试强制执行。

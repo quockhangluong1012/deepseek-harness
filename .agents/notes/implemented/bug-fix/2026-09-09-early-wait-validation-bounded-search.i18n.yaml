@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-09-early-wait-validation-bounded-search.md
 2026-09-09-early-wait-validation-bounded-search.md: 79d7912d417b155727df3be6c7790d5f9bda974f
-2026-09-09-early-wait-validation-bounded-search.zh.md: aa50b2e3b610c15c9a899e11933c19f52d111aa8
+2026-09-09-early-wait-validation-bounded-search.zh.md: 3590a701568f4ecab88c1ca9ffa45fc3ac68b351

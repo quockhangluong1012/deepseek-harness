@@ -347,6 +347,28 @@ describe('tool-str-replace-editor', () => {
       .toContain('<response clipped>')
   })
 
+  it('enforces configured file, search, and listing bounds instead of the defaults', async () => {
+    const { ctx, root, owner } = await setup({ maxFileBytes: 10, maxSearchBytes: 8, maxListEntries: 1 })
+    await writeFile(join(root, 'big.txt'), 'x'.repeat(20))
+    await writeFile(join(root, 'small.txt'), 'ok')
+    await mkdir(join(root, 'dir'), { recursive: true })
+    await writeFile(join(root, 'dir', 'a.txt'), 'a')
+    await writeFile(join(root, 'dir', 'b.txt'), 'b')
+
+    expect(text(await call(ctx, owner, { command: 'view', path: join(root, 'big.txt') })))
+      .toContain('too large for str_replace_editor (20 bytes, limit 10)')
+    expect(text(await call(ctx, owner, {
+      command: 'str_replace',
+      path: join(root, 'small.txt'),
+      old_str: '123456789',
+      new_str: 'x',
+    }))).toContain('old_str is too large (9 bytes, limit 8)')
+    const listing = text(await call(ctx, owner, { command: 'view', path: join(root, 'dir') }))
+    // maxListEntries stops the walk after the first visited entry, whichever
+    // order the filesystem returns.
+    expect(listing.match(/\.txt/g)).toHaveLength(1)
+  })
+
   it('matches canonical empty-line, range, and end-insert behavior', async () => {
     const { ctx, root, owner } = await setup()
     const empty = join(root, 'empty.txt')

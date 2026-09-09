@@ -19,18 +19,16 @@
  * @module @deepseek-ai/dsh-tool-pwsh
  */
 
-import { isAbsolute, resolve as resolvePath } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
-import { defineTool, TOOL_ABORTED } from '@deepseek-ai/dsh-tools'
+import { defineTool, TOOL_ABORTED, startAbortGuardedBackground } from '@deepseek-ai/dsh-tools'
 import type { GenericCallView, TerminalCallView, ToolExecution, ToolResult, ToolResultView } from '@deepseek-ai/dsh-tools'
 import { HarnessError } from '@deepseek-ai/dsh-llm'
-import type { Agent } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-jobs'
 import type {} from '@deepseek-ai/dsh-shell-env'
 import type {} from '@deepseek-ai/dsh-user-approval'
 import type { SandboxExecutionPolicy, SandboxMode } from '@deepseek-ai/dsh-sandbox'
-import { ESCALATION_TARGETS, approveEscalation, validateEscalationArgs } from '@deepseek-ai/dsh-sandbox'
+import { ESCALATION_TARGETS, approveEscalation, assertStandingPolicy, resolveWorkdir, validateEscalationArgs } from '@deepseek-ai/dsh-sandbox'
 import type { SandboxPolicyService } from '@deepseek-ai/dsh-sandbox-policy'
 import type { ShellRunResult } from '@deepseek-ai/dsh-shell'
 import { parseExitStatus } from '@deepseek-ai/dsh-shell'
@@ -142,19 +140,6 @@ function pwshDescription(backgroundEnabled: boolean, escalationModes: readonly S
     + 'it — but it does not forbid attempting or escalating other commands later.'
 }
 
-/**
- * Resolve an explicit workdir first, making a relative one session-workspace-relative;
- * otherwise use the session header cwd and leave executor defaulting as the fallback.
- */
-function resolveWorkdir(modelWorkdir: string | undefined, exec: { agent?: Agent }): string | undefined {
-  const headerCwd = exec.agent?.session.header.cwd
-  if (modelWorkdir === undefined) return headerCwd
-  if (headerCwd !== undefined && !isAbsolute(modelWorkdir)) {
-    return resolvePath(headerCwd, modelWorkdir)
-  }
-  return modelWorkdir
-}
-
 /** Detach the executor DTO from readonly Service Definition types into plain JSON data. */
 function canonicalPwshResult(result: ShellRunResult): PwshForegroundResult {
   const output = (stream: ShellRunResult['stdout']) => ({
@@ -210,9 +195,8 @@ export function apply(ctx: Context, config: Config = {}): void {
    * anything executes, delegating the shared fail-closed sequence (strict
    * widening, channel resolution, outcome mapping) to
    * {@link approveEscalation}. This tool contributes only the composition
-   * guard (the fields are unadvertised without a sandboxing executor, yet
-   * schema validation checks advertised keys only, so an unadvertised
-   * `sandbox_permissions` still reaches execute) and the approval
+   * guard (the fields are unadvertised without a sandboxing executor, and the
+   * closed parameter root rejects them before execute) and the approval
    * ingredients. The shared policy resolver is required whenever the
    * executor advertises confinement, so a split composition fails at
    * tool-plugin load.
@@ -226,7 +210,8 @@ export function apply(ctx: Context, config: Config = {}): void {
     if (escalationModes.length === 0) {
       throw new Error('sandbox_permissions is not available in this composition (no sandboxing executor to escalate)')
     }
-    const effectiveMode = (standingPolicy as SandboxExecutionPolicy).mode
+    assertStandingPolicy(standingPolicy)
+    const effectiveMode = standingPolicy.mode
     return approveEscalation(
       { requestedMode: mode, justification, effectiveMode, subject: 'command' },
       {
@@ -353,7 +338,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       const policy = approvedMode === undefined
         ? standingPolicy
         : { ...(standingPolicy as SandboxExecutionPolicy), mode: approvedMode }
-      const workdir = resolveWorkdir(args.workdir, exec)
+      const workdir = resolveWorkdir(args.workdir, exec.agent?.session.header.cwd, standingPolicy?.workspaceRoot)
       const request = {
         command: args.command,
         ...workdir !== undefined ? { workdir } : {},
@@ -362,7 +347,8 @@ export function apply(ctx: Context, config: Config = {}): void {
         ...policy !== undefined ? { sandboxPolicy: policy } : {},
       }
       if (args.run_in_background === true) {
-        // Undeclared keys are allowed, so schema omission also needs enforcement.
+        // The closed parameter root already rejects this key when unadvertised;
+        // keep the explicit deployment error for a routable message.
         if (!backgroundEnabled) {
           throw new Error('run_in_background is disabled for this deployment (enableRunInBackground: false)')
         }
@@ -370,14 +356,8 @@ export function apply(ctx: Context, config: Config = {}): void {
         if (jobs === undefined) {
           throw new Error('background jobs unavailable: load @deepseek-ai/dsh-jobs and @deepseek-ai/dsh-tool-jobs')
         }
-        // The caller owns cancellation until ctx.jobs commits detached ownership.
-        if (exec.signal.aborted) {
-          const error = new HarnessError('tool call aborted', TOOL_ABORTED)
-          error.name = 'AbortError'
-          throw error
-        }
         // Task preflight finishes before the starter can spawn a process.
-        const id = jobs.start({
+        const id = startAbortGuardedBackground(exec.signal, () => jobs.start({
           kind: 'pwsh',
           label: args.command,
           ...exec.agent ? { owner: exec.agent } : {},
@@ -389,7 +369,7 @@ export function apply(ctx: Context, config: Config = {}): void {
               readOutput: () => renderPwshProcessRead(proc.readOutput(), proc.sandbox, escalationModes),
             }
           },
-        })
+        }), (started) => { jobs.kill(started, exec.agent) })
         return { kind: 'background' as const, jobId: id }
       }
       const result = await ctx.shell.run(ctx.shell.resolve({

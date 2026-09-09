@@ -7,7 +7,7 @@ Every model-facing tool a shipped plugin contributes to `ctx.tools`: the `name`,
 
 This file is GENERATED and verified fresh by `pnpm run verify-tool-catalog` (part of `doc-sync`) — do not edit it by hand. Unlike the cordis catalog (a pure source-AST pass), this generator BOOTS each tool plugin on a real context and reads `ctx.tools.schemas()`, because a tool schema is not statically knowable (runtime-spread enums, concatenated descriptions, config-driven names, raw-JSON-Schema MCP tools). A completeness guard globs `packages/*/tool-*` and fails if any package is missing from the generator's boot manifest, so a new tool cannot be silently undocumented.
 
-Scope: shipped product tools under `packages/*/tool-*`, each booted with its DEFAULT config, except where a Config field is REQUIRED with no default — there the generator must choose, and the per-package note records which branch this page shows. The registered tool NAME can be a load-time config (e.g. `tool-subagent`'s `toolName`), so a deployment may expose a package under a different or additional name — a per-package note records those shipped aliases where they exist. The `examples/` demo tools (e.g. `echo`) are excluded, matching the cordis catalog's packages-only scope.
+Scope: shipped product tools under `packages/*/tool-*`, each booted with its DEFAULT config, except where a Config field is REQUIRED with no default — there the generator must choose, and the per-package note records which branch this page shows. The registered tool NAME can be a load-time config (e.g. `tool-subagent`'s `toolName`), so a deployment may expose a package under a different or additional name — a per-package note records those shipped aliases where they exist. The `examples/` demo tools (e.g. `echo`) are excluded, matching the cordis catalog's packages-only scope. Tools minted at runtime outside any tool package are out of scope by construction and documented by their owners: MCP servers contribute `mcp__<server>__<tool>` names (see [dsh-mcp-client](../packages/mcp/mcp-client/README.md)), and structured subagent runs contribute a per-run `structured_output` tool (see [dsh-subagent-in-process-driver](../packages/subagent/subagent-in-process-driver/README.md)).
 
 ## Tool Package Map
 
@@ -19,7 +19,7 @@ This table connects model-visible tool names to the plugin package and service s
 | `@deepseek-ai/dsh-tools` | `run_code` | `ctx.tools`, `ctx.codeRuntime (execution time)`, `ctx.systemPrompt` | `tool/call`, `one tool/ptc-dispatch-start + tool/ptc-dispatch pair per bridged sub-call`, `tool/result` | - | Owned by the tool registry as a reserved transport outside filterable capability layers under `mode: ptc` / `mode: both` (see the PTC mode Agent Note). Under `ptc` it is the registry's only wire contribution; the other visible capabilities are declared in a generated SDK section in the loaded runtime's language, and a program calls them through bindings scheduled under the native concurrency contract (submission-ordered starts and policy; concurrency-safe bodies overlap up to `maxParallelSubCalls`) that re-enter the complete guarded tool pipeline and link each nested execution to this outer result. |
 | `@deepseek-ai/dsh-plan-mode` | `exit_plan_mode` | `ctx.tools`, `ctx.systemPrompt`, `ctx.userQuestions (execution time, opportunistic)` | `tool/call`, `plan/mode inactive on an approved review`, `tool/result` | - | exit_plan_mode stays in the model-facing schema while planning is inactive so transitions add no tool-catalog churn on top of the plan-policy change. Its execute path rejects calls outside plan mode; in plan mode it presents the plan over the user-questions seam (approve / keep planning with feedback), and approval logs plan mode inactive at the step boundary. |
 | `@deepseek-ai/dsh-tool-bash` | `bash` | `ctx.tools`, `ctx.shell`, `ctx.systemPrompt`, `ctx.shellEnv`, `ctx.jobs at call time for run_in_background` | `tool/call`, `tool/result` | - | The bash tool is the model-facing consumer of the bash executor seam. A `run_in_background` run registers with the generic `ctx.jobs` runtime and is collected/stopped through the `job_*` tools from `@deepseek-ai/dsh-tool-jobs`; the `enableRunInBackground` config (default true) removes the parameter entirely when disabled. |
-| `@deepseek-ai/dsh-tool-pwsh` | `pwsh` | `ctx.tools`, `ctx.shell`, `ctx.systemPrompt`, `ctx.shellEnv`, `ctx.jobs at call time for run_in_background` | `tool/call`, `tool/result` | - | The pwsh tool is the PowerShell-dialect consumer of the bash executor seam for Windows compositions (a PowerShell executor such as `@deepseek-ai/dsh-pwsh-local` backs `ctx.shell`); it mirrors the bash tool call-for-call minus sandbox controls — `run_in_background` runs register with the generic `ctx.jobs` runtime and are collected/stopped through the `job_*` tools, and the managed `DSH_*` environment comes from `@deepseek-ai/dsh-shell-env`. Each call runs in a fresh process (no persistent PTY session), with native `C:\...` paths and `$env:NAME` variables. |
+| `@deepseek-ai/dsh-tool-pwsh` | `pwsh` | `ctx.tools`, `ctx.shell`, `ctx.systemPrompt`, `ctx.shellEnv`, `ctx.jobs at call time for run_in_background` | `tool/call`, `tool/result` | - | The pwsh tool is the PowerShell-dialect consumer of the shell executor seam for Windows compositions (a PowerShell executor such as `@deepseek-ai/dsh-pwsh-local` backs `ctx.shell`); it mirrors the bash tool call-for-call including full sandbox-escalation (`sandbox_permissions` + `justification` resolved through `ctx.approval`) — `run_in_background` runs register with the generic `ctx.jobs` runtime and are collected/stopped through the `job_*` tools, and the managed `DSH_*` environment comes from `@deepseek-ai/dsh-shell-env`. Each call runs in a fresh process (no persistent PTY session), with native `C:\...` paths and `$env:NAME` variables. |
 | `@deepseek-ai/dsh-tool-cordis` | `cordis_define`, `cordis_inspect_list`, `cordis_inspect_query`, `cordis_inspect_self`, `cordis_run`, `cordis_stop`, `cordis_undefine` | `ctx.tools`, `ctx.dynamicCordisRunner` | `tool/call`, `tool/result`, `process-local dynamic package lifecycle` | - | Not in any shipped tree (a deliberate opt-in — dynamic package code reaches the real runtime, see .agents/notes/implemented/feature/2026-07-08-self-referential-cordis-toolset.md). The toolset injects `ctx.dynamicCordisRunner` from `@deepseek-ai/dsh-cordis-host-runner`, which owns the definition registry and the vm sandbox; a composition missing it never activates the tools. A running package may register ADDITIONAL model-visible tools until it is stopped, undefined, or DSH restarts; a full changed request header logs those tool-set changes. |
 | `@deepseek-ai/dsh-tool-bash-persistent` | `bash` | `ctx.tools`, `ctx.terminals`, `an owning Agent at execution time` | `tool/call`, `PTY shell state`, `tool/result` | - | One owner-isolated persistent bash tool; deployment composition supplies the PTY backend and may override the model-facing environment description. |
 | `@deepseek-ai/dsh-tool-pwsh-persistent` | `pwsh` | `ctx.tools`, `ctx.terminals`, `an owning Agent at execution time` | `tool/call`, `PTY shell state`, `tool/result` | - | One owner-isolated persistent pwsh tool, the Windows counterpart of the persistent bash tool; deployment composition supplies a pwsh-dialect PTY backend and may override the model-facing environment description. |
@@ -105,6 +105,7 @@ Ask the user a concise question when you need confirmation, a choice, or missing
       }
     }
   },
+  "additionalProperties": false,
   "required": [
     "questions"
   ]
@@ -136,6 +137,7 @@ Execute a TypeScript program against the available tools. Takes two required arg
       "description": "Clear, concise description of what this program does in active voice, 5-10 words (shown in the UI). Examples: \"Count TODO markers across packages\"; \"Read failing test and its fixture\"; \"Rename config key in every cordis.yml\"."
     }
   },
+  "additionalProperties": false,
   "required": [
     "code",
     "description"
@@ -164,6 +166,7 @@ Use only in plan mode. Present your plan for the user's review and, on approval,
       "description": "The complete plan, as markdown, starting with a # heading that names it."
     }
   },
+  "additionalProperties": false,
   "required": [
     "plan"
   ]
@@ -207,6 +210,7 @@ Execute a bash command (`bash -c`) and return its stdout/stderr. Each call runs 
       "description": "Run in the background and return a job id immediately (collect with job_output, stop with job_kill). No timeout applies."
     }
   },
+  "additionalProperties": false,
   "required": [
     "command",
     "description"
@@ -251,6 +255,7 @@ Execute a PowerShell command (`pwsh -Command`) and return its stdout/stderr. Eac
       "description": "Run in the background and return a job id immediately (collect with job_output, stop with job_kill). No timeout applies."
     }
   },
+  "additionalProperties": false,
   "required": [
     "command",
     "description"
@@ -260,7 +265,7 @@ Execute a PowerShell command (`pwsh -Command`) and return its stdout/stderr. Eac
 
 Source: [`packages/shell/tool-pwsh/src/index.ts`](../packages/shell/tool-pwsh/src/index.ts)
 
-The pwsh tool is the PowerShell-dialect consumer of the bash executor seam for Windows compositions (a PowerShell executor such as `@deepseek-ai/dsh-pwsh-local` backs `ctx.shell`); it mirrors the bash tool call-for-call minus sandbox controls — `run_in_background` runs register with the generic `ctx.jobs` runtime and are collected/stopped through the `job_*` tools, and the managed `DSH_*` environment comes from `@deepseek-ai/dsh-shell-env`. Each call runs in a fresh process (no persistent PTY session), with native `C:\...` paths and `$env:NAME` variables.
+The pwsh tool is the PowerShell-dialect consumer of the shell executor seam for Windows compositions (a PowerShell executor such as `@deepseek-ai/dsh-pwsh-local` backs `ctx.shell`); it mirrors the bash tool call-for-call including full sandbox-escalation (`sandbox_permissions` + `justification` resolved through `ctx.approval`) — `run_in_background` runs register with the generic `ctx.jobs` runtime and are collected/stopped through the `job_*` tools, and the managed `DSH_*` environment comes from `@deepseek-ai/dsh-shell-env`. Each call runs in a fresh process (no persistent PTY session), with native `C:\...` paths and `$env:NAME` variables.
 
 <a id="deepseek-aidsh-tool-cordis"></a>
 
@@ -337,6 +342,7 @@ Define an immutable Cordis Package. For a new Plugin, use kind:"new" and provide
       }
     }
   },
+  "additionalProperties": false,
   "required": [
     "plugin",
     "name",
@@ -355,7 +361,8 @@ List every Cordis Inspect Provider currently known to the Host, including local 
 ```json
 {
   "type": "object",
-  "properties": {}
+  "properties": {},
+  "additionalProperties": false
 }
 ```
 
@@ -389,6 +396,7 @@ Run a read-only query explicitly declared by an Inspect Provider. platform, prov
       "description": "Optional query input; it must satisfy the method input schema."
     }
   },
+  "additionalProperties": false,
   "required": [
     "platform",
     "provider",
@@ -415,7 +423,8 @@ Inspect dynamic Cordis objects owned by the current Session at increasing levels
       "type": "string",
       "description": "Exact immutable Package ID owned by pluginId; when specified, source and diagnostics are returned."
     }
-  }
+  },
+  "additionalProperties": false
 }
 ```
 
@@ -446,6 +455,7 @@ Activate one exact Package of a dynamic Plugin. Use mode:"run" for the first act
       ]
     }
   },
+  "additionalProperties": false,
   "required": [
     "pluginId",
     "packageId",
@@ -469,6 +479,7 @@ Stop the current Run of a dynamic Plugin and cancel unfinished approval or activ
       "description": "Stable dynamic Plugin ID to stop."
     }
   },
+  "additionalProperties": false,
   "required": [
     "pluginId"
   ]
@@ -490,6 +501,7 @@ Permanently remove a dynamic Plugin owned by the current Session. If it is runni
       "description": "Stable dynamic Plugin ID to remove permanently."
     }
   },
+  "additionalProperties": false,
   "required": [
     "pluginId"
   ]
@@ -517,6 +529,7 @@ Run commands in a persistent bash shell. State, including the current directory 
       "description": "The bash command to run. Relative path is preferred in the command."
     }
   },
+  "additionalProperties": false,
   "required": [
     "command"
   ]
@@ -544,6 +557,7 @@ Run commands in a persistent PowerShell shell. State, including the current dire
       "description": "The PowerShell command to run. Relative path is preferred in the command."
     }
   },
+  "additionalProperties": false,
   "required": [
     "command"
   ]
@@ -649,6 +663,7 @@ Notes for using the `str_replace` command:
       "description": "Optional parameter of `view` command when `path` points to a file. If omitted or null, the full file is shown. If provided, the file will be shown in the indicated line number range, e.g. [11, 12] will show lines 11 and 12. Indexing at 1 to start. Setting `[start_line, -1]` shows all lines from `start_line` to the end of the file."
     }
   },
+  "additionalProperties": false,
   "required": [
     "command",
     "path"
@@ -689,6 +704,7 @@ Edit an existing UTF-8 text file by replacing literal text.
       "description": "Replace all matches. Defaults to false; when false, old_string must appear exactly once."
     }
   },
+  "additionalProperties": false,
   "required": [
     "file_path",
     "old_string",
@@ -720,6 +736,7 @@ Read a UTF-8 text file and return line-numbered content.
       "description": "Maximum number of lines to return. Defaults to 2000."
     }
   },
+  "additionalProperties": false,
   "required": [
     "file_path"
   ]
@@ -741,6 +758,7 @@ Read a PNG/JPEG/WebP/GIF file and return the image itself. A path without a file
       "description": "Path to the image file, resolved by the filesystem backend."
     }
   },
+  "additionalProperties": false,
   "required": [
     "file_path"
   ]
@@ -766,6 +784,7 @@ Create or fully replace a UTF-8 text file.
       "description": "Full UTF-8 text content to write."
     }
   },
+  "additionalProperties": false,
   "required": [
     "file_path",
     "content"
@@ -798,6 +817,7 @@ Find files whose paths match a glob pattern. Returns matching file paths — nev
       "description": "Directory to search in. Defaults to the session workspace; a relative path resolves against it."
     }
   },
+  "additionalProperties": false,
   "required": [
     "pattern"
   ]
@@ -827,6 +847,7 @@ Search file contents with a ripgrep regular expression. Returns matching lines w
       "description": "One glob filter for which files to search (e.g. \"*.ts\", \"*.{js,jsx}\"). Not a list; negation is not supported."
     }
   },
+  "additionalProperties": false,
   "required": [
     "pattern"
   ]
@@ -854,6 +875,7 @@ Close one persistent terminal and wait until its captured owned process tree is 
       "description": "Terminal session id."
     }
   },
+  "additionalProperties": false,
   "required": [
     "sessionId"
   ]
@@ -869,7 +891,8 @@ List persistent terminal sessions owned by the current agent.
 ```json
 {
   "type": "object",
-  "properties": {}
+  "properties": {},
+  "additionalProperties": false
 }
 ```
 
@@ -896,6 +919,7 @@ Create a persistent, owner-isolated terminal session from a registered backend t
       "description": "Initial working directory. Defaults to the deployment workspace root."
     }
   },
+  "additionalProperties": false,
   "required": [
     "type"
   ]
@@ -925,6 +949,7 @@ Read a bounded page of retained output from a persistent terminal without sendin
       "description": "Requested line count (default 500; backend caps apply)."
     }
   },
+  "additionalProperties": false,
   "required": [
     "sessionId"
   ]
@@ -958,6 +983,7 @@ Send text to a persistent terminal. By default Enter is submitted and the call w
       "description": "Return a job id immediately; collect with job_output or stop with job_kill."
     }
   },
+  "additionalProperties": false,
   "required": [
     "sessionId",
     "text"
@@ -991,6 +1017,7 @@ Send an allowed signal to the current foreground process group of a persistent t
       ]
     }
   },
+  "additionalProperties": false,
   "required": [
     "sessionId",
     "signal"
@@ -1023,6 +1050,7 @@ Create one persisted same-session completion goal when the current direct human 
       "description": "Optional positive safe-integer limit on automatic continuation rounds."
     }
   },
+  "additionalProperties": false,
   "required": [
     "objective"
   ]
@@ -1038,7 +1066,8 @@ Read the current same-session goal, including its exact id/revision, objective, 
 ```json
 {
   "type": "object",
-  "properties": {}
+  "properties": {},
+  "additionalProperties": false
 }
 ```
 
@@ -1084,6 +1113,7 @@ Update the exact current goal revision. edit, pause, and resume require a direct
       "description": "Concrete blocking condition; required only with action blocked."
     }
   },
+  "additionalProperties": false,
   "required": [
     "goal_id",
     "revision",
@@ -1149,6 +1179,7 @@ Create one reminder in the current session. Supply a non-empty prompt and exactl
       "description": "Absolute target as strict offset RFC 3339 or local date/time with an explicit IANA zone."
     }
   },
+  "additionalProperties": false,
   "required": [
     "prompt"
   ]
@@ -1170,6 +1201,7 @@ Delete one active reminder in the current session by the exact id returned by sc
       "description": "Exact session-local schedule id."
     }
   },
+  "additionalProperties": false,
   "required": [
     "id"
   ]
@@ -1185,7 +1217,8 @@ List every active reminder in the current session in creation order, including i
 ```json
 {
   "type": "object",
-  "properties": {}
+  "properties": {},
+  "additionalProperties": false
 }
 ```
 
@@ -1228,6 +1261,7 @@ Query a language server for precise code navigation. operation is one of goToDef
       "description": "One-based UTF-16 column of the cursor."
     }
   },
+  "additionalProperties": false,
   "required": [
     "operation",
     "file_path",
@@ -1262,6 +1296,7 @@ Run a foreground fresh-agent Ralph loop toward one immutable objective. Use only
       "description": "Optional positive safe-integer round cap, bounded by the deployment ceiling."
     }
   },
+  "additionalProperties": false,
   "required": [
     "objective"
   ]
@@ -1289,6 +1324,7 @@ Load the full instructions for an available skill. Call this with the exact skil
       "description": "The exact skill name from the available skills list."
     }
   },
+  "additionalProperties": false,
   "required": [
     "name"
   ]
@@ -1326,6 +1362,7 @@ Read one full unabridged event and optional neighboring raw-event summaries from
       "description": "Number of following raw events to summarize. Omit for none."
     }
   },
+  "additionalProperties": false,
   "required": [
     "seq"
   ]
@@ -1386,6 +1423,7 @@ Search prior events in one authorized session; the current session excludes the 
       }
     }
   },
+  "additionalProperties": false,
   "required": [
     "query"
   ]
@@ -1411,6 +1449,7 @@ Read every direct replacement and relationship to a cited source event for one e
       "description": "Target event sequence number."
     }
   },
+  "additionalProperties": false,
   "required": [
     "seq"
   ]
@@ -1504,6 +1543,7 @@ Search prior sessions in the caller workspace and return the strongest matching 
       }
     }
   },
+  "additionalProperties": false,
   "required": [
     "query"
   ]
@@ -1524,7 +1564,8 @@ Read the authorized session lineage around one session, including complete visib
       "type": "string",
       "description": "Target session id. Omit for the current session."
     }
-  }
+  },
+  "additionalProperties": false
 }
 ```
 
@@ -1552,7 +1593,8 @@ Discover LLM routes for subagents without changing the current Agent. Call with 
       "type": "string",
       "description": "Exact model id to inspect. Requires provider; omit to list that provider's advertised models."
     }
-  }
+  },
+  "additionalProperties": false
 }
 ```
 
@@ -1582,6 +1624,7 @@ Delegate a self-contained task to a subagent (a separate agent that works in its
       "description": "Optional object-rooted JSON Schema for a structured final answer. When supplied, the child must call structured_output with a matching value instead of finishing with plain text; the validated value returns as `structured`. Foreground one-shot runs only."
     }
   },
+  "additionalProperties": false,
   "required": [
     "description",
     "prompt"
@@ -1610,6 +1653,7 @@ Request cancellation of a background agent's current turn by its agent id. The t
       "description": "The agent id of the running agent to interrupt."
     }
   },
+  "additionalProperties": false,
   "required": [
     "agent_id"
   ]
@@ -1634,7 +1678,8 @@ List your continuable background subagents by durable id and label. Use it to re
         "descendants"
       ]
     }
-  }
+  },
+  "additionalProperties": false
 }
 ```
 
@@ -1657,6 +1702,7 @@ Send a message to a direct continuable child by its agent id. If you are a resid
       "description": "The message to deliver to the agent."
     }
   },
+  "additionalProperties": false,
   "required": [
     "agent_id",
     "message"
@@ -1689,6 +1735,7 @@ Request cancellation of a running background job by job id. Returns immediately;
       "description": "Optional short reason, recorded in the log and forwarded to the job."
     }
   },
+  "additionalProperties": false,
   "required": [
     "job_id"
   ]
@@ -1704,7 +1751,8 @@ List your background jobs (running and finished) with their ids, kinds, and stat
 ```json
 {
   "type": "object",
-  "properties": {}
+  "properties": {},
+  "additionalProperties": false
 }
 ```
 
@@ -1731,6 +1779,7 @@ Read a background job. Stream jobs return only output since the previous read; f
       "description": "Max wait in milliseconds (only meaningful with wait: true). Must be a positive integer. Defaults to the configured wait timeout; capped by the configured maximum."
     }
   },
+  "additionalProperties": false,
   "required": [
     "job_id"
   ]
@@ -1758,6 +1807,7 @@ Interrupt one teammate's current turn while preserving its pending inbox. Team L
       "description": "Teammate name."
     }
   },
+  "additionalProperties": false,
   "required": [
     "target"
   ]
@@ -1773,7 +1823,8 @@ List the Lead and every durable teammate with current runtime status.
 ```json
 {
   "type": "object",
-  "properties": {}
+  "properties": {},
+  "additionalProperties": false
 }
 ```
 
@@ -1796,6 +1847,7 @@ Send one durable message to another Team member. A running target receives it at
       "description": "Self-contained message for the target."
     }
   },
+  "additionalProperties": false,
   "required": [
     "target",
     "message"
@@ -1834,6 +1886,7 @@ Create one named, durable teammate. Only the Team Lead may call this tool.
       ]
     }
   },
+  "additionalProperties": false,
   "required": [
     "name",
     "description",
@@ -1875,6 +1928,7 @@ Create one unowned pending task on the shared Team task board.
       }
     }
   },
+  "additionalProperties": false,
   "required": [
     "subject",
     "description"
@@ -1897,6 +1951,7 @@ Read the complete latest value of one shared task before changing or executing i
       "description": "Shared task id."
     }
   },
+  "additionalProperties": false,
   "required": [
     "task_id"
   ]
@@ -1938,7 +1993,8 @@ List shared tasks, including readiness, owner, revision, blockers, and write-sco
       "type": "integer",
       "description": "Number of rows, 1 through 100. Defaults to 50."
     }
-  }
+  },
+  "additionalProperties": false
 }
 ```
 
@@ -2001,6 +2057,7 @@ Compare-and-set a shared task action using the latest revision from team_task_ge
       "description": "Member name for Lead-only reassign; omit to unassign."
     }
   },
+  "additionalProperties": false,
   "required": [
     "task_id",
     "expected_revision",
@@ -2023,7 +2080,8 @@ Wait for the next teammate status, mailbox, or shared-task change after this cal
       "type": "integer",
       "description": "Wait duration in milliseconds, from 10000 through 3600000. Defaults to 30000."
     }
-  }
+  },
+  "additionalProperties": false
 }
 ```
 
@@ -2071,6 +2129,7 @@ Record and update a structured task list for the current work. Send the ENTIRE l
       }
     }
   },
+  "additionalProperties": false,
   "required": [
     "todos"
   ]
@@ -2167,6 +2226,7 @@ Constraints: concurrency and total-agent caps apply; no filesystem, network, tim
       "additionalProperties": true
     }
   },
+  "additionalProperties": false,
   "required": [
     "script",
     "meta"
@@ -2193,6 +2253,7 @@ Fetch the content of a specific HTTP(S) URL and return it decoded to text.
       "description": "The HTTP(S) URL to fetch."
     }
   },
+  "additionalProperties": false,
   "required": [
     "url"
   ]
@@ -2217,6 +2278,7 @@ Search the web for current information. Provide 1–4 queries in the required qu
       }
     }
   },
+  "additionalProperties": false,
   "required": [
     "queries"
   ]

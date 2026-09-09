@@ -463,12 +463,14 @@ describe('pair CLI arguments', () => {
       mode: 'check',
       scope: 'pairs',
       anchors: ['docs/bar.md', 'docs/foo.md'],
+      sweep: false,
     })
     expect(parseTranslationPairingCliArgs([])).toEqual({
       input: 'worktree',
       mode: 'check',
       scope: 'corpus',
       anchors: [],
+      sweep: false,
     })
   })
 
@@ -479,12 +481,14 @@ describe('pair CLI arguments', () => {
       mode: 'write',
       scope: 'pairs',
       anchors: ['docs/foo.md'],
+      sweep: false,
     })
     expect(parseTranslationPairingCliArgs(['--write', '--all'])).toEqual({
       input: 'worktree',
       mode: 'write',
       scope: 'corpus',
       anchors: [],
+      sweep: false,
     })
     expect(() => parseTranslationPairingCliArgs(['--write', '--all', 'docs/foo.md'])).toThrow('not both')
   })
@@ -495,6 +499,7 @@ describe('pair CLI arguments', () => {
       mode: 'list',
       scope: 'corpus',
       anchors: [],
+      sweep: false,
     })
     expect(() => parseTranslationPairingCliArgs(['--list', 'docs/foo.md'])).toThrow('takes no other flags or paths')
     expect(() => parseTranslationPairingCliArgs(['--all'])).toThrow('--all only applies to --write')
@@ -507,9 +512,27 @@ describe('pair CLI arguments', () => {
       mode: 'check',
       scope: 'pairs',
       anchors: ['docs/foo.md'],
+      sweep: false,
     })
     expect(() => parseTranslationPairingCliArgs(['--cached'])).toThrow('requires the staged pair paths')
     expect(() => parseTranslationPairingCliArgs(['--cached', '--write', 'docs/foo.md'])).toThrow('read-only')
+  })
+
+  it('marks a hook sweep so unfiltered paths are filtered, not rejected', () => {
+    // The pre-commit hook globs every staged Markdown file, so it hands over
+    // paths outside the pairing corpus. Without this flag each one is a hard
+    // rejection and the commit fails for a file that was never paired.
+    expect(parseTranslationPairingCliArgs(['--cached', '--sweep', 'AGENTS.md', 'docs/foo.md'])).toEqual({
+      input: 'index',
+      mode: 'check',
+      scope: 'pairs',
+      anchors: ['AGENTS.md', 'docs/foo.md'],
+      sweep: true,
+    })
+    expect(parseTranslationPairingCliArgs(['--sweep', 'docs/foo.md']).sweep).toBe(true)
+    expect(() => parseTranslationPairingCliArgs(['--sweep'])).toThrow('pass the swept paths')
+    expect(() => parseTranslationPairingCliArgs(['--sweep', '--write', 'docs/foo.md'])).toThrow('read-only filter')
+    expect(() => parseTranslationPairingCliArgs(['--list', '--sweep'])).toThrow('takes no other flags or paths')
   })
 })
 

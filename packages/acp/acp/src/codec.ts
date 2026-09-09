@@ -17,6 +17,9 @@ export function turnEndToStopReason(reason: TurnEndReason): StopReason {
       return 'end_turn'
     case 'max-tokens':
       return 'max_tokens'
+    // A per-turn step ceiling bounds model requests like a request cap.
+    case 'max-steps':
+      return 'max_turn_requests'
     // `cancelled` is reserved for explicit client cancellation (`session/cancel`)
     // and disposal, both settled out of band; a turn aborted by a hook or
     // another owner is ordinary quiescence and reports `end_turn`.
@@ -27,7 +30,8 @@ export function turnEndToStopReason(reason: TurnEndReason): StopReason {
     case 'blocked':
     case 'error':
       return 'end_turn'
-    /* v8 ignore next 2 -- TurnEndReason is closed and every member is handled above */
+    /* v8 ignore next 2 -- TurnEndReasonMap is merge-extensible, so a backend-added
+     * variant cannot be listed; unknown endings report ordinary quiescence. */
     default:
       return 'end_turn'
   }

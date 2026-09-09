@@ -75,7 +75,7 @@ kind: "package-reference"
 | [`src/index.ts`](src/index.ts) | 插件入口：config schema、工具注册、系统提示词区段、执行 |
 | [`src/render.ts`](src/render.ts) | 纯格式化、坐标转换、URI 解析、结果上限、UI 呈现 |
 | [`src/session-cwd.ts`](src/session-cwd.ts) | 从会话 `header.cwd` 取得工作区根目录 |
-| — | 不发布运行时不变式伴生入口；无状态适配器。 |
+| — | 不发布运行时不变式伴生入口；该无状态适配器贡献一个工具和提示词 section，而查询生命周期与结果关系仍归其组合的工具与 LSP seam 所有。 |
 
 </details>
 
@@ -167,6 +167,7 @@ Use search/read for ordinary navigation. Use lsp when textual matches are ambigu
 
 - **UTF-16 光标坐标**——列坐标与协议精确一致，但模型难以在非 BMP 字符周围计数；未落在符号上的位置可能返回空结果，因此提示词解释了该约定，但不鼓励广泛使用 LSP。
 - **不承诺跨服务器完整性**——受支持的服务器仍可能根据索引就绪情况返回空或部分结果；该工具不承诺跨语言或服务器的完整性。
+- **按 workspace 串行化**——stdio 提供方每次同时只服务一个实例的一个查询，因此向同一 workspace 并行扇出会排队；该工具对调度器分发标记为并发安全，但顺序调用或不同 workspace 扇出效果更好。
 
 <a id="dev-note"></a>
 ### 开发备注

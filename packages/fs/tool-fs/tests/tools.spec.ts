@@ -972,10 +972,10 @@ describe('sandbox escalation API (write/edit)', () => {
     expect(text(missing)).toContain('sandbox_permissions requires a justification')
   })
 
-  it('sandbox_permissions under a non-confining backend fails closed (unadvertised field still reaches execute)', async () => {
+  it('sandbox_permissions under a non-confining backend fails closed at the closed schema root', async () => {
     const { ctx } = await setup()
     const result = await call(ctx, 'write', { file_path: 'a.txt', content: 'x', sandbox_permissions: 'workspace-write', justification: 'why' }, escalationAgent())
     expect(result.isError).toBe(true)
-    expect(text(result)).toContain('not available in this composition')
+    expect(text(result)).toContain('is not a declared property')
   })
 })

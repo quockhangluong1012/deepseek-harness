@@ -1,11 +1,12 @@
 /**
- * The sandbox-escalation API shared by the `write` and `edit` tools: the
+ * The sandbox-escalation API shared by every mutating filesystem tool: the
  * per-call policy resolution, the advertised escalation fields, and the denial-marker
  * mapping — all delegating the vocabulary and the fail-closed approval
  * sequence to `@deepseek-ai/dsh-sandbox` (the same pieces `@deepseek-ai/dsh-tool-bash`
- * uses), so bash and fs escalate identically. Built ONCE per plugin from
- * `ctx.fs.sandboxMode` (the capability fact — is a confining backend mounted?)
- * and shared by both mutating tools.
+ * uses), so bash and fs escalate identically. `write`/`edit` build it here;
+ * `str_replace_editor` reuses this controller rather than carrying a parallel
+ * copy. Built ONCE per plugin from `ctx.fs.sandboxMode` (the capability fact —
+ * is a confining backend mounted?) and shared by the plugin's mutating tools.
  *
  * @module @deepseek-ai/dsh-tool-fs/sandbox
  */
@@ -13,7 +14,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { ToolExecution } from '@deepseek-ai/dsh-tools'
 import type { SandboxExecutionPolicy, SandboxMode } from '@deepseek-ai/dsh-sandbox'
-import { ESCALATION_TARGETS, approveEscalation, escalationHintMarker, sandboxDenialMarker, validateEscalationArgs } from '@deepseek-ai/dsh-sandbox'
+import { ESCALATION_TARGETS, approveEscalation, assertStandingPolicy, escalationHintMarker, sandboxDenialMarker, validateEscalationArgs } from '@deepseek-ai/dsh-sandbox'
 import type { SandboxPolicyService } from '@deepseek-ai/dsh-sandbox-policy'
 import { FsError } from '@deepseek-ai/dsh-fs'
 
@@ -93,7 +94,8 @@ export class FsSandboxController {
     if (this.escalationModes.length === 0) {
       throw new Error('sandbox_permissions is not available in this composition (no sandboxing filesystem to escalate)')
     }
-    const policy = standingPolicy as SandboxExecutionPolicy
+    assertStandingPolicy(standingPolicy)
+    const policy = standingPolicy
     const approvedMode = await approveEscalation(
       { requestedMode: args.sandbox_permissions, justification: args.justification, effectiveMode: policy.mode, subject: 'operation' },
       {
@@ -123,9 +125,10 @@ export class FsSandboxController {
    */
   mapError(error: unknown, policy: SandboxExecutionPolicy | undefined): unknown {
     if (!(error instanceof FsError) || error.code !== 'FS_SANDBOX_DENIED') return error
-    // A FS_SANDBOX_DENIED only arises under a confining backend, whose tool
-    // path always resolves a policy before mutation.
-    const mode = (policy as SandboxExecutionPolicy).mode
+    // An undefined policy means an unsandboxed backend, under which no denial
+    // can arise; pass the error through rather than crashing on its mode.
+    if (policy === undefined) return error
+    const mode = policy.mode
     return new FsError(`${sandboxDenialMarker(mode)}\n${escalationHintMarker('operation')}`, 'FS_SANDBOX_DENIED', { cause: error })
   }
 }

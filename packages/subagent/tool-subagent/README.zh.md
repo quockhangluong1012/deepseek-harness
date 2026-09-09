@@ -51,6 +51,7 @@ kind: "package-reference"
 | `persona` | — | 每个子 agent 独立的 persona；要求提供方具备 `persona` 能力 |
 | `toolFilter` | — | 每个子 agent 独立的全局工具限制；要求提供方具备 `toolFilter` 能力 |
 | `maxDepth` | `3` | 绝对委派深度上限（`0` 禁止委派）；`'provider-managed'` 不向进程外提供方发送上限 |
+| `maxPartialTextChars` | `8000` | 父级可见失败中包含的子级部分输出的最大字符数 |
 
 生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-tool-subagent)是每个受支持字段及其 JSDoc 的穷尽式真源。
 
@@ -129,7 +130,7 @@ kind: "package-reference"
 
 #### 模型看到什么
 
-当提供方存在时，以当前实例配置的名称公开已生成的默认 [`subagent` schema](../../../docs/tool-catalog.zh.md#deepseek-aidsh-tool-subagent)。启用的 Session 策略会添加 `provider`、`model` 与 `reasoning_effort`，以及继承和选择指引；提供方必须支持 `agentOptions`。提供方是否继承上下文会改变工具描述和提示词描述。启用后台模式会添加 `run_in_background`：可继续模式会记录其默认值为 `true`、运行时结算通知与显式前台覆盖；一次性模式会记录其默认值为 `false`，以及用 `job_output` 收集或用 `job_kill` 停止的 job id。当工具在本次组装的作用域中可见时，一个 `tool:<toolName>` 系统提示词 section 会指示模型同时启动相互独立的可继续委派、在它们运行时继续工作，并且仅当下一步动作依赖结果时选择前台；工具限制会同时移除其 schema 和这段指引。
+当提供方存在时，以当前实例配置的名称公开已生成的默认 [`subagent` schema](../../../docs/tool-catalog.zh.md#deepseek-aidsh-tool-subagent)。启用的 Session 策略会添加 `provider`、`model` 与 `reasoning_effort`，以及继承和选择指引；提供方必须支持 `agentOptions`。提供方是否继承上下文会改变工具描述和提示词描述。启用后台模式会添加 `run_in_background`：可继续模式会记录其默认值为 `true`、运行时结算通知与显式前台覆盖；一次性模式会记录其默认值为 `false`，以及用 `job_output` 收集或用 `job_kill` 停止的 job id。可选 `output_schema` 接受一个对象根 JSON Schema，用于前台一次性运行的结构化最终答案；子 agent 随后必须以匹配的值调用 `structured_output`，该值随文本一起作为 `structured` 返回。当工具在本次组装的作用域中可见时，一个 `tool:<toolName>` 系统提示词 section 会指示模型同时启动相互独立的可继续委派、在它们运行时继续工作，并且仅当下一步动作依赖结果时选择前台；工具限制会同时移除其 schema 和这段指引。
 
 #### Token 影响
 
@@ -177,7 +178,7 @@ Use subagent in the background by default. Start independent delegations togethe
 
 #### 模型看到什么
 
-调用会保留描述与提示词。成功时只包含子 agent 的最终文本；其他结果变为 `Error: <终止原因>`，随后在存在时附上安全的提供方诊断，再附上任何部分 assistant 文本。子 agent 中间步骤不会进入父级。
+调用会保留描述与提示词。成功时只包含子 agent 的最终文本；当提供 `output_schema` 时，经过验证的结构化值以 `Structured result: <json>` 跟在后面。其他结果变为 `Error: <终止原因>`，随后在存在时附上安全的提供方诊断，再附上任何部分 assistant 文本（按 `maxPartialTextChars` 截断，默认 8000 字符）。子 agent 中间步骤不会进入父级。
 
 #### Token 影响
 

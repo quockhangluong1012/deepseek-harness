@@ -11,6 +11,7 @@ import {
   ESCALATION_TARGETS,
   WIDER_MODES,
   approveEscalation,
+  assertStandingPolicy,
   escalationHintMarker,
   sandboxDenialMarker,
   validateEscalationArgs,
@@ -39,6 +40,23 @@ describe('validateEscalationArgs', () => {
     expect(() => { validateEscalationArgs('workspace-write', undefined) }).toThrow(/requires a justification/)
     expect(() => { validateEscalationArgs(undefined, 'orphan reason') }).toThrow(/only valid together with sandbox_permissions/)
     expect(() => { validateEscalationArgs('workspace-write', '   ') }).toThrow(/non-empty sentence/)
+  })
+})
+
+describe('assertStandingPolicy', () => {
+  it('passes a resolved policy through without throwing', () => {
+    expect(() => { assertStandingPolicy({ mode: 'workspace-write', workspaceRoot: process.cwd() }) }).not.toThrow()
+  })
+
+  it('fails closed with a routable code when no policy resolved', () => {
+    try {
+      assertStandingPolicy(undefined)
+      expect.unreachable()
+    } catch (error) {
+      expect(error).toBeInstanceOf(Error)
+      expect((error as Error).message).toContain('without a resolved sandbox policy')
+      expect((error as { code?: unknown }).code).toBe('SANDBOX_ESCALATION_UNAVAILABLE')
+    }
   })
 })
 

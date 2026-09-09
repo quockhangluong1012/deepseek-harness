@@ -2,16 +2,15 @@
  * Cooperative tool-call timeout enforcer. A tool declares `timeoutMs` and
  * promises to honor `exec.signal`; this wrapper arms that deadline and maps its
  * own expiry to `TOOL_TIMEOUT` without racing or abandoning the tool promise.
- *
- * FIXME: settle the intended `@deepseek-ai/dsh-timeout-guard` rename before the
- * first tagged release — suggestion only, aligning the name with its `guard/`
- * home; decide at resolution time
- * ([regrouping Agent Note](../../../../.agents/notes/archived/architecture/2026-07-29-package-regrouping.md)).
+ * The package keeps its `@deepseek-ai/dsh-tool-call-timeout-policy` name: it
+ * is published and referenced by the shipped bundle, so renaming would break
+ * every consumer for no runtime benefit.
  *
  * @module @deepseek-ai/dsh-tool-call-timeout-policy
  */
 
 import type { Context } from '@deepseek-ai/cordis'
+import z from '@deepseek-ai/schemastery'
 import { deadline, timeoutOf } from '@deepseek-ai/dsh-timeout'
 import type { ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 
@@ -29,6 +28,24 @@ export const name = 'timeout-policy'
 
 /** The tool registry service this plugin wraps (`tools/execute`) and reads (`get`). */
 export const inject = ['tools']
+
+/** Deployment-bounded fallback deadline for tools that declare no `timeoutMs`. */
+export const DEFAULT_TIMEOUT_MS = 120_000
+
+/**
+ * Plugin configuration. `defaultTimeoutMs` bounds every tool that omits its
+ * own `timeoutMs` so absence is bounded rather than unbounded; per-tool
+ * declarations remain overrides.
+ */
+export interface Config {
+  /** Fallback deadline in milliseconds applied when a tool declares none. */
+  defaultTimeoutMs?: number
+}
+
+/** Runtime configuration schema for the timeout-policy plugin. */
+export const Config: z<Config> = z.object({
+  defaultTimeoutMs: z.number().step(1).min(1).default(DEFAULT_TIMEOUT_MS),
+})
 
 /**
  * The structured result substituted when this plugin's deadline wins. `content`
@@ -49,14 +66,19 @@ function toolTimeoutResult(timeoutMs: number): ToolExecutionResult {
 
 /**
  * Register the timeout wrapper. It resolves the caller-visible tool definition,
+ * falls back to the configured default when the tool declares no budget,
  * temporarily replaces `exec.signal`, delegates, restores the upstream signal,
  * and replaces the result only when this wrapper's own timer fired.
+ * @param ctx - Cordis context owning the `tools/execute` waterfall.
+ * @param config - validated plugin configuration carrying the default deadline.
  */
-export function apply(ctx: Context): void {
+export function apply(ctx: Context, config: Config = {}): void {
+  const defaultTimeoutMs = config.defaultTimeoutMs ?? DEFAULT_TIMEOUT_MS
+  if (!Number.isFinite(defaultTimeoutMs) || defaultTimeoutMs <= 0) {
+    throw new Error(`timeout-policy: defaultTimeoutMs must be a positive finite number, got ${String(defaultTimeoutMs)}.`)
+  }
   ctx.on('tools/execute', async (exec, next): Promise<ToolExecutionResult> => {
-    const timeoutMs = ctx.tools.get(exec.name, exec.agent)?.timeoutMs
-    // A tool that declares no budget: no deadline, delegate unchanged.
-    if (timeoutMs === undefined) return next()
+    const timeoutMs = ctx.tools.get(exec.name, exec.agent)?.timeoutMs ?? defaultTimeoutMs
 
     using d = deadline(exec.signal, timeoutMs, TOOL_TIMEOUT)
     // Swap the derived deadline onto exec for dispatch, then restore the

@@ -210,9 +210,11 @@ describe('gate graph validation', () => {
     const ids = withPnpmEntrypoint(() => gatesForMode('hygiene').map(subject => subject.id))
 
     expect(ids).toEqual([
-      'rescope-vendor', 'publint', 'constraints', 'package-dependencies', 'application-entrypoints',
+      'rescope-vendor', 'publint', 'constraints',
+      'ci-lane-coverage', 'no-fixme', 'no-hardcoded-tunables', 'package-dependencies', 'application-entrypoints',
       'dsh-package-licenses', 'package-invariants', 'built-package-invariants', 'node-next-types',
-      'optional-dependency-imports', 'client-packages', 'client-ui-i18n', 'no-bare-dispatcher', 'cordis-config',
+      'optional-dependency-imports', 'client-packages', 'client-ui-i18n', 'no-bare-dispatcher',
+      'cordis-config',
       'runtime-closure', 'vendored-links',
     ])
     expect(defaultConcurrency('hygiene', ids.length, 8)).toEqual({
@@ -542,7 +544,7 @@ describe('Node 24 lane ownership', () => {
     const subject = withPnpmEntrypoint(() => gatesForMode('ci-consumers'))
 
     expect(defaultConcurrency('ci-consumers', subject.length, 4)).toEqual({
-      workers: 11,
+      workers: 13,
       source: 'ci-consumers gate count',
     })
     expect(subject.map(item => item.id)).toEqual([
@@ -556,6 +558,8 @@ describe('Node 24 lane ownership', () => {
       'web-snapshot',
       'doc-typecheck',
       'node-next-types',
+      'python-tests',
+      'native-system-tests',
       'built-bin-smoke',
     ])
     expect(subject.find(item => item.id === 'publint')?.needs).toEqual(['build'])

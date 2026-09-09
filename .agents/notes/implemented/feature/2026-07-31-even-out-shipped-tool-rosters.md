@@ -34,11 +34,9 @@ The layer that would make MCP a default is the one this repository does not have
 
 ## Testing
 
-`apps/cli/tests/shipped-composition.e2e.ts` booted the shipped tree through the real Loader in a pseudo-terminal and read the tool names out of the `request/header` the session log persisted, so the assertion was the catalog the model was actually sent. Its `--config` overlay, `composition-keyless-tail.cordis.yml`, provided test isolation only: a network-free adapter and workspace-local session artifacts.
+`apps/cli/tests/profiles/headless/tests/keyless-smoke.e2e.ts` reads the tool names out of the persisted `request/header` and asserts the fixed CLI members (`read`, `write`, `edit`, `web_fetch`, `web_search`) while excluding `str_replace_editor`, so the assertion is still the catalog the model was actually sent. The retired PTY smoke's settled-activation marker left with it: headless runs have no TUI fiber racing tool activation.
 
-That tail also inserted `composition-settled.ts`, which announced settled Loader activation on the terminal stream. The TUI rendered as soon as its own fiber started, so a prompt typed at the banner could reach the loop while tool rows and persistence were still activating and assemble a partial catalog; gating the smoke's first prompt on that marker made the assertion deterministic.
-
-The same smoke also pins the TUI execution posture from the same artifact. Those sandbox-schema and initial-permission assertions belong to the [workspace-write default decision](../../archived/feature/2026-07-31-workspace-write-surface-default.md), independently of this roster.
+The sandbox-schema and initial-permission assertions belong to the [workspace-write default decision](../../archived/feature/2026-07-31-workspace-write-surface-default.md), independently of this roster.
 
 [`apps/web/tests/shipped-composition.e2e.ts`](../../../../apps/web/tests/shipped-composition.e2e.ts) covers the Web surface in the built lane, asserting its catalog, that its access default is untouched, and that `workspace-write`'s writable roots include the temp directories — a trap that makes sandbox tests lie when the workspace sits under `/tmp` ([`roots.ts`](../../../../packages/sandbox/sandbox/src/roots.ts)).
 

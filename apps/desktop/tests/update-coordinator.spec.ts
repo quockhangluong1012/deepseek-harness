@@ -99,4 +99,52 @@ describe('desktop update coordinator', () => {
     await expect(installing).resolves.toEqual({ phase: 'ready', version: '1.2.0' })
     expect(downloadUpdate).toHaveBeenCalledOnce()
   })
+
+  it('rejects install without a verified available release', async () => {
+    const updater = {
+      autoDownload: true,
+      autoInstallOnAppQuit: true,
+      checkForUpdates: vi.fn(),
+      downloadUpdate: vi.fn(),
+      quitAndInstall: vi.fn(),
+    } as unknown as AppUpdater
+    const coordinator = new DesktopUpdateCoordinator(state => state, async () => {}, updater, () => true)
+    await expect(coordinator.install()).rejects.toThrow(/no verified update is available/u)
+  })
+
+  it('publishes download progress while an install is in flight', async () => {
+    const states: DesktopUpdateState[] = []
+    let progressListener: ((info: { percent?: unknown }) => void) | undefined
+    const releaseDownload = Promise.withResolvers<[]>()
+    const updater = {
+      autoDownload: true,
+      autoInstallOnAppQuit: true,
+      checkForUpdates: vi.fn(async () => ({
+        isUpdateAvailable: true,
+        updateInfo: { version: '2.0.0' },
+      })),
+      downloadUpdate: vi.fn(() => releaseDownload.promise),
+      quitAndInstall: vi.fn(),
+      on: vi.fn((event: string, listener: (info: { percent?: unknown }) => void) => {
+        if (event === 'download-progress') progressListener = listener
+      }),
+    } as unknown as AppUpdater
+    const coordinator = new DesktopUpdateCoordinator(
+      (state) => {
+        states.push(state)
+        return state
+      },
+      async () => {},
+      updater,
+      () => true,
+    )
+
+    await expect(coordinator.check()).resolves.toEqual({ phase: 'available', version: '2.0.0' })
+    const installing = coordinator.install()
+    expect(progressListener).toBeDefined()
+    progressListener?.({ percent: 42.7 })
+    releaseDownload.resolve([])
+    await expect(installing).resolves.toEqual({ phase: 'ready', version: '2.0.0' })
+    expect(states).toContainEqual({ phase: 'installing', version: '2.0.0', percent: 42 })
+  })
 })

@@ -2,10 +2,15 @@
 
 export const en = {
   application: 'Application',
+  editMenu: 'Edit',
+  viewMenu: 'View',
+  windowMenu: 'Window',
   startupFailed: 'DeepSeek Harness could not start',
+  backendUnavailable: 'The desktop backend is restarting. The application retries automatically.',
   pluginsMenu: 'Desktop Plugins…',
   pluginsMenuPackagedOnly: 'Desktop Plugins… (available in packaged applications)',
   checkUpdatesMenu: 'Check for Updates…',
+  updatesUnavailableInDev: 'Updates are available in packaged applications. This development build cannot check for updates.',
   updateCheckFailedTitle: 'Update Check Failed',
   unknownError: 'Unknown error',
   updateCheckTitle: 'Check for Updates',
@@ -26,7 +31,21 @@ export const en = {
   noPlugins: 'No Desktop plugins are installed.',
   remove: 'Remove',
   update: 'Update',
-  targetVersion: 'Enter the target version for {name}',
+  confirmRemove: 'Remove {name} from the desktop profile?',
+  updateToVersion: 'Target version for {name}',
+  applyUpdate: 'Apply',
+  cancel: 'Cancel',
+  invalidVersion: 'Enter an exact version such as 1.2.3.',
+  transactionActive: 'Another package operation is still running. Wait for it to finish and try again.',
+  packagedOnlyNotice: 'Plugin management requires a packaged application. This development window is read-only.',
+  updatesHeading: 'Updates',
+  updatesDescription: 'Desktop releases bundle the matching dsh version. The application restarts after installation.',
+  currentVersion: 'Current version: {version}',
+  checkForUpdates: 'Check for updates',
+  installUpdate: 'Install and restart',
+  checkingForUpdates: 'Checking for updates…',
+  downloadingUpdate: 'Downloading {version}… {percent}%',
+  updateReleaseAvailable: 'Version {version} is available.',
   removing: 'Removing {name}…',
   updating: 'Updating {name}…',
   installing: 'Installing {spec}…',
@@ -41,10 +60,15 @@ export type DesktopMessages = { readonly [Key in keyof typeof en]: string }
 
 export const zh = {
   application: '应用',
+  editMenu: '编辑',
+  viewMenu: '视图',
+  windowMenu: '窗口',
   startupFailed: 'DeepSeek Harness 无法启动',
+  backendUnavailable: '桌面后端正在重启，应用将自动重试。',
   pluginsMenu: '桌面插件…',
   pluginsMenuPackagedOnly: '桌面插件…（打包应用中可用）',
   checkUpdatesMenu: '检查更新…',
+  updatesUnavailableInDev: '更新仅在打包应用中可用，当前开发构建无法检查更新。',
   updateCheckFailedTitle: '更新检查失败',
   unknownError: '未知错误',
   updateCheckTitle: '检查更新',
@@ -65,7 +89,21 @@ export const zh = {
   noPlugins: '还没有安装桌面插件。',
   remove: '移除',
   update: '更新',
-  targetVersion: '输入 {name} 的目标版本',
+  confirmRemove: '确定从桌面 profile 移除 {name} 吗？',
+  updateToVersion: '{name} 的目标版本',
+  applyUpdate: '应用',
+  cancel: '取消',
+  invalidVersion: '请输入精确版本，例如 1.2.3。',
+  transactionActive: '另一个包操作仍在运行，请等待完成后再试。',
+  packagedOnlyNotice: '插件管理仅在打包应用中可用，当前开发窗口为只读。',
+  updatesHeading: '更新',
+  updatesDescription: '桌面版本绑定匹配的 dsh，安装后将重新启动。',
+  currentVersion: '当前版本：{version}',
+  checkForUpdates: '检查更新',
+  installUpdate: '安装并重启',
+  checkingForUpdates: '正在检查更新…',
+  downloadingUpdate: '正在下载 {version}…{percent}%',
+  updateReleaseAvailable: '发现可用版本 {version}。',
   removing: '正在移除 {name}…',
   updating: '正在更新 {name}…',
   installing: '正在安装 {spec}…',
@@ -79,6 +117,11 @@ export const zh = {
 export interface DesktopLocale {
   readonly id: 'en' | 'zh-CN'
   readonly messages: DesktopMessages
+  /**
+   * Whether the sender runs inside a packaged application. Absent means
+   * packaged: only development overrides set it explicitly to false.
+   */
+  readonly packaged?: boolean
 }
 
 /** Resolve Electron's locale to one shipped Desktop dictionary. */

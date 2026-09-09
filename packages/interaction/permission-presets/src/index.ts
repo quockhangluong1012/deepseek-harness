@@ -19,6 +19,7 @@ import { SANDBOX_MODES, setSandboxMode } from '@deepseek-ai/dsh-sandbox-policy'
 // Side-effect type import: declaration-merges `ctx.shell` (the capability fact
 // `sandboxMode` this service reads), without a value dependency on the seam.
 import type {} from '@deepseek-ai/dsh-shell'
+import type { PreToolDecision } from '@deepseek-ai/dsh-tools'
 import type { ApprovalPolicy } from '@deepseek-ai/dsh-user-approval'
 import { APPROVAL_POLICIES, setApprovalPolicy } from '@deepseek-ai/dsh-user-approval'
 import type {} from '@deepseek-ai/dsh-settings'
@@ -133,6 +134,51 @@ function applyPermissionEvent(
   }
 }
 
+/** Tools gated behind an approval ask whenever this service is composed.
+ *
+ * Entries are exact tool names, except a trailing `*` which matches a name
+ * prefix (`mcp__*` covers every dynamically-registered MCP bridge tool).
+ * Unknown names are legal: a pattern matching no currently registered tool
+ * stays valid in a deployment that loads no such tool.
+ */
+export const DEFAULT_APPROVAL_TOOLS: readonly string[] = [
+  'bash',
+  'pwsh',
+  'write',
+  'edit',
+  'str_replace_editor',
+  'terminal_spawn',
+  'terminal_send',
+  'terminal_kill',
+  'subagent',
+  'workflow',
+  'ralph',
+  'todo_write',
+  'job_kill',
+  'skill',
+  'run_code',
+  'mcp__*',
+  'schedule_*',
+  'cordis_*',
+]
+
+/**
+ * Whether one tool name requires an approval ask under the composed gate.
+ * @param toolName - the model-facing tool name about to dispatch.
+ * @param approvalTools - exact names and `prefix*` patterns to gate.
+ * @returns true when the call must resolve through `ctx.approval`.
+ */
+export function requiresApproval(toolName: string, approvalTools: readonly string[] = DEFAULT_APPROVAL_TOOLS): boolean {
+  for (const entry of approvalTools) {
+    if (entry.endsWith('*')) {
+      if (toolName.startsWith(entry.slice(0, -1))) return true
+    } else if (toolName === entry) {
+      return true
+    }
+  }
+  return false
+}
+
 /** User setting resolved when a new session receives its initial permission. */
 export interface PermissionSettings {
   /** Preset pinned into a newly created session. */
@@ -152,6 +198,12 @@ export interface Config {
    * sandbox and approval defaults is used.
    */
   defaultPreset?: string
+  /**
+   * Tool names gated behind an approval ask. Exact names match exactly; a
+   * trailing `*` matches a name prefix (`mcp__*`). Defaults to
+   * {@link DEFAULT_APPROVAL_TOOLS}.
+   */
+  approvalTools?: string[]
 }
 
 /**
@@ -178,6 +230,7 @@ export class PermissionPresetService extends Service {
       },
     }),
     defaultPreset: z.string(),
+    approvalTools: z.array(z.string()).default([...DEFAULT_APPROVAL_TOOLS]),
   })
 
   static inject = ['shell', 'approval', 'sessions', 'sessionProjections']
@@ -248,6 +301,18 @@ export class PermissionPresetService extends Service {
     for (const session of ctx.sessions.list()) {
       this.pinInitialPermission(session)
     }
+
+    // First-class approval producer: gated tools resolve through `ctx.approval`
+    // before dispatch. The `ask` decision always routes through the approval
+    // service, so the `never` policy still fails closed with its audit pair and
+    // an `unavailable` channel still denies. Observation tools delegate to the
+    // next listener unchanged. This listener is the shipped bundle's only
+    // producer of `{kind: 'ask'}`.
+    const approvalTools = [...(config.approvalTools ?? DEFAULT_APPROVAL_TOOLS)]
+    ctx.on('tools/pre-execute', async (exec, next): Promise<PreToolDecision> => {
+      if (!requiresApproval(exec.name, approvalTools)) return next()
+      return { kind: 'ask', reason: `tool "${exec.name}" requires approval under the current permission preset` }
+    })
 
     // The /permission command: the one write path a web client uses (the
     // popup contribution submits the picked preset as this line). The child

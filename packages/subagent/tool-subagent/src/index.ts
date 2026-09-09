@@ -11,7 +11,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { scopeChainOf, scopeOf } from '@deepseek-ai/dsh-scope'
-import { assertObjectJsonSchema, defineTool } from '@deepseek-ai/dsh-tools'
+import { assertObjectJsonSchema, defineTool, startAbortGuardedBackground } from '@deepseek-ai/dsh-tools'
 import type { Agent, AgentOptions } from '@deepseek-ai/dsh-agent'
 import { ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
@@ -43,6 +43,12 @@ import {
 
 export const name = 'tool-subagent'
 export const inject = ['tools', 'subagents', 'systemPrompt', 'sessionProjections']
+
+/**
+ * Maximum chars of child partial output included in a parent-facing failure.
+ * Failures must preserve evidence without blowing the parent context.
+ */
+const MAX_PARTIAL_TEXT_CHARS = 8000
 
 /** Config: which registered provider this tool delegates to, plus child defaults. */
 export interface Config {
@@ -100,6 +106,12 @@ export interface Config {
    * budget belongs to the child runtime or its own deployment.
    */
   maxDepth?: number | 'provider-managed'
+  /**
+   * Maximum chars of child partial output included in a parent-facing
+   * failure. Failures must preserve evidence without blowing the parent
+   * context.
+   */
+  maxPartialTextChars?: number
 }
 
 export const Config: z<Config> = z.object({
@@ -127,6 +139,7 @@ export const Config: z<Config> = z.object({
     deny: z.array(z.string()).default(undefined as unknown as string[]),
   }).default(undefined as unknown as { allow: string[]; deny: string[] }),
   maxDepth: z.union([z.natural().max(Number.MAX_SAFE_INTEGER), z.const('provider-managed' as const)]).default(3),
+  maxPartialTextChars: z.number().step(1).min(1).default(MAX_PARTIAL_TEXT_CHARS),
 })
 
 /** Render text blocks from the canonical JSON block array without trusting arbitrary values. */
@@ -173,20 +186,15 @@ function stopReasonError(result: SubagentResult): string | undefined {
 }
 
 /**
- * Maximum chars of child partial output included in a parent-facing failure.
- * Failures must preserve evidence without blowing the parent context.
- */
-const MAX_PARTIAL_TEXT_CHARS = 8000
-
-/**
  * Append provider-authored failure detail and the child's preserved partial
  * answer to a stop-reason error, keeping diagnostic text separate from the
  * child's assistant output.
  * @param error - the stop-reason headline.
  * @param result - the child's terminal result.
+ * @param maxPartialTextChars - bound on preserved partial text.
  * @returns the headline, diagnostic, and bounded partial text that are present.
  */
-function withDiagnosticAndPartialText(error: string, result: SubagentResult): string {
+function withDiagnosticAndPartialText(error: string, result: SubagentResult, maxPartialTextChars: number): string {
   const diagnostic = result.diagnostic === undefined
     ? ''
     : `\nDiagnostic: ${result.diagnostic}`
@@ -196,8 +204,8 @@ function withDiagnosticAndPartialText(error: string, result: SubagentResult): st
     .join('')
   const partial = text.length === 0
     ? ''
-    : text.length > MAX_PARTIAL_TEXT_CHARS
-      ? `\nPartial output before the run ended (truncated to ${MAX_PARTIAL_TEXT_CHARS} chars):\n${text.slice(0, MAX_PARTIAL_TEXT_CHARS)}`
+    : text.length > maxPartialTextChars
+      ? `\nPartial output before the run ended (truncated to ${maxPartialTextChars} chars):\n${text.slice(0, maxPartialTextChars)}`
       : `\nPartial output before the run ended:\n${text}`
   return `${error}${diagnostic}${partial}`
 }
@@ -213,14 +221,14 @@ type ForegroundToolResult = {
  * Collect and release one foreground run without letting disposal replace an
  * independent result failure.
  */
-async function settleForegroundRun(run: SubagentRun): Promise<ForegroundToolResult> {
+async function settleForegroundRun(run: SubagentRun, maxPartialTextChars: number): Promise<ForegroundToolResult> {
   const [execution] = await Promise.allSettled([
     run.result.then((result): ForegroundToolResult => {
       const error = stopReasonError(result)
       if (error !== undefined) {
         // The registry converts this throw to isError; partial output is not
         // success, but the preserved partial answer still reaches the parent.
-        throw new Error(withDiagnosticAndPartialText(error, result))
+        throw new Error(withDiagnosticAndPartialText(error, result, maxPartialTextChars))
       }
       return {
         kind: 'foreground',
@@ -564,7 +572,7 @@ export function apply(ctx: Context, config: Config, session?: Session): void {
             }
             // One-shot background child: job preflight finishes before the
             // starter can spawn, and the task-owned signal covers startup.
-            const id = jobs.start({
+            const id = startAbortGuardedBackground(exec.signal, () => jobs.start({
               kind: 'subagent',
               label: args.description,
               owner: parent,
@@ -579,7 +587,7 @@ export function apply(ctx: Context, config: Config, session?: Session): void {
                   // No readOutput: the child session owns intermediate detail.
                 }
               },
-            })
+            }), (started) => { jobs.kill(started, exec.agent) })
             return { kind: 'background' as const, jobId: id }
           }
 
@@ -587,7 +595,7 @@ export function apply(ctx: Context, config: Config, session?: Session): void {
             ...request,
             signal: exec.signal,
           })
-          return settleForegroundRun(run)
+          return settleForegroundRun(run, config.maxPartialTextChars ?? MAX_PARTIAL_TEXT_CHARS)
         },
       }))
       mounted = { subagentProvider, disposeTool }

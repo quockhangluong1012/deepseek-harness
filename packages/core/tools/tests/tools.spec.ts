@@ -9,7 +9,7 @@ import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import ApprovalService, { type ApprovalOutcome, type ApprovalRequest } from '@deepseek-ai/dsh-user-approval'
 import ToolRuntime, {
   defineContentToolFixture, defineTool, JsonSchemaError, parameterSchemaSpecToJsonSchema, validateArgs, ToolArgsError, ToolNotFoundError,
-  TOOL_ABORTED, TOOL_ABORTED_BEFORE_DISPATCH,
+  TOOL_ABORTED, TOOL_ABORTED_BEFORE_DISPATCH, throwToolAborted, startAbortGuardedBackground,
   type InferArgs, type ParameterSchemaSpec, type PreToolDecision, type PostToolDecision,
   type JsonSchemaNode, type ToolDefinition, type ToolDispatchExecution, type ToolExecutionResult, type ToolExecutionToken,
 } from '@deepseek-ai/dsh-tools'
@@ -45,7 +45,7 @@ describe('ToolRuntime', () => {
     expect(ctx.tools.schemas()).toEqual([{
       name: 'echo',
       description: 'echo arguments back',
-      parameters: { type: 'object', properties: { text: { type: 'string' } } },
+      parameters: { type: 'object', additionalProperties: false, properties: { text: { type: 'string' } } },
     }])
     // schemas() result must not leak execute — ToolSchema deliberately has no
     // 'execute' key, so widen through unknown to probe for the absent property
@@ -1934,7 +1934,7 @@ describe('ToolRuntime', () => {
     expect(ctx.tools.schemas()).toEqual([{
       name: 'echo',
       description: 'echo arguments back',
-      parameters: { type: 'object', properties: { text: { type: 'string' } } },
+      parameters: { type: 'object', additionalProperties: false, properties: { text: { type: 'string' } } },
     }])
   })
 
@@ -2060,6 +2060,7 @@ describe('defineTool / schema DSL', () => {
     const jsonSchema = parameterSchemaSpecToJsonSchema(spec)
     expect(jsonSchema).toEqual({
       type: 'object',
+      additionalProperties: false,
       properties: {
         path: { type: 'string', description: 'Absolute path' },
         offset: { type: 'number' },
@@ -2072,6 +2073,7 @@ describe('defineTool / schema DSL', () => {
   it('handles empty spec (no properties, no required)', () => {
     expect(parameterSchemaSpecToJsonSchema({})).toEqual({
       type: 'object',
+      additionalProperties: false,
       properties: {},
     })
   })
@@ -2091,6 +2093,7 @@ describe('defineTool / schema DSL', () => {
     const jsonSchema = parameterSchemaSpecToJsonSchema(spec)
     expect(jsonSchema).toEqual({
       type: 'object',
+      additionalProperties: false,
       properties: {
         config: {
           type: 'object',
@@ -2132,6 +2135,7 @@ describe('defineTool / schema DSL', () => {
       description: 'A typed echo tool',
       parameters: {
         type: 'object',
+        additionalProperties: false,
         properties: {
           text: { type: 'string' },
           uppercase: { type: 'boolean' },
@@ -2191,6 +2195,7 @@ describe('defineTool / schema DSL', () => {
     expect(schemas).toHaveLength(1)
     expect(schemas[0]!.parameters).toEqual({
       type: 'object',
+      additionalProperties: false,
       properties: {
         req: { type: 'string' },
         opt: { type: 'number', description: 'Optional number' },
@@ -2388,6 +2393,7 @@ describe('schema DSL optional and nested contracts', () => {
     } satisfies ParameterSchemaSpec
     expect(parameterSchemaSpecToJsonSchema(spec)).toEqual({
       type: 'object',
+      additionalProperties: false,
       properties: {
         servers: {
           type: 'array',
@@ -2490,9 +2496,11 @@ describe('validateArgs (the runtime-validation Agent Note, part 1)', () => {
     expect(validateArgs(spec, { path: undefined })).toEqual(['missing required property "path"'])
   })
 
-  it('allows extra keys (no additionalProperties:false) and omitted optionals', () => {
+  it('rejects extra keys at the closed parameter root and allows omitted optionals', () => {
     const spec = { path: { type: 'string', required: true } } satisfies ParameterSchemaSpec
-    expect(validateArgs(spec, { path: '/tmp', extra: 1 })).toEqual([])
+    expect(validateArgs(spec, { path: '/tmp', extra: 1 })).toEqual([
+      '"extra" is not a declared property (additionalProperties: false)',
+    ])
   })
 
   it('does not apply defaults (validation only)', () => {
@@ -2616,6 +2624,58 @@ describe('defineTool validation (the runtime-validation Agent Note, part 1)', ()
     expect(err.code).toBe('INVALID_ARGS')
     expect(err.violations).toEqual(['missing required property "a"', '"b" must be a number'])
     expect(err.message).toBe('invalid arguments: missing required property "a"; "b" must be a number')
+  })
+
+  it('throwToolAborted raises the shared AbortError carrying TOOL_ABORTED', () => {
+    try {
+      throwToolAborted()
+      expect.unreachable()
+    } catch (error) {
+      expect(error).toBeInstanceOf(HarnessError)
+      expect((error as Error).name).toBe('AbortError')
+      expect((error as HarnessError).code).toBe(TOOL_ABORTED)
+    }
+  })
+
+  it('startAbortGuardedBackground refuses a pre-aborted call without registering', () => {
+    const controller = new AbortController()
+    controller.abort()
+    let started = 0
+    try {
+      startAbortGuardedBackground(controller.signal, () => { started += 1; return 'job-1' }, () => {})
+      expect.unreachable()
+    } catch (error) {
+      expect((error as HarnessError).code).toBe(TOOL_ABORTED)
+    }
+    expect(started).toBe(0)
+  })
+
+  it('startAbortGuardedBackground returns the id when no abort lands', () => {
+    const signal = new AbortController().signal
+    expect(startAbortGuardedBackground(signal, () => 'job-7', () => { throw new Error('kill must not run') })).toBe('job-7')
+  })
+
+  it('startAbortGuardedBackground kills the orphan when an abort lands during registration', () => {
+    const controller = new AbortController()
+    const killed: string[] = []
+    try {
+      startAbortGuardedBackground(controller.signal, () => { controller.abort(); return 'job-9' }, (id) => { killed.push(id) })
+      expect.unreachable()
+    } catch (error) {
+      expect((error as HarnessError).code).toBe(TOOL_ABORTED)
+    }
+    expect(killed).toEqual(['job-9'])
+  })
+
+  it('startAbortGuardedBackground still aborts when orphan cleanup throws', () => {
+    const controller = new AbortController()
+    try {
+      startAbortGuardedBackground(controller.signal, () => { controller.abort(); return 'job-3' }, () => { throw new Error('kill boom') })
+      expect.unreachable()
+    } catch (error) {
+      expect((error as HarnessError).code).toBe(TOOL_ABORTED)
+      expect((error as Error).message).toBe('tool call aborted')
+    }
   })
 
   it('a schema-invalid call surfaces the structured error on the result', async () => {

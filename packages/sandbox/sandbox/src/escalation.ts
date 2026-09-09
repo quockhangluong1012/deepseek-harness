@@ -16,8 +16,9 @@
  * @module dsh-sandbox/escalation
  */
 
+import { HarnessError } from '@deepseek-ai/dsh-llm'
 import { assertNever } from '@deepseek-ai/dsh-util-values'
-import type { SandboxMode } from './index.ts'
+import type { SandboxExecutionPolicy, SandboxMode } from './index.ts'
 
 /**
  * The strictly-wider table: what a call whose effective mode is the key may
@@ -50,13 +51,32 @@ export const ESCALATION_TARGETS: readonly SandboxMode[] = ['workspace-write', 'd
  */
 export function validateEscalationArgs(sandboxPermissions: string | undefined, justification: string | undefined): void {
   if (sandboxPermissions !== undefined && justification === undefined) {
-    throw new Error('invalid escalation: sandbox_permissions requires a justification')
+    throw new HarnessError('invalid escalation: sandbox_permissions requires a justification', 'INVALID_ESCALATION_ARGS')
   }
   if (justification !== undefined && sandboxPermissions === undefined) {
-    throw new Error('invalid escalation: justification is only valid together with sandbox_permissions')
+    throw new HarnessError('invalid escalation: justification is only valid together with sandbox_permissions', 'INVALID_ESCALATION_ARGS')
   }
   if (justification !== undefined && justification.trim().length === 0) {
-    throw new Error('invalid justification: expected a non-empty sentence')
+    throw new HarnessError('invalid justification: expected a non-empty sentence', 'INVALID_ESCALATION_ARGS')
+  }
+}
+
+/**
+ * Fail closed when an escalation request arrives without a resolved standing
+ * policy — the one home for the composition guard every sandbox-enforcing
+ * tool family shares, so the next fix cannot land on one call site only.
+ * @param standingPolicy - the resolved policy, or undefined for direct calls
+ *   with no resolvable sandbox policy.
+ * @returns nothing - throws when no standing policy is resolved.
+ */
+export function assertStandingPolicy(
+  standingPolicy: SandboxExecutionPolicy | undefined,
+): asserts standingPolicy is SandboxExecutionPolicy {
+  if (standingPolicy === undefined) {
+    throw new HarnessError(
+      'sandbox_permissions is not available for direct calls without a resolved sandbox policy',
+      'SANDBOX_ESCALATION_UNAVAILABLE',
+    )
   }
 }
 
@@ -160,13 +180,13 @@ export async function approveEscalation<A, C>(request: EscalationRequest, approv
   // deliberately not a schema constraint (the enum is the closed target
   // vocabulary; the effective mode is per-call truth).
   if (!(WIDER_MODES[effectiveMode] ?? []).includes(mode as SandboxMode)) {
-    throw new Error(`sandbox escalation to "${mode}" is not strictly wider than this call's current "${effectiveMode}" mode`)
+    throw new HarnessError(`sandbox escalation to "${mode}" is not strictly wider than this call's current "${effectiveMode}" mode`, 'SANDBOX_ESCALATION_NOT_WIDER')
   }
   if (approval.approver === undefined) {
-    throw new Error(`sandbox escalation to "${mode}" requires approval, but no approval service is composed`)
+    throw new HarnessError(`sandbox escalation to "${mode}" requires approval, but no approval service is composed`, 'SANDBOX_ESCALATION_UNAVAILABLE')
   }
   if (approval.agent === undefined) {
-    throw new Error(`sandbox escalation to "${mode}" requires approval, but the call has no agent to route it through`)
+    throw new HarnessError(`sandbox escalation to "${mode}" requires approval, but the call has no agent to route it through`, 'SANDBOX_ESCALATION_UNAVAILABLE')
   }
   // Self-contained for the audit trail: approval/asked stores this reason,
   // and the target mode is part of the grant's identity.
@@ -181,9 +201,9 @@ export async function approveEscalation<A, C>(request: EscalationRequest, approv
     // The schema enum already pinned `mode` to the closed target vocabulary;
     // the check above proved it is strictly wider.
     case 'allowed-once': return mode as SandboxMode
-    case 'rejected': throw new Error(`the user rejected escalating this ${subject} to "${mode}"`)
-    case 'cancelled': throw new Error(`approval for escalating to "${mode}" was cancelled`)
-    case 'unavailable': throw new Error(`sandbox escalation to "${mode}" requires approval, but no approval channel is available`)
+    case 'rejected': throw new HarnessError(`the user rejected escalating this ${subject} to "${mode}"`, 'SANDBOX_ESCALATION_REJECTED')
+    case 'cancelled': throw new HarnessError(`approval for escalating to "${mode}" was cancelled`, 'SANDBOX_ESCALATION_CANCELLED')
+    case 'unavailable': throw new HarnessError(`sandbox escalation to "${mode}" requires approval, but no approval channel is available`, 'SANDBOX_ESCALATION_UNAVAILABLE')
     default: return assertNever(outcome, 'EscalationOutcome')
   }
 }

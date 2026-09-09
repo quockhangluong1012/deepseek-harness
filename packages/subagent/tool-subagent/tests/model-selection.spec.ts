@@ -147,7 +147,7 @@ describe('dsh-tool-subagent model selection', () => {
       model: 'fast-model',
     })
     expect(result.isError).toBe(true)
-    expect(text(result)).toContain('child model selection is disabled for this tool instance')
+    expect(text(result)).toContain('is not a declared property')
   })
 
   it('rejects enabled model selection when the provider cannot apply Agent options', async () => {

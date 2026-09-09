@@ -1,15 +1,132 @@
 workflow:
   rules:
     - if: '$CI_COMMIT_TAG =~ /^python-v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$/'
-    - when: never
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
 
 stages:
+  - static
+  - test
+  - artifacts
   - build
   - publish
 
 variables:
   GIT_DEPTH: "0"
   PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  DSH_TELEMETRY_DISABLED: "1"
+  DSH_GATE_FAIL_FAST: "1"
+  PNPM_STORE_DIR: "$CI_PROJECT_DIR/.pnpm-store"
+
+cache:
+  key:
+    files:
+      - pnpm-lock.yaml
+  paths:
+    - .pnpm-store/
+
+.ci-node-rules:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+
+.ci-node-setup:
+  before_script:
+    - corepack enable
+    - pnpm install --frozen-lockfile
+  interruptible: true
+
+ci-static:
+  extends: .ci-node-setup
+  stage: static
+  tags: [linux-x64]
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+  script:
+    - pnpm run check:ci:static
+
+ci-lint-contracts-ready:
+  extends: .ci-node-setup
+  stage: static
+  tags: [linux-x64]
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+  script:
+    - pnpm run check:ci:lint:contracts-ready
+
+ci-coverage:
+  extends: .ci-node-setup
+  stage: test
+  tags: [linux-x64]
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+  variables:
+    DSH_COVERAGE_PARTITIONS: "4"
+  script:
+    - pnpm run check:ci:coverage
+
+ci-snapshot:
+  extends: .ci-node-setup
+  stage: test
+  tags: [linux-x64]
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+  script:
+    - pnpm run check:ci:snapshot
+
+ci-artifacts:
+  extends: .ci-node-setup
+  stage: artifacts
+  tags: [linux-x64]
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+  script:
+    - pnpm run check:ci:artifacts
+
+ci-consumers:
+  stage: artifacts
+  tags: [linux-x64]
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+  before_script:
+    - corepack enable
+    - pnpm install --frozen-lockfile
+    - python3 -m venv .ci-python
+    - . .ci-python/bin/activate
+    - python -m pip install uv==0.11.23
+    - export PATH="$CI_PROJECT_DIR/.ci-python/bin:$PATH"
+  interruptible: true
+  script:
+    - pnpm run check:ci:consumers
+
+node-compat:
+  extends: .ci-node-setup
+  stage: test
+  tags: [linux-x64]
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+  script:
+    - pnpm run check:node-compat
+
+ci-windows-blocking:
+  stage: test
+  tags: [windows-x64]
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+  before_script:
+    - corepack enable
+    - pnpm install --frozen-lockfile
+  interruptible: true
+  script:
+    - pnpm run check:ci:windows-blocking
 
 .python-tools:
   before_script:

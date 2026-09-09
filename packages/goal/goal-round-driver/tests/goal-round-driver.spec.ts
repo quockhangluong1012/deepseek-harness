@@ -85,13 +85,16 @@ afterEach(async () => {
 })
 
 /** Mount a real loop with only its model scripted. */
-async function harness(script: ScriptEntry[]): Promise<Harness> {
+async function harness(script: ScriptEntry[], maxSteps?: number): Promise<Harness> {
   const ctx = new Context()
   contexts.push(ctx)
   await mountAgentLoopTestDependencies(ctx)
   await ctx.plugin(GoalService)
   const driver = await ctx.plugin(goalSession)
-  await ctx.plugin(AgentLoop, { agents: [] })
+  await ctx.plugin(AgentLoop, {
+    agents: [],
+    ...maxSteps === undefined ? {} : { maxSteps },
+  })
   const adapter = new ScriptedAdapter(script)
   ctx.llm.registerAdapter(['mock'], adapter)
   const agent = await ctx.agentLoop.create(SessionId(`goal-session-${Math.random()}`), {
@@ -245,6 +248,28 @@ describe('same-session goal driving', () => {
 
     expect(goal).toMatchObject({ roundsStarted: 1, activation: 'disarmed' })
     expect(test.adapter.requests).toHaveLength(1)
+  })
+
+  it('disarms automatic continuation after a max-steps ceiling', async () => {
+    // One clean step, then a steered continuation the maxSteps ceiling of 1
+    // refuses: the round's turn ends max-steps and the driver stands down.
+    const test = await harness([textResponse('round one'), textResponse('steered')], 1)
+    let steered = false
+    test.ctx.on('agent/turn-stopping', ({ agent }) => {
+      if (steered) return
+      steered = true
+      agent.steer(createUserMessage({ content: [{ type: 'text', text: 'keep going' }], source: { kind: 'plugin', plugin: 'max-steps-test' } }))
+    })
+    test.ctx.goals.create(test.agent, { objective: 'stop at the ceiling', maxGoalRounds: 8 })
+
+    const goal = await waitForGoal(test.ctx, test.agent, current =>
+      current?.phase === 'active' && current.activation === 'disarmed')
+
+    expect(goal).toMatchObject({ roundsStarted: 1, activation: 'disarmed' })
+    const reasons = test.agent.session.snapshotEvents()
+      .filter(event => event.type === 'turn/end')
+      .map(event => event.data.reason.kind)
+    expect(reasons[0]).toBe('max-steps')
   })
 
   it('maps a downstream step rejection to blocked without entering the round', async () => {

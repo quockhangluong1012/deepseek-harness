@@ -464,6 +464,52 @@ export const TOOL_ABORTED = 'ABORTED'
 /** Canonical error code for cancellation before a tool body was invoked. */
 export const TOOL_ABORTED_BEFORE_DISPATCH = 'ABORTED_BEFORE_DISPATCH'
 
+/**
+ * Throw the shared tool-call-aborted error: a `HarnessError` carrying
+ * {@link TOOL_ABORTED} with the `AbortError` name, so every background
+ * registration guard fails identically.
+ * @returns never returns; always throws.
+ */
+export function throwToolAborted(): never {
+  const error = new HarnessError('tool call aborted', TOOL_ABORTED)
+  error.name = 'AbortError'
+  throw error
+}
+
+/**
+ * Register one background job with check-then-start race coverage: observe the
+ * caller signal before registration, register, then observe again — an abort
+ * that landed during registration kills the just-registered orphan and still
+ * fails the call. The one home for the guard every background-capable tool
+ * shares, so the next fix cannot land on one call site only. The caller owns
+ * cancellation until the registry commits detached ownership.
+ * @param signal - the caller signal observed before and after registration.
+ * @param start - registers the job, returning its id.
+ * @param kill - best-effort cleanup of a just-registered orphan id.
+ * @returns the registered job id.
+ */
+export function startAbortGuardedBackground<Id extends string>(
+  signal: AbortSignal,
+  start: () => Id,
+  kill: (id: Id) => void,
+): Id {
+  if (signal.aborted) throwToolAborted()
+  const id = start()
+  // Close the check-then-start race: an abort that landed during registration
+  // must not leave an orphan background job. AbortSignal is externally
+  // mutable; registration may reenter cancellation.
+  // oxlint-disable-next-line typescript/no-unnecessary-condition
+  if (signal.aborted) {
+    try {
+      kill(id)
+    } catch {
+      // Kill is best-effort cleanup; the abort below is authoritative.
+    }
+    throwToolAborted()
+  }
+  return id
+}
+
 /** Structured error metadata for a failed tool call (alongside the model-facing text). */
 export interface ToolErrorInfo {
   name: string

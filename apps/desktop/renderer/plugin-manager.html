@@ -16,6 +16,7 @@
         </div>
         <button id="refresh" class="quiet" type="button"></button>
       </header>
+      <p id="dev-notice" role="note" hidden></p>
       <form id="install-form">
         <label id="package-label" for="package-spec"></label>
         <div class="install-row">
@@ -28,6 +29,16 @@
         <h2 id="installed-heading"></h2>
         <ul id="plugins"></ul>
         <p id="empty"></p>
+      </section>
+      <section aria-labelledby="updates-heading">
+        <h2 id="updates-heading"></h2>
+        <p id="updates-description"></p>
+        <p id="current-version"></p>
+        <div class="install-row">
+          <button id="check-updates" type="button"></button>
+          <button id="install-update" type="button"></button>
+        </div>
+        <p id="update-status" role="status" aria-live="polite"></p>
       </section>
     </main>
     <script src="plugin-manager.js"></script>

@@ -254,6 +254,31 @@ describe('SystemPrompt', () => {
     expect(contributed(await ctx.systemPrompt.assemble())).toEqual([])
   })
 
+  it('rejects malformed static section text at registration without leaking', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    expect(() => ctx.systemPrompt.section({ name: 'typo', order: 0, text: 'on {{ modle }}' }))
+      .toThrow('malformed prompt variable reference "{{ modle }}" in section "typo"')
+    expect(contributed(await ctx.systemPrompt.assemble())).toEqual([])
+  })
+
+  it('rejects malformed static context text at registration without leaking', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    expect(() => ctx.systemPrompt.context({ name: 'typo', order: 0, text: 'on {{ modle }}' }))
+      .toThrow('malformed prompt variable reference "{{ modle }}" in context "typo"')
+    expect((await ctx.systemPrompt.assemble()).contexts).toEqual([])
+  })
+
+  it('defers provider text validation to assembly (providers evaluate per assembly)', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    ctx.systemPrompt.section({ name: 'dynamic', order: 0, text: () => 'on {{ modle }}' })
+    ctx.systemPrompt.variable('model', () => 'm')
+    await expect(async () => renderPrompt(await ctx.systemPrompt.assemble()))
+      .rejects.toThrow('malformed prompt variable reference "{{ modle }}" in section "dynamic"')
+  })
+
   it('rejects duplicate and non-finite context registrations without leaking', async () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
@@ -671,6 +696,36 @@ describe('SystemPrompt', () => {
         variables: { model: 'literal {{sneaky}} inside' },
       })
       expect(text).toBe('v = literal {{sneaky}} inside!')
+    })
+
+    it('renders \\{{ as a literal brace pair without consulting variables', () => {
+      const text = renderPrompt({
+        sections: [{ name: 's', text: 'write \\{{model}} literally, but {{model}} renders' }],
+        contexts: [],
+        tools: [],
+        variables: { model: 'm' },
+      })
+      expect(text).toBe('write {{model}} literally, but m renders')
+    })
+
+    it('an even backslash run still interpolates (\\\\{{model}} keeps both backslashes)', () => {
+      const text = renderPrompt({
+        sections: [{ name: 's', text: 'path \\\\{{model}}' }],
+        contexts: [],
+        tools: [],
+        variables: { model: 'm' },
+      })
+      expect(text).toBe('path \\\\m')
+    })
+
+    it('an escaped malformed group stays literal instead of throwing', () => {
+      const text = renderPrompt({
+        sections: [{ name: 's', text: 'not a reference: \\{{ model }}' }],
+        contexts: [],
+        tools: [],
+        variables: {},
+      })
+      expect(text).toBe('not a reference: {{ model }}')
     })
   })
 })

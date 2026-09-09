@@ -33,7 +33,7 @@ import type { ProjectionDefinition } from '@deepseek-ai/dsh-session-projection'
 import { SessionPersistenceNotFoundError } from '@deepseek-ai/dsh-session-persistence'
 import type { SessionHandle, SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
 import { ReactLoopAgent } from './agent.ts'
-import { DEFAULT_MAX_PARALLEL_TOOL_CALLS } from './constants.ts'
+import { DEFAULT_MAX_PARALLEL_TOOL_CALLS, DEFAULT_MAX_REQUEST_RETRIES, DEFAULT_MAX_STEPS } from './constants.ts'
 
 /** Fiber states that cannot own or serve a new lifecycle. */
 const INACTIVE_STATES: ReadonlySet<FiberState> = new Set([
@@ -195,6 +195,24 @@ function resolveMaxParallelToolCalls(value: number | undefined): number {
   return maxParallelToolCalls
 }
 
+/** Resolve the per-turn step ceiling at the owning config boundary. */
+function resolveMaxSteps(value: number | undefined): number {
+  const maxSteps = value ?? DEFAULT_MAX_STEPS
+  if (!Number.isInteger(maxSteps) || maxSteps < 1) {
+    throw new Error('maxSteps must be a positive integer')
+  }
+  return maxSteps
+}
+
+/** Resolve the per-step honored-retry ceiling at the owning config boundary. */
+function resolveMaxRequestRetries(value: number | undefined): number {
+  const maxRequestRetries = value ?? DEFAULT_MAX_REQUEST_RETRIES
+  if (!Number.isInteger(maxRequestRetries) || maxRequestRetries < 0) {
+    throw new Error('maxRequestRetries must be a non-negative integer')
+  }
+  return maxRequestRetries
+}
+
 /** Reject an output-token cap that cannot be represented exactly on the request wire. */
 function assertAgentOptions(options: AgentOptions): void {
   if (options.maxTokens !== undefined
@@ -247,7 +265,7 @@ declare module '@deepseek-ai/cordis' {
   }
 }
 
-export { DEFAULT_MAX_PARALLEL_TOOL_CALLS }
+export { DEFAULT_MAX_PARALLEL_TOOL_CALLS, DEFAULT_MAX_REQUEST_RETRIES, DEFAULT_MAX_STEPS }
 
 /**
  * One launcher-selected session identity for a configured agent. `resume`
@@ -307,11 +325,17 @@ export const AGENT_LOOP_SETTINGS_NAMESPACE = 'agent-loop'
 export interface AgentLoopSettings {
   /** Maximum parallel-safe calls in flight per agent step. */
   maxParallelToolCalls: number
+  /** Maximum entered steps per agent turn; a turn that would run past it ends `max-steps`. */
+  maxSteps: number
+  /** Maximum honored `agent/request-error` retries per step; further recoveries stay terminal. */
+  maxRequestRetries: number
 }
 
 /** Schema of the agent-loop settings section. */
 export const AGENT_LOOP_SETTINGS_SCHEMA: z<AgentLoopSettings> = z.object({
   maxParallelToolCalls: z.number().step(1).min(1).default(DEFAULT_MAX_PARALLEL_TOOL_CALLS),
+  maxSteps: z.number().step(1).min(1).default(DEFAULT_MAX_STEPS),
+  maxRequestRetries: z.number().step(1).min(0).default(DEFAULT_MAX_REQUEST_RETRIES),
 })
 
 /** Agent-loop plugin configuration. */
@@ -321,6 +345,18 @@ export interface Config {
    * omission defaults to {@link DEFAULT_MAX_PARALLEL_TOOL_CALLS}.
    */
   maxParallelToolCalls?: number
+  /**
+   * Maximum entered steps per agent turn. A turn that would run past the
+   * ceiling ends `max-steps` instead of running unbounded; omission defaults
+   * to {@link DEFAULT_MAX_STEPS}.
+   */
+  maxSteps?: number
+  /**
+   * Maximum honored `agent/request-error` retries per step. A recovery past
+   * the ceiling stays terminal; omission defaults to
+   * {@link DEFAULT_MAX_REQUEST_RETRIES}. `0` disables request recovery.
+   */
+  maxRequestRetries?: number
   /** Agents created or resumed at plugin startup. */
   agents: (AgentOptions & {
     /** Stable config label used in logs and as the fresh combined-id prefix. */
@@ -335,7 +371,7 @@ export interface Config {
 }
 
 /** Agent-loop configuration after defaults and load-time validation. */
-type ResolvedConfig = Config & { maxParallelToolCalls: number }
+type ResolvedConfig = Config & { maxParallelToolCalls: number; maxSteps: number; maxRequestRetries: number }
 
 /** Reject self-contained identity conflicts before any configured agent starts. */
 function validateConfiguredAgents(agents: Config['agents']): void {
@@ -362,6 +398,8 @@ export class AgentLoop extends Service implements AgentFactory {
   /** Runtime schema for declarative agents. */
   static Config = z.object({
     maxParallelToolCalls: z.number().step(1).min(1).default(DEFAULT_MAX_PARALLEL_TOOL_CALLS),
+    maxSteps: z.number().step(1).min(1).default(DEFAULT_MAX_STEPS),
+    maxRequestRetries: z.number().step(1).min(0).default(DEFAULT_MAX_REQUEST_RETRIES),
     agents: z.array(z.object({
       id: z.string().required(),
       sessionId: z.string().min(1),
@@ -385,6 +423,8 @@ export class AgentLoop extends Service implements AgentFactory {
 
     const entry: AgentLoopSettings = {
       maxParallelToolCalls: resolveMaxParallelToolCalls(config.maxParallelToolCalls),
+      maxSteps: resolveMaxSteps(config.maxSteps),
+      maxRequestRetries: resolveMaxRequestRetries(config.maxRequestRetries),
     }
     let source: () => AgentLoopSettings = () => entry
     this.config = {
@@ -396,13 +436,27 @@ export class AgentLoop extends Service implements AgentFactory {
       get maxParallelToolCalls() {
         return source().maxParallelToolCalls
       },
+      // Read through on every turn continuation for the same reason: a
+      // committed change bounds the next step without disturbing this one.
+      get maxSteps() {
+        return source().maxSteps
+      },
+      // Read through on every retry decision for the same reason: a committed
+      // change bounds the next recovery without disturbing this one.
+      get maxRequestRetries() {
+        return source().maxRequestRetries
+      },
     }
     ctx.inject(['settings'], (settingsCtx) => {
       settingsCtx.settings.installSection(ctx, AGENT_LOOP_SETTINGS_NAMESPACE, AGENT_LOOP_SETTINGS_SCHEMA, entry, {
-        // The schema admits any integer above zero; `resolveMaxParallelToolCalls`
-        // owns the whole rule, so refusing here keeps the running scheduler on
-        // its last good cap instead of failing at the next tool group.
-        validate: value => void resolveMaxParallelToolCalls(value.maxParallelToolCalls),
+        // The schema admits any integer above zero (retries: zero or above);
+        // the resolvers own the whole rule, so refusing here keeps the running
+        // scheduler on its last good caps instead of failing at the next tool
+        // group, step, or retry.
+        validate: (value) => {
+          void resolveMaxParallelToolCalls(value.maxParallelToolCalls)
+          void resolveMaxSteps(value.maxSteps)
+        },
         setSource: (current) => {
           source = current
         },

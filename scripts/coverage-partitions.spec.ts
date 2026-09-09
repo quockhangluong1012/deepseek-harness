@@ -4,6 +4,7 @@ import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   COVERAGE_PARTITION_MODE_ENV,
+  COVERAGE_PARTITION_SENTINEL_ENV,
   COVERAGE_PARTITIONS_ENV,
   COVERAGE_TEST_TIMEOUT_ENV,
   CoveragePartitionCoordinator,
@@ -329,10 +330,10 @@ describe('coverage partition coordinator', () => {
       ]))
       expect(command.args).not.toContain('--shard=1/3')
       expect(command.args.some(argument => argument.startsWith('--config='))).toBe(true)
-      expect(command.env).toEqual({
-        [COVERAGE_PARTITIONS_ENV]: undefined,
-        [COVERAGE_PARTITION_MODE_ENV]: '1',
-      })
+      expect(command.env[COVERAGE_PARTITIONS_ENV]).toBeUndefined()
+      expect(command.env[COVERAGE_PARTITION_MODE_ENV]).toBe('1')
+      expect(typeof command.env[COVERAGE_PARTITION_SENTINEL_ENV]).toBe('string')
+      expect((command.env[COVERAGE_PARTITION_SENTINEL_ENV] as string).length).toBeGreaterThan(0)
     }
     // The partition file list travels in a temporary config, not on the
     // command line (which exceeds the Windows CreateProcess limit).

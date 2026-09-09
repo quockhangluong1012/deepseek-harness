@@ -58,7 +58,7 @@ kind: "package-reference"
 
 ### 哪些结果会受影响
 
-策略只作用于最终、已接受且纯文本的结果。不超过上限的结果、包含任何非文本块的结果、嵌套复合调用、`read` 结果、被阻止的决策与已接受的值替换都会原样通过。此前已经发生的提供方级截断（例如 `web-fetch-http.maxBodyChars`）无法在此恢复——spill 文件保存的是工具实际返回的内容。
+策略只作用于最终、已接受且纯文本的结果。不超过上限的结果、包含任何非文本块的结果、嵌套复合调用、`read` 结果、自带 spill 并附分页指引的 `glob`/`grep` 结果、被阻止的决策与已接受的值替换都会原样通过。此前已经发生的提供方级截断（例如 `web-fetch-http.maxBodyChars`）无法在此恢复——spill 文件保存的是工具实际返回的内容。
 
 ### 尽力而为的故障行为
 
@@ -84,7 +84,7 @@ kind: "package-reference"
 
 ### 两条分支
 
-`tools/post-execute` waterfall（瀑布式事件）监听器（以 `prepend` 注册、通过 `next()` 委托）约束面向模型的结果；`tools/ptc-dispatch-log` 监听器约束每个 `run_code` 子调用的持久日志副本。两者共享同一个替换辅助函数，因此两个投影字节一致。post-execute 分支跳过 `read` 以避免 read → spill → read 循环；dispatch-log 分支约束 `read` 子调用，因为日志副本不是模型上下文。
+`tools/post-execute` waterfall（瀑布式事件）监听器（以 `prepend` 注册、通过 `next()` 委托）约束面向模型的结果；`tools/ptc-dispatch-log` 监听器约束每个 `run_code` 子调用的持久日志副本。两者共享同一个替换辅助函数，因此两个投影字节一致。post-execute 分支跳过 `read` 以避免 read → spill → read 循环，也跳过 `glob`/`grep` 因为两者已经 spill 各自设界的结果；dispatch-log 分支约束 `read` 子调用，因为日志副本不是模型上下文。
 
 <a id="shared-notice-ownership"></a>
 ### 共享通知的所有权
@@ -127,7 +127,7 @@ kind: "package-reference"
 
 #### 模型看到什么
 
-不超过 `maxInlineBytes` 的结果、嵌套结果、`read` 结果、被阻止的决策与包含非文本块的结果保持不变。过大的纯文本面向模型结果会变成有界的首尾预览，后面附加 `(Omitted <bytes> bytes. Full formatted result stored at: <locator>. <retrievalHint>)`；存储或归属失败时原始结果仍然可见。
+不超过 `maxInlineBytes` 的结果、嵌套结果、`read` 结果、`glob`/`grep` 结果、被阻止的决策与包含非文本块的结果保持不变。过大的纯文本面向模型结果会变成有界的首尾预览，后面附加 `(Omitted <bytes> bytes. Full formatted result stored at: <locator>. <retrievalHint>)`；存储或归属失败时原始结果仍然可见。
 
 #### Token 影响
 
@@ -145,7 +145,7 @@ kind: "package-reference"
 这些限制说明策略在哪些情况下无法提供帮助。它们是当前的包约束。
 
 - **文本识别无法认证输出来源**——工具也能打印相同的通知文本；`hasSpillNotice` 识别的是文本约定，不能证明策略保存过结果。
-- **只能对最终纯文本结果执行 spill**——混合内容结果、阻止反馈与 `read` 会原样通过；此前已经发生的提供方截断或工具自有保留无法在此恢复。
+- **只能对最终纯文本结果执行 spill**——混合内容结果、阻止反馈、`read` 与自带 spill 的 `glob`/`grep` 会原样通过；此前已经发生的提供方截断或工具自有保留无法在此恢复。
 - **通知无法容纳时会禁用该次调用的替换**——上限极小或定位信息很长时，后端已经保存了无引用的 spill，但过大的原始结果仍留在内联位置。
 
 <a id="dev-note"></a>
@@ -158,7 +158,7 @@ kind: "package-reference"
 
 #### 未来：逐工具配置
 
-逐工具选择退出或逐工具策略声明仍然延期；内置的 `read` 跳过已覆盖已知循环，第二个真实工具需求才能证明配置的合理性。
+逐工具选择退出或逐工具策略声明仍然延期；内置的 `read`、`glob` 与 `grep` 跳过已覆盖已知循环与自带 spill 的工具，第二个真实工具需求才能证明配置的合理性。
 
 #### 未来：更早的 spill
 

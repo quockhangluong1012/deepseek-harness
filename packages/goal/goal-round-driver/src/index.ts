@@ -327,7 +327,9 @@ export function apply(ctx: Context): void {
           }
           return
         case 'turn/end':
-          if (event.data.reason.kind === 'max-tokens') {
+          // A ceiling ended the round's turn: driving on would re-enter the
+          // same bound, so the driver stands down like it does for max-tokens.
+          if (event.data.reason.kind === 'max-tokens' || event.data.reason.kind === 'max-steps') {
             disarm(state)
             return
           }

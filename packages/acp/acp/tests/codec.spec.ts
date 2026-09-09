@@ -6,6 +6,7 @@ describe('ACP codec', () => {
   it.each([
     [{ kind: 'completed' }, 'end_turn'],
     [{ kind: 'max-tokens' }, 'max_tokens'],
+    [{ kind: 'max-steps' }, 'max_turn_requests'],
     [{ kind: 'aborted', reason: { kind: 'user' } }, 'end_turn'],
     [{ kind: 'interrupted' }, 'cancelled'],
     [{ kind: 'blocked' }, 'end_turn'],

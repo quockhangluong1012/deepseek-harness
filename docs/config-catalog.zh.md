@@ -69,7 +69,15 @@ export interface Config {
   /** Maximum UTF-8 bytes read from one instruction file; larger files are ignored. */
   maxSourceBytes?: number
   /**
-   * Ordered same-directory project candidates; every existing file loads, with
+   * Maximum UTF-8 bytes read across one baseline load or reconciliation batch;
+   * files past the remaining budget are skipped once the earlier files exhaust
+   * it. Eight per-file caps cover the user-global file plus a typical project
+   * ancestor chain while keeping a pathological checkout's total read bounded.
+   */
+  maxTotalSourceBytes?: number
+  /**
+   * Ordered same-directory project candidates; every existing file loads, except
+   * a `CLAUDE*` fallback skipped when its `AGENTS*` sibling exists, with
    * per-directory trimmed-content duplicates collapsed to the earliest candidate.
    */
   instructionFileCandidates?: string[]
@@ -81,7 +89,7 @@ export interface Config {
 }
 ```
 
-来源：[`packages/context/agent-instructions/src/config.ts:18`](../packages/context/agent-instructions/src/config.ts)
+来源：[`packages/context/agent-instructions/src/config.ts:19`](../packages/context/agent-instructions/src/config.ts)
 
 <a id="deepseek-aidsh-agent-loop"></a>
 
@@ -97,6 +105,18 @@ export interface Config {
    * omission defaults to {@link DEFAULT_MAX_PARALLEL_TOOL_CALLS}.
    */
   maxParallelToolCalls?: number
+  /**
+   * Maximum entered steps per agent turn. A turn that would run past the
+   * ceiling ends `max-steps` instead of running unbounded; omission defaults
+   * to {@link DEFAULT_MAX_STEPS}.
+   */
+  maxSteps?: number
+  /**
+   * Maximum honored `agent/request-error` retries per step. A recovery past
+   * the ceiling stays terminal; omission defaults to
+   * {@link DEFAULT_MAX_REQUEST_RETRIES}. `0` disables request recovery.
+   */
+  maxRequestRetries?: number
   /** Agents created or resumed at plugin startup. */
   agents: (AgentOptions & {
     /** Stable config label used in logs and as the fresh combined-id prefix. */
@@ -113,7 +133,7 @@ export interface Config {
 
 依赖：[`AgentOptions`](subsystems/core.zh.md) · [`SessionId`](subsystems/core.zh.md)
 
-来源：[`packages/core/agent-loop/src/index.ts:318`](../packages/core/agent-loop/src/index.ts)
+来源：[`packages/core/agent-loop/src/index.ts:330`](../packages/core/agent-loop/src/index.ts)
 
 <a id="deepseek-aidsh-agent-presets"></a>
 
@@ -1614,6 +1634,12 @@ export interface Config {
    * sandbox and approval defaults is used.
    */
   defaultPreset?: string
+  /**
+   * Tool names gated behind an approval ask. Exact names match exactly; a
+   * trailing `*` matches a name prefix (`mcp__*`). Defaults to
+   * {@link DEFAULT_APPROVAL_TOOLS}.
+   */
+  approvalTools?: string[]
 }
 
 /** One preset's sandbox/approval bundle and optional client presentation. */
@@ -2607,7 +2633,7 @@ export interface Config {
 }
 ```
 
-来源：[`packages/core/system-prompt/src/index.ts:242`](../packages/core/system-prompt/src/index.ts)
+来源：[`packages/core/system-prompt/src/index.ts:243`](../packages/core/system-prompt/src/index.ts)
 
 <a id="deepseek-aidsh-terminal-bash"></a>
 
@@ -2743,6 +2769,26 @@ export interface Config {
 ```
 
 来源：[`packages/shell/tool-bash-persistent/src/index.ts:432`](../packages/shell/tool-bash-persistent/src/index.ts)
+
+<a id="deepseek-aidsh-tool-call-timeout-policy"></a>
+
+## `@deepseek-ai/dsh-tool-call-timeout-policy`
+
+需要：`tools`
+
+```ts config-catalog
+/**
+ * Plugin configuration. `defaultTimeoutMs` bounds every tool that omits its
+ * own `timeoutMs` so absence is bounded rather than unbounded; per-tool
+ * declarations remain overrides.
+ */
+export interface Config {
+  /** Fallback deadline in milliseconds applied when a tool declares none. */
+  defaultTimeoutMs?: number
+}
+```
+
+来源：[`packages/guard/timeout-policy/src/index.ts:40`](../packages/guard/timeout-policy/src/index.ts)
 
 <a id="deepseek-aidsh-tool-fs"></a>
 
@@ -2976,12 +3022,18 @@ export interface Config {
 export interface Config {
   /** Maximum returned view characters before clipping (default 16000). */
   maxOutputChars?: number
+  /** Maximum file bytes buffered by view/str_replace/insert before refusing with guidance. */
+  maxFileBytes?: number
+  /** Maximum entries listed by one directory view. */
+  maxListEntries?: number
+  /** Maximum search-string bytes accepted by str_replace. */
+  maxSearchBytes?: number
   /** Model-facing tool description. */
   description?: string
 }
 ```
 
-来源：[`packages/fs/tool-str-replace-editor/src/index.ts:505`](../packages/fs/tool-str-replace-editor/src/index.ts)
+来源：[`packages/fs/tool-str-replace-editor/src/index.ts:530`](../packages/fs/tool-str-replace-editor/src/index.ts)
 
 <a id="deepseek-aidsh-tool-subagent"></a>
 
@@ -3046,12 +3098,18 @@ export interface Config {
    * budget belongs to the child runtime or its own deployment.
    */
   maxDepth?: number | 'provider-managed'
+  /**
+   * Maximum chars of child partial output included in a parent-facing
+   * failure. Failures must preserve evidence without blowing the parent
+   * context.
+   */
+  maxPartialTextChars?: number
 }
 ```
 
 依赖：[`AgentOptions`](subsystems/core.zh.md)
 
-来源：[`packages/subagent/tool-subagent/src/index.ts:48`](../packages/subagent/tool-subagent/src/index.ts)
+来源：[`packages/subagent/tool-subagent/src/index.ts:54`](../packages/subagent/tool-subagent/src/index.ts)
 
 <a id="deepseek-aidsh-tool-terminal"></a>
 
@@ -3088,10 +3146,14 @@ export interface Config {
    * rejected.
    */
   allowParallelInProgress: boolean
+  /** Maximum todos accepted in one whole-list replacement. */
+  maxTodos?: number
+  /** Maximum UTF-16 chars accepted per todo content. */
+  maxTodoContentChars?: number
 }
 ```
 
-来源：[`packages/todo/tool-todo/src/index.ts:29`](../packages/todo/tool-todo/src/index.ts)
+来源：[`packages/todo/tool-todo/src/index.ts:34`](../packages/todo/tool-todo/src/index.ts)
 
 <a id="deepseek-aidsh-tool-web"></a>
 
@@ -3116,6 +3178,10 @@ export interface Config {
   searchTimeoutMs?: number
   /** Cap on source characters converted and complete `web_fetch` output characters. Defaults to 200000. */
   fetchMaxOutputChars?: number
+  /** Upper bound on snippet characters kept per `web_search` source. Defaults to 500. */
+  searchSnippetMaxChars?: number
+  /** Upper bound on provider-answer characters kept per `web_search` result. Defaults to 4000. */
+  searchContentMaxChars?: number
 }
 ```
 
@@ -3503,7 +3569,6 @@ export interface Config {
 - `@deepseek-ai/dsh-subprocess-local`（[`packages/subprocess/subprocess-local/src/index.ts`](../packages/subprocess/subprocess-local/src/index.ts)）
 - `@deepseek-ai/dsh-terminal`（[`packages/terminal/terminal/src/index.ts`](../packages/terminal/terminal/src/index.ts)）
 - `@deepseek-ai/dsh-tool-ask-user` — 需要 `tools` · `userInteraction`（[`packages/interaction/tool-ask-user/src/index.ts`](../packages/interaction/tool-ask-user/src/index.ts)）
-- `@deepseek-ai/dsh-tool-call-timeout-policy` — 需要 `tools`（[`packages/guard/timeout-policy/src/index.ts`](../packages/guard/timeout-policy/src/index.ts)）
 - `@deepseek-ai/dsh-tool-cordis` — 需要 `tools` · `systemPrompt` · `dynamicCordisRunner` · `cordisInspect`（[`packages/extensions/tool-cordis/src/index.ts`](../packages/extensions/tool-cordis/src/index.ts)）
 - `@deepseek-ai/dsh-tool-subagent-control` — 需要 `tools` · `subagents`（[`packages/subagent/tool-subagent-control/src/index.ts`](../packages/subagent/tool-subagent-control/src/index.ts)）
 - `@deepseek-ai/dsh-user-questions`（[`packages/interaction/user-questions/src/index.ts`](../packages/interaction/user-questions/src/index.ts)）

@@ -128,6 +128,7 @@ describe('session-query semantic extraction', () => {
       [{ kind: 'aborted', reason: { kind: 'user' } }, 'aborted'],
       [{ kind: 'aborted', reason: { kind: 'disposed' } }, 'aborted'],
       [{ kind: 'max-tokens' }, 'max-tokens'],
+      [{ kind: 'max-steps' }, 'max-steps'],
       [{ kind: 'interrupted' }, 'interrupted'],
       [{ kind: 'completed' }, ''],
       [{ kind: 'future-status' } as never, ''],

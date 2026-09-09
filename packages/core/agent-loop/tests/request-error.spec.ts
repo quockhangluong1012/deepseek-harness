@@ -10,7 +10,7 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import { MockAdapter, textResponse } from './mock-adapter.ts'
 
-async function harness(adapter: MockAdapter): Promise<Context> {
+async function harness(adapter: MockAdapter, loopConfig: Record<string, unknown> = {}): Promise<Context> {
   const ctx = new Context()
   await ctx.plugin(LlmRuntime)
   await ctx.plugin(SessionStore)
@@ -18,7 +18,7 @@ async function harness(adapter: MockAdapter): Promise<Context> {
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
   await ctx.plugin(AgentRegistry)
-  await ctx.plugin(AgentLoop, { agents: [] })
+  await ctx.plugin(AgentLoop, { agents: [], ...loopConfig })
   ctx.llm.registerAdapter(['mock'], adapter)
   return ctx
 }
@@ -142,5 +142,65 @@ describe('agent/request-error', () => {
       type: 'turn/end',
       data: { reason: { kind: 'error' } },
     })
+  })
+
+  it('leaves a past-ceiling recovery terminal so an always-retry listener cannot loop forever', async () => {
+    const script = Array.from({ length: 12 }, () => fail('busy', 'RATE_LIMIT'))
+    const adapter = new MockAdapter(script)
+    const ctx = await harness(adapter)
+    const agent = await ctx.agentLoop.create(SessionId('request-error-ceiling'), { provider: 'mock', model: 'mock' })
+    ctx.on('agent/request-error', async () => ({ kind: 'retry' as const }))
+
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
+    await agent.whenIdle()
+
+    expect(ctx.agentLoop.config.maxRequestRetries).toBe(10)
+    expect(adapter.requests).toHaveLength(11)
+    expect(agent.session.snapshotEvents().filter(event => event.type === 'assistant/attempt')).toHaveLength(11)
+    expect(agent.session.snapshotEvents().find(event => event.type === 'turn/end')).toMatchObject({
+      type: 'turn/end',
+      data: { reason: { kind: 'error', error: { code: 'RATE_LIMIT' } } },
+    })
+  })
+
+  it('honors a smaller configured retry ceiling', async () => {
+    const script = Array.from({ length: 5 }, () => fail('busy', 'RATE_LIMIT'))
+    const adapter = new MockAdapter(script)
+    const ctx = await harness(adapter, { maxRequestRetries: 2 })
+    const agent = await ctx.agentLoop.create(SessionId('request-error-small-ceiling'), { provider: 'mock', model: 'mock' })
+    ctx.on('agent/request-error', async () => ({ kind: 'retry' as const }))
+
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
+    await agent.whenIdle()
+
+    expect(adapter.requests).toHaveLength(3)
+    expect(agent.session.snapshotEvents().find(event => event.type === 'turn/end')).toMatchObject({
+      type: 'turn/end',
+      data: { reason: { kind: 'error', error: { code: 'RATE_LIMIT' } } },
+    })
+  })
+
+  it('disables request recovery when the ceiling is zero', async () => {
+    const adapter = new MockAdapter([fail('busy', 'RATE_LIMIT'), textResponse('unused')])
+    const ctx = await harness(adapter, { maxRequestRetries: 0 })
+    const agent = await ctx.agentLoop.create(SessionId('request-error-zero-ceiling'), { provider: 'mock', model: 'mock' })
+    ctx.on('agent/request-error', async () => ({ kind: 'retry' as const }))
+
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
+    await agent.whenIdle()
+
+    expect(adapter.requests).toHaveLength(1)
+    expect(agent.session.snapshotEvents().find(event => event.type === 'turn/end')).toMatchObject({
+      type: 'turn/end',
+      data: { reason: { kind: 'error', error: { code: 'RATE_LIMIT' } } },
+    })
+  })
+
+  it('rejects a negative or fractional retry ceiling at load', async () => {
+    // Direct construction bypasses the config schema, so the resolver owns the message.
+    expect(() => new AgentLoop(new Context(), { agents: [], maxRequestRetries: -1 }))
+      .toThrow('maxRequestRetries must be a non-negative integer')
+    expect(() => new AgentLoop(new Context(), { agents: [], maxRequestRetries: 1.5 }))
+      .toThrow('maxRequestRetries must be a non-negative integer')
   })
 })

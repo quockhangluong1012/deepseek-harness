@@ -376,6 +376,8 @@
 
     - id: timeout-policy
       name: '@deepseek-ai/dsh-tool-call-timeout-policy'
+      config:
+        defaultTimeoutMs: 120000
 
     - id: spill-local
       name: '@deepseek-ai/dsh-spill-local'

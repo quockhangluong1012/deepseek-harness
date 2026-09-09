@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-一个 `dsh` 进程服务多个会话，但决定 agent（智能体）究竟是什么的那套组装——它的工具、人设、提示词段落、委派后端——由启动器所引导的 `cordis.yml` 一次性固定给整个进程。若某个部署希望一个 benchmark 精简 agent 与一个完整编码 agent 并存，就必须跑两个进程；而现有的变通方案（`apps/cli/config/minimal.cordis.yml`，一个用来禁用工具行的 `--config` 覆盖层）会一次性改变所有会话。
+一个 `dsh` 进程服务多个会话，但决定 agent（智能体）究竟是什么的那套组装——它的工具、人设、提示词段落、委派后端——由启动器所引导的 `cordis.yml` 一次性固定给整个进程。若某个部署希望一个 benchmark 精简 agent 与一个完整编码 agent 并存，就必须跑两个进程；而现有的变通方案（一个用来禁用工具行的 `--config` 覆盖层）会一次性改变所有会话。
 
 对"让会话自选组装"最直觉的理解，是 loader 需要新增一层。其实不需要。[`dsh-tools`](../../../../packages/core/tools/README.zh.md) 与 [`dsh-system-prompt`](../../../../packages/core/system-prompt/README.zh.md) 本就按调用方上下文的 scope 分层归档注册，而且 [agent 本身就是一个注册 scope](2026-07-08-agent-scope-contexts.zh.md)。此前缺的只是一种把整份 `cordis.yml` 指向某一个 agent scope 的办法。
 

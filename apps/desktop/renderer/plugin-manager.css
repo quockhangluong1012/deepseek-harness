@@ -95,6 +95,7 @@ li {
   justify-content: space-between;
   padding: 12px 0;
   border-bottom: 1px solid ButtonBorder;
+  flex-wrap: wrap;
 }
 
 .package-version {
@@ -105,4 +106,19 @@ li {
 .package-actions {
   display: flex;
   gap: 8px;
+}
+
+.update-editor {
+  flex-basis: 100%;
+  margin-top: 8px;
+}
+
+.update-editor label {
+  font-weight: 400;
+  color: GrayText;
+}
+
+#dev-notice {
+  margin-top: 16px;
+  color: GrayText;
 }

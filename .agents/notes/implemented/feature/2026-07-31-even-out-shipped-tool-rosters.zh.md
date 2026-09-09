@@ -34,11 +34,9 @@ Status: implemented
 
 ## 测试
 
-`apps/cli/tests/shipped-composition.e2e.ts` 曾在伪终端中通过真实 Loader 启动交付树，并从会话日志持久化的 `request/header` 中读出工具名，因此断言的是模型实际收到的目录。它传入的 `--config` overlay `composition-keyless-tail.cordis.yml` 只用于测试隔离：一个无网络适配器，以及落在工作区内的会话产物。
+`apps/cli/tests/profiles/headless/tests/keyless-smoke.e2e.ts` 从持久化的 `request/header` 中读出工具名，并断言固定的 CLI 成员（`read`、`write`、`edit`、`web_fetch`、`web_search`），同时排除 `str_replace_editor`，因此断言的仍是模型实际收到的目录。已退役 PTY 冒烟的 settle 激活标记随之退出：headless 运行没有与工具激活竞速的 TUI fiber。
 
-该尾部还曾插入 `composition-settled.ts`，用于在终端字节流上宣告 Loader 激活已 settle。TUI 在自己的 fiber 一启动就渲染，因此在 banner 处敲下的提示词可能在工具行与持久化仍在激活时就抵达循环，从而组装出不完整的目录；把冒烟的首个提示词 gate 在该标记上，正是断言得以确定的原因。
-
-同一份冒烟还根据同一份产物固定 TUI 的执行姿态。那些沙箱 schema 与初始权限断言归[workspace-write 默认值决策](../../archived/feature/2026-07-31-workspace-write-surface-default.md)所有，独立于本工具清单决策。
+沙箱 schema 与初始权限断言归[workspace-write 默认值决策](../../archived/feature/2026-07-31-workspace-write-surface-default.md)所有，独立于本工具清单决策。
 
 [`apps/web/tests/shipped-composition.e2e.ts`](../../../../apps/web/tests/shipped-composition.e2e.ts) 在构建产物 lane 中覆盖 Web surface,断言它的工具目录、它的访问默认值未被触碰,以及 `workspace-write` 的可写根包含临时目录——一个会让沙箱测试说谎的陷阱,当工作区落在 `/tmp` 下时([`roots.ts`](../../../../packages/sandbox/sandbox/src/roots.ts))。
 

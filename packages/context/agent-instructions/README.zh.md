@@ -51,6 +51,7 @@ export interface Config {
   projectRootMarkers?: string[]
   maxBytes: number
   maxSourceBytes?: number
+  maxTotalSourceBytes?: number
   instructionFileCandidates?: string[]
   localInstructionFileCandidates?: string[]
 }
@@ -60,6 +61,7 @@ export interface Config {
 |---|---|---|
 | `maxBytes` | 必填 | 完整渲染基线消息的上限，单位为字节 |
 | `maxSourceBytes` | `1048576` | 渲染前单个源指令文件的上限 |
+| `maxTotalSourceBytes` | `8388608` | 一次基线加载或刷新批次读取所有源指令文件的上限；靠前的文件耗尽预算后，靠后的文件会被跳过 |
 | `projectRootMarkers` | `['.git']` | 标记项目根目录的目录名 |
 | `instructionFileCandidates` | `['AGENTS.md', 'CLAUDE.md']` | 每个项目目录中加载的基础文件名 |
 | `localInstructionFileCandidates` | `['AGENTS.local.md', 'CLAUDE.local.md']` | 在基础文件之后加载的本地 overlay 文件名 |
@@ -70,6 +72,8 @@ export interface Config {
 ### 观察预算
 
 渲染会优先保留最具体的文件：先丢弃完整的较宽泛文件，再截断最具体的文件，并发出可见的 `Workspace instruction budget ...` 通知，指名被省略与被截断的路径。渲染后的字节数绝不超过 `maxBytes`。超出预算的宽泛文件会被忽略；刷新期间它被视为暂时不可用，而非被移除。
+
+读取在渲染开始前就已受限。每个源文件受 `maxSourceBytes` 限制，一次基线加载或刷新批次在所有文件上至多读取 `maxTotalSourceBytes`——先读宽泛文件，因此异常庞大的 checkout 不会让启动时的读取无界。被任一读取上限跳过的文件会出现在加载结果中，并以 `workspace instruction source skipped (over-source-cap|over-total-budget): <path>` 记录到日志，而不会被静默忽略。
 
 -----
 

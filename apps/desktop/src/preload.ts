@@ -15,6 +15,7 @@ const api: DshDesktopApi = {
   updates: {
     check: () => ipcRenderer.invoke(DESKTOP_IPC.updatesCheck) as Promise<DesktopUpdateState>,
     install: () => ipcRenderer.invoke(DESKTOP_IPC.updatesInstall) as Promise<void>,
+    version: () => ipcRenderer.invoke(DESKTOP_IPC.updatesVersion) as Promise<string>,
     subscribe(listener) {
       const handle = (_event: Electron.IpcRendererEvent, state: DesktopUpdateState): void => { listener(state) }
       ipcRenderer.on(DESKTOP_IPC.updatesState, handle)

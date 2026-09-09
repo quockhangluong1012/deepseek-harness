@@ -1,0 +1,5 @@
+{
+  "packages/web/tool-web/src/fetch.ts": {
+    "MAX_CONVERSION_DEPTH": "HTML-to-text parser recursion bound: an external algorithm invariant, not a deployment choice."
+  }
+}

@@ -259,6 +259,13 @@ export interface TranslationPairingCliRequest {
   scope: 'corpus' | 'pairs'
   /** English anchor paths, empty for corpus scope. */
   anchors: string[]
+  /**
+   * Drop named anchors that are out of scope or manifest-excluded instead of
+   * rejecting them. A pre-commit hook passes whatever Markdown is staged, so
+   * it cannot pre-filter to the pairing corpus; an interactive caller naming a
+   * pair by hand still gets the loud rejection.
+   */
+  sweep: boolean
 }
 
 /**
@@ -267,7 +274,9 @@ export interface TranslationPairingCliRequest {
  * Check accepts optional pair paths; `--write` requires either pair paths or
  * `--all` so a bulk re-record is always an explicit choice — a bare
  * `--write` would silently bless every drifted pair in the tree, including
- * ones the caller never confirmed. `--list` is corpus-only.
+ * ones the caller never confirmed. `--list` is corpus-only. `--sweep` marks a
+ * caller that passes unfiltered paths, so out-of-scope names are dropped
+ * rather than rejected.
  *
  * @param argv - Arguments after the script name.
  * @returns The validated request.
@@ -276,15 +285,18 @@ export interface TranslationPairingCliRequest {
 export function parseTranslationPairingCliArgs(argv: string[]): TranslationPairingCliRequest {
   const flags = argv.filter(argument => argument.startsWith('--'))
   const anchors = [...new Set(argv.filter(argument => !argument.startsWith('--')).map(pairAnchorOfArgument))].sort()
-  const unknown = flags.filter(flag => !['--list', '--write', '--all', '--cached'].includes(flag))
+  const unknown = flags.filter(flag => !['--list', '--write', '--all', '--cached', '--sweep'].includes(flag))
   if (unknown.length > 0) throw new Error(`unknown flag(s): ${unknown.join(', ')}`)
   const listMode = flags.includes('--list')
   const writeMode = flags.includes('--write')
   const allMode = flags.includes('--all')
   const cachedMode = flags.includes('--cached')
-  if (listMode && (writeMode || allMode || cachedMode || anchors.length > 0)) {
+  const sweepMode = flags.includes('--sweep')
+  if (listMode && (writeMode || allMode || cachedMode || sweepMode || anchors.length > 0)) {
     throw new Error('--list reports the whole corpus and takes no other flags or paths')
   }
+  if (sweepMode && writeMode) throw new Error('--sweep is a read-only filter for hook sweeps and cannot be combined with --write')
+  if (sweepMode && anchors.length === 0) throw new Error('--sweep filters the paths it is given; pass the swept paths')
   if (allMode && !writeMode) throw new Error('--all only applies to --write')
   if (cachedMode && writeMode) throw new Error('--cached is a read-only index check and cannot be combined with --write')
   if (cachedMode && anchors.length === 0) throw new Error('--cached requires the staged pair paths to check')
@@ -293,14 +305,15 @@ export function parseTranslationPairingCliArgs(argv: string[]): TranslationPairi
     if (anchors.length === 0 && !allMode) {
       throw new Error('--write requires the pair(s) you confirmed (any file of a pair), or --all to re-record every complete pair; recording pairs you did not review blesses unconfirmed content')
     }
-    return { input: 'worktree', mode: 'write', scope: allMode ? 'corpus' : 'pairs', anchors }
+    return { input: 'worktree', mode: 'write', scope: allMode ? 'corpus' : 'pairs', anchors, sweep: false }
   }
-  if (listMode) return { input: 'worktree', mode: 'list', scope: 'corpus', anchors: [] }
+  if (listMode) return { input: 'worktree', mode: 'list', scope: 'corpus', anchors: [], sweep: false }
   return {
     input: cachedMode ? 'index' : 'worktree',
     mode: 'check',
     scope: anchors.length > 0 ? 'pairs' : 'corpus',
     anchors,
+    sweep: sweepMode,
   }
 }
 

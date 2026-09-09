@@ -51,6 +51,7 @@ Load the subagent service, an in-process or remote backend, and this tool; then 
 | `persona` | — | Per-child persona; requires the provider's `persona` capability |
 | `toolFilter` | — | Per-child global-tool restriction; requires the `toolFilter` capability |
 | `maxDepth` | `3` | Absolute delegation-depth cap (`0` forbids delegation); `'provider-managed'` sends no cap to an out-of-process provider |
+| `maxPartialTextChars` | `8000` | Maximum chars of child partial output included in a parent-facing failure |
 
 The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-tool-subagent) is the exhaustive source for every accepted field and its JSDoc.
 
@@ -177,7 +178,7 @@ Prefix-stable while the section text and tool presence are unchanged; removing t
 
 #### What the model sees
 
-The call retains the description and prompt. Success contains only the child's final text; when `output_schema` was supplied, the validated structured value follows as `Structured result: <json>`. Other outcomes become `Error: <stop reason>`, followed by a safe provider diagnostic when present and then any partial assistant text (capped at 8000 chars). Intermediate child steps stay out of the parent.
+The call retains the description and prompt. Success contains only the child's final text; when `output_schema` was supplied, the validated structured value follows as `Structured result: <json>`. Other outcomes become `Error: <stop reason>`, followed by a safe provider diagnostic when present and then any partial assistant text (capped at `maxPartialTextChars`, default 8000 chars). Intermediate child steps stay out of the parent.
 
 #### Token effect
 

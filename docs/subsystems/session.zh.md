@@ -639,6 +639,12 @@ interface TurnEndReasonMap {
   /** At least one step reached its output-token ceiling, even if a plugin continued the turn. */
   'max-tokens': { kind: 'max-tokens' }
   /**
+   * The turn entered more steps than the agent-loop `maxSteps` ceiling, even
+   * if a plugin steered it further. Like `max-tokens`, the first ceiling hit
+   * owns the turn outcome; a later step must not downgrade it.
+   */
+  'max-steps': { kind: 'max-steps' }
+  /**
    * A crash-orphaned turn was closed after the fact: agent-loop resume appends
    * this closer for a stored log whose last turn never ended, and session-query
    * synthesizes it on cold reads. The loop never emits this marker live, and
@@ -648,7 +654,7 @@ interface TurnEndReasonMap {
 }
 ```
 
-`max-tokens` 与模型调用中同名的 `FinishReason` 对应：只要轮次内有任何步骤以 `max-tokens` 结束，整个轮次就以 `max-tokens` 而不是 `completed` 结束（即使之后继续执行，截断事实仍优先），让消费方能够区分正常停止和截断停止。取消和错误仍是不同的结果。`interrupted` 是唯一不会由任何 loop 发出的原因：它由崩溃恢复合成（见 [persistence.md](persistence.zh.md)）。该 map 可通过合并扩展。
+`max-tokens` 与模型调用中同名的 `FinishReason` 对应：只要轮次内有任何步骤以 `max-tokens` 结束，整个轮次就以 `max-tokens` 而不是 `completed` 结束（即使之后继续执行，截断事实仍优先），让消费方能够区分正常停止和截断停止。`max-steps` 是循环自身的工作上限：轮次将进入的步骤超过 `maxSteps` 上限时，即使某次 steer 排入了更多工作，轮次仍以 `max-steps` 结束，首次触顶决定轮次结果。取消和错误仍是不同的结果。`interrupted` 是唯一不会由任何 loop 发出的原因：它由崩溃恢复合成（见 [persistence.md](persistence.zh.md)）。该 map 可通过合并扩展。
 
 ## 执行封闭与独立事件
 

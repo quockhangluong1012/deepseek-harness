@@ -212,6 +212,12 @@ export interface TurnEndReasonMap {
   /** At least one step reached its output-token ceiling, even if a plugin continued the turn. */
   'max-tokens': { kind: 'max-tokens' }
   /**
+   * The turn entered more steps than the agent-loop `maxSteps` ceiling, even
+   * if a plugin steered it further. Like `max-tokens`, the first ceiling hit
+   * owns the turn outcome; a later step must not downgrade it.
+   */
+  'max-steps': { kind: 'max-steps' }
+  /**
    * A crash-orphaned turn was closed after the fact: agent-loop resume appends
    * this closer for a stored log whose last turn never ended, and session-query
    * synthesizes it on cold reads. The loop never emits this marker live, and

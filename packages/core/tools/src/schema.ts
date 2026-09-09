@@ -97,7 +97,7 @@ export type ValueSchemaSpec =
 export type ParameterPropertySpec = ValueSchemaSpec & { required?: true }
 
 /**
- * Tool parameter schema. The map itself is an implicit open object root;
+ * Tool parameter schema. The map itself is an implicit closed object root;
  * requiredness remains a per-property `required: true` annotation.
  */
 export type ParameterSchemaSpec = {
@@ -442,15 +442,19 @@ export function valueSchemaSpecToJsonSchema(spec: ValueSchemaSpec): JsonSchemaNo
 }
 
 /**
- * Compile the implicit open parameter object into raw JSON Schema.
+ * Compile the implicit parameter object into raw JSON Schema. The root is
+ * closed (`additionalProperties: false`) so undeclared model keys fail
+ * validation instead of passing silently; nested openness still requires an
+ * explicit per-object decision.
  * @param spec - per-property parameter definitions.
- * @returns An object-rooted raw schema with no implicit-root openness override.
+ * @returns An object-rooted raw schema with a closed parameter root.
  */
 export function parameterSchemaSpecToJsonSchema(spec: ParameterSchemaSpec): ParameterJsonSchema {
   const compiled = compilePropertyMap(spec, 'parameters')
   const schema: ParameterJsonSchema = {
     type: 'object',
     properties: compiled.properties,
+    additionalProperties: false,
     ...(compiled.required === undefined ? {} : { required: compiled.required }),
   }
   assertSupportedJsonSchema(schema)
@@ -485,7 +489,7 @@ export interface DefineToolOptions<S extends ParameterSchemaSpec, O extends Valu
   readonly name: string
   /** Human-readable description sent to the model. */
   readonly description: string
-  /** Per-property parameter schema compiled to an implicit open object root. */
+  /** Per-property parameter schema compiled to an implicit closed object root. */
   readonly parameters: S
   /** Canonical output schema plus pure Native and presentation projections. */
   readonly output: {

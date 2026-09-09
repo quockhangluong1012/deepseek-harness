@@ -1,29 +1,29 @@
-# Agent Note: Wire-level cancel cho SDK JSON-RPC request
+# Agent Note: SDK JSON-RPC 请求的线级取消
 
 Status: proposed
 
-English | [中文](2026-09-09-sdk-wire-cancel.zh.md)
+[English](2026-09-09-sdk-wire-cancel.md) | 中文
 
 ## Problem
 
-Timeout của SDK client hiện chỉ là abandonment: transport xóa pending entry trong khi server vẫn chạy request cho tới khi runtime đóng. Caller timeout một turn dài không có cách reclaim work server-side nếu không xé toàn bộ runtime, và late result của prompt đã timeout vẫn mutate session state mà caller đã từ bỏ.
+SDK 客户端超时只是抛弃：传输层丢掉未完成的条目，而服务器会把请求一直运行到 runtime 关闭。给长 turn 设置超时的调用方，不拆掉整个 runtime 就无法收回服务器工作；超时提示词的迟到结果还会改变调用方已经放弃的会话状态。
 
 ## Proposal
 
-Thêm cancel ở tầng protocol: client gửi notification kiểu `session/cancel` mang request id bị abandon khi per-call timeout fire, và server map nó lên abort signal của turn đang chạy. Timeout giữ semantics abandonment hiện tại cho tới khi hai bên negotiate method mới, nên cặp mixed-version degrade về behavior hôm nay. Đường abort server-side đã tồn tại cho `close`; việc mới là routing request-id cộng advertisement capability trong `initialize`.
+增加协议级取消：逐调用超时触发时，客户端发送携带被抛弃请求 id 的 `session/cancel` 风格通知，服务器把它映射到运行中 turn 的中止信号。在双方协商出新方法之前，超时保持现有抛弃语义，混合版本组合退化为今天的行为。服务器为 `close` 准备的中止路径已经存在；新增工作是请求 id 路由加 `initialize` 期间的能力通告。
 
 ## Alternatives considered
 
-**Giữ abandonment và document `close` như đường reclaim.** Thua vì xé runtime để dừng một turn hủy mọi session multiplex trên nó; chi phí tăng theo số session.
+**保留抛弃，把 `close` 记为回收路径。** 不取，因为拆掉 runtime 去停一个 turn，会连带销毁复用它的每个会话；成本随会话数增长。
 
-**Cancel bằng cách đóng rồi mở lại transport.** Thua vì reconnect không khôi phục cursor subscription durable và replay session state; cancel trúng đích rẻ hơn tái lập toàn phần.
+**关闭再重建传输来取消。** 不取，因为重连恢复不了持久订阅游标，还要重放会话状态；定点取消比重建便宜。
 
-**Deadline propagation server-side mà không có cancel method.** Thua vì chỉ client biết timeout của nó; server không thể suy abandonment từ im lặng trên stream multiplex.
+**不设取消方法，只做服务端期限传播。** 不取，因为只有客户端知道自己的超时；服务器无法从复用流上的沉默推断抛弃。
 
 ## Acceptance criteria
 
-`session/prompt` bị timeout dừng turn server-side mà không đóng runtime, late result không bao giờ commit sau khi caller đã abandon, cặp client/server mixed-version hành xử đúng như hôm nay, và protocol catalog mang method mới với version gate.
+超时的 `session/prompt` 停掉其服务器端 turn 而不关闭 runtime；迟到结果永不在调用方抛弃后提交；混合版本客户端/服务器对行为与今天完全一致；协议目录携带带版本门的新方法。
 
 ## Risks
 
-Cancel đua settlement result cần first-wins settlement ở server nếu không late result có thể half-commit; negotiation capability thêm ma trận version-skew vào test tương thích hiện tại.
+取消与结果结算竞态时，服务器需要先赢结算，否则迟到结果可能半提交；能力协商给现有兼容性测试增加版本偏差矩阵。

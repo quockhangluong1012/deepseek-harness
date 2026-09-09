@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-09-harness-reliability-and-tool-quality-fixes.md
-2026-09-09-harness-reliability-and-tool-quality-fixes.md: 224c00e84ab0c35d135f7a008c84ad78d727470f
-2026-09-09-harness-reliability-and-tool-quality-fixes.zh.md: 915214d0563e99cf1fd7069afda9c1f2f4e53588
+2026-09-09-harness-reliability-and-tool-quality-fixes.md: 16b4f96f2ae6d835e43695f8f144b5f37c4028dc
+2026-09-09-harness-reliability-and-tool-quality-fixes.zh.md: 42c4fb991e190cb2f7f636551e0b32f88bb43faf

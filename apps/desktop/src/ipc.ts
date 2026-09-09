@@ -13,6 +13,7 @@ export const DESKTOP_IPC = {
   updatesCheck: 'dsh-desktop:updates-check',
   updatesInstall: 'dsh-desktop:updates-install',
   updatesState: 'dsh-desktop:updates-state',
+  updatesVersion: 'dsh-desktop:updates-version',
 } as const
 
 /** Desktop release update state rendered by desktop-owned UI. */
@@ -20,6 +21,8 @@ export interface DesktopUpdateState {
   readonly phase: 'idle' | 'checking' | 'available' | 'installing' | 'ready' | 'error'
   readonly version?: string
   readonly message?: string
+  /** Download progress percentage while `phase` is `installing`. */
+  readonly percent?: number
 }
 
 /** Narrow bridge exposed through context isolation. */
@@ -36,5 +39,7 @@ export interface DshDesktopApi {
     check(): Promise<DesktopUpdateState>
     install(): Promise<void>
     subscribe(listener: (state: DesktopUpdateState) => void): () => void
+    /** Exact version of the running packaged shell (and its bound dsh). */
+    version(): Promise<string>
   }
 }

@@ -961,19 +961,38 @@ describe('Documentation site publication', () => {
 })
 
 describe('Git hooks', () => {
-  it('leaves frozen Agent Note sidecars to the archive verifier', () => {
+  /** Find the translation-pairing job of one lefthook hook, failing loud on drift. */
+  function pairingJob(hookName: string): Record<string, unknown> {
     const lefthook = loadWorkflow('lefthook.yml')
+    const hook = lefthook[hookName]
+    if (!isRecord(hook) || !Array.isArray(hook.jobs)) {
+      throw new TypeError(`lefthook must define ${hookName} jobs`)
+    }
+    const pairing: unknown = hook.jobs.find(
+      (job: unknown) => isRecord(job) && job.name === 'translation pairing (staged pairs)',
+    )
+    if (!isRecord(pairing)) throw new TypeError(`${hookName} must define the translation pairing job`)
+    return pairing
+  }
 
+  it('leaves frozen Agent Note sidecars to the archive verifier', () => {
     for (const hookName of ['pre-commit', 'pre-merge-commit']) {
-      const hook = lefthook[hookName]
-      if (!isRecord(hook) || !Array.isArray(hook.jobs)) {
-        throw new TypeError(`lefthook must define ${hookName} jobs`)
-      }
-      const pairing: unknown = hook.jobs.find(
-        (job: unknown) => isRecord(job) && job.name === 'translation pairing (staged records)',
-      )
+      expect(pairingJob(hookName)).toMatchObject({ exclude: ['.agents/notes/archived/**'] })
+    }
+  })
 
-      expect(pairing).toMatchObject({ exclude: ['.agents/notes/archived/**'] })
+  it('sweeps staged Markdown, not only staged pairing records', () => {
+    // The drift this hook exists to catch is introduced by editing a `.md`
+    // without bringing its counterpart and record along. Keyed on
+    // `*.i18n.yaml` alone the hook never sees that file, so it passes on the
+    // exact change it is meant to reject.
+    for (const hookName of ['pre-commit', 'pre-merge-commit']) {
+      const pairing = pairingJob(hookName)
+
+      expect(pairing.glob).toEqual(['*.md', '*.i18n.yaml'])
+      // `--sweep` is what makes the widened glob safe: a staged out-of-scope
+      // Markdown file is dropped instead of failing the commit.
+      expect(pairing.run).toContain('--cached --sweep')
     }
   })
 })

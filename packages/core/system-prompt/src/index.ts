@@ -61,7 +61,8 @@ export interface PromptSection {
   /**
    * Static text or a provider evaluated at each assembly with that assembly's
    * {@link AssembleContext}. The text may reference `{{variable}}`s — they are
-   * interpolated later, by {@link renderPrompt}.
+   * interpolated later, by {@link renderPrompt}. Write `\{{` for a literal
+   * brace pair; static text with a malformed group is rejected at registration.
    */
   readonly text: string | ((context: AssembleContext) => string)
   /**
@@ -79,7 +80,7 @@ export interface PromptContext {
   readonly name: string
   /** Contexts are joined in ascending order. */
   readonly order: number
-  /** Static text or a provider evaluated for each assembly. Empty text contributes nothing. */
+  /** Static text or provider evaluated per assembly. Empty text contributes nothing; `\{{` is literal and malformed groups throw. */
   readonly text: string | ((context: AssembleContext) => string)
 }
 
@@ -265,8 +266,8 @@ export interface Config {
 /**
  * Interpolate strict `{{variable}}` references, drop empty sections, and join
  * the rest with blank lines. Malformed, unknown, or undefined references throw;
- * a lone `{{` without any later `}}` is literal prose, and substituted values
- * are not scanned again.
+ * a lone `{{` without any later `}}` is literal prose, `\{{` renders a literal
+ * `{{`, and substituted values are not scanned again.
  * @param assembly - the assembly whose sections and variables to render.
  * @returns the rendered prompt, or `''` when all sections are empty.
  */
@@ -325,6 +326,15 @@ function interpolate(
   let result = ''
   let last = 0
   for (let open = text.indexOf('{{'); open >= 0; open = text.indexOf('{{', last)) {
+    // An odd run of backslashes escapes the pair: drop one backslash, emit a
+    // literal `{{`, and keep scanning after it (so `\{{var}}` stays literal).
+    let backslashes = 0
+    for (let i = open - 1; i >= last && text[i] === '\\'; i--) backslashes += 1
+    if (backslashes % 2 === 1) {
+      result += text.slice(last, open - 1) + '{{'
+      last = open + 2
+      continue
+    }
     const group = GROUP_AT.exec(text.slice(open))
     if (group === null) {
       // A later closing brace makes this malformed; otherwise it is literal prose.
@@ -358,6 +368,22 @@ function interpolate(
 /** One tool-schema provider stored in a prompt layer. */
 type ToolProvider = (context: AssembleContext) => ToolProviderResult
 
+/**
+ * Reject a malformed `{{...}}` group in static registration text at load.
+ * Runs the real interpolator with an accept-all variable set, so shape errors
+ * throw here with the section attribution while unknown names (which need the
+ * full registered set, unavailable until assembly) still throw at assembly.
+ * @param name - the registering section or context name for diagnostics.
+ * @param text - the static template to check.
+ * @param kind - whether a section or a context is registering.
+ */
+function validateStaticTemplate(name: string, text: string, kind: 'section' | 'context'): void {
+  const acceptAll = new Proxy<Record<string, string | undefined>>({}, {
+    getOwnPropertyDescriptor: () => ({ configurable: true, enumerable: true, value: '', writable: true }),
+    get: () => '',
+  })
+  interpolate({ name, text }, acceptAll, kind)
+}
 /** One prompt-variable provider stored in a prompt layer. */
 type VariableProvider = (context: AssembleContext) => string | undefined
 
@@ -440,7 +466,9 @@ export class SystemPrompt extends Service {
   /**
    * Register an ordered prompt section in the calling context's scope. A scoped
    * section shadows a global section with the same name; duplicates within one
-   * layer and non-finite orders throw. Registration and disposal emit
+   * layer and non-finite orders throw. Static text with a malformed `{{...}}`
+   * group throws at registration; unknown variable names throw at assembly,
+   * when the full registered set is known. Registration and disposal emit
    * `system-prompt/change`.
    * @param section - the section to register.
    * @returns the exact Cordis effect disposer.
@@ -449,6 +477,7 @@ export class SystemPrompt extends Service {
     if (!Number.isFinite(section.order)) {
       throw new TypeError(`prompt section "${section.name}" order must be a finite number`)
     }
+    if (typeof section.text === 'string') validateStaticTemplate(section.name, section.text, 'section')
     return this.layers.effect(
       this.ctx,
       layer => layer.sections.insert(section.name, section),
@@ -476,7 +505,9 @@ export class SystemPrompt extends Service {
 
   /**
    * Register ordered dynamic context in the calling context's scope. Scoped
-   * entries shadow global entries with the same name.
+   * entries shadow global entries with the same name. Static text with a
+   * malformed `{{...}}` group throws at registration; unknown variable names
+   * throw at assembly, when the full registered set is known.
    * @param context - the context contribution to register.
    * @returns the exact Cordis effect disposer.
    */
@@ -484,6 +515,7 @@ export class SystemPrompt extends Service {
     if (!Number.isFinite(context.order)) {
       throw new TypeError(`prompt context "${context.name}" order must be a finite number`)
     }
+    if (typeof context.text === 'string') validateStaticTemplate(context.name, context.text, 'context')
     return this.layers.effect(
       this.ctx,
       layer => layer.contexts.insert(context.name, context),

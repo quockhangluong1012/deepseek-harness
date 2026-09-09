@@ -49,7 +49,7 @@ kind: "package-library"
 
 <a id="the-redact-waterfall"></a>
 
-协调器复制权威事件后，每条外发记录都会立即经过 `sessionTelemetry/record` waterfall（瀑布式事件）。本包不带任何规则：未挂载监听器时，记录以捕获时的原样到达后端，因此导出数据能干净到什么程度，恰恰取决于部署方挂载了什么规则。监听器通过变换 `next()` 的返回值来堆叠；抛出异常的监听器以 fail-closed 方式拦下这一条记录。脱敏只作用于外发副本——权威会话日志永不改写。
+协调器复制权威事件后，每条外发记录都会立即经过 `sessionTelemetry/record` waterfall（瀑布式事件）。本包不带任何规则：未挂载监听器时，记录以捕获时的原样到达后端，因此导出数据能干净到什么程度，恰恰取决于部署方挂载了什么规则。监听器通过变换 `next()` 的返回值来堆叠；抛出异常的监听器以 fail-closed 方式拦下这一条记录。脱敏只作用于外发副本——权威会话日志永不改写。可选的 [`sensitive.ts`](src/sensitive.ts) 辅助函数（`scrubSensitiveValue`、`scrubSensitiveRecord`、`DEFAULT_SENSITIVE_PATTERNS`）为部署方提供一套窄幅起始规则，覆盖类 API token、bearer 凭据、AWS 访问密钥与 PEM 块；需要显式挂载，默认永不生效。
 
 -----
 
@@ -71,6 +71,7 @@ seam 建立在一个边界之上：harness 的职责止于 `emit()`。完整事�
 |---|---|
 | [`src/index.ts`](src/index.ts) | Service Definition：`SessionTelemetryBackend`/`SessionTelemetrySink` 约定、记录词汇、`session-telemetry/record` waterfall 声明 |
 | [`src/coordinator.ts`](src/coordinator.ts) | 捕获：live 监听器、生命周期本地 on-demand 回放、脱敏、handoff 游标、异常隔离 |
+| [`src/sensitive.ts`](src/sensitive.ts) | 可选的敏感值擦除辅助函数，供部署方编写脱敏规则 |
 
 ### 捕获流程
 

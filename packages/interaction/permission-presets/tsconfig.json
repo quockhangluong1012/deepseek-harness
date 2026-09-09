@@ -30,6 +30,9 @@
       "path": "../../shell/shell"
     },
     {
+      "path": "../../core/tools"
+    },
+    {
       "path": "../user-approval"
     },
     {

@@ -33,7 +33,7 @@ describe('the unified author schema DSL', () => {
       .toEqual({ oneOf: [{ type: 'string' }, { type: 'null' }] })
   })
 
-  it('keeps the implicit parameter root open while preserving explicit object openness', () => {
+  it('keeps the implicit parameter root closed while preserving explicit object openness', () => {
     expect(parameterSchemaSpecToJsonSchema({
       closed: {
         type: 'object',
@@ -44,6 +44,7 @@ describe('the unified author schema DSL', () => {
       open: { type: 'object', additionalProperties: true },
     })).toEqual({
       type: 'object',
+      additionalProperties: false,
       properties: {
         closed: {
           type: 'object',

@@ -100,6 +100,18 @@ function isExcluded(file: string): boolean {
   return isTranslationPairingManifestExcluded(file, manifest)
 }
 
+// A hook sweep names every staged Markdown path, most of which are outside the
+// pairing corpus (root and subtree `AGENTS.md`, excluded manifest entries).
+// Drop those here so the sweep checks the pairs it found and nothing else;
+// without `--sweep` an out-of-scope name still fails loud below.
+if (request.sweep) {
+  request.anchors = request.anchors.filter(anchor => isTranslationScopeFile(anchor) && !isExcluded(anchor))
+  if (request.anchors.length === 0) {
+    console.log('verify-translation-pairing: no in-scope pair among the swept paths.')
+    process.exit(0)
+  }
+}
+
 // Enumerate the scope once: the whole corpus, or exactly the named pairs'
 // three files (a named pair whose files are absent is caught by the same
 // completeness rules that cover discovered remnants).

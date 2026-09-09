@@ -18,7 +18,9 @@ import {
   probeScopeInstruction,
   readScopeInstruction,
   relativeDisplay,
+  type DroppedInstructionSource,
   type LoadedInstructionFile,
+  type SourceReadBudget,
 } from './files.ts'
 import {
   candidateScopeKey,
@@ -76,6 +78,8 @@ export interface InstructionVersionUpdate {
 export interface ReconciledInstructionContext {
   context: UserMessage
   versionUpdates: InstructionVersionUpdate[]
+  /** Scope candidates skipped by the per-file cap or the batch read budget. */
+  dropped: DroppedInstructionSource[]
 }
 
 function workspaceContextHook(text: string, changes: AgentInstructionChange[]): UserMessage {
@@ -316,6 +320,7 @@ export async function reconcileInstructionContext(
   }
   const items: ChangeRenderItem[] = []
   const versionUpdates: InstructionVersionUpdate[] = []
+  const budget: SourceReadBudget = { remaining: resolved.maxTotalSourceBytes, dropped: [] }
   const pushRemoval = (scope: string, path: string): void => {
     const change: AgentInstructionChange = { action: 'remove', scope, path }
     items.push({ change, file: { absolutePath: `removed:${scope}`, displayPath: path, content: '' } })
@@ -388,7 +393,7 @@ export async function reconcileInstructionContext(
         continue
       }
 
-      const file = await readScopeInstruction(probedFile, resolved.maxSourceBytes, fileSystem, options.signal)
+      const file = await readScopeInstruction(probedFile, resolved.maxSourceBytes, budget, fileSystem, options.signal)
       if (file === undefined) continue
       const currentDigest = instructionContentSha1(file.content)
       const trimmedDigest = trimmedInstructionDigest(file.content)
@@ -429,5 +434,6 @@ export async function reconcileInstructionContext(
   return {
     context: workspaceContextHook(rendered.text, rendered.changes),
     versionUpdates: retainedInstructionVersionUpdates(versionUpdates, rendered.changes),
+    dropped: budget.dropped,
   }
 }

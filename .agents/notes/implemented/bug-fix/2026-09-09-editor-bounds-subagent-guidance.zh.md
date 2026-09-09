@@ -1,25 +1,25 @@
-# Agent Note: Giới hạn editor và hướng dẫn text cho subagent
+# Agent Note: 编辑器边界与 subagent 文本指引
 
 Status: implemented
 
-English | [中文](2026-09-09-editor-bounds-subagent-guidance.zh.md)
+[English](2026-09-09-editor-bounds-subagent-guidance.md) | 中文
 
 ## Problem
 
-`str_replace_editor` buffer toàn bộ file trước khi cắt ngắn, nên file gigabyte có thể cạn memory trước khi cap view 16k-char áp dụng, view thư mục không có visited set hay cap entry, và `str_replace` chấp nhận `old_str` không giới hạn cho scan O(n*m). Wording delegation của subagent không nói với model rằng chỉ text của child tới được conversation parent, nên output image hay file-handle lặng lẽ thành text rỗng.
+`str_replace_editor` 先缓冲整个文件再截断，GB 级文件会在 16k 字符的查看上限生效前耗尽内存；目录查看没有访问集合也没有条目上限；`str_replace` 对其 O(n*m) 扫描接受无界的 `old_str`。subagent 委派措辞没有告诉模型只有子级的文本能到达父级会话，于是图像或文件句柄输出悄悄变成空文本。
 
 ## Decision
 
-View, `str_replace` và `insert` từ chối file trên 5.000.000 byte đã báo với hướng dẫn dùng `grep -n` cộng `view_range`, `old_str` trên 1.000.000 byte bị từ chối, và view thư mục dedupe path đã thăm và dừng ở 500 entry. Mô tả prompt của cả delegation fork và fresh yêu cầu câu trả lời text và nêu rõ chỉ text của child tới được conversation parent; mảng block đầy đủ vẫn available cho consumer PTC programmatic.
+view、`str_replace` 与 `insert` 拒绝超过 5,000,000 上报字节的文件，并指引使用 `grep -n` 加 `view_range`；超过 1,000,000 字节的 `old_str` 被拒绝；目录查看对访问路径去重并在 500 条停止。fork 与全新委派的提示词描述都要求文本答案，并声明只有子级文本能到达父级会话；完整块数组仍对编程式 PTC 消费者可用。
 
 ## Alternatives considered
 
-**Stream file lớn qua editor thay vì từ chối.** Bị từ chối vì hợp đồng của editor là view đánh số dòng chính xác và replacement literal; từ chối bounded kèm hướng dẫn `grep` giữ hợp đồng trong khi `tool-fs read` đã bao phủ streaming read.
+**让大文件在编辑器里流式通过而非拒绝。** 已拒绝，因为编辑器的约定是精确行号查看与字面量替换；带 `grep` 指引的有界拒绝保留了约定，而 `tool-fs read` 本来就覆盖流式读取。
 
-**Fail session invariant khi còn call unresolved hay share job limit theo session id.** Bị từ chối vì test hiện tại ghim cả hai hợp đồng: cuối step cho phép call unresolved để repair closer, và job limit tính theo exact owner object để agent replacement có bucket mới trong khi access vẫn id-fenced.
+**对未结算调用将会话不变式判失败，或按 session id 共享任务限额。** 已拒绝，因为现有测试钉死了两个约定：step 结束允许未结算调用以便修复闭包；任务限额按精确 owner 对象计算，替换 agent 得到新桶，访问仍以 id 隔离。
 
-**Fail compaction loud khi có tool-call output hay ship rule redaction telemetry mặc định.** Bị từ chối vì hợp đồng summarizer giữ tool call trong `rawOutput` trong khi chỉ project text, và telemetry document không có built-in rule như known limitation; cả hai cần audit từng schema trước.
+**在工具调用输出上让压缩大声失败，或发布默认遥测脱敏规则。** 已拒绝，因为摘要器约定把工具调用留在 `rawOutput` 中只投影文本，而遥测把无内置规则记为已知限制；两者都需要先逐 schema 审计。
 
 ## Consequences
 
-Các call editor file lớn fail nhanh với hướng dẫn actionable thay vì rủi ro cạn memory, view thư mục bounded và không duplicate, chuỗi tìm kiếm khổng lồ bị từ chối trước scan, và prompt delegation đặt kỳ vọng text-only đúng mà không đổi hợp đồng output programmatic.
+大文件编辑器调用快速失败并给出可操作指引，不再有内存耗尽风险；目录查看有界且无重复；超大搜索串在扫描前被拒绝；委派提示词设定了正确的纯文本预期，且不改变编程式输出约定。

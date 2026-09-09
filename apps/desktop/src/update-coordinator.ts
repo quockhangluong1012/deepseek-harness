@@ -29,6 +29,16 @@ export class DesktopUpdateCoordinator {
   ) {
     this.updater.autoDownload = false
     this.updater.autoInstallOnAppQuit = false
+    const progressSource = this.updater as unknown as {
+      on?(event: string, listener: (info: { percent?: unknown }) => void): void
+    }
+    progressSource.on?.('download-progress', (info) => {
+      const version = this.availableVersion
+      if (version === undefined || this.installOperation === undefined) return
+      this.publish(typeof info.percent === 'number'
+        ? { phase: 'installing', version, percent: Math.floor(info.percent) }
+        : { phase: 'installing', version })
+    })
   }
 
   /** Check the configured Desktop release stream and retain an available version. */

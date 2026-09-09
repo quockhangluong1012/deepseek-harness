@@ -242,6 +242,9 @@ async function runGroup(
     for (let index = committed; index < started; index += 1) {
       const call = group[index]
       const callSeq = callSeqs[index]
+      /* v8 ignore next -- a started call always cites its call: startCall
+       * appends the call event synchronously before any await, so the guard
+       * only defends the loop bound against future scheduler refactors */
       if (call === undefined || callSeq === undefined) continue
       appendUnknownOutcomeResult(session, turn, step, call.block, callSeq)
     }

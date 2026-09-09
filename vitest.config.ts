@@ -5,7 +5,7 @@ import { resolvePwshPath } from './packages/shell/pwsh-local/src/resolve.ts'
 import { defineConfig } from 'vitest/config'
 import { standardDecoratorPlugin, vitestExecArgv } from './vitest.shared.ts'
 import { COVERAGE_EXEMPT_ENV, coverageExemptHeavySuites } from './scripts/coverage-exempt.ts'
-import { COVERAGE_PARTITION_MODE_ENV } from './scripts/coverage-partitions.ts'
+import { COVERAGE_PARTITION_MODE_ENV, COVERAGE_PARTITION_SENTINEL_ENV } from './scripts/coverage-partitions.ts'
 
 // Prints exact `path:line:col` records for every uncovered statement, branch
 // path, and function when a file misses the per-file 100% gate — the built-in
@@ -140,6 +140,12 @@ if (coveragePartitionRaw !== undefined && coveragePartitionRaw !== '' && coverag
   throw new Error(`vitest config: ${COVERAGE_PARTITION_MODE_ENV} must be '1' or unset, got ${JSON.stringify(coveragePartitionRaw)}.`)
 }
 const coveragePartitionMode = coveragePartitionRaw === '1'
+if (coveragePartitionMode && (process.env[COVERAGE_PARTITION_SENTINEL_ENV] ?? '') === '') {
+  throw new Error(
+    `vitest config: ${COVERAGE_PARTITION_MODE_ENV}=1 without ${COVERAGE_PARTITION_SENTINEL_ENV} runs with no thresholds and no merge.`
+    + ' Run pnpm run test:coverage:partitioned instead of setting the mode directly.',
+  )
+}
 
 // These suites exercise process-global state, process APIs, or timing-sensitive process I/O
 // that worker threads cannot isolate reliably under aggregate gate contention.

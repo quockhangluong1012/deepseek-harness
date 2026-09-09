@@ -28,6 +28,7 @@ import {
   type AgentInstructionSource,
 } from './state.ts'
 import type { AgentInstructionChange } from './render.ts'
+import type { DroppedInstructionSource } from './files.ts'
 
 export { Config, name }
 /** Services required by workspace instruction projection. */
@@ -37,6 +38,7 @@ export {
   loadBaselineInstructions,
 } from './files.ts'
 export type {
+  DroppedInstructionSource,
   InstructionFile,
   LoadedInstructionFile,
 } from './files.ts'
@@ -134,6 +136,7 @@ export function apply(ctx: Context, config: Config): void {
       ? prepared.excludedScopes
       : undefined
     let nextPreparation: { identity: string; excludedScopes: ReadonlySet<string> } | undefined
+    let baselineDropped: DroppedInstructionSource[] = []
     if (!baselinePresent || !keepVisibleBaseline || excludedBaselineScopes === undefined) {
       const replacePreviousBaseline = baselinePresent && !keepVisibleBaseline
       const instructions = await loadBaselineInstructionSet({
@@ -142,12 +145,14 @@ export function apply(ctx: Context, config: Config): void {
         projectRootMarkers: resolved.projectRootMarkers,
         maxBytes: resolved.maxBytes,
         maxSourceBytes: resolved.maxSourceBytes,
+        maxTotalSourceBytes: resolved.maxTotalSourceBytes,
         instructionFileCandidates: resolved.instructionFileCandidates,
         localInstructionFileCandidates: resolved.localInstructionFileCandidates,
         projectRoot,
         replacePreviousBaseline,
         signal,
       }, fileSystem)
+      baselineDropped = instructions?.dropped ?? []
       const baseline = baselineInstructionState(instructions?.included ?? [])
       const observedBaseline = baselineInstructionState(instructions?.observed ?? [])
       const excludedScopes = new Set(observedBaseline.changes.keys())
@@ -210,6 +215,9 @@ export function apply(ctx: Context, config: Config): void {
       applyInstructionVersionUpdates(agent.session, update.versionUpdates, instructionVersions)
     }
     if (nextPreparation !== undefined) baselinePreparations.set(agent.session, nextPreparation)
+    for (const dropped of [...baselineDropped, ...(update?.dropped ?? [])]) {
+      ctx.logger.warn('workspace instruction source skipped (%s): %s', dropped.reason, dropped.displayPath)
+    }
     if (content.length === 0) return undefined
     return createUserMessage({
       content,

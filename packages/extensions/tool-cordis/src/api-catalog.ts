@@ -2390,7 +2390,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     methods: [
       {
         signature: 'section(section: PromptSection): () => void',
-        description: 'Register an ordered prompt section in the calling context\'s scope. A scoped section shadows a global section with the same name; duplicates within one layer and non-finite orders throw. Registration and disposal emit `system-prompt/change`.',
+        description: 'Register an ordered prompt section in the calling context\'s scope. A scoped section shadows a global section with the same name; duplicates within one layer and non-finite orders throw. Static text with a malformed `{{...}}` group throws at registration; unknown variable names throw at assembly, when the full registered set is known. Registration and disposal emit `system-prompt/change`.',
         parameters: [{ name: 'section', description: 'the section to register.' }],
         returns: 'the exact Cordis effect disposer.',
       },
@@ -2408,7 +2408,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'context(context: PromptContext): () => void',
-        description: 'Register ordered dynamic context in the calling context\'s scope. Scoped entries shadow global entries with the same name.',
+        description: 'Register ordered dynamic context in the calling context\'s scope. Scoped entries shadow global entries with the same name. Static text with a malformed `{{...}}` group throws at registration; unknown variable names throw at assembly, when the full registered set is known.',
         parameters: [{ name: 'context', description: 'the context contribution to register.' }],
         returns: 'the exact Cordis effect disposer.',
       },
@@ -6089,7 +6089,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'TurnEndReasonMap',
-    declaration: 'export interface TurnEndReasonMap {\n    completed: {\n        kind: \'completed\';\n    };\n    aborted: {\n        kind: \'aborted\';\n        reason: TurnEndCancelCause;\n    };\n    blocked: {\n        kind: \'blocked\';\n    };\n    error: {\n        kind: \'error\';\n        error: LlmFailure;\n    };\n    \'max-tokens\': {\n        kind: \'max-tokens\';\n    };\n    interrupted: {\n        kind: \'interrupted\';\n    };\n}',
+    declaration: 'export interface TurnEndReasonMap {\n    completed: {\n        kind: \'completed\';\n    };\n    aborted: {\n        kind: \'aborted\';\n        reason: TurnEndCancelCause;\n    };\n    blocked: {\n        kind: \'blocked\';\n    };\n    error: {\n        kind: \'error\';\n        error: LlmFailure;\n    };\n    \'max-tokens\': {\n        kind: \'max-tokens\';\n    };\n    \'max-steps\': {\n        kind: \'max-steps\';\n    };\n    interrupted: {\n        kind: \'interrupted\';\n    };\n}',
   },
   {
     name: 'TypertCodec',

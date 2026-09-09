@@ -31,3 +31,19 @@ Spawned commands get a scrubbed env (drop `*KEY*`/`*SECRET*`/`*TOKEN*`/`*PASSWOR
 ## Unlink link-shaped paths
 
 A path that may be a symlink or Windows junction is removed with `lstatSync().isSymbolicLink()` then `unlinkSync`: unlink deletes only the link and refuses a real directory, so it never follows the link into its target. Windows `rmSync(link)` throws `ERR_FS_EISDIR` on a junction; recursive deletion may descend through one into its target. Reserve recursive `rmSync` for known real directories.
+
+## Declare output caps as Config, not constants
+
+Every model-facing text surface carries a validated `Config` cap: unbounded output is the largest recurring bug class here. A module-scope `MAX_*`/`DEFAULT_*` numeric the deployment cannot change from `cordis.yml` is the defect. Enforced by `verify-no-hardcoded-tunables`.
+
+## Close the parameter root and validate at trust boundaries
+
+A tool parameter object rejects undeclared keys: the schema DSL compiles the root closed, so a model typo fails with `INVALID_ARGS`. Values crossing a trust boundary — wire schemas, provider payloads, model JSON, third-party servers — validate before use: the MCP bridge validates against the advertised schema rather than coercing malformed input to `{}`. Enforced by the schema-compiler and MCP-bridge unit tests.
+
+## Resolve shared guards once, never per call site
+
+Standing-policy checks, background-registration abort guards, and workdir derivation each live in exactly one helper; a fix landing on one of several copies is the defect. Parallel tool families consume the helper rather than mirroring it. Enforced by `duplication` (jscpd) plus the shared-helper unit tests.
+
+## Seed identity counters from durable state on resume
+
+Attempt, job, and turn identities derive from the replayed log prefix and never restart at zero: a resumed lifecycle that reissues an id collides with its own history. Count the durable settlement events before the first new step. Enforced by the resume-path attempt-id uniqueness test.

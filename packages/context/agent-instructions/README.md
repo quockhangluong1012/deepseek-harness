@@ -51,6 +51,7 @@ export interface Config {
   projectRootMarkers?: string[]
   maxBytes: number
   maxSourceBytes?: number
+  maxTotalSourceBytes?: number
   instructionFileCandidates?: string[]
   localInstructionFileCandidates?: string[]
 }
@@ -60,6 +61,7 @@ export interface Config {
 |---|---|---|
 | `maxBytes` | required | Cap on the complete rendered baseline message, in bytes |
 | `maxSourceBytes` | `1048576` | Cap on one source instruction file before rendering |
+| `maxTotalSourceBytes` | `8388608` | Cap on all source instruction files read by one baseline load or refresh batch; later files are skipped once earlier files exhaust it |
 | `projectRootMarkers` | `['.git']` | Directory names that mark the project root |
 | `instructionFileCandidates` | `['AGENTS.md', 'CLAUDE.md']` | Base file names loaded in each project directory |
 | `localInstructionFileCandidates` | `['AGENTS.local.md', 'CLAUDE.local.md']` | Local overlay file names loaded after the base files |
@@ -70,6 +72,8 @@ The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-a
 ### Observing the budget
 
 Rendering keeps the most specific files first: it drops whole broader files before truncating the most-specific file, and emits a visible `Workspace instruction budget ...` notice naming the omitted and truncated paths. The rendered bytes never exceed `maxBytes`. An over-budget broad file is ignored; during refresh it is treated as temporarily unavailable rather than removed.
+
+Reading is bounded before rendering starts. Each source file is capped by `maxSourceBytes`, and one baseline load or refresh batch reads at most `maxTotalSourceBytes` across all files — broad files first, so a pathological checkout cannot make startup read unbounded. A file skipped by either read cap is reported in the load result and logged as `workspace instruction source skipped (over-source-cap|over-total-budget): <path>` instead of silently ignored.
 
 -----
 

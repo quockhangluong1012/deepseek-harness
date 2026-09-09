@@ -15,6 +15,10 @@ import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
 import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
 import * as ToolBash from '@deepseek-ai/dsh-tool-bash'
 import * as BashEnvPlugin from '@deepseek-ai/dsh-shell-env'
+import { ShellExecutor } from '@deepseek-ai/dsh-shell'
+import type { ShellExecRequest, ShellExecSpec, ShellProcess, ShellRunResult } from '@deepseek-ai/dsh-shell'
+import SandboxPolicyService from '@deepseek-ai/dsh-sandbox-policy'
+import ApprovalService from '@deepseek-ai/dsh-user-approval'
 import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 
 /**
@@ -80,6 +84,66 @@ function resultText(event: SessionEvent): string {
     .filter(block => block.type === 'text')
     .map(block => block.text)
     .join('')
+}
+
+/** Confining executor stand-in: advertises read-only confinement without a real sandbox backend. */
+class ConfinedExecutor extends ShellExecutor {
+  override get sandboxMode() {
+    return 'read-only' as const
+  }
+
+  resolve(request: ShellExecRequest): ShellExecSpec {
+    return {
+      command: request.command,
+      workdir: request.workdir ?? process.cwd(),
+      stdoutMaxBytes: request.stdoutMaxBytes ?? 64_000,
+      timeoutMs: request.timeoutMs ?? 1000,
+      ...request.signal ? { signal: request.signal } : {},
+      sandboxPolicy: request.sandboxPolicy ?? { mode: 'read-only', workspaceRoot: process.cwd() },
+    }
+  }
+
+  run(spec: ShellExecSpec): Promise<ShellRunResult> {
+    return Promise.resolve({
+      exitCode: 0,
+      signal: null,
+      timedOut: false,
+      aborted: false,
+      timeoutMs: spec.timeoutMs,
+      stdout: { text: 'ok', truncated: false },
+      stderr: { text: '', truncated: false },
+      sandbox: { mode: spec.sandboxPolicy?.mode ?? 'read-only', denied: false },
+    })
+  }
+
+  start(spec: ShellExecSpec): ShellProcess {
+    return {
+      status: 'completed',
+      exitCode: 0,
+      signal: null,
+      done: Promise.resolve(),
+      sandbox: { mode: spec.sandboxPolicy?.mode ?? 'read-only', denied: false },
+      readOutput: () => ({ delta: '', lossy: false }),
+      kill: () => false,
+    }
+  }
+}
+
+/** Loop harness under the shipped read-only + ask posture: confinement with no answerer. */
+async function approvalHarness(adapter: MockAdapter): Promise<Context> {
+  const ctx = new Context()
+  await mountAgentLoopTestDependencies(ctx)
+  await ctx.plugin(AgentLoop, { agents: [] })
+  await ctx.plugin(LocalJobRegistry)
+  await ctx.plugin(ToolTasks)
+  await ctx.plugin(LocalSubprocessRuntime)
+  await ctx.plugin(BashEnvPlugin)
+  await ctx.plugin(SandboxPolicyService, {})
+  await ctx.plugin(ConfinedExecutor)
+  await ctx.plugin(ApprovalService, {})
+  await ctx.plugin(ToolBash)
+  ctx.llm.registerAdapter(['mock'], adapter)
+  return ctx
 }
 
 /** Poll until `predicate` holds (background settlement races turn end). */
@@ -232,5 +296,38 @@ describe('bash tool through the agent loop', () => {
     expect(readResult.data.message.content[0].isError).toBe(false)
     expect(resultText(readResult)).toContain('bg-ok')
     expect(resultText(readResult)).toContain('[status: completed, exit code: 0]')
+  })
+
+  it('audits an approval asked/decided pair for an escalation with no answerer', async () => {
+    // Shipped read-only + ask posture, nothing answering: the model calls
+    // bash with sandbox_permissions, the escalation asks, nobody answers, and
+    // the fail-closed outcome still audits the complete pair in the log.
+    const adapter = new MockAdapter([
+      toolCallResponse('call-1', 'bash', {
+        command: 'true',
+        description: 'test escalation',
+        sandbox_permissions: 'workspace-write',
+        justification: 'the command needs workspace writes',
+      }),
+      textResponse('Escalation was denied.'),
+    ])
+    const ctx = await approvalHarness(adapter)
+    const agent = await ctx.agentLoop.create(SessionId('it-approval'), { provider: 'mock', model: 'mock' })
+
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'run the command' }], source: { kind: 'user' } }))
+    await waitForIdle(ctx, agent)
+
+    const log = events(agent)
+    const asked = findEvent(log, 'approval/asked')
+    const decided = findEvent(log, 'approval/decided')
+    expect(decided.data.id).toBe(asked.data.id)
+    expect(decided.data.outcome).toBe('unavailable')
+    expect(asked.data.toolName).toBe('bash')
+    const toolCall = findEvent(log, 'tool/call')
+    expect(asked.data.callId).toBe(toolCall.data.callId)
+
+    const toolResult = findEvent(log, 'tool/result')
+    expect(toolResult.data.message.content[0].isError).toBe(true)
+    expect(findEvent(log, 'turn/end', 'last').data.reason).toEqual({ kind: 'completed' })
   })
 })

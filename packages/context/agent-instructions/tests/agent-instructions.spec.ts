@@ -40,8 +40,10 @@ import {
   reconcileInstructionContext,
   type InstructionVersionCache,
 } from '../src/state.ts'
-import { resolveConfig } from '../src/config.ts'
+import { resolveConfig, workspaceBaselineIdentity } from '../src/config.ts'
 import { candidateScopeKey, renderInstructionChanges, renderWorkspaceInstructionSet, USER_GLOBAL_DIRECTORY, USER_GLOBAL_FILE } from '../src/render.ts'
+import { loadBaselineInstructionSet } from '../src/files.ts'
+import { dedupInstructionFilesByDirectory } from '../src/files.ts'
 import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 import {
   mountAgentLoopTestDependencies,
@@ -358,14 +360,15 @@ describe('workspace context instruction discovery', () => {
 
       const files = await discoverBaselineInstructionFiles({ cwd, dshHome: home })
 
+      // CLAUDE.md is a fallback: the root sibling AGENTS.md wins, so only the
+      // packages/ CLAUDE.md (with no AGENTS.md sibling) loads.
       expect(files.map(file => file.displayPath)).toEqual([
         '$DSH_HOME/AGENTS.md',
         'AGENTS.md',
-        'CLAUDE.md',
         join('packages', 'CLAUDE.md'),
         join('packages', 'app', 'AGENTS.md'),
       ])
-      expect(files.map(file => file.absolutePath)).toContain(join(root, 'CLAUDE.md'))
+      expect(files.map(file => file.absolutePath)).not.toContain(join(root, 'CLAUDE.md'))
     } finally {
       await rm(root, { recursive: true, force: true })
       await rm(home, { recursive: true, force: true })
@@ -489,7 +492,9 @@ describe('workspace context instruction discovery', () => {
     }
   })
 
-  it('follows a symlinked instruction file to its target content', async () => {
+  // Windows denies unprivileged file symlinks without Developer Mode or
+  // SeCreateSymbolicLinkPrivilege, so file-link following is POSIX-only.
+  it.skipIf(process.platform === 'win32')('follows a symlinked instruction file to its target content', async () => {
     const root = await tempRepo()
     const home = await tempRepo()
     const outside = await tempRepo()
@@ -510,7 +515,7 @@ describe('workspace context instruction discovery', () => {
     }
   })
 
-  it('follows a symlinked instruction file through ctx.fs to its target content', async () => {
+  it.skipIf(process.platform === 'win32')('follows a symlinked instruction file through ctx.fs to its target content', async () => {
     const root = await tempRepo()
     const home = await tempRepo()
     const outside = await tempRepo()
@@ -544,9 +549,217 @@ describe('workspace context instruction discovery', () => {
       await expect(loadBaselineInstructions({
         cwd: root, dshHome: home, maxBytes: 65536, maxSourceBytes: Infinity,
       })).resolves.toBeUndefined()
+      await expect(loadBaselineInstructions({ cwd: root, dshHome: home, maxBytes: 65536, maxTotalSourceBytes: 0 })).resolves.toBeUndefined()
+      await expect(loadBaselineInstructions({
+        cwd: root, dshHome: home, maxBytes: 65536, maxTotalSourceBytes: Infinity,
+      })).resolves.toBeUndefined()
     } finally {
       await rm(root, { recursive: true, force: true })
       await rm(home, { recursive: true, force: true })
+    }
+  })
+
+  it('defaults the total source budget to eight per-file caps and carries it in the baseline identity', () => {
+    const resolved = resolveConfig({ maxBytes: 65536 })
+    expect(resolved.maxTotalSourceBytes).toBe(8 * resolved.maxSourceBytes)
+    expect(workspaceBaselineIdentity(resolved, '/repo', '/repo')).toContain('"maxTotalSourceBytes":8388608')
+  })
+
+  it('collapses trimmed-identical files that share a directory', () => {
+    const kept = dedupInstructionFilesByDirectory([
+      { absolutePath: '/repo/AGENTS.md', displayPath: 'AGENTS.md', content: 'same rule' },
+      { absolutePath: '/repo/AGENTS.local.md', displayPath: 'AGENTS.local.md', content: '  same rule\n' },
+      { absolutePath: '/repo/pkg/AGENTS.md', displayPath: 'pkg/AGENTS.md', content: 'same rule' },
+    ])
+
+    expect(kept.map(file => file.displayPath)).toEqual(['AGENTS.md', 'pkg/AGENTS.md'])
+  })
+
+  it('skips baseline files past the total budget and reports each skip', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      await write(join(home, 'AGENTS.md'), 'home rule')
+      await write(join(root, 'AGENTS.md'), 'root rule')
+
+      const set = await loadBaselineInstructionSet({
+        cwd: root, dshHome: home, maxBytes: 65536, maxSourceBytes: 65536, maxTotalSourceBytes: 9,
+      })
+
+      expect(set?.rendered.text).toContain('home rule')
+      expect(set?.rendered.text).not.toContain('root rule')
+      expect(set?.observed.map(file => file.displayPath)).toHaveLength(1)
+      expect(set?.dropped).toHaveLength(1)
+      expect(set?.dropped[0]?.reason).toBe('over-total-budget')
+    } finally {
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
+  it('keeps baseline files whose total is exactly the budget', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      await write(join(home, 'AGENTS.md'), 'home rule')
+      await write(join(root, 'AGENTS.md'), 'root rule')
+
+      const set = await loadBaselineInstructionSet({
+        cwd: root, dshHome: home, maxBytes: 65536, maxSourceBytes: 65536, maxTotalSourceBytes: 18,
+      })
+
+      expect(set?.rendered.text).toContain('home rule')
+      expect(set?.rendered.text).toContain('root rule')
+      expect(set?.dropped).toEqual([])
+    } finally {
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
+  it('counts multibyte content in UTF-8 bytes against the total budget', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      await write(join(home, 'AGENTS.md'), 'é'.repeat(10))
+      await write(join(root, 'AGENTS.md'), 'root rule')
+
+      const set = await loadBaselineInstructionSet({
+        cwd: root, dshHome: home, maxBytes: 65536, maxSourceBytes: 65536, maxTotalSourceBytes: 21,
+      })
+
+      expect(set?.rendered.text).toContain('é'.repeat(10))
+      expect(set?.rendered.text).not.toContain('root rule')
+      expect(set?.dropped.map(drop => drop.reason)).toEqual(['over-total-budget'])
+    } finally {
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
+  it('reports an over-cap source instead of silently ignoring it', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      await write(join(root, 'AGENTS.md'), 'far too large')
+
+      const set = await loadBaselineInstructionSet({
+        cwd: root, dshHome: home, maxBytes: 65536, maxSourceBytes: 4,
+      })
+
+      expect(set?.included).toEqual([])
+      expect(set?.dropped.map(drop => drop.reason)).toEqual(['over-source-cap'])
+    } finally {
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
+  it('bounds streamed content against the total budget when provider sizes are unavailable', async () => {
+    const root = join(await tempRepo(), 'virtual-repo')
+    const home = join(await tempRepo(), 'virtual-home')
+    const ctx = new Context()
+    try {
+      await ctx.plugin(RecordingFileSystem)
+      const fs = ctx.fs as RecordingFileSystem
+      const homePath = join(home, 'AGENTS.md')
+      const rootPath = join(root, 'AGENTS.md')
+      fs.entries.set(join(root, '.git'), { type: 'directory' })
+      fs.entries.set(homePath, { type: 'file', content: 'home rule' })
+      fs.entries.set(rootPath, { type: 'file', content: 'root rule' })
+      fs.omitSizes.add(homePath)
+      fs.omitSizes.add(rootPath)
+
+      const set = await loadBaselineInstructionSet({
+        cwd: root, dshHome: home, maxBytes: 65536, maxSourceBytes: 65536, maxTotalSourceBytes: 9,
+      }, fs)
+
+      expect(set?.rendered.text).toContain('home rule')
+      expect(set?.rendered.text).not.toContain('root rule')
+      expect(set?.dropped.map(drop => drop.reason)).toEqual(['over-total-budget'])
+    } finally {
+      await ctx.fiber.dispose()
+      await rm(dirname(root), { recursive: true, force: true })
+      await rm(dirname(home), { recursive: true, force: true })
+    }
+  })
+
+  it('shares one read budget across a reconciliation batch and reports its drops', async () => {
+    const root = join(await tempRepo(), 'virtual-repo')
+    const home = join(await tempRepo(), 'virtual-home')
+    const ctx = new Context()
+    try {
+      await ctx.plugin(RecordingFileSystem)
+      const fs = ctx.fs as RecordingFileSystem
+      fs.entries.set(join(root, '.git'), { type: 'directory' })
+      fs.entries.set(join(home, 'AGENTS.md'), { type: 'file', content: 'home rule' })
+      fs.entries.set(join(root, 'AGENTS.md'), { type: 'file', content: 'root rule' })
+      const agent = await stubAgent(root)
+      const resolved = resolveConfig({
+        dshHome: home,
+        maxBytes: 65536,
+        maxSourceBytes: 65536,
+        maxTotalSourceBytes: 9,
+        instructionFileCandidates: ['AGENTS.md'],
+        localInstructionFileCandidates: [],
+      })
+
+      const result = await reconcileInstructionContext(agent, resolved, new WeakMap(), fs, {
+        authorityMessages: [],
+        scopeMessages: [],
+        touchedPaths: [],
+        includeBaselineScopes: true,
+        signal: testToolSignal,
+      })
+
+      expect(result?.context.source).toMatchObject({
+        changes: [{ action: 'set', scope: sk(USER_GLOBAL_DIRECTORY, USER_GLOBAL_FILE) }],
+      })
+      expect(result?.dropped.map(drop => drop.reason)).toEqual(['over-total-budget'])
+    } finally {
+      await ctx.fiber.dispose()
+      await rm(dirname(root), { recursive: true, force: true })
+      await rm(dirname(home), { recursive: true, force: true })
+    }
+  })
+
+  it('warns with the skip reason when the baseline drops an instruction source', async () => {
+    const root = join(await tempRepo(), 'virtual-repo')
+    const home = join(await tempRepo(), 'virtual-home')
+    const ctx = new Context()
+    try {
+      await ctx.plugin(RecordingFileSystem)
+      const fs = ctx.fs as RecordingFileSystem
+      fs.entries.set(join(root, '.git'), { type: 'directory' })
+      fs.entries.set(join(home, 'AGENTS.md'), { type: 'file', content: 'home rule' })
+      fs.entries.set(join(root, 'AGENTS.md'), { type: 'file', content: 'root rule' })
+      const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
+      await mountWorkspaceContextPlugin(ctx, {
+        dshHome: home,
+        maxBytes: 65536,
+        maxSourceBytes: 65536,
+        maxTotalSourceBytes: 9,
+        instructionFileCandidates: ['AGENTS.md'],
+        localInstructionFileCandidates: [],
+      })
+
+      await composeBaselinePrefix(ctx, await stubAgent(root))
+
+      await vi.waitFor(() => {
+        expect(warn).toHaveBeenCalledWith(
+          'workspace instruction source skipped (%s): %s',
+          'over-total-budget',
+          expect.anything(),
+        )
+      }, { timeout: 10_000 })
+    } finally {
+      await ctx.fiber.dispose()
+      await rm(dirname(root), { recursive: true, force: true })
+      await rm(dirname(home), { recursive: true, force: true })
     }
   })
 
@@ -585,7 +798,28 @@ describe('workspace context instruction discovery', () => {
         instructionFileCandidates: ['CLAUDE.local.md', 'AGENTS.md', 'CLAUDE.md'],
       })
 
-      expect(files.map(file => file.displayPath)).toEqual(['CLAUDE.local.md', 'AGENTS.md', 'CLAUDE.md'])
+      // CLAUDE.md is a fallback for its AGENTS.md sibling even under a custom
+      // candidate order; CLAUDE.local.md has no AGENTS.local.md sibling here.
+      expect(files.map(file => file.displayPath)).toEqual(['CLAUDE.local.md', 'AGENTS.md'])
+    } finally {
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
+  it('skips a CLAUDE fallback when its AGENTS sibling exists, loads it otherwise', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    try {
+      const cwd = join(root, 'pkg')
+      await mkdir(join(root, '.git'), { recursive: true })
+      await write(join(root, 'AGENTS.md'), 'agents rule')
+      await write(join(root, 'CLAUDE.md'), 'claude fallback')
+      await write(join(cwd, 'CLAUDE.md'), 'lone claude rule')
+
+      const files = await discoverBaselineInstructionFiles({ cwd, dshHome: home })
+
+      expect(files.map(file => file.displayPath)).toEqual(['AGENTS.md', join('pkg', 'CLAUDE.md')])
     } finally {
       await rm(root, { recursive: true, force: true })
       await rm(home, { recursive: true, force: true })
@@ -3523,7 +3757,8 @@ describe('dynamic nested workspace context injection', () => {
       // removed; an unavailable classification would emit no change at all.
       await rm(join(root, 'pkg/AGENTS.md'))
       await mkdir(join(root, 'pkg/elsewhere'), { recursive: true })
-      await symlink(join(root, 'pkg/elsewhere'), join(root, 'pkg/AGENTS.md'))
+      // Directory targets link as junctions on Windows (no privilege needed).
+      await symlink(join(root, 'pkg/elsewhere'), join(root, 'pkg/AGENTS.md'), process.platform === 'win32' ? 'junction' : 'dir')
       await ctx.tools.execute({
         signal: testToolSignal,
         callId: ToolCallId('read-after-symlink-dir'), name: 'read', arguments: { file_path: join('pkg', 'file.txt') }, agent,

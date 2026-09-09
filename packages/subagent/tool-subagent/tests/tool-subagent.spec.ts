@@ -102,8 +102,8 @@ describe('dsh-tool-subagent', () => {
   })
 
   it('refuses a forced run_in_background at execution time when the instance disables it', async () => {
-    // Schema omission is advertising, not enforcement: the arg validator
-    // allows undeclared keys, so the opt-out must also hold in execute().
+    // Schema omission is advertising; the closed parameter root also enforces
+    // the opt-out before execute().
     const ctx = await setup({ provider: 'mock', enableRunInBackground: false })
     const parentId = SessionId('sess-off')
     const parent = {
@@ -115,7 +115,7 @@ describe('dsh-tool-subagent', () => {
 
     const forced = await callSubagent(ctx, { description: 'd', prompt: 'p', run_in_background: true }, { agent: parent })
     expect(forced.isError).toBe(true)
-    expect(text(forced)).toContain('run_in_background is disabled for this tool instance')
+    expect(text(forced)).toContain('is not a declared property')
     // The provider was never asked to start a child.
     expect(ctx.subagents.getProvider('mock')).toBeDefined()
     const foreground = await callSubagent(ctx, { description: 'd', prompt: 'p' }, { agent: parent })
@@ -189,6 +189,19 @@ describe('dsh-tool-subagent', () => {
       + 'Diagnostic: Claude Code denied a tool request\n'
       + 'Partial output before the run ended:\npartial assistant text',
     )
+  })
+
+  it('truncates preserved partial output at the configured cap', async () => {
+    const ctx = await setup({ provider: 'mock', maxPartialTextChars: 7 }, {
+      reply: 'partial assistant text',
+      stopReason: 'error',
+    })
+
+    const result = await callSubagent(ctx, { description: 'd', prompt: 'p' })
+    expect(result.isError).toBe(true)
+    expect(text(result)).toContain('truncated to 7 chars')
+    expect(text(result)).toContain('partial')
+    expect(text(result)).not.toContain('assistant text')
   })
 
   it('registers under a configurable toolName so multiple providers can coexist', async () => {

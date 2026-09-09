@@ -142,6 +142,34 @@ describe('dsh-tool-todo', () => {
     expect(agent.session.snapshotEvents().findLast(e => e.type === 'todo/write')!.data.todos).toEqual(todos)
   })
 
+  describe('configurable bounds', () => {
+    async function setupBounded(): Promise<Context> {
+      const ctx = new Context()
+      await ctx.plugin(SystemPrompt)
+      await ctx.plugin(ToolRuntime)
+      await ctx.plugin(SessionProjectionRegistry)
+      await ctx.plugin(tool, { allowParallelInProgress: true, maxTodos: 2, maxTodoContentChars: 5 })
+      return ctx
+    }
+
+    it('enforces configured maxTodos and maxTodoContentChars instead of the defaults', async () => {
+      const ctx = await setupBounded()
+      const agent = agentWithSession('bounded')
+      const overCount = await callTodo(ctx, { todos: [
+        { content: 'a', status: 'pending' },
+        { content: 'b', status: 'pending' },
+        { content: 'c', status: 'pending' },
+      ] }, { agent })
+      expect(overCount.isError).toBe(true)
+      expect(text(overCount)).toContain('at most 2 items per list (got 3)')
+      const overChars = await callTodo(ctx, { todos: [{ content: 'way too long', status: 'pending' }] }, { agent })
+      expect(overChars.isError).toBe(true)
+      expect(text(overChars)).toContain('exceeds 5 chars')
+      const ok = await callTodo(ctx, { todos: [{ content: 'fine', status: 'pending' }] }, { agent })
+      expect(ok.isError).toBe(false)
+    })
+  })
+
   describe('allowParallelInProgress', () => {
     const parallel = [
       { content: 'run subagent a', status: 'in_progress' },

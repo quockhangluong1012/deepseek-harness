@@ -27,14 +27,33 @@ function parseSkillFrontmatter(source: string): Record<string, unknown> {
   return metadata
 }
 
-/** Find repository skill directories that carry Codex product metadata. */
+/**
+ * Find every repository skill directory.
+ *
+ * Discovery deliberately does not require `agents/openai.yaml`:
+ * `.agents/skills/.gitignore` ignores every `agents/openai.yaml` sidecar, so
+ * none is ever committed and a sidecar-keyed scan iterates nothing in a clean
+ * clone — the gate would then pass without checking a single skill.
+ * @param root - Repository root containing `.agents/skills`.
+ * @returns sorted skill directory names.
+ */
 function skillDirectories(root: string): string[] {
   const skillsRoot = resolve(root, '.agents/skills')
   if (!existsSync(skillsRoot)) return []
   return readdirSync(skillsRoot, { withFileTypes: true })
-    .filter(entry => entry.isDirectory() && existsSync(resolve(skillsRoot, entry.name, 'agents/openai.yaml')))
+    .filter(entry => entry.isDirectory() && existsSync(resolve(skillsRoot, entry.name, 'SKILL.md')))
     .map(entry => entry.name)
     .sort()
+}
+
+/**
+ * Whether one skill carries the optional Codex product metadata sidecar.
+ * @param root - Repository root containing `.agents/skills`.
+ * @param skill - Skill directory name.
+ * @returns true when `agents/openai.yaml` exists for that skill.
+ */
+function hasCodexSidecar(root: string, skill: string): boolean {
+  return existsSync(resolve(root, '.agents/skills', skill, 'agents/openai.yaml'))
 }
 
 /**
@@ -45,17 +64,18 @@ function skillDirectories(root: string): string[] {
 export function collectSkillInvocationMetadataViolations(root: string): string[] {
   const violations: string[] = []
 
-  for (const skill of skillDirectories(root)) {
+  const skills = skillDirectories(root)
+  if (skills.length === 0) {
+    violations.push('.agents/skills: no skill directory carries a SKILL.md; the invocation-policy check has nothing to enforce')
+    return violations
+  }
+
+  for (const skill of skills) {
     const relativeRoot = `.agents/skills/${skill}`
     const skillFile = resolve(root, relativeRoot, 'SKILL.md')
     const openaiFile = resolve(root, relativeRoot, 'agents/openai.yaml')
-    if (!existsSync(skillFile)) {
-      violations.push(`${relativeRoot}: agents/openai.yaml has no sibling SKILL.md`)
-      continue
-    }
 
     let frontmatter: Record<string, unknown>
-    let openai: Record<string, unknown>
     try {
       frontmatter = parseSkillFrontmatter(readFileSync(skillFile, 'utf8'))
     }
@@ -63,14 +83,20 @@ export function collectSkillInvocationMetadataViolations(root: string): string[]
       violations.push(`${relativeRoot}/SKILL.md: ${error instanceof Error ? error.message : String(error)}`)
       continue
     }
-    try {
-      const parsed = asRecord(load(readFileSync(openaiFile, 'utf8')))
-      if (parsed === undefined) throw new Error('agents/openai.yaml must be a YAML object')
-      openai = parsed
-    }
-    catch (error) {
-      violations.push(`${relativeRoot}/agents/openai.yaml: ${error instanceof Error ? error.message : String(error)}`)
-      continue
+
+    // The sidecar is optional and git-ignored; without it only the Claude Code
+    // side of the policy is observable, and that side is still checked below.
+    let openai: Record<string, unknown> | undefined
+    if (hasCodexSidecar(root, skill)) {
+      try {
+        const parsed = asRecord(load(readFileSync(openaiFile, 'utf8')))
+        if (parsed === undefined) throw new Error('agents/openai.yaml must be a YAML object')
+        openai = parsed
+      }
+      catch (error) {
+        violations.push(`${relativeRoot}/agents/openai.yaml: ${error instanceof Error ? error.message : String(error)}`)
+        continue
+      }
     }
 
     const disableModelInvocation = frontmatter['disable-model-invocation']
@@ -84,6 +110,13 @@ export function collectSkillInvocationMetadataViolations(root: string): string[]
       continue
     }
 
+    const claudeManualOnly = disableModelInvocation === true
+    if (claudeManualOnly && userInvocable === false) {
+      violations.push(`${relativeRoot}/SKILL.md: a manual-only skill must remain user-invocable`)
+    }
+
+    if (openai === undefined) continue
+
     const policy = asRecord(openai.policy)
     const allowImplicitInvocation = policy?.allow_implicit_invocation
     if (allowImplicitInvocation !== undefined && typeof allowImplicitInvocation !== 'boolean') {
@@ -91,16 +124,12 @@ export function collectSkillInvocationMetadataViolations(root: string): string[]
       continue
     }
 
-    const claudeManualOnly = disableModelInvocation === true
     const codexManualOnly = allowImplicitInvocation === false
     if (claudeManualOnly !== codexManualOnly) {
       violations.push(
         `${relativeRoot}: Claude Code manual-only=${String(claudeManualOnly)}`
         + ` but Codex manual-only=${String(codexManualOnly)}`,
       )
-    }
-    if (claudeManualOnly && userInvocable === false) {
-      violations.push(`${relativeRoot}/SKILL.md: a manual-only skill must remain user-invocable`)
     }
   }
 
@@ -116,7 +145,11 @@ if (process.argv[1] && import.meta.filename === resolve(process.argv[1])) {
     process.exit(1)
   }
 
+  // Print both counts: a zero pair count is the expected state in a clean
+  // clone and must not read as "every skill was cross-checked".
+  const paired = skills.filter(skill => hasCodexSidecar(ROOT, skill)).length
   process.stdout.write(
-    `verify-skill-invocation-metadata: ${String(skills.length)} cross-product skill policy pair(s) aligned.\n`,
+    `verify-skill-invocation-metadata: ${String(skills.length)} skill invocation policy(ies) checked`
+    + `, ${String(paired)} cross-product pair(s) aligned.\n`,
   )
 }

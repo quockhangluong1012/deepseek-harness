@@ -115,6 +115,35 @@ describe('request stability across the loop', () => {
       event.type === 'request/header' ? [event.data.reason] : [])).toEqual(['initial'])
   })
 
+  it('logs a tools-only change without a series flag on a route without in-history updates', async () => {
+    const adapter = new MockAdapter([textResponse('one'), textResponse('two')])
+    const ctx = await harness(adapter)
+    registerEcho(ctx)
+    const agent = await ctx.agentLoop.create(SessionId('tools-only-change'), { provider: 'mock', model: 'mock' })
+
+    send(agent, 'first')
+    await waitForIdle(ctx, agent)
+    ctx.tools.register(defineContentToolFixture({
+      name: 'second',
+      description: 'a later tool',
+      parameters: { text: { type: 'string' } },
+      async execute(args) {
+        return [{ type: 'text', text: `second: ${String(args.text)}` }]
+      },
+    }))
+    send(agent, 'second')
+    await waitForIdle(ctx, agent)
+
+    expect(adapter.requests).toHaveLength(2)
+    const headers = agent.session.snapshotEvents().filter(event => event.type === 'request/header')
+    expect(headers.map(event => event.type === 'request/header'
+      ? { reason: event.data.reason, startsSeries: event.data.startsSeries }
+      : undefined)).toEqual([
+      { reason: 'initial', startsSeries: undefined },
+      { reason: 'change', startsSeries: undefined },
+    ])
+  })
+
   it('starts a new request series only when the admitted step explicitly asks for one', async () => {
     const adapter = new MockAdapter([textResponse('one'), textResponse('two')])
     const ctx = await harness(adapter)

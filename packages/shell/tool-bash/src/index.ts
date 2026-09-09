@@ -10,16 +10,14 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
-import { isAbsolute, resolve as resolvePath } from 'node:path'
-import { defineTool, TOOL_ABORTED } from '@deepseek-ai/dsh-tools'
+import { defineTool, TOOL_ABORTED, startAbortGuardedBackground } from '@deepseek-ai/dsh-tools'
 import type { GenericCallView, TerminalCallView, ToolExecution, ToolResult, ToolResultView } from '@deepseek-ai/dsh-tools'
 import { HarnessError } from '@deepseek-ai/dsh-llm'
-import type { Agent } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-jobs'
 import type {} from '@deepseek-ai/dsh-user-approval'
 import type {} from '@deepseek-ai/dsh-shell-env'
 import type { SandboxExecutionPolicy, SandboxMode } from '@deepseek-ai/dsh-sandbox'
-import { ESCALATION_TARGETS, approveEscalation, canonicalPath, validateEscalationArgs } from '@deepseek-ai/dsh-sandbox'
+import { ESCALATION_TARGETS, approveEscalation, assertStandingPolicy, resolveWorkdir, validateEscalationArgs } from '@deepseek-ai/dsh-sandbox'
 import type { SandboxPolicyService } from '@deepseek-ai/dsh-sandbox-policy'
 import { DSH_ENV_PREFIX } from '@deepseek-ai/dsh-shell'
 import type { ShellRunResult } from '@deepseek-ai/dsh-shell'
@@ -134,26 +132,6 @@ function presentBashResult(args: unknown, result: ToolResult): ToolResultView | 
   return { card: 'terminal', output: body, ...exit }
 }
 
-/**
- * Resolve an explicit workdir first, making a relative one session-workspace-relative;
- * otherwise use the filesystem identity of the session cwd and leave executor
- * defaulting as the fallback. A resolved sandbox-policy root wins so workdir
- * and confinement use the exact same per-call identity.
- */
-function resolveWorkdir(
-  modelWorkdir: string | undefined,
-  exec: { agent?: Agent },
-  policyWorkspaceRoot?: string,
-): string | undefined {
-  const headerCwd = exec.agent?.session.header.cwd
-  const sessionCwd = policyWorkspaceRoot ?? (headerCwd === undefined ? undefined : canonicalPath(headerCwd))
-  if (modelWorkdir === undefined) return sessionCwd
-  if (sessionCwd !== undefined && !isAbsolute(modelWorkdir)) {
-    return resolvePath(sessionCwd, modelWorkdir)
-  }
-  return modelWorkdir
-}
-
 /** Detach the executor DTO from readonly Service Definition types into plain JSON data. */
 function canonicalBashResult(result: ShellRunResult) {
   const output = (stream: ShellRunResult['stdout']) => ({
@@ -203,9 +181,8 @@ export function apply(ctx: Context, config: Config = {}): void {
    * anything executes, delegating the shared fail-closed sequence (strict
    * widening, channel resolution, outcome mapping) to
    * {@link approveEscalation}. This tool contributes only the composition
-   * guard (the fields are unadvertised without a sandboxing executor, yet
-   * schema validation checks advertised keys only, so an unadvertised
-   * `sandbox_permissions` still reaches execute) and the approval
+   * guard (the fields are unadvertised without a sandboxing executor, and the
+   * closed parameter root rejects them before execute) and the approval
    * ingredients. The shared policy resolver is required whenever the executor
    * advertises confinement, so a split composition fails at tool-plugin load.
    */
@@ -218,9 +195,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     if (escalationModes.length === 0) {
       throw new Error('sandbox_permissions is not available in this composition (no sandboxing executor to escalate)')
     }
-    if (standingPolicy === undefined) {
-      throw new Error('sandbox_permissions is not available for direct calls without a resolved sandbox policy')
-    }
+    assertStandingPolicy(standingPolicy)
     const effectiveMode = standingPolicy.mode
     return approveEscalation(
       { requestedMode: mode, justification, effectiveMode, subject: 'command' },
@@ -339,7 +314,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       const policy = approvedMode === undefined
         ? standingPolicy
         : { ...(standingPolicy as SandboxExecutionPolicy), mode: approvedMode }
-      const workdir = resolveWorkdir(args.workdir, exec, standingPolicy?.workspaceRoot)
+      const workdir = resolveWorkdir(args.workdir, exec.agent?.session.header.cwd, standingPolicy?.workspaceRoot)
       const dshEnv = ctx.shellEnv.collect(exec)
       const request = {
         command: args.command,
@@ -349,7 +324,8 @@ export function apply(ctx: Context, config: Config = {}): void {
         ...policy !== undefined ? { sandboxPolicy: policy } : {},
       }
       if (args.run_in_background === true) {
-        // Undeclared keys are allowed, so schema omission also needs enforcement.
+        // The closed parameter root already rejects this key when unadvertised;
+        // keep the explicit deployment error for a routable message.
         if (!backgroundEnabled) {
           throw new Error('run_in_background is disabled for this deployment (enableRunInBackground: false)')
         }
@@ -357,14 +333,8 @@ export function apply(ctx: Context, config: Config = {}): void {
         if (jobs === undefined) {
           throw new Error('background jobs unavailable: load @deepseek-ai/dsh-jobs and @deepseek-ai/dsh-tool-jobs')
         }
-        // The caller owns cancellation until ctx.jobs commits detached ownership.
-        if (exec.signal.aborted) {
-          const error = new HarnessError('tool call aborted', TOOL_ABORTED)
-          error.name = 'AbortError'
-          throw error
-        }
         // Task preflight finishes before the starter can spawn a process.
-        const id = jobs.start({
+        const id = startAbortGuardedBackground(exec.signal, () => jobs.start({
           kind: 'bash',
           label: args.command,
           ...exec.agent ? { owner: exec.agent } : {},
@@ -376,21 +346,7 @@ export function apply(ctx: Context, config: Config = {}): void {
               readOutput: () => renderProcessRead(proc.readOutput(), proc.sandbox, escalationModes),
             }
           },
-        })
-        // Close the check-then-start race: an abort that landed during
-        // registration must not leave an orphan background job. AbortSignal is
-        // externally mutable; registration may reenter cancellation.
-        // oxlint-disable-next-line typescript/no-unnecessary-condition
-        if (exec.signal.aborted) {
-          try {
-            jobs.kill(id, exec.agent)
-          } catch {
-            // Kill is best-effort cleanup; the abort below is authoritative.
-          }
-          const error = new HarnessError('tool call aborted', TOOL_ABORTED)
-          error.name = 'AbortError'
-          throw error
-        }
+        }), (started) => { jobs.kill(started, exec.agent) })
         return { kind: 'background' as const, jobId: id }
       }
       const result = await ctx.shell.run(ctx.shell.resolve({

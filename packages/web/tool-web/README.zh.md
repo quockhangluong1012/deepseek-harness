@@ -50,12 +50,14 @@ kind: "package-reference"
 | `fetchTimeoutMs` | `30000` | `web_fetch` 的协作式工具调用超时预算（ms） |
 | `searchTimeoutMs` | `30000` | `web_search` 的协作式工具调用超时预算（ms） |
 | `fetchMaxOutputChars` | `200000` | 同步转换的源字符数与单次完整 `web_fetch` 输出的上限 |
+| `searchSnippetMaxChars` | `500` | 每个 `web_search` 来源保留的 snippet 字符数上限 |
+| `searchContentMaxChars` | `4000` | 每个 `web_search` 结果保留的提供方答案字符数上限 |
 
 生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-tool-web)是每个受支持字段及其 JSDoc 的穷尽式真源。`searchMaxQueries` 在完全相同的字符串去重与提供方请求扇出之前限制可接受的数组；校验会在任何搜索开始前拒绝超限数组。超时预算附加到每个工具定义，由 [`@deepseek-ai/dsh-tool-call-timeout-policy`](../../guard/timeout-policy/README.zh.md) 强制执行；面向模型的 schema 不公开超时参数。
 
 ### 使用 web_search
 
-用包含 1 至 `searchMaxQueries` 个非空字符串的 `queries` 数组调用 `web_search`。完全相同的查询只执行一次；多个查询并发执行，来源按轮询顺序合并后再应用组合后的 `searchMaxResults` 上限。结果是可选的提供方答案，后接 `Sources:`，每行一个来源——`- [<title-or-url>](<url>)`，可选附 snippet 与日期——以及一句固定的引用 URL 指引。
+用包含 1 至 `searchMaxQueries` 个非空字符串的 `queries` 数组调用 `web_search`。完全相同的查询只执行一次；多个查询并发执行，来源按轮询顺序合并后再应用组合后的 `searchMaxResults` 上限。每个来源 snippet 以 `searchSnippetMaxChars` 为界，提供方答案以 `searchContentMaxChars` 为界。结果是可选的提供方答案，后接 `Sources:`，每行一个来源——`- [<title-or-url>](<url>)`，可选附 snippet 与日期——以及一句固定的引用 URL 指引。
 
 ```text
 web_search({ queries: ['deepseek harness documentation'] })

@@ -50,6 +50,17 @@ type Phase =
 
 type StepEndReason = Extract<TurnEndReason, { kind: 'completed' | 'max-tokens' }>
 
+/**
+ * Whether the turn already ended by a ceiling, which a later step must not
+ * downgrade. Takes the wide reason type so loop-narrowed outcomes pass
+ * without a cast.
+ * @param reason - the turn's recorded ending, if any.
+ * @returns true for the `max-tokens` and `max-steps` ceiling endings.
+ */
+function isSettledCeiling(reason: TurnEndReason | null): boolean {
+  return reason?.kind === 'max-tokens' || reason?.kind === 'max-steps'
+}
+
 type PreparedStep =
   | { kind: 'reject' }
   | {
@@ -273,6 +284,24 @@ export class ReactLoopAgent implements Agent {
     return !headerEquals(baseline, canonicalHeader({ ...baseline, tools: [...tools] }))
   }
 
+  /**
+   * Whether one attempt opens a new model-message series from surface facts
+   * observed at one point. Both prompt admission and request logging share
+   * this predicate but observe the generation at different points: admission
+   * passes the pre-commit generation, while logging passes the post-commit
+   * one so replacements committed by the same attempt (compaction, or its own
+   * prompt reconciliation) open the series they describe. Tool-schema changes
+   * stay out of this predicate: admission ORs them in separately to
+   * consolidate the prompt, while logging separates them through header
+   * equality instead of a series flag.
+   * @param declared - whether the pre-step decision declared a series start.
+   * @param observedGeneration - the surface generation the caller observed.
+   * @returns true when the attempt opens a new request series.
+   */
+  private seriesFromSurface(declared: boolean, observedGeneration: number): boolean {
+    return declared || this.requestSurfaceGeneration !== observedGeneration
+  }
+
   /** Open one turn before claiming its first proposed step. */
   private async turn(): Promise<boolean> {
     if (this.phase.kind !== 'running') {
@@ -289,6 +318,11 @@ export class ReactLoopAgent implements Agent {
     }
     phase.turn = turn
     let turnEnds: TurnEndReason | null = null
+    // Set when the turn would run past its step budget: the `turn/end` reason
+    // resolves to `max-steps` in the `finally` below. A flag (rather than an
+    // early `turnEnds` assignment) keeps the loop's narrowed outcome type
+    // intact — the ceiling member is not yet assignable to it mid-loop.
+    let stepCeilingHit = false
     let target: InboxTarget = 'next-turn'
     try {
       while (true) {
@@ -325,6 +359,15 @@ export class ReactLoopAgent implements Agent {
           signal.throwIfAborted()
         }
         if (turnEnds && this.inbox.nextStep.length === 0) break
+        // A per-turn step ceiling bounds runaway tool-calling loops that never
+        // overflow context. It fires only when the turn would continue past
+        // the budget, so a turn finishing exactly at the ceiling still ends
+        // normally; the first ceiling hit owns the outcome like `max-tokens`,
+        // and the turn stops even when a steer queued more work.
+        if (phase.step >= this.loopCtx.agentLoop.config.maxSteps && !isSettledCeiling(turnEnds)) {
+          stepCeilingHit = true
+          break
+        }
         target = 'next-step'
       }
     } catch (error: unknown) {
@@ -344,7 +387,7 @@ export class ReactLoopAgent implements Agent {
     } finally {
       try {
         // oxlint-disable-next-line typescript/no-non-null-assertion -- every exit assigns a turn ending
-        this.session.append('turn/end', { turn, reason: turnEnds! })
+        this.session.append('turn/end', { turn, reason: stepCeilingHit ? { kind: 'max-steps' } : turnEnds! })
       } catch (error: unknown) {
         this.throwError(error)
       }
@@ -366,15 +409,18 @@ export class ReactLoopAgent implements Agent {
     const { assembly } = decision
     const renderedPrompt = renderPrompt(assembly)
     let firstAttempt = true
+    let requestRetries = 0
     while (true) {
       const { config, preparedCall } = await this.prepareRequest(turn, step, signal)
       const startsRequestSeries = firstAttempt && decision.startsRequestSeries === true
       const commits = this.systemPrompt.project(renderedPrompt, {
         inHistory: preparedCall?.systemPromptUpdate === 'in-history',
-        startsSeries: startsRequestSeries
-          || this.requestSurfaceGeneration !== this.session.surface.replaceGeneration
+        startsSeries: this.seriesFromSurface(startsRequestSeries, this.session.surface.replaceGeneration)
           || this.toolsChanged(assembly.tools),
       })
+      if (commits.length > 0) {
+        this.loopCtx.logger.debug(`agent "${this.id}" step ${turn}/${step}: reconciled ${commits.length} system prompt update(s)`)
+      }
       for (const { message, intent } of commits) {
         this.session.append('system/message', { turn, step, message }, intent)
       }
@@ -468,6 +514,11 @@ export class ReactLoopAgent implements Agent {
           if (action?.kind !== 'retry') {
             throw new LlmError(finish.failure.message, finish.failure.code, finish.failure)
           }
+          requestRetries += 1
+          if (requestRetries > this.loopCtx.agentLoop.config.maxRequestRetries) {
+            this.loopCtx.logger.warn(`agent "${this.id}" step ${turn}/${step}: request recovery retried ${requestRetries} times, past the maxRequestRetries ceiling; leaving the failure terminal`)
+            throw new LlmError(finish.failure.message, finish.failure.code, finish.failure)
+          }
           continue
         }
 
@@ -532,6 +583,8 @@ export class ReactLoopAgent implements Agent {
       : undefined
     const reasoningEffort = this.options.reasoningEffort ?? persistedReasoningEffort
     const maxTokens = this.options.maxTokens ?? persistedMaxTokens
+    // The seed is deep-frozen before the waterfall: listeners must return a
+    // replacement config instead of mutating it.
     const seedConfig = deepFreeze(structuredClone(
       this.requestHeaderLogged
         // oxlint-disable-next-line typescript/no-non-null-assertion -- the instance logged the header it now folds
@@ -547,6 +600,9 @@ export class ReactLoopAgent implements Agent {
       () => Promise.resolve(seedConfig),
     )
     signal.throwIfAborted()
+    if (proposedConfig.provider !== seedConfig.provider || proposedConfig.model !== seedConfig.model) {
+      this.loopCtx.logger.debug(`agent "${this.id}" step ${turn}/${step}: agent/request routed ${seedConfig.provider}/${seedConfig.model} to ${proposedConfig.provider}/${proposedConfig.model}`)
+    }
     if (!proposedConfig.provider || !proposedConfig.model) {
       throw new Error(`agent "${this.id}" has no provider/model: set AgentOptions.provider and AgentOptions.model or supply both via the agent/request waterfall`)
     }
@@ -580,8 +636,7 @@ export class ReactLoopAgent implements Agent {
       ...tools.length > 0 ? { tools } : {},
     })
     const baseline = this.session.requestHeader()
-    const startsSeries = startsRequestSeries
-      || this.requestSurfaceGeneration !== surfaceGeneration
+    const startsSeries = this.seriesFromSurface(startsRequestSeries, surfaceGeneration)
     if (!this.requestHeaderLogged) {
       this.session.append('request/header', { header, reason: baseline === undefined ? 'initial' : 'resume' })
       this.requestHeaderLogged = true

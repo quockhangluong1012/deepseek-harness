@@ -577,10 +577,11 @@ describe('background execution through the job runtime', () => {
     const parameters = ctx.tools.get('bash')!.parameters as { properties: Record<string, unknown> }
     expect('run_in_background' in parameters.properties).toBe(false)
 
-    // Schema omission is advertising; execution must also enforce the opt-out.
+    // Schema omission is advertising; the closed parameter root also enforces
+    // the opt-out before execute.
     const forced = await call(ctx, 'bash', { command: 'echo hi', description: 'test command', run_in_background: true })
     expect(forced.isError).toBe(true)
-    expect(text(forced)).toContain('run_in_background is disabled for this deployment')
+    expect(text(forced)).toContain('is not a declared property')
     const foreground = await call(ctx, 'bash', { command: 'echo hi', description: 'test command' })
     expect(foreground.isError).toBe(false)
   })
@@ -621,7 +622,7 @@ describe('sandbox escalation through the generic task producer', () => {
 
   it('rejects injected escalation without a sandbox and non-widening escalation without prompting', async () => {
     const plain = await setup()
-    expect(text(await call(plain, 'bash', escalate))).toContain('not available in this composition')
+    expect(text(await call(plain, 'bash', escalate))).toContain('is not a declared property')
 
     const { ctx } = await setupSandboxed(true)
     const prompted = vi.fn()

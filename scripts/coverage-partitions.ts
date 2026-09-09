@@ -12,6 +12,13 @@ export const COVERAGE_PARTITIONS_ENV = 'DSH_COVERAGE_PARTITIONS'
 /** Internal marker that suppresses reports and thresholds inside a partition process. */
 export const COVERAGE_PARTITION_MODE_ENV = 'DSH_COVERAGE_PARTITION_MODE'
 
+/**
+ * Coordinator-issued sentinel proving a partition process was spawned by
+ * `test:coverage:partitioned`. Partition mode without this sentinel fails loud
+ * in `vitest.config.ts` instead of reporting success with no thresholds.
+ */
+export const COVERAGE_PARTITION_SENTINEL_ENV = 'DSH_COVERAGE_PARTITION_SENTINEL'
+
 /** Environment variable overriding instrumented test, polling, and hook timeouts. */
 export const COVERAGE_TEST_TIMEOUT_ENV = 'DSH_COVERAGE_TEST_TIMEOUT_MS'
 
@@ -422,6 +429,7 @@ export class CoveragePartitionCoordinator {
   private projectOf = new Map<string, string>()
   private readonly temporaryRoot: string
   private readonly blobsRoot: string
+  private sentinel = ''
 
   /** Create a coordinator from validated process-independent inputs. */
   public constructor(options: CoveragePartitionCoordinatorOptions) {
@@ -447,6 +455,7 @@ export class CoveragePartitionCoordinator {
   public async run(): Promise<number> {
     await removeOwnedTree(join(this.root, 'coverage'))
     await mkdir(this.blobsRoot, { recursive: true })
+    this.sentinel = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
 
     try {
       const assignments = await this.assignFiles()
@@ -572,6 +581,7 @@ export class CoveragePartitionCoordinator {
       env: {
         [COVERAGE_PARTITIONS_ENV]: undefined,
         [COVERAGE_PARTITION_MODE_ENV]: '1',
+        [COVERAGE_PARTITION_SENTINEL_ENV]: this.sentinel,
       },
       cwd: this.root,
       blobPath,
@@ -591,6 +601,7 @@ export class CoveragePartitionCoordinator {
       env: {
         [COVERAGE_PARTITIONS_ENV]: undefined,
         [COVERAGE_PARTITION_MODE_ENV]: undefined,
+        [COVERAGE_PARTITION_SENTINEL_ENV]: undefined,
       },
       cwd: this.root,
     }

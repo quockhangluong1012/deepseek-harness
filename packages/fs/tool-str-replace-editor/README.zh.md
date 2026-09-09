@@ -42,6 +42,9 @@ kind: "package-reference"
 | 键 | 默认值 | 含义 |
 |---|---|---|
 | `maxOutputChars` | `16000` | 文件和目录查看结果保留的前缀字符数 |
+| `maxFileBytes` | `5000000` | view/str_replace/insert 在拒绝并给出指引前缓冲的最大文件字节数 |
+| `maxListEntries` | `500` | 一次目录查看列出的最大条目数 |
+| `maxSearchBytes` | `1000000` | str_replace 接受的最大搜索字符串字节数 |
 | `description` | `Custom editing tool for viewing, creating and editing files`（多行） | 面向模型的工具描述 |
 
 ### 命令
@@ -134,6 +137,8 @@ kind: "package-reference"
 
 - **操作面向 UTF-8 文本**——不支持二进制文件。
 - **`str_replace` 刻意拒绝零匹配或多匹配**——它没有 `replace_all` 参数。
+- **大文件会拒绝并给出指引**——view、`str_replace` 与 `insert` 拒绝超过 `maxFileBytes`（默认 5,000,000 字节）的文件，并指引模型使用 `grep -n` 加 `view_range`；超过 `maxSearchBytes`（默认 1,000,000 字节）的 `old_str` 会被拒绝；目录查看按路径去重，并在 `maxListEntries`（默认 500 条）处停止。
+- **沙箱提权与 `tool-fs` 一致**——在受限后端下，变更命令会为一次性扩权重试通告 `sandbox_permissions`/`justification`（需用户批准），拒绝会渲染共享的 `[sandbox: …]` 标记加提权提示。
 - **每个修改操作都会经过已挂载的策略与沙箱**——`fs/write-intent` 或 `fs/edit-intent` 解析当前会话的沙箱策略，并把强制执行委托给已挂载的文件系统与策略插件，因此未挂载它们的部署会得到无条件变更。
 
 <a id="dev-note"></a>

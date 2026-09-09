@@ -65,7 +65,7 @@ ctx.systemPrompt.section({
 
 ### Contribute a prompt variable
 
-Variables are referenced from section text as `{{name}}` and resolved at each assembly; scoped variables shadow a same-named global for that agent. The loop supplies `model` and `cwd`; any plugin can register the facts it owns.
+Variables are referenced from section text as `{{name}}` and resolved at each assembly; scoped variables shadow a same-named global for that agent. The loop supplies `model` and `cwd`; any plugin can register the facts it owns. Write `\{{` for a literal brace pair that must reach the model unchanged. Static section and context text with a malformed `{{…}}` group is rejected at registration; an unknown variable name is rejected at assembly, when the full registered set is known.
 
 ```text
 ctx.systemPrompt.variable('cwd', ({ agent }) => agent?.session.header.cwd)
@@ -170,7 +170,6 @@ Prefix-stable while the visible schema set, rendering, and order are unchanged. 
 These limits define when prompt assembly needs special care. They are current package constraints, not a task backlog.
 
 - **Deployment-authored prompt text is config/composition only** — this plugin owns the global persona prefix and suffix defaults, creator plugins may register agent-scoped shadows, and other sections come from the plugin that owns the fact; there is no end-user prompt-editing API.
-- **No escape syntax for literal `{{…}}` braces** — every complete group is interpolated against registered variables; an escape is deferred until a real prompt needs one.
 - **`toolOrder` misconfiguration surfaces at prompt assembly (the first turn), not at boot** — only shape violations throw at config load.
 
 

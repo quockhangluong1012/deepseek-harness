@@ -17,6 +17,7 @@ import { DesktopProjectManager, type DesktopProjectHooks } from './project-manag
 import { DesktopHostProcess } from './host-process.ts'
 import { DESKTOP_IPC, type DesktopUpdateState } from './ipc.ts'
 import { formatDesktopMessage, resolveDesktopLocale } from './locale.ts'
+import { buildDesktopMenu } from './menu.ts'
 import { claimDesktopSingleInstance } from './single-instance.ts'
 import { DesktopUpdateCoordinator } from './update-coordinator.ts'
 
@@ -226,7 +227,12 @@ async function main(): Promise<void> {
     if (url.hostname === 'shell') return serveShellAsset(request)
     if (url.hostname !== 'app') return Promise.resolve(new Response(null, { status: 404 }))
     const active = host
-    if (active === undefined) return Promise.resolve(new Response('backend unavailable', { status: 503 }))
+    if (active === undefined) {
+      return Promise.resolve(new Response(messages.backendUnavailable, {
+        status: 503,
+        headers: { 'content-type': 'text/plain; charset=utf-8', 'retry-after': '1' },
+      }))
+    }
     return active.fetch(request)
   })
 
@@ -240,7 +246,7 @@ async function main(): Promise<void> {
   }
   ipcMain.handle(DESKTOP_IPC.localeGet, (event) => {
     assertDesktopSender(event, ['shell'])
-    return locale
+    return { ...locale, packaged: development === undefined }
   })
   ipcMain.handle(DESKTOP_IPC.pluginsList, (event) => {
     assertDesktopSender(event, ['shell'])
@@ -269,6 +275,10 @@ async function main(): Promise<void> {
     assertDesktopSender(event, ['shell'])
     await updates.install()
   })
+  ipcMain.handle(DESKTOP_IPC.updatesVersion, (event) => {
+    assertDesktopSender(event, ['shell'])
+    return app.getVersion()
+  })
 
   const checkAndPrompt = async (manual: boolean): Promise<void> => {
     const state = await updates.check()
@@ -287,7 +297,7 @@ async function main(): Promise<void> {
         await dialog.showMessageBox({
           type: 'info',
           title: messages.updateCheckTitle,
-          message: state.message ?? messages.updateCurrent,
+          message: development === undefined ? state.message ?? messages.updateCurrent : messages.updatesUnavailableInDev,
         })
       }
       return
@@ -325,20 +335,15 @@ async function main(): Promise<void> {
     void pluginWindow.loadURL(`${SCHEME}://shell/plugin-manager.html`)
   }
 
-  Menu.setApplicationMenu(Menu.buildFromTemplate([{
-    label: process.platform === 'darwin' ? app.name : messages.application,
-    submenu: [
-      {
-        label: development === undefined ? messages.pluginsMenu : messages.pluginsMenuPackagedOnly,
-        accelerator: 'CmdOrCtrl+,',
-        enabled: development === undefined,
-        click: openPluginWindow,
-      },
-      { label: messages.checkUpdatesMenu, click: () => { void checkAndPrompt(true) } },
-      { type: 'separator' },
-      { role: 'quit' },
-    ],
-  }]))
+  Menu.setApplicationMenu(Menu.buildFromTemplate(buildDesktopMenu(
+    process.platform === 'darwin' ? app.name : messages.application,
+    messages,
+    development === undefined,
+    {
+      openPlugins: openPluginWindow,
+      checkUpdates: () => { void checkAndPrompt(true) },
+    },
+  )))
 
   const createMainWindow = (): BrowserWindow => {
     const window = createWindow(appPreload)

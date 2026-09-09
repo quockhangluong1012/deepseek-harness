@@ -12,7 +12,7 @@ import { HarnessError } from '@deepseek-ai/dsh-llm'
 import { TerminalSessionId } from '@deepseek-ai/dsh-terminal'
 import type { TerminalSendResult, TerminalSessionId as TerminalSessionIdType, TerminalSignal } from '@deepseek-ai/dsh-terminal'
 import type {} from '@deepseek-ai/dsh-jobs'
-import { defineTool } from '@deepseek-ai/dsh-tools'
+import { defineTool, startAbortGuardedBackground, TOOL_ABORTED } from '@deepseek-ai/dsh-tools'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import { boundTerminalText, renderList, renderRead, renderSend, renderSendRead, renderSpawn } from './render.ts'
 
@@ -253,7 +253,7 @@ export function apply(ctx: Context, config: Config = {}): void {
         const jobs = ctx.get('jobs')
         if (jobs === undefined) throw new Error('background terminal sends require @deepseek-ai/dsh-jobs and @deepseek-ai/dsh-tool-jobs')
         let cancelRequested = false
-        const jobId = jobs.start({
+        const jobId = startAbortGuardedBackground(exec.signal, () => jobs.start({
           kind: 'pty-send',
           label: `${id}: ${args.text || '(input)'}`,
           owner,
@@ -272,12 +272,12 @@ export function apply(ctx: Context, config: Config = {}): void {
               readOutput: () => renderSendRead(operation.readOutput()),
             }
           },
-        })
+        }), (started) => { jobs.kill(started, exec.agent) })
         return { kind: 'background' as const, jobId }
       }
       const operation = ctx.terminals.startSend(owner, id, { ...request, signal: exec.signal })
       const result = await operation.done
-      if (exec.signal.aborted) throw new HarnessError('terminal send aborted', 'TOOL_ABORTED')
+      if (exec.signal.aborted) throw new HarnessError('terminal send aborted', TOOL_ABORTED)
       return { kind: 'foreground' as const, ...result }
     },
     presentCall(args) {

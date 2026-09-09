@@ -1,0 +1,34 @@
+{
+  ".agents/notes/implemented/architecture/2026-07-10-single-file-executable-sdk-runtime-distribution.md": {
+    "python/sdk-runtime/src/deepseek_harness_runtime/runtime/node/": "build-output runtime payload path described by the distribution decision"
+  },
+  ".agents/notes/implemented/architecture/2026-07-24-single-harness-home-resolver.md": {
+    "@deepseek-ai/dsh-home": "names the consolidated-away package this decision deleted"
+  },
+  ".agents/notes/implemented/architecture/2026-08-27-adjacent-agent-steer-messaging.md": {
+    "@deepseek-ai/dsh-tool-subagent-report": "records the complete removal this section conditions for reintroduction"
+  },
+  ".agents/notes/implemented/architecture/2026-07-29-dsh-source-launch-tsx-esm.md": {
+    "apps/cli/src/tsconfig-paths-loader.ts": "records the deleted loader this decision removed",
+    "scripts/tspath-loader.ts": "records the deleted loader this decision removed"
+  },
+  ".agents/notes/implemented/feature/2026-07-16-harness-level-loop.md": {
+    "packages/loop/": "states the non-existence as the decision: no loop family exists"
+  },
+  ".agents/notes/implemented/testing/2026-07-24-web-gui-browser-e2e-lane.md": {
+    "packages/test-support/web-snapshot": "rejected alternative that was never built"
+  },
+  ".agents/notes/implemented/process/2026-08-10-npm-release-sequences.md": {
+    "vendor/published.json": "rejected ledger alternative that was never built"
+  },
+  ".agents/notes/implemented/process/2026-07-02-bilingual-docs-and-pairing-gate.md": {
+    "docs/en/": "rejected locale-directory layout that was never built",
+    "docs/zh/": "rejected locale-directory layout that was never built"
+  },
+  ".agents/notes/implemented/simplification/2026-08-30-jsonl-only-session-persistence.md": {
+    "@deepseek-ai/dsh-session-persistence-sqlite": "names the package whose removal this note records"
+  },
+  ".agents/notes/implemented/testing/2026-09-04-session-open-performance-gate.md": {
+    "benchmarks/.dsh-build/": "benchmark build output directory created at lane runtime"
+  }
+}

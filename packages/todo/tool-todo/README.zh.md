@@ -44,6 +44,8 @@ kind: "package-reference"
 | 字段 | 默认值 | 含义 |
 |---|---|---|
 | `allowParallelInProgress` | 必填 | 是否允许多个 todo 同时处于 `in_progress`；同时选择模型描述中的活跃状态条款 |
+| `maxTodos` | `100` | 一次整表替换接受的最多 todo 数 |
+| `maxTodoContentChars` | `2000` | 每个 todo 内容接受的最大 UTF-16 字符数 |
 
 生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-tool-todo)是每个受支持字段的穷尽式真源。
 
@@ -140,7 +142,7 @@ agent 每次更新都发送完整列表；新列表替换旧列表，因此没�
 
 #### 模型看到什么
 
-每次 assistant 工具调用都会在参数中保留整个替换列表。成功时原样返回 `Updated todo list: <pending> pending, <inProgress> in progress, <completed> completed.`。稳定失败文本为 ``Error: invalid todo: `content` must be a non-empty string``、`Error: invalid todos: duplicate content "<content>"`、`Error: todo_write requires an owning agent session`，以及——仅在部署设置 `allowParallelInProgress: false` 时——`Error: invalid todos: at most one task may be in_progress (got <n>)`。完整的 `todo/write` 会话事件是 UI 与回放状态，而非第二条模型消息。
+每次 assistant 工具调用都会在参数中保留整个替换列表。成功时原样返回 `Updated todo list: <pending> pending, <inProgress> in progress, <completed> completed.`。稳定失败文本为 ``Error: invalid todo: `content` must be a non-empty string``、`Error: invalid todos: duplicate content "<content>"`、`Error: invalid todos: at most 100 items per list (got <n>)`、``Error: invalid todo: `content` exceeds 2000 chars``、`Error: todo_write requires an owning agent session`，以及——仅在部署设置 `allowParallelInProgress: false` 时——`Error: invalid todos: at most one task may be in_progress (got <n>)`。数量上限来自 `maxTodos` 与 `maxTodoContentChars` 配置，所示数值为默认值。完整的 `todo/write` 会话事件是 UI 与回放状态，而非第二条模型消息。
 
 #### Token 影响
 

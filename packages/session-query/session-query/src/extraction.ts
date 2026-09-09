@@ -50,6 +50,7 @@ function turnEndText(reason: SessionEvent<'turn/end'>['data']['reason']): string
     case 'aborted':
       return 'aborted'
     case 'max-tokens':
+    case 'max-steps':
     case 'interrupted':
       return reason.kind
     case 'completed':
