@@ -107,6 +107,14 @@ export class ReactLoopAgent implements Agent {
     /* v8 ignore next -- the loop registers its own turnBoundary unit, so the key is always present */
     const lastTurn = this.loopCtx.sessionProjections.stateOf(session, 'turnBoundary')?.lastTurn ?? 0
     this.phase = { kind: 'idle', lastTurn }
+    // Resume must not reuse attempt ids from a previous lifecycle: derive the
+    // starting counter from durable assistant settlements so
+    // `${sessionId}:${attempt}` stays unique across reloads.
+    for (const event of session.snapshotEvents()) {
+      if (event.type === 'assistant/message' || event.type === 'assistant/attempt') {
+        this.assistantAttemptCounter += 1
+      }
+    }
     this.runtimeContext = new RuntimeContextProjection(this.ctx, session)
     this.systemPrompt = new SystemPromptProjection(session)
   }
@@ -505,18 +513,25 @@ export class ReactLoopAgent implements Agent {
   ): Promise<{ config: LlmCallConfig; preparedCall?: PreparedLlmCall }> {
     const { session } = this
 
-    // A loop instance starts from its declared route, restoring only an explicit
-    // effort owned by that exact model. Later steps re-resolve marked defaults.
+    // A loop instance starts from its declared route, restoring only explicit
+    // values owned by that exact model. Later steps re-resolve marked defaults.
     const persistedHeader = session.requestHeader()
     const persistedConfig = persistedHeader?.config
     const route = { provider: this.options.provider ?? '', model: this.options.model ?? '' }
-    const persistedReasoningEffort = persistedConfig?.provider === route.provider
+    const persistedForRoute = persistedConfig?.provider === route.provider
       && persistedConfig.model === route.model
+      ? persistedConfig
+      : undefined
+    const persistedReasoningEffort = persistedForRoute !== undefined
       && persistedHeader?.adapterDefaults?.reasoningEffort !== true
-      ? persistedConfig.reasoningEffort
+      ? persistedForRoute.reasoningEffort
+      : undefined
+    const persistedMaxTokens = persistedForRoute !== undefined
+      && persistedHeader?.adapterDefaults?.maxTokens !== true
+      ? persistedForRoute.maxTokens
       : undefined
     const reasoningEffort = this.options.reasoningEffort ?? persistedReasoningEffort
-    const maxTokens = this.options.maxTokens
+    const maxTokens = this.options.maxTokens ?? persistedMaxTokens
     const seedConfig = deepFreeze(structuredClone(
       this.requestHeaderLogged
         // oxlint-disable-next-line typescript/no-non-null-assertion -- the instance logged the header it now folds

@@ -109,7 +109,7 @@ export function apply(ctx: Context, config: Config): void {
   ctx.tools.register(defineTool({
     name: 'lsp',
     description:
-      'Query a language server for precise code navigation. operation is one of goToDefinition, findReferences, goToImplementation, hover. line and character are one-based UTF-16 cursor coordinates. findReferences includes the declaration.',
+      'Query a language server for precise code navigation. operation is one of goToDefinition, findReferences, goToImplementation, hover. line and character are one-based UTF-16 cursor coordinates. findReferences includes the declaration. Queries against one workspace run serially; parallel fan-out to the same workspace waits in queue, so prefer sequential calls or distinct workspaces.',
     parameters: {
       operation: {
         type: 'string',
@@ -118,8 +118,8 @@ export function apply(ctx: Context, config: Config): void {
         description: 'goToDefinition, findReferences, goToImplementation, or hover.',
       },
       file_path: { type: 'string', required: true, description: 'The source file to query, relative to the workspace or absolute.' },
-      line: { type: 'number', required: true, description: 'One-based line of the cursor.' },
-      character: { type: 'number', required: true, description: 'One-based UTF-16 column of the cursor.' },
+      line: { type: 'integer', required: true, description: 'One-based line of the cursor.' },
+      character: { type: 'integer', required: true, description: 'One-based UTF-16 column of the cursor.' },
     },
     output: {
       schema: {
@@ -180,6 +180,9 @@ export function apply(ctx: Context, config: Config): void {
       },
     },
     timeoutMs: resolved.timeoutMs,
+    // Read-only navigation: parallel scheduler dispatch is safe; the stdio
+    // provider serializes queries per workspace instance internally.
+    isConcurrencySafe: () => true,
     async execute(args, exec) {
       const input = parseLspArgs(args)
       const workspaceRoot = sessionCwd(exec)

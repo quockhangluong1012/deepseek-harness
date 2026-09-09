@@ -11,7 +11,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { scopeChainOf, scopeOf } from '@deepseek-ai/dsh-scope'
-import { defineTool } from '@deepseek-ai/dsh-tools'
+import { assertObjectJsonSchema, defineTool } from '@deepseek-ai/dsh-tools'
 import type { Agent, AgentOptions } from '@deepseek-ai/dsh-agent'
 import { ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
@@ -173,12 +173,18 @@ function stopReasonError(result: SubagentResult): string | undefined {
 }
 
 /**
+ * Maximum chars of child partial output included in a parent-facing failure.
+ * Failures must preserve evidence without blowing the parent context.
+ */
+const MAX_PARTIAL_TEXT_CHARS = 8000
+
+/**
  * Append provider-authored failure detail and the child's preserved partial
  * answer to a stop-reason error, keeping diagnostic text separate from the
  * child's assistant output.
  * @param error - the stop-reason headline.
  * @param result - the child's terminal result.
- * @returns the headline, diagnostic, and partial text that are present.
+ * @returns the headline, diagnostic, and bounded partial text that are present.
  */
 function withDiagnosticAndPartialText(error: string, result: SubagentResult): string {
   const diagnostic = result.diagnostic === undefined
@@ -190,7 +196,9 @@ function withDiagnosticAndPartialText(error: string, result: SubagentResult): st
     .join('')
   const partial = text.length === 0
     ? ''
-    : `\nPartial output before the run ended:\n${text}`
+    : text.length > MAX_PARTIAL_TEXT_CHARS
+      ? `\nPartial output before the run ended (truncated to ${MAX_PARTIAL_TEXT_CHARS} chars):\n${text.slice(0, MAX_PARTIAL_TEXT_CHARS)}`
+      : `\nPartial output before the run ended:\n${text}`
   return `${error}${diagnostic}${partial}`
 }
 
@@ -198,6 +206,7 @@ type ForegroundToolResult = {
   readonly kind: 'foreground'
   readonly runId: SubagentRun['id']
   readonly output: JsonValue[]
+  readonly structured?: JsonValue
 }
 
 /**
@@ -219,6 +228,7 @@ async function settleForegroundRun(run: SubagentRun): Promise<ForegroundToolResu
         // Content blocks already cross durable JSON boundaries elsewhere;
         // the registry performs the authoritative lossless snapshot here.
         output: result.output as unknown as JsonValue[],
+        ...result.structured === undefined ? {} : { structured: result.structured as JsonValue },
       }
     }),
   ])
@@ -259,7 +269,7 @@ function providerWording(inheritsConversation: boolean): { description: string; 
         + 'You receive its result, not its intermediate steps.',
       promptDescription:
         'The task for the subagent. It already sees this conversation\'s completed turns, so build on them '
-        + 'freely and state only what is new.',
+        + 'freely and state only what is new. Ask for a text answer: only the child\'s text reaches this conversation.',
     }
   }
   return {
@@ -271,7 +281,7 @@ function providerWording(inheritsConversation: boolean): { description: string; 
       + 'complete, standalone prompt: it does not see this conversation.',
     promptDescription:
       'The complete, self-contained task for the subagent. It does not share this '
-      + 'conversation\'s context, so include everything it needs.',
+      + 'conversation\'s context, so include everything it needs. Ask for a text answer: only the child\'s text reaches this conversation.',
   }
 }
 
@@ -425,6 +435,10 @@ export function apply(ctx: Context, config: Config, session?: Session): void {
                 : 'Whether to run as a background job and return its id. Defaults to false; collect with job_output or stop with job_kill.',
             },
           } : {},
+          output_schema: {
+            type: 'json' as const,
+            description: 'Optional object-rooted JSON Schema for a structured final answer. When supplied, the child must call structured_output with a matching value instead of finishing with plain text; the validated value returns as `structured`. Foreground one-shot runs only.',
+          },
         },
         output: {
           schema: {
@@ -452,6 +466,7 @@ export function apply(ctx: Context, config: Config, session?: Session): void {
                   kind: { type: 'string', required: true, const: 'foreground' },
                   runId: { type: 'string', required: true },
                   output: { type: 'array', required: true, items: { type: 'json' } },
+                  structured: { type: 'json' },
                 },
               },
             ],
@@ -462,7 +477,9 @@ export function apply(ctx: Context, config: Config, session?: Session): void {
               ? `started background subagent job ${value.jobId}`
               : value.kind === 'continuable'
                 ? `started subagent ${value.subagentId}`
-                : outputValueText(value.output),
+                : value.structured !== undefined
+                  ? `${outputValueText(value.output)}\nStructured result: ${JSON.stringify(value.structured)}`
+                  : outputValueText(value.output),
           }],
         },
         // Children never mutate the parent session; the one parent-owned write
@@ -512,6 +529,8 @@ export function apply(ctx: Context, config: Config, session?: Session): void {
           }
           exec.signal.throwIfAborted()
           const maxDepth = typeof config.maxDepth === 'number' ? config.maxDepth : undefined
+          const outputSchema = (args as { output_schema?: unknown }).output_schema
+          if (outputSchema !== undefined) assertObjectJsonSchema(outputSchema)
           const request = {
             label: args.description,
             prompt: [{ type: 'text', text: args.prompt }] as ContentBlock[],
@@ -520,9 +539,13 @@ export function apply(ctx: Context, config: Config, session?: Session): void {
             ...config.persona !== undefined ? { persona: config.persona } : {},
             ...config.toolFilter !== undefined ? { toolFilter: config.toolFilter } : {},
             ...maxDepth !== undefined ? { maxDepth } : {},
+            ...outputSchema === undefined ? {} : { outputSchema },
           }
 
           const runSpec = resolveDelegationRun(args, { backgroundEnabled, continuable })
+          if (outputSchema !== undefined && runSpec.runInBackground) {
+            throw new Error('output_schema requires a foreground run: set run_in_background: false')
+          }
           if (runSpec.runInBackground) {
             if (continuable) {
               // Resolves at inbox acceptance: the child owns its own turns from

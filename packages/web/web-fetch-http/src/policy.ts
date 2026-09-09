@@ -15,6 +15,20 @@ export const WEB_FETCH_MAX_URL_LENGTH = 2048
 export type FetchableKind = 'html' | 'text'
 
 /**
+ * Hostnames that must never be fetched even when a proxy would resolve them:
+ * loopback names and well-known cloud metadata endpoints. IP literals are
+ * covered by address validation; these names would otherwise bypass it on the
+ * proxied path where the proxy performs DNS.
+ */
+const BLOCKED_FETCH_HOSTNAMES = new Set([
+  'localhost',
+  'metadata.google.internal',
+  'metadata.google.com',
+  'instance-data',
+  'instance-data-compute',
+])
+
+/**
  * Parse a request URL and enforce network-independent transport restrictions:
  * HTTP(S) only and no embedded credentials. The provider applies this before
  * resolving a destination.
@@ -34,6 +48,12 @@ export function parseFetchUrl(input: string): URL {
   }
   if (url.username.length > 0 || url.password.length > 0) {
     throw new WebError('credentials in URLs are not allowed', 'WEB_BLOCKED_URL')
+  }
+  const hostname = url.hostname.toLowerCase()
+  if (hostname === 'localhost'
+    || hostname.endsWith('.localhost')
+    || BLOCKED_FETCH_HOSTNAMES.has(hostname)) {
+    throw new WebError(`URL hostname "${url.hostname}" is not allowed`, 'WEB_BLOCKED_URL')
   }
   return url
 }

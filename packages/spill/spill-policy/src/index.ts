@@ -187,9 +187,11 @@ export function apply(ctx: Context, config: Config): void {
     // we bound whatever it accepted. A block passes through — spill only shapes
     // accepted plain-text results, never corrective feedback.
     const decision = await next()
-    // Skip `read` to avoid a read → spill → read again loop.
+    // Skip `read` to avoid a read → spill → read again loop, and `glob`/`grep`
+    // because they already spill their own capped results with paging guidance;
+    // a second spill here would write a duplicate artifact for the same call.
     if (decision.kind !== 'accept' || Object.hasOwn(decision, 'value')
-      || exec.parent !== undefined || exec.name === 'read') return decision
+      || exec.parent !== undefined || exec.name === 'read' || exec.name === 'glob' || exec.name === 'grep') return decision
 
     const content = decision.content ?? result.content
     const text = flattenPlainText(content)

@@ -21,6 +21,12 @@ export const WEB_SEARCH_MAX_RESULTS = 8
 /** Default upper bound on concurrent searches in one tool call. */
 export const WEB_SEARCH_MAX_QUERIES = 4
 
+/** Default upper bound on snippet characters kept per source. */
+export const WEB_SEARCH_MAX_SNIPPET_CHARS = 500
+
+/** Default upper bound on provider-answer characters kept per result. */
+export const WEB_SEARCH_MAX_CONTENT_CHARS = 4000
+
 /** Model-facing `web_search` arguments. */
 interface WebSearchArgs {
   queries: string[]
@@ -123,13 +129,15 @@ export interface WebSearchMeta {
 
 /**
  * Project one seam source into a plain object that omits every absent optional
- * field. Shared by the canonical `execute` result and its replayable
- * presentation meta so both carry byte-identical source shapes.
+ * field, bounding the snippet to the deployment's per-source cap. Shared by
+ * the canonical `execute` result and its replayable presentation meta so both
+ * carry byte-identical source shapes.
  *
  * @param source - one source from the `ctx.web` search outcome.
+ * @param maxSnippetChars - upper bound on snippet characters kept per source.
  * @returns `{ url }` plus each present optional field.
  */
-function projectSource(source: WebSearchSource): {
+function projectSource(source: WebSearchSource, maxSnippetChars: number): {
   url: string
   title?: string
   snippet?: string
@@ -138,9 +146,30 @@ function projectSource(source: WebSearchSource): {
   return {
     url: source.url,
     ...source.title !== undefined ? { title: source.title } : {},
-    ...source.snippet !== undefined ? { snippet: source.snippet } : {},
+    ...source.snippet !== undefined ? { snippet: boundText(source.snippet, maxSnippetChars) } : {},
     ...source.publishedAt !== undefined ? { publishedAt: source.publishedAt } : {},
   }
+}
+
+/**
+ * Bound provider-answer text to the deployment's content cap.
+ * @param content - the provider-generated answer text, when any.
+ * @param maxContentChars - upper bound on answer characters kept.
+ * @returns the content within the cap.
+ */
+function boundContent(content: string | undefined, maxContentChars: number): string | undefined {
+  if (content === undefined) return undefined
+  return boundText(content, maxContentChars)
+}
+
+/**
+ * Truncate text to a character cap, keeping the head.
+ * @param text - text to bound.
+ * @param maxChars - upper bound on characters kept.
+ * @returns the text within the cap.
+ */
+function boundText(text: string, maxChars: number): string {
+  return text.length <= maxChars ? text : text.slice(0, maxChars)
 }
 
 /**
@@ -148,11 +177,15 @@ function projectSource(source: WebSearchSource): {
  * presentation meta ({@link WebSearchMeta} as opaque JSON).
  *
  * @param value - the canonical `web_search` output value (the seam's result shape).
+ * @param maxSnippetChars - upper bound on snippet characters kept per source.
  * @returns the structured sources, the truncation flag, and the answer when present.
  */
-export function searchMetaFromValue(value: WebSearchResult): JsonValue {
+export function searchMetaFromValue(
+  value: WebSearchResult,
+  maxSnippetChars: number = WEB_SEARCH_MAX_SNIPPET_CHARS,
+): JsonValue {
   return {
-    sources: value.sources.map(projectSource),
+    sources: value.sources.map(source => projectSource(source, maxSnippetChars)),
     truncated: value.truncated,
     ...value.content !== undefined ? { answer: value.content } : {},
   }
@@ -304,6 +337,8 @@ function mergeSearchResults(
  *   `ToolDefinition.timeoutMs` for `@deepseek-ai/dsh-tool-call-timeout-policy` to enforce.
  * @param fetchEnabled - whether the same composition exposes `web_fetch`, which
  *   controls whether search guidance may recommend that follow-up tool.
+ * @param maxSnippetChars - the deployment's per-source snippet cap.
+ * @param maxContentChars - the deployment's provider-answer cap.
  */
 export function applyWebSearchTool(
   ctx: Context,
@@ -311,6 +346,8 @@ export function applyWebSearchTool(
   maxQueries: number,
   timeoutMs: number,
   fetchEnabled: boolean,
+  maxSnippetChars: number = WEB_SEARCH_MAX_SNIPPET_CHARS,
+  maxContentChars: number = WEB_SEARCH_MAX_CONTENT_CHARS,
 ): void {
   ctx.systemPrompt.section({
     name: 'tool:web_search',
@@ -363,9 +400,10 @@ export function applyWebSearchTool(
     async execute(args, exec) {
       const queries = parseSearchArgs(args, maxQueries)
       const result = await runSearchQueries(ctx, queries, maxResults, exec.signal)
+      const content = boundContent(result.content, maxContentChars)
       return {
-        ...result.content !== undefined ? { content: result.content } : {},
-        sources: result.sources.map(projectSource),
+        ...content !== undefined ? { content } : {},
+        sources: result.sources.map(source => projectSource(source, maxSnippetChars)),
         truncated: result.truncated,
       }
     },

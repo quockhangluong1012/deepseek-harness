@@ -58,7 +58,7 @@ When the notice alone fills the budget (a tiny cap or a long locator), the previ
 
 ### Which results are affected
 
-The policy shapes only final, accepted, plain-text results. Results at or below the cap, results containing any non-text block, nested composite calls, `read` results, blocked decisions, and accepted value replacements all pass through unchanged. Provider-level truncation that already happened (for example `web-fetch-http.maxBodyChars`) cannot be recovered here — the spill file holds what the tool actually returned.
+The policy shapes only final, accepted, plain-text results. Results at or below the cap, results containing any non-text block, nested composite calls, `read` results, `glob`/`grep` results (both self-spill with paging guidance), blocked decisions, and accepted value replacements all pass through unchanged. Provider-level truncation that already happened (for example `web-fetch-http.maxBodyChars`) cannot be recovered here — the spill file holds what the tool actually returned.
 
 ### Best-effort failure behavior
 
@@ -84,7 +84,7 @@ The policy is deliberately narrow: it only decides **when** to spill and compose
 
 ### The two arms
 
-A `tools/post-execute` waterfall listener (registered with `prepend`, delegating via `next()`) bounds the model-facing result; a `tools/ptc-dispatch-log` listener bounds the durable log copy of each `run_code` sub-call. Both share one replacement helper so the two projections are byte-identical. The post-execute arm skips `read` to avoid a read → spill → read loop; the dispatch-log arm bounds `read` sub-calls because a log copy is not model context.
+A `tools/post-execute` waterfall listener (registered with `prepend`, delegating via `next()`) bounds the model-facing result; a `tools/ptc-dispatch-log` listener bounds the durable log copy of each `run_code` sub-call. Both share one replacement helper so the two projections are byte-identical. The post-execute arm skips `read` to avoid a read → spill → read loop and `glob`/`grep` because both already spill their own capped results; the dispatch-log arm bounds `read` sub-calls because a log copy is not model context.
 
 <a id="shared-notice-ownership"></a>
 ### Shared notice ownership
@@ -127,7 +127,7 @@ Read these pages when the package-level contract is not enough.
 
 #### What the model sees
 
-Results at or below `maxInlineBytes`, nested results, `read` results, blocked decisions, and results containing non-text blocks are unchanged. An oversized plain-text model-facing result becomes a bounded head/tail preview followed by `(Omitted <bytes> bytes. Full formatted result stored at: <locator>. <retrievalHint>)`; a storage or ownership failure leaves the original result visible.
+Results at or below `maxInlineBytes`, nested results, `read` results, `glob`/`grep` results, blocked decisions, and results containing non-text blocks are unchanged. An oversized plain-text model-facing result becomes a bounded head/tail preview followed by `(Omitted <bytes> bytes. Full formatted result stored at: <locator>. <retrievalHint>)`; a storage or ownership failure leaves the original result visible.
 
 #### Token effect
 
@@ -145,7 +145,7 @@ Append-only; newly visible content follows the reusable request prefix and does 
 These limits define when the policy cannot help. They are current package constraints.
 
 - **Text recognition cannot authenticate output** — a tool can print the same notice text; `hasSpillNotice` identifies a text convention, not proof that the policy saved a result.
-- **Only final plain-text results are spillable** — mixed-content results, blocked feedback, and `read` pass through; provider truncation or tool-owned retention that happened earlier cannot be recovered here.
+- **Only final plain-text results are spillable** — mixed-content results, blocked feedback, `read`, and self-spilling `glob`/`grep` pass through; provider truncation or tool-owned retention that happened earlier cannot be recovered here.
 - **A notice that cannot fit disables replacement for that call** — a tiny cap or long locator leaves the oversized original inline after the backend has already saved an unreferenced spill.
 
 <a id="dev-note"></a>
@@ -158,7 +158,7 @@ This Dev Note is working context for maintainers: open directions. It is explici
 
 #### Future: per-tool configuration
 
-Per-tool opt-out or per-tool policy declarations remain deferred; the built-in `read` skip covers the known loop, and a second real tool need would justify configuration.
+Per-tool opt-out or per-tool policy declarations remain deferred; the built-in `read`, `glob`, and `grep` skips cover the known loops and self-spilling tools, and a further real tool need would justify configuration.
 
 #### Future: earlier spill
 

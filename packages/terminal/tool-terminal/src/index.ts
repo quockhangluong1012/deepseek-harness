@@ -8,6 +8,7 @@ import { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
+import { HarnessError } from '@deepseek-ai/dsh-llm'
 import { TerminalSessionId } from '@deepseek-ai/dsh-terminal'
 import type { TerminalSendResult, TerminalSessionId as TerminalSessionIdType, TerminalSignal } from '@deepseek-ai/dsh-terminal'
 import type {} from '@deepseek-ai/dsh-jobs'
@@ -196,7 +197,7 @@ export function apply(ctx: Context, config: Config = {}): void {
 
   ctx.tools.register(defineTool({
     name: 'terminal_send',
-    description: 'Send text to a persistent terminal. By default Enter is submitted and the call waits for a prompt, stdin wait, output silence, timeout, or session exit.'
+    description: 'Send text to a persistent terminal. By default Enter is submitted and the call waits for a prompt, stdin wait, output silence, backend-bounded timeout, or session exit. Only one send may be active per session: wait for the prior send before sending again.'
       + (enableRunInBackground ? ' Background mode returns a job id for job_output/job_kill.' : ''),
     parameters: {
       sessionId: { type: 'string', required: true, description: 'Terminal session id returned by terminal_open or terminal_list.' },
@@ -276,7 +277,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       }
       const operation = ctx.terminals.startSend(owner, id, { ...request, signal: exec.signal })
       const result = await operation.done
-      if (exec.signal.aborted) throw new Error('terminal send aborted')
+      if (exec.signal.aborted) throw new HarnessError('terminal send aborted', 'TOOL_ABORTED')
       return { kind: 'foreground' as const, ...result }
     },
     presentCall(args) {

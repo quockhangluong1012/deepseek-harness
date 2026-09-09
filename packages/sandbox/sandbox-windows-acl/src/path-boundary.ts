@@ -9,13 +9,27 @@ import { isAbsolute, relative, sep } from 'node:path'
 
 /** Whether `root` is the same canonical directory as `candidate` or contains it. */
 function containsDirectory(root: string, candidate: string): boolean {
-  const relation = relative(realpathSync.native(root), realpathSync.native(candidate))
+  let rootReal: string
+  let candidateReal: string
+  try {
+    rootReal = realpathSync.native(root)
+  } catch (error: unknown) {
+    throw new Error(`Windows ACL boundary check failed: cannot resolve root "${root}"`, { cause: error })
+  }
+  try {
+    candidateReal = realpathSync.native(candidate)
+  } catch (error: unknown) {
+    throw new Error(`Windows ACL boundary check failed: cannot resolve candidate "${candidate}"`, { cause: error })
+  }
+  const relation = relative(rootReal, candidateReal)
   return relation === '' || (!isAbsolute(relation) && relation !== '..' && !relation.startsWith(`..${sep}`))
 }
 
 /**
  * Reject a temp parent that is inside the workspace: every child created
- * below it would inherit the standing workspace capability.
+ * below it would inherit the standing workspace capability. A temp parent
+ * above the workspace is allowed because the fresh temp child is a sibling
+ * of the workspace, not its parent.
  * @param workspaceRoot - the canonical workspace root that receives the standing ACE.
  * @param tempRoot - the existing parent beneath which a private temp child would be created.
  */

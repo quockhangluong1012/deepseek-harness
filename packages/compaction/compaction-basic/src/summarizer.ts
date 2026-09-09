@@ -154,6 +154,8 @@ export async function summarizeWithLlm(
     messages,
     ...input.tools === undefined ? {} : { tools: [...input.tools] },
     maxTokens: config.maxTokens,
+    // Deterministic checkpoint prose: summarization must not vary by sampling.
+    temperature: 0,
     sessionId: agent.session.id,
     purpose: 'compaction',
     ...signal === undefined ? {} : { signal },

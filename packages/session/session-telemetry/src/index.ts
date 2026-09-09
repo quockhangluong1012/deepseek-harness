@@ -169,3 +169,10 @@ export abstract class SessionTelemetryBackend extends Service implements Session
 }
 
 export { SessionTelemetryCoordinator, type SessionTelemetryCapture, type SessionTelemetryCaptureOptions } from './coordinator.ts'
+export {
+  DEFAULT_SENSITIVE_PATTERNS,
+  SENSITIVE_PLACEHOLDER,
+  scrubSensitiveRecord,
+  scrubSensitiveValue,
+  type SensitivePattern,
+} from './sensitive.ts'

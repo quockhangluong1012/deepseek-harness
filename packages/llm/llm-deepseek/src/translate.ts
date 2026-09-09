@@ -62,8 +62,12 @@ export function mapUsage(usage: WireUsage): TokenUsage {
     && usage.completion_tokens >= 0
     && Number.isSafeInteger(combined)
     && (usage.total_tokens === undefined || usage.total_tokens === combined)
+  // Providers occasionally report inconsistent cache counters; clamp instead of
+  // emitting a negative disjoint input count that would invalidate telemetry.
+  const rawInput = usage.prompt_tokens - (cacheRead ?? 0)
+  const inputTokens = Number.isSafeInteger(rawInput) && rawInput >= 0 ? rawInput : usage.prompt_tokens
   return {
-    inputTokens: usage.prompt_tokens - (cacheRead ?? 0),
+    inputTokens,
     outputTokens: usage.completion_tokens,
     ...hasExactTotal ? { totalTokens: combined } : {},
     ...cacheRead !== undefined ? { cacheReadTokens: cacheRead } : {},

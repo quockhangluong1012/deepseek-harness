@@ -308,7 +308,7 @@ export function apply(ctx: Context, config: Config): void {
     parameters: {
       job_id: { type: 'string', required: true, description: 'Job id returned by the tool that started the background work.' },
       wait: { type: 'boolean', description: 'Block until the job reaches a terminal status or the timeout expires. A timed-out wait returns [status: running] and leaves the job alive.' },
-      timeout_ms: { type: 'number', description: 'Max wait in milliseconds (only meaningful with wait: true). Defaults to the configured wait timeout; capped by the configured maximum.' },
+      timeout_ms: { type: 'integer', description: 'Max wait in milliseconds (only meaningful with wait: true). Must be a positive integer. Defaults to the configured wait timeout; capped by the configured maximum.' },
     },
     finalizeContent: finalizeTaskContent,
     output: {
@@ -329,6 +329,9 @@ export function apply(ctx: Context, config: Config): void {
     async execute(args, exec) {
       const id = validateJobId(args.job_id)
       if (args.wait === true) {
+        if (args.timeout_ms !== undefined && (!Number.isSafeInteger(args.timeout_ms) || args.timeout_ms <= 0)) {
+          throw new Error(`timeout_ms must be a positive integer of milliseconds, got ${JSON.stringify(args.timeout_ms)}`)
+        }
         const timeout = Math.min(args.timeout_ms ?? waitDefault, waitCap)
         await ctx.jobs.wait(id, timeout, exec.agent, exec.signal)
       }

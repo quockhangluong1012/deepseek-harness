@@ -25,6 +25,11 @@ export const inject = ['tools', 'sessionProjections']
 /** The valid {@link TodoItem} statuses, as a runtime set for input narrowing. */
 const STATUSES = ['pending', 'in_progress', 'completed'] as const
 
+/** Maximum todos accepted in one whole-list replacement. */
+const MAX_TODOS = 100
+/** Maximum UTF-16 chars accepted per todo content. */
+const MAX_TODO_CONTENT_CHARS = 2000
+
 /** Model-facing todo tool configuration. */
 export interface Config {
   /**
@@ -89,6 +94,9 @@ function describe(allowParallel: boolean): string {
  * @returns the canonical list.
  */
 function toTodoList(raw: { content: string; status: string }[], allowParallel: boolean): TodoItem[] {
+  if (raw.length > MAX_TODOS) {
+    throw new Error(`invalid todos: at most ${MAX_TODOS} items per list (got ${raw.length})`)
+  }
   const todos: TodoItem[] = []
   const seen = new Set<string>()
   let active = 0
@@ -96,6 +104,9 @@ function toTodoList(raw: { content: string; status: string }[], allowParallel: b
     const content = item.content.trim()
     if (content.length === 0) {
       throw new Error('invalid todo: `content` must be a non-empty string')
+    }
+    if (content.length > MAX_TODO_CONTENT_CHARS) {
+      throw new Error(`invalid todo: \`content\` exceeds ${MAX_TODO_CONTENT_CHARS} chars`)
     }
     if (seen.has(content)) {
       throw new Error(`invalid todos: duplicate content ${JSON.stringify(content)}`)

@@ -213,7 +213,7 @@ export function apply(ctx: Context, config: Config): void {
         description: 'The concrete completion objective inferred from the direct human request.',
       },
       max_goal_rounds: {
-        type: 'number',
+        type: 'integer',
         description: 'Optional positive safe-integer limit on automatic continuation rounds.',
       },
     },
@@ -238,7 +238,7 @@ export function apply(ctx: Context, config: Config): void {
       + 'responsible for judging that the same condition persisted across those rounds and must explain it in blocked_reason.',
     parameters: {
       goal_id: { type: 'string', required: true, description: 'Exact id returned by get_goal.' },
-      revision: { type: 'number', required: true, description: 'Exact positive revision returned by get_goal.' },
+      revision: { type: 'integer', required: true, description: 'Exact positive revision returned by get_goal.' },
       action: {
         type: 'string',
         required: true,
@@ -246,7 +246,7 @@ export function apply(ctx: Context, config: Config): void {
         description: 'edit | pause | resume | complete | blocked',
       },
       objective: { type: 'string', description: 'Replacement objective; valid only with action edit.' },
-      max_goal_rounds: { type: 'number', description: 'Replacement cap; valid only with action edit.' },
+      max_goal_rounds: { type: 'integer', description: 'Replacement cap; valid only with action edit.' },
       blocked_reason: {
         type: 'string',
         description: 'Concrete blocking condition; required only with action blocked.',

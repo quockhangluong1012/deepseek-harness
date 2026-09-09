@@ -267,5 +267,7 @@ function translateAbortOrNetwork(error: unknown, signal: AbortSignal): WebError 
   const timeout = timeoutOf(signal, 'WEB_FETCH_TIMEOUT')
   if (timeout !== undefined) return new WebError('web fetch timed out', 'WEB_FETCH_TIMEOUT', { cause: timeout })
   if (signal.aborted) return new WebError('web fetch aborted', 'WEB_ABORTED', { cause: error })
-  return new WebError(`web fetch failed: ${String(error)}`, 'WEB_PROVIDER_ERROR', { cause: error })
+  // Keep transport internals (IPs, ports, proxy details) out of the
+  // model-visible message; the cause retains them for operator logs.
+  return new WebError('web fetch failed', 'WEB_PROVIDER_ERROR', { cause: error })
 }

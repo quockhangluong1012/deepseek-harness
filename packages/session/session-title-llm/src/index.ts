@@ -257,6 +257,8 @@ export async function generateSessionTitleWithLlm(
     messages,
     system,
     maxTokens: config.maxOutputTokens,
+    // Deterministic short titles: no sampling variance across identical inputs.
+    temperature: 0,
     sessionId: request.session.id,
     purpose: 'session-title',
     signal: callDeadline.signal,

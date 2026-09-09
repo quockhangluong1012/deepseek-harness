@@ -218,7 +218,10 @@ export function apply(ctx: Context, config: Config = {}): void {
     if (escalationModes.length === 0) {
       throw new Error('sandbox_permissions is not available in this composition (no sandboxing executor to escalate)')
     }
-    const effectiveMode = (standingPolicy as SandboxExecutionPolicy).mode
+    if (standingPolicy === undefined) {
+      throw new Error('sandbox_permissions is not available for direct calls without a resolved sandbox policy')
+    }
+    const effectiveMode = standingPolicy.mode
     return approveEscalation(
       { requestedMode: mode, justification, effectiveMode, subject: 'command' },
       {
@@ -374,6 +377,20 @@ export function apply(ctx: Context, config: Config = {}): void {
             }
           },
         })
+        // Close the check-then-start race: an abort that landed during
+        // registration must not leave an orphan background job. AbortSignal is
+        // externally mutable; registration may reenter cancellation.
+        // oxlint-disable-next-line typescript/no-unnecessary-condition
+        if (exec.signal.aborted) {
+          try {
+            jobs.kill(id, exec.agent)
+          } catch {
+            // Kill is best-effort cleanup; the abort below is authoritative.
+          }
+          const error = new HarnessError('tool call aborted', TOOL_ABORTED)
+          error.name = 'AbortError'
+          throw error
+        }
         return { kind: 'background' as const, jobId: id }
       }
       const result = await ctx.shell.run(ctx.shell.resolve({

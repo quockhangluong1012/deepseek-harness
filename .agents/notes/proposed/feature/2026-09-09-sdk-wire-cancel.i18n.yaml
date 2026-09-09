@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/proposed/feature/2026-09-09-sdk-wire-cancel.md
+2026-09-09-sdk-wire-cancel.md: 424eea659b0d1c9c4c9bb87caebd3f7106c4fe4b
+2026-09-09-sdk-wire-cancel.zh.md: 01e2533c67522fb9ccaaf6db8bb86b06cf93806b

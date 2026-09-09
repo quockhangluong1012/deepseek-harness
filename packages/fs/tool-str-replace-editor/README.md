@@ -134,6 +134,8 @@ These limits define when the editor tool is a poor fit or needs special operatio
 
 - **Operations target UTF-8 text** — binary files are unsupported.
 - **`str_replace` intentionally rejects zero or multiple matches** — it has no `replace_all` argument.
+- **Large files are refused with guidance** — view, `str_replace`, and `insert` reject files over 5,000,000 bytes and direct the model to `grep -n` plus `view_range`; `old_str` over 1,000,000 bytes is rejected; directory views dedupe by path and stop at 500 entries.
+- **Sandbox escalation matches `tool-fs`** — under a confining backend the mutating commands advertise `sandbox_permissions`/`justification` for one-shot wider retries with user approval, and denials render the shared `[sandbox: …]` marker plus escalation hint.
 - **Every mutation goes through the mounted policy and sandbox** — `fs/write-intent` or `fs/edit-intent` resolves the current session sandbox policy and delegates enforcement to the mounted filesystem and policy plugins, so a deployment without them gets unconditional mutations.
 
 <a id="dev-note"></a>

@@ -341,6 +341,10 @@ export function httpErrorCode(status: number, error?: WireError['error']): strin
   if (status === 413) return 'INVALID_REQUEST'
   const detail = [error?.code, error?.type, error?.message].filter(Boolean).join(' ')
   if (isQuotaExceededError(detail)) return QUOTA_EXCEEDED_CODE
+  // A 429 can still carry context-overflow wording (gateway rate-limits the
+  // oversized request); route overflow before generic rate-limit so recovery
+  // compacts instead of retrying a request that can never succeed.
+  if (isContextWindowExceededError(detail)) return CONTEXT_WINDOW_EXCEEDED_CODE
   if (status === 429) return 'RATE_LIMIT'
   if (status === 400) {
     if (isContextWindowExceededError(detail)) return CONTEXT_WINDOW_EXCEEDED_CODE

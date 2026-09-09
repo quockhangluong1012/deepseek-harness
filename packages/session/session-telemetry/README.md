@@ -49,7 +49,7 @@ Every backend discloses its deployment mode through `sharing`: `full`, `feedback
 
 <a id="the-redact-waterfall"></a>
 
-Every outbound record passes the `sessionTelemetry/record` waterfall after the coordinator copies its canonical event. This package ships no rules: with no listener mounted, records reach the backend exactly as captured, so exported data is as clean as the rules a deployment mounts. Listeners stack by transforming `next()`'s return value; a throwing listener withholds that one record fail-closed. Redaction applies to the outbound copy only — the canonical session log is never rewritten.
+Every outbound record passes the `sessionTelemetry/record` waterfall after the coordinator copies its canonical event. This package ships no rules: with no listener mounted, records reach the backend exactly as captured, so exported data is as clean as the rules a deployment mounts. Listeners stack by transforming `next()`'s return value; a throwing listener withholds that one record fail-closed. Redaction applies to the outbound copy only — the canonical session log is never rewritten. The optional [`sensitive.ts`](src/sensitive.ts) helpers (`scrubSensitiveValue`, `scrubSensitiveRecord`, `DEFAULT_SENSITIVE_PATTERNS`) give deployments a narrow starting rule set for API-like tokens, bearer credentials, AWS access keys, and PEM blocks; mount them explicitly, they never apply by default.
 
 -----
 
@@ -71,6 +71,7 @@ The seam is built on one boundary: the harness's aspect ends at `emit()`. Comple
 |---|---|
 | [`src/index.ts`](src/index.ts) | Service Definition: `SessionTelemetryBackend`/`SessionTelemetrySink` contract, record vocabulary, `session-telemetry/record` waterfall declaration |
 | [`src/coordinator.ts`](src/coordinator.ts) | Capture: live listeners, lifecycle-local on-demand replay, redaction, handoff cursor, containment |
+| [`src/sensitive.ts`](src/sensitive.ts) | Opt-in sensitive-value scrubbing helpers for deployment redaction rules |
 
 ### Capture flow
 

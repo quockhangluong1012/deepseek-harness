@@ -50,12 +50,14 @@ Load the web service, at least one backend, and this package; both tools registe
 | `fetchTimeoutMs` | `30000` | Cooperative tool-call timeout budget (ms) for `web_fetch` |
 | `searchTimeoutMs` | `30000` | Cooperative tool-call timeout budget (ms) for `web_search` |
 | `fetchMaxOutputChars` | `200000` | Cap on source characters converted synchronously and on one complete `web_fetch` output |
+| `searchSnippetMaxChars` | `500` | Upper bound on snippet characters kept per `web_search` source |
+| `searchContentMaxChars` | `4000` | Upper bound on provider-answer characters kept per `web_search` result |
 
 The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-tool-web) is the exhaustive source for every accepted field and its JSDoc. `searchMaxQueries` bounds the accepted array before exact-string deduplication and provider fan-out; validation rejects an oversized array before any search starts. The timeout budgets attach to each tool definition and are enforced by [`@deepseek-ai/dsh-tool-call-timeout-policy`](../../guard/timeout-policy/README.md); the model-facing schemas expose no timeout argument.
 
 ### Using web_search
 
-Call `web_search` with a `queries` array of one to `searchMaxQueries` non-empty strings. Exact duplicate queries run once; multiple queries run concurrently and their sources merge round-robin before the combined `searchMaxResults` cap applies. The result is an optional provider answer followed by `Sources:` with one line per source — `- [<title-or-url>](<url>)`, optionally with snippet and date — and a standing instruction to cite the URLs.
+Call `web_search` with a `queries` array of one to `searchMaxQueries` non-empty strings. Exact duplicate queries run once; multiple queries run concurrently and their sources merge round-robin before the combined `searchMaxResults` cap applies. Each source snippet is bounded to `searchSnippetMaxChars` and the provider answer to `searchContentMaxChars`. The result is an optional provider answer followed by `Sources:` with one line per source — `- [<title-or-url>](<url>)`, optionally with snippet and date — and a standing instruction to cite the URLs.
 
 ```text
 web_search({ queries: ['deepseek harness documentation'] })

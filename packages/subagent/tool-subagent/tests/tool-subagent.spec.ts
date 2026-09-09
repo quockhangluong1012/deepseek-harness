@@ -95,6 +95,7 @@ describe('dsh-tool-subagent', () => {
     const props = (schema!.parameters as { properties?: Record<string, unknown> }).properties ?? {}
     expect(Object.keys(props).sort()).toEqual([
       'description',
+      'output_schema',
       'prompt',
     ])
     expect(schema!.description).not.toContain('job_output')

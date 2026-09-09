@@ -935,7 +935,7 @@ Source: [`packages/terminal/tool-terminal/src/index.ts`](../packages/terminal/to
 
 ### `terminal_send`
 
-Send text to a persistent terminal. By default Enter is submitted and the call waits for a prompt, stdin wait, output silence, timeout, or session exit. Background mode returns a job id for job_output/job_kill.
+Send text to a persistent terminal. By default Enter is submitted and the call waits for a prompt, stdin wait, output silence, backend-bounded timeout, or session exit. Only one send may be active per session: wait for the prior send before sending again. Background mode returns a job id for job_output/job_kill.
 
 ```json
 {
@@ -1019,7 +1019,7 @@ Create one persisted same-session completion goal when the current direct human 
       "description": "The concrete completion objective inferred from the direct human request."
     },
     "max_goal_rounds": {
-      "type": "number",
+      "type": "integer",
       "description": "Optional positive safe-integer limit on automatic continuation rounds."
     }
   },
@@ -1057,7 +1057,7 @@ Update the exact current goal revision. edit, pause, and resume require a direct
       "description": "Exact id returned by get_goal."
     },
     "revision": {
-      "type": "number",
+      "type": "integer",
       "description": "Exact positive revision returned by get_goal."
     },
     "action": {
@@ -1076,7 +1076,7 @@ Update the exact current goal revision. edit, pause, and resume require a direct
       "description": "Replacement objective; valid only with action edit."
     },
     "max_goal_rounds": {
-      "type": "number",
+      "type": "integer",
       "description": "Replacement cap; valid only with action edit."
     },
     "blocked_reason": {
@@ -1199,7 +1199,7 @@ Registered only inside live root Agent scopes created after the opt-in Schedule 
 
 ### `lsp`
 
-Query a language server for precise code navigation. operation is one of goToDefinition, findReferences, goToImplementation, hover. line and character are one-based UTF-16 cursor coordinates. findReferences includes the declaration.
+Query a language server for precise code navigation. operation is one of goToDefinition, findReferences, goToImplementation, hover. line and character are one-based UTF-16 cursor coordinates. findReferences includes the declaration. Queries against one workspace run serially; parallel fan-out to the same workspace waits in queue, so prefer sequential calls or distinct workspaces.
 
 ```json
 {
@@ -1220,11 +1220,11 @@ Query a language server for precise code navigation. operation is one of goToDef
       "description": "The source file to query, relative to the workspace or absolute."
     },
     "line": {
-      "type": "number",
+      "type": "integer",
       "description": "One-based line of the cursor."
     },
     "character": {
-      "type": "number",
+      "type": "integer",
       "description": "One-based UTF-16 column of the cursor."
     }
   },
@@ -1572,11 +1572,14 @@ Delegate a self-contained task to a subagent (a separate agent that works in its
     },
     "prompt": {
       "type": "string",
-      "description": "The complete, self-contained task for the subagent. It does not share this conversation's context, so include everything it needs."
+      "description": "The complete, self-contained task for the subagent. It does not share this conversation's context, so include everything it needs. Ask for a text answer: only the child's text reaches this conversation."
     },
     "run_in_background": {
       "type": "boolean",
       "description": "Whether to run as a background job and return its id. Defaults to false; collect with job_output or stop with job_kill."
+    },
+    "output_schema": {
+      "description": "Optional object-rooted JSON Schema for a structured final answer. When supplied, the child must call structured_output with a matching value instead of finishing with plain text; the validated value returns as `structured`. Foreground one-shot runs only."
     }
   },
   "required": [
@@ -1724,8 +1727,8 @@ Read a background job. Stream jobs return only output since the previous read; f
       "description": "Block until the job reaches a terminal status or the timeout expires. A timed-out wait returns [status: running] and leaves the job alive."
     },
     "timeout_ms": {
-      "type": "number",
-      "description": "Max wait in milliseconds (only meaningful with wait: true). Defaults to the configured wait timeout; capped by the configured maximum."
+      "type": "integer",
+      "description": "Max wait in milliseconds (only meaningful with wait: true). Must be a positive integer. Defaults to the configured wait timeout; capped by the configured maximum."
     }
   },
   "required": [

@@ -167,6 +167,7 @@ These limits define when the tool is a poor fit. They are current package constr
 
 - **UTF-16 cursor coordinates** — columns are exact for the protocol but hard for a model to count around non-BMP characters; an off-symbol position may return empty results, so the prompt explains the convention without encouraging broad LSP use.
 - **No cross-server completeness promise** — supported servers may return empty or partial results depending on indexing readiness; the tool promises no completeness across languages or servers.
+- **Per-workspace serialization** — the stdio provider serves one query per instance at a time, so parallel fan-out to the same workspace queues; the tool is marked concurrency-safe for scheduler dispatch but sequential calls or distinct workspaces fan out better.
 
 <a id="dev-note"></a>
 ### Dev Note

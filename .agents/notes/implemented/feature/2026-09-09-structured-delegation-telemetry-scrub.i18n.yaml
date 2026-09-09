@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-09-structured-delegation-telemetry-scrub.md
+2026-09-09-structured-delegation-telemetry-scrub.md: 517ce3158b2f3da5691eec6c5099020c43571a88
+2026-09-09-structured-delegation-telemetry-scrub.zh.md: ea164ac80b8cbd413c1103b6b0678b6fa4af9c06

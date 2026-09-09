@@ -107,13 +107,19 @@ export interface DecodedImageLimits {
 
 /**
  * Fully decode a supported raster and return its intrinsic metadata.
+ * The header dimensions are checked first so oversized images fail before
+ * the full-raster decode; the decode itself additionally carries the pixel
+ * cap so a lying header cannot drive unbounded pixel amplification.
  * @param data - complete encoded image bytes.
  * @param limits - intrinsic-dimension admission limits.
  * @returns verified format and dimensions.
  */
 export async function detectImage(data: Uint8Array, limits?: DecodedImageLimits): Promise<DetectedImage> {
   try {
-    const image = sharp(data, { failOn: 'error', limitInputPixels: false })
+    const image = sharp(data, {
+      failOn: 'error',
+      limitInputPixels: limits?.maxPixels ?? false,
+    })
     const detected = await imageMetadata(image)
     if (limits?.maxPixels !== undefined && detected.width * detected.height > limits.maxPixels) {
       throw new AttachmentError('Image exceeds the configured decoded-pixel limit.', 'IMAGE_TOO_MANY_PIXELS')
@@ -125,6 +131,9 @@ export async function detectImage(data: Uint8Array, limits?: DecodedImageLimits)
     return detected
   } catch (error) {
     if (error instanceof AttachmentError) throw error
+    if (error instanceof Error && /pixel limit/i.test(error.message)) {
+      throw new AttachmentError('Image exceeds the configured decoded-pixel limit.', 'IMAGE_TOO_MANY_PIXELS', { cause: error })
+    }
     throw new AttachmentError('Unsupported or malformed image data.', 'INVALID_IMAGE', { cause: error })
   }
 }
