@@ -10,9 +10,28 @@ import type {
   IWorkspaces, WorkspaceId, WorkspaceView,
 } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
+import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 
 /** Workspace archive and directory operations consumed by Client UI domains. */
 export interface UiWorkspace {
+  /**
+   * Select a Session and show its Conversation as one UI navigation action.
+   * @param sessionId - listed or retained Session to display.
+   */
+  openSession(sessionId: SessionId): void
+  /**
+   * Connect a Workspace and open its Session unless a later navigation supersedes it.
+   * @param workspaceId - target Workspace.
+   * @param beforeOpen - optional synchronous preparation for the selected Session, skipped after supersession.
+   * @returns completion; a superseded request may create a Session but does not open it.
+   */
+  openWorkspace(workspaceId: WorkspaceId, beforeOpen?: (sessionId: SessionId) => void): Promise<void>
+  /**
+   * Fork a Session and open the child unless a later navigation supersedes it.
+   * @param sessionId - source Session.
+   * @returns completion; a superseded request leaves its child available without selecting it.
+   */
+  forkSession(sessionId: SessionId): Promise<void>
   /**
    * Resolve the reusable or newly created blank Session for a Workspace.
    * @param workspaceId - target Workspace.
@@ -74,6 +93,7 @@ export class DirectoryBrowseError extends Error {
 /** Implements Workspace archive and directory UI operations. */
 class UiWorkspaceService extends Service implements UiWorkspace {
   private readonly connecting = new Map<WorkspaceId, Promise<SessionId>>()
+  private readonly lifetime = new AbortController()
 
   /**
    * @param ctx - Client root Context.
@@ -115,15 +135,48 @@ class UiWorkspaceService extends Service implements UiWorkspace {
     return attempt
   }
 
-  startSession(workspaceId?: WorkspaceId): void {
-    // The centre shows one route at a time: a workspace page occupies
-    // `shell.page` instead of the conversation. Vacate it synchronously so a
-    // New Session shows the hero even when the blank target is already
-    // current (no selection change would otherwise yield the route).
+  openSession(sessionId: SessionId): void {
+    // The centre shows one route at a time, and a workspace page occupies
+    // `shell.page` instead of the conversation: vacate it here rather than in
+    // each row handler, so a click on the chat that is already current — which
+    // changes no selection for a subscriber to observe — still yields the
+    // conversation, and so does every other route into a Session.
+    this.pageCloser()?.close()
+    this.sessions.open(sessionId)
+    this.ctx.layout.selectPanel(null)
+  }
+
+  /**
+   * The workspace-memory page plugin's closer, absent while that plugin is
+   * unloaded.
+   * @returns the closer, or undefined when no page plugin is loaded.
+   */
+  private pageCloser(): { close(): void } | undefined {
     // Named cast stands in for the host-face seam declaration, which this
     // workspace program cannot import without a feature-plugin edge.
-    const clientCtx = this.ctx as unknown as WorkspacePageCloserContext
-    clientCtx.get('workspacePage')?.close()
+    return (this.ctx as unknown as WorkspacePageCloserContext).get('workspacePage')
+  }
+
+  async openWorkspace(workspaceId: WorkspaceId, beforeOpen?: (sessionId: SessionId) => void): Promise<void> {
+    const navigation = AbortSignal.any([this.ctx.layout.beginNavigation(), this.lifetime.signal])
+    const isCurrent = (): boolean => !navigation.aborted
+    const sessionId = await this.connectWorkspace(workspaceId)
+    if (!isCurrent()) return
+    beforeOpen?.(sessionId)
+    if (isCurrent()) this.openSession(sessionId)
+  }
+
+  async forkSession(sessionId: SessionId): Promise<void> {
+    const navigation = AbortSignal.any([this.ctx.layout.beginNavigation(), this.lifetime.signal])
+    const childId = await this.sessions.fork({ sessionId, increaseTitle: true })
+    if (!navigation.aborted) this.openSession(childId)
+  }
+
+  startSession(workspaceId?: WorkspaceId): void {
+    // Vacate an occupying page synchronously: a New Session shows the hero even
+    // when the blank target is already current, where openSession's close would
+    // arrive only after the asynchronous connect resolves.
+    this.pageCloser()?.close()
     const workspace = this.workspaces.list.getSnapshot()
     const sessions = this.sessions.list.getSnapshot()
     const current = sessions.current
@@ -136,10 +189,10 @@ class UiWorkspaceService extends Service implements UiWorkspace {
     const target = workspaceId ?? currentWorkspaceId ?? recent
     if (target === undefined) {
       this.sessions.clear()
+      this.ctx.layout.selectPanel(null)
       return
     }
-    void this.connectWorkspace(target).then(
-      (sessionId) => { this.sessions.open(sessionId) },
+    void this.openWorkspace(target).catch(
       (reason: unknown) => { console.warn('new session failed:', reason) },
     )
   }
@@ -168,9 +221,8 @@ class UiWorkspaceService extends Service implements UiWorkspace {
 
   private watchNavigation(): () => void {
     let initial: 'waiting' | 'connecting' | 'done' = 'waiting'
-    let disposed = false
     const reconcile = (): void => {
-      if (disposed) return
+      if (this.lifetime.signal.aborted) return
       if (this.clearArchivedCurrent()) return
       if (initial !== 'waiting') return
       const workspace = this.workspaces.list.getSnapshot()
@@ -188,14 +240,14 @@ class UiWorkspaceService extends Service implements UiWorkspace {
       initial = 'connecting'
       void this.connectWorkspace(target).then(
         (sessionId) => {
-          if (disposed) return
+          if (this.lifetime.signal.aborted) return
           if (this.sessions.list.getSnapshot().current === undefined) {
             this.sessions.open(sessionId)
           }
           initial = 'done'
         },
         (reason: unknown) => {
-          if (disposed) return
+          if (this.lifetime.signal.aborted) return
           initial = 'waiting'
           console.warn('initial workspace selection failed:', reason)
         },
@@ -205,7 +257,7 @@ class UiWorkspaceService extends Service implements UiWorkspace {
     const disposeSessions = this.sessions.list.subscribe(reconcile)
     reconcile()
     return () => {
-      disposed = true
+      this.lifetime.abort()
       disposeSessions()
       disposeWorkspaces()
     }

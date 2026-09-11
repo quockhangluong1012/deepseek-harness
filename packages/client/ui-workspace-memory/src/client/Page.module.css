@@ -249,6 +249,10 @@
   gap: 10px;
   overflow-x: auto;
   padding: 2px 0 6px;
+  /* The tiles this strip scrolls paint the l2 elevation, so the strip binds
+     the l2 thumb pair (ui-theme styles/scrollbar.css rebinding contract). */
+  --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2);
+  --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
 }
 
 .tile {

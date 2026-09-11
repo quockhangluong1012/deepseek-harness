@@ -6,7 +6,8 @@ export interface DesktopElectronBuilderConfig {
   }
   readonly extraResources: readonly [
     { readonly from: string, readonly to: 'runtime' },
-    { readonly from: string, readonly to: 'seed' },
+    { readonly from: string, readonly to: 'dsh' },
+    { readonly from: string, readonly to: 'dsh/node_modules' },
   ]
   readonly files: readonly string[]
   readonly mac: {
@@ -14,6 +15,7 @@ export interface DesktopElectronBuilderConfig {
     readonly identity: string | undefined
     readonly forceCodeSigning: boolean
     readonly notarize: boolean
+    readonly signIgnore: readonly string[]
   }
   readonly dmg: {
     readonly sign: boolean
@@ -25,8 +27,11 @@ export interface DesktopElectronBuilderConfig {
   readonly linux: {
     readonly icon: string
   }
+  readonly nsis: {
+    readonly include: string
+  }
   readonly artifactBuildCompleted: (artifact: { readonly file: string }) => Promise<void> | undefined
-  readonly publish: readonly [{ readonly provider: 'generic', readonly url: string }]
+  readonly publish: readonly [{ readonly provider: 'generic', readonly url: string }] | null
 }
 
 /**

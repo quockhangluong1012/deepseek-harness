@@ -9,10 +9,12 @@
  * rows only while it has none; pointer picks route back through
  * the service (combobox pattern — focus never leaves the textarea, so rows
  * are mousedown-handled and the highlight is exposed via
- * aria-activedescendant on the listbox). A source publishing crumbs gets a
- * breadcrumb header pinned above the scrolling list.
+ * aria-activedescendant on the listbox). A row reads title, then the
+ * command-name alias when the title is not the name in another letter case
+ * (a localized title), then the description right-aligned. A source publishing crumbs gets a breadcrumb
+ * header pinned above the scrolling list.
  */
-import { Fragment, useEffect, useRef, useSyncExternalStore } from 'react'
+import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
 import clsx from 'clsx'
 import { IconChevronRightOutline14, ReferenceIcon, useFloatingPanel } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -30,8 +32,8 @@ import type { MenuKey } from './locales.ts'
  */
 export type MenuViewProps = MenuViewInjected & ComposerOverlayOwnerProps & PropsLocale<'slash.menu'>
 
-/** Design cap on the list height (figma SLASH 39:26572 MenuDropdown). */
-const MAX_HEIGHT = 320
+/** Height cap that fits the two headings and eight built-in command rows. */
+const MAX_HEIGHT = 400
 
 /** DOM id of one option row (the aria-activedescendant target). */
 function optionId(source: string, index: number): string {
@@ -57,6 +59,18 @@ export function MenuView({ menu, headers, anchorRef, onPick, onCrumb, onHover, o
   // it, re-placed on every store update (the anchor moves when the composer
   // grows) and on viewport scroll/resize.
   const placement = useFloatingPanel({ open: state.open, anchorRef, cap: MAX_HEIGHT, signal: state })
+  const viewportRef = useRef<HTMLDivElement>(null)
+  const [hasOverflowBelow, setHasOverflowBelow] = useState(false)
+  const updateOverflowHint = useCallback(() => {
+    const viewport = viewportRef.current
+    setHasOverflowBelow(viewport !== null
+      && viewport.scrollTop + viewport.clientHeight < viewport.scrollHeight - 1)
+  }, [])
+  // A store update or a re-placement can resize the viewport without a scroll
+  // event, so the hint is re-measured on both as well.
+  useLayoutEffect(() => {
+    updateOverflowHint()
+  }, [state, placement, updateOverflowHint])
   const highlight = state.open ? state.highlight : null
   // Focus stays in the textarea (combobox pattern), so the browser never
   // scrolls the active option into view on keyboard moves — do it here.
@@ -90,6 +104,7 @@ export function MenuView({ menu, headers, anchorRef, onPick, onCrumb, onHover, o
       style={placement?.style}
       data-trigger-menu=""
       data-side={placement?.side}
+      data-overflow-below={hasOverflowBelow || undefined}
     >
       {state.groups.map((group) => {
         const trail = crumbs.get(group.source)
@@ -117,10 +132,12 @@ export function MenuView({ menu, headers, anchorRef, onPick, onCrumb, onHover, o
         )
       })}
       <div
+        ref={viewportRef}
         className={css.viewport}
         role="listbox"
         aria-label={t('suggestions.aria')}
         aria-activedescendant={highlight !== null ? optionId(highlight.source, highlight.index) : undefined}
+        onScroll={updateOverflowHint}
       >
         {state.groups.map(group => (group.status === 'ready' && group.items.length === 0)
           ? null
@@ -166,10 +183,15 @@ export function MenuView({ menu, headers, anchorRef, onPick, onCrumb, onHover, o
                       >
                         {item.icon !== undefined && (
                           <span className={css.itemIcon} aria-hidden>
-                            <ReferenceIcon kind={item.icon} size={16} />
+                            {typeof item.icon === 'string'
+                              ? <ReferenceIcon kind={item.icon} size={16} />
+                              : <item.icon size={16} />}
                           </span>
                         )}
-                        <span className={css.itemName}>{item.name}</span>
+                        <span className={css.itemName}>{item.label ?? item.name}</span>
+                        {item.label !== undefined && item.label.toLowerCase() !== item.name.toLowerCase() && (
+                          <span className={css.itemAlias}>{item.name}</span>
+                        )}
                         {item.description !== undefined && <span className={css.itemDescription}>{item.description}</span>}
                         {item.drill === true && (
                           <span className={css.trailing}>

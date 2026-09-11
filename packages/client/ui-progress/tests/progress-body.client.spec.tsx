@@ -120,8 +120,10 @@ describe('ProgressBody', () => {
     const { props, openResource } = stub({ files: ['/elsewhere/notes.txt'] })
     render(<ProgressBody {...props} />)
     fireEvent.click(screen.getByRole('button', { name: '打开 /elsewhere/notes.txt' }))
+    // The path stays absolute inside the Session's address: an `absolute`-scope
+    // address carries no Session and cannot authorize the Host read.
     expect(openResource).toHaveBeenCalledExactlyOnceWith(
-      'dsh-resource://file/absolute/elsewhere/notes.txt',
+      'dsh-resource://file/session/session-1//elsewhere/notes.txt',
     )
   })
 

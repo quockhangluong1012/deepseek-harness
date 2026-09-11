@@ -1,20 +1,59 @@
 // @vitest-environment jsdom
 
-import { Context } from '@deepseek-ai/cordis'
+import { Context, type Fiber } from '@deepseek-ai/cordis'
 import { stubSettingsScope } from '@deepseek-ai/dsh-client-test-runtime'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
+import type { SlotRendererHost } from '@deepseek-ai/dsh-client-ui-slots'
 import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import { apply as themeApply, inject as themeInject, ThemeRuntime } from '@deepseek-ai/dsh-client-ui-theme/client'
 import { apply, inject, LayoutController } from '@deepseek-ai/dsh-client-ui-layout/client'
 import { apply as nodeApply } from '@deepseek-ai/dsh-client-ui-layout'
+import type { MainPanelId } from '../src/client/service.ts'
+import type { AppFrameInjected } from '../src/client/index.ts'
+import type { createLayoutStore } from '../src/client/stores.ts'
+
+const owners = new Set<Fiber>()
+let originalRootStyle: string | null
+let originalBodyStyle: string | null
+let originalDarkTheme: string | null
+let originalThemeMetadata: Element[]
 
 beforeEach(() => {
-  document.head.querySelectorAll('meta[name="theme-color"]').forEach((node) => { node.remove() })
+  originalRootStyle = document.documentElement.getAttribute('style')
+  originalBodyStyle = document.body.getAttribute('style')
+  originalDarkTheme = document.body.getAttribute('data-ds-dark-theme')
+  originalThemeMetadata = [...document.head.querySelectorAll('meta[name="theme-color"]')]
+  originalThemeMetadata.forEach((node) => { node.remove() })
+  vi.stubGlobal('innerWidth', 1920)
 })
 
+afterEach(async () => {
+  try {
+    for (const owner of owners) await owner.dispose()
+  } finally {
+    owners.clear()
+    restoreAttribute(document.documentElement, 'style', originalRootStyle)
+    restoreAttribute(document.body, 'style', originalBodyStyle)
+    restoreAttribute(document.body, 'data-ds-dark-theme', originalDarkTheme)
+    document.head.querySelectorAll('meta[name="theme-color"]').forEach((node) => { node.remove() })
+    document.head.append(...originalThemeMetadata)
+    vi.unstubAllGlobals()
+  }
+})
+
+function restoreAttribute(element: Element, name: string, value: string | null): void {
+  if (value === null) element.removeAttribute(name)
+  else element.setAttribute(name, value)
+}
+
 async function bench() {
-  const ctx = new Context()
+  const root = new Context()
+  let ctx: Context | undefined
+  const owner = root.plugin((ownedContext: Context) => { ctx = ownedContext })
+  owners.add(owner)
+  await owner.await()
+  if (ctx === undefined) throw new Error('the fixture owner did not activate')
   const slotsFiber = ctx.plugin(SlotRegistry)
   // Theme registers its Appearance settings row and requires the connection
   // seam for persistence; model this bench as a remote, memory-only browser.
@@ -25,7 +64,15 @@ async function bench() {
   ctx.provide('settingsScope', { bind: () => stubSettingsScope().scope } as never)
   await ctx.plugin({ inject: themeInject, apply: themeApply }).await()
   await slotsFiber.await()
-  return { ctx, slots: ctx.get('slots') as SlotRegistry }
+  const slots = ctx.get('slots') as SlotRegistry
+  let host: SlotRendererHost | undefined
+  slots.install({ renderRoot: (value) => { host = value; return null } })
+  const rendererHost = (): SlotRendererHost => {
+    slots.renderSlot('root', {})
+    if (host === undefined) throw new Error('the root renderer did not receive its host')
+    return host
+  }
+  return { ctx, slots, rendererHost }
 }
 
 describe('ui-layout client apply', () => {
@@ -33,51 +80,69 @@ describe('ui-layout client apply', () => {
     expect(inject).toEqual(['slots', 'theme', 'locale'])
   })
 
-  it('provides ctx.layout and registers AppFrame into root with its child declarations', async () => {
+  it('provides ctx.layout and declares the five root-scoped frame slots', async () => {
     const { ctx, slots } = await bench()
     const fiber = ctx.plugin({ inject: [...inject], apply })
     await fiber.await()
     expect(ctx.get('layout')).toBeInstanceOf(LayoutController)
-    // The one register() call occupied 'root'…
     expect(slots.entries('root')).toHaveLength(1)
-    // …and declared the child slots in the ledger. Every one of them is a
-    // registration target for another package, so a dropped declaration
-    // silently withdraws that package's seat rather than failing loudly here.
     expect(slots.spec('sidebar')).toEqual({ kind: 'single', scope: 'root' })
-    expect(slots.spec('conversation')).toEqual({ kind: 'single', scope: 'session-maybe' })
-    expect(slots.spec('rightbar')).toEqual({ kind: 'single', scope: 'session' })
+    expect(slots.spec('main')).toEqual({ kind: 'keyed', scope: 'root' })
+    expect(slots.spec('rightbar')).toEqual({ kind: 'single', scope: 'root' })
     expect(slots.spec('shell.overlay')).toEqual({ kind: 'list', scope: 'root' })
     expect(slots.spec('shell.page')).toEqual({ kind: 'single', scope: 'root' })
   })
 
-  it('injects the page-occupancy hook and attaches the layout actions', async () => {
+  it('reports page occupancy from the shell.page registry through the entry inject face', async () => {
     const { ctx, slots } = await bench()
     const fiber = ctx.plugin({ inject: [...inject], apply })
     await fiber.await()
-    const actions = {
-      setSidebar: vi.fn(), setDetails: vi.fn(), toggleSidebar: vi.fn(), openDetails: vi.fn(), closeDetails: vi.fn(),
-    }
-    const injected = (slots.entries('root')[0]!.inject as (actions: never) => {
-      hooks: { pageOccupied: { getSnapshot: () => boolean; subscribe: (fn: () => void) => () => void } }
-    })(actions as never)
-    // No page open: the conversation keeps the centre track on its own.
+    const injected = (slots.entries('root')[0]!.inject as unknown as () => AppFrameInjected)()
     const pageOccupied = injected.hooks.pageOccupied
+    // No page open: the conversation keeps the centre track on its own.
     expect(pageOccupied.getSnapshot()).toBe(false)
     let notified = 0
     const stop = pageOccupied.subscribe(() => { notified += 1 })
-    const page = slots.register({ name: 'shell.page' }, (() => null) as never)
+    const disposePage = slots.register({ name: 'shell.page' }, () => null)
     expect(pageOccupied.getSnapshot()).toBe(true)
     // Slot notifications batch per microtask, per touched key.
-    await Promise.resolve()
-    expect(notified).toBe(1)
-    page()
+    await vi.waitFor(() => { expect(notified).toBe(1) })
+    disposePage()
     expect(pageOccupied.getSnapshot()).toBe(false)
-    await Promise.resolve()
-    expect(notified).toBe(2)
+    await vi.waitFor(() => { expect(notified).toBe(2) })
     stop()
+  })
+
+  it('shares a pre-created instance between service actions, root rendering, and panelInfo', async () => {
+    const { ctx, slots, rendererHost } = await bench()
+    const fiber = ctx.plugin({ inject: [...inject], apply })
+    await fiber.await()
+    const entry = slots.entries('root')[0]!
+    // The store instance is pre-created and shared; the entry's inject face
+    // carries only the page-occupancy source the frame binds.
+    expect((entry.inject as unknown as () => AppFrameInjected)().hooks.pageOccupied).toBeDefined()
+    const handle = entry.store as ReturnType<typeof createLayoutStore>
+    const instance = handle.create()
+    expect(handle.create()).toBe(instance)
     const layout = ctx.get('layout') as LayoutController
+    expect(() => { layout.selectPanel('missing' as MainPanelId) }).toThrow('main panel "missing" is not registered')
     layout.toggleSidebar()
-    expect(actions.toggleSidebar).toHaveBeenCalledOnce()
+    expect(instance.getSnapshot().layoutInfo.sidebar).toBe(0)
+    const host = rendererHost()
+    expect(host.storeOf(entry, undefined)).toBe(instance)
+    const panelInfo = host.root.getSnapshot().hooks.panelInfo!
+    expect(panelInfo.getSnapshot()).toBe(instance.getSnapshot().panelInfo)
+    const panelId = 'panel-a' as MainPanelId
+    const disposePanel = slots.register({ name: 'main', key: panelId }, () => null)
+    layout.selectPanel(panelId)
+    expect(panelInfo.getSnapshot()).toEqual({ activePanelId: panelId })
+    disposePanel()
+    await vi.waitFor(() => { expect(panelInfo.getSnapshot()).toEqual({ activePanelId: null }) })
+    expect(() => { layout.selectPanel(panelId) }).toThrow('main panel "panel-a" is not registered')
+    expect(instance.getSnapshot().layoutInfo.sidebar).toBe(0)
+    const pending = layout.beginNavigation()
+    await fiber.dispose()
+    expect(pending.aborted).toBe(true)
   })
 
   it('theme presenter applies the initial snapshot, follows theme/change, and unwinds on dispose', async () => {
@@ -106,14 +171,20 @@ describe('ui-layout client apply', () => {
   })
 
   it('teardown unwinds the service, the root registration, and the child declarations', async () => {
-    const { ctx, slots } = await bench()
+    const { ctx, slots, rendererHost } = await bench()
     const fiber = ctx.plugin({ inject: [...inject], apply })
     await fiber.await()
+    const host = rendererHost()
+    expect(host.root.getSnapshot().hooks.panelInfo).toBeDefined()
     await fiber.dispose()
     expect(ctx.get('layout')).toBeUndefined()
     expect(slots.entries('root')).toHaveLength(0)
     expect(slots.spec('sidebar')).toBeUndefined()
+    expect(slots.spec('main')).toBeUndefined()
+    expect(slots.spec('rightbar')).toBeUndefined()
+    expect(slots.spec('shell.overlay')).toBeUndefined()
     expect(slots.spec('shell.page')).toBeUndefined()
+    expect(host.root.getSnapshot().hooks.panelInfo).toBeUndefined()
     // The built-in root declaration survives entry teardown (renderer-owned).
     expect(slots.spec('root')).toEqual({ kind: 'single', scope: 'root' })
   })

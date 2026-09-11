@@ -178,7 +178,7 @@ Use subagent in the background by default. Start independent delegations togethe
 
 #### 模型看到什么
 
-调用会保留描述与提示词。成功时只包含子 agent 的最终文本；当提供 `output_schema` 时，经过验证的结构化值以 `Structured result: <json>` 跟在后面。其他结果变为 `Error: <终止原因>`，随后在存在时附上安全的提供方诊断，再附上任何部分 assistant 文本（按 `maxPartialTextChars` 截断，默认 8000 字符）。子 agent 中间步骤不会进入父级。
+调用会保留描述与提示词。成功时只包含子 agent 的最终文本；其他结果变为 `Error: <stop reason>`，随后在存在时附上安全的提供方诊断，再附上任何部分 assistant 文本。子 agent 中间步骤不会进入父级。
 
 #### Token 影响
 

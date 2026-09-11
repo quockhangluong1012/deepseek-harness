@@ -34,6 +34,12 @@ async function bench(page: { open(workspaceId: WorkspaceId): void; close(): void
   const locale = new LocaleRuntime(runtime.ctx)
   runtime.ctx.provide('locale', locale)
   runtime.slots.installLocale(locale)
+  // The workspace service routes Sessions through the frame's panel face; this
+  // bench drives the sidebar alone, so a recording stub is the whole contract.
+  runtime.ctx.provide('layout', {
+    selectPanel: vi.fn(),
+    beginNavigation: () => new AbortController().signal,
+  })
   await runtime.sessions.add({
     id: 's1',
     summary: { displayTitle: 'First chat', updatedAt: 1, projectionValues: { turnOutline: [] } },
@@ -104,6 +110,10 @@ describe('Workspace page opener gesture', () => {
     const locale = new LocaleRuntime(runtime.ctx)
     runtime.ctx.provide('locale', locale)
     runtime.slots.installLocale(locale)
+    runtime.ctx.provide('layout', {
+      selectPanel: vi.fn(),
+      beginNavigation: () => new AbortController().signal,
+    })
     await runtime.root.declare(
       { 'sidebar.workspaces': { kind: 'single', scope: 'root' } } as never,
       SidebarFrame as never,

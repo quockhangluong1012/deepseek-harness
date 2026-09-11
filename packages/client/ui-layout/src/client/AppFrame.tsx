@@ -3,10 +3,9 @@
  * shell renders only 'root'). Owns the grid tracks (sidebar | center |
  * rightbar), the drag handles (pointer capture + rAF throttle), the column
  * solve (columns.ts), and the child-slot render decisions: the sidebar slot
- * renders HERE with live parameters from that solve, and the session-aware
- * occupants render in fixed column positions; the strict right-column entry
- * gates itself on current-session availability while the session-maybe
- * conversation retains identity.
+ * receives live parameters from that solve. The root-scoped main slot selects
+ * the Conversation or a global panel. Each column occupant owns its Session
+ * binding and reports the geometry it needs.
  *
  * The right column is a track, not a box: its occupant draws its panel anchored
  * to the frame's right edge at the resolved normal width, and the
@@ -15,17 +14,18 @@
  * track but hides the outer resize handle. Everything arrives through the framework
  * shares — zero cordis or framework imports, zero self-made hooks.
  *
- * The page layer shares the center track with the conversation as an overlapping
+ * The page layer shares the center track with the main panel as an overlapping
  * grid item rather than a child of it: a page must draw over the conversation's
  * own z-indexes without knowing them, and the center column's isolation is what
  * confines those to the column beneath it. The conversation stays mounted
  * underneath, so its composer seat keeps working under a page, and the layer
  * states no page geometry at all: the occupying page holds the composer band
- * open beneath its own name and description, publishes that band's top offset for
- * the seat, and
- * reports occupancy to the conversation as an owner prop.
+ * open beneath its own name and description and publishes that band's top
+ * offset for the seat. Occupancy reaches the conversation as the main slot's
+ * owner share: this frame binds the root entry's injected `usePageOccupied`
+ * source and forwards its snapshot with the main render.
  */
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import type {
   InjectFace, PropsLocale, PropsRenderSlots, PropsRuntime, PropsStore,
@@ -40,7 +40,7 @@ import css from './AppFrame.module.css'
 /** Full composed props: runtime share + child-slot render share + store share + injected hook sources. */
 export type AppFrameProps =
   & PropsRuntime<'root'>
-  & PropsRenderSlots<'sidebar' | 'conversation' | 'rightbar' | 'shell.overlay' | 'shell.page'>
+  & PropsRenderSlots<'sidebar' | 'main' | 'rightbar' | 'shell.overlay' | 'shell.page'>
   & PropsStore<ReturnType<typeof createLayoutStore>>
   & InjectFace<AppFrameInjected>
   & PropsLocale<'common'>
@@ -48,6 +48,12 @@ export type AppFrameProps =
 /** Center column grid item (session-body building block). */
 function CenterColumn(props: { children?: ReactNode }) {
   return <div className={css.centerCol}>{props.children}</div>
+}
+
+/** Subscribe to the main key without subscribing the column frame to each panel id. */
+function MainPanel({ usePanelInfo, renderSlot, pageOccupied }: Pick<PropsRuntime<'root'>, 'usePanelInfo'> & PropsRenderSlots<'main'> & { pageOccupied: boolean }) {
+  const panelId = usePanelInfo(info => info.activePanelId)
+  return renderSlot('main', { pageOccupied }, { entryKey: panelId ?? 'conversation' })
 }
 
 /**
@@ -129,20 +135,16 @@ function DragHandle(props: { side: 'sidebar' | 'rightbar'; left: number; onStart
 export function AppFrame({
   useStore,
   useSessions,
+  usePanelInfo,
   usePageOccupied,
   actions,
   renderSlot,
-  SessionProvider,
   t,
 }: AppFrameProps) {
-  const panels = useStore(s => s)
-  const pageOccupied = usePageOccupied(s => s)
-  const documentTitle = useSessions((s) => {
-    const current = s.current
-    return current === undefined ? undefined : s.byId[current]?.title
-  })
+  const layoutInfo = useStore(state => state.layoutInfo)
+  const pageOccupied = usePageOccupied(occupied => occupied)
   const frameRef = useRef<HTMLDivElement | null>(null)
-  const viewport = panels.viewportWidth
+  const viewport = layoutInfo.viewportWidth
 
   // Track the frame's own box (not the window): rAF-throttled ResizeObserver.
   useLayoutEffect(() => {
@@ -172,15 +174,15 @@ export function AppFrame({
   }, [actions])
 
   const narrow = viewport < SIDEBAR_AUTO_COLLAPSE
-  const sidebarCollapsed = narrow ? !panels.narrowExpanded : panels.sidebar === 0
+  const sidebarCollapsed = narrow ? !layoutInfo.narrowExpanded : layoutInfo.sidebar === 0
   const sidebarPreference = sidebarCollapsed
     ? 0
-    : panels.sidebar === 0 ? SIDEBAR_DEFAULT : panels.sidebar
-  const rightbarPreference = panels.rightbar ?? viewport * RIGHTBAR_DEFAULT_RATIO
+    : layoutInfo.sidebar === 0 ? SIDEBAR_DEFAULT : layoutInfo.sidebar
+  const rightbarPreference = layoutInfo.rightbar ?? viewport * RIGHTBAR_DEFAULT_RATIO
   // Opening on a narrow frame collapses the left sidebar. Eligibility must
   // include that space before the occupant's first shown report arrives.
-  const normal = computeColumns(viewport, !panels.rightbarShown && narrow ? 0 : sidebarPreference, rightbarPreference)
-  const cols = computeColumns(viewport, sidebarPreference, panels.rightbarTrack ? rightbarPreference : 0)
+  const normal = computeColumns(viewport, !layoutInfo.rightbarShown && narrow ? 0 : sidebarPreference, rightbarPreference)
+  const cols = computeColumns(viewport, sidebarPreference, layoutInfo.rightbarTrack ? rightbarPreference : 0)
   const colsRef = useRef(cols)
   colsRef.current = cols
   const rightbarWidth = useRef(normal.rightbar)
@@ -204,6 +206,15 @@ export function AppFrame({
     actions.setRightbar(rightbarBase.current - dx)
   }, [actions])
   const productTitle = process.env.DSH_CLIENT_TITLE ?? t('brand.localBuild')
+  const sidebar = useMemo(() => renderSlot('sidebar', {
+    collapsed: sidebarCollapsed,
+    width: cols.sidebar,
+  }), [renderSlot, sidebarCollapsed, cols.sidebar])
+  const main = useMemo(() => (
+    <MainPanel usePanelInfo={usePanelInfo} renderSlot={renderSlot} pageOccupied={pageOccupied} />
+  ), [usePanelInfo, renderSlot, pageOccupied])
+  const overlays = useMemo(() => renderSlot('shell.overlay', {}), [renderSlot])
+  const pages = useMemo(() => renderSlot('shell.page', {}), [renderSlot])
 
   return (
     <div
@@ -215,53 +226,36 @@ export function AppFrame({
       }}
       data-sidebar-collapsed={sidebarCollapsed || undefined}
       data-rightbar-collapsed={cols.rightbar === 0 || undefined}
-      data-rightbar-fullscreen={panels.rightbarFullscreen || undefined}
-      data-rightbar-instant={panels.rightbarInstant || undefined}
+      data-rightbar-fullscreen={layoutInfo.rightbarFullscreen || undefined}
+      data-rightbar-instant={layoutInfo.rightbarInstant || undefined}
       data-dragging={dragging || undefined}
     >
       <DocumentTitle
         productTitle={productTitle}
-        {...documentTitle === undefined ? {} : { title: documentTitle }}
+        useSessions={useSessions}
+        usePanelInfo={usePanelInfo}
       />
       <div className={css.sidebarCol}>
-        {/* Render-site slot call with live concession output: a closed
-            sidebar keeps the mounted slot at the compact-rail width, and the
-            component sees its rendered state as owner params decided here
-            (collapsed follows the resolved rail, so a derived auto-collapse
-            renders the rail UI too). */}
-        {renderSlot('sidebar', {
-          collapsed: sidebarCollapsed,
-          width: cols.sidebar,
-        })}
+        {sidebar}
       </div>
       <>
-        {/* Both column occupants stay at fixed tree positions from first
-            paint — no loading gate: a bare status line reads worse than
-            the shell's own pending rendering. The conversation is
-            session-maybe; SessionProvider withholds the strict right-column
-            entry while no session is current. */}
-        <CenterColumn>{renderSlot('conversation', { pageOccupied })}</CenterColumn>
+        <CenterColumn>{main}</CenterColumn>
         <RightbarColumn>
-          {/* Strict session entry: with no session there is no surface, and the
-              column is an empty zero-width track. The occupant receives the
-              panel width it should draw at; the track is the frame's business. */}
-          <SessionProvider>
-            {renderSlot('rightbar', { width: normal.rightbar, viewportWidth: viewport, canShow: normal.rightbar > 0 })}
-          </SessionProvider>
+          {renderSlot('rightbar', { width: normal.rightbar, viewportWidth: viewport, canShow: normal.rightbar > 0 })}
         </RightbarColumn>
       </>
       {/* The page layer is the conversation's sibling in the same grid cell and
           carries no box of its own: unoccupied it is click-through, and so is
           an occupant that renders null. */}
       <div className={css.pageLayer} data-shell-page>
-        {renderSlot('shell.page', {})}
+        {pages}
       </div>
       <div className={css.overlayLayer} data-shell-overlay>
-        {renderSlot('shell.overlay', {})}
+        {overlays}
       </div>
       {/* The collapsed rail is fixed-width: no resize handle while closed. */}
       {!sidebarCollapsed && <DragHandle side="sidebar" left={cols.sidebar} onStart={onSidebarStart} onDrag={onSidebarDrag} onEnd={onDragEnd} />}
-      {panels.rightbarShown && !panels.rightbarFullscreen && normal.rightbar > 0 && (
+      {layoutInfo.rightbarShown && !layoutInfo.rightbarFullscreen && normal.rightbar > 0 && (
         <DragHandle side="rightbar" left={viewport - normal.rightbar} onStart={onRightbarStart} onDrag={onRightbarDrag} onEnd={onDragEnd} />
       )}
     </div>

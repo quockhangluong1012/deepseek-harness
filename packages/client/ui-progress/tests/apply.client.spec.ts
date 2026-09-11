@@ -134,8 +134,8 @@ describe('ui-progress apply', () => {
     const definition = b.tabs.get(PROGRESS_KIND)
     expect(definition?.id).toBe(PROGRESS_ID)
     expect(definition?.priority).toBe('builtin')
-    expect(definition?.title('sidebar://progress')).toBe('type.label')
-    expect(definition?.guide?.map(entry => [entry.order, entry.title(), entry.description()]))
+    expect(definition?.title?.('sidebar://progress')).toBe('type.label')
+    expect(definition?.guide?.map(entry => [entry.order, entry.title?.(), entry.description?.()]))
       .toEqual([[30, 'guide.title', 'guide.description']])
     expect(b.dictionaries.get('sidebarProgress')).toEqual({ zh, en })
     expect(b.registered.map(entry => [entry.name, entry.key, entry.locale, entry.component])).toEqual([

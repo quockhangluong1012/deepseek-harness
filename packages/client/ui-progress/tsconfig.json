@@ -27,7 +27,7 @@
       "path": "../ui-conversation"
     },
     {
-      "path": "../ui-deliverables"
+      "path": "../ui-deliverables/tsconfig.client.json"
     },
     {
       "path": "../ui-primitives"

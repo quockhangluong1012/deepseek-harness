@@ -4,13 +4,60 @@ DeepSeek Harness is an all-plugin Cordis agent harness. Read [docs/architecture.
 
 ## Pre-stable APIs and released Session data
 
-Public APIs are pre-stable; update every consumer. Released Session JSONL follows [adjacent migration](.agents/notes/implemented/architecture/2026-08-31-released-session-format-migrations.md): body reads may add a version-named successor but never move, overwrite, or delete committed generations; predecessors imply neither fallback nor downgrade support. SQLite domains use monotonic `SCHEMA_VERSION`.
+Public APIs are pre-stable; update every consumer. [Session version/status](docs/session-format-status.md) defines the authorities. [Adjacent migration](.agents/notes/implemented/architecture/2026-08-31-released-session-format-migrations.md) may add a version-named successor but never move, overwrite, or delete committed generations; predecessors imply neither fallback nor downgrade support. SQLite uses monotonic `SCHEMA_VERSION`.
 
 **Application launch.** Only `dsh` profiles launch supported Node apps; package bins, demos, and public SDK argv escapes are forbidden ([rule](docs/architecture.md#application-launch)).
 
 ## Repository layout
 
-`packages/README.md` owns the package-group map; `apps/cli` owns the `dsh` bin; `vendor/` holds pinned Cordis sources (manifest + sync in `vendor/README.md`); `python/` and `native/` own their runtimes (see their READMEs); `benchmarks/` owns perf gates; `.agents/notes/` owns decision records; `docs/` owns architecture and generated catalogs (see `docs/AGENTS.md`); `scripts/run-gates.ts` owns gate inventories.
+```
+vendor/      Vendored Cordis source — manifest + sync procedure in vendor/README.md
+packages/    @deepseek-ai/dsh-<pkg> workspaces at packages/<group>/<pkg>/
+  core/        product API spine: session, system-prompt, tools, agent, agent-loop
+  api/         Remote BFF assembly and Typert RPC gateway
+  typert/      type graph generator, loader, and runtime registry
+  llm/         LLM capability: Service Definition/Consumer + DeepSeek providers
+  e2b/         E2B POC: sandbox + FS/subprocess adapters
+  shell/        bash capability: Service Definition + local/pwsh providers + shell Consumers
+  subprocess/  subprocess capability + local process-tree provider + shared Win32 library
+  terminal/         persistent sessions
+  fs/          filesystem capability + policy
+  lsp/         language-server capability
+  skill/       skill provider registry + local impl + catalog/loader tool
+  web/         web capability: Service Definition + search/fetch providers + tool Consumer
+  compaction/     compaction capability + basic provider
+  context/     request-context plugins
+  subagent/    subagent capability: Service Definition + providers + delegation Consumers
+  bundle/      installable dsh --profile patch-layer bundles
+  workflow/    workflow capability + worker-thread provider + tool Consumer
+  webhook/     webhook ingress
+  todo/        todo_write tool
+  plan/        plan mode as logged state
+  preset/      per-session agent composition from preset cordis.yml files
+  guard/       loop-hygiene + tool-timeout plugins
+  self-modification/  the agent inspects/mounts its own plugins
+  hooks/       Claude Code/Codex hook bridges + wire-protocol library
+  session/     durable session data: persistence, projection, titles, telemetry
+  identity/    anonymous identity
+  settings/    user-settings capability + file provider
+  credentials/ credential/authorization capabilities + env/.env provider
+  acp/         automation-only Agent Client Protocol server
+  interaction/ approval/interaction capabilities, permission, commands, ask-user
+  boot/        shared profile/application boot glue
+  sdk/         JSON-RPC protocol + TypeScript client/server
+  experimental/ pre-stable prototypes; private by default with explicit public exceptions
+  support/     dev/test infrastructure
+  util/        zero-dependency utilities
+python/      Python SDK/runtime (see python/README.md)
+native/      @deepseek-ai/node-addon-system source of record (see native/README.md)
+benchmarks/  performance gates
+.agents/     Agent workflows and Agent Notes (`notes/`)
+docs/        architecture, generated catalogs, postmortems, cookbook (see docs/AGENTS.md)
+scripts/     gates and generators
+website/     VitePress projection of selected bilingual docs/ sources
+```
+
+Package groups: [packages/README.md](packages/README.md).
 
 ## Commands
 

@@ -1,10 +1,10 @@
 /**
  * Layout plugin, browser half: one register() call contributes AppFrame into
  * the runtime's built-in 'root' slot and, in the same breath, declares the
- * five child slots (declaration = exclusive render authority), seats the
+ * four child slots (declaration = exclusive render authority), seats the
  * layout store (panel geometry), and wires the panel-action service face.
- * ctx.layout is the cross-plugin panel-action contract; navigation state lives
- * with the runtime sessions service. A second effect seats the theme
+ * ctx.layout selects the main panel and controls column geometry; Session
+ * selection belongs to the Session Controller. A second effect seats the theme
  * presenter, which projects ctx.theme snapshots onto document.body.
  */
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
@@ -12,8 +12,8 @@ import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 import type {} from '@deepseek-ai/dsh-client-ui-theme/client'
-import type { HostObservable } from '@deepseek-ai/dsh-client-ui-slots'
-import type { PanelActions } from './service.ts'
+import type { HostObservable, SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
+import type { PanelInfo } from './service.ts'
 import { AppFrame } from './AppFrame.tsx'
 import { createLayoutStore } from './stores.ts'
 import { LayoutController } from './service.ts'
@@ -25,7 +25,26 @@ import { ThemePresenter } from './theme-presenter.ts'
 // OwnerShare contracts below are the render-side halves registrants compose
 // against; the frame components and the store factory are package-internal.
 export { LayoutController } from './service.ts'
-export type { ILayout } from './service.ts'
+export type { ILayout, MainPanelId, PanelInfo } from './service.ts'
+
+/** Selector hook over root-scoped panel selection. */
+export type UsePanelInfo = SnapshotSelectorHook<PanelInfo>
+
+/** Selector hook over whether a page holds the center track. */
+export type UsePageOccupied = SnapshotSelectorHook<boolean>
+
+/** Frame-injected hook sources: registrant-private reactive facts AppFrame binds as `use<Name>` props. */
+export interface AppFrameInjected {
+  hooks: {
+    /**
+     * Whether a `shell.page` occupant holds the center track. The frame passes
+     * the snapshot to the main panel as its owner share, and the Conversation
+     * uses it to drop the blank-Session hero chrome and dock the composer into
+     * the band an occupying page holds open.
+     */
+    pageOccupied: HostObservable<boolean>
+  }
+}
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -35,9 +54,14 @@ declare module '@deepseek-ai/cordis' {
 }
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
+  interface GlobalStandardProps {
+    /** Subscribe to the selected main panel independently of parent renders. */
+    usePanelInfo: UsePanelInfo
+  }
+
   interface SlotMap {
     // The 'root' entry itself is the runtime's built-in slot (declared
-    // there); these four are the frame's children, declared by the same
+    // there); these five are the frame's children, declared by the same
     // register() call that contributes AppFrame. Session owners never pass
     // sessionId: the framework injects it as a standard prop.
     /**
@@ -52,18 +76,13 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      */
     'sidebar': { kind: 'single'; scope: 'root'; owner: SidebarOwnerProps }
     /**
-     * The whole center column, across both the no-session hero and a live
-     * conversation. OCCUPIED by ui-conversation's ConversationRoot, which
-     * declares the session body, composer, and input seats inside it —
-     * registering here replaces the entire conversation surface (and removes
-     * every seat it declares) rather than adding to it.
-     *
-     * Current-session-optional: the occupant owns both states without
-     * changing its React identity, so it keeps its own state across a session
-     * switch. Session facts arrive through the framework hooks of the
-     * `session-maybe` scope.
+     * Central panel selected by sidebar entry id. The reserved `conversation`
+     * key hosts the Conversation; other keys receive no Session binding. The
+     * occupant is told whether a `shell.page` entry holds the center track
+     * beside it, so a panel that shares the track can yield the room a page
+     * needs instead of assuming it owns the column.
      */
-    'conversation': { kind: 'single'; scope: 'session-maybe'; owner: ConvOwnerProps }
+    'main': { kind: 'keyed'; scope: 'root'; owner: MainPanelOwnerProps }
     /**
      * The right column: a track the centre makes room for, or nothing. OCCUPIED
      * by the right Sidebar, which uses the resolved column width in normal
@@ -74,10 +93,10 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      * occupant's own recorded business — it reports the composition of its
      * expanded and presentation state through `ctx.layout`, and the frame sizes
      * the track and places the resize handle from that. The expand control is
-     * not this column's: it is a button in the conversation header. With no
-     * current session nothing is mounted here.
+     * not this column's: it is a button in the conversation header. The root
+     * occupant decides when to render its Session-bound content.
      */
-    'rightbar': { kind: 'single'; scope: 'session'; owner: RightbarOwnerProps }
+    'rightbar': { kind: 'single'; scope: 'root'; owner: RightbarOwnerProps }
     /**
      * Frame-wide floating layer, above every column and outside their scroll
      * containers. Deliberately generic and unowned by any feature: a badge, a
@@ -96,17 +115,15 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      * for a surface that takes the place of the conversation rather than
      * floating over the whole app.
      *
-     * An unoccupied slot renders nothing, and the occupying component returns
+     * An unoccupied slot renders nothing, and an occupying component returns
      * null while it has no page to show, so the conversation underneath stays
      * visible and clickable until a page takes over. The layer states no page
      * geometry of its own and takes no pointer events: an occupant that needs
      * the conversation's resident composer — the one editor a page drives —
-     * must hold that band open in its own layout, publish the band's top offset
-     * as `--dsh-page-composer-top` for the seat that docks into it (the seat's
-     * live height arrives the same way as `--dsh-composer-height`), and opt
-     * `pointer-events` back on for the regions it paints. Anything a page needs
-     * beyond it — a title, a back action, a wider layout — belongs to the page
-     * itself, not to this seat.
+     * must hold that band open in its own layout and publish the band's top
+     * offset as `--dsh-page-composer-top` for the seat that docks into it.
+     * Anything a page needs beyond that — a title, a back action, a wider
+     * layout — belongs to the page itself, not to this seat.
      */
     'shell.page': { kind: 'single'; scope: 'root' }
   }
@@ -126,29 +143,15 @@ export interface SidebarOwnerProps {
   width: number
 }
 
-/**
- * Conversation owner share: the center track's own route state, decided at the
- * render site; business state and actions belong to the registrant.
- */
-export interface ConvOwnerProps {
+/** Main-panel owner share: the center track's route state, decided at the render site. */
+export interface MainPanelOwnerProps {
   /**
-   * Whether a page occupies the centre track. The conversation keeps its seat,
-   * so it uses this to drop the blank-Session hero chrome and dock the composer
-   * into the band the page holds open beneath its name and description.
+   * Whether a page occupies the center track. The panel keeps its seat either
+   * way — the page layer draws over it — so an occupant that must react (the
+   * Conversation drops its blank-Session hero chrome and docks its composer
+   * into the band the page holds open) reads it here.
    */
   pageOccupied: boolean
-}
-
-/** Frame-injected hook sources: registrant-private reactive facts the renderer binds as `use<Name>` component props. */
-export interface AppFrameInjected {
-  hooks: {
-    /**
-     * Whether a page occupies the center track, arriving as `usePageOccupied`
-     * on the frame. The frame passes the snapshot to the conversation as an
-     * owner prop.
-     */
-    pageOccupied: HostObservable<boolean>
-  }
 }
 
 /** Right column owner share: resolved normal geometry and opening eligibility. */
@@ -169,48 +172,58 @@ export const inject = ['slots', 'theme', 'locale']
 
 /**
  * Client plugin body: provide ctx.layout, then one register() call — AppFrame
- * into 'root' with the four child-slot declarations, the layout store seat,
- * and the inject hook that hands the store's bound actions to the service.
+ * into 'root' with the five child-slot declarations, the layout store seat,
+ * and the shared root instance supplying commands and the panel-info and
+ * page-occupancy sources.
  * @param ctx - client root context.
  */
 export function apply(ctx: ClientContext): void {
-  const layout = new LayoutController()
   ctx.effect(() => {
+    const handle = createLayoutStore()
+    const instance = handle.create()
+    const store: typeof handle = { ...handle, create: () => instance }
+    const layout = new LayoutController(instance.actions, id =>
+      ctx.slots.entries('main').some(entry => entry.options.key === id))
+    const retainMainPanels = (): void => {
+      instance.actions.retainMainPanels(ctx.slots.entries('main').flatMap(entry =>
+        entry.options.key === undefined ? [] : [entry.options.key]))
+    }
+    const panelInfo: HostObservable<PanelInfo> = {
+      getSnapshot: () => instance.getSnapshot().panelInfo,
+      subscribe: listener => instance.subscribe(listener),
+    }
+    // Occupancy is the page slot's registry, not a store field: a page that
+    // unmounts its seat stops occupying the track in the same commit. It rides
+    // the root entry's inject face, so only AppFrame binds `usePageOccupied`;
+    // the frame hands the value on as the main slot's owner share.
+    const pageOccupied: HostObservable<boolean> = {
+      getSnapshot: () => ctx.slots.entries('shell.page').length > 0,
+      subscribe: listener => ctx.slots.subscribe('shell.page', listener),
+    }
+    const disposePanelInfo = ctx.slots.provideRoot({ hooks: { panelInfo } })
     const disposeService = ctx.reflect.provide('layout', layout)
     const disposeRegistration = ctx.slots.register({
       name: 'root',
       locale: 'common',
       children: {
         'sidebar': { kind: 'single', scope: 'root' },
-        'conversation': { kind: 'single', scope: 'session-maybe' },
-        'rightbar': { kind: 'single', scope: 'session' },
+        'main': { kind: 'keyed', scope: 'root' },
+        'rightbar': { kind: 'single', scope: 'root' },
         'shell.overlay': { kind: 'list', scope: 'root' },
         'shell.page': { kind: 'single', scope: 'root' },
       },
-      // Exclusive store: the factory itself — the framework instantiates per
-      // entry and delivers useStore/actions to AppFrame as standard props.
-      store: createLayoutStore,
-      // The hook's only side effect connects the root store to ctx.layout;
-      // conversation business actions belong to their registrants.
-      inject: (actions: PanelActions): AppFrameInjected => {
-        layout.attachPanels(actions)
-        return {
-          hooks: {
-            /**
-             * Whether a page occupies the center track. The frame passes its
-             * snapshot to the conversation as an owner prop; the occupying page
-             * itself holds the composer band open.
-             */
-            pageOccupied: {
-              getSnapshot: () => ctx.slots.entries('shell.page').length > 0,
-              subscribe: (listener: () => void) => ctx.slots.subscribe('shell.page', listener),
-            },
-          },
-        }
-      },
+      store,
+      // The frame's only injected business fact: whether a page holds the
+      // center track. Panel selection stays a store field upstream reads.
+      inject: (): AppFrameInjected => ({ hooks: { pageOccupied } }),
     }, AppFrame)
+    const disposePanels = ctx.slots.subscribe('main', retainMainPanels)
+    retainMainPanels()
     return () => {
+      layout.dispose()
+      disposePanels()
       disposeRegistration()
+      disposePanelInfo()
       // provide()'s disposer settles asynchronously; teardown is synchronous fire-and-forget.
       void disposeService()
     }

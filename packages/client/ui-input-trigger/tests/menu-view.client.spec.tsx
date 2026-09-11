@@ -5,7 +5,8 @@
  * (unknown sources fall back to the raw name) with pending rows as skeleton
  * placeholders, pointer picks route (source, index) back without stealing
  * focus, the highlight is exposed through aria-activedescendant +
- * aria-selected, and the list height clamps to the space above the composer.
+ * aria-selected, and the portaled list hangs from the composer side with the
+ * room, clamped to that room, with a bottom overflow hint.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
@@ -130,6 +131,26 @@ describe('MenuView', () => {
     expect(status.children).toHaveLength(2)
   })
 
+  it('renders a localized label as the title with the name as its alias, an icon component, and the description', () => {
+    const Glyph = ({ size = 16 }: { size?: number | undefined }) => <svg data-glyph="plan" width={size} height={size} />
+    mount(openState({
+      groups: [{
+        source: 'command',
+        status: 'ready',
+        items: [
+          { name: 'plan', label: '计划', description: '进入或退出计划模式', icon: Glyph, section: '添加' },
+          { name: 'file', label: 'File', section: '添加' },
+        ],
+      }],
+    }))
+    const options = screen.getAllByRole('option')
+    expect(options.map(o => o.textContent)).toEqual(['计划plan进入或退出计划模式', 'File'])
+    expect(options[0]?.querySelector('[data-glyph="plan"]')?.getAttribute('width')).toBe('16')
+    // A label that is the name in another letter case renders no alias.
+    expect(options[1]?.querySelectorAll('span')).toHaveLength(1)
+    expect(screen.getAllByText('添加')).toHaveLength(1)
+  })
+
   it('keeps an opted-out source title hidden while its candidates are pending', () => {
     mount(openState({
       groups: [{ source: 'reference', showGroupTitle: false, status: 'pending', items: [] }],
@@ -237,7 +258,7 @@ describe('MenuView', () => {
     mount(openState())
     const shell = menuShell()
     expect(shell.dataset.side).toBe('above')
-    expect(shell.style.maxHeight).toBe('320px')
+    expect(shell.style.maxHeight).toBe('400px')
     expect(shell.style.bottom).toBe(`${window.innerHeight - 700 + 4}px`)
   })
 
@@ -249,16 +270,43 @@ describe('MenuView', () => {
     expect(shell.style.top).toBe('174px')
     // Below still carries the design cap: the flip is about which side has
     // room, and the room below is measured only when it is the smaller one.
-    expect(shell.style.maxHeight).toBe('320px')
+    expect(shell.style.maxHeight).toBe('400px')
+  })
+
+  it('clamps the list height to the room on the hanging side when it is under the design maximum', () => {
+    // Above wins narrowly (354px of room against 332px below), so the cap
+    // follows the room above instead of the design maximum.
+    anchorCard(370, 420)
+    mount(openState())
+    const shell = menuShell()
+    expect(shell.dataset.side).toBe('above')
+    expect(shell.style.maxHeight).toBe('354px')
   })
 
   it('re-places the list when the window resizes', () => {
     anchorCard(700, 750)
     mount(openState())
     expect(menuShell().dataset.side).toBe('above')
+    // Re-anchor lower with less room: the resize re-measures and re-hangs.
     anchorCard(120, 170)
     act(() => { window.dispatchEvent(new Event('resize')) })
     expect(menuShell().dataset.side).toBe('below')
+    expect(menuShell().style.maxHeight).toBe('400px')
+  })
+
+  it('shows the bottom overflow hint until the list reaches its final row', () => {
+    mount(openState())
+    const listbox = screen.getByRole('listbox')
+    Object.defineProperties(listbox, {
+      clientHeight: { configurable: true, value: 320 },
+      scrollHeight: { configurable: true, value: 392 },
+      scrollTop: { configurable: true, value: 0, writable: true },
+    })
+    fireEvent.scroll(listbox)
+    expect(menuShell().hasAttribute('data-overflow-below')).toBe(true)
+    listbox.scrollTop = 72
+    fireEvent.scroll(listbox)
+    expect(menuShell().hasAttribute('data-overflow-below')).toBe(false)
   })
 
   it('pointerdown outside the menu (no composer card ancestor) dismisses', () => {
