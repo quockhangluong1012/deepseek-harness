@@ -33,27 +33,48 @@ describe('ui-layout client apply', () => {
     expect(inject).toEqual(['slots', 'theme', 'locale'])
   })
 
-  it('provides ctx.layout and registers AppFrame into root with the three child declarations', async () => {
+  it('provides ctx.layout and registers AppFrame into root with its child declarations', async () => {
     const { ctx, slots } = await bench()
     const fiber = ctx.plugin({ inject: [...inject], apply })
     await fiber.await()
     expect(ctx.get('layout')).toBeInstanceOf(LayoutController)
     // The one register() call occupied 'root'…
     expect(slots.entries('root')).toHaveLength(1)
-    // …and declared the three children in the ledger.
+    // …and declared the child slots in the ledger. Every one of them is a
+    // registration target for another package, so a dropped declaration
+    // silently withdraws that package's seat rather than failing loudly here.
     expect(slots.spec('sidebar')).toEqual({ kind: 'single', scope: 'root' })
     expect(slots.spec('conversation')).toEqual({ kind: 'single', scope: 'session-maybe' })
+    expect(slots.spec('rightbar')).toEqual({ kind: 'single', scope: 'session' })
+    expect(slots.spec('shell.overlay')).toEqual({ kind: 'list', scope: 'root' })
+    expect(slots.spec('shell.page')).toEqual({ kind: 'single', scope: 'root' })
   })
 
-  it('injects no business face and attaches the layout actions', async () => {
+  it('injects the page-occupancy hook and attaches the layout actions', async () => {
     const { ctx, slots } = await bench()
     const fiber = ctx.plugin({ inject: [...inject], apply })
     await fiber.await()
     const actions = {
       setSidebar: vi.fn(), setDetails: vi.fn(), toggleSidebar: vi.fn(), openDetails: vi.fn(), closeDetails: vi.fn(),
     }
-    const injected = (slots.entries('root')[0]!.inject as (actions: never) => object)(actions as never)
-    expect(injected).toEqual({})
+    const injected = (slots.entries('root')[0]!.inject as (actions: never) => {
+      hooks: { pageOccupied: { getSnapshot: () => boolean; subscribe: (fn: () => void) => () => void } }
+    })(actions as never)
+    // No page open: the conversation keeps the centre track on its own.
+    const pageOccupied = injected.hooks.pageOccupied
+    expect(pageOccupied.getSnapshot()).toBe(false)
+    let notified = 0
+    const stop = pageOccupied.subscribe(() => { notified += 1 })
+    const page = slots.register({ name: 'shell.page' }, (() => null) as never)
+    expect(pageOccupied.getSnapshot()).toBe(true)
+    // Slot notifications batch per microtask, per touched key.
+    await Promise.resolve()
+    expect(notified).toBe(1)
+    page()
+    expect(pageOccupied.getSnapshot()).toBe(false)
+    await Promise.resolve()
+    expect(notified).toBe(2)
+    stop()
     const layout = ctx.get('layout') as LayoutController
     layout.toggleSidebar()
     expect(actions.toggleSidebar).toHaveBeenCalledOnce()
@@ -92,6 +113,7 @@ describe('ui-layout client apply', () => {
     expect(ctx.get('layout')).toBeUndefined()
     expect(slots.entries('root')).toHaveLength(0)
     expect(slots.spec('sidebar')).toBeUndefined()
+    expect(slots.spec('shell.page')).toBeUndefined()
     // The built-in root declaration survives entry teardown (renderer-owned).
     expect(slots.spec('root')).toEqual({ kind: 'single', scope: 'root' })
   })

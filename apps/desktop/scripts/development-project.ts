@@ -57,9 +57,31 @@ function removeOwnedPath(path: string): void {
   unlinkSync(path)
 }
 
+function isMissing(error: unknown): boolean {
+  return error instanceof Error && 'code' in error && (error as NodeJS.ErrnoException).code === 'ENOENT'
+}
+
 function linkDirectory(source: string, destination: string): void {
+  let target: string
+  try {
+    target = realpathSync(source)
+  } catch (error) {
+    if (isMissing(error)) return
+    throw error
+  }
   mkdirSync(dirname(destination), { recursive: true })
-  symlinkSync(realpathSync(source), destination, process.platform === 'win32' ? 'junction' : 'dir')
+  symlinkSync(target, destination, process.platform === 'win32' ? 'junction' : 'dir')
+}
+
+function scopedDependencyNames(source: string): string[] {
+  try {
+    return readdirSync(source, { withFileTypes: true })
+      .filter(entry => entry.isDirectory() || entry.isSymbolicLink())
+      .map(entry => entry.name)
+  } catch (error) {
+    if (isMissing(error)) return []
+    throw error
+  }
 }
 
 function mirrorDependencyLinks(sourceRoot: string, destinationRoot: string): void {
@@ -68,9 +90,8 @@ function mirrorDependencyLinks(sourceRoot: string, destinationRoot: string): voi
     const source = join(sourceRoot, entry.name)
     if (entry.name.startsWith('@') && (entry.isDirectory() || entry.isSymbolicLink())) {
       mkdirSync(join(destinationRoot, entry.name), { recursive: true })
-      for (const scoped of readdirSync(source, { withFileTypes: true })) {
-        if (!scoped.isDirectory() && !scoped.isSymbolicLink()) continue
-        linkDirectory(join(source, scoped.name), join(destinationRoot, entry.name, scoped.name))
+      for (const name of scopedDependencyNames(source)) {
+        linkDirectory(join(source, name), join(destinationRoot, entry.name, name))
       }
       continue
     }

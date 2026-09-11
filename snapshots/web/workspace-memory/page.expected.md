@@ -1,0 +1,41 @@
+- region "Workspace memory":
+  - heading "memory-ws" [level=1]
+  - paragraph: {{cwd}}\memory-ws
+  - region "Description":
+    - button "Add a description…":
+      - text: Add a description…
+      - img
+  - region "Outputs":
+    - heading "Outputs" [level=2]
+    - paragraph: No produced files yet.
+  - region "Chats":
+    - tablist:
+      - tab "Chats" [selected]
+      - tab "Activity"
+    - list:
+      - listitem:
+        - button "memory-ws {{age}}"
+  - complementary:
+    - region "Instructions":
+      - heading "Instructions" [level=2]
+      - button "Edit":
+        - img
+        - text: Edit
+      - paragraph
+    - region "Memory":
+      - heading "Memory" [level=2]
+      - button "Edit":
+        - img
+        - text: Edit
+      - paragraph
+      - paragraph: Never updated
+      - button "Preview"
+      - button "Regenerate":
+        - img
+        - text: Regenerate
+    - region "Context":
+      - heading "Context" [level=2]
+      - paragraph: 0 of 131072 bytes used
+      - paragraph: No context yet
+      - button "Paste text"
+      - button "Choose file"

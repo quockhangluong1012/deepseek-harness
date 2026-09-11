@@ -46,6 +46,12 @@ The group splits into four families: durable storage (persistence seam, backends
 | [`session-stats/`](session-stats/README.md) | Serves whole-log conversation counts and wall times through the `sessionStats` unit | registers on `ctx.sessionProjections` |
 | [`session-turn-outline/`](session-turn-outline/README.md) | Serves the whole-log turn outline (turn, `turn/start` seq, prompt preview) through the `turnOutline` unit | registers on `ctx.sessionProjections` |
 
+### Usage
+
+| Package | Role | ctx key |
+|---|---|---|
+| [`usage-ledger/`](usage-ledger/README.md) | Folds billed LLM attempts into durable per-day and per-model counters for the usage dashboard | `ctx.usageLedger` |
+
 ### Titles
 
 | Package | Role | ctx key |
@@ -73,6 +79,7 @@ Only one title provider may register at a time; without one, the title service k
 - [Session projections subsystem](../../docs/subsystems/session-projection.md) — the projection unit contract and drive semantics.
 - [Session titles subsystem](../../docs/subsystems/session-title.md) — title eligibility, fallback, and provider flow.
 - [Session telemetry subsystem](../../docs/subsystems/session-telemetry.md) — capture, redaction, and delivery modes.
+- [Usage dashboard subsystem](../../docs/subsystems/usage-dashboard.md) — the billed-attempt ledger, its durability, and the range/summary vocabulary.
 - [Session subsystem](../../docs/subsystems/session.md) — the live event log every package in this group persists or derives from.
 
 <a id="dev-note"></a>

@@ -3257,6 +3257,29 @@ export interface Config {
 
 来源：[`packages/typert/loader/src/index.ts:47`](../packages/typert/loader/src/index.ts)
 
+<a id="deepseek-aidsh-usage-ledger"></a>
+
+## `@deepseek-ai/dsh-usage-ledger`
+
+需要：`sessions` · `storageDomain`
+
+```ts config-catalog
+/** Deployment choices for the ledger's durability. */
+export interface Config {
+  /**
+   * Calendar days (UTC+7) of counters to keep, counting today. Older day
+   * and model rows are pruned on every durable write.
+   */
+  readonly retentionDays: number
+  /** Folded session events that force a durable write between mandatory points. */
+  readonly writeEveryEvents: number
+  /** Longest time (milliseconds) a dirty ledger may stay unwritten between mandatory points. */
+  readonly writeIntervalMs: number
+}
+```
+
+来源：[`packages/session/usage-ledger/src/index.ts:54`](../packages/session/usage-ledger/src/index.ts)
+
 <a id="deepseek-aidsh-user-approval"></a>
 
 ## `@deepseek-ai/dsh-user-approval`
@@ -3488,6 +3511,84 @@ export interface Config {
 
 来源：[`packages/workflow/workflow-worker-thread/src/index.ts:32`](../packages/workflow/workflow-worker-thread/src/index.ts)
 
+<a id="deepseek-aidsh-workspace-memory"></a>
+
+## `@deepseek-ai/dsh-workspace-memory`
+
+需要：`storageDomain`
+
+```ts config-catalog
+/** Deployment-chosen caps for stored workspace memory. */
+export interface Config {
+  /** Capacity-bar denominator and hard ceiling on stored bytes. */
+  capacityBytes: number
+  /** Description cap in UTF-8 bytes. */
+  maxDescriptionBytes?: number
+  /** Instructions cap in UTF-8 bytes. */
+  maxInstructionsBytes?: number
+  /** Memory document cap in UTF-8 bytes. */
+  maxMemoryBytes?: number
+  /** Per-item cap in UTF-8 bytes, and ceiling on a file item's observed size. */
+  maxContextItemBytes?: number
+  /** Item count cap. */
+  maxContextItems?: number
+  /** Produced-file index size. */
+  maxOutputs?: number
+}
+```
+
+来源：[`packages/workspace/workspace-memory/src/index.ts:50`](../packages/workspace/workspace-memory/src/index.ts)
+
+<a id="deepseek-aidsh-workspace-memory-context"></a>
+
+## `@deepseek-ai/dsh-workspace-memory-context`
+
+需要：`workspaceRegistry` · `workspaceMemory`
+
+```ts config-catalog
+/** Plugin configuration: cap on the complete injected brief. */
+export interface Config {
+  /** Cap on the complete emitted text including the frame. */
+  maxBytes: number
+}
+```
+
+来源：[`packages/context/workspace-memory-context/src/index.ts:46`](../packages/context/workspace-memory-context/src/index.ts)
+
+<a id="deepseek-aidsh-workspace-memory-llm"></a>
+
+## `@deepseek-ai/dsh-workspace-memory-llm`
+
+需要：`llm` · `sessions` · `workspaceMemory` · `workspaceRegistry`
+
+```ts config-catalog
+/** Deployment choices for extraction scheduling and budgets. */
+export interface Config {
+  /** Whether a completed turn triggers extraction; output indexing always runs. */
+  autoExtract?: boolean
+  /** Skip extraction for trivial turns below this admitted-text byte size. */
+  minTurnTextBytes?: number
+  /** Minimum gap between two extractions for one Workspace. */
+  cooldownMs?: number
+  /** Transcript budget per call in UTF-8 bytes. */
+  maxInputBytes?: number
+  /** Output token cap per call. */
+  maxOutputTokens?: number
+  /** Call deadline in milliseconds. */
+  timeoutMs?: number
+  /** Sessions scanned by a rebuild. */
+  rebuildSessionLimit?: number
+  /** Which successful tool calls count as productions. */
+  outputTools?: string[]
+  /** Route override provider; must be paired with `model`. */
+  provider?: string
+  /** Route override model; must be paired with `provider`. */
+  model?: string
+}
+```
+
+来源：[`packages/workspace/workspace-memory-llm/src/index.ts:35`](../packages/workspace/workspace-memory-llm/src/index.ts)
+
 ## 无配置的可加载插件
 
 这些插件通过 `cordis.yml` 中不含 `config:` 块的条目加载；它们未声明任何配置接口。
@@ -3539,9 +3640,11 @@ export interface Config {
 - `@deepseek-ai/dsh-client-ui-theme`（[`packages/client/ui-theme/src/index.ts`](../packages/client/ui-theme/src/index.ts)）
 - `@deepseek-ai/dsh-client-ui-tool`（[`packages/client/ui-tool/src/index.ts`](../packages/client/ui-tool/src/index.ts)）
 - `@deepseek-ai/dsh-client-ui-trajectory`（[`packages/client/ui-trajectory/src/index.ts`](../packages/client/ui-trajectory/src/index.ts)）
+- `@deepseek-ai/dsh-client-ui-usage-dashboard` — 需要 `usageLedger` · `typert`（[`packages/client/ui-usage-dashboard/src/index.ts`](../packages/client/ui-usage-dashboard/src/index.ts)）
 - `@deepseek-ai/dsh-client-ui-user-questions`（[`packages/client/ui-user-questions/src/index.ts`](../packages/client/ui-user-questions/src/index.ts)）
 - `@deepseek-ai/dsh-client-ui-workflow-run`（[`packages/client/ui-workflow-run/src/index.ts`](../packages/client/ui-workflow-run/src/index.ts)）
 - `@deepseek-ai/dsh-client-ui-workspace`（[`packages/client/ui-workspace/src/index.ts`](../packages/client/ui-workspace/src/index.ts)）
+- `@deepseek-ai/dsh-client-ui-workspace-memory` — 需要 `typert` · `workspaceRegistry` · `workspaceMemory`（[`packages/client/ui-workspace-memory/src/index.ts`](../packages/client/ui-workspace-memory/src/index.ts)）
 - `@deepseek-ai/dsh-command-compact` — 需要 `commands` · `compact`（[`packages/compaction/command-compact/src/index.ts`](../packages/compaction/command-compact/src/index.ts)）
 - `@deepseek-ai/dsh-command-feedback` — 需要 `commands`（[`packages/feedback/command-feedback/src/index.ts`](../packages/feedback/command-feedback/src/index.ts)）
 - `@deepseek-ai/dsh-command-goal` — 需要 `commands` · `goals`（[`packages/goal/command-goal/src/index.ts`](../packages/goal/command-goal/src/index.ts)）

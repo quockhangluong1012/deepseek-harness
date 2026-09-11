@@ -1,0 +1,549 @@
+/*
+ * Workspace page: a surface filling the center track as its own route, not an
+ * overlay and not a dialog. It carries no mask and no fixed geometry — the
+ * frame renders it instead of the conversation — so every rule here is ordinary
+ * in-flow layout. Colours are ui-theme semantic aliases only.
+ */
+
+/* Only the identity row and the scrolling regions paint; the composer band
+   between them stays transparent, which is the window onto the resident
+   composer the conversation paints in the same column underneath. The root
+   therefore owns no background and no hit area — clicks in the band belong to
+   that composer — and each painted region opts back in. */
+.page {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  /* The page's one top gap: the identity row above, the band and the rail's
+     first card opening on the same line below it. */
+  gap: 24px;
+  color: var(--dsw-alias-label-primary);
+  pointer-events: none;
+}
+
+/* The identity row's centering box: the page's content axis — the same
+   max-width and side pad the content row below uses — so the name, the path,
+   the description, and the rule under them start on the column the outputs
+   and the chats fill. The identity row is content-sized: the free height
+   belongs to the content row, never to a stretched row above it. */
+.introRow {
+  flex: none;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 1160px;
+  margin: 0 auto;
+  padding: 0 28px;
+}
+
+/* The page's identity — name, canonical path, description — opens the content
+   area, so the name and the description are the first thing the page says,
+   above both the composer band and the rail. It never scrolls: only the body
+   and the rail do. No rule under it: the composer card's own stroke is what
+   separates the header from the page's body. */
+.intro {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 0 16px;
+  background: var(--dsw-alias-bg-base);
+  pointer-events: auto;
+}
+
+.title {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 600;
+  line-height: 32px;
+  overflow-wrap: anywhere;
+}
+
+.path {
+  margin: 0;
+  font-family: var(--dsw-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-tertiary);
+  overflow-wrap: anywhere;
+}
+
+.description {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* The composer band: exactly the resident composer seat's live height, held
+   open between the intro and the body. The seat reads this page's band top
+   (published on the document root) and docks itself here. */
+.band {
+  flex: none;
+  height: var(--dsh-composer-height, 0px);
+}
+
+/* The description is an action, so it reads as text until the pointer or the
+   keyboard reaches it; the pencil is the only affordance that says so. */
+.descriptionText {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  box-sizing: border-box;
+  width: 100%;
+  margin: 0;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  /* Secondary ink: the name is the page's one heading, and the prose under it
+     reads a step lighter than the title. */
+  color: var(--dsw-alias-label-secondary);
+  font: inherit;
+  font-size: 14px;
+  line-height: 22px;
+  text-align: left;
+  cursor: text;
+  overflow-wrap: anywhere;
+}
+
+.descriptionText:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.descriptionText .edit {
+  flex: none;
+  margin-top: 3px;
+  color: var(--dsw-alias-label-tertiary);
+  opacity: 0;
+  transition: opacity .12s;
+}
+
+.descriptionText:hover .edit,
+.descriptionText:focus-visible .edit {
+  opacity: 1;
+}
+
+.descriptionPlaceholder {
+  color: var(--dsw-alias-markdown-placeholder);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* The page's content area: the two columns under the identity row. The left one
+   carries the composer band and the scrolling body, the right one keeps its own
+   width and its own scroll beside them. It takes the height the identity row
+   leaves, so neither column ever scrolls the band out from under the composer
+   docked into it; the gap is the wrap distance for the rail. */
+.columns {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 24px;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 1160px;
+  margin: 0 auto;
+  padding: 0 28px;
+}
+
+/* The left column: read state, transparent composer band, scrolling body. */
+.column {
+  flex: 1 1 460px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* The body is the column's only scroller, below the band. The gutter is
+   reserved unconditionally: the conversation's scrollport reserves it for the
+   composer card, and matching it keeps the page's content on the same axis as
+   that card. */
+.body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  display: flex;
+  flex-direction: column;
+  gap: 26px;
+  padding-bottom: 40px;
+  background: var(--dsw-alias-bg-base);
+  pointer-events: auto;
+}
+
+/* The rail keeps its own width on a wide center and wraps under the left column
+   when the track cannot hold both. It scrolls on its own, so the cards open on
+   the hero's line and stay there beside the composer. */
+.rail {
+  flex: 1 1 280px;
+  max-width: 360px;
+  min-width: 0;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-bottom: 40px;
+  background: var(--dsw-alias-bg-base);
+  pointer-events: auto;
+}
+
+/* The two body sections carry the rail's card surface: one bordered box per
+   section, so every part of the page shares one visual grammar. */
+.section {
+  min-width: 0;
+}
+
+/* The section's text anchors — heading, tabs, empty lines — carry the chat
+   rows' own left pad, so they share one line with the record titles under
+   them instead of stopping at the card's edge. */
+.sectionHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  padding-left: 12px;
+}
+
+.sectionTitle {
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: .02em;
+  line-height: 20px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.editor {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  min-height: 84px;
+  padding: 10px 12px;
+  border: 0.5px solid var(--dsw-alias-border-l4);
+  border-radius: 10px;
+  background: var(--dsw-alias-bg-layer-1);
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.railNav {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.tiles {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  padding: 2px 0 6px;
+}
+
+.tile {
+  flex: 0 0 auto;
+  width: 196px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  border: 0.5px solid var(--dsw-alias-border-l4);
+  border-radius: 12px;
+  /* One step above the section card the tiles now sit on, so a tile keeps its
+     own surface in dark mode instead of dissolving into it. */
+  background: var(--dsw-alias-bg-layer-2);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color .16s, background .16s;
+}
+
+.tile:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.tileName {
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 20px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tileMeta {
+  font-size: 11px;
+  line-height: 17px;
+  color: var(--dsw-alias-label-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tabs {
+  display: flex;
+  gap: 4px;
+  padding-left: 12px;
+}
+
+.rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 340px;
+  overflow-y: auto;
+}
+
+.row {
+  box-sizing: border-box;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 10px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.row:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.rowTitle {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  line-height: 20px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rowMeta {
+  flex: none;
+  font-size: 11px;
+  line-height: 17px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+/* An activity row stacks: the session and turn are its identity, the prompt is
+   its content, and one 13px line would give them the same weight. */
+.rowStacked {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 3px;
+}
+
+.rowHead {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.rowPrompt {
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-secondary);
+  overflow-wrap: anywhere;
+}
+
+/* One surface for every part the page shows — the body's sections and the
+   rail's cards. */
+.section,
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  border: 0.5px solid var(--dsw-alias-border-l4);
+  border-radius: 14px;
+  background: var(--dsw-alias-bg-layer-1);
+}
+
+.cardHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+}
+
+.cardTitle {
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: .02em;
+  line-height: 20px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.cardFoot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.preview {
+  margin: 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 6;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  white-space: pre-wrap;
+  font-size: 12px;
+  line-height: 19px;
+  color: var(--dsw-alias-label-secondary);
+  overflow-wrap: anywhere;
+}
+
+.meta {
+  margin: 0;
+  font-size: 11px;
+  line-height: 17px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.capacity {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--dsw-alias-border-l3);
+  overflow: hidden;
+}
+
+.capacityFill {
+  height: 100%;
+  border-radius: 3px;
+  background: var(--dsw-alias-label-tertiary);
+}
+
+.contextList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.contextItem {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 2px 4px 8px;
+  border-radius: 8px;
+}
+
+.contextItem:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.contextLabel {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  line-height: 18px;
+  overflow-wrap: anywhere;
+}
+
+.contextSize {
+  flex: none;
+  font-size: 11px;
+  line-height: 17px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.results {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.result {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+  line-height: 18px;
+  text-align: left;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+
+.result:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.empty {
+  margin: 0;
+  padding: 12px 0 12px 12px;
+  font-size: 12px;
+  line-height: 19px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.status {
+  margin: 0;
+  font-size: 12px;
+  line-height: 19px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.error {
+  margin: 0;
+  font-size: 12px;
+  line-height: 19px;
+  color: var(--dsw-alias-state-error-primary);
+}
+
+/* Read state, as the body's full-width first row above the two columns. */
+.notice {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1 1 100%;
+  min-width: 0;
+}
+
+.page :focus-visible {
+  outline: 2px solid var(--dsw-alias-brand-primary);
+  outline-offset: -1px;
+}

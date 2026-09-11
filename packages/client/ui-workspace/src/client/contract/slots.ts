@@ -142,6 +142,11 @@ export type WorkspaceBrowserInjected = {
   insertSessionBefore: (workspaceId: WorkspaceId, sessionId: SessionId, beforeSessionId?: SessionId) => Promise<void>
   /** Adopt a picked host directory as a real Workspace before targeting a Session. */
   createWorkspace: (input: { path: string }) => Promise<WorkspaceView>
+  /**
+   * Open one Workspace's page when the page plugin is composed; absent
+   * compositions leave the name toggling the group.
+   */
+  openWorkspacePage?: ((workspaceId: WorkspaceId) => void) | undefined
 }
 
 /** Full browser props: shell owner share + viewing store + injected actions + the locale seat. */

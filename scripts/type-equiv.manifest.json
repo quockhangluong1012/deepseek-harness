@@ -2057,6 +2057,31 @@
       "source": "packages/feedback/message-feedback/src/types.ts"
     },
     {
+      "doc": "docs/subsystems/usage-dashboard.md",
+      "symbol": "UsageRange",
+      "source": "packages/session/usage-ledger/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/usage-dashboard.md",
+      "symbol": "UsageTotals",
+      "source": "packages/session/usage-ledger/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/usage-dashboard.md",
+      "symbol": "UsageDayBucket",
+      "source": "packages/session/usage-ledger/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/usage-dashboard.md",
+      "symbol": "UsageModelRow",
+      "source": "packages/session/usage-ledger/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/usage-dashboard.md",
+      "symbol": "UsageSummary",
+      "source": "packages/session/usage-ledger/src/types.ts"
+    },
+    {
       "doc": "docs/subsystems/feedback.md",
       "symbol": "MessageFeedbackListResult",
       "source": "packages/feedback/message-feedback/src/types.ts"

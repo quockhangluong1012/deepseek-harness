@@ -80,6 +80,8 @@
     "@deepseek-ai/dsh-user-questions": "workspace:^",
     "@deepseek-ai/dsh-client-connection": "workspace:^",
     "@deepseek-ai/dsh-client-file-upload": "workspace:^",
+    "@deepseek-ai/dsh-client-ui-usage-dashboard": "workspace:^",
+    "@deepseek-ai/dsh-client-ui-workspace-memory": "workspace:^",
     "@deepseek-ai/dsh-typert-protocol": "workspace:^",
     "@deepseek-ai/dsh-scope": "workspace:^",
     "@deepseek-ai/dsh-api-session-controller": "workspace:^",

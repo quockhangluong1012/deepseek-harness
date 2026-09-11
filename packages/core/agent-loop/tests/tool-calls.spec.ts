@@ -709,6 +709,8 @@ describe('tool-call scheduler: failure quiescence', () => {
       const source = result.data.message.source
       expect(source.kind).toBe('tool')
       const callId = source.kind === 'tool' ? source.callId : undefined
+      expect(callId).toBeDefined()
+      if (callId === undefined) throw new Error('missing tool source callId')
       expect(result.sourceEventSeqs).toEqual([callSeqs.get(callId)])
     }
   })

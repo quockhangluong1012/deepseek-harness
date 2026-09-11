@@ -16,9 +16,11 @@ const useResource = (() => ({ status: 'none' as const, value: undefined, failure
 let selectedSession: SessionId | undefined
 let selectedSessionTitle: string | undefined
 let workspacesReady = true
+let pageOccupied = false
 type AttentionSnapshot = Parameters<Parameters<AppFrameProps['useSessionPendingInteraction']>[0]>[0]
 const noAttention: AttentionSnapshot = new Map()
 const useSessionPendingInteraction: AppFrameProps['useSessionPendingInteraction'] = selector => selector(noAttention)
+const usePageOccupied: AppFrameProps['usePageOccupied'] = selector => selector(pageOccupied)
 const SessionProviderStub: AppFrameProps['SessionProvider'] = ({ children, empty }) =>
   selectedSession === undefined ? <>{empty?.() ?? null}</> : <>{children}</>
 
@@ -98,10 +100,11 @@ function mountFrame(windowWidth = frameWidth) {
       renderSlot={renderSlot}
       useSessions={useSessions}
       useSessionPendingInteraction={useSessionPendingInteraction}
+      usePageOccupied={usePageOccupied}
       useResource={useResource}
       useWorkspaces={((sel: (s: WorkspaceSnapshot) => unknown) => sel(workspaceState)) as AppFrameProps['useWorkspaces']}
       SessionProvider={SessionProviderStub}
-      t={key => key === 'brand.localBuild' ? 'DSH Local Build' : key}
+      t={key => key === 'brand.localBuild' ? 'Deepseek Harness' : key}
     />
   )
   const utils = render(element())
@@ -143,6 +146,7 @@ beforeEach(() => {
   selectedSession = 's-test' as SessionId
   selectedSessionTitle = undefined
   workspacesReady = true
+  pageOccupied = false
   observers = []
   animationFrames = new Map()
   nextFrame = 1
@@ -181,7 +185,7 @@ afterEach(() => {
 describe('AppFrame', () => {
   it('localizes the product title without a configured build title', () => {
     mountFrame()
-    expect(document.title).toBe('DSH Local Build')
+    expect(document.title).toBe('Deepseek Harness')
   })
 
   it('follows the selected durable Session title', () => {
@@ -202,7 +206,19 @@ describe('AppFrame', () => {
     expect(tracks(frame)).toEqual([280, 0])
     expect(sidebarOwner()).toEqual({ collapsed: false, width: 280 })
     expect(rightOwner()).toEqual({ width: 864, viewportWidth: 1920, canShow: true })
-    expect(slotCalls.find(c => c.key === 'conversation')!.props).toEqual({})
+    expect(slotCalls.find(c => c.key === 'conversation')!.props).toEqual({ pageOccupied: false })
+    // The page layer is a permanent sibling with no box of its own: its
+    // occupant decides what shows, so the slot call always happens.
+    expect(slotCalls.some(c => c.key === 'shell.page')).toBe(true)
+  })
+
+  it('keeps the conversation mounted beneath an occupying page', () => {
+    pageOccupied = true
+    const { getByTestId, slotCalls } = mountFrame()
+    expect(getByTestId('conversation-content')).toBeTruthy()
+    expect(getByTestId('shell.page-content')).toBeTruthy()
+    expect(slotCalls.find(c => c.key === 'conversation')!.props).toEqual({ pageOccupied: true })
+    expect(document.querySelector('[data-shell-page]')).not.toBeNull()
   })
 
   it('retains conversation and sidebar content without a current Session', () => {

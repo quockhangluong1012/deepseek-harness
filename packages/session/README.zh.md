@@ -46,6 +46,12 @@ session 组让对话持久保存，恢复已发布的日志格式，并使已提
 | [`session-stats/`](session-stats/README.zh.md) | 通过 `sessionStats` 单元提供全日志会话计数与墙钟时间 | 注册到 `ctx.sessionProjections` |
 | [`session-turn-outline/`](session-turn-outline/README.zh.md) | 通过 `turnOutline` 单元提供全日志轮次大纲（轮次号、`turn/start` seq、提示词预览） | 注册到 `ctx.sessionProjections` |
 
+### 用量
+
+| 包 | 职责 | ctx key |
+|---|---|---|
+| [`usage-ledger/`](usage-ledger/README.zh.md) | 把已计费 LLM 请求折叠为持久的按天、按模型计数，供用量仪表盘使用 | `ctx.usageLedger` |
+
 ### 标题
 
 | 包 | 职责 | ctx key |
@@ -73,6 +79,7 @@ session 组让对话持久保存，恢复已发布的日志格式，并使已提
 - [会话投影子系统](../../docs/subsystems/session-projection.zh.md)——投影单元约定与驱动语义。
 - [会话标题子系统](../../docs/subsystems/session-title.zh.md)——标题资格、回退与提供方流程。
 - [会话遥测子系统](../../docs/subsystems/session-telemetry.zh.md)——捕获、脱敏与投递模式。
+- [用量仪表盘子系统](../../docs/subsystems/usage-dashboard.zh.md)——已计费请求台账、其持久化与范围/汇总词汇。
 - [会话子系统](../../docs/subsystems/session.zh.md)——本组每个包持久化或派生的实时事件日志。
 
 <a id="dev-note"></a>

@@ -18,18 +18,17 @@ it('ships install metadata with the built web application', async () => {
     scope: '/',
     display: 'fullscreen',
     icons: [{
-      src: '/favicon.svg',
-      sizes: 'any',
-      type: 'image/svg+xml',
+      src: '/favicon.png',
+      sizes: '225x225',
+      type: 'image/png',
       purpose: 'any',
     }],
   })
 })
 
-it('ships a favicon that switches to a light mark under dark color scheme', async () => {
-  const favicon = await readFile(join(DIST_ROOT, 'favicon.svg'), 'utf8')
-  // The light fill must live inside the dark-scheme media query, so the icon
-  // stays black in light mode and only turns white under a dark scheme.
-  expect(favicon).toMatch(/@media \(prefers-color-scheme: dark\)\s*{\s*path\s*{[^}]*fill:\s*#fff/i)
-  expect(favicon).toContain('fill="#000"')
+it('ships the DeepSeek whale mark as the web favicon', async () => {
+  const favicon = await readFile(join(DIST_ROOT, 'favicon.png'))
+  // PNG magic: the icon is a binary PNG, not SVG markup.
+  expect(Array.from(favicon.subarray(0, 4))).toEqual([0x89, 0x50, 0x4e, 0x47])
+  expect(favicon.length).toBeGreaterThan(1024)
 })

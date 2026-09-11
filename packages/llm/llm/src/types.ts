@@ -452,6 +452,6 @@ export interface GenerateOptions {
    * Provider-neutral classification for an auxiliary model call. Adapters may
    * map the purpose to model-hidden transport metadata or purpose-specific
    * generation policy. Ordinary conversation requests leave it unset.
-   */
-  purpose?: 'compaction' | 'session-title'
+    */
+  purpose?: 'compaction' | 'session-title' | 'workspace-memory'
 }

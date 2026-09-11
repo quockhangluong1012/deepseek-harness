@@ -118,6 +118,8 @@ export const SERVICE_PAGE: Record<string, string> = {
   typert: 'typert.md',
   typertGateway: 'typert.md',
   userQuestions: 'user-questions.md',
+  usageDashboard: 'usage-dashboard.md',
+  usageLedger: 'usage-dashboard.md',
   web: 'web.md',
   workflowEngine: 'workflow.md',
   webhookRuntime: 'webhook.md',
@@ -125,6 +127,9 @@ export const SERVICE_PAGE: Record<string, string> = {
   workspaceController: 'workspace.md',
   workspaceFiles: 'workspace.md',
   directoryPickerController: 'workspace.md',
+  workspaceMemory: 'workspace-memory.md',
+  workspaceMemoryExtractor: 'workspace-memory.md',
+  workspaceMemoryController: 'workspace-memory.md',
 }
 
 /**
@@ -178,6 +183,7 @@ export const SERVICE_WALK_EXEMPTIONS: Record<string, string> = {
   resources: 'client-side resource model (protocol providers, pins, live sources) — packages/client/resources/README.md owns the API',
   sidebarRight: 'client-side right-Sidebar navigation face — packages/client/ui-sidebar-right/README.md owns the API',
   sidebarRightTabs: 'client-side right-Sidebar tab-type registry — packages/client/ui-sidebar-right/README.md owns the API',
+  workspacePage: 'client-side Workspace page opener — packages/client/ui-workspace-memory/README.md owns the API',
 }
 
 /**
@@ -548,6 +554,11 @@ export const LINK_MAP: Readonly<Record<string, string>> = {
   TeamWaitResult: 'agent-team.md',
   UpdateTeamTaskRequest: 'agent-team.md',
   TokenMeasurement: 'token-meter.md',
+  UsageDayBucket: 'usage-dashboard.md',
+  UsageModelRow: 'usage-dashboard.md',
+  UsageRange: 'usage-dashboard.md',
+  UsageSummary: 'usage-dashboard.md',
+  UsageTotals: 'usage-dashboard.md',
   PtcDispatchLog: 'tools.md',
   PostToolDecision: 'tools.md',
   PreToolDecision: 'tools.md',
@@ -767,6 +778,23 @@ export const TYPE_LINK_EXEMPTIONS: Readonly<Record<string, string>> = {
   WorkspaceFileRange: 'Host workspace file endpoint contract is owned by packages/api/workspace-files/README.md',
   WorkspaceFileStat: 'Host workspace file endpoint contract is owned by packages/api/workspace-files/README.md',
   WorkspaceFileText: 'Host workspace file endpoint contract is owned by packages/api/workspace-files/README.md',
+  WorkspaceMemoryRecord: 'workspace-memory record contract is owned by packages/workspace/workspace-memory/README.md',
+  WorkspaceMemoryUsage: 'workspace-memory usage contract is owned by packages/workspace/workspace-memory/README.md',
+  WorkspaceMemoryExtraction: 'workspace-memory extraction provenance is owned by packages/workspace/workspace-memory/README.md',
+  WorkspaceContextItem: 'workspace-memory context item is owned by packages/workspace/workspace-memory/README.md',
+  WorkspaceContextItemInput: 'workspace-memory context input is owned by packages/workspace/workspace-memory/README.md',
+  WorkspaceOutput: 'workspace-memory produced-file entry is owned by packages/workspace/workspace-memory/README.md',
+  WorkspaceMemoryValue: 'workspace-memory Remote projection is owned by packages/client/ui-workspace-memory/README.md',
+  WorkspaceMemoryReadRequest: 'workspace-memory Remote request is owned by packages/client/ui-workspace-memory/README.md',
+  WorkspaceMemorySetDescriptionRequest: 'workspace-memory Remote request is owned by packages/client/ui-workspace-memory/README.md',
+  WorkspaceMemorySetInstructionsRequest: 'workspace-memory Remote request is owned by packages/client/ui-workspace-memory/README.md',
+  WorkspaceMemorySetMemoryRequest: 'workspace-memory Remote request is owned by packages/client/ui-workspace-memory/README.md',
+  WorkspaceMemoryAddContextItemRequest: 'workspace-memory Remote request is owned by packages/client/ui-workspace-memory/README.md',
+  WorkspaceMemoryRemoveContextItemRequest: 'workspace-memory Remote request is owned by packages/client/ui-workspace-memory/README.md',
+  WorkspaceMemoryListContextFilesRequest: 'workspace-memory Remote request is owned by packages/client/ui-workspace-memory/README.md',
+  WorkspaceMemoryContextFilesValue: 'workspace-memory Remote result is owned by packages/client/ui-workspace-memory/README.md',
+  WorkspaceMemoryRebuildRequest: 'workspace-memory Remote request is owned by packages/client/ui-workspace-memory/README.md',
+  WorkspaceMemoryFollowFrame: 'workspace-memory Remote stream frame is owned by packages/client/ui-workspace-memory/README.md',
 }
 
 /** Repository data policy consumed by the Cordis catalog projector. */

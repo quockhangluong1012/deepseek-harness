@@ -15,6 +15,7 @@ import { PiAiAdapter } from '@deepseek-ai/dsh-llm-pi-ai'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import { getBuiltinModels } from '@earendil-works/pi-ai/providers/all'
 import { DEFAULT_MAX_REQUEST_IMAGE_BYTES, resolveProfiles } from '../src/config.ts'
+import { isOpencodeRoute } from '../src/adapter.ts'
 import { memoryAuth } from './auth-double.ts'
 import { assemble } from './assemble.ts'
 import { closeMockServers, mockServer, textEvents } from './mock-server.ts'
@@ -427,6 +428,91 @@ describe('PiAiAdapter provider routing', () => {
 
     expect(server.paths).toEqual(['/chat/completions'])
     expect(server.closedResponses).toBe(1)
+  })
+})
+
+describe('opencode session header', () => {
+  const OPENCODE_MODEL = { id: 'spark-test', contextWindow: 262_144, maxTokens: 32_768 }
+
+  async function opencodeHarness(
+    serverUrl: string,
+    overrides: Record<string, unknown> = {},
+  ): Promise<Context> {
+    vi.stubEnv('PI_TEST_KEY', 'test-key')
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    await ctx.plugin(LlmPiAi, {
+      providers: {
+        'opencode-go': {
+          apiKeyEnv: 'PI_TEST_KEY',
+          api: 'openai-completions',
+          baseURL: serverUrl,
+          models: [OPENCODE_MODEL],
+          ...overrides,
+        },
+      },
+    })
+    return ctx
+  }
+
+  it('sends the per-conversation session id on opencode routes', async () => {
+    const server = await mockServer([{ events: textEvents }])
+    const ctx = await opencodeHarness(server.url)
+    await assemble(ctx, {
+      provider: 'opencode-go',
+      model: 'spark-test',
+      messages: [],
+      sessionId: 'session-live-conversation' as never,
+    })
+    expect(server.headers[0]?.['x-opencode-session']).toBe('session-live-conversation')
+  })
+
+  it('omits the session header when the caller names no session', async () => {
+    const server = await mockServer([{ events: textEvents }])
+    const ctx = await opencodeHarness(server.url)
+    await assemble(ctx, { provider: 'opencode-go', model: 'spark-test', messages: [] })
+    expect(server.headers[0]).not.toHaveProperty('x-opencode-session')
+  })
+
+  it('leaves other providers untouched even with a session id', async () => {
+    const server = await mockServer([{ events: textEvents }])
+    const ctx = await harness(server.url)
+    await assemble(ctx, {
+      model: 'deepseek-v4-flash',
+      messages: [],
+      sessionId: 'session-other-provider' as never,
+    })
+    expect(server.headers[0]).not.toHaveProperty('x-opencode-session')
+  })
+
+  it('lets the per-conversation id win over a static profile entry', async () => {
+    const server = await mockServer([{ events: textEvents }])
+    const ctx = await opencodeHarness(server.url, {
+      headers: { 'X-Opencode-Session': 'fixed-value' },
+    })
+    await assemble(ctx, {
+      provider: 'opencode-go',
+      model: 'spark-test',
+      messages: [],
+      sessionId: 'session-live-wins' as never,
+    })
+    expect(server.headers[0]?.['x-opencode-session']).toBe('session-live-wins')
+  })
+
+  it.each([
+    ['opencode-go', undefined, true],
+    ['opencode', undefined, true],
+    ['opencode-go', 'https://example.com/v1', true],
+    ['acme-gateway', 'https://opencode.ai/v1', true],
+    ['acme-gateway', 'https://zen.opencode.ai/v1', true],
+    ['acme-gateway', 'https://OPencode.AI/v1', true],
+    ['acme-gateway', 'https://example.com/v1', false],
+    ['acme-gateway', 'https://notopencode.ai/v1', false],
+    ['acme-gateway', undefined, false],
+    ['acme-gateway', 'not a url', false],
+    ['myopencode', undefined, false],
+  ])('isOpencodeRoute(%j, %j) is %j', (provider, baseUrl, expected) => {
+    expect(isOpencodeRoute(provider, baseUrl)).toBe(expected)
   })
 })
 

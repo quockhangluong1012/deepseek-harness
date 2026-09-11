@@ -14,22 +14,35 @@
  * shown/track/fullscreen through `ctx.layout`; fullscreen keeps the reported
  * track but hides the outer resize handle. Everything arrives through the framework
  * shares — zero cordis or framework imports, zero self-made hooks.
+ *
+ * The page layer shares the center track with the conversation as an overlapping
+ * grid item rather than a child of it: a page must draw over the conversation's
+ * own z-indexes without knowing them, and the center column's isolation is what
+ * confines those to the column beneath it. The conversation stays mounted
+ * underneath, so its composer seat keeps working under a page, and the layer
+ * states no page geometry at all: the occupying page holds the composer band
+ * open beneath its own name and description, publishes that band's top offset for
+ * the seat, and
+ * reports occupancy to the conversation as an owner prop.
  */
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import type {
-  PropsLocale, PropsRenderSlots, PropsRuntime, PropsStore,
+  InjectFace, PropsLocale, PropsRenderSlots, PropsRuntime, PropsStore,
 } from '@deepseek-ai/dsh-client-ui-slots'
+// Type-only, and therefore erased: index.ts imports this component at runtime.
+import type { AppFrameInjected } from './index.ts'
 import { computeColumns, RIGHTBAR_DEFAULT_RATIO, SIDEBAR_AUTO_COLLAPSE, SIDEBAR_DEFAULT } from './columns.ts'
 import { DocumentTitle } from './DocumentTitle.tsx'
 import type { createLayoutStore } from './stores.ts'
 import css from './AppFrame.module.css'
 
-/** Full composed props: runtime share + child-slot render share + store share. */
+/** Full composed props: runtime share + child-slot render share + store share + injected hook sources. */
 export type AppFrameProps =
   & PropsRuntime<'root'>
-  & PropsRenderSlots<'sidebar' | 'conversation' | 'rightbar' | 'shell.overlay'>
+  & PropsRenderSlots<'sidebar' | 'conversation' | 'rightbar' | 'shell.overlay' | 'shell.page'>
   & PropsStore<ReturnType<typeof createLayoutStore>>
+  & InjectFace<AppFrameInjected>
   & PropsLocale<'common'>
 
 /** Center column grid item (session-body building block). */
@@ -116,12 +129,14 @@ function DragHandle(props: { side: 'sidebar' | 'rightbar'; left: number; onStart
 export function AppFrame({
   useStore,
   useSessions,
+  usePageOccupied,
   actions,
   renderSlot,
   SessionProvider,
   t,
 }: AppFrameProps) {
   const panels = useStore(s => s)
+  const pageOccupied = usePageOccupied(s => s)
   const documentTitle = useSessions((s) => {
     const current = s.current
     return current === undefined ? undefined : s.byId[current]?.title
@@ -225,7 +240,7 @@ export function AppFrame({
             the shell's own pending rendering. The conversation is
             session-maybe; SessionProvider withholds the strict right-column
             entry while no session is current. */}
-        <CenterColumn>{renderSlot('conversation', {})}</CenterColumn>
+        <CenterColumn>{renderSlot('conversation', { pageOccupied })}</CenterColumn>
         <RightbarColumn>
           {/* Strict session entry: with no session there is no surface, and the
               column is an empty zero-width track. The occupant receives the
@@ -235,6 +250,12 @@ export function AppFrame({
           </SessionProvider>
         </RightbarColumn>
       </>
+      {/* The page layer is the conversation's sibling in the same grid cell and
+          carries no box of its own: unoccupied it is click-through, and so is
+          an occupant that renders null. */}
+      <div className={css.pageLayer} data-shell-page>
+        {renderSlot('shell.page', {})}
+      </div>
       <div className={css.overlayLayer} data-shell-overlay>
         {renderSlot('shell.overlay', {})}
       </div>

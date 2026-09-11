@@ -84,10 +84,10 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     kind: 'single',
     scope: 'session-maybe',
     summary: 'The whole center column, across both the no-session hero and a live conversation.',
-    doc: 'The whole center column, across both the no-session hero and a live\nconversation. OCCUPIED by ui-conversation\'s ConversationRoot, which\ndeclares the session body, composer, and input seats inside it —\nregistering here replaces the entire conversation surface (and removes\nevery seat it declares) rather than adding to it.\n\nCurrent-session-optional: the occupant owns both states without\nchanging its React identity, so it keeps its own state across a session\nswitch. It receives no owner props; session facts arrive through the\nframework hooks of the `session-maybe` scope.',
+    doc: 'The whole center column, across both the no-session hero and a live\nconversation. OCCUPIED by ui-conversation\'s ConversationRoot, which\ndeclares the session body, composer, and input seats inside it —\nregistering here replaces the entire conversation surface (and removes\nevery seat it declares) rather than adding to it.\n\nCurrent-session-optional: the occupant owns both states without\nchanging its React identity, so it keeps its own state across a session\nswitch. Session facts arrive through the framework hooks of the\n`session-maybe` scope.',
     registerOptions: [],
     ownerProps: [
-      '/** Conversation owner share: business state and actions belong to the registrant. */\nexport interface ConvOwnerProps {}',
+      '/**\n * Conversation owner share: the center track\'s own route state, decided at the\n * render site; business state and actions belong to the registrant.\n */\nexport interface ConvOwnerProps {\n  /**\n   * Whether a page occupies the centre track. The conversation keeps its seat,\n   * so it uses this to drop the blank-Session hero chrome and dock the composer\n   * into the band the page holds open beneath its name and description.\n   */\n  pageOccupied: boolean\n}',
     ],
     ownerPropsReferences: [],
     standardProps: [
@@ -112,7 +112,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     ],
     replaceRisk: 'shadows-shipped-ui',
     example: 'return {\n  inject: [\'slots\'],\n  apply(ctx) {\n    ctx.slots.inject(\'conversation\', () => ctx.slots.register(\n      { name: \'conversation\' },\n      () => React.createElement(\'div\', null, \'hello\'),\n    ))\n  },\n}',
-    source: 'packages/client/ui-layout/src/client/index.ts:65',
+    source: 'packages/client/ui-layout/src/client/index.ts:66',
   },
   {
     key: 'conversation.approval.detail',
@@ -841,7 +841,9 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
         doc: 'Display text where the owner projects one (nav rows, tabs). A thunk is re-read on every projection, so localized text follows the active locale without re-registering.',
       },
     ],
-    ownerProps: [],
+    ownerProps: [
+      '/**\n * Owner values for floating composer entries. An entry portals its panel to the\n * document body — the conversation column is isolated beneath the frame\'s page\n * layer, so a page occupying the centre track would cover an in-place panel —\n * and hangs it from this card.\n */\nexport interface ComposerOverlayOwnerProps {\n  /** The composer card the portaled panel is placed against. */\n  readonly anchorRef: RefObject<HTMLElement | null>\n}',
+    ],
     ownerPropsReferences: [],
     standardProps: [
       'useResource: UseResource',
@@ -1397,7 +1399,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     ],
     replaceRisk: 'shadows-shipped-ui',
     example: 'return {\n  inject: [\'slots\'],\n  apply(ctx) {\n    ctx.slots.inject(\'rightbar\', () => ctx.slots.register(\n      { name: \'rightbar\' },\n      () => React.createElement(\'div\', null, \'hello\'),\n    ))\n  },\n}',
-    source: 'packages/client/ui-layout/src/client/index.ts:79',
+    source: 'packages/client/ui-layout/src/client/index.ts:80',
   },
   {
     key: 'root',
@@ -1928,7 +1930,34 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     occupants: [],
     replaceRisk: 'none',
     example: 'return {\n  inject: [\'slots\'],\n  apply(ctx) {\n    ctx.slots.inject(\'shell.overlay\', () => ctx.slots.register(\n      { name: \'shell.overlay\', id: \'my-entry\', order: 100, label: \'My entry\' },\n      () => React.createElement(\'div\', null, \'hello\'),\n    ))\n  },\n}',
-    source: 'packages/client/ui-layout/src/client/index.ts:90',
+    source: 'packages/client/ui-layout/src/client/index.ts:91',
+  },
+  {
+    key: 'shell.page',
+    kind: 'single',
+    scope: 'root',
+    summary: 'The center column\'s page surface: one page at a time, drawn over the conversation in the center track and clipped to it, so the navigation column keeps its width and stays usable while a page is open.',
+    doc: 'The center column\'s page surface: one page at a time, drawn over the\nconversation in the center track and clipped to it, so the navigation\ncolumn keeps its width and stays usable while a page is open. Reach here\nfor a surface that takes the place of the conversation rather than\nfloating over the whole app.\n\nAn unoccupied slot renders nothing, and the occupying component returns\nnull while it has no page to show, so the conversation underneath stays\nvisible and clickable until a page takes over. The layer states no page\ngeometry of its own and takes no pointer events: an occupant that needs\nthe conversation\'s resident composer — the one editor a page drives —\nmust hold that band open in its own layout, publish the band\'s top offset\nas `--dsh-page-composer-top` for the seat that docks into it (the seat\'s\nlive height arrives the same way as `--dsh-composer-height`), and opt\n`pointer-events` back on for the regions it paints. Anything a page needs\nbeyond it — a title, a back action, a wider layout — belongs to the page\nitself, not to this seat.',
+    registerOptions: [],
+    ownerProps: [],
+    ownerPropsReferences: [],
+    standardProps: [
+      'useResource: UseResource',
+      'useWorkspaces: SnapshotSelectorHook<WorkspaceSnapshot>',
+      'useSessions: UseSessions',
+      'useSessionPendingInteraction: UseSessionPendingInteraction',
+      'useWorkspaces: SnapshotSelectorHook<WorkspaceSnapshot>',
+    ],
+    keyDomain: '',
+    hookContext: '',
+    slotInject: '',
+    declaredBy: 'an entry in \'root\' (client-ui-layout), so it exists while that entry is mounted',
+    occupants: [
+      'client-ui-workspace-memory WorkspaceMemorySeat as never',
+    ],
+    replaceRisk: 'shadows-shipped-ui',
+    example: 'return {\n  inject: [\'slots\'],\n  apply(ctx) {\n    ctx.slots.inject(\'shell.page\', () => ctx.slots.register(\n      { name: \'shell.page\' },\n      () => React.createElement(\'div\', null, \'hello\'),\n    ))\n  },\n}',
+    source: 'packages/client/ui-layout/src/client/index.ts:111',
   },
   {
     key: 'sidebar',
@@ -1957,7 +1986,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     ],
     replaceRisk: 'shadows-shipped-ui',
     example: 'return {\n  inject: [\'slots\'],\n  apply(ctx) {\n    ctx.slots.inject(\'sidebar\', () => ctx.slots.register(\n      { name: \'sidebar\' },\n      () => React.createElement(\'div\', null, \'hello\'),\n    ))\n  },\n}',
-    source: 'packages/client/ui-layout/src/client/index.ts:52',
+    source: 'packages/client/ui-layout/src/client/index.ts:53',
   },
   {
     key: 'sidebar.brand.mark',
@@ -2059,6 +2088,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     slotInject: '',
     declaredBy: 'an entry in \'sidebar\' (client-ui-sidebar), so it exists while that entry is mounted',
     occupants: [
+      'client-ui-usage-dashboard DashboardAction id \'usage-dashboard\'',
       'client-ui-cordis CordisPanel id \'cordis-panel\'',
     ],
     replaceRisk: 'none',
@@ -2101,9 +2131,11 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     slotInject: 'SidebarRightTabInjected',
     declaredBy: 'an entry in \'rightbar\' (client-ui-sidebar-right), so it exists while that entry is mounted',
     occupants: [
+      'client-ui-progress ProgressBody',
       'client-ui-sidebar-files FilesBody',
       'client-ui-sidebar-right GuideBody',
       'client-ui-sidebar-textpreview TextPreview',
+      'client-ui-usage-dashboard UsageDashboard',
     ],
     replaceRisk: 'none',
     example: 'return {\n  inject: [\'slots\'],\n  apply(ctx) {\n    ctx.slots.inject(\'sidebar.right.pane.tab\', () => ctx.slots.register(\n      { name: \'sidebar.right.pane.tab\', key: \'<one key the owner dispatches>\' },\n      () => React.createElement(\'div\', null, \'hello\'),\n    ))\n  },\n}',

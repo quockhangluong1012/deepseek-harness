@@ -25,6 +25,8 @@ The workspace family lets a host product keep an ordered list of named projects 
 | Package | Role | ctx key |
 |---|---|---|
 | [`workspace`](workspace/README.md) | Provides named, ordered projects with the sessions that ran in each directory | `ctx.workspaceRegistry` |
+| [`workspace-memory`](workspace-memory/README.md) | Provides the durable per-Workspace memory record, caps, and capacity accounting | `ctx.workspaceMemory` |
+| [`workspace-memory-llm`](workspace-memory-llm/README.md) | Derives the memory document from chat history with output indexing | `ctx.workspaceMemoryExtractor` |
 
 -----
 

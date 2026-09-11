@@ -25,6 +25,7 @@ context 组提供不定义任何工具、为每次请求添加模型可见上下
 | 包 | 职责 | ctx key |
 |---|---|---|
 | [`agent-instructions/`](agent-instructions/README.zh.md) | 将 `AGENTS.md`／`CLAUDE.md` 工作区指令加载到上下文，并在文件编辑后刷新 | — |
+| [`workspace-memory-context/`](workspace-memory-context/README.zh.md) | 将工作区记忆简报渲染进 `agent/pre-step` | — |
 | [`session-reference/`](session-reference/README.zh.md) | 引用其他会话：提及一个会话，其有界只读快照即成为上下文 | `ctx.sessionReferenceResolver` |
 | [`file-reference/`](file-reference/README.zh.md) | `@file` mention 发现与供宿主驱动 UI 使用的共享 mention 语法 | `ctx.fileReferences` |
 | [`file-reference-local/`](file-reference-local/README.zh.md) | `@file` mention 的本地工作区补全提供方 | — |

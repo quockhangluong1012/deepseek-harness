@@ -2723,6 +2723,32 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'usageDashboard',
+    summary: 'Host Remote service delegating dashboard summaries to the ledger.',
+    description: 'Host Remote service delegating dashboard summaries to the ledger.',
+    methods: [
+      {
+        signature: '@Remote(\'summary\') summary(range: UsageRange, signal: AbortSignal): Promise<UsageSummary>',
+        description: 'Dashboard summary for one filter range, served from the ledger.',
+        parameters: [{ name: 'range', description: 'the requested window (`today` by dashboard default).' }, { name: 'signal', description: 'caller cancellation.' }],
+        returns: 'totals, per-day buckets, and the per-model table.',
+      },
+    ],
+  },
+  {
+    key: 'usageLedger',
+    summary: 'The usage-ledger service.',
+    description: 'The usage-ledger service. Opens the `usage_dashboard` domain at init, backfills live sessions from their cursors, folds live events as they commit, and serves range summaries.',
+    methods: [
+      {
+        signature: 'summary(range: UsageRange, signal: AbortSignal): Promise<UsageSummary>',
+        description: 'Dashboard summary for one filter range.',
+        parameters: [{ name: 'range', description: 'the requested window (`today` by dashboard default).' }, { name: 'signal', description: 'caller cancellation.' }],
+        returns: 'totals, per-day buckets, and the per-model table.',
+      },
+    ],
+  },
+  {
     key: 'userQuestions',
     summary: '`ctx.userQuestions`: validation plus the scoped answerer waterfall.',
     description: '`ctx.userQuestions`: validation plus the scoped answerer waterfall.',
@@ -2931,6 +2957,141 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Stream every `fs/observed` observation of a file inside the Agent\'s workspace. Only Agent filesystem operations report here; the OS is not watched.',
         parameters: [{ name: 'agent', description: 'target Agent resolved from the Session identity on the wire.' }, { name: 'signal', description: 'generation cancellation.' }],
         returns: '`ready` once the Host observation queue is active and the workspace root is resolved, then queued and live observations in emission order.',
+      },
+    ],
+  },
+  {
+    key: 'workspaceMemory',
+    summary: 'Durable per-Workspace memory store.',
+    description: 'Durable per-Workspace memory store. Opens the `workspace_memory` domain at init and closes it through `ctx.effect`.',
+    methods: [
+      {
+        signature: 'read(id: WorkspaceId): WorkspaceMemoryRecord | undefined',
+        description: 'Read one Workspace\'s record.',
+        parameters: [{ name: 'id', description: 'Workspace identity.' }],
+        returns: 'a detached copy, or undefined when absent.',
+      },
+      {
+        signature: 'usage(id: WorkspaceId): WorkspaceMemoryUsage',
+        description: 'Capacity accounting for one Workspace.',
+        parameters: [{ name: 'id', description: 'Workspace identity.' }],
+        returns: 'charged bytes and the configured ceiling.',
+      },
+      {
+        signature: 'digest(id: WorkspaceId): string',
+        description: 'Digest of the brief\'s inputs for one Workspace.',
+        parameters: [{ name: 'id', description: 'Workspace identity.' }],
+        returns: '`\'empty\'` when absent, else the sha1 of the covered inputs.',
+      },
+      {
+        signature: 'async setDescription(id: WorkspaceId, description: string): Promise<WorkspaceMemoryRecord>',
+        description: 'Replace the page blurb. Never reaches a model request.',
+        parameters: [{ name: 'id', description: 'Workspace identity.' }, { name: 'description', description: 'new blurb.' }],
+        returns: 'the stored record.',
+      },
+      {
+        signature: 'async setInstructions(id: WorkspaceId, instructions: string): Promise<WorkspaceMemoryRecord>',
+        description: 'Replace the instruction text.',
+        parameters: [{ name: 'id', description: 'Workspace identity.' }, { name: 'instructions', description: 'new rules.' }],
+        returns: 'the stored record.',
+      },
+      {
+        signature: 'async setMemory(id: WorkspaceId, memory: string, extraction?: WorkspaceMemoryExtraction): Promise<WorkspaceMemoryRecord>',
+        description: 'Replace the memory document by hand or from extraction.',
+        parameters: [{ name: 'id', description: 'Workspace identity.' }, { name: 'memory', description: 'replacement document.' }, { name: 'extraction', description: 'provenance when model-written.' }],
+        returns: 'the stored record.',
+      },
+      {
+        signature: 'async addContextItem(id: WorkspaceId, input: WorkspaceContextItemInput): Promise<WorkspaceMemoryRecord>',
+        description: 'Attach pasted text or a workspace file.',
+        parameters: [{ name: 'id', description: 'Workspace identity.' }, { name: 'input', description: 'label plus text or path with its observed size.' }],
+        returns: 'the stored record.',
+      },
+      {
+        signature: 'async removeContextItem(id: WorkspaceId, itemId: string): Promise<WorkspaceMemoryRecord>',
+        description: 'Detach one context item.',
+        parameters: [{ name: 'id', description: 'Workspace identity.' }, { name: 'itemId', description: 'context item identity.' }],
+        returns: 'the stored record.',
+      },
+      {
+        signature: 'async recordOutputs(id: WorkspaceId, entries: readonly WorkspaceOutput[]): Promise<void>',
+        description: 'Index produced files newest-first, collapsing repeats onto the newer `at` and truncating to `maxOutputs`. Resolves without writing when the resulting list is unchanged.',
+        parameters: [{ name: 'id', description: 'Workspace identity.' }, { name: 'entries', description: 'output entries with path, tool, session, and instant.' }],
+        returns: 'resolution after durability, or immediately when unchanged.',
+      },
+    ],
+  },
+  {
+    key: 'workspaceMemoryController',
+    summary: 'Host Remote service delegating memory verbs to the store and extractor.',
+    description: 'Host Remote service delegating memory verbs to the store and extractor.',
+    methods: [
+      {
+        signature: '@Remote(\'read\') read(request: WorkspaceMemoryReadRequest): Promise<WorkspaceMemoryValue>',
+        description: 'Load one Workspace\'s record.',
+        parameters: [{ name: 'request', description: 'Workspace identity.' }],
+        returns: 'the Remote projection.',
+      },
+      {
+        signature: '@Remote(\'setDescription\') async setDescription(request: WorkspaceMemorySetDescriptionRequest): Promise<WorkspaceMemoryValue>',
+        description: 'Replace the page blurb.',
+        parameters: [{ name: 'request', description: 'Workspace identity and new blurb.' }],
+        returns: 'the updated projection.',
+      },
+      {
+        signature: '@Remote(\'setInstructions\') async setInstructions(request: WorkspaceMemorySetInstructionsRequest): Promise<WorkspaceMemoryValue>',
+        description: 'Replace the instruction text.',
+        parameters: [{ name: 'request', description: 'Workspace identity and new rules.' }],
+        returns: 'the updated projection.',
+      },
+      {
+        signature: '@Remote(\'setMemory\') async setMemory(request: WorkspaceMemorySetMemoryRequest): Promise<WorkspaceMemoryValue>',
+        description: 'Replace the memory document by hand.',
+        parameters: [{ name: 'request', description: 'Workspace identity and new document.' }],
+        returns: 'the updated projection.',
+      },
+      {
+        signature: '@Remote(\'addContextItem\') async addContextItem(request: WorkspaceMemoryAddContextItemRequest): Promise<WorkspaceMemoryValue>',
+        description: 'Attach pasted text or a workspace file.',
+        parameters: [{ name: 'request', description: 'Workspace identity, kind, label, and text or path.' }],
+        returns: 'the updated projection.',
+      },
+      {
+        signature: '@Remote(\'removeContextItem\') async removeContextItem(request: WorkspaceMemoryRemoveContextItemRequest): Promise<WorkspaceMemoryValue>',
+        description: 'Detach one context item.',
+        parameters: [{ name: 'request', description: 'Workspace identity and item identity.' }],
+        returns: 'the updated projection.',
+      },
+      {
+        signature: '@Remote(\'listContextFiles\') async listContextFiles(request: WorkspaceMemoryListContextFilesRequest, signal: AbortSignal): Promise<WorkspaceMemoryContextFilesValue>',
+        description: 'List candidate paths under the Workspace root for the add-file picker.',
+        parameters: [{ name: 'request', description: 'Workspace identity and case-insensitive query.' }, { name: 'signal', description: 'caller cancellation for the directory walk.' }],
+        returns: 'workspace-relative paths, sorted, capped at 200.',
+      },
+      {
+        signature: '@Remote(\'rebuildMemory\') async rebuildMemory(request: WorkspaceMemoryRebuildRequest, signal: AbortSignal): Promise<WorkspaceMemoryValue>',
+        description: 'Rebuild the document from the Workspace\'s chat history.',
+        parameters: [{ name: 'request', description: 'Workspace identity.' }, { name: 'signal', description: 'caller cancellation.' }],
+        returns: 'the updated projection.',
+      },
+      {
+        signature: '@Remote({ mode: \'stream\' }) follow(signal: AbortSignal): AsyncIterable<WorkspaceMemoryFollowFrame>',
+        description: 'Stream a complete memory baseline followed by ordered upserts.',
+        parameters: [{ name: 'signal', description: 'generation cancellation.' }],
+        returns: 'baseline followed by ordered memory increments.',
+      },
+    ],
+  },
+  {
+    key: 'workspaceMemoryExtractor',
+    summary: 'Background extractor.',
+    description: 'Background extractor. One Workspace never runs two extractions at once; a turn is never blocked by one.',
+    methods: [
+      {
+        signature: 'async rebuild(workspaceId: WorkspaceId, signal: AbortSignal): Promise<void>',
+        description: 'Rebuild the document from the Workspace\'s chat history.',
+        parameters: [{ name: 'workspaceId', description: 'Workspace identity.' }, { name: 'signal', description: 'caller cancellation.' }],
+        returns: 'resolution after the store write.',
       },
     ],
   },
@@ -4037,7 +4198,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'DeepSeekLlmApiExtensionRequest',
-    declaration: 'export interface DeepSeekLlmApiExtensionRequest {\n    readonly body: Readonly<Record<string, DeepSeekLlmApiJson>>;\n    readonly sessionId?: string;\n    readonly purpose?: \'compaction\' | \'session-title\';\n    readonly signal: AbortSignal;\n}',
+    declaration: 'export interface DeepSeekLlmApiExtensionRequest {\n    readonly body: Readonly<Record<string, DeepSeekLlmApiJson>>;\n    readonly sessionId?: string;\n    readonly purpose?: \'compaction\' | \'session-title\' | \'workspace-memory\';\n    readonly signal: AbortSignal;\n}',
   },
   {
     name: 'DeepSeekLlmApiJson',
@@ -4253,7 +4414,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'GenerateOptions',
-    declaration: 'export interface GenerateOptions {\n    provider: string;\n    model: string;\n    reasoningEffort?: ReasoningEffortId;\n    messages: Message[];\n    system?: string;\n    tools?: ToolSchema[];\n    temperature?: number;\n    maxTokens?: number;\n    stop?: string[];\n    signal?: AbortSignal;\n    sessionId?: Branded<\'SessionId\'>;\n    purpose?: \'compaction\' | \'session-title\';\n}',
+    declaration: 'export interface GenerateOptions {\n    provider: string;\n    model: string;\n    reasoningEffort?: ReasoningEffortId;\n    messages: Message[];\n    system?: string;\n    tools?: ToolSchema[];\n    temperature?: number;\n    maxTokens?: number;\n    stop?: string[];\n    signal?: AbortSignal;\n    sessionId?: Branded<\'SessionId\'>;\n    purpose?: \'compaction\' | \'session-title\' | \'workspace-memory\';\n}',
   },
   {
     name: 'GenericCallView',
@@ -6192,6 +6353,26 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface UpdateTeamTaskRequest {\n    readonly taskId: TeamTaskId;\n    readonly expectedRevision: number;\n    readonly action: TeamTaskAction;\n    readonly subject?: string;\n    readonly description?: string;\n    readonly blockedBy?: readonly TeamTaskId[];\n    readonly writeScopes?: readonly string[];\n    readonly owner?: string;\n}',
   },
   {
+    name: 'UsageDayBucket',
+    declaration: 'export interface UsageDayBucket {\n    readonly day: string;\n    readonly requests: number;\n    readonly inputTokens: number;\n    readonly outputTokens: number;\n}',
+  },
+  {
+    name: 'UsageModelRow',
+    declaration: 'export interface UsageModelRow {\n    readonly provider: string;\n    readonly model: string;\n    readonly requests: number;\n    readonly inputTokens: number;\n    readonly outputTokens: number;\n    readonly cacheHitAvg: number;\n}',
+  },
+  {
+    name: 'UsageRange',
+    declaration: 'export type UsageRange = \'today\' | \'7d\' | \'30d\' | \'all\';',
+  },
+  {
+    name: 'UsageSummary',
+    declaration: 'export interface UsageSummary {\n    readonly range: UsageRange;\n    readonly totals: UsageTotals;\n    readonly daily: readonly UsageDayBucket[];\n    readonly models: readonly UsageModelRow[];\n}',
+  },
+  {
+    name: 'UsageTotals',
+    declaration: 'export interface UsageTotals {\n    readonly requests: number;\n    readonly inputTokens: number;\n    readonly outputTokens: number;\n    readonly cacheReadTokens: number;\n    readonly cacheHitAvg: number;\n}',
+  },
+  {
     name: 'UserMessage',
     declaration: 'export interface UserMessage extends Message {\n    readonly role: \'user\';\n}',
   },
@@ -6376,6 +6557,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface WorkspaceByteRange {\n    readonly offset?: number;\n    readonly length?: number;\n}',
   },
   {
+    name: 'WorkspaceContextItemInput',
+    declaration: 'export type WorkspaceContextItemInput = {\n    kind: \'text\';\n    label: string;\n    text: string;\n} | {\n    kind: \'file\';\n    label: string;\n    path: string;\n    sizeBytes: number;\n};',
+  },
+  {
     name: 'WorkspaceCreateRequest',
     declaration: 'export interface WorkspaceCreateRequest {\n    readonly path: string;\n}',
   },
@@ -6438,6 +6623,54 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'WorkspaceInsertSessionBeforeRequest',
     declaration: 'export interface WorkspaceInsertSessionBeforeRequest {\n    readonly workspaceId: WorkspaceId;\n    readonly sessionId: SessionId;\n    readonly beforeSessionId?: SessionId;\n}',
+  },
+  {
+    name: 'WorkspaceMemoryAddContextItemRequest',
+    declaration: 'export interface WorkspaceMemoryAddContextItemRequest {\n    readonly workspaceId: WorkspaceId;\n    readonly kind: \'text\' | \'file\';\n    readonly label: string;\n    readonly text?: string;\n    readonly path?: string;\n}',
+  },
+  {
+    name: 'WorkspaceMemoryContextFilesValue',
+    declaration: 'export interface WorkspaceMemoryContextFilesValue {\n    readonly paths: readonly string[];\n}',
+  },
+  {
+    name: 'WorkspaceMemoryFollowFrame',
+    declaration: 'export type WorkspaceMemoryFollowFrame = {\n    readonly type: \'baseline\';\n    readonly values: readonly WorkspaceMemoryValue[];\n} | {\n    readonly type: \'upsert\';\n    readonly value: WorkspaceMemoryValue;\n};',
+  },
+  {
+    name: 'WorkspaceMemoryListContextFilesRequest',
+    declaration: 'export interface WorkspaceMemoryListContextFilesRequest {\n    readonly workspaceId: WorkspaceId;\n    readonly query: string;\n}',
+  },
+  {
+    name: 'WorkspaceMemoryReadRequest',
+    declaration: 'export interface WorkspaceMemoryReadRequest {\n    readonly workspaceId: WorkspaceId;\n}',
+  },
+  {
+    name: 'WorkspaceMemoryRebuildRequest',
+    declaration: 'export interface WorkspaceMemoryRebuildRequest {\n    readonly workspaceId: WorkspaceId;\n}',
+  },
+  {
+    name: 'WorkspaceMemoryRecord',
+    declaration: 'export interface WorkspaceMemoryRecord {\n    description: string;\n    instructions: string;\n    memory: string;\n    memoryUpdatedAt: string | null;\n    contextItems: readonly WorkspaceContextItem[];\n    outputs: readonly WorkspaceOutput[];\n    lastExtraction: WorkspaceMemoryExtraction | null;\n    updatedAt: string;\n}',
+  },
+  {
+    name: 'WorkspaceMemoryRemoveContextItemRequest',
+    declaration: 'export interface WorkspaceMemoryRemoveContextItemRequest {\n    readonly workspaceId: WorkspaceId;\n    readonly itemId: string;\n}',
+  },
+  {
+    name: 'WorkspaceMemorySetDescriptionRequest',
+    declaration: 'export interface WorkspaceMemorySetDescriptionRequest {\n    readonly workspaceId: WorkspaceId;\n    readonly description: string;\n}',
+  },
+  {
+    name: 'WorkspaceMemorySetInstructionsRequest',
+    declaration: 'export interface WorkspaceMemorySetInstructionsRequest {\n    readonly workspaceId: WorkspaceId;\n    readonly instructions: string;\n}',
+  },
+  {
+    name: 'WorkspaceMemorySetMemoryRequest',
+    declaration: 'export interface WorkspaceMemorySetMemoryRequest {\n    readonly workspaceId: WorkspaceId;\n    readonly memory: string;\n}',
+  },
+  {
+    name: 'WorkspaceMemoryValue',
+    declaration: 'export interface WorkspaceMemoryValue {\n    readonly workspaceId: WorkspaceId;\n    readonly description: string;\n    readonly instructions: string;\n    readonly memory: string;\n    readonly memoryUpdatedAt: string | null;\n    readonly contextItems: readonly WorkspaceContextItem[];\n    readonly outputs: readonly WorkspaceOutput[];\n    readonly lastExtraction: WorkspaceMemoryExtraction | null;\n    readonly usage: WorkspaceMemoryUsage;\n    readonly updatedAt: string;\n}',
   },
   {
     name: 'WorkspaceOrderValue',

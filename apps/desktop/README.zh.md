@@ -69,6 +69,8 @@ pnpm run start:desktop
 
 Workspace 开发使用调用命令的 Node.js 运行当前 CLI 与私有 Desktop Host 包，并禁用桌面包修改；只有该模式明确链接的一次性 profile 可以从自身目录外解析 bundle。需要验证内置 Node.js、内置 pnpm、发布 seed、插件安装、staging 和 rollback 时，应运行未封装安装器的应用目录。
 
+Workspace 开发还会重载渲染层，而不是重启外壳：组合会挂载仅监视 row（`@deepseek-ai/dsh-client-hmr/watch`），它上报重建的客户端 bundle；当客户端 bundle 或 Web 前端 dist 变化后，外壳会随即重载窗口。与 `dev:desktop` 并行运行 `pnpm run dev:web`，即可在保存时重建这些产物。`apps/desktop/src` 下的修改仍需要执行 `pnpm run build:desktop` 并通过 `start:desktop` 重新启动，因为 Electron 加载的是已构建的主进程。已安装的应用不挂载任何监视 row，只提供不可变 bundle。
+
 ## 打包
 
 正常打包只需执行一条完整命令。该命令会先准备发布资源，再生成宿主平台的安装包与更新元数据。所有目标都要求通过 `DSH_DESKTOP_APP_ID` 提供反向域名形式的应用 ID。macOS 目标还要求通过 `DSH_DESKTOP_MACOS_SIGNING_IDENTITY` 提供 electron-builder 证书限定名，通过 `DSH_DESKTOP_MACOS_TEAM_ID` 提供对应的 10 字符 Apple Team ID，并提供一套完整的 notarytool 凭据。App Store Connect API Key 方式使用以下变量：
@@ -99,6 +101,10 @@ pnpm run package:desktop:win:x64
 macOS arm64 命令要求 Apple Silicon。macOS x64 命令可以在 Intel macOS 或带 Rosetta 的 Apple Silicon 上运行。Windows x64 命令要求 Windows x64。Desktop 尚不支持 Linux 发布目标。
 
 每个目标都在 `apps/desktop/.desktop-build/targets/<target>/` 下持有自己的打包输入、已准备运行时、包集合、seed、pnpm 准备状态、未打包应用、更新元数据和最终产物。Node.js 归档缓存继续由 `.desktop-build/downloads` 共享，因为每个归档文件名都包含版本、平台和架构，并且在解包前经过验证。目标构建绝不读取其他目标的可变准备状态。
+
+### 应用图标
+
+`apps/desktop/assets/` 以 `icon.png`、`icon.ico`、`icon.icns` 三种格式存放 DeepSeek 鲸鱼标志。electron-builder 配置为 macOS、Windows 与 Linux 安装包分别指向对应格式，并把 PNG 打进应用包作为运行时 `BrowserWindow` 图标；开发模式窗口使用同一文件。更换标志时须同时替换三种格式。
 
 ### 上传更新
 

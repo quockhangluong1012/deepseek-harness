@@ -9,9 +9,6 @@
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"
-- navigation "Turn navigation":
-  - button "Jump to turn 1"
-  - button "Jump to turn 2"
 - button "System prompt":
   - img
   - img
@@ -36,18 +33,14 @@
   - text: Ran for {{duration}}
 - text: {{clock}}
 - button "compact Compacted 5 history items (~{{tokens}} tokens)"
-- button "Context injection AGENTS.md":
-  - img
-  - img
-  - text: Context injection AGENTS.md
 - textbox "Message or run a task, / commands, @ files or sessions"
 - button "Commands":
   - img
 - button "Add attachment":
   - img
-- 'button "Access mode, current: Workspace Write"': Workspace Write
+- 'button "Access mode, current: Workspace Write"'
 - button "Select model, current DeepSeek-V4-Flash":
-  - text: DeepSeek-V4-Flash
+  - img
   - img
 - button "Send message" [disabled]
 - button "1 turns 2 steps · {{throughput}} tok/s":

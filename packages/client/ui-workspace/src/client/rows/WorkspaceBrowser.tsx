@@ -235,7 +235,7 @@ function workspaceGroupHalf(e: { clientY: number; currentTarget: HTMLElement }):
 type SessionTreeProps = Pick<
   WorkspaceBrowserProps,
   'useSessions' | 'useSessionPendingInteraction' | 'startSession' | 'open' | 'forkSession'
-  | 'insertWorkspaceBefore' | 'insertSessionBefore' | 't'
+  | 'insertWorkspaceBefore' | 'insertSessionBefore' | 'openWorkspacePage' | 't'
 > & {
   /** Host account home for POSIX hover-path abbreviation. */
   home?: string | undefined
@@ -275,6 +275,7 @@ type SessionTreeProps = Pick<
 /** The scrolling session tree; unmounting drops the sessions subscription and expand-all state. */
 function SessionTree({
   useSessions, useSessionPendingInteraction, startSession, open, forkSession, workspaces, archivedSessionIds,
+  openWorkspacePage,
   workspaceReady,
   onRenameRequest, onDeleteRequest, onSessionRename, onSessionArchive,
   insertWorkspaceBefore, insertSessionBefore, orderBy,
@@ -528,6 +529,9 @@ function SessionTree({
                   }
                   setGroupExpanded(group.key, !group.expanded)
                 }}
+                {...group.workspaceId !== undefined && openWorkspacePage !== undefined
+                  ? { onOpenPage: () => { openWorkspacePage(group.workspaceId as WorkspaceId) } }
+                  : {}}
                 onCreate={() => {
                   if (group.workspaceId !== undefined) {
                     setGroupExpanded(group.key, true)
@@ -849,6 +853,7 @@ export function WorkspaceBrowser({
   archiveSession,
   insertSessionBefore,
   createWorkspace,
+  openWorkspacePage,
   searchSessions,
   searchResultLimit,
   useDirectoryFlow,
@@ -1286,6 +1291,7 @@ export function WorkspaceBrowser({
                 onSessionRename={onSessionRename}
                 onSessionArchive={onSessionArchive}
                 forkSession={forkSession}
+                openWorkspacePage={openWorkspacePage}
                 workspaces={workspaces}
                 workspaceReady={workspacePhase === 'ready' && workspaceStreamState !== 'loading'}
                 groupExpansion={groupExpansion}

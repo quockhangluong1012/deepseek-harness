@@ -201,13 +201,72 @@ function reasoningInfo(
   }
 }
 
-/** Merge deployment headers while removing case-insensitive attribution collisions. */
-function requestHeaders(headers: Readonly<Record<string, string>> | undefined): Record<string, string> {
+/** OpenCode Go gateway session header: required on every inference request, 400 MissingSessionID otherwise. */
+const OPENCODE_SESSION_HEADER = 'x-opencode-session'
+
+/**
+ * Whether one request hostname is the OpenCode Go gateway.
+ * @param host - lowercased request hostname.
+ * @returns true for the gateway apex and its subdomains.
+ */
+function isOpencodeHost(host: string): boolean {
+  return host === 'opencode.ai' || host.endsWith('.opencode.ai')
+}
+
+/**
+ * Whether one route targets the OpenCode Go gateway: a route key in the
+ * gateway namespace, or an endpoint hosted on the gateway. Either fact alone
+ * selects the gateway, so a renamed route to the gateway and a gateway-named
+ * route to a proxy both keep the session header.
+ * @param provider - Harness route key.
+ * @param baseUrl - resolved model endpoint, when the model declares one.
+ * @returns true when the request goes to the OpenCode Go gateway.
+ */
+export function isOpencodeRoute(provider: string, baseUrl: string | undefined): boolean {
+  if (provider.startsWith('opencode')) return true
+  if (baseUrl === undefined) return false
+  try {
+    return isOpencodeHost(new URL(baseUrl).hostname.toLowerCase())
+  } catch (_unparsableBaseUrl) {
+    // Resolution validates presence, not URL shape; an unparsable endpoint cannot be the gateway.
+    return false
+  }
+}
+
+/**
+ * The per-conversation session header for one OpenCode Go request. The value
+ * is the loop-stamped conversation id verbatim, stable across turns, resume,
+ * compaction, and retries, so each conversation keeps its own routing
+ * affinity; a static profile entry cannot do that job and therefore loses.
+ * @param provider - Harness route key.
+ * @param baseUrl - resolved model endpoint, when the model declares one.
+ * @param sessionId - loop-stamped conversation id, when the caller named one.
+ * @returns the session header, or nothing when the route is not the gateway or names no session.
+ */
+function opencodeSessionHeaders(
+  provider: string,
+  baseUrl: string | undefined,
+  sessionId: string | undefined,
+): Record<string, string> {
+  if (sessionId === undefined) return {}
+  if (!isOpencodeRoute(provider, baseUrl)) return {}
+  return { [OPENCODE_SESSION_HEADER]: sessionId }
+}
+
+/** Merge deployment headers while removing case-insensitive Harness-owned collisions. */
+function requestHeaders(
+  headers: Readonly<Record<string, string>> | undefined,
+  session: Readonly<Record<string, string>>,
+): Record<string, string> {
   const attribution = attributionHeaders()
-  const reserved = new Set(Object.keys(attribution).map(name => name.toLowerCase()))
+  const reserved = new Set([
+    ...Object.keys(attribution),
+    ...Object.keys(session),
+  ].map(name => name.toLowerCase()))
   return {
     ...Object.fromEntries(Object.entries(headers ?? {}).filter(([name]) => !reserved.has(name.toLowerCase()))),
     ...attribution,
+    ...session,
   }
 }
 
@@ -378,9 +437,16 @@ export class PiAiAdapter extends LlmAdapter {
         ...options.maxTokens === undefined ? {} : { maxTokens: options.maxTokens },
         ...options.sessionId === undefined ? {} : { sessionId: String(options.sessionId) },
         signal: watchdog.signal,
-        // Profile headers are deployment-owned; attribution names are
-        // Harness-owned and therefore win collisions.
-        headers: requestHeaders(profile.headers),
+        // Profile headers are deployment-owned; Harness-owned names (attribution
+        // plus the per-conversation gateway session header) therefore win collisions.
+        headers: requestHeaders(
+          profile.headers,
+          opencodeSessionHeaders(
+            options.provider,
+            model.baseUrl,
+            options.sessionId === undefined ? undefined : String(options.sessionId),
+          ),
+        ),
       })
       const iterator = toStreamChunks(events, model.contextWindow, options.signal, model.id)[Symbol.asyncIterator]()
       let exhausted = false

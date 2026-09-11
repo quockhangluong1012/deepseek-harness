@@ -75,6 +75,19 @@
     - id: workspace
       name: '@deepseek-ai/dsh-workspace'
 
+    - id: workspace-memory
+      name: '@deepseek-ai/dsh-workspace-memory'
+      config:
+        capacityBytes: 131072
+
+    - id: workspace-memory-llm
+      name: '@deepseek-ai/dsh-workspace-memory-llm'
+
+    - id: workspace-memory-context
+      name: '@deepseek-ai/dsh-workspace-memory-context'
+      config:
+        maxBytes: 16384
+
     - id: session-reference
       name: '@deepseek-ai/dsh-session-reference'
 
@@ -234,6 +247,26 @@
     - id: ui-sidebar-files
       name: '@deepseek-ai/dsh-client-ui-sidebar-files'
 
+    # The right Sidebar's progress tab type: the todo checklist and the produced
+    # files, revealed at a Session's first progress.
+    - id: ui-progress
+      name: '@deepseek-ai/dsh-client-ui-progress'
+
+    # Durable usage ledger behind the dashboard tab: billed attempts
+    # aggregated by day and model, served to the tab over the
+    # `usageDashboard` Remote namespace below.
+    - id: usage-ledger
+      name: '@deepseek-ai/dsh-usage-ledger'
+      config:
+        retentionDays: 90
+        writeEveryEvents: 100
+        writeIntervalMs: 60000
+
+    # The right Sidebar's usage dashboard tab type plus its Host Remote
+    # face over the ledger.
+    - id: ui-usage-dashboard
+      name: '@deepseek-ai/dsh-client-ui-usage-dashboard'
+
     - id: ui-settings
       name: '@deepseek-ai/dsh-client-ui-settings'
 
@@ -282,6 +315,9 @@
 
     - id: ui-workspace
       name: '@deepseek-ai/dsh-client-ui-workspace'
+
+    - id: ui-workspace-memory
+      name: '@deepseek-ai/dsh-client-ui-workspace-memory'
 
     # Input triggers: the '/' | '@' pipeline (ui-input-trigger), the command surface over
     # it (ui-commands), and the reference sources (ui-skill / ui-reference).

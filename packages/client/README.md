@@ -44,8 +44,10 @@ The kernel packages boot and serve the page; the UI feature packages present it.
 | [`ui-sidebar/`](ui-sidebar/README.md) | Presents workspace and session navigation | — |
 | [`resources/`](resources/README.md) | Unified resource model: protocol providers behind the `useResource` session standard hook | `ctx.resources` |
 | [`ui-sidebar-files/`](ui-sidebar-files/README.md) | Right-Sidebar workspace file tree tab type | — |
+| [`ui-usage-dashboard/`](ui-usage-dashboard/README.md) | Right-Sidebar usage dashboard tab type and its Host usage-ledger Remote | `ctx.usageDashboard` |
 | [`ui-brand-official/`](ui-brand-official/README.md) | Fills the generic browser-brand slots with the official name and marks | — |
 | [`ui-workspace/`](ui-workspace/README.md) | Provides workspace selection and creation surfaces | — |
+| [`ui-workspace-memory/`](ui-workspace-memory/README.md) | Provides the Workspace page and its Host memory Remote | `ctx.workspaceMemoryController` |
 | [`ui-conversation/`](ui-conversation/README.md) | Presents the active conversation and its input surface | — |
 | [`ui-chat/`](ui-chat/README.md) | Projects and renders the Chat conversation target | — |
 | [`ui-approval/`](ui-approval/README.md) | Presents approval requests and returns user decisions | — |
@@ -71,6 +73,7 @@ The kernel packages boot and serve the page; the UI feature packages present it.
 | [`ui-settings-models/`](ui-settings-models/README.md) | Provides model-provider configuration and DeepSeek onboarding | — |
 | [`ui-settings-plugin-inventory/`](ui-settings-plugin-inventory/README.md) | Contributes the read-only Host Loader inventory tab to Plugins settings | — |
 | [`ui-deliverables/`](ui-deliverables/README.md) | Produces the produced-files turn tail and clickable final-response file references | — |
+| [`ui-progress/`](ui-progress/README.md) | Right-Sidebar task checklist and produced-file list, revealed at a Session's first progress | — |
 | [`ui-message-feedback/`](ui-message-feedback/README.md) | Contributes per-message feedback controls to the assistant-message action strip | — |
 | [`ui-directory-picker-browse/`](ui-directory-picker-browse/README.md) | In-app directory browsing surface for the workspace directory flow | — |
 | [`ui-directory-picker-native/`](ui-directory-picker-native/README.md) | Native directory-picker surface driving the host's OS chooser | — |

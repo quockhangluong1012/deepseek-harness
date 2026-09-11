@@ -1,4 +1,4 @@
-{
+﻿{
   // Client-side typecheck aggregate: packages/client tests and top-level Client benchmarks.
   // Split from the host aggregate because both sides merge cordis Context
   // under the same keys (sessions, loader) with different services; shared
@@ -78,6 +78,7 @@
     { "path": "./packages/client/ui-deliverables" },
     { "path": "./packages/client/ui-workflow-run" },
     { "path": "./packages/client/ui-workspace" },
+    { "path": "./packages/client/ui-workspace-memory/tsconfig.client.json" },
     { "path": "./packages/client/ui-input-trigger" },
     { "path": "./packages/client/ui-commands" },
     { "path": "./packages/client/ui-skill" },
@@ -88,6 +89,8 @@
     { "path": "./packages/client/ui-sidebar-right" },
     { "path": "./packages/client/ui-sidebar-textpreview" },
     { "path": "./packages/client/ui-sidebar-files" },
+    { "path": "./packages/client/ui-progress" },
+    { "path": "./packages/client/ui-usage-dashboard/tsconfig.client.json" },
     { "path": "./packages/client/ui-jobs" },
     { "path": "./packages/client/ui-schedule" },
     { "path": "./packages/client/ui-directory-picker-browse" },
@@ -118,3 +121,4 @@
     { "path": "./apps/web" }
   ]
 }
+

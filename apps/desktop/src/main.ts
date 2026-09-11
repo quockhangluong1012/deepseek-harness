@@ -22,6 +22,10 @@ import { claimDesktopSingleInstance } from './single-instance.ts'
 import { DesktopUpdateCoordinator } from './update-coordinator.ts'
 
 const SCHEME = 'dsh-app'
+
+/** Quiet period after the last rebuilt renderer artifact before the window reloads, so one source edit's burst of writes settles first. */
+const RENDERER_RELOAD_DEBOUNCE_MS = 300
+
 let focusPrimaryWindow = (): void => {}
 
 function errorOf(reason: unknown, fallback: string): Error {
@@ -87,6 +91,9 @@ function createWindow(preload: string): BrowserWindow {
     minWidth: 880,
     minHeight: 600,
     show: false,
+    autoHideMenuBar: true,
+    // Whale-mark icon for development and Linux/Windows windows; macOS uses the bundle icon.
+    icon: join(app.getAppPath(), 'assets', 'icon.png'),
     webPreferences: {
       preload,
       nodeIntegration: false,
@@ -157,8 +164,23 @@ async function main(): Promise<void> {
     return state
   }
 
+  let rendererReloadTimer: NodeJS.Timeout | undefined
+  const scheduleRendererReload = (): void => {
+    if (rendererReloadTimer !== undefined) clearTimeout(rendererReloadTimer)
+    rendererReloadTimer = setTimeout(() => {
+      rendererReloadTimer = undefined
+      if (mainWindow === undefined || mainWindow.isDestroyed()) return
+      mainWindow.webContents.reload()
+    }, RENDERER_RELOAD_DEBOUNCE_MS)
+    rendererReloadTimer.unref()
+  }
+
   const startHost = async (projectDir = activeProject): Promise<DesktopHostProcess> => {
     const next = new DesktopHostProcess(resources.node, projectDir, hostInspectPort)
+    // Workspace development reloads the window instead of swapping plugin
+    // fibers: the Desktop transport carries no SSE channel for the in-page
+    // reload driver.
+    if (development !== undefined) next.onRendererRebuild(scheduleRendererReload)
     await next.start()
     return next
   }

@@ -44,8 +44,10 @@ kind: "package-group"
 | [`ui-sidebar/`](ui-sidebar/README.zh.md) | 展示工作区与会话导航 | — |
 | [`resources/`](resources/README.zh.md) | 统一资源模型：`useResource` 会话标准 hook 背后的协议提供者 | `ctx.resources` |
 | [`ui-sidebar-files/`](ui-sidebar-files/README.zh.md) | 右侧 Sidebar 的工作区文件树 tab 类型 | — |
+| [`ui-usage-dashboard/`](ui-usage-dashboard/README.zh.md) | 右侧 Sidebar 用量仪表盘 tab 类型及其 Host 用量台账 Remote | `ctx.usageDashboard` |
 | [`ui-brand-official/`](ui-brand-official/README.zh.md) | 用官方名称与标记填充通用浏览器品牌 slot | — |
 | [`ui-workspace/`](ui-workspace/README.zh.md) | 提供工作区选择与创建界面 | — |
+| [`ui-workspace-memory/`](ui-workspace-memory/README.zh.md) | 提供工作区记忆页面及其 Host 记忆 Remote | `ctx.workspaceMemoryController` |
 | [`ui-conversation/`](ui-conversation/README.zh.md) | 展示当前对话及其输入界面 | — |
 | [`ui-chat/`](ui-chat/README.zh.md) | 投影并渲染 Chat 对话 target | — |
 | [`ui-approval/`](ui-approval/README.zh.md) | 展示批准请求并返回用户决策 | — |
@@ -71,6 +73,7 @@ kind: "package-group"
 | [`ui-settings-models/`](ui-settings-models/README.zh.md) | 提供模型提供方配置与 DeepSeek 引导 | — |
 | [`ui-settings-plugin-inventory/`](ui-settings-plugin-inventory/README.zh.md) | 向“插件”设置贡献只读的 Host Loader 清单标签页 | — |
 | [`ui-deliverables/`](ui-deliverables/README.zh.md) | 生成已产出文件的轮次尾部与可点击的最终响应文件引用 | — |
+| [`ui-progress/`](ui-progress/README.zh.md) | 右侧 Sidebar 的任务清单与产出文件列表，在会话首次出现进度时自行打开 | — |
 | [`ui-message-feedback/`](ui-message-feedback/README.zh.md) | 向助手消息操作条贡献逐消息反馈控件 | — |
 | [`ui-directory-picker-browse/`](ui-directory-picker-browse/README.zh.md) | 面向工作区目录流程的应用内目录浏览界面 | — |
 | [`ui-directory-picker-native/`](ui-directory-picker-native/README.zh.md) | 驱动宿主 OS 选择器的原生目录选择界面 | — |

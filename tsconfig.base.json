@@ -167,6 +167,8 @@
       "@deepseek-ai/dsh-client-resources/client": ["./packages/client/resources/src/client"],
       "@deepseek-ai/dsh-client-ui-sidebar-files": ["./packages/client/ui-sidebar-files/src"],
       "@deepseek-ai/dsh-client-ui-sidebar-files/client": ["./packages/client/ui-sidebar-files/src/client"],
+      "@deepseek-ai/dsh-client-ui-progress": ["./packages/client/ui-progress/src"],
+      "@deepseek-ai/dsh-client-ui-progress/client": ["./packages/client/ui-progress/src/client"],
       "@deepseek-ai/dsh-client-store": ["./packages/client/store/src/index.ts"],
       "@deepseek-ai/dsh-client-ui-renderer": ["./packages/client/ui-renderer/src"],
       "@deepseek-ai/dsh-client-ui-renderer/client": ["./packages/client/ui-renderer/src/client"],
@@ -215,7 +217,12 @@
       "@deepseek-ai/dsh-client-ui-plan": ["./packages/client/ui-plan/src"],
       "@deepseek-ai/dsh-client-ui-user-questions": ["./packages/client/ui-user-questions/src"],
       "@deepseek-ai/dsh-client-ui-trajectory": ["./packages/client/ui-trajectory/src"],
+      "@deepseek-ai/dsh-client-ui-usage-dashboard": ["./packages/client/ui-usage-dashboard/src"],
+      "@deepseek-ai/dsh-client-ui-usage-dashboard/client": ["./packages/client/ui-usage-dashboard/src/client"],
+      "@deepseek-ai/dsh-usage-ledger/types": ["./packages/session/usage-ledger/src/types.ts"],
       "@deepseek-ai/dsh-client-ui-workspace": ["./packages/client/ui-workspace/src"],
+      "@deepseek-ai/dsh-client-ui-workspace-memory": ["./packages/client/ui-workspace-memory/src"],
+      "@deepseek-ai/dsh-client-ui-workspace-memory/client": ["./packages/client/ui-workspace-memory/src/client"],
       "@deepseek-ai/dsh-client-ui-theme": ["./packages/client/ui-theme/src"],
       "@deepseek-ai/dsh-client-ui-settings": ["./packages/client/ui-settings/src"],
       "@deepseek-ai/dsh-client-ui-settings-general": ["./packages/client/ui-settings-general/src"],
@@ -432,6 +439,7 @@
       "@deepseek-ai/dsh-tool-workflow/invariant": ["./packages/workflow/tool-workflow/src/invariant.ts"],
       "@deepseek-ai/dsh-tools": ["./packages/core/tools/src"],
       "@deepseek-ai/dsh-tools/invariant": ["./packages/core/tools/src/invariant.ts"],
+      "@deepseek-ai/dsh-usage-ledger": ["./packages/session/usage-ledger/src"],
       "@deepseek-ai/dsh-user-approval": ["./packages/interaction/user-approval/src"],
       "@deepseek-ai/dsh-user-approval/invariant": ["./packages/interaction/user-approval/src/invariant.ts"],
       "@deepseek-ai/dsh-user-questions": ["./packages/interaction/user-questions/src"],
@@ -449,7 +457,10 @@
       "@deepseek-ai/dsh-workflow/invariant": ["./packages/workflow/workflow/src/invariant.ts"],
       "@deepseek-ai/dsh-workflow-worker-thread": ["./packages/workflow/workflow-worker-thread/src"],
       "@deepseek-ai/dsh-workspace": ["./packages/workspace/workspace/src"],
-      "@deepseek-ai/dsh-workspace/invariant": ["./packages/workspace/workspace/src/invariant.ts"]
+      "@deepseek-ai/dsh-workspace/invariant": ["./packages/workspace/workspace/src/invariant.ts"],
+      "@deepseek-ai/dsh-workspace-memory": ["./packages/workspace/workspace-memory/src"],
+      "@deepseek-ai/dsh-workspace-memory-llm": ["./packages/workspace/workspace-memory-llm/src"],
+      "@deepseek-ai/dsh-workspace-memory-context": ["./packages/context/workspace-memory-context/src"]
       // END generated package aliases
     }
   }

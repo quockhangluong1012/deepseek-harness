@@ -150,6 +150,24 @@ describe('workspace browser rows', () => {
     expect(onToggle).toHaveBeenCalledOnce()
   })
 
+  it('fires the page opener from the name and the toggle from the disclosure button', () => {
+    const onToggle = vi.fn()
+    const onOpenPage = vi.fn()
+    const onCreate = vi.fn()
+    const group: GroupNode = {
+      key: 'project', workspaceId: wid('project'), cwd: '/projects/project', createdAt: 0, label: 'Project',
+      sessionCount: 1, expanded: false, containsCurrent: false, sessions: [],
+    }
+    render(<ProjectRowItem group={group} onToggle={onToggle} onOpenPage={onOpenPage} onCreate={onCreate} t={t} />)
+
+    fireEvent.click(screen.getByText('Project'))
+    expect(onOpenPage).toHaveBeenCalledOnce()
+    expect(onToggle).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: '展开或收起“Project”' }))
+    expect(onToggle).toHaveBeenCalledOnce()
+    expect(onOpenPage).toHaveBeenCalledOnce()
+  })
+
   it('renders and opens a selected running Session row', () => {
     const node: SessionNode = {
       id: sid('session'), title: 'Session', blank: false, running: true,

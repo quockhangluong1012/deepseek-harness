@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "DeepSeek Harness Architecture",
+    "quality_profile": "showcase",
+    "locale": "en",
+    "views": [
+      { "id": "turn-path", "label": "Turn path", "focus": ["user", "dshcli", "cordis", "agentloop", "llmseam", "provider"], "note": "One turn from profile launch through the loop to the model provider." },
+      { "id": "session-plane", "label": "Session plane", "focus": ["agentloop", "sessionlog", "webgui", "sdk"], "note": "Durable log, projections, and the Web, SDK, and ACP consumers." },
+      { "id": "execution-policy", "label": "Execution policy", "focus": ["agentloop", "tools", "sandbox"], "note": "Tool execution confined by the sandbox seam and approval policy." }
+    ]
+  },
+  "components": [
+    { "id": "user", "type": "external", "label": "Operator", "sublabel": "human / webhook", "pos": [40, 300], "size": [130, 60] },
+    { "id": "dshcli", "type": "frontend", "label": "dsh CLI", "sublabel": "web / headless / sdk / acp", "pos": [220, 300], "size": [140, 60] },
+    { "id": "cordis", "type": "backend", "label": "Cordis runtime", "sublabel": "profiles + bundles", "pos": [410, 300], "size": [140, 60] },
+    { "id": "agentloop", "type": "backend", "label": "Agent loop", "sublabel": "turn / step driver", "pos": [600, 300], "size": [140, 60] },
+    { "id": "llmseam", "type": "backend", "label": "LLM seam", "sublabel": "ctx.llm adapters", "pos": [790, 300], "size": [140, 60] },
+    { "id": "provider", "type": "external", "label": "DeepSeek API", "sublabel": "model provider", "pos": [980, 300], "size": [130, 60] },
+    { "id": "sandbox", "type": "security", "label": "Sandbox + approval", "sublabel": "bwrap / Landlock / Seatbelt", "pos": [410, 470], "size": [140, 60] },
+    { "id": "webgui", "type": "frontend", "label": "Web + Desktop GUI", "sublabel": "host + client", "pos": [410, 130], "size": [140, 64] },
+    { "id": "sessionlog", "type": "database", "label": "Session log", "sublabel": "events + projections", "pos": [600, 130], "size": [140, 64] },
+    { "id": "tools", "type": "backend", "label": "Tool registry", "sublabel": "shell / fs / mcp / jobs", "pos": [600, 470], "size": [140, 60] },
+    { "id": "sdk", "type": "backend", "label": "SDK + ACP server", "sublabel": "JSON-RPC gateway", "pos": [790, 470], "size": [140, 60] }
+  ],
+  "boundaries": [
+    { "kind": "region", "label": "dsh Cordis tree: dsh-base + app bundle", "wraps": ["dshcli", "cordis", "agentloop", "llmseam", "tools", "sessionlog", "webgui", "sdk"] },
+    { "kind": "security-group", "label": "execution policy", "wraps": ["tools", "sandbox"] }
+  ],
+  "connections": [
+    { "id": "launch", "from": "user", "to": "dshcli", "label": "launches profile", "variant": "emphasis", "labelDy": -28 },
+    { "id": "compose", "from": "dshcli", "to": "cordis", "label": "composes bundles", "labelDy": -28 },
+    { "id": "drive", "from": "cordis", "to": "agentloop", "label": "drives turns", "labelDy": -28 },
+    { "id": "request", "from": "agentloop", "to": "llmseam", "label": "streams requests", "labelDy": -28 },
+    { "id": "complete", "from": "llmseam", "to": "provider", "label": "HTTPS stream", "labelDy": -28 },
+    { "id": "mount-gui", "from": "cordis", "to": "webgui", "label": "mounts app" },
+    { "id": "append-log", "from": "agentloop", "to": "sessionlog", "label": "appends events" },
+    { "id": "project-views", "from": "sessionlog", "to": "webgui", "label": "projects views", "labelDy": 60 },
+    { "id": "execute-tools", "from": "agentloop", "to": "tools", "label": "executes tools", "labelDx": -85, "labelDy": 60 },
+    { "id": "confine", "from": "tools", "to": "sandbox", "label": "confines spawn", "variant": "security", "labelDy": -48 },
+    { "id": "serve-rpc", "from": "agentloop", "to": "sdk", "label": "serves RPC", "variant": "dashed" }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "Composition", "items": ["dsh CLI launches one named profile per app", "Cordis tree stacks dsh-base plus one app bundle"] },
+    { "dot": "emerald", "title": "Turn path", "items": ["Agent loop drives turn, step, and tool pipeline", "LLM seam streams through provider adapters"] },
+    { "dot": "rose", "title": "State and policy", "items": ["Session log is the source of model-visible context", "Sandbox seam and approvals confine every spawn"] }
+  ]
+}

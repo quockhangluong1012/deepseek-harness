@@ -69,6 +69,8 @@ pnpm run start:desktop
 
 Workspace development runs the current CLI and private Desktop Host packages under the invoking Node.js and disables desktop package mutations. Its explicitly linked disposable profile is the only mode allowed to resolve bundles outside its own directory. Use an unpacked application to exercise the bundled Node.js, bundled pnpm, release seed, plugin installation, staging, and rollback paths.
 
+Workspace development also reloads the renderer instead of restarting the shell: the composition mounts the watch-only row (`@deepseek-ai/dsh-client-hmr/watch`), which reports rebuilt client bundles, and the shell reloads its window shortly after a client bundle or the Web frontend dist changes. Run `pnpm run dev:web` beside `dev:desktop` to rebuild those artifacts on save. Changes under `apps/desktop/src` still need `pnpm run build:desktop` and a relaunch through `start:desktop`, because Electron loads the built main process. An installed application mounts no watch row and serves immutable bundles.
+
 ## Package
 
 The normal packaging path is one complete command. It performs release preparation before creating the host platform's installers and update metadata. Every target requires a reverse-DNS `DSH_DESKTOP_APP_ID`. macOS targets additionally require the electron-builder certificate qualifier in `DSH_DESKTOP_MACOS_SIGNING_IDENTITY`, its 10-character Apple Team ID in `DSH_DESKTOP_MACOS_TEAM_ID`, and one complete notarytool credential strategy. The App Store Connect API-key strategy uses these variables:
@@ -99,6 +101,10 @@ pnpm run package:desktop:win:x64
 The macOS arm64 command requires Apple Silicon. The macOS x64 command runs on Intel macOS or Apple Silicon with Rosetta. The Windows x64 command requires Windows x64. Linux is not a supported Desktop release target.
 
 Each target owns its packed package inputs, prepared runtime, package set, seed, pnpm preparation state, unpacked application, update metadata, and final artifacts under `apps/desktop/.desktop-build/targets/<target>/`. The Node.js archive cache remains shared under `.desktop-build/downloads` because every archive name includes its version, platform, and architecture and is verified before extraction. A target build never consumes another target's mutable preparation state.
+
+### Application icons
+
+`apps/desktop/assets/` holds the DeepSeek whale mark as `icon.png`, `icon.ico`, and `icon.icns`. The electron-builder configuration points the macOS, Windows, and Linux installers at the matching format and ships the PNG inside the bundle as the runtime `BrowserWindow` icon; development windows use the same file. Replacing the mark means replacing all three formats.
 
 ### Upload updates
 

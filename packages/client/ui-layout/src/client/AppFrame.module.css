@@ -22,7 +22,12 @@
   }
 }
 
+/* Every region states its cell: a definitely-placed item claims its cell before
+   auto-placement runs, so leaving the columns to the cursor would push the
+   conversation and the right column one cell along to get out of the page
+   layer's way. */
 .sidebarCol {
+  grid-area: 1 / 1;
   min-width: 0;
   overflow: hidden;
   background: var(--dsw-specific-sidebar-fill);
@@ -30,10 +35,42 @@
 }
 
 .centerCol {
+  grid-area: 1 / 2;
   min-width: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  /* Confines the conversation's own z-indexes (up to 1100 for its dialogs) to
+     the column, so the page layer beside it wins by a single declared rank
+     instead of a number that has to stay ahead of every occupant's. */
+  isolation: isolate;
+}
+
+/*
+ * Center-track page surface: the same grid cell as the center column, so it
+ * follows the sidebar's width without measuring it. Occupied it draws a page
+ * over the conversation; unoccupied it is click-through, and so is an occupant
+ * that renders null, because the layer carries no box of its own.
+ *
+ * The layer states no page geometry: an occupant that needs the conversation's
+ * resident composer holds a band open for it in its own layout (the Workspace
+ * page docks that one editor beneath its name and description instead of
+ * drawing a second) and
+ * publishes the band's top offset for the seat. The occupant therefore owns
+ * every box it paints — including which regions take pointer events, since the
+ * layer only clears them for whatever the page leaves transparent.
+ */
+.pageLayer {
+  grid-area: 1 / 2;
+  position: relative;
+  z-index: 1;
+  min-width: 0;
+  /* The track is a fixed 100%: a zero automatic minimum size and a clip keep a
+     long page scrolling inside the layer instead of stretching past the frame,
+     which clips without a scrollbar. */
+  min-height: 0;
+  overflow: hidden;
+  pointer-events: none;
 }
 
 /* Drag handles are frame children (columns clip overflow): an 8px hit strip
@@ -82,6 +119,7 @@
  * where it is. The occupant draws its own left border.
  */
 .rightbarCol {
+  grid-area: 1 / 3;
   position: relative;
   min-width: 0;
   overflow: visible;

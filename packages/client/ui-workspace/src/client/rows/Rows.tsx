@@ -109,9 +109,11 @@ function rowHalf(e: { clientY: number; currentTarget: HTMLElement }): 'before' |
  * @param props.t - the browser root's locale seat.
  * @returns the row element.
  */
-export function ProjectRowItem({ group, onToggle, onCreate, actions, drag, home, t }: {
+export function ProjectRowItem({ group, onToggle, onOpenPage, onCreate, actions, drag, home, t }: {
   group: GroupNode
   onToggle: () => void
+  /** Open the Workspace page; when present the name fires it instead of the toggle. */
+  onOpenPage?: (() => void) | undefined
   onCreate: () => void
   /** Real-Workspace actions; absent for the ungrouped bucket (no menu shown). */
   actions?: { rename: () => void; delete: () => void } | undefined
@@ -130,12 +132,13 @@ export function ProjectRowItem({ group, onToggle, onCreate, actions, drag, home,
     { id: 'rename', label: t('rename'), icon: <IconEditOutline16 /> },
     { id: 'delete', label: t('delete.workspace'), icon: <IconTrashOutline16 />, danger: true },
   ]
+  const openPage = onOpenPage
   const ownRow = (
     <div
       className={clsx(css.projectRow, menuOpen && css.menuOpen)}
       role="treeitem"
       aria-expanded={row.expanded}
-      onClick={onToggle}
+      onClick={openPage ?? onToggle}
       draggable={drag !== undefined}
       onDragStart={drag === undefined
         ? undefined
@@ -146,14 +149,31 @@ export function ProjectRowItem({ group, onToggle, onCreate, actions, drag, home,
         }}
       onDragEnd={drag?.end}
     >
-      <span className={clsx(css.slot, css.folder, active && css.folderActive)}>
-        {row.expanded ? <IconFolderOpen16 /> : <IconFolderClose16 />}
-      </span>
-      <span className={clsx(css.slot, css.chevron)}>
-        <IconTriangleRightFill14 className={clsx(css.arrow, row.expanded && css.arrowOpen)} />
-      </span>
+      <button
+        type="button"
+        className={css.iconButton}
+        aria-label={t('actions.toggleGroup.aria', { name: label })}
+        aria-expanded={row.expanded}
+        onClick={(e) => { e.stopPropagation(); onToggle() }}
+      >
+        <span className={clsx(css.slot, css.folder, active && css.folderActive)}>
+          {row.expanded ? <IconFolderOpen16 /> : <IconFolderClose16 />}
+        </span>
+        <span className={clsx(css.slot, css.chevron)}>
+          <IconTriangleRightFill14 className={clsx(css.arrow, row.expanded && css.arrowOpen)} />
+        </span>
+      </button>
       <span className={css.projectText}>
-        <span className={css.title}>{label}</span>
+        <span
+          className={css.title}
+          role={openPage !== undefined ? 'button' : undefined}
+          aria-label={openPage !== undefined ? t('actions.openWorkspace.aria', { name: label }) : undefined}
+          onClick={openPage === undefined
+            ? undefined
+            : (e) => { e.stopPropagation(); openPage() }}
+        >
+          {label}
+        </span>
       </span>
       <span className={css.rowActions}>
         {actions !== undefined && (

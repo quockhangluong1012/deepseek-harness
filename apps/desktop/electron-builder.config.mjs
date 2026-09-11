@@ -14,6 +14,9 @@ import { desktopTargetBuildPaths } from './scripts/desktop-build-paths.mjs'
 
 /**
  * Create electron-builder configuration from one release environment.
+ * Platform installers carry the DeepSeek whale mark from assets/ as the
+ * application icon; the matching PNG also ships inside the bundle as the
+ * runtime BrowserWindow icon.
  * @param {NodeJS.ProcessEnv} env - Packaging environment.
  * @param {NodeJS.Platform} hostPlatform - Build-host platform used when no explicit target is present.
  * @param {string} hostArch - Build-host architecture used when no explicit target is present.
@@ -55,6 +58,7 @@ export function createElectronBuilderConfig(
       'lib/*.js',
       'lib/*.cjs',
       'renderer/**/*',
+      'assets/icon.png',
       'package.json',
     ],
     extraResources: [
@@ -63,6 +67,7 @@ export function createElectronBuilderConfig(
     ],
     mac: {
       category: 'public.app-category.developer-tools',
+      icon: 'assets/icon.icns',
       identity: macOSSigning?.signingIdentity,
       forceCodeSigning: true,
       hardenedRuntime: true,
@@ -86,6 +91,7 @@ export function createElectronBuilderConfig(
       )
     },
     win: {
+      icon: 'assets/icon.ico',
       forceCodeSigning: true,
       signtoolOptions: {
         sign: windowsSigner,
@@ -95,6 +101,7 @@ export function createElectronBuilderConfig(
     },
     linux: {
       category: 'Development',
+      icon: 'assets/icon.png',
       target: ['AppImage'],
     },
     nsis: {

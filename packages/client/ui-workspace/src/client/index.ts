@@ -11,7 +11,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { RemoteHostFacts } from '@deepseek-ai/dsh-api-remotes/client'
 import type { ISessions } from '@deepseek-ai/dsh-api-session-controller/client'
-import type { IWorkspaces, WorkspaceSnapshot } from '@deepseek-ai/dsh-api-workspace-controller/client'
+import type { IWorkspaces, WorkspaceId, WorkspaceSnapshot } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type { HostObservable, SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
 // Type-only: pulls the Controller service merges.
 import type {} from '@deepseek-ai/dsh-api-session-controller/client'
@@ -95,40 +95,65 @@ export function apply(ctx: Context): void {
     subscribe: listener => ctx.on('connection/reset', listener),
   }
   const pickerFlowSource = flowSource('conversation.hero.workspace.directoryFlow')
-  const browserInjected = (): WorkspaceBrowserInjected => ({
+  const browserInjected = (): WorkspaceBrowserInjected => {
+    // Optional page opener/owner owned by the workspace-memory page plugin.
+    // Resolved per injection (not once at apply): the page plugin's roster
+    // row follows this one, so an apply-time read would always miss it.
+    // Named cast stands in for the host-face seam declaration, which this
+    // browser program cannot import without a feature-plugin edge.
+    const clientCtx = ctx as unknown as {
+      get(key: string): { open(workspaceId: WorkspaceId): void; close(): void } | undefined
+    }
+    const opener = clientCtx.get('workspacePage')
+    return {
     // Explicit group actions keep their target; unscoped New Session inherits
     // the current Session Workspace before the recent-Workspace fallback.
-    startSession: (workspaceId) => { uiWorkspace.startSession(workspaceId) },
-    open: (sessionId) => { sessions.open(sessionId) },
-    searchSessions,
-    searchResultLimit: sessions.searchResultLimit,
-    renameSession: async (sessionId, title) => {
+      startSession: (workspaceId) => { uiWorkspace.startSession(workspaceId) },
+      // "Show this chat" is the whole request: a page covering the centre
+      // column vacates it here rather than waiting for the selection change
+      // to be observed, which a click on the already-current chat never makes.
+      open: (sessionId) => {
+        opener?.close()
+        sessions.open(sessionId)
+      },
+      searchSessions,
+      searchResultLimit: sessions.searchResultLimit,
+      renameSession: async (sessionId, title) => {
       // Row → session-face hop: rename is a per-session verb (ISession), not
       // a list-service verb; the binding resolves any listed session.
-      const session = sessions.binding(sessionId)?.session
-      if (session === undefined) throw new Error(`unknown session "${sessionId}"`)
-      const result = await session.rename(title)
-      if (!result.ok) throw new Error(result.error.message)
-    },
-    forkSession: (sessionId) => {
-      sessions.fork({ sessionId, increaseTitle: true })
-        .then((childId) => { sessions.open(childId) })
-        .catch(() => {
+        const session = sessions.binding(sessionId)?.session
+        if (session === undefined) throw new Error(`unknown session "${sessionId}"`)
+        const result = await session.rename(title)
+        if (!result.ok) throw new Error(result.error.message)
+      },
+      forkSession: (sessionId) => {
+        sessions.fork({ sessionId, increaseTitle: true })
+          .then((childId) => { sessions.open(childId) })
+          .catch(() => {
           // Fork or child-rename failure keeps the current selection.
-        })
-    },
-    renameWorkspace: async (workspaceId, title) => { await workspaces.rename(workspaceId, title) },
-    deleteWorkspace: async (workspaceId) => { await workspaces.delete(workspaceId) },
-    insertWorkspaceBefore: async (workspaceId, beforeWorkspaceId) => {
-      await workspaces.insertBefore(workspaceId, beforeWorkspaceId)
-    },
-    archiveSession: async (sessionId) => { await uiWorkspace.archiveSession(sessionId) },
-    insertSessionBefore: async (workspaceId, sessionId, beforeSessionId) => {
-      await workspaces.insertSessionBefore(workspaceId, sessionId, beforeSessionId)
-    },
-    createWorkspace: input => workspaces.create(input),
-    hooks: { directoryFlow: browserFlowSource, hostInfo },
-  })
+          })
+      },
+      renameWorkspace: async (workspaceId, title) => { await workspaces.rename(workspaceId, title) },
+      deleteWorkspace: async (workspaceId) => { await workspaces.delete(workspaceId) },
+      insertWorkspaceBefore: async (workspaceId, beforeWorkspaceId) => {
+        await workspaces.insertBefore(workspaceId, beforeWorkspaceId)
+      },
+      archiveSession: async (sessionId) => { await uiWorkspace.archiveSession(sessionId) },
+      insertSessionBefore: async (workspaceId, sessionId, beforeSessionId) => {
+        await workspaces.insertSessionBefore(workspaceId, sessionId, beforeSessionId)
+      },
+      createWorkspace: input => workspaces.create(input),
+      hooks: { directoryFlow: browserFlowSource, hostInfo },
+      // Compositions without the page keep the name toggling the group.
+      ...(opener === undefined
+        ? {}
+        : {
+          openWorkspacePage: (workspaceId: WorkspaceId) => {
+            opener.open(workspaceId)
+          },
+        }),
+    }
+  }
   const pickerInjected = (): WorkspacePickerInjected => ({
     createWorkspace: input => workspaces.create(input),
     hooks: { directoryFlow: pickerFlowSource },

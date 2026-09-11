@@ -1,0 +1,196 @@
+/* The dashboard body: a block scroller holding the session header, the
+   filter, the stat cards, the stacked bar chart, and the model table. */
+.dashboard {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  overflow-y: auto;
+  color: var(--dsw-alias-label-primary);
+  font-size: 12px;
+}
+
+.section {
+  padding: 10px 12px;
+  border-bottom: 0.5px solid var(--dsw-alias-border-l1);
+}
+
+.sectionTitle {
+  margin: 0 0 8px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* Current-session header: one compact line of the live projections. */
+.sessionLine {
+  margin: 0;
+  color: var(--dsw-alias-label-secondary);
+  line-height: 1.6;
+}
+
+/* Range filter: a row of toggle buttons. */
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.filter {
+  padding: 3px 10px;
+  color: var(--dsw-alias-label-secondary);
+  background: transparent;
+  border: 0.5px solid var(--dsw-alias-border-l1);
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.filterOn {
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+/* Stat cards: five tiles in a wrapping row. */
+.cards {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.card {
+  flex: 1 1 80px;
+  min-width: 80px;
+  padding: 8px 10px;
+  background: var(--dsw-alias-bg-layer-2);
+  border-radius: 8px;
+}
+
+.cardLabel {
+  display: block;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+}
+
+.cardValue {
+  display: block;
+  margin-top: 2px;
+  font-size: 15px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Chart: legend above the stacked bars, axes drawn by the SVG itself. */
+.legend {
+  display: flex;
+  gap: 12px;
+  margin: 0 0 6px;
+  padding: 0;
+  list-style: none;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 4px;
+  border-radius: 2px;
+  vertical-align: baseline;
+}
+
+.swatchInput {
+  background: var(--dsw-static-deepseek-500);
+}
+
+.swatchOutput {
+  background: var(--dsw-static-deepseek-200);
+}
+
+.chart {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.barInput {
+  fill: var(--dsw-static-deepseek-500);
+}
+
+.barOutput {
+  fill: var(--dsw-static-deepseek-200);
+}
+
+.barEmpty {
+  fill: var(--dsw-alias-border-l2);
+}
+
+.noData {
+  margin: 8px 0 0;
+  color: var(--dsw-alias-label-tertiary);
+  text-align: center;
+}
+
+/* Model table: full-width rows with tabular numerals. */
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+.table th {
+  padding: 4px 6px;
+  color: var(--dsw-alias-label-tertiary);
+  font-weight: 600;
+  text-align: right;
+  border-bottom: 0.5px solid var(--dsw-alias-border-l1);
+}
+
+.table th:first-child {
+  text-align: left;
+}
+
+.table td {
+  padding: 4px 6px;
+  text-align: right;
+  border-bottom: 0.5px solid var(--dsw-alias-border-l1);
+}
+
+.table td:first-child {
+  text-align: left;
+  word-break: break-word;
+}
+
+.tableEmpty {
+  color: var(--dsw-alias-label-tertiary);
+  text-align: center;
+}
+
+/* Loading and failure states. */
+.status {
+  padding: 16px 12px;
+  color: var(--dsw-alias-label-secondary);
+  text-align: center;
+}
+
+.statusLine {
+  margin: 0 0 8px;
+}
+
+.retry {
+  padding: 3px 12px;
+  color: var(--dsw-alias-label-primary);
+  background: transparent;
+  border: 0.5px solid var(--dsw-alias-border-l1);
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.failed {
+  color: var(--dsw-alias-state-error-primary);
+}

@@ -25,7 +25,9 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用本包
 
-本插件在 root slot 组合侧栏、会话与右栏。左栏为264～420px，默认280px，收起后保留56px；窗口低于1024px时自动收起，打开右栏也会收起手动展开的左栏。右栏首次打开使用窗口宽度的45%，之后保留用户像素偏好，上限为70%；中栏不足400px时先把右栏压到300px，仍不足则通知占用方收起，最后才继续压缩中栏。拖拽跟手且无过渡延迟，关闭或全屏时不显示右栏拖拽区。
+本插件在 root slot 组合侧栏、会话、右栏与两个 frame 级席位。左栏为264～420px，默认280px，收起后保留56px；窗口低于1024px时自动收起，打开右栏也会收起手动展开的左栏。右栏首次打开使用窗口宽度的45%，之后保留用户像素偏好，上限为70%；中栏不足400px时先把右栏压到300px，仍不足则通知占用方收起，最后才继续压缩中栏。拖拽跟手且无过渡延迟，关闭或全屏时不显示右栏拖拽区。
+
+`shell.overlay` 浮在所有栏目之上，位于可穿透的浮层中。`shell.page` 则与会话共享中栏轨道：同一时刻只绘制一个页面并裁剪于该轨道，因此导航栏保持宽度且仍可使用。`shell.page` 空置时不渲染任何内容，占用方返回 null 时该层仍可穿透点击，因此页面接管之前下方的会话始终可见。该层不规定任何页面几何，也不自行接收指针事件：需要会话常驻输入区（页面驱动的那一个编辑器，而不再绘制第二个输入框）的占用方，要在自身布局中留出该 composer band，把 band box 以 `--dsh-page-composer-top`、`--dsh-page-composer-left`、`--dsh-page-composer-right` 发布给停靠其中的 seat，并为自身绘制的区域重新开启指针事件。中栏隔离自身的层叠上下文，从而把会话内部的 z-index 限制在页面层之下。
 
 ### 主题呈现
 
@@ -39,7 +41,7 @@ kind: "package-reference"
 <details>
 <summary>实现细节——点击展开</summary>
 
-一次注册声明四个子slot并绑定 `ctx.layout` 的 `toggleSidebar`、`openRightbar(track, fullscreen)` 与 `closeRightbar`。store持有唯一的frame宽度测量、左右栏偏好及占用方报告的呈现状态。`rightbar` 的owner参数为实际 `width`、`viewportWidth` 与普通呈现的 `canShow`；占用方在空间不足时执行确定性的收起，变宽不自行重新展开。全屏隐藏宽度手柄，但不自行释放占用方要求保留的轨道。AppFrame 始终挂载会话与右栏；已连接 Session 经 `SessionProvider` 渲染，没有 Session 时右栏是一条空的零宽轨道。它把所选 Session 标题投影到构建配置的产品标题或本地化 `common.brand.localBuild` 回退值之上，因此 locale revision 会随根 entry 一起更新文档元数据。主题呈现器是第二个 effect：从解析后的快照做纯 DOM 写入——初始状态经 getter 读取一次，此后仅事件驱动，不经过 React。它先应用调色板、字号与 token 变量，再把渲染出的背景测量为唯一的颜色依据。 全屏呈现禁用网格和手柄过渡；占用方完全覆盖框架后才报告新的列宽。 退出全屏时，框架先保持无过渡并安装目标布局：关闭移除右轨道，恢复保留右轨道。后续普通几何操作恢复正常过渡。
+一次注册声明五个子slot并绑定 `ctx.layout` 的 `toggleSidebar`、`openRightbar(track, fullscreen)` 与 `closeRightbar`。store持有唯一的frame宽度测量、左右栏偏好及占用方报告的呈现状态。`rightbar` 的owner参数为实际 `width`、`viewportWidth` 与普通呈现的 `canShow`；占用方在空间不足时执行确定性的收起，变宽不自行重新展开。全屏隐藏宽度手柄，但不自行释放占用方要求保留的轨道。AppFrame 始终挂载会话与右栏；已连接 Session 经 `SessionProvider` 渲染，没有 Session 时右栏是一条空的零宽轨道。它把所选 Session 标题投影到构建配置的产品标题或本地化 `common.brand.localBuild` 回退值之上，因此 locale revision 会随根 entry 一起更新文档元数据。主题呈现器是第二个 effect：从解析后的快照做纯 DOM 写入——初始状态经 getter 读取一次，此后仅事件驱动，不经过 React。它先应用调色板、字号与 token 变量，再把渲染出的背景测量为唯一的颜色依据。 全屏呈现禁用网格和手柄过渡；占用方完全覆盖框架后才报告新的列宽。 退出全屏时，框架先保持无过渡并安装目标布局：关闭移除右轨道，恢复保留右轨道。后续普通几何操作恢复正常过渡。
 
 </details>
 

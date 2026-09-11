@@ -1,4 +1,4 @@
-{
+﻿{
   // Host aggregate (one of the two check units; see tsconfig.json). packages/client
   // type-checks in tsconfig.client.json: the two sides merge cordis Context under
   // the same keys, one program cannot see both.
@@ -39,6 +39,7 @@
     "apps/web/tests/remote-welcome.e2e.ts",
     "apps/web/tests/workspace-new-session-folding.e2e.ts",
     "apps/web/tests/workspace-management.e2e.ts",
+    "apps/web/tests/workspace-memory-page.e2e.ts",
     "apps/web/tests/replay-round-trip.e2e.ts",
     "apps/web/tests/hmr-live.e2e.ts",
     "apps/web/tests/preview-boot.e2e.ts",
@@ -69,6 +70,7 @@
     "apps/web/tests/skill-invocation-policy.e2e.ts",
     "apps/web/tests/skill-user-invoke.e2e.ts",
     "apps/web/tests/permission-policy-context.e2e.ts",
+    "apps/web/tests/progress-panel.e2e.ts",
     "apps/web/tests/access-confirmation.e2e.ts",
     "apps/web/tests/agent-preset-selection.e2e.ts",
     "apps/web/tests/agent-preset-authoring.e2e.ts",
@@ -155,6 +157,9 @@
     { "path": "./packages/attachment/attachment" },
     { "path": "./packages/attachment/attachment-local" },
     { "path": "./packages/client/file-upload/tsconfig.host.json" },
+    { "path": "./packages/client/ui-usage-dashboard/tsconfig.host.json" },
+    { "path": "./packages/client/ui-workspace-memory/tsconfig.host.json" },
+    { "path": "./packages/session/usage-ledger" },
     { "path": "./packages/llm/llm" },
     { "path": "./packages/llm/deepseek-llm-api-extensions" },
     { "path": "./packages/llm/token-meter" },
@@ -196,6 +201,9 @@
     { "path": "./packages/storage/storage-domain" },
     { "path": "./packages/feedback/message-feedback" },
     { "path": "./packages/workspace/workspace" },
+    { "path": "./packages/workspace/workspace-memory" },
+    { "path": "./packages/workspace/workspace-memory-llm" },
+    { "path": "./packages/context/workspace-memory-context" },
     { "path": "./packages/session/session-title" },
     { "path": "./packages/session/session-title-llm" },
     { "path": "./packages/session/session-title-first-prompt-llm" },
@@ -354,3 +362,5 @@
     { "path": "./apps/desktop" }
   ]
 }
+
+
