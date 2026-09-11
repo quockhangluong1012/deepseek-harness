@@ -1,19 +1,23 @@
 /**
  * Official popupSelect shell: renders one session's PopupSelectController
- * store into the conversation.input.overlay anchor. Unlike the slash menu
- * (combobox — textarea keeps focus), this shell HOLDS focus while open: the
+ * store from the conversation.input.overlay anchor, portaled to the document
+ * body and hung from the composer card the slot hands it. Unlike the slash
+ * menu (combobox — textarea keeps focus), this shell HOLDS focus while open: the
  * inner search input takes focus, plain typing filters the loaded options
  * locally, Enter/↑↓ drive the filtered highlight (scrolled into view), Escape
  * dismisses back to the composer, and ←→ keep the search input's native
  * caret. Any pointer interaction outside the box dismisses (the click's own
  * target takes focus). Closed state renders null; the overlay slot stays
- * mounted. The card height clamps to the space above the composer.
+ * mounted. The card hangs from whichever side of the composer card has the
+ * room and clamps its height to that side.
  */
 import { useEffect, useRef } from 'react'
 import { useSyncExternalStore } from 'react'
+import { createPortal } from 'react-dom'
 import clsx from 'clsx'
-import { IconCheckOutline16, RiskConfirmation, useAnchoredMaxHeight } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconCheckOutline16, RiskConfirmation, useFloatingPanel } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
+import type { ComposerOverlayOwnerProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { filterOptions } from './popup.ts'
 import type { PopupSelectController } from './popup.ts'
 import css from './PopupSelectView.module.css'
@@ -27,24 +31,29 @@ export interface PopupSelectInjected {
   popup: PopupSelectController
 }
 
-/** Full shell props: injected face + the locale seat. */
-export type PopupSelectViewProps = PopupSelectInjected & PropsLocale<'command'>
+/**
+ * Full shell props: injected face, the composer card the panel hangs from, and
+ * the locale seat. The owner share is spread by its own interface rather than
+ * `PropsRuntime`, whose session scope would demand the standard session props
+ * this entry never reads; the call site stays typed by the slot map.
+ */
+export type PopupSelectViewProps = PopupSelectInjected & ComposerOverlayOwnerProps & PropsLocale<'command'>
 
 /**
  * Render the popupSelect shell overlay entry.
  * @param props - injected face: the session's shell controller; `t` rides the standard locale seat.
  * @returns the select card while open; null while closed.
  */
-export function PopupSelectView({ popup, t }: PopupSelectViewProps) {
+export function PopupSelectView({ popup, anchorRef, t }: PopupSelectViewProps) {
   const state = useSyncExternalStore(
     fn => popup.state.subscribe(fn),
     () => popup.state.getSnapshot(),
   )
   const cardRef = useRef<HTMLDivElement>(null)
   const searchRef = useRef<HTMLInputElement>(null)
-  // The card is bottom-anchored above the composer; clamp the design cap to
-  // the space above it, re-measured on every store update.
-  const maxHeight = useAnchoredMaxHeight(cardRef, MAX_HEIGHT, state)
+  // The portaled card hangs from the side of the composer card with room for
+  // it, re-placed on every store update and on viewport scroll/resize.
+  const placement = useFloatingPanel({ open: state.open, anchorRef, cap: MAX_HEIGHT, signal: state })
   const active = state.open ? state.active : null
 
   // The search input keeps focus while arrows move a virtual highlight, so
@@ -105,11 +114,13 @@ export function PopupSelectView({ popup, t }: PopupSelectViewProps) {
 
   return (
     <>
-      {state.confirming === null && (
+      {state.confirming === null && createPortal(
         <div
           ref={cardRef}
           className={css.card}
-          style={{ maxHeight }}
+          style={placement?.style}
+          data-command-popup=""
+          data-side={placement?.side}
           aria-label={t('overlay.aria', { command: String(state.command) })}
           onKeyDown={onKeyDown}
         >
@@ -155,7 +166,8 @@ export function PopupSelectView({ popup, t }: PopupSelectViewProps) {
               ))}
             </div>
           )}
-        </div>
+        </div>,
+        document.body,
       )}
       {confirmation !== undefined && (
         <RiskConfirmation

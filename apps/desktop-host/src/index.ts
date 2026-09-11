@@ -25,6 +25,7 @@ import type {} from '@deepseek-ai/dsh-api-gateway'
 import type { ConnectionFetchHandler } from '@deepseek-ai/dsh-client-connection'
 import type {} from '@deepseek-ai/dsh-client-modules'
 import { renderIndexInjections, type IndexInjection } from '@deepseek-ai/dsh-host-webserver'
+import { developmentWatchLayer, watchRendererArtifacts } from './development-reload.ts'
 import {
   DESKTOP_HOST_PROTOCOL_VERSION,
   DESKTOP_PIPE_CHUNK_BYTES,
@@ -60,6 +61,9 @@ export type DesktopHostEvent = {
   readonly type: 'ready'
   readonly protocolVersion: typeof DESKTOP_HOST_PROTOCOL_VERSION
   readonly dshVersion: string
+} | {
+  /** Workspace development only: a renderer artifact was rebuilt, so the shell reloads its window. */
+  readonly type: 'renderer-rebuilt'
 } | {
   readonly type: 'fatal'
   readonly message: string
@@ -162,7 +166,7 @@ function desktopPatches(projectDir: string, allowLinkedPackages: boolean): Patch
     profile.patches,
     loadOverlayPatches('dsh desktop', DESKTOP_PATCH),
   ]
-  const rows = new Map(composeEntries(layers).flatMap(row => typeof row.id === 'string' ? [[row.id, row] as const] : []))
+  const rows = new Map(composeEntries(layers).flatMap(row => typeof row.id === 'string' ? [[row.id, row]] as const : []))
   const agentPresets = rows.get('agent-presets')
   if (agentPresets !== undefined) {
     layers.push([{
@@ -173,6 +177,9 @@ function desktopPatches(projectDir: string, allowLinkedPackages: boolean): Patch
       },
     }])
   }
+  // Workspace development mounts the watch-only reload row: an installed
+  // profile serves immutable bundles and has no development watcher to follow.
+  if (allowLinkedPackages) layers.push(developmentWatchLayer())
   return layers.flat()
 }
 
@@ -182,10 +189,19 @@ function dshVersion(projectDir: string): string {
   return manifest.version
 }
 
-function assetHandler(ctx: Context, projectDir: string): ConnectionFetchHandler {
+/**
+ * Resolve the installed Web shell that serves the renderer.
+ * @param projectDir - desktop project whose node_modules owns the shell package.
+ * @returns the shell index document and the directory containing it.
+ */
+function shellDocument(projectDir: string): { index: string; root: string } {
   const require = createRequire(join(projectDir, 'package.json'))
-  const distIndex = require.resolve('@deepseek-ai/dsh-web-frontend/dist/index.html')
-  const distRoot = realpathSync(dirname(distIndex))
+  const index = require.resolve('@deepseek-ai/dsh-web-frontend/dist/index.html')
+  return { index, root: realpathSync(dirname(index)) }
+}
+
+function assetHandler(ctx: Context, projectDir: string): ConnectionFetchHandler {
+  const { index: distIndex, root: distRoot } = shellDocument(projectDir)
   const renderIndex = async (): Promise<Response> => {
     const rows: IndexInjection[] = [{ kind: 'script', placement: 'head', text: DESKTOP_TRANSPORT_SCRIPT }]
     ctx.emit('webserver/index-inject', rows)
@@ -272,13 +288,13 @@ interface NodeRequestInit extends RequestInit {
  * Boot one installed desktop npm project.
  * @param projectDir - active or staged Electron-owned desktop profile.
  * @param writeResponse - serialized response-pipe writer that applies byte backpressure.
- * @param options - development-only allowance for workspace-linked bundle packages.
+ * @param options - workspace-linked bundle allowance and the renderer rebuild observer.
  * @returns controller after every Host and client-manifest row is active.
  */
 export async function runDesktopHost(
   projectDir: string,
   writeResponse: (frame: Buffer) => Promise<void>,
-  options: { allowLinkedPackages?: boolean } = {},
+  options: { allowLinkedPackages?: boolean; onRendererRebuilt?: () => void } = {},
 ): Promise<DesktopHostController> {
   const absoluteProject = resolve(projectDir)
   mkdirSync(absoluteProject, { recursive: true })
@@ -301,6 +317,13 @@ export async function runDesktopHost(
   if (connection === undefined || clientModules === undefined || gateway === undefined) {
     await ctx.fiber.dispose()
     throw new Error('dsh desktop: composition did not provide connection, typertGateway, and clientModules')
+  }
+  if (options.allowLinkedPackages === true && options.onRendererRebuilt !== undefined) {
+    const notifyRendererRebuilt = options.onRendererRebuilt
+    ctx.effect(() => watchRendererArtifacts({
+      shellIndex: shellDocument(absoluteProject).index,
+      subscribeToRebuilds: listener => clientModules.onRebuilt(listener),
+    }, notifyRendererRebuilt), 'desktop: renderer artifact watch')
   }
   const api = connection.createSharedFetchHandler('/api')
   const assets = assetHandler(ctx, absoluteProject)
@@ -403,7 +426,10 @@ async function main(): Promise<void> {
       if ((error as NodeJS.ErrnoException).code !== 'ERR_IPC_CHANNEL_CLOSED') throw error
     }
   }
-  const controller = await runDesktopHost(projectDir, writeResponse, { allowLinkedPackages: option !== undefined })
+  const controller = await runDesktopHost(projectDir, writeResponse, {
+    allowLinkedPackages: option !== undefined,
+    onRendererRebuilt: () => { send({ type: 'renderer-rebuilt' }) },
+  })
   send({
     type: 'ready',
     protocolVersion: DESKTOP_HOST_PROTOCOL_VERSION,

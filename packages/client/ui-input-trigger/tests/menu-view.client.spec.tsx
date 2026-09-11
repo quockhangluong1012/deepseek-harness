@@ -17,6 +17,7 @@ import type {
   InputTriggerCrumb, MenuState, TriggerHit,
 } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 import { MenuView } from '../src/client/MenuView.tsx'
+import type { MenuViewProps } from '../src/client/MenuView.tsx'
 
 const hit: TriggerHit = {
   trigger: '/',
@@ -51,6 +52,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup()
+  composerCardRef.current = null
   vi.restoreAllMocks()
 })
 
@@ -59,6 +61,20 @@ afterEach(() => {
 // unknown source comes back verbatim (its raw name).
 const t = makeTranslate(zh, commonZh)
 
+/** The composer card the entry hangs its portaled menu from; each placement
+ * test gives it the viewport rect its card would have. */
+const composerCardRef: { current: HTMLElement | null } = { current: null }
+
+/** Anchor the entry to a card sitting between `top` and `bottom` in the viewport. */
+function anchorCard(top: number, bottom: number): void {
+  const card = document.createElement('div')
+  vi.spyOn(card, 'getBoundingClientRect').mockReturnValue({
+    top, bottom, left: 0, right: 600, width: 600, height: bottom - top, x: 0, y: top,
+    toJSON: () => ({}),
+  })
+  composerCardRef.current = card
+}
+
 function mount(state: MenuState, crumbs: ReadonlyMap<string, readonly InputTriggerCrumb[]> = new Map()) {
   const menu = createSnapshotStore<MenuState>(state)
   const headers = createSnapshotStore<ReadonlyMap<string, readonly InputTriggerCrumb[]>>(crumbs)
@@ -66,17 +82,17 @@ function mount(state: MenuState, crumbs: ReadonlyMap<string, readonly InputTrigg
   const onCrumb = vi.fn()
   const onHover = vi.fn()
   const onDismiss = vi.fn()
-  const view = render(
-    <MenuView
-      menu={menu}
-      headers={headers}
-      onPick={onPick}
-      onCrumb={onCrumb}
-      onHover={onHover}
-      onDismiss={onDismiss}
-      t={t}
-    />,
-  )
+  const props: MenuViewProps = {
+    menu,
+    headers,
+    anchorRef: composerCardRef,
+    onPick,
+    onCrumb,
+    onHover,
+    onDismiss,
+    t,
+  }
+  const view = render(<MenuView {...props} />)
   return { menu, headers, onPick, onCrumb, onHover, onDismiss, view }
 }
 
@@ -133,7 +149,7 @@ describe('MenuView', () => {
   })
 
   it('titles each group with the localized source name, raw name for unknown sources, none for empty ready groups', () => {
-    const { view } = mount(openState({
+    mount(openState({
       groups: [
         { source: 'command', status: 'ready', items: [{ name: 'goal' }] },
         { source: 'hollow', status: 'ready', items: [] },
@@ -141,7 +157,8 @@ describe('MenuView', () => {
         { source: 'skill', status: 'pending', items: [] },
       ],
     }))
-    expect(titles(view.container)).toEqual(['指令', 'mystery', '技能'])
+    // The menu is portaled out of the slot subtree: it lives on the body.
+    expect(titles(document.body)).toEqual(['指令', 'mystery', '技能'])
   })
 
   it('renders contiguous candidate sections once without changing option indexes', () => {
@@ -215,26 +232,33 @@ describe('MenuView', () => {
     expect(scrollIntoView.mock.instances.at(-1)).toBe(options[1])
   })
 
-  it('caps the list height at the design maximum when the composer sits low enough', () => {
-    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue({ bottom: 800 } as DOMRect)
+  it('hangs the list above the composer, capped at the design maximum, when that side has the room', () => {
+    anchorCard(700, 750)
     mount(openState())
-    expect(menuShell().style.maxHeight).toBe('320px')
+    const shell = menuShell()
+    expect(shell.dataset.side).toBe('above')
+    expect(shell.style.maxHeight).toBe('320px')
+    expect(shell.style.bottom).toBe(`${window.innerHeight - 700 + 4}px`)
   })
 
-  it('clamps the list height to the space above the composer minus the safe margin', () => {
-    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue({ bottom: 200 } as DOMRect)
+  it('hangs the list below the composer when the space above it is the smaller side', () => {
+    anchorCard(120, 170)
     mount(openState())
-    expect(menuShell().style.maxHeight).toBe('188px')
+    const shell = menuShell()
+    expect(shell.dataset.side).toBe('below')
+    expect(shell.style.top).toBe('174px')
+    // Below still carries the design cap: the flip is about which side has
+    // room, and the room below is measured only when it is the smaller one.
+    expect(shell.style.maxHeight).toBe('320px')
   })
 
-  it('re-fits the height when the window resizes', () => {
-    const rect = vi.spyOn(Element.prototype, 'getBoundingClientRect')
-    rect.mockReturnValue({ bottom: 800 } as DOMRect)
+  it('re-places the list when the window resizes', () => {
+    anchorCard(700, 750)
     mount(openState())
-    expect(menuShell().style.maxHeight).toBe('320px')
-    rect.mockReturnValue({ bottom: 100 } as DOMRect)
+    expect(menuShell().dataset.side).toBe('above')
+    anchorCard(120, 170)
     act(() => { window.dispatchEvent(new Event('resize')) })
-    expect(menuShell().style.maxHeight).toBe('88px')
+    expect(menuShell().dataset.side).toBe('below')
   })
 
   it('pointerdown outside the menu (no composer card ancestor) dismisses', () => {
@@ -249,24 +273,25 @@ describe('MenuView', () => {
     expect(onDismiss).not.toHaveBeenCalled()
   })
 
-  it('pointerdown inside the surrounding composer card does not dismiss; outside it does', () => {
+  it('pointerdown inside the anchor card does not dismiss; outside it does', () => {
     const menu = createSnapshotStore<MenuState>(openState())
     const onDismiss = vi.fn()
-    render(
-      <div data-composer-card="">
-        <MenuView
-          menu={menu}
-          headers={createSnapshotStore<ReadonlyMap<string, readonly InputTriggerCrumb[]>>(new Map())}
-          onPick={vi.fn()}
-          onCrumb={vi.fn()}
-          onHover={vi.fn()}
-          onDismiss={onDismiss}
-          t={t}
-        />
-        <button type="button" data-testid="composer-button" />
-      </div>,
+    const { container } = render(
+      <MenuView
+        menu={menu}
+        headers={createSnapshotStore<ReadonlyMap<string, readonly InputTriggerCrumb[]>>(new Map())}
+        anchorRef={composerCardRef}
+        onPick={vi.fn()}
+        onCrumb={vi.fn()}
+        onHover={vi.fn()}
+        onDismiss={onDismiss}
+        t={t}
+      />,
     )
-    fireEvent.pointerDown(screen.getByTestId('composer-button'))
+    const card = container.ownerDocument.createElement('div')
+    card.append(document.createElement('button'))
+    composerCardRef.current = card
+    fireEvent.pointerDown(card.firstElementChild!)
     expect(onDismiss).not.toHaveBeenCalled()
     fireEvent.pointerDown(document.body)
     expect(onDismiss).toHaveBeenCalledTimes(1)

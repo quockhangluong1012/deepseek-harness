@@ -3,11 +3,11 @@
  * elevation-prominent), anchored by the conversation.input.overlay slot. */
 
 .card {
-  /* The overlay anchor is a zero-height strip on the composer card's top
-     edge; entries float themselves above it (same rule as MenuView). */
-  position: absolute;
-  bottom: calc(100% + 4px);
-  left: 0;
+  /* Portaled to the document body and placed by useFloatingPanel against the
+     composer card, which the overlay slot hands the entry as its anchor: the
+     conversation's column is isolated beneath the frame's page layer, so a
+     card drawn in place would disappear under an occupying page. */
+  position: fixed;
   z-index: 100;
   padding: 4px;
   display: flex;

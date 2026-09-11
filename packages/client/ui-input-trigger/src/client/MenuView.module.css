@@ -1,13 +1,11 @@
 .menu {
-  position: absolute;
-  bottom: calc(100% + 4px);
-  /* The overlay anchor is exactly the composer card's width; both insets pin
-     the menu edge to edge with border and padding kept inside. */
-  left: 0;
-  right: 0;
+  /* Portaled to the document body: the conversation's column is isolated
+     beneath the frame's page layer, so a menu drawn inside the composer would
+     disappear under an occupying page. useFloatingPanel supplies the fixed
+     left/width, the edge it hangs from, and the height cap. */
+  position: fixed;
   z-index: 100;
-  /* Height cap: the 320px design maximum, clamped at runtime to the space
-   * above the composer (inline max-height set in MenuView.tsx). */
+  /* Design cap; the runtime clamp is the inline max-height (MenuView.tsx). */
   max-height: 320px;
   overflow: hidden;
   /* Elevated surface: the scrollbar thumb takes the l2 elevation tokens

@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-`dsh-client-hmr` 会在浏览器客户端插件的 bundle 重建后原地重载该插件，让编辑插件源码的开发者无需整页刷新即可看到变更。如果没有重建 watcher，整条链路保持空闲：只有 `pnpm run dev:web` 之类的进程重写客户端 bundle 时才会产生它所响应的重建。每次重载只替换一个插件并携带全新组件状态，而数据层（connection、runtime 与 Session 对象）保持不变。这里的一切都是浏览器侧的开发机制；模型永远看不到它。
+`dsh-client-hmr` 会在浏览器客户端插件的 bundle 重建后原地重载该插件，让插件源码的修改无需整页刷新即可显现。如果没有重建 watcher，整条链路保持空闲：只有 `pnpm run dev:web` 之类的进程重写客户端 bundle 时才会产生它所响应的重建。每次重载只替换一个插件并携带全新组件状态，而数据层（connection、runtime 与 Session 对象）保持不变。bundle 监视与传输无关：不含 SSE 通道的组合会挂载仅监视 row，并自行响应同样的重建。这里的一切都是开发机制；模型永远看不到它。
 
 ## 目录
 
@@ -31,17 +31,22 @@ kind: "package-reference"
 
 对同一个宿主运行 `pnpm run dev:web`（或任何写入插件 `lib/client.js` 的 tsdown watch 进程）；重建后的插件随后会被自动逐个替换进运行中的浏览器。
 
+### 挂载不含 SSE 通道的监视
+
+无法承载 `/plugins/events` 通道的载体挂载 `@deepseek-ai/dsh-client-hmr/watch` 而不是 `client-hmr`。该 row 通过 `ctx.clientModules` 上报重建的 bundle，把响应方式留给组合决定：Electron 桌面宿主在工作区开发模式下挂载它并重载窗口，因为桌面的字节管道传输既不承载 SSE 通道，也没有浏览器半侧。
+
 ### 一次重载做什么
 
 每次重载都会重新执行插件 bundle，并用全新状态重新挂载插件。依赖被重载插件的插件会随之自动重载。失败的重载会被明确报告，并在下一次重建时从头重试。
 
 ### 配置
 
-| 字段 | 默认值 | 含义 |
-|---|---|---|
-| `pollIntervalMs` | `500` | bundle stat 轮询间隔，单位为毫秒 |
+| 行 | 字段 | 默认值 | 含义 |
+|---|---|---|---|
+| `client-hmr` | `pollIntervalMs` | `500` | bundle stat 轮询间隔，单位为毫秒 |
+| `client-hmr-watch` | `pollIntervalMs` | `500` | bundle stat 轮询间隔，单位为毫秒 |
 
-生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-client-hmr)是每个受支持字段及其 JSDoc 的穷尽式真源。
+生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-client-hmr)是 `client-hmr` 入口的穷尽式真源；仅监视 row 声明同一个字段。
 
 ### 观察成功
 
@@ -77,7 +82,9 @@ fiber 的激活 epoch 会串联其服务提供方的 uid，因此替换提供方
 
 | 文件 | 职责 |
 |---|---|
-| [`src/index.ts`](src/index.ts) | node 半侧：bundle stat 轮询、`rebuilt` 上报、`/plugins/events` SSE 通道 |
+| [`src/index.ts`](src/index.ts) | node 半侧：bundle 监视、`rebuilt` 上报、`/plugins/events` SSE 通道 |
+| [`src/watch.ts`](src/watch.ts) | 面向不含 SSE 通道载体的仅监视 row |
+| [`src/bundle-watch.ts`](src/bundle-watch.ts) | 两个 row 共同挂载的 bundle 监视 |
 | [`src/client/index.ts`](src/client/index.ts) | 浏览器半侧：SSE 订阅、串行重载队列、fiber 替换 |
 | [`src/events.ts`](src/events.ts) | 共享帧类型（`graph` / `rebuilt`）与端点常量 |
 

@@ -35,6 +35,8 @@ function isDesktopHostEvent(message: unknown): message is DesktopHostEvent {
   switch (candidate.type) {
     case 'ready':
       return candidate.protocolVersion === DESKTOP_HOST_PROTOCOL_VERSION && typeof candidate.dshVersion === 'string'
+    case 'renderer-rebuilt':
+      return true
     case 'fatal':
       return typeof candidate.message === 'string'
     default:
@@ -83,6 +85,7 @@ export class DesktopHostProcess {
   })
   private exitPromise: Promise<void> | undefined
   private stderr = ''
+  private rendererRebuildListener: (() => void) | undefined
 
   /**
    * @param node - absolute bundled upstream Node.js executable.
@@ -94,6 +97,15 @@ export class DesktopHostProcess {
     private readonly projectDir: string,
     private readonly inspectPort?: number,
   ) {}
+
+  /**
+   * Observe renderer rebuilds announced by the Host in workspace development.
+   * Registration replaces any previous listener.
+   * @param listener - called once per announced rebuild.
+   */
+  onRendererRebuild(listener: () => void): void {
+    this.rendererRebuildListener = listener
+  }
 
   /** Start the child once and resolve only after its complete composition is active. */
   async start(): Promise<DesktopHostReady> {
@@ -389,6 +401,9 @@ export class DesktopHostProcess {
     switch (message.type) {
       case 'ready':
         this.readyResolve(message)
+        return
+      case 'renderer-rebuilt':
+        this.rendererRebuildListener?.()
         return
       case 'fatal':
         this.fail(new Error(message.message))

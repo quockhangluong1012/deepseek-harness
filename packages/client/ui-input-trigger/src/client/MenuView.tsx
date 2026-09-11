@@ -1,7 +1,9 @@
 /**
- * Trigger candidate menu: renders the InputTriggerService menu store into the
- * conversation.input.overlay anchor. Closed state renders null (the overlay
- * slot stays mounted); groups render in roster order under localized title
+ * Trigger candidate menu: renders the InputTriggerService menu store from the
+ * conversation.input.overlay anchor, portaled to the document body and hung
+ * from the composer card the slot hands it (a panel drawn in place would
+ * disappear under an occupying center-track page). Closed state renders null
+ * (the overlay slot stays mounted); groups render in roster order under localized title
  * rows. A pending group keeps showing the items it already had (the reducer
  * retains them across a query refinement) and falls back to two skeleton
  * rows only while it has none; pointer picks route back through
@@ -11,15 +13,22 @@
  * breadcrumb header pinned above the scrolling list.
  */
 import { Fragment, useEffect, useRef, useSyncExternalStore } from 'react'
+import { createPortal } from 'react-dom'
 import clsx from 'clsx'
-import { IconChevronRightOutline14, ReferenceIcon, useAnchoredMaxHeight } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconChevronRightOutline14, ReferenceIcon, useFloatingPanel } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import css from './MenuView.module.css'
+import type { ComposerOverlayOwnerProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { MenuViewInjected } from './slots.ts'
 import type { MenuKey } from './locales.ts'
 
-/** Full menu props: injected face + the locale seat. */
-export type MenuViewProps = MenuViewInjected & PropsLocale<'slash.menu'>
+/**
+ * Full menu props: injected face, the composer card the panel hangs from, and
+ * the locale seat. The owner share is spread by its own interface rather than
+ * `PropsRuntime`, whose session scope would demand the standard session props
+ * this entry never reads; the call site stays typed by the slot map.
+ */
+export type MenuViewProps = MenuViewInjected & ComposerOverlayOwnerProps & PropsLocale<'slash.menu'>
 
 /** Design cap on the list height (figma SLASH 39:26572 MenuDropdown). */
 const MAX_HEIGHT = 320
@@ -34,7 +43,7 @@ function optionId(source: string, index: number): string {
  * @param props - injected face (the menu store and the pick route); `t` rides the standard locale seat.
  * @returns the dropdown while open; null while closed.
  */
-export function MenuView({ menu, headers, onPick, onCrumb, onHover, onDismiss, t }: MenuViewProps) {
+export function MenuView({ menu, headers, anchorRef, onPick, onCrumb, onHover, onDismiss, t }: MenuViewProps) {
   const state = useSyncExternalStore(
     fn => menu.subscribe(fn),
     () => menu.getSnapshot(),
@@ -44,10 +53,10 @@ export function MenuView({ menu, headers, onPick, onCrumb, onHover, onDismiss, t
     () => headers.getSnapshot(),
   )
   const listRef = useRef<HTMLDivElement>(null)
-  // The list is bottom-anchored above the composer; clamp the design cap to
-  // the space above it, re-measured on every store update (the anchor moves
-  // when the composer grows).
-  const maxHeight = useAnchoredMaxHeight(listRef, MAX_HEIGHT, state)
+  // The portaled list hangs from the side of the composer card with room for
+  // it, re-placed on every store update (the anchor moves when the composer
+  // grows) and on viewport scroll/resize.
+  const placement = useFloatingPanel({ open: state.open, anchorRef, cap: MAX_HEIGHT, signal: state })
   const highlight = state.open ? state.highlight : null
   // Focus stays in the textarea (combobox pattern), so the browser never
   // scrolls the active option into view on keyboard moves — do it here.
@@ -57,24 +66,31 @@ export function MenuView({ menu, headers, onPick, onCrumb, onHover, onDismiss, t
       ?.scrollIntoView({ block: 'nearest' })
   }, [highlight])
   // Dismiss on pointer outside the menu AND outside the composer card
-  // (clicking the textarea or bottom bar must not close the menu).
+  // (clicking the textarea or bottom bar must not close the menu). The card
+  // arrives as this entry's anchor: the portaled list has no composer ancestor
+  // to look up.
   useEffect(() => {
     if (!state.open) return
     const onPointerDown = (ev: PointerEvent): void => {
       if (!(ev.target instanceof Node)) return
       if (listRef.current?.contains(ev.target)) return
-      const composerCard = listRef.current?.closest('[data-composer-card]')
-      if (composerCard?.contains(ev.target)) return
+      if (anchorRef.current?.contains(ev.target)) return
       onDismiss()
     }
     document.addEventListener('pointerdown', onPointerDown, true)
     return () => { document.removeEventListener('pointerdown', onPointerDown, true) }
-  }, [state.open, onDismiss])
+  }, [state.open, anchorRef, onDismiss])
   if (!state.open) return null
-  return (
+  return createPortal(
     // The listbox role sits on the scrolling viewport, not this shell: a
     // breadcrumb header is not an option, and a listbox may not carry one.
-    <div ref={listRef} className={css.menu} style={{ maxHeight }} data-trigger-menu="">
+    <div
+      ref={listRef}
+      className={css.menu}
+      style={placement?.style}
+      data-trigger-menu=""
+      data-side={placement?.side}
+    >
       {state.groups.map((group) => {
         const trail = crumbs.get(group.source)
         return trail === undefined ? null : (
@@ -184,6 +200,7 @@ export function MenuView({ menu, headers, onPick, onCrumb, onHover, onDismiss, t
             </Fragment>
           ))}
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }

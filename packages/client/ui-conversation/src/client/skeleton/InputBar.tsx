@@ -431,7 +431,9 @@ export const InputBar = memo(function InputBar({
         onPointerDown={workspaceTrigger ? (e) => { e.stopPropagation() } : undefined}
       >
         {sessionId !== undefined && (
-          <div className={css.overlayAnchor}>{renderSlot('conversation.input.overlay', {})}</div>
+          <div className={css.overlayAnchor}>
+            {renderSlot('conversation.input.overlay', { anchorRef: cardRef })}
+          </div>
         )}
         {accessory !== undefined && <div className={css.accessory}>{accessory}</div>}
         {renderSlot('conversation.input.attachments', {

@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-client-hmr` reloads a browser client plugin in place when its bundle is rebuilt, so a developer editing plugin source sees the change without a full page reload. The reload chain stays idle without a rebuild watcher: only a `pnpm run dev:web`-style process rewriting client bundles produces the rebuilds it reacts to. Each reload swaps one plugin with fresh component state while the data layer (connection, runtime, and Session objects) stays untouched. Everything here is development machinery in the browser; the model never sees it.
+`dsh-client-hmr` reloads a browser client plugin in place when its bundle is rebuilt, so a plugin-source edit appears without a full page reload. The chain stays idle without a rebuild watcher: only a `pnpm run dev:web`-style process rewriting client bundles produces the rebuilds it reacts to. Each reload swaps one plugin with fresh component state while the data layer (connection, runtime, and Session objects) stays untouched. The bundle watch is transport-independent: a composition without an SSE channel mounts the watch-only row and reacts to the same rebuilds itself. Everything is development machinery; the model never sees it.
 
 ## Table of Contents
 
@@ -31,17 +31,22 @@ Enable the rebuild watcher for the plugin you are editing, then save: the browse
 
 Run `pnpm run dev:web` (or any tsdown watch process that writes the plugin's `lib/client.js`) against the same host; rebuilt plugins are then swapped into the running browser automatically, one at a time.
 
+### Mounting the watch without the SSE channel
+
+A carrier that cannot host the `/plugins/events` channel mounts `@deepseek-ai/dsh-client-hmr/watch` instead of `client-hmr`. The row reports rebuilt bundles through `ctx.clientModules` and leaves the reaction to the composition: the Electron Desktop Host mounts it in workspace development and reloads its window, because the desktop byte-pipe transport carries neither the SSE channel nor a browser half.
+
 ### What a reload does
 
 Each reload re-executes the plugin bundle and remounts the plugin with fresh state. Plugins that depend on the reloaded one reload with it automatically. A reload that fails is reported visibly and retried from scratch on the next rebuild.
 
 ### Configuration
 
-| Field | Default | Meaning |
-|---|---|---|
-| `pollIntervalMs` | `500` | Bundle stat-poll interval in milliseconds |
+| Row | Field | Default | Meaning |
+|---|---|---|---|
+| `client-hmr` | `pollIntervalMs` | `500` | Bundle stat-poll interval in milliseconds |
+| `client-hmr-watch` | `pollIntervalMs` | `500` | Bundle stat-poll interval in milliseconds |
 
-The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-client-hmr) is the exhaustive source for every accepted field and its JSDoc.
+The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-client-hmr) is the exhaustive source for the `client-hmr` entry point; the watch-only row declares the same single field.
 
 ### Observing success
 
@@ -77,7 +82,9 @@ No rollback: an import failure leaves the entry fiberless (the next rebuilt fram
 
 | File | Role |
 |---|---|
-| [`src/index.ts`](src/index.ts) | Node half: bundle stat-poll, `rebuilt` reporting, `/plugins/events` SSE channel |
+| [`src/index.ts`](src/index.ts) | Node half: bundle watch, `rebuilt` reporting, `/plugins/events` SSE channel |
+| [`src/watch.ts`](src/watch.ts) | Watch-only row for carriers without the SSE channel |
+| [`src/bundle-watch.ts`](src/bundle-watch.ts) | The shared bundle watch both rows mount |
 | [`src/client/index.ts`](src/client/index.ts) | Browser half: SSE subscription, serialized reload queue, fiber swap |
 | [`src/events.ts`](src/events.ts) | Shared frame types (`graph` / `rebuilt`) and the endpoint constant |
 

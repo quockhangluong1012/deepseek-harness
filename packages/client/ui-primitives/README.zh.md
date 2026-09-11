@@ -95,7 +95,7 @@ kind: "package-library"
 | [`src/ReadBlock.tsx`](src/ReadBlock.tsx) / [`src/DiffBlock.tsx`](src/DiffBlock.tsx) | 读取与差异卡片 |
 | [`src/SearchBlock.tsx`](src/SearchBlock.tsx) / [`src/WebBlock.tsx`](src/WebBlock.tsx) | 搜索与网页检索卡片 |
 | [`src/icons/`](src/icons/) | `ic_ds_*` 字形组件与品牌标记 |
-| [`src/useAnchoredPosition.ts`](src/useAnchoredPosition.ts) / [`src/useAnchoredMaxHeight.ts`](src/useAnchoredMaxHeight.ts) | 浮动面板与浮层几何钩子 |
+| [`src/useAnchoredPosition.ts`](src/useAnchoredPosition.ts) / [`src/useFloatingPanel.ts`](src/useFloatingPanel.ts) | 浮动面板与浮层几何钩子 |
 
 ### 流式 markdown
 

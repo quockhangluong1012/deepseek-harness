@@ -131,7 +131,7 @@ function WidthHandle(props: {
 export function ConversationRoot({
   sessionId, useSession, useSessions, useSessionPendingInteraction,
   useWorkspaces, useConversation, useInput, useComposerBlock,
-  renderSlot, renderSlotChain, selectWorkspace, t,
+  renderSlot, renderSlotChain, selectWorkspace, pageOccupied, t,
 }: ConversationRootProps) {
   const session = useSession(s => s)
   const pendingInteraction = useSessionPendingInteraction(snapshot =>
@@ -157,17 +157,22 @@ export function ConversationRoot({
   // scroll body: the seat's height as --dsh-composer-height, so controls clear
   // the composer as it grows, and the scrollport's own height as
   // --dsh-conversation-viewport-height, so a control can sit in the band the
-  // seat leaves visible. Callback ref, not an effect; stable identity prevents
-  // observer churn while the first blank session fills the resident body
-  // outlet.
+  // seat leaves visible. The seat height also travels on the root element,
+  // because the frame's page layer is a sibling of this column and reserves
+  // that band from there. Callback ref, not an effect; stable identity
+  // prevents observer churn while the first blank session fills the resident
+  // body outlet.
   const seatObserver = useRef<ResizeObserver | null>(null)
   const seatResizeRef = useCallback((seat: HTMLDivElement | null): void => {
     seatObserver.current?.disconnect()
     seatObserver.current = null
+    document.documentElement.style.removeProperty('--dsh-composer-height')
     const scroller = seat?.parentElement ?? null
     if (seat === null || scroller === null) return
     seatObserver.current = new ResizeObserver(() => {
-      scroller.style.setProperty('--dsh-composer-height', `${seat.offsetHeight}px`)
+      const height = `${seat.offsetHeight}px`
+      scroller.style.setProperty('--dsh-composer-height', height)
+      document.documentElement.style.setProperty('--dsh-composer-height', height)
       scroller.style.setProperty(
         '--dsh-conversation-viewport-height',
         `${scroller.clientHeight}px`,
@@ -269,8 +274,12 @@ export function ConversationRoot({
     (shellPhase === 'blank' && openState === 'loading' && summaryBlank !== true)
     || parentAvailabilityPending
   )
-  const hero = sessionId === undefined
-    || (shellPhase === 'blank' && (openState === 'open' || summaryBlank === true))
+  // An occupying center-track page stays in the tree above the composer seat, so
+  // the conversation drops the blank-Session hero chrome (brand mark, tagline,
+  // Workspace chip) and docks the bar into the composer band that page holds
+  // open beneath its name and description. Without a page the hero is unchanged.
+  const hero = !pageOccupied && (sessionId === undefined
+    || (shellPhase === 'blank' && (openState === 'open' || summaryBlank === true)))
   const zone: InputZone | undefined =
     session === undefined || inputState === undefined ? undefined : { session, input: inputState }
 
@@ -316,6 +325,15 @@ export function ConversationRoot({
     </div>
   )
 
+  // The page band is the blank-session hero's position, so the chip that
+  // stages the next session's preset travels with it. The Workspace picker does
+  // not: the page already names its Workspace in its own opening row.
+  const heroPresetRow = (
+    <div className={css.heroPresetRow}>
+      {renderSlot('conversation.hero.agentPreset', {})}
+    </div>
+  )
+
   // The placeholder chip ("Choose workspace") and the Workspace-trigger input travel
   // together: no workspace picked yet (cold start, no session at all), or a
   // blank session whose workspace vanished (deleted from the sidebar). The
@@ -347,6 +365,7 @@ export function ConversationRoot({
     <div className={clsx(css.composerStack, hero && css.composerHero)}>
       {hero && <HeroShell t={t} renderSlot={renderSlot} />}
       {hero && heroWorkspaceRow}
+      {pageOccupied && heroPresetRow}
       {zone !== undefined && renderSlot('conversation.input.dock', zone)}
       {inputBar}
     </div>
@@ -370,7 +389,7 @@ export function ConversationRoot({
   )
 
   return (
-    <div ref={rootResizeRef} className={css.root} data-phase={phase}>
+    <div ref={rootResizeRef} className={css.root} data-phase={phase} data-page-occupied={pageOccupied || undefined}>
       {sessionId === undefined ? null : renderSlot('conversation.session.header', {})}
       <div className={css.body}>
         <div className={css.scrollBody} data-conversation-scroll="">

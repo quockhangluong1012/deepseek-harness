@@ -126,6 +126,8 @@ function mount(
     composerBlock?: { reason: string }
     /** Mutable view ledger used by registration-order regressions. */
     viewTabs?: ViewTab[]
+    /** Whether a center-track page occupies the column above the composer seat. */
+    pageOccupied?: boolean
   } = {},
 ) {
   const root = sid('root')
@@ -310,6 +312,7 @@ function mount(
     renderSlot,
     renderSlotChain,
     selectWorkspace: retargetWorkspace,
+    pageOccupied: options.pageOccupied ?? false,
     t,
   }
   const view = render(<ConversationRoot {...props} />)
@@ -489,6 +492,42 @@ describe('ConversationRoot resident composer', () => {
     act(() => { owner.onPick(wid('second')) })
     expect(b.retargetWorkspace).toHaveBeenCalledWith(wid('second'))
     expect(b.view.getByText('Selected Folder')).toBeTruthy()
+  })
+
+  it('keeps the centred hero for a blank session while no page occupies the track', () => {
+    const b = mount(
+      sessionSnapshotOf({ blank: true }),
+      [{ ...workspace('one'), sessionIds: [SID] }],
+    )
+    expect(b.view.container.firstElementChild?.getAttribute('data-phase')).toBe('hero')
+    expect(b.view.getByText('探索未至之境')).toBeTruthy()
+    expect(b.view.getByRole('button', { name: '选择工作区' })).toBeTruthy()
+    const host = b.view.container.querySelector('[data-conversation-scroll]')
+    const seat = b.view.container.querySelector('[data-composer-seat]')
+    expect(host?.contains(seat)).toBe(true)
+    expect(b.view.getByRole('textbox')).toBeTruthy()
+  })
+
+  it('drops the hero chrome and docks the composer into the page band while a page occupies the track', () => {
+    const b = mount(
+      sessionSnapshotOf({ blank: true }),
+      [{ ...workspace('one'), sessionIds: [SID] }],
+      undefined,
+      { pageOccupied: true },
+    )
+    // The page owns the track above the bar: no hero headline, no Workspace
+    // chip (its picker belongs to the hero), and the seat stays mounted — the
+    // page holds a composer band open beneath its name and description for it
+    // to dock into.
+    const root = b.view.container.firstElementChild
+    expect(root?.getAttribute('data-phase')).toBe('active')
+    expect(root?.hasAttribute('data-page-occupied')).toBe(true)
+    expect(b.view.queryByText('探索未至之境')).toBeNull()
+    expect(b.view.queryByRole('button', { name: '选择工作区' })).toBeNull()
+    const host = b.view.container.querySelector('[data-conversation-scroll]')
+    const seat = b.view.container.querySelector('[data-composer-seat]')
+    expect(host?.contains(seat)).toBe(true)
+    expect(b.view.getByRole('textbox')).toBeTruthy()
   })
 
   it('keeps a rejected first prompt engaging instead of returning to the Hero', () => {

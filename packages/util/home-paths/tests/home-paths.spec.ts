@@ -56,6 +56,17 @@ describe('dsh path helpers', () => {
     expect(dshHomeDisplay('/some/other/root')).toBe('$DSH_HOME')
   })
 
+  it('labels the default home case-insensitively on Windows', () => {
+    const platform = process.platform
+    Object.defineProperty(process, 'platform', { value: 'win32', configurable: true })
+    try {
+      expect(dshHomeDisplay(resolve(defaultDshHome()).toUpperCase())).toBe('~/.dsh')
+      expect(dshHomeDisplay('/some/other/root')).toBe('$DSH_HOME')
+    } finally {
+      Object.defineProperty(process, 'platform', { value: platform, configurable: true })
+    }
+  })
+
   it('canonicalizes a watcher ancestor while preserving a missing suffix', async () => {
     const root = await mkdtemp(join(tmpdir(), 'dsh-watch-path-'))
     const target = join(root, 'target')

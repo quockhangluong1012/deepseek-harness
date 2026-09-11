@@ -95,7 +95,7 @@ The package is one separation: presentational React atoms with zero Cordis and z
 | [`src/ReadBlock.tsx`](src/ReadBlock.tsx) / [`src/DiffBlock.tsx`](src/DiffBlock.tsx) | Read and diff cards |
 | [`src/SearchBlock.tsx`](src/SearchBlock.tsx) / [`src/WebBlock.tsx`](src/WebBlock.tsx) | Search and web-retrieval cards |
 | [`src/icons/`](src/icons/) | `ic_ds_*` glyph components and brand marks |
-| [`src/useAnchoredPosition.ts`](src/useAnchoredPosition.ts) / [`src/useAnchoredMaxHeight.ts`](src/useAnchoredMaxHeight.ts) | Floating-panel and overlay geometry hooks |
+| [`src/useAnchoredPosition.ts`](src/useAnchoredPosition.ts) / [`src/useFloatingPanel.ts`](src/useFloatingPanel.ts) | Floating-panel and overlay geometry hooks |
 
 ### Streaming markdown
 

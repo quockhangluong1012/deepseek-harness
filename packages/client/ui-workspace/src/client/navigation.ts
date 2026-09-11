@@ -56,6 +56,10 @@ declare module '@deepseek-ai/cordis' {
     uiWorkspace: UiWorkspace
   }
 }
+/** Optional centre-track page closer owned by the workspace-memory page plugin. */
+interface WorkspacePageCloserContext {
+  get(key: string): { close(): void } | undefined
+}
 
 /** Structured directory failure exposed to directory UI consumers. */
 export class DirectoryBrowseError extends Error {
@@ -112,6 +116,14 @@ class UiWorkspaceService extends Service implements UiWorkspace {
   }
 
   startSession(workspaceId?: WorkspaceId): void {
+    // The centre shows one route at a time: a workspace page occupies
+    // `shell.page` instead of the conversation. Vacate it synchronously so a
+    // New Session shows the hero even when the blank target is already
+    // current (no selection change would otherwise yield the route).
+    // Named cast stands in for the host-face seam declaration, which this
+    // workspace program cannot import without a feature-plugin edge.
+    const clientCtx = this.ctx as unknown as WorkspacePageCloserContext
+    clientCtx.get('workspacePage')?.close()
     const workspace = this.workspaces.list.getSnapshot()
     const sessions = this.sessions.list.getSnapshot()
     const current = sessions.current

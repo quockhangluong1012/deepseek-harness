@@ -1,0 +1,155 @@
+.root {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  overflow: auto;
+  padding: 6px 0 8px;
+  color: var(--dsw-alias-label-primary);
+  font-size: var(--dsh-content-font-size-secondary, 13px);
+  line-height: 1.5;
+}
+
+.section {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+}
+
+.header {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 6px;
+  align-items: baseline;
+  padding: 2px 10px;
+  color: var(--dsw-alias-label-secondary);
+  font-weight: 500;
+}
+
+.title {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* The section's running count, pushed to the row's right edge. */
+.count {
+  flex: 0 0 auto;
+  margin-left: auto;
+  color: var(--dsw-alias-label-caption);
+  font-weight: 400;
+}
+
+.list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.item,
+.task {
+  margin: 0;
+  padding: 0;
+}
+
+.task {
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+  padding: 3px 10px;
+}
+
+/* Every status glyph shares one 14px cell so the checklist keeps one column. */
+.mark {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  margin-top: 2px;
+  color: var(--dsw-alias-label-caption);
+}
+
+.task[data-status='completed'] .mark {
+  color: var(--dsw-alias-state-success-primary);
+}
+
+.task[data-status='in_progress'] .mark {
+  color: var(--dsw-alias-state-business-primary);
+}
+
+/* Unstarted: a dashed ring. In progress: the same ring, one arc lit, turning. */
+.ring {
+  box-sizing: border-box;
+  width: 12px;
+  height: 12px;
+  border: 1.4px solid currentColor;
+  border-radius: 50%;
+  /* A status circle stays circular: the universal corner smoothing would turn
+     the ring into a squircle, and a wobbling spinner. */
+  corner-shape: round;
+}
+
+.task[data-status='pending'] .ring {
+  border-style: dashed;
+}
+
+.task[data-status='in_progress'] .ring {
+  border-color: var(--dsw-alias-state-business-tertiary);
+  border-top-color: var(--dsw-alias-state-business-primary);
+  animation: progress-ring-spin 0.9s linear infinite;
+}
+
+@keyframes progress-ring-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* A finished item stays readable but recedes: the mark carries the state. */
+.task[data-status='completed'] .label {
+  color: var(--dsw-alias-label-caption);
+}
+
+.file {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+  padding: 3px 10px;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.file:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.fileIcon {
+  flex: 0 0 auto;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.label {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.empty {
+  margin: 0;
+  padding: 12px 10px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: var(--dsh-content-font-size-secondary, 13px);
+  line-height: 1.6;
+}

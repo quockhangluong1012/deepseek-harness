@@ -378,15 +378,6 @@
   );
 }
 
-/* An open @/slash menu (data-trigger-menu, ui-input-trigger) renders inside
-   the input card, so the seat's stacking context caps its z-index; lift the
-   seat above the back-to-bottom control (z-index 8, ui-chat ChatView) while
-   the menu is open. The steady state stays 7 so the control keeps painting
-   over the card. */
-.root[data-phase='active'] .composerSeat:has([data-trigger-menu]) {
-  z-index: 9;
-}
-
 /* Views may opt into a composer overlay while ConversationRoot retains
    ownership of the seat geometry and its active-phase precedence. */
 .scrollBody:has([data-conversation-composer-overlay]) {
@@ -460,6 +451,39 @@
 .root[data-phase='hero'] .scrollBody {
   justify-content: center;
   overflow-y: auto;
+}
+
+/* A center-track page holds a composer band open beneath its own name and
+   description and
+   publishes that band's box on the document root (the same channel that
+   carries this seat's height back to the frame's page layer). The seat docks
+   into the band, level with the main column the page's outputs and chats fill,
+   so the page reads header → composer → body. The top pad lifts the card off
+   the header and keeps the input card's elevation hairline — 0.5px drawn
+   outside the card's box — inside the seat, where the header cannot clip it. */
+.root[data-page-occupied] .composerSeat {
+  /* The composer is the page's hero: the band's published box is its own, and
+     it keeps none of the chat width cap or the side clearance, so the input
+     card and the preset row above it carry the same left and right edges as
+     the section cards under them. */
+  --dsh-composer-side-clearance: 0px;
+  --dsh-composer-card-max-width: 100%;
+  margin-top: var(--dsh-page-composer-top, 0px);
+  margin-right: var(--dsh-page-composer-right, 0px);
+  margin-bottom: auto;
+  margin-left: var(--dsh-page-composer-left, 0px);
+  padding-top: 24px;
+}
+
+/* The page band's preset row: the hero's Workspace row without the picker
+   (the page already names its Workspace), riding the seat's shared clearance so
+   the chip keeps the card's own side edges under it. */
+.heroPresetRow {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  padding: 0 var(--dsh-composer-side-clearance);
 }
 
 /* Settling (session replaying, hero/docked unknown): keep the composer seat

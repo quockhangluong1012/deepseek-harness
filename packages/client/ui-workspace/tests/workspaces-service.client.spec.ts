@@ -288,6 +288,20 @@ describe('UiWorkspaceService', () => {
       expect(warning).toHaveBeenCalledWith('new session failed:', expect.any(Error))
     })
   })
+  it('vacates the centre-track page synchronously on New Session', async () => {
+    const blank = summary('blank', { blank: true, cwd: '/w/home' })
+    const b = bench({
+      sessions: sessionState([blank], blank.id),
+      workspaces: workspaceState([workspace('home', [blank.id])]),
+    })
+    const close = vi.fn()
+    b.ctx.provide('workspacePage', { close } as never)
+    b.uiWorkspace.startSession()
+    expect(close).toHaveBeenCalledOnce()
+    await vi.waitFor(() => {
+      expect(b.sessions.open).toHaveBeenCalledWith(blank.id)
+    })
+  })
 
   it('opens the recent Workspace after both baselines arrive', async () => {
     const b = bench()

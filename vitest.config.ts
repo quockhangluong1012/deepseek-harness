@@ -297,6 +297,11 @@ export default defineConfig({
         'packages/client/modules/src/client/manifest.ts',
         'packages/client/hmr/src/index.ts',
         'packages/client/hmr/src/invariant.ts',
+        // The shared watch keeps one unreachable guard: a graph row is read
+        // from the same table `artifactBaseline` answers from, so its
+        // documented `undefined` for an unknown id cannot occur mid-sync.
+        'packages/client/hmr/src/bundle-watch.ts',
+        'packages/client/hmr/src/watch.ts',
         'packages/client/connection/src/index.ts',
         'packages/client/connection/src/http-bridge.ts',
         // This assembly imports generated Host-for-Client code that exists

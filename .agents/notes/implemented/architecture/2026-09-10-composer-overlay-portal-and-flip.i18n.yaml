@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-10-composer-overlay-portal-and-flip.md
+2026-09-10-composer-overlay-portal-and-flip.md: e3f3af0cdcd00dd05c435486088216e9887659b5
+2026-09-10-composer-overlay-portal-and-flip.zh.md: d30c59d2dad00cd694f05fffd041795ab26648ac

@@ -8,6 +8,9 @@ import type { InvariantInstaller } from '@deepseek-ai/dsh-invariants'
 
 const PACKAGE_NAME = '@deepseek-ai/dsh-client-hmr'
 
+/** Plugin rows whose fiber owns a bundle watch. */
+const WATCH_ROWS: readonly string[] = ['client-hmr', 'client-hmr-watch']
+
 /** Cordis companion plugin name. */
 export const name = 'client-hmr-invariant'
 /** Service required before the companion can reserve package ownership. */
@@ -19,7 +22,7 @@ function statWatchers(): number {
 }
 
 /**
- * Owned relation: every bundle stat watcher the node half starts must die
+ * Owned relation: every bundle stat watcher a watch row starts must die
  * with its fiber — a surviving poller would keep re-hashing bundles for a
  * torn-down dev chain forever. Checked as a baseline delta: the StatWatcher
  * count observed at fiber creation must be restored once disposal has drained
@@ -34,7 +37,7 @@ const install: InvariantInstaller = (ctx, fail) => {
   // promises, so a violation surfaces loudly instead of unhandled.
   // oxlint-disable-next-line typescript/no-misused-promises
   ctx.on('internal/plugin', async (fiber) => {
-    if (fiber.name !== 'client-hmr') return
+    if (!WATCH_ROWS.includes(fiber.name)) return
     if (fiber.uid !== null) {
       baselines.set(fiber, statWatchers())
       return

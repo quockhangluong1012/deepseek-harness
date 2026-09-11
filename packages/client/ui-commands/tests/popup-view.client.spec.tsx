@@ -21,6 +21,20 @@ import { zh } from '../src/client/locales.ts'
 // The framework-injected t seat, stubbed over the zh dictionaries (the default locale).
 const t: Parameters<typeof PopupSelectView>[0]['t'] = makeTranslate(zh, commonZh)
 
+/** The composer card the entry hangs its portaled card from; each placement
+ * test gives it the viewport rect its card would have. */
+const composerCardRef: { current: HTMLElement | null } = { current: null }
+
+/** Anchor the entry to a card sitting between `top` and `bottom` in the viewport. */
+function anchorCard(top: number, bottom: number): void {
+  const card = document.createElement('div')
+  vi.spyOn(card, 'getBoundingClientRect').mockReturnValue({
+    top, bottom, left: 0, right: 600, width: 600, height: bottom - top, x: 0, y: top,
+    toJSON: () => ({}),
+  })
+  composerCardRef.current = card
+}
+
 // jsdom has no scrollIntoView; the view calls it on the highlighted row.
 const scrollIntoView = vi.fn()
 beforeEach(() => {
@@ -30,6 +44,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup()
+  composerCardRef.current = null
   vi.restoreAllMocks()
 })
 
@@ -64,7 +79,7 @@ async function mountOpen(overrides: Partial<PopupSpec<string>> = {}, consumeResu
   const consume = vi.fn((_segment: TokenSegment) => consumeResult)
   const focusComposer = vi.fn()
   const popup = new PopupSelectController<string>({ consume, focusComposer })
-  const view = render(<PopupSelectView popup={popup} t={t} />)
+  const view = render(<PopupSelectView popup={popup} anchorRef={composerCardRef} t={t} />)
   await act(async () => {
     popup.open('theme', spec(overrides), 'ctx-A', SEGMENT)
     await Promise.resolve()
@@ -79,7 +94,7 @@ function rowLabels(): string[] {
 describe('PopupSelectView', () => {
   it('renders null while closed, opens with focus in the search input', async () => {
     const popup = new PopupSelectController<string>({ consume: () => true, focusComposer: () => {} })
-    const view = render(<PopupSelectView popup={popup} t={t} />)
+    const view = render(<PopupSelectView popup={popup} anchorRef={composerCardRef} t={t} />)
     expect(view.container.childElementCount).toBe(0)
     await act(async () => {
       popup.open('theme', spec(), 'ctx-A', SEGMENT)
@@ -124,16 +139,21 @@ describe('PopupSelectView', () => {
     expect(scrollIntoView.mock.instances.at(-1)).toBe(options[1])
   })
 
-  it('caps the card height at the design maximum when the composer sits low enough', async () => {
-    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue({ bottom: 800 } as DOMRect)
+  it('hangs the card above the composer, capped at the design maximum, when that side has the room', async () => {
+    anchorCard(700, 750)
     await mountOpen()
-    expect(screen.getByLabelText('/theme 选项').style.maxHeight).toBe('320px')
+    const card = screen.getByLabelText('/theme 选项')
+    expect(card.dataset.side).toBe('above')
+    expect(card.style.maxHeight).toBe('320px')
+    expect(card.style.bottom).toBe(`${window.innerHeight - 700 + 4}px`)
   })
 
-  it('clamps the card height to the space above the composer minus the safe margin', async () => {
-    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue({ bottom: 200 } as DOMRect)
+  it('hangs the card below the composer when the space above it is the smaller side', async () => {
+    anchorCard(120, 170)
     await mountOpen()
-    expect(screen.getByLabelText('/theme 选项').style.maxHeight).toBe('188px')
+    const card = screen.getByLabelText('/theme 选项')
+    expect(card.dataset.side).toBe('below')
+    expect(card.style.top).toBe('174px')
   })
 
   it('Enter selects the highlighted row: onSelect, consume, close, focusComposer', async () => {
@@ -246,9 +266,10 @@ describe('PopupSelectView', () => {
   it('an outside pointerdown dismisses without focusComposer; an inside one does not dismiss', async () => {
     const { view, focusComposer } = await mountOpen()
     act(() => { fireEvent.pointerDown(screen.getAllByRole('option')[0]!) })
-    expect(view.container.childElementCount).not.toBe(0)
+    expect(screen.queryByLabelText('/theme 选项')).not.toBeNull()
     act(() => { fireEvent.pointerDown(document.body) })
-    expect(view.container.childElementCount).toBe(0)
+    expect(screen.queryByLabelText('/theme 选项')).toBeNull()
     expect(focusComposer).not.toHaveBeenCalled()
+    expect(view.container.childElementCount).toBe(0)
   })
 })

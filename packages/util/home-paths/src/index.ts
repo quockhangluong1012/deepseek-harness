@@ -103,10 +103,15 @@ export function dshHomePath(...segments: string[]): string {
  * Describe a resolved harness home symbolically for user-facing display.
  *
  * It never returns an absolute machine path: the default home is labelled
- * `~/.dsh`, and any configured home is labelled `$DSH_HOME`.
+ * `~/.dsh`, and any configured home is labelled `$DSH_HOME`. Windows paths
+ * compare case-insensitively, matching the filesystem.
  * @param resolvedHome - the absolute path returned by {@link resolveDshHome}.
  * @returns `~/.dsh` for the default home, otherwise `$DSH_HOME`.
  */
 export function dshHomeDisplay(resolvedHome: string): string {
-  return resolvedHome === resolve(defaultDshHome()) ? DEFAULT_DSH_HOME_DISPLAY : `$${DSH_HOME_ENV}`
+  const def = resolve(defaultDshHome())
+  const same = process.platform === 'win32'
+    ? resolvedHome.toLowerCase() === def.toLowerCase()
+    : resolvedHome === def
+  return same ? DEFAULT_DSH_HOME_DISPLAY : `$${DSH_HOME_ENV}`
 }

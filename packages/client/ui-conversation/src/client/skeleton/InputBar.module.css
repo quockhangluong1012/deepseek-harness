@@ -111,8 +111,9 @@
   padding: 10px 12px 0;
 }
 
-/* Floating overlay anchor (menu / popupSelect shell): entries position
-   themselves against the card (bottom: 100% + gap); closed entries render null. */
+/* Floating overlay mount point (menu / popupSelect shell): entries portal
+   their panel to the document body and place it against this card, which the
+   slot hands them as its anchor; closed entries render null. */
 .overlayAnchor {
   position: absolute;
   inset: 0 0 auto;

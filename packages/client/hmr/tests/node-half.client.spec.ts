@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ClientArtifactBaseline, ClientModuleRegistry, WebBootGraph } from '@deepseek-ai/dsh-client-modules'
 import type { WebRoute, WebServer } from '@deepseek-ai/dsh-host-webserver'
 import { apply, Config, EVENTS_ENDPOINT, inject } from '../src/index.ts'
+import { apply as applyWatchRow, Config as WatchRowConfig, inject as watchRowInject } from '../src/watch.ts'
 
 const POLL_MS = 20
 
@@ -27,6 +28,8 @@ type FakeHost = ClientModuleRegistry & { rebuiltCalls: string[]; fireGraphChange
 interface FakeHostOptions {
   beforeGraphRead?: () => void
   rebuilt?: (id: string) => string | undefined
+  /** Baselines served verbatim, for rows whose artifact this fake cannot stat itself. */
+  baselineOverrides?: Map<string, ClientArtifactBaseline>
 }
 
 function artifactBaseline(path: string): ClientArtifactBaseline {
@@ -50,6 +53,8 @@ function fakeClientModuleHost(rows: Map<string, string>, options: FakeHostOption
       }
     },
     artifactBaseline: (id) => {
+      const override = options.baselineOverrides?.get(id)
+      if (override !== undefined) return { ...override }
       const path = rows.get(id)
       if (path === undefined) return undefined
       let baseline = baselines.get(id)
@@ -92,6 +97,18 @@ async function mount(clientModuleHost: FakeHost, webServer: WebServer) {
   ctx.provide('webServer', webServer)
   const fiber = ctx.plugin(
     { inject: [...inject], Config, apply },
+    { pollIntervalMs: POLL_MS },
+  )
+  await fiber.await()
+  return fiber
+}
+
+/** Mount the watch-only row: a carrier with no Web server service at all. */
+async function mountWatchRow(clientModuleHost: FakeHost) {
+  const ctx = new Context()
+  ctx.provide('clientModules', clientModuleHost)
+  const fiber = ctx.plugin(
+    { inject: [...watchRowInject], Config: WatchRowConfig, apply: applyWatchRow },
     { pollIntervalMs: POLL_MS },
   )
   await fiber.await()
@@ -223,6 +240,76 @@ describe('hmr node half', () => {
     const fiber = await mount(clientModuleHost, fakeHttpServer([]))
 
     await vi.waitFor(() => { expect(clientModuleHost.rebuiltCalls).toEqual(['pkg-a', 'pkg-a']) }, { timeout: 3_000 })
+    await fiber.dispose()
+  })
+})
+
+/** Let several poll intervals elapse, so a report that should not happen would have arrived. */
+async function quietPollWindows(): Promise<void> {
+  const settle = Promise.withResolvers<undefined>()
+  setTimeout(settle.resolve, POLL_MS * 4)
+  await settle.promise
+}
+
+describe('hmr watch row', () => {
+  it('reports rebuilt bundles for a carrier without the SSE channel and stops on dispose', async () => {
+    const bundle = join(dir, 'row.js')
+    writeFileSync(bundle, 'v1')
+    const clientModuleHost = fakeClientModuleHost(new Map([['pkg-a', bundle]]))
+    const fiber = await mountWatchRow(clientModuleHost)
+
+    writeFileSync(bundle, 'v2-longer')
+    await vi.waitFor(() => { expect(clientModuleHost.rebuiltCalls).toContain('pkg-a') }, { timeout: 3_000 })
+
+    await fiber.dispose()
+    clientModuleHost.rebuiltCalls.length = 0
+    writeFileSync(bundle, 'v3-even-longer')
+    await quietPollWindows()
+    expect(clientModuleHost.rebuiltCalls).toHaveLength(0)
+  })
+
+  it('keeps polling after a re-hash fails for a reason other than a missing bundle', async () => {
+    const bundle = join(dir, 'failing.js')
+    writeFileSync(bundle, 'v1')
+    const clientModuleHost = fakeClientModuleHost(new Map([['pkg-a', bundle]]), {
+      rebuilt: () => { throw Object.assign(new Error('bundle read failed'), { code: 'EIO' }) },
+    })
+    const fiber = await mountWatchRow(clientModuleHost)
+
+    writeFileSync(bundle, 'v2-longer')
+    await vi.waitFor(() => { expect(clientModuleHost.rebuiltCalls).toEqual(['pkg-a']) }, { timeout: 3_000 })
+    await quietPollWindows()
+    expect(clientModuleHost.rebuiltCalls).toEqual(['pkg-a'])
+
+    await fiber.dispose()
+  })
+
+  it('re-hashes a bundle that was missing when the watch was installed', async () => {
+    const missing = join(dir, 'appears.js')
+    writeFileSync(missing, 'seed')
+    const clientModuleHost = fakeClientModuleHost(new Map([['pkg-a', missing]]), {
+      baselineOverrides: new Map([['pkg-a', { path: missing, mtimeMs: 0, size: 0 }]]),
+    })
+    unlinkSync(missing)
+    const fiber = await mountWatchRow(clientModuleHost)
+
+    writeFileSync(missing, 'v1-appeared')
+    await vi.waitFor(() => { expect(clientModuleHost.rebuiltCalls).toContain('pkg-a') }, { timeout: 3_000 })
+
+    await fiber.dispose()
+  })
+
+  it('keeps polling a bundle whose path the filesystem rejects', async () => {
+    const bundle = join(dir, 'rejected.js')
+    writeFileSync(bundle, 'v1')
+    const clientModuleHost = fakeClientModuleHost(new Map([['pkg-a', bundle]]), {
+      baselineOverrides: new Map([['pkg-a', { path: '\0rejected', mtimeMs: 1, size: 1 }]]),
+    })
+    const fiber = await mountWatchRow(clientModuleHost)
+
+    await quietPollWindows()
+    expect(clientModuleHost.rebuiltCalls).toHaveLength(0)
+
     await fiber.dispose()
   })
 })

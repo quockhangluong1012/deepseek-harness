@@ -164,7 +164,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
     /** Full-width entries above the composer card. */
     'conversation.input.dock': { kind: 'list'; scope: 'session'; owner: InputZone }
     /** Floating entries rendered inside the resident composer card. */
-    'conversation.input.overlay': { kind: 'list'; scope: 'session' }
+    'conversation.input.overlay': { kind: 'list'; scope: 'session'; owner: ComposerOverlayOwnerProps }
     /** Ambient entries below the composer card. */
     'conversation.composer.dock': { kind: 'list'; scope: 'session' }
     /** Compact controls at the left of the composer tool row. */
@@ -235,6 +235,17 @@ export interface ConversationHeaderLineageOwnerProps {
   displayTitle: string
   /** Navigate to an ancestor title when present. */
   openTitle?: () => void
+}
+
+/**
+ * Owner values for floating composer entries. An entry portals its panel to the
+ * document body — the conversation column is isolated beneath the frame's page
+ * layer, so a page occupying the centre track would cover an in-place panel —
+ * and hangs it from this card.
+ */
+export interface ComposerOverlayOwnerProps {
+  /** The composer card the portaled panel is placed against. */
+  readonly anchorRef: RefObject<HTMLElement | null>
 }
 
 /** Point-in-time owner values for composer extension entries. */
