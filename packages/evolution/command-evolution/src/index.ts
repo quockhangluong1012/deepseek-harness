@@ -10,12 +10,14 @@
  * @module @deepseek-ai/dsh-command-evolution
  */
 
-import { realpath } from 'node:fs/promises'
+import { mkdir, realpath, writeFile } from 'node:fs/promises'
+import { dirname, join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { CommandDefinitionId } from '@deepseek-ai/dsh-commands/brand'
 import type { CommandInvocation, CommandResult } from '@deepseek-ai/dsh-commands'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { Session } from '@deepseek-ai/dsh-session'
+import { serializeSessionLog } from '@deepseek-ai/dsh-session-log-export'
 import { remoteErrorOf } from '@deepseek-ai/dsh-typert-protocol'
 import type { RemoteFailure } from '@deepseek-ai/dsh-typert-protocol'
 import type {} from '@deepseek-ai/dsh-workspace'
@@ -25,12 +27,14 @@ import { EvolutionScopeId } from '@deepseek-ai/dsh-evolution-memory'
 import type { EvolutionScopeId as EvolutionScopeIdBrand, StagedWrite } from '@deepseek-ai/dsh-evolution-memory'
 import type {} from '@deepseek-ai/dsh-evolution-reviewer'
 import type {} from '@deepseek-ai/dsh-evolution-curator'
-import type { EvolutionCurator } from '@deepseek-ai/dsh-evolution-curator'
+import type { EvolutionCurator, PassSummary, PurgeReport, RollbackReport } from '@deepseek-ai/dsh-evolution-curator'
 import type {} from '@deepseek-ai/dsh-evolution-skill-telemetry'
+import type { SkillUsageRecord } from '@deepseek-ai/dsh-evolution-skill-telemetry'
 import type { SkillBlueprint } from '@deepseek-ai/dsh-skill'
-import { isUsageRange } from '@deepseek-ai/dsh-usage-ledger'
+import { isUsageRange, type UsageRange } from '@deepseek-ai/dsh-usage-ledger'
 import { assertNever } from '@deepseek-ai/dsh-util-values'
 import z from '@deepseek-ai/schemastery'
+import { strToU8, zipSync } from 'fflate'
 import { renderTimeline, scopeTimeline } from './journey.ts'
 
 export * from './journey.ts'
@@ -71,11 +75,14 @@ const REFINE_USAGE = 'Usage: /refine (no arguments)'
 /** Argument grammar for `/journey`; a bare call reports the last seven days. */
 const JOURNEY_USAGE = 'Usage: /journey [today | 7d | 30d | all]'
 
+/** Argument grammar for `/journey export`; anything else reports usage. */
+const JOURNEY_EXPORT_USAGE = 'Usage: /journey export [today | 7d | 30d | all] [--out <path>]'
+
 /** Argument grammar for `/skills`; anything else reports usage. */
 const SKILLS_USAGE = 'Usage: /skills pending | approve <id> | diff <id>'
 
 /** Argument grammar for `/curator`; anything else reports usage. */
-const CURATOR_USAGE = 'Usage: /curator status | /curator run [--dry-run]'
+const CURATOR_USAGE = 'Usage: /curator status | run [--dry-run] | adopt <name> | purge [--dry-run] | rollback --id <id> | ledger | pin <name> | unpin <name>'
 
 /** Argument grammar for `/trajectory`; anything else reports usage. */
 const TRAJECTORY_USAGE = 'Usage: /trajectory [--out <path>] [--all]'
@@ -257,6 +264,100 @@ async function executeRefine(
   return { kind: 'success', text: 'Memory rebuild complete.' }
 }
 
+/** Parsed `/journey export` arguments. */
+interface JourneyExportArgs {
+  readonly range: UsageRange
+  readonly out: string | undefined
+}
+
+/**
+ * Parse `/journey export`'s `[range] [--out <path>]` grammar.
+ * @param args - split argument words, already confirmed to start with 'export'.
+ * @returns the parsed options, or undefined for anything the grammar rejects.
+ */
+function parseJourneyExportArgs(args: readonly string[]): JourneyExportArgs | undefined {
+  let out: string | undefined
+  let index = 0
+  let range: UsageRange = '7d'
+
+  if (args.length > 0 && isUsageRange(args[0])) {
+    range = args[0]
+    index = 1
+  }
+
+  while (index < args.length) {
+    const arg = args[index]
+    if (arg === '--out') {
+      const value = args[index + 1]
+      if (out !== undefined || value === undefined || value.startsWith('--')) return undefined
+      out = value
+      index += 1
+    } else {
+      return undefined
+    }
+    index += 1
+  }
+
+  return { range, out }
+}
+
+/**
+ * Default output path for journey exports: `$DSH_HOME/exports/journey-<scope>-<range>.zip`,
+ * falling back to `.dsh/exports/` relative to the home directory.
+ */
+function defaultExportPath(scope: string, range: string): string {
+  const home = process.env.DSH_HOME ?? join(process.env.HOME ?? process.env.USERPROFILE ?? '.', '.dsh')
+  const scopeDir = scope.replace(/[/\\:*?"<>|]/gu, '_')
+  return join(home, 'exports', `journey-${scopeDir}-${range}.zip`)
+}
+
+/**
+ * Execute `/journey export`: bundle the journey timeline plus the current
+ * session log into a zip archive.
+ * @param ctx - plugin context carrying the evolution memory store.
+ * @param scope - scope identity resolved from the invoking session.
+ * @param invocation - raw command input.
+ * @param rangeArgs - post-'export' argument words.
+ * @returns the command result.
+ */
+async function executeJourneyExport(
+  ctx: Context,
+  scope: EvolutionScopeIdBrand,
+  invocation: CommandInvocation,
+  rangeArgs: readonly string[],
+): Promise<CommandResult> {
+  const parsed = parseJourneyExportArgs(rangeArgs)
+  if (parsed === undefined) return { kind: 'error', text: JOURNEY_EXPORT_USAGE }
+
+  const range = parsed.range
+  const usage = ctx.evolutionMemory.usage(scope)
+  const timeline = scopeTimeline({
+    record: ctx.evolutionMemory.read(scope),
+    usedBytes: usage.usedBytes,
+    capacityBytes: usage.capacityBytes,
+    digest: ctx.evolutionMemory.digest(scope),
+    range,
+    now: Date.now(),
+  })
+
+  // ponytail: deprecated snapshotEvents, inline serializer when that is dropped
+  const session = invocation.agent.session
+  // eslint-disable-next-line typescript/no-deprecated -- one-shot export snapshot
+  const events = session.snapshotEvents()
+  const sessionLogText = serializeSessionLog(session.header, events)
+
+  const zipBuffer = zipSync({
+    'timeline.json': strToU8(JSON.stringify(timeline, null, 2)),
+    'session-log.jsonl': strToU8(sessionLogText),
+  })
+
+  const outPath = parsed.out ?? defaultExportPath(scope, range)
+  await mkdir(dirname(outPath), { recursive: true })
+  await writeFile(outPath, zipBuffer)
+
+  return { kind: 'success', text: `Journey exported to ${outPath}` }
+}
+
 /**
  * Execute `/journey` against the session's scope.
  * @param ctx - plugin context carrying the evolution memory store.
@@ -264,12 +365,13 @@ async function executeRefine(
  * @param invocation - raw command input.
  * @returns the command result.
  */
-function executeJourney(
+async function executeJourney(
   ctx: Context,
   scope: EvolutionScopeIdBrand,
   invocation: CommandInvocation,
-): CommandResult {
+): Promise<CommandResult> {
   const args = splitArgs(invocation.rawInput)
+  if (args[0] === 'export') return executeJourneyExport(ctx, scope, invocation, args.slice(1))
   const range = args[0] ?? '7d'
   if (args.length > 1 || !isUsageRange(range)) return { kind: 'error', text: JOURNEY_USAGE }
   const usage = ctx.evolutionMemory.usage(scope)
@@ -511,8 +613,8 @@ async function executeSuggestions(ctx: Context, invocation: CommandInvocation): 
 }
 
 /**
- * Execute `/curator status`: bookkeeping and tracked-skill counts. The curator
- * is host-wide, so no scope resolution runs.
+ * Execute `/curator`: dispatch to the handler for each sub-verb. Pin and
+ * unpin only need telemetry; every other verb requires the curator.
  * @param ctx - plugin context carrying the optional curator and telemetry.
  * @param invocation - raw command input.
  * @returns the command result.
@@ -521,14 +623,49 @@ async function executeCurator(ctx: Context, invocation: CommandInvocation): Prom
   const args = splitArgs(invocation.rawInput)
   const verb = args[0]
   const rest = args.slice(1)
-  if (verb !== 'status' && verb !== 'run') return { kind: 'error', text: CURATOR_USAGE }
-  const dryRun = verb === 'run' && rest.length === 1 && rest[0] === '--dry-run'
-  if (verb === 'status' ? rest.length > 0 : rest.length > (dryRun ? 1 : 0)) {
-    return { kind: 'error', text: CURATOR_USAGE }
+  if (verb === undefined) return { kind: 'error', text: CURATOR_USAGE }
+
+  // Pin/unpin only need telemetry, not the curator.
+  if (verb === 'pin' || verb === 'unpin') {
+    if (rest.length !== 1) return { kind: 'error', text: CURATOR_USAGE }
+    const telemetry = ctx.get('evolutionSkillTelemetry')
+    if (telemetry === undefined) return { kind: 'error', text: 'Skill telemetry is not mounted. Pin/unpin requires the telemetry store.' }
+    return verb === 'pin' ? executeCuratorPin(telemetry, rest[0]!) : executeCuratorUnpin(telemetry, rest[0]!)
   }
+
+  // Validate args for every curator verb before resolving the curator so
+  // malformed invocations report usage even when the curator is absent.
+  switch (verb) {
+    case 'status': if (rest.length > 0) return { kind: 'error', text: CURATOR_USAGE }; break
+    case 'run': if (rest.length > 1 || (rest.length === 1 && rest[0] !== '--dry-run')) return { kind: 'error', text: CURATOR_USAGE }; break
+    case 'adopt': if (rest.length !== 1) return { kind: 'error', text: CURATOR_USAGE }; break
+    case 'purge': if (rest.length > 1 || (rest.length === 1 && rest[0] !== '--dry-run')) return { kind: 'error', text: CURATOR_USAGE }; break
+    case 'rollback': if (rest.length !== 2 || rest[0] !== '--id') return { kind: 'error', text: CURATOR_USAGE }; break
+    case 'ledger': if (rest.length > 0) return { kind: 'error', text: CURATOR_USAGE }; break
+    default: return { kind: 'error', text: CURATOR_USAGE }
+  }
+
   const curator = ctx.get('evolutionCurator')
   if (curator === undefined) return { kind: 'error', text: 'The evolution curator is not mounted.' }
-  if (verb === 'run') return runCuratorPass(curator, dryRun)
+
+  switch (verb) {
+    case 'status': return executeCuratorStatus(ctx, curator)
+    case 'run': return runCuratorPass(curator, rest[0] === '--dry-run')
+    case 'adopt': return executeCuratorAdopt(curator, rest[0]!)
+    case 'purge': return executeCuratorPurge(curator, rest[0] === '--dry-run')
+    case 'rollback': return executeCuratorRollback(curator, rest[1]!)
+    case 'ledger': return executeCuratorLedger(curator)
+    default: return { kind: 'error', text: CURATOR_USAGE }
+  }
+}
+
+/**
+ * Execute `/curator status`: bookkeeping and tracked-skill counts.
+ * @param ctx - plugin context carrying the optional telemetry.
+ * @param curator - the mounted curator service.
+ * @returns the command result.
+ */
+async function executeCuratorStatus(ctx: Context, curator: EvolutionCurator): Promise<CommandResult> {
   const telemetry = ctx.get('evolutionSkillTelemetry')
   const entries = telemetry?.entries() ?? []
   const state = (lifecycle: 'active' | 'stale' | 'archived'): number =>
@@ -548,10 +685,7 @@ async function executeCurator(ctx: Context, invocation: CommandInvocation): Prom
 }
 
 /**
- * Execute `/curator run [--dry-run]`: one maintenance pass over agent-created
- * skills, the same pass the interval trigger runs. A deployment whose host owns
- * no maintenance timer, and an operator who wants the pass now, both get one
- * deliberate entry point; `--dry-run` previews the movements without writing.
+ * Run one curator pass and render its report.
  * @param curator - the mounted curator service.
  * @param dryRun - whether to preview the pass without writing.
  * @returns the command result.
@@ -569,6 +703,104 @@ async function runCuratorPass(curator: EvolutionCurator, dryRun: boolean): Promi
       `Skipped: ${report.skippedPinned} pinned, ${report.skippedProtected} protected, ${report.skippedExcluded} bundled or hub`,
       report.passId === null ? 'Snapshot: none' : `Snapshot: ${report.passId}`,
     ].join('\n'),
+  }
+}
+
+/**
+ * Execute `/curator adopt <name>`: adopt one agent-created skill into
+ * user-directed standing.
+ * @param curator - the mounted curator service.
+ * @param rest - argument words after the verb.
+ * @returns the command result.
+ */
+async function executeCuratorAdopt(curator: EvolutionCurator, name: string): Promise<CommandResult> {
+  try {
+    const record = await curator.adopt(name)
+    return { kind: 'success', text: `Adopted '${name}' (state: ${record.state})` }
+  } catch (err: unknown) {
+    return { kind: 'error', text: err instanceof Error ? err.message : String(err) }
+  }
+}
+
+/**
+ * Execute `/curator purge [--dry-run]`: purge archived skills past their TTL.
+ * @param curator - the mounted curator service.
+ * @param rest - argument words after the verb.
+ * @returns the command result.
+ */
+async function executeCuratorPurge(curator: EvolutionCurator, dryRun: boolean): Promise<CommandResult> {
+  const report: PurgeReport = await curator.purge({ dryRun })
+  const header = report.dryRun
+    ? `Purge previewed at ${report.at}: ${report.purged.length} skill${report.purged.length === 1 ? '' : 's'}, ${report.skippedPinned} skipped (pinned), no writes`
+    : `Purge complete at ${report.at}: ${report.purged.length} skill${report.purged.length === 1 ? '' : 's'} removed, ${report.skippedPinned} skipped (pinned)`
+  const lines = [header, ...report.purged.map(p => `- ${p.name}${p.dir !== null ? ` (${p.dir})` : ''}`)]
+  return { kind: 'success', text: lines.join('\n') }
+}
+
+/**
+ * Execute `/curator rollback --id <id>`: roll back one recorded pass or ledger
+ * entry. Prefers pass-level rollback.
+ * @param curator - the mounted curator service.
+ * @param rest - argument words after the verb.
+ * @returns the command result.
+ */
+async function executeCuratorRollback(curator: EvolutionCurator, id: string): Promise<CommandResult> {
+  try {
+    const report: RollbackReport = await curator.rollbackPass(id)
+    return {
+      kind: 'success',
+      text: [
+        `Rolled back ${report.label} at ${report.at}: ${report.restored.length} skill${report.restored.length === 1 ? '' : 's'} restored`,
+        ...report.restored.map(r => `- ${r.name}: ${r.from} → ${r.to}`),
+      ].join('\n'),
+    }
+  } catch (err: unknown) {
+    return { kind: 'error', text: err instanceof Error ? err.message : String(err) }
+  }
+}
+
+/**
+ * Execute `/curator ledger`: list recorded passes newest-first.
+ * @param curator - the mounted curator service.
+ * @param rest - unused argument words.
+ * @returns the command result.
+ */
+async function executeCuratorLedger(curator: EvolutionCurator): Promise<CommandResult> {
+  const passes: PassSummary[] = await curator.passes()
+  if (passes.length === 0) return { kind: 'success', text: 'No recorded passes.' }
+  const lines = passes.map(p =>
+    `- ${p.passId} at ${p.at}: ${p.transitions} transition${p.transitions === 1 ? '' : 's'}`,
+  )
+  return { kind: 'success', text: [`${passes.length} pass${passes.length === 1 ? '' : 'es'}:`, ...lines].join('\n') }
+}
+
+/**
+ * Execute `/curator pin <name>`: pin a tracked skill.
+ * @param telemetry - the mounted telemetry service.
+ * @param rest - argument words after the verb.
+ * @returns the command result.
+ */
+async function executeCuratorPin(telemetry: { setPinned(name: string, pinned: boolean): Promise<SkillUsageRecord> }, name: string): Promise<CommandResult> {
+  try {
+    await telemetry.setPinned(name, true)
+    return { kind: 'success', text: `Pinned '${name}'` }
+  } catch (err: unknown) {
+    return { kind: 'error', text: err instanceof Error ? err.message : String(err) }
+  }
+}
+
+/**
+ * Execute `/curator unpin <name>`: unpin a tracked skill.
+ * @param telemetry - the mounted telemetry service.
+ * @param rest - argument words after the verb.
+ * @returns the command result.
+ */
+async function executeCuratorUnpin(telemetry: { setPinned(name: string, pinned: boolean): Promise<SkillUsageRecord> }, name: string): Promise<CommandResult> {
+  try {
+    await telemetry.setPinned(name, false)
+    return { kind: 'success', text: `Unpinned '${name}'` }
+  } catch (err: unknown) {
+    return { kind: 'error', text: err instanceof Error ? err.message : String(err) }
   }
 }
 
@@ -646,7 +878,7 @@ export function apply(ctx: Context, config: Config): void {
     yield ctx.commands.register({
       definitionId: CommandDefinitionId('@deepseek-ai/dsh-command-evolution/journey'),
       name: 'journey',
-      description: 'Show this scope’s recorded evolution activity',
+      description: 'Show or export this scope\'s recorded evolution activity',
       handler: (invocation: CommandInvocation) => track(handleCommand(ctx, profile, 'journey', invocation)),
     })
     yield ctx.commands.register({

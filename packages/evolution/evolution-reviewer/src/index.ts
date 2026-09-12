@@ -28,6 +28,7 @@ import { WorkspaceId } from '@deepseek-ai/dsh-workspace'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import type { EvolutionExtraction, EvolutionOutput } from '@deepseek-ai/dsh-evolution-memory'
 import { EvolutionScopeId, RECALL_LABEL_PREFIX } from '@deepseek-ai/dsh-evolution-memory'
+import { skillCreationEvidence } from '@deepseek-ai/dsh-evolution-skill-telemetry'
 import { clipToBytes, extractionSystemPrompt, frameExtractionInput } from './prompt.ts'
 import { LESSON_HEADINGS } from './prompt.ts'
 import { DEFAULT_SQUEEZE_ORDER, squeezeLessons } from './squeeze.ts'
@@ -846,6 +847,25 @@ export class EvolutionReviewer extends Service {
     if (entries.length === 0) return
     try {
       await this.ctx.evolutionMemory.recordOutputs(membership.scope, entries)
+      const record = this.ctx.evolutionMemory.read(membership.scope)
+      if (record !== undefined && record.outputs.length > 0) {
+        const evidence = skillCreationEvidence(record.outputs.map(output => output.path))
+        if (evidence.fires) {
+          const gist = `Repeated output${evidence.repeated.length > 1 ? 's' : ''}: ${evidence.repeated.map(r => r.path).join(', ')}`
+          try {
+            await this.ctx.evolutionMemory.stageWrite({
+              scopeId: membership.scope,
+              kind: 'skill',
+              op: 'create',
+              payload: { paths: evidence.repeated.map(r => r.path), counts: evidence.repeated.map(r => r.count) },
+              originSessionId: String(session.id),
+              gist,
+            })
+          } catch (error) {
+            this.ctx.logger.warn(`evolution review skill proposal staging failed: ${String(error)}`)
+          }
+        }
+      }
     } catch (error) {
       this.ctx.logger.warn(`evolution review output indexing failed for '${String(membership.scope)}': ${String(error)}`)
     }

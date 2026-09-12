@@ -6,8 +6,8 @@
  * transport exists, matching how `dsh-web-fetch-http` defers its own transport import.
  * @module @deepseek-ai/dsh-http-proxy/install
  */
-import type { Dispatcher } from 'undici'
-import { type EnvLookup } from './policy.ts'
+import type { Dispatcher } from 'undici';
+import { type EnvLookup } from './policy.ts';
 /**
  * How this process must send one request.
  *
@@ -18,19 +18,19 @@ import { type EnvLookup } from './policy.ts'
  * than destroying it, so a request already dispatched when a policy is unmounted still finishes.
  */
 export type ProxyRoute = {
-  readonly proxied: true
-  readonly proxy: string
-  readonly dispatcher: Dispatcher
+    readonly proxied: true;
+    readonly proxy: string;
+    readonly dispatcher: Dispatcher;
 } | {
-  readonly proxied: false
-}
+    readonly proxied: false;
+};
 /**
  * Decide how to send one request, and hand back the transport that decision assumed.
  *
  * @param url - the request URL.
  * @returns the proxied route with its proxy URL and dispatcher, or the direct route.
  */
-export declare function proxyRouteFor(url: URL): ProxyRoute
+export declare function proxyRouteFor(url: URL): ProxyRoute;
 /**
  * The proxy environment a spawned child needs.
  *
@@ -65,7 +65,7 @@ export declare function proxyRouteFor(url: URL): ProxyRoute
  * @returns names to apply to the child environment, where `undefined` means remove, or an empty
  *   object when no proxy is active.
  */
-export declare function proxyEnvironmentForChild(): Readonly<Record<string, string | undefined>>
+export declare function proxyEnvironmentForChild(): Readonly<Record<string, string | undefined>>;
 /**
  * Resolve this process's proxy policy from `env` and install it.
  *
@@ -81,7 +81,7 @@ export declare function proxyEnvironmentForChild(): Readonly<Record<string, stri
  * @param report - receives one message per rejected value, in the order the values were considered.
  * @returns a disposer restoring the previous dispatcher, policy, and environment.
  */
-export declare function installProxyFromEnvironment(env: EnvLookup, report: (message: string) => void): Promise<() => Promise<void>>
+export declare function installProxyFromEnvironment(env: EnvLookup, report: (message: string) => void): Promise<() => Promise<void>>;
 /**
  * The environment overlay that removes every proxy name from a spawned child.
  *
@@ -90,5 +90,5 @@ export declare function installProxyFromEnvironment(env: EnvLookup, report: (mes
  *
  * @returns one entry per proxy name, each `undefined`.
  */
-export declare function clearedProxyEnv(): Record<string, undefined>
+export declare function clearedProxyEnv(): Record<string, undefined>;
 //# sourceMappingURL=install.d.ts.map

@@ -1,0 +1,59 @@
+- section "Evolution journey":
+  - heading "journey-fixture" [level=1]
+  - region "Evolution timeline":
+    - heading "Evolution timeline" [level=2]
+    - tablist:
+      - tab "Today"
+      - tab "7 days" [selected]
+      - tab "30 days"
+      - tab "All"
+    - paragraph: 7 days · 2/7 days with activity
+    - list:
+      - listitem:
+        - text: 2026-09-10
+        - text: lessons 2
+        - list:
+          - listitem:
+            - text: Lessons
+            - text: background_review · p/model
+          - listitem:
+            - text: Lessons
+            - text: edited by hand
+      - listitem:
+        - text: 2026-09-11
+        - text: lessons 1 · outputs 2 · staged 1
+        - list:
+          - listitem:
+            - text: Lessons
+            - text: background_review · p/model
+          - listitem:
+            - text: Outputs
+            - text: write /tmp/out1.md
+          - listitem:
+            - text: Outputs
+            - text: write /tmp/out2.md
+          - listitem:
+            - text: Staged
+            - text: memory:setLessons add lesson about error handling
+  - region "Pending approvals":
+    - heading "Pending approvals" [level=2]
+    - list:
+      - listitem:
+        - text: memory:setLessons add lesson about error handling
+        - text: from session s-9
+        - button "Approve"
+        - button "Reject"
+  - region "Curator":
+    - heading "Curator" [level=2]
+    - paragraph: Last pass 2026-09-11T00:00:00.000Z
+    - paragraph: 1 recorded passes
+    - list:
+      - listitem:
+        - text: pass-2
+        - text: 3 changes
+  - region "Capacity":
+    - heading "Capacity" [level=2]
+    - paragraph: 320 of 131072 bytes used
+    - paragraph: lessons 210 bytes
+    - paragraph: profile 45 bytes
+    - paragraph: digest 537f2b

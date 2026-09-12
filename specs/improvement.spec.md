@@ -19,7 +19,9 @@ Implemented:
 - Telemetry (`packages/skill/evolution-skill-telemetry/src/index.ts` + `src/types.ts`): `evolution_skill_usage` domain storing exactly `SkillUsageRecord`, `markAgentCreated()` as the only `createdBy: 'agent'` path, bundled/hub exclusion, `skill`-tool post-execute use hook.
 - Executor (`packages/skill/evolution-skill-manage/src/index.ts` + `src/files.ts`): `skill_manage` with `create | patch | edit | write_file | remove_file | delete`, `createDir` with `~` / `${VAR}`, telemetry `markPatched` wiring, pin-blocked delete.
 
-Planned: GEPA and the `maxCostUsd` cost ceiling (no pricing source exists). Since this list was written, the curator, budgets, fallback, `parallelScopeKey`, defer queue, FTS5 recall with the lean squeeze, skill frontmatter gating and trust, curator trigger and consolidation, trajectory exporter, scorer, controller/Web journey, and the CLI verbs `/suggestions`, `/trajectory`, and `/learn` all landed.
+Implemented since (all landed after this list was written): the curator (`packages/evolution/evolution-curator`), budgets (`packages/guard/budgets`), fallback (`packages/llm/llm-fallback`), `parallelScopeKey` (`packages/tools`), defer queue, FTS5 recall with the lean squeeze (`packages/evolution/evolution-reviewer`), skill frontmatter gating and trust (`packages/skill/skill-filesystem`), curator trigger and consolidation, trajectory exporter (`packages/evolution/evolution-trajectory`), scorer (`packages/evolution/evolution-scorer`), controller (`packages/evolution/evolution-controller`), Web journey page (`packages/client/ui-evolution`), and the CLI verbs `/suggestions`, `/trajectory`, and `/learn` (`packages/evolution/command-evolution`).
+
+Still deferred: GEPA and the `maxCostUsd` cost ceiling (no pricing source exists).
 
 ### Spec hygiene (fixed)
 
@@ -85,8 +87,9 @@ Planned: GEPA and the `maxCostUsd` cost ceiling (no pricing source exists). Sinc
 ### Implemented vs planned
 
 - Implemented: `dsh-evolution-reviewer` in-process extraction and output indexing with the defaults below, plus the brief injector fork `dsh-evolution-memory-context` (digest-gated `agent/pre-step` brief, `maxBytes` + `profile` required).
-- Implemented since: the reviewer defer queue (`defer`/`deferMaxAgeMs`, coalesced per session, in-memory) and the injector nudge cadence (`memoryNudgeInterval`/`skillNudgeInterval`).
-- Planned: FTS5 recall, lean squeeze, Honcho user-fact table. Reuse paths: workspace-memory `render.ts` + `index.ts`, `workspace-memory-llm/src/index.ts`, `session-query-sqlite/schema.ts` + `query.ts`, `compaction-basic` checkpoint, `MEMORY_HEADINGS`.
+- Implemented since: the reviewer defer queue (`defer`/`deferMaxAgeMs`, coalesced per session, in-memory), the injector nudge cadence (`memoryNudgeInterval`/`skillNudgeInterval`), FTS5 recall (ranked cross-session cwd-scoped `searchSessions`/`searchEvents` via `session-query-sqlite`), and lean squeeze (`squeezeLessons` with `MEMORY_HEADINGS` pressure order between extractor output and store write).
+- Deferred: Honcho user-fact table (traits/confidence/decay). Keep `userProfile: string (maxUserBytes: 32768)` + provenance; a future user-fact table runs parallel, never inside `contextItems`.
+- Reuse paths: workspace-memory `render.ts` + `index.ts`, `workspace-memory-llm/src/index.ts`, `session-query-sqlite/schema.ts` + `query.ts`, `compaction-basic` checkpoint, `MEMORY_HEADINGS`.
 
 ### Brief injector (implemented fork of the workspace-memory injector)
 
@@ -119,19 +122,21 @@ Planned: GEPA and the `maxCostUsd` cost ceiling (no pricing source exists). Sinc
 ### Implemented vs planned
 
 - Implemented: `evolution_skill_usage` telemetry matching `SkillUsageRecord` (`packages/skill/evolution-skill-telemetry`) and the `skill_manage` executor (`packages/skill/evolution-skill-manage`); scan-lite / gating / read-only telemetry landed before the writer, per the mandatory ordering.
-- Implemented since: the frontmatter allowlist's parse half (`required_env`, `config`, warn-and-keep for unknown keys).
-- Planned: load-time `skills.config` injection and `required_env` passthrough, `discoverRoot` scan, quarantine + precedence, counted trigger, trust allowlist. Reuse paths: `ParsedSkill` + `parseSkillFile` (`skill-filesystem:~L797`), `collectFresh`, `tool-skill` execute/catalog hooks, `ctx.fs` + `observeHostMutation`.
+- Implemented since: the frontmatter allowlist's parse half (`required_env`, `config`, warn-and-keep for unknown keys), load-time `skills.config` injection and `required_env` passthrough (`packages/skill/tool-skill/src/load.ts`), `discoverRoot` security scan (4 lexical rules: pipe-to-shell, encoded-shell, root-delete, credential-exfiltration; `packages/skill/skill-filesystem`), quarantine (skip-with-warning + `quarantinedCount`), 2-level precedence (layer-shadows-rank with `PROJECT_DSH 100 / PROJECT_AGENTS 200 / RUNTIME 250 / CUSTOM 300 / USER_DSH 400 / USER_AGENTS 500 / BUNDLED 600`), and trust allowlist (`trustedProjectDirs`, `projectDiscovery: false`).
+- Implemented computation, not yet wired to a consumer: counted trigger (`skillCreationEvidence(paths)` with `SKILL_CREATION_OUTPUT_THRESHOLD = 3` in `packages/skill/evolution-skill-telemetry`). The reviewer indexes produced files at `turn/end` but does not feed `record.outputs[].path` through the evidence counter or propose skills when it fires.
+- Reuse paths: `ParsedSkill` + `parseSkillFile` (`skill-filesystem:~L797`), `collectFresh`, `tool-skill` execute/catalog hooks, `ctx.fs` + `observeHostMutation`.
 
 ### Frontmatter allowlist
 
 - Allowlist on `ParsedSkill` + `parseSkillFile` (today at `skill-filesystem:~L797`: `name` kebab-required, `description` required, `whenToUse?`, `metadata?`, invocation booleans; extras silently ignored).
-- Shipped: `metadata`-passthrough plus `required_env` / `config` parsed onto the skill, with unknown top-level keys warn-and-keep. `${DSH_SKILL_DIR}` / `${DSH_SESSION_ID}` also shipped in `tool-skill`. Still deferred: the `skills.config` value source injected on load, shell expansion, `blueprint`, and `references/`.
+- Shipped: `metadata`-passthrough plus `required_env` / `config` parsed onto the skill, with unknown top-level keys warn-and-keep. `${DSH_SKILL_DIR}` / `${DSH_SESSION_ID}` also shipped in `tool-skill`. Implemented: `skills.config` injection and `required_env` passthrough on load (`packages/skill/tool-skill/src/load.ts`). Still deferred: shell expansion, `blueprint`, and `references/`.
 
 ### Scan, quarantine, precedence
 
 - Scan runs at `discoverRoot` between parse success and candidate push; hash cache is realpath+mtime (or list-time-only).
 - Quarantine is skip-with-warning plus `quarantinedCount` on `skills/change` via the host log, never the model catalog.
 - Precedence is 2-level: `collectFresh` layer-shadows-rank, with in-layer rank `PROJECT_DSH 100 / PROJECT_AGENTS 200 / RUNTIME 250 / CUSTOM 300 / USER_DSH 400 / USER_AGENTS 500 / BUNDLED 600`; project root is `.git` else cwd. Identity is `(scope-chain, name)` → winner.
+- All implemented: scan/quarantine/precedence in `packages/skill/skill-filesystem/src/index.ts`, registry aggregation in `packages/skill/skill/src/index.ts`.
 
 ### Telemetry (`evolution_skill_usage`)
 
@@ -148,31 +153,30 @@ interface SkillUsageRecord {
 ```
 
 - Only `origin: 'background_review'` via `markAgentCreated()` sets `createdBy: 'agent'`; bundled and hub skills are excluded from writes; hooks sit at `tool-skill` execute/catalog.
+- `skillCreationEvidence(paths)` computation exists (`SKILL_CREATION_OUTPUT_THRESHOLD = 3` in `packages/skill/evolution-skill-telemetry`) but consumer wiring (reviewer feeding `record.outputs[].path` through the evidence counter) is the remaining gap.
 
 ### Executor, trigger, cost, trust
 
-- `skill_manage` is the missing approver for `StagedWrite { kind: 'skill' }` (today approve only drops): define the `create | patch` payload schema; writes go through `ctx.fs` + `observeHostMutation`; `createDir` defaults to the profile dir and supports `~` / `${VAR}`; verbs `create | patch | edit | write_file | remove_file | delete`; gated by `writeApproval`.
-- Trigger counts `≥3-similar-outputs` (counted, never quoting a Hermes number).
-- Cost row `{ inputBytes, maxOutputTokens, provider, model, truncated }` is recorded before any 50–100-call consolidation.
-- Trust is an allowlist of curator/memory-owned roots at `roots()`; CLI-first `/skills` + `/curator`; non-interactive surfaces inherit trust and never prompt.
+- Implemented: `skill_manage` executor (`packages/skill/evolution-skill-manage`) with `create | patch | edit | write_file | remove_file | delete` verbs, gated by `writeApproval`. Trust allowlist (`trustedProjectDirs`, `projectDiscovery: false`) shipped. Counted trigger computation (`skillCreationEvidence(paths)`) exists but consumer wiring remains.
+- Not yet recorded: cost rows `{ inputBytes, maxOutputTokens, provider, model, truncated }`.
 
 ## Phase 4 — Curator GC + ledger
 
 ### Implemented vs planned
 
-- Implemented: none; defaults below are verified verbatim from the source spec.
-- Planned: new owner for interval+idle triggering, always-on auto-transitions, new ledger domain/sidecar JSONL, tar.gz rotation, reversible rollback, `adopt` / `pin` / `purge`, opt-in consolidation, full-package rule. Reuse path: none for the ledger (reusing `evolution_memory/records` would break capacity/digest, so it is forbidden).
+- Implemented: `dsh-evolution-curator` (`packages/evolution/evolution-curator`): host-owned interval+idle trigger (`intervalHours: 168`, `minIdleHours: 2`, `tickMinutes: 15`), always-on auto-transitions (`active → stale 30d → archived 90d`), content-addressed JSONL ledger (`packages/evolution/evolution-curator/src/safety.ts`), tar.gz pass backups (keep 5), reversible fail-closed rollback (whole pass + single entry, pre-rollback snapshot), `adopt` (manual-only, no clock reset), `purge` (TTL-gated, `--dry-run` preview, skip pinned), opt-in LLM consolidation (two-tool whitelist, full-package rule), and `pin` enforcement (blocks auto-transitions + `skill_manage delete`; patch still allowed). Hub skills always exempt; protected built-ins filtered.
+- CLI gaps (service layer supports these verbs but `/curator` CLI only exposes `status` and `run [--dry-run]`): `adopt <name>`, `purge [--dry-run]`, `backup`, `rollback [--id <id>]`, `ledger`, `pin <name>`, `unpin <name>`.
+- Reuse path: none for the ledger (reusing `evolution_memory/records` would break capacity/digest, so it is forbidden).
 
 ### Trigger and transitions
 
-- Trigger is interval+idle with `intervalHours: 168`, `minIdleHours: 2`, driven by the CLI start, gateway housekeeping, and `serve` maintenance timer under a new owner (the `schedule` facility is session-local and insufficient). First run seeds `lastRunAt` and defers one interval. `run --dry-run` previews.
+- Trigger is interval+idle with `intervalHours: 168`, `minIdleHours: 2`, driven by the CLI start, gateway housekeeping, and `serve` maintenance timer under a new owner (the `schedule` facility is session-local and insufficient). First run seeds `lastRunAt` and defers one interval. `run --dry-run` previews. Implemented in `EvolutionCurator`.
 - Auto-transitions are always on: `active → stale 30d → archived 90d` into `.archive/`; skip pinned and schedule-referenced skills (even paused/disabled; consolidation rewrites refs on merge); never-used grace applies; `pruneBuiltins: { true }` with hub exemption; never auto-delete.
 
 ### Ledger, backup, rollback, governance
 
-- New ledger domain/sidecar JSONL rows `{ actor, action, evidence, before/after sha, blobs content-addressed }`.
-- tar.gz rotation keeps 5; every rollback takes a pre-rollback snapshot (rollback is reversible); single-entry rollback is fail-closed; `archiveTtlDays: 0` (never auto-purge); `purge --dry-run` previews; `adopt` is manual only; `pin` blocks auto-transitions plus `skill_manage delete` (patch still allowed).
-- Reporter is read-only (`--dry-run`); pin/adopt precede mutation.
+- All implemented in `packages/evolution/evolution-curator`: content-addressed JSONL ledger (`src/safety.ts`), tar.gz pass backups (keep 5), reversible fail-closed rollback (whole pass + single entry, pre-rollback snapshot), `adopt` (manual-only, no clock reset), `purge` (TTL-gated, `--dry-run` preview, skip pinned), and `pin` enforcement (blocks auto-transitions + `skill_manage delete`; patch still allowed).
+- CLI gaps: `adopt <name>`, `purge [--dry-run]`, `backup`, `rollback [--id <id>]`, `ledger`, `pin <name>`, `unpin <name>` remain to be wired to the service layer.
 - Consolidation is opt-in (`consolidate: false`) and only after ledger + budgets + a cheaper aux model exist.
 - Full-package rule: a skill shipping `references / templates / scripts / assets` must be kept standalone, re-homed with rewritten paths, or archived whole — never flattened to `SKILL.md` alone.
 
@@ -180,8 +184,8 @@ interface SkillUsageRecord {
 
 ### Implemented vs planned
 
-- Implemented: `session-log-export` today is Web ZIP plus Host `GET /api/session.export`; it lacks a Host-path writer, ShareGPT shaping, and token accounting.
-- Planned: trajectory exporter, scorer triple, deferred GEPA. Reuse paths: `filterEvents` + persistence, `test-support/session-snapshot` (+ `llm-replay`, `snapshots/` corpus), `tokenMeter.measure`, `benchmarks/` perf gates, `workflowEngine` + `subagents` spawn/fork. DEFERRED until after `skill_manage` + telemetry + curator + budgets: GEPA fan-out, Hub/quarantine/lock, blueprints→cron, reviewer-fork upgrade.
+- Implemented: ShareGPT trajectory exporter (`packages/evolution/evolution-trajectory`) beside `session-log-export`, reading `filterEvents` + persistence with SDK/ACP collection seam and `/trajectory [--out <path>] [--all]` CLI. Scorer triple (`packages/evolution/evolution-scorer`) reusing `test-support/session-snapshot` + `llm-replay` + `snapshots/` corpus: pass/workspace-diff + billed tokens via `tokenMeter.measure` + bench-style wall time (median-of-N, fresh process; `benchmarks/` gates).
+- Deferred: GEPA fan-out, Hub/quarantine/lock, blueprints→cron, reviewer-fork upgrade. Reuse paths: `workflowEngine` + `subagents` spawn/fork. Self-evolution guardrails: suite passes, ≤15KB change, no mid-conversation change, semantic preservation, human-reviewed PR, never direct commit.
 
 ### Trajectory exporter
 
@@ -203,9 +207,9 @@ interface SkillUsageRecord {
 
 ### Implemented vs planned
 
-- Implemented: `read(scopeId)` diff source, `usage()` + `digest()`, `filterEvents` time/seq/type/surface filtering, `dayKeyUTC7` / `daysOfRange` / `windowStartOfRange` (now re-exported from the `dsh-usage-ledger` root), `summarizeLedger` / `sweepRetention`, `ui-workspace-memory` controller + `follow` baseline/upsert template, plus the CLI governance slice `/memory pending | approve <id> | reject <id>`, `/skills pending | approve <id> | diff <id>`, `/journey [today | 7d | 30d | all]`, `/curator status`, and `/refine` (`packages/evolution/command-evolution`, honest empty states, no new domain and no new session event). The `/journey` read model lives in `packages/evolution/command-evolution/src/journey.ts` as exported pure functions, so the controller below reuses it instead of restating it.
-- Planned: new `evolutionController` clone, `/suggestions`, dual-face `dsh-client-ui-evolution`, journey export, web scenario + e2e, and the two read-model gaps named below.
-- Reuse paths (verbatim): `packages/session/usage-ledger/src/aggregate.ts` (`dayKeyUTC7`, `daysOfRange`, `windowStartOfRange`, `SessionEventResultFilter` shape), `packages/client/ui-workspace-memory/src/index.ts` + `client/rpc.ts` + `types.ts`, `serializeSessionLog` + `fflate` ZIP, `scaffold.ts`, goldens `approval-composer` + `lifecycle-chrome/command-menu`.
+- Implemented: `read(scopeId)` diff source, `usage()` + `digest()`, `filterEvents` time/seq/type/surface filtering, `dayKeyUTC7` / `daysOfRange` / `windowStartOfRange` (now re-exported from the `dsh-usage-ledger` root), `summarizeLedger` / `sweepRetention`, `ui-workspace-memory` controller + `follow` baseline/upsert template, plus the CLI governance slice `/memory pending | approve <id> | reject <id>`, `/skills pending | approve <id> | diff <id>`, `/journey [today | 7d | 30d | all]`, `/curator status | run [--dry-run]`, `/trajectory [--out <path>] [--all]`, `/learn <anything>`, `/suggestions`, and `/refine` (`packages/evolution/command-evolution`, honest empty states, no new domain and no new session event). The `/journey` read model lives in `packages/evolution/command-evolution/src/journey.ts` as exported pure functions.
+- Implemented since: `evolutionController` clone (`packages/evolution/evolution-controller`) with all spec'd verbs (read/setInstructions/setLessons/setProfile/addContextItem/removeContextItem/rebuildMemory/listStaged/approveStaged/rejectStaged/timeline/follow scope-first resolving `workspace/not-found`), dual-face `dsh-client-ui-evolution` (`packages/client/ui-evolution`) with journey/pending/curator/capacity cards, CSS Modules + `--dsw-*` tokens, locale `NS = 'evolution'` with zh-source + en-satisfies + `t`, and composition triple in `bundle/web-app/cordis.patch.yml`.
+- Remaining: Web scenario `snapshots/web/evolution-journey/` + e2e `apps/web/tests/evolution-journey.e2e.ts`, journey ZIP export (reusing `serializeSessionLog` + `fflate` with `timeline.json`). The two read-model gaps (staged-approved/rejected counts from `record.resolutions`, per-family stamps) are closed.
 
 ### Read model (query-time, verbatim types)
 
@@ -236,8 +240,8 @@ interface JourneyTimeline { range: 'today' | '7d' | '30d' | 'all'; now: number; 
 
 ### Web (dual-face `dsh-client-ui-evolution`)
 
-- Host plus `journeyPage` / `EvolutionSeat` / `shell.page` + `rpc.ts` / `Page.tsx` / `Seat.tsx` / `locales.ts`; cards for journey/pending/curator (honest-empty until the curator exists)/capacity (`usage()` + the `card.capacity` copy pattern); CSS Modules + `--dsw-*` tokens; locale `NS = 'evolution'` with zh-source + en-satisfies + `t` (gate `verify-client-ui-i18n`); wire/CLI copy stays English-stable.
-- Composition touches only `bundle/web-app/cordis.patch.yml` for the triple (`tsconfig.client.json` ref + `dsh.client` row + package dep) plus the `dsh.client.external` decision; never `base`. If the web owner rejects the client scope, keep the controller/CLI and leave `dsh-client-ui-evolution` deferred without the triple checklist.
+- Implemented: dual-face package (`packages/client/ui-evolution`) with `journeyPage` / `EvolutionSeat` / `shell.page` + `rpc.ts` / `Page.tsx` / `Seat.tsx` / `locales.ts`; cards for journey/pending/curator/capacity; CSS Modules + `--dsw-*` tokens; locale `NS = 'evolution'` with zh-source + en-satisfies + `t`; composition triple in `bundle/web-app/cordis.patch.yml`.
+- Remaining: scenario `snapshots/web/evolution-journey/` + e2e `apps/web/tests/evolution-journey.e2e.ts`.
 
 ### Export, scenario, gates
 

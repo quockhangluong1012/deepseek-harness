@@ -39,6 +39,9 @@
       "path": "../evolution-memory"
     },
     {
+      "path": "../../skill/evolution-skill-telemetry"
+    },
+    {
       "path": "../../util/values"
     }
   ]

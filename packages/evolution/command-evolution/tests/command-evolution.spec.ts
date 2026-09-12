@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { mkdtemp, realpath, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, realpath, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
@@ -13,9 +13,10 @@ import { RemoteError } from '@deepseek-ai/dsh-typert-protocol'
 import { EvolutionScopeId } from '@deepseek-ai/dsh-evolution-memory'
 import type { EvolutionScopeId as ScopeId } from '@deepseek-ai/dsh-evolution-memory'
 import type {} from '@deepseek-ai/dsh-evolution-reviewer'
-import type { PassSummary } from '@deepseek-ai/dsh-evolution-curator'
+import type { PassSummary, PurgeReport, RollbackReport } from '@deepseek-ai/dsh-evolution-curator'
 import type { SkillUsageRecord } from '@deepseek-ai/dsh-evolution-skill-telemetry'
 import { dayKeyUTC7 } from '@deepseek-ai/dsh-usage-ledger'
+import { unzipSync, strFromU8 } from 'fflate'
 import { WorkspaceId } from '@deepseek-ai/dsh-workspace'
 import { MemoryMediaPool, MemoryStorageBackend } from '../../../storage/storage-domain/tests/helpers/memory-backend.ts'
 import * as commandEvolution from '../src/index.ts'
@@ -42,6 +43,22 @@ interface GovernanceStubs {
   skippedProtected?: number
   skippedExcluded?: number
   passId?: string | null
+  /** Names passed to `adopt`, in call order. */
+  adoptCalls?: string[]
+  /** Error `adopt` throws, or the record it returns. */
+  adoptResult?: SkillUsageRecord | Error
+  /** Dry-run flags passed to `purge`, in call order. */
+  purgeCalls?: boolean[]
+  /** Outcome `purge` reports. */
+  purgeResult?: PurgeReport
+  /** Pass ids passed to `rollbackPass`, in call order. */
+  rollbackCalls?: string[]
+  /** Error `rollbackPass` throws, or the report it returns. */
+  rollbackResult?: RollbackReport | Error
+  /** (name, pinned) pairs passed to `setPinned`, in call order. */
+  setPinnedCalls?: { name: string; pinned: boolean }[]
+  /** Error `setPinned` throws. */
+  setPinnedError?: Error
 }
 
 /** Trajectory-export state the `/trajectory` command reads, when provided. */
@@ -112,7 +129,16 @@ async function harness(
       },
     } as never)
   }
-  if (governance?.entries !== undefined) {
+  if (governance?.entries !== undefined || governance?.setPinnedCalls !== undefined || governance?.setPinnedError !== undefined) {
+    ctx.provide('evolutionSkillTelemetry', {
+      entries: () => governance.entries ?? [],
+      setPinned: async (name: string, pinned: boolean) => {
+        governance.setPinnedCalls?.push({ name, pinned })
+        if (governance.setPinnedError !== undefined) throw governance.setPinnedError
+        return { name, useCount: 0, viewCount: 0, patchCount: 0, lastUsedAt: null, lastViewedAt: null, lastPatchedAt: null, createdAt: '2026-01-01T00:00:00.000Z', state: 'active', pinned, createdBy: null, absorbedInto: null, archivedAt: null } as SkillUsageRecord
+      },
+    } as never)
+  } else if (governance?.entries !== undefined) {
     ctx.provide('evolutionSkillTelemetry', { entries: () => governance.entries } as never)
   }
   if (governance !== undefined) {
@@ -132,6 +158,20 @@ async function harness(
           passId: options.dryRun === true ? null : governance.passId ?? null,
           snapshot: null,
         }
+      },
+      adopt: async (name: string) => {
+        governance.adoptCalls?.push(name)
+        if (governance.adoptResult instanceof Error) throw governance.adoptResult
+        return governance.adoptResult ?? { name, useCount: 0, viewCount: 0, patchCount: 0, lastUsedAt: null, lastViewedAt: null, lastPatchedAt: null, createdAt: '2026-01-01T00:00:00.000Z', state: 'active', pinned: false, createdBy: 'agent', absorbedInto: null, archivedAt: null } as SkillUsageRecord
+      },
+      purge: async (options: { dryRun?: boolean } = {}) => {
+        governance.purgeCalls?.push(options.dryRun === true)
+        return governance.purgeResult ?? { at: '2026-09-12T01:00:00.000Z', dryRun: options.dryRun === true, purged: [], skippedPinned: 0 } as PurgeReport
+      },
+      rollbackPass: async (passId: string) => {
+        governance.rollbackCalls?.push(passId)
+        if (governance.rollbackResult instanceof Error) throw governance.rollbackResult
+        return governance.rollbackResult ?? { at: '2026-09-12T01:00:00.000Z', label: `pass '${passId}'`, restored: [], preRollback: 'sha', restoredDirs: [] } as RollbackReport
       },
     } as never)
   }
@@ -273,7 +313,7 @@ describe('@deepseek-ai/dsh-command-evolution registration', () => {
       expect(test.ctx.commands.list(agent)).toContainEqual({
         definitionId: '@deepseek-ai/dsh-command-evolution/journey',
         name: 'journey',
-        description: 'Show this scope’s recorded evolution activity',
+        description: 'Show or export this scope\'s recorded evolution activity',
       })
       expect(test.ctx.commands.list(agent)).toContainEqual({
         definitionId: '@deepseek-ai/dsh-command-evolution/skills',
@@ -631,6 +671,42 @@ describe('/journey human command', () => {
       await shutdown(test)
     }
   })
+
+  it('exports journey timeline and session log to a zip file', async () => {
+    const test = await harness()
+    try {
+      const session = sessionIn(test.ctx, test.dir, 'journey-export')
+      const id = test.scope('ws-1')
+      test.workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: test.dir, sessionIds: [session.id] })
+      await test.ctx.evolutionMemory.recordOutputs(id, [
+        { path: 'src/a.ts', tool: 'write', sessionId: 's-output', at: new Date().toISOString() },
+      ])
+      const outPath = join(test.dir, 'journey-test.zip')
+      const execution = await run(test, session, `/journey export --out ${outPath}`)
+      expect(execution.result).toEqual({
+        kind: 'success',
+        text: `Journey exported to ${outPath}`,
+      })
+
+      // Verify the zip structure and content
+      const archive = unzipSync(new Uint8Array(await readFile(outPath)))
+      expect(Object.keys(archive).sort()).toEqual(['session-log.jsonl', 'timeline.json'])
+
+      const timeline = JSON.parse(strFromU8(archive['timeline.json']!))
+      expect(timeline).toHaveProperty('days')
+      expect(timeline).toHaveProperty('cumulative')
+      expect(timeline).toHaveProperty('pending')
+
+      const sessionLog = strFromU8(archive['session-log.jsonl']!)
+      const lines = sessionLog.trim().split('\n')
+      expect(lines.length).toBeGreaterThan(0)
+      const header = JSON.parse(lines[0]!)
+      expect(header.type).toBe('session')
+      expect(header.id).toBe('journey-export')
+    } finally {
+      await shutdown(test)
+    }
+  })
 })
 
 describe('/skills human command', () => {
@@ -735,7 +811,7 @@ describe('/curator human command', () => {
     const test = await harness()
     try {
       const session = sessionIn(test.ctx, test.dir, 'curator-usage')
-      const usage = { kind: 'error', text: 'Usage: /curator status | /curator run [--dry-run]' } as const
+      const usage = { kind: 'error', text: 'Usage: /curator status | run [--dry-run] | adopt <name> | purge [--dry-run] | rollback --id <id> | ledger | pin <name> | unpin <name>' } as const
       expect((await run(test, session, '/curator')).result).toEqual(usage)
       expect((await run(test, session, '/curator status extra')).result).toEqual(usage)
       expect((await run(test, session, '/curator run extra')).result).toEqual(usage)
@@ -892,6 +968,281 @@ describe('/curator human command', () => {
           'Tracked skills: unavailable (skill telemetry is not mounted).',
           'Recorded passes: 0',
         ].join('\n'),
+      })
+    } finally {
+      await shutdown(test)
+    }
+  })
+
+  it('refuses adopt without a name', async () => {
+    const test = await harness(true, {})
+    try {
+      const session = sessionIn(test.ctx, test.dir, 'curator-adopt-usage')
+      const usage = { kind: 'error', text: 'Usage: /curator status | run [--dry-run] | adopt <name> | purge [--dry-run] | rollback --id <id> | ledger | pin <name> | unpin <name>' } as const
+      expect((await run(test, session, '/curator adopt')).result).toEqual(usage)
+      expect((await run(test, session, '/curator adopt a b')).result).toEqual(usage)
+    } finally {
+      await shutdown(test)
+    }
+  })
+
+  it('adopts a skill and reports success', async () => {
+    const adoptCalls: string[] = []
+    const test = await harness(true, { adoptCalls })
+    try {
+      const session = sessionIn(test.ctx, test.dir, 'curator-adopt')
+      expect((await run(test, session, '/curator adopt draft-skill')).result).toEqual({
+        kind: 'success',
+        text: `Adopted 'draft-skill' (state: active)`,
+      })
+      expect(adoptCalls).toEqual(['draft-skill'])
+    } finally {
+      await shutdown(test)
+    }
+  })
+
+  it('reports an error from adopt', async () => {
+    const adoptCalls: string[] = []
+    const test = await harness(true, { adoptCalls, adoptResult: new Error('curator: adopt failed') })
+    try {
+      const session = sessionIn(test.ctx, test.dir, 'curator-adopt-err')
+      expect((await run(test, session, '/curator adopt bad')).result).toEqual({
+        kind: 'error',
+        text: 'curator: adopt failed',
+      })
+      expect(adoptCalls).toEqual(['bad'])
+    } finally {
+      await shutdown(test)
+    }
+  })
+
+  it('refuses purge with extra arguments', async () => {
+    const test = await harness(true, {})
+    try {
+      const session = sessionIn(test.ctx, test.dir, 'curator-purge-usage')
+      const usage = { kind: 'error', text: 'Usage: /curator status | run [--dry-run] | adopt <name> | purge [--dry-run] | rollback --id <id> | ledger | pin <name> | unpin <name>' } as const
+      expect((await run(test, session, '/curator purge extra')).result).toEqual(usage)
+      expect((await run(test, session, '/curator purge --dry-run extra')).result).toEqual(usage)
+    } finally {
+      await shutdown(test)
+    }
+  })
+
+  it('purges skills and reports the list', async () => {
+    const purgeCalls: boolean[] = []
+    const test = await harness(true, {
+      purgeCalls,
+      purgeResult: {
+        at: '2026-09-12T03:00:00.000Z',
+        dryRun: false,
+        purged: [
+          { name: 'old-stale', dir: null },
+          { name: 'orphaned', dir: '/path/to/orphaned' },
+        ],
+        skippedPinned: 1,
+      },
+    })
+    try {
+      const session = sessionIn(test.ctx, test.dir, 'curator-purge')
+      expect((await run(test, session, '/curator purge')).result).toEqual({
+        kind: 'success',
+        text: [
+          'Purge complete at 2026-09-12T03:00:00.000Z: 2 skills removed, 1 skipped (pinned)',
+          '- old-stale',
+          '- orphaned (/path/to/orphaned)',
+        ].join('\n'),
+      })
+      expect(purgeCalls).toEqual([false])
+    } finally {
+      await shutdown(test)
+    }
+  })
+
+  it('previews purge with --dry-run', async () => {
+    const purgeCalls: boolean[] = []
+    const test = await harness(true, {
+      purgeCalls,
+      purgeResult: {
+        at: '2026-09-12T03:00:00.000Z',
+        dryRun: true,
+        purged: [{ name: 'old-stale', dir: null }],
+        skippedPinned: 0,
+      },
+    })
+    try {
+      const session = sessionIn(test.ctx, test.dir, 'curator-purge-dry')
+      expect((await run(test, session, '/curator purge --dry-run')).result).toEqual({
+        kind: 'success',
+        text: 'Purge previewed at 2026-09-12T03:00:00.000Z: 1 skill, 0 skipped (pinned), no writes\n- old-stale',
+      })
+      expect(purgeCalls).toEqual([true])
+    } finally {
+      await shutdown(test)
+    }
+  })
+
+  it('refuses rollback without --id', async () => {
+    const test = await harness(true, {})
+    try {
+      const session = sessionIn(test.ctx, test.dir, 'curator-rollback-usage')
+      const usage = { kind: 'error', text: 'Usage: /curator status | run [--dry-run] | adopt <name> | purge [--dry-run] | rollback --id <id> | ledger | pin <name> | unpin <name>' } as const
+      expect((await run(test, session, '/curator rollback')).result).toEqual(usage)
+      expect((await run(test, session, '/curator rollback --id')).result).toEqual(usage)
+      expect((await run(test, session, '/curator rollback --id a b')).result).toEqual(usage)
+    } finally {
+      await shutdown(test)
+    }
+  })
+
+  it('rolls back a pass and reports restored skills', async () => {
+    const rollbackCalls: string[] = []
+    const test = await harness(true, {
+      rollbackCalls,
+      rollbackResult: {
+        at: '2026-09-12T04:00:00.000Z',
+        label: "pass 'pass-3'",
+        restored: [
+          { name: 'drafts', from: 'archived', to: 'stale' },
+          { name: 'notes', from: 'stale', to: 'active' },
+        ],
+        preRollback: 'sha256',
+        restoredDirs: [],
+      },
+    })
+    try {
+      const session = sessionIn(test.ctx, test.dir, 'curator-rollback')
+      expect((await run(test, session, '/curator rollback --id pass-3')).result).toEqual({
+        kind: 'success',
+        text: [
+          "Rolled back pass 'pass-3' at 2026-09-12T04:00:00.000Z: 2 skills restored",
+          '- drafts: archived → stale',
+          '- notes: stale → active',
+        ].join('\n'),
+      })
+      expect(rollbackCalls).toEqual(['pass-3'])
+    } finally {
+      await shutdown(test)
+    }
+  })
+
+  it('reports an error from rollback', async () => {
+    const rollbackCalls: string[] = []
+    const test = await harness(true, { rollbackCalls, rollbackResult: new Error('curator: unknown pass') })
+    try {
+      const session = sessionIn(test.ctx, test.dir, 'curator-rollback-err')
+      expect((await run(test, session, '/curator rollback --id ghost')).result).toEqual({
+        kind: 'error',
+        text: 'curator: unknown pass',
+      })
+      expect(rollbackCalls).toEqual(['ghost'])
+    } finally {
+      await shutdown(test)
+    }
+  })
+
+  it('lists recorded passes via ledger', async () => {
+    const test = await harness(true, {
+      passes: [
+        { passId: 'pass-2', at: '2026-09-12T00:00:00.000Z', snapshot: 'pass-2.tar.gz', transitions: 2 },
+        { passId: 'pass-1', at: '2026-09-05T00:00:00.000Z', snapshot: 'pass-1.tar.gz', transitions: 1 },
+      ],
+    })
+    try {
+      const session = sessionIn(test.ctx, test.dir, 'curator-ledger')
+      expect((await run(test, session, '/curator ledger')).result).toEqual({
+        kind: 'success',
+        text: [
+          '2 passes:',
+          '- pass-2 at 2026-09-12T00:00:00.000Z: 2 transitions',
+          '- pass-1 at 2026-09-05T00:00:00.000Z: 1 transition',
+        ].join('\n'),
+      })
+    } finally {
+      await shutdown(test)
+    }
+  })
+
+  it('reports empty ledger', async () => {
+    const test = await harness(true, { passes: [] })
+    try {
+      const session = sessionIn(test.ctx, test.dir, 'curator-ledger-empty')
+      expect((await run(test, session, '/curator ledger')).result).toEqual({
+        kind: 'success',
+        text: 'No recorded passes.',
+      })
+    } finally {
+      await shutdown(test)
+    }
+  })
+
+  it('pins a tracked skill', async () => {
+    const setPinnedCalls: { name: string; pinned: boolean }[] = []
+    const test = await harness(true, { setPinnedCalls })
+    try {
+      const session = sessionIn(test.ctx, test.dir, 'curator-pin')
+      expect((await run(test, session, '/curator pin draft-skill')).result).toEqual({
+        kind: 'success',
+        text: `Pinned 'draft-skill'`,
+      })
+      expect(setPinnedCalls).toEqual([{ name: 'draft-skill', pinned: true }])
+    } finally {
+      await shutdown(test)
+    }
+  })
+
+  it('refuses pin without a name', async () => {
+    const test = await harness(true, { setPinnedCalls: [] })
+    try {
+      const session = sessionIn(test.ctx, test.dir, 'curator-pin-usage')
+      const usage = { kind: 'error', text: 'Usage: /curator status | run [--dry-run] | adopt <name> | purge [--dry-run] | rollback --id <id> | ledger | pin <name> | unpin <name>' } as const
+      expect((await run(test, session, '/curator pin')).result).toEqual(usage)
+      expect((await run(test, session, '/curator pin a b')).result).toEqual(usage)
+    } finally {
+      await shutdown(test)
+    }
+  })
+
+  it('reports an error from pin', async () => {
+    const setPinnedCalls: { name: string; pinned: boolean }[] = []
+    const test = await harness(true, { setPinnedCalls, setPinnedError: new Error('telemetry: no record') })
+    try {
+      const session = sessionIn(test.ctx, test.dir, 'curator-pin-err')
+      expect((await run(test, session, '/curator pin ghost')).result).toEqual({
+        kind: 'error',
+        text: 'telemetry: no record',
+      })
+      expect(setPinnedCalls).toEqual([{ name: 'ghost', pinned: true }])
+    } finally {
+      await shutdown(test)
+    }
+  })
+
+  it('unpins a tracked skill', async () => {
+    const setPinnedCalls: { name: string; pinned: boolean }[] = []
+    const test = await harness(true, { setPinnedCalls })
+    try {
+      const session = sessionIn(test.ctx, test.dir, 'curator-unpin')
+      expect((await run(test, session, '/curator unpin draft-skill')).result).toEqual({
+        kind: 'success',
+        text: `Unpinned 'draft-skill'`,
+      })
+      expect(setPinnedCalls).toEqual([{ name: 'draft-skill', pinned: false }])
+    } finally {
+      await shutdown(test)
+    }
+  })
+
+  it('reports a missing curator for verbs that need it', async () => {
+    const test = await harness()
+    try {
+      const homeless = test.ctx.sessions.create(SessionId('curator-missing'))
+      expect((await run(test, homeless, '/curator adopt x')).result).toEqual({
+        kind: 'error',
+        text: 'The evolution curator is not mounted.',
+      })
+      expect((await run(test, homeless, '/curator ledger')).result).toEqual({
+        kind: 'error',
+        text: 'The evolution curator is not mounted.',
       })
     } finally {
       await shutdown(test)

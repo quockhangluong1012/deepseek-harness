@@ -13,5 +13,5 @@
  * build a child's environment, and strip the ambient one for a replay.
  * @module @deepseek-ai/dsh-http-proxy
  */
-export { clearedProxyEnv, installProxyFromEnvironment, proxyEnvironmentForChild, proxyRouteFor, type ProxyRoute } from './install.ts'
+export { clearedProxyEnv, installProxyFromEnvironment, proxyEnvironmentForChild, proxyRouteFor, type ProxyRoute, } from './install.ts';
 //# sourceMappingURL=index.d.ts.map

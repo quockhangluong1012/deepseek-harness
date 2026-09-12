@@ -138,7 +138,7 @@
     - id: evolution-trajectory
       name: '@deepseek-ai/dsh-evolution-trajectory'
 
-        - id: evolution-controller
+    - id: evolution-controller
       name: '@deepseek-ai/dsh-evolution-controller'
       config:
         profile: default

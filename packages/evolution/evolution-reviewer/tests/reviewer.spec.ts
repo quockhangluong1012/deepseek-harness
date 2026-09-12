@@ -1604,6 +1604,49 @@ describe('evolution reviewer', () => {
     }
   })
 
+  it('stages a skill proposal when skillCreationEvidence fires on output paths', async () => {
+    const h = await harness()
+    dirs.push(h.dir)
+    try {
+      const session = sessionIn(h.ctx, h.dir, 's1')
+      const id = h.scope('ws-1')
+      h.workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: h.dir, sessionIds: [session.id] })
+      const repeated = join(h.dir, 'readme.md')
+      const now = new Date().toISOString()
+      // mergeOutputs deduplicates identical paths, so we seed the record with
+      // three outputs at the same path through a read spy.
+      const origRead = h.ctx.evolutionMemory.read.bind(h.ctx.evolutionMemory)
+      vi.spyOn(h.ctx.evolutionMemory, 'read').mockImplementation((scopeId: unknown) => {
+        const record = origRead(scopeId as Parameters<typeof origRead>[0])
+        if (record === undefined) return record
+        return { ...record, outputs: [
+          { path: repeated, tool: 'write', sessionId: 's0', at: now },
+          { path: repeated, tool: 'write', sessionId: 's0', at: now },
+          { path: repeated, tool: 'write', sessionId: 's0', at: now },
+        ]}
+      })
+      const produced = join(h.dir, 'out.ts')
+      await writeFile(produced, 'export const x = 1\n')
+      appendTurn(session, 1, {
+        user: 'write out.ts',
+        assistant: 'ok',
+        calls: [{ name: 'write', args: JSON.stringify({ file_path: produced }) }],
+      })
+      await vi.waitFor(() => {
+        const record = origRead(id)
+        const skillStage = record?.staged.find(entry => entry.kind === 'skill')
+        expect(skillStage).toBeDefined()
+        expect(skillStage).toMatchObject({
+          kind: 'skill',
+          op: 'create',
+          originSessionId: String(session.id),
+        })
+      })
+    } finally {
+      await h.fiber.dispose()
+    }
+  })
+
   it('clips to the store cap when the squeeze budget exceeds it', async () => {
     const h = await harness({ provider: 'p', model: 'm', squeezeBytes: 70000 })
     dirs.push(h.dir)
