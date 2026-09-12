@@ -49,7 +49,7 @@ export declare function validateEscalationArgs(sandboxPermissions: string | unde
  *   with no resolvable sandbox policy.
  * @returns nothing - throws when no standing policy is resolved.
  */
-export declare function assertStandingPolicy(policy: SandboxExecutionPolicy | undefined): asserts standingPolicy is SandboxExecutionPolicy
+export declare function assertStandingPolicy(policy: SandboxExecutionPolicy | undefined): asserts policy is SandboxExecutionPolicy
 /**
  * The model-facing denial marker — the one vocabulary both enforcing families
  * teach and report, so the model recognizes a policy denial identically

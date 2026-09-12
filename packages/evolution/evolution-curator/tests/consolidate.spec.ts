@@ -564,7 +564,7 @@ describe('evolution curator consolidation', () => {
   })
 
   it('aborts an in-flight consolidation at teardown', async () => {
-    const started = Promise.withResolvers<undefined>()
+    const started = Promise.withResolvers<void>()
     const h = await harness({
       curatorConfig: CONSOLIDATING,
       respond: (request) => {

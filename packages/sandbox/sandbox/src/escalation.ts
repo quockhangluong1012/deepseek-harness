@@ -71,7 +71,7 @@ export function validateEscalationArgs(sandboxPermissions: string | undefined, j
  */
 export function assertStandingPolicy(
   policy: SandboxExecutionPolicy | undefined,
-): asserts standingPolicy is SandboxExecutionPolicy {
+): asserts policy is SandboxExecutionPolicy {
   if (policy === undefined) {
     throw new HarnessError(
       'sandbox_permissions is not available for direct calls without a resolved sandbox policy',

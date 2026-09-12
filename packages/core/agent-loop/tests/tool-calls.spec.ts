@@ -96,7 +96,7 @@ function gatedScopedTool(name: string) {
     parallelScopeKey: args => args.scope,
     async execute(args) {
       started.push(args.id)
-      const gate = Promise.withResolvers<undefined>()
+      const gate = Promise.withResolvers<void>()
       gates.set(args.id, gate.resolve)
       await gate.promise
       return [{ type: 'text', text: `done-${args.id}` }]

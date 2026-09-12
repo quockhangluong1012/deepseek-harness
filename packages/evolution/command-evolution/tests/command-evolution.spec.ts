@@ -979,7 +979,7 @@ describe('/trajectory human command', () => {
     const test = await harness(true, undefined, { trajectory: true })
     try {
       const session = sessionIn(test.ctx, test.dir, 'trajectory-failure')
-      test.trajectory.failure = new RemoteError('evolution/export-failed' as never, 'no events', {})
+      test.trajectory.failure = new RemoteError('evolution/export-failed' as never, 'no events', {} as never)
       expect((await run(test, session, '/trajectory')).result).toEqual({
         kind: 'error',
         text: 'Trajectory export failed (evolution/export-failed): no events.',
