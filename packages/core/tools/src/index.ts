@@ -260,6 +260,19 @@ export interface ToolDefinition extends ToolSchema {
    */
   isConcurrencySafe?(args: unknown): boolean
   /**
+   * Pure synchronous overlap scope for sibling calls of a concurrency-safe
+   * tool. Calls that return the same non-empty key never overlap: the loop
+   * withholds each one until the previously started call with that key
+   * settles, while distinct keys keep packing into the same parallel group.
+   * Only consulted when `isConcurrencySafe` returns `true` for the same
+   * arguments; omission, an empty string, a non-string return, and a throwing
+   * classifier declare no scope, which is exclusive when the classifier threw.
+   * This metadata is never model-visible.
+   * @param args - parsed arguments; `defineTool` validates before calling.
+   * @returns The overlap scope key, or an empty string for no scope.
+   */
+  parallelScopeKey?(args: unknown): string
+  /**
    * Optional: how to present the PENDING state of one call in a UI, derived from
    * the call's `args` (parsed arguments, `unknown` — the tool validates/narrows
    * its own input). Returns a {@link ToolCallView} (a `card`-tagged render intent),
@@ -332,10 +345,12 @@ export interface ToolExecutionInput {
 
 /**
  * Scheduling mode for one pending call. `parallel` may overlap with siblings;
- * `exclusive` runs alone and forms an ordering barrier.
+ * `exclusive` runs alone and forms an ordering barrier. A `parallel` call may
+ * additionally declare a `scopeKey`: calls sharing one key never overlap, while
+ * distinct keys and unscoped calls still pack into the same pool.
  */
 export type ToolExecutionMode =
-  | { kind: 'parallel' }
+  | { kind: 'parallel'; scopeKey?: string }
   | { kind: 'exclusive' }
 
 /**
@@ -498,7 +513,6 @@ export function startAbortGuardedBackground<Id extends string>(
   // Close the check-then-start race: an abort that landed during registration
   // must not leave an orphan background job. AbortSignal is externally
   // mutable; registration may reenter cancellation.
-  // oxlint-disable-next-line typescript/no-unnecessary-condition
   if (signal.aborted) {
     try {
       kill(id)
@@ -1007,7 +1021,6 @@ export class ToolRuntime extends Service {
         yield ctx.systemPrompt.section(this.sdkSection())
       }
     }.bind(this), 'tools.presentAs()')
-    // oxlint-disable-next-line typescript/no-misused-promises -- synchronous composite teardown
     return dispose
   }
 
@@ -1305,7 +1318,10 @@ export class ToolRuntime extends Service {
   /**
    * Classify a pending call through the caller's visible tool definition. Only
    * an exact `true` is parallel; unknown, hidden, undeclared, invalid, or
-   * throwing classifiers are exclusive.
+   * throwing classifiers are exclusive. A parallel call additionally carries
+   * its overlap scope key when the tool declares one; a non-string or empty
+   * return, and any throw from the scope classifier, read as no scope, which is
+   * exclusive when the throw came from the overlap classifier.
    * @param exec - call name, parsed arguments, and optional agent scope.
    * @returns the fail-closed scheduling mode.
    */
@@ -1314,7 +1330,10 @@ export class ToolRuntime extends Service {
     if (!tool?.isConcurrencySafe) return { kind: 'exclusive' }
     try {
       const concurrencySafe: unknown = tool.isConcurrencySafe(exec.arguments)
-      return concurrencySafe === true ? { kind: 'parallel' } : { kind: 'exclusive' }
+      if (concurrencySafe !== true) return { kind: 'exclusive' }
+      const scopeKey: unknown = tool.parallelScopeKey?.(exec.arguments)
+      if (scopeKey === undefined || scopeKey === '') return { kind: 'parallel' }
+      return typeof scopeKey === 'string' ? { kind: 'parallel', scopeKey } : { kind: 'exclusive' }
     } catch {
       return { kind: 'exclusive' }
     }

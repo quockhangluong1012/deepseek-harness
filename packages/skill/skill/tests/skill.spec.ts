@@ -5,6 +5,7 @@ import SkillRegistry, {
   isModelInvocable,
   isUserInvocable,
   renderSkillContent,
+  type SkillBlueprint,
   type SkillCandidate,
   type SkillDefinition,
   type SkillInvocationPolicy,
@@ -525,6 +526,11 @@ describe('SkillRegistry registry', () => {
       { patch: { provider: { value: 'provider' } as unknown as string }, expected: 'provider must be a string' },
       { patch: { content: { value: 'content' } as unknown as string }, expected: 'content must be a string' },
       { patch: { path: 1 as unknown as string }, expected: 'path must be a string' },
+      { patch: { requiredEnv: 'DSH_TOKEN' as unknown as readonly string[] }, expected: 'requiredEnv must be an array of strings' },
+      { patch: { requiredEnv: ['DSH_TOKEN', 1] as unknown as readonly string[] }, expected: 'requiredEnv must be an array of strings' },
+      { patch: { config: 'region' as unknown as Record<string, string> }, expected: 'config must be an object of strings' },
+      { patch: { config: ['region'] as unknown as Record<string, string> }, expected: 'config must be an object of strings' },
+      { patch: { config: { region: 1 } as unknown as Record<string, string> }, expected: 'config must be an object of strings' },
     ]
     for (const [index, { patch, expected }] of cases.entries()) {
       const ctx = new Context()
@@ -556,6 +562,91 @@ describe('SkillRegistry registry', () => {
       })
 
       await expect(ctx.skills.get(skillName)).rejects.toThrow(expected)
+    }
+  })
+
+  it('loads a definition carrying environment and configuration declarations', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SkillRegistry)
+    registerProvider(ctx, {
+      name: 'declared-provider',
+      list: () => Promise.resolve([{
+        name: 'declared-skill',
+        description: 'Candidate',
+        invocation: { modelInvocable: true, userInvocable: true },
+        provider: 'declared-provider',
+        source: 'test',
+        rank: 1,
+        locator: 'definition',
+      }]),
+      get: () => Promise.resolve({
+        name: 'declared-skill',
+        description: 'Definition',
+        invocation: { modelInvocable: true, userInvocable: true },
+        provider: 'declared-provider',
+        source: 'test',
+        content: 'Definition body.',
+        requiredEnv: ['DSH_TOKEN'],
+        config: { region: 'eu-west-1' },
+        blueprint: { schedule: '0 9 * * *', deliver: 'session', prompt: 'Summarize the repository.' },
+      }),
+    })
+
+    const loaded = await ctx.skills.get('declared-skill')
+    expect(loaded?.requiredEnv).toEqual(['DSH_TOKEN'])
+    expect(loaded?.config).toEqual({ region: 'eu-west-1' })
+    expect(loaded?.blueprint).toEqual({ schedule: '0 9 * * *', deliver: 'session', prompt: 'Summarize the repository.' })
+    // Summaries stay invocation-neutral: none of the declarations reaches the catalog.
+    const summaries = await ctx.skills.list()
+    expect(summaries).toEqual([{
+      name: 'declared-skill',
+      description: 'Candidate',
+      invocation: { modelInvocable: true, userInvocable: true },
+      source: 'test',
+      provider: 'declared-provider',
+    }])
+    expect(Object.hasOwn(summaries[0] as object, 'blueprint')).toBe(false)
+  })
+
+  it('drops an install blueprint a provider supplies in the wrong shape', async () => {
+    const malformed: unknown[] = [
+      '0 9 * * *',
+      null,
+      ['0 9 * * *'],
+      { schedule: 9, deliver: 'session', prompt: 'Summarize.' },
+      { schedule: '', deliver: 'session', prompt: 'Summarize.' },
+      { schedule: '0 9 * * *', deliver: 'chat', prompt: 'Summarize.' },
+      { schedule: '0 9 * * *', deliver: 'file', prompt: 7 },
+      { schedule: '0 9 * * *', deliver: 'file', prompt: '' },
+    ]
+    for (const [index, blueprint] of malformed.entries()) {
+      const ctx = new Context()
+      await ctx.plugin(SkillRegistry)
+      const providerName = `blueprint-provider-${index}`
+      const skillName = `blueprint-${index}`
+      registerProvider(ctx, {
+        name: providerName,
+        list: () => Promise.resolve([{
+          name: skillName,
+          description: 'Candidate',
+          invocation: { modelInvocable: true, userInvocable: true },
+          provider: providerName,
+          source: 'test',
+          rank: 1,
+          locator: 'definition',
+        }]),
+        get: () => Promise.resolve({
+          name: skillName,
+          description: 'Definition',
+          invocation: { modelInvocable: true, userInvocable: true },
+          provider: providerName,
+          source: 'test',
+          content: 'Definition body.',
+          blueprint: blueprint as SkillBlueprint,
+        }),
+      })
+
+      expect((await ctx.skills.get(skillName))?.blueprint).toBeUndefined()
     }
   })
 
@@ -732,6 +823,38 @@ describe('SkillRegistry registry', () => {
     invalidate()
     expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(['replacement-skill'])
     expect(replacement.listCalls).toBe(1)
+  })
+
+  it('reports the quarantined skill count observed by the latest discovery', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SkillRegistry)
+    const payloads: number[] = []
+    let invalidate = (): void => {}
+    ctx.skills.registerProvider((control) => {
+      invalidate = control.invalidate
+      return {
+        name: 'quarantining',
+        list: () => Promise.resolve({
+          candidates: [{ ...memorySkill('clean-skill', 'Clean', 10), provider: 'quarantining' }],
+          complete: true,
+          quarantinedCount: 2,
+        }),
+        get: candidate => Promise.resolve(candidate.locator as never),
+      }
+    })
+    ctx.skills.registerProvider(() => ({
+      name: 'quiet',
+      list: () => Promise.resolve([{ ...memorySkill('quiet-skill', 'Quiet', 20), provider: 'quiet' }]),
+      get: candidate => Promise.resolve(candidate.locator as never),
+    }))
+    ctx.on('skills/change', (payload) => { payloads.push(payload.quarantinedCount) })
+
+    // No discovery has completed yet: the count starts at zero.
+    invalidate()
+    expect(payloads).toEqual([0])
+    expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(['clean-skill', 'quiet-skill'])
+    invalidate()
+    expect(payloads).toEqual([0, 2])
   })
 
   it('emits catalog invalidations for live provider and runtime mutations', async () => {

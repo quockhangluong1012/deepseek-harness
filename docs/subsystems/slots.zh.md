@@ -82,7 +82,7 @@ Slot 声明固定两个相互独立的维度。
 |---|---|---|
 | 所有 scope | `useSessions`、`useSessionPendingInteraction` | `ui-session` |
 | 所有 scope | `useWorkspaces` | `ui-workspace` |
-| 所有作用域 | `usePanelInfo` | `ui-layout` |
+| 所有 scope | `usePanelInfo` | `ui-layout` |
 | `session` | `sessionId`、`useSession`、`useProjection` | `ui-session` |
 | `session-maybe` | 结果可选的 `sessionId`、`useSession`、`useProjection` | `ui-session` |
 | `session` | `useConversation`、`useInput`、`inputActions` | `ui-conversation` |

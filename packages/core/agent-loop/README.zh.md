@@ -56,7 +56,7 @@ kind: "package-reference"
 | `agents[].sessionId` | — | 确切身份：首次使用创建，重新挂载时恢复已实体化的历史 |
 | `agents[].resumeSessionId` | — | 加载这个持久化会话而不是创建新会话；与 `sessionId` 互斥 |
 
-生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-agent-loop)是每个受支持字段的穷尽式真源。适配器会校验有效推理强度，循环则把它记录在请求头中。`maxParallelToolCalls` 也是整个 `agent-loop` 设置分节，因此叠加在该条目之上的用户层无需重启即可限制下一组工具调用。
+生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-agent-loop)是每个受支持字段的穷尽式真源。适配器会校验有效推理强度，循环则把它记录在请求头中。`maxParallelToolCalls` 也是整个 `agent-loop` 设置分节，因此叠加在该条目之上的用户层无需重启即可限制下一组工具调用。`maxSteps` 同属该设置分节：将超出上限的 turn 以 `max-steps` 结束而不是无界运行，即使某次 steer 排入了更多工作。`maxRequestRetries` 同属该设置分节：它限制每个步骤接受的请求恢复次数，无条件恢复的监听器因此无法无限重试；提供方重试策略在上限之下保持权威。
 
 ### 以编程方式创建或恢复 agent
 
@@ -124,7 +124,7 @@ const handle = await ctx.agents.create({
 
 ### 失败与取消
 
-最终适配器选择、分发与迭代失败以终止结束的形式到达并进入 `agent/request-error`；处理该失败的监听器返回 `{ kind: 'retry' }` 且不调用 `next()`，未被处理的失败则是终态。Middleware、结果处理、工具及其他扩展失败仍会抛出并直接关闭轮次——插件失败结束的是轮次，不是循环。取消后未分发的模型工具调用会收到合成的 `tool/call` 加 `ABORTED_BEFORE_DISPATCH` 结果对。[显式取消决策](../../../.agents/notes/implemented/architecture/2026-07-16-explicit-turn-cancellation.zh.md)拥有信号生命周期。
+最终适配器选择、分发与迭代失败以终止结束的形式到达并进入 `agent/request-error`；处理该失败的监听器返回 `{ kind: 'retry' }` 且不调用 `next()`，未被处理的失败则是终态。每个步骤接受的重试次数受 `maxRequestRetries` 限制；超出上限的恢复保持终态并告警，无条件恢复因此无法无限重试。Middleware、结果处理、工具及其他扩展失败仍会抛出并直接关闭轮次——插件失败结束的是轮次，不是循环。取消后未分发的模型工具调用会收到合成的 `tool/call` 加 `ABORTED_BEFORE_DISPATCH` 结果对。[显式取消决策](../../../.agents/notes/implemented/architecture/2026-07-16-explicit-turn-cancellation.zh.md)拥有信号生命周期。
 
 </details>
 

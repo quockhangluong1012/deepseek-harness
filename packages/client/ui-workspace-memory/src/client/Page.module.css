@@ -47,7 +47,7 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
-  padding: 14px 0 16px;
+  padding: 0 0 16px;
   background: var(--dsw-alias-bg-base);
   pointer-events: auto;
 }
@@ -83,8 +83,8 @@
   height: var(--dsh-composer-height, 0px);
 }
 
-/* The description is an action, so it reads as text until the pointer or the
-   keyboard reaches it; the pencil is the only affordance that says so. */
+/* The description is an action, so it reads as text; the always-visible pencil
+   is the affordance that says so. */
 .descriptionText {
   display: flex;
   align-items: flex-start;
@@ -115,17 +115,10 @@
   flex: none;
   margin-top: 3px;
   color: var(--dsw-alias-label-tertiary);
-  opacity: 0;
-  transition: opacity .12s;
-}
-
-.descriptionText:hover .edit,
-.descriptionText:focus-visible .edit {
-  opacity: 1;
 }
 
 .descriptionPlaceholder {
-  color: var(--dsw-alias-markdown-placeholder);
+  color: var(--dsw-alias-label-tertiary);
 }
 
 .actions {

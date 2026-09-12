@@ -57,7 +57,7 @@ describe('jsonSchemaToTs', () => {
       '  opts?: {',
       '    deep: boolean;',
       '  } & Record<string, JsonValue>;',
-      '} & Record<string, JsonValue>',
+      '}',
     ].join('\n'))
   })
 

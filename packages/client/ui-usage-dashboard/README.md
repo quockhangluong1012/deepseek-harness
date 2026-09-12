@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-client-ui-usage-dashboard` shows billed LLM usage in two surfaces. The left-sidebar **Dashboard** entry opens an overlay with cross-session totals: the today/7-day/30-day/all filter, total requests, input/output tokens, cache hits, the average cache-hit share, a stacked input/output bar chart by day (UTC+7), and a per-model table. The right-Sidebar `usage` tab keeps the current session only: its live header and cumulative cards read the session's `tokenUsage` and `sessionStats` projections with no filter and no Remote fetch. The Host half (`ctx.usageDashboard`) serves range summaries over the `usageDashboard` Remote namespace from the usage ledger; the fold and the persistence live there, not here.
+`dsh-client-ui-usage-dashboard` shows billed LLM usage in two surfaces. The left-sidebar **Dashboard** entry opens an overlay with cross-session totals: the today/7-day/30-day/all filter, total requests, input/output tokens, cache hits, the average cache-hit share, a stacked input/output bar chart by day (UTC+7) whose columns show that day's input and output totals on hover, and a per-model table. The right-Sidebar `usage` tab keeps the current session only: its live header and cumulative cards read the session's `tokenUsage` and `sessionStats` projections with no filter and no Remote fetch. The Host half serves range summaries over the `usageDashboard` Remote from the usage ledger.
 
 ## Table of Contents
 
@@ -107,7 +107,15 @@ The fold lives in `@deepseek-ai/dsh-usage-ledger`: `session/event` folds usage s
 <a id="model-experience"></a>
 ## Model Experience
 
-None. The package adds no prompt, message, schema, tool, or model call. The Host half folds the durable log and serves one read-only Remote; the browser half renders it.
+### No model-facing surface
+
+#### What the model sees
+
+Nothing. The package adds no prompt, message, schema, tool, or model call; the Host half folds the durable log and serves the read-only `usageDashboard` Remote, and the browser half renders it.
+
+#### Token effect
+
+Zero. The dashboard reads counters other packages already billed, and it neither assembles a request nor adds content to one.
 
 #### KV Cache effect
 
@@ -121,7 +129,7 @@ These limits define where the dashboard stops and future work begins.
 
 - **Counts begin at mount** — durable sessions that ended before the ledger first mounts contribute nothing; only live sessions backfill, and only from their cursors.
 - **Advisory totals** — skipped unprovable samples under-count by construction; the ledger is not a billing record.
-- **Hand-drawn chart** — the stacked bars are dependency-free SVG; a chart library swap stays a one-file change if richer interactions are ever needed.
+- **Hand-drawn chart** — the stacked bars are dependency-free SVG; a column's hover band and totals bubble are hand-built too, so a chart library swap stays a one-file change if richer interactions are ever needed.
 - **Fixed UTC+7 days** — the reporting zone is a product decision, not a deployment choice.
 
 <a id="dev-note"></a>

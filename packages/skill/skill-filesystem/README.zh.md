@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-agent（智能体）可以使用来自仓库、自定义目录或用户 agent 配置的本地 skill（技能）：把 skill 编写为任一被扫描根目录下的目录 bundle（内含 `SKILL.md`）或平铺 `<name>.md` 文件，它就会出现在会话目录中。该提供方发现项目、自定义与用户根目录，解析每个 skill 的 YAML frontmatter，并监视这些目录，因此新增、改名或删除的 skill 无需重启即可到达 agent。当 skill 存放在磁盘上时选择它——注册表（`dsh-skill`）接受任意提供方，其他提供方可以从别处提供 skill。
+agent（智能体）可以使用来自仓库、自定义目录或用户 agent 配置的本地 skill（技能）：把 skill 编写为任一被扫描根目录下的目录 bundle（内含 `SKILL.md`）或平铺 `<name>.md` 文件，它就会出现在会话目录中。该提供方发现项目、自定义与用户根目录，解析每个 skill 的 YAML frontmatter，按 skill 声明的平台与工具门控，在索引前对项目 skill 做安全扫描，并监视这些目录，因此新增、改名或删除的 skill 无需重启即可到达 agent。当 skill 存放在磁盘上时选择它——注册表（`dsh-skill`）接受任意提供方，其他提供方可以从别处提供 skill。
 
 ## 目录
 
@@ -33,13 +33,30 @@ agent（智能体）可以使用来自仓库、自定义目录或用户 agent �
 
 ### skill 格式
 
-skill 可以是被扫描根目录顶层的目录 bundle `<name>/SKILL.md`，也可以是平铺文件 `<name>.md`；刻意不支持发现嵌套的 `**/SKILL.md`。文件以 YAML frontmatter 开头：必填 `name` 与 `description`，另有可选 `whenToUse`、`metadata`、`disable-model-invocation` 与 `user-invocable`。
+skill 可以是被扫描根目录顶层的目录 bundle `<name>/SKILL.md`，也可以是平铺文件 `<name>.md`；刻意不支持发现嵌套的 `**/SKILL.md`。文件以 YAML frontmatter 开头：必填 `name` 与 `description`，另有可选 `whenToUse`、`metadata`、`disable-model-invocation`、`user-invocable`、`required_env`（该 skill 所需的环境变量名列表，需为非空数组）、`config`（映射，其标量值以字符串形式保存）以及下文的[门控键](#platform-and-tool-gating)。其他任何顶层键都会被忽略，并针对该文件与该键各警告一次；已识别键的值畸形——空的 `required_env`、非字符串条目、不是映射的 `config`、值不是标量的 `config`、本应非空却为空的列表，或缺少 schedule、deliver 模式或 prompt 的 `blueprint`——会被丢弃并各警告一次（指明文件与键），而 skill 仍然加载。
 
 `disable-model-invocation: true` 会把 skill 从面向模型的目录和 loader 中排除；`user-invocable: false` 会把它从面向用户的命令中排除，省略的字段默认允许对应接口调用。这两个键接受 YAML 布尔值，以及不区分大小写的 `true`/`false`、`yes`/`no`、`on`/`off` 和 `1`/`0` 形式；被拒绝的拼写或非布尔值会让整个 skill 随警告一起被丢弃，而不会静默允许某个接口。
 
 目录条目和已加载 skill 提供解析后的指令文件路径，使符号链接目录和扁平文件都能作为普通文件预览。重新加载的定位信息和资源根保留发现时的路径，包括符号链接。
 
 目录与正文具有独立的生命周期：发现阶段把 frontmatter 解析进目录条目，每次加载都会重新读取当前文件，因此编辑 skill 正文无需版本化或缓存失效。
+
+<a id="platform-and-tool-gating"></a>
+
+### 平台与工具门控
+
+可选 frontmatter 决定该 skill 是否会被提供；被门控排除的 skill 不会进入任何面向模型或命令的目录，因此也无法按名称加载。
+
+| 键 | 形态 | 效果 |
+|---|---|---|
+| `platforms` | 非空的平台列表 | 仅当某一项命中当前运行平台时才被提供 |
+| `requires_tools` | 非空的工具名列表 | 仅当每个工具都已挂载时才被提供 |
+| `requires_toolsets` | 非空的工具集名列表 | 仅当每个工具集都已挂载时才被提供 |
+| `fallback_for_tools` | 非空的工具名列表 | 只要任一工具已挂载即被隐藏 |
+| `fallback_for_toolsets` | 非空的工具集名列表 | 只要任一工具集已挂载即被隐藏 |
+| `blueprint` | 含 `schedule`、`deliver`（`session` 或 `file`）与 `prompt` 的映射 | 仅用于解析安装期的计划建议；不会自行调度 |
+
+平台匹配接受 `process.platform` 拼写及其 agentskills.io 别名（`darwin`/`macos`、`win32`/`windows`），不区分大小写。工具集按其工具共有的名称前缀寻址，因此只要挂载了任一 `web_*` 工具，`requires_toolsets: [web]` 即被满足。`fallback_for_*` 这一对是 skill 表达"当我所替代的工具缺席时改用我"的方式：主 `requires_*` skill 与该 fallback 会随该工具的出现与消失互换位置。未挂载 `ctx.tools` 注册表的组合会隐藏所有 `requires_*` skill，并提供所有 `fallback_for_*` skill。畸形值会被丢弃并各警告一次，skill 仍然加载；被门控排除的 skill 则静默跳过。
 
 ### 根目录与优先级
 
@@ -48,12 +65,26 @@ skill 可以是被扫描根目录顶层的目录 bundle `<name>/SKILL.md`，也�
 | Rank | 来源 | 路径 |
 |---|---|---|
 | 100 | `project-dsh` | `<projectRoot>/.dsh/skills` |
+| 150 | `project-hermes` | `<projectRoot>/.hermes/skills` |
 | 200 | `project-agents` | `<projectRoot>/.agents/skills` |
 | 300 | `custom` | `Config.customSkillDirs` |
 | 400 | `user-dsh` | `<dshHome>/skills` |
 | 500 | `user-agents` | `<agentsHome>/skills` |
 
-项目根目录是包含 `.git` 的最近祖先目录；如果不存在，则使用当前 cwd。用户 DSH 根目录会跳过其 `.system` 子目录。`includeDefaultRoots: false` 会省略项目根、用户根以及 `$DSH_BUNDLED_SKILL_DIR` 默认值，使隔离提供方只看到自身配置的根；`bundledSkillDir` 会按 rank 600 添加一个随包提供的根目录。
+项目根目录是包含 `.git` 的最近祖先目录；如果不存在，则使用当前 cwd。项目根仅在显式受信后索引：在 `trustedProjectDirs` 中列出绝对项目根（按解析后路径比较，Windows 下不区分大小写；相对条目在加载时大声失败），或以 `projectDiscovery: false` 完全禁用项目发现。不受信根下的技能会被跳过，并对每个根警告一次；信任是配置，不是交互——非交互界面继承信任，永不弹窗。每个项目 skill 在入库前都会做安全扫描，危险内容会被隔离：该 skill 被跳过，宿主日志记录命中的规则，计数随 `skills/change` 的 `quarantinedCount` 载荷上报。隔离是宿主侧事实——模型目录从不收到隔离诊断，被隔离的 skill 也无法按名称加载。扫描只覆盖项目自有根目录；`custom`、用户与随包提供的根属于 harness 自有，未经扫描即索引。用户 DSH 根目录会跳过其 `.system` 子目录。`includeDefaultRoots: false` 会省略项目根、用户根以及 `$DSH_BUNDLED_SKILL_DIR` 默认值，使隔离提供方只看到自身配置的根；`bundledSkillDir` 会按 rank 600 添加一个随包提供的根目录。
+
+### 项目 skill 安全扫描
+
+四条词法规则会在项目 skill 入库前将其隔离：
+
+| 规则 | 匹配对象 |
+|---|---|
+| `pipe-to-shell` | 把 `curl` 或 `wget` 下载内容管道给 shell |
+| `encoded-shell` | 把 `base64` 解码结果管道给 shell |
+| `root-delete` | 带递归与强制标志、目标为 `/`、`~` 或 `$HOME` 的 `rm` |
+| `credential-exfiltration` | 在发起网络请求的同时读取凭据存储（`~/.ssh`、`id_rsa`、`.aws/credentials`、`gh/hosts.yml`、`/etc/shadow`） |
+
+这些规则刻意保守，因此仅仅提及某条命令的普通 skill 不会被隔离。判定结果按解析后的文件路径与修改时间缓存在该提供方实例中：未改动的文件不会重复扫描，被重写的文件则会重新扫描。
 
 ### 挂载与配置
 
@@ -71,6 +102,8 @@ skill 可以是被扫描根目录顶层的目录 bundle `<name>/SKILL.md`，也�
 | `dshHome` | `$DSH_HOME` 或 `~/.dsh` | Harness 配置根目录；扫描其 `skills` 子目录 |
 | `agentsHome` | `$DSH_AGENTS_HOME` 或 `~/.agents` | 为兼容 skill 扫描的共享 agent 配置根目录 |
 | `customSkillDirs` | `[]` | 其他本地 skill 根目录，位于项目根之后、用户根之前 |
+| `trustedProjectDirs` | `[]` | 允许索引项目技能的绝对项目根；其他项目根一律跳过 |
+| `projectDiscovery` | `true` | 是否索引项目根；`false` 完全禁用项目发现 |
 | `watch` | `true` | 监视本地根，并在目录可能变化时使提供方失效 |
 | `bundledSkillDir` | — | 配置后按 rank 600 扫描的随包提供的 skill 根目录 |
 
@@ -82,7 +115,7 @@ skill 可以是被扫描根目录顶层的目录 bundle `<name>/SKILL.md`，也�
 
 ### 可观察的成功与失败
 
-任一被扫描根目录下的有效 skill 都会按名称排序出现在会话目录中，加载它即可返回当前文件正文。缺少有效 frontmatter、名称无效或调用值无效的文件会随警告被跳过，因此模型目录不会收到逐 skill 诊断，也无法区分缺失的 skill 与无效的 skill。意外的发现或读取失败会让目录观测保持不完整，而不会用看似发生删除的结果替换最后一份可用视图。
+任一被扫描根目录下的有效 skill 都会按名称排序出现在会话目录中，加载它即可返回当前文件正文。缺少有效 frontmatter、名称无效或调用值无效的文件会随警告被跳过，因此模型目录不会收到逐 skill 诊断，也无法区分缺失的 skill 与无效的 skill。未通过安全扫描的项目 skill 会被同样隔离——不出现在任何目录中，也无法按名称加载——同时宿主日志记录命中的规则，`skills/change` 上报计数。意外的发现或读取失败会让目录观测保持不完整，而不会用看似发生删除的结果替换最后一份可用视图。
 
 -----
 
@@ -107,7 +140,7 @@ skill 可以是被扫描根目录顶层的目录 bundle `<name>/SKILL.md`，也�
 
 ### 发现流程
 
-发现过程先为查找 cwd 解析根列表，让监视管理器附加到每个根，再扫描每个根的直接条目：目录 bundle 解析为 `<name>/SKILL.md`，平铺文件解析为 `<name>.md`。每个文件都会解析 frontmatter——`name` 必须为 kebab-case，`description` 必填，调用键按严格布尔语法解析——候选项携带根目录的来源标签与 rank，供注册表与其他提供方合并。已确认缺失的路径属于有效空状态；格式错误或非文本条目会随警告跳过。
+发现过程先为查找 cwd 解析根列表，让监视管理器附加到每个根，再扫描每个根的直接条目：目录 bundle 解析为 `<name>/SKILL.md`，平铺文件解析为 `<name>.md`。每个文件都会解析 frontmatter——`name` 必须为 kebab-case，`description` 必填，调用键按严格布尔语法解析——随后按运行平台与已挂载工具门控，再对项目自有根做安全扫描，最后才作为候选项入列，携带根目录的来源标签与 rank，供注册表与其他提供方合并。已确认缺失的路径属于有效空状态；格式错误或非文本条目会随警告跳过。
 
 ### 监视与失效
 
@@ -146,6 +179,10 @@ watcher 触发的失效可促使上述消费方在现有请求历史中追加替
 这些限制说明该提供方何时不合适，或何时需要特别的运维注意。它们是当前包约束，不是任务积压。
 
 - **发现深度为一层**——只识别 `<root>/<name>/SKILL.md` 与 `<root>/<name>.md`；忽略嵌套 skill 树与包 manifest（元数据清单）。
+- **项目技能需要显式信任**——发现永不弹窗：未列出的项目根不贡献任何内容，也没有交互式首次信任。信任变更走配置，不经过模型。
+- **安全扫描只读取 `SKILL.md`**——bundle 的 `references`、`scripts`、`assets` 等资源文件不在扫描范围内，且规则是词法匹配，因此经过混淆的载荷可以绕过。隔离是保守的第一道过滤，不是沙箱。
+- **扫描判定仅存活于进程内**——按路径与修改时间缓存的判定只存在于该提供方实例中，不跨重启持久化，因此新进程会重新扫描每个项目 skill。
+- **门控依赖工具注册表**——`requires_*` 与 `fallback_for_*` 读取发现时刻已挂载的 `ctx.tools`，因此未挂载该服务的组合会隐藏所有 `requires_*` skill；`requires_toolsets` 条目依赖名称前缀约定（`web` ← `web_search`），不共享前缀的工具命名方案无法表达。
 - **项目范围为最近 `.git` 祖先**——没有该标记的工作区回退到提供的 cwd，不支持其他项目根标记或 monorepo 子项目选择。
 - **格式错误的条目随警告消失**——模型目录不会收到逐 skill 诊断，无法区分缺失的 skill 与无效的 skill；意外的 I/O 失败则会保留最后一份可用目录。
 - **缺失根观察每次轮询一个路径段**——启动时不存在的根会使用 `fs.watchFile` 按 `watchPollIntervalMs` 轮询，直至 Chokidar 可以附加；这以有界检测延迟换取跨 IDE、Git 与 shell 工作流的可靠创建检测。

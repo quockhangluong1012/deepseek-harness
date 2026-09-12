@@ -75,20 +75,20 @@ export function writableRoots(policy: SandboxExecutionPolicy): string[] {
  * resolved sandbox-policy root wins so workdir and confinement use the exact
  * same per-call identity. The one home for the resolution every shell tool
  * shares, so the next fix cannot land on one call site only.
- * @param modelWorkdir - the model's explicit workdir argument, if given.
+ * @param workdir - the model's explicit workdir argument, if given.
  * @param headerCwd - the calling session header cwd, if any.
- * @param policyWorkspaceRoot - the resolved sandbox-policy workspace root, if any.
+ * @param root - the resolved sandbox-policy workspace root, if any.
  * @returns the workdir to pass the executor, or undefined for its default.
  */
 export function resolveWorkdir(
-  modelWorkdir: string | undefined,
+  workdir: string | undefined,
   headerCwd: string | undefined,
-  policyWorkspaceRoot?: string,
+  root?: string,
 ): string | undefined {
-  const sessionCwd = policyWorkspaceRoot ?? (headerCwd === undefined ? undefined : canonicalPath(headerCwd))
-  if (modelWorkdir === undefined) return sessionCwd
-  if (sessionCwd !== undefined && !isAbsolute(modelWorkdir)) {
-    return resolvePath(sessionCwd, modelWorkdir)
+  const sessionCwd = root ?? (headerCwd === undefined ? undefined : canonicalPath(headerCwd))
+  if (workdir === undefined) return sessionCwd
+  if (sessionCwd !== undefined && !isAbsolute(workdir)) {
+    return resolvePath(sessionCwd, workdir)
   }
-  return modelWorkdir
+  return workdir
 }

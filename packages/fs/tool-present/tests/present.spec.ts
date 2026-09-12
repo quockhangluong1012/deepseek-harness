@@ -17,6 +17,23 @@ import ToolRuntime, { defineTool } from '@deepseek-ai/dsh-tools'
 import type { PresentedFile } from '../src/types.ts'
 import * as Present from '../src/index.ts'
 
+// Windows grants SeCreateSymbolicLinkPrivilege only to elevated or
+// developer-mode processes, so a file symlink there fails with EPERM. Probe the
+// capability rather than the OS: the directory alias below uses a junction,
+// which needs no privilege, and the file-link case skips where neither exists.
+const fileSymlinks = await mkdtemp(join(tmpdir(), 'dsh-symlink-probe-')).then(async (probeDir) => {
+  try {
+    const target = join(probeDir, 'target')
+    await writeFile(target, '')
+    await symlink(target, join(probeDir, 'link'))
+    return true
+  } catch {
+    return false
+  } finally {
+    await rm(probeDir, { recursive: true, force: true })
+  }
+})
+
 const cleanups: Array<() => Promise<unknown>> = []
 let callNumber = 0
 afterEach(async () => {
@@ -139,7 +156,7 @@ describe('present', () => {
   it('rejects missing, non-file, empty, and excessive inputs', async () => {
     const { root, owner, execute } = await setup()
     await writeFile(join(root, 'large'), 'four')
-    await symlink(tmpdir(), join(root, 'outside'))
+    await symlink(tmpdir(), join(root, 'outside'), process.platform === 'win32' ? 'junction' : 'dir')
     for (const files of [[], [{ path: '' }], [{ path: 'missing' }], [{ path: '.' }], [{ path: 'outside' }], [{ path: 'large' }, { path: 'large' }, { path: 'large' }]]) {
       const result = await execute(files)
       expect(result.isError, JSON.stringify(files)).toBe(true)
@@ -181,7 +198,7 @@ it('declares readable files outside the Session directory using absolute and rel
   expect(owner.session.snapshotEvents().find(event => event.type === 'deliverables/presented')?.data.files).toEqual(files)
 })
 
-it('refuses a final symlink to an ordinary file', async () => {
+it.skipIf(!fileSymlinks)('refuses a final symlink to an ordinary file', async () => {
   const { root, execute } = await setup()
   await writeFile(join(root, 'source'), 'source')
   await symlink(join(root, 'source'), join(root, 'link'))

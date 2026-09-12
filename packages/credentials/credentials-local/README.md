@@ -66,6 +66,8 @@ await ctx.credentials.unset(ref)                // remove
 
 A key you save is usable by the next request that names it, and `describe` reports whether it is set, where it comes from, and whether you can write to it — never the value itself. Records persist in the same file, addressed by `<owner>/<id>` and managed with the seam's record operations (`readRecord`, `describeRecord`, `listRecords`, `modifyRecord`, `deleteRecord`).
 
+`rotate` replaces a key that is already in use without taking it out of service first: `await ctx.credentials.rotate(ref, current => nextKey(current))` reads the value the reference currently resolves to — the stored one, or the `.env` fallback when nothing is stored — under the same writer lock as a store write, hands it to your decision function, and stores what the function returns. The stored result outranks the `.env` fallback it replaced, so the next request that names the key uses it.
+
 ### Where keys come from
 
 Keys are resolved in one fixed order — the first place that has a value wins:
@@ -116,7 +118,7 @@ Only your OS user can read the file: the product creates it with owner-only perm
 
 ### What can go wrong
 
-- **A key the launching environment supplies is read-only** — `DEEPSEEK_API_KEY=… dsh` wins for this run; saving or removing it is refused. Clear the variable in the launching shell first.
+- **A key the launching environment supplies is read-only** — `DEEPSEEK_API_KEY=… dsh` wins for this run; saving, removing, or rotating it is refused. Clear the variable in the launching shell first.
 - **An empty value cannot be saved** — storing an empty string is refused; remove the key instead.
 - **The store refuses to load a file it cannot trust** — a file any other user can read, malformed YAML, or an unreachable path fails at startup; on a live reload the last good content keeps serving with a warning.
 - **Changes made at the same time are both kept** — if you edit the file while the product writes, your change is folded in rather than overwritten.
@@ -148,6 +150,8 @@ This section explains the design decisions behind the provider and points at the
 ### Resolution and write paths
 
 `resolve` and `describe` read the inherited environment snapshot, the parsed document snapshot, and the `.env` fallbacks in precedence order. `set`/`unset` queue onto one exclusive operation chain: entry checks reject early (disposed, empty value, environment-shadowed), and the queue re-judges them at run time before a read-modify-write under the writer lock commits and fires `credentials/reference-updated` exactly once.
+
+`rotate` runs on that same chain and lock: it re-reads the document, hands the value the reference currently resolves to — stored, or the `.env` fallback — to the caller's decision, refuses an empty result before rendering, and commits the returned value with one `credentials/reference-updated`. A reference the inherited environment supplies is refused up front, like `set`, because a committed rotation that resolution would keep ignoring is worse than a failed one.
 
 `modifyRecord` runs on the same chain and lock: it re-reads the document, passes the record as it stands to the mutation, admits the result — a non-empty API key, a grant payload that survives a JSON round trip — renders the record wholesale, and commits, firing `credentials/record-updated` once. A composition the product CLI did not boot has only the inherited environment as its layer.
 

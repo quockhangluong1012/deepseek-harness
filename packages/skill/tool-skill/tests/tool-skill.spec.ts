@@ -1,10 +1,11 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mkdir, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { Context } from '@deepseek-ai/cordis'
 import { createUserMessage, ToolCallId, type Message } from '@deepseek-ai/dsh-llm'
 import { createScope, type Scope } from '@deepseek-ai/dsh-scope'
+import { ShellExecutor, type ShellExecRequest, type ShellExecSpec, type ShellRunResult } from '@deepseek-ai/dsh-shell'
 import {
   SESSION_FORMAT_VERSION, Session, SessionId, type SessionEvent, type UserMessage,
 } from '@deepseek-ai/dsh-session'
@@ -36,13 +37,22 @@ async function writeSkill(root: string, name: string, description: string, body:
   await writeFile(join(dir, 'SKILL.md'), `---\nname: ${name}\ndescription: ${description}\n---\n\n${body}\n`)
 }
 
-async function setup(home: string, config: toolSkill.Config = {}): Promise<Context> {
+async function setup(
+  home: string,
+  config: toolSkill.Config = {},
+  filesystem: { trustedProjectDirs?: string[] } = {},
+): Promise<Context> {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(SkillRegistry)
-  await ctx.plugin(SkillFileSystem, { dshHome: join(home, '.dsh'), agentsHome: join(home, '.agents'), watch: false })
+  await ctx.plugin(SkillFileSystem, {
+    dshHome: join(home, '.dsh'),
+    agentsHome: join(home, '.agents'),
+    watch: false,
+    ...filesystem,
+  })
   await ctx.plugin(toolSkill, config)
   return ctx
 }
@@ -788,7 +798,8 @@ describe('dsh-tool-skill', () => {
     const project = await tempDir('tool-project')
     await mkdir(join(project, '.git'), { recursive: true })
     await writeSkill(join(project, '.dsh/skills'), 'project-skill', 'Project skill', 'Project instructions.')
-    const ctx = await setup(home)
+    // Project roots index only when the deployment trusts them.
+    const ctx = await setup(home, {}, { trustedProjectDirs: [project] })
 
     const result = await ctx.tools.execute({
       signal: testToolSignal,
@@ -1107,5 +1118,196 @@ describe('user-explicit invocation injection', () => {
       .filter(message => (message.source as { kind?: string }).kind === 'skill-invocation')
       .map(message => (message.source as { name: string }).name)
     expect(invoked).toEqual(['shared-skill'])
+  })
+})
+
+describe('load-time skill environment', () => {
+  /** Write one skill whose frontmatter carries extra keys before the closing delimiter. */
+  async function writeConfiguredSkill(root: string, name: string, frontmatter: readonly string[], body: string): Promise<void> {
+    const dir = join(root, name)
+    await mkdir(dir, { recursive: true })
+    await writeFile(join(dir, 'SKILL.md'), ['---', `name: ${name}`, `description: ${name}`, ...frontmatter, '---', '', body, ''].join('\n'))
+  }
+
+  /** A `ctx.shell` stand-in returning one queued result per command. */
+  class FakeShell extends ShellExecutor {
+    readonly requests: ShellExecRequest[] = []
+    readonly results: ShellRunResult[] = []
+    override resolve(request: ShellExecRequest): ShellExecSpec {
+      this.requests.push(request)
+      return {
+        command: request.command,
+        workdir: request.workdir ?? process.cwd(),
+        timeoutMs: request.timeoutMs ?? 10_000,
+        stdoutMaxBytes: request.stdoutMaxBytes ?? 0,
+        sandboxPolicy: undefined,
+        ...request.env === undefined ? {} : { env: request.env },
+      }
+    }
+    override async run(): Promise<ShellRunResult> {
+      return this.results.shift() ?? {
+        exitCode: 0,
+        signal: null,
+        timedOut: false,
+        aborted: false,
+        timeoutMs: 10_000,
+        stdout: { text: '', truncated: false },
+        stderr: { text: '', truncated: false },
+      }
+    }
+    override start(): never {
+      throw new Error('tool-skill must never start a background job')
+    }
+  }
+
+  function gesture(text: string): UserMessage {
+    return createUserMessage({ content: [{ type: 'text', text }], source: { kind: 'user' } })
+  }
+
+  async function loadSkillTool(ctx: Context, name: string): Promise<{ isError: boolean; text: string }> {
+    const result = await ctx.tools.execute({
+      signal: testToolSignal,
+      callId: ToolCallId(`load-${name}`),
+      name: 'skill',
+      arguments: { name },
+      agent: { session: { header: { cwd: process.cwd() } } } as never,
+    })
+    const block = result.content[0]
+    if (block?.type !== 'text') throw new Error('expected a text skill result')
+    return { isError: result.isError, text: block.text }
+  }
+
+  it('injects deployment skills.config values over the skill defaults', async () => {
+    const home = await tempDir('skill-config')
+    const root = join(home, '.dsh/skills')
+    await writeConfiguredSkill(root, 'deployed-skill', ['config:', '  region: eu-west-1'], 'region=${region}')
+    await writeConfiguredSkill(root, 'default-skill', ['config:', '  region: eu-west-1'], 'region=${region}')
+    const ctx = await setup(home, { skills: { config: { 'deployed-skill': { region: 'us-east-1' } } } })
+
+    expect((await loadSkillTool(ctx, 'deployed-skill')).text).toContain('region=us-east-1')
+    expect((await loadSkillTool(ctx, 'default-skill')).text).toContain('region=eu-west-1')
+  })
+
+  it('fails the tool call with an explanatory error for an unset declared environment variable', async () => {
+    const home = await tempDir('skill-env-missing')
+    await writeConfiguredSkill(join(home, '.dsh/skills'), 'needs-env', ['required_env:', '  - DSH_TOOL_SKILL_ABSENT'], 'Needs env.')
+    const ctx = await setup(home)
+
+    const loaded = await loadSkillTool(ctx, 'needs-env')
+    expect(loaded.isError).toBe(true)
+    expect(loaded.text).toContain('requires environment variable "DSH_TOOL_SKILL_ABSENT"')
+  })
+
+  it('warns and skips a user-invoked skill whose declared environment variable is unset', async () => {
+    const home = await tempDir('skill-env-invoked')
+    await writeConfiguredSkill(
+      join(home, '.agents/skills'),
+      'needs-env',
+      ['required_env:', '  - DSH_TOOL_SKILL_ABSENT'],
+      'Needs env.',
+    )
+    const ctx = await setup(home)
+    const agent = agentForCwd(home)
+    const warn = vi.spyOn(ctx.logger, 'warn')
+    try {
+      const decision = await proposeStep(ctx, agent, [gesture('/needs-env run it')])
+      if (decision.kind !== 'enter') throw new Error('expected enter')
+      expect(decision.messages.filter(message => message.source.kind === 'skill-invocation')).toEqual([])
+      expect(warn.mock.calls.map(([message]) => String(message))).toContain(
+        'skill "needs-env" skipped: skill "needs-env" requires environment variable "DSH_TOOL_SKILL_ABSENT", which the host environment does not set',
+      )
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
+  it('carries the parsed install blueprint on the loaded definition only', async () => {
+    const home = await tempDir('skill-blueprint')
+    const root = join(home, '.dsh/skills')
+    await writeConfiguredSkill(root, 'blueprint-skill', [
+      'blueprint:',
+      '  schedule: "0 9 * * *"',
+      '  deliver: file',
+      '  prompt: Summarize the repository.',
+    ], 'Blueprint body.')
+    await writeConfiguredSkill(root, 'no-blueprint-skill', [], 'Plain body.')
+    const ctx = await setup(home)
+
+    expect((await ctx.skills.get('blueprint-skill'))?.blueprint).toEqual({
+      schedule: '0 9 * * *',
+      deliver: 'file',
+      prompt: 'Summarize the repository.',
+    })
+    expect((await ctx.skills.get('no-blueprint-skill'))?.blueprint).toBeUndefined()
+    const summaries = await ctx.skills.list()
+    for (const summary of summaries) expect(Object.hasOwn(summary, 'blueprint')).toBe(false)
+  })
+
+  it('renders a failed inline shell expansion empty and warns on the host log', async () => {
+    const home = await tempDir('skill-shell-failure')
+    await writeConfiguredSkill(join(home, '.dsh/skills'), 'failing-shell', ['metadata:', '  shell: true'], 'x=${false}')
+    const ctx = await setup(home)
+    await ctx.plugin(FakeShell)
+    const shell = ctx.shell as FakeShell
+    shell.results.push({
+      exitCode: 1,
+      signal: null,
+      timedOut: false,
+      aborted: false,
+      timeoutMs: 10_000,
+      stdout: { text: 'noise', truncated: false },
+      stderr: { text: 'boom', truncated: false },
+    })
+    const warn = vi.spyOn(ctx.logger, 'warn')
+    try {
+      const loaded = await loadSkillTool(ctx, 'failing-shell')
+      expect(loaded.isError).toBe(false)
+      expect(loaded.text).toContain('x=')
+      expect(loaded.text).not.toContain('noise')
+      expect(warn.mock.calls.map(([message]) => String(message))).toContain(
+        'skill "failing-shell" inline shell command failed: false',
+      )
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
+  it('runs inline shell for an opted-in skill from the skill directory with the skill environment', async () => {
+    const home = await tempDir('skill-shell')
+    const root = join(home, '.dsh/skills')
+    await writeConfiguredSkill(root, 'shell-skill', [
+      'required_env:',
+      '  - DSH_TOOL_SKILL_LOAD_TOKEN',
+      'metadata:',
+      '  shell: true',
+      '  shellTimeoutMs: 2500',
+    ], 'token=${printenv DSH_TOOL_SKILL_LOAD_TOKEN}')
+    process.env['DSH_TOOL_SKILL_LOAD_TOKEN'] = 'forwarded-token'
+    try {
+      const ctx = await setup(home)
+      await ctx.plugin(FakeShell)
+      const shell = ctx.shell as FakeShell
+      shell.results.push({
+        exitCode: 0,
+        signal: null,
+        timedOut: false,
+        aborted: false,
+        timeoutMs: 2_500,
+        stdout: { text: 'forwarded-token\n', truncated: false },
+        stderr: { text: '', truncated: false },
+      })
+
+      expect((await loadSkillTool(ctx, 'shell-skill')).text).toContain('token=forwarded-token')
+      expect(shell.requests).toHaveLength(1)
+      expect(shell.requests[0]).toMatchObject({
+        command: 'printenv DSH_TOOL_SKILL_LOAD_TOKEN',
+        timeoutMs: 2_500,
+        stdoutMaxBytes: 16_000,
+        env: { DSH_TOOL_SKILL_LOAD_TOKEN: 'forwarded-token' },
+      })
+      expect(shell.requests[0]?.workdir).toMatch(/shell-skill$/)
+    } finally {
+      delete process.env['DSH_TOOL_SKILL_LOAD_TOKEN']
+    }
   })
 })

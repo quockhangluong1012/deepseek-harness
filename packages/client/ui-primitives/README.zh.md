@@ -100,7 +100,7 @@ kind: "package-library"
 | [`src/icons/`](src/icons/) | `ic_ds_*` 字形组件与品牌标记 |
 | [`src/code-file-icon-artwork.ts`](src/code-file-icon-artwork.ts) | 48 个细分代码文件类别的内嵌内层 SVG markup |
 | [`src/code-file-icon-artwork.manifest.json`](src/code-file-icon-artwork.manifest.json) | 设计导出摘要、已纳入类别与有意排除的图稿 |
-| [`src/useAnchoredPosition.ts`](src/useAnchoredPosition.ts) / [`src/useAnchoredMaxHeight.ts`](src/useAnchoredMaxHeight.ts) | 浮动面板与浮层几何钩子 |
+| [`src/useAnchoredPosition.ts`](src/useAnchoredPosition.ts) | 浮动面板几何钩子 |
 
 ### 流式 Markdown
 

@@ -88,8 +88,8 @@ export async function executeToolCalls(
     // Commit before classifying again so registry changes affect unstarted calls.
     // oxlint-disable-next-line typescript/no-non-null-assertion -- bounded by the loop condition
     const first = planned[next]!
-    const mode = ctx.tools.executionMode(first.exec).kind
-    const group = mode === 'parallel' ? planned.slice(next) : [first]
+    const mode = ctx.tools.executionMode(first.exec)
+    const group = mode.kind === 'parallel' ? planned.slice(next) : [first]
     const outcome = await runGroup(
       ctx, turn, step, group, mode, signal, acceptContext,
     )
@@ -114,20 +114,20 @@ function parseArguments(raw: string): unknown {
 
 /**
  * Run one exclusive barrier or parallel pool. Later calls are reclassified
- * before start; an exclusive reclassification waits for the current pool to
- * drain and remains for the caller's next barrier. Results and contexts commit
- * in model order. Abort stops starts, drains and commits started calls, accepts
- * their contexts into the owning batch, records results for skipped calls, and
- * returns an aborted outcome. Scheduler failure drains dispatches, commits
- * settled results, fabricates unknown-outcome results for the rest, and then
- * rejects.
+ * before start; an exclusive reclassification, or a parallel call whose scope
+ * key is already in flight, waits for the current pool to drain and remains for
+ * the caller's next barrier. Results and contexts commit in model order. Abort
+ * stops starts, drains and commits started calls, accepts their contexts into
+ * the owning batch, records results for skipped calls, and returns an aborted
+ * outcome. Scheduler failure drains dispatches, commits settled results,
+ * fabricates unknown-outcome results for the rest, and then rejects.
  */
 async function runGroup(
   ctx: Context,
   turn: number,
   step: number,
   group: PlannedCall[],
-  mode: ToolExecutionMode['kind'],
+  mode: ToolExecutionMode,
   signal: AbortSignal,
   acceptContext: (context: UserMessage) => void,
 ): Promise<GroupOutcome> {
@@ -164,8 +164,13 @@ async function runGroup(
   }
 
   const inFlight = new Map<number, Promise<number>>()
+  // Scope keys owned by in-flight dispatches: a key held here withholds every
+  // later call declaring it until its owner settles. `startedKeys` records
+  // which index owns each held key, so a settle releases exactly its own.
+  const scopedKeys = new Set<string>()
+  const startedKeys: Array<string | undefined> = group.map(() => undefined)
 
-  const startCall = async (index: number): Promise<void> => {
+  const startCall = async (index: number, scopeKey: string | undefined): Promise<void> => {
     // oxlint-disable-next-line typescript/no-non-null-assertion -- bounded index
     const call = group[index]!
     callSeqs[index] = appendToolCall(session, turn, step, call.block)
@@ -185,6 +190,10 @@ async function runGroup(
           },
         )
         inFlight.set(index, promise)
+        if (scopeKey !== undefined) {
+          scopedKeys.add(scopeKey)
+          startedKeys[index] = scopeKey
+        }
         break
       }
       case 'post-result':
@@ -204,9 +213,16 @@ async function runGroup(
       // Re-read later modes after ordered commits so registry changes can create a barrier.
       // oxlint-disable-next-line typescript/no-non-null-assertion -- bounded by the loop condition
       const nextCall = group[nextToStart]!
-      if (nextToStart > 0 && mode === 'parallel'
-        && ctx.tools.executionMode(nextCall.exec).kind !== 'parallel') break
-      await startCall(nextToStart)
+      const nextMode = nextToStart > 0 && mode.kind === 'parallel'
+        ? ctx.tools.executionMode(nextCall.exec)
+        : mode
+      if (nextToStart > 0 && mode.kind === 'parallel' && nextMode.kind !== 'parallel') break
+      const scopeKey = nextMode.kind === 'parallel' ? nextMode.scopeKey : undefined
+      // A held scope key defers this call to the caller's next barrier; the
+      // owner settles in model order, so same-key calls never overlap and
+      // still start in model order.
+      if (scopeKey !== undefined && scopedKeys.has(scopeKey)) break
+      await startCall(nextToStart, scopeKey)
       nextToStart++
       throwSchedulerFailure()
       await commitReady()
@@ -227,6 +243,11 @@ async function runGroup(
     while (inFlight.size > 0) {
       const settledIndex = await Promise.race(inFlight.values())
       inFlight.delete(settledIndex)
+      const settledKey = startedKeys[settledIndex]
+      if (settledKey !== undefined) {
+        scopedKeys.delete(settledKey)
+        startedKeys[settledIndex] = undefined
+      }
       throwSchedulerFailure()
       await commitReady()
       throwSchedulerFailure()

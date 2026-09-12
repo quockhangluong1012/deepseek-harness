@@ -2,8 +2,8 @@
 /**
  * The left-sidebar Dashboard entry: the footer trigger row plus the
  * full-viewport all-sessions panel — the range filter, the window cards, the
- * stacked chart, the model table, the loading/failure states, and the close
- * paths.
+ * stacked chart with its column hover totals, the model table, the
+ * loading/failure states, and the close paths.
  */
 import { afterEach, describe, expect, it } from 'vitest'
 import { cleanup, fireEvent, render } from '@testing-library/react'
@@ -50,6 +50,23 @@ describe('DashboardAction — all-sessions overlay', () => {
     expect(view.container.querySelectorAll('[data-usage-day]')).toHaveLength(2)
     expect(view.container.querySelector('[data-usage-model="deepseek/deepseek-chat"]')).not.toBeNull()
     expect(view.container.querySelector('[data-usage-no-data]')).toBeNull()
+  })
+
+  it('bands the pointed chart column and bubbles its day totals', async () => {
+    const h = harness({ today: { ok: true, value: summary('today') } })
+    const view = render(<DashboardAction {...h.overlayProps()} />)
+    click(view.container, '[data-dashboard-action="trigger"]')
+    await settle()
+    expect(view.container.querySelector('[data-usage-chart-tip]')).toBeNull()
+    fireEvent.mouseEnter(view.container.querySelector('[data-usage-column="2026-09-08"]') as Element)
+    expect(view.container.querySelector('[data-usage-hover]')?.getAttribute('data-usage-hover')).toBe('2026-09-08')
+    expect(text(view.container, '[data-usage-chart-tip="2026-09-08"]')).toBe('2026-09-08chart.input 300chart.output 100')
+    fireEvent.mouseEnter(view.container.querySelector('[data-usage-column="2026-09-09"]') as Element)
+    expect(view.container.querySelector('[data-usage-hover]')?.getAttribute('data-usage-hover')).toBe('2026-09-09')
+    expect(text(view.container, '[data-usage-chart-tip="2026-09-09"]')).toBe('2026-09-09chart.input 1,000chart.output 400')
+    fireEvent.mouseLeave(view.container.querySelector('[data-usage-chart-wrap]') as Element)
+    expect(view.container.querySelector('[data-usage-chart-tip]')).toBeNull()
+    expect(view.container.querySelector('[data-usage-hover]')).toBeNull()
   })
 
   it('switches ranges through the filter and reuses settled summaries', async () => {

@@ -209,6 +209,20 @@ export abstract class CredentialProvider extends Service {
   abstract unset(ref: CredentialRef): Promise<void>
 
   /**
+   * Serialized read-decide-replace over one reference — the write path a
+   * rotation policy needs. `mutate` receives the value the reference resolves
+   * to at the moment the write is exclusive and returns its non-empty
+   * replacement, which is persisted and then published as
+   * `credentials/reference-updated`. The value passes only through that
+   * callback argument and never leaves the exclusive window. Rejects while a
+   * read-only source shadows the reference, like {@link set}: a rotation whose
+   * result resolution would keep ignoring is worse than one that failed loud.
+   * @param ref - the reference to rotate.
+   * @param mutate - receives the current value and returns its replacement.
+   */
+  abstract rotate(ref: CredentialRef, mutate: (current: string | undefined) => string): Promise<void>
+
+  /**
    * Read one stored record. The value is returned as its owner wrote it; a
    * {@link GrantRecord} payload is not interpreted on the way out.
    * @param key - the record to read.

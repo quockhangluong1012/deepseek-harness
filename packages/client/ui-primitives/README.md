@@ -100,7 +100,7 @@ The package enforces one separation: presentational React atoms with zero Cordis
 | [`src/icons/`](src/icons/) | `ic_ds_*` glyph components and brand marks |
 | [`src/code-file-icon-artwork.ts`](src/code-file-icon-artwork.ts) | Embedded inner SVG markup for the 48 detailed code-file categories |
 | [`src/code-file-icon-artwork.manifest.json`](src/code-file-icon-artwork.manifest.json) | Design-export digests, included categories, and intentionally excluded artwork |
-| [`src/useAnchoredPosition.ts`](src/useAnchoredPosition.ts) / [`src/useAnchoredMaxHeight.ts`](src/useAnchoredMaxHeight.ts) | Floating-panel and overlay geometry hooks |
+| [`src/useAnchoredPosition.ts`](src/useAnchoredPosition.ts) | Floating-panel geometry hook |
 
 ### Streaming markdown
 

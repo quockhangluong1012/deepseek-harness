@@ -74,6 +74,38 @@ describe('the credentials seam through the memory provider', () => {
     expect(events).toEqual([])
   })
 
+  it('rotates through the decision callback and emits exactly the committed change', async () => {
+    const ctx = await boot()
+    const events: CredentialRef[] = []
+    ctx.on('credentials/reference-updated', ref => void events.push(ref))
+
+    // An absent reference reaches the decision as `undefined`; its replacement
+    // is stored and published like any other committed write.
+    let seen: string | undefined = 'not-called'
+    await ctx.credentials.rotate(REF, (current) => {
+      seen = current
+      return 'sk-first'
+    })
+    expect(seen).toBeUndefined()
+    expect(await ctx.credentials.resolve(REF)).toEqual({ value: 'sk-first', source: 'memory' })
+    expect(events).toEqual([REF])
+
+    // A stored one hands the decision the current value.
+    await ctx.credentials.rotate(REF, current => `${String(current)}+next`)
+    expect(await ctx.credentials.resolve(REF)).toEqual({ value: 'sk-first+next', source: 'memory' })
+    expect(events).toEqual([REF, REF])
+  })
+
+  it('refuses a rotation that would store an empty value and keeps the current one', async () => {
+    const ctx = await boot({ DEEPSEEK_API_KEY: 'sk-current' })
+    const events: CredentialRef[] = []
+    ctx.on('credentials/reference-updated', ref => void events.push(ref))
+
+    await expect(ctx.credentials.rotate(REF, () => '')).rejects.toThrow(/empty value/)
+    expect(await ctx.credentials.resolve(REF)).toEqual({ value: 'sk-current', source: 'memory' })
+    expect(events).toEqual([])
+  })
+
   it('removes the service with its fiber', async () => {
     const ctx = new Context()
     const fiber = await ctx.plugin(MemoryCredentials)

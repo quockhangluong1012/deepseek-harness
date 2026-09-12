@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/llm/llm-deepseek/README.md
-README.md: aa3f6a86df6c458957fee189a6e04020d85b9358
-README.zh.md: 096e377180b4cfb4a6682264b6d3d1d34437192b
+README.md: cad490d64f0814222c54628ca0c9f0fadefcb927
+README.zh.md: a1411ad9a70d803f6f6abbb12009670653b74065

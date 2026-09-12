@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-12-evolution-trajectory-export.md
+2026-09-12-evolution-trajectory-export.md: d952fabf98d64b120556097533f3ae224512deb6
+2026-09-12-evolution-trajectory-export.zh.md: cd1a9698cffa39db5716dcf1109307a9cb8aae03

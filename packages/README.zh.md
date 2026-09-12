@@ -59,7 +59,7 @@ harness 由 `packages/` 下的 npm 包组装而成，按能力系列分组：会
 | [`todo/`](todo/README.zh.md) | 面向模型的 `todo_write` 工具 |
 | [`plan/`](plan/README.zh.md) | Plan 协作状态，提供直接进入命令与经评审的退出 |
 | [`preset/`](preset/README.zh.md) | 由 preset `cordis.yml` 按会话组装 agent |
-| [`guard/`](guard/README.zh.md) | 循环卫生守卫：建议性重复调用提醒 + `tools/execute` 截止时间强制执行器 |
+| [`guard/`](guard/README.zh.md) | 循环卫生守卫：建议性重复调用提醒、`tools/execute` 截止时间强制执行器，以及每轮 token／工具调用数／墙钟时间上限 |
 | [`bundle/`](bundle/README.zh.md) | 可安装的 `dsh --profile` 补丁层 |
 | [`extensions/`](extensions/README.zh.md) | agent 运行时自修改：实时插件／服务检查与模型所写挂载／卸载 |
 | [`hooks/`](hooks/README.zh.md) | 钩子桥接 + 共享的 Claude Code／Codex 线协议库 |
@@ -69,6 +69,7 @@ harness 由 `packages/` 下的 npm 包组装而成，按能力系列分组：会
 | [`credentials/`](credentials/README.zh.md) | 凭据引用与凭据记录 seam + 环境变量优先于 `.env` 的提供方 + 需要向人询问的授权流程 |
 | [`storage/`](storage/README.zh.md) | 非会话存储中枢 + 后端 + 领域形式 |
 | [`workspace/`](workspace/README.zh.md) | Workspace 实体 |
+| [`evolution/`](evolution/README.zh.md) | 自学习 harness：按作用域记忆记录、暂存写入、后台评审与技能治理 |
 | [`sdk/`](sdk/README.zh.md) | 进程外 SDK：JSON-RPC 协议与 TypeScript 客户端／服务器 |
 | [`acp/`](acp/README.zh.md) | 仅面向自动化的 ACP（Agent Client Protocol）服务器 |
 | [`interaction/`](interaction/README.zh.md) | 人机协作平面：批准／交互 seam、权限预设、命令、询问用户的工具 |

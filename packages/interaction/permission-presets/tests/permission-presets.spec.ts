@@ -388,4 +388,57 @@ describe('approval gate (tools/pre-execute producer)', () => {
     await expect(gated!({ name: 'bash' }, async () => ({ kind: 'allow' }))).resolves.toMatchObject({ kind: 'ask' })
     await expect(gated!({ name: 'read' }, async () => ({ kind: 'allow' }))).resolves.toMatchObject({ kind: 'allow' })
   })
+
+  type GateExec = { name: string; agent?: { session: Session } }
+  type GateHandler = (exec: GateExec, next: () => Promise<{ kind: string }>) => Promise<{ kind: string }>
+
+  /** Mount the service on a fresh context and return its captured gate listener. */
+  async function gateHarness(): Promise<{ ctx: Context; gated: GateHandler }> {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(SessionProjectionRegistry)
+    ctx.provide('shell', {
+      sandboxMode: 'workspace-write',
+      resolve() { throw new Error('no exec') },
+      run() { throw new Error('no exec') },
+      start() { throw new Error('no exec') },
+    })
+    ctx.provide('approval', { config: { policy: 'ask' } })
+    let gated: GateHandler | undefined
+    const originalOn = ctx.on.bind(ctx) as (...args: never[]) => unknown
+    vi.spyOn(ctx, 'on').mockImplementation(((...args: never[]) => {
+      const [event, handler] = args as unknown as [string, GateHandler]
+      if (event === 'tools/pre-execute') gated = handler
+      return originalOn(...args)
+    }) as never)
+    await ctx.plugin(PermissionPresetService, {})
+    if (gated === undefined) throw new Error('permission gate listener not registered')
+    return { ctx, gated }
+  }
+
+  it('delegates gated tools for a session standing on danger-full-access', async () => {
+    const { ctx, gated } = await gateHarness()
+    const session = ctx.sessions.create(SessionId('gate-full-access'))
+    ctx.permissionPresets.set(session, 'danger-full-access')
+    const agent = { session }
+    // The Full access preset must not ask: the `never` policy would
+    // deterministically reject the ask and every write would fail.
+    await expect(gated({ name: 'write', agent }, async () => ({ kind: 'allow' }))).resolves.toMatchObject({ kind: 'allow' })
+    await expect(gated({ name: 'bash', agent }, async () => ({ kind: 'allow' }))).resolves.toMatchObject({ kind: 'allow' })
+  })
+
+  it('still asks for a session on a confined sandbox mode', async () => {
+    const { ctx, gated } = await gateHarness()
+    const session = ctx.sessions.create(SessionId('gate-confined'))
+    expect(ctx.permissionPresets.current(session)).toBe('workspace-write')
+    await expect(gated({ name: 'write', agent: { session } }, async () => ({ kind: 'allow' }))).resolves.toMatchObject({ kind: 'ask' })
+  })
+
+  it('asks for a session with no pinned sandbox knob (composition default applies)', async () => {
+    const { gated } = await gateHarness()
+    // A bare session carries no knob events: the gate falls back to the
+    // confining composition default and still asks for gated tools.
+    const session = freshSession('gate-bare')
+    await expect(gated({ name: 'write', agent: { session } }, async () => ({ kind: 'allow' }))).resolves.toMatchObject({ kind: 'ask' })
+  })
 })

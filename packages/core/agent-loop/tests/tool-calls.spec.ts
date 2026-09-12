@@ -84,6 +84,31 @@ function gatedTool(name: string, parallel: boolean) {
   }
 }
 
+/** A blocking tool that holds one `scope` key while its call is in flight. */
+function gatedScopedTool(name: string) {
+  const gates = new Map<string, () => void>()
+  const started: string[] = []
+  const tool = defineContentToolFixture({
+    name,
+    description: `scoped ${name}`,
+    parameters: { id: { type: 'string', required: true }, scope: { type: 'string', required: true } },
+    isConcurrencySafe: () => true,
+    parallelScopeKey: args => args.scope,
+    async execute(args) {
+      started.push(args.id)
+      const gate = Promise.withResolvers<undefined>()
+      gates.set(args.id, gate.resolve)
+      await gate.promise
+      return [{ type: 'text', text: `done-${args.id}` }]
+    },
+  })
+  return {
+    tool,
+    started,
+    release(id: string) { gates.get(id)?.(); gates.delete(id) },
+  }
+}
+
 function gatedParallelTool(name: string) {
   return gatedTool(name, true)
 }
@@ -141,6 +166,55 @@ describe('tool-call scheduler: grouping and barriers', () => {
     await waitForIdle(ctx, agent)
 
     expect(order).toEqual(['r-start-A1', 'r-end-A1', 'w-A2', 'r-start-A3', 'r-end-A3'])
+  })
+
+  it('holds same-key calls until the previous holder settles', async () => {
+    const adapter = new MockAdapter([
+      multiCall([
+        { id: 'c1', name: 'w', args: { id: 'A', scope: 's' } },
+        { id: 'c2', name: 'w', args: { id: 'B', scope: 's' } },
+        { id: 'c3', name: 'w', args: { id: 'C', scope: 's' } },
+      ]),
+      textResponse('done'),
+    ])
+    const ctx = await harness(adapter)
+    const gated = gatedScopedTool('w')
+    ctx.tools.register(gated.tool)
+    const agent = await ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
+    await until(() => gated.started.length === 1)
+    await new Promise(r => setTimeout(r, 5))
+    expect(gated.started).toEqual(['A'])
+    gated.release('A')
+    await until(() => gated.started.length === 2)
+    await new Promise(r => setTimeout(r, 5))
+    expect(gated.started).toEqual(['A', 'B'])
+    gated.release('B')
+    await until(() => gated.started.length === 3)
+    gated.release('C')
+    await waitForIdle(ctx, agent)
+  })
+
+  it('packs distinct and unscoped keys into one pool', async () => {
+    const adapter = new MockAdapter([
+      multiCall([
+        { id: 'c1', name: 'w', args: { id: 'A', scope: 's1' } },
+        { id: 'c2', name: 'w', args: { id: 'B', scope: 's2' } },
+        { id: 'c3', name: 'w', args: { id: 'C', scope: '' } },
+      ]),
+      textResponse('done'),
+    ])
+    const ctx = await harness(adapter)
+    const gated = gatedScopedTool('w')
+    ctx.tools.register(gated.tool)
+    const agent = await ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
+    await until(() => gated.started.length === 3)
+    expect(gated.started).toEqual(['A', 'B', 'C'])
+    gated.release('A'); gated.release('B'); gated.release('C')
+    await waitForIdle(ctx, agent)
   })
 
   it('reclassifies pending calls after an exclusive barrier replaces their tool', async () => {

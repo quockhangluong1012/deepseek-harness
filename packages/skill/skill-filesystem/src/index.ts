@@ -23,6 +23,7 @@ import { canonicalizeWatchPath, resolveDshHome } from '@deepseek-ai/dsh-home-pat
 import {
   BUNDLED_SKILL_RANK,
   isSkillName,
+  type SkillBlueprint,
   type SkillCandidate,
   type SkillDefinition,
   type SkillInvocationPolicy,
@@ -34,6 +35,7 @@ import {
 } from '@deepseek-ai/dsh-skill'
 
 const PROJECT_DSH_RANK = 100
+const PROJECT_HERMES_RANK = 150
 const PROJECT_AGENTS_RANK = 200
 const CUSTOM_RANK = 300
 const USER_DSH_RANK = 400
@@ -57,6 +59,10 @@ export interface Config {
   agentsHome?: string
   /** Additional skill roots scanned after project roots and before user roots. */
   customSkillDirs?: string[]
+  /** Absolute project roots whose `.dsh/skills`, `.hermes/skills`, and `.agents/skills` index; others are skipped. */
+  trustedProjectDirs?: string[]
+  /** Whether any project roots index; false disables project discovery entirely. */
+  projectDiscovery?: boolean
   /** Whether host-local skill roots are watched for catalog changes. */
   watch?: boolean
   /** Whether Chokidar uses polling instead of native filesystem events. */
@@ -79,6 +85,8 @@ export const Config: Schema<Config> = z.object({
   dshHome: z.string(),
   agentsHome: z.string(),
   customSkillDirs: z.array(z.string()).default([]),
+  trustedProjectDirs: z.array(z.string()).default([]),
+  projectDiscovery: z.boolean().default(true),
   watch: z.boolean().default(true),
   watchUsePolling: z.boolean().default(false),
   watchStabilityThresholdMs: z.number().default(DEFAULT_WATCH_STABILITY_THRESHOLD_MS),
@@ -114,6 +122,38 @@ interface ParsedSkill extends SkillText {
   whenToUse?: string
   invocation: SkillInvocationPolicy
   metadata?: Record<string, unknown>
+  /** Sandbox environment variable names from frontmatter `required_env`, dropped when malformed. */
+  requiredEnv?: readonly string[]
+  /** Non-secret configuration from frontmatter `config`; scalar values are stored as strings. */
+  config?: Readonly<Record<string, string>>
+  /** Frontmatter `platforms`: the skill is hidden unless one entry names the running platform. */
+  platforms?: readonly string[]
+  /** Frontmatter `requires_tools`: every named tool must be mounted for the skill to appear. */
+  requiresTools?: readonly string[]
+  /** Frontmatter `requires_toolsets`: every named toolset must be mounted for the skill to appear. */
+  requiresToolsets?: readonly string[]
+  /** Frontmatter `fallback_for_tools`: the skill hides while any named tool is mounted. */
+  fallbackForTools?: readonly string[]
+  /** Frontmatter `fallback_for_toolsets`: the skill hides while any named toolset is mounted. */
+  fallbackForToolsets?: readonly string[]
+  /** Frontmatter `blueprint`, dropped when malformed. */
+  blueprint?: SkillBlueprint
+}
+
+/** One finding from the project-skill security scan. */
+export interface SkillScanFinding {
+  /** Stable rule id, safe to repeat in host logs. */
+  readonly rule: string
+  /** What the matched pattern does, repeated in the quarantine warning. */
+  readonly detail: string
+}
+
+/** One rule of the project-skill security scan. */
+interface ProjectSkillScanRule {
+  readonly rule: string
+  /** Every pattern must match somewhere in the scanned text. */
+  readonly patterns: readonly RegExp[]
+  readonly detail: string
 }
 
 interface LocalLocator {
@@ -153,6 +193,11 @@ export class FileSystemSkillProvider implements SkillProvider {
   private readonly dshHome: string
   private readonly agentsHome: string
   private readonly customSkillDirs: string[]
+  private readonly trustedProjectDirs: string[]
+  private readonly projectDiscovery: boolean
+  private readonly warnedUntrusted = new Set<string>()
+  /** Project-skill scan verdicts, keyed by resolved path and stamped with the modification time. */
+  private readonly scanVerdicts = new Map<string, ProjectSkillScanRecord>()
   private readonly watchManager: SkillWatchManager
   private readonly bundledSkillDir: string | undefined
   private disposal: Promise<void> | undefined
@@ -167,6 +212,13 @@ export class FileSystemSkillProvider implements SkillProvider {
     this.dshHome = resolveDshHome(config.dshHome)
     this.agentsHome = resolve(config.agentsHome ?? process.env.DSH_AGENTS_HOME ?? join(homedir(), '.agents'))
     this.customSkillDirs = (config.customSkillDirs ?? []).map(root => resolve(root))
+    this.trustedProjectDirs = (config.trustedProjectDirs ?? []).map((root) => {
+      if (!isAbsolute(root)) {
+        throw new Error(`skill-filesystem: trustedProjectDirs entries must be absolute paths, got ${JSON.stringify(root)}`)
+      }
+      return resolve(root)
+    })
+    this.projectDiscovery = config.projectDiscovery ?? true
     this.watchManager = new SkillWatchManager(ctx, control.invalidate, resolveWatchConfig(config))
     control.signal.addEventListener('abort', () => { void this.dispose() }, { once: true })
     // The environment bundled root is a default root: an isolated provider
@@ -181,7 +233,8 @@ export class FileSystemSkillProvider implements SkillProvider {
    * Discover local skill summaries for a cwd-sensitive workspace.
    * @param options - lookup options; `cwd` selects the project roots to scan.
    * @returns local provider candidates with stable root ranks; watcher startup
-   *   failure returns readable candidates as an incomplete observation.
+   *   failure returns readable candidates as an incomplete observation, and a
+   *   quarantined project skill is skipped and counted on that observation.
    */
   async list(options: SkillLookupOptions): Promise<SkillCandidate[] | SkillProviderObservation> {
     const roots = await this.roots(options.cwd)
@@ -193,23 +246,35 @@ export class FileSystemSkillProvider implements SkillProvider {
       complete = false
     }
     const candidates: SkillCandidate[] = []
+    const gate = new MountedToolGate(this.ctx.get('tools') as MountedToolRegistry | undefined)
+    let quarantinedCount = 0
     for (const root of roots) {
-      for (const skill of await discoverRoot(root, this.ctx, this.name)) {
-        candidates.push(skill)
-      }
+      const found = await discoverRoot(root, this.ctx, this.name, {
+        gate,
+        ...root.projectRoot === undefined ? {} : { quarantine: this.quarantineProjectSkill },
+      })
+      quarantinedCount += found.quarantined
+      candidates.push(...found.candidates)
     }
-    return complete ? candidates : { candidates, complete }
+    return complete && quarantinedCount === 0
+      ? candidates
+      : { candidates, complete, quarantinedCount }
   }
 
   /**
    * Load a complete local skill body from the candidate's file locator.
    * @param candidate - the winning candidate returned by this provider.
    * @param options - lookup options whose signal cancels filesystem reads.
-   * @returns the full local skill, or `undefined` if the file disappeared.
+   * @returns the full local skill, or `undefined` if the file disappeared or a
+   *   project skill is quarantined by the security scan.
    */
   async get(candidate: SkillCandidate, options: SkillLookupOptions): Promise<SkillDefinition | undefined> {
     const locator = candidate.locator as LocalLocator
-    const parsed = await parseSkillFile(locator.path, this.ctx, options.signal, candidate.source === 'bundled')
+    const raw = await readSkillText(this.ctx, locator.path, options.signal, candidate.source === 'bundled')
+    options.signal?.throwIfAborted()
+    if (raw === undefined) return undefined
+    if (candidate.source.startsWith('project-') && await this.quarantineProjectSkill(raw.path, raw.content)) return undefined
+    const parsed = parseSkillText(raw, this.ctx)
     if (parsed === undefined) return undefined
     return {
       name: parsed.name,
@@ -221,6 +286,9 @@ export class FileSystemSkillProvider implements SkillProvider {
       resourceBase: { kind: 'directory', path: locator.directory },
       path: parsed.path,
       ...parsed.metadata !== undefined ? { metadata: parsed.metadata } : {},
+      ...parsed.requiredEnv !== undefined ? { requiredEnv: parsed.requiredEnv } : {},
+      ...parsed.config !== undefined ? { config: parsed.config } : {},
+      blueprint: parsed.blueprint,
       content: parsed.content,
     }
   }
@@ -234,6 +302,39 @@ export class FileSystemSkillProvider implements SkillProvider {
   }
 
   /**
+   * Apply the security scan to one project skill file. Dangerous content is
+   * quarantined: the skill is skipped and named in the host log, never in the
+   * model catalog.
+   * @param path - resolved absolute path of the file that was read.
+   * @param content - the raw file text, frontmatter included.
+   * @returns whether the skill is quarantined and must not be indexed.
+   */
+  private readonly quarantineProjectSkill = async (path: string, content: string): Promise<boolean> => {
+    const findings = await this.scanVerdict(path, content)
+    if (findings.length === 0) return false
+    const reasons = findings.map(finding => `${finding.rule} (${finding.detail})`).join('; ')
+    this.ctx.logger.warn(`skill file ${path} quarantined: dangerous content matched ${reasons}`)
+    return true
+  }
+
+  /**
+   * Scan one project skill's text, reusing the verdict cached for an unchanged
+   * file. The cache key is the resolved path plus the host modification time,
+   * so a rewritten file is scanned again on the next discovery.
+   * @param path - resolved absolute path of the skill file.
+   * @param content - the raw file text, frontmatter included.
+   * @returns the matched scan findings, empty for a clean skill.
+   */
+  private async scanVerdict(path: string, content: string): Promise<readonly SkillScanFinding[]> {
+    const mtimeMs = await hostModificationTime(path)
+    const cached = this.scanVerdicts.get(path)
+    if (mtimeMs !== undefined && cached?.mtimeMs === mtimeMs) return cached.findings
+    const findings = scanProjectSkill(content)
+    if (mtimeMs !== undefined) this.scanVerdicts.set(path, { mtimeMs, findings })
+    return findings
+  }
+
+  /**
    * Close every host watcher and contain late filesystem callbacks.
    * @returns a shared promise that settles when every watcher reaches quiescence.
    */
@@ -244,12 +345,17 @@ export class FileSystemSkillProvider implements SkillProvider {
 
   private async roots(cwd: string | undefined): Promise<SkillRoot[]> {
     const roots: SkillRoot[] = []
-    if (this.includeDefaultRoots && cwd !== undefined) {
+    if (this.includeDefaultRoots && cwd !== undefined && this.projectDiscovery) {
       const projectRoot = await findProjectRoot(resolve(cwd), optionalFileSystem(this.ctx))
-      roots.push(
-        { path: join(projectRoot, '.dsh/skills'), source: 'project-dsh', rank: PROJECT_DSH_RANK, projectRoot },
-        { path: join(projectRoot, '.agents/skills'), source: 'project-agents', rank: PROJECT_AGENTS_RANK, projectRoot },
-      )
+      if (this.isTrustedProjectRoot(projectRoot)) {
+        roots.push(
+          { path: join(projectRoot, '.dsh/skills'), source: 'project-dsh', rank: PROJECT_DSH_RANK, projectRoot },
+          { path: join(projectRoot, '.hermes/skills'), source: 'project-hermes', rank: PROJECT_HERMES_RANK, projectRoot },
+          { path: join(projectRoot, '.agents/skills'), source: 'project-agents', rank: PROJECT_AGENTS_RANK, projectRoot },
+        )
+      } else {
+        this.warnUntrustedProjectRoot(projectRoot)
+      }
     }
     roots.push(...this.customSkillDirs.map(path => ({ path, source: 'custom' as const, rank: CUSTOM_RANK })))
     if (this.includeDefaultRoots) {
@@ -262,6 +368,28 @@ export class FileSystemSkillProvider implements SkillProvider {
       roots.push({ path: this.bundledSkillDir, source: 'bundled', rank: BUNDLED_SKILL_RANK, trustedHost: true })
     }
     return roots
+  }
+
+  /**
+   * Whether one resolved project root may contribute skills. Comparison runs
+   * on resolved absolute paths: symlinked aliases match only when listed as
+   * resolved. Windows compares case-insensitively, matching the filesystem.
+   * @param projectRoot - resolved project root for the lookup cwd.
+   * @returns whether the root is explicitly trusted.
+   */
+  private isTrustedProjectRoot(projectRoot: string): boolean {
+    return this.trustedProjectDirs.some(trusted => sameAbsolutePath(trusted, projectRoot))
+  }
+
+  /**
+   * Warn once per project root about skipped project skills, so an untrusted
+   * checkout explains itself without spamming every discovery.
+   * @param projectRoot - skipped project root.
+   */
+  private warnUntrustedProjectRoot(projectRoot: string): void {
+    if (this.warnedUntrusted.has(projectRoot)) return
+    this.warnedUntrusted.add(projectRoot)
+    this.ctx.logger.warn(`skill file discovery skips untrusted project root ${projectRoot}: list it in trustedProjectDirs to index its skills`)
   }
 }
 
@@ -400,7 +528,6 @@ class SkillWatchManager {
       const current = await resolveRootWatchMode(state.root.path, this.config.followSymlinks)
       // A child unlink can publish an empty catalog before root unlinkDir arrives.
       // Discovery therefore revalidates the retained handle independently.
-      // oxlint-disable-next-line typescript/no-unnecessary-condition -- watcher callbacks can mark unhealthy while the probe awaits
       if (!state.unhealthy && sameWatchMode(watcher.mode, current)) return
     }
     await this.replaceWatcher(state)
@@ -417,7 +544,6 @@ class SkillWatchManager {
       /* v8 ignore next -- The loop returns no handle only when teardown wins between awaited probes. */
       if (watcher === undefined) return
       /* v8 ignore start -- Post-open teardown is timing-dependent; the disposal race has an explicit integration test. */
-      // oxlint-disable-next-line typescript/no-unnecessary-condition -- teardown can race awaited watcher startup
       if (this.closing || state.owners.size === 0) {
         await this.closeWatcher(watcher)
         return
@@ -426,7 +552,6 @@ class SkillWatchManager {
       state.watcher = watcher
       state.unhealthy = false
     } catch (error) {
-      // oxlint-disable-next-line typescript/no-unnecessary-condition -- teardown can race awaited watcher startup
       if (!this.closing) {
         state.unhealthy = true
         this.ctx.logger.warn(`skill-filesystem: failed to watch ${state.root.path}: ${errorMessage(error)}`)
@@ -720,8 +845,174 @@ function hasErrorCode(error: unknown, code: string): boolean {
   return typeof error === 'object' && error !== null && 'code' in error && error.code === code
 }
 
-async function discoverRoot(root: SkillRoot, ctx: Context, provider: string): Promise<SkillCandidate[]> {
-  const skills: SkillCandidate[] = []
+/**
+ * High-signal dangerous automation patterns the project-skill security scan
+ * looks for. The scan is deliberately conservative: a rule matches only text
+ * that downloads or decodes code into a shell, wipes a filesystem root, or
+ * pairs a credential store with network egress, so an ordinary project skill
+ * is never quarantined on a passing mention alone.
+ */
+const PROJECT_SKILL_SCAN_RULES: readonly ProjectSkillScanRule[] = [
+  {
+    rule: 'pipe-to-shell',
+    patterns: [/\b(?:curl|wget)\b[^\n|]*\|[^\n|]*\b(?:ba|z|k)?sh\b/i],
+    detail: 'pipes a network download into a shell',
+  },
+  {
+    rule: 'encoded-shell',
+    patterns: [/\bbase64\s+(?:-d|--decode)\b[^\n|]*\|[^\n|]*\b(?:ba|z|k)?sh\b/i],
+    detail: 'decodes an encoded payload into a shell',
+  },
+  {
+    rule: 'root-delete',
+    patterns: [/\brm\s+-(?=[a-z]*r)(?=[a-z]*f)[a-z]+\s+(?:\/(?:\s|$|\*)|~(?:\/|\s|$)|\$(?:HOME|\{HOME\}))/i],
+    detail: 'recursively deletes a filesystem root or the home directory',
+  },
+  {
+    rule: 'credential-exfiltration',
+    patterns: [
+      /(?:~\/\.ssh\b|id_rsa\b|\.aws\/credentials\b|\.config\/gh\/hosts\.yml\b|\/etc\/shadow\b)/i,
+      /\b(?:curl|wget|nc|netcat|fetch)\b/i,
+    ],
+    detail: 'reads a credential store and also makes a network request',
+  },
+]
+
+/**
+ * Scan one skill file's raw text for the dangerous patterns above.
+ * @param content - the raw file text, frontmatter included.
+ * @returns one finding per matched rule, in rule order; empty for a clean skill.
+ */
+export function scanProjectSkill(content: string): SkillScanFinding[] {
+  return PROJECT_SKILL_SCAN_RULES
+    .filter(rule => rule.patterns.every(pattern => pattern.test(content)))
+    .map(rule => ({ rule: rule.rule, detail: rule.detail }))
+}
+
+/** One cached project-skill scan verdict. */
+interface ProjectSkillScanRecord {
+  /** Host modification time the findings were computed from. */
+  mtimeMs: number
+  findings: readonly SkillScanFinding[]
+}
+
+/**
+ * Modification time of one skill file on the host filesystem. A path the host
+ * cannot stat — a backend path from a remote workspace — yields `undefined`,
+ * and the file is then scanned without a cache entry.
+ * @param path - resolved absolute path of the skill file.
+ * @returns the modification time in milliseconds, or `undefined`.
+ */
+async function hostModificationTime(path: string): Promise<number | undefined> {
+  try {
+    return (await stat(path)).mtimeMs
+  } catch {
+    return undefined
+  }
+}
+
+/** Platform spellings accepted in frontmatter `platforms`, keyed by `process.platform`. */
+const PLATFORM_ALIASES: Readonly<Record<string, string>> = { darwin: 'macos', win32: 'windows' }
+
+/**
+ * Whether the running platform satisfies a skill's `platforms` allowlist.
+ * Matching accepts the `process.platform` spelling and the agentskills.io
+ * alias for it (`darwin`/`macos`, `win32`/`windows`), case-insensitively.
+ * @param skill - the parsed skill carrying an optional platform allowlist.
+ * @returns whether the skill may appear on this host.
+ */
+function supportsCurrentPlatform(skill: ParsedSkill): boolean {
+  if (skill.platforms === undefined) return true
+  const current = process.platform
+  const alias = PLATFORM_ALIASES[current]
+  return skill.platforms.some((platform) => {
+    const normalized = platform.toLowerCase()
+    return normalized === current || (alias !== undefined && normalized === alias)
+  })
+}
+
+/** The mounted tool registry as skill gating reads it. */
+interface MountedToolRegistry {
+  get(name: string): unknown
+  schemas(): readonly { readonly name: string }[]
+}
+
+/**
+ * Tool availability for skill gating. A toolset is addressed by the name
+ * prefix its tools share (`web` → `web_search`), so the mounted names are
+ * enumerated at most once per gate.
+ */
+class MountedToolGate {
+  private names: Set<string> | undefined
+
+  constructor(private readonly registry: MountedToolRegistry | undefined) {}
+
+  /**
+   * Whether one exact tool name resolves in the mounted registry.
+   * @param name - the tool name a skill requires.
+   * @returns whether the tool is available.
+   */
+  hasTool(name: string): boolean {
+    return this.registry?.get(name) !== undefined
+  }
+
+  /**
+   * Whether any mounted tool belongs to the named toolset.
+   * @param name - the toolset name a skill requires or falls back for.
+   * @returns whether the toolset has at least one mounted tool.
+   */
+  hasToolset(name: string): boolean {
+    if (this.registry === undefined) return false
+    const names = this.names ??= new Set(this.registry.schemas().map(schema => schema.name))
+    const prefix = `${name}_`
+    for (const toolName of names) {
+      if (toolName.startsWith(prefix)) return true
+    }
+    return false
+  }
+}
+
+/**
+ * Whether a parsed skill may enter the catalog on this host: `platforms` must
+ * name the running platform, every `requires_tools`/`requires_toolsets` entry
+ * must be mounted, and a `fallback_for_*` skill hides while the tool or
+ * toolset it substitutes for is available.
+ * @param skill - the parsed skill to gate.
+ * @param gate - mounted-tool availability for this discovery.
+ * @returns whether the skill is offered to consumers.
+ */
+function isSkillOffered(skill: ParsedSkill, gate: MountedToolGate): boolean {
+  if (!supportsCurrentPlatform(skill)) return false
+  if (!(skill.requiresTools ?? []).every(tool => gate.hasTool(tool))) return false
+  if (!(skill.requiresToolsets ?? []).every(toolset => gate.hasToolset(toolset))) return false
+  if ((skill.fallbackForTools ?? []).some(tool => gate.hasTool(tool))) return false
+  if ((skill.fallbackForToolsets ?? []).some(toolset => gate.hasToolset(toolset))) return false
+  return true
+}
+
+/** One root's discovery result: the candidates it contributes and how many project skills quarantine removed. */
+interface RootDiscovery {
+  candidates: SkillCandidate[]
+  quarantined: number
+}
+
+/**
+ * Project-skill quarantine decision: `true` skips the skill and counts it.
+ * Absent for roots the harness owns.
+ */
+type ProjectSkillQuarantine = (path: string, content: string) => Promise<boolean>
+
+/** Per-discovery inputs shared by every root scan. */
+interface DiscoveryOptions {
+  /** Platform and mounted-tool gate. */
+  readonly gate: MountedToolGate
+  /** Security scan applied to project-owned roots only. */
+  readonly quarantine?: ProjectSkillQuarantine
+}
+
+async function discoverRoot(root: SkillRoot, ctx: Context, provider: string, options: DiscoveryOptions): Promise<RootDiscovery> {
+  const candidates: SkillCandidate[] = []
+  let quarantined = 0
   const entries = await listSkillRootEntries(root, ctx)
   for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
     if (root.skipSystem && entry.name === '.system') continue
@@ -731,9 +1022,16 @@ async function discoverRoot(root: SkillRoot, ctx: Context, provider: string): Pr
         ? { path: entry.path, directory: root.path }
         : undefined
     if (locator === undefined) continue
-    const parsed = await parseSkillFile(locator.path, ctx, undefined, root.trustedHost === true)
+    const raw = await readSkillText(ctx, locator.path, undefined, root.trustedHost === true)
+    if (raw === undefined) continue
+    const parsed = parseSkillText(raw, ctx)
     if (parsed === undefined) continue
-    skills.push({
+    if (!isSkillOffered(parsed, options.gate)) continue
+    if (options.quarantine !== undefined && await options.quarantine(raw.path, raw.content)) {
+      quarantined += 1
+      continue
+    }
+    candidates.push({
       name: parsed.name,
       description: parsed.description,
       ...parsed.whenToUse !== undefined ? { whenToUse: parsed.whenToUse } : {},
@@ -747,7 +1045,7 @@ async function discoverRoot(root: SkillRoot, ctx: Context, provider: string): Pr
       ...parsed.metadata !== undefined ? { metadata: parsed.metadata } : {},
     })
   }
-  return skills
+  return { candidates, quarantined }
 }
 
 async function listSkillRootEntries(root: SkillRoot, ctx: Context): Promise<SkillRootEntry[]> {
@@ -794,12 +1092,9 @@ async function listSkillRootEntriesFromNode(root: SkillRoot, ctx: Context): Prom
   return result
 }
 
-async function parseSkillFile(path: string, ctx: Context, signal?: AbortSignal, trustedHost = false): Promise<ParsedSkill | undefined> {
-  const raw = await readSkillText(ctx, path, signal, trustedHost)
-  signal?.throwIfAborted()
-  if (raw === undefined) {
-    return undefined
-  }
+/** Parse one already-read skill file into the frontmatter fields this provider consumes. */
+function parseSkillText(raw: SkillText, ctx: Context): ParsedSkill | undefined {
+  const path = raw.path
   let parsed
   try {
     parsed = parseFrontmatter(raw.content)
@@ -828,13 +1123,19 @@ async function parseSkillFile(path: string, ctx: Context, signal?: AbortSignal, 
     ctx.logger.warn(`skill file ${path} ignored: invalid invocation frontmatter: ${errorMessage(error)}`)
     return undefined
   }
+  const config = optionalConfig(parsed.data, path, ctx)
+  const blueprint = optionalBlueprint(parsed.data, path, ctx)
+  warnUnknownFrontmatterKeys(parsed.data, path, ctx)
   return {
     name,
     description,
     ...optionalString(parsed.data, 'whenToUse'),
     invocation,
     ...optionalMetadata(parsed.data),
-    path: raw.path,
+    ...stringListFields(parsed.data, path, ctx),
+    ...config,
+    ...blueprint,
+    path,
     content: parsed.body.trim(),
   }
 }
@@ -942,8 +1243,17 @@ function findClosingFrontmatter(raw: string, start: number): { start: number; bo
   }
 }
 
-async function findProjectRoot(cwd: string, fs: FileSystem | undefined): Promise<string> {
-  let current = cwd
+/**
+ * Compare two resolved absolute paths with the filesystem's case semantics.
+ * @param left - one resolved path.
+ * @param right - the other resolved path.
+ * @returns whether both name the same path.
+ */
+function sameAbsolutePath(left: string, right: string): boolean {
+  return process.platform === 'win32' ? left.toLowerCase() === right.toLowerCase() : left === right
+}
+
+async function findProjectRoot(cwd: string, fs: FileSystem | undefined): Promise<string> {  let current = cwd
   while (true) {
     if (await pathExists(join(current, '.git'), fs)) {
       return current
@@ -997,12 +1307,69 @@ function optionalString(data: Record<string, unknown>, key: string): { [K in typ
   return typeof value === 'string' && value.length > 0 ? { [key]: value } : {}
 }
 
+/** Canonical invocation frontmatter keys; `parseInvocationPolicy` reads these spellings. */
+const MODEL_INVOCATION_KEY = 'disable-model-invocation'
+/** Canonical key controlling whether the skill appears in human-facing commands. */
+const USER_INVOCATION_KEY = 'user-invocable'
+
+/**
+ * Rejected legacy invocation spellings mapped to the canonical key replacing them.
+ * `parseInvocationPolicy` rejects every entry here and reads the canonical keys above, and the
+ * frontmatter allowlist derives its recognized keys from this same list, so parser and allowlist
+ * cannot drift apart.
+ */
+const INVOCATION_FRONTMATTER_KEYS: Readonly<Record<string, string>> = {
+  disableModelInvocation: MODEL_INVOCATION_KEY,
+  modelInvocable: MODEL_INVOCATION_KEY,
+  userInvocable: USER_INVOCATION_KEY,
+}
+
+/**
+ * Every invocation spelling the allowlist must recognize: each rejected legacy spelling plus the
+ * canonical key replacing it, derived from `INVOCATION_FRONTMATTER_KEYS` so the allowlist and
+ * `parseInvocationPolicy` cannot drift apart.
+ * @returns a lookup table marking each recognized invocation key.
+ */
+function invocationFrontmatterKeys(): Record<string, true> {
+  return Object.fromEntries(Object.entries(INVOCATION_FRONTMATTER_KEYS)
+    .flatMap(([legacy, canonical]) => [[legacy, true], [canonical, true]] as Array<[string, true]>))
+}
+
+/** `ParsedSkill` fields fed by frontmatter keys sharing the non-empty string-array shape. */
+type StringListField = 'requiredEnv' | 'platforms' | 'requiresTools' | 'requiresToolsets' | 'fallbackForTools' | 'fallbackForToolsets'
+
+/**
+ * Frontmatter key to `ParsedSkill` field for every non-empty string-array
+ * field this provider parses. The allowlist derives these keys from this one
+ * table, so parser and allowlist cannot drift apart.
+ */
+const STRING_LIST_FRONTMATTER_FIELDS = [
+  ['required_env', 'requiredEnv'],
+  ['platforms', 'platforms'],
+  ['requires_tools', 'requiresTools'],
+  ['requires_toolsets', 'requiresToolsets'],
+  ['fallback_for_tools', 'fallbackForTools'],
+  ['fallback_for_toolsets', 'fallbackForToolsets'],
+] as const satisfies readonly (readonly [string, StringListField])[]
+
+/** Top-level frontmatter keys this provider consumes; any other key warns once and is ignored. */
+const RECOGNIZED_FRONTMATTER_KEYS: Readonly<Record<string, true>> = {
+  name: true,
+  description: true,
+  whenToUse: true,
+  metadata: true,
+  config: true,
+  blueprint: true,
+  ...Object.fromEntries(STRING_LIST_FRONTMATTER_FIELDS.map(([key]) => [key, true])) as Record<string, true>,
+  ...invocationFrontmatterKeys(),
+}
+
 function parseInvocationPolicy(data: Record<string, unknown>): SkillInvocationPolicy {
-  rejectLegacyInvocationKey(data, 'disableModelInvocation', 'disable-model-invocation')
-  rejectLegacyInvocationKey(data, 'modelInvocable', 'disable-model-invocation')
-  rejectLegacyInvocationKey(data, 'userInvocable', 'user-invocable')
-  const disableModelInvocation = frontmatterBoolean(data, 'disable-model-invocation')
-  const userInvocable = frontmatterBoolean(data, 'user-invocable')
+  for (const [legacy, canonical] of Object.entries(INVOCATION_FRONTMATTER_KEYS)) {
+    rejectLegacyInvocationKey(data, legacy, canonical)
+  }
+  const disableModelInvocation = frontmatterBoolean(data, MODEL_INVOCATION_KEY)
+  const userInvocable = frontmatterBoolean(data, USER_INVOCATION_KEY)
   return {
     modelInvocable: disableModelInvocation !== true,
     userInvocable: userInvocable !== false,
@@ -1042,6 +1409,73 @@ function optionalMetadata(data: Record<string, unknown>): { metadata?: Record<st
     return { metadata: value as Record<string, unknown> }
   }
   return {}
+}
+
+function stringListFields(data: Record<string, unknown>, path: string, ctx: Context): Pick<ParsedSkill, StringListField> {
+  const fields: Pick<ParsedSkill, StringListField> = {}
+  for (const [key, field] of STRING_LIST_FRONTMATTER_FIELDS) {
+    if (!Object.hasOwn(data, key)) continue
+    if (isNonEmptyStringArray(data[key])) {
+      fields[field] = data[key]
+      continue
+    }
+    ctx.logger.warn(`skill file ${path}: frontmatter field "${key}" ignored: expected a non-empty array of non-empty strings`)
+  }
+  return fields
+}
+
+function optionalBlueprint(
+  data: Record<string, unknown>, path: string, ctx: Context,
+): { blueprint?: SkillBlueprint } {
+  if (!Object.hasOwn(data, 'blueprint')) return {}
+  const blueprint = parseBlueprint(data.blueprint)
+  if (blueprint !== undefined) return { blueprint }
+  ctx.logger.warn(`skill file ${path}: frontmatter field "blueprint" ignored: expected a mapping with non-empty string "schedule", "deliver" of "session" or "file", and non-empty string "prompt"`)
+  return {}
+}
+
+function parseBlueprint(value: unknown): SkillBlueprint | undefined {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined
+  const { schedule, deliver, prompt } = value as Record<string, unknown>
+  if (typeof schedule !== 'string' || schedule.length === 0) return undefined
+  if (deliver !== 'session' && deliver !== 'file') return undefined
+  if (typeof prompt !== 'string' || prompt.length === 0) return undefined
+  return { schedule, deliver, prompt }
+}
+
+function optionalConfig(
+  data: Record<string, unknown>, path: string, ctx: Context,
+): { config?: Readonly<Record<string, string>> } {
+  if (!Object.hasOwn(data, 'config')) return {}
+  const config = scalarStringRecord(data.config)
+  if (config !== undefined) return { config }
+  ctx.logger.warn(`skill file ${path}: frontmatter field "config" ignored: expected a mapping of scalar values`)
+  return {}
+}
+
+function warnUnknownFrontmatterKeys(data: Record<string, unknown>, path: string, ctx: Context): void {
+  for (const key of Object.keys(data)) {
+    if (Object.hasOwn(RECOGNIZED_FRONTMATTER_KEYS, key)) continue
+    ctx.logger.warn(`skill file ${path}: unknown frontmatter field "${key}" ignored`)
+  }
+}
+
+function isNonEmptyStringArray(value: unknown): value is readonly string[] {
+  return Array.isArray(value)
+    && value.length > 0
+    && (value as unknown[]).every(entry => typeof entry === 'string' && entry.length > 0)
+}
+
+function scalarStringRecord(value: unknown): Record<string, string> | undefined {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined
+  const entries = Object.entries(value as Record<string, unknown>)
+  if (!entries.every(([, entry]) => isScalar(entry))) return undefined
+  return Object.fromEntries(entries.map(([key, entry]) => [key, String(entry)]))
+}
+
+/** YAML scalars, including null; mappings and sequences are collections. */
+function isScalar(value: unknown): boolean {
+  return value === null || typeof value !== 'object'
 }
 
 function errorMessage(error: unknown): string {

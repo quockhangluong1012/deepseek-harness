@@ -56,6 +56,17 @@ export class MemoryCredentials extends CredentialProvider {
     return Promise.resolve()
   }
 
+  override rotate(ref: CredentialRef, mutate: (current: string | undefined) => string): Promise<void> {
+    const stored = this.store.get(ref)
+    const next = mutate(stored !== undefined && stored.length > 0 ? stored : undefined)
+    if (next.length === 0) {
+      return Promise.reject(new Error('memory credentials: an empty value cannot be stored; use unset'))
+    }
+    this.store.set(ref, next)
+    this.ctx.emit('credentials/reference-updated', ref)
+    return Promise.resolve()
+  }
+
   override readRecord(key: CredentialKey): Promise<CredentialRecord | undefined> {
     return Promise.resolve(this.records.get(key))
   }

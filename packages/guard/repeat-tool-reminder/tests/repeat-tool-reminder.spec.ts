@@ -26,7 +26,20 @@ async function harness(config: Config = {}): Promise<Context> {
   await mountAgentLoopTestDependencies(ctx)
   await ctx.plugin(AgentLoop, { agents: [] })
   await ctx.plugin(RepeatToolGuard, config)
-  ctx.tools.register(defineContentToolFixture({ name: 'probe', description: 'p', parameters: {}, async execute() { return [{ type: 'text', text: 'ok' }] } }))
+  // The implicit parameter root is closed (`additionalProperties: false`), so
+  // every key these specs pass must be declared or the registry rejects the
+  // call with INVALID_ARGS and the guard would be exercised only on failures.
+  ctx.tools.register(defineContentToolFixture({
+    name: 'probe',
+    description: 'p',
+    parameters: {
+      q: { type: 'json' },
+      body: { type: 'string' },
+      a: { type: 'json' },
+      nested: { type: 'object', additionalProperties: true, properties: { x: { type: 'array' }, y: { type: 'json' } } },
+    },
+    async execute() { return [{ type: 'text', text: 'ok' }] },
+  }))
   ctx.tools.register(defineContentToolFixture({ name: 'other', description: 'o', parameters: {}, async execute() { return [{ type: 'text', text: 'ok' }] } }))
   return ctx
 }

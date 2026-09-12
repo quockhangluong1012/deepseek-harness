@@ -3,7 +3,7 @@
  * @module @deepseek-ai/dsh-tool-str-replace-editor
  */
 
-import { isAbsolute } from 'node:path'
+import { isAbsolute, normalize } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { FsError } from '@deepseek-ai/dsh-fs'
@@ -485,6 +485,11 @@ function registerStrReplaceEditor(ctx: Context, config: ResolvedConfig): void {
       schema: { type: 'string' },
       render: (_args, value) => [{ type: 'text', text: value }],
     },
+    // Every command occupies one path: same-path calls never overlap on the path
+    // key, distinct paths still pack, and a guarded mutation behind an
+    // unnormalized alias fails closed on the observed version.
+    isConcurrencySafe: () => true,
+    parallelScopeKey: args => normalize(args.path),
     async execute(args, exec) {
       const escalation = {
         ...args.sandbox_permissions === undefined ? {} : { sandbox_permissions: args.sandbox_permissions },

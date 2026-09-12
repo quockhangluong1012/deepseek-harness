@@ -73,6 +73,19 @@ interface ToolDefinition extends ToolSchema {
    */
   isConcurrencySafe?(args: unknown): boolean
   /**
+   * Pure synchronous overlap scope for sibling calls of a concurrency-safe
+   * tool. Calls that return the same non-empty key never overlap: the loop
+   * withholds each one until the previously started call with that key
+   * settles, while distinct keys keep packing into the same parallel group.
+   * Only consulted when `isConcurrencySafe` returns `true` for the same
+   * arguments; omission, an empty string, a non-string return, and a throwing
+   * classifier declare no scope, which is exclusive when the classifier threw.
+   * This metadata is never model-visible.
+   * @param args - parsed arguments; `defineTool` validates before calling.
+   * @returns The overlap scope key, or an empty string for no scope.
+   */
+  parallelScopeKey?(args: unknown): string
+  /**
    * Optional: how to present the PENDING state of one call in a UI, derived from
    * the call's `args` (parsed arguments, `unknown` — the tool validates/narrows
    * its own input). Returns a {@link ToolCallView} (a `card`-tagged render intent),
@@ -240,15 +253,17 @@ interface ToolRunContext extends ToolExecution {
 }
 ```
 
-The agent loop asks the registry for each pending call's execution mode and uses it to form exclusive barriers and rolling-pool parallel runs:
+The agent loop asks the registry for each pending call's execution mode and uses it to form exclusive barriers and rolling-pool parallel runs; a parallel call that names a scope key waits until the previously started call holding that key settles, so same-key calls never overlap while distinct keys keep packing into the same pool:
 
 ```ts type-equiv
 /**
  * Scheduling mode for one pending call. `parallel` may overlap with siblings;
- * `exclusive` runs alone and forms an ordering barrier.
+ * `exclusive` runs alone and forms an ordering barrier. A `parallel` call may
+ * additionally declare a `scopeKey`: calls sharing one key never overlap, while
+ * distinct keys and unscoped calls still pack into the same pool.
  */
 type ToolExecutionMode =
-  | { kind: 'parallel' }
+  | { kind: 'parallel'; scopeKey?: string }
   | { kind: 'exclusive' }
 ```
 
@@ -546,7 +561,10 @@ schemas(scope?: ScopeKey): ToolSchema[]
 /**
  * Classify a pending call through the caller's visible tool definition. Only
  * an exact `true` is parallel; unknown, hidden, undeclared, invalid, or
- * throwing classifiers are exclusive.
+ * throwing classifiers are exclusive. A parallel call additionally carries
+ * its overlap scope key when the tool declares one; a non-string or empty
+ * return, and any throw from the scope classifier, read as no scope, which is
+ * exclusive when the throw came from the overlap classifier.
  * @param exec - call name, parsed arguments, and optional agent scope.
  * @returns the fail-closed scheduling mode.
  */

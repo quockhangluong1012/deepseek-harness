@@ -147,9 +147,16 @@ describe('renderToolsSdkPy', () => {
     // The argument object is a named TypedDict, not an opaque dict.
     expect(text).toContain('class BashArgs(TypedDict):')
     expect(text).toContain('async def bash(self, args: BashArgs) -> str:')
-    // Empty-property tools keep the opaque dict (nothing to name).
-    expect(text).toContain('# tools["my-mcp.tool"](args: dict[str, Any]) -> str')
-    expect(text).toContain('# tools["class"](args: dict[str, Any]) -> str')
+    // A no-property tool's parameters are a CLOSED empty object —
+    // `parameterSchemaSpecToJsonSchema` always sets `additionalProperties:
+    // false` — so the args position names an empty TypedDict rather than a
+    // permissive `dict[str, Any]`: `py-types.ts` — "An OPEN empty object is any
+    // dict; a CLOSED empty object declares an empty TypedDict so 'no keys
+    // accepted' survives into the SDK."
+    expect(text).toContain('class MyMcpToolArgs(TypedDict):\n    pass')
+    expect(text).toContain('class ClassArgs(TypedDict):\n    pass')
+    expect(text).toContain('# tools["my-mcp.tool"](args: MyMcpToolArgs) -> str')
+    expect(text).toContain('# tools["class"](args: ClassArgs) -> str')
     // Fixed instruction lines the model relies on.
     expect(text).toContain('top-level `await`')
     // The binding boundary: `tools`/`ToolCallError` are bound, the TypedDicts
@@ -778,8 +785,10 @@ describe('renderToolsSdkPy', () => {
     ])
     expect(text.indexOf('# tools["a-tool"]')).toBeLessThan(text.indexOf('async def z'))
     // The interleaved comment does not disturb the class body: `z` still parses
-    // as the statement that keeps `pass` out.
-    expect(text).not.toContain(`${' '.repeat(4)}pass`)
+    // as the statement that keeps `pass` out of the PROTOCOL body. (The arg
+    // TypedDicts above legitimately carry their own `pass` — each is a closed
+    // empty object.)
+    expect(text).not.toMatch(/class Tools\(Protocol\):\n    pass\n/)
   })
 
   it('is deterministic: byte-identical output regardless of input order or duplication', () => {
@@ -811,7 +820,7 @@ describe('renderToolsSdkPy', () => {
     const text = renderToolsSdkPy([undescribedIdentifier, undescribedExotic])
     // Identifier method appears without a docstring in its body — hence the
     // `: ...` stub, which a documented method replaces with the docstring.
-    expect(text).toContain('async def plain(self, args: dict[str, Any]) -> str: ...')
+    expect(text).toContain('async def plain(self, args: PlainArgs) -> str: ...')
     expect(text).not.toContain('"""')
     // Subscript entry appears without the "#   ..." description follow-up.
     expect(text).toContain('# tools["weird-name"]')
@@ -1069,8 +1078,10 @@ describe('renderToolsSdkPy', () => {
       output: { type: 'string' },
     })
     const text = renderToolsSdkPy([make('_foo'), make('__meta__'), make('__token')])
-    for (const name of ['_foo', '__meta__', '__token']) {
-      expect(text).toContain(`# tools[${JSON.stringify(name)}](args: dict[str, Any]) -> str`)
+    // Each no-property parameters object is closed and empty, so it names an
+    // empty TypedDict (`FooArgs`/`MetaArgs`/`TokenArgs`) rather than degrading.
+    for (const [name, argsClass] of [['_foo', 'FooArgs'], ['__meta__', 'MetaArgs'], ['__token', 'TokenArgs']] as const) {
+      expect(text).toContain(`# tools[${JSON.stringify(name)}](args: ${argsClass}) -> str`)
       expect(text).not.toContain(`async def ${name}(`)
     }
     // No method emitted at all, so the class body needs the explicit `pass`.
@@ -1091,7 +1102,7 @@ describe('renderToolsSdkPy', () => {
         output: { type: 'string' },
       },
     ])
-    expect(text).toContain(String.raw`# tools["a\ud800b"](args: dict[str, Any]) -> str`)
+    expect(text).toContain(String.raw`# tools["a\ud800b"](args: ABArgs) -> str`)
     expect(text).not.toContain('\ud800')
   })
 

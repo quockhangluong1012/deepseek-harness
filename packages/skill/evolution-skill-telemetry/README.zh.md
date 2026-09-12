@@ -1,0 +1,98 @@
+---
+description: "Durable per-skill use/view/patch telemetry with provenance, pin, and lifecycle state (ctx.evolutionSkillTelemetry), for hosts curating skills during use."
+kind: "package-reference"
+---
+
+# @deepseek-ai/dsh-evolution-skill-telemetry
+
+[English](README.md) | 中文
+
+## 概述
+
+`dsh-evolution-skill-telemetry` 拥有技能整理背后的持久化按技能计数器：成功的模型加载、人工查看与管理变更，以及创建来源、置顶与生命周期状态。Host 同步读取，并通过显式标记进行修改；被动 `tools/post-execute` 观察器统计成功的 `skill` 工具加载。随包附带与 hub 技能被排除在一切写入之外。本包还统计重复产出的输出作为技能创建证据，并在合并规模运行扇出之前记录其成本行。当整理工作（过期判断、合并、删除）应基于观测到的使用而非猜测时，选择本包。
+
+## 目录
+
+- [使用本包](#use-this-package)
+- [理解实现](#understand-the-implementation)
+- [进一步探索](#further-exploration)
+- [模型体验](#model-experience)
+- [已知限制与延期工作](#known-limitations-and-deferred-work)
+- [开发备注](#dev-note)
+
+-----
+
+<a id="use-this-package"></a>
+## 使用本包
+
+当技能整理需要持久化的使用证据时挂载本插件。记录以技能名作键；缺席记录读作 `undefined`，在首次标记时播种。读取从已校验的内存同步进行，并返回脱离副本。`markUsed`、`markViewed` 与 `markPatched` 对随包附带与 `hub*` 来源直接返回 `undefined` 而不写入。`markAgentCreated` 记录后台评审的作者身份，已存在时直接返回而不写入；前台创建永不调用它，因此其来源保持为用户主导。`markAdopted` 把一个 agent 创建的技能认领为用户主导，不重置时钟；缺席记录与非后台作者身份一律拒绝。`drop` 遗忘一条记录，并报告是否删有所获。`setPinned` 置顶或取消置顶；置顶阻止自动流转与受管删除，但永不阻止补丁。`setState` 将一个技能推进 `active`、`stale` 与 `archived`：进入时盖上 `archivedAt`、离开时清除，`absorbedInto` 命名合并归属。
+
+除计数器之外还有两个接口。`skillCreationEvidence(paths)` 统计重复产出的输出，按规范化路径分组（大小写折叠、`/` 与 `\` 等价、忽略结尾分隔符），在第三次重复时触发——这正是提议创建技能的被计数触发器；它从不读取或引用文件内容，也不采用任何供应方报告的重复数字。`recordConsolidationCost(row)` 存储合并规模运行在其扇出之前记录的 `{ inputBytes, maxOutputTokens, provider, model, truncated }` 行，`readConsolidationCost()` 返回最新行的脱离副本，未记录任何行时返回 `undefined`。
+
+-----
+
+<a id="understand-the-implementation"></a>
+## 理解实现
+
+<details>
+<summary>实现内部——点击展开</summary>
+
+### 设计概念
+
+存储域 `evolution_skill_usage`（版本 `1`、布局 `per-record`、表 `records`）中每个技能名一条持久记录。来源排除是与 manage 包经由 `isExcludedSkillSource` 共享的写入时决策：随包技能随产品发布，hub 技能来自共享，因此二者都不属于本地整理。观察器先委托工具链、再计数，因此遥测永不改变加载结果；技能提供方失败时回退到 `custom` 来源，而不是丢失计数。
+
+### 源码导览
+
+| 文件 | 职责 |
+|---|---|
+| [`src/index.ts`](src/index.ts) | 插件入口：`EvolutionSkillTelemetry` 服务、标记与 `tools/post-execute` 观察器 |
+| [`src/spec.ts`](src/spec.ts) | 域声明：记录模式与 `defineDomain` 规范 |
+| [`src/types.ts`](src/types.ts) | 公共 `SkillUsageRecord`、生命周期状态、来源、重复输出证据与合并成本行类型 |
+
+### 失败与恢复
+
+失败的写入向调用方传播，观察器内部除外——它只记日志并保留工具结果。标记在首次触碰时播种记录，无变化时直接返回而不写入。存储启动前 `read` 与 `entries` 抛错；其余方法同样需要已打开的表。
+
+不发布 invariant 伴生包，因为域表是该状态的唯一副本，不存在第二个可供核对的独立观测。
+
+</details>
+
+-----
+
+<a id="further-exploration"></a>
+## 进一步探索
+
+- [演进式 Harness 规范](../../../specs/evolutionary-harness.spec.md)——本包实现的行为契约。
+- [skill 包导览](../README.zh.md)——本分组的软件包及其仓库位置。
+
+-----
+
+<a id="model-experience"></a>
+## 模型体验
+
+通过 `@deepseek-ai/dsh-evolution-skill-manage` 间接呈现，其 `skill_manage` 工具在此报告每次变更，并拒绝删除被置顶的技能。
+
+#### KV Cache 影响
+
+与实时请求独立：本包永不触碰请求前缀，因此不会使 provider 缓存复用失效。
+
+## 已知限制与延期工作
+
+<a id="known-limitations-and-deferred-work"></a>
+
+这些限制界定了本遥测不适用的场景。它们是当前包约束。
+
+- **仅限本机**——记录位于 `$DSH_HOME` 之下，永不写入项目目录内。
+- **只统计流入的计数**——`skill_manage` 之外的直接文件编辑与 `skill` 工具之外的加载永不到达计数器。
+- **无按会话拆分**——计数器按技能全局累计；没有按作用域或按会话视图。
+- **随包与 hub 技能不可见**——被排除的来源永不播种记录，因此整理只能看到本地拥有的技能。
+
+<a id="dev-note"></a>
+### 开发备注
+
+<details>
+<summary>面向维护者的工作上下文——点击展开</summary>
+
+无。
+
+</details>

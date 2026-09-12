@@ -10,6 +10,7 @@ import z from '@deepseek-ai/schemastery'
 import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import type {} from '@deepseek-ai/dsh-shell'
 import { SessionSeq, type UserMessage } from '@deepseek-ai/dsh-session'
 import {
   escapeText,
@@ -17,9 +18,12 @@ import {
   isSkillName,
   isUserInvocable,
   renderSkillContent,
+  type SkillDefinition,
   type SkillInvocationSource,
   type SkillSummary,
 } from '@deepseek-ai/dsh-skill'
+import { resolveSkillLoad, renderSkillBody, type SkillConfigMap } from './load.ts'
+import { skillDirForSkillPath } from './template.ts'
 
 export const name = 'tool-skill'
 export const inject = ['agents', 'tools', 'skills']
@@ -61,11 +65,22 @@ function catalogSourceEntries(
 export interface Config {
   /** Maximum normalized description length rendered in the session catalog; minimum 3. */
   catalogDescriptionMaxLength?: number
+  /** Deployment-side skill settings. */
+  skills?: {
+    /**
+     * Per-skill configuration values injected at load, keyed by skill name then
+     * config key. A deployed value overrides the skill's own declared default.
+     */
+    config?: SkillConfigMap
+  }
 }
 
 /** Validate and default the model-facing skill catalog configuration. */
 export const Config: z<Config> = z.object({
   catalogDescriptionMaxLength: z.number().default(DEFAULT_CATALOG_DESCRIPTION_MAX_LENGTH),
+  skills: z.object({
+    config: z.dict(z.dict(z.string())).default({}),
+  }),
 })
 
 /**
@@ -145,13 +160,18 @@ export function apply(ctx: Context, config: Config = {}): void {
       if (!isModelInvocable(skill)) {
         throw new Error(`skill "${args.name}" is not available for model invocation`)
       }
+      const body = await loadSkillBody(ctx, config, skill, {
+        sessionId: exec.agent?.session.id,
+        signal: exec.signal,
+      })
+      if (!body.ok) throw new Error(body.error)
       return {
         name: skill.name,
         provider: skill.provider,
         ...skill.resourceBase !== undefined ? {
           resourceBase: { ...skill.resourceBase },
         } : {},
-        content: skill.content,
+        content: body.content,
       }
     },
     presentCall(args) {
@@ -193,9 +213,14 @@ export function apply(ctx: Context, config: Config = {}): void {
       // on the loaded definition — the single lookup that produces what is
       // actually injected.
       if (skill === undefined || !isUserInvocable(skill)) continue
+      const body = await loadSkillBody(ctx, config, skill, { sessionId: agent.session.id, signal })
+      if (!body.ok) {
+        ctx.logger.warn(`skill "${name}" skipped: ${body.error}`)
+        continue
+      }
       const source: SkillInvocationSource = { kind: 'skill-invocation', name, form: 'instructions' }
       injections.push(createUserMessage({
-        content: [{ type: 'text', text: renderSkillContent(skill) }],
+        content: [{ type: 'text', text: renderSkillContent({ ...skill, content: body.content }) }],
         source,
       }))
     }
@@ -249,6 +274,39 @@ export function apply(ctx: Context, config: Config = {}): void {
         : decision.messages.map(message => message.id === existing.message.id ? catalog : message),
     }
   })
+}
+
+/**
+ * Resolve one skill's load-time environment and render its body, sharing the
+ * deployment configuration, host environment, and shell executor across both
+ * loader paths. The caller decides how a resolution failure surfaces: the tool
+ * throws the explanatory load error, and the user-explicit injection warns and
+ * skips the skill for that step.
+ * @param ctx - host context carrying the skill registry and the shell executor.
+ * @param config - this plugin's configuration with the deployment-side skill values.
+ * @param skill - the loaded skill definition about to render.
+ * @param vars - session id and abort signal of the loading step.
+ * @returns the rendered body, or the explanatory misconfiguration load error.
+ */
+async function loadSkillBody(
+  ctx: Context,
+  config: Config,
+  skill: SkillDefinition,
+  vars: { readonly sessionId: string | undefined; readonly signal: AbortSignal | undefined },
+): Promise<{ readonly ok: true; readonly content: string } | { readonly ok: false; readonly error: string }> {
+  const resolution = resolveSkillLoad({ skill, skillsConfig: config.skills?.config, env: process.env })
+  if (!resolution.ok) return resolution
+  return {
+    ok: true,
+    content: await renderSkillBody({
+      spec: resolution.spec,
+      skillDir: skillDirForSkillPath(skill.path),
+      sessionId: vars.sessionId,
+      shell: ctx.get('shell'),
+      signal: vars.signal,
+      warn: (message) => { ctx.logger.warn(message) },
+    }),
+  }
 }
 
 function renderCatalogMessage(entries: SkillCatalogSource['entries']): UserMessage {

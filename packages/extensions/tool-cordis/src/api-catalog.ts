@@ -895,6 +895,244 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'evolutionCurator',
+    summary: 'Idle-triggered automatic skill lifecycle curator.',
+    description: 'Idle-triggered automatic skill lifecycle curator. Opens the `evolution_curator` domain at init and closes it through `ctx.effect`. Transitions apply through skill telemetry, which stays optional: without the store a pass only advances the bookkeeping.',
+    methods: [
+      {
+        signature: 'lastRunAt(): string | null',
+        description: 'Read the last pass instant.',
+        parameters: [],
+        returns: 'the ISO-8601 instant, or null before the first pass.',
+      },
+      {
+        signature: 'async run(options: CuratorRunOptions = {}): Promise<CuratorReport>',
+        description: 'Run one pass over every tracked skill, applying or previewing idle lifecycle movements. A real pass with movements writes one snapshot tarball plus pass and transition ledger entries when backups are on.',
+        parameters: [{ name: 'options', description: 'clock override and dry-run preview flag.' }],
+        returns: 'the pass report with every movement.',
+      },
+      {
+        signature: 'async maybeRun(options: CuratorMaybeRunOptions = {}): Promise<CuratorReport | undefined>',
+        description: 'Run a pass only when enabled, the interval elapsed since the last pass, and enough idleness was observed. The first call only seeds the bookkeeping and defers one interval.',
+        parameters: [{ name: 'options', description: 'clock and idleness overrides plus the dry-run flag.' }],
+        returns: 'the pass report, or undefined when this call defers.',
+      },
+      {
+        signature: 'async surveyCandidates(options: CuratorRunOptions = {}): Promise<ConsolidationSurvey>',
+        description: 'Survey agent-created skills for a future consolidation verdict: names, catalog routing, lifecycle state, idle age, and use counters, sorted by name. The verdict itself (keep, patch, consolidate, archive) arrives separately; the survey never writes.',
+        parameters: [{ name: 'options', description: 'clock override.' }],
+        returns: 'the verdict evidence per skill.',
+      },
+      {
+        signature: 'async adopt(name: string): Promise<SkillUsageRecord>',
+        description: 'Adopt one agent-created skill into user-directed standing, recording the movement in the ledger. Manual only: clocks never reset.',
+        parameters: [{ name: 'name', description: 'skill name.' }],
+        returns: 'the stored record with user-directed provenance.',
+      },
+      {
+        signature: 'async purge(options: CuratorRunOptions = {}): Promise<PurgeReport>',
+        description: 'Purge archived skills past their time-to-live: remove the skill directory when resolvable, forget the record, and ledger each removal. Pinned skills stay, a zero TTL purges nothing, and dry runs preview only.',
+        parameters: [{ name: 'options', description: 'clock override and dry-run preview flag.' }],
+        returns: 'the purge report.',
+      },
+      {
+        signature: 'async passes(): Promise<PassSummary[]>',
+        description: 'List recorded passes newest-first for status surfaces and rollback picks.',
+        parameters: [],
+        returns: 'one summary per ledger pass entry.',
+      },
+      {
+        signature: 'async rollbackPass(passId: string, options: RollbackOptions = {}): Promise<RollbackReport>',
+        description: 'Roll back one whole recorded pass, restoring every transitioned skill\'s lifecycle state. Verifies all evidence before writing anything, snapshots current records first so the rollback stays reversible, and never touches skill directories.',
+        parameters: [{ name: 'passId', description: 'pass identity from the report or {@link passes}.' }, { name: 'options', description: 'clock override.' }],
+        returns: 'the rollback report.',
+      },
+      {
+        signature: 'async rollbackEntry(entryId: string, options: RollbackOptions = {}): Promise<RollbackReport>',
+        description: 'Roll back one ledger transition entry. Fails closed on unknown ids, missing blobs, and untracked skills, before any write.',
+        parameters: [{ name: 'entryId', description: 'ledger entry identity.' }, { name: 'options', description: 'clock override.' }],
+        returns: 'the rollback report.',
+      },
+    ],
+  },
+  {
+    key: 'evolutionMemory',
+    summary: 'Durable per-scope evolution memory store.',
+    description: 'Durable per-scope evolution memory store. Opens the `evolution_memory` domain at init and closes it through `ctx.effect`.',
+    methods: [
+      {
+        signature: 'read(id: EvolutionScopeId): EvolutionMemoryRecord | undefined',
+        description: 'Read one scope\'s record.',
+        parameters: [{ name: 'id', description: 'scope identity.' }],
+        returns: 'a detached copy, or undefined when absent.',
+      },
+      {
+        signature: 'usage(id: EvolutionScopeId): EvolutionMemoryUsage',
+        description: 'Capacity accounting for one scope.',
+        parameters: [{ name: 'id', description: 'scope identity.' }],
+        returns: 'charged bytes and the configured ceiling.',
+      },
+      {
+        signature: 'digest(id: EvolutionScopeId): string',
+        description: 'Digest of the brief\'s inputs for one scope.',
+        parameters: [{ name: 'id', description: 'scope identity.' }],
+        returns: '`\'empty\'` when absent, else the sha1 of the covered inputs.',
+      },
+      {
+        signature: 'async setInstructions(id: EvolutionScopeId, instructions: string): Promise<EvolutionMemoryRecord>',
+        description: 'Replace the user-authored instruction text. Instructions carry no per-field cap; only the scope capacity bounds them.',
+        parameters: [{ name: 'id', description: 'scope identity.' }, { name: 'instructions', description: 'new rules.' }],
+        returns: 'the stored record.',
+      },
+      {
+        signature: 'async setLessons(id: EvolutionScopeId, text: string, extraction?: EvolutionExtraction): Promise<EvolutionMemoryRecord>',
+        description: 'Replace the whole lessons document by hand or from extraction.',
+        parameters: [{ name: 'id', description: 'scope identity.' }, { name: 'text', description: 'replacement lessons document.' }, { name: 'extraction', description: 'provenance when model-written.' }],
+        returns: 'the stored record.',
+      },
+      {
+        signature: 'async addLesson(id: EvolutionScopeId, text: string): Promise<EvolutionMemoryRecord>',
+        description: 'Append one lesson. An exact duplicate resolves without writing.',
+        parameters: [{ name: 'id', description: 'scope identity.' }, { name: 'text', description: 'non-empty lesson text to append.' }],
+        returns: 'the stored record, unchanged when the lesson already exists.',
+      },
+      {
+        signature: 'async replaceLesson(id: EvolutionScopeId, oldText: string, content: string): Promise<EvolutionMemoryRecord>',
+        description: 'Replace one uniquely-matching lesson substring.',
+        parameters: [{ name: 'id', description: 'scope identity.' }, { name: 'oldText', description: 'non-empty substring expected exactly once.' }, { name: 'content', description: 'replacement text.' }],
+        returns: 'the stored record.',
+      },
+      {
+        signature: 'async removeLesson(id: EvolutionScopeId, oldText: string): Promise<EvolutionMemoryRecord>',
+        description: 'Remove one uniquely-matching lesson substring.',
+        parameters: [{ name: 'id', description: 'scope identity.' }, { name: 'oldText', description: 'non-empty substring expected exactly once.' }],
+        returns: 'the stored record.',
+      },
+      {
+        signature: 'async setUserProfile(id: EvolutionScopeId, text: string, extraction?: EvolutionExtraction): Promise<EvolutionMemoryRecord>',
+        description: 'Replace the whole user profile document by hand or from extraction.',
+        parameters: [{ name: 'id', description: 'scope identity.' }, { name: 'text', description: 'replacement profile document.' }, { name: 'extraction', description: 'provenance when model-written.' }],
+        returns: 'the stored record.',
+      },
+      {
+        signature: 'async addContextItem(id: EvolutionScopeId, input: EvolutionContextItemInput): Promise<EvolutionMemoryRecord>',
+        description: 'Attach pasted text or a scope file.',
+        parameters: [{ name: 'id', description: 'scope identity.' }, { name: 'input', description: 'label plus text or path with its observed size.' }],
+        returns: 'the stored record.',
+      },
+      {
+        signature: 'async removeContextItem(id: EvolutionScopeId, itemId: string): Promise<EvolutionMemoryRecord>',
+        description: 'Detach one context item.',
+        parameters: [{ name: 'id', description: 'scope identity.' }, { name: 'itemId', description: 'context item identity.' }],
+        returns: 'the stored record.',
+      },
+      {
+        signature: 'async stageWrite(input: StagedWriteInput): Promise<StagedWrite>',
+        description: 'Stage one write for later approval. Staged entries never count toward capacity; `memoryUpdatedAt` stays untouched until approval.',
+        parameters: [{ name: 'input', description: 'scope, kind, op, payload, origin session, and gist.' }],
+        returns: 'the staged entry.',
+      },
+      {
+        signature: 'async approveStaged(id: string): Promise<void>',
+        description: 'Approve one staged write. Memory-kind entries apply their op first, so a cap or substring rejection keeps the entry staged and propagates; the entry drops only after the op lands. Skill-kind entries only drop: the approver reads the payload from the scope record and performs the skill write before approving.',
+        parameters: [{ name: 'id', description: 'staged entry identity.' }],
+        returns: 'resolution after durability.',
+      },
+      {
+        signature: 'async rejectStaged(id: string): Promise<void>',
+        description: 'Drop one staged write without applying it.',
+        parameters: [{ name: 'id', description: 'staged entry identity.' }],
+        returns: 'resolution after durability.',
+      },
+      {
+        signature: 'async recordOutputs(id: EvolutionScopeId, entries: readonly EvolutionOutput[]): Promise<void>',
+        description: 'Index produced files newest-first, collapsing repeats onto the newer `at` and truncating to `maxOutputs`. Resolves without writing when the resulting list is unchanged.',
+        parameters: [{ name: 'id', description: 'scope identity.' }, { name: 'entries', description: 'output entries with path, tool, session, and instant.' }],
+        returns: 'resolution after durability, or immediately when unchanged.',
+      },
+    ],
+  },
+  {
+    key: 'evolutionReviewer',
+    summary: 'Background reviewer.',
+    description: 'Background reviewer. One scope never runs two extractions at once; a turn is never blocked by one.',
+    methods: [
+      {
+        signature: 'async rebuild(scopeId: EvolutionScopeId, signal: AbortSignal): Promise<void>',
+        description: 'Rebuild the lessons document from the scope\'s chat history, read through the asynchronous session query seam. Rebuilds write directly even when background approval staging is on: the caller explicitly asked for them.',
+        parameters: [{ name: 'scopeId', description: 'scope identity.' }, { name: 'signal', description: 'caller cancellation.' }],
+        returns: 'resolution after the store write.',
+      },
+    ],
+  },
+  {
+    key: 'evolutionSkillTelemetry',
+    summary: 'Durable per-skill telemetry store.',
+    description: 'Durable per-skill telemetry store. Opens the `evolution_skill_usage` domain at init and closes it through `ctx.effect`. A passive `tools/post-execute` observer counts successful `skill`-tool loads as uses; views, patches, provenance, pins, and states arrive through the explicit marks below.',
+    methods: [
+      {
+        signature: 'read(name: string): SkillUsageRecord | undefined',
+        description: 'Read one skill\'s record.',
+        parameters: [{ name: 'name', description: 'skill name.' }],
+        returns: 'a detached copy, or undefined when never touched.',
+      },
+      {
+        signature: 'entries(): { name: string; usage: SkillUsageRecord }[]',
+        description: 'List every tracked skill with its record.',
+        parameters: [],
+        returns: 'name/record pairs with detached copies.',
+      },
+      {
+        signature: 'async markUsed(name: string, source?: string): Promise<SkillUsageRecord | undefined>',
+        description: 'Count one successful model load. Bundled and hub skills resolve to no record: the observer still delegates, only the write is skipped.',
+        parameters: [{ name: 'name', description: 'skill name.' }, { name: 'source', description: 'catalog source when the caller already resolved it.' }],
+        returns: 'the stored record, or undefined for excluded sources.',
+      },
+      {
+        signature: 'async markViewed(name: string, source?: string): Promise<SkillUsageRecord | undefined>',
+        description: 'Count one human view. Exclusion matches markUsed.',
+        parameters: [{ name: 'name', description: 'skill name.' }, { name: 'source', description: 'catalog source when the caller already resolved it.' }],
+        returns: 'the stored record, or undefined for excluded sources.',
+      },
+      {
+        signature: 'async markPatched(name: string, source?: string): Promise<SkillUsageRecord | undefined>',
+        description: 'Count one skill-management mutation. Exclusion matches markUsed.',
+        parameters: [{ name: 'name', description: 'skill name.' }, { name: 'source', description: 'catalog source when the caller already resolved it.' }],
+        returns: 'the stored record, or undefined for excluded sources.',
+      },
+      {
+        signature: 'async markAgentCreated(name: string): Promise<SkillUsageRecord>',
+        description: 'Record background-review authorship. Resolves without writing when the record already carries it; foreground creates never call this, so their provenance stays user-directed.',
+        parameters: [{ name: 'name', description: 'skill name.' }],
+        returns: 'the stored record.',
+      },
+      {
+        signature: 'async markAdopted(name: string): Promise<SkillUsageRecord>',
+        description: 'Adopt one agent-created skill into user-directed standing. Only records carrying background-review authorship move; everything else rejects, and clocks never reset.',
+        parameters: [{ name: 'name', description: 'skill name.' }],
+        returns: 'the stored record with user-directed provenance.',
+      },
+      {
+        signature: 'async drop(name: string): Promise<boolean>',
+        description: 'Forget one skill\'s record entirely. Purge calls this after removing the skill directory; absent names resolve without writing.',
+        parameters: [{ name: 'name', description: 'skill name.' }],
+        returns: 'whether a record was removed.',
+      },
+      {
+        signature: 'async setPinned(name: string, pinned: boolean): Promise<SkillUsageRecord>',
+        description: 'Pin or unpin one skill. Pins block automatic transitions and managed deletion; patches stay allowed. Resolves without writing when unchanged.',
+        parameters: [{ name: 'name', description: 'skill name.' }, { name: 'pinned', description: 'new pin state.' }],
+        returns: 'the stored record.',
+      },
+      {
+        signature: 'async setState(name: string, state: SkillLifecycleState, absorbedInto: string | null = null): Promise<SkillUsageRecord>',
+        description: 'Move one skill through its curation lifecycle. Entering `archived` stamps the instant; leaving clears it. The absorption target replaces any previous one, so plain transitions carry none.',
+        parameters: [{ name: 'name', description: 'skill name.' }, { name: 'state', description: 'new lifecycle state.' }, { name: 'absorbedInto', description: 'consolidation umbrella, or null when standalone.' }],
+        returns: 'the stored record.',
+      },
+    ],
+  },
+  {
     key: 'fileReferences',
     summary: 'Host capability for cancellable file-reference discovery.',
     description: 'Host capability for cancellable file-reference discovery.',
@@ -2648,7 +2886,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'executionMode(exec: ToolExecutionInput): ToolExecutionMode',
-        description: 'Classify a pending call through the caller\'s visible tool definition. Only an exact `true` is parallel; unknown, hidden, undeclared, invalid, or throwing classifiers are exclusive.',
+        description: 'Classify a pending call through the caller\'s visible tool definition. Only an exact `true` is parallel; unknown, hidden, undeclared, invalid, or throwing classifiers are exclusive. A parallel call additionally carries its overlap scope key when the tool declares one; a non-string or empty return, and any throw from the scope classifier, read as no scope, which is exclusive when the throw came from the overlap classifier.',
         parameters: [{ name: 'exec', description: 'call name, parsed arguments, and optional agent scope.' }],
         returns: 'the fail-closed scheduling mode.',
       },
@@ -4076,6 +4314,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type ConfinedSandboxMode = Exclude<SandboxMode, \'danger-full-access\'>;',
   },
   {
+    name: 'ConsolidationSurvey',
+    declaration: 'export interface ConsolidationSurvey {\n    at: string;\n    candidates: SurveyCandidate[];\n}',
+  },
+  {
     name: 'ContentBlockMap',
     declaration: 'export interface ContentBlockMap {\n    \'text\': TextBlock;\n    \'reasoning\': ReasoningBlock;\n    \'image\': ImageBlock;\n    \'file\': FileBlock;\n    \'tool-call\': ToolCallBlock;\n    \'tool-result\': ToolResultBlock;\n}',
   },
@@ -4224,6 +4466,22 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type CredentialRef = Branded<\'CredentialRef\'>;',
   },
   {
+    name: 'CuratorMaybeRunOptions',
+    declaration: 'export interface CuratorMaybeRunOptions extends CuratorRunOptions {\n    idleMs?: number | undefined;\n}',
+  },
+  {
+    name: 'CuratorReport',
+    declaration: 'export interface CuratorReport {\n    at: string;\n    dryRun: boolean;\n    scanned: number;\n    transitions: CuratorTransition[];\n    skippedPinned: number;\n    skippedProtected: number;\n    skippedExcluded: number;\n    passId: string | null;\n    snapshot: string | null;\n}',
+  },
+  {
+    name: 'CuratorRunOptions',
+    declaration: 'export interface CuratorRunOptions {\n    now?: number | undefined;\n    dryRun?: boolean | undefined;\n}',
+  },
+  {
+    name: 'CuratorTransition',
+    declaration: 'export interface CuratorTransition {\n    name: string;\n    from: SkillLifecycleState;\n    to: SkillLifecycleState;\n    reason: string;\n}',
+  },
+  {
     name: 'DeepSeekLlmApiExtensionMap',
     declaration: 'export interface DeepSeekLlmApiExtensionMap {\n}',
   },
@@ -4233,7 +4491,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'DeepSeekLlmApiExtensionRequest',
-    declaration: 'export interface DeepSeekLlmApiExtensionRequest {\n    readonly body: Readonly<Record<string, DeepSeekLlmApiJson>>;\n    readonly sessionId?: string;\n    readonly purpose?: \'compaction\' | \'session-title\' | \'workspace-memory\';\n    readonly signal: AbortSignal;\n}',
+    declaration: 'export interface DeepSeekLlmApiExtensionRequest {\n    readonly body: Readonly<Record<string, DeepSeekLlmApiJson>>;\n    readonly sessionId?: string;\n    readonly purpose?: \'compaction\' | \'session-title\' | \'workspace-memory\' | \'evolution-review\';\n    readonly signal: AbortSignal;\n}',
   },
   {
     name: 'DeepSeekLlmApiJson',
@@ -4364,6 +4622,34 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface EpochHeader {\n    config: LlmCallConfig;\n    adapterDefaults?: LlmCallConfigAdapterDefaults;\n    tools?: ToolSchema[];\n}',
   },
   {
+    name: 'EvolutionContextItem',
+    declaration: 'export type EvolutionContextItem = {\n    kind: \'text\';\n    id: string;\n    label: string;\n    text: string;\n    sizeBytes: number;\n    addedAt: string;\n} | {\n    kind: \'file\';\n    id: string;\n    label: string;\n    path: string;\n    sizeBytes: number;\n    addedAt: string;\n};',
+  },
+  {
+    name: 'EvolutionContextItemInput',
+    declaration: 'export type EvolutionContextItemInput = {\n    kind: \'text\';\n    label: string;\n    text: string;\n} | {\n    kind: \'file\';\n    label: string;\n    path: string;\n    sizeBytes: number;\n};',
+  },
+  {
+    name: 'EvolutionExtraction',
+    declaration: 'export interface EvolutionExtraction {\n    at: string;\n    sessionId: string;\n    provider: string;\n    model: string;\n    origin: EvolutionExtractionOrigin;\n    inputBytes: number;\n    truncated: boolean;\n}',
+  },
+  {
+    name: 'EvolutionExtractionOrigin',
+    declaration: 'export type EvolutionExtractionOrigin = \'foreground\' | \'background_review\' | \'user-edit\' | \'rebuild\';',
+  },
+  {
+    name: 'EvolutionMemoryRecord',
+    declaration: 'export interface EvolutionMemoryRecord {\n    instructions: string;\n    agentLessons: string;\n    userProfile: string;\n    memoryUpdatedAt: string | null;\n    contextItems: readonly EvolutionContextItem[];\n    outputs: readonly EvolutionOutput[];\n    lastExtraction: EvolutionExtraction | null;\n    staged: readonly StagedWrite[];\n    updatedAt: string;\n}',
+  },
+  {
+    name: 'EvolutionMemoryUsage',
+    declaration: 'export interface EvolutionMemoryUsage {\n    usedBytes: number;\n    capacityBytes: number;\n}',
+  },
+  {
+    name: 'EvolutionOutput',
+    declaration: 'export interface EvolutionOutput {\n    path: string;\n    tool: string;\n    sessionId: string;\n    at: string;\n}',
+  },
+  {
     name: 'FeedbackCategory',
     declaration: 'export type FeedbackCategory = \'task-result\' | \'instruction-following\' | \'product-interaction\' | \'service-stability\' | \'resource-cost\' | \'security-privacy-permission\' | \'other\';',
   },
@@ -4453,7 +4739,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'GenerateOptions',
-    declaration: 'export interface GenerateOptions {\n    provider: string;\n    model: string;\n    reasoningEffort?: ReasoningEffortId;\n    messages: Message[];\n    system?: string;\n    tools?: ToolSchema[];\n    temperature?: number;\n    maxTokens?: number;\n    stop?: string[];\n    signal?: AbortSignal;\n    sessionId?: Branded<\'SessionId\'>;\n    purpose?: \'compaction\' | \'session-title\' | \'workspace-memory\';\n}',
+    declaration: 'export interface GenerateOptions {\n    provider: string;\n    model: string;\n    reasoningEffort?: ReasoningEffortId;\n    messages: Message[];\n    system?: string;\n    tools?: ToolSchema[];\n    temperature?: number;\n    maxTokens?: number;\n    stop?: string[];\n    signal?: AbortSignal;\n    sessionId?: Branded<\'SessionId\'>;\n    purpose?: \'compaction\' | \'session-title\' | \'workspace-memory\' | \'evolution-review\';\n}',
   },
   {
     name: 'GenericCallView',
@@ -4912,6 +5198,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type OptionalSessionSeq = SessionSeq | null;',
   },
   {
+    name: 'PassSummary',
+    declaration: 'export interface PassSummary {\n    passId: string;\n    at: string;\n    snapshot: string;\n    transitions: number;\n}',
+  },
+  {
     name: 'PermissionSelect',
     declaration: 'export interface PermissionSelect {\n    options: PresetOption[];\n    currentValue: string;\n}',
   },
@@ -5024,6 +5314,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface PtcDispatchLog {\n    readonly exec: ToolExecution;\n    readonly agent?: Agent;\n    readonly subCallId: ToolCallId;\n    readonly name: string;\n    readonly isError: boolean;\n    readonly content: ContentBlock[];\n}',
   },
   {
+    name: 'PurgedSkill',
+    declaration: 'export interface PurgedSkill {\n    name: string;\n    dir: string | null;\n}',
+  },
+  {
+    name: 'PurgeReport',
+    declaration: 'export interface PurgeReport {\n    at: string;\n    dryRun: boolean;\n    purged: PurgedSkill[];\n    skippedPinned: number;\n}',
+  },
+  {
     name: 'ReadFileLine',
     declaration: 'export interface ReadFileLine {\n    number: number;\n    text: string;\n}',
   },
@@ -5114,6 +5412,18 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'ResumeAgentOptions',
     declaration: 'export interface ResumeAgentOptions {\n    readonly resumeSessionId: SessionId;\n    readonly parentAgent?: Agent;\n    readonly agentOptions?: AgentOptions;\n    readonly signal?: AbortSignal;\n    readonly setup?: AgentSetup;\n}',
+  },
+  {
+    name: 'RollbackOptions',
+    declaration: 'export interface RollbackOptions {\n    now?: number | undefined;\n}',
+  },
+  {
+    name: 'RollbackReport',
+    declaration: 'export interface RollbackReport {\n    at: string;\n    label: string;\n    restored: RollbackRestored[];\n    preRollback: string;\n}',
+  },
+  {
+    name: 'RollbackRestored',
+    declaration: 'export interface RollbackRestored {\n    name: string;\n    from: SkillLifecycleState;\n    to: SkillLifecycleState;\n}',
   },
   {
     name: 'RunnerFailureRule',
@@ -5776,6 +6086,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface SkillCatalogSnapshot {\n    readonly skills: SkillSummary[];\n    readonly complete: boolean;\n}',
   },
   {
+    name: 'SkillCreatedBy',
+    declaration: 'export type SkillCreatedBy = \'agent\' | \'foreground\' | null;',
+  },
+  {
     name: 'SkillDefinition',
     declaration: 'export interface SkillDefinition extends SkillSummary {\n    readonly content: string;\n    readonly metadata?: Readonly<Record<string, unknown>>;\n}',
   },
@@ -5786,6 +6100,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SkillInvocationPolicy',
     declaration: 'export interface SkillInvocationPolicy {\n    readonly modelInvocable: boolean;\n    readonly userInvocable: boolean;\n}',
+  },
+  {
+    name: 'SkillLifecycleState',
+    declaration: 'export type SkillLifecycleState = \'active\' | \'stale\' | \'archived\';',
   },
   {
     name: 'SkillListRequest',
@@ -5821,11 +6139,15 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SkillSource',
-    declaration: 'export type SkillSource = \'project-dsh\' | \'project-agents\' | \'runtime\' | \'user-dsh\' | \'user-agents\' | \'custom\' | \'bundled\' | (string & {});',
+    declaration: 'export type SkillSource = \'project-dsh\' | \'project-hermes\' | \'project-agents\' | \'runtime\' | \'user-dsh\' | \'user-agents\' | \'custom\' | \'bundled\' | (string & {});',
   },
   {
     name: 'SkillSummary',
     declaration: 'export interface SkillSummary {\n    readonly path?: string;\n    readonly name: string;\n    readonly description: string;\n    readonly whenToUse?: string;\n    readonly invocation: SkillInvocationPolicy;\n    readonly source: SkillSource;\n    readonly provider: string;\n    readonly resourceBase?: SkillResourceBase;\n}',
+  },
+  {
+    name: 'SkillUsageRecord',
+    declaration: 'export interface SkillUsageRecord {\n    useCount: number;\n    viewCount: number;\n    patchCount: number;\n    lastUsedAt: string | null;\n    lastViewedAt: string | null;\n    lastPatchedAt: string | null;\n    createdAt: string;\n    state: SkillLifecycleState;\n    pinned: boolean;\n    createdBy: SkillCreatedBy;\n    absorbedInto: string | null;\n    archivedAt: string | null;\n}',
   },
   {
     name: 'SkillViewOptions',
@@ -5854,6 +6176,18 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SpillSource',
     declaration: 'export type SpillSource = {\n    kind: \'tool\';\n    toolName: string;\n    callId: ToolCallId;\n    label: string;\n} | {\n    kind: \'session-reference\';\n    sessionId: SessionId;\n    label: string;\n};',
+  },
+  {
+    name: 'StagedWrite',
+    declaration: 'export interface StagedWrite {\n    id: string;\n    kind: StagedWriteKind;\n    op: string;\n    payload: unknown;\n    originSessionId: string;\n    createdAt: string;\n    gist: string;\n}',
+  },
+  {
+    name: 'StagedWriteInput',
+    declaration: 'export interface StagedWriteInput {\n    scopeId: EvolutionScopeId;\n    kind: StagedWriteKind;\n    op: string;\n    payload: unknown;\n    originSessionId: string;\n    gist: string;\n}',
+  },
+  {
+    name: 'StagedWriteKind',
+    declaration: 'export type StagedWriteKind = \'memory\' | \'skill\';',
   },
   {
     name: 'StorageBackend',
@@ -6028,6 +6362,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type SurfaceOp = \'append\' | {\n    op: \'replace\';\n    startSeq: SessionSeq;\n    endSeq: SessionSeq;\n};',
   },
   {
+    name: 'SurveyCandidate',
+    declaration: 'export interface SurveyCandidate {\n    name: string;\n    description: string;\n    source: string;\n    state: SkillLifecycleState;\n    idleDays: number;\n    useCount: number;\n    viewCount: number;\n    patchCount: number;\n    lastUsedAt: string | null;\n}',
+  },
+  {
     name: 'SystemMessage',
     declaration: 'export interface SystemMessage extends Message {\n    readonly role: \'system\';\n    readonly source: MessageSourceMap[\'plugin\'];\n}',
   },
@@ -6197,7 +6535,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ToolDefinition',
-    declaration: 'export interface ToolDefinition extends ToolSchema {\n    readonly output: ToolOutputDefinition;\n    execute(args: unknown, exec: ToolRunContext): Promise<unknown>;\n    finalizeContent?(exec: Readonly<ToolExecution>, result: Readonly<ToolExecutionResult>): ContentBlock[] | undefined;\n    timeoutMs?: number;\n    isConcurrencySafe?(args: unknown): boolean;\n    presentCall?(args: unknown): ToolCallView | undefined;\n    presentResult?(args: unknown, result: ToolResult): ToolResultView | undefined;\n}',
+    declaration: 'export interface ToolDefinition extends ToolSchema {\n    readonly output: ToolOutputDefinition;\n    execute(args: unknown, exec: ToolRunContext): Promise<unknown>;\n    finalizeContent?(exec: Readonly<ToolExecution>, result: Readonly<ToolExecutionResult>): ContentBlock[] | undefined;\n    timeoutMs?: number;\n    isConcurrencySafe?(args: unknown): boolean;\n    parallelScopeKey?(args: unknown): string;\n    presentCall?(args: unknown): ToolCallView | undefined;\n    presentResult?(args: unknown, result: ToolResult): ToolResultView | undefined;\n}',
   },
   {
     name: 'ToolDispatchExecution',
@@ -6221,7 +6559,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ToolExecutionMode',
-    declaration: 'export type ToolExecutionMode = {\n    kind: \'parallel\';\n} | {\n    kind: \'exclusive\';\n};',
+    declaration: 'export type ToolExecutionMode = {\n    kind: \'parallel\';\n    scopeKey?: string;\n} | {\n    kind: \'exclusive\';\n};',
   },
   {
     name: 'ToolExecutionResult',

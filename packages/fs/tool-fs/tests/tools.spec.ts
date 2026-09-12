@@ -164,14 +164,16 @@ describe('registration', () => {
     expect(ctx.tools.schemas().map(s => s.name).sort()).toEqual(['edit', 'read', 'write'])
   })
 
-  it('declares read parallel-safe while write/edit remain exclusive', async () => {
+  it('declares every fs tool parallel-safe and scopes the mutating pair by path', async () => {
     const { ctx } = await setup()
     expect(ctx.tools.executionMode({ signal: testToolSignal, callId: ToolCallId('read-safe'), name: 'read', arguments: { file_path: 'a.txt' } }))
       .toEqual({ kind: 'parallel' })
-    expect(ctx.tools.executionMode({ signal: testToolSignal, callId: ToolCallId('write-exclusive'), name: 'write', arguments: { file_path: 'a.txt', content: 'x' } }))
-      .toEqual({ kind: 'exclusive' })
-    expect(ctx.tools.executionMode({ signal: testToolSignal, callId: ToolCallId('edit-exclusive'), name: 'edit', arguments: { file_path: 'a.txt', old_string: 'x', new_string: 'y' } }))
-      .toEqual({ kind: 'exclusive' })
+    expect(ctx.tools.executionMode({ signal: testToolSignal, callId: ToolCallId('write-unnormalized'), name: 'write', arguments: { file_path: './a.txt', content: 'x' } }))
+      .toEqual({ kind: 'parallel', scopeKey: 'a.txt' })
+    expect(ctx.tools.executionMode({ signal: testToolSignal, callId: ToolCallId('edit-same-path'), name: 'edit', arguments: { file_path: 'a.txt', old_string: 'x', new_string: 'y' } }))
+      .toEqual({ kind: 'parallel', scopeKey: 'a.txt' })
+    expect(ctx.tools.executionMode({ signal: testToolSignal, callId: ToolCallId('write-other-path'), name: 'write', arguments: { file_path: 'b.txt', content: 'x' } }))
+      .toEqual({ kind: 'parallel', scopeKey: 'b.txt' })
   })
 
   it('registers prompt sections for each tool', async () => {

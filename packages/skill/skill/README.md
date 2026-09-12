@@ -51,6 +51,7 @@ The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-a
 - **On-demand loading.** Asking for one skill by name returns the full instruction body from whichever provider owns the winning candidate; the registry re-validates the loaded definition and rejects a stale selection whose name changed between discovery and load.
 - **Embedded skills.** Plugins register an in-memory skill with `ctx.skills.register(...)`; the registry fills in a default invocation policy and the `runtime` provider label. Same-name runtime registrations in one layer are first-wins with a warning.
 - **Provider registration.** A provider contributes its catalog with `ctx.skills.registerProvider(...)`; registration is synchronous, and the returned disposer removes the provider. `runtime` is a reserved provider name.
+- **Load-time declarations pass through.** A loaded definition may carry the `requiredEnv` names it needs, a `config` map of its own defaults, and an install `blueprint` (`{ schedule, deliver, prompt }`). The registry validates all three and hands them to the loading consumer (the model-facing loader resolves the first two); a blueprint in the wrong shape is dropped rather than failing the load. Summaries stay invocation-neutral, so none of them reaches a catalog, and a blueprint is only ever a suggestion — nothing schedules itself.
 
 An invocation policy on every skill decides which surfaces may advertise and load it: `modelInvocable` for model-facing tools and catalogs, `userInvocable` for human-facing commands. The registry keeps all four combinations, so one discovery result can serve both surfaces without conflating their catalogs.
 
@@ -66,6 +67,8 @@ An invocation policy on every skill decides which surfaces may advertise and loa
 A skill that any provider reports appears in the merged catalog, and loading it by its exact kebab-case name returns the body; an invalid name returns no skill rather than throwing. A provider that fails discovery is logged and skipped, and the observation is reported incomplete so consumers keep their last-good catalog; an explicit incomplete observation still contributes its candidates. A malformed candidate fails fast — the registry validates names, descriptions, invocation booleans, and provider ownership before caching or returning anything.
 
 Skill summaries retain the winning provider’s optional instruction-file `path` for discovery consumers that offer file previews. Listing still reads no skill body, and model-facing catalogs continue to select only their owned routing fields.
+
+A provider observation may report a `quarantinedCount` for skills it skipped, such as project skills that failed a security scan. The registry sums the counts seen by its most recent completed discovery and reports that total on the `skills/change` event; the count is host-log evidence and never enters the model-facing catalog.
 
 -----
 
@@ -100,7 +103,7 @@ A read (`list`/`snapshot`) collects each layer's candidates: runtime skills firs
 
 ### Invalidation
 
-The registry has no TTL: only a provider calling its registration-scoped `invalidate()`, or a runtime registration or disposal, clears completed catalogs. Each invalidation bumps a revision, clears the cache, and emits the unfiltered `skills/change` event; consumers refetch with their own lookup options. `invalidate()` takes effect only while the exact registration that received it is still active, so a late callback cannot disturb a replacement provider with the same name.
+The registry has no TTL: only a provider calling its registration-scoped `invalidate()`, or a runtime registration or disposal, clears completed catalogs. Each invalidation bumps a revision, clears the cache, and emits the `skills/change` event, whose payload carries the quarantined skill count observed by the most recent completed discovery (zero before one completes); consumers refetch with their own lookup options. `invalidate()` takes effect only while the exact registration that received it is still active, so a late callback cannot disturb a replacement provider with the same name.
 
 </details>
 

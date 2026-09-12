@@ -48,6 +48,7 @@ The kernel packages boot and serve the page; the UI feature packages present it.
 | [`ui-brand-official/`](ui-brand-official/README.md) | Fills the generic browser-brand slots with the official name and marks | — |
 | [`ui-workspace/`](ui-workspace/README.md) | Provides workspace selection and creation surfaces | — |
 | [`ui-workspace-memory/`](ui-workspace-memory/README.md) | Provides the Workspace page and its Host memory Remote | `ctx.workspaceMemoryController` |
+| [`ui-evolution/`](ui-evolution/README.md) | Provides the evolution journey page and its Host curator-status Remote | `ctx.evolutionCuratorStatus` |
 | [`ui-conversation/`](ui-conversation/README.md) | Presents the active conversation and its input surface | — |
 | [`ui-chat/`](ui-chat/README.md) | Projects and renders the Chat conversation target | — |
 | [`ui-approval/`](ui-approval/README.md) | Presents approval requests and returns user decisions | — |

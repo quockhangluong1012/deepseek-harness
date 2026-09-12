@@ -309,9 +309,21 @@ export class PermissionPresetService extends Service {
     // an `unavailable` channel still denies. Observation tools delegate to the
     // next listener unchanged. This listener is the shipped bundle's only
     // producer of `{kind: 'ask'}`.
-    const approvalTools = [...(config.approvalTools ?? DEFAULT_APPROVAL_TOOLS)]
+    // The schema defaulted the list — the cast records that runtime fact.
+    const approvalTools = [...(config.approvalTools as string[])]
     ctx.on('tools/pre-execute', async (exec, next): Promise<PreToolDecision> => {
       if (!requiresApproval(exec.name, approvalTools)) return next()
+      // A session already standing on danger-full-access carries the
+      // deployment's unrestricted file authority: the gate protects nothing
+      // there, and asking would only feed the `never` policy's deterministic
+      // rejection — the failure that makes the Full access preset reject every
+      // gated write. Agentless calls keep the ask (fail closed with no session
+      // to read).
+      const session = exec.agent?.session
+      if (session !== undefined) {
+        const knobs = this.permissionState(session)
+        if ((knobs.sandbox ?? this.ctx.shell.sandboxMode) === 'danger-full-access') return next()
+      }
       return { kind: 'ask', reason: `tool "${exec.name}" requires approval under the current permission preset` }
     })
 

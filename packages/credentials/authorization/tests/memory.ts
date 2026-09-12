@@ -36,6 +36,11 @@ export class MemoryCredentials extends CredentialProvider {
     return Promise.resolve()
   }
 
+  /** This double's reference half answers "nothing stored", rotation included. */
+  override rotate(_ref: CredentialRef, _mutate: (current: string | undefined) => string): Promise<void> {
+    return Promise.resolve()
+  }
+
   override readRecord(key: CredentialKey): Promise<CredentialRecord | undefined> {
     return Promise.resolve(this.records.get(key))
   }

@@ -466,8 +466,8 @@ describe('signal, concurrency, and the fs/observed contract', () => {
     // race two edits so both carry the SAME observed version (the barrier).
     expect((await callOwned('read', { file_path: 'a.txt' })).isError).toBe(false)
     const [one, two] = await Promise.all([
-      callOwned('edit', { file_path: 'a.txt', old_string: 'base', new_string: 'ONE', replaceAll: false }),
-      callOwned('edit', { file_path: 'a.txt', old_string: 'value', new_string: 'TWO', replaceAll: false }),
+      callOwned('edit', { file_path: 'a.txt', old_string: 'base', new_string: 'ONE' }),
+      callOwned('edit', { file_path: 'a.txt', old_string: 'value', new_string: 'TWO' }),
     ])
     const errors = [one, two].filter(r => r.isError)
     expect(errors).toHaveLength(1)

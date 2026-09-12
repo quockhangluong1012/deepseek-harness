@@ -61,5 +61,6 @@
 | [session-telemetry.md](session-telemetry.zh.md) | 对外会话上报能力 seam：`SessionTelemetryRecord`/`SessionTelemetrySeverity`、`SessionTelemetrySink` 约定和 `session-telemetry/record` 脱敏 waterfall（瀑布式事件） |
 | [usage-dashboard.md](usage-dashboard.zh.md) | 已计费 LLM 用量：`usageLedger` 折叠与持久计数、`usageDashboard` Remote、`usage` Sidebar tab，以及范围/汇总词汇 |
 | [workspace-memory.md](workspace-memory.zh.md) | 每个工作区的持久知识：记忆记录、简报注入、后台推导与工作区页面 |
+| [evolutionary-harness.md](evolutionary-harness.zh.md) | 按作用域自学习记忆：演进记录、经验/画像写入、暂存写入与容量核算 |
 
 > 这些页面上的类型声明及其 JSDoc 与源码等价，并由 `pnpm run verify-type-equiv` 检查漂移（见 [development.md](../development.zh.md#documenting-types-verbatim-ts-type-equiv)）。普通块保留完整声明；`public-api` 块保留去除实现体的公开 class 声明。Cordis 服务与事件使用每页生成的 **Cordis API** 小节。

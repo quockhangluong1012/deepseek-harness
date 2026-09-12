@@ -131,6 +131,14 @@ export const SERVICE_PAGE: Record<string, string> = {
   workspaceMemory: 'workspace-memory.md',
   workspaceMemoryExtractor: 'workspace-memory.md',
   workspaceMemoryController: 'workspace-memory.md',
+  evolutionMemory: 'evolutionary-harness.md',
+  evolutionReviewer: 'evolutionary-harness.md',
+  evolutionSkillTelemetry: 'evolutionary-harness.md',
+  evolutionCurator: 'evolutionary-harness.md',
+  evolutionController: 'evolutionary-harness.md',
+  evolutionTrajectory: 'evolutionary-harness.md',
+  evolutionScorer: 'evolutionary-harness.md',
+  evolutionCuratorStatus: 'evolutionary-harness.md',
 }
 
 /**
@@ -186,6 +194,7 @@ export const SERVICE_WALK_EXEMPTIONS: Record<string, string> = {
   sidebarRightTabs: 'client-side right-Sidebar tab-type registry — packages/client/ui-sidebar-right/README.md owns the API',
   workspacePage: 'client-side Workspace page opener — packages/client/ui-workspace-memory/README.md owns the API',
   documentPreviews: 'client-side document renderer registry — docs/subsystems/sidebar-right.md owns the API',
+  llmFallbackKeyRotation: 'optional deployment-owned credential rotation hook for fallback switches ((route, failure) => void) — packages/llm/llm-fallback/README.md owns the contract',
 }
 
 /**
@@ -800,6 +809,32 @@ export const TYPE_LINK_EXEMPTIONS: Readonly<Record<string, string>> = {
   WorkspaceMemoryContextFilesValue: 'workspace-memory Remote result is owned by packages/client/ui-workspace-memory/README.md',
   WorkspaceMemoryRebuildRequest: 'workspace-memory Remote request is owned by packages/client/ui-workspace-memory/README.md',
   WorkspaceMemoryFollowFrame: 'workspace-memory Remote stream frame is owned by packages/client/ui-workspace-memory/README.md',
+  EvolutionScopeId: 'evolution-memory scope identity is owned by packages/evolution/evolution-memory/README.md',
+  EvolutionMemoryRecord: 'evolution-memory record contract is owned by packages/evolution/evolution-memory/README.md',
+  EvolutionMemoryUsage: 'evolution-memory usage contract is owned by packages/evolution/evolution-memory/README.md',
+  EvolutionContextItem: 'evolution-memory context item is owned by packages/evolution/evolution-memory/README.md',
+  EvolutionContextItemInput: 'evolution-memory context input is owned by packages/evolution/evolution-memory/README.md',
+  EvolutionOutput: 'evolution-memory produced-file entry is owned by packages/evolution/evolution-memory/README.md',
+  EvolutionExtraction: 'evolution-memory extraction provenance is owned by packages/evolution/evolution-memory/README.md',
+  StagedWrite: 'evolution-memory staged write is owned by packages/evolution/evolution-memory/README.md',
+  StagedWriteInput: 'evolution-memory staged-write input is owned by packages/evolution/evolution-memory/README.md',
+  SkillUsageRecord: 'skill usage record is owned by packages/skill/evolution-skill-telemetry/README.md',
+  SkillLifecycleState: 'skill lifecycle state is owned by packages/skill/evolution-skill-telemetry/README.md',
+  SkillCreatedBy: 'skill creation provenance is owned by packages/skill/evolution-skill-telemetry/README.md',
+  CuratorRunOptions: 'curator run options are owned by packages/evolution/evolution-curator/README.md',
+  CuratorMaybeRunOptions: 'curator gated-run options are owned by packages/evolution/evolution-curator/README.md',
+  CuratorTransition: 'curator transition record is owned by packages/evolution/evolution-curator/README.md',
+  CuratorReport: 'curator pass report is owned by packages/evolution/evolution-curator/README.md',
+  RollbackOptions: 'curator rollback options are owned by packages/evolution/evolution-curator/README.md',
+  RollbackReport: 'curator rollback report is owned by packages/evolution/evolution-curator/README.md',
+  RollbackRestored: 'curator restored-skill record is owned by packages/evolution/evolution-curator/README.md',
+  PassSummary: 'curator pass summary is owned by packages/evolution/evolution-curator/README.md',
+  PurgeReport: 'curator purge report is owned by packages/evolution/evolution-curator/README.md',
+  PurgedSkill: 'curator purged-skill record is owned by packages/evolution/evolution-curator/README.md',
+  SurveyCandidate: 'curator survey candidate is owned by packages/evolution/evolution-curator/README.md',
+  ConsolidationSurvey: 'curator consolidation survey is owned by packages/evolution/evolution-curator/README.md',
+  ConsolidationReport: 'curator consolidation report is owned by packages/evolution/evolution-curator/README.md',
+  ConsolidationCostRow: 'skill consolidation cost row is owned by packages/skill/evolution-skill-telemetry/README.md',
 }
 
 /** Repository data policy consumed by the Cordis catalog projector. */

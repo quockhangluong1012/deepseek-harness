@@ -54,6 +54,8 @@ Mount this plugin when a consumer needs billed-usage aggregates across sessions.
 
 `summary(range)` answers totals, per-day buckets, and the per-model table for `today`, `7d`, `30d`, or `all`. Input tokens are billed prompt tokens (`uncached + cacheRead + cacheWrite`); the average cache hit is `cacheRead / billedInput`; days are fixed to UTC+7. Totals are advisory, not billing records: unprovable samples are skipped, never zero-filled, and counts begin when the ledger first mounts.
 
+The same UTC+7 calendar is exported from the package root — `dayKeyUTC7`, `dayStartUTC7`, `daysOfRange`, `isUsageRange`, and `windowStartOfRange` — so a surface that reports per-day history (the evolution journey) buckets on the dashboard's days instead of re-deriving the zone offset.
+
 -----
 
 <a id="understand-the-implementation"></a>
@@ -71,7 +73,7 @@ The ledger derives from the durable session logs and never writes to them: per-s
 | File | Role |
 |---|---|
 | [`src/index.ts`](src/index.ts) | The `UsageLedger` service: live fold, write-behind, and range summaries |
-| [`src/aggregate.ts`](src/aggregate.ts) | Pure fold: sample validation, UTC+7 bucketing, route moves, retention, summaries |
+| [`src/aggregate.ts`](src/aggregate.ts) | Pure fold: sample validation, UTC+7 bucketing, route moves, retention, summaries; its calendar helpers are re-exported from the package root |
 | [`src/spec.ts`](src/spec.ts) | The `usage_dashboard` domain declaration |
 | [`src/types.ts`](src/types.ts) | Shared range/summary vocabulary |
 
@@ -95,7 +97,15 @@ The ledger derives from the durable session logs and never writes to them: per-s
 <a id="model-experience"></a>
 ## Model Experience
 
-None. The package adds no prompt, message, schema, tool, or model call. It folds the durable log and serves one read-only query face.
+### No model-facing surface
+
+#### What the model sees
+
+Nothing. The package adds no prompt, message, schema, tool, or model call; it folds the durable log and serves one read-only query face on `ctx.usageLedger`.
+
+#### Token effect
+
+Zero. The ledger counts tokens other packages already billed, and it neither assembles a request nor adds content to one.
 
 #### KV Cache effect
 

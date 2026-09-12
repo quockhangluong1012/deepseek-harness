@@ -80,6 +80,7 @@
     { "path": "./packages/client/ui-workflow-run" },
     { "path": "./packages/client/ui-workspace" },
     { "path": "./packages/client/ui-workspace-memory/tsconfig.client.json" },
+    { "path": "./packages/client/ui-evolution/tsconfig.client.json" },
     { "path": "./packages/client/ui-input-trigger" },
     { "path": "./packages/client/ui-commands" },
     { "path": "./packages/client/ui-skill" },

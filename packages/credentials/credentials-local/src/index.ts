@@ -649,6 +649,40 @@ export class LocalCredentialProvider extends CredentialProvider {
     await this.write(ref, undefined)
   }
 
+  override async rotate(ref: CredentialRef, mutate: (current: string | undefined) => string): Promise<void> {
+    if (this.isClosed()) throw new Error(`credentials-local is disposed: cannot rotate "${ref}"`)
+    this.assertUnshadowed(ref, 'rotate')
+    return this.enqueue(async () => {
+      if (this.isClosed()) {
+        throw new Error(`credentials-local was disposed before the queued "${ref}" rotate ran`)
+      }
+      // Re-judged at run time: the environment may have changed while queued.
+      this.assertUnshadowed(ref, 'rotate')
+      await mkdir(dirname(this.spec.filename), { recursive: true, mode: 0o700 })
+      await withFileLock(this.spec.filename, async () => {
+        // Read-decide-replace: the decision sees what `resolve` would return
+        // right now — another process may have rotated it since this one last
+        // read — and that value reaches the callback only here, inside the
+        // exclusive window. The decision's result is admitted before it is
+        // rendered, so a blank can never be persisted as a stored reference.
+        await this.reconcileFromDisk()
+        const next = mutate((await this.resolve(ref))?.value)
+        if (next.length === 0) {
+          throw new Error(
+            `credentials-local: an empty value cannot be stored for "${ref}"; remove it with unset instead`,
+          )
+        }
+        const nextText = renderRef(this.text, ref, next)
+        // 0600: a document holding secrets is never world-readable.
+        await writeFileAtomic(this.spec.filename, nextText, { mode: 0o600, dirMode: 0o700 })
+        this.text = nextText
+        this.values.set(ref, next)
+        // After the commit, on the same terms as a reference write.
+        this.notifyUpdated(ref)
+      }, { waitMs: DOCUMENT_LOCK_WAIT_MS })
+    })
+  }
+
   override readRecord(key: CredentialKey): Promise<CredentialRecord | undefined> {
     return Promise.resolve(this.records.get(key))
   }
@@ -791,7 +825,7 @@ export class LocalCredentialProvider extends CredentialProvider {
    * no-effect. Only that layer can shadow a write: everything else this
    * provider resolves ranks below the document being written.
    */
-  private assertUnshadowed(ref: CredentialRef, verb: 'set' | 'unset'): void {
+  private assertUnshadowed(ref: CredentialRef, verb: 'set' | 'unset' | 'rotate'): void {
     if (this.inherited(ref) !== undefined) {
       throw new Error(
         `credentials-local: "${ref}" is supplied read-only by the launching environment, so ${verb} would be`

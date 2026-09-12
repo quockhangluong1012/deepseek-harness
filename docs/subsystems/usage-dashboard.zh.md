@@ -10,12 +10,12 @@ Source: [`packages/session/usage-ledger/src/types.ts`](../../packages/session/us
 
 ```ts type-equiv
 /** Cross-session aggregation window selected by the dashboard filter. */
-export type UsageRange = 'today' | '7d' | '30d' | 'all'
+type UsageRange = 'today' | '7d' | '30d' | 'all'
 ```
 
 ```ts type-equiv
 /** Totals over one summary window. */
-export interface UsageTotals {
+interface UsageTotals {
   /** Billed attempts (every usage sample counts, retries included). */
   readonly requests: number
   /** Billed prompt tokens. */
@@ -31,7 +31,7 @@ export interface UsageTotals {
 
 ```ts type-equiv
 /** One calendar day (UTC+7) of billed usage for the stacked bar chart. */
-export interface UsageDayBucket {
+interface UsageDayBucket {
   /** Calendar day in `YYYY-MM-DD` (UTC+7). */
   readonly day: string
   /** Billed attempts that day. */
@@ -45,7 +45,7 @@ export interface UsageDayBucket {
 
 ```ts type-equiv
 /** One provider/model row of the model breakdown table. */
-export interface UsageModelRow {
+interface UsageModelRow {
   /** Adapter provider name. */
   readonly provider: string
   /** Model name. */
@@ -63,7 +63,7 @@ export interface UsageModelRow {
 
 ```ts type-equiv
 /** The complete dashboard answer for one filter range. */
-export interface UsageSummary {
+interface UsageSummary {
   /** The range this summary was computed for. */
   readonly range: UsageRange
   /** Window totals for the stat cards. */

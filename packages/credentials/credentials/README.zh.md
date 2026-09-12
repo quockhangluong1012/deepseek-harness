@@ -60,6 +60,8 @@ await ctx.credentials.unset(ref)                       // no-op when absent; sam
 
 用 `set` 存储密钥、用 `unset` 移除、用 `describe` 检查状态、在操作需要时用 `resolve` 读取当前值。`describe` 报告密钥是否已设置、来自哪里、能否写入——它绝不返回值。
 
+`rotate` 是引用一侧的「读—决定—替换」，用于无需停服窗口的轮换：`await ctx.credentials.rotate(ref, current => nextKey(current))` 在写入取得独占的那一刻读取该引用当前解析出的值，把它交给你的决定函数，存储函数返回的值，并发布 `credentials/reference-updated`。该值只流经这个回调参数。下一个密钥从何而来——密钥池、保险库还是排期——属于部署自己的策略；seam 只保证写入受锁保护、结果作用于下一次请求。
+
 ### 存储、更新与移除记录
 
 插件按 `<scope>/<id>` 寻址每条记录——自身注册名加一个自选 id，例如提供方路由键——并读取、修改或移除它所持有的内容：
@@ -93,6 +95,7 @@ apiKeyEnv: DEEPSEEK_API_KEY
 ### 可能出错的地方
 
 - **启动环境提供的密钥无法被覆盖**——`DEEPSEEK_API_KEY=… dsh`（或 CI 机密、容器 `-e`）在本轮运行中优先，并被报告为只读；请先在启动 shell 中清除该变量，再存储其他值。
+- **轮换后的密钥同样无法胜过启动环境**——`rotate` 会像 `set` 一样拒绝启动环境提供的引用，因为它本要提交的写入永远不可能生效；请先在启动 shell 中清除该变量。
 - **空值无法存储**——存储空字符串会被拒绝；请改为移除密钥。
 - **密钥值绝不会出现在配置界面或诊断信息中**——界面只显示密钥是否已设置、来自哪里、能否修改；值本身留在存储中。
 
@@ -118,7 +121,7 @@ apiKeyEnv: DEEPSEEK_API_KEY
 
 ### credentials/reference-updated 事件
 
-`credentials/reference-updated (ref)` 在提供方管理的来源发生已提交变更后触发——`set`、`unset` 或在存储中观察到的外部编辑。进程环境变量的变化不可观测，永不触发。消费方不需要该事件（它们按操作重新解析）；它服务于配置界面刷新「已配置」徽标。
+`credentials/reference-updated (ref)` 在提供方管理的来源发生已提交变更后触发——`set`、`unset`、一次确实提交的 `rotate`，或在存储中观察到的外部编辑。进程环境变量的变化不可观测，永不触发。消费方不需要该事件（它们按操作重新解析）；它服务于配置界面刷新「已配置」徽标。
 
 `credentials/record-updated (key)` 在存储记录发生已提交变更后触发——一次确实写入的 `modifyRecord`、一次确实移除的 `deleteRecord`，或在存储中观察到的外部编辑。它保持独立事件，因为两个键文法互斥：一个监听器若在同一事件上同时收到两个空间，将无法分辨主体属于哪一边。
 

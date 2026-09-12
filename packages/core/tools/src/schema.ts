@@ -509,6 +509,16 @@ export interface DefineToolOptions<S extends ParameterSchemaSpec, O extends Valu
    */
   isConcurrencySafe?(args: InferArgs<S>): boolean
   /**
+   * Pure overlap scope for sibling calls of a concurrency-safe tool. Calls that
+   * return the same key never overlap: the scheduler holds each one until the
+   * previously started call with that key settles. An empty return declares no
+   * scope. Ignored unless {@link isConcurrencySafe} returns `true` for the same
+   * arguments.
+   * @param args - typed validated arguments.
+   * @returns The overlap scope key, or an empty string for no scope.
+   */
+  parallelScopeKey?(args: InferArgs<S>): string
+  /**
    * Execute the tool after argument validation.
    * @param args - typed validated arguments.
    * @param exec - execution identity, caller, cancellation, and nesting data.
@@ -550,20 +560,14 @@ export function defineTool<const S extends ParameterSchemaSpec, const O extends 
   options: DefineToolOptions<S, O>,
 ): ToolDefinition {
   // Object-literal methods do not use `this`; retaining references is safe.
-  // oxlint-disable-next-line typescript/unbound-method
   const userExecute = options.execute
-  // oxlint-disable-next-line typescript/unbound-method
   const userFinalizeContent = options.finalizeContent
-  // oxlint-disable-next-line typescript/unbound-method
   const userRender = options.output.render
-  // oxlint-disable-next-line typescript/unbound-method
   const userPresentationMeta = options.output.presentationMeta
-  // oxlint-disable-next-line typescript/unbound-method
   const userPresentCall = options.presentCall
-  // oxlint-disable-next-line typescript/unbound-method
   const userPresentResult = options.presentResult
-  // oxlint-disable-next-line typescript/unbound-method
   const userIsConcurrencySafe = options.isConcurrencySafe
+  const userParallelScopeKey = options.parallelScopeKey
   if (options.timeoutMs !== undefined && (!Number.isFinite(options.timeoutMs) || options.timeoutMs <= 0)) {
     throw new Error(`defineTool(${options.name}): timeoutMs must be a positive finite number`)
   }
@@ -615,6 +619,14 @@ export function defineTool<const S extends ParameterSchemaSpec, const O extends 
     tool.isConcurrencySafe = (args: unknown): boolean => {
       if (validate(args).length > 0) return false
       return userIsConcurrencySafe(args as InferArgs<S>)
+    }
+  }
+  // Invalid arguments are already exclusive, so the scope key cannot affect
+  // scheduling; returning none keeps the classifier total like the others.
+  if (userParallelScopeKey) {
+    tool.parallelScopeKey = (args: unknown): string => {
+      if (validate(args).length > 0) return ''
+      return userParallelScopeKey(args as InferArgs<S>)
     }
   }
   return tool

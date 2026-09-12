@@ -7,6 +7,7 @@
  * right-Sidebar current-session panel reads only the count formatting and
  * the stat tile.
  */
+import { useState } from 'react'
 import type { ReactNode } from 'react'
 import clsx from 'clsx'
 import type { UsageDayBucket, UsageRange, UsageSummary } from '@deepseek-ai/dsh-usage-ledger/types'
@@ -75,42 +76,106 @@ export function Card({ label, value }: { label: string; value: string }): ReactN
   )
 }
 
-/** Stacked input/output bars, one group per day. */
-export function Chart({ daily, hasData }: { daily: readonly UsageDayBucket[]; hasData: boolean }): ReactNode {
+/**
+ * The column under the pointer, resolved against the drawn buckets.
+ * @param daily - the window's day buckets.
+ * @param hovered - the hovered column index, or null when the pointer is off the chart.
+ * @returns the hovered index with its bucket, or undefined when the pointer is off the chart or a range switch removed the column.
+ */
+function hoveredColumn(
+  daily: readonly UsageDayBucket[],
+  hovered: number | null,
+): { index: number; bucket: UsageDayBucket } | undefined {
+  if (hovered === null) return undefined
+  const bucket = daily[hovered]
+  return bucket === undefined ? undefined : { index: hovered, bucket }
+}
+
+/**
+ * Stacked input/output bars, one group per day, each column a hover target.
+ *
+ * Pointing at a column bands it and bubbles up that day's total input and
+ * output tokens; leaving the chart clears both. The bubble anchors to the
+ * hovered column's centre and grows toward the nearer chart edge, so an end
+ * column's bubble stays inside the body.
+ */
+export function Chart({ daily, hasData, t }: {
+  daily: readonly UsageDayBucket[]
+  hasData: boolean
+  t: SummaryText
+}): ReactNode {
+  const [hovered, setHovered] = useState<number | null>(null)
   const max = maxDayTotal(daily)
   const slot = daily.length === 0 ? CHART_WIDTH : CHART_WIDTH / daily.length
   const width = Math.max(2, slot * 0.6)
+  const active = hoveredColumn(daily, hovered)
   return (
-    <svg
-      className={css.chart}
-      viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`}
-      role="img"
-      data-usage-chart={hasData ? 'data' : 'empty'}
-    >
-      {daily.map((bucket, index) => {
-        const { input, output } = barHeights(bucket, max, CHART_HEIGHT)
-        const x = index * slot + (slot - width) / 2
-        if (input + output <= 0) {
+    <div className={css.chartWrap} data-usage-chart-wrap onMouseLeave={() => { setHovered(null) }}>
+      <svg
+        className={css.chart}
+        viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`}
+        role="img"
+        data-usage-chart={hasData ? 'data' : 'empty'}
+      >
+        {active !== undefined && (
+          <rect
+            className={css.barHover}
+            x={active.index * slot}
+            y={0}
+            width={slot}
+            height={CHART_HEIGHT}
+            data-usage-hover={active.bucket.day}
+          />
+        )}
+        {daily.map((bucket, index) => {
+          const { input, output } = barHeights(bucket, max, CHART_HEIGHT)
+          const x = index * slot + (slot - width) / 2
+          if (input + output <= 0) {
+            return (
+              <rect
+                key={bucket.day}
+                className={css.barEmpty}
+                x={x}
+                y={CHART_HEIGHT - 2}
+                width={width}
+                height={2}
+                data-usage-day={bucket.day}
+              />
+            )
+          }
           return (
-            <rect
-              key={bucket.day}
-              className={css.barEmpty}
-              x={x}
-              y={CHART_HEIGHT - 2}
-              width={width}
-              height={2}
-              data-usage-day={bucket.day}
-            />
+            <g key={bucket.day} data-usage-day={bucket.day} data-usage-requests={bucket.requests}>
+              <rect className={css.barInput} x={x} y={CHART_HEIGHT - input - output} width={width} height={input} />
+              <rect className={css.barOutput} x={x} y={CHART_HEIGHT - output} width={width} height={output} />
+            </g>
           )
-        }
-        return (
-          <g key={bucket.day} data-usage-day={bucket.day} data-usage-requests={bucket.requests}>
-            <rect className={css.barInput} x={x} y={CHART_HEIGHT - input - output} width={width} height={input} />
-            <rect className={css.barOutput} x={x} y={CHART_HEIGHT - output} width={width} height={output} />
-          </g>
-        )
-      })}
-    </svg>
+        })}
+        {daily.map((bucket, index) => (
+          <rect
+            key={`column-${bucket.day}`}
+            className={css.barHit}
+            x={index * slot}
+            y={0}
+            width={slot}
+            height={CHART_HEIGHT}
+            data-usage-column={bucket.day}
+            onMouseEnter={() => { setHovered(index) }}
+          />
+        ))}
+      </svg>
+      {active !== undefined && (
+        <div
+          className={css.chartTip}
+          data-usage-chart-tip={active.bucket.day}
+          data-anchor={active.index * 2 < daily.length ? 'start' : 'end'}
+          style={{ left: `${((active.index + 0.5) / daily.length) * 100}%` }}
+        >
+          <span className={css.tipDay}>{active.bucket.day}</span>
+          <span>{t('chart.input')} {formatCount(active.bucket.inputTokens)}</span>
+          <span>{t('chart.output')} {formatCount(active.bucket.outputTokens)}</span>
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -140,7 +205,7 @@ export function SummaryBody({ summary, hasData, loading, failureCode, t, onRetry
           <li><span className={clsx(css.swatch, css.swatchInput)} aria-hidden />{t('chart.input')}</li>
           <li><span className={clsx(css.swatch, css.swatchOutput)} aria-hidden />{t('chart.output')}</li>
         </ul>
-        <Chart daily={summary.daily} hasData={hasData} />
+        <Chart daily={summary.daily} hasData={hasData} t={t} />
         {!hasData && <p className={css.noData} data-usage-no-data>{t('chart.noData')}</p>}
       </section>
       <section className={css.section} aria-label={t('table.title')} data-usage-section="models">

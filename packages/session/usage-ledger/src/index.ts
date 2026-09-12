@@ -42,6 +42,10 @@ import { LEDGER_KEY, usageDashboardDomainSpec, type UsageLedgerState } from './s
 import type { UsageRange, UsageSummary } from './types.ts'
 
 export type * from './types.ts'
+// The UTC+7 calendar and window math surfaces beside the ledger so other
+// surfaces (the evolution journey) bucket on the same days instead of
+// re-deriving the zone offset.
+export { dayKeyUTC7, dayStartUTC7, daysOfRange, isUsageRange, windowStartOfRange } from './aggregate.ts'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {

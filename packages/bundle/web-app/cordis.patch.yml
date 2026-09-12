@@ -42,6 +42,17 @@
 # `dsh.client` rows are the browser roster the modules node half scans into
 # window.__DSH_BOOT__; the modules row is simultaneously a host row.
 - insert:
+    # Guard row. `budgets` mounts with every ceiling off: it observes each
+    # turn and rejects nothing until a deployment sets a ceiling here.
+    - id: budgets
+      name: '@deepseek-ai/dsh-budgets'
+
+    # Provider-outage row. Mounted dormant — an empty `fallbackRoutes` is the
+    # valid off state, so no failure switches routes until a deployment (or a
+    # later patch layer) names the recovery routes to rotate through.
+    - id: llm-fallback
+      name: '@deepseek-ai/dsh-llm-fallback'
+
     # Host-owned opt-in sampled when a new Web session receives its preset
     # delegation tools. The Plugins page edits this settings namespace.
     - id: subagent-model-selection-settings
@@ -87,6 +98,50 @@
       name: '@deepseek-ai/dsh-workspace-memory-context'
       config:
         maxBytes: 16384
+
+    # Evolution family (`specs/evolutionary-harness.spec.md`): per-scope memory,
+    # the background reviewer, the brief injector, skill telemetry and
+    # management, the curator pass, and the governance commands. The reviewer
+    # and the injector share one `profile` namespace, so they read and write the
+    # same records; telemetry precedes the packages that resolve it.
+    - id: evolution-memory
+      name: '@deepseek-ai/dsh-evolution-memory'
+      config:
+        capacityBytes: 131072
+
+    - id: evolution-reviewer
+      name: '@deepseek-ai/dsh-evolution-reviewer'
+      config:
+        profile: default
+
+    - id: evolution-memory-context
+      name: '@deepseek-ai/dsh-evolution-memory-context'
+      config:
+        maxBytes: 16384
+        profile: default
+
+    - id: evolution-skill-telemetry
+      name: '@deepseek-ai/dsh-evolution-skill-telemetry'
+
+    - id: evolution-skill-manage
+      name: '@deepseek-ai/dsh-evolution-skill-manage'
+
+    - id: evolution-curator
+      name: '@deepseek-ai/dsh-evolution-curator'
+
+    - id: command-evolution
+      name: '@deepseek-ai/dsh-command-evolution'
+
+    # Scope verbs and the journey read model over Typert Remote: the page's
+    # data source. Its `profile` namespaces the scope key, and it shares the
+    # `default` namespace with the reviewer and the brief injector above.
+    - id: evolution-trajectory
+      name: '@deepseek-ai/dsh-evolution-trajectory'
+
+        - id: evolution-controller
+      name: '@deepseek-ai/dsh-evolution-controller'
+      config:
+        profile: default
 
     - id: session-reference
       name: '@deepseek-ai/dsh-session-reference'
@@ -318,6 +373,12 @@
 
     - id: ui-workspace-memory
       name: '@deepseek-ai/dsh-client-ui-workspace-memory'
+
+    # Evolution journey: the sidebar panel row and its center-track panel over
+    # the `evolution` Scope verbs plus this package's `evolutionCurator` status
+    # face.
+    - id: ui-evolution
+      name: '@deepseek-ai/dsh-client-ui-evolution'
 
     # Input triggers: the '/' | '@' pipeline (ui-input-trigger), the command surface over
     # it (ui-commands), and the reference sources (ui-skill / ui-reference).

@@ -60,6 +60,8 @@ await ctx.credentials.unset(ref)                       // no-op when absent; sam
 
 Store a key with `set`, remove it with `unset`, check its status with `describe`, and read the current value with `resolve` when an operation needs it. `describe` reports whether the key is set, where it comes from, and whether you can write to it — it never returns the value.
 
+`rotate` is the reference half's read-decide-replace, for rotation with no service window: `await ctx.credentials.rotate(ref, current => nextKey(current))` reads the value the reference currently resolves to at the moment the write is exclusive, hands it to your decision function, stores what that function returns, and publishes `credentials/reference-updated`. The value passes only through that callback argument. Which key comes next — a pool, a vault, a schedule — is the deployment's own policy; the seam guarantees only that the write is locked and the result serves the next request.
+
 ### Storing, updating, and removing records
 
 A plugin addresses each record by `<scope>/<id>` — its own registered name plus an id it chooses, such as a provider route key — and reads, modifies, or removes what it holds:
@@ -93,6 +95,7 @@ Requests that need the key use its current stored value, so rotating the key tak
 ### What can go wrong
 
 - **A key the launching environment supplies cannot be overwritten** — `DEEPSEEK_API_KEY=… dsh` (or a CI secret, a container `-e`) wins for this run and is reported read-only; clear the variable in the launching shell before storing a different value.
+- **A rotated key cannot beat the launching environment either** — `rotate` refuses a reference the launching environment supplies, exactly like `set`, because the write it would commit could never take effect; clear the variable in the launching shell first.
 - **An empty value cannot be stored** — storing an empty string is refused; remove the key instead.
 - **Key values never appear in configuration UIs or diagnostics** — the UI shows whether a key is set, where it comes from, and whether you can change it; the value itself stays in the store.
 
@@ -118,7 +121,7 @@ One doctrine and four consequences:
 
 ### The credentials/reference-updated event
 
-`credentials/reference-updated (ref)` fires after a committed change to a provider-managed source — a `set`, an `unset`, or an external edit observed in storage. Ambient process-environment changes are not observable and never emit. Consumers do not need the event (they re-resolve per operation); it exists for configuration UIs refreshing a "configured" badge.
+`credentials/reference-updated (ref)` fires after a committed change to a provider-managed source — a `set`, an `unset`, a committed `rotate`, or an external edit observed in storage. Ambient process-environment changes are not observable and never emit. Consumers do not need the event (they re-resolve per operation); it exists for configuration UIs refreshing a "configured" badge.
 
 `credentials/record-updated (key)` fires after a committed change to a stored record — a `modifyRecord` that wrote, a `deleteRecord` that removed, or an external edit observed in storage. It stays a separate event because the two key grammars are disjoint: a listener receiving both spaces on one event could not tell which one a subject belongs to.
 

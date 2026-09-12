@@ -18,6 +18,8 @@ import sessionRemote from '@deepseek-ai/dsh-api-session-controller/remote'
 import workspaceRemote from '@deepseek-ai/dsh-api-workspace-controller/remote'
 import workspaceFilesRemote from '@deepseek-ai/dsh-api-workspace-files/remote'
 import workspaceMemoryRemote from '@deepseek-ai/dsh-client-ui-workspace-memory/remote'
+import evolutionControllerRemote from '@deepseek-ai/dsh-evolution-controller/remote'
+import evolutionStatusRemote from '@deepseek-ai/dsh-client-ui-evolution/remote'
 import type { ClientRemote } from '@deepseek-ai/dsh-api-gateway/client'
 
 export type { ClientRemote } from '@deepseek-ai/dsh-api-gateway/client'
@@ -39,6 +41,9 @@ export type * from '@deepseek-ai/dsh-api-session-controller/types'
 export type {} from '@deepseek-ai/dsh-api-workspace-controller/remote'
 export type * from '@deepseek-ai/dsh-api-workspace-controller/types'
 export type {} from '@deepseek-ai/dsh-api-workspace-files/remote'
+export type {} from '@deepseek-ai/dsh-client-ui-workspace-memory/remote'
+export type {} from '@deepseek-ai/dsh-evolution-controller/remote'
+export type {} from '@deepseek-ai/dsh-client-ui-evolution/remote'
 export type * from '@deepseek-ai/dsh-api-workspace-files/types'
 export type { SessionJob as JobView } from '@deepseek-ai/dsh-api-session-controller/types'
 // The forwarded-event allowlist's selection seat: without it in the consumer's
@@ -156,6 +161,7 @@ export async function apply(ctx: Context): Promise<() => Promise<void>> {
       agentPresetsRemote, commandsRemote, settingsControllerRemote, goalsRemote, llmRemote, dynamicRemote,
       pluginInventoryRemote, messageFeedbackRemote, sessionFeedbackRemote, fileUploadsRemote, usageDashboardRemote, sessionReferencesRemote,
       subagentsRemote, sessionRemote, workspaceRemote, workspaceFilesRemote, workspaceMemoryRemote,
+      evolutionControllerRemote, evolutionStatusRemote,
     ]) {
       disposers.push(await ctx.remote.$mount(contribution))
     }

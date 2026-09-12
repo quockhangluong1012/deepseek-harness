@@ -1,0 +1,41 @@
+# Agent Note: Evolution recall, lean squeeze, and decided-write history
+
+Status: implemented
+
+English | [中文](2026-09-12-evolution-recall-squeeze.zh.md)
+
+## Problem
+
+Phase 2 of [`specs/improvement.spec.md`](../../../../specs/improvement.spec.md) left three gaps in the evolution family. The store dropped every staged entry on either decision, so the journey could not count approvals or rejections, and one `memoryUpdatedAt` covered instructions, lessons, and profile, so no reader could tell which family a write touched. The reviewer wrote whatever the model returned, headings or not, bounded only by the store's byte cap. And nothing used the session search seam: continuity came from one scope's own document, never from prior work in the same directory.
+
+## Decision
+
+**The store keeps decided writes.** `approveStaged` and `rejectStaged` append a `StagedResolution` — entry id, kind, op, gist, decision, origin session, instant — to a newest-first `resolutions` log capped by `maxResolutions` (default `200`). Resolutions are excluded from capacity and from the digest, so a decision never re-injects the brief.
+
+**Each memory family stamps its own instant.** `setInstructions` stamps `instructionsUpdatedAt`; `setLessons`, `addLesson`, `replaceLesson`, and `removeLesson` stamp `lessonsUpdatedAt`; `setUserProfile` stamps `profileUpdatedAt`. A staged approval stamps only the family its op changed, and a duplicate lesson add stamps none. `memoryUpdatedAt` remains for one release as the later of the lessons and profile stamps. Both schema additions are defaulted (`.default(null)`, `.default([])`), so a record written before them still opens: a compatible reshape, never a version bump.
+
+**The staged payload is an honest JSON value.** `StagedWrite.payload` and `StagedWriteInput.payload` are `JsonValue` from `@deepseek-ai/dsh-util-values`, not `unknown`, because the record crosses the Remote boundary and an unconstrained `unknown` has no wire form. The durable schema declares the field as `stagedWritePayload = z.json()` (the same declaration `checkpointRow` uses at its durable boundary), and `stageWrite` validates callers with it: a payload that cannot round-trip through JSON — `undefined`, `NaN`, a function, a `Date` — is refused loudly and nothing is stored. Consumers that construct a staged payload cast at the call site (the reviewer's `{ text, extraction }`), which is the repository's existing pattern where a typed object enters a JSON field; the store remains the enforcement point.
+
+**A pure squeeze sits between extractor output and the store write.** `squeezeLessons` keeps only the four memory headings; prose before the first heading and lines under any other heading are dropped. Over `squeezeBytes` (default `65536`), bodies clear whole in `squeezeOrder` (default `References, Decisions, Preferences, Purpose`) and the last standing body is clipped at a UTF-8 boundary. The stored provenance flags `truncated` whenever material was lost this way. Output carrying no recognized heading is returned unchanged: a malformed response must not silently erase a scope's lessons. `squeezeOrder` is validated at load as a permutation of the headings, because an order missing one would drop that section from every extraction. The `compaction-basic` checkpoint is untouched.
+
+**Recall and rebuild select material by rank.** While background review is enabled, each observed turn derives a query from its newest human message and asks the ranked, directory-scoped search seam (`searchSessions` on `sessionQuery`, never the model-facing tool) for candidate sessions in the scope directory, skipping the asking session. The candidate is resolved with `readEvent` and admitted through `admittedRow` — the same rule the live buffer and the exact rebuild scan use, so an injected brief or instruction message is never recalled back. The strongest admitted hit lands as the scope's single context item labelled `Recall: <sessionId>`, replaced when it changes and left alone when it does not. The brief renders recalled items last, so they drop first under pressure. A rebuild uses the same seam per session (`searchSessions` then `searchEvents`), accumulates rows least-relevant-first so the transcript cap drops recall rather than the strongest match, and falls back to the exact `readSurface` scan when the seam is absent, partial, empty, failing, or the scope has no observed turn.
+
+## Alternatives considered
+
+**Reading `MEMORY_HEADINGS` from `@deepseek-ai/dsh-workspace-memory-llm/src/prompt.ts`.** The improvement spec names it as a reuse path. Rejected: the package root does not export it, so the import needs a `tsconfig.base.json` path entry outside this slice plus a cross-group dependency for a four-string constant, and the repository already treats the evolution reviewer as a verbatim-copy fork whose reuse is not shared code. `squeeze.ts` takes the fork's own `LESSON_HEADINGS` instead, and both prompts still pin the same four headings.
+
+**Storing the recall item only in the rendered brief.** Rejected: a synthetic item has no durable identity, cannot be capacity-charged or digest-covered, and would re-inject on every step. A real context item reuses the store's uuid identity, digest coverage, and drop order unchanged.
+
+**Letting the recall item's identity extend the brief digest.** Rejected: a per-step search and an extended identity would append a fresh brief on most turns. The item lives in the record, so a changed recall changes the record digest and the next brief is a fresh one, while an unchanged recall writes nothing.
+
+**Ranked search as the only rebuild source.** Rejected: a query that matches nothing would replace a good document with headings alone. Ranked recall supplies material and the exact scan is the floor.
+
+**Dropping the most important heading's body when it does not fit.** Rejected: shedding is for the least important section, so the last one standing is clipped at a UTF-8 boundary and reported `truncated`.
+
+## Consequences
+
+The journey read model can now count approvals and rejections and tell instructions, lessons, and profile writes apart; the record grows by a capped log that no capacity or digest rule sees. Extractions are leaner and structurally stable, at the cost of prose the model emitted outside the headings, and a `squeezeBytes` configured above the store's `maxAgentBytes` still ends in the store's own clip. Recall makes a scope's brief carry prior work from its directory, at the cost of one indexed search per observed turn and one context item that changes the digest whenever it changes. Rebuild quality now depends on the deployment's search backend: without a ranked seam it degrades to the exact scan rather than failing, and with one it only ever *adds* material, never replaces the exact floor. Because the query is matched as a literal phrase by the shipped backend, a query that never appeared verbatim in an indexed session returns no candidate — recall is best-effort by construction.
+
+## Testing
+
+`packages/evolution/evolution-memory/tests/store.spec.ts` pins both decisions recorded with cap enforcement, a non-JSON staged payload refused without storing anything, resolutions excluded from capacity and digest, each family stamped by its own writes and by staged approval (and not by a duplicate add), and the defaulted schema accepting a record written before the additions. `packages/evolution/evolution-reviewer/tests/squeeze.spec.ts` pins heading collection, pressure-order shedding, configured order, UTF-8 clipping, blank-edge trimming, and the degenerate-output and no-heading-budget returns. `reviewer.spec.ts` pins ranked, directory-scoped recall with one replaced item, the injected-context candidate being rejected, the absent/partial seam and blank-request paths, the ranked rebuild's filter and framing, the exact-scan fallback for every degradation, and the store-cap clip when `squeezeBytes` exceeds it. `packages/context/evolution-memory-context/tests/inject.spec.ts` pins recalled items rendering last and dropping first. Per-file 100% holds on statements, branches, functions, and lines for all three `src` trees.

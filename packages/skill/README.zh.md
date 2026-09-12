@@ -28,6 +28,8 @@ skill 家族让 agent 和用户仅在需要时发现并加载可复用的任务�
 | [`skill-filesystem/`](skill-filesystem/README.zh.md) | 从项目、自定义与用户目录发现 skill，并监视其变更 | 注册到 `ctx.skills` |
 | [`skill-badge/`](skill-badge/README.zh.md) | 随包附带官方「powered by dsh」徽章 skill，默认禁用 | 注册到 `ctx.skills` |
 | [`tool-skill/`](tool-skill/README.zh.md) | 发布会话 skill 目录与面向模型的 `skill` 加载工具 | 注册到 `ctx.tools` |
+| [`evolution-skill-telemetry/`](evolution-skill-telemetry/README.zh.md) | 持久化的按技能使用/查看/补丁计数，带来源、置顶与生命周期状态 | `ctx.evolutionSkillTelemetry` |
+| [`evolution-skill-manage/`](evolution-skill-manage/README.zh.md) | 面向模型的 `skill_manage` 工具，以文件形式创建、补丁、重写、写入、删除技能 | 注册到 `ctx.tools` |
 
 -----
 

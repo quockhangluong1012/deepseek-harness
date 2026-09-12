@@ -66,6 +66,7 @@ Electron 通过内置的上游 Node.js 进程启动私有 Desktop Host 包；该
 | [`core/scope`](subsystems/scope.zh.md) | 按 agent 划分作用域的注册原语 | 库，无 ctx 键 |
 | [`llm/llm`](subsystems/llm-streaming.zh.md) | 消息与流式词汇表，以及适配器 seam | `ctx.llm` |
 | [`webhook/webhook`](subsystems/webhook.zh.md) | 已认证 delivery 的分派和 Workspace Session 创建 | `ctx.webhookRuntime` |
+| [`evolution/evolution-memory`](subsystems/evolutionary-harness.zh.md) | 按作用域的记忆、后台评审与技能判策 | `ctx.evolutionMemory` |
 
 <a id="events"></a>
 
@@ -160,5 +161,6 @@ seam 正是替换一个提供方就能改变整个产品的原因。文件系统
 | 在轮次边界 fork 会话 | `ctx.agents.create({ sessionId, seed, meta: { parentSession, seedLength } })`——只有经 agent-loop 发布的会话才会持久化 |
 | 在新后端存储会话 | 基于共享的句柄脚手架实现 `SessionPersistence`（`create`/`open`/`stat`/`list`/`export`） |
 | 将注册项限定到单个 agent | 使用该 agent 的 `agent.ctx` |
+| 从会话自身的历史中学习 | 挂载 evolution 各行；它们在不改动循环的前提下扩展记忆、技能与评审 |
 
 [扩展实操手册](cookbook/extension-cookbook.zh.md)将功能映射到能力，并索引[包](cookbook/adding-a-package.zh.md)、[工具](cookbook/adding-a-tool.zh.md)、[LLM（大语言模型）适配器](cookbook/adding-an-llm-adapter.zh.md)和[设置卡片](cookbook/adding-a-settings-card.zh.md)的分步指南。[Conversation 子系统](subsystems/conversation.zh.md)负责 Chat node 组装。

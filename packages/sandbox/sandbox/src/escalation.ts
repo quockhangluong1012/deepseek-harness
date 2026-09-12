@@ -65,14 +65,14 @@ export function validateEscalationArgs(sandboxPermissions: string | undefined, j
  * Fail closed when an escalation request arrives without a resolved standing
  * policy — the one home for the composition guard every sandbox-enforcing
  * tool family shares, so the next fix cannot land on one call site only.
- * @param standingPolicy - the resolved policy, or undefined for direct calls
+ * @param policy - the resolved policy, or undefined for direct calls
  *   with no resolvable sandbox policy.
  * @returns nothing - throws when no standing policy is resolved.
  */
 export function assertStandingPolicy(
-  standingPolicy: SandboxExecutionPolicy | undefined,
+  policy: SandboxExecutionPolicy | undefined,
 ): asserts standingPolicy is SandboxExecutionPolicy {
-  if (standingPolicy === undefined) {
+  if (policy === undefined) {
     throw new HarnessError(
       'sandbox_permissions is not available for direct calls without a resolved sandbox policy',
       'SANDBOX_ESCALATION_UNAVAILABLE',

@@ -37,7 +37,7 @@ export function isSkillName(name: string): boolean {
 }
 
 /** Origin bucket for a skill contribution. The value is prompt-visible metadata, not precedence by itself. */
-export type SkillSource = 'project-dsh' | 'project-agents' | 'runtime' | 'user-dsh' | 'user-agents' | 'custom' | 'bundled' | (string & {})
+export type SkillSource = 'project-dsh' | 'project-hermes' | 'project-agents' | 'runtime' | 'user-dsh' | 'user-agents' | 'custom' | 'bundled' | (string & {})
 
 /** Optional provider-specific base used by loaded skill bodies to resolve relative resources. */
 export type SkillResourceBase =
@@ -83,12 +83,34 @@ export interface SkillCandidate extends SkillSummary {
   readonly metadata?: Readonly<Record<string, unknown>>
 }
 
+/**
+ * One install-time automation suggestion a provider may attach to a skill from
+ * frontmatter `blueprint`. It is provider metadata: the registry carries it on
+ * a loaded definition for consumers that install automations, it never enters
+ * an invocation-neutral summary, and nothing is ever scheduled automatically —
+ * installing a blueprint skill only suggests the schedule.
+ */
+export interface SkillBlueprint {
+  /** Cron expression the suggested automation would run on. */
+  readonly schedule: string
+  /** Where a run's result goes. */
+  readonly deliver: 'session' | 'file'
+  /** Prompt each suggested run starts from. */
+  readonly prompt: string
+}
+
 /** Complete parsed skill definition, including the body loaded by `ctx.skills.get()`. */
 export interface SkillDefinition extends SkillSummary {
   /** Markdown instruction body after any provider-specific metadata removal. */
   readonly content: string
   /** Parsed optional metadata object from frontmatter. */
   readonly metadata?: Readonly<Record<string, unknown>>
+  /** Environment variable names the loading consumer must find in the host environment. */
+  readonly requiredEnv?: readonly string[]
+  /** Non-secret configuration the skill declares, its own value serving as the default. */
+  readonly config?: Readonly<Record<string, string>>
+  /** Install-time automation suggestion; dropped when unusable, never part of a summary. */
+  readonly blueprint?: SkillBlueprint | undefined
 }
 
 /** Runtime skill contribution accepted by `ctx.skills.register()`. */
@@ -241,6 +263,13 @@ export interface SkillProviderObservation {
   readonly candidates: readonly SkillCandidate[]
   /** Whether discovery completed and these candidates may be cached. */
   readonly complete: boolean
+  /**
+   * Skills this provider skipped and quarantined during the observation, such
+   * as project skills that failed a security scan. The registry reports the
+   * summed count on the `skills/change` event; the count never reaches the
+   * model-facing catalog.
+   */
+  readonly quarantinedCount?: number
 }
 
 /** Provider interface for one source of skills, such as local directories or a remote registry. */
@@ -292,8 +321,10 @@ declare module '@deepseek-ai/cordis' {
      * refetch the catalog for their own lookup options. Listener failures are
      * contained and cannot veto the registry mutation.
      * @mode emit
+     * @param payload - the quarantined skill count observed by the most recent
+     *   completed discovery, zero before one completes.
      */
-    'skills/change'(): void
+    'skills/change'(payload: { readonly quarantinedCount: number }): void
   }
 }
 
@@ -316,6 +347,8 @@ interface RegisteredProvider {
 interface LayerCollectResult {
   entries: IndexedCandidate[]
   cacheable: boolean
+  /** Skills the layer's providers quarantined during this observation. */
+  quarantinedCount: number
 }
 
 interface CollectResult {
@@ -366,6 +399,8 @@ export class SkillRegistry extends Service {
   private readonly collectCache = new Map<string, Map<string, IndexedCandidate>>()
   private revision = 0
   private nextProviderOrder = 0
+  /** Quarantined skills observed by the most recent completed discovery. */
+  private quarantinedCount = 0
   /** Stable identities for cache keys; scope keys are opaque identity-compared objects. */
   private readonly scopeIds = new WeakMap<ScopeKey, number>()
   private nextScopeId = 1
@@ -513,7 +548,7 @@ export class SkillRegistry extends Service {
       this.invalidateEntry(match)
       return undefined
     }
-    return definition
+    return usableSkill(definition)
   }
 
   private async collect(options: SkillViewOptions): Promise<CollectResult> {
@@ -556,11 +591,14 @@ export class SkillRegistry extends Service {
     const layers = [this.layers.global, ...this.layers.chainLayers(options.scope)]
     const merged = new Map<string, IndexedCandidate>()
     let cacheable = true
+    let quarantinedCount = 0
     for (const layer of layers) {
       const collected = await this.collectLayer(layer, options)
       if (!collected.cacheable) cacheable = false
+      quarantinedCount += collected.quarantinedCount
       for (const entry of collected.entries) merged.set(entry.candidate.name, entry)
     }
+    this.quarantinedCount = quarantinedCount
     return { entries: merged, cacheable }
   }
 
@@ -578,13 +616,14 @@ export class SkillRegistry extends Service {
       seen.add(skill.name)
       result.push(entry)
     }
-    return { entries: result, cacheable: collected.cacheable }
+    return { entries: result, cacheable: collected.cacheable, quarantinedCount: collected.quarantinedCount }
   }
 
   private async listLayerCandidates(layer: SkillLayer, options: SkillLookupOptions): Promise<LayerCollectResult> {
     throwIfAborted(options.signal)
     const candidates: IndexedCandidate[] = []
     let cacheable = true
+    let quarantinedCount = 0
     let runtimeOrder = 0
     for (const skill of [...layer.runtime.values()].sort((a, b) => compareCodePoints(a.name, b.name))) {
       candidates.push({
@@ -609,13 +648,14 @@ export class SkillRegistry extends Service {
       if (output === undefined) continue
       const observation = normalizeProviderObservation(output, provider.name)
       if (!observation.complete) cacheable = false
+      quarantinedCount += observation.quarantinedCount ?? 0
       for (const candidate of observation.candidates) {
         validateCandidate(candidate, provider.name)
         candidates.push({ candidate, provider, providerOrder: order, localOrder, layer })
         localOrder += 1
       }
     }
-    return { entries: candidates, cacheable }
+    return { entries: candidates, cacheable, quarantinedCount }
   }
 
   private invalidateCache(): void {
@@ -646,9 +686,10 @@ export class SkillRegistry extends Service {
 
   /** Notify catalog observers without making their refresh work load-bearing. */
   private notifyChange(): void {
-    for (const callback of this.ctx.events.dispatch('emit', ['skills/change'])) {
+    const payload = { quarantinedCount: this.quarantinedCount }
+    for (const callback of this.ctx.events.dispatch('emit', ['skills/change', payload])) {
       try {
-        const returned: unknown = callback()
+        const returned: unknown = callback(payload)
         void Promise.resolve(returned).catch((error: unknown) => {
           this.ctx.logger.warn(`skills/change listener rejected: ${errorMessage(error)}`)
         })
@@ -764,6 +805,51 @@ function validateDefinition(skill: SkillDefinition): void {
   if (typeof provider !== 'string') throw new TypeError(`loaded skill "${name}" provider must be a string`)
   if (typeof content !== 'string') throw new TypeError(`loaded skill "${name}" content must be a string`)
   if (path !== undefined && typeof path !== 'string') throw new TypeError(`loaded skill "${name}" path must be a string`)
+  validateStringArray(skill.requiredEnv, `loaded skill "${name}" requiredEnv`)
+  validateStringRecord(skill.config, `loaded skill "${name}" config`)
+}
+
+/**
+ * Drop an unusable provider-supplied install blueprint. A blueprint is
+ * optional metadata, so a provider that supplies one in the wrong shape loses
+ * it rather than failing the load every consumer shares.
+ */
+function usableSkill(definition: SkillDefinition): SkillDefinition {
+  const { blueprint } = definition
+  if (blueprint === undefined || isSkillBlueprint(blueprint)) return definition
+  return { ...definition, blueprint: undefined }
+}
+
+/**
+ * Validate the optional install blueprint a provider supplies. The value comes
+ * from provider-parsed frontmatter, so the fields are read off a checked record
+ * instead of trusting the declared interface.
+ */
+function isSkillBlueprint(value: unknown): value is SkillBlueprint {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
+  const record = value as Record<string, unknown>
+  return typeof record['schedule'] === 'string' && record['schedule'] !== ''
+    && (record['deliver'] === 'session' || record['deliver'] === 'file')
+    && typeof record['prompt'] === 'string' && record['prompt'] !== ''
+}
+
+/** Validate an optional provider-supplied string list. */
+function validateStringArray(value: unknown, subject: string): void {
+  if (value === undefined) return
+  if (!Array.isArray(value) || !(value as unknown[]).every(entry => typeof entry === 'string')) {
+    throw new TypeError(`${subject} must be an array of strings`)
+  }
+}
+
+/** Validate an optional provider-supplied string record. */
+function validateStringRecord(value: unknown, subject: string): void {
+  if (value === undefined) return
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new TypeError(`${subject} must be an object of strings`)
+  }
+  if (!Object.values(value as Record<string, unknown>).every(entry => typeof entry === 'string')) {
+    throw new TypeError(`${subject} must be an object of strings`)
+  }
 }
 
 function toSummary(skill: SkillDefinition | SkillCandidate): SkillSummary {

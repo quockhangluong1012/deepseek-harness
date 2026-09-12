@@ -98,4 +98,27 @@ describe('write-drain teardown', () => {
     await queuedDelete
     expect(await service.readRecord(OTHER_RECORD)).toBeUndefined()
   })
+
+  it('fails a queued rotate after disposal on the same terms', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'dsh-credentials-drain-rotate-'))
+    cleanups.push(() => rm(dir, { recursive: true, force: true }))
+    const ctx = new Context()
+    const fiber = ctx.plugin(LocalCredentialProvider, { path: join(dir, '.credentials.yaml'), watch: false })
+    await fiber
+    const service = ctx.credentials
+
+    const gate = Promise.withResolvers<undefined>()
+    await setGate(gate.promise)
+    const first = service.set(KEY, 'one')
+    await new Promise(resolvePause => setTimeout(resolvePause, 5))
+    const queuedRotate = expect(service.rotate(OTHER, () => 'two')).rejects.toThrow(/disposed before the queued/)
+    const disposal = fiber.dispose()
+    await new Promise(resolvePause => setTimeout(resolvePause, 10))
+    gate.resolve()
+    await disposal
+
+    await expect(first).resolves.toBeUndefined()
+    await queuedRotate
+    expect(await service.resolve(OTHER)).toBeUndefined()
+  })
 })

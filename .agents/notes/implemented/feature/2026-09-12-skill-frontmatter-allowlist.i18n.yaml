@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-12-skill-frontmatter-allowlist.md
+2026-09-12-skill-frontmatter-allowlist.md: 60a10a813a3570a1470b992b214eba29fb369a4b
+2026-09-12-skill-frontmatter-allowlist.zh.md: 71e12020731f32f3b8d5407792616ad96fb4101a

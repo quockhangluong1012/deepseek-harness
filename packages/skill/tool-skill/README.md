@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Agents can discover and load skills during a session. Before the first request, when model-invocable skills exist and the `skill` tool is visible, they receive a durable catalog of available skill names and capped descriptions, and can use the `skill` tool to load full instructions. Users can invoke a user-invocable skill with `/name`, which injects the same instructions into that step. Catalog changes append a complete replacement, including an empty catalog that retires old names; configure `catalogDescriptionMaxLength` to limit each description.
+Agents can discover and load skills during a session. Before the first request, when model-invocable skills exist and the `skill` tool is visible, they receive a durable catalog of available skill names and capped descriptions, and can use the `skill` tool to load full instructions. Users can invoke a user-invocable skill with `/name`, which injects the same instructions into that step. Catalog changes append a complete replacement, including an empty catalog that retires old names; configure `catalogDescriptionMaxLength` to limit each description. A load resolves the skill's execution environment first: declared `required_env` names are forwarded from the host environment, configuration values come from the deployment's `skills.config` map over the skill's own defaults, and inline `${...}` shell expansion runs only for a skill that opts in with `metadata.shell`.
 
 ## Table of Contents
 
@@ -33,30 +33,43 @@ Use it when agents should discover and load skills during a session. Skip it whe
 
 ### Mount and configure
 
-Load the plugin together with the skill registry and at least one provider. The only configuration caps the normalized description length rendered in the catalog.
+Load the plugin together with the skill registry and at least one provider, and mount a shell executor when any skill opts into inline shell expansion. Configuration caps the normalized description length rendered in the catalog and supplies deployment-side per-skill configuration values.
 
 ```yaml
 - name: '@deepseek-ai/dsh-skill'
 - name: '@deepseek-ai/dsh-skill-filesystem'
 - name: '@deepseek-ai/dsh-tool-skill'
+  config:
+    skills:
+      config:
+        deploy-skill: { region: eu-west-1 }
 ```
 
 | Field | Default | Meaning |
 |---|---|---|
 | `catalogDescriptionMaxLength` | `500` | Maximum normalized description length rendered in the session catalog; minimum 3 |
+| `skills.config` | `{}` | Per-skill configuration values injected at load, keyed by skill name then config key; a deployed value overrides the skill's own declared default |
 
 The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-tool-skill) is the exhaustive source for every accepted field.
 
 ### What the model gets
 
 - **A session catalog.** When model-invocable skills exist and the `skill` tool is visible, the agent receives a durable user-role message before its first request, listing each skill's name and a capped description; the message tells the model to load a skill with the tool before acting on it, and never to infer instructions from the summary alone.
-- **A loader tool.** The model calls `skill` with the exact skill name and receives the full instruction body plus resource guidance in a canonical `<skill_content>` block; the result is retained as ordinary tool history.
-- **Explicit user invocation.** A `/name` token in direct user input that names a user-invocable skill injects that skill's instructions into the step, without the model having to load it.
+- **A loader tool.** The model calls `skill` with the exact skill name and receives the full instruction body plus resource guidance in a canonical `<skill_content>` block; the result is retained as ordinary tool history. Before rendering, the loader resolves the skill's load-time environment — see [Load-time environment](#load-time-environment) — and expands `${DSH_SKILL_DIR}` (the skill's own directory) and `${DSH_SESSION_ID}` (the loading agent's session id) in the body; any other `${...}` sequence a skill did not declare as configuration stays verbatim unless the skill opted into inline shell, and a variable without a value — `${DSH_SKILL_DIR}` for virtual skills without a path, or `${DSH_SESSION_ID}` when no agent loads the skill — stays verbatim.
+- **Explicit user invocation.** A `/name` token in direct user input that names a user-invocable skill injects that skill's instructions into the step, without the model having to load it. The same load-time resolution and template expansion apply before the injection is rendered.
 - **Live catalog updates.** Later membership, description, or visibility changes append a complete replacement catalog; removing every skill appends an empty catalog that retires older names.
+
+### Load-time environment
+
+A load resolves the environment the skill runs in before its body reaches the model. Three declarations take effect:
+
+- **`required_env`.** Every declared name must be set in the host environment; the values are forwarded to the skill's execution commands. A declared name that is unset fails the load with an error naming it — the tool reports `Error: skill "<name>" requires environment variable "<NAME>", which the host environment does not set`, and a user-explicit invocation warns and skips that skill for the step instead.
+- **`config`.** Declared keys are the union of the deployment's `skills.config.<skill>` map and the skill's own frontmatter `config` map. A deployed value wins over the skill's own default, a blank value counts as absent, and a declared key with no value in either source fails the load the same way, naming every missing key.
+- **Inline shell.** Any remaining `${...}` sequence runs as a shell command through the mounted `ctx.shell` executor only when the skill sets `metadata.shell: true`; commands run from the skill's own directory with the resolved environment, output is capped at 4000 characters, and `metadata.shellTimeoutMs` (default `10000`, positive) bounds each command. A command that fails, times out, is aborted, or has no executor contributes nothing to the body and warns on the host log. A declared `config` key wins over a shell command of the same name.
 
 ### Observable success and failures
 
-Loading a listed skill returns its full instructions; the model sees one canonical shape whether the load came from the tool or from a user's explicit invocation. An invalid name reports `Error: invalid skill name "<name>"`, an unknown name reports the skill is unknown or no longer available, and a skill disabled for model invocation reports it is not available for model invocation. The catalog is omitted entirely when no catalog was ever published and either no model-invocable skills exist or the `skill` tool is hidden or shadowed; after a catalog has been published, either visibility loss — the `skill` tool hidden or shadowed by a same-name scoped tool — or removal of every skill instead appends an empty catalog that retires older names.
+Loading a listed skill returns its full instructions; the model sees one canonical shape whether the load came from the tool or from a user's explicit invocation. An invalid name reports `Error: invalid skill name "<name>"`, an unknown name reports the skill is unknown or no longer available, and a skill disabled for model invocation reports it is not available for model invocation. A skill whose declared `required_env` or `config` cannot resolve reports the explanatory load error above instead of loading with a partially resolved environment. The catalog is omitted entirely when no catalog was ever published and either no model-invocable skills exist or the `skill` tool is hidden or shadowed; after a catalog has been published, either visibility loss — the `skill` tool hidden or shadowed by a same-name scoped tool — or removal of every skill instead appends an empty catalog that retires older names.
 
 -----
 
@@ -77,6 +90,8 @@ The package is built on two ideas. First, the catalog is a durable projection, d
 | File | Role |
 |---|---|
 | [`src/index.ts`](src/index.ts) | Plugin entry: tool registration, catalog and gesture pre-step listeners, rendering and digest |
+| [`src/load.ts`](src/load.ts) | Load-time environment: `required_env` passthrough, `config` resolution, and opt-in inline shell expansion |
+| [`src/template.ts`](src/template.ts) | Pure `${DSH_SKILL_DIR}` / `${DSH_SESSION_ID}` expansion shared by both load paths |
 | — | No runtime invariant companion is published; this model-facing adapter has no independent lifecycle stream; execution relations are owned by the capability seam it calls. |
 
 ### Catalog lifecycle
@@ -86,6 +101,12 @@ At each eligible `agent/pre-step`, the plugin snapshots the calling session's sk
 ### Invocation boundary
 
 The `/name` gesture listener scans only claimed user messages: a whitespace-bounded token naming a user-invocable skill in the workspace catalog injects the same `<skill_content>` rendering as a `user`-role instructions context appended after every other injection. Unknown names and user-disabled skills stay ordinary prose. This is the only entry point for `disable-model-invocation` skills, which the catalog and the `skill` tool never expose.
+
+### Load-time expansion
+
+Both load paths share one resolution and rendering step (`src/load.ts`) before `renderSkillContent` frames the body. Resolution forwards every `required_env` name from the host environment, computes the config values from the deployment's `skills.config.<skill>` map over the skill's own declared defaults, and reads `metadata.shell`/`metadata.shellTimeoutMs`; any missing name, missing value, or malformed `metadata` value becomes the explanatory load error instead of a partially resolved load. The tool throws that error and the user-explicit injection warns and skips the skill for that step, so a misconfigured skill never silently loads without what it declared.
+
+Rendering then expands `${DSH_SKILL_DIR}` to the skill's own directory (the dirname of the skill's absolute `SKILL.md` `path`) and `${DSH_SESSION_ID}` to the loading agent's session id (`exec.agent?.session.id` in the tool, `agent.session.id` in the pre-step injection). Each remaining `${...}` sequence resolves to a declared config value first; only when the skill set `metadata.shell: true` does an undeclared sequence run as a shell command, once per distinct command, from the skill's directory with the resolved environment through the mounted `ctx.shell` executor. Any other sequence stays verbatim, as does a variable without a value: virtual skills carry no `path`, so they leave `${DSH_SKILL_DIR}` unexpanded, and a tool call without a loading agent leaves `${DSH_SESSION_ID}` unexpanded. Inline shell output is capped at 4000 characters; a failing, timed-out, aborted, or unmounted-shell command renders empty and warns on the host log, so a broken command never leaks its partial output into the model's instructions.
 
 </details>
 
@@ -153,7 +174,7 @@ Prefix-stable while the tool definition and visibility are unchanged. Shadowing,
 
 #### What the model sees
 
-A successful call uses the result template and the provider-managed, directory, URL, or opaque resource guidance below.
+A successful call uses the result template and the provider-managed, directory, URL, or opaque resource guidance below. The `<provider-owned-instruction-body>` is the skill body after load-time resolution and expansion: declared config values and `${DSH_SKILL_DIR}`/`${DSH_SESSION_ID}` are replaced where values exist, an opted-in skill's inline shell commands are replaced by their capped output, and any other `${...}` sequence — including `${DSH_SKILL_DIR}` for virtual skills without a path — stays verbatim.
 
 ##### Skill result template
 
@@ -209,7 +230,7 @@ Append-only; newly visible content follows the reusable request prefix and does 
 
 #### What the model sees
 
-Invalid or stale selections return exactly `Error: invalid skill name "<name>"`, `Error: skill "<name>" is unknown or no longer available`, or `Error: skill "<name>" is not available for model invocation`. Provider-thrown lookup text is data-dependent and receives the same `Error: <message>` wrapper.
+Invalid or stale selections return exactly `Error: invalid skill name "<name>"`, `Error: skill "<name>" is unknown or no longer available`, or `Error: skill "<name>" is not available for model invocation`. A skill whose declared `required_env` name is unset, whose declared config key has no value, or whose `metadata.shell`/`metadata.shellTimeoutMs` is malformed returns one explanatory `Error: skill "<name>" requires …` naming what is missing. Provider-thrown lookup text is data-dependent and receives the same `Error: <message>` wrapper.
 
 #### Token effect
 
@@ -223,7 +244,7 @@ Append-only; newly visible content follows the reusable request prefix and does 
 
 #### What the model sees
 
-A whitespace-bounded `/name` token anywhere in a claimed user message, naming a user-invocable skill in the workspace catalog, injects that skill's full `<skill_content>` rendering (the exact result-template shape above) as a `user`-role instructions context appended after every other injection of that step — background first, the material to act on last. Only direct user input is scanned, the check runs on the loaded definition, and unknown or user-disabled names stay ordinary prose. This is the sole entry point for `disable-model-invocation` skills, which the catalog and the `skill` tool never expose; the catalog's closing sentence tells the model to follow the injected block instead of re-loading it.
+A whitespace-bounded `/name` token anywhere in a claimed user message, naming a user-invocable skill in the workspace catalog, injects that skill's full `<skill_content>` rendering (the exact result-template shape above) as a `user`-role instructions context appended after every other injection of that step — background first, the material to act on last. Only direct user input is scanned, the check runs on the loaded definition, and unknown or user-disabled names stay ordinary prose. This is the sole entry point for `disable-model-invocation` skills, which the catalog and the `skill` tool never expose; the catalog's closing sentence tells the model to follow the injected block instead of re-loading it. The injected body carries the same load-time template expansion as a tool load.
 
 #### Token effect
 
@@ -246,6 +267,8 @@ These limits define when the catalog or the loader is a poor fit. They are curre
 - **Loading is one-shot text** — there is no partial, streaming, or cached-content handle when a remote provider is slow or a skill body is large.
 - **Catalog replacement is whole-list** — one changed name or description appends every visible summary; this keeps stale-name retirement explicit but costs tokens proportional to the catalog.
 - **Bodies are not versioned** — body-only edits do not change the catalog digest or notify the model; a later tool call reads the current provider content while earlier tool results remain historical facts.
+- **An unloadable skill stays cataloged** — a skill whose declared `required_env` or `config` cannot resolve is still advertised; the failure appears only when the model or user tries to load it.
+- **Inline shell trusts the skill author** — opting in runs `${...}` sequences as commands in the mounted executor's environment, bounded by the character cap and timeout but not by any allowlist; only skills the deployment trusts belong in its discovery roots.
 
 <a id="dev-note"></a>
 ### Dev Note

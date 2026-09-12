@@ -391,6 +391,128 @@ interface FixtureWorkspace {
   updatedAt: string
 }
 
+/** The four journey windows, mirrored so this fixture names no usage-ledger package. */
+type FixtureEvolutionRange = 'today' | '7d' | '30d' | 'all'
+
+/** One attached context item, mirroring the store's record shape. */
+type FixtureEvolutionContext =
+  | { kind: 'text'; id: string; label: string; text: string; sizeBytes: number; addedAt: string }
+  | { kind: 'file'; id: string; label: string; path: string; sizeBytes: number; addedAt: string }
+
+/** One produced-file index entry, mirroring the store's record shape. */
+interface FixtureEvolutionOutput {
+  path: string
+  tool: string
+  sessionId: SessionId
+  at: string
+}
+
+/** One staged write awaiting a decision. */
+interface FixtureEvolutionStaged {
+  id: string
+  kind: 'memory' | 'skill'
+  op: string
+  payload: unknown
+  originSessionId: SessionId
+  createdAt: string
+  gist: string
+}
+
+/** One decided staged entry, kept so the journey counts approvals and rejections. */
+interface FixtureEvolutionResolution {
+  id: string
+  kind: 'memory' | 'skill'
+  op: string
+  gist: string
+  decision: 'approved' | 'rejected'
+  at: string
+  originSessionId: SessionId
+}
+
+/** Fixture-local mirror of one Scope's evolution record. */
+interface FixtureEvolutionScope {
+  instructions: string
+  lessons: string
+  profile: string
+  instructionsUpdatedAt: string | null
+  lessonsUpdatedAt: string | null
+  profileUpdatedAt: string | null
+  contextItems: FixtureEvolutionContext[]
+  outputs: FixtureEvolutionOutput[]
+  staged: FixtureEvolutionStaged[]
+  resolutions: FixtureEvolutionResolution[]
+}
+
+/** One recorded change, placed on its calendar day. */
+interface FixtureEvolutionDelta {
+  day: string
+  kind: 'instructions' | 'lessons' | 'profile' | 'context' | 'outputs' | 'staged'
+  gist: string
+  sessionId: SessionId | null
+  at: string
+}
+
+/** Fixture parallel of the evolution state stream. */
+type FixtureEvolutionFollowFrame =
+  | { readonly type: 'baseline'; readonly values: readonly FixtureEvolutionValue[] }
+  | { readonly type: 'upsert'; readonly value: FixtureEvolutionValue }
+
+/** Fixture-local mirror of one Scope's Remote projection. */
+interface FixtureEvolutionValue {
+  readonly workspaceId: WorkspaceId
+  readonly instructions: string
+  readonly lessons: string
+  readonly profile: string
+  readonly memoryUpdatedAt: string | null
+  readonly instructionsUpdatedAt: string | null
+  readonly lessonsUpdatedAt: string | null
+  readonly profileUpdatedAt: string | null
+  readonly contextItems: readonly FixtureEvolutionContext[]
+  readonly outputs: readonly FixtureEvolutionOutput[]
+  readonly lastExtraction: null
+  readonly staged: readonly FixtureEvolutionStaged[]
+  readonly resolutions: readonly FixtureEvolutionResolution[]
+  readonly usage: { readonly usedBytes: number; readonly capacityBytes: number }
+  readonly updatedAt: string
+}
+
+/** Fixture parallel of the ledger's UTC+7 offset. */
+const FIXTURE_UTC7_OFFSET_MS = 7 * 60 * 60 * 1000
+
+/** Fixture parallel of the evolution memory ceiling the web bundle mounts. */
+const FIXTURE_EVOLUTION_CAPACITY = 131072
+
+/** Fixture parallel of the ledger's UTC+7 calendar day key. */
+function fixtureDayKey(time: number): string {
+  const shifted = new Date(time + FIXTURE_UTC7_OFFSET_MS)
+  const month = String(shifted.getUTCMonth() + 1).padStart(2, '0')
+  const day = String(shifted.getUTCDate()).padStart(2, '0')
+  return `${shifted.getUTCFullYear()}-${month}-${day}`
+}
+
+/** Fixture parallel of the ledger's window start (negative infinity for `all`). */
+function fixtureWindowStart(range: FixtureEvolutionRange, now: number): number {
+  if (range === 'all') return Number.NEGATIVE_INFINITY
+  const back = range === 'today' ? 0 : range === '7d' ? 6 : 29
+  const dayStart = Math.floor((now + FIXTURE_UTC7_OFFSET_MS) / 86_400_000) * 86_400_000 - FIXTURE_UTC7_OFFSET_MS
+  return dayStart - back * 86_400_000
+}
+
+/** Fixture parallel of the ledger's day list: zero-filled when bounded, data-only for `all`. */
+function fixtureDaysOfRange(
+  range: FixtureEvolutionRange,
+  now: number,
+  daysWithData: ReadonlySet<string>,
+): string[] {
+  if (range === 'all') return [...daysWithData].sort()
+  const width = range === 'today' ? 1 : range === '7d' ? 7 : 30
+  const start = fixtureWindowStart(range, now) // `today` and `7d`/`30d` share the day-start anchor.
+  const days: string[] = []
+  for (let index = 0; index < width; index += 1) days.push(fixtureDayKey(start + index * 86_400_000))
+  return days
+}
+
+
 function text(t: string): ContentBlock[] {
   return [{ type: 'text', text: t }]
 }
@@ -2014,6 +2136,215 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
     },
   })
 
+  // Evolution scopes mirror the host store's per-workspace records. The first
+  // workspace carries every delta family and both staged decisions, so the
+  // journey page has real material; every other workspace reads as an empty
+  // record, which is the honest state the page renders before the first write.
+  const evolutionScopes = new Map<string, FixtureEvolutionScope>()
+  const evolutionBytes = (value: string): number => new TextEncoder().encode(value).length
+  const emptyEvolutionScope = (): FixtureEvolutionScope => ({
+    instructions: '',
+    lessons: '',
+    profile: '',
+    instructionsUpdatedAt: null,
+    lessonsUpdatedAt: null,
+    profileUpdatedAt: null,
+    contextItems: [],
+    outputs: [],
+    staged: [],
+    resolutions: [],
+  })
+  if (!options.empty) {
+    evolutionScopes.set(String(wid('fx-ws-fixture')), {
+      instructions: 'Prefer tabs.',
+      lessons: 'Fixture lessons.',
+      profile: 'Fixture profile.',
+      instructionsUpdatedAt: fixtureEpoch,
+      lessonsUpdatedAt: fixtureEpoch,
+      profileUpdatedAt: fixtureEpoch,
+      contextItems: [{
+        kind: 'text',
+        id: 'fx-ctx-1',
+        label: 'notes',
+        text: 'fixture note',
+        sizeBytes: 12,
+        addedAt: fixtureEpoch,
+      }],
+      outputs: [{
+        path: '/tmp/fixture/notes/demo.txt',
+        tool: 'write',
+        sessionId: sid('fx-alpha'),
+        at: fixtureEpoch,
+      }],
+      staged: [{
+        id: 'fx-staged-1',
+        kind: 'memory',
+        op: 'setLessons',
+        payload: { text: 'Staged fixture lesson.' },
+        originSessionId: sid('fx-alpha'),
+        createdAt: fixtureEpoch,
+        gist: 'lesson: staged fixture note',
+      }],
+      resolutions: [{
+        id: 'fx-res-1',
+        kind: 'memory',
+        op: 'addLesson',
+        gist: 'lesson: approved fixture note',
+        decision: 'approved',
+        at: fixtureEpoch,
+        originSessionId: sid('fx-alpha'),
+      }, {
+        id: 'fx-res-2',
+        kind: 'skill',
+        op: 'create',
+        gist: 'skill: rejected fixture note',
+        decision: 'rejected',
+        at: fixtureEpoch,
+        originSessionId: sid('fx-beta'),
+      }, {
+        // Outside the bounded windows and inside `all`: the only decision the
+        // range filter drops, so both sides of that filter stay reachable.
+        id: 'fx-res-old',
+        kind: 'memory',
+        op: 'addLesson',
+        gist: 'lesson: older approved fixture note',
+        decision: 'approved',
+        at: new Date(Date.now() - 40 * 86_400_000).toISOString(),
+        originSessionId: sid('fx-alpha'),
+      }],
+    })
+  }
+  const evolutionScopeOf = (workspaceId: string): FixtureEvolutionScope => {
+    const existing = evolutionScopes.get(workspaceId)
+    if (existing !== undefined) return existing
+    const created = emptyEvolutionScope()
+    evolutionScopes.set(workspaceId, created)
+    return created
+  }
+  const evolutionUsageOf = (scope: FixtureEvolutionScope): { usedBytes: number; capacityBytes: number } => ({
+    usedBytes: evolutionBytes(scope.instructions) + evolutionBytes(scope.lessons) + evolutionBytes(scope.profile)
+      + scope.contextItems.reduce((total, item) => total + item.sizeBytes, 0),
+    capacityBytes: FIXTURE_EVOLUTION_CAPACITY,
+  })
+  const evolutionValueOf = (workspaceId: WorkspaceId): FixtureEvolutionValue => {
+    const scope = evolutionScopeOf(String(workspaceId))
+    return {
+      workspaceId,
+      instructions: scope.instructions,
+      lessons: scope.lessons,
+      profile: scope.profile,
+      memoryUpdatedAt: [scope.lessonsUpdatedAt, scope.profileUpdatedAt]
+        .filter((at): at is string => at !== null)
+        .sort()
+        .at(-1) ?? null,
+      instructionsUpdatedAt: scope.instructionsUpdatedAt,
+      lessonsUpdatedAt: scope.lessonsUpdatedAt,
+      profileUpdatedAt: scope.profileUpdatedAt,
+      contextItems: scope.contextItems.map(item => ({ ...item })),
+      outputs: scope.outputs.map(output => ({ ...output })),
+      lastExtraction: null,
+      staged: scope.staged.map(entry => ({ ...entry })),
+      resolutions: scope.resolutions.map(entry => ({ ...entry })),
+      usage: evolutionUsageOf(scope),
+      updatedAt: fixtureEpoch,
+    }
+  }
+  const evolutionDeltasOf = (scope: FixtureEvolutionScope): FixtureEvolutionDelta[] => {
+    const deltas: FixtureEvolutionDelta[] = []
+    const push = (
+      kind: FixtureEvolutionDelta['kind'],
+      at: string,
+      gist: string,
+      sessionId: SessionId | null = null,
+    ): void => {
+      deltas.push({ day: fixtureDayKey(Date.parse(at)), kind, gist, sessionId, at })
+    }
+    if (scope.instructionsUpdatedAt !== null) push('instructions', scope.instructionsUpdatedAt, 'edited by hand')
+    if (scope.lessonsUpdatedAt !== null) push('lessons', scope.lessonsUpdatedAt, 'edited by hand')
+    if (scope.profileUpdatedAt !== null) push('profile', scope.profileUpdatedAt, 'edited by hand')
+    for (const item of scope.contextItems) push('context', item.addedAt, item.label)
+    for (const output of scope.outputs) push('outputs', output.at, `${output.tool} ${output.path}`, output.sessionId)
+    for (const entry of scope.staged) {
+      push('staged', entry.createdAt, `${entry.kind}:${entry.op} ${entry.gist}`, entry.originSessionId)
+    }
+    return deltas.sort((left, right) => left.at.localeCompare(right.at))
+  }
+  const evolutionTimelineOf = (
+    scope: FixtureEvolutionScope,
+    range: FixtureEvolutionRange,
+    now: number,
+  ) => {
+    const start = fixtureWindowStart(range, now)
+    const deltas = evolutionDeltasOf(scope).filter(delta => Date.parse(delta.at) >= start)
+    const byDay = new Map<string, FixtureEvolutionDelta[]>()
+    for (const delta of deltas) {
+      const bucket = byDay.get(delta.day)
+      if (bucket === undefined) byDay.set(delta.day, [delta])
+      else bucket.push(delta)
+    }
+    const decisionsByDay = new Map<string, { approved: number; rejected: number }>()
+    for (const resolution of scope.resolutions) {
+      if (Date.parse(resolution.at) < start) continue
+      const day = fixtureDayKey(Date.parse(resolution.at))
+      const decisions = decisionsByDay.get(day) ?? { approved: 0, rejected: 0 }
+      if (resolution.decision === 'approved') decisions.approved += 1
+      else decisions.rejected += 1
+      decisionsByDay.set(day, decisions)
+    }
+    const days = fixtureDaysOfRange(range, now, new Set([...byDay.keys(), ...decisionsByDay.keys()]))
+      .map((day) => {
+        const found = byDay.get(day) ?? []
+        const decisions = decisionsByDay.get(day)
+        return {
+          day,
+          deltas: found,
+          contextAttached: found.filter(delta => delta.kind === 'context').length,
+          outputsIndexed: found.filter(delta => delta.kind === 'outputs').length,
+          stagedOpened: found.filter(delta => delta.kind === 'staged').length,
+          stagedApproved: decisions?.approved ?? 0,
+          stagedRejected: decisions?.rejected ?? 0,
+        }
+      })
+    return {
+      range,
+      now,
+      days,
+      cumulative: {
+        usedBytes: evolutionUsageOf(scope).usedBytes,
+        capacityBytes: FIXTURE_EVOLUTION_CAPACITY,
+        digest: `fx-${String(scope.instructions.length)}-${String(scope.lessons.length)}-${String(scope.profile.length)}`,
+        lessonsBytes: evolutionBytes(scope.lessons),
+        profileBytes: evolutionBytes(scope.profile),
+      },
+      pending: scope.staged.map(entry => ({
+        id: entry.id,
+        kind: entry.kind,
+        op: entry.op,
+        gist: entry.gist,
+        originSessionId: entry.originSessionId,
+        createdAt: entry.createdAt,
+      })),
+    }
+  }
+  const evolutionResolve = (
+    scope: FixtureEvolutionScope,
+    stagedId: string,
+    decision: 'approved' | 'rejected',
+  ): void => {
+    const index = scope.staged.findIndex(entry => entry.id === stagedId)
+    if (index === -1) return
+    const entry = scope.staged.splice(index, 1)[0] as FixtureEvolutionStaged
+    scope.resolutions.unshift({
+      id: entry.id,
+      kind: entry.kind,
+      op: entry.op,
+      gist: entry.gist,
+      decision,
+      at: new Date().toISOString(),
+      originSessionId: entry.originSessionId,
+    })
+  }
+
   // In-memory browse tree behind the fixture's `browse` picker capability —
   // deterministic content mirroring the design mock so assembled Web tests
   // and snapshots can walk it. Leaves are materialized lazily: a child listed
@@ -2095,12 +2426,17 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
   const activeAttempts = new Map<SessionId, FixtureAttemptState>()
   const assistantRevisions = new Map<SessionId, number>()
   const workspaceConns = new Set<StreamConn<WorkspaceFollowFrame>>()
+  const evolutionConns = new Set<StreamConn<FixtureEvolutionFollowFrame>>()
   const remoteEventConns = new Map<string, StreamConn<FixtureRemoteEventFrame>>()
   const emitControl = (frame: FixtureControlFrame): void => {
     for (const conn of controlConns) conn.push(frame)
   }
   const emitWorkspace = (frame: Exclude<WorkspaceFollowFrame, { type: 'baseline' }>): void => {
     for (const conn of workspaceConns) conn.push(frame)
+  }
+  const emitEvolution = (workspaceId: WorkspaceId): void => {
+    const value = evolutionValueOf(workspaceId)
+    for (const conn of evolutionConns) conn.push({ type: 'upsert', value })
   }
   const emitRemote = (event: string, args: readonly unknown[]): void => {
     for (const conn of remoteEventConns.values()) conn.push({ type: 'emit', event, args })
@@ -2165,6 +2501,36 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
   function sessionErr<T>(error: ConnectionRpcFailure): Promise<ConnectionRpcResult<T>> {
     return Promise.resolve({ ok: false, error })
   }
+
+  /**
+   * Resolve one evolution verb's Scope: an unregistered Workspace answers
+   * `workspace/not-found`, exactly as the controller does, and every other
+   * Workspace gets its record (created empty on first use).
+   */
+  const withEvolution = <T>(
+    request: { readonly scopeId?: unknown } | undefined,
+    run: (workspaceId: WorkspaceId, scope: FixtureEvolutionScope) => T,
+  ): Promise<ConnectionRpcResult<T>> => {
+    const id = request?.scopeId as WorkspaceId
+    if (!workspaces.some(workspace => workspace.workspaceId === id)) {
+      return sessionErr({
+        code: 'workspace/not-found',
+        message: `Workspace "${String(request?.scopeId)}" not found`,
+        details: { workspaceId: String(request?.scopeId) },
+      })
+    }
+    return sessionOk(run(id, evolutionScopeOf(String(id))))
+  }
+
+  /** Apply one write to the resolved Scope, publish the upsert, answer the projection. */
+  const evolutionWrite = (
+    request: { readonly scopeId?: unknown } | undefined,
+    patch: (scope: FixtureEvolutionScope, body: Readonly<Record<string, unknown>>) => void,
+  ): Promise<ConnectionRpcResult<FixtureEvolutionValue>> => withEvolution(request, (id, scope) => {
+    patch(scope, (request ?? {}) as Readonly<Record<string, unknown>>)
+    emitEvolution(id)
+    return evolutionValueOf(id)
+  })
 
   const summaryOf = (id: SessionId): FixtureSessionSummary | undefined => sessions.find(s => s.sessionId === id)
   const requireRemoteSession = (
@@ -3512,6 +3878,21 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
     }
   }
 
+  async function* openEvolution(signal: AbortSignal): AsyncGenerator<FixtureEvolutionFollowFrame> {
+    signal.throwIfAborted()
+    const conn = new FxInbox<FixtureEvolutionFollowFrame>()
+    evolutionConns.add(conn)
+    const breakNow = (): void => { conn.breakNow() }
+    streamBreakers.add(breakNow)
+    try {
+      yield { type: 'baseline', values: workspaces.map(workspace => evolutionValueOf(workspace.workspaceId)) }
+      yield* conn.drain(signal)
+    } finally {
+      streamBreakers.delete(breakNow)
+      evolutionConns.delete(conn)
+    }
+  }
+
   async function* openWorkspaceFileChanges(signal: AbortSignal): AsyncGenerator<FixtureWorkspaceFileWatchFrame> {
     signal.throwIfAborted()
     const conn = new FxInbox<FixtureWorkspaceFileWatchFrame>()
@@ -3835,6 +4216,7 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
       const sessionId = args.agentId
       const callSignal = signal ?? new AbortController().signal
       const request = args.request
+      const evolutionRequest = request as { readonly scopeId?: unknown } | undefined
       switch (endpoint) {
         case 'commands/list': return Promise.resolve(commandRemotes.list(sessionId))
         case 'commands/execute': return Promise.resolve(commandRemotes.execute(sessionId, args.line as string, args.images ?? []))
@@ -3996,6 +4378,81 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
           request as WorkspaceInsertSessionBeforeRequest,
         )
         case 'workspace/archiveSession': return workspaceApi.archiveSession(request as WorkspaceArchiveSessionRequest)
+        // Evolution journey: the Scope verbs the page drives plus this
+        // package's curator status face. Every write publishes an upsert on
+        // the follow stream, and a decision retires its staged entry.
+        case 'evolution/read':
+          return withEvolution(evolutionRequest, id => evolutionValueOf(id))
+        case 'evolution/setInstructions':
+          return evolutionWrite(evolutionRequest, (scope, body) => {
+            scope.instructions = String(body['instructions'] ?? '')
+            scope.instructionsUpdatedAt = new Date().toISOString()
+          })
+        case 'evolution/setLessons':
+          return evolutionWrite(evolutionRequest, (scope, body) => {
+            scope.lessons = String(body['lessons'] ?? '')
+            scope.lessonsUpdatedAt = new Date().toISOString()
+          })
+        case 'evolution/setProfile':
+          return evolutionWrite(evolutionRequest, (scope, body) => {
+            scope.profile = String(body['profile'] ?? '')
+            scope.profileUpdatedAt = new Date().toISOString()
+          })
+        case 'evolution/addContextItem':
+          return evolutionWrite(evolutionRequest, (scope, body) => {
+            const at = new Date().toISOString()
+            const id = `fx-ctx-${String(scope.contextItems.length + 1)}`
+            const label = String(body['label'] ?? '')
+            if (body['kind'] === 'file') {
+              scope.contextItems.push({ kind: 'file', id, label, path: String(body['path'] ?? ''), sizeBytes: 0, addedAt: at })
+            } else {
+              const text = String(body['text'] ?? '')
+              scope.contextItems.push({ kind: 'text', id, label, text, sizeBytes: evolutionBytes(text), addedAt: at })
+            }
+          })
+        case 'evolution/removeContextItem':
+          return evolutionWrite(evolutionRequest, (scope, body) => {
+            scope.contextItems = scope.contextItems.filter(item => item.id !== body['itemId'])
+          })
+        case 'evolution/rebuildMemory':
+          return evolutionWrite(evolutionRequest, (scope) => {
+            scope.lessons = 'Rebuilt fixture lessons.'
+            scope.lessonsUpdatedAt = new Date().toISOString()
+          })
+        case 'evolution/listStaged':
+          return withEvolution(evolutionRequest, (_id, scope) => ({
+            staged: scope.staged.map(entry => ({ ...entry })),
+          }))
+        case 'evolution/approveStaged':
+          return evolutionWrite(evolutionRequest, (scope, body) => {
+            evolutionResolve(scope, String(body['stagedId'] ?? ''), 'approved')
+          })
+        case 'evolution/rejectStaged':
+          return evolutionWrite(evolutionRequest, (scope, body) => {
+            evolutionResolve(scope, String(body['stagedId'] ?? ''), 'rejected')
+          })
+        case 'evolution/timeline': {
+          const range = (request as { readonly range?: unknown } | undefined)?.range
+          if (range !== 'today' && range !== '7d' && range !== '30d' && range !== 'all') {
+            return sessionErr({
+              code: 'gateway/bad-request',
+              message: `unknown timeline range ${JSON.stringify(range)}`,
+              details: {},
+            })
+          }
+          return withEvolution(evolutionRequest, (_id, scope) => evolutionTimelineOf(scope, range, Date.now()))
+        }
+        case 'evolutionCurator/status':
+          return sessionOk({
+            mounted: true,
+            lastRunAt: fixtureEpoch,
+            passes: [{
+              passId: 'fx-pass-1',
+              at: fixtureEpoch,
+              snapshot: 'fixture-pass.tar.gz',
+              transitions: 2,
+            }],
+          })
         default:
           return Promise.reject(new Error(`fixture connection RPC endpoint ${JSON.stringify(endpoint)} is unavailable`))
       }
@@ -4010,6 +4467,7 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
         case 'session/control': return openControl(signal)
         case 'session/follow': return openFollow(args.request as FixtureFollowRequest, signal)
         case 'workspace/follow': return openWorkspace(signal)
+        case 'evolution/follow': return openEvolution(signal)
         case 'workspaceFiles/changes': return openWorkspaceFileChanges(signal)
         default:
           throw new Error(`fixture connection stream endpoint ${JSON.stringify(endpoint)} is unavailable`)

@@ -1,6 +1,6 @@
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, normalize } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { FsVersion } from '@deepseek-ai/dsh-fs'
@@ -92,6 +92,19 @@ async function setup(
 }
 
 describe('tool-str-replace-editor', () => {
+  it('scopes every command by its normalized path key', async () => {
+    const { ctx } = await setup()
+    const mode = (arguments_: unknown) => ctx.tools.executionMode({
+      signal: new AbortController().signal,
+      callId: ToolCallId(`str-replace-editor-mode-${++callNumber}`),
+      name: 'str_replace_editor',
+      arguments: arguments_,
+    })
+    expect(mode({ command: 'view', path: '/repo/a.py' })).toEqual({ kind: 'parallel', scopeKey: normalize('/repo/a.py') })
+    expect(mode({ command: 'create', path: '/repo/./a.py', file_text: 'x' })).toEqual({ kind: 'parallel', scopeKey: normalize('/repo/a.py') })
+    expect(mode({ command: 'insert', path: '/repo/b.py', insert_line: 0, new_str: 'x' })).toEqual({ kind: 'parallel', scopeKey: normalize('/repo/b.py') })
+  })
+
   it('registers the standalone schema and configurable description', async () => {
     const { ctx, fiber } = await setup({ description: 'custom editor description' })
     const schema = ctx.tools.schemas()[0]

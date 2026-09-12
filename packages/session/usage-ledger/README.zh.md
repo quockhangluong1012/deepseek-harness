@@ -54,6 +54,8 @@ kind: "package-reference"
 
 `summary(range)` 回答 `today`、`7d`、`30d`、`all` 的总数、按天桶与按模型表。输入 token 是已计费提示 token（`uncached + cacheRead + cacheWrite`）；平均缓存命中为 `cacheRead / billedInput`；天固定为 UTC+7。总数是参考值，不是账单记录：无法证明的样本会被跳过，绝不补零；计数从台账首次挂载开始。
 
+同一套 UTC+7 日历从包根导出——`dayKeyUTC7`、`dayStartUTC7`、`daysOfRange`、`isUsageRange` 与 `windowStartOfRange`——因此报告按天历史的面（即演进时间线）按仪表盘的天分桶，而不是自行重新推导时区偏移。
+
 -----
 
 <a id="understand-the-implementation"></a>
@@ -71,7 +73,7 @@ kind: "package-reference"
 | 文件 | 职责 |
 |---|---|
 | [`src/index.ts`](src/index.ts) | `UsageLedger` 服务：实时折叠、write-behind 与按范围汇总 |
-| [`src/aggregate.ts`](src/aggregate.ts) | 纯折叠：样本校验、UTC+7 分桶、路由搬移、保留期、汇总 |
+| [`src/aggregate.ts`](src/aggregate.ts) | 纯折叠：样本校验、UTC+7 分桶、路由搬移、保留期、汇总；其日历辅助函数从包根重新导出 |
 | [`src/spec.ts`](src/spec.ts) | `usage_dashboard` 域声明 |
 | [`src/types.ts`](src/types.ts) | 共享的范围/汇总词汇 |
 
@@ -95,7 +97,15 @@ kind: "package-reference"
 <a id="model-experience"></a>
 ## 模型体验
 
-无。本包不增加提示、消息、schema、工具或模型调用。它折叠持久日志并提供一个只读查询面。
+### 无模型可见表面
+
+#### 模型看到什么
+
+无。本包不增加提示、消息、schema、工具或模型调用；它折叠持久日志，并在 `ctx.usageLedger` 上提供一个只读查询面。
+
+#### Token 影响
+
+零。台账只统计其他包已经计费的 token，既不组装请求，也不向请求添加内容。
 
 #### KV Cache 影响
 

@@ -7,7 +7,7 @@ import { Context } from '@deepseek-ai/cordis'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { credentialKey, credentialKeyScope, credentialRef, parseCredentialKey } from '@deepseek-ai/dsh-credentials'
+import { credentialKey, credentialKeyId, credentialKeyScope, credentialRef, parseCredentialKey } from '@deepseek-ai/dsh-credentials'
 import type { CredentialKey, CredentialRecord } from '@deepseek-ai/dsh-credentials'
 import { LocalCredentialProvider } from '../src/index.ts'
 
@@ -66,6 +66,11 @@ describe('credential keys', () => {
   it('reads back the owning plugin, which is what makes an orphan recognizable', () => {
     expect(credentialKeyScope(CODEX)).toBe('llm-pi-ai')
     expect(credentialKeyScope(OTHER_OWNER)).toBe('llm-kimi')
+  })
+
+  it('reads back the addressing unit, which is what the owner keys its own store on', () => {
+    expect(credentialKeyId(CODEX)).toBe('openai-codex')
+    expect(credentialKeyId(OTHER_OWNER)).toBe('openai-codex')
   })
 
   it('admits a stored key and refuses one that is not two segments', () => {

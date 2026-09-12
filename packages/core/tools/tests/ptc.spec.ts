@@ -7,7 +7,7 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import { CodeRuntime } from '@deepseek-ai/dsh-code-runtime'
 import type { CodeRunRequest, CodeRunResult } from '@deepseek-ai/dsh-code-runtime'
 import ToolRuntime, { CodeRunFailedError, RUN_CODE_NAME, TOOL_ABORTED_BEFORE_DISPATCH, defineContentToolFixture, defineTool } from '@deepseek-ai/dsh-tools'
-import type { Config, JsonSchemaNode, PostToolDecision, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
+import type { Config, JsonSchemaNode, ParameterSchemaSpec, PostToolDecision, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEventMap } from '@deepseek-ai/dsh-session'
@@ -69,13 +69,17 @@ async function mintAgentScope(ctx: Context, name = 'scoped'): Promise<{ scope: S
   return { scope, agent }
 }
 
-/** Register a trivial echo tool; returns the calls it received. */
-function registerEcho(ctx: Context, name = 'echo'): unknown[] {
+/**
+ * Register a trivial echo tool; returns the calls it received. `extra` declares
+ * any additional parameters a test dispatches: the implicit parameter root is
+ * closed, so an undeclared key fails with `INVALID_ARGS` before the body.
+ */
+function registerEcho(ctx: Context, name = 'echo', extra: ParameterSchemaSpec = {}): unknown[] {
   const calls: unknown[] = []
   ctx.tools.register(defineTool({
     name,
     description: `Echo tool ${name}.`,
-    parameters: { value: { type: 'string', required: true } },
+    parameters: { value: { type: 'string', required: true }, ...extra },
     output: {
       schema: { type: 'string' },
       render: (_args, value) => [{ type: 'text', text: value }],
@@ -1052,7 +1056,7 @@ describe('the run_code dispatch bridge', () => {
 
   it('dispatches and logs independent snapshots of the same lossless JSON value', async () => {
     const { ctx, runtime } = await setup({ mode: 'ptc' })
-    const calls = registerEcho(ctx)
+    const calls = registerEcho(ctx, 'echo', { nested: { type: 'array', required: true, items: { type: 'string' } } })
     const { agent, events } = fakeAgent()
     runtime.behavior = async (request) => {
       const args = Object.assign(Object.create(null) as Record<string, unknown>, { value: 'x', nested: ['same'] })

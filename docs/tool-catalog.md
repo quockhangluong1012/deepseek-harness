@@ -256,6 +256,7 @@ Declare existing files accessible through the Session filesystem as final delive
       }
     }
   },
+  "additionalProperties": false,
   "required": [
     "files"
   ]

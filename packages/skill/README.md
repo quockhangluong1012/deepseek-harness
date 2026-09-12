@@ -28,6 +28,8 @@ The skill family lets agents and users discover and load reusable task instructi
 | [`skill-filesystem/`](skill-filesystem/README.md) | Discovers skills from project, custom, and user directories and watches them for changes | registers on `ctx.skills` |
 | [`skill-badge/`](skill-badge/README.md) | Bundles the official "powered by dsh" badge skill, disabled by default | registers on `ctx.skills` |
 | [`tool-skill/`](tool-skill/README.md) | Publishes the session skill catalog and the model-facing `skill` loader tool | registers on `ctx.tools` |
+| [`evolution-skill-telemetry/`](evolution-skill-telemetry/README.md) | Durable per-skill use/view/patch counters with provenance, pin, and lifecycle state | `ctx.evolutionSkillTelemetry` |
+| [`evolution-skill-manage/`](evolution-skill-manage/README.md) | Model-facing `skill_manage` tool that creates, patches, edits, writes, removes, and deletes skills as files | registers on `ctx.tools` |
 
 -----
 

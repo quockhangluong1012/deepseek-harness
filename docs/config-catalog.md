@@ -359,6 +359,31 @@ Depends on: [`LocalConfig`](#deepseek-aidsh-bash-local)
 
 Source: [`packages/shell/bash-sandbox/src/index.ts:36`](../packages/shell/bash-sandbox/src/index.ts)
 
+<a id="deepseek-aidsh-budgets"></a>
+
+## `@deepseek-ai/dsh-budgets`
+
+Requires: `tokenMeter`
+
+```ts config-catalog
+/**
+ * Plugin configuration. Every ceiling is optional, and an unset ceiling is
+ * off, so a plugin mounted with no configuration never rejects a step.
+ * Misconfiguration fails loud at plugin load: a non-positive or non-finite
+ * value throws instead of silently disabling the ceiling it names.
+ */
+export interface Config {
+  /** Ceiling on the measured request pressure of one step, compared before that step. */
+  maxTotalTokens?: number
+  /** Ceiling on tool calls completed in one turn, compared before the next step. */
+  maxToolCalls?: number
+  /** Ceiling on one turn's wall-clock duration in milliseconds, measured from its `turn/start`. */
+  maxWallMs?: number
+}
+```
+
+Source: [`packages/guard/budgets/src/index.ts:35`](../packages/guard/budgets/src/index.ts)
+
 <a id="deepseek-aidsh-client-connection"></a>
 
 ## `@deepseek-ai/dsh-client-connection`
@@ -419,7 +444,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/client/hmr/src/index.ts:31`](../packages/client/hmr/src/index.ts)
+Source: [`packages/client/hmr/src/index.ts:30`](../packages/client/hmr/src/index.ts)
 
 <a id="deepseek-aidsh-code-runtime-worker-thread"></a>
 
@@ -457,6 +482,22 @@ export interface Config {
 ```
 
 Source: [`packages/code-runtime/code-runtime-worker-thread/src/index.ts:25`](../packages/code-runtime/code-runtime-worker-thread/src/index.ts)
+
+<a id="deepseek-aidsh-command-evolution"></a>
+
+## `@deepseek-ai/dsh-command-evolution`
+
+Requires: `commands` · `workspaceRegistry` · `evolutionMemory`
+
+```ts config-catalog
+/** Plugin configuration: the scope-identity namespace. */
+export interface Config {
+  /** Scope-identity namespace placed before the workspace key. Required: scopes never share a default namespace. */
+  profile: string
+}
+```
+
+Source: [`packages/evolution/command-evolution/src/index.ts:44`](../packages/evolution/command-evolution/src/index.ts)
 
 <a id="deepseek-aidsh-compaction-basic"></a>
 
@@ -577,6 +618,228 @@ export interface Config {
 ```
 
 Source: [`packages/e2b/e2b/src/index.ts:45`](../packages/e2b/e2b/src/index.ts)
+
+<a id="deepseek-aidsh-evolution-controller"></a>
+
+## `@deepseek-ai/dsh-evolution-controller`
+
+Requires: `typert` · `workspaceRegistry` · `evolutionMemory`
+
+```ts config-catalog
+/** Deployment choices for the controller. */
+export interface Config {
+  /** Scope-identity namespace placed before the workspace key. Required: scopes never share a default namespace. */
+  profile: string
+}
+```
+
+Source: [`packages/evolution/evolution-controller/src/index.ts:59`](../packages/evolution/evolution-controller/src/index.ts)
+
+<a id="deepseek-aidsh-evolution-curator"></a>
+
+## `@deepseek-ai/dsh-evolution-curator`
+
+Requires: `storageDomain` · `skills`
+
+```ts config-catalog
+/** Deployment choices for automatic skill lifecycle curation. */
+export interface Config {
+  /** Master switch; removal-equivalent off state skips every pass and starts no timer. */
+  enabled?: boolean
+  /** Minimum hours between two passes. */
+  intervalHours?: number
+  /** Minimum observed idle hours before a pass runs. */
+  minIdleHours?: number
+  /** Minutes between host-wide due-checks. */
+  tickMinutes?: number
+  /** Idle days moving `active` to `stale`. */
+  staleAfterDays?: number
+  /** Idle days moving `stale` to `archived`. */
+  archiveAfterDays?: number
+  /** Skill names exempt from automatic transitions, such as schedule references. */
+  protectedNames?: string[]
+  /** Whether bundled built-in skills are pruned from passes; hub sources are always exempt. */
+  pruneBuiltins?: boolean
+  /** Per-pass snapshot backups. */
+  backup?: {
+    /** Master switch for snapshots and ledger writes. */
+    enabled?: boolean
+    /** Snapshot tarballs retained after pruning. */
+    keep?: number
+  }
+  /** Idle days an archived skill waits before purge eligibility; zero never purges. */
+  archiveTtlDays?: number
+  /** Opt-in LLM consolidation of agent-created skills. */
+  consolidate?: boolean
+  /** Provider route for consolidation; set with `model`. */
+  provider?: string
+  /** Model id for consolidation; set with `provider`. */
+  model?: string
+  /** Byte budget for the framed consolidation survey. */
+  maxInputBytes?: number
+  /** Output-token cap per consolidation request. */
+  maxOutputTokens?: number
+  /** Consolidation requests the bounded tool loop may spend. */
+  maxSteps?: number
+  /** Per-consolidation-request deadline in milliseconds. */
+  timeoutMs?: number
+}
+```
+
+Source: [`packages/evolution/evolution-curator/src/index.ts:108`](../packages/evolution/evolution-curator/src/index.ts)
+
+<a id="deepseek-aidsh-evolution-memory"></a>
+
+## `@deepseek-ai/dsh-evolution-memory`
+
+Requires: `storageDomain`
+
+```ts config-catalog
+/** Deployment-chosen caps for stored evolution memory. */
+export interface Config {
+  /** Capacity-bar denominator and hard ceiling on stored bytes. */
+  capacityBytes: number
+  /** Lessons document cap in UTF-8 bytes. */
+  maxAgentBytes?: number
+  /** User profile document cap in UTF-8 bytes. */
+  maxUserBytes?: number
+  /** Per-item cap in UTF-8 bytes, and ceiling on a file item's observed size. */
+  maxContextItemBytes?: number
+  /** Item count cap. */
+  maxContextItems?: number
+  /** Produced-file index size. */
+  maxOutputs?: number
+  /** Decided staged entries retained per scope. */
+  maxResolutions?: number
+}
+```
+
+Source: [`packages/evolution/evolution-memory/src/index.ts:124`](../packages/evolution/evolution-memory/src/index.ts)
+
+<a id="deepseek-aidsh-evolution-memory-context"></a>
+
+## `@deepseek-ai/dsh-evolution-memory-context`
+
+Requires: `workspaceRegistry` · `evolutionMemory`
+
+```ts config-catalog
+/** Plugin configuration: brief cap, scope namespace, and nudge cadence. */
+export interface Config {
+  /** Cap on the complete emitted text including the frame. */
+  maxBytes: number
+  /** Scope-identity namespace placed before the workspace key. Required: scopes never share a default namespace. */
+  profile: string
+  /** Turns between scope-narrowing nudges. */
+  memoryNudgeInterval?: number
+  /** Turns between lessons-to-skills nudges. */
+  skillNudgeInterval?: number
+}
+```
+
+Source: [`packages/context/evolution-memory-context/src/index.ts:80`](../packages/context/evolution-memory-context/src/index.ts)
+
+<a id="deepseek-aidsh-evolution-reviewer"></a>
+
+## `@deepseek-ai/dsh-evolution-reviewer`
+
+Requires: `llm` · `sessions` · `evolutionMemory` · `workspaceRegistry`
+
+```ts config-catalog
+/** Deployment choices for review scheduling and budgets. Fields read alphabetically. */
+export interface Config {
+  /** Minimum gap between two extractions for one scope. */
+  cooldownMs?: number
+  /** Turn-end extraction mode: `auto` queues the turn, `never` extracts at once. */
+  defer?: 'auto' | 'never'
+  /** Age ceiling for a queued turn, measured from its session's first snapshot. */
+  deferMaxAgeMs?: number
+  /** Whether a completed turn triggers extraction; output indexing always runs. */
+  enabled?: boolean
+  /** Transcript budget per call in UTF-8 bytes. */
+  maxInputBytes?: number
+  /** Output token cap per call. */
+  maxOutputTokens?: number
+  /** Skip extraction for trivial turns below this admitted-text byte size. */
+  minTurnTextBytes?: number
+  /** Route override model; must be paired with `provider`. */
+  model?: string
+  /** Which successful tool calls count as productions. */
+  outputTools?: string[]
+  /** Scope-identity namespace placed before the workspace key. */
+  profile?: string
+  /** Route override provider; must be paired with `model`. */
+  provider?: string
+  /** Sessions scanned by a rebuild. */
+  rebuildSessionLimit?: number
+  /** Ranked recall results selected per search, for sessions and for events. */
+  recallLimit?: number
+  /** Cap on the recall query derived from a turn's newest human message. */
+  recallQueryChars?: number
+  /** UTF-8 byte budget the squeezed lessons document must fit. */
+  squeezeBytes?: number
+  /** Pressure order: the heading whose body clears first comes first. */
+  squeezeOrder?: string[]
+  /** Call deadline in milliseconds. */
+  timeoutMs?: number
+  /** Stage background extractions for approval instead of writing them. */
+  writeApproval?: boolean
+}
+```
+
+Source: [`packages/evolution/evolution-reviewer/src/index.ts:45`](../packages/evolution/evolution-reviewer/src/index.ts)
+
+<a id="deepseek-aidsh-evolution-scorer"></a>
+
+## `@deepseek-ai/dsh-evolution-scorer`
+
+Requires: `tokenMeter`
+
+```ts config-catalog
+/**
+ * Corpus location and attempt count are deployment choices: which corpus a
+ * host scores against, and how many fresh processes the median covers.
+ */
+export interface Config {
+  /** Absolute corpus root holding one directory per recorded scenario. */
+  corpusDir: string
+  /** Fresh-process attempts per score; the median is taken over their samples. */
+  attempts?: number
+}
+```
+
+Source: [`packages/evolution/evolution-scorer/src/index.ts:46`](../packages/evolution/evolution-scorer/src/index.ts)
+
+<a id="deepseek-aidsh-evolution-skill-manage"></a>
+
+## `@deepseek-ai/dsh-evolution-skill-manage`
+
+Requires: `tools` · `skills`
+
+```ts config-catalog
+/** Deployment choices for managed skill creation. */
+export interface Config {
+  /** Directory for newly created skills. Supports `~` and `${VAR}`; omission uses the profile skills directory. */
+  createDir?: string
+}
+```
+
+Source: [`packages/skill/evolution-skill-manage/src/index.ts:48`](../packages/skill/evolution-skill-manage/src/index.ts)
+
+<a id="deepseek-aidsh-evolution-trajectory"></a>
+
+## `@deepseek-ai/dsh-evolution-trajectory`
+
+Requires: `typert` · `workspaceRegistry` · `sessionPersistence`
+
+```ts config-catalog
+/** Deployment choices for trajectory export. */
+export interface Config {
+  /** Export directory used when a call names none. @default `$DSH_HOME/evolution-trajectories` */
+  outDir?: string
+}
+```
+
+Source: [`packages/evolution/evolution-trajectory/src/index.ts:51`](../packages/evolution/evolution-trajectory/src/index.ts)
 
 <a id="deepseek-aidsh-experimental-agent-team"></a>
 
@@ -1115,6 +1378,37 @@ export interface DeepSeekCatalogModel {
 Depends on: [`ModelModality`](../packages/llm/llm/src/index.ts) · [`RetryPolicyConfig`](../packages/llm/llm/src/index.ts) · [`SystemPromptUpdate`](../packages/llm/llm/src/index.ts)
 
 Source: [`packages/llm/llm-deepseek/src/index.ts:134`](../packages/llm/llm-deepseek/src/index.ts)
+
+<a id="deepseek-aidsh-llm-fallback"></a>
+
+## `@deepseek-ai/dsh-llm-fallback`
+
+```ts config-catalog
+/** Deployment choices for provider route fallback. */
+export interface Config {
+  /** Recovery routes in rotation order; empty disables fallback. */
+  fallbackRoutes?: LlmRoute[]
+  /** Breaker that rests a repeatedly failing route. */
+  breaker?: {
+    /** Consecutive observed failures that open one route. */
+    failureThreshold?: number
+    /** Milliseconds an open route stays out of rotation. */
+    coolMs?: number
+  }
+  /** Failure codes eligible for fallback; omission admits every code. */
+  eligibleCodes?: string[]
+}
+
+/** One provider route available for fallback recovery. */
+export interface LlmRoute {
+  /** Registered provider route. */
+  provider: string
+  /** Provider-owned model id. */
+  model: string
+}
+```
+
+Source: [`packages/llm/llm-fallback/src/index.ts:57`](../packages/llm/llm-fallback/src/index.ts)
 
 <a id="deepseek-aidsh-llm-pi-ai"></a>
 
@@ -1657,7 +1951,7 @@ export interface PresetSpec {
 
 Depends on: [`ApprovalPolicy`](subsystems/approval.md) · [`SandboxMode`](subsystems/sandbox.md)
 
-Source: [`packages/interaction/permission-presets/src/index.ts:189`](../packages/interaction/permission-presets/src/index.ts)
+Source: [`packages/interaction/permission-presets/src/index.ts:190`](../packages/interaction/permission-presets/src/index.ts)
 
 <a id="deepseek-aidsh-persona"></a>
 
@@ -2205,7 +2499,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/skill/skill/src/index.ts:278`](../packages/skill/skill/src/index.ts)
+Source: [`packages/skill/skill/src/index.ts:307`](../packages/skill/skill/src/index.ts)
 
 <a id="deepseek-aidsh-skill-filesystem"></a>
 
@@ -2226,6 +2520,10 @@ export interface Config {
   agentsHome?: string
   /** Additional skill roots scanned after project roots and before user roots. */
   customSkillDirs?: string[]
+  /** Absolute project roots whose `.dsh/skills`, `.hermes/skills`, and `.agents/skills` index; others are skipped. */
+  trustedProjectDirs?: string[]
+  /** Whether any project roots index; false disables project discovery entirely. */
+  projectDiscovery?: boolean
   /** Whether host-local skill roots are watched for catalog changes. */
   watch?: boolean
   /** Whether Chokidar uses polling instead of native filesystem events. */
@@ -2243,7 +2541,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/skill/skill-filesystem/src/index.ts:49`](../packages/skill/skill-filesystem/src/index.ts)
+Source: [`packages/skill/skill-filesystem/src/index.ts:51`](../packages/skill/skill-filesystem/src/index.ts)
 
 <a id="deepseek-aidsh-spill-local"></a>
 
@@ -2768,7 +3066,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/shell/tool-bash-persistent/src/index.ts:432`](../packages/shell/tool-bash-persistent/src/index.ts)
+Source: [`packages/shell/tool-bash-persistent/src/index.ts:435`](../packages/shell/tool-bash-persistent/src/index.ts)
 
 <a id="deepseek-aidsh-tool-call-timeout-policy"></a>
 
@@ -3022,10 +3320,21 @@ Requires: `agents` · `tools` · `skills`
 export interface Config {
   /** Maximum normalized description length rendered in the session catalog; minimum 3. */
   catalogDescriptionMaxLength?: number
+  /** Deployment-side skill settings. */
+  skills?: {
+    /**
+     * Per-skill configuration values injected at load, keyed by skill name then
+     * config key. A deployed value overrides the skill's own declared default.
+     */
+    config?: SkillConfigMap
+  }
 }
+
+/** Deployment-side per-skill configuration: `skills.config.<skill>.<key>`. */
+export type SkillConfigMap = Readonly<Record<string, Readonly<Record<string, string>>>>
 ```
 
-Source: [`packages/skill/tool-skill/src/index.ts:61`](../packages/skill/tool-skill/src/index.ts)
+Source: [`packages/skill/tool-skill/src/index.ts:65`](../packages/skill/tool-skill/src/index.ts)
 
 <a id="deepseek-aidsh-tool-str-replace-editor"></a>
 
@@ -3049,7 +3358,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/fs/tool-str-replace-editor/src/index.ts:530`](../packages/fs/tool-str-replace-editor/src/index.ts)
+Source: [`packages/fs/tool-str-replace-editor/src/index.ts:535`](../packages/fs/tool-str-replace-editor/src/index.ts)
 
 <a id="deepseek-aidsh-tool-subagent"></a>
 
@@ -3255,7 +3564,7 @@ export interface Config {
 export type ToolPresentationMode = 'native' | 'ptc' | 'both'
 ```
 
-Source: [`packages/core/tools/src/index.ts:693`](../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:708`](../packages/core/tools/src/index.ts)
 
 <a id="deepseek-aidsh-typert-loader"></a>
 
@@ -3294,7 +3603,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/session/usage-ledger/src/index.ts:54`](../packages/session/usage-ledger/src/index.ts)
+Source: [`packages/session/usage-ledger/src/index.ts:58`](../packages/session/usage-ledger/src/index.ts)
 
 <a id="deepseek-aidsh-user-approval"></a>
 
@@ -3638,6 +3947,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-client-ui-open-in-app` ([`packages/client/ui-open-in-app/src/index.ts`](../packages/client/ui-open-in-app/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-permission-presets` ([`packages/client/ui-permission-presets/src/index.ts`](../packages/client/ui-permission-presets/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-plan` ([`packages/client/ui-plan/src/index.ts`](../packages/client/ui-plan/src/index.ts))
+- `@deepseek-ai/dsh-client-ui-progress` ([`packages/client/ui-progress/src/index.ts`](../packages/client/ui-progress/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-reference` ([`packages/client/ui-reference/src/index.ts`](../packages/client/ui-reference/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-renderer` ([`packages/client/ui-renderer/src/index.ts`](../packages/client/ui-renderer/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-schedule` ([`packages/client/ui-schedule/src/index.ts`](../packages/client/ui-schedule/src/index.ts))
@@ -3667,6 +3977,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-commands` ([`packages/interaction/commands/src/index.ts`](../packages/interaction/commands/src/index.ts))
 - `@deepseek-ai/dsh-cordis-client-runner` ([`packages/extensions/cordis-client-runner/src/index.ts`](../packages/extensions/cordis-client-runner/src/index.ts))
 - `@deepseek-ai/dsh-deepseek-llm-api-extensions` ([`packages/llm/deepseek-llm-api-extensions/src/index.ts`](../packages/llm/deepseek-llm-api-extensions/src/index.ts))
+- `@deepseek-ai/dsh-evolution-skill-telemetry` — requires `storageDomain` · `skills` ([`packages/skill/evolution-skill-telemetry/src/index.ts`](../packages/skill/evolution-skill-telemetry/src/index.ts))
 - `@deepseek-ai/dsh-experimental-client-ui-agent-team` ([`packages/experimental/client-ui-agent-team/src/index.ts`](../packages/experimental/client-ui-agent-team/src/index.ts))
 - `@deepseek-ai/dsh-fs-e2b` — requires `e2b` ([`packages/e2b/fs-e2b/src/index.ts`](../packages/e2b/fs-e2b/src/index.ts))
 - `@deepseek-ai/dsh-fs-observation-policy` ([`packages/fs/fs-observation-policy/src/index.ts`](../packages/fs/fs-observation-policy/src/index.ts))
