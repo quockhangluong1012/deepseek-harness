@@ -534,6 +534,7 @@ export class EvolutionCurator extends Service {
       before: null,
       after: null,
     })
+    telemetry.recordConsolidationCost(cost)
     const verdicts: ConsolidationVerdict[] = []
     const controller = new AbortController()
     this.active = controller

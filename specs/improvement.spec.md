@@ -123,7 +123,7 @@ Still deferred: GEPA and the `maxCostUsd` cost ceiling (no pricing source exists
 
 - Implemented: `evolution_skill_usage` telemetry matching `SkillUsageRecord` (`packages/skill/evolution-skill-telemetry`) and the `skill_manage` executor (`packages/skill/evolution-skill-manage`); scan-lite / gating / read-only telemetry landed before the writer, per the mandatory ordering.
 - Implemented since: the frontmatter allowlist's parse half (`required_env`, `config`, warn-and-keep for unknown keys), load-time `skills.config` injection and `required_env` passthrough (`packages/skill/tool-skill/src/load.ts`), `discoverRoot` security scan (4 lexical rules: pipe-to-shell, encoded-shell, root-delete, credential-exfiltration; `packages/skill/skill-filesystem`), quarantine (skip-with-warning + `quarantinedCount`), 2-level precedence (layer-shadows-rank with `PROJECT_DSH 100 / PROJECT_AGENTS 200 / RUNTIME 250 / CUSTOM 300 / USER_DSH 400 / USER_AGENTS 500 / BUNDLED 600`), and trust allowlist (`trustedProjectDirs`, `projectDiscovery: false`).
-- Implemented computation, not yet wired to a consumer: counted trigger (`skillCreationEvidence(paths)` with `SKILL_CREATION_OUTPUT_THRESHOLD = 3` in `packages/skill/evolution-skill-telemetry`). The reviewer indexes produced files at `turn/end` but does not feed `record.outputs[].path` through the evidence counter or propose skills when it fires.
+- Implemented and wired: counted trigger (`skillCreationEvidence(paths)` with `SKILL_CREATION_OUTPUT_THRESHOLD = 3` in `packages/skill/evolution-skill-telemetry`). The reviewer's `indexOutputs` feeds `record.outputs[].path` through the evidence counter and stages a `kind: 'skill'` proposal via `stageWrite` when it fires (`packages/evolution/evolution-reviewer/src/index.ts:851-868`).
 - Reuse paths: `ParsedSkill` + `parseSkillFile` (`skill-filesystem:~L797`), `collectFresh`, `tool-skill` execute/catalog hooks, `ctx.fs` + `observeHostMutation`.
 
 ### Frontmatter allowlist
@@ -153,19 +153,19 @@ interface SkillUsageRecord {
 ```
 
 - Only `origin: 'background_review'` via `markAgentCreated()` sets `createdBy: 'agent'`; bundled and hub skills are excluded from writes; hooks sit at `tool-skill` execute/catalog.
-- `skillCreationEvidence(paths)` computation exists (`SKILL_CREATION_OUTPUT_THRESHOLD = 3` in `packages/skill/evolution-skill-telemetry`) but consumer wiring (reviewer feeding `record.outputs[].path` through the evidence counter) is the remaining gap.
+- `skillCreationEvidence(paths)` computation and consumer wiring shipped (`SKILL_CREATION_OUTPUT_THRESHOLD = 3` in `packages/skill/evolution-skill-telemetry`; reviewer feeds `record.outputs[].path` through the evidence counter at `packages/evolution/evolution-reviewer/src/index.ts:851-868` and stages skill proposals when it fires).
 
 ### Executor, trigger, cost, trust
 
-- Implemented: `skill_manage` executor (`packages/skill/evolution-skill-manage`) with `create | patch | edit | write_file | remove_file | delete` verbs, gated by `writeApproval`. Trust allowlist (`trustedProjectDirs`, `projectDiscovery: false`) shipped. Counted trigger computation (`skillCreationEvidence(paths)`) exists but consumer wiring remains.
-- Not yet recorded: cost rows `{ inputBytes, maxOutputTokens, provider, model, truncated }`.
+- Implemented: `skill_manage` executor (`packages/skill/evolution-skill-manage`) with `create | patch | edit | write_file | remove_file | delete` verbs, gated by `writeApproval`. Trust allowlist (`trustedProjectDirs`, `projectDiscovery: false`) shipped. Counted trigger (`skillCreationEvidence(paths)`) wired in the reviewer's `indexOutputs` (`packages/evolution/evolution-reviewer/src/index.ts:851-868`).
+- Partially recorded: cost rows `{ inputBytes, maxOutputTokens, provider, model, truncated }` are recorded by the curator's consolidation pass to the JSONL ledger (`packages/evolution/evolution-curator/src/index.ts:512-536`). The telemetry store's `recordConsolidationCost` seam (`packages/skill/evolution-skill-telemetry`) exists but is not yet wired to the curator.
 
 ## Phase 4 — Curator GC + ledger
 
 ### Implemented vs planned
 
 - Implemented: `dsh-evolution-curator` (`packages/evolution/evolution-curator`): host-owned interval+idle trigger (`intervalHours: 168`, `minIdleHours: 2`, `tickMinutes: 15`), always-on auto-transitions (`active → stale 30d → archived 90d`), content-addressed JSONL ledger (`packages/evolution/evolution-curator/src/safety.ts`), tar.gz pass backups (keep 5), reversible fail-closed rollback (whole pass + single entry, pre-rollback snapshot), `adopt` (manual-only, no clock reset), `purge` (TTL-gated, `--dry-run` preview, skip pinned), opt-in LLM consolidation (two-tool whitelist, full-package rule), and `pin` enforcement (blocks auto-transitions + `skill_manage delete`; patch still allowed). Hub skills always exempt; protected built-ins filtered.
-- CLI gaps (service layer supports these verbs but `/curator` CLI only exposes `status` and `run [--dry-run]`): `adopt <name>`, `purge [--dry-run]`, `backup`, `rollback [--id <id>]`, `ledger`, `pin <name>`, `unpin <name>`.
+- CLI: all spec'd verbs wired (`/curator status | run [--dry-run] | adopt <name> | purge [--dry-run] | rollback --id <id> | ledger | pin <name> | unpin <name>` in `packages/evolution/command-evolution/src/index.ts`).
 - Reuse path: none for the ledger (reusing `evolution_memory/records` would break capacity/digest, so it is forbidden).
 
 ### Trigger and transitions
@@ -175,8 +175,7 @@ interface SkillUsageRecord {
 
 ### Ledger, backup, rollback, governance
 
-- All implemented in `packages/evolution/evolution-curator`: content-addressed JSONL ledger (`src/safety.ts`), tar.gz pass backups (keep 5), reversible fail-closed rollback (whole pass + single entry, pre-rollback snapshot), `adopt` (manual-only, no clock reset), `purge` (TTL-gated, `--dry-run` preview, skip pinned), and `pin` enforcement (blocks auto-transitions + `skill_manage delete`; patch still allowed).
-- CLI gaps: `adopt <name>`, `purge [--dry-run]`, `backup`, `rollback [--id <id>]`, `ledger`, `pin <name>`, `unpin <name>` remain to be wired to the service layer.
+- All implemented in `packages/evolution/evolution-curator`: content-addressed JSONL ledger (`src/safety.ts`), tar.gz pass backups (keep 5), reversible fail-closed rollback (whole pass + single entry, pre-rollback snapshot), `adopt` (manual-only, no clock reset), `purge` (TTL-gated, `--dry-run` preview, skip pinned), and `pin` enforcement (blocks auto-transitions + `skill_manage delete`; patch still allowed). All CLI verbs wired in `packages/evolution/command-evolution`.
 - Consolidation is opt-in (`consolidate: false`) and only after ledger + budgets + a cheaper aux model exist.
 - Full-package rule: a skill shipping `references / templates / scripts / assets` must be kept standalone, re-homed with rewritten paths, or archived whole — never flattened to `SKILL.md` alone.
 
@@ -208,8 +207,7 @@ interface SkillUsageRecord {
 ### Implemented vs planned
 
 - Implemented: `read(scopeId)` diff source, `usage()` + `digest()`, `filterEvents` time/seq/type/surface filtering, `dayKeyUTC7` / `daysOfRange` / `windowStartOfRange` (now re-exported from the `dsh-usage-ledger` root), `summarizeLedger` / `sweepRetention`, `ui-workspace-memory` controller + `follow` baseline/upsert template, plus the CLI governance slice `/memory pending | approve <id> | reject <id>`, `/skills pending | approve <id> | diff <id>`, `/journey [today | 7d | 30d | all]`, `/curator status | run [--dry-run]`, `/trajectory [--out <path>] [--all]`, `/learn <anything>`, `/suggestions`, and `/refine` (`packages/evolution/command-evolution`, honest empty states, no new domain and no new session event). The `/journey` read model lives in `packages/evolution/command-evolution/src/journey.ts` as exported pure functions.
-- Implemented since: `evolutionController` clone (`packages/evolution/evolution-controller`) with all spec'd verbs (read/setInstructions/setLessons/setProfile/addContextItem/removeContextItem/rebuildMemory/listStaged/approveStaged/rejectStaged/timeline/follow scope-first resolving `workspace/not-found`), dual-face `dsh-client-ui-evolution` (`packages/client/ui-evolution`) with journey/pending/curator/capacity cards, CSS Modules + `--dsw-*` tokens, locale `NS = 'evolution'` with zh-source + en-satisfies + `t`, and composition triple in `bundle/web-app/cordis.patch.yml`.
-- Remaining: Web scenario `snapshots/web/evolution-journey/` + e2e `apps/web/tests/evolution-journey.e2e.ts`, journey ZIP export (reusing `serializeSessionLog` + `fflate` with `timeline.json`). The two read-model gaps (staged-approved/rejected counts from `record.resolutions`, per-family stamps) are closed.
+- Implemented since: `evolutionController` clone (`packages/evolution/evolution-controller`) with all spec'd verbs (read/setInstructions/setLessons/setProfile/addContextItem/removeContextItem/rebuildMemory/listStaged/approveStaged/rejectStaged/timeline/follow scope-first resolving `workspace/not-found`), dual-face `dsh-client-ui-evolution` (`packages/client/ui-evolution`) with journey/pending/curator/capacity cards, CSS Modules + `--dsw-*` tokens, locale `NS = 'evolution'` with zh-source + en-satisfies + `t`, and composition triple in `bundle/web-app/cordis.patch.yml`. Web scenario `snapshots/web/evolution-journey/` + e2e `apps/web/tests/evolution-journey.e2e.ts` shipped. Journey ZIP export `/journey export [range] [--out <path>]` shipped (bundles `timeline.json` + session log via `fflate`). The two read-model gaps (staged-approved/rejected counts from `record.resolutions`, per-family stamps) are closed.
 
 ### Read model (query-time, verbatim types)
 
@@ -235,13 +233,12 @@ interface JourneyTimeline { range: 'today' | '7d' | '30d' | 'all'; now: number; 
 
 ### CLI (owns governance until Web lands; CLI-first)
 
-- Via `ctx.commands.register` (`parseCommand`, `command/run | done`, `success { text?, sourceEventSeq? } | error { text }`): `/memory pending | approve <id> | reject <id>`, `/skills pending | approve <id> | diff <id>`, `/journey [today | 7d | 30d | all]`, `/curator status` (host-wide, no scope), and `/refine` (`rebuildSessionLimit: 20`) are implemented in `packages/evolution/command-evolution`; `/skills diff` reports the deferred payload shape, and `/suggestions` remains planned with the blueprint frontmatter.
+- Implemented: via `ctx.commands.register` (`parseCommand`, `command/run | done`, `success { text?, sourceEventSeq? } | error { text }`): `/memory pending | approve <id> | reject <id>`, `/skills pending | approve <id> | diff <id>`, `/journey [today | 7d | 30d | all] | export [range] [--out <path>]`, `/curator status | run [--dry-run] | adopt <name> | purge [--dry-run] | rollback --id <id> | ledger | pin <name> | unpin <name>`, `/trajectory [--out <path>] [--all]`, `/learn <anything>`, `/suggestions`, and `/refine` are implemented in `packages/evolution/command-evolution`. `/skills diff` reports the staged-write payload.
 - Never use `approval/request` or `ask_user_question` for staged writes; only reuse the approval-panel idiom + golden.
 
 ### Web (dual-face `dsh-client-ui-evolution`)
 
-- Implemented: dual-face package (`packages/client/ui-evolution`) with `journeyPage` / `EvolutionSeat` / `shell.page` + `rpc.ts` / `Page.tsx` / `Seat.tsx` / `locales.ts`; cards for journey/pending/curator/capacity; CSS Modules + `--dsw-*` tokens; locale `NS = 'evolution'` with zh-source + en-satisfies + `t`; composition triple in `bundle/web-app/cordis.patch.yml`.
-- Remaining: scenario `snapshots/web/evolution-journey/` + e2e `apps/web/tests/evolution-journey.e2e.ts`.
+- Implemented: dual-face package (`packages/client/ui-evolution`) with `journeyPage` / `EvolutionSeat` / `shell.page` + `rpc.ts` / `Page.tsx` / `Seat.tsx` / `locales.ts`; cards for journey/pending/curator/capacity; CSS Modules + `--dsw-*` tokens; locale `NS = 'evolution'` with zh-source + en-satisfies + `t`; composition triple in `bundle/web-app/cordis.patch.yml`. Scenario `snapshots/web/evolution-journey/` + e2e `apps/web/tests/evolution-journey.e2e.ts` shipped.
 
 ### Export, scenario, gates
 

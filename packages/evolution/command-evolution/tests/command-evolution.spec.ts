@@ -323,7 +323,7 @@ describe('@deepseek-ai/dsh-command-evolution registration', () => {
       expect(test.ctx.commands.list(agent)).toContainEqual({
         definitionId: '@deepseek-ai/dsh-command-evolution/curator',
         name: 'curator',
-        description: 'Show skill-curation status and pass history',
+        description: 'Manage skill curation: status, pass history, adopt, purge, pin, and rollback',
       })
       expect(test.ctx.commands.list(agent)).toContainEqual({
         definitionId: '@deepseek-ai/dsh-command-evolution/trajectory',

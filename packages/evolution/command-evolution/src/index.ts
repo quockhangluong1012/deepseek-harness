@@ -890,7 +890,7 @@ export function apply(ctx: Context, config: Config): void {
     yield ctx.commands.register({
       definitionId: CommandDefinitionId('@deepseek-ai/dsh-command-evolution/curator'),
       name: 'curator',
-      description: 'Show skill-curation status and pass history',
+      description: 'Manage skill curation: status, pass history, adopt, purge, pin, and rollback',
       handler: (invocation: CommandInvocation) => track(executeCurator(ctx, invocation)),
     })
     yield ctx.commands.register({
