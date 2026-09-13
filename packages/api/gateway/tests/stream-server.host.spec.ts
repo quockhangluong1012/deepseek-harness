@@ -65,6 +65,19 @@ describe('Remote stream mux server carrier lifecycle', () => {
     await closed
   })
 
+  it('terminates after a single missed heartbeat when configured to 1', async () => {
+    const entry = await startMux(async (_endpoint, _payload, signal) => waitForAbort(signal), 20, 1)
+    const client = await connect(entry.url)
+    const serverSocket = acceptedSocket(entry.mux)
+    serverSocket.removeAllListeners('pong')
+    const terminated = vi.spyOn(serverSocket, 'terminate')
+    const closed = once(client, 'close')
+
+    await once(client, 'ping')
+    await vi.waitFor(() => { expect(terminated).toHaveBeenCalledOnce() })
+    await closed
+  })
+
   it('keeps the socket when a delayed Pong arrives before the final check', async () => {
     const entry = await startMux(async (_endpoint, _payload, signal) => waitForAbort(signal), 20)
     const client = await connect(entry.url, false)
@@ -234,8 +247,8 @@ const mapFailure: RemoteStreamFailureMapper = error => ({
   details: {},
 })
 
-async function startMux(open: RemoteStreamOpener, heartbeatIntervalMs = 2_000): Promise<RunningMux> {
-  const mux = new RemoteStreamMuxServer(open, mapFailure, heartbeatIntervalMs)
+async function startMux(open: RemoteStreamOpener, heartbeatIntervalMs = 2_000, maxMissedHeartbeats = 2): Promise<RunningMux> {
+  const mux = new RemoteStreamMuxServer(open, mapFailure, heartbeatIntervalMs, maxMissedHeartbeats)
   const http = createServer()
   http.on('upgrade', (request, socket, head) => { mux.handleUpgrade(request, socket, head) })
   await new Promise<void>((resolve, reject) => {

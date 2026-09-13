@@ -620,6 +620,19 @@ describe('stderr tail bound', () => {
     expect(text).toContain('line-449')
     expect(text).not.toContain('line-0\n')
   })
+
+  it('bounds a newline-less stderr flood to the newest bytes', async () => {
+    const client = processClient(fakeLaunch({ FAKE_STDERR_FLOOD_BYTES: '262144', FAKE_EXIT_BEFORE_INIT: '1' }))
+    cleanups.push(() => client.close())
+    const failure = await client.initialize({ cwd: process.cwd(), provider: 'p', model: 'm' }).then(
+      () => { throw new Error('initialize unexpectedly succeeded') },
+      (error: unknown) => error,
+    )
+    const text = String(failure)
+    // Newest bytes survive for diagnosis; the unbounded middle is dropped.
+    expect(text).toContain('FLOOD-TAIL')
+    expect(text.length).toBeLessThan(100_000)
+  })
 })
 
 describe('pure helpers', () => {

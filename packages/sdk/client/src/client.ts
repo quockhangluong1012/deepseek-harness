@@ -28,6 +28,14 @@ import type { HarnessClientOptions, HarnessNotification, NotificationFilter } fr
 /** Retained stderr lines used to diagnose an unexpected runtime death. */
 const STDERR_TAIL_LIMIT = 400
 
+/**
+ * Bound on one newline-less stderr accumulation. A runtime spamming stderr
+ * without newlines would otherwise grow the line buffer without limit; the
+ * newest bytes are kept because timeout diagnostics report the tail, where
+ * the hang context lives.
+ */
+const STDERR_LINE_BUFFER_LIMIT = 64 * 1024
+
 /** Grace for the runtime's stdio streams to settle after its exit edge. */
 const STREAM_SETTLE_MS = 100
 
@@ -233,6 +241,9 @@ export class HarnessClient {
     child.stderr.setEncoding('utf8')
     child.stderr.on('data', (chunk: string) => {
       stderrBuffer += chunk
+      if (stderrBuffer.length > STDERR_LINE_BUFFER_LIMIT) {
+        stderrBuffer = stderrBuffer.slice(-STDERR_LINE_BUFFER_LIMIT)
+      }
       const newline = stderrBuffer.lastIndexOf('\n')
       if (newline >= 0) {
         this.appendStderr(stderrBuffer.slice(0, newline).split('\n'))

@@ -46,6 +46,8 @@
  * - `FAKE_EXIT_BEFORE_INIT`: exit 3 immediately (spawn-then-die probe).
  * - `FAKE_STDERR`: write this line to stderr at boot (diagnostics-tail probe).
  * - `FAKE_STDERR_NO_NEWLINE`: write this to stderr WITHOUT a newline (buffer-flush probe).
+ * - `FAKE_STDERR_FLOOD_BYTES`: write this many `x` bytes to stderr WITHOUT
+ *   newlines, then a trailing `FLOOD-TAIL` marker (line-buffer bound probe).
  * - `FAKE_RECORD_INIT`: append each `initialize` params JSON to this file (handshake probe).
  */
 
@@ -57,6 +59,16 @@ const env = process.env
 
 if (env.FAKE_STDERR !== undefined) process.stderr.write(`${env.FAKE_STDERR}\n`)
 if (env.FAKE_STDERR_NO_NEWLINE !== undefined) process.stderr.write(env.FAKE_STDERR_NO_NEWLINE)
+if (env.FAKE_STDERR_FLOOD_BYTES !== undefined) {
+  let remaining = Number(env.FAKE_STDERR_FLOOD_BYTES)
+  if (!Number.isSafeInteger(remaining) || remaining < 0) throw new Error('FAKE_STDERR_FLOOD_BYTES must be a non-negative safe integer')
+  while (remaining > 0) {
+    const size = Math.min(remaining, 8192)
+    process.stderr.write('x'.repeat(size))
+    remaining -= size
+  }
+  process.stderr.write('FLOOD-TAIL')
+}
 if (env.FAKE_EXIT_BEFORE_INIT !== undefined) process.exit(3)
 
 if (env.FAKE_IGNORE_EOF !== undefined) {

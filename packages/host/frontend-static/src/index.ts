@@ -13,7 +13,7 @@
  */
 
 import type { ServerResponse } from 'node:http'
-import { readFile } from 'node:fs/promises'
+import { readFile, stat } from 'node:fs/promises'
 import { dirname, extname, join, normalize, resolve, sep } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
@@ -58,6 +58,27 @@ const STATIC_MISS_CODES: ReadonlySet<string | undefined> = new Set([
   'ENOTDIR',
 ])
 
+/** One cached non-index asset, validated by filesystem identity. */
+export interface StaticAssetEntry {
+  /** Modification time the body was read at, in milliseconds. */
+  mtimeMs: number
+  /** Byte length the body was read at. */
+  size: number
+  /** Opaque validator derived from the identity above. */
+  etag: string
+  /** MIME type resolved from the file extension. */
+  type: string
+  /** File bytes. */
+  body: Buffer
+}
+
+/**
+ * Maximum cached assets per fallback registration. An internal bound, not a
+ * deployment choice: entries self-invalidate on filesystem identity, so the
+ * worst case of a small bound is a re-read, never staleness.
+ */
+const ASSET_CACHE_MAX_ENTRIES = 100
+
 /**
  * Serve one GET/HEAD static request from the dist root.
  * @param pathname - decoded URL pathname of the request.
@@ -67,11 +88,17 @@ const STATIC_MISS_CODES: ReadonlySet<string | undefined> = new Set([
  * @param authorizeIndex - authenticates an index response before its bytes are read.
  * @param renderIndex - produces the index.html body (structured injection
  * rendering) for the dist root and configured index path.
+ * @param options - conditional-request validator and asset cache. The index
+ * path always renders fresh (per-request injections) and never consults the
+ * cache; assets are validated by `stat` identity (mtime plus size — a
+ * same-tick same-size rewrite is served until the identity moves, which the
+ * content-hashed Vite output names make harmless in practice).
  */
 export async function serveStatic(
   pathname: string, res: ServerResponse, distRoot: string, distIndex: string,
   authorizeIndex: () => boolean,
   renderIndex: () => Promise<string>,
+  options?: { ifNoneMatch?: string | undefined; cache?: Map<string, StaticAssetEntry> | undefined },
 ): Promise<void> {
   const target = resolve(normalize(join(distRoot, pathname)))
   // Traversal rejection: the target must be distRoot itself (`/`) or stay under
@@ -90,8 +117,38 @@ export async function serveStatic(
       body = await renderIndex()
       type = HTML_MIME
     } else {
-      body = await readFile(target)
-      type = MIME[extname(target)] ?? 'application/octet-stream'
+      const identity = await stat(target)
+      const cached = options?.cache?.get(target)
+      if (cached !== undefined && cached.mtimeMs === identity.mtimeMs && cached.size === identity.size) {
+        body = cached.body
+        type = cached.type
+      } else {
+        body = await readFile(target)
+        type = MIME[extname(target)] ?? 'application/octet-stream'
+        if (options?.cache !== undefined) {
+          if (options.cache.size >= ASSET_CACHE_MAX_ENTRIES) {
+            const oldest = options.cache.keys().next()
+            if (!oldest.done) options.cache.delete(oldest.value)
+          }
+          options.cache.set(target, {
+            mtimeMs: identity.mtimeMs,
+            size: identity.size,
+            etag: `"${Math.floor(identity.mtimeMs).toString(16)}-${identity.size.toString(16)}"`,
+            type,
+            body: Buffer.isBuffer(body) ? body : Buffer.from(body),
+          })
+        }
+      }
+      const entry = options?.cache?.get(target)
+      const etag = entry?.etag
+      if (etag !== undefined && options?.ifNoneMatch === etag) {
+        res.writeHead(304, { etag })
+        res.end()
+        return
+      }
+      res.writeHead(200, { 'content-type': type, ...(etag === undefined ? {} : { etag }) })
+      res.end(body)
+      return
     }
   } catch (error) {
     // Only absent or non-file targets are 404; other filesystem failures reach
@@ -121,6 +178,9 @@ export function apply(ctx: Context, config: Config): void {
     const body = ctx.webServer.renderIndex(await readFile(distIndex, 'utf8'))
     return body.replace(/<head(?:\s[^>]*)?>/i, open => `${open}<base href="/">`)
   }
+  // Fiber-scoped asset cache: released with the fallback seat on disposal, so
+  // HMR row swaps never serve another composition's bytes.
+  const assets = new Map<string, StaticAssetEntry>()
   ctx.effect(() => ctx.webServer.registerFallback(async (req, res) => {
     // Non-GET/HEAD without a matching named route is 405 (fallback-only
     // semantics: named routes own their method handling).
@@ -131,6 +191,7 @@ export function apply(ctx: Context, config: Config): void {
     }
     /* v8 ignore next -- node:http always sets url on server requests */
     const rawPath = new URL(req.url ?? '/', 'http://x').pathname
+    const ifNoneMatch = req.headers['if-none-match']
     await serveStatic(
       decodeURIComponent(rawPath),
       res,
@@ -138,6 +199,7 @@ export function apply(ctx: Context, config: Config): void {
       distIndex,
       () => ctx.connection.authorizeIndex(req, res),
       renderIndex,
+      { ifNoneMatch: Array.isArray(ifNoneMatch) ? undefined : ifNoneMatch, cache: assets },
     )
   }), 'frontend-static: fallback seat')
 }

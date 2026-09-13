@@ -203,4 +203,33 @@ describe('real Loader composition', () => {
     expect((await request(port, '/no/such/route')).status).toBe(404)
     expect(() => server.registerFallback(() => {})).not.toThrow()
   })
+
+  it('emits etag validators for assets and answers If-None-Match with 304', { timeout: 60_000 }, async () => {
+    const loaded = await loadComposition()
+    const port = loaded.webServer.port
+    const base = `http://127.0.0.1:${String(port)}`
+    const first = await fetch(`${base}/app.js`)
+    expect(first.status).toBe(200)
+    const etag = first.headers.get('etag')
+    expect(etag).toMatch(/^"[0-9a-f]+-[0-9a-f]+"$/)
+    await first.arrayBuffer()
+    const fresh = await fetch(`${base}/app.js`, { headers: { 'if-none-match': etag! } })
+    expect(fresh.status).toBe(304)
+    expect(await fresh.text()).toBe('')
+    const stale = await fetch(`${base}/app.js`, { headers: { 'if-none-match': '"dead-beef"' } })
+    expect(stale.status).toBe(200)
+    expect(await stale.text()).toBe('export {}')
+  })
+
+  it('revalidates cached assets after a dist rebuild', { timeout: 60_000 }, async () => {
+    const loaded = await loadComposition()
+    const port = loaded.webServer.port
+    const base = `http://127.0.0.1:${String(port)}`
+    const firstEtag = (await fetch(`${base}/app.js`)).headers.get('etag')
+    expect(firstEtag).not.toBeNull()
+    await writeFile(join(root!, 'dist', 'app.js'), 'export const rebuilt = true')
+    const second = await fetch(`${base}/app.js`)
+    expect(await second.text()).toBe('export const rebuilt = true')
+    expect(second.headers.get('etag')).not.toBe(firstEtag)
+  })
 })

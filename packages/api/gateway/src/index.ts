@@ -114,15 +114,19 @@ type ConnectionRpcResult = Awaited<ReturnType<ConnectionRpcHandler>>
 type ConnectionRpcError = Extract<ConnectionRpcResult, { readonly ok: false }>['error']
 const NEVER_ABORTED_SIGNAL = new AbortController().signal
 const DEFAULT_WEBSOCKET_HEARTBEAT_INTERVAL_MS = 2_000
+const DEFAULT_WEBSOCKET_HEARTBEAT_MAX_MISSED = 2
 
 /** Gateway transport configuration. */
 export interface Config {
   /** WebSocket Ping interval from 1 through 2,147,483,647 milliseconds. @default 2000 */
   readonly websocketHeartbeatIntervalMs?: number
+  /** Consecutive unanswered Pings before termination, at least 1. @default 2 */
+  readonly websocketHeartbeatMaxMissed?: number
 }
 
 interface ResolvedConfig extends Config {
   readonly websocketHeartbeatIntervalMs: number
+  readonly websocketHeartbeatMaxMissed: number
 }
 
 /**
@@ -171,6 +175,8 @@ export class TypertGatewayService extends Service implements TypertGateway {
   static Config: z<Config> = z.object({
     websocketHeartbeatIntervalMs: z.number().step(1).min(1).max(MAX_TIMER_DELAY_MS)
       .default(DEFAULT_WEBSOCKET_HEARTBEAT_INTERVAL_MS),
+    websocketHeartbeatMaxMissed: z.number().step(1).min(1)
+      .default(DEFAULT_WEBSOCKET_HEARTBEAT_MAX_MISSED),
   })
 
   /** Carrier adapter shared by the WebSocket mux and local Host transports. */
@@ -207,6 +213,7 @@ export class TypertGatewayService extends Service implements TypertGateway {
         (endpoint, payload, signal) => this.openWireStream(endpoint, payload, signal),
         this.wireStream.failure,
         resolved.websocketHeartbeatIntervalMs,
+        resolved.websocketHeartbeatMaxMissed,
       )
       webCtx.effect(() => {
         const route: WebUpgradeRoute = {

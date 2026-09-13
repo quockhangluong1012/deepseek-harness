@@ -19,8 +19,6 @@ export type RemoteStreamOpener = (
 /** Convert an invocation or carrier failure to a stable wire value. */
 export type RemoteStreamFailureMapper = (error: unknown) => RemoteStreamFailure
 
-const MAX_MISSED_HEARTBEATS = 2
-
 /** Own the no-server WebSocket acceptor and every active logical stream. */
 export class RemoteStreamMuxServer {
   private readonly server = new WebSocketServer({ noServer: true })
@@ -32,11 +30,13 @@ export class RemoteStreamMuxServer {
    * @param open - Gateway stream dispatcher.
    * @param failure - Gateway error-to-wire mapper.
    * @param heartbeatIntervalMs - interval between WebSocket Ping control frames.
+   * @param maxMissedHeartbeats - consecutive unanswered Pings before termination.
    */
   constructor(
     private readonly open: RemoteStreamOpener,
     private readonly failure: RemoteStreamFailureMapper,
     private readonly heartbeatIntervalMs: number,
+    private readonly maxMissedHeartbeats: number,
   ) {}
 
   /**
@@ -78,9 +78,9 @@ export class RemoteStreamMuxServer {
       for (const socket of this.server.clients) {
         if (socket.readyState !== WebSocket.OPEN) continue
         const missed = this.missedHeartbeats.get(socket) as number
-        if (missed >= MAX_MISSED_HEARTBEATS) {
+        if (missed >= this.maxMissedHeartbeats) {
           setImmediate(() => {
-            if ((this.missedHeartbeats.get(socket) as number) >= MAX_MISSED_HEARTBEATS) {
+            if ((this.missedHeartbeats.get(socket) as number) >= this.maxMissedHeartbeats) {
               socket.terminate()
             }
           })
