@@ -34,6 +34,11 @@ interface PartialBlock {
  * Tolerant of delta-only protocols (no block-start/end); deltas arriving for
  * an index already closed by `block-end` are ignored (malformed stream) so a
  * misbehaving adapter cannot grow memory or corrupt a completed block.
+ *
+ * Tolerance here is layered, not contradictory, with the `llm-invariant`
+ * companion: the companion (when mounted) strictly throws on malformed
+ * streams, while this assembler stays total so compositions running without
+ * it still yield best-effort output instead of crashing.
  */
 export class BlockAssembler {
   private partials = new Map<number, PartialBlock>()

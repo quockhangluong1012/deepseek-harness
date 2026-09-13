@@ -9,6 +9,7 @@ import type { CommandInvocation, CommandResult } from '@deepseek-ai/dsh-commands
 import { GoalError } from '@deepseek-ai/dsh-goal'
 import type { GoalPhase, GoalRef, GoalView } from '@deepseek-ai/dsh-goal'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import { assertNever } from '@deepseek-ai/dsh-util-values'
 
 export const name = 'command-goal'
 export const inject = ['commands', 'goals']
@@ -23,13 +24,6 @@ type GoalCommand =
   | { readonly kind: 'pause' }
   | { readonly kind: 'resume' }
   | { readonly kind: 'clear' }
-
-/** Fail loudly if a locally closed union gains an unhandled member. */
-/* v8 ignore start -- closed-union backstop is unreachable without violating the TypeScript contract */
-function assertNever(value: never, label: string): never {
-  throw new TypeError(`unknown ${label}: ${String(value)}`)
-}
-/* v8 ignore stop */
 
 /** Parse only the grammar owned by `/goal`; arbitrary other input is an objective. */
 function parseGoalCommand(rawInput: string): GoalCommand {

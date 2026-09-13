@@ -160,7 +160,9 @@ export function apply(ctx: Context, config: Config = {}, internals: RetryInterna
     signal: AbortSignal,
   ): Promise<RequestErrorAction> {
     const fusedSignal = AbortSignal.any([signal, lifetime.signal])
-    if (fusedSignal.aborted) return
+    // Aborted before scheduling: decline recovery so the loop observes the
+    // cancellation instead of appending a retry the abort would orphan.
+    if (fusedSignal.aborted) return undefined
     const eventData: LlmRetryEventData = policy.mode === 'normal'
       ? {
         retryId,
@@ -186,7 +188,9 @@ export function apply(ctx: Context, config: Config = {}, internals: RetryInterna
         failure,
       }
     agent.session.append('llm/retry', eventData)
-    if (!await cancellableDelay(delayMs, fusedSignal)) return
+    // A lost backoff race resolves false: decline rather than scheduling a
+    // retry the settled turn can no longer own.
+    if (!await cancellableDelay(delayMs, fusedSignal)) return undefined
     agent.session.append('llm/retry-started', { retryId, turn, step, retry })
     return { kind: 'retry' }
   }
@@ -197,12 +201,15 @@ export function apply(ctx: Context, config: Config = {}, internals: RetryInterna
   ): Promise<RequestErrorAction> {
     if (policy === undefined) return next()
     if (policy.mode === 'always') {
-      if (signal.aborted || lifetime.signal.aborted) return
+      // Aborted before consulting downstream: decline so disposal/cancellation
+      // settles the turn instead of a retry it would immediately orphan.
+      if (signal.aborted || lifetime.signal.aborted) return undefined
       const fusedSignal = AbortSignal.any([signal, lifetime.signal])
       // The loop and plugin lifetime stay open until delegated recovery settles.
       // An abort then wins before the decision or fallback can mutate later state.
       const downstream = await settleDownstream(next)
-      if (fusedSignal.aborted) return
+      // Aborted while downstream decided: same decline, for the same reason.
+      if (fusedSignal.aborted) return undefined
       if (downstream.type === 'error') {
         ctx.logger.warn(
           `llm-retry: provider "${provider}" always policy ignored a downstream recovery failure: %o`,
