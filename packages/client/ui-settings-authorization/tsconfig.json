@@ -21,10 +21,10 @@
       "path": "../locale"
     },
     {
-      "path": "../store"
+      "path": "../ui-primitives"
     },
     {
-      "path": "../ui-primitives"
+      "path": "../ui-renderer"
     },
     {
       "path": "../ui-settings-models"

@@ -1,7 +1,11 @@
 /**
  * System-prompt nudges for evolution memory: skill-routing guidance shown
- * only beside the skill tool, scope-narrowing guidance, and the capacity
- * variable. Pure text and visibility helpers; the plugin wires them.
+ * only beside the skill tool, and scope-narrowing guidance. Pure text and
+ * visibility helpers; the plugin wires them. Static text only — no
+ * per-scope value is interpolated here, because a value that varies with
+ * memory content would break prefix reuse for every request sharing this
+ * section (the brief, not the system prompt, is where varying content
+ * belongs; see `render.ts`'s `Memory usage` header).
  * @module @deepseek-ai/dsh-evolution-memory-context/sections
  */
 
@@ -19,7 +23,7 @@ export const LESSONS_SKILLS_SECTION = {
 export const MEMORY_SCOPE_SECTION = {
   name: 'evolution-memory-scope',
   order: 10051,
-  text: 'Evolution memory in this conversation covers one directory scope (usage {{evolution_memory_usage}}). Ignore it for work outside its directory; inside it, prefer its instructions over general knowledge.',
+  text: 'Evolution memory in this conversation covers one directory scope. Ignore it for work outside its directory; inside it, prefer its instructions over general knowledge.',
 } as const
 
 /** Nudge registration for the session-search hint. */
@@ -28,12 +32,6 @@ export const SESSION_SEARCH_SECTION = {
   order: 10052,
   text: 'To recall earlier work in this scope, search past sessions before asking the user to repeat context.',
 } as const
-
-/** Capacity variable interpolated by the scope-narrowing guidance. */
-export const USAGE_VARIABLE = 'evolution_memory_usage'
-
-/** Capacity rendering when the session resolves to no scope. */
-export const UNKNOWN_USAGE = 'unknown'
 
 /**
  * Resolve the lessons-to-skills nudge for one assembly.
@@ -55,15 +53,4 @@ export function lessonsSkillsText(tool: unknown): string {
  */
 export function isNudgeTurn(turn: number, interval: number): boolean {
   return Math.max(turn, 1) % interval === 0
-}
-
-/**
- * Format one scope's capacity for the header line and the variable.
- * @param usedBytes - charged bytes.
- * @param capacityBytes - configured ceiling.
- * @returns `used/cap (pct%)` text.
- */
-export function formatUsage(usedBytes: number, capacityBytes: number): string {
-  const percent = Math.floor(usedBytes * 100 / capacityBytes)
-  return `${usedBytes}/${capacityBytes} (${percent}%)`
 }

@@ -59,7 +59,9 @@ import {
 import * as tracing from './tracing.ts'
 
 export type * from './types.ts'
+import { fuseSessionRankings } from './fusion.ts'
 export { SessionSearchCursor } from './cursor.ts'
+export { fuseSessionRankings, RECIPROCAL_RANK_K } from './fusion.ts'
 export type { Config, SessionQueryErrorCode } from './config.ts'
 export {
   SESSION_QUERY_DEFAULT_PERSISTED_INSPECT_CONCURRENCY,
@@ -153,6 +155,39 @@ export abstract class SessionQueryEngine extends Service {
     request: SessionSearchRequest,
     exec?: SessionSearchExecContext,
   ): Promise<SessionSearchPage<SessionSearchHit>>
+
+  /**
+   * Search the live-preferred logical corpus by meaning rather than by
+   * matching text. A provider without a vector channel refuses this call
+   * instead of degrading to a lexical one, so a caller that asked for
+   * semantic results never receives silently different ones.
+   * @param request - query text, metadata filters, and page size.
+   * @param exec - optional cancellation control.
+   * @returns session hits ranked by vector similarity to the query.
+   */
+  abstract searchSessionsSemantic(
+    request: SessionSearchRequest,
+    exec?: SessionSearchExecContext,
+  ): Promise<SessionSearchPage<SessionSearchHit>>
+
+  /**
+   * Search the corpus through both channels and fuse their rankings by
+   * reciprocal rank, so a session both channels place highly outranks one
+   * only a single channel found.
+   * @param request - query text, metadata filters, and page size.
+   * @param exec - optional cancellation control.
+   * @returns fused session hits, best combined rank first.
+   */
+  async searchSessionsHybrid(
+    request: SessionSearchRequest,
+    exec?: SessionSearchExecContext,
+  ): Promise<SessionSearchPage<SessionSearchHit>> {
+    const [lexical, semantic] = await Promise.all([
+      this.searchSessions(request, exec),
+      this.searchSessionsSemantic(request, exec),
+    ])
+    return { items: fuseSessionRankings(lexical.items, semantic.items) }
+  }
 
   /**
    * Search events within one live-preferred logical session.

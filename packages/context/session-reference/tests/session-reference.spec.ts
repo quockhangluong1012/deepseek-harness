@@ -6,6 +6,12 @@ import LlmRuntime, { createMessage, createSystemMessage, createToolResultMessage
 import SessionStore, { Session, SessionId, SessionSeq } from '@deepseek-ai/dsh-session'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import SessionQueryEngine from '@deepseek-ai/dsh-session-query'
+import type {
+  SessionSearchExecContext,
+  SessionSearchHit,
+  SessionSearchPage,
+  SessionSearchRequest,
+} from '@deepseek-ai/dsh-session-query'
 import SessionTitleService from '@deepseek-ai/dsh-session-title'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import SessionReferenceResolver, {
@@ -20,6 +26,15 @@ import { stringifyTagSafeJson } from '../src/serialization.ts'
 import { SpillLocator, SpillStore, type SaveTextSpill, type SpillRef } from '@deepseek-ai/dsh-spill'
 
 class TestSessionQueryEngine extends SessionQueryEngine {
+
+  override searchSessionsSemantic(
+    _request: SessionSearchRequest,
+    _exec?: SessionSearchExecContext,
+  ): Promise<SessionSearchPage<SessionSearchHit>> {
+    // This double models a deployment with no vector channel.
+    return Promise.reject(new Error('semantic session search is not supported by this double'))
+  }
+
   override searchSessions(
     ..._args: Parameters<SessionQueryEngine['searchSessions']>
   ): ReturnType<SessionQueryEngine['searchSessions']> {

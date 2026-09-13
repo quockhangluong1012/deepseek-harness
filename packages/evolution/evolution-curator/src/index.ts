@@ -24,6 +24,7 @@ import type { KvTable } from '@deepseek-ai/dsh-storage-domain'
 import type {} from '@deepseek-ai/dsh-skill'
 import type {} from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-llm'
+import type {} from '@deepseek-ai/dsh-evolution-feedback'
 import { deadline } from '@deepseek-ai/dsh-timeout'
 import type { SkillLifecycleState, SkillUsageRecord } from '@deepseek-ai/dsh-evolution-skill-telemetry'
 import { curatorDomainSpec } from './spec.ts'
@@ -143,6 +144,8 @@ export interface Config {
   maxOutputTokens?: number
   /** Consolidation requests the bounded tool loop may spend. */
   maxSteps?: number
+  /** Recorded failures carried per survey candidate as reflection evidence. */
+  maxCandidateFailures?: number
   /** Per-consolidation-request deadline in milliseconds. */
   timeoutMs?: number
 }
@@ -168,6 +171,7 @@ export const Config: z<Config> = z.object({
   maxInputBytes: z.number().step(1).min(1).default(65536),
   maxOutputTokens: z.number().step(1).min(1).default(2048),
   maxSteps: z.number().step(1).min(1).default(4),
+  maxCandidateFailures: z.number().step(1).min(0).default(5),
   timeoutMs: z.number().step(1).min(1).default(60000),
 })
 
@@ -192,6 +196,7 @@ export interface ResolvedConfig {
   maxInputBytes: number
   maxOutputTokens: number
   maxSteps: number
+  maxCandidateFailures: number
   timeoutMs: number
 }
 
@@ -221,6 +226,7 @@ export function resolveConfig(config: Config): ResolvedConfig {
     maxInputBytes = 65536,
     maxOutputTokens = 2048,
     maxSteps = 4,
+    maxCandidateFailures = 5,
     timeoutMs = 60000,
   } = config
   if (archiveAfterDays < staleAfterDays) {
@@ -249,6 +255,7 @@ export function resolveConfig(config: Config): ResolvedConfig {
     maxInputBytes,
     maxOutputTokens,
     maxSteps,
+    maxCandidateFailures,
     timeoutMs,
   }
 }
@@ -443,9 +450,9 @@ export class EvolutionCurator extends Service {
 
   /**
    * Survey agent-created skills for a future consolidation verdict: names,
-   * catalog routing, lifecycle state, idle age, and use counters, sorted by
-   * name. The verdict itself (keep, patch, consolidate, archive) arrives
-   * separately; the survey never writes.
+   * catalog routing, lifecycle state, idle age, use counters, and the failures
+   * recorded in the sessions that loaded each one. The verdict itself (keep,
+   * patch, consolidate, archive) arrives separately; the survey never writes.
    * @param options - clock override.
    * @returns the verdict evidence per skill.
    */
@@ -455,6 +462,7 @@ export class EvolutionCurator extends Service {
     const telemetry = this.ctx.get('evolutionSkillTelemetry')
     if (telemetry === undefined) return { at, candidates: [] }
     const summaries = new Map((await this.ctx.skills.list()).map(skill => [skill.name, skill] as const))
+    const feedback = this.ctx.get('evolutionFeedback')
     const candidates: SurveyCandidate[] = []
     for (const { name, usage } of telemetry.entries()) {
       if (usage.createdBy !== 'agent' || usage.state === 'archived') continue
@@ -469,6 +477,14 @@ export class EvolutionCurator extends Service {
         viewCount: usage.viewCount,
         patchCount: usage.patchCount,
         lastUsedAt: usage.lastUsedAt,
+        failures: feedback === undefined
+          ? []
+          : feedback.summary(usage.sessionIds, this.resolved.maxCandidateFailures).map(entry => ({
+            tool: entry.tool,
+            message: entry.message,
+            count: entry.count,
+            sessions: entry.sessions,
+          })),
       })
     }
     candidates.sort((a, b) => (a.name < b.name ? -1 : 1))

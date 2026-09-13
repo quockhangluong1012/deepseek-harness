@@ -34,6 +34,7 @@
   "peerDependencies": {
     "@deepseek-ai/dsh-commands": "workspace:^",
     "@deepseek-ai/dsh-evolution-curator": "workspace:^",
+    "@deepseek-ai/dsh-evolution-graph": "workspace:^",
     "@deepseek-ai/dsh-evolution-memory": "workspace:^",
     "@deepseek-ai/dsh-evolution-reviewer": "workspace:^",
     "@deepseek-ai/dsh-evolution-skill-telemetry": "workspace:^",
@@ -56,6 +57,7 @@
     "@deepseek-ai/dsh-agent": "workspace:^",
     "@deepseek-ai/dsh-commands": "workspace:^",
     "@deepseek-ai/dsh-evolution-curator": "workspace:^",
+    "@deepseek-ai/dsh-evolution-graph": "workspace:^",
     "@deepseek-ai/dsh-evolution-memory": "workspace:^",
     "@deepseek-ai/dsh-evolution-reviewer": "workspace:^",
     "@deepseek-ai/dsh-evolution-skill-telemetry": "workspace:^",

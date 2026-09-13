@@ -27,6 +27,7 @@ import { RemoteError } from '@deepseek-ai/dsh-typert-protocol'
 import {
   UNKNOWN_ROUTE,
   addSample,
+  cacheHitAvg,
   dayKeyUTC7,
   isUsageRange,
   messageRoute,
@@ -52,6 +53,33 @@ declare module '@deepseek-ai/cordis' {
     /** Host owner of the durable usage-ledger counters. */
     usageLedger: UsageLedger
   }
+
+  interface Events {
+    /**
+     * Today's rolling cache-hit share (all routes, UTC+7 day) dropped below
+     * {@link Config.cacheHitAlertThreshold} after at least
+     * {@link Config.cacheHitAlertMinRequests} billed requests. Edge-triggered:
+     * fires once per healthy-to-unhealthy crossing, not on every request
+     * while the day is already below threshold. Ephemeral (not logged to any
+     * session): a live listener observes it, or re-derives the same rate any
+     * time from {@link UsageLedger.summary}.
+     * @param data - the day, its rate, the crossed threshold, and its request count.
+     * @mode emit
+     */
+    'usage/cache-hit-low'(data: CacheHitLowEvent): void
+  }
+}
+
+/** Payload of {@link Events['usage/cache-hit-low']}. */
+export interface CacheHitLowEvent {
+  /** Calendar day (UTC+7) the rate was computed for. */
+  readonly day: string
+  /** The share that crossed below threshold, in `[0, 1]`. */
+  readonly cacheHitAvg: number
+  /** The configured {@link Config.cacheHitAlertThreshold} that was crossed. */
+  readonly threshold: number
+  /** Today's billed request count at the moment of the crossing. */
+  readonly requests: number
 }
 
 /** Deployment choices for the ledger's durability. */
@@ -65,6 +93,18 @@ export interface Config {
   readonly writeEveryEvents: number
   /** Longest time (milliseconds) a dirty ledger may stay unwritten between mandatory points. */
   readonly writeIntervalMs: number
+  /**
+   * Emit `usage/cache-hit-low` when today's rolling cache-hit share (all
+   * routes) drops below this fraction (`0`-`1`). Unset disables the alert
+   * entirely — the ledger still tracks the rate, nothing watches it.
+   */
+  readonly cacheHitAlertThreshold?: number
+  /**
+   * Minimum billed requests today before the alert can fire, so a thin
+   * early-day sample cannot trip it. Meaningful only alongside
+   * {@link cacheHitAlertThreshold}.
+   */
+  readonly cacheHitAlertMinRequests: number
 }
 
 /** Validated deployment choices; every tunable is explicit, none defaulted silently. */
@@ -72,6 +112,8 @@ export const Config: z<Config> = z.object({
   retentionDays: z.number().step(1).min(1).required(),
   writeEveryEvents: z.number().step(1).min(1).required(),
   writeIntervalMs: z.number().step(1).min(1).required(),
+  cacheHitAlertThreshold: z.number().min(0).max(1),
+  cacheHitAlertMinRequests: z.number().step(1).min(1).default(20),
 })
 
 /** Samples of one step awaiting their route and their `step/end` retirement. */
@@ -102,6 +144,10 @@ export class UsageLedger extends Service {
   private readonly steps = new Map<Session, Map<string, StepBucket>>()
   private pendingEvents = 0
   private timer: ReturnType<typeof setTimeout> | undefined
+  /** Day the alert last checked; a new day starts healthy until proven otherwise. */
+  private cacheAlertDay: string | undefined
+  /** Whether {@link cacheAlertDay}'s rate was at-or-above threshold at the last check. */
+  private cacheAlertHealthy = true
 
   /**
    * @param ctx - Host context carrying sessions and the storage domain.
@@ -240,6 +286,30 @@ export class UsageLedger extends Service {
     }
     const effective = bucket.route ?? UNKNOWN_ATTRIBUTION
     addSample(this.ledger, day, effective.provider, effective.model, sample)
+    this.checkCacheHitAlert(day)
+  }
+
+  /**
+   * Emit `usage/cache-hit-low` on a healthy-to-unhealthy crossing of today's
+   * rolling cache-hit share. A no-op when the alert is unconfigured or the
+   * day has not yet reached {@link Config.cacheHitAlertMinRequests}.
+   * @param day - the UTC+7 day whose total just changed.
+   */
+  private checkCacheHitAlert(day: string): void {
+    const threshold = this.config.cacheHitAlertThreshold
+    if (threshold === undefined) return
+    if (day !== this.cacheAlertDay) {
+      this.cacheAlertDay = day
+      this.cacheAlertHealthy = true
+    }
+    const row = this.ledger.daily[day]
+    if (row === undefined || row.requests < this.config.cacheHitAlertMinRequests) return
+    const rate = cacheHitAvg(row.cacheReadTokens, row.inputTokens)
+    const healthy = rate >= threshold
+    if (!healthy && this.cacheAlertHealthy) {
+      this.ctx.emit('usage/cache-hit-low', { day, cacheHitAvg: rate, threshold, requests: row.requests })
+    }
+    this.cacheAlertHealthy = healthy
   }
 
   /**

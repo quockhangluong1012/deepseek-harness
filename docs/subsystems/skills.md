@@ -345,8 +345,10 @@ A skill provider, runtime contribution, or provider-backed catalog may have chan
  * refetch the catalog for their own lookup options. Listener failures are
  * contained and cannot veto the registry mutation.
  * @mode emit
+ * @param payload - the quarantined skill count observed by the most recent
+ *   completed discovery, zero before one completes.
  */
-'skills/change'(): void
+'skills/change'(payload: { readonly quarantinedCount: number }): void
 ```
 
 Source: [`packages/skill/skill/src/index.ts`](../../packages/skill/skill/src/index.ts)

@@ -120,6 +120,28 @@ export interface SurveyCandidate {
   patchCount: number
   /** ISO-8601 instant of the last load, or null when never loaded. */
   lastUsedAt: string | null
+  /**
+   * Failures recorded in the sessions that loaded this skill, most-observed
+   * first and capped by `maxCandidateFailures`. Empty when no feedback store is
+   * mounted or none of those sessions failed.
+   */
+  failures: readonly SurveyFailure[]
+}
+
+/**
+ * One failure observed while a surveyed skill was in play. This is the
+ * reflection input a consolidation verdict reads: what actually went wrong in
+ * the sessions that used the skill, not what its author predicted.
+ */
+export interface SurveyFailure {
+  /** Tool whose call failed, or null when the failing call was not observed. */
+  tool: string | null
+  /** Failing result text, already normalized and clipped by the feedback store. */
+  message: string
+  /** Times the failure was observed across the correlated sessions. */
+  count: number
+  /** Distinct sessions that reported it. */
+  sessions: number
 }
 
 /** Agent-created skills awaiting a consolidation verdict, sorted by name. */

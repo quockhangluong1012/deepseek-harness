@@ -77,6 +77,15 @@ export interface SessionOpenWorkerReport {
 }
 
 class BenchmarkSessionQuery extends SessionQueryEngine {
+
+  override searchSessionsSemantic(
+    _request: SessionSearchRequest,
+    _exec?: SessionSearchExecContext,
+  ): Promise<SessionSearchPage<SessionSearchHit>> {
+    // This double models a deployment with no vector channel.
+    return Promise.reject(new Error('semantic session search is not supported by this double'))
+  }
+
   override searchSessions(
     _request: SessionSearchRequest,
     _exec?: SessionSearchExecContext,

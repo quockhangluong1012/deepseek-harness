@@ -147,6 +147,15 @@ class FakeQuery extends SessionQueryEngine {
     this.titles = new Map()
   }
 
+
+  override searchSessionsSemantic(
+    _request: SessionSearchRequest,
+    _exec?: SessionSearchExecContext,
+  ): Promise<SessionSearchPage<SessionSearchHit>> {
+    // This double models a deployment with no vector channel.
+    return Promise.reject(new Error('semantic session search is not supported by this double'))
+  }
+
   override searchSessions(
     request: SessionSearchRequest,
     exec?: SessionSearchExecContext,

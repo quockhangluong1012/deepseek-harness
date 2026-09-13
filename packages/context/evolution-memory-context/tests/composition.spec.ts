@@ -135,12 +135,14 @@ describe('evolution-memory-context composition', () => {
       await waitForIdle(ctx, agent)
       expect(loggedUserTexts(agent).filter(entry => entry.kind === 'evolution-memory')).toHaveLength(1)
 
-      // The system prompt carries the resolved capacity variable.
+      // The system prompt never carries memory usage: that value belongs to
+      // the brief (already varying with content), so a memory write must not
+      // change the cached prefix's text.
       const system = requests[0]?.messages[0]
       const systemText = system?.role === 'system'
         ? system.content.flatMap(block => block.type === 'text' ? [block.text] : []).join('')
         : ''
-      expect(systemText).toContain('usage ')
+      expect(systemText).not.toContain('usage')
       expect(systemText).not.toContain('skill_manage')
     } finally {
       await dispose()

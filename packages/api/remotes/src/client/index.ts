@@ -2,6 +2,7 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import agentPresetsRemote from '@deepseek-ai/dsh-agent-presets/remote'
+import authorizationRemote from '@deepseek-ai/dsh-authorization-remote/remote'
 import commandsRemote from '@deepseek-ai/dsh-commands/remote'
 import settingsControllerRemote from '@deepseek-ai/dsh-api-settings-controller/remote'
 import goalsRemote from '@deepseek-ai/dsh-goal/remote'
@@ -25,6 +26,7 @@ import type { ClientRemote } from '@deepseek-ai/dsh-api-gateway/client'
 export type { ClientRemote } from '@deepseek-ai/dsh-api-gateway/client'
 export type { PluginInventorySnapshot } from '@deepseek-ai/dsh-host-plugin-inventory/types'
 export type {} from '@deepseek-ai/dsh-agent-presets/remote'
+export type {} from '@deepseek-ai/dsh-authorization-remote/remote'
 export type {} from '@deepseek-ai/dsh-commands/remote'
 export type {} from '@deepseek-ai/dsh-api-settings-controller/remote'
 export type {} from '@deepseek-ai/dsh-goal/remote'
@@ -55,6 +57,7 @@ export type { ApiRemoteForwardedEvent } from '../types.ts'
 export type {} from '@deepseek-ai/dsh-commands/types'
 export type {} from '@deepseek-ai/dsh-cordis-host-runner/types'
 export type {} from '@deepseek-ai/dsh-credentials/types'
+export type {} from '@deepseek-ai/dsh-authorization/types'
 export type {} from '@deepseek-ai/dsh-llm/types'
 export type {} from '@deepseek-ai/dsh-agent-presets/types'
 export type {} from '@deepseek-ai/dsh-settings/types'
@@ -125,6 +128,18 @@ export type {
   LlmConfigurableProvider, LlmDiscoveredModel,
   LlmModelDiscoveryRequest, LlmProviderInfo,
 } from '@deepseek-ai/dsh-llm/types'
+// Sign-in flow vocabulary for the authorization namespace.
+export type {
+  AuthorizationAttemptView,
+  AuthorizationFlowView,
+  AuthorizationFrameView,
+  AuthorizationFramesView,
+  AuthorizationMethodView,
+  AuthorizationOutcomeStatus,
+  AuthorizationPromptOptionView,
+  AuthorizationPromptView,
+  AuthorizationStatusView,
+} from '@deepseek-ai/dsh-authorization-remote/types'
 // Reference-discovery result vocabulary for the fileReferences and
 // sessionReferenceResolver namespaces.
 export type { FileReferenceCandidate } from '@deepseek-ai/dsh-file-reference/types'
@@ -158,7 +173,7 @@ export async function apply(ctx: Context): Promise<() => Promise<void>> {
   const disposers: Array<() => Promise<void>> = []
   try {
     for (const contribution of [
-      agentPresetsRemote, commandsRemote, settingsControllerRemote, goalsRemote, llmRemote, dynamicRemote,
+      agentPresetsRemote, authorizationRemote, commandsRemote, settingsControllerRemote, goalsRemote, llmRemote, dynamicRemote,
       pluginInventoryRemote, messageFeedbackRemote, sessionFeedbackRemote, fileUploadsRemote, usageDashboardRemote, sessionReferencesRemote,
       subagentsRemote, sessionRemote, workspaceRemote, workspaceFilesRemote, workspaceMemoryRemote,
       evolutionControllerRemote, evolutionStatusRemote,

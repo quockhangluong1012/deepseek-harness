@@ -11,6 +11,12 @@ import { scopeOf } from '@deepseek-ai/dsh-scope'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import SessionQueryEngine from '@deepseek-ai/dsh-session-query'
+import type {
+  SessionSearchExecContext,
+  SessionSearchHit,
+  SessionSearchPage,
+  SessionSearchRequest,
+} from '@deepseek-ai/dsh-session-query'
 import SubagentService from '@deepseek-ai/dsh-subagent'
 import * as SubagentFork from '@deepseek-ai/dsh-subagent-fork-in-process'
 import * as SubagentSpawn from '@deepseek-ai/dsh-subagent-spawn-in-process'
@@ -39,6 +45,15 @@ let callNumber = 0
 
 /** Session query implementation whose search faces are outside these tests. */
 class TestSessionQuery extends SessionQueryEngine {
+
+  override searchSessionsSemantic(
+    _request: SessionSearchRequest,
+    _exec?: SessionSearchExecContext,
+  ): Promise<SessionSearchPage<SessionSearchHit>> {
+    // This double models a deployment with no vector channel.
+    return Promise.reject(new Error('semantic session search is not supported by this double'))
+  }
+
   override searchSessions(): Promise<never> {
     return Promise.reject(new Error('session search is not configured in this test'))
   }

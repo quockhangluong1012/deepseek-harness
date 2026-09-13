@@ -594,6 +594,71 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'authorizationRemote',
+    summary: 'Host service backing the generated `ctx.remote.authorization` namespace.',
+    description: 'Host service backing the generated `ctx.remote.authorization` namespace. Every method validates its wire ids before touching the seam, and every seam refusal reaches the caller as a namespaced `authorization/*` failure rather than a transport error.',
+    methods: [
+      {
+        signature: '@Remote list(): AuthorizationFlowView[]',
+        description: 'Every registered flow, for a surface listing what can be authorized.',
+        parameters: [],
+        returns: 'one view per flow, in registration order.',
+      },
+      {
+        signature: '@Remote describe(key: string): AuthorizationFlowView',
+        description: 'One registered flow.',
+        parameters: [{ name: 'key', description: 'the credential record as `scope/id`.' }],
+        returns: 'the flow\'s view.',
+        throws: ['RemoteError code `gateway/bad-request` when the key is malformed, or `authorization/no-flow` when nothing claims it.'],
+      },
+      {
+        signature: '@Remote async status(key: string): Promise<AuthorizationStatusView>',
+        description: 'Whether a stored grant exists for a record, without revealing anything it holds.',
+        parameters: [{ name: 'key', description: 'the credential record as `scope/id`.' }],
+        returns: 'the stored state.',
+        throws: ['RemoteError code `gateway/bad-request` when the key is malformed.'],
+      },
+      {
+        signature: '@Remote async signOut(key: string): Promise<void>',
+        description: 'Forget the stored grant for a record. The issuer is not told: a provider that needs a server-side revoke has no place to declare it.',
+        parameters: [{ name: 'key', description: 'the credential record as `scope/id`.' }],
+        throws: ['RemoteError code `gateway/bad-request` when the key is malformed.'],
+      },
+      {
+        signature: '@Remote begin(key: string, method: string | undefined): AuthorizationAttemptView',
+        description: 'Open an attempt for a record and run its flow in the background. The attempt\'s conversation is then polled through `frames`, and its pending prompts answered through `answer` and `decline`.',
+        parameters: [{ name: 'key', description: 'the credential record as `scope/id`.' }, { name: 'method', description: 'which of the flow\'s methods to run; the flow\'s first when absent.' }],
+        returns: 'the attempt to follow.',
+        throws: ['RemoteError code `gateway/bad-request` when the key is malformed, `authorization/no-flow` when nothing claims the key, `authorization/unknown-method` when the method is not offered, or `authorization/in-flight` when an attempt already runs for the key.'],
+      },
+      {
+        signature: '@Remote frames(attemptId: string, cursor: number): AuthorizationFramesView',
+        description: 'The attempt\'s conversation after a cursor.',
+        parameters: [{ name: 'attemptId', description: 'the id `begin` returned.' }, { name: 'cursor', description: 'the `next` value of the previous poll, or 0 to read from the start.' }],
+        returns: 'the frames after the cursor, with the terminal state.',
+        throws: ['RemoteError code `gateway/bad-request` when either id is malformed, or `authorization/unknown-attempt` when no attempt runs under the id.'],
+      },
+      {
+        signature: '@Remote answer(attemptId: string, promptId: string, value: string): void',
+        description: 'Answer one pending prompt.',
+        parameters: [{ name: 'attemptId', description: 'the id `begin` returned.' }, { name: 'promptId', description: 'the id of the prompt frame to answer.' }, { name: 'value', description: 'the typed text, or the chosen option\'s id; never empty.' }],
+        throws: ['RemoteError code `gateway/bad-request` when an id is malformed or the value is empty, `authorization/unknown-attempt` when no attempt runs under the id, `authorization/unknown-prompt` when the attempt holds no such prompt, or `authorization/inactive-prompt` when it was already answered or withdrawn.'],
+      },
+      {
+        signature: '@Remote decline(attemptId: string, promptId: string): void',
+        description: 'Decline one pending prompt. A declined prompt settles the attempt as `cancelled`, the same outcome as withdrawing it.',
+        parameters: [{ name: 'attemptId', description: 'the id `begin` returned.' }, { name: 'promptId', description: 'the id of the prompt frame to decline.' }],
+        throws: ['RemoteError code `gateway/bad-request` when an id is malformed, `authorization/unknown-attempt` when no attempt runs under the id, `authorization/unknown-prompt` when the attempt holds no such prompt, or `authorization/inactive-prompt` when it was already answered or withdrawn.'],
+      },
+      {
+        signature: '@Remote cancel(key: string): void',
+        description: 'Withdraw the attempt running for a record, if any. A withdrawn attempt settles as `cancelled`.',
+        parameters: [{ name: 'key', description: 'the credential record as `scope/id`.' }],
+        throws: ['RemoteError code `gateway/bad-request` when the key is malformed.'],
+      },
+    ],
+  },
+  {
     key: 'clientModules',
     summary: 'The web plugin table service: incremental `dsh.client` scan + wire composition + bundle route + index injection rows.',
     description: 'The web plugin table service: incremental `dsh.client` scan + wire composition + bundle route + index injection rows. Construction runs the activation scan synchronously — a malformed declaration or missing bundle among the already-loaded entries aggregates into one loud throw (FAILED fiber; the boot activation audit reports it).',
@@ -757,6 +822,11 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         parameters: [{ name: 'ref', description: 'the reference to remove.' }],
       },
       {
+        signature: 'abstract rotate(ref: CredentialRef, mutate: (current: string | undefined) => string): Promise<void>',
+        description: 'Serialized read-decide-replace over one reference — the write path a rotation policy needs. `mutate` receives the value the reference resolves to at the moment the write is exclusive and returns its non-empty replacement, which is persisted and then published as `credentials/reference-updated`. The value passes only through that callback argument and never leaves the exclusive window. Rejects while a read-only source shadows the reference, like set: a rotation whose result resolution would keep ignoring is worse than one that failed loud.',
+        parameters: [{ name: 'ref', description: 'the reference to rotate.' }, { name: 'mutate', description: 'receives the current value and returns its replacement.' }],
+      },
+      {
         signature: 'abstract readRecord(key: CredentialKey): Promise<CredentialRecord | undefined>',
         description: 'Read one stored record. The value is returned as its owner wrote it; a GrantRecord payload is not interpreted on the way out.',
         parameters: [{ name: 'key', description: 'the record to read.' }],
@@ -895,6 +965,110 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'embeddings',
+    summary: 'The `embeddings` service: routes registered by providers, and one batch call that resolves the route, serves what the cache holds, and asks the provider only for the texts it does not.',
+    description: 'The `embeddings` service: routes registered by providers, and one batch call that resolves the route, serves what the cache holds, and asks the provider only for the texts it does not.',
+    methods: [
+      {
+        signature: 'registerProvider(routes: readonly string[], provider: EmbeddingsProvider): () => void',
+        description: 'Register a provider for the given routes, all-or-nothing. A route already held by a different provider fails the registration and leaves the registry exactly as it was. Disposed with the fiber.',
+        parameters: [{ name: 'routes', description: 'every route this provider serves.' }, { name: 'provider', description: 'the provider that embeds for those routes.' }],
+        returns: 'the disposer releasing whatever the registration holds.',
+      },
+      {
+        signature: 'resolve(request: EmbeddingRequest): EmbeddingSpec',
+        description: 'Resolve the route and model one request runs against, without calling a provider. This is the defaulting step: an omitted route is the single registered one, and an omitted model is the provider\'s own default.',
+        parameters: [{ name: 'request', description: 'the batch\'s routing fields.' }],
+        returns: 'the route and model the request resolves to.',
+      },
+      {
+        signature: 'async embed(request: EmbeddingRequest): Promise<EmbeddingResult>',
+        description: 'Embed one batch, serving texts the cache already holds and asking the provider only for the rest.',
+        parameters: [{ name: 'request', description: 'texts and routing fields.' }],
+        returns: 'vectors in request order, with the cache and provider counts.',
+      },
+    ],
+  },
+  {
+    key: 'evolutionController',
+    summary: 'Host Remote service over the durable evolution record.',
+    description: 'Host Remote service over the durable evolution record. The stream is owned by the feed; reconnect generations belong to the client transport (`RemoteStream`), which opens a fresh `follow` call per generation, so this service never buffers across a transport loss.',
+    methods: [
+      {
+        signature: '@Remote(\'read\') async read(request: EvolutionScopeRequest): Promise<EvolutionMemoryValue>',
+        description: 'Load one scope\'s record.',
+        parameters: [{ name: 'request', description: 'scope identity.' }],
+        returns: 'the Remote projection.',
+      },
+      {
+        signature: '@Remote(\'setInstructions\') async setInstructions(request: EvolutionSetInstructionsRequest): Promise<EvolutionMemoryValue>',
+        description: 'Replace the instruction text.',
+        parameters: [{ name: 'request', description: 'scope identity and new rules.' }],
+        returns: 'the updated projection.',
+      },
+      {
+        signature: '@Remote(\'setLessons\') async setLessons(request: EvolutionSetLessonsRequest): Promise<EvolutionMemoryValue>',
+        description: 'Replace the lessons document by hand.',
+        parameters: [{ name: 'request', description: 'scope identity and new document.' }],
+        returns: 'the updated projection.',
+      },
+      {
+        signature: '@Remote(\'setProfile\') async setProfile(request: EvolutionSetProfileRequest): Promise<EvolutionMemoryValue>',
+        description: 'Replace the user-profile document by hand.',
+        parameters: [{ name: 'request', description: 'scope identity and new document.' }],
+        returns: 'the updated projection.',
+      },
+      {
+        signature: '@Remote(\'addContextItem\') async addContextItem(request: EvolutionAddContextItemRequest): Promise<EvolutionMemoryValue>',
+        description: 'Attach pasted text or a file inside the Workspace.',
+        parameters: [{ name: 'request', description: 'scope identity, kind, label, and text or path.' }],
+        returns: 'the updated projection.',
+      },
+      {
+        signature: '@Remote(\'removeContextItem\') async removeContextItem(request: EvolutionRemoveContextItemRequest): Promise<EvolutionMemoryValue>',
+        description: 'Detach one context item.',
+        parameters: [{ name: 'request', description: 'scope identity and item identity.' }],
+        returns: 'the updated projection.',
+      },
+      {
+        signature: '@Remote(\'rebuildMemory\') async rebuildMemory(request: EvolutionRebuildMemoryRequest, signal: AbortSignal): Promise<EvolutionMemoryValue>',
+        description: 'Rebuild the lessons document from the scope\'s sessions.',
+        parameters: [{ name: 'request', description: 'scope identity.' }, { name: 'signal', description: 'caller cancellation.' }],
+        returns: 'the updated projection.',
+      },
+      {
+        signature: '@Remote(\'listStaged\') async listStaged(request: EvolutionListStagedRequest): Promise<EvolutionStagedValue>',
+        description: 'List the scope\'s pending staged writes.',
+        parameters: [{ name: 'request', description: 'scope identity.' }],
+        returns: 'the pending entries in record order.',
+      },
+      {
+        signature: '@Remote(\'approveStaged\') async approveStaged(request: EvolutionResolveStagedRequest): Promise<EvolutionMemoryValue>',
+        description: 'Apply one staged write and drop it from the pending list.',
+        parameters: [{ name: 'request', description: 'scope identity and staged entry identity.' }],
+        returns: 'the updated projection.',
+      },
+      {
+        signature: '@Remote(\'rejectStaged\') async rejectStaged(request: EvolutionResolveStagedRequest): Promise<EvolutionMemoryValue>',
+        description: 'Drop one staged write without applying it.',
+        parameters: [{ name: 'request', description: 'scope identity and staged entry identity.' }],
+        returns: 'the updated projection.',
+      },
+      {
+        signature: '@Remote(\'timeline\') async timeline(request: EvolutionTimelineRequest): Promise<JourneyTimeline>',
+        description: 'Render one scope\'s journey over a window from the record it already keeps.',
+        parameters: [{ name: 'request', description: 'scope identity and requested window.' }],
+        returns: 'the timeline.',
+      },
+      {
+        signature: '@Remote({ mode: \'stream\' }) follow(signal: AbortSignal): AsyncIterable<EvolutionFollowFrame>',
+        description: 'Stream a complete baseline followed by ordered upserts.',
+        parameters: [{ name: 'signal', description: 'generation cancellation.' }],
+        returns: 'baseline followed by ordered scope increments.',
+      },
+    ],
+  },
+  {
     key: 'evolutionCurator',
     summary: 'Idle-triggered automatic skill lifecycle curator.',
     description: 'Idle-triggered automatic skill lifecycle curator. Opens the `evolution_curator` domain at init and closes it through `ctx.effect`. Transitions apply through skill telemetry, which stays optional: without the store a pass only advances the bookkeeping.',
@@ -913,15 +1087,21 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'async maybeRun(options: CuratorMaybeRunOptions = {}): Promise<CuratorReport | undefined>',
-        description: 'Run a pass only when enabled, the interval elapsed since the last pass, and enough idleness was observed. The first call only seeds the bookkeeping and defers one interval.',
+        description: 'Run a pass only when enabled, the interval elapsed since the last pass, and enough idleness was observed. The first call only seeds the bookkeeping and defers one interval. Idleness defaults to the newest host-wide session activity this process observed; before any activity is observed the host counts as idle.',
         parameters: [{ name: 'options', description: 'clock and idleness overrides plus the dry-run flag.' }],
         returns: 'the pass report, or undefined when this call defers.',
       },
       {
         signature: 'async surveyCandidates(options: CuratorRunOptions = {}): Promise<ConsolidationSurvey>',
-        description: 'Survey agent-created skills for a future consolidation verdict: names, catalog routing, lifecycle state, idle age, and use counters, sorted by name. The verdict itself (keep, patch, consolidate, archive) arrives separately; the survey never writes.',
+        description: 'Survey agent-created skills for a future consolidation verdict: names, catalog routing, lifecycle state, idle age, use counters, and the failures recorded in the sessions that loaded each one. The verdict itself (keep, patch, consolidate, archive) arrives separately; the survey never writes.',
         parameters: [{ name: 'options', description: 'clock override.' }],
         returns: 'the verdict evidence per skill.',
+      },
+      {
+        signature: 'async consolidate(options: CuratorRunOptions = {}): Promise<ConsolidationReport | undefined>',
+        description: 'Run one opt-in LLM consolidation over the agent-created skills this curator tracks. Returns undefined when consolidation is off, when the seam is unmounted, or when no candidate awaits a verdict. A cost row reaches the ledger before the fork starts; the fork runs as a bounded in-package tool loop over `ctx.llm`; the returned verdicts apply under the full-package rule and land in the same snapshot, ledger, and rollback machinery as an automatic pass.',
+        parameters: [{ name: 'options', description: 'clock override.' }],
+        returns: 'the consolidation report, or undefined when no run happened.',
       },
       {
         signature: 'async adopt(name: string): Promise<SkillUsageRecord>',
@@ -943,7 +1123,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'async rollbackPass(passId: string, options: RollbackOptions = {}): Promise<RollbackReport>',
-        description: 'Roll back one whole recorded pass, restoring every transitioned skill\'s lifecycle state. Verifies all evidence before writing anything, snapshots current records first so the rollback stays reversible, and never touches skill directories.',
+        description: 'Roll back one whole recorded pass, restoring every transitioned skill\'s lifecycle state and moving every package a consolidation run relocated back to its original path. Verifies all evidence and every move before writing anything, and snapshots current records first so the rollback stays reversible.',
         parameters: [{ name: 'passId', description: 'pass identity from the report or {@link passes}.' }, { name: 'options', description: 'clock override.' }],
         returns: 'the rollback report.',
       },
@@ -952,6 +1132,118 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Roll back one ledger transition entry. Fails closed on unknown ids, missing blobs, and untracked skills, before any write.',
         parameters: [{ name: 'entryId', description: 'ledger entry identity.' }, { name: 'options', description: 'clock override.' }],
         returns: 'the rollback report.',
+      },
+    ],
+  },
+  {
+    key: 'evolutionCuratorStatus',
+    summary: 'Host Remote face over the mounted curator\'s ledger summary.',
+    description: 'Host Remote face over the mounted curator\'s ledger summary.',
+    methods: [
+      {
+        signature: '@Remote(\'status\') async status(): Promise<EvolutionCuratorStatus>',
+        description: 'Read the curator\'s recorded status. An unmounted curator is reported as such — never as a pass that never ran.',
+        parameters: [],
+        returns: 'the mounted flag, newest pass instant, and recorded passes.',
+      },
+    ],
+  },
+  {
+    key: 'evolutionFeedback',
+    summary: 'Per-session failure-observation store.',
+    description: 'Per-session failure-observation store. Opens the `evolution_feedback` domain at init and closes it through `ctx.effect`.',
+    methods: [
+      {
+        signature: 'entries(sessionId: string): readonly FeedbackEntry[]',
+        description: 'Read one session\'s recorded failures.',
+        parameters: [{ name: 'sessionId', description: 'session identity.' }],
+        returns: 'a detached copy, newest first, or an empty list when absent.',
+      },
+      {
+        signature: 'summary(sessionIds: readonly string[], limit: number): FeedbackSummaryEntry[]',
+        description: 'Aggregate the given sessions\' failures by tool and message, most-observed first. Distinct sessions that reported a failure are counted, so a failure seen once in four sessions outranks four repeats in one.',
+        parameters: [{ name: 'sessionIds', description: 'sessions to aggregate, in caller order.' }, { name: 'limit', description: 'maximum entries returned.' }],
+        returns: 'the aggregated failures, newest-highest-count first.',
+      },
+    ],
+  },
+  {
+    key: 'evolutionGraph',
+    summary: 'Durable per-scope knowledge graph.',
+    description: 'Durable per-scope knowledge graph. Opens the `evolution_graph` domain at init and closes it through `ctx.effect`.',
+    methods: [
+      {
+        signature: 'read(scopeId: EvolutionScopeId): GraphRecord | undefined',
+        description: 'Read one scope\'s graph.',
+        parameters: [{ name: 'scopeId', description: 'scope identity.' }],
+        returns: 'a detached copy, or undefined when the scope has no graph.',
+      },
+      {
+        signature: 'async observe( scopeId: EvolutionScopeId, triples: readonly GraphTriple[], now: string = new Date().toISOString(), ): Promise<GraphObserveResult>',
+        description: 'Merge extracted triples into one scope\'s graph. An entity seen again keeps its first label and gains a kind if it had none; a relation seen again raises its count instead of adding a second edge. Triples are dropped, not thrown on, once a cap is reached or a part normalizes to nothing, and the count of dropped triples is reported back.',
+        parameters: [{ name: 'scopeId', description: 'scope identity.' }, { name: 'triples', description: 'relations to record.' }, { name: 'now', description: 'ISO-8601 instant to stamp, defaulting to the wall clock.' }],
+        returns: 'what the batch added, reinforced, and dropped.',
+      },
+      {
+        signature: 'answer( scopeId: EvolutionScopeId, subject: string, relation: string, limit: number = this.resolved.maxQueryLimit, ): GraphAnswer | undefined',
+        description: 'Answer one relation query by traversing outward from a subject.',
+        parameters: [{ name: 'scopeId', description: 'scope identity.' }, { name: 'subject', description: 'subject label, matched by normalized identity.' }, { name: 'relation', description: 'relation name, matched by normalized identity.' }, { name: 'limit', description: 'maximum objects returned, capped by `maxQueryLimit`.' }],
+        returns: 'the resolved answer, or undefined when the subject is unknown.',
+      },
+      {
+        signature: 'expand( scopeId: EvolutionScopeId, subject: string, depth: number = 1, limit: number = this.resolved.maxQueryLimit, ): GraphReach[]',
+        description: 'Expand the neighborhood of one entity breadth-first, in both directions, so a caller can navigate connections instead of naming a relation.',
+        parameters: [{ name: 'scopeId', description: 'scope identity.' }, { name: 'subject', description: 'subject label, matched by normalized identity.' }, { name: 'depth', description: 'maximum hops, at least 1.' }, { name: 'limit', description: 'maximum reached entities, capped by `maxQueryLimit`.' }],
+        returns: 'the reached entities, origin first, or an empty list when unknown.',
+      },
+      {
+        signature: 'find( scopeId: EvolutionScopeId, query: string, limit: number = this.resolved.maxQueryLimit, ): GraphNode[]',
+        description: 'Find entities whose label contains a query, most-connected first.',
+        parameters: [{ name: 'scopeId', description: 'scope identity.' }, { name: 'query', description: 'case-insensitive label substring; empty matches every node.' }, { name: 'limit', description: 'maximum entities returned, capped by `maxQueryLimit`.' }],
+        returns: 'the matching entities.',
+      },
+      {
+        signature: 'async extract( scopeId: EvolutionScopeId, text: string, route: { provider: string; model: string }, signal: AbortSignal, ): Promise<GraphExtractResult>',
+        description: 'Extract relations from text and merge them. One `temperature: 0` call returns JSON, which is validated here before anything is stored: a malformed answer rejects rather than storing a partial graph.',
+        parameters: [{ name: 'scopeId', description: 'scope identity.' }, { name: 'text', description: 'source text to read relations from.' }, { name: 'route', description: 'provider and model to call.' }, { name: 'signal', description: 'caller cancellation.' }],
+        returns: 'what the extraction observed and merged.',
+      },
+    ],
+  },
+  {
+    key: 'evolutionHeartbeat',
+    summary: 'Host-wide idle-triggered task registry.',
+    description: 'Host-wide idle-triggered task registry. Opens the `evolution_heartbeat` domain at init and closes it through `ctx.effect`.',
+    methods: [
+      {
+        signature: 'register(task: HeartbeatTask): () => void',
+        description: 'Register one task. The task runs only while its registration is live, so a consumer disposes it by calling the returned disposer. A task registered after start-up is seeded by the next due-check and defers one interval.',
+        parameters: [{ name: 'task', description: 'identity, cadence, and the work to run.' }],
+        returns: 'the disposer removing the task; idempotent.',
+      },
+      {
+        signature: 'state(name?: string): HeartbeatTaskState[]',
+        description: 'Inspect the registered tasks\' schedule and last outcome.',
+        parameters: [{ name: 'name', description: 'one task\'s identity, or every task when omitted.' }],
+        returns: 'one state per matching task, in registration order.',
+      },
+      {
+        signature: 'lastRunAt(name: string): string | null',
+        description: 'Read one task\'s last attempt instant.',
+        parameters: [{ name: 'name', description: 'task identity.' }],
+        returns: 'the ISO-8601 instant, or null when unknown or never attempted.',
+      },
+      {
+        signature: 'async runDue(options: HeartbeatRunOptions = {}): Promise<HeartbeatReport>',
+        description: 'Consider every registered task once, in registration order. A task whose bookkeeping is absent is seeded and deferred; a task whose interval has not elapsed, or whose idle gate is unsatisfied, is deferred. Tasks run sequentially, and a failing task is recorded without stopping the pass.',
+        parameters: [{ name: 'options', description: 'clock, idleness, and force overrides.' }],
+        returns: 'one entry per registered task.',
+      },
+      {
+        signature: 'async runTask(name: string, options: HeartbeatRunOptions = {}): Promise<HeartbeatTaskReport | undefined>',
+        description: 'Run one registered task now, ignoring its interval and the idle gate.',
+        parameters: [{ name: 'name', description: 'task identity.' }, { name: 'options', description: 'clock override.' }],
+        returns: 'the task\'s report, or undefined when no such task is registered.',
       },
     ],
   },
@@ -1028,13 +1320,13 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'async stageWrite(input: StagedWriteInput): Promise<StagedWrite>',
-        description: 'Stage one write for later approval. Staged entries never count toward capacity; `memoryUpdatedAt` stays untouched until approval.',
+        description: 'Stage one write for later approval. Staged entries never count toward capacity; `memoryUpdatedAt` stays untouched until approval. The payload is a durable record field, so it is validated as a JSON value here: a non-JSON payload is refused loudly and nothing is stored.',
         parameters: [{ name: 'input', description: 'scope, kind, op, payload, origin session, and gist.' }],
         returns: 'the staged entry.',
       },
       {
         signature: 'async approveStaged(id: string): Promise<void>',
-        description: 'Approve one staged write. Memory-kind entries apply their op first, so a cap or substring rejection keeps the entry staged and propagates; the entry drops only after the op lands. Skill-kind entries only drop: the approver reads the payload from the scope record and performs the skill write before approving.',
+        description: 'Approve one staged write. Memory-kind entries apply their op first, so a cap or substring rejection keeps the entry staged and propagates; the entry drops only after the op lands. Skill-kind entries only drop: the approver reads the payload from the scope record and performs the skill write before approving. Either decision is recorded in the scope\'s resolution log, newest first.',
         parameters: [{ name: 'id', description: 'staged entry identity.' }],
         returns: 'resolution after durability.',
       },
@@ -1059,7 +1351,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     methods: [
       {
         signature: 'async rebuild(scopeId: EvolutionScopeId, signal: AbortSignal): Promise<void>',
-        description: 'Rebuild the lessons document from the scope\'s chat history, read through the asynchronous session query seam. Rebuilds write directly even when background approval staging is on: the caller explicitly asked for them.',
+        description: 'Rebuild the lessons document from the scope\'s chat history, read through the asynchronous session query seam: ranked recall selects candidate events first, and each one still passes the shared admission rule. Rebuilds write directly even when background approval staging is on: the caller explicitly asked for them.',
         parameters: [{ name: 'scopeId', description: 'scope identity.' }, { name: 'signal', description: 'caller cancellation.' }],
         returns: 'resolution after the store write.',
       },
@@ -1083,9 +1375,9 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'name/record pairs with detached copies.',
       },
       {
-        signature: 'async markUsed(name: string, source?: string): Promise<SkillUsageRecord | undefined>',
+        signature: 'async markUsed(name: string, source?: string, sessionId?: string): Promise<SkillUsageRecord | undefined>',
         description: 'Count one successful model load. Bundled and hub skills resolve to no record: the observer still delegates, only the write is skipped.',
-        parameters: [{ name: 'name', description: 'skill name.' }, { name: 'source', description: 'catalog source when the caller already resolved it.' }],
+        parameters: [{ name: 'name', description: 'skill name.' }, { name: 'source', description: 'catalog source when the caller already resolved it.' }, { name: 'sessionId', description: 'loading session, recorded so a later pass can pull the failures observed while this skill was in play. Omitted by callers with no session, which leaves the recorded list untouched.' }],
         returns: 'the stored record, or undefined for excluded sources.',
       },
       {
@@ -1119,6 +1411,17 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'whether a record was removed.',
       },
       {
+        signature: 'recordConsolidationCost(row: ConsolidationCostRow): void',
+        description: 'Record the cost row of a consolidation-scale run before its fan-out begins, so the curator and command surfaces read one frozen shape of planned spend instead of quoting ad-hoc numbers. Only the latest row is kept; a run that never fans out leaves the previous row untouched.',
+        parameters: [{ name: 'row', description: 'planned cost facts of the upcoming run.' }],
+      },
+      {
+        signature: 'readConsolidationCost(): ConsolidationCostRow | undefined',
+        description: 'Read the cost row recorded for the most recent consolidation-scale run.',
+        parameters: [],
+        returns: 'a detached copy of the row, or undefined when no run was recorded.',
+      },
+      {
         signature: 'async setPinned(name: string, pinned: boolean): Promise<SkillUsageRecord>',
         description: 'Pin or unpin one skill. Pins block automatic transitions and managed deletion; patches stay allowed. Resolves without writing when unchanged.',
         parameters: [{ name: 'name', description: 'skill name.' }, { name: 'pinned', description: 'new pin state.' }],
@@ -1129,6 +1432,33 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Move one skill through its curation lifecycle. Entering `archived` stamps the instant; leaving clears it. The absorption target replaces any previous one, so plain transitions carry none.',
         parameters: [{ name: 'name', description: 'skill name.' }, { name: 'state', description: 'new lifecycle state.' }, { name: 'absorbedInto', description: 'consolidation umbrella, or null when standalone.' }],
         returns: 'the stored record.',
+      },
+    ],
+  },
+  {
+    key: 'evolutionTrajectory',
+    summary: 'Host-side ShareGPT exporter over session persistence and the Workspace roster.',
+    description: 'Host-side ShareGPT exporter over session persistence and the Workspace roster.',
+    methods: [
+      {
+        signature: 'toShareGpt(input: ShareGptInput): ShareGptConversation[]',
+        description: 'Shape one Session\'s committed events into ShareGPT conversations. Pure: it reads no service and writes nothing.',
+        parameters: [{ name: 'input', description: 'the Session identity and its committed events.' }],
+        returns: 'conversations in turn order, empty when no turn produced a message.',
+      },
+      {
+        signature: '@Remote async exportSession(sessionId: string, options?: TrajectoryExportOptions): Promise<TrajectoryExportResult>',
+        description: 'Write one Session\'s conversations as a ShareGPT JSON file: one file per call, an empty array when the Session produced no admitted message.',
+        parameters: [{ name: 'sessionId', description: 'stored or live Session to export.' }, { name: 'options', description: 'destination file override.' }],
+        returns: 'the written path, its conversation count, and its UTF-8 byte size.',
+        throws: ['RemoteError with `session/not-found` when storage holds no such Session.'],
+      },
+      {
+        signature: '@Remote async exportScope(scopeId: string, options?: TrajectoryExportOptions): Promise<TrajectoryExportResult>',
+        description: 'Write one file per non-archived Session of a Workspace scope. Archived sessions are skipped, and a roster entry whose log is gone is skipped with a warning rather than voiding the export.',
+        parameters: [{ name: 'scopeId', description: 'opaque scope identity naming the Workspace.' }, { name: 'options', description: 'destination directory override.' }],
+        returns: 'the written directory, the summed conversation count, and the summed UTF-8 byte size.',
+        throws: ['RemoteError with `workspace/not-found` when the scope names no registered Workspace.'],
       },
     ],
   },
@@ -3370,9 +3700,9 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     description: 'Durable workspace registry. Startup waits for `sessionPersistence`, builds one canonical-cwd header index, and completes the one-time history bootstrap before the service becomes active. The persistence dependency is mandatory so an unavailable peer can never be mistaken for an empty history and commit the initialized marker.',
     methods: [
       {
-        signature: 'async create(path: string, title?: string): Promise<Workspace>',
-        description: 'Create or reuse a workspace for an existing directory. The fully qualified path is canonicalized through `fs.realpath`; a relative, nonexistent, or non-directory path rejects. Repeated calls for the same canonical path return the existing entity without changing its title. A newly created workspace is prepended to the durable registry order. Different canonical paths may share a display title.',
-        parameters: [{ name: 'path', description: 'Existing directory to own, in a fully qualified path spelling.' }, { name: 'title', description: 'Display title used only when a new record is created.' }],
+        signature: 'async create(path: string): Promise<Workspace>',
+        description: 'Create or reuse a workspace for an existing directory. The fully qualified path is canonicalized through `fs.realpath`; a relative, nonexistent, or non-directory path rejects. Repeated calls for the same canonical path return the existing entity. A newly created workspace takes the default title; rename afterwards with `Workspace.setTitle`. A newly created workspace is prepended to the durable registry order. Different canonical paths may share a display title.',
+        parameters: [{ name: 'path', description: 'Existing directory to own, in a fully qualified path spelling.' }],
         returns: 'the existing or newly durable workspace.',
       },
       {
@@ -3796,10 +4126,10 @@ export const EVENT_API: readonly EventApiEntry[] = [
   {
     name: 'skills/change',
     mode: 'emit',
-    signature: '\'skills/change\'(): void',
+    signature: '\'skills/change\'(payload: { readonly quarantinedCount: number }): void',
     summary: 'A skill provider, runtime contribution, or provider-backed catalog may have changed.',
     description: 'A skill provider, runtime contribution, or provider-backed catalog may have changed. This is an unfiltered invalidation notification; consumers refetch the catalog for their own lookup options. Listener failures are contained and cannot veto the registry mutation.',
-    parameters: [],
+    parameters: [{ name: 'payload', description: 'the quarantined skill count observed by the most recent completed discovery, zero before one completes.' }],
   },
   {
     name: 'subagent/end',
@@ -3896,6 +4226,14 @@ export const EVENT_API: readonly EventApiEntry[] = [
     summary: 'Observe the frozen, lossless-JSON final outcome.',
     description: 'Observe the frozen, lossless-JSON final outcome. Listener failures are contained. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): keyed by `exec.agent`.',
     parameters: [{ name: 'exec', description: 'the execution object that traversed the pipeline.' }, { name: 'result', description: 'a deep-frozen snapshot of the final returned result.' }],
+  },
+  {
+    name: 'usage/cache-hit-low',
+    mode: 'emit',
+    signature: '\'usage/cache-hit-low\'(data: CacheHitLowEvent): void',
+    summary: 'Today\'s rolling cache-hit share (all routes, UTC+7 day) dropped below Config.cacheHitAlertThreshold after at least Config.cacheHitAlertMinRequests billed requests.',
+    description: 'Today\'s rolling cache-hit share (all routes, UTC+7 day) dropped below Config.cacheHitAlertThreshold after at least Config.cacheHitAlertMinRequests billed requests. Edge-triggered: fires once per healthy-to-unhealthy crossing, not on every request while the day is already below threshold. Ephemeral (not logged to any session): a live listener observes it, or re-derives the same rate any time from UsageLedger.summary.',
+    parameters: [{ name: 'data', description: 'the day, its rate, the crossed threshold, and its request count.' }],
   },
   {
     name: 'user-questions/request',
@@ -4138,12 +4476,28 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type AttachmentId = Branded<\'AttachmentId\'>;',
   },
   {
+    name: 'AuthorizationAttemptView',
+    declaration: 'export interface AuthorizationAttemptView {\n    readonly attemptId: string;\n    readonly key: string;\n    readonly label: string;\n    readonly method: string;\n}',
+  },
+  {
     name: 'AuthorizationEntry',
     declaration: 'export interface AuthorizationEntry {\n    key: CredentialKey;\n    label: string;\n    methods: readonly AuthorizationMethod[];\n    inFlight: boolean;\n}',
   },
   {
     name: 'AuthorizationFlow',
     declaration: 'export interface AuthorizationFlow {\n    readonly key: CredentialKey;\n    readonly label: string;\n    readonly methods: readonly [\n        AuthorizationMethod,\n        ...AuthorizationMethod[]\n    ];\n    run(session: AuthorizationSession): Promise<void>;\n}',
+  },
+  {
+    name: 'AuthorizationFlowView',
+    declaration: 'export interface AuthorizationFlowView {\n    readonly key: string;\n    readonly scope: string;\n    readonly id: string;\n    readonly label: string;\n    readonly methods: readonly AuthorizationMethodView[];\n    readonly inFlight: boolean;\n}',
+  },
+  {
+    name: 'AuthorizationFramesView',
+    declaration: 'export interface AuthorizationFramesView {\n    readonly frames: readonly AuthorizationFrameView[];\n    readonly next: number;\n    readonly done: boolean;\n    readonly outcome?: AuthorizationOutcomeStatus;\n}',
+  },
+  {
+    name: 'AuthorizationFrameView',
+    declaration: 'export type AuthorizationFrameView = {\n    readonly seq: number;\n    readonly kind: \'notice\';\n    readonly message: string;\n    readonly url?: string;\n    readonly code?: string;\n} | {\n    readonly seq: number;\n    readonly kind: \'prompt\';\n    readonly prompt: AuthorizationPromptView;\n} | {\n    readonly seq: number;\n    readonly kind: \'prompt-withdrawn\';\n    readonly promptId: string;\n} | {\n    readonly seq: number;\n    readonly kind: \'outcome\';\n    readonly status: AuthorizationOutcomeStatus;\n    readonly error?: string;\n};',
   },
   {
     name: 'AuthorizationInteraction',
@@ -4154,6 +4508,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface AuthorizationMethod {\n    id: string;\n    label: string;\n}',
   },
   {
+    name: 'AuthorizationMethodView',
+    declaration: 'export interface AuthorizationMethodView {\n    readonly id: string;\n    readonly label: string;\n}',
+  },
+  {
     name: 'AuthorizationNotice',
     declaration: 'export interface AuthorizationNotice {\n    message: string;\n    url?: string;\n    code?: string;\n}',
   },
@@ -4162,12 +4520,24 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface AuthorizationOutcome {\n    status: AuthorizationStatus;\n}',
   },
   {
+    name: 'AuthorizationOutcomeStatus',
+    declaration: 'export type AuthorizationOutcomeStatus = \'authorized\' | \'cancelled\' | \'failed\';',
+  },
+  {
     name: 'AuthorizationPrompt',
     declaration: 'export type AuthorizationPrompt = {\n    signal?: AbortSignal;\n} & ({\n    kind: \'text\';\n    message: string;\n    placeholder?: string;\n} | {\n    kind: \'secret\';\n    message: string;\n    placeholder?: string;\n} | {\n    kind: \'select\';\n    message: string;\n    options: readonly AuthorizationPromptOption[];\n});',
   },
   {
     name: 'AuthorizationPromptOption',
     declaration: 'export interface AuthorizationPromptOption {\n    id: string;\n    label: string;\n    description?: string;\n}',
+  },
+  {
+    name: 'AuthorizationPromptOptionView',
+    declaration: 'export interface AuthorizationPromptOptionView {\n    readonly id: string;\n    readonly label: string;\n    readonly description?: string;\n}',
+  },
+  {
+    name: 'AuthorizationPromptView',
+    declaration: 'export type AuthorizationPromptView = {\n    readonly id: string;\n    readonly kind: \'text\' | \'secret\';\n    readonly message: string;\n    readonly placeholder?: string;\n} | {\n    readonly id: string;\n    readonly kind: \'select\';\n    readonly message: string;\n    readonly options: readonly AuthorizationPromptOptionView[];\n};',
   },
   {
     name: 'AuthorizationRequest',
@@ -4184,6 +4554,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'AuthorizationStatus',
     declaration: 'export type AuthorizationStatus = \'authorized\' | \'cancelled\';',
+  },
+  {
+    name: 'AuthorizationStatusView',
+    declaration: 'export interface AuthorizationStatusView {\n    readonly configured: boolean;\n}',
   },
   {
     name: 'BackendRegistry',
@@ -4208,6 +4582,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'BrandedNumber',
     declaration: 'export type BrandedNumber<B extends string> = number & {\n    readonly [BRAND]: B;\n};',
+  },
+  {
+    name: 'CacheHitLowEvent',
+    declaration: 'export interface CacheHitLowEvent {\n    readonly day: string;\n    readonly cacheHitAvg: number;\n    readonly threshold: number;\n    readonly requests: number;\n}',
   },
   {
     name: 'ClientArtifactBaseline',
@@ -4314,8 +4692,24 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type ConfinedSandboxMode = Exclude<SandboxMode, \'danger-full-access\'>;',
   },
   {
+    name: 'ConsolidationCost',
+    declaration: 'export interface ConsolidationCost {\n    inputBytes: number;\n    maxOutputTokens: number;\n    provider: string;\n    model: string;\n    truncated: boolean;\n}',
+  },
+  {
+    name: 'ConsolidationCostRow',
+    declaration: 'export interface ConsolidationCostRow {\n    readonly inputBytes: number;\n    readonly maxOutputTokens: number;\n    readonly provider: string;\n    readonly model: string;\n    readonly truncated: boolean;\n}',
+  },
+  {
+    name: 'ConsolidationReport',
+    declaration: 'export interface ConsolidationReport {\n    at: string;\n    passId: string | null;\n    snapshot: string | null;\n    cost: ConsolidationCost;\n    verdicts: ConsolidationVerdict[];\n    skipped: number;\n    steps: number;\n}',
+  },
+  {
     name: 'ConsolidationSurvey',
     declaration: 'export interface ConsolidationSurvey {\n    at: string;\n    candidates: SurveyCandidate[];\n}',
+  },
+  {
+    name: 'ConsolidationVerdict',
+    declaration: 'export interface ConsolidationVerdict {\n    name: string;\n    action: \'keep\' | \'patch\' | \'consolidate\' | \'archive\';\n    into?: string | undefined;\n    body?: string | undefined;\n}',
   },
   {
     name: 'ContentBlockMap',
@@ -4470,8 +4864,12 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface CuratorMaybeRunOptions extends CuratorRunOptions {\n    idleMs?: number | undefined;\n}',
   },
   {
+    name: 'CuratorPassSummary',
+    declaration: 'export interface CuratorPassSummary {\n    passId: string;\n    at: string;\n    snapshot: string;\n    transitions: number;\n}',
+  },
+  {
     name: 'CuratorReport',
-    declaration: 'export interface CuratorReport {\n    at: string;\n    dryRun: boolean;\n    scanned: number;\n    transitions: CuratorTransition[];\n    skippedPinned: number;\n    skippedProtected: number;\n    skippedExcluded: number;\n    passId: string | null;\n    snapshot: string | null;\n}',
+    declaration: 'export interface CuratorReport {\n    at: string;\n    dryRun: boolean;\n    scanned: number;\n    transitions: CuratorTransition[];\n    skippedPinned: number;\n    skippedProtected: number;\n    skippedExcluded: number;\n    passId: string | null;\n    snapshot: string | null;\n    consolidation?: ConsolidationReport | undefined;\n}',
   },
   {
     name: 'CuratorRunOptions',
@@ -4606,6 +5004,22 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface EditGoalRequest {\n    readonly objective?: string;\n    readonly maxGoalRounds?: number;\n}',
   },
   {
+    name: 'EmbeddingRequest',
+    declaration: 'export interface EmbeddingRequest {\n    texts: readonly string[];\n    provider?: string;\n    model?: string;\n    signal?: AbortSignal;\n}',
+  },
+  {
+    name: 'EmbeddingResult',
+    declaration: 'export interface EmbeddingResult {\n    spec: EmbeddingSpec;\n    vectors: readonly (readonly number[])[];\n    cached: number;\n    embedded: number;\n}',
+  },
+  {
+    name: 'EmbeddingSpec',
+    declaration: 'export interface EmbeddingSpec {\n    provider: string;\n    model: string;\n}',
+  },
+  {
+    name: 'EmbeddingsProvider',
+    declaration: 'export abstract class EmbeddingsProvider {\n    abstract readonly defaultModel: string;\n    abstract embed(spec: EmbeddingSpec, texts: readonly string[], signal?: AbortSignal): Promise<readonly (readonly number[])[]>;\n}',
+  },
+  {
     name: 'EncodedFileAttachment',
     declaration: 'export interface EncodedFileAttachment {\n    data: string;\n    name?: string;\n}',
   },
@@ -4622,36 +5036,60 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface EpochHeader {\n    config: LlmCallConfig;\n    adapterDefaults?: LlmCallConfigAdapterDefaults;\n    tools?: ToolSchema[];\n}',
   },
   {
-    name: 'EvolutionContextItem',
-    declaration: 'export type EvolutionContextItem = {\n    kind: \'text\';\n    id: string;\n    label: string;\n    text: string;\n    sizeBytes: number;\n    addedAt: string;\n} | {\n    kind: \'file\';\n    id: string;\n    label: string;\n    path: string;\n    sizeBytes: number;\n    addedAt: string;\n};',
+    name: 'EvolutionAddContextItemRequest',
+    declaration: 'export interface EvolutionAddContextItemRequest extends EvolutionScopeRequest {\n    readonly kind: \'text\' | \'file\';\n    readonly label: string;\n    readonly text?: string;\n    readonly path?: string;\n}',
   },
   {
     name: 'EvolutionContextItemInput',
     declaration: 'export type EvolutionContextItemInput = {\n    kind: \'text\';\n    label: string;\n    text: string;\n} | {\n    kind: \'file\';\n    label: string;\n    path: string;\n    sizeBytes: number;\n};',
   },
   {
-    name: 'EvolutionExtraction',
-    declaration: 'export interface EvolutionExtraction {\n    at: string;\n    sessionId: string;\n    provider: string;\n    model: string;\n    origin: EvolutionExtractionOrigin;\n    inputBytes: number;\n    truncated: boolean;\n}',
+    name: 'EvolutionCuratorStatus',
+    declaration: 'export interface EvolutionCuratorStatus {\n    mounted: boolean;\n    lastRunAt: string | null;\n    passes: readonly CuratorPassSummary[];\n}',
   },
   {
-    name: 'EvolutionExtractionOrigin',
-    declaration: 'export type EvolutionExtractionOrigin = \'foreground\' | \'background_review\' | \'user-edit\' | \'rebuild\';',
+    name: 'EvolutionListStagedRequest',
+    declaration: 'export type EvolutionListStagedRequest = EvolutionScopeRequest;',
   },
   {
     name: 'EvolutionMemoryRecord',
-    declaration: 'export interface EvolutionMemoryRecord {\n    instructions: string;\n    agentLessons: string;\n    userProfile: string;\n    memoryUpdatedAt: string | null;\n    contextItems: readonly EvolutionContextItem[];\n    outputs: readonly EvolutionOutput[];\n    lastExtraction: EvolutionExtraction | null;\n    staged: readonly StagedWrite[];\n    updatedAt: string;\n}',
+    declaration: 'export interface EvolutionMemoryRecord {\n    instructions: string;\n    agentLessons: string;\n    userProfile: string;\n    instructionsUpdatedAt: string | null;\n    lessonsUpdatedAt: string | null;\n    profileUpdatedAt: string | null;\n    memoryUpdatedAt: string | null;\n    contextItems: readonly EvolutionContextItem[];\n    outputs: readonly EvolutionOutput[];\n    lastExtraction: EvolutionExtraction | null;\n    staged: readonly StagedWrite[];\n    resolutions: readonly StagedResolution[];\n    updatedAt: string;\n}',
   },
   {
-    name: 'EvolutionMemoryUsage',
-    declaration: 'export interface EvolutionMemoryUsage {\n    usedBytes: number;\n    capacityBytes: number;\n}',
+    name: 'EvolutionRebuildMemoryRequest',
+    declaration: 'export type EvolutionRebuildMemoryRequest = EvolutionScopeRequest;',
   },
   {
-    name: 'EvolutionOutput',
-    declaration: 'export interface EvolutionOutput {\n    path: string;\n    tool: string;\n    sessionId: string;\n    at: string;\n}',
+    name: 'EvolutionRemoveContextItemRequest',
+    declaration: 'export interface EvolutionRemoveContextItemRequest extends EvolutionScopeRequest {\n    readonly itemId: string;\n}',
+  },
+  {
+    name: 'EvolutionSetInstructionsRequest',
+    declaration: 'export interface EvolutionSetInstructionsRequest extends EvolutionScopeRequest {\n    readonly instructions: string;\n}',
+  },
+  {
+    name: 'EvolutionSetLessonsRequest',
+    declaration: 'export interface EvolutionSetLessonsRequest extends EvolutionScopeRequest {\n    readonly lessons: string;\n}',
+  },
+  {
+    name: 'EvolutionSetProfileRequest',
+    declaration: 'export interface EvolutionSetProfileRequest extends EvolutionScopeRequest {\n    readonly profile: string;\n}',
+  },
+  {
+    name: 'EvolutionStagedValue',
+    declaration: 'export interface EvolutionStagedValue {\n    readonly staged: readonly StagedWrite[];\n}',
   },
   {
     name: 'FeedbackCategory',
     declaration: 'export type FeedbackCategory = \'task-result\' | \'instruction-following\' | \'product-interaction\' | \'service-stability\' | \'resource-cost\' | \'security-privacy-permission\' | \'other\';',
+  },
+  {
+    name: 'FeedbackEntry',
+    declaration: 'export interface FeedbackEntry {\n    tool: string | null;\n    message: string;\n    count: number;\n    firstAt: string;\n    lastAt: string;\n}',
+  },
+  {
+    name: 'FeedbackSummaryEntry',
+    declaration: 'export interface FeedbackSummaryEntry extends FeedbackEntry {\n    sessions: number;\n}',
   },
   {
     name: 'FiberState',
@@ -4792,6 +5230,58 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'GrantRecord',
     declaration: 'export interface GrantRecord {\n    readonly kind: \'grant\';\n    readonly payload: unknown;\n}',
+  },
+  {
+    name: 'GraphAnswer',
+    declaration: 'export interface GraphAnswer {\n    subject: GraphNode;\n    relation: string;\n    objects: GraphNode[];\n}',
+  },
+  {
+    name: 'GraphEdge',
+    declaration: 'export interface GraphEdge {\n    from: string;\n    relation: string;\n    to: string;\n    firstAt: string;\n    lastAt: string;\n    count: number;\n}',
+  },
+  {
+    name: 'GraphExtractResult',
+    declaration: 'export interface GraphExtractResult extends GraphObserveResult {\n    observed: number;\n}',
+  },
+  {
+    name: 'GraphNode',
+    declaration: 'export interface GraphNode {\n    id: string;\n    label: string;\n    kind: string | null;\n}',
+  },
+  {
+    name: 'GraphObserveResult',
+    declaration: 'export interface GraphObserveResult {\n    addedNodes: number;\n    addedEdges: number;\n    reinforcedEdges: number;\n    skipped: number;\n}',
+  },
+  {
+    name: 'GraphReach',
+    declaration: 'export interface GraphReach {\n    node: GraphNode;\n    path: readonly string[];\n    depth: number;\n}',
+  },
+  {
+    name: 'GraphRecord',
+    declaration: 'export interface GraphRecord {\n    nodes: readonly GraphNode[];\n    edges: readonly GraphEdge[];\n    updatedAt: string;\n}',
+  },
+  {
+    name: 'GraphTriple',
+    declaration: 'export interface GraphTriple {\n    from: string;\n    relation: string;\n    to: string;\n    fromKind?: string | null;\n    toKind?: string | null;\n}',
+  },
+  {
+    name: 'HeartbeatReport',
+    declaration: 'export interface HeartbeatReport {\n    at: string;\n    tasks: HeartbeatTaskReport[];\n}',
+  },
+  {
+    name: 'HeartbeatRunOptions',
+    declaration: 'export interface HeartbeatRunOptions {\n    now?: number;\n    idleMs?: number;\n    force?: boolean;\n}',
+  },
+  {
+    name: 'HeartbeatTask',
+    declaration: 'export interface HeartbeatTask {\n    name: string;\n    intervalHours: number;\n    minIdleHours?: number;\n    run: (signal: AbortSignal) => Promise<void> | void;\n}',
+  },
+  {
+    name: 'HeartbeatTaskReport',
+    declaration: 'export interface HeartbeatTaskReport {\n    name: string;\n    outcome: \'ran\' | \'deferred\' | \'seeded\' | \'failed\';\n    reason?: string;\n    error?: string;\n}',
+  },
+  {
+    name: 'HeartbeatTaskState',
+    declaration: 'export interface HeartbeatTaskState {\n    name: string;\n    intervalHours: number;\n    minIdleHours: number;\n    lastRunAt: string | null;\n    lastError: string | null;\n    due: boolean;\n}',
   },
   {
     name: 'ImageAttachmentLimits',
@@ -5419,7 +5909,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'RollbackReport',
-    declaration: 'export interface RollbackReport {\n    at: string;\n    label: string;\n    restored: RollbackRestored[];\n    preRollback: string;\n}',
+    declaration: 'export interface RollbackReport {\n    at: string;\n    label: string;\n    restored: RollbackRestored[];\n    preRollback: string;\n    restoredDirs: string[];\n}',
   },
   {
     name: 'RollbackRestored',
@@ -6050,6 +6540,22 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type SettingsUpdateSource = \'update\' | \'provider\';',
   },
   {
+    name: 'ShareGptConversation',
+    declaration: 'export interface ShareGptConversation {\n    readonly id: string;\n    readonly conversations: readonly ShareGptMessage[];\n}',
+  },
+  {
+    name: 'ShareGptInput',
+    declaration: 'export interface ShareGptInput {\n    readonly sessionId: string;\n    readonly events: readonly SessionEvent[];\n}',
+  },
+  {
+    name: 'ShareGptMessage',
+    declaration: 'export interface ShareGptMessage {\n    readonly from: ShareGptRole;\n    readonly value: string;\n}',
+  },
+  {
+    name: 'ShareGptRole',
+    declaration: 'export type ShareGptRole = \'system\' | \'human\' | \'gpt\' | \'tool\';',
+  },
+  {
     name: 'ShellExecRequest',
     declaration: 'export interface ShellExecRequest {\n    command: string;\n    workdir?: string | undefined;\n    timeoutMs?: number | undefined;\n    stdoutMaxBytes?: number | undefined;\n    signal?: AbortSignal | undefined;\n    stdin?: string | undefined;\n    env?: Record<string, string> | undefined;\n    dshEnv?: DshEnvironment | undefined;\n    sandboxPolicy?: SandboxExecutionPolicy | undefined;\n}',
   },
@@ -6078,6 +6584,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface ShellSandboxInfo {\n    mode: SandboxMode;\n    denied: boolean;\n    enforcement?: SandboxEnforcement;\n    runnerFailed?: boolean;\n}',
   },
   {
+    name: 'SkillBlueprint',
+    declaration: 'export interface SkillBlueprint {\n    readonly schedule: string;\n    readonly deliver: \'session\' | \'file\';\n    readonly prompt: string;\n}',
+  },
+  {
     name: 'SkillCandidate',
     declaration: 'export interface SkillCandidate extends SkillSummary {\n    readonly rank: number;\n    readonly locator: unknown;\n    readonly metadata?: Readonly<Record<string, unknown>>;\n}',
   },
@@ -6091,7 +6601,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SkillDefinition',
-    declaration: 'export interface SkillDefinition extends SkillSummary {\n    readonly content: string;\n    readonly metadata?: Readonly<Record<string, unknown>>;\n}',
+    declaration: 'export interface SkillDefinition extends SkillSummary {\n    readonly content: string;\n    readonly metadata?: Readonly<Record<string, unknown>>;\n    readonly requiredEnv?: readonly string[];\n    readonly config?: Readonly<Record<string, string>>;\n    readonly blueprint?: SkillBlueprint | undefined;\n}',
   },
   {
     name: 'SkillEntry',
@@ -6127,7 +6637,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SkillProviderObservation',
-    declaration: 'export interface SkillProviderObservation {\n    readonly candidates: readonly SkillCandidate[];\n    readonly complete: boolean;\n}',
+    declaration: 'export interface SkillProviderObservation {\n    readonly candidates: readonly SkillCandidate[];\n    readonly complete: boolean;\n    readonly quarantinedCount?: number;\n}',
   },
   {
     name: 'SkillRegistration',
@@ -6147,7 +6657,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SkillUsageRecord',
-    declaration: 'export interface SkillUsageRecord {\n    useCount: number;\n    viewCount: number;\n    patchCount: number;\n    lastUsedAt: string | null;\n    lastViewedAt: string | null;\n    lastPatchedAt: string | null;\n    createdAt: string;\n    state: SkillLifecycleState;\n    pinned: boolean;\n    createdBy: SkillCreatedBy;\n    absorbedInto: string | null;\n    archivedAt: string | null;\n}',
+    declaration: 'export interface SkillUsageRecord {\n    useCount: number;\n    viewCount: number;\n    patchCount: number;\n    lastUsedAt: string | null;\n    sessionIds: readonly string[];\n    lastViewedAt: string | null;\n    lastPatchedAt: string | null;\n    createdAt: string;\n    state: SkillLifecycleState;\n    pinned: boolean;\n    createdBy: SkillCreatedBy;\n    absorbedInto: string | null;\n    archivedAt: string | null;\n}',
   },
   {
     name: 'SkillViewOptions',
@@ -6178,12 +6688,8 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type SpillSource = {\n    kind: \'tool\';\n    toolName: string;\n    callId: ToolCallId;\n    label: string;\n} | {\n    kind: \'session-reference\';\n    sessionId: SessionId;\n    label: string;\n};',
   },
   {
-    name: 'StagedWrite',
-    declaration: 'export interface StagedWrite {\n    id: string;\n    kind: StagedWriteKind;\n    op: string;\n    payload: unknown;\n    originSessionId: string;\n    createdAt: string;\n    gist: string;\n}',
-  },
-  {
     name: 'StagedWriteInput',
-    declaration: 'export interface StagedWriteInput {\n    scopeId: EvolutionScopeId;\n    kind: StagedWriteKind;\n    op: string;\n    payload: unknown;\n    originSessionId: string;\n    gist: string;\n}',
+    declaration: 'export interface StagedWriteInput {\n    scopeId: EvolutionScopeId;\n    kind: StagedWriteKind;\n    op: string;\n    payload: JsonValue;\n    originSessionId: string;\n    gist: string;\n}',
   },
   {
     name: 'StagedWriteKind',
@@ -6363,7 +6869,11 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SurveyCandidate',
-    declaration: 'export interface SurveyCandidate {\n    name: string;\n    description: string;\n    source: string;\n    state: SkillLifecycleState;\n    idleDays: number;\n    useCount: number;\n    viewCount: number;\n    patchCount: number;\n    lastUsedAt: string | null;\n}',
+    declaration: 'export interface SurveyCandidate {\n    name: string;\n    description: string;\n    source: string;\n    state: SkillLifecycleState;\n    idleDays: number;\n    useCount: number;\n    viewCount: number;\n    patchCount: number;\n    lastUsedAt: string | null;\n    failures: readonly SurveyFailure[];\n}',
+  },
+  {
+    name: 'SurveyFailure',
+    declaration: 'export interface SurveyFailure {\n    tool: string | null;\n    message: string;\n    count: number;\n    sessions: number;\n}',
   },
   {
     name: 'SystemMessage',
@@ -6632,6 +7142,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'ToolSchema',
     declaration: 'export interface ToolSchema {\n    name: string;\n    description: string;\n    parameters: Record<string, unknown>;\n}',
+  },
+  {
+    name: 'TrajectoryExportOptions',
+    declaration: 'export interface TrajectoryExportOptions {\n    readonly out?: string;\n}',
+  },
+  {
+    name: 'TrajectoryExportResult',
+    declaration: 'export interface TrajectoryExportResult {\n    readonly path: string;\n    readonly conversations: number;\n    readonly bytes: number;\n}',
   },
   {
     name: 'TurnEndCancelCause',

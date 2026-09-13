@@ -78,18 +78,27 @@ export interface AuthorizationPromptOptionView {
 }
 
 /** One question a flow waits on, without its Host-side withdrawal signal. */
-export interface AuthorizationPromptView {
-  /** Opaque id the answer calls address. */
-  readonly id: string
-  /** Presentation kind: `secret` masks the input and keeps it out of logs. */
-  readonly kind: 'text' | 'secret' | 'select'
-  /** What to ask. */
-  readonly message: string
-  /** Hint rendered inside an empty text input. */
-  readonly placeholder?: string
-  /** Choices for a select prompt. */
-  readonly options?: readonly AuthorizationPromptOptionView[]
-}
+export type AuthorizationPromptView =
+  | {
+    /** Opaque id the answer calls address. */
+    readonly id: string
+    /** Presentation kind: `secret` masks the input and keeps it out of logs. */
+    readonly kind: 'text' | 'secret'
+    /** What to ask. */
+    readonly message: string
+    /** Hint rendered inside an empty text input. */
+    readonly placeholder?: string
+  }
+  | {
+    /** Opaque id the answer calls address. */
+    readonly id: string
+    /** A choice among the offered options. */
+    readonly kind: 'select'
+    /** What to ask. */
+    readonly message: string
+    /** Choices; the answer carries the chosen option's id. */
+    readonly options: readonly AuthorizationPromptOptionView[]
+  }
 
 /** How one attempt ended. */
 export type AuthorizationOutcomeStatus = 'authorized' | 'cancelled' | 'failed'

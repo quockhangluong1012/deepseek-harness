@@ -122,6 +122,109 @@ async begin(request: AuthorizationRequest): Promise<AuthorizationOutcome>
 
 Source: [`packages/credentials/authorization/src/index.ts`](../../packages/credentials/authorization/src/index.ts)
 
+<a id="ctxauthorizationremote--authorizationremoteservice"></a>
+
+### `ctx.authorizationRemote` — `AuthorizationRemoteService`
+
+Host service backing the generated `ctx.remote.authorization` namespace. Every method validates its wire ids before touching the seam, and every seam refusal reaches the caller as a namespaced `authorization/*` failure rather than a transport error.
+
+```ts cordis-catalog
+/**
+ * Every registered flow, for a surface listing what can be authorized.
+ * @returns one view per flow, in registration order.
+ */
+@Remote list(): AuthorizationFlowView[]
+
+/**
+ * One registered flow.
+ * @param key - the credential record as `scope/id`.
+ * @returns the flow's view.
+ * @throws RemoteError code `gateway/bad-request` when the key is malformed,
+ *   or `authorization/no-flow` when nothing claims it.
+ */
+@Remote describe(key: string): AuthorizationFlowView
+
+/**
+ * Whether a stored grant exists for a record, without revealing anything it
+ * holds.
+ * @param key - the credential record as `scope/id`.
+ * @returns the stored state.
+ * @throws RemoteError code `gateway/bad-request` when the key is malformed.
+ */
+@Remote async status(key: string): Promise<AuthorizationStatusView>
+
+/**
+ * Forget the stored grant for a record. The issuer is not told: a provider
+ * that needs a server-side revoke has no place to declare it.
+ * @param key - the credential record as `scope/id`.
+ * @throws RemoteError code `gateway/bad-request` when the key is malformed.
+ */
+@Remote async signOut(key: string): Promise<void>
+
+/**
+ * Open an attempt for a record and run its flow in the background. The
+ * attempt's conversation is then polled through `frames`, and its pending
+ * prompts answered through `answer` and `decline`.
+ * @param key - the credential record as `scope/id`.
+ * @param method - which of the flow's methods to run; the flow's first when
+ *   absent.
+ * @returns the attempt to follow.
+ * @throws RemoteError code `gateway/bad-request` when the key is malformed,
+ *   `authorization/no-flow` when nothing claims the key,
+ *   `authorization/unknown-method` when the method is not offered, or
+ *   `authorization/in-flight` when an attempt already runs for the key.
+ */
+@Remote begin(key: string, method: string | undefined): AuthorizationAttemptView
+
+/**
+ * The attempt's conversation after a cursor.
+ * @param attemptId - the id `begin` returned.
+ * @param cursor - the `next` value of the previous poll, or 0 to read from
+ *   the start.
+ * @returns the frames after the cursor, with the terminal state.
+ * @throws RemoteError code `gateway/bad-request` when either id is
+ *   malformed, or `authorization/unknown-attempt` when no attempt runs
+ *   under the id.
+ */
+@Remote frames(attemptId: string, cursor: number): AuthorizationFramesView
+
+/**
+ * Answer one pending prompt.
+ * @param attemptId - the id `begin` returned.
+ * @param promptId - the id of the prompt frame to answer.
+ * @param value - the typed text, or the chosen option's id; never empty.
+ * @throws RemoteError code `gateway/bad-request` when an id is malformed or
+ *   the value is empty, `authorization/unknown-attempt` when no attempt runs
+ *   under the id, `authorization/unknown-prompt` when the attempt holds no
+ *   such prompt, or `authorization/inactive-prompt` when it was already
+ *   answered or withdrawn.
+ */
+@Remote answer(attemptId: string, promptId: string, value: string): void
+
+/**
+ * Decline one pending prompt. A declined prompt settles the attempt as
+ * `cancelled`, the same outcome as withdrawing it.
+ * @param attemptId - the id `begin` returned.
+ * @param promptId - the id of the prompt frame to decline.
+ * @throws RemoteError code `gateway/bad-request` when an id is malformed,
+ *   `authorization/unknown-attempt` when no attempt runs under the id,
+ *   `authorization/unknown-prompt` when the attempt holds no such prompt, or
+ *   `authorization/inactive-prompt` when it was already answered or
+ *   withdrawn.
+ */
+@Remote decline(attemptId: string, promptId: string): void
+
+/**
+ * Withdraw the attempt running for a record, if any. A withdrawn attempt
+ * settles as `cancelled`.
+ * @param key - the credential record as `scope/id`.
+ * @throws RemoteError code `gateway/bad-request` when the key is malformed.
+ */
+@Remote cancel(key: string): void
+```
+
+Source: [`packages/credentials/authorization-remote/src/index.ts`](../../packages/credentials/authorization-remote/src/index.ts)
+
 <a id="ctxcredentials--credentialprovider-abstract-seam"></a>
 
 ### `ctx.credentials` — `CredentialProvider` (abstract seam)
@@ -168,6 +271,20 @@ abstract set(ref: CredentialRef, value: string): Promise<void>
  * @param ref - the reference to remove.
  */
 abstract unset(ref: CredentialRef): Promise<void>
+
+/**
+ * Serialized read-decide-replace over one reference — the write path a
+ * rotation policy needs. `mutate` receives the value the reference resolves
+ * to at the moment the write is exclusive and returns its non-empty
+ * replacement, which is persisted and then published as
+ * `credentials/reference-updated`. The value passes only through that
+ * callback argument and never leaves the exclusive window. Rejects while a
+ * read-only source shadows the reference, like {@link set}: a rotation whose
+ * result resolution would keep ignoring is worse than one that failed loud.
+ * @param ref - the reference to rotate.
+ * @param mutate - receives the current value and returns its replacement.
+ */
+abstract rotate(ref: CredentialRef, mutate: (current: string | undefined) => string): Promise<void>
 
 /**
  * Read one stored record. The value is returned as its owner wrote it; a
@@ -275,7 +392,7 @@ One authorization attempt has finished and released its key. Fires for every ter
 'authorization/settled'(key: CredentialKey, settlement: AuthorizationSettlement): void
 ```
 
-Source: [`packages/credentials/authorization/src/index.ts`](../../packages/credentials/authorization/src/index.ts)
+Source: [`packages/credentials/authorization/src/types.ts`](../../packages/credentials/authorization/src/types.ts)
 
 <a id="credentials-events"></a>
 

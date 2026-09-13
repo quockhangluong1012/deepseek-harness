@@ -36,6 +36,7 @@ interface FakeSkill {
 async function harness(options: {
   sources?: Record<string, string>
   telemetry?: boolean
+  feedFailures?: boolean
   curatorConfig?: Record<string, unknown>
 } = {}) {
   const home = await mkdtemp(join(tmpdir(), 'curator-home-'))
@@ -50,12 +51,21 @@ async function harness(options: {
   const skills: FakeSkill[] = Object.entries(options.sources ?? {})
     .map(([name, source]) => ({ name, source, description: `${name} skill` }))
   const state = { failList: false }
+  const feedbackCalls: { sessionIds: string[]; limit: number }[] = []
   ctx.provide('skills', {
     list: async () => {
       if (state.failList) throw new Error('catalog unavailable')
       return skills.map(skill => ({ ...skill }))
     },
   } as never)
+  if (options.feedFailures === true) {
+    ctx.provide('evolutionFeedback', {
+      summary: (sessionIds: readonly string[], limit: number) => {
+        feedbackCalls.push({ sessionIds: [...sessionIds], limit })
+        return [{ tool: 'bash', message: 'command not found', count: 4, sessions: 2, firstAt: 't0', lastAt: 't1' }]
+      },
+    } as never)
+  }
   if (options.telemetry !== false) {
     await ctx.plugin(EvolutionSkillTelemetry)
   }
@@ -63,7 +73,7 @@ async function harness(options: {
   const fiber = await ctx.plugin(EvolutionCurator, options.curatorConfig ?? {})
   const curator = ctx.evolutionCurator
   const telemetry = ctx.get('evolutionSkillTelemetry')
-  return { ctx, fiber, curator, telemetry, skills, baseline, state }
+  return { ctx, fiber, curator, telemetry, skills, baseline, state, feedbackCalls }
 }
 
 describe('evolution curator', () => {
@@ -119,6 +129,34 @@ describe('evolution curator', () => {
       expect(typeof survey.at).toBe('string')
       const defaulted = await h.curator.surveyCandidates()
       expect(defaulted.candidates).toHaveLength(5)
+    } finally {
+      await h.fiber.dispose()
+    }
+  })
+
+  it('carries recorded failures from the correlated sessions', async () => {
+    const h = await harness({ sources: { writer: 'user-dsh' }, feedFailures: true, curatorConfig: { maxCandidateFailures: 3 } })
+    try {
+      await h.telemetry?.markAgentCreated('writer')
+      await h.telemetry?.markUsed('writer', undefined, 'session-1')
+      await h.telemetry?.markUsed('writer', undefined, 'session-2')
+      const survey = await h.curator.surveyCandidates()
+      expect(survey.candidates[0]).toMatchObject({
+        name: 'writer',
+        failures: [{ tool: 'bash', message: 'command not found', count: 4, sessions: 2 }],
+      })
+      expect(h.feedbackCalls).toEqual([{ sessionIds: ['session-2', 'session-1'], limit: 3 }])
+    } finally {
+      await h.fiber.dispose()
+    }
+  })
+
+  it('carries no failures without a feedback store', async () => {
+    const h = await harness({ sources: { writer: 'user-dsh' } })
+    try {
+      await h.telemetry?.markAgentCreated('writer')
+      await h.telemetry?.markUsed('writer', undefined, 'session-1')
+      expect((await h.curator.surveyCandidates()).candidates[0]).toMatchObject({ name: 'writer', failures: [] })
     } finally {
       await h.fiber.dispose()
     }

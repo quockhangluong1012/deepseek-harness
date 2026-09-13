@@ -20,6 +20,13 @@ export interface SkillUsageRecord {
   patchCount: number
   /** ISO-8601 instant of the last load, or null when never loaded. */
   lastUsedAt: string | null
+  /**
+   * Sessions that loaded this skill, newest first and deduplicated, capped by
+   * the store's `maxSessionIds`. Correlation is what lets a consumer pull the
+   * failures recorded while a skill was in play; views and mutations do not
+   * contribute.
+   */
+  sessionIds: readonly string[]
   /** ISO-8601 instant of the last view, or null when never viewed. */
   lastViewedAt: string | null
   /** ISO-8601 instant of the last mutation, or null when never mutated. */

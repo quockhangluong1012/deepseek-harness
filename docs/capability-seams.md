@@ -16,6 +16,9 @@ flowchart LR
   pkg_llm_deepseek["llm-deepseek"]
   pkg_client_file_upload["client-file-upload"]
   svc_fileUploads["ctx.fileUploads<br/>Agent-scoped staged file uploads"]
+  pkg_embeddings["embeddings"]
+  svc_embeddings["ctx.embeddings<br/>Embedding provider registry"]
+  pkg_embeddings_http["embeddings-http"]
   pkg_llm["llm"]
   svc_llm["ctx.llm<br/>LLM adapter registry"]
   pkg_llm_replay["llm-replay"]
@@ -43,6 +46,8 @@ flowchart LR
   svc_sessionSkillCatalog["ctx.sessionSkillCatalog<br/>Session-addressed skill Remote adapter"]
   pkg_api_settings_controller["api-settings-controller"]
   svc_credentialsController["ctx.credentialsController<br/>Host credential-surface Remote controller"]
+  pkg_authorization_remote["authorization-remote"]
+  svc_authorizationRemote["ctx.authorizationRemote<br/>Host authorization-surface Remote controller"]
   svc_settingsController["ctx.settingsController<br/>Host settings-surface Remote controller"]
   pkg_api_workspace_files["api-workspace-files"]
   svc_workspaceFiles["ctx.workspaceFiles<br/>Host workspace file Remote service"]
@@ -145,6 +150,18 @@ flowchart LR
   pkg_command_evolution["command-evolution"]
   svc_evolutionReviewer["ctx.evolutionReviewer<br/>Background evolution reviewer"]
   svc_evolutionCurator["ctx.evolutionCurator<br/>Idle skill-lifecycle curator"]
+  pkg_evolution_heartbeat["evolution-heartbeat"]
+  svc_evolutionHeartbeat["ctx.evolutionHeartbeat<br/>Host-wide idle-triggered task registry"]
+  pkg_evolution_feedback["evolution-feedback"]
+  svc_evolutionFeedback["ctx.evolutionFeedback<br/>Per-session failure-observation store"]
+  pkg_evolution_graph["evolution-graph"]
+  svc_evolutionGraph["ctx.evolutionGraph<br/>Per-scope knowledge graph"]
+  pkg_evolution_controller["evolution-controller"]
+  svc_evolutionController["ctx.evolutionController<br/>Evolution scope Remote controller"]
+  pkg_client_ui_evolution["client-ui-evolution"]
+  svc_evolutionCuratorStatus["ctx.evolutionCuratorStatus<br/>Evolution curator-status Remote face"]
+  pkg_evolution_trajectory["evolution-trajectory"]
+  svc_evolutionTrajectory["ctx.evolutionTrajectory<br/>ShareGPT trajectory export service"]
   svc_agents["ctx.agents<br/>Agent service"]
   pkg_acp["acp"]
   pkg_agent_default_model["agent-default-model"]
@@ -262,10 +279,12 @@ flowchart LR
   pkg_attachment --> svc_attachments
   pkg_attachment_local --> svc_attachments
   pkg_authorization --> svc_authorization
+  pkg_authorization_remote --> svc_authorizationRemote
   pkg_bash_local --> svc_shell
   pkg_bash_sandbox --> svc_shell
   pkg_client_file_upload --> svc_fileUploads
   pkg_client_modules --> svc_clientModules
+  pkg_client_ui_evolution --> svc_evolutionCuratorStatus
   pkg_client_ui_usage_dashboard --> svc_usageDashboard
   pkg_client_ui_workspace_memory --> svc_workspaceMemoryController
   pkg_code_runtime --> svc_codeRuntime
@@ -281,10 +300,17 @@ flowchart LR
   pkg_credentials_local --> svc_credentials
   pkg_deepseek_llm_api_extensions --> svc_deepseekLlmApiExtensions
   pkg_e2b --> svc_e2b
+  pkg_embeddings --> svc_embeddings
+  pkg_embeddings_http --> svc_embeddings
+  pkg_evolution_controller --> svc_evolutionController
   pkg_evolution_curator --> svc_evolutionCurator
+  pkg_evolution_feedback --> svc_evolutionFeedback
+  pkg_evolution_graph --> svc_evolutionGraph
+  pkg_evolution_heartbeat --> svc_evolutionHeartbeat
   pkg_evolution_memory --> svc_evolutionMemory
   pkg_evolution_reviewer --> svc_evolutionReviewer
   pkg_evolution_skill_telemetry --> svc_evolutionSkillTelemetry
+  pkg_evolution_trajectory --> svc_evolutionTrajectory
   pkg_experimental_agent_team --> svc_agentTeams
   pkg_experimental_code_runtime_python --> svc_codeRuntime
   pkg_file_reference --> svc_fileReferences
@@ -518,6 +544,7 @@ flowchart LR
 | --- | --- | --- | --- | --- | --- | --- |
 | `ctx.attachments` | `seam` | [`attachment`](../packages/attachment/attachment) | [`attachment-local`](../packages/attachment/attachment-local) | [`api-session-controller`](../packages/api/session-controller), [`tool-fs`](../packages/fs/tool-fs), [`llm-pi-ai`](../packages/llm/llm-pi-ai), [`llm-deepseek`](../packages/llm/llm-deepseek) | - | The host commits accepted images before session events; provider adapters resolve authorized durable references into provider-native content. |
 | `ctx.fileUploads` | `core` | [`client-file-upload`](../packages/client/file-upload) | - | [`api-session-controller`](../packages/api/session-controller) | - | Owns streaming intake, durable storage, and staged receipt lifetime; the Session controller binds receipts to accepted submissions. |
+| `ctx.embeddings` | `seam` | [`embeddings`](../packages/llm/embeddings) | [`embeddings-http`](../packages/llm/embeddings-http) | - | - | Providers register embedding routes; a batch resolves its route and model, serves what the content-hash cache holds, and asks the provider for the rest. No in-repo consumer injects it yet. |
 | `ctx.llm` | `seam` | [`llm`](../packages/llm/llm) | [`llm-deepseek`](../packages/llm/llm-deepseek), [`llm-pi-ai`](../packages/llm/llm-pi-ai), [`llm-replay`](../packages/test-support/llm-replay) | [`agent-loop`](../packages/core/agent-loop), [`compaction-basic`](../packages/compaction/compaction-basic) | - | Adapters register provider implementations; the loop and compaction call the provider-neutral stream service. |
 | `ctx.deepseekLlmApiExtensions` | `seam` | [`deepseek-llm-api-extensions`](../packages/llm/deepseek-llm-api-extensions) | [`session-log-deepseek`](../packages/session/session-log-deepseek), [`plugin-package-inventory-deepseek`](../packages/llm/plugin-package-inventory-deepseek) | [`llm-deepseek`](../packages/llm/llm-deepseek) | - | Plugins prepare independent top-level fields; the official adapter merges them and commits their delivery state after HTTP acceptance. |
 | `ctx.tokenMeter` | `core` | [`token-meter`](../packages/llm/token-meter) | - | [`compaction-basic`](../packages/compaction/compaction-basic) | - | Owns isolated per-session replay folds; pressure consumers share immutable revisioned measurements. |
@@ -527,6 +554,7 @@ flowchart LR
 | `ctx.sessionFileReferences` | `core` | [`api-session-controller`](../packages/api/session-controller) | - | - | - | Delegates file-reference discovery through the Session Controller's established Agent lookup policy. |
 | `ctx.sessionSkillCatalog` | `core` | [`api-session-controller`](../packages/api/session-controller) | - | - | - | Lists the Session composition's user-invocable skills without activating a cold Agent. |
 | `ctx.credentialsController` | `core` | [`api-settings-controller`](../packages/api/settings-controller) | - | - | - | Projects the credential-reference seam onto the generated Remote namespace: batch fan-out, view projection, and refusal mapping live here, not on the seam Definition. |
+| `ctx.authorizationRemote` | `core` | [`authorization-remote`](../packages/credentials/authorization-remote) | - | - | - | Projects the authorization flow registry onto the generated Remote namespace: attempts, cursor-polled conversation frames, and prompt answers live here, while the seam owns the flow lifecycle and commit confirmation. |
 | `ctx.settingsController` | `core` | [`api-settings-controller`](../packages/api/settings-controller) | - | - | - | Projects the user-settings seam onto the generated Remote namespace: the read is always redacted and every refusal is classified here, not on the seam Definition. |
 | `ctx.workspaceFiles` | `core` | [`api-workspace-files`](../packages/api/workspace-files) | - | - | - | Serves stat, paged text, byte windows, directory listings, and the change feed for files inside a Session's workspace root, confined by lstat, containment, and a stat re-check. |
 | `ctx.workspaceController` | `core` | [`api-workspace-controller`](../packages/api/workspace-controller) | - | - | - | Owns Workspace commands and reconnect-safe Workspace state delivery through the generated Remote namespace. |
@@ -567,6 +595,12 @@ flowchart LR
 | `ctx.evolutionMemory` | `core` | [`evolution-memory`](../packages/evolution/evolution-memory) | - | [`evolution-reviewer`](../packages/evolution/evolution-reviewer), [`evolution-memory-context`](../packages/context/evolution-memory-context), [`command-evolution`](../packages/evolution/command-evolution) | - | The evolution-memory plugin owns the durable per-scope record; evolution-reviewer and evolution-memory-context read and write it, and command-evolution resolves staged approvals against it. |
 | `ctx.evolutionReviewer` | `core` | [`evolution-reviewer`](../packages/evolution/evolution-reviewer) | - | [`command-evolution`](../packages/evolution/command-evolution) | - | The evolution-reviewer plugin derives lessons in the background; command-evolution calls its rebuild for /refine, and no other package reads the service. |
 | `ctx.evolutionCurator` | `core` | [`evolution-curator`](../packages/evolution/evolution-curator) | - | - | - | The evolution-curator plugin owns idle-triggered lifecycle passes over skill telemetry; the composition supplies the idle observation through maybeRun, and no in-repo package consumes the service directly. |
+| `ctx.evolutionHeartbeat` | `core` | [`evolution-heartbeat`](../packages/evolution/evolution-heartbeat) | - | - | - | The evolution-heartbeat plugin owns the host-wide idle-triggered task registry; it registers no prompt, tool, or session event, and maintenance packages register their tasks with it. |
+| `ctx.evolutionFeedback` | `core` | [`evolution-feedback`](../packages/evolution/evolution-feedback) | - | - | - | The evolution-feedback plugin observes failing tool results per session and aggregates them into the natural-language feedback the learning loop reads; it registers no prompt, tool, or session event. |
+| `ctx.evolutionGraph` | `core` | [`evolution-graph`](../packages/evolution/evolution-graph) | - | - | - | The evolution-graph plugin owns durable per-scope entities and relations with bounded traversal and one deterministic extraction; command-evolution queries it through /graph. |
+| `ctx.evolutionController` | `core` | [`evolution-controller`](../packages/evolution/evolution-controller) | - | - | - | The evolution-controller plugin serves scope verbs and the journey read model over the generated evolution Remote namespace; the evolution journey page reads it from the browser. |
+| `ctx.evolutionCuratorStatus` | `core` | [`client-ui-evolution`](../packages/client/ui-evolution) | - | - | - | The evolution journey host face provides the evolutionCurator Remote namespace reporting curator status to the browser page; the generated contribution carries it to the client half. |
+| `ctx.evolutionTrajectory` | `core` | [`evolution-trajectory`](../packages/evolution/evolution-trajectory) | - | - | - | The evolution-trajectory plugin exports one Session or every Session of a scope as ShareGPT trajectories, written on the Host path. |
 | `ctx.agents` | `core` | [`agent`](../packages/core/agent) | - | [`agent-loop`](../packages/core/agent-loop), [`acp`](../packages/acp/acp), [`subagent-in-process-driver`](../packages/subagent/subagent-in-process-driver) | - | Owns live Agent handles, the create/resume factory seam, and process-local initiator propagation. |
 | `ctx.agentDefaultModel` | `core` | [`agent-default-model`](../packages/core/agent-default-model) | - | [`api-session-controller`](../packages/api/session-controller), [`headless`](../packages/bundle/headless) | - | Layers the default ModelSelection through settings so direct and Host-backed Agent entry points share one state owner. |
 | `ctx.agentLoop` | `bundle` | [`agent-loop`](../packages/core/agent-loop) | - | [`base`](../packages/bundle/base), [`sdk-minimal`](../packages/bundle/sdk-minimal) | - | The one concrete loop plugin; extension packages depend on dsh-agent events and services, not on this package. |

@@ -3,7 +3,14 @@
 import { SessionLogOffset } from '@deepseek-ai/dsh-session'
 import type { SessionEvent, SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
 import SessionQueryEngine from '@deepseek-ai/dsh-session-query'
-import type { SessionObservation, SessionObservationOptions } from '@deepseek-ai/dsh-session-query'
+import type {
+  SessionObservation,
+  SessionObservationOptions,
+  SessionSearchExecContext,
+  SessionSearchHit,
+  SessionSearchPage,
+  SessionSearchRequest,
+} from '@deepseek-ai/dsh-session-query'
 
 /** Undisposable immutable cut over one session's header and events. */
 function cut(
@@ -50,6 +57,15 @@ export class TestSessionQuery extends SessionQueryEngine {
     } finally {
       await handle.close()
     }
+  }
+
+
+  override searchSessionsSemantic(
+    _request: SessionSearchRequest,
+    _exec?: SessionSearchExecContext,
+  ): Promise<SessionSearchPage<SessionSearchHit>> {
+    // This double models a deployment with no vector channel.
+    return Promise.reject(new Error('semantic session search is not supported by this double'))
   }
 
   override searchSessions(): Promise<never> {

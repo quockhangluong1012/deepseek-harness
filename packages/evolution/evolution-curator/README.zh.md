@@ -65,6 +65,7 @@ Host 启动时挂载本插件一次。此后它自行拥有维护计划：自己
 | `maxInputBytes` | `65536` | 归并调查框定的字节预算 |
 | `maxOutputTokens` | `2048` | 每次归并请求的输出 token 上限 |
 | `maxSteps` | `4` | 有界工具循环可花费的归并请求数 |
+| `maxCandidateFailures` | `5` | 每个调查候选携带的已记录失败，作为反思证据 |
 | `timeoutMs` | `60000` | 一次归并运行的截止时间 |
 
 生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-evolution-curator)是每个可接受字段的详尽来源。
@@ -83,7 +84,7 @@ Host 启动时挂载本插件一次。此后它自行拥有维护计划：自己
 
 ### 归并
 
-`consolidate` 默认关闭，且产生真实模型调用。开启时，真实通过调查处于 `active` 或 `stale` 状态的 agent 创建技能，在 `maxInputBytes` 内框定它们，并在 fork 启动前追加一条 `cost` 台账行 `{inputBytes, maxOutputTokens, provider, model, truncated}`。fork 是 `ctx.llm` 之上的有界进程内工具循环，白名单只有两个工具：`skill_view` 读取一个候选包，`skill_apply` 为每个候选记录一条裁决（`keep`、`patch`、`consolidate`、`archive`）。循环至多花 `maxSteps` 次请求，并在首个纯文本回答处结束；请求失败会抛出，运行的截止时间在 `timeoutMs` 处中止它，插件处置时同样中止。
+`consolidate` 默认关闭，且产生真实模型调用。开启时，真实通过调查处于 `active` 或 `stale` 状态的 agent 创建技能，在 `maxInputBytes` 内框定它们，并在 fork 启动前追加一条 `cost` 台账行 `{inputBytes, maxOutputTokens, provider, model, truncated}`。每个候选都携带加载过它的那些会话里记录的失败——至多 `maxCandidateFailures` 条，在反馈存储已挂载时读取——因此裁决反映的是真正坏在哪里，而不是技能作者的意图。fork 是 `ctx.llm` 之上的有界进程内工具循环，白名单只有两个工具：`skill_view` 读取一个候选包，`skill_apply` 为每个候选记录一条裁决（`keep`、`patch`、`consolidate`、`archive`）。循环至多花 `maxSteps` 次请求，并在首个纯文本回答处结束；请求失败会抛出，运行的截止时间在 `timeoutMs` 处中止它，插件处置时同样中止。
 
 所有写入都由整理器执行，因此无论模型要求什么，整包规则都成立。`patch` 就地重写 `SKILL.md`。`consolidate` 裁决把候选的整个目录搬到伞技能之下（`<umbrella>/<name>/`），把被搬移树中每一处 `${DSH_SKILL_DIR}` 引用改写为新的相对根，并向伞技能的 `SKILL.md` 追加一条引用——随包携带 `references/`、`templates/`、`scripts/` 或 `assets/` 的包绝不会被压平成只剩 `SKILL.md`。`archive` 裁决把整个目录搬入技能旁边的 `.archive/`。伞技能缺失、不可写，或已占用同名目录时，包原地不动，该裁决计入跳过。归并记一条携带两端点的 `move` 台账条目；生命周期移动与自动通过走同一套快照、`pass` 与 `transition` 机制；`rollbackPass` 把每个被搬移的包搬回并恢复生命周期状态。
 

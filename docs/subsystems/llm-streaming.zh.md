@@ -887,6 +887,43 @@ async prepare(request: DeepSeekLlmApiExtensionRequest): Promise<PreparedDeepSeek
 
 Source: [`packages/llm/deepseek-llm-api-extensions/src/index.ts`](../../packages/llm/deepseek-llm-api-extensions/src/index.ts)
 
+<a id="ctxembeddings--embeddingsruntime"></a>
+
+### `ctx.embeddings` — `EmbeddingsRuntime`
+
+The `embeddings` service: routes registered by providers, and one batch call that resolves the route, serves what the cache holds, and asks the provider only for the texts it does not.
+
+```ts cordis-catalog
+/**
+ * Register a provider for the given routes, all-or-nothing. A route already
+ * held by a different provider fails the registration and leaves the registry
+ * exactly as it was. Disposed with the fiber.
+ * @param routes - every route this provider serves.
+ * @param provider - the provider that embeds for those routes.
+ * @returns the disposer releasing whatever the registration holds.
+ */
+registerProvider(routes: readonly string[], provider: EmbeddingsProvider): () => void
+
+/**
+ * Resolve the route and model one request runs against, without calling a
+ * provider. This is the defaulting step: an omitted route is the single
+ * registered one, and an omitted model is the provider's own default.
+ * @param request - the batch's routing fields.
+ * @returns the route and model the request resolves to.
+ */
+resolve(request: EmbeddingRequest): EmbeddingSpec
+
+/**
+ * Embed one batch, serving texts the cache already holds and asking the
+ * provider only for the rest.
+ * @param request - texts and routing fields.
+ * @returns vectors in request order, with the cache and provider counts.
+ */
+async embed(request: EmbeddingRequest): Promise<EmbeddingResult>
+```
+
+Source: [`packages/llm/embeddings/src/index.ts`](../../packages/llm/embeddings/src/index.ts)
+
 <a id="ctxllm--llmruntime"></a>
 
 ### `ctx.llm` — `LlmRuntime`

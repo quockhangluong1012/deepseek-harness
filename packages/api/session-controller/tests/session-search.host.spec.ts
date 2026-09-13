@@ -14,6 +14,8 @@ import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import {
   SessionQueryEngine,
   SessionQueryError,
+  SessionSearchExecContext,
+  SessionSearchPage,
   type SessionSearchHit,
   type SessionSearchRequest,
 } from '@deepseek-ai/dsh-session-query'
@@ -71,6 +73,15 @@ class SearchSessionQuery extends SessionQueryEngine {
     ) => Promise<unknown>,
   ) {
     super(ctx)
+  }
+
+
+  override searchSessionsSemantic(
+    _request: SessionSearchRequest,
+    _exec?: SessionSearchExecContext,
+  ): Promise<SessionSearchPage<SessionSearchHit>> {
+    // This double models a deployment with no vector channel.
+    return Promise.reject(new Error('semantic session search is not supported by this double'))
   }
 
   override searchSessions(

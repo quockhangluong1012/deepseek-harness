@@ -18,6 +18,7 @@ export const skillUsageRecord = z.object({
   viewCount: z.number().int().nonnegative(),
   patchCount: z.number().int().nonnegative(),
   lastUsedAt: z.string().nullable(),
+  sessionIds: z.array(z.string()).default([]),
   lastViewedAt: z.string().nullable(),
   lastPatchedAt: z.string().nullable(),
   createdAt: z.string(),

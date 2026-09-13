@@ -29,6 +29,26 @@ Mount the plugin when skill curation needs durable usage evidence. Records are k
 
 Two surfaces exist beside the counters. `skillCreationEvidence(paths)` counts produced outputs that repeat, grouping by normalized path (case-folded, `/` and `\` alike, trailing separators ignored) and firing at three repeats — the counted trigger for proposing a skill; it never reads or quotes file content, and no vendor-reported repetition number feeds it. `recordConsolidationCost(row)` stores the `{ inputBytes, maxOutputTokens, provider, model, truncated }` row a consolidation-scale run records before its fan-out, and `readConsolidationCost()` returns a detached copy of the latest row or `undefined` when none was recorded.
 
+### Session correlation
+
+`markUsed(name, source, sessionId)` records the loading session beside the counter — newest first, deduplicated, capped by `maxSessionIds`. The passive observer supplies the session it ran for, so the correlation needs no extra wiring. This is what lets a consumer pull the failures recorded while a skill was in play, which is the evidence a consolidation verdict reflects on. Views and mutations record no session.
+
+### Configuration
+
+`maxSessionIds` is a validated `Config` member changeable from `cordis.yml`.
+
+```yaml
+- name: '@deepseek-ai/dsh-evolution-skill-telemetry'
+  config:
+    maxSessionIds: 20
+```
+
+| Field | Default | Meaning |
+|---|---|---|
+| `maxSessionIds` | `20` | Sessions retained per skill for failure correlation, newest first |
+
+The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-evolution-skill-telemetry) is the exhaustive source for every accepted field.
+
 -----
 
 <a id="understand-the-implementation"></a>
@@ -45,7 +65,7 @@ One durable record per skill name in storage domain `evolution_skill_usage`, ver
 
 | File | Role |
 |---|---|
-| [`src/index.ts`](src/index.ts) | Plugin entry: `EvolutionSkillTelemetry` service, marks, and the `tools/post-execute` observer |
+| [`src/index.ts`](src/index.ts) | Plugin entry: `EvolutionSkillTelemetry` service, marks, session correlation, and the `tools/post-execute` observer |
 | [`src/spec.ts`](src/spec.ts) | Domain declaration: record schema and `defineDomain` spec |
 | [`src/types.ts`](src/types.ts) | Public `SkillUsageRecord`, lifecycle state, provenance, repeated-output evidence, and consolidation cost-row types |
 
@@ -84,7 +104,7 @@ These limits define when the telemetry is a poor fit. They are current package c
 
 - **Machine-local only** — records live under `$DSH_HOME`, never inside the project directory.
 - **Only counted flows count** — direct file edits outside `skill_manage` and loads outside the `skill` tool never reach a counter.
-- **No per-session breakdown** — counters are global per skill; there is no per-scope or per-session view.
+- **Correlation is bounded and load-only** — only the most recent `maxSessionIds` sessions are retained per skill, and only `skill`-tool loads contribute; views and mutations record no session.
 - **Bundled and hub skills are invisible** — excluded sources never seed records, so curation sees only locally owned skills.
 
 <a id="dev-note"></a>

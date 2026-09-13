@@ -190,7 +190,7 @@ export class AuthorizationRemoteService extends TypertRemoteService {
     if (flow === undefined) {
       throw new RemoteError('authorization/no-flow', `no authorization flow is registered for "${key}"`, { key })
     }
-    const resolved = method ?? flow.methods[0].id
+    const resolved = method ?? flow.methods[0]?.id ?? ''
     if (resolved.length === 0 || !flow.methods.some(candidate => candidate.id === resolved)) {
       throw new RemoteError(
         'authorization/unknown-method',
@@ -217,11 +217,11 @@ export class AuthorizationRemoteService extends TypertRemoteService {
       key: parsed,
       method: resolved,
       interaction: {
-        notify: notice => { this.pushNotice(attempt, notice) },
+        notify: (notice) => { this.pushNotice(attempt, notice) },
         prompt: prompt => this.waitForAnswer(attempt, prompt),
       },
     }).then(
-      outcome => { this.finish(attempt, outcome.status) },
+      (outcome) => { this.finish(attempt, outcome.status) },
       (error: unknown) => { this.finish(attempt, 'failed', messageOf(error)) },
     )
     return { attemptId, key: flow.key, label: flow.label, method: resolved }
@@ -263,7 +263,7 @@ export class AuthorizationRemoteService extends TypertRemoteService {
    *   answered or withdrawn.
    */
   @Remote
-  async answer(attemptId: string, promptId: string, value: string): Promise<void> {
+  answer(attemptId: string, promptId: string, value: string): void {
     const { attempt } = this.address(attemptId)
     this.checkPromptId(promptId)
     if (typeof value !== 'string' || value.length === 0) {
@@ -284,7 +284,7 @@ export class AuthorizationRemoteService extends TypertRemoteService {
    *   withdrawn.
    */
   @Remote
-  async decline(attemptId: string, promptId: string): Promise<void> {
+  decline(attemptId: string, promptId: string): void {
     const { attempt } = this.address(attemptId)
     this.checkPromptId(promptId)
     this.settlePrompt(attempt, attemptId, promptId, { kind: 'decline' })
@@ -334,7 +334,7 @@ export class AuthorizationRemoteService extends TypertRemoteService {
    * @throws RemoteError code `gateway/bad-request` when the key is malformed.
    */
   @Remote
-  async cancel(key: string): Promise<void> {
+  cancel(key: string): void {
     this.ctx.authorization.cancel(this.parseKey(key))
   }
 
@@ -441,19 +441,23 @@ export class AuthorizationRemoteService extends TypertRemoteService {
   private waitForAnswer(attempt: Attempt, prompt: AuthorizationPrompt): Promise<string> {
     attempt.prompts += 1
     const id = `p${String(attempt.prompts)}`
-    const view: AuthorizationPromptView = {
-      id,
-      kind: prompt.kind,
-      message: prompt.message,
-      ...prompt.placeholder === undefined ? {} : { placeholder: prompt.placeholder },
-      ...prompt.kind !== 'select' ? {} : {
+    const view: AuthorizationPromptView = prompt.kind === 'select'
+      ? {
+        id,
+        kind: 'select',
+        message: prompt.message,
         options: prompt.options.map(option => ({
           id: option.id,
           label: option.label,
           ...option.description === undefined ? {} : { description: option.description },
         })),
-      },
-    }
+      }
+      : {
+        id,
+        kind: prompt.kind,
+        message: prompt.message,
+        ...prompt.placeholder === undefined ? {} : { placeholder: prompt.placeholder },
+      }
     attempt.frames.push({ seq: attempt.frames.length, kind: 'prompt', prompt: view })
     return new Promise<string>((resolve, reject) => {
       attempt.pending.set(id, { resolve, reject, active: true })

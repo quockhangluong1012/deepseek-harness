@@ -27,6 +27,12 @@
       "path": "../../credentials/credentials"
     },
     {
+      "path": "../../credentials/authorization"
+    },
+    {
+      "path": "../../credentials/authorization-remote"
+    },
+    {
       "path": "../../context/file-reference"
     },
     {

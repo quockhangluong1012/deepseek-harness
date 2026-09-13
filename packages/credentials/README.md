@@ -1,5 +1,5 @@
 ---
-description: "Package map for the credential capability family: the credential-reference seam, the environment-and-file provider, the authorization flow registry, and how references keep secret values out of configuration."
+description: "Package map for the credential capability family: the credential-reference seam, the environment-and-file provider, the authorization flow registry, its Remote owner, and how references keep secret values out of configuration."
 kind: "package-group"
 ---
 
@@ -22,13 +22,14 @@ The `credentials/` group lets configuration name secrets instead of embedding th
 <a id="packages"></a>
 ## Packages
 
-Three packages provide the credential feature: one stores, looks up, and removes secrets at runtime while configuration only names them; the second is the default on-machine store; the third lets plugins obtain credentials that have to be asked for. Their READMEs cover day-to-day use; the subsystem reference owns the exhaustive contracts.
+Four packages provide the credential feature: one stores, looks up, and removes secrets at runtime while configuration only names them; the second is the default on-machine store; the third lets plugins obtain credentials that have to be asked for; the fourth serves that flow registry to browser surfaces over Remote. Their READMEs cover day-to-day use; the subsystem reference owns the exhaustive contracts.
 
 | Package | Role | ctx key |
 |---|---|---|
 | [`credentials/`](credentials/README.md) | Store, look up, and remove secrets at runtime while configuration only names them | `ctx.credentials` |
 | [`credentials-local/`](credentials-local/README.md) | The default on-machine store: a private YAML file, environment overrides win | registers `ctx.credentials` |
 | [`authorization/`](authorization/README.md) | Plugin-owned flows that obtain a credential by asking a human | `ctx.authorization` |
+| [`authorization-remote/`](authorization-remote/README.md) | The `authorization` Remote namespace: browser surfaces run sign-in attempts through it | `ctx.authorizationRemote` |
 
 -----
 

@@ -1,0 +1,37 @@
+/* Sign-in companion inside a Models provider card. Every color resolves through a `--dsw-alias-*` token. */
+
+.block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.signedIn {
+  color: var(--dsw-alias-state-success-primary);
+}
+
+.select {
+  background: var(--dsw-alias-bg-primary);
+  color: var(--dsw-alias-label-primary);
+  border: 0.5px solid var(--dsw-alias-border-l3);
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+
+.notice {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--dsw-alias-label-primary);
+}
+
+.error {
+  color: var(--dsw-alias-state-error-primary);
+}

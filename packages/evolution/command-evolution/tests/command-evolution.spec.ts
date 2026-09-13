@@ -12,6 +12,7 @@ import { DomainFacility } from '@deepseek-ai/dsh-storage-domain'
 import { RemoteError } from '@deepseek-ai/dsh-typert-protocol'
 import { EvolutionScopeId } from '@deepseek-ai/dsh-evolution-memory'
 import type { EvolutionScopeId as ScopeId } from '@deepseek-ai/dsh-evolution-memory'
+import EvolutionGraph from '@deepseek-ai/dsh-evolution-graph'
 import type {} from '@deepseek-ai/dsh-evolution-reviewer'
 import type { PassSummary, PurgeReport, RollbackReport } from '@deepseek-ai/dsh-evolution-curator'
 import type { SkillUsageRecord } from '@deepseek-ai/dsh-evolution-skill-telemetry'
@@ -101,7 +102,7 @@ interface Harness {
 async function harness(
   withReviewer = true,
   governance?: GovernanceStubs,
-  extra: { trajectory?: boolean; skills?: boolean } = {},
+  extra: { trajectory?: boolean; skills?: boolean; graph?: boolean } = {},
 ): Promise<Harness> {
   const dir = await realpath(await mkdtemp(join(tmpdir(), 'evc-')))
   const ctx = new Context()
@@ -135,7 +136,7 @@ async function harness(
       setPinned: async (name: string, pinned: boolean) => {
         governance.setPinnedCalls?.push({ name, pinned })
         if (governance.setPinnedError !== undefined) throw governance.setPinnedError
-        return { name, useCount: 0, viewCount: 0, patchCount: 0, lastUsedAt: null, lastViewedAt: null, lastPatchedAt: null, createdAt: '2026-01-01T00:00:00.000Z', state: 'active', pinned, createdBy: null, absorbedInto: null, archivedAt: null } as SkillUsageRecord
+        return { name, useCount: 0, viewCount: 0, patchCount: 0, lastUsedAt: null, sessionIds: [], lastViewedAt: null, lastPatchedAt: null, createdAt: '2026-01-01T00:00:00.000Z', state: 'active', pinned, createdBy: null, absorbedInto: null, archivedAt: null } as SkillUsageRecord
       },
     } as never)
   } else if (governance?.entries !== undefined) {
@@ -162,7 +163,7 @@ async function harness(
       adopt: async (name: string) => {
         governance.adoptCalls?.push(name)
         if (governance.adoptResult instanceof Error) throw governance.adoptResult
-        return governance.adoptResult ?? { name, useCount: 0, viewCount: 0, patchCount: 0, lastUsedAt: null, lastViewedAt: null, lastPatchedAt: null, createdAt: '2026-01-01T00:00:00.000Z', state: 'active', pinned: false, createdBy: 'agent', absorbedInto: null, archivedAt: null } as SkillUsageRecord
+        return governance.adoptResult ?? { name, useCount: 0, viewCount: 0, patchCount: 0, lastUsedAt: null, sessionIds: [], lastViewedAt: null, lastPatchedAt: null, createdAt: '2026-01-01T00:00:00.000Z', state: 'active', pinned: false, createdBy: 'agent', absorbedInto: null, archivedAt: null } as SkillUsageRecord
       },
       purge: async (options: { dryRun?: boolean } = {}) => {
         governance.purgeCalls?.push(options.dryRun === true)
@@ -202,6 +203,9 @@ async function harness(
         return skills.definitions[name]
       },
     } as never)
+  }
+  if (extra.graph === true) {
+    await ctx.plugin(EvolutionGraph, {})
   }
   const plugin = await ctx.plugin(commandEvolution, { profile: 'test' })
   return {
@@ -264,6 +268,7 @@ function usageRecord(overrides: Partial<SkillUsageRecord> = {}): SkillUsageRecor
     viewCount: 0,
     patchCount: 0,
     lastUsedAt: null,
+    sessionIds: [],
     lastViewedAt: null,
     lastPatchedAt: null,
     createdAt: '2026-09-01T00:00:00.000Z',
@@ -591,6 +596,77 @@ describe('/memory human command', () => {
       await shutdown(test)
     }
   })
+})
+
+describe('/graph human command', () => {
+  it('reports usage for missing and trailing arguments', async () => {
+    const test = await harness(true, undefined, { graph: true })
+    try {
+      const session = sessionIn(test.ctx, test.dir, 'graph-usage')
+      test.workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: test.dir, sessionIds: [session.id] })
+      const usage = { kind: 'error', text: 'Usage: /graph <entity> [relation]' } as const
+      expect((await run(test, session, '/graph')).result).toEqual(usage)
+      expect((await run(test, session, '/graph A b c')).result).toEqual(usage)
+    } finally {
+      await shutdown(test)
+    }
+  })
+
+  it('says so when the graph is not mounted', async () => {
+    const test = await harness()
+    try {
+      const session = sessionIn(test.ctx, test.dir, 'graph-unmounted')
+      test.workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: test.dir, sessionIds: [session.id] })
+      expect((await run(test, session, '/graph A')).result).toEqual({
+        kind: 'error',
+        text: 'The knowledge graph is not mounted.',
+      })
+    } finally {
+      await shutdown(test)
+    }
+  })
+
+  it('answers a named relation and lists connections without one', async () => {
+    const test = await harness(true, undefined, { graph: true })
+    try {
+      const session = sessionIn(test.ctx, test.dir, 'graph')
+      test.workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: test.dir, sessionIds: [session.id] })
+      await test.ctx.evolutionGraph.observe(test.scope('ws-1'), [
+        { from: 'Project X', relation: 'worked_on', to: 'Alice' },
+        { from: 'Project X', relation: 'uses', to: 'PostgreSQL' },
+      ])
+      expect((await run(test, session, '/graph "Project X" worked_on')).result).toEqual({
+        kind: 'success',
+        text: 'Project X —worked_on→ Alice',
+      })
+      expect((await run(test, session, '/graph "Project X" owns')).result).toEqual({
+        kind: 'success',
+        text: "Project X has no 'owns' relation.",
+      })
+      const connections = await run(test, session, '/graph "Project X"')
+      expect(connections.result).toMatchObject({ kind: 'success' })
+      expect((connections.result as { text: string }).text).toContain('- worked_on → Alice')
+      expect((connections.result as { text: string }).text).toContain('- uses → PostgreSQL')
+      // An unquoted single-word entity needs no quoting; an unquoted
+      // multi-word one is a grammar error, not a silent partial name.
+      expect((await run(test, session, '/graph alice')).result).toMatchObject({ kind: 'success' })
+      expect((await run(test, session, '/graph Project X worked_on')).result).toEqual({
+        kind: 'error',
+        text: 'Usage: /graph <entity> [relation]',
+      })
+      expect((await run(test, session, '/graph Unknown')).result).toEqual({
+        kind: 'success',
+        text: "No entity matching 'Unknown' in this scope's graph.",
+      })
+      expect((await run(test, session, '/graph Unknown worked_on')).result).toEqual({
+        kind: 'success',
+        text: "No entity matching 'Unknown' in this scope's graph.",
+      })
+    } finally {
+      await shutdown(test)
+    }
+  })
+
 })
 
 describe('/journey human command', () => {

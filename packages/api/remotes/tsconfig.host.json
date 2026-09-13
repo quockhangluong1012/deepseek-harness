@@ -24,6 +24,12 @@
       "path": "../../credentials/credentials"
     },
     {
+      "path": "../../credentials/authorization"
+    },
+    {
+      "path": "../../credentials/authorization-remote"
+    },
+    {
       "path": "../../interaction/commands"
     },
     {

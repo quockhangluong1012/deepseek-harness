@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   byteLength,
+  evolutionBriefSections,
   renderEvolutionBrief,
   unavailableFileLine,
 } from '../src/render.ts'
@@ -180,5 +181,77 @@ describe('evolution brief rendering', () => {
 
   it('renders unavailable file items as one line', () => {
     expect(unavailableFileLine('doc', '/work/doc.md')).toBe('Context "doc" is unavailable (/work/doc.md).')
+  })
+})
+
+describe('evolution brief sections', () => {
+  it('emits nothing when every section is empty', () => {
+    expect(evolutionBriefSections(input(), 8192)).toEqual([])
+  })
+
+  it('names one section per non-empty part, plus a leading Overview', () => {
+    const sections = evolutionBriefSections(input({
+      instructions: 'follow the guide',
+      lessons: 'tabs win',
+      profile: 'night owl',
+      context: [{ label: 'note', content: 'attached words' }],
+    }), 8192)
+    expect(sections.map(section => section.name)).toEqual([
+      'Overview',
+      'Instructions',
+      'Lessons',
+      'User profile',
+      'Context: note',
+    ])
+    expect(sections[0]?.text).toContain('Memory usage: 10/100 (10%)')
+    expect(sections[1]).toEqual({ name: 'Instructions', text: 'follow the guide' })
+    expect(sections[2]).toEqual({ name: 'Lessons', text: 'tabs win' })
+    expect(sections[3]).toEqual({ name: 'User profile', text: 'night owl' })
+    expect(sections[4]).toEqual({ name: 'Context: note', text: 'attached words' })
+    // Section text carries no '##' heading markup: the section name already
+    // states what part this is.
+    expect(sections[1]?.text).not.toContain('##')
+  })
+
+  it('omits sections for empty parts', () => {
+    const sections = evolutionBriefSections(input({ lessons: 'only lessons' }), 8192)
+    expect(sections.map(section => section.name)).toEqual(['Overview', 'Lessons'])
+  })
+
+  it('drops the same trailing context section the text drops under pressure', () => {
+    const sections = evolutionBriefSections(input({
+      instructions: 'rules',
+      context: [
+        { label: 'one', content: 'x'.repeat(500) },
+        { label: 'two', content: 'y'.repeat(500) },
+      ],
+    }), 400)
+    expect(sections.map(section => section.name)).not.toContain('Context: two')
+    expect(sections.some(section => section.name === 'Notice')).toBe(true)
+  })
+
+  it('drops the Overview section alongside the header in the notice-only fallback', () => {
+    const sections = evolutionBriefSections(input({
+      instructions: `rules ${'z'.repeat(500)}`,
+      lessons: `learned ${'x'.repeat(500)}`,
+    }), 30)
+    expect(sections).toEqual([])
+  })
+
+  it('keeps sections and rendered text mutually consistent under every budget', () => {
+    const underTest = input({
+      instructions: 'rules rules rules',
+      lessons: 'learned learned learned',
+      profile: 'likes likes likes',
+      context: [
+        { label: 'one', content: 'words words words' },
+        { label: 'two', content: 'more more more' },
+      ],
+    })
+    for (const maxBytes of [8192, 400, 200, 120, 80, 40, 10]) {
+      const text = renderEvolutionBrief(underTest, maxBytes)
+      const sections = evolutionBriefSections(underTest, maxBytes)
+      for (const section of sections) expect(text).toContain(section.text)
+    }
   })
 })

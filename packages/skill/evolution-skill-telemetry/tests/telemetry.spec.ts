@@ -6,14 +6,14 @@ import ToolRuntime, { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
 import Storage from '@deepseek-ai/dsh-storage'
 import { DomainFacility } from '@deepseek-ai/dsh-storage-domain'
 import { MemoryMediaPool, MemoryStorageBackend } from '../../../storage/storage-domain/tests/helpers/memory-backend.ts'
-import EvolutionSkillTelemetry, { isExcludedSkillSource, skillCreationEvidence } from '../src/index.ts'
+import EvolutionSkillTelemetry, { isExcludedSkillSource, resolveConfig, skillCreationEvidence } from '../src/index.ts'
 
 interface FakeSkill {
   name: string
   source: string
 }
 
-async function harness(sources: Record<string, string> = {}) {
+async function harness(sources: Record<string, string> = {}, config: Record<string, unknown> = {}) {
   const ctx = new Context()
   await ctx.plugin(Storage)
   ctx.storage.backend.register('memory', new MemoryStorageBackend(new MemoryMediaPool()))
@@ -24,11 +24,43 @@ async function harness(sources: Record<string, string> = {}) {
   ctx.provide('skills', {
     list: async () => skills.map(skill => ({ ...skill })),
   } as never)
-  const fiber = await ctx.plugin(EvolutionSkillTelemetry)
+  const fiber = await ctx.plugin(EvolutionSkillTelemetry, config)
   return { ctx, fiber, store: ctx.evolutionSkillTelemetry }
 }
 
 describe('evolution skill telemetry', () => {
+  it('resolves the correlation bound', () => {
+    expect(resolveConfig({})).toEqual({ maxSessionIds: 20 })
+    expect(resolveConfig({ maxSessionIds: 3 })).toEqual({ maxSessionIds: 3 })
+  })
+
+  it('correlates uses with their sessions, newest first', async () => {
+    const { fiber, store } = await harness({ catalog: 'user-dsh' })
+    try {
+      expect((await store.markUsed('catalog', undefined, 'session-1'))?.sessionIds).toEqual(['session-1'])
+      expect((await store.markUsed('catalog', undefined, 'session-2'))?.sessionIds).toEqual(['session-2', 'session-1'])
+      // A repeat moves its session to the front instead of duplicating it.
+      expect((await store.markUsed('catalog', undefined, 'session-1'))?.sessionIds).toEqual(['session-1', 'session-2'])
+      // A caller with no session leaves the recorded list untouched.
+      expect((await store.markUsed('catalog'))?.sessionIds).toEqual(['session-1', 'session-2'])
+    } finally {
+      await fiber.dispose()
+    }
+  })
+
+  it('bounds the correlated session list', async () => {
+    const { fiber, store } = await harness({ catalog: 'user-dsh' }, { maxSessionIds: 2 })
+    try {
+      await store.markUsed('catalog', undefined, 'session-1')
+      await store.markUsed('catalog', undefined, 'session-2')
+      const capped = await store.markUsed('catalog', undefined, 'session-3')
+      expect(capped?.sessionIds).toEqual(['session-3', 'session-2'])
+      expect(capped?.useCount).toBe(3)
+    } finally {
+      await fiber.dispose()
+    }
+  })
+
   it('classifies excluded sources', () => {
     expect(isExcludedSkillSource('bundled')).toBe(true)
     expect(isExcludedSkillSource('hub')).toBe(true)
@@ -179,15 +211,23 @@ describe('evolution skill telemetry', () => {
       await ctx.tools.execute({ callId: ToolCallId('c1'), name: 'other', arguments: {}, signal })
       await ctx.tools.execute({ callId: ToolCallId('c2'), name: 'broken', arguments: {}, signal })
       await ctx.tools.execute({ callId: ToolCallId('c3'), name: 'skill', arguments: { name: 'catalog' }, signal })
-      await vi.waitFor(() => {
-        expect(store.read('catalog')?.useCount).toBe(1)
+      await ctx.tools.execute({
+        callId: ToolCallId('c5'),
+        name: 'skill',
+        arguments: { name: 'catalog' },
+        signal,
+        agent: { session: { id: 'session-9' } } as never,
       })
+      await vi.waitFor(() => {
+        expect(store.read('catalog')?.useCount).toBe(2)
+      })
+      expect(store.read('catalog')?.sessionIds).toEqual(['session-9'])
       expect(store.read('other')).toBeUndefined()
       expect(store.read('broken')).toBeUndefined()
       // A successful load without a skill name records nothing.
       await ctx.tools.execute({ callId: ToolCallId('c4'), name: 'skill', arguments: {}, signal })
       await new Promise(resolve => setTimeout(resolve, 50))
-      expect(store.read('catalog')?.useCount).toBe(1)
+      expect(store.read('catalog')?.useCount).toBe(2)
     } finally {
       await fiber.dispose()
     }

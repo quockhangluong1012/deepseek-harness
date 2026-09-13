@@ -5,7 +5,7 @@ import { mkdir, open } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 
 /** Current derived-index schema version. Incompatible versions reset in place. */
-export const SESSION_QUERY_SQLITE_SCHEMA_VERSION = 8
+export const SESSION_QUERY_SQLITE_SCHEMA_VERSION = 9
 
 /** SQLite application id protecting unrelated databases from derived resets. */
 export const SESSION_QUERY_SQLITE_APPLICATION_ID = 0x44534851
@@ -22,6 +22,7 @@ const DERIVED_USER_TABLES = new Set([
   'persisted_docs_content',
   'persisted_docs_docsize',
   'persisted_docs_config',
+  'persisted_vectors',
 ])
 
 /**
@@ -134,6 +135,13 @@ function ensurePersistentSchema(db: DatabaseSync): void {
       codepoint_length UNINDEXED,
       tokenize = 'unicode61'
     )
+  `)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS persisted_vectors (
+      content_hash TEXT PRIMARY KEY,
+      model        TEXT NOT NULL,
+      vector       BLOB NOT NULL
+    ) STRICT
   `)
   db.exec(`PRAGMA user_version = ${SESSION_QUERY_SQLITE_SCHEMA_VERSION}`)
 }

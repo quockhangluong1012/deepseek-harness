@@ -136,4 +136,31 @@ summary(range: UsageRange, signal: AbortSignal): Promise<UsageSummary>
 ```
 
 Source: [`packages/session/usage-ledger/src/index.ts`](../../packages/session/usage-ledger/src/index.ts)
+
+<a id="usage-events"></a>
+
+### `usage/*` events
+
+<a id="usagecache-hit-low--emit"></a>
+
+#### `usage/cache-hit-low` — emit
+
+Today's rolling cache-hit share (all routes, UTC+7 day) dropped below Config.cacheHitAlertThreshold after at least Config.cacheHitAlertMinRequests billed requests. Edge-triggered: fires once per healthy-to-unhealthy crossing, not on every request while the day is already below threshold. Ephemeral (not logged to any session): a live listener observes it, or re-derives the same rate any time from UsageLedger.summary.
+
+```ts cordis-catalog
+/**
+ * Today's rolling cache-hit share (all routes, UTC+7 day) dropped below
+ * {@link Config.cacheHitAlertThreshold} after at least
+ * {@link Config.cacheHitAlertMinRequests} billed requests. Edge-triggered:
+ * fires once per healthy-to-unhealthy crossing, not on every request
+ * while the day is already below threshold. Ephemeral (not logged to any
+ * session): a live listener observes it, or re-derives the same rate any
+ * time from {@link UsageLedger.summary}.
+ * @param data - the day, its rate, the crossed threshold, and its request count.
+ * @mode emit
+ */
+'usage/cache-hit-low'(data: CacheHitLowEvent): void
+```
+
+Source: [`packages/session/usage-ledger/src/index.ts`](../../packages/session/usage-ledger/src/index.ts)
 <!-- END GENERATED cordis-surface -->

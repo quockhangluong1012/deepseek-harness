@@ -189,6 +189,16 @@
     - id: workspace-controller
       name: '@deepseek-ai/dsh-api-workspace-controller'
 
+    # Credential sign-in flows over Typert Remote for browser surfaces. The
+    # seam row offers no flows of its own; llm-pi-ai registers one per
+    # installed provider that ships a login, and the remote row serves the
+    # Models page sign-in companion.
+    - id: authorization
+      name: '@deepseek-ai/dsh-authorization'
+
+    - id: authorization-remote
+      name: '@deepseek-ai/dsh-authorization-remote'
+
     - id: cordis-host-runner
       name: '@deepseek-ai/dsh-cordis-host-runner'
 
@@ -332,6 +342,11 @@
 
     - id: ui-settings-models
       name: '@deepseek-ai/dsh-client-ui-settings-models'
+
+    # Sign-in companion for the Models page: OAuth and interactive logins
+    # beside the page's own API-key editor, over the authorization Remote.
+    - id: ui-settings-authorization
+      name: '@deepseek-ai/dsh-client-ui-settings-authorization'
 
     - id: ui-settings-plugin-inventory
       name: '@deepseek-ai/dsh-client-ui-settings-plugin-inventory'

@@ -22,6 +22,7 @@ import { remoteErrorOf } from '@deepseek-ai/dsh-typert-protocol'
 import type { RemoteFailure } from '@deepseek-ai/dsh-typert-protocol'
 import type {} from '@deepseek-ai/dsh-workspace'
 import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
+import type {} from '@deepseek-ai/dsh-evolution-graph'
 import type {} from '@deepseek-ai/dsh-evolution-memory'
 import { EvolutionScopeId } from '@deepseek-ai/dsh-evolution-memory'
 import type { EvolutionScopeId as EvolutionScopeIdBrand, StagedWrite } from '@deepseek-ai/dsh-evolution-memory'
@@ -80,6 +81,24 @@ const JOURNEY_EXPORT_USAGE = 'Usage: /journey export [today | 7d | 30d | all] [-
 
 /** Argument grammar for `/skills`; anything else reports usage. */
 const SKILLS_USAGE = 'Usage: /skills pending | approve <id>'
+
+/** Argument grammar for `/graph`; anything else reports usage. */
+const GRAPH_USAGE = 'Usage: /graph <entity> [relation]'
+
+/**
+ * Split `/graph` arguments, keeping a double-quoted run together so a
+ * multi-word entity can be named: `"Project X" worked_on` yields two
+ * arguments. An unterminated quote stays literal, so it resolves as an
+ * unknown entity rather than silently dropping part of the name.
+ * @param raw - the raw command input after the command name.
+ * @returns the argument tokens.
+ */
+function graphArgs(raw: string): string[] {
+  const tokens = raw.match(/"[^"]*"|\S+/g) ?? []
+  return tokens.map(token => token.length > 1 && token.startsWith('"') && token.endsWith('"')
+    ? token.slice(1, -1)
+    : token)
+}
 
 /** Argument grammar for `/curator`; anything else reports usage. */
 const CURATOR_USAGE = 'Usage: /curator status | run [--dry-run] | adopt <name> | purge [--dry-run] | rollback --id <id> | ledger | pin <name> | unpin <name>'
@@ -387,6 +406,47 @@ async function executeJourney(
       range,
       now: Date.now(),
     })),
+  }
+}
+
+/**
+ * Execute `/graph <entity> [relation]` against the session's scope: name a
+ * relation to traverse outward from an entity, or omit it to list the
+ * entity's immediate connections.
+ * @param ctx - plugin context carrying the optional knowledge graph.
+ * @param scope - scope identity resolved from the invoking session.
+ * @param invocation - raw command input.
+ * @returns the command result.
+ */
+function executeGraph(
+  ctx: Context,
+  scope: EvolutionScopeIdBrand,
+  invocation: CommandInvocation,
+): CommandResult {
+  const [entity, relation, ...rest] = graphArgs(invocation.rawInput)
+  if (entity === undefined || rest.length > 0) return { kind: 'error', text: GRAPH_USAGE }
+  const graph = ctx.get('evolutionGraph')
+  if (graph === undefined) return { kind: 'error', text: 'The knowledge graph is not mounted.' }
+  if (relation !== undefined) {
+    const answer = graph.answer(scope, entity, relation)
+    if (answer === undefined) return { kind: 'success', text: `No entity matching '${entity}' in this scope's graph.` }
+    if (answer.objects.length === 0) {
+      return { kind: 'success', text: `${answer.subject.label} has no '${answer.relation}' relation.` }
+    }
+    return {
+      kind: 'success',
+      text: `${answer.subject.label} —${answer.relation}→ ${answer.objects.map(object => object.label).join(', ')}`,
+    }
+  }
+  const reached = graph.expand(scope, entity, 1)
+  const [origin, ...neighbours] = reached
+  if (origin === undefined) return { kind: 'success', text: `No entity matching '${entity}' in this scope's graph.` }
+  return {
+    kind: 'success',
+    text: [
+      `${origin.node.label}:`,
+      ...neighbours.map(reach => `- ${reach.path.join(' → ')} → ${reach.node.label}`),
+    ].join('\n'),
   }
 }
 
@@ -812,7 +872,7 @@ async function executeCuratorUnpin(telemetry: { setPinned(name: string, pinned: 
 async function handleCommand(
   ctx: Context,
   profile: string,
-  kind: 'memory' | 'refine' | 'journey' | 'skills' | 'trajectory',
+  kind: 'memory' | 'refine' | 'journey' | 'skills' | 'graph' | 'trajectory',
   invocation: CommandInvocation,
 ): Promise<CommandResult> {
   // Exporting the invoking session needs no workspace, so `/trajectory`
@@ -830,6 +890,8 @@ async function handleCommand(
       return executeJourney(ctx, scope, invocation)
     case 'skills':
       return executeSkills(ctx, scope, invocation)
+    case 'graph':
+      return executeGraph(ctx, scope, invocation)
     /* v8 ignore next -- closed-union exhaustiveness guard */
     default:
       return assertNever(kind, 'command-evolution command kind')
@@ -885,6 +947,13 @@ export function apply(ctx: Context, config: Config): void {
       description: 'Review staged skill proposals',
       input: { hint: 'pending | approve <id>' },
       handler: (invocation: CommandInvocation) => track(handleCommand(ctx, profile, 'skills', invocation)),
+    })
+    yield ctx.commands.register({
+      definitionId: CommandDefinitionId('@deepseek-ai/dsh-command-evolution/graph'),
+      name: 'graph',
+      description: 'Query the scope knowledge graph',
+      input: { hint: '<entity> [relation]' },
+      handler: (invocation: CommandInvocation) => track(handleCommand(ctx, profile, 'graph', invocation)),
     })
     yield ctx.commands.register({
       definitionId: CommandDefinitionId('@deepseek-ai/dsh-command-evolution/curator'),

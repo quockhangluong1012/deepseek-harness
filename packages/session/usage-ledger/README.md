@@ -56,6 +56,20 @@ Mount this plugin when a consumer needs billed-usage aggregates across sessions.
 
 The same UTC+7 calendar is exported from the package root — `dayKeyUTC7`, `dayStartUTC7`, `daysOfRange`, `isUsageRange`, and `windowStartOfRange` — so a surface that reports per-day history (the evolution journey) buckets on the dashboard's days instead of re-deriving the zone offset.
 
+### Cache-hit alert (opt-in)
+
+`cacheHitAlertThreshold` (unset by default) turns on a live `usage/cache-hit-low` event when today's rolling cache-hit share drops below the given fraction (`0`-`1`), after at least `cacheHitAlertMinRequests` (default `20`) billed requests today — a floor that keeps a thin early-day sample from tripping it. The event is edge-triggered: it fires once on a healthy-to-unhealthy crossing, stays silent while the day remains unhealthy, and can fire again after a recovery crosses back down. It is ephemeral (`ctx.emit`, not logged to any session) — a live listener observes it, or a caller re-derives the same rate any time from `summary()`.
+
+```yaml
+- name: '@deepseek-ai/dsh-usage-ledger'
+  config:
+    retentionDays: 90
+    writeEveryEvents: 100
+    writeIntervalMs: 60000
+    cacheHitAlertThreshold: 0.7
+    cacheHitAlertMinRequests: 20
+```
+
 -----
 
 <a id="understand-the-implementation"></a>

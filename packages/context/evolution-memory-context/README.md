@@ -1,5 +1,5 @@
 ---
-description: "Evolution memory brief injector with scope nudges and capacity variable (agent pre-step), for hosts composing the self-learning harness."
+description: "Evolution memory brief injector with scope nudges (agent pre-step), for hosts composing the self-learning harness."
 kind: "package-reference"
 ---
 
@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-evolution-memory-context` renders one durable `user/message` brief from a scope's instructions, lessons, profile, and attached context, and splices it into `agent/pre-step` — replacing the brief when the record digest changes and adding nothing when it does not. It also registers the evolution nudge sections and the `evolution_memory_usage` capacity variable behind the system prompt. Choose it when every Session in a scope should see that scope's shared knowledge without re-reading storage on every turn.
+`dsh-evolution-memory-context` renders one durable `user/message` brief from a scope's instructions, lessons, profile, and attached context, and splices it into `agent/pre-step` — replacing the brief when the record digest changes and adding nothing when it does not. It also registers the evolution nudge sections behind the system prompt; capacity usage is reported only in the brief's header, never interpolated into the system prompt, so a memory write cannot invalidate the request's cached prefix. Choose it when every Session in a scope should see that scope's shared knowledge without re-reading storage on every turn.
 
 ## Table of Contents
 
@@ -71,7 +71,7 @@ The injector compares the record digest against the newest visible `evolution-me
 |---|---|
 | [`src/index.ts`](src/index.ts) | Plugin entry: pre-step injector, membership cache, file materialization, section wiring |
 | [`src/render.ts`](src/render.ts) | Pure brief rendering within the byte budget |
-| [`src/sections.ts`](src/sections.ts) | Nudge section texts, skill-tool visibility, turn-interval predicate, capacity formatting |
+| [`src/sections.ts`](src/sections.ts) | Nudge section texts (static — no interpolated value), skill-tool visibility, turn-interval predicate |
 
 ### Failure and recovery
 
@@ -115,11 +115,11 @@ Capped: at most one brief per digest change, bounded by `maxBytes` including the
 
 Prefix-stable while the record is unchanged: the brief is appended after the claimed batch, so a repeated identical brief preserves the reusable prefix; a changed record replaces it and invalidates reuse from that point on.
 
-### Prompt sections and variable
+### Prompt sections
 
 #### What the model sees
 
-Three nudge sections (`evolution-lessons-skills`, `evolution-memory-scope`, `evolution-session-search`) and the `evolution_memory_usage` capacity variable they interpolate. The skills nudge renders only beside a visible `skill_manage` tool and only on turns that are a multiple of `skillNudgeInterval`; the scope nudge renders only on turns that are a multiple of `memoryNudgeInterval`; the session-search hint always renders. A session with no observed turn yet counts as its first turn, so the interval-`1` scope nudge renders before it while wider intervals wait for their multiple.
+Three nudge sections: `evolution-lessons-skills`, `evolution-memory-scope`, `evolution-session-search` — all fixed text, no interpolated value. The skills nudge renders only beside a visible `skill_manage` tool and only on turns that are a multiple of `skillNudgeInterval`; the scope nudge renders only on turns that are a multiple of `memoryNudgeInterval`; the session-search hint always renders. A session with no observed turn yet counts as its first turn, so the interval-`1` scope nudge renders before it while wider intervals wait for their multiple.
 
 ##### Verbatim text for this field, when needed
 
@@ -129,11 +129,11 @@ To recall earlier work in this scope, search past sessions before asking the use
 
 #### Token effect
 
-Bounded by cadence: the session-search hint on every assembly, the scope nudge every `memoryNudgeInterval` turns, the skills nudge every `skillNudgeInterval` turns while `skill_manage` is visible, plus one interpolated capacity value.
+Bounded by cadence: the session-search hint on every assembly, the scope nudge every `memoryNudgeInterval` turns, the skills nudge every `skillNudgeInterval` turns while `skill_manage` is visible.
 
 #### KV Cache effect
 
-Prefix-stable within a cadence window: section text repeats identically across requests, the nudge set changes only on an interval turn, and only the interpolated capacity value varies with usage.
+Prefix-stable regardless of memory content: section text is fixed and carries no per-scope value, so the nudge set changes only on an interval turn, never on a memory write. Capacity usage is reported exclusively in the brief's header (see above), which already rides its own digest-gated replacement — a memory write cannot invalidate this tier's cached prefix.
 
 ## Known Limitations and Deferred Work
 
@@ -144,7 +144,6 @@ These limits define when the injector is a poor fit. They are current package co
 - **One brief at a time** — a changed record appends a complete replacement; superseded briefs accumulate until compaction shadows them.
 - **File context re-read per refresh** — the budget bounds model bytes, not disk reads.
 - **File capacity snapshot** — the recorded size is not refreshed when the file changes on disk.
-- **Variable names are lowercase** — the framework variable grammar rejects the spec's camelCase `{{evolutionMemoryUsage}}`, so the capacity variable ships as `{{evolution_memory_usage}}`.
 - **No per-session file reader** — file items resolve against the process filesystem, not a workspace-scoped reader.
 - **Nudge cadence counts process-observed turns** — the interval counters start at plugin load and clear on session disposal, so turns before load or before a host restart are not replayed and a resumed session begins again from its first observed `turn/start`.
 

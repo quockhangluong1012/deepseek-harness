@@ -7,6 +7,12 @@ import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import SessionQueryEngine from '@deepseek-ai/dsh-session-query'
+import type {
+  SessionSearchExecContext,
+  SessionSearchHit,
+  SessionSearchPage,
+  SessionSearchRequest,
+} from '@deepseek-ai/dsh-session-query'
 import SubagentRuntime, { SUBAGENT_DESCRIPTOR_VERSION } from '@deepseek-ai/dsh-subagent'
 import { assertBuiltBenchmarkRuntime } from '../support/built-worker.ts'
 import { PARENT_ID, syntheticHistory, TIME_ZERO, WORKLOAD } from './workload.ts'
@@ -23,6 +29,15 @@ export interface CatalogReport {
 }
 
 class CatalogQuery extends SessionQueryEngine {
+
+  override searchSessionsSemantic(
+    _request: SessionSearchRequest,
+    _exec?: SessionSearchExecContext,
+  ): Promise<SessionSearchPage<SessionSearchHit>> {
+    // This double models a deployment with no vector channel.
+    return Promise.reject(new Error('semantic session search is not supported by this double'))
+  }
+
   override searchSessions(): Promise<never> {
     return Promise.reject(new Error('search is outside the child-catalog benchmark'))
   }

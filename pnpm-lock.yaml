@@ -1070,6 +1070,12 @@ importers:
       '@deepseek-ai/dsh-api-workspace-files':
         specifier: workspace:^
         version: link:../workspace-files
+      '@deepseek-ai/dsh-authorization':
+        specifier: workspace:^
+        version: link:../../credentials/authorization
+      '@deepseek-ai/dsh-authorization-remote':
+        specifier: workspace:^
+        version: link:../../credentials/authorization-remote
       '@deepseek-ai/dsh-client-connection':
         specifier: workspace:^
         version: link:../../client/connection
@@ -1948,6 +1954,12 @@ importers:
       '@deepseek-ai/dsh-app-boot':
         specifier: workspace:^
         version: link:../../boot/app-boot
+      '@deepseek-ai/dsh-authorization':
+        specifier: workspace:^
+        version: link:../../credentials/authorization
+      '@deepseek-ai/dsh-authorization-remote':
+        specifier: workspace:^
+        version: link:../../credentials/authorization-remote
       '@deepseek-ai/dsh-budgets':
         specifier: workspace:^
         version: link:../../guard/budgets
@@ -2050,6 +2062,9 @@ importers:
       '@deepseek-ai/dsh-client-ui-settings':
         specifier: workspace:^
         version: link:../../client/ui-settings
+      '@deepseek-ai/dsh-client-ui-settings-authorization':
+        specifier: workspace:^
+        version: link:../../client/ui-settings-authorization
       '@deepseek-ai/dsh-client-ui-settings-general':
         specifier: workspace:^
         version: link:../../client/ui-settings-general
@@ -3953,6 +3968,39 @@ importers:
       '@deepseek-ai/schemastery':
         specifier: link:../../../vendor/schemastery
         version: link:../../../vendor/schemastery
+      '@types/react':
+        specifier: ~18.3.1
+        version: 18.3.31
+      react:
+        specifier: ^18.2.0
+        version: 18.3.1
+
+  packages/client/ui-settings-authorization:
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:^
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-api-remotes':
+        specifier: workspace:^
+        version: link:../../api/remotes
+      '@deepseek-ai/dsh-authorization-remote':
+        specifier: workspace:^
+        version: link:../../credentials/authorization-remote
+      '@deepseek-ai/dsh-client-locale':
+        specifier: workspace:^
+        version: link:../locale
+      '@deepseek-ai/dsh-client-ui-primitives':
+        specifier: workspace:^
+        version: link:../ui-primitives
+      '@deepseek-ai/dsh-client-ui-renderer':
+        specifier: workspace:^
+        version: link:../ui-renderer
+      '@deepseek-ai/dsh-client-ui-settings-models':
+        specifier: workspace:^
+        version: link:../ui-settings-models
+      '@deepseek-ai/dsh-client-ui-slots':
+        specifier: workspace:^
+        version: link:../ui-slots
       '@types/react':
         specifier: ~18.3.1
         version: 18.3.31
@@ -5918,6 +5966,25 @@ importers:
         specifier: workspace:^
         version: link:../../llm/llm
 
+  packages/credentials/authorization-remote:
+    dependencies:
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:^
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-authorization':
+        specifier: workspace:^
+        version: link:../authorization
+      '@deepseek-ai/dsh-credentials':
+        specifier: workspace:^
+        version: link:../credentials
+      '@deepseek-ai/dsh-typert-protocol':
+        specifier: workspace:^
+        version: link:../../typert/protocol
+
   packages/credentials/credentials:
     dependencies:
       '@deepseek-ai/dsh-brand':
@@ -6078,6 +6145,9 @@ importers:
       '@deepseek-ai/dsh-evolution-curator':
         specifier: workspace:^
         version: link:../evolution-curator
+      '@deepseek-ai/dsh-evolution-graph':
+        specifier: workspace:^
+        version: link:../evolution-graph
       '@deepseek-ai/dsh-evolution-memory':
         specifier: workspace:^
         version: link:../evolution-memory
@@ -6173,6 +6243,9 @@ importers:
       '@deepseek-ai/cordis':
         specifier: workspace:^
         version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-evolution-feedback':
+        specifier: workspace:^
+        version: link:../evolution-feedback
       '@deepseek-ai/dsh-evolution-skill-telemetry':
         specifier: workspace:^
         version: link:../../skill/evolution-skill-telemetry
@@ -6197,6 +6270,84 @@ importers:
       '@deepseek-ai/dsh-typert-protocol':
         specifier: workspace:^
         version: link:../../typert/protocol
+
+  packages/evolution/evolution-feedback:
+    dependencies:
+      '@deepseek-ai/schemastery':
+        specifier: link:../../../vendor/schemastery
+        version: link:../../../vendor/schemastery
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:^
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-evolution-memory':
+        specifier: workspace:^
+        version: link:../evolution-memory
+      '@deepseek-ai/dsh-llm':
+        specifier: workspace:^
+        version: link:../../llm/llm
+      '@deepseek-ai/dsh-session':
+        specifier: workspace:^
+        version: link:../../core/session
+      '@deepseek-ai/dsh-storage':
+        specifier: workspace:^
+        version: link:../../storage/storage
+      '@deepseek-ai/dsh-storage-domain':
+        specifier: workspace:^
+        version: link:../../storage/storage-domain
+
+  packages/evolution/evolution-graph:
+    dependencies:
+      '@deepseek-ai/schemastery':
+        specifier: link:../../../vendor/schemastery
+        version: link:../../../vendor/schemastery
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:^
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-evolution-memory':
+        specifier: workspace:^
+        version: link:../evolution-memory
+      '@deepseek-ai/dsh-llm':
+        specifier: workspace:^
+        version: link:../../llm/llm
+      '@deepseek-ai/dsh-storage':
+        specifier: workspace:^
+        version: link:../../storage/storage
+      '@deepseek-ai/dsh-storage-domain':
+        specifier: workspace:^
+        version: link:../../storage/storage-domain
+      '@deepseek-ai/dsh-timeout':
+        specifier: workspace:^
+        version: link:../../util/timeout
+
+  packages/evolution/evolution-heartbeat:
+    dependencies:
+      '@deepseek-ai/schemastery':
+        specifier: link:../../../vendor/schemastery
+        version: link:../../../vendor/schemastery
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:^
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-session':
+        specifier: workspace:^
+        version: link:../../core/session
+      '@deepseek-ai/dsh-storage':
+        specifier: workspace:^
+        version: link:../../storage/storage
+      '@deepseek-ai/dsh-storage-domain':
+        specifier: workspace:^
+        version: link:../../storage/storage-domain
 
   packages/evolution/evolution-memory:
     dependencies:
@@ -7972,6 +8123,44 @@ importers:
         specifier: workspace:^
         version: link:../../../vendor/cordis
 
+  packages/llm/embeddings:
+    dependencies:
+      '@deepseek-ai/schemastery':
+        specifier: link:../../../vendor/schemastery
+        version: link:../../../vendor/schemastery
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:^
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-llm':
+        specifier: workspace:^
+        version: link:../llm
+
+  packages/llm/embeddings-http:
+    dependencies:
+      '@deepseek-ai/schemastery':
+        specifier: link:../../../vendor/schemastery
+        version: link:../../../vendor/schemastery
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:^
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-credentials':
+        specifier: workspace:^
+        version: link:../../credentials/credentials
+      '@deepseek-ai/dsh-embeddings':
+        specifier: workspace:^
+        version: link:../embeddings
+      '@deepseek-ai/dsh-launch-environment':
+        specifier: workspace:^
+        version: link:../../util/launch-environment
+      '@deepseek-ai/dsh-llm':
+        specifier: workspace:^
+        version: link:../llm
+      '@deepseek-ai/dsh-timeout':
+        specifier: workspace:^
+        version: link:../../util/timeout
+
   packages/llm/llm:
     dependencies:
       '@deepseek-ai/dsh-brand':
@@ -8930,6 +9119,9 @@ importers:
       '@deepseek-ai/cordis-plugin-loader':
         specifier: workspace:^
         version: link:../../../vendor/loader
+      '@deepseek-ai/dsh-embeddings':
+        specifier: workspace:^
+        version: link:../../llm/embeddings
       '@deepseek-ai/dsh-session':
         specifier: workspace:^
         version: link:../../core/session

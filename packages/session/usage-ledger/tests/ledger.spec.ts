@@ -35,7 +35,13 @@ afterEach(async () => {
 
 interface HarnessOptions {
   root?: string
-  config?: { retentionDays: number; writeEveryEvents: number; writeIntervalMs: number }
+  config?: {
+    retentionDays: number
+    writeEveryEvents: number
+    writeIntervalMs: number
+    cacheHitAlertThreshold?: number
+    cacheHitAlertMinRequests?: number
+  }
 }
 
 async function harness(options: HarnessOptions = {}) {
@@ -347,5 +353,80 @@ describe('UsageLedger uncovered guards', () => {
     const init = Service.init as unknown as symbol
     const initFn = ledger as unknown as Record<symbol, () => Promise<void>>
     expect(typeof initFn[init]).toBe('function')
+  })
+})
+
+describe('UsageLedger cache-hit alert', () => {
+  /** cacheReadTokens=90, inputTokens=10 -> knownPrompt 100, high cache share. */
+  const HIGH_HIT: TokenUsage = { inputTokens: 10, outputTokens: 1, cacheReadTokens: 90, cacheWriteTokens: 0 }
+  /** cacheReadTokens=0, inputTokens=<n> -> knownPrompt <n>, zero cache share. */
+  function lowHit(inputTokens: number): TokenUsage {
+    return { inputTokens, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 }
+  }
+
+  it('fires once per healthy-to-unhealthy crossing, and again after recovery', async () => {
+    const { ctx } = await harness({
+      config: {
+        retentionDays: 90, writeEveryEvents: 100, writeIntervalMs: 60_000,
+        cacheHitAlertThreshold: 0.5, cacheHitAlertMinRequests: 1,
+      },
+    })
+    const events: { day: string; cacheHitAvg: number; threshold: number; requests: number }[] = []
+    ctx.on('usage/cache-hit-low', (data) => { events.push(data) })
+    const session = ctx.sessions.create(SessionId('cache-alert'))
+
+    // req1: cumulative rate 90/100 = 0.9, at-or-above threshold — no event.
+    answer(session, 1, 1, HIGH_HIT)
+    expect(events).toHaveLength(0)
+
+    // req2: cumulative rate 90/200 = 0.45, first crossing below 0.5.
+    answer(session, 2, 1, lowHit(100))
+    expect(events).toHaveLength(1)
+    expect(events[0]).toMatchObject({ threshold: 0.5, requests: 2 })
+    expect(events[0]!.cacheHitAvg).toBeCloseTo(0.45)
+
+    // req3: cumulative rate 90/300 = 0.3, still unhealthy — edge-triggered, no new event.
+    answer(session, 3, 1, lowHit(100))
+    expect(events).toHaveLength(1)
+
+    // req4: cumulative rate 300/510 ~= 0.588, recovers above threshold — no event on recovery.
+    answer(session, 4, 1, { inputTokens: 0, outputTokens: 1, cacheReadTokens: 210, cacheWriteTokens: 0 })
+    expect(events).toHaveLength(1)
+
+    // req5: cumulative rate 300/1020 ~= 0.294, a fresh crossing after recovery — fires again.
+    answer(session, 5, 1, lowHit(510))
+    expect(events).toHaveLength(2)
+    expect(events[1]).toMatchObject({ threshold: 0.5 })
+  })
+
+  it('withholds the alert until cacheHitAlertMinRequests billed requests land today', async () => {
+    const { ctx } = await harness({
+      config: {
+        retentionDays: 90, writeEveryEvents: 100, writeIntervalMs: 60_000,
+        cacheHitAlertThreshold: 0.5, cacheHitAlertMinRequests: 3,
+      },
+    })
+    const events: unknown[] = []
+    ctx.on('usage/cache-hit-low', (data) => { events.push(data) })
+    const session = ctx.sessions.create(SessionId('cache-alert-floor'))
+
+    // req1-2: rate is 0 (well below threshold) but only 1-2 requests — below the floor, withheld.
+    answer(session, 1, 1, lowHit(100))
+    answer(session, 2, 1, lowHit(100))
+    expect(events).toHaveLength(0)
+
+    // req3: floor reached, still unhealthy — fires now, not earlier.
+    answer(session, 3, 1, lowHit(100))
+    expect(events).toHaveLength(1)
+  })
+
+  it('never fires when cacheHitAlertThreshold is unset', async () => {
+    const { ctx } = await harness()
+    const events: unknown[] = []
+    ctx.on('usage/cache-hit-low', (data) => { events.push(data) })
+    const session = ctx.sessions.create(SessionId('cache-alert-off'))
+    answer(session, 1, 1, lowHit(1000))
+    answer(session, 2, 1, lowHit(1000))
+    expect(events).toHaveLength(0)
   })
 })

@@ -156,11 +156,20 @@ describe('evolution curator consolidation', () => {
       viewCount: 0,
       patchCount: 0,
       lastUsedAt: null,
+      failures: [],
     }
     const roomy = frameConsolidationInput([candidate], 65536)
     expect(roomy.truncated).toBe(false)
     expect(roomy.text).toContain('"leaf"')
     expect(roomy.inputBytes).toBe(Buffer.byteLength(roomy.text))
+    // Recorded failures ride in the survey, so the verdict reflects what broke
+    // in the sessions that used the skill rather than its author's intent.
+    const evidenced = frameConsolidationInput([{
+      ...candidate,
+      failures: [{ tool: 'bash', message: 'command not found', count: 3, sessions: 2 }],
+    }], 65536)
+    expect(evidenced.text).toContain('command not found')
+    expect(evidenced.text).toContain('"sessions":2')
     const tight = frameConsolidationInput([candidate, { ...candidate, name: 'other' }], 100)
     expect(tight.truncated).toBe(true)
     expect(tight.text).not.toContain('"leaf"')

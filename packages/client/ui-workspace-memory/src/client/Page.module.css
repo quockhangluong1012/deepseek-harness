@@ -191,6 +191,7 @@
   padding-bottom: 40px;
   background: var(--dsw-alias-bg-base);
   pointer-events: auto;
+  padding-top: 30px;
 }
 
 /* The two body sections carry the rail's card surface: one bordered box per
@@ -234,6 +235,42 @@
   font: inherit;
   font-size: 13px;
   line-height: 1.55;
+}
+
+/* The instructions/memory dialogs carry long documents: a wide card keeps the
+   prose readable, and the body scrolls under a pinned footer so Save/Cancel
+   never leave the viewport. The doubled class beats the shared Modal's fixed
+   380px card without touching that primitive. */
+.textDialog.textDialog {
+  width: min(680px, 100%);
+  max-height: calc(100vh - 48px);
+}
+
+@supports (height: 100dvh) {
+  .textDialog.textDialog {
+    max-height: calc(100dvh - 48px);
+  }
+}
+
+.textDialogContent {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  /* Elevated surface: rebind the scrollbar indirection to the l2 thumb pair
+     (ui-theme styles/scrollbar.css rebinding contract). */
+  --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2);
+  --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
+}
+
+/* The dialog editor fills the scroll region instead of sizing itself: it is
+   anchored at the top, grows with its content where supported, and scrolls
+   after the cap. Manual resizing belongs to the in-page editors, not here. */
+.dialogEditor {
+  flex: none;
+  height: auto;
+  min-height: 50vh;
+  resize: none;
+  field-sizing: content;
 }
 
 .railNav {
@@ -325,6 +362,7 @@
   font: inherit;
   text-align: left;
   cursor: pointer;
+  padding-top: 10px;
 }
 
 .row:hover {
@@ -418,6 +456,11 @@
   line-height: 19px;
   color: var(--dsw-alias-label-secondary);
   overflow-wrap: anywhere;
+}
+
+/* A card with nothing to preview says so; the clamp never renders an empty box. */
+.card .empty {
+  padding: 0;
 }
 
 .meta {

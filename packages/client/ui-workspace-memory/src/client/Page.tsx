@@ -451,7 +451,7 @@ export function WorkspaceMemoryPage({
               sits outside the body's scrollport, so the composer never moves. */}
           <div ref={bandRef} className={css.band} data-page-band="" />
 
-          <div className={css.body}>
+          <div className={css.body} style={{ paddingTop: '10px' }} >
             <section aria-label={t('outputs.title')} className={css.section}>
               <div className={css.sectionHead}>
                 <h2 className={css.sectionTitle}>{t('outputs.title')}</h2>
@@ -564,7 +564,9 @@ export function WorkspaceMemoryPage({
                 {t('card.edit')}
               </Button>
             </div>
-            <p className={css.preview}>{value?.instructions ?? ''}</p>
+            {value?.instructions === '' || value?.instructions === undefined
+              ? <p className={css.empty}>{t('instructions.empty')}</p>
+              : <p className={css.preview}>{value.instructions}</p>}
             {instrError !== null && <p role="alert" className={css.error}>{instrError}</p>}
           </section>
 
@@ -575,7 +577,9 @@ export function WorkspaceMemoryPage({
                 {t('card.edit')}
               </Button>
             </div>
-            <p className={css.preview}>{value?.memory ?? ''}</p>
+            {value?.memory === '' || value?.memory === undefined
+              ? <p className={css.empty}>{t('memory.empty')}</p>
+              : <p className={css.preview}>{value.memory}</p>}
             <p className={css.meta}>{memoryTime ?? t('memory.neverUpdated')}</p>
             {value?.lastExtraction !== null && value?.lastExtraction !== undefined && (
               <p className={css.meta}>{t('memory.model', { model: value.lastExtraction.model })}</p>
@@ -678,6 +682,8 @@ export function WorkspaceMemoryPage({
         onClose={() => { setInstrEditing(false) }}
         closeLabel={t('page.close')}
         title={t('card.instructions')}
+        className={css.textDialog ?? ''}
+        contentClassName={css.textDialogContent ?? ''}
         footer={(
           <>
             <Button variant="outline" onClick={() => { setInstrEditing(false) }}>{t('card.cancel')}</Button>
@@ -686,7 +692,7 @@ export function WorkspaceMemoryPage({
         )}
       >
         <textarea
-          className={css.editor}
+          className={`${css.editor} ${css.dialogEditor}`}
           aria-label={t('card.instructions')}
           value={instrDraft}
           onChange={(event) => { setInstrDraft(event.target.value) }}
@@ -698,6 +704,8 @@ export function WorkspaceMemoryPage({
         onClose={() => { setMemPreview(false) }}
         closeLabel={t('page.close')}
         title={t('card.memory')}
+        className={css.textDialog ?? ''}
+        contentClassName={css.textDialogContent ?? ''}
         footer={<Button variant="outline" onClick={() => { setMemPreview(false) }}>{t('page.close')}</Button>}
       >
         <MarkdownText text={value?.memory ?? ''} labels={markdownLabels} />
@@ -708,6 +716,8 @@ export function WorkspaceMemoryPage({
         onClose={() => { setMemEditing(false) }}
         closeLabel={t('page.close')}
         title={t('card.memory')}
+        className={css.textDialog ?? ''}
+        contentClassName={css.textDialogContent ?? ''}
         footer={(
           <>
             <Button variant="outline" onClick={() => { setMemEditing(false) }}>{t('card.cancel')}</Button>
@@ -716,7 +726,7 @@ export function WorkspaceMemoryPage({
         )}
       >
         <textarea
-          className={css.editor}
+          className={`${css.editor} ${css.dialogEditor}`}
           aria-label={t('card.edit')}
           value={memDraft}
           onChange={(event) => { setMemDraft(event.target.value) }}

@@ -2,8 +2,10 @@
  * Evolution memory brief injector. At each eligible pre-step the injector
  * compares the record's digest against the newest visible `user/message`
  * with an `evolution-memory` source and appends exactly one complete fresh
- * brief when they differ. It also owns the evolution nudge sections and the
- * capacity variable behind the system prompt.
+ * brief when they differ. It also owns the evolution nudge sections behind
+ * the system prompt; capacity usage is reported only in the brief (which
+ * already varies with memory content), never interpolated into the system
+ * prompt, so a memory write never invalidates the request's cached prefix.
  * @module @deepseek-ai/dsh-evolution-memory-context
  */
 
@@ -13,7 +15,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type { PreStepDecision } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
-import type { Session, SessionEvent, SessionId, UserMessage } from '@deepseek-ai/dsh-session'
+import type { Session, SessionEvent, UserMessage } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-query'
 import type { AssembleContext } from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-fs'
@@ -24,7 +26,9 @@ import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
 import type {} from '@deepseek-ai/dsh-evolution-memory'
 import { EvolutionScopeId, RECALL_LABEL_PREFIX } from '@deepseek-ai/dsh-evolution-memory'
 import type { EvolutionMemoryRecord } from '@deepseek-ai/dsh-evolution-memory'
+import type { ContextSnapshotSection } from '@deepseek-ai/dsh-llm'
 import {
+  evolutionBriefSections,
   renderEvolutionBrief,
   unavailableFileLine,
   type MaterializedContext,
@@ -34,15 +38,13 @@ import {
   MEMORY_SCOPE_SECTION,
   SESSION_SEARCH_SECTION,
   SKILL_MANAGE_TOOL,
-  USAGE_VARIABLE,
-  UNKNOWN_USAGE,
-  formatUsage,
   isNudgeTurn,
   lessonsSkillsText,
 } from './sections.ts'
 
 export {
   byteLength,
+  evolutionBriefSections,
   renderEvolutionBrief,
   unavailableFileLine,
 } from './render.ts'
@@ -52,9 +54,6 @@ export {
   MEMORY_SCOPE_SECTION,
   SESSION_SEARCH_SECTION,
   SKILL_MANAGE_TOOL,
-  USAGE_VARIABLE,
-  UNKNOWN_USAGE,
-  formatUsage,
   isNudgeTurn,
   lessonsSkillsText,
 } from './sections.ts'
@@ -62,12 +61,18 @@ export {
 /** Cordis plugin name used by loader diagnostics. */
 export const name = 'evolution-memory-context'
 
-/** Typed source carried by every injected brief. */
+/**
+ * Typed source carried by every injected brief. `form: 'snapshot'` presents
+ * Instructions/Lessons/Profile/Context as distinct named parts instead of one
+ * undifferentiated block; a later brief for the same scope supersedes an
+ * earlier one, matching the form's own semantics.
+ */
 export interface EvolutionMemorySource {
   kind: 'evolution-memory'
-  form: 'instructions'
+  form: 'snapshot'
   scopeId: EvolutionScopeId
   digest: string
+  sections: readonly ContextSnapshotSection[]
 }
 
 declare module '@deepseek-ai/dsh-llm' {
@@ -238,17 +243,6 @@ export function apply(ctx: Context, config: Config): void {
     return undefined
   }
 
-  const usageForSession = (sessionId: SessionId): string => {
-    const key = String(sessionId)
-    const cached = workspaceBySession.get(key)
-    const workspaceId = cached !== undefined
-      ? cached
-      : ctx.workspaceRegistry.list().find(workspace => workspace.sessionIds.includes(sessionId))?.id ?? null
-    if (workspaceId === null) return UNKNOWN_USAGE
-    const usage = ctx.evolutionMemory.usage(scopeOf(workspaceId))
-    return formatUsage(usage.usedBytes, usage.capacityBytes)
-  }
-
   const prompt = ctx.get('systemPrompt')
   if (prompt !== undefined) {
     const tools = ctx.get('tools')
@@ -279,11 +273,6 @@ export function apply(ctx: Context, config: Config): void {
         `evolution-memory-context.${def.name}`,
       )
     }
-    ctx.effect(() => prompt.variable(USAGE_VARIABLE, (context: AssembleContext) => {
-      const session = context.agent?.session
-      if (session === undefined) return UNKNOWN_USAGE
-      return usageForSession(session.id)
-    }), 'evolution-memory-context.usage')
   }
 
   /**
@@ -349,23 +338,22 @@ export function apply(ctx: Context, config: Config): void {
 
     const materialized = await materializeContext(record, signal)
     const usage = ctx.evolutionMemory.usage(scope)
-    const text = renderEvolutionBrief(
-      {
-        title: membership.title,
-        path: membership.path,
-        usage: { usedBytes: usage.usedBytes, capacityBytes: usage.capacityBytes },
-        instructions: record.instructions,
-        lessons: record.agentLessons,
-        profile: record.userProfile,
-        context: materialized,
-      },
-      maxBytes,
-    )
+    const briefInput = {
+      title: membership.title,
+      path: membership.path,
+      usage: { usedBytes: usage.usedBytes, capacityBytes: usage.capacityBytes },
+      instructions: record.instructions,
+      lessons: record.agentLessons,
+      profile: record.userProfile,
+      context: materialized,
+    }
+    const text = renderEvolutionBrief(briefInput, maxBytes)
+    const sections = evolutionBriefSections(briefInput, maxBytes)
     // Rendered text is empty exactly when every section is empty, which
     // hasContent above already excludes: reaching here always injects.
     const brief = createUserMessage({
       content: [{ type: 'text', text }],
-      source: { kind: 'evolution-memory', form: 'instructions', scopeId: scope, digest },
+      source: { kind: 'evolution-memory', form: 'snapshot', scopeId: scope, digest, sections },
     })
     injectedDigests.set(sessionKey, digest)
     return { ...decision, messages: [...decision.messages, brief] }

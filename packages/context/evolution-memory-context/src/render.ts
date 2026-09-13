@@ -5,6 +5,7 @@
  */
 
 import { truncateUtf8 } from '@deepseek-ai/dsh-evolution-memory'
+import type { ContextSnapshotSection } from '@deepseek-ai/dsh-llm'
 
 const SYSTEM_REMINDER_OPEN = '<system-reminder>'
 const SYSTEM_REMINDER_CLOSE = '</system-reminder>'
@@ -54,6 +55,12 @@ interface BriefDraft {
   instructionsTo: number
 }
 
+/** The framed model-facing text alongside the same-bytes named sections it was assembled from. */
+interface ComputedBrief {
+  text: string
+  sections: ContextSnapshotSection[]
+}
+
 /**
  * Render the complete brief including its frame. Empty sections are omitted.
  * Under pressure trailing context items drop first, then lessons truncate,
@@ -65,21 +72,47 @@ interface BriefDraft {
  * @returns bounded brief text, or empty string when every section is empty.
  */
 export function renderEvolutionBrief(
-  input: {
-    title: string
-    path: string
-    usage: BriefUsage
-    instructions: string
-    lessons: string
-    profile: string
-    context: readonly MaterializedContext[]
-  },
+  input: EvolutionBriefInput,
   maxBytes: number,
 ): string {
+  return computeEvolutionBrief(input, maxBytes).text
+}
+
+/**
+ * The same brief, kept as the named parts it was assembled from — one entry
+ * per non-empty document/context item, in the order {@link renderEvolutionBrief}
+ * joins them, plus a leading `Overview` entry for the header line. A consumer
+ * that presents the brief (rather than sending it to the model) uses these to
+ * show Instructions/Lessons/Profile/Context as distinct parts instead of one
+ * undifferentiated block, without re-splitting the joined text.
+ * @param input - scope title, path, usage, documents, and materialized context.
+ * @param maxBytes - cap on the complete emitted text including the frame.
+ * @returns one section per non-empty part actually included in the text, or
+ * an empty array when every section is empty.
+ */
+export function evolutionBriefSections(
+  input: EvolutionBriefInput,
+  maxBytes: number,
+): ContextSnapshotSection[] {
+  return computeEvolutionBrief(input, maxBytes).sections
+}
+
+/** Shared input shape for {@link renderEvolutionBrief} and {@link evolutionBriefSections}. */
+interface EvolutionBriefInput {
+  title: string
+  path: string
+  usage: BriefUsage
+  instructions: string
+  lessons: string
+  profile: string
+  context: readonly MaterializedContext[]
+}
+
+function computeEvolutionBrief(input: EvolutionBriefInput, maxBytes: number): ComputedBrief {
   if (input.instructions.length === 0
     && input.lessons.length === 0
     && input.profile.length === 0
-    && input.context.length === 0) return ''
+    && input.context.length === 0) return { text: '', sections: [] }
   const percent = Math.floor(input.usage.usedBytes * 100 / input.usage.capacityBytes)
   const header = `# Workspace memory: ${input.title}\nDirectory: ${input.path}\nMemory usage: ${input.usage.usedBytes}/${input.usage.capacityBytes} (${percent}%)`
   const draft: BriefDraft = {
@@ -95,15 +128,15 @@ export function renderEvolutionBrief(
     instructionsFrom: byteLength(input.instructions),
     instructionsTo: byteLength(input.instructions),
   }
-  const framed = buildBrief(header, draft, maxBytes)
-  if (byteLength(framed) <= maxBytes) return framed
+  const built = buildBrief(header, draft, maxBytes)
+  if (byteLength(built.text) <= maxBytes) return built
 
   // Drop trailing context items first.
   for (let keep = input.context.length - 1; keep >= 0; keep -= 1) {
     draft.context = input.context.slice(0, keep)
     draft.droppedItems = input.context.length - keep
-    const text = buildBrief(header, draft, maxBytes)
-    if (byteLength(text) <= maxBytes) return text
+    const candidate = buildBrief(header, draft, maxBytes)
+    if (byteLength(candidate.text) <= maxBytes) return candidate
   }
   draft.context = []
   draft.droppedItems = input.context.length
@@ -130,34 +163,59 @@ export function renderEvolutionBrief(
     if (truncated !== undefined) return truncated
   }
 
-  // Even the notice alone exceeds the budget: hard-truncate it.
+  // Even the notice alone exceeds the budget: hard-truncate it. The header is
+  // not part of this fallback text (buildBrief above already proved it alone
+  // does not fit), so no Overview section rides alongside it either.
+  const notice = noticeFor(draft, maxBytes)
   const framedFallback = [
     SYSTEM_REMINDER_OPEN,
-    escapeFrameBody(noticeFor(draft, maxBytes)),
+    escapeFrameBody(notice),
     SYSTEM_REMINDER_CLOSE,
   ].join('\n')
-  if (byteLength(framedFallback) <= maxBytes) return framedFallback
-  return truncateUtf8(framedFallback, maxBytes)
+  if (byteLength(framedFallback) <= maxBytes) {
+    return { text: framedFallback, sections: notice.length > 0 ? [{ name: 'Notice', text: notice }] : [] }
+  }
+  // Hard-truncated below the notice's own byte length: no section can carry
+  // the same bytes as the delivered text, so this falls back to opaque
+  // presentation rather than showing a structured section that overstates it.
+  return { text: truncateUtf8(framedFallback, maxBytes), sections: [] }
 }
 
 /**
- * Assemble one framed brief from the header and the current draft. The
- * notice line appears only once something was dropped or truncated.
+ * Assemble one framed brief from the header and the current draft, alongside
+ * the same-bytes named sections it was assembled from. The notice line
+ * appears only once something was dropped or truncated.
  * @param header - title, directory, and usage lines.
  * @param draft - current field values and budget accounting.
  * @param maxBytes - budget named by the notice.
- * @returns the framed text.
+ * @returns the framed text and its named sections.
  */
-function buildBrief(header: string, draft: BriefDraft, maxBytes: number): string {
+function buildBrief(header: string, draft: BriefDraft, maxBytes: number): ComputedBrief {
   const parts: string[] = [header]
-  if (draft.instructions.length > 0) parts.push(`## Instructions\n${draft.instructions}`)
-  if (draft.lessons.length > 0) parts.push(`## Lessons\n${draft.lessons}`)
-  if (draft.profile.length > 0) parts.push(`## User profile\n${draft.profile}`)
-  for (const item of draft.context) parts.push(`## Context: ${item.label}\n${item.content}`)
+  const sections: ContextSnapshotSection[] = [{ name: 'Overview', text: header }]
+  if (draft.instructions.length > 0) {
+    parts.push(`## Instructions\n${draft.instructions}`)
+    sections.push({ name: 'Instructions', text: draft.instructions })
+  }
+  if (draft.lessons.length > 0) {
+    parts.push(`## Lessons\n${draft.lessons}`)
+    sections.push({ name: 'Lessons', text: draft.lessons })
+  }
+  if (draft.profile.length > 0) {
+    parts.push(`## User profile\n${draft.profile}`)
+    sections.push({ name: 'User profile', text: draft.profile })
+  }
+  for (const item of draft.context) {
+    parts.push(`## Context: ${item.label}\n${item.content}`)
+    sections.push({ name: `Context: ${item.label}`, text: item.content })
+  }
   const notice = noticeFor(draft, maxBytes)
-  if (notice.length > 0) parts.push(notice)
+  if (notice.length > 0) {
+    parts.push(notice)
+    sections.push({ name: 'Notice', text: notice })
+  }
   const body = escapeFrameBody(parts.join('\n\n'))
-  return [SYSTEM_REMINDER_OPEN, body, SYSTEM_REMINDER_CLOSE].join('\n')
+  return { text: [SYSTEM_REMINDER_OPEN, body, SYSTEM_REMINDER_CLOSE].join('\n'), sections }
 }
 
 /**
@@ -190,19 +248,22 @@ function noticeFor(draft: BriefDraft, maxBytes: number): string {
  * @param draft - draft mutated in place to the winning prefix.
  * @param maxBytes - cap on the complete brief.
  * @param field - which draft field to shrink.
- * @returns fitting brief text, or undefined when even the empty field overflows.
+ * @returns the fitting brief, or undefined when even the empty field overflows.
  */
 function truncateField(
   header: string,
   draft: BriefDraft,
   maxBytes: number,
   field: 'lessons' | 'profile' | 'instructions',
-): string | undefined {
+): ComputedBrief | undefined {
   const full = field === 'lessons' ? draft.lessons : field === 'profile' ? draft.profile : draft.instructions
   const originalBytes = byteLength(full)
   let low = 0
   let high = originalBytes
-  let best: string | undefined
+  // Captured at the winning trial, not read back off `draft`: the loop keeps
+  // probing past a success to find a longer fitting prefix, so `draft` may
+  // hold a later, failed candidate by the time the loop exits.
+  let best: ComputedBrief | undefined
   while (low <= high) {
     const mid = Math.floor((low + high) / 2)
     const candidate = truncateUtf8(full, mid)
@@ -216,9 +277,9 @@ function truncateField(
       draft.instructions = candidate
       draft.instructionsTo = byteLength(candidate)
     }
-    const text = buildBrief(header, draft, maxBytes)
-    if (byteLength(text) <= maxBytes) {
-      best = text
+    const built = buildBrief(header, draft, maxBytes)
+    if (byteLength(built.text) <= maxBytes) {
+      best = built
       low = mid + 1
     } else {
       high = mid - 1

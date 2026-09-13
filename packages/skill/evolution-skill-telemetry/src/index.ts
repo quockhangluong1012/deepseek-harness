@@ -11,6 +11,7 @@
  */
 
 import { Context, Service } from '@deepseek-ai/cordis'
+import z from '@deepseek-ai/schemastery'
 import type { PostToolDecision, ToolExecution, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import type { KvTable } from '@deepseek-ai/dsh-storage-domain'
 import type {} from '@deepseek-ai/dsh-skill'
@@ -76,12 +77,39 @@ export function isExcludedSkillSource(source: string): boolean {
   return source === 'bundled' || source.startsWith('hub')
 }
 
+/** Deployment choices for the telemetry store. */
+export interface Config {
+  /** Sessions retained per skill for failure correlation, newest first. */
+  maxSessionIds?: number
+}
+
+/** Validated deployment choices. */
+export const Config: z<Config> = z.object({
+  maxSessionIds: z.number().step(1).min(1).default(20),
+})
+
+/** Normalized configuration used by the store. */
+export interface ResolvedConfig {
+  maxSessionIds: number
+}
+
+/**
+ * Resolve defaults for the optional fields.
+ * @param config - user-facing plugin configuration.
+ * @returns normalized runtime configuration.
+ */
+export function resolveConfig(config: Config): ResolvedConfig {
+  const { maxSessionIds = 20 } = config
+  return { maxSessionIds }
+}
+
 function freshRecord(): SkillUsageRecord {
   return {
     useCount: 0,
     viewCount: 0,
     patchCount: 0,
     lastUsedAt: null,
+    sessionIds: [],
     lastViewedAt: null,
     lastPatchedAt: null,
     createdAt: new Date().toISOString(),
@@ -104,13 +132,16 @@ export class EvolutionSkillTelemetry extends Service {
   static inject = ['storageDomain', 'skills']
 
   private table?: KvTable<string, SkillUsageRecord>
+  private readonly resolved: ResolvedConfig
   private consolidationCostRow?: ConsolidationCostRow
 
   /**
    * @param ctx - Host context carrying the storage domain and skill registry.
+   * @param config - correlation bound for the per-skill session list.
    */
-  constructor(ctx: Context) {
+  constructor(ctx: Context, config: Config = {}) {
     super(ctx, 'evolutionSkillTelemetry')
+    this.resolved = resolveConfig(config)
     ctx.on('tools/post-execute', async (
       exec: ToolExecution,
       result: ToolExecutionResult,
@@ -121,7 +152,7 @@ export class EvolutionSkillTelemetry extends Service {
         const name = (exec.arguments as { name?: unknown }).name
         if (typeof name === 'string') {
           try {
-            await this.markUsed(name)
+            await this.markUsed(name, undefined, exec.agent?.session.id)
           } catch (error) {
             this.ctx.logger.warn(`evolution skill telemetry use recording failed for '${name}': ${String(error)}`)
           }
@@ -161,12 +192,22 @@ export class EvolutionSkillTelemetry extends Service {
    * record: the observer still delegates, only the write is skipped.
    * @param name - skill name.
    * @param source - catalog source when the caller already resolved it.
+   * @param sessionId - loading session, recorded so a later pass can pull the
+   *   failures observed while this skill was in play. Omitted by callers with
+   *   no session, which leaves the recorded list untouched.
    * @returns the stored record, or undefined for excluded sources.
    */
-  async markUsed(name: string, source?: string): Promise<SkillUsageRecord | undefined> {
+  async markUsed(name: string, source?: string, sessionId?: string): Promise<SkillUsageRecord | undefined> {
     if (isExcludedSkillSource(source ?? await this.lookupSource(name))) return undefined
     const now = new Date().toISOString()
-    return this.write(name, record => ({ ...record, useCount: record.useCount + 1, lastUsedAt: now }))
+    return this.write(name, record => ({
+      ...record,
+      useCount: record.useCount + 1,
+      lastUsedAt: now,
+      sessionIds: sessionId === undefined
+        ? record.sessionIds
+        : [sessionId, ...record.sessionIds.filter(id => id !== sessionId)].slice(0, this.resolved.maxSessionIds),
+    }))
   }
 
   /**

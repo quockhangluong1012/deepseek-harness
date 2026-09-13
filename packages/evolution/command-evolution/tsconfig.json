@@ -21,6 +21,7 @@
     { "path": "../../util/values" },
     { "path": "../../workspace/workspace" },
     { "path": "../evolution-curator" },
+    { "path": "../evolution-graph" },
     { "path": "../evolution-memory" },
     { "path": "../evolution-reviewer" }
   ]

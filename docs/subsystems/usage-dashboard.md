@@ -75,6 +75,20 @@ interface UsageSummary {
 }
 ```
 
+```ts type-equiv
+/** Payload of {@link Events['usage/cache-hit-low']}. */
+interface CacheHitLowEvent {
+  /** Calendar day (UTC+7) the rate was computed for. */
+  readonly day: string
+  /** The share that crossed below threshold, in `[0, 1]`. */
+  readonly cacheHitAvg: number
+  /** The configured {@link Config.cacheHitAlertThreshold} that was crossed. */
+  readonly threshold: number
+  /** Today's billed request count at the moment of the crossing. */
+  readonly requests: number
+}
+```
+
 ## Billed attempts and ranges
 
 One billed attempt is one validated provider usage sample on an `assistant/message` or `assistant/attempt` event. Retries count, because each sample represents tokens a previous request already spent; a sample that fails validation is skipped, never zero-filled. Input tokens are billed prompt tokens (`uncached + cacheRead + cacheWrite`); the average cache hit is `cacheRead / billedInput`. Days are fixed to UTC+7. Bounded windows zero-fill their days so the chart always draws its frame; `all` covers only days with data.
@@ -82,6 +96,8 @@ One billed attempt is one validated provider usage sample on an `assistant/messa
 ## Fold and durability
 
 The ledger derives from the durable session logs and never writes to them. Per-step buckets hold samples until `step/end` and re-attribute unknown-routed samples when the step's settled message names its route; steps that never settle attribute to the unknown route. Per-session cursors plus child-owned event ranges keep restarts and forks from double-counting. The whole state — per-day counters, per-day-per-model counters, and cursors — persists as one atomic document on the `usage_dashboard` storage domain, and every write is fail-soft: a lost write only costs a longer backfill. Counts begin when the ledger first mounts.
+
+Opt-in `cacheHitAlertThreshold` emits `usage/cache-hit-low` on a healthy-to-unhealthy crossing of today's rolling cache-hit share, once `cacheHitAlertMinRequests` billed requests have landed — an ephemeral, edge-triggered signal, not a durable event.
 
 ## Web surface
 
@@ -133,6 +149,33 @@ The usage-ledger service. Opens the `usage_dashboard` domain at init, backfills 
  * @returns totals, per-day buckets, and the per-model table.
  */
 summary(range: UsageRange, signal: AbortSignal): Promise<UsageSummary>
+```
+
+Source: [`packages/session/usage-ledger/src/index.ts`](../../packages/session/usage-ledger/src/index.ts)
+
+<a id="usage-events"></a>
+
+### `usage/*` events
+
+<a id="usagecache-hit-low--emit"></a>
+
+#### `usage/cache-hit-low` — emit
+
+Today's rolling cache-hit share (all routes, UTC+7 day) dropped below Config.cacheHitAlertThreshold after at least Config.cacheHitAlertMinRequests billed requests. Edge-triggered: fires once per healthy-to-unhealthy crossing, not on every request while the day is already below threshold. Ephemeral (not logged to any session): a live listener observes it, or re-derives the same rate any time from UsageLedger.summary.
+
+```ts cordis-catalog
+/**
+ * Today's rolling cache-hit share (all routes, UTC+7 day) dropped below
+ * {@link Config.cacheHitAlertThreshold} after at least
+ * {@link Config.cacheHitAlertMinRequests} billed requests. Edge-triggered:
+ * fires once per healthy-to-unhealthy crossing, not on every request
+ * while the day is already below threshold. Ephemeral (not logged to any
+ * session): a live listener observes it, or re-derives the same rate any
+ * time from {@link UsageLedger.summary}.
+ * @param data - the day, its rate, the crossed threshold, and its request count.
+ * @mode emit
+ */
+'usage/cache-hit-low'(data: CacheHitLowEvent): void
 ```
 
 Source: [`packages/session/usage-ledger/src/index.ts`](../../packages/session/usage-ledger/src/index.ts)

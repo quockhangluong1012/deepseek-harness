@@ -16,7 +16,11 @@ Keys are write-only. The page receives a redacted descriptor after saving, never
 
 Choose **Add provider** and pick a provider dsh ships with; the list shows provider ids such as `anthropic`, `openai`, `moonshotai` for Kimi, or `zai` for GLM. Enter its API key and save. The installed catalog supplies the endpoint, protocol, and model list.
 
-Providers that sign in with OAuth, such as Codex, are not supported here yet.
+## Sign in with a subscription
+
+A provider that authenticates through a subscription rather than an API key offers a **Sign in** control on its card instead of asking for a key. Anthropic cards, for example, sign in a Claude Pro or Max subscription through the browser: choose **Sign in**, open the sign-in page, and paste back the code it shows. The grant is stored in `$DSH_HOME/.credentials.yaml` beside API keys, while settings retain nothing sensitive. A route that is already signed in shows a signed-in state with a **Sign out** action; signing out forgets the local grant without telling the issuer.
+
+Closing the dialog withdraws the running attempt. A second page opening the same provider while one sign-in runs is refused until the first settles, and reloading mid-login abandons the attempt.
 
 ## Add a custom provider
 

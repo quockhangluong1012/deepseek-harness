@@ -58,6 +58,12 @@ import {
   sanitizeFtsText,
   SQLITE_MAX_PAGE_LIMIT,
 } from './query.ts'
+import {
+  decodeVector,
+  encodeVector,
+  rankBySimilarity,
+  SEMANTIC_CANDIDATES_SQL,
+} from './semantic.ts'
 
 export {
   SESSION_QUERY_SQLITE_APPLICATION_ID,
@@ -81,6 +87,9 @@ export const SESSION_QUERY_SQLITE_DEFAULT_LIMIT = 20
 export const SESSION_QUERY_SQLITE_MAX_LIMIT = 100
 /** Default maximum snippet length in Unicode code points. */
 export const SESSION_QUERY_SQLITE_SNIPPET_CHARS = 240
+
+/** Candidate documents one semantic search ranks, before its page limit applies. */
+export const SESSION_QUERY_SQLITE_DEFAULT_VECTOR_CANDIDATES = 2000
 
 // One transient source change gets a retry; repeated churn fails rather than monopolizing the queue.
 const STABLE_OBSERVATION_ATTEMPTS = 2
@@ -116,6 +125,13 @@ export interface Config extends SessionQueryConfig {
   persistedReadConcurrency?: number
   /** Maximum cold prepared-Session observations the inherited reader retains for reuse. Defaults to 5. */
   preparedSessionCacheSize?: number
+  /**
+   * Candidate documents one semantic search embeds and ranks. The vector
+   * channel reads the corpus rather than a full-text match, so this is what
+   * bounds both the work and the batch sent to the embedding provider.
+   * Defaults to 2000.
+   */
+  maxVectorCandidates?: number
 }
 
 interface ResolvedConfig {
@@ -128,6 +144,7 @@ interface ResolvedConfig {
   readWindowMax: number
   persistedReadConcurrency: number
   preparedSessionCacheSize: number
+  maxVectorCandidates: number
 }
 
 interface ObservedSession {
@@ -190,6 +207,12 @@ interface SearchRow extends SessionHeaderRow {
   document_length: number
 }
 
+/** Candidate row of the vector channel: a search row plus its document identity. */
+interface SemanticSearchRow extends SearchRow {
+  /** Index rowid of the document, only used to keep the ranking deterministic. */
+  doc_rowid: number
+}
+
 interface CursorPayload {
   version: 1
   instance: string
@@ -221,6 +244,11 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
       .min(1)
       .max(Number.MAX_SAFE_INTEGER)
       .default(SESSION_QUERY_DEFAULT_PREPARED_SESSION_CACHE_SIZE),
+    maxVectorCandidates: z.number()
+      .step(1)
+      .min(1)
+      .max(Number.MAX_SAFE_INTEGER)
+      .default(SESSION_QUERY_SQLITE_DEFAULT_VECTOR_CANDIDATES),
   })
 
   /** Validated and defaulted backend configuration. */
@@ -322,6 +350,138 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
         }), offset),
       }
     })
+  }
+
+  /**
+   * Rank the live-preferred corpus by meaning. The candidate set is the
+   * filtered corpus rather than a full-text match, so this is bounded by
+   * `maxVectorCandidates`; documents the vector store already holds are not
+   * embedded again, and only persisted documents are stored back.
+   * @param request - query text, metadata filters, and page size.
+   * @param exec - optional cancellation control.
+   * @returns session hits ranked by their most similar document.
+   */
+  override async searchSessionsSemantic(
+    request: SessionSearchRequest,
+    exec?: SessionSearchExecContext,
+  ): Promise<SessionSearchPage<SessionSearchHit>> {
+    this._assertSearchEnabled()
+    const normalized = normalizeSessionRequest(request, this.config)
+    const signal = exec?.signal
+    const candidates = await this._serialized(signal, async () => {
+      await this._ensureReady(signal)
+      const persistenceBinding = await this._reconcile(signal)
+      assertNotAborted(signal)
+      return this._querySemanticCandidates(normalized, persistenceBinding)
+    })
+    const ranked = await this._rankSemantic(normalized.query, candidates, signal)
+    return { items: ranked.slice(0, normalized.limit).map(row => this._sessionHit(row)) }
+  }
+
+  /** Read the filtered candidate documents the vector channel ranks. */
+  private _querySemanticCandidates(
+    request: NormalizedSessionRequest,
+    persistenceBinding: PersistenceBinding,
+  ): SemanticSearchRow[] {
+    const visible = persistenceBinding.service === undefined ? 0 : 1
+    const sessionWhere = buildSessionWhere(request.sessionFilters)
+    const eventWhere = buildEventWhere(request.eventFilters)
+    assertFts5OuterPredicateCount(sessionWhere.predicateCount + eventWhere.predicateCount)
+    const where = [sessionWhere.sql, eventWhere.sql].filter(Boolean).join(' AND ')
+    const bindings = [
+      visible,
+      visible,
+      ...sessionWhere.params,
+      ...eventWhere.params,
+      this.config.maxVectorCandidates,
+    ]
+    assertPortableBindingCount(bindings.length)
+    return this._requireDb().prepare(`
+      ${SEMANTIC_CANDIDATES_SQL}
+      SELECT * FROM candidates ${where.length === 0 ? '' : `WHERE ${where}`}
+      LIMIT ?
+    `).all(...bindings) as unknown as SemanticSearchRow[]
+  }
+
+  /**
+   * Rank candidates by similarity to the query. The query and the texts the
+   * store does not already hold are embedded in one batch, and the freshly
+   * produced document vectors are written back, so the next search over the
+   * same corpus embeds the query alone.
+   */
+  private async _rankSemantic(
+    query: string,
+    rows: readonly SemanticSearchRow[],
+    signal: AbortSignal | undefined,
+  ): Promise<SemanticSearchRow[]> {
+    if (rows.length === 0) return []
+    const embeddings = this.ctx.get('embeddings')
+    if (embeddings === undefined) {
+      throw new SessionQueryError(
+        'semantic session search needs the embeddings service; mount an embedding provider to use it',
+        'SESSION_QUERY_SEMANTIC_UNAVAILABLE',
+      )
+    }
+    const { model } = embeddings.resolve({ texts: [] })
+    const held = this._readStoredVectors(rows, model)
+    const pending = rows.filter(row => !held.has(row.doc_rowid))
+    const vectors = new Map(held)
+    let queryVector: readonly number[] | undefined
+    if (pending.length > 0) {
+      const result = await embeddings.embed({
+        texts: [...pending.map(row => row.marked_text), query],
+        signal,
+      })
+      for (const [index, row] of pending.entries()) {
+        const vector = result.vectors[index]
+        /* v8 ignore next -- the service returns one vector per requested text */
+        if (vector !== undefined) vectors.set(row.doc_rowid, vector)
+      }
+      queryVector = result.vectors[pending.length]
+    }
+    queryVector ??= (await embeddings.embed({ texts: [query], signal })).vectors[0]
+    /* v8 ignore next -- a one-text batch always answers with one vector */
+    if (queryVector === undefined) return []
+    const stored = pending.filter(row => row.live === 0).map(row => ({
+      contentHash: createHash('sha256').update(row.marked_text).digest('hex'),
+      vector: vectors.get(row.doc_rowid),
+    }))
+    const writeable = stored.filter(entry => entry.vector !== undefined)
+    if (writeable.length > 0) {
+      await this._serialized(signal, async () => {
+        const insert = this._requireDb().prepare(
+          'INSERT OR REPLACE INTO persisted_vectors (content_hash, model, vector) VALUES (?, ?, ?)',
+        )
+        for (const entry of writeable) {
+          insert.run(entry.contentHash, model, encodeVector(entry.vector ?? []))
+        }
+      })
+    }
+    return rankBySimilarity(rows, queryVector, vectors).map(entry => entry.row)
+  }
+
+  /** Vectors the store already holds for these documents under this model. */
+  private _readStoredVectors(
+    rows: readonly SemanticSearchRow[],
+    model: string,
+  ): Map<number, readonly number[]> {
+    const held = new Map<number, readonly number[]>()
+    const persisted = rows.filter(row => row.live === 0)
+    if (persisted.length === 0) return held
+    const hashes = new Map(persisted.map(row => [
+      createHash('sha256').update(row.marked_text).digest('hex'),
+      row.doc_rowid,
+    ]))
+    const select = this._requireDb().prepare(
+      'SELECT content_hash, vector FROM persisted_vectors WHERE model = ? AND content_hash = ?',
+    )
+    for (const [hash, docRowid] of hashes) {
+      const found = select.get(model, hash) as { vector: Uint8Array } | undefined
+      if (found === undefined) continue
+      const vector = decodeVector(found.vector)
+      if (vector !== undefined) held.set(docRowid, vector)
+    }
+    return held
   }
 
   /** Close the database after every accepted operation reaches quiescence. */
@@ -1032,6 +1192,7 @@ function resolveConfig(config: Config): ResolvedConfig {
       ?? SESSION_QUERY_DEFAULT_PERSISTED_INSPECT_CONCURRENCY,
     preparedSessionCacheSize: config.preparedSessionCacheSize
       ?? SESSION_QUERY_DEFAULT_PREPARED_SESSION_CACHE_SIZE,
+    maxVectorCandidates: config.maxVectorCandidates ?? SESSION_QUERY_SQLITE_DEFAULT_VECTOR_CANDIDATES,
   }
   if (typeof resolved.path !== 'string' || resolved.path.trim().length === 0) {
     throw invalidConfig('path must not be blank')

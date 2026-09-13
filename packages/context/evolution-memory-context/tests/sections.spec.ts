@@ -14,9 +14,6 @@ import {
   LESSONS_SKILLS_SECTION,
   MEMORY_SCOPE_SECTION,
   SESSION_SEARCH_SECTION,
-  USAGE_VARIABLE,
-  UNKNOWN_USAGE,
-  formatUsage,
   lessonsSkillsText,
 } from '../src/sections.ts'
 
@@ -57,10 +54,8 @@ describe('evolution nudge sections', () => {
       SESSION_SEARCH_SECTION.order,
     ]).size).toBe(3)
     expect(LESSONS_SKILLS_SECTION.text).toContain('skill_manage')
-    expect(MEMORY_SCOPE_SECTION.text).toContain(`{{${USAGE_VARIABLE}}}`)
+    expect(MEMORY_SCOPE_SECTION.text).not.toMatch(/\{\{.*\}\}/)
     expect(SESSION_SEARCH_SECTION.text).toContain('search past sessions')
-    expect(USAGE_VARIABLE).toBe('evolution_memory_usage')
-    expect(UNKNOWN_USAGE).toBe('unknown')
   })
 
   it('shows the skills nudge only beside a visible skill tool', () => {
@@ -68,13 +63,7 @@ describe('evolution nudge sections', () => {
     expect(lessonsSkillsText({})).toBe(LESSONS_SKILLS_SECTION.text)
   })
 
-  it('formats capacity as used/cap (pct%)', () => {
-    expect(formatUsage(10, 100)).toBe('10/100 (10%)')
-    expect(formatUsage(12, 12)).toBe('12/12 (100%)')
-    expect(formatUsage(0, 131072)).toBe('0/131072 (0%)')
-  })
-
-  it('assembles the variable without a session and drops the hidden nudge', async () => {
+  it('assembles without a session and drops the hidden nudge', async () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt, {})
     ctx.provide('workspaceRegistry', { list: () => [] } as never)
@@ -86,14 +75,13 @@ describe('evolution nudge sections', () => {
       expect(names).toContain('evolution-memory-scope')
       expect(names).toContain('evolution-session-search')
       const prompt = renderPrompt(assembly)
-      expect(prompt).toContain('(usage unknown)')
       expect(prompt).not.toContain('skill_manage')
     } finally {
       await fiber.dispose()
     }
   })
 
-  it('resolves the capacity variable for a scoped session', async () => {
+  it('keeps the system prompt byte-identical across a memory write (cache-prefix stability)', async () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt, {})
     await ctx.plugin(Storage)
@@ -112,14 +100,19 @@ describe('evolution nudge sections', () => {
     try {
       const scope = EvolutionScopeId('test', 'ws-1')
       workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: '/work', sessionIds: [SessionId('s1')] })
-      await ctx.evolutionMemory.setInstructions(scope, 'rules')
       const agent = { id: 's1', session: { id: SessionId('s1') } } as unknown as Agent
-      const prompt = renderPrompt(await ctx.systemPrompt.assemble({ agent }))
-      expect(prompt).toContain('(usage 5/65536 (0%))')
+
+      const before = renderPrompt(await ctx.systemPrompt.assemble({ agent }))
+      // A memory write changes usage (0 -> 5 bytes charged) but the system
+      // prompt must not reflect it: usage belongs to the brief, not this tier.
+      await ctx.evolutionMemory.setInstructions(scope, 'rules')
+      const after = renderPrompt(await ctx.systemPrompt.assemble({ agent }))
+      expect(after).toBe(before)
+      expect(after).not.toMatch(/usage/)
 
       const outsider = { id: 'nope', session: { id: SessionId('nope') } } as unknown as Agent
       const cold = renderPrompt(await ctx.systemPrompt.assemble({ agent: outsider }))
-      expect(cold).toContain('(usage unknown)')
+      expect(cold).toBe(before)
     } finally {
       await fiber.dispose()
     }
@@ -168,7 +161,7 @@ describe('evolution nudge turn intervals', () => {
 
       const twelfth = await nudgePrompt(ctx, session, 6)
       expect(twelfth).toContain(LESSONS_SKILLS_SECTION.text)
-      expect(twelfth).toContain('(usage unknown)')
+      expect(twelfth).toContain(SCOPE_FRAGMENT)
 
       const thirteenth = await nudgePrompt(ctx, session, 1)
       expect(thirteenth).not.toContain(LESSONS_SKILLS_SECTION.text)
@@ -208,7 +201,7 @@ describe('evolution nudge turn intervals', () => {
     const session = SessionId('default-intervals')
     for (const turns of [0, 1, 3, 1, 1]) {
       const prompt = await nudgePrompt(ctx, session, turns)
-      expect(prompt).toContain('(usage unknown)')
+      expect(prompt).toContain(MEMORY_SCOPE_SECTION.text)
       expect(prompt).toContain(SESSION_SEARCH_SECTION.text)
     }
     // Six turns in, the default skills interval of 10 still withholds it.

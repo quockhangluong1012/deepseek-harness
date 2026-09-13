@@ -42,6 +42,101 @@ The [Cordis API](#cordis-surface) section below owns the exhaustive service, eve
 
 Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — the language sides differ only in locale-specific paired document paths. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` API lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
 
+<a id="ctxevolutioncontroller--evolutioncontroller"></a>
+
+### `ctx.evolutionController` — `EvolutionController`
+
+Host Remote service over the durable evolution record. The stream is owned by the feed; reconnect generations belong to the client transport (`RemoteStream`), which opens a fresh `follow` call per generation, so this service never buffers across a transport loss.
+
+```ts cordis-catalog
+/**
+ * Load one scope's record.
+ * @param request - scope identity.
+ * @returns the Remote projection.
+ */
+@Remote('read') async read(request: EvolutionScopeRequest): Promise<EvolutionMemoryValue>
+
+/**
+ * Replace the instruction text.
+ * @param request - scope identity and new rules.
+ * @returns the updated projection.
+ */
+@Remote('setInstructions') async setInstructions(request: EvolutionSetInstructionsRequest): Promise<EvolutionMemoryValue>
+
+/**
+ * Replace the lessons document by hand.
+ * @param request - scope identity and new document.
+ * @returns the updated projection.
+ */
+@Remote('setLessons') async setLessons(request: EvolutionSetLessonsRequest): Promise<EvolutionMemoryValue>
+
+/**
+ * Replace the user-profile document by hand.
+ * @param request - scope identity and new document.
+ * @returns the updated projection.
+ */
+@Remote('setProfile') async setProfile(request: EvolutionSetProfileRequest): Promise<EvolutionMemoryValue>
+
+/**
+ * Attach pasted text or a file inside the Workspace.
+ * @param request - scope identity, kind, label, and text or path.
+ * @returns the updated projection.
+ */
+@Remote('addContextItem') async addContextItem(request: EvolutionAddContextItemRequest): Promise<EvolutionMemoryValue>
+
+/**
+ * Detach one context item.
+ * @param request - scope identity and item identity.
+ * @returns the updated projection.
+ */
+@Remote('removeContextItem') async removeContextItem(request: EvolutionRemoveContextItemRequest): Promise<EvolutionMemoryValue>
+
+/**
+ * Rebuild the lessons document from the scope's sessions.
+ * @param request - scope identity.
+ * @param signal - caller cancellation.
+ * @returns the updated projection.
+ */
+@Remote('rebuildMemory') async rebuildMemory(request: EvolutionRebuildMemoryRequest, signal: AbortSignal): Promise<EvolutionMemoryValue>
+
+/**
+ * List the scope's pending staged writes.
+ * @param request - scope identity.
+ * @returns the pending entries in record order.
+ */
+@Remote('listStaged') async listStaged(request: EvolutionListStagedRequest): Promise<EvolutionStagedValue>
+
+/**
+ * Apply one staged write and drop it from the pending list.
+ * @param request - scope identity and staged entry identity.
+ * @returns the updated projection.
+ */
+@Remote('approveStaged') async approveStaged(request: EvolutionResolveStagedRequest): Promise<EvolutionMemoryValue>
+
+/**
+ * Drop one staged write without applying it.
+ * @param request - scope identity and staged entry identity.
+ * @returns the updated projection.
+ */
+@Remote('rejectStaged') async rejectStaged(request: EvolutionResolveStagedRequest): Promise<EvolutionMemoryValue>
+
+/**
+ * Render one scope's journey over a window from the record it already keeps.
+ * @param request - scope identity and requested window.
+ * @returns the timeline.
+ */
+@Remote('timeline') async timeline(request: EvolutionTimelineRequest): Promise<JourneyTimeline>
+
+/**
+ * Stream a complete baseline followed by ordered upserts.
+ * @param signal - generation cancellation.
+ * @returns baseline followed by ordered scope increments.
+ */
+@Remote({ mode: 'stream' }) follow(signal: AbortSignal): AsyncIterable<EvolutionFollowFrame>
+```
+
+Source: [`packages/evolution/evolution-controller/src/index.ts`](../../packages/evolution/evolution-controller/src/index.ts)
+
 <a id="ctxevolutioncurator--evolutioncurator"></a>
 
 ### `ctx.evolutionCurator` — `EvolutionCurator`
@@ -67,7 +162,9 @@ async run(options: CuratorRunOptions = {}): Promise<CuratorReport>
 /**
  * Run a pass only when enabled, the interval elapsed since the last pass,
  * and enough idleness was observed. The first call only seeds the
- * bookkeeping and defers one interval.
+ * bookkeeping and defers one interval. Idleness defaults to the newest
+ * host-wide session activity this process observed; before any activity is
+ * observed the host counts as idle.
  * @param options - clock and idleness overrides plus the dry-run flag.
  * @returns the pass report, or undefined when this call defers.
  */
@@ -75,13 +172,26 @@ async maybeRun(options: CuratorMaybeRunOptions = {}): Promise<CuratorReport | un
 
 /**
  * Survey agent-created skills for a future consolidation verdict: names,
- * catalog routing, lifecycle state, idle age, and use counters, sorted by
- * name. The verdict itself (keep, patch, consolidate, archive) arrives
- * separately; the survey never writes.
+ * catalog routing, lifecycle state, idle age, use counters, and the failures
+ * recorded in the sessions that loaded each one. The verdict itself (keep,
+ * patch, consolidate, archive) arrives separately; the survey never writes.
  * @param options - clock override.
  * @returns the verdict evidence per skill.
  */
 async surveyCandidates(options: CuratorRunOptions = {}): Promise<ConsolidationSurvey>
+
+/**
+ * Run one opt-in LLM consolidation over the agent-created skills this
+ * curator tracks. Returns undefined when consolidation is off, when the
+ * seam is unmounted, or when no candidate awaits a verdict. A cost row
+ * reaches the ledger before the fork starts; the fork runs as a bounded
+ * in-package tool loop over `ctx.llm`; the returned verdicts apply under
+ * the full-package rule and land in the same snapshot, ledger, and rollback
+ * machinery as an automatic pass.
+ * @param options - clock override.
+ * @returns the consolidation report, or undefined when no run happened.
+ */
+async consolidate(options: CuratorRunOptions = {}): Promise<ConsolidationReport | undefined>
 
 /**
  * Adopt one agent-created skill into user-directed standing, recording the
@@ -108,9 +218,10 @@ async passes(): Promise<PassSummary[]>
 
 /**
  * Roll back one whole recorded pass, restoring every transitioned skill's
- * lifecycle state. Verifies all evidence before writing anything, snapshots
- * current records first so the rollback stays reversible, and never touches
- * skill directories.
+ * lifecycle state and moving every package a consolidation run relocated
+ * back to its original path. Verifies all evidence and every move before
+ * writing anything, and snapshots current records first so the rollback
+ * stays reversible.
  * @param passId - pass identity from the report or {@link passes}.
  * @param options - clock override.
  * @returns the rollback report.
@@ -128,6 +239,173 @@ async rollbackEntry(entryId: string, options: RollbackOptions = {}): Promise<Rol
 ```
 
 Source: [`packages/evolution/evolution-curator/src/index.ts`](../../packages/evolution/evolution-curator/src/index.ts)
+
+<a id="ctxevolutioncuratorstatus--evolutioncuratorstatuscontroller"></a>
+
+### `ctx.evolutionCuratorStatus` — `EvolutionCuratorStatusController`
+
+Host Remote face over the mounted curator's ledger summary.
+
+```ts cordis-catalog
+/**
+ * Read the curator's recorded status. An unmounted curator is reported as
+ * such — never as a pass that never ran.
+ * @returns the mounted flag, newest pass instant, and recorded passes.
+ */
+@Remote('status') async status(): Promise<EvolutionCuratorStatus>
+```
+
+Source: [`packages/client/ui-evolution/src/index.ts`](../../packages/client/ui-evolution/src/index.ts)
+
+<a id="ctxevolutionfeedback--evolutionfeedback"></a>
+
+### `ctx.evolutionFeedback` — `EvolutionFeedback`
+
+Per-session failure-observation store. Opens the `evolution_feedback` domain at init and closes it through `ctx.effect`.
+
+```ts cordis-catalog
+/**
+ * Read one session's recorded failures.
+ * @param sessionId - session identity.
+ * @returns a detached copy, newest first, or an empty list when absent.
+ */
+entries(sessionId: string): readonly FeedbackEntry[]
+
+/**
+ * Aggregate the given sessions' failures by tool and message, most-observed
+ * first. Distinct sessions that reported a failure are counted, so a
+ * failure seen once in four sessions outranks four repeats in one.
+ * @param sessionIds - sessions to aggregate, in caller order.
+ * @param limit - maximum entries returned.
+ * @returns the aggregated failures, newest-highest-count first.
+ */
+summary(sessionIds: readonly string[], limit: number): FeedbackSummaryEntry[]
+```
+
+Source: [`packages/evolution/evolution-feedback/src/index.ts`](../../packages/evolution/evolution-feedback/src/index.ts)
+
+<a id="ctxevolutiongraph--evolutiongraph"></a>
+
+### `ctx.evolutionGraph` — `EvolutionGraph`
+
+Durable per-scope knowledge graph. Opens the `evolution_graph` domain at init and closes it through `ctx.effect`.
+
+```ts cordis-catalog
+/**
+ * Read one scope's graph.
+ * @param scopeId - scope identity.
+ * @returns a detached copy, or undefined when the scope has no graph.
+ */
+read(scopeId: EvolutionScopeId): GraphRecord | undefined
+
+/**
+ * Merge extracted triples into one scope's graph. An entity seen again keeps
+ * its first label and gains a kind if it had none; a relation seen again
+ * raises its count instead of adding a second edge. Triples are dropped, not
+ * thrown on, once a cap is reached or a part normalizes to nothing, and the
+ * count of dropped triples is reported back.
+ * @param scopeId - scope identity.
+ * @param triples - relations to record.
+ * @param now - ISO-8601 instant to stamp, defaulting to the wall clock.
+ * @returns what the batch added, reinforced, and dropped.
+ */
+async observe( scopeId: EvolutionScopeId, triples: readonly GraphTriple[], now: string = new Date().toISOString(), ): Promise<GraphObserveResult>
+
+/**
+ * Answer one relation query by traversing outward from a subject.
+ * @param scopeId - scope identity.
+ * @param subject - subject label, matched by normalized identity.
+ * @param relation - relation name, matched by normalized identity.
+ * @param limit - maximum objects returned, capped by `maxQueryLimit`.
+ * @returns the resolved answer, or undefined when the subject is unknown.
+ */
+answer( scopeId: EvolutionScopeId, subject: string, relation: string, limit: number = this.resolved.maxQueryLimit, ): GraphAnswer | undefined
+
+/**
+ * Expand the neighborhood of one entity breadth-first, in both directions,
+ * so a caller can navigate connections instead of naming a relation.
+ * @param scopeId - scope identity.
+ * @param subject - subject label, matched by normalized identity.
+ * @param depth - maximum hops, at least 1.
+ * @param limit - maximum reached entities, capped by `maxQueryLimit`.
+ * @returns the reached entities, origin first, or an empty list when unknown.
+ */
+expand( scopeId: EvolutionScopeId, subject: string, depth: number = 1, limit: number = this.resolved.maxQueryLimit, ): GraphReach[]
+
+/**
+ * Find entities whose label contains a query, most-connected first.
+ * @param scopeId - scope identity.
+ * @param query - case-insensitive label substring; empty matches every node.
+ * @param limit - maximum entities returned, capped by `maxQueryLimit`.
+ * @returns the matching entities.
+ */
+find( scopeId: EvolutionScopeId, query: string, limit: number = this.resolved.maxQueryLimit, ): GraphNode[]
+
+/**
+ * Extract relations from text and merge them. One `temperature: 0` call
+ * returns JSON, which is validated here before anything is stored: a
+ * malformed answer rejects rather than storing a partial graph.
+ * @param scopeId - scope identity.
+ * @param text - source text to read relations from.
+ * @param route - provider and model to call.
+ * @param signal - caller cancellation.
+ * @returns what the extraction observed and merged.
+ */
+async extract( scopeId: EvolutionScopeId, text: string, route: { provider: string; model: string }, signal: AbortSignal, ): Promise<GraphExtractResult>
+```
+
+Source: [`packages/evolution/evolution-graph/src/index.ts`](../../packages/evolution/evolution-graph/src/index.ts)
+
+<a id="ctxevolutionheartbeat--evolutionheartbeat"></a>
+
+### `ctx.evolutionHeartbeat` — `EvolutionHeartbeat`
+
+Host-wide idle-triggered task registry. Opens the `evolution_heartbeat` domain at init and closes it through `ctx.effect`.
+
+```ts cordis-catalog
+/**
+ * Register one task. The task runs only while its registration is live, so a
+ * consumer disposes it by calling the returned disposer. A task registered
+ * after start-up is seeded by the next due-check and defers one interval.
+ * @param task - identity, cadence, and the work to run.
+ * @returns the disposer removing the task; idempotent.
+ */
+register(task: HeartbeatTask): () => void
+
+/**
+ * Inspect the registered tasks' schedule and last outcome.
+ * @param name - one task's identity, or every task when omitted.
+ * @returns one state per matching task, in registration order.
+ */
+state(name?: string): HeartbeatTaskState[]
+
+/**
+ * Read one task's last attempt instant.
+ * @param name - task identity.
+ * @returns the ISO-8601 instant, or null when unknown or never attempted.
+ */
+lastRunAt(name: string): string | null
+
+/**
+ * Consider every registered task once, in registration order. A task whose
+ * bookkeeping is absent is seeded and deferred; a task whose interval has
+ * not elapsed, or whose idle gate is unsatisfied, is deferred. Tasks run
+ * sequentially, and a failing task is recorded without stopping the pass.
+ * @param options - clock, idleness, and force overrides.
+ * @returns one entry per registered task.
+ */
+async runDue(options: HeartbeatRunOptions = {}): Promise<HeartbeatReport>
+
+/**
+ * Run one registered task now, ignoring its interval and the idle gate.
+ * @param name - task identity.
+ * @param options - clock override.
+ * @returns the task's report, or undefined when no such task is registered.
+ */
+async runTask(name: string, options: HeartbeatRunOptions = {}): Promise<HeartbeatTaskReport | undefined>
+```
+
+Source: [`packages/evolution/evolution-heartbeat/src/index.ts`](../../packages/evolution/evolution-heartbeat/src/index.ts)
 
 <a id="ctxevolutionmemory--evolutionmemorystore"></a>
 
@@ -227,7 +505,9 @@ async removeContextItem(id: EvolutionScopeId, itemId: string): Promise<Evolution
 
 /**
  * Stage one write for later approval. Staged entries never count toward
- * capacity; `memoryUpdatedAt` stays untouched until approval.
+ * capacity; `memoryUpdatedAt` stays untouched until approval. The payload
+ * is a durable record field, so it is validated as a JSON value here: a
+ * non-JSON payload is refused loudly and nothing is stored.
  * @param input - scope, kind, op, payload, origin session, and gist.
  * @returns the staged entry.
  */
@@ -238,7 +518,8 @@ async stageWrite(input: StagedWriteInput): Promise<StagedWrite>
  * cap or substring rejection keeps the entry staged and propagates; the
  * entry drops only after the op lands. Skill-kind entries only drop: the
  * approver reads the payload from the scope record and performs the skill
- * write before approving.
+ * write before approving. Either decision is recorded in the scope's
+ * resolution log, newest first.
  * @param id - staged entry identity.
  * @returns resolution after durability.
  */
@@ -273,8 +554,10 @@ Background reviewer. One scope never runs two extractions at once; a turn is nev
 ```ts cordis-catalog
 /**
  * Rebuild the lessons document from the scope's chat history, read through
- * the asynchronous session query seam. Rebuilds write directly even when
- * background approval staging is on: the caller explicitly asked for them.
+ * the asynchronous session query seam: ranked recall selects candidate
+ * events first, and each one still passes the shared admission rule.
+ * Rebuilds write directly even when background approval staging is on: the
+ * caller explicitly asked for them.
  * @param scopeId - scope identity.
  * @param signal - caller cancellation.
  * @returns resolution after the store write.
@@ -309,9 +592,12 @@ entries(): { name: string; usage: SkillUsageRecord }[]
  * record: the observer still delegates, only the write is skipped.
  * @param name - skill name.
  * @param source - catalog source when the caller already resolved it.
+ * @param sessionId - loading session, recorded so a later pass can pull the
+ *   failures observed while this skill was in play. Omitted by callers with
+ *   no session, which leaves the recorded list untouched.
  * @returns the stored record, or undefined for excluded sources.
  */
-async markUsed(name: string, source?: string): Promise<SkillUsageRecord | undefined>
+async markUsed(name: string, source?: string, sessionId?: string): Promise<SkillUsageRecord | undefined>
 
 /**
  * Count one human view. Exclusion matches {@link markUsed}.
@@ -356,6 +642,21 @@ async markAdopted(name: string): Promise<SkillUsageRecord>
 async drop(name: string): Promise<boolean>
 
 /**
+ * Record the cost row of a consolidation-scale run before its fan-out
+ * begins, so the curator and command surfaces read one frozen shape of
+ * planned spend instead of quoting ad-hoc numbers. Only the latest row is
+ * kept; a run that never fans out leaves the previous row untouched.
+ * @param row - planned cost facts of the upcoming run.
+ */
+recordConsolidationCost(row: ConsolidationCostRow): void
+
+/**
+ * Read the cost row recorded for the most recent consolidation-scale run.
+ * @returns a detached copy of the row, or undefined when no run was recorded.
+ */
+readConsolidationCost(): ConsolidationCostRow | undefined
+
+/**
  * Pin or unpin one skill. Pins block automatic transitions and managed
  * deletion; patches stay allowed. Resolves without writing when unchanged.
  * @param name - skill name.
@@ -377,4 +678,43 @@ async setState(name: string, state: SkillLifecycleState, absorbedInto: string | 
 ```
 
 Source: [`packages/skill/evolution-skill-telemetry/src/index.ts`](../../packages/skill/evolution-skill-telemetry/src/index.ts)
+
+<a id="ctxevolutiontrajectory--evolutiontrajectoryexporter"></a>
+
+### `ctx.evolutionTrajectory` — `EvolutionTrajectoryExporter`
+
+Host-side ShareGPT exporter over session persistence and the Workspace roster.
+
+```ts cordis-catalog
+/**
+ * Shape one Session's committed events into ShareGPT conversations. Pure: it
+ * reads no service and writes nothing.
+ * @param input - the Session identity and its committed events.
+ * @returns conversations in turn order, empty when no turn produced a message.
+ */
+toShareGpt(input: ShareGptInput): ShareGptConversation[]
+
+/**
+ * Write one Session's conversations as a ShareGPT JSON file: one file per
+ * call, an empty array when the Session produced no admitted message.
+ * @param sessionId - stored or live Session to export.
+ * @param options - destination file override.
+ * @returns the written path, its conversation count, and its UTF-8 byte size.
+ * @throws RemoteError with `session/not-found` when storage holds no such Session.
+ */
+@Remote async exportSession(sessionId: string, options?: TrajectoryExportOptions): Promise<TrajectoryExportResult>
+
+/**
+ * Write one file per non-archived Session of a Workspace scope. Archived
+ * sessions are skipped, and a roster entry whose log is gone is skipped with
+ * a warning rather than voiding the export.
+ * @param scopeId - opaque scope identity naming the Workspace.
+ * @param options - destination directory override.
+ * @returns the written directory, the summed conversation count, and the summed UTF-8 byte size.
+ * @throws RemoteError with `workspace/not-found` when the scope names no registered Workspace.
+ */
+@Remote async exportScope(scopeId: string, options?: TrajectoryExportOptions): Promise<TrajectoryExportResult>
+```
+
+Source: [`packages/evolution/evolution-trajectory/src/index.ts`](../../packages/evolution/evolution-trajectory/src/index.ts)
 <!-- END GENERATED cordis-surface -->

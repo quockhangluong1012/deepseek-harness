@@ -122,6 +122,39 @@ describe('workspace-memory page', () => {
     expect(read).toHaveBeenCalled()
   })
 
+  it('labels empty instruction and memory documents instead of rendering blank boxes', async () => {
+    const remote = remoteOf({ read: vi.fn(async () => valueOf({ instructions: '', memory: '' })) })
+    render(<WorkspaceMemoryPage {...propsOf({ remote })} />)
+    await screen.findByTestId('workspace-memory-page')
+    expect(screen.getByText('instructions.empty')).toBeDefined()
+    expect(screen.getByText('memory.empty')).toBeDefined()
+  })
+
+  it('previews loaded instruction and memory documents', async () => {
+    const remote = remoteOf({ read: vi.fn(async () => valueOf()) })
+    render(<WorkspaceMemoryPage {...propsOf({ remote })} />)
+    await screen.findByTestId('workspace-memory-page')
+    expect(screen.getByText('rules')).toBeDefined()
+    expect(screen.queryByText('instructions.empty')).toBeNull()
+    expect(screen.queryByText('memory.empty')).toBeNull()
+  })
+
+  it('sizes the text dialogs for long documents', async () => {
+    const remote = remoteOf({ read: vi.fn(async () => valueOf()) })
+    render(<WorkspaceMemoryPage {...propsOf({ remote })} />)
+    await screen.findByTestId('workspace-memory-page')
+    fireEvent.click(screen.getAllByText('card.edit')[0]!)
+    // The wide card class sits on the dialog, the scroll class on its content
+    // region, and the editor fills the scroll region rather than growing past
+    // the viewport with a drag handle.
+    const dialog = screen.getByRole('dialog', { name: 'card.instructions' })
+    expect(dialog.className).toContain('textDialog')
+    expect(dialog.firstElementChild?.className).toContain('textDialogContent')
+    const editor = within(dialog).getByLabelText<HTMLTextAreaElement>('card.instructions')
+    expect(editor.className).toContain('dialogEditor')
+    expect(editor.className).toContain('editor')
+  })
+
   it('shows loading and read failures', async () => {
     let resolveRead!: (value: WorkspaceMemoryValue) => void
     const remote = remoteOf({

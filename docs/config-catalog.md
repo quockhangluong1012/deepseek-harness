@@ -214,10 +214,12 @@ Requires: `typert`
 export interface Config {
   /** WebSocket Ping interval from 1 through 2,147,483,647 milliseconds. @default 2000 */
   readonly websocketHeartbeatIntervalMs?: number
+  /** Consecutive unanswered Pings before termination, at least 1. @default 2 */
+  readonly websocketHeartbeatMaxMissed?: number
 }
 ```
 
-Source: [`packages/api/gateway/src/index.ts:119`](../packages/api/gateway/src/index.ts)
+Source: [`packages/api/gateway/src/index.ts:120`](../packages/api/gateway/src/index.ts)
 
 <a id="deepseek-aidsh-api-session-controller"></a>
 
@@ -375,7 +377,7 @@ Requires: `tokenMeter`
 export interface Config {
   /** Ceiling on the measured request pressure of one step, compared before that step. */
   maxTotalTokens?: number
-  /** Ceiling on tool calls completed in one turn, compared before the next step. */
+  /** Ceiling on tool calls dispatched in one turn, compared before the next step. */
   maxToolCalls?: number
   /** Ceiling on one turn's wall-clock duration in milliseconds, measured from its `turn/start`. */
   maxWallMs?: number
@@ -497,7 +499,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/evolution/command-evolution/src/index.ts:44`](../packages/evolution/command-evolution/src/index.ts)
+Source: [`packages/evolution/command-evolution/src/index.ts:50`](../packages/evolution/command-evolution/src/index.ts)
 
 <a id="deepseek-aidsh-compaction-basic"></a>
 
@@ -619,6 +621,49 @@ export interface Config {
 
 Source: [`packages/e2b/e2b/src/index.ts:45`](../packages/e2b/e2b/src/index.ts)
 
+<a id="deepseek-aidsh-embeddings"></a>
+
+## `@deepseek-ai/dsh-embeddings`
+
+```ts config-catalog
+/** Deployment choices for the embeddings service. */
+export interface Config {
+  /** Cache entries retained across calls. */
+  maxCacheEntries?: number
+}
+```
+
+Source: [`packages/llm/embeddings/src/index.ts:68`](../packages/llm/embeddings/src/index.ts)
+
+<a id="deepseek-aidsh-embeddings-http"></a>
+
+## `@deepseek-ai/dsh-embeddings-http`
+
+Requires: `embeddings`
+
+```ts config-catalog
+/** Plugin configuration; `baseURL` and `model` have no assumed default. */
+export interface Config {
+  /** Route this endpoint serves on `ctx.embeddings`. */
+  route?: string
+  /**
+   * Endpoint base; `/embeddings` is appended. The OpenAI-compatible shape is
+   * served by DeepSeek-compatible gateways, Ollama, vLLM, and LM Studio.
+   */
+  baseURL: string
+  /** Embedding model this endpoint serves. */
+  model: string
+  /** Literal bearer key; prefer {@link Config.apiKeyEnv} so no secret enters configuration files. */
+  apiKey?: string
+  /** Credential reference resolved per batch; omit for an endpoint that needs no key. */
+  apiKeyEnv?: string
+  /** Deadline for one request in milliseconds. */
+  timeoutMs?: number
+}
+```
+
+Source: [`packages/llm/embeddings-http/src/index.ts:35`](../packages/llm/embeddings-http/src/index.ts)
+
 <a id="deepseek-aidsh-evolution-controller"></a>
 
 ## `@deepseek-ai/dsh-evolution-controller`
@@ -633,7 +678,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/evolution/evolution-controller/src/index.ts:59`](../packages/evolution/evolution-controller/src/index.ts)
+Source: [`packages/evolution/evolution-controller/src/index.ts:58`](../packages/evolution/evolution-controller/src/index.ts)
 
 <a id="deepseek-aidsh-evolution-curator"></a>
 
@@ -681,12 +726,84 @@ export interface Config {
   maxOutputTokens?: number
   /** Consolidation requests the bounded tool loop may spend. */
   maxSteps?: number
+  /** Recorded failures carried per survey candidate as reflection evidence. */
+  maxCandidateFailures?: number
   /** Per-consolidation-request deadline in milliseconds. */
   timeoutMs?: number
 }
 ```
 
-Source: [`packages/evolution/evolution-curator/src/index.ts:108`](../packages/evolution/evolution-curator/src/index.ts)
+Source: [`packages/evolution/evolution-curator/src/index.ts:109`](../packages/evolution/evolution-curator/src/index.ts)
+
+<a id="deepseek-aidsh-evolution-feedback"></a>
+
+## `@deepseek-ai/dsh-evolution-feedback`
+
+Requires: `storageDomain`
+
+```ts config-catalog
+/** Deployment choices for observation recording. */
+export interface Config {
+  /** Whether failing tool results are observed at all; reads stay available either way. */
+  enabled?: boolean
+  /** Observations retained per session, newest first. */
+  maxEntries?: number
+  /** Character budget for one recorded failure message. */
+  maxMessageChars?: number
+}
+```
+
+Source: [`packages/evolution/evolution-feedback/src/index.ts:34`](../packages/evolution/evolution-feedback/src/index.ts)
+
+<a id="deepseek-aidsh-evolution-graph"></a>
+
+## `@deepseek-ai/dsh-evolution-graph`
+
+Requires: `storageDomain`
+
+```ts config-catalog
+/** Deployment choices for the knowledge graph. */
+export interface Config {
+  /** Nodes retained per scope; further distinct entities are refused. */
+  maxNodes?: number
+  /** Relations retained per scope; further distinct relations are refused. */
+  maxEdges?: number
+  /** Results one answer, expansion, or lookup may return. */
+  maxQueryLimit?: number
+  /** Text budget for one extraction call in UTF-8 bytes. */
+  maxInputBytes?: number
+  /** Output-token cap for one extraction call. */
+  maxOutputTokens?: number
+  /** Deadline for one extraction call in milliseconds. */
+  timeoutMs?: number
+  /** Provider route for extraction; set together with `model`. */
+  provider?: string
+  /** Model id for extraction; set together with `provider`. */
+  model?: string
+}
+```
+
+Source: [`packages/evolution/evolution-graph/src/index.ts:45`](../packages/evolution/evolution-graph/src/index.ts)
+
+<a id="deepseek-aidsh-evolution-heartbeat"></a>
+
+## `@deepseek-ai/dsh-evolution-heartbeat`
+
+Requires: `storageDomain`
+
+```ts config-catalog
+/** Deployment choices for the heartbeat engine. */
+export interface Config {
+  /** Master switch; removal-equivalent off state starts no timer and runs no task. */
+  enabled?: boolean
+  /** Minutes between host-wide due-checks. */
+  tickMinutes?: number
+  /** Default minimum observed idle hours before a task may run. */
+  minIdleHours?: number
+}
+```
+
+Source: [`packages/evolution/evolution-heartbeat/src/index.ts:50`](../packages/evolution/evolution-heartbeat/src/index.ts)
 
 <a id="deepseek-aidsh-evolution-memory"></a>
 
@@ -736,7 +853,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/context/evolution-memory-context/src/index.ts:80`](../packages/context/evolution-memory-context/src/index.ts)
+Source: [`packages/context/evolution-memory-context/src/index.ts:85`](../packages/context/evolution-memory-context/src/index.ts)
 
 <a id="deepseek-aidsh-evolution-reviewer"></a>
 
@@ -786,7 +903,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/evolution/evolution-reviewer/src/index.ts:45`](../packages/evolution/evolution-reviewer/src/index.ts)
+Source: [`packages/evolution/evolution-reviewer/src/index.ts:47`](../packages/evolution/evolution-reviewer/src/index.ts)
 
 <a id="deepseek-aidsh-evolution-scorer"></a>
 
@@ -824,6 +941,22 @@ export interface Config {
 ```
 
 Source: [`packages/skill/evolution-skill-manage/src/index.ts:48`](../packages/skill/evolution-skill-manage/src/index.ts)
+
+<a id="deepseek-aidsh-evolution-skill-telemetry"></a>
+
+## `@deepseek-ai/dsh-evolution-skill-telemetry`
+
+Requires: `storageDomain` · `skills`
+
+```ts config-catalog
+/** Deployment choices for the telemetry store. */
+export interface Config {
+  /** Sessions retained per skill for failure correlation, newest first. */
+  maxSessionIds?: number
+}
+```
+
+Source: [`packages/skill/evolution-skill-telemetry/src/index.ts:81`](../packages/skill/evolution-skill-telemetry/src/index.ts)
 
 <a id="deepseek-aidsh-evolution-trajectory"></a>
 
@@ -1996,7 +2129,7 @@ export interface PlanModeConfig {
 }
 ```
 
-Source: [`packages/plan/plan-mode/src/index.ts:64`](../packages/plan/plan-mode/src/index.ts)
+Source: [`packages/plan/plan-mode/src/index.ts:65`](../packages/plan/plan-mode/src/index.ts)
 
 <a id="deepseek-aidsh-plugin-package-inventory-deepseek"></a>
 
@@ -3328,6 +3461,18 @@ export interface Config {
      */
     config?: SkillConfigMap
   }
+  /** Deployment budgets for opt-in inline shell expansion. */
+  shell?: {
+    /**
+     * Default inline shell timeout in milliseconds when a skill declares no
+     * `metadata.shellTimeoutMs`. Minimum 1.
+     */
+    timeoutMs?: number
+    /**
+     * Per-expansion output budget in characters. Minimum 1.
+     */
+    outputMaxChars?: number
+  }
 }
 
 /** Deployment-side per-skill configuration: `skills.config.<skill>.<key>`. */
@@ -3564,7 +3709,7 @@ export interface Config {
 export type ToolPresentationMode = 'native' | 'ptc' | 'both'
 ```
 
-Source: [`packages/core/tools/src/index.ts:708`](../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:707`](../packages/core/tools/src/index.ts)
 
 <a id="deepseek-aidsh-typert-loader"></a>
 
@@ -3600,10 +3745,22 @@ export interface Config {
   readonly writeEveryEvents: number
   /** Longest time (milliseconds) a dirty ledger may stay unwritten between mandatory points. */
   readonly writeIntervalMs: number
+  /**
+   * Emit `usage/cache-hit-low` when today's rolling cache-hit share (all
+   * routes) drops below this fraction (`0`-`1`). Unset disables the alert
+   * entirely — the ledger still tracks the rate, nothing watches it.
+   */
+  readonly cacheHitAlertThreshold?: number
+  /**
+   * Minimum billed requests today before the alert can fire, so a thin
+   * early-day sample cannot trip it. Meaningful only alongside
+   * {@link cacheHitAlertThreshold}.
+   */
+  readonly cacheHitAlertMinRequests: number
 }
 ```
 
-Source: [`packages/session/usage-ledger/src/index.ts:58`](../packages/session/usage-ledger/src/index.ts)
+Source: [`packages/session/usage-ledger/src/index.ts:86`](../packages/session/usage-ledger/src/index.ts)
 
 <a id="deepseek-aidsh-user-approval"></a>
 
@@ -3923,6 +4080,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-api-remotes` — requires `typertGateway` ([`packages/api/remotes/src/index.ts`](../packages/api/remotes/src/index.ts))
 - `@deepseek-ai/dsh-api-workspace-controller` — requires `typert` · `workspaceRegistry` ([`packages/api/workspace-controller/src/index.ts`](../packages/api/workspace-controller/src/index.ts))
 - `@deepseek-ai/dsh-authorization` — requires `credentials` ([`packages/credentials/authorization/src/index.ts`](../packages/credentials/authorization/src/index.ts))
+- `@deepseek-ai/dsh-authorization-remote` — requires `authorization` · `credentials` ([`packages/credentials/authorization-remote/src/index.ts`](../packages/credentials/authorization-remote/src/index.ts))
 - `@deepseek-ai/dsh-client-file-upload` — requires `agents` · `attachments` · `commands` · `connection` ([`packages/client/file-upload/src/index.ts`](../packages/client/file-upload/src/index.ts))
 - `@deepseek-ai/dsh-client-locale` ([`packages/client/locale/src/index.ts`](../packages/client/locale/src/index.ts))
 - `@deepseek-ai/dsh-client-modules` — requires `loader` ([`packages/client/modules/src/index.ts`](../packages/client/modules/src/index.ts))
@@ -3938,6 +4096,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-client-ui-deliverables` — requires `systemPrompt` · `connection` · `sessionQuery` · `sessionController` · `workspaceFiles` · `fs` · `sandboxPolicy` ([`packages/client/ui-deliverables/src/index.ts`](../packages/client/ui-deliverables/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-directory-picker-browse` ([`packages/client/ui-directory-picker-browse/src/index.ts`](../packages/client/ui-directory-picker-browse/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-directory-picker-native` ([`packages/client/ui-directory-picker-native/src/index.ts`](../packages/client/ui-directory-picker-native/src/index.ts))
+- `@deepseek-ai/dsh-client-ui-evolution` — requires `typert` ([`packages/client/ui-evolution/src/index.ts`](../packages/client/ui-evolution/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-goal` ([`packages/client/ui-goal/src/index.ts`](../packages/client/ui-goal/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-input-trigger` ([`packages/client/ui-input-trigger/src/index.ts`](../packages/client/ui-input-trigger/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-jobs` ([`packages/client/ui-jobs/src/index.ts`](../packages/client/ui-jobs/src/index.ts))
@@ -3953,6 +4112,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-client-ui-schedule` ([`packages/client/ui-schedule/src/index.ts`](../packages/client/ui-schedule/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-session` ([`packages/client/ui-session/src/index.ts`](../packages/client/ui-session/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-settings` ([`packages/client/ui-settings/src/index.ts`](../packages/client/ui-settings/src/index.ts))
+- `@deepseek-ai/dsh-client-ui-settings-authorization` ([`packages/client/ui-settings-authorization/src/index.ts`](../packages/client/ui-settings-authorization/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-settings-general` ([`packages/client/ui-settings-general/src/index.ts`](../packages/client/ui-settings-general/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-settings-models` ([`packages/client/ui-settings-models/src/index.ts`](../packages/client/ui-settings-models/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-settings-plugin-inventory` ([`packages/client/ui-settings-plugin-inventory/src/index.ts`](../packages/client/ui-settings-plugin-inventory/src/index.ts))
@@ -3977,7 +4137,6 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-commands` ([`packages/interaction/commands/src/index.ts`](../packages/interaction/commands/src/index.ts))
 - `@deepseek-ai/dsh-cordis-client-runner` ([`packages/extensions/cordis-client-runner/src/index.ts`](../packages/extensions/cordis-client-runner/src/index.ts))
 - `@deepseek-ai/dsh-deepseek-llm-api-extensions` ([`packages/llm/deepseek-llm-api-extensions/src/index.ts`](../packages/llm/deepseek-llm-api-extensions/src/index.ts))
-- `@deepseek-ai/dsh-evolution-skill-telemetry` — requires `storageDomain` · `skills` ([`packages/skill/evolution-skill-telemetry/src/index.ts`](../packages/skill/evolution-skill-telemetry/src/index.ts))
 - `@deepseek-ai/dsh-experimental-client-ui-agent-team` ([`packages/experimental/client-ui-agent-team/src/index.ts`](../packages/experimental/client-ui-agent-team/src/index.ts))
 - `@deepseek-ai/dsh-fs-e2b` — requires `e2b` ([`packages/e2b/fs-e2b/src/index.ts`](../packages/e2b/fs-e2b/src/index.ts))
 - `@deepseek-ai/dsh-fs-observation-policy` ([`packages/fs/fs-observation-policy/src/index.ts`](../packages/fs/fs-observation-policy/src/index.ts))

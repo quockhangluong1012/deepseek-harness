@@ -142,6 +142,13 @@ describe('evolution-memory-context injector', () => {
       expect(text).toContain('likes brevity')
       expect(text).toContain('Memory usage: ')
       expect(ctx.evolutionMemory.digest(id)).toBe(digest)
+      // Presented as distinct named parts, not one undifferentiated block.
+      const source = briefs[0]?.source as { form: string; sections: { name: string; text: string }[] }
+      expect(source.form).toBe('snapshot')
+      expect(source.sections.map(section => section.name)).toEqual([
+        'Overview', 'Instructions', 'Lessons', 'User profile',
+      ])
+      expect(source.sections.find(section => section.name === 'Instructions')?.text).toBe('follow the guide')
       session.append('user/message', briefs[0] as UserMessage, { surfaceOp: 'append' })
 
       const second = await preStep(ctx, fakeAgent(session))

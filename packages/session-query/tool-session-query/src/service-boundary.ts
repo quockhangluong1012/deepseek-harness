@@ -75,6 +75,10 @@ const SAFE_SESSION_QUERY_FAILURES = {
     code: 'SESSION_QUERY_SEARCH_DISABLED',
     message: 'session search is disabled in this deployment',
   },
+  SESSION_QUERY_SEMANTIC_UNAVAILABLE: {
+    code: 'SESSION_QUERY_SEMANTIC_UNAVAILABLE',
+    message: 'semantic session search is not available in this deployment',
+  },
   SESSION_QUERY_SESSION_NOT_FOUND: {
     code: 'SESSION_QUERY_SESSION_NOT_FOUND',
     message: 'session was not found',

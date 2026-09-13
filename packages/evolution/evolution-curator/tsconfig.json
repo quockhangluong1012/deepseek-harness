@@ -13,6 +13,7 @@
     { "path": "../../llm/llm" },
     { "path": "../../skill/skill" },
     { "path": "../../skill/evolution-skill-telemetry" },
+    { "path": "../evolution-feedback" },
     { "path": "../../storage/storage" },
     { "path": "../../storage/storage-domain" },
     { "path": "../../typert/protocol" },
