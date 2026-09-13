@@ -1027,6 +1027,11 @@ class JsonlSessionPersistence extends SessionPersistence {
     try {
       value = JSON.parse(first)
     } catch {
+      // Availability stays: listing skips the artifact instead of failing the
+      // whole root. But the skip is now visible: without this warning the
+      // corruption hides until a targeted open. Only the path is logged; the
+      // first line can carry user session text.
+      this.ctx.logger.warn(`${this.name}: skipping session artifact with an unparsable header line at "${selected.sourcePath}"`)
       return undefined
     }
     assertNoRetiredHeaderFields(value)

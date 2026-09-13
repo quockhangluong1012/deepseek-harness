@@ -86,7 +86,17 @@ export class SessionObservationReader {
   constructor(
     private readonly ctx: Context,
     private readonly cacheCapacity: number = SESSION_QUERY_DEFAULT_PREPARED_SESSION_CACHE_SIZE,
-  ) {}
+  ) {
+    // Fail loud at construction: the engine validates before delegating, but
+    // direct construction (tests, tools) must not silently install a
+    // degenerate capacity that disables the cache.
+    if (!Number.isSafeInteger(cacheCapacity) || cacheCapacity < 1) {
+      throw new SessionQueryError(
+        'session-query: preparedSessionCacheSize must be a positive safe integer',
+        'SESSION_QUERY_INVALID_CONFIG',
+      )
+    }
+  }
 
   /**
    * Observe one live-preferred Session and retain a cold preparation until disposal.

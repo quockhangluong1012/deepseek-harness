@@ -33,10 +33,36 @@ import { gatherSweepRoots } from '../src/cleanup.ts'
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
+const openFailure = vi.hoisted(() => ({
+  code: undefined as string | undefined,
+  /** How many `open` calls fail before passing through; infinity fails all. */
+  times: Number.POSITIVE_INFINITY,
+  seen: 0,
+}))
+
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>()
+  return {
+    ...actual,
+    open: (async (...args: Parameters<typeof actual.open>) => {
+      if (openFailure.code !== undefined && openFailure.seen < openFailure.times) {
+        openFailure.seen += 1
+        const error = new Error(`mocked ${openFailure.code}`) as NodeJS.ErrnoException
+        error.code = openFailure.code
+        throw error
+      }
+      return actual.open(...args)
+    }) as typeof actual.open,
+  }
+})
+
 let root: string
 
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), 'dsh-spill-test-'))
+  openFailure.code = undefined
+  openFailure.times = Number.POSITIVE_INFINITY
+  openFailure.seen = 0
 })
 afterEach(() => {
   rmSync(root, { recursive: true, force: true })
@@ -125,6 +151,20 @@ describe('saveTextFile', () => {
     const a = await saveTextFile({ root, sessionId: 'sess-1', suggestedName: 'r.txt', content: 'a' })
     const b = await saveTextFile({ root, sessionId: 'sess-1', suggestedName: 'r.txt', content: 'b' })
     expect(a.path).not.toBe(b.path)
+  })
+
+  it('regenerates the random name on collision instead of failing', async () => {
+    openFailure.code = 'EEXIST'
+    openFailure.times = 1
+    const saved = await saveTextFile({ root, sessionId: 'sess-1', suggestedName: 'r.txt', content: 'x' })
+    expect(readFileSync(saved.path, 'utf8')).toBe('x')
+    expect(openFailure.seen).toBe(1)
+  })
+
+  it('fails loudly after repeated collisions instead of spinning forever', async () => {
+    openFailure.code = 'EEXIST'
+    await expect(saveTextFile({ root, sessionId: 'sess-1', suggestedName: 'r.txt', content: 'x' })).rejects.toThrow(/collided 10 times/)
+    expect(openFailure.seen).toBe(10)
   })
 })
 

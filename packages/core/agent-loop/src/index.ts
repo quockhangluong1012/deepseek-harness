@@ -757,6 +757,7 @@ export class AgentLoop extends Service implements AgentFactory {
     try {
       prepared = this.prepare(this.ctx, id, options, preparation.session, undefined, stored?.handle)
     } catch (error: unknown) {
+      // Rollback swallows a handle-close rejection: the setup failure is primary.
       await stored?.handle.close().catch(() => {})
       throw error
     }
@@ -833,6 +834,7 @@ export class AgentLoop extends Service implements AgentFactory {
             () => this.createStoredSession(preparation.session, options.signal),
             options.signal,
             options.sessionId,
+            // An abandoned handle's close rejection adds nothing: the abort is already in flight.
             (abandoned) => { void abandoned?.handle.close().catch(() => {}) },
           )
       } catch (error: unknown) {
@@ -873,6 +875,7 @@ export class AgentLoop extends Service implements AgentFactory {
     try {
       prepared = this.prepare(ownerCtx, id, agentOptions, session, signal, stored?.handle, parentAgent)
     } catch (error: unknown) {
+      // Rollback swallows a handle-close rejection: the setup failure is primary.
       await stored?.handle.close().catch(() => {})
       throw error
     }
@@ -973,6 +976,7 @@ export class AgentLoop extends Service implements AgentFactory {
         )
       } finally {
         preparation?.[Symbol.dispose]()
+        // A final close rejection must not mask the resume outcome.
         await handle?.close().catch(() => {})
       }
     })()

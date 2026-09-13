@@ -564,6 +564,18 @@ describe('JsonlSessionPersistence: stored-format refusals', () => {
     })
   })
 
+  it('warns when listing skips an unparsable generation header', async () => {
+    // Availability stays: the corrupt artifact is skipped, not fatal. But the
+    // skip must be visible, or corruption hides until a targeted open.
+    const id = SessionId('list-malformed')
+    const path = generationLogPath(root, '/work', id, 42, 'none')
+    await mkdir(dirname(path), { recursive: true })
+    await writeFile(path, '{not-json}\n')
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
+    expect(await ctx.sessionPersistence.list()).toEqual([])
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining(path))
+  })
+
   it('refuses a well-shaped newer-version header at read open with the upgrade direction', async () => {
     // A header that satisfies the current shape but carries a future version:
     // stat can parse it, and the open still refuses before handing out a

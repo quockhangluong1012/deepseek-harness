@@ -356,6 +356,8 @@ export class JsonlSessionHandle implements SessionHandle {
   /** Serialize one operation onto the chain without the closed-handle refusal (drain-from-close). */
   private enqueueChain(op: () => Promise<void>): Promise<void> {
     const next = this.chain.then(op)
+    // Only the chain link swallows: a rejection must not poison later
+    // operations, while the caller still observes it through `next`.
     this.chain = next.catch(() => {})
     return next
   }

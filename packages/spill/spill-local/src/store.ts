@@ -101,16 +101,25 @@ export interface SavedText {
 }
 
 /**
+ * Upper bound on name-regeneration attempts when a random spill name collides.
+ * 48-bit names make a legitimate collision ~impossible; the bound only stops
+ * a hostile actor that pre-creates names from spinning the saver forever.
+ */
+const SAVE_COLLISION_MAX_ATTEMPTS = 10
+
+/**
  * Write text to a fresh 0600 file below its private session directory.
  * @param options The save request.
  * @returns The saved path and UTF-8 byte length.
  */
 export async function saveTextFile(options: SaveTextOptions): Promise<SavedText> {
   const dir = sessionDir(options.root, options.sessionId)
-  const path = join(dir, `${randomBytes(6).toString('hex')}-${encodeSegment(options.suggestedName)}`)
   let handle
-  for (;;) {
+  let path: string
+  for (let attempt = 0; ; attempt += 1) {
     await mkdir(dir, { recursive: true, mode: 0o700 })
+    // Regenerated every attempt: a collision retries with a fresh name.
+    path = join(dir, `${randomBytes(6).toString('hex')}-${encodeSegment(options.suggestedName)}`)
     try {
       handle = await open(path, 'wx', 0o600)
       break
@@ -118,8 +127,14 @@ export async function saveTextFile(options: SaveTextOptions): Promise<SavedText>
       /* v8 ignore start -- requires another process to remove the directory
          between mkdir and open, or an external permission/IO race. */
       if (isErrno(error, 'ENOENT')) continue
-      throw error
       /* v8 ignore stop */
+      if (isErrno(error, 'EEXIST')) {
+        if (attempt + 1 >= SAVE_COLLISION_MAX_ATTEMPTS) {
+          throw new Error(`spill: random spill name collided ${SAVE_COLLISION_MAX_ATTEMPTS} times in "${dir}"`)
+        }
+        continue
+      }
+      throw error
     }
   }
   try {

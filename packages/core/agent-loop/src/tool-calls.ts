@@ -108,6 +108,8 @@ function parseArguments(raw: string): unknown {
   try {
     return raw ? JSON.parse(raw) : {}
   } catch {
+    // Invalid JSON stays text: schema validation downstream rejects it loudly
+    // with the tool's identity attached, which a throw here could not provide.
     return raw
   }
 }
@@ -259,6 +261,10 @@ async function runGroup(
   } catch (error: unknown) {
     schedulerFailure ??= { error }
     await Promise.allSettled(inFlight.values())
+    // A finalize failure here is safe to swallow: `committed` advances only
+    // past fully appended results, so the unknown-outcome loop below covers
+    // exactly the uncommitted slots with no duplicates, and the primary
+    // scheduler failure still throws at the end of this block.
     await commitReady().catch(() => {})
     for (let index = committed; index < started; index += 1) {
       const call = group[index]

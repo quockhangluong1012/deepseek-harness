@@ -379,6 +379,23 @@ describe('approval policy (the approval/policy fold)', () => {
     expect(session.snapshotEvents().at(-1)).toMatchObject({ type: 'approval/policy', data: { policy: 'ask' } })
   })
 
+  it('scans each log event at most once across repeated policy reads', () => {
+    const service = new ApprovalService(new Context(), {})
+    const { session } = sessionAgent('sess-scan-once')
+    const eventAt = vi.spyOn(session, 'eventAt')
+    expect(service.overrideOf(session)).toBeUndefined()
+    const firstReads = eventAt.mock.calls.length
+    for (let turn = 2; turn <= 50; turn += 1) {
+      session.append('turn/start', { turn })
+      session.append('turn/end', { turn, reason: { kind: 'completed' } })
+    }
+    // Only the 98 appended events are examined; the scanned prefix is not reread.
+    expect(service.overrideOf(session)).toBeUndefined()
+    expect(eventAt.mock.calls.length - firstReads).toBe(98)
+    setApprovalPolicy(session, 'never')
+    expect(service.overrideOf(session)).toBe('never')
+  })
+
   it('rejects a policy outside the closed vocabulary before appending', () => {
     const append = vi.fn()
     const session = { append } as unknown as Session

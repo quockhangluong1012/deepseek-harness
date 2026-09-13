@@ -24,6 +24,7 @@
 
 import { Context, Service } from '@deepseek-ai/cordis'
 import { brandString } from '@deepseek-ai/dsh-brand'
+import { assertNever } from '@deepseek-ai/dsh-util-values'
 import { z as zod } from 'zod'
 import type { ZodType } from 'zod'
 import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
@@ -234,7 +235,8 @@ export class PlanModeController extends Service {
             return { kind: 'error', text: 'Attachments cannot accompany /plan off.' }
           }
           if (message === 'off') {
-            switch (this.set(agent, false)) {
+            const exit = this.set(agent, false)
+            switch (exit) {
               case 'committed':
                 return { kind: 'success', text: 'Plan mode off.' }
               case 'queued':
@@ -248,6 +250,8 @@ export class PlanModeController extends Service {
                 return this.loggedActive(agent.session)
                   ? { kind: 'success', text: 'Leaving plan mode (applies from the next step).' }
                   : { kind: 'success', text: 'Plan mode is already inactive.' }
+              /* v8 ignore next 2 -- set() returns a closed union; every member is handled above */
+              default: return assertNever(exit, 'plan mode exit outcome')
             }
           }
           const outcome = this.set(agent, true)

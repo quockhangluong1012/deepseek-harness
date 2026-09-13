@@ -145,6 +145,14 @@ export class ApprovalService extends Service {
     policy: z.union(['ask', 'never'] as const).default('ask'),
   })
 
+  /**
+   * Per-session policy-fold cursor: the log prefix already scanned and the
+   * latest override seen there. The log is append-only, so a later read only
+   * scans events appended since the previous scan — each event is examined at
+   * most once per session instead of once per ask.
+   */
+  private readonly policyCursor = new WeakMap<Session, { floor: number; policy: ApprovalPolicy | undefined }>()
+
   constructor(ctx: Context, public config: Config) {
     super(ctx, 'approval')
 
@@ -243,12 +251,20 @@ export class ApprovalService extends Service {
    * @returns the last logged policy, or `undefined` without one.
    */
   overrideOf(session: Session): ApprovalPolicy | undefined {
-    for (let seq = session.seq - 1; seq >= 0; seq -= 1) {
+    const cached = this.policyCursor.get(session)
+    // A shortened log (repair/truncation) invalidates the cursor: rescan all.
+    const floor = cached !== undefined && cached.floor <= session.seq ? cached.floor : 0
+    let policy = floor === 0 ? undefined : cached?.policy
+    for (let seq = session.seq - 1; seq >= floor; seq -= 1) {
       // oxlint-disable-next-line typescript/no-deprecated -- Existing Session history read; migration deferred.
       const event = session.eventAt(SessionSeq(seq))
-      if (event?.type === 'approval/policy') return event.data.policy
+      if (event?.type === 'approval/policy') {
+        policy = event.data.policy
+        break
+      }
     }
-    return undefined
+    this.policyCursor.set(session, { floor: session.seq, policy })
+    return policy
   }
 
   /**

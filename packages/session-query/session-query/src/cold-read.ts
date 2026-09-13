@@ -46,7 +46,11 @@ export async function readColdSessionLog(
     }
     throw error
   }
-  await handle.close()
+  try {
+    await handle.close()
+  } catch {
+    // The read already succeeded: a close failure must not mask valid data.
+  }
   const { events } = read
   return {
     eventState: read.eventState,

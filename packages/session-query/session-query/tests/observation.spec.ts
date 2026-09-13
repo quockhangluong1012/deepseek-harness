@@ -135,6 +135,16 @@ async function readerContext(): Promise<Context> {
   return ctx
 }
 
+describe('SessionObservationReader construction', () => {
+  it.each([0, -1, 1.5, Number.NaN])('rejects a non-positive-safe-integer cache capacity %s', async (cacheCapacity) => {
+    const ctx = await readerContext()
+    expect(() => new SessionObservationReader(ctx, cacheCapacity)).toThrow(
+      'session-query: preparedSessionCacheSize must be a positive safe integer',
+    )
+    await ctx.fiber.dispose()
+  })
+})
+
 describe('SessionObservationReader live path', () => {
   it('creates independent live leases and rejects retention after disposal', async () => {
     const ctx = await readerContext()
