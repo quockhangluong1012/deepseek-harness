@@ -8679,6 +8679,9 @@ importers:
 
   packages/schedule/schedule:
     dependencies:
+      '@deepseek-ai/dsh-timeout':
+        specifier: workspace:^
+        version: link:../../util/timeout
       zod:
         specifier: ^4.4.3
         version: 4.4.3
