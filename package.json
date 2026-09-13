@@ -4,7 +4,7 @@
   "license": "MIT",
   "private": true,
   "type": "module",
-  "packageManager": "pnpm@12.4.1",
+  "packageManager": "pnpm@11.26.0",
   "engines": {
     "node": "^22.19.0 || >=24.0.0"
   },
@@ -141,6 +141,7 @@
     "verify-cordis-config": "tsx scripts/verify-cordis-config.ts",
     "verify-ci-lane-coverage": "tsx scripts/verify-ci-lane-coverage.ts",
     "verify-no-fixme": "tsx scripts/verify-no-fixme.ts",
+    "verify-no-src-js": "tsx scripts/verify-no-src-js.ts",
     "verify-no-hardcoded-tunables": "tsx scripts/verify-no-hardcoded-tunables.ts",
     "rescope-vendor": "tsx scripts/rescope-vendor.ts",
     "rescope-vendor:check": "tsx scripts/rescope-vendor.ts --check",

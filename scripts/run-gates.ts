@@ -324,6 +324,7 @@ function sharedComplianceGates(): Gate[] {
   return [
     pnpmScript('ci-lane-coverage', 'verify-ci-lane-coverage', { label: 'CI lane coverage' }),
     pnpmScript('no-fixme', 'verify-no-fixme', { label: 'release FIXME markers' }),
+    pnpmScript('no-src-js', 'verify-no-src-js', { label: 'tracked src build output' }),
     pnpmScript('no-hardcoded-tunables', 'verify-no-hardcoded-tunables', { label: 'hardcoded tunables' }),
   ]
 }
