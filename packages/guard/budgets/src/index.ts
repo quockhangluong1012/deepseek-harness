@@ -1,5 +1,5 @@
 /**
- * Per-turn budget guard. It observes each turn's `turn/start` and completed
+ * Per-turn budget guard. It observes each turn's `turn/start` and dispatched
  * tool calls on `session/event` and evaluates the configured ceilings on
  * `agent/pre-step`; a reached ceiling records the durable `budget/exceeded`
  * event and rejects the proposed step without calling `next()`, and the loop
@@ -35,7 +35,7 @@ export const inject = ['tokenMeter']
 export interface Config {
   /** Ceiling on the measured request pressure of one step, compared before that step. */
   maxTotalTokens?: number
-  /** Ceiling on tool calls completed in one turn, compared before the next step. */
+  /** Ceiling on tool calls dispatched in one turn, compared before the next step. */
   maxToolCalls?: number
   /** Ceiling on one turn's wall-clock duration in milliseconds, measured from its `turn/start`. */
   maxWallMs?: number
@@ -48,7 +48,7 @@ export const Config: z<Config> = z.object({
   maxWallMs: z.number(),
 })
 
-/** One turn's observed activity: its number, when it started, and how many tool calls it completed. */
+/** One turn's observed activity: its number, when it started, and how many tool calls it dispatched. */
 interface TurnFacts {
   /** Turn number taken from the `turn/start` this entry was created by. */
   turn: number

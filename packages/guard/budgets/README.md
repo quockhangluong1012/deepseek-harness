@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Use this package to bound what one turn can spend. Three optional ceilings — measured request pressure, completed tool calls, and wall-clock duration — are checked before each proposed step; when one is reached, the guard records a durable `budget/exceeded` event, rejects that step, and the turn ends blocked instead of continuing. A step that claims a human message always enters, so a budget never discards what the user said, and every ceiling is off unless configured. The `dsh` web-app bundle mounts the plugin with all three ceilings off, so a deployment opts in per composition.
+Use this package to bound what one turn can spend. Three optional ceilings — measured request pressure, dispatched tool calls, and wall-clock duration — are checked before each proposed step; when one is reached, the guard records a durable `budget/exceeded` event, rejects that step, and the turn ends blocked instead of continuing. A step that claims a human message always enters, so a budget never discards what the user said, and every ceiling is off unless configured. The `dsh` web-app bundle mounts the plugin with all three ceilings off, so a deployment opts in per composition.
 
 ## Table of Contents
 
@@ -39,14 +39,14 @@ Mount the plugin with the ceilings the deployment wants:
 - name: '@deepseek-ai/dsh-budgets'
   config:
     maxTotalTokens: 200000   # reject a step once measured request pressure reaches this
-    maxToolCalls: 50         # reject a step once this many tool calls completed in the turn
+    maxToolCalls: 50         # reject a step once this many tool calls are dispatched in the turn
     maxWallMs: 600000        # reject a step once the turn has run this long
 ```
 
 | Field | Default | Meaning |
 |---|---|---|
 | `maxTotalTokens` | unset (off) | Ceiling on the measured request pressure of one step, compared before that step |
-| `maxToolCalls` | unset (off) | Ceiling on tool calls completed in one turn |
+| `maxToolCalls` | unset (off) | Ceiling on tool calls dispatched in one turn |
 | `maxWallMs` | unset (off) | Ceiling on one turn's wall-clock duration, measured from its `turn/start` |
 
 Each ceiling is off while unset, and a plugin mounted with no configuration rejects nothing. A non-positive or non-finite value fails plugin load with a clear error instead of silently disabling the ceiling it names, and the generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-budgets) is the complete list of accepted values.

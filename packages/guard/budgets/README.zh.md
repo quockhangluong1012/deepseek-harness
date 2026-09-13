@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-使用本包可为一个轮次能消耗多少设限。三项可选上限——实测请求压力、已完成的工具调用、挂钟时长——会在每个拟进入的步骤之前检查；任一项到达后，guard 会记录一条持久化的 `budget/exceeded` 事件、拒绝该步骤，轮次随即以 blocked 结束，而不是继续下去。认领了人类消息的步骤始终进入，因此预算绝不会丢弃用户说过的话；所有上限在未配置时都处于关闭状态。`dsh` web-app 组合包以三项上限全关的方式挂载本插件，部署可按组合逐项选择启用。
+使用本包可为一个轮次能消耗多少设限。三项可选上限——实测请求压力、已分发的工具调用、挂钟时长——会在每个拟进入的步骤之前检查；任一项到达后，guard 会记录一条持久化的 `budget/exceeded` 事件、拒绝该步骤，轮次随即以 blocked 结束，而不是继续下去。认领了人类消息的步骤始终进入，因此预算绝不会丢弃用户说过的话；所有上限在未配置时都处于关闭状态。`dsh` web-app 组合包以三项上限全关的方式挂载本插件，部署可按组合逐项选择启用。
 
 ## 目录
 
@@ -39,14 +39,14 @@ kind: "package-reference"
 - name: '@deepseek-ai/dsh-budgets'
   config:
     maxTotalTokens: 200000   # reject a step once measured request pressure reaches this
-    maxToolCalls: 50         # reject a step once this many tool calls completed in the turn
+    maxToolCalls: 50         # reject a step once this many tool calls are dispatched in the turn
     maxWallMs: 600000        # reject a step once the turn has run this long
 ```
 
 | 字段 | 默认值 | 含义 |
 |---|---|---|
 | `maxTotalTokens` | 未设置（关闭） | 单个步骤实测请求压力的上限，在该步骤之前比较 |
-| `maxToolCalls` | 未设置（关闭） | 单个轮次内已完成工具调用的上限 |
+| `maxToolCalls` | 未设置（关闭） | 单个轮次内已分发工具调用的上限 |
 | `maxWallMs` | 未设置（关闭） | 单个轮次挂钟时长的上限，从其 `turn/start` 起算 |
 
 未设置的上限即处于关闭状态，因此无配置挂载的插件不会拒绝任何步骤。非正数或非有限值会让插件加载失败并给出明确错误，而不是悄悄关闭它所声明的上限；生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-budgets)是受支持取值的完整清单。
