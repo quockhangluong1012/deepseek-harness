@@ -185,6 +185,9 @@ const packageFileExtras: Readonly<Record<string, readonly string[]>> = {
   // through a hashed chunk. The committed bin.js is the link target pnpm can
   // resolve at install time, before the build produces lib/bin.js.
   '@deepseek-ai/dsh-experimental-webworker-packer': ['bin.js', 'lib/repository-*.js'],
+  // The HMR driver ships its watch runtime beside the lib entry; the hashed
+  // bundle-watch chunk is emitted by the client bundle for the watch page.
+  '@deepseek-ai/dsh-client-hmr': ['lib/watch.js', 'lib/bundle-watch-*.js'],
 }
 
 function sameStringList(actual: readonly string[] | undefined, expected: readonly string[]): boolean {

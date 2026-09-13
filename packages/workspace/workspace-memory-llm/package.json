@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-workspace-memory-llm",
   "description": "Workspace memory extraction: per-turn output indexing, per-turn memory derivation, on-demand rebuild (ctx.workspaceMemoryExtractor)",
-  "version": "0.1.5-alpha.1",
+  "version": "0.1.5-rc.2",
   "publishConfig": {
     "access": "public"
   },

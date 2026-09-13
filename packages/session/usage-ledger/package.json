@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-usage-ledger",
   "description": "Durable ledger of billed LLM attempts aggregated by day and model for the DeepSeek Harness usage dashboard",
-  "version": "0.1.5-alpha.1",
+  "version": "0.1.5-rc.2",
   "publishConfig": {
     "access": "public"
   },
