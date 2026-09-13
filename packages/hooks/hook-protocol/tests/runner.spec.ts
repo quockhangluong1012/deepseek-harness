@@ -100,6 +100,12 @@ describe('runHook — payload + env + stdin plumbing', () => {
     expect(DEFAULT_HOOK_TIMEOUT_MS).toBe(600_000) // the CC/Codex reference default (10 minutes)
   })
 
+  it.each([0, -5, Number.NaN, Number.POSITIVE_INFINITY])('falls back to the default timeout for a non-positive or non-finite timeoutSec (%s)', async (timeoutSec) => {
+    const { bash, specs } = recordingBash(async () => result())
+    await runHook(bash, { command: 'h', timeoutSec }, { payload: {}, signal: testSignal(), defaultTimeoutMs: 60000, trailingNewline: true }, clock())
+    expect(specs[0]!.timeoutMs).toBe(60000)
+  })
+
   it('passes the abort signal through', async () => {
     const controller = new AbortController()
     const { bash, specs } = recordingBash(async () => result())

@@ -71,7 +71,12 @@ export async function runHook(
   now: () => number,
 ): Promise<RunHookResult> {
   const started = now()
-  const timeoutMs = hook.timeoutSec !== undefined ? hook.timeoutSec * 1000 : options.defaultTimeoutMs
+  // The wire unit is seconds and unvalidated at the bridges: a missing,
+  // non-positive, or non-finite value falls back to the default rather than
+  // arming a degenerate (instant or effectively infinite) shell timeout.
+  const timeoutMs = hook.timeoutSec !== undefined && Number.isFinite(hook.timeoutSec) && hook.timeoutSec > 0
+    ? hook.timeoutSec * 1000
+    : options.defaultTimeoutMs
   const stdin = JSON.stringify(options.payload) + (options.trailingNewline ? '\n' : '')
 
   const request = {

@@ -192,7 +192,7 @@ export class DeepSeekSearchProvider implements WebSearchProvider {
   available(): boolean {
     const options = this.resolveOptions()
     return ((options.apiKey?.length ?? 0) > 0 || options.resolveApiKey !== undefined)
-      && URL.canParse(options.baseURL)
+      && isUsableBaseUrl(options.baseURL)
       && isPositiveInteger(options.maxTokens)
       && isPositiveInteger(options.maxUses)
   }
@@ -367,4 +367,19 @@ function isAbortError(error: unknown): boolean {
 /** True for DeepSeek request limits that can be sent to the Messages API. */
 function isPositiveInteger(value: number): boolean {
   return Number.isInteger(value) && value > 0
+}
+
+/** True for an absolute endpoint URL without embedded credentials. */
+function isUsableBaseUrl(baseURL: string): boolean {
+  let url: URL
+  try {
+    url = new URL(baseURL)
+  } catch {
+    // Unparseable input is not an absolute URL.
+    return false
+  }
+  // Embedded userinfo would ride the Bearer-keyed request to that origin, so
+  // a credentialed URL fails closed here instead of at request time. Plain
+  // http stays accepted: test doubles and local mock endpoints use it.
+  return url.username === '' && url.password === ''
 }

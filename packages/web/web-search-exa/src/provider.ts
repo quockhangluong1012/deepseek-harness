@@ -149,9 +149,19 @@ export class ExaSearchProvider implements WebSearchProvider {
   }
 }
 
-/** True when `baseURL` parses as an absolute URL (a cheap local config check). */
+/** True for an absolute endpoint URL without embedded credentials. */
 function isValidBaseUrl(baseURL: string): boolean {
-  return URL.canParse(baseURL)
+  let url: URL
+  try {
+    url = new URL(baseURL)
+  } catch {
+    // Unparseable input is not an absolute URL.
+    return false
+  }
+  // Embedded userinfo would ride the Bearer-keyed request to that origin, so
+  // a credentialed URL fails closed here instead of at request time. Plain
+  // http stays accepted: test doubles and local mock endpoints use it.
+  return url.username === '' && url.password === ''
 }
 
 /** True for a request limit that can be sent to Exa (a positive whole number). */

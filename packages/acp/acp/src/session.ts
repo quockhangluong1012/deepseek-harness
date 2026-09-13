@@ -13,7 +13,7 @@ import {
 import type { Agent, AgentHandle, AgentOptions, ModelSelection } from '@deepseek-ai/dsh-agent'
 import { createUserMessage, errorChain, type UserMessage } from '@deepseek-ai/dsh-llm'
 import { type Session, type SessionEvent, type SessionId, type TurnEndReason } from '@deepseek-ai/dsh-session'
-import { AcpContentError, admitAcpPrompt } from './content.ts'
+import { AcpContentError, admitAcpPrompt, supportsAcpImagePrompts } from './content.ts'
 import { turnEndToStopReason } from './codec.ts'
 import { mountAcpMcpServers } from './mcp.ts'
 import { AcpModelControl } from './model-control.ts'
@@ -234,6 +234,27 @@ export class AcpSession {
   }
 
   /**
+   * Resolve image admission for one prompt. The connection flag reflects the
+   * initialize-time route, but the session may have switched models since:
+   * re-resolve from the live selection when (and only when) the prompt carries
+   * image blocks, so a capable route is not gated by a stale advertisement.
+   * The reverse direction needs no refresh: admission re-verifies the live
+   * route and fails loud on an incapable one.
+   * @param params - the prompt request being admitted.
+   * @param selection - model selection pinned to the accepted prompt.
+   * @param imageEnabled - connection capability advertised at initialization.
+   * @returns whether image blocks may be admitted for this prompt.
+   */
+  private async imageEnabledForPrompt(
+    params: PromptRequest,
+    selection: ModelSelection | undefined,
+    imageEnabled: boolean,
+  ): Promise<boolean> {
+    if (imageEnabled || !params.prompt.some(block => block.type === 'image')) return imageEnabled
+    return supportsAcpImagePrompts(this.ctx, selection?.provider, selection?.model)
+  }
+
+  /**
    * Admit, enqueue, and settle one prompt at whole-Agent quiescence.
    * @param params - standard ACP prompt request for this session.
    * @param imageEnabled - connection capability advertised at initialization.
@@ -281,7 +302,7 @@ export class AcpSession {
           this.ctx,
           promptSelection,
           params.prompt,
-          imageEnabled,
+          await this.imageEnabledForPrompt(params, promptSelection, imageEnabled),
           admissionController.signal,
         )
         admissionController.signal.throwIfAborted()

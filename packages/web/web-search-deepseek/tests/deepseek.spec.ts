@@ -170,6 +170,10 @@ describe('DeepSeekSearchProvider availability', () => {
     expect(searchProvider({ ...options, baseURL: 'not a url' }).available()).toBe(false)
   })
 
+  it('is misconfigured when the base URL embeds credentials', () => {
+    expect(searchProvider({ ...options, baseURL: 'https://user:pass@api.deepseek.com' }).available()).toBe(false)
+  })
+
   it('is misconfigured when request limits are not positive integers', () => {
     expect(searchProvider({ ...options, maxTokens: 0 }).available()).toBe(false)
     expect(searchProvider({ ...options, maxUses: 0 }).available()).toBe(false)

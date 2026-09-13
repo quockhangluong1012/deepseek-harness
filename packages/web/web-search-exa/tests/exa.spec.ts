@@ -75,6 +75,10 @@ describe('ExaSearchProvider availability', () => {
     expect(new ExaSearchProvider({ ...options, baseURL: 'not a url' }).available()).toBe(false)
   })
 
+  it('is misconfigured when the base URL embeds credentials', () => {
+    expect(new ExaSearchProvider({ ...options, baseURL: 'https://user:pass@api.exa.ai' }).available()).toBe(false)
+  })
+
   it('is misconfigured when highlightsPerResult is not a positive integer', () => {
     expect(new ExaSearchProvider({ ...options, highlightsPerResult: 0 }).available()).toBe(false)
     expect(new ExaSearchProvider({ ...options, highlightsPerResult: 1.5 }).available()).toBe(false)

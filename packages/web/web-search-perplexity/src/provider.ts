@@ -93,7 +93,7 @@ export class PerplexitySearchProvider implements WebSearchProvider {
   /* jscpd:ignore-start */
   available(): boolean {
     return this.options.apiKey.length > 0
-      && URL.canParse(this.options.baseURL)
+      && isUsableBaseUrl(this.options.baseURL)
       && isPositiveInteger(this.options.maxTokens)
   }
   /* jscpd:ignore-end */
@@ -158,6 +158,21 @@ export class PerplexitySearchProvider implements WebSearchProvider {
 /** True for a fetch/`AbortSignal` abort, surfaced as `WEB_ABORTED`. */
 function isAbortError(error: unknown): boolean {
   return error instanceof DOMException && error.name === 'AbortError'
+}
+
+/** True for an absolute endpoint URL without embedded credentials. */
+function isUsableBaseUrl(baseURL: string): boolean {
+  let url: URL
+  try {
+    url = new URL(baseURL)
+  } catch {
+    // Unparseable input is not an absolute URL.
+    return false
+  }
+  // Embedded userinfo would ride the Bearer-keyed request to that origin, so
+  // a credentialed URL fails closed here instead of at request time. Plain
+  // http stays accepted: test doubles and local mock endpoints use it.
+  return url.username === '' && url.password === ''
 }
 
 /** True for a request limit that can be sent to Perplexity (a positive whole number). */

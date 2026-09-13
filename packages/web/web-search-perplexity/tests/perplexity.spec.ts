@@ -77,6 +77,10 @@ describe('PerplexitySearchProvider availability', () => {
     expect(new PerplexitySearchProvider({ ...options, baseURL: 'not a url' }).available()).toBe(false)
   })
 
+  it('is misconfigured when the base URL embeds credentials', () => {
+    expect(new PerplexitySearchProvider({ ...options, baseURL: 'https://user:pass@api.perplexity.ai' }).available()).toBe(false)
+  })
+
   it('is misconfigured when maxTokens is not a positive integer', () => {
     expect(new PerplexitySearchProvider({ ...options, maxTokens: 0 }).available()).toBe(false)
     expect(new PerplexitySearchProvider({ ...options, maxTokens: 1.5 }).available()).toBe(false)

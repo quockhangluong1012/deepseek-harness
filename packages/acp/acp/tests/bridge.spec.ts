@@ -704,6 +704,33 @@ describe('automation-only ACP bridge', () => {
     })).rejects.toThrow(/does not declare image input/)
   })
 
+  it('follows a mid-session switch to an image-capable model for admission', async () => {
+    // Initialize advertises no image support (plain route), then the session
+    // switches to the capable route: admission must follow the live selection,
+    // not the stale connection flag.
+    harness = await makeBridgeHarness({
+      config: { provider: 'mock', model: 'plain' },
+      imageCapable: true,
+      script: [textResponse('image accepted after switch')],
+    })
+    await harness.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
+    const created = await harness.client.newSession({ cwd: process.cwd(), mcpServers: [] })
+    const model = created.configOptions?.find(option => option.id === 'model')
+    if (model?.type !== 'select') throw new Error('expected a model select option')
+    const capable = model.options.flatMap(option => 'group' in option ? option.options : [option])
+      .find(option => option.name === 'Mock Reasoner')
+    if (capable === undefined) throw new Error('expected Mock Reasoner in the model catalog')
+    await harness.client.setSessionConfigOption({
+      sessionId: created.sessionId,
+      configId: 'model',
+      value: capable.value,
+    })
+    await expect(harness.client.prompt({
+      sessionId: created.sessionId,
+      prompt: [{ type: 'image', data: 'AQ==', mimeType: 'image/png' }],
+    })).resolves.toEqual({ stopReason: 'end_turn' })
+  })
+
   it('applies a mid-turn model change to the following turn', async () => {
     harness = await makeBridgeHarness({ script: [oneToolCall(), textResponse('first turn'), textResponse('second turn')] })
     await harness.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
