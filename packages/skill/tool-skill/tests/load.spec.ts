@@ -129,12 +129,28 @@ describe('resolveSkillLoad', () => {
   it('reads configuration and no inline shell from an undeclared metadata object', () => {
     const spec = resolved({ skill: skill({ metadata: { owner: 'tests' } }) })
     expect(spec.config).toEqual({})
-    expect(spec.shell).toEqual({ enabled: false, timeoutMs: DEFAULT_SHELL_TIMEOUT_MS })
+    expect(spec.shell).toEqual({ enabled: false, timeoutMs: DEFAULT_SHELL_TIMEOUT_MS, outputMaxChars: MAX_SHELL_OUTPUT_CHARS })
   })
 
   it('enables inline shell with the declared timeout', () => {
     const spec = resolved({ skill: skill({ metadata: { shell: true, shellTimeoutMs: 2_500 } }) })
-    expect(spec.shell).toEqual({ enabled: true, timeoutMs: 2_500 })
+    expect(spec.shell).toEqual({ enabled: true, timeoutMs: 2_500, outputMaxChars: MAX_SHELL_OUTPUT_CHARS })
+  })
+
+  it('takes shell budgets from deployment defaults when metadata declares none', () => {
+    const spec = resolved({
+      skill: skill({ metadata: { shell: true } }),
+      shellDefaults: { timeoutMs: 5_000, outputMaxChars: 1_000 },
+    })
+    expect(spec.shell).toEqual({ enabled: true, timeoutMs: 5_000, outputMaxChars: 1_000 })
+  })
+
+  it('prefers the skill metadata timeout over deployment defaults', () => {
+    const spec = resolved({
+      skill: skill({ metadata: { shell: true, shellTimeoutMs: 2_500 } }),
+      shellDefaults: { timeoutMs: 5_000, outputMaxChars: 1_000 },
+    })
+    expect(spec.shell).toEqual({ enabled: true, timeoutMs: 2_500, outputMaxChars: 1_000 })
   })
 
   it('rejects malformed inline shell metadata', () => {

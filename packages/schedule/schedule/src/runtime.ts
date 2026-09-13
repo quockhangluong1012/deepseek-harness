@@ -6,6 +6,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import type { EveryScheduleRecord, OneShotScheduleRecord } from './types.ts'
 import {
   foldScheduleEvents,
@@ -18,8 +19,8 @@ import type { FoldedSchedules } from './domain.ts'
 import { flushSchedulePersistence } from './persistence.ts'
 import { runScheduleTransaction } from './transaction.ts'
 
-/** Largest delay that Node timers represent without clamping. */
-export const MAX_TIMER_DELAY_MS = 2_147_483_647
+/** Largest delay that Node timers represent without clamping (re-exported from the shared timeout vocabulary). */
+export { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 
 interface EveryDue {
   readonly record: EveryScheduleRecord

@@ -381,9 +381,10 @@ describe('WorkspaceRegistry create and lookup', () => {
     const alias = join(base, 'first-link')
     await symlink(firstDir, alias)
     const { registry, pool } = await harness()
-    const first = await registry.create(firstDir, 'Original')
+    const first = await registry.create(firstDir)
+    await first.setTitle('Original')
     const second = await registry.create(secondDir)
-    const reused = await registry.create(alias, 'Ignored')
+    const reused = await registry.create(alias)
     expect(reused).toBe(first)
     expect(first.title).toBe('Original')
     expect(registry.list()).toEqual([second, first])
@@ -396,8 +397,8 @@ describe('WorkspaceRegistry create and lookup', () => {
     const dir = await makeDir('concurrent')
     const { registry, pool } = await harness()
     const [left, right] = await Promise.all([
-      registry.create(dir, 'Winner'),
-      registry.create(dir, 'Loser'),
+      registry.create(dir),
+      registry.create(dir),
     ])
     expect(left).toBe(right)
     expect(registry.list()).toEqual([left])
@@ -408,8 +409,10 @@ describe('WorkspaceRegistry create and lookup', () => {
     const firstDir = await makeDir('named-first')
     const secondDir = await makeDir('named-second')
     const { registry } = await harness()
-    const first = await registry.create(firstDir, 'Shared')
-    const second = await registry.create(secondDir, 'Shared')
+    const first = await registry.create(firstDir)
+    await first.setTitle('Shared')
+    const second = await registry.create(secondDir)
+    await second.setTitle('Shared')
     expect(first.title).toBe('Shared')
     expect(second.title).toBe('Shared')
     expect(registry.list()).toEqual([second, first])

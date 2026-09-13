@@ -32,6 +32,8 @@ export interface SkillLoadRequest {
   readonly skillsConfig?: SkillConfigMap | undefined
   /** Host environment the declared `required_env` names are read from. */
   readonly env?: Readonly<Record<string, string | undefined>> | undefined
+  /** Deployment shell budgets; skill metadata wins when it declares a timeout. */
+  readonly shellDefaults?: { timeoutMs: number; outputMaxChars: number } | undefined
 }
 
 /** Resolved load-time facts for one skill. */
@@ -43,7 +45,7 @@ export interface SkillLoadSpec {
   /** Configuration values injected into the body and execution environment. */
   readonly config: Readonly<Record<string, string>>
   /** Resolved inline shell expansion state. */
-  readonly shell: { readonly enabled: boolean; readonly timeoutMs: number }
+  readonly shell: { readonly enabled: boolean; readonly timeoutMs: number; readonly outputMaxChars: number }
 }
 
 /** Resolution outcome: a usable spec, or the explanatory misconfiguration load error. */
@@ -106,7 +108,7 @@ export function resolveSkillLoad(request: SkillLoadRequest): SkillLoadResolution
       error: `skill "${skill.name}" requires configuration ${missing.map(key => `"${key}"`).join(', ')}, which neither skills.config nor the skill's own defaults provide`,
     }
   }
-  const shell = resolveShell(skill)
+  const shell = resolveShell(skill, request.shellDefaults)
   return shell.ok
     ? { ok: true, spec: { skill, env, config, shell: shell.shell } }
     : { ok: false, error: shell.error }
@@ -168,7 +170,7 @@ async function runInlineShell(command: string, request: SkillRenderRequest): Pro
       command,
       ...request.skillDir !== undefined ? { workdir: request.skillDir } : {},
       timeoutMs: request.spec.shell.timeoutMs,
-      stdoutMaxBytes: MAX_SHELL_OUTPUT_CHARS * 4,
+      stdoutMaxBytes: request.spec.shell.outputMaxChars * 4,
       ...request.signal !== undefined ? { signal: request.signal } : {},
       env: { ...request.spec.env, ...request.spec.config },
     })
@@ -177,23 +179,29 @@ async function runInlineShell(command: string, request: SkillRenderRequest): Pro
       request.warn(`skill "${request.spec.skill.name}" inline shell command failed: ${command}`)
       return ''
     }
-    return capShellOutput(result.stdout.text.trim())
+    return capShellOutput(result.stdout.text.trim(), request.spec.shell.outputMaxChars)
   } catch (error) {
     request.warn(`skill "${request.spec.skill.name}" inline shell command failed: ${command}: ${String(error)}`)
     return ''
   }
 }
 
-/** Cap inline shell output at the documented character budget without splitting a surrogate pair. */
-function capShellOutput(text: string): string {
-  if (text.length <= MAX_SHELL_OUTPUT_CHARS) return text
-  const capped = text.slice(0, MAX_SHELL_OUTPUT_CHARS)
+/** Cap inline shell output at the resolved character budget without splitting a surrogate pair. */
+function capShellOutput(text: string, outputMaxChars: number): string {
+  if (text.length <= outputMaxChars) return text
+  const capped = text.slice(0, outputMaxChars)
   const last = capped.charCodeAt(capped.length - 1)
   return last >= 0xd800 && last <= 0xdbff ? capped.slice(0, -1) : capped
 }
 
 /** Resolve `metadata.shell` / `metadata.shellTimeoutMs`, rejecting malformed values. */
-function resolveShell(skill: SkillDefinition): { ok: true; shell: SkillLoadSpec['shell'] } | { ok: false; error: string } {
+function resolveShell(
+  skill: SkillDefinition,
+  defaults: { timeoutMs: number; outputMaxChars: number } = {
+    timeoutMs: DEFAULT_SHELL_TIMEOUT_MS,
+    outputMaxChars: MAX_SHELL_OUTPUT_CHARS,
+  },
+): { ok: true; shell: SkillLoadSpec['shell'] } | { ok: false; error: string } {
   const metadata = skill.metadata
   const enabled = metadata?.shell
   if (enabled !== undefined && typeof enabled !== 'boolean') {
@@ -205,7 +213,7 @@ function resolveShell(skill: SkillDefinition): { ok: true; shell: SkillLoadSpec[
   }
   return {
     ok: true,
-    shell: { enabled: enabled === true, timeoutMs: configured ?? DEFAULT_SHELL_TIMEOUT_MS },
+    shell: { enabled: enabled === true, timeoutMs: configured ?? defaults.timeoutMs, outputMaxChars: defaults.outputMaxChars },
   }
 }
 

@@ -18,7 +18,6 @@ kind: "package-reference"
 - [进一步探索](#further-exploration)
 - [模型体验](#model-experience)
 - [已知限制与延期工作](#known-limitations-and-deferred-work)
-- [开发备注](#dev-note)
 
 -----
 
@@ -54,7 +53,8 @@ kind: "package-reference"
 
 ```text
 // Host consumer code, after the composition above is loaded:
-const project = await ctx.workspaceRegistry.create('/path/to/dir', 'My Project')
+const project = await ctx.workspaceRegistry.create('/path/to/dir')
+await project.setTitle('My Project')
 await project.setTitle('Renamed')
 ctx.workspaceRegistry.list() // shows the project, newest first
 ```
@@ -162,17 +162,3 @@ ctx.workspaceRegistry.list() // shows the project, newest first
 - **外部变更延迟可见**——如果另一进程删除或损坏目录，项目只能在下次刷新或重启后反映出来。
 - **归档是单向的**——被隐藏的会话保留其历史与位置，但目前没有取消归档操作；归档集合是持久的显示过滤器。
 - **重新添加目录从空开始**——移除后再次添加同一目录会创建空会话列表的新项目；旧会话不会自动回来。
-
-<a id="dev-note"></a>
-### 开发备注
-
-<details>
-<summary>维护者的工作上下文——点击展开</summary>
-
-本开发备注是维护者的工作上下文：开放问题与尚未决定的探索方向。它明确不具权威性——已交付的行为、限制与既定理由以上文、包代码和相关 Agent Note 为准。
-
-#### 开放：`create(path, title?)` 的 title 参数
-
-网关的按名称创建分支移除后，`title` 参数已无生产调用方；代码中的 TODO 提议把该参数与其 `@param` 子句一并移除（参见[笔记](../../../.agents/notes/archived/simplification/2026-07-31-one-route-to-add-a-workspace.md)）。
-
-</details>

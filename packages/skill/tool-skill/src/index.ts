@@ -22,7 +22,7 @@ import {
   type SkillInvocationSource,
   type SkillSummary,
 } from '@deepseek-ai/dsh-skill'
-import { resolveSkillLoad, renderSkillBody, type SkillConfigMap } from './load.ts'
+import { DEFAULT_SHELL_TIMEOUT_MS, MAX_SHELL_OUTPUT_CHARS, resolveSkillLoad, renderSkillBody, type SkillConfigMap } from './load.ts'
 import { skillDirForSkillPath } from './template.ts'
 
 export const name = 'tool-skill'
@@ -73,6 +73,18 @@ export interface Config {
      */
     config?: SkillConfigMap
   }
+  /** Deployment budgets for opt-in inline shell expansion. */
+  shell?: {
+    /**
+     * Default inline shell timeout in milliseconds when a skill declares no
+     * `metadata.shellTimeoutMs`. Minimum 1.
+     */
+    timeoutMs?: number
+    /**
+     * Per-expansion output budget in characters. Minimum 1.
+     */
+    outputMaxChars?: number
+  }
 }
 
 /** Validate and default the model-facing skill catalog configuration. */
@@ -81,6 +93,10 @@ export const Config: z<Config> = z.object({
   skills: z.object({
     config: z.dict(z.dict(z.string())).default({}),
   }),
+  shell: z.object({
+    timeoutMs: z.number().step(1).min(1).default(DEFAULT_SHELL_TIMEOUT_MS),
+    outputMaxChars: z.number().step(1).min(1).default(MAX_SHELL_OUTPUT_CHARS),
+  }).default({ timeoutMs: DEFAULT_SHELL_TIMEOUT_MS, outputMaxChars: MAX_SHELL_OUTPUT_CHARS }),
 })
 
 /**
@@ -92,6 +108,10 @@ export const Config: z<Config> = z.object({
 export function apply(ctx: Context, config: Config = {}): void {
   const catalogDescriptionMaxLength = config.catalogDescriptionMaxLength ?? DEFAULT_CATALOG_DESCRIPTION_MAX_LENGTH
   assertPositiveInteger('catalogDescriptionMaxLength', catalogDescriptionMaxLength, 3)
+  const shellTimeoutMs = config.shell?.timeoutMs ?? DEFAULT_SHELL_TIMEOUT_MS
+  assertPositiveInteger('shell.timeoutMs', shellTimeoutMs)
+  const shellOutputMaxChars = config.shell?.outputMaxChars ?? MAX_SHELL_OUTPUT_CHARS
+  assertPositiveInteger('shell.outputMaxChars', shellOutputMaxChars)
 
   const skillTool = defineTool({
     name: 'skill',
@@ -294,7 +314,16 @@ async function loadSkillBody(
   skill: SkillDefinition,
   vars: { readonly sessionId: string | undefined; readonly signal: AbortSignal | undefined },
 ): Promise<{ readonly ok: true; readonly content: string } | { readonly ok: false; readonly error: string }> {
-  const resolution = resolveSkillLoad({ skill, skillsConfig: config.skills?.config, env: process.env })
+  const resolution = resolveSkillLoad({
+    skill,
+    skillsConfig: config.skills?.config,
+    env: process.env,
+    // Validated in apply(); the fallback covers direct construction, mirroring catalogDescriptionMaxLength above.
+    shellDefaults: {
+      timeoutMs: config.shell?.timeoutMs ?? DEFAULT_SHELL_TIMEOUT_MS,
+      outputMaxChars: config.shell?.outputMaxChars ?? MAX_SHELL_OUTPUT_CHARS,
+    },
+  })
   if (!resolution.ok) return resolution
   return {
     ok: true,

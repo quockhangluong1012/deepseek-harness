@@ -72,7 +72,7 @@ Two listeners, one stash, one durable event. The `agent/request-error` wrapper a
 
 A switched route persists for later turns through the loop's persisted request header until another switch or selection change; fallback never switches back on its own. A throwing downstream listener rejects the waterfall instead of masking behind a switch. A throwing rotation hook warns and the switch proceeds, so rotation never blocks recovery. Disposal removes both listeners, clears the stash, and drains in-flight recovery; a stale captured callback resolves without recovering.
 
-No invariant companion is published yet: the `llm/fallback` event validation (open turn/step, provider match, monotonic attempt, chain identity) arrives with the ordering and budget matrix.
+No invariant companion is published: the `llm/fallback` event validation (open turn/step, provider match, monotonic attempt, chain identity) arrives with the ordering and budget matrix.
 
 </details>
 

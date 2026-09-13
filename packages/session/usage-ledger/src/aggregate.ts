@@ -241,15 +241,7 @@ export function addSample(
   dayRow.outputTokens += sample.outputTokens
   dayRow.cacheReadTokens += sample.cacheReadTokens
   state.daily[day] = dayRow
-  const key = modelKey(day, provider, model)
-  const modelRow: UsageModelAggregate = state.models[key] ?? {
-    provider, model, requests: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0,
-  }
-  modelRow.requests += 1
-  modelRow.inputTokens += sample.inputTokens
-  modelRow.outputTokens += sample.outputTokens
-  modelRow.cacheReadTokens += sample.cacheReadTokens
-  state.models[key] = modelRow
+  addModelOnly(state, day, provider, model, sample)
 }
 
 /**
@@ -286,7 +278,8 @@ export function moveSample(
 
 /**
  * Add one sample to the models table only (the day table is route-blind,
- * so route moves never touch it).
+ * so route moves never touch it). Shared by {@link addSample}, whose day-row
+ * half is the only difference.
  * @param state - the ledger state to accumulate into.
  * @param day - the UTC+7 day key of the sample.
  * @param provider - the attributed provider.
