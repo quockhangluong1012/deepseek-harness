@@ -146,6 +146,9 @@ export class DeepSeekFilesClient {
       headers.set('authorization', `Bearer ${this.apiKey}`)
       response = await this.fetchImpl(`${this.baseURL}${path}`, {
         ...init,
+        // The bearer key rides this request: a malicious gateway redirect
+        // must fail loud, never carry the key to another origin.
+        redirect: 'error',
         headers,
         ...signal === undefined ? {} : { signal },
       })

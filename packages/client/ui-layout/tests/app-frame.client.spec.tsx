@@ -3,7 +3,7 @@
 import type { GlobalStandardProps, RenderOpts } from '@deepseek-ai/dsh-client-ui-slots'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-test-runtime'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, cleanup, render } from '@testing-library/react'
+import { act, cleanup, render, within } from '@testing-library/react'
 import { AppFrame } from '../src/client/AppFrame.tsx'
 import type { AppFrameProps } from '../src/client/AppFrame.tsx'
 import type { MainPanelId, RightbarOwnerProps, SidebarOwnerProps } from '../src/client/index.ts'
@@ -199,6 +199,41 @@ describe('AppFrame', () => {
     selectedSession = undefined
     rerenderFrame()
     expect(document.title).toBe('Product')
+  })
+
+  it('reserves a titlebar row inside the frameless desktop shell', () => {
+    const bridge = {
+      available: true as const,
+      isMaximized: vi.fn().mockResolvedValue(false),
+      minimize: vi.fn().mockResolvedValue(undefined),
+      toggleMaximize: vi.fn().mockResolvedValue(undefined),
+      close: vi.fn().mockResolvedValue(undefined),
+      subscribe: vi.fn().mockReturnValue(() => {}),
+    }
+    vi.stubGlobal('dshDesktop', { protocolVersion: 1, window: bridge })
+    vi.stubEnv('DSH_CLIENT_TITLE', 'Product')
+    selectedSessionTitle = 'First'
+    const { frame, getByTestId } = mountFrame()
+    expect(frame.getAttribute('data-titlebar')).toBe('true')
+    expect(frame.style.gridTemplateRows).toContain('1fr')
+    const titlebar = getByTestId('titlebar')
+    // The drag region carries the product title and the active session title.
+    expect(titlebar.textContent).toContain('Product')
+    expect(titlebar.textContent).toContain('First')
+    expect(bridge.isMaximized).toHaveBeenCalledTimes(1)
+    // The standard window controls are interactive, separate from the drag bar.
+    within(titlebar).getByRole('button', { name: 'window.minimize' }).click()
+    within(titlebar).getByRole('button', { name: 'window.maximize' }).click()
+    expect(bridge.minimize).toHaveBeenCalledTimes(1)
+    expect(bridge.toggleMaximize).toHaveBeenCalledTimes(1)
+    expect(bridge.close).not.toHaveBeenCalled()
+  })
+
+  it('renders no titlebar outside the desktop shell', () => {
+    const { frame } = mountFrame()
+    expect(frame.getAttribute('data-titlebar')).toBeNull()
+    expect(frame.style.gridTemplateRows).toBe('1fr')
+    expect(frame.querySelector('[data-testid="titlebar"]')).toBeNull()
   })
 
   it('renders owner props for the default sidebar and prospective right panel', () => {

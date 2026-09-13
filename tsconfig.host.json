@@ -42,6 +42,7 @@
     "apps/web/tests/workspace-new-session-folding.e2e.ts",
     "apps/web/tests/workspace-management.e2e.ts",
     "apps/web/tests/workspace-memory-page.e2e.ts",
+    "apps/web/tests/evolution-journey.e2e.ts",
     "apps/web/tests/replay-round-trip.e2e.ts",
     "apps/web/tests/hmr-live.e2e.ts",
     "apps/web/tests/preview-boot.e2e.ts",

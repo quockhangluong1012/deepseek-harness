@@ -9,7 +9,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render, screen } from '@testing-library/react'
 import type { RemoteStreamOptions } from '@deepseek-ai/dsh-api-gateway/client'
 import type { EvolutionFollowFrame } from '../src/types.ts'
-import type { EvolutionSeatProps } from '../src/client/Seat.tsx'
+import type { EvolutionPanelIconProps, EvolutionSeatProps } from '../src/client/Seat.tsx'
 import { EvolutionPanelIcon, EvolutionSeat } from '../src/client/Seat.tsx'
 import type { PageRemote } from '../src/client/rpc.ts'
 
@@ -70,7 +70,10 @@ function sharesOf(overrides: Partial<EvolutionSeatProps> = {}): EvolutionSeatPro
 
 describe('evolution journey seats', () => {
   it('renders the panel row glyph at the owner size', () => {
-    const { container } = render(<EvolutionPanelIcon size={18} active />)
+    // The sidebar row supplies the slot runtime face; this glyph reads only the
+    // owner's size, so the injected props stay unset.
+    const rowProps = { size: 18, active: true } as unknown as EvolutionPanelIconProps
+    const { container } = render(<EvolutionPanelIcon {...rowProps} />)
     const svg = container.querySelector('svg')
     expect(svg?.getAttribute('width')).toBe('18')
   })

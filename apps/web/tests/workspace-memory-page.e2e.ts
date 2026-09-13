@@ -142,10 +142,21 @@ describe('web e2e: workspace memory page (open / cards / describe / dismiss)', (
     expect(Math.abs(seatBox!.y - bandBox!.y)).toBeLessThanOrEqual(1.5)
     expect(composerBox!.y).toBeGreaterThan(identityBox!.y)
     expect(composerBox!.y).toBeLessThan(outputsBox!.y)
-    // The band clears the identity row by its own top pad, and the hero card is
-    // the page's own column: the same left and right edges as the Outputs card
-    // it sits above, so the page reads one column, not an inset control.
-    expect(composerBox!.y - bandBox!.y).toBeGreaterThanOrEqual(20)
+    // The band opens on the page's own spacing under the identity row, and its
+    // first row is the preset chip: the card follows that row and the stack
+    // gap, with no pad of the seat's own between the band's top edge and it.
+    // The upper bound is what a restored seat pad breaks.
+    expect(composerBox!.y - bandBox!.y).toBeGreaterThanOrEqual(28)
+    expect(composerBox!.y - bandBox!.y).toBeLessThanOrEqual(48)
+    // The page carries its own top inset, so the identity row clears the track
+    // edge the page layer clips to.
+    const pageBox = await page.locator('[data-testid="workspace-memory-page"]').boundingBox()
+    expect(pageBox).not.toBeNull()
+    expect(identityBox!.y - pageBox!.y).toBeGreaterThanOrEqual(18)
+    expect(identityBox!.y - pageBox!.y).toBeLessThanOrEqual(26)
+    // The hero card is the page's own column: the same left and right edges as
+    // the Outputs card it sits above, so the page reads one column, not an
+    // inset control.
     expect(Math.abs(cardBox!.x - outputsBox!.x)).toBeLessThanOrEqual(1.5)
     expect(Math.abs((cardBox!.x + cardBox!.width) - (outputsBox!.x + outputsBox!.width))).toBeLessThanOrEqual(1.5)
     // One line down the page: the seat's box is the left column's own edges,

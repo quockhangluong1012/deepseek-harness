@@ -32,6 +32,7 @@ const NS = 'sidebar'
 
 interface WorkspaceNavigation {
   startSession(workspaceId?: Parameters<SidebarRootInjected['startSession']>[0]): void
+  showPanel(panelId: MainPanelId): void
 }
 
 /** Services required by the sidebar plugin. */
@@ -65,7 +66,9 @@ export function apply(ctx: ClientContext): void {
     // (current Session Workspace, then recent Workspace).
     startSession: (workspaceId) => { workspaceNavigation.startSession(workspaceId) },
     toggleSidebar: () => { ctx.layout.toggleSidebar() },
-    selectPanel: (id) => { ctx.layout.selectPanel(id) },
+    // Panel rows ride the Workspace UI's shared navigation, which vacates the
+    // Workspace page the centre would otherwise draw the panel behind.
+    selectPanel: (id) => { workspaceNavigation.showPanel(id) },
     hooks: { panels },
   })
   ctx.slots.inject('sidebar', () => ctx.slots.register({

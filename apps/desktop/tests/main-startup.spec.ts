@@ -34,14 +34,19 @@ const harness = await vi.hoisted(async () => {
     readonly show = vi.fn()
     readonly focus = vi.fn()
     readonly restore = vi.fn()
-    constructor(readonly options: { show: boolean }) { super(); windows.push(this) }
+    constructor(readonly options: { show: boolean; frame: boolean }) { super(); windows.push(this) }
     isDestroyed() { return this.destroyed }
     isMinimized() { return false }
+    isMaximized() { return false }
+    minimize() {}
+    maximize() {}
+    unmaximize() {}
     async loadURL(url: string) {
       this.urls.push(url)
       if (url === 'dsh-app://app/index.html') navigated.resolve()
     }
     static getAllWindows() { return windows.filter(window => !window.destroyed) }
+    static fromWebContents() { return windows[0] ?? null }
     close() { this.destroyed = true; this.emit('closed') }
   }
   class FakeHost {
@@ -125,9 +130,13 @@ vi.mock('../src/host-process.ts', () => ({ DesktopHostProcess: harness.FakeHost 
 vi.mock('../src/update-coordinator.ts', () => ({ DesktopUpdateCoordinator: vi.fn() }))
 
 function invoke(channel: string): unknown {
+  return invokeFrom('shell', channel)
+}
+
+function invokeFrom(host: 'app' | 'shell', channel: string): unknown {
   const handler = harness.handlers.get(channel)
   if (handler === undefined) throw new Error(`missing handler ${channel}`)
-  return handler({ senderFrame: { url: 'dsh-app://shell/startup.html' } })
+  return handler({ senderFrame: { url: `dsh-app://${host}/index.html` } })
 }
 
 beforeEach(() => {
@@ -287,6 +296,8 @@ describe('desktop main startup', () => {
     expect(harness.windows).toHaveLength(1)
     const window = harness.windows[0]!
     expect(window.options.show).toBe(true)
+    // Non-macOS shells drop the native frame in favor of the themed web titlebar.
+    expect(window.options.frame).toBe(process.platform === 'darwin')
     expect(window.urls).toEqual(['dsh-app://shell/startup.html'])
     expect(harness.hosts).toHaveLength(0)
     const retry = invoke(DESKTOP_IPC.backendRetry)
@@ -308,6 +319,26 @@ describe('desktop main startup', () => {
     expect(harness.windows).toHaveLength(1)
     expect(window.urls).toEqual(['dsh-app://shell/startup.html', 'dsh-app://app/index.html'])
     expect(invoke(DESKTOP_IPC.backendStatus)).toEqual({ phase: 'ready' })
+  })
+
+  it('routes frameless window controls to the sending renderer window', async () => {
+    await import('../src/main.ts')
+    await harness.preparing.promise
+    harness.prepared.resolve()
+    await harness.hostStarted.promise
+    const window = harness.windows[0]!
+    const maximize = vi.spyOn(window, 'maximize')
+    const minimize = vi.spyOn(window, 'minimize')
+    const queryClose = vi.spyOn(window, 'close')
+    await harness.hosts[0]!.ready.resolve()
+    invokeFrom('app', DESKTOP_IPC.windowMinimize)
+    expect(minimize).toHaveBeenCalledTimes(1)
+    expect(invokeFrom('app', DESKTOP_IPC.windowIsMaximized)).toBe(false)
+    invokeFrom('app', DESKTOP_IPC.windowToggleMaximize)
+    expect(maximize).toHaveBeenCalledTimes(1)
+    invokeFrom('app', DESKTOP_IPC.windowClose)
+    expect(queryClose).toHaveBeenCalledTimes(1)
+    expect(() => invokeFrom('shell', DESKTOP_IPC.windowClose)).toThrow(/unowned renderer/)
   })
 
   it('starts the unpackaged Host from the application development directory', async () => {

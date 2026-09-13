@@ -19,8 +19,8 @@
       "default": "./lib/index.js"
     },
     "./types": {
-      "types": "./lib/types/journey.d.ts",
-      "default": "./lib/types/journey.js"
+      "types": "./lib/types/types.d.ts",
+      "default": "./lib/types/types.js"
     },
     "./src/*": "./src/*",
     "./package.json": "./package.json"

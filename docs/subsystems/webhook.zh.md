@@ -6,7 +6,7 @@ Webhook 子系统会把已通过身份验证的外部交付转换为可选的普
 
 ## 共享值
 
-`WebhookRuleId`、`WebhookSourceId` 与 `WebhookDeliveryId` 是不透明字符串。交付 id 仅用于来源信息：runtime 既不存储也不对它去重。
+`WebhookRuleId`、`WebhookSourceId` 与 `WebhookDeliveryId` 是不透明字符串。交付 id 既是来源信息，也是重放抑制键：runtime 在有界进程内存储中记住近一小时的（kind、source、deliveryId）三元组，并丢弃窗口内的重复。
 
 `WebhookEventMap` 可按提供方种类合并扩展。`WebhookEventOf<K>` 会选择已知提供方事件，否则接纳通用无损 JSON，从而让树外适配器无需修改 runtime 包。
 
@@ -20,7 +20,7 @@ Webhook 子系统会把已通过身份验证的外部交付转换为可选的普
 
 `dispatch()` 会快照匹配规则，彼此独立地调度每个规则，并在任何回调结算前返回。抛出与拒绝按规则分别被包含。注册 disposer 会先移除规则，再中止并排空活动调用，因此后续交付无法进入正在卸载的代码。
 
-runtime 没有队列、重试、去重、执行状态、崩溃重放、Agent 状态监听器或完成结果。重复交付可能创建重复 Session。唯一的活动操作表是私有 teardown 记账，并随进程消失。
+runtime 没有队列、重试、执行状态、崩溃重放、Agent 状态监听器或完成结果。超出有界重放窗口（或重启后），重复交付可能创建重复 Session。唯一的活动操作表是私有 teardown 记账与重放窗口，都随进程消失。
 
 ## Session 创建
 

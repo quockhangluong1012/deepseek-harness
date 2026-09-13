@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest'
-import { DESKTOP_IPC, type DshDesktopStartupApi } from '../src/ipc.ts'
+import { DESKTOP_IPC, type DshDesktopStartupApi, type DshDesktopWindowControls } from '../src/ipc.ts'
 
 const electron = vi.hoisted(() => ({
   contextBridge: { exposeInMainWorld: vi.fn() },
@@ -9,10 +9,37 @@ vi.mock('electron', () => electron)
 
 afterEach(() => { vi.unstubAllGlobals(); vi.clearAllMocks(); vi.resetModules() })
 
-it.each(['dsh-app://app/index.html', 'https://shell/startup.html'])('exposes only the carrier marker to %s', async (url) => {
-  vi.stubGlobal('location', new URL(url))
+it('exposes only the carrier marker to a non-app foreign document', async () => {
+  vi.stubGlobal('location', new URL('https://shell/startup.html'))
   await import('../src/preload-app.ts')
   expect(electron.contextBridge.exposeInMainWorld).toHaveBeenCalledWith('dshDesktop', { protocolVersion: 1 })
+})
+
+it('exposes the window titlebar bridge plus the carrier marker to the app document', async () => {
+  vi.stubGlobal('location', new URL('dsh-app://app/index.html'))
+  await import('../src/preload-app.ts')
+  const [name, api] = electron.contextBridge.exposeInMainWorld.mock.calls[0]! as [
+    string, { protocolVersion: 1; window: DshDesktopWindowControls },
+  ]
+  expect(name).toBe('dshDesktop')
+  expect(api.protocolVersion).toBe(1)
+  const bridge = api.window
+  expect(bridge.available).toBe(true)
+  await bridge.isMaximized()
+  await bridge.minimize()
+  await bridge.toggleMaximize()
+  await bridge.close()
+  expect(electron.ipcRenderer.invoke.mock.calls).toEqual([
+    [DESKTOP_IPC.windowIsMaximized], [DESKTOP_IPC.windowMinimize],
+    [DESKTOP_IPC.windowToggleMaximize], [DESKTOP_IPC.windowClose],
+  ])
+  const listener = vi.fn()
+  const dispose = bridge.subscribe(listener)
+  const handler = electron.ipcRenderer.on.mock.calls[0]?.[1] as (event: unknown, maximized: boolean) => void
+  handler({}, true)
+  expect(listener).toHaveBeenCalledWith(true)
+  dispose()
+  expect(electron.ipcRenderer.off).toHaveBeenCalledWith(DESKTOP_IPC.windowMaximizedState, handler)
 })
 
 it('provides startup controls and a removable state subscription to shell documents', async () => {

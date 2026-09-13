@@ -23,7 +23,8 @@ import {
   barPercent,
   bucketTallies,
 } from '../src/client/Page.tsx'
-import type { PageRemote, PageTranslate } from '../src/client/Page.tsx'
+import type { PageTranslate } from '../src/client/Page.tsx'
+import type { PageRemote } from '../src/client/rpc.ts'
 
 afterEach(cleanup)
 
@@ -211,7 +212,7 @@ describe('evolution journey page', () => {
 
     expect(await screen.findByText('fixture')).toBeDefined()
     expect(remote.read).toHaveBeenCalledWith(SCOPE)
-    expect(remote.timeline).toHaveBeenCalledWith(SCOPE, '7d', expect.anything())
+    expect(remote.timeline).toHaveBeenCalledWith(SCOPE, '7d')
 
     // Every delta family renders, decisions included; the quiet days do not.
     expect(screen.getByText('2026-09-12')).toBeDefined()
@@ -250,7 +251,7 @@ describe('evolution journey page', () => {
     expect(await screen.findByText('page.title')).toBeDefined()
     fireEvent.click(screen.getByText('range.all'))
     await waitFor(() => {
-      expect(remote.timeline).toHaveBeenCalledWith(SCOPE, 'all', expect.anything())
+      expect(remote.timeline).toHaveBeenCalledWith(SCOPE, 'all')
     })
   })
 
@@ -489,7 +490,7 @@ describe('evolution journey page', () => {
         yield { type: 'upsert', value: valueOf({ usage: { usedBytes: 20, capacityBytes: 100 } }) }
         yield { type: 'baseline', values: [valueOf()] }
       })(),
-      openStream: options => ({
+      openStream: (options: RemoteStreamOptions<EvolutionFollowFrame>) => ({
         [Symbol.asyncIterator]: async function* () {
           const controller = new AbortController()
           try {

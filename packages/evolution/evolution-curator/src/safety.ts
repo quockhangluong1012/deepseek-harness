@@ -221,17 +221,24 @@ export async function appendLedger(home: string, entry: LedgerEntry): Promise<vo
 
 /**
  * Read every ledger entry in append order; a missing ledger reads as empty.
- * A malformed line fails loudly: the ledger is append-only audit evidence.
+ * A malformed line fails loudly, naming the ledger path and that line's 1-based
+ * number: the ledger is append-only audit evidence, and an operator repairing it
+ * has no other way to locate the damage.
  * @param home - curator home directory.
  * @returns the ledger entries.
+ * @throws Error naming the ledger file and line when a line is not valid JSON.
  */
 export async function readLedger(home: string): Promise<LedgerEntry[]> {
   const file = join(home, 'ledger.jsonl')
   if (!(await pathExists(file))) return []
   const entries: LedgerEntry[] = []
-  for (const line of (await readFile(file, 'utf8')).split('\n')) {
+  for (const [index, line] of (await readFile(file, 'utf8')).split('\n').entries()) {
     if (line.length === 0) continue
-    entries.push(JSON.parse(line) as LedgerEntry)
+    try {
+      entries.push(JSON.parse(line) as LedgerEntry)
+    } catch (error) {
+      throw new Error(`evolution-curator: ledger "${file}" line ${index + 1} is not valid JSON`, { cause: error })
+    }
   }
   return entries
 }

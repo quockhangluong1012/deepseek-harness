@@ -19,7 +19,7 @@ declare module '@deepseek-ai/cordis' {
 }
 interface Reload {
     filename: string;
-    runtime?: Plugin.Runtime;
+    runtime: Plugin.Runtime | undefined;
 }
 declare class Hmr extends Service {
     config: Hmr.Config;

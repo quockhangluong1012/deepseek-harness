@@ -78,7 +78,10 @@ export function frameConsolidationInput(
   return { text, inputBytes: Buffer.byteLength(text), truncated: kept < candidates.length }
 }
 
-/** The two tools the fork may call. Everything else it asks for is refused. */
+/**
+ * The two tools the fork may call. Everything else it asks for is refused.
+ * @returns the tool schemas offered to the consolidation fork, in prompt order.
+ */
 export function consolidationTools(): ToolSchema[] {
   return [
     {

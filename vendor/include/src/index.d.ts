@@ -57,12 +57,12 @@ export declare class Include extends EntryTree {
     static inject: string[];
     static readonly [EntryGroup.key] = true;
     filename: string;
-    private type?;
+    private type;
     private readonly;
     private content?;
     private data?;
     private writeTask?;
-    private pendingWrite?;
+    private pendingWrite;
     private writeQueue;
     private applyQueue;
     constructor(ctx: Context, config: Include.Config);

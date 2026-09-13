@@ -101,11 +101,10 @@ class Hmr extends Service {
         if (this.configs.has(watchFilename))
             throw new Error(`config path already registered: ${filename}`);
         const { root, depth } = target;
+        const { cwd: _c, ignored: _i, ...watchConfig } = this.config;
         const watcher = watch(root, {
-            ...this.config,
-            cwd: undefined,
+            ...watchConfig,
             depth,
-            ignored: undefined,
             ignoreInitial: false,
         });
         const registration = { watcher };
@@ -177,7 +176,7 @@ class Hmr extends Service {
         const watchBaseDir = await realpath(this.baseDir);
         // Collect externals before opening the watcher so every post-ready change
         // is observed by listeners that already have their classification state.
-        const mainUrl = pathToFileURL(resolve(process.argv[1])).href;
+        const mainUrl = pathToFileURL(resolve(process.argv[1] ?? '.')).href;
         const mainJob = this.internal.loadCache.get(mainUrl);
         if (mainJob) {
             this.externals = await loadDependencies(mainJob);
@@ -252,7 +251,7 @@ class Hmr extends Service {
         await ready.promise;
     }
     refreshConfig(key, filename, refresh) {
-        const state = this.configRefreshes.get(key) ?? { dirty: false };
+        const state = this.configRefreshes.get(key) ?? { dirty: false, running: undefined };
         this.configRefreshes.set(key, state);
         state.dirty = true;
         if (state.running)
@@ -363,7 +362,10 @@ class Hmr extends Service {
         // Plugin entry files are treated as atomic reload units.
         const nameMap = Object.create(null);
         for (const entry of this.ctx.loader.entries()) {
-            (nameMap[entry.parent.tree.ctx.baseUrl] ??= new Set()).add(entry.options.name);
+            const baseUrl = entry.parent.tree.ctx.baseUrl;
+            const names = nameMap[baseUrl] ?? new Set();
+            names.add(entry.options.name);
+            nameMap[baseUrl] = names;
         }
         // Resolve each plugin name to its file URL and check if it needs reload
         for (const baseUrl in nameMap) {
@@ -457,9 +459,10 @@ class Hmr extends Service {
                 return;
             for (const oldFiber of runtime.fibers) {
                 const fiber = oldFiber.parent.registry.plugin(plugin, oldFiber._config, this.getOuterStack);
-                fiber.entry = oldFiber.entry;
-                if (fiber.entry)
+                if (oldFiber.entry) {
+                    fiber.entry = oldFiber.entry;
                     fiber.entry.fiber = fiber;
+                }
             }
         };
         try {

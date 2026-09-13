@@ -11,7 +11,7 @@ const JsExpr = new yaml.Type('tag:yaml.org,2002:js', {
   resolve: (data) => typeof data === 'string',
   construct: (data) => ({ __jsExpr: data }),
   predicate: isJsExpr,
-  represent: (data) => data['__jsExpr'],
+  represent: (data: object) => String((data as Record<string, unknown>).__jsExpr),
 })
 
 /**
@@ -120,7 +120,7 @@ export function applyEntryPatches(
 
     for (const [key, value] of Object.entries(overrides)) {
       if (key === 'id') continue
-      target[key] = value
+      ;(target as unknown as Record<string, unknown>)[key] = value
     }
   }
 
@@ -182,12 +182,12 @@ export class Include extends EntryTree {
   static readonly [EntryGroup.key] = true
 
   public filename: string
-  private type?: string
+  private type: string | undefined
   private readonly: boolean
   private content?: string
   private data?: EntryOptions[]
   private writeTask?: NodeJS.Timeout | undefined
-  private pendingWrite?: EntryOptions[]
+  private pendingWrite: EntryOptions[] | undefined
   private writeQueue: Promise<void> = Promise.resolve()
   private applyQueue: Promise<unknown> = Promise.resolve()
 

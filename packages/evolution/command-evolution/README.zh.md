@@ -47,14 +47,13 @@ kind: "package-reference"
 
 | 输入 | 结果 |
 |---|---|
-| `/memory pending` | 以 `- <id> [<kind>:<op>] <gist> (session '<origin>', <instant>)` 列出作用域的暂存条目；无待审批项时返回 `No pending writes.`。 |
+| `/memory`、`/memory pending` | 以 `- <id> [<kind>:<op>] <gist> (session '<origin>', <instant>)` 列出作用域的暂存条目；无待审批项时返回 `No pending writes.`。裸 `/memory` 报告同一列表。 |
 | `/memory approve <id>` | 应用一条记忆类条目并报告 `Approved staged <op> (<gist>).`；未知 id 报告 `No staged write '<id>'.`；技能类 id 会被重定向到 `/skills approve`。 |
 | `/memory reject <id>` | 不应用而丢弃一条并报告 `Rejected staged write '<id>'.`。 |
-| `/memory`、`/memory <anything-else>` | `Usage: /memory pending \| approve <id> \| reject <id>`——文法固定。 |
-| `/skills pending` | 列出作用域的暂存技能条目，或给出指明提案来源的空状态。 |
+| `/memory <anything-else>` | `Usage: /memory pending \| approve <id> \| reject <id>`——文法固定。 |
+| `/skills`、`/skills pending` | 列出作用域的暂存技能条目，或给出指明提案来源的空状态。裸 `/skills` 报告同一列表。 |
 | `/skills approve <id>` | 丢弃技能写入已落地的暂存技能条目，并在批准时附带该提醒；不是暂存技能的 id 报告 `No staged skill '<id>'.`。 |
-| `/skills diff <id>` | 报告暂存的技能 diff 随后台技能提案一起到达——条目载荷尚无声明形状。 |
-| `/skills`、`/skills <anything-else>` | `Usage: /skills pending \| approve <id> \| diff <id>`。 |
+| `/skills <anything-else>` | `Usage: /skills pending \| approve <id>`。 |
 | `/journey [today\|7d\|30d\|all]` | 渲染作用域时间线：窗口标题、每个活跃日一行、容量与摘要，以及暂存计数。裸 `/journey` 报告 `7d`。 |
 | `/journey <anything-else>` | `Usage: /journey [today \| 7d \| 30d \| all]`。 |
 | `/curator status` | 渲染上次通过的时刻、按生命周期状态（含置顶）统计的被跟踪技能计数，以及最新记录的通过。 |

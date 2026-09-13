@@ -117,18 +117,16 @@ export function EvolutionPage({ scopeId, scopeTitle, remote, t }: EvolutionPageP
 
   useEffect(() => {
     if (scopeId === null) return
-    const controller = new AbortController()
     let cancelled = false
     const fail = (reason: unknown): void => {
       if (!cancelled) setError(messageOf(reason))
     }
     const id = scopeId as WorkspaceId
     void remote.read(id).then((next) => { if (!cancelled) setValue(next) }, fail)
-    void remote.timeline(id, range, controller.signal).then((next) => { if (!cancelled) setTimeline(next) }, fail)
-    void remote.curatorStatus(controller.signal).then((next) => { if (!cancelled) setCurator(next) }, fail)
+    void remote.timeline(id, range).then((next) => { if (!cancelled) setTimeline(next) }, fail)
+    void remote.curatorStatus().then((next) => { if (!cancelled) setCurator(next) }, fail)
     return () => {
       cancelled = true
-      controller.abort()
     }
   }, [scopeId, range, refresh, remote])
 

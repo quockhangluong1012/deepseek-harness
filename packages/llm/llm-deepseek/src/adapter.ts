@@ -657,6 +657,9 @@ export class DeepSeekAdapter extends LlmAdapter {
           headers,
           body: payload,
           signal,
+          // The bearer key rides this request: a malicious gateway redirect
+          // must fail loud, never carry the key to another origin.
+          redirect: 'error',
         })
       } catch (error: unknown) {
         if (signal.aborted) throw error

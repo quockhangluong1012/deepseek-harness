@@ -10,7 +10,7 @@ import type {
   IWorkspaces, WorkspaceId, WorkspaceView,
 } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
-import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
+import type { MainPanelId } from '@deepseek-ai/dsh-client-ui-layout/client'
 
 /** Workspace archive and directory operations consumed by Client UI domains. */
 export interface UiWorkspace {
@@ -19,6 +19,12 @@ export interface UiWorkspace {
    * @param sessionId - listed or retained Session to display.
    */
   openSession(sessionId: SessionId): void
+  /**
+   * Show a global central panel as one UI navigation action, vacating the
+   * Workspace page that would otherwise paint over it.
+   * @param panelId - registered main-slot key to display.
+   */
+  showPanel(panelId: MainPanelId): void
   /**
    * Connect a Workspace and open its Session unless a later navigation supersedes it.
    * @param workspaceId - target Workspace.
@@ -144,6 +150,13 @@ class UiWorkspaceService extends Service implements UiWorkspace {
     this.pageCloser()?.close()
     this.sessions.open(sessionId)
     this.ctx.layout.selectPanel(null)
+  }
+
+  showPanel(panelId: MainPanelId): void {
+    // Same single route seen from the panel side: a global panel is what the
+    // centre displays, so the page it would otherwise draw over yields first.
+    this.pageCloser()?.close()
+    this.ctx.layout.selectPanel(panelId)
   }
 
   /**

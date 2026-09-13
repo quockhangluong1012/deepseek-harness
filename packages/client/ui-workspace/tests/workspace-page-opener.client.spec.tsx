@@ -36,10 +36,11 @@ async function bench(page: { open(workspaceId: WorkspaceId): void; close(): void
   runtime.slots.installLocale(locale)
   // The workspace service routes Sessions through the frame's panel face; this
   // bench drives the sidebar alone, so a recording stub is the whole contract.
-  runtime.ctx.provide('layout', {
+  const layout = {
     selectPanel: vi.fn(),
     beginNavigation: () => new AbortController().signal,
-  })
+  }
+  runtime.ctx.provide('layout', layout)
   await runtime.sessions.add({
     id: 's1',
     summary: { displayTitle: 'First chat', updatedAt: 1, projectionValues: { turnOutline: [] } },
@@ -63,18 +64,21 @@ async function bench(page: { open(workspaceId: WorkspaceId): void; close(): void
   }
   runtime.renderRoot()
   await screen.findByText('Project')
+  return { layout }
 }
 
 describe('Workspace page opener gesture', () => {
   it('opens the page from the name and toggles from the disclosure button', async () => {
     const open = vi.fn()
-    await bench({ open, close: vi.fn() })
+    const { layout } = await bench({ open, close: vi.fn() })
     const projectRow = (): HTMLElement => screen.getAllByRole('treeitem')[0] as HTMLElement
     expect(projectRow().getAttribute('aria-expanded')).toBe('false')
 
     fireEvent.click(screen.getByText('Project'))
     expect(open).toHaveBeenCalledWith('w1')
     expect(open).toHaveBeenCalledOnce()
+    // The page is what the centre displays: any selected global panel goes.
+    expect(layout.selectPanel).toHaveBeenCalledExactlyOnceWith(null)
     expect(projectRow().getAttribute('aria-expanded')).toBe('false')
 
     fireEvent.click(screen.getByRole('button', { name: '展开或收起“Project”' }))

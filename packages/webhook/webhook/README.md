@@ -27,7 +27,7 @@ English | [中文](README.zh.md)
 
 `WebhookRule<K>` has a branded unique `id`, a provider `kind`, and `run(delivery, signal)`. A callback may execute arbitrary trusted code and returns either `null` or one `WebhookSessionRequest`. Rules of the same kind start independently, and one throw or rejection is logged without starving siblings.
 
-`VerifiedWebhookDelivery` carries provider kind, configured source id, provider delivery id, normalized lossless JSON, and receipt time. The runtime snapshots and freezes the complete value before sharing it. `deliveryId` is provenance only; repeated delivery runs the rules again.
+`VerifiedWebhookDelivery` carries provider kind, configured source id, provider delivery id, normalized lossless JSON, and receipt time. The runtime snapshots and freezes the complete value before sharing it. `deliveryId` is provenance plus replay suppression: a repeat inside the one-hour bounded process-local window is acknowledged without re-running rules; repeats past the window (or after a restart) run the rules again.
 
 Registration is an effect. Its awaitable disposer first hides the rule, then aborts and drains active callbacks. Callbacks must observe the supplied signal; same-process code that ignores cancellation cannot be forcibly stopped safely.
 
@@ -69,7 +69,7 @@ The initial prompt begins a new Session, so it establishes rather than invalidat
 <a id="known-limitations-and-deferred-work"></a>
 
 - **Process-local fire-and-forget only** — a crash loses rule calls that have not admitted a prompt; there is no queue, replay, or retry.
-- **No built-in deduplication** — repeated provider deliveries may create repeated Sessions; rules that need idempotency own it.
+- **Bounded replay suppression, not idempotency** — a repeated (kind, source, deliveryId) inside the one-hour process-local window is dropped; repeats past the window, after a restart, or with distinct ids still create repeated Sessions, so rules that need idempotency own it.
 - **No completion result** — HTTP acceptance and rule settlement do not report Agent success, idle, or output.
 - **Trusted callbacks must cooperate with cancellation** — runtime teardown aborts and awaits them but cannot terminate arbitrary same-process code.
 - **Workspace creation may outlive a failed Session attempt** — an empty Workspace is retained because another concurrent caller may already use it.

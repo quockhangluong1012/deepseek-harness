@@ -67,17 +67,16 @@ describe('evolution rpc face', () => {
     const raw = rawOf()
     const verbs = bindPageVerbs({ evolution: raw, evolutionCurator: raw })
     const id = 'ws-1' as WorkspaceId
-    const signal = new AbortController().signal
     await expect(verbs.read(id)).resolves.toMatchObject({ workspaceId: 'ws-1' })
-    await expect(verbs.timeline(id, '30d', signal)).resolves.toMatchObject({ range: '7d' })
+    await expect(verbs.timeline(id, '30d')).resolves.toMatchObject({ range: '7d' })
     await expect(verbs.approveStaged(id, 'staged-1')).resolves.toBeDefined()
     await expect(verbs.rejectStaged(id, 'staged-1')).resolves.toBeDefined()
-    await expect(verbs.curatorStatus(signal)).resolves.toMatchObject({ mounted: true })
+    await expect(verbs.curatorStatus()).resolves.toMatchObject({ mounted: true })
     expect(raw.read).toHaveBeenCalledWith({ scopeId: id })
-    expect(raw.timeline).toHaveBeenCalledWith({ scopeId: id, range: '30d' }, signal)
+    expect(raw.timeline).toHaveBeenCalledWith({ scopeId: id, range: '30d' })
     expect(raw.approveStaged).toHaveBeenCalledWith({ scopeId: id, stagedId: 'staged-1' })
     expect(raw.rejectStaged).toHaveBeenCalledWith({ scopeId: id, stagedId: 'staged-1' })
-    expect(raw.status).toHaveBeenCalledWith(signal)
+    expect(raw.status).toHaveBeenCalledWith()
   })
 
   it('throws the Host failure for a rejected verb', async () => {

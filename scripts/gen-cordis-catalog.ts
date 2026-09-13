@@ -137,7 +137,6 @@ export const SERVICE_PAGE: Record<string, string> = {
   evolutionCurator: 'evolutionary-harness.md',
   evolutionController: 'evolutionary-harness.md',
   evolutionTrajectory: 'evolutionary-harness.md',
-  evolutionScorer: 'evolutionary-harness.md',
   evolutionCuratorStatus: 'evolutionary-harness.md',
 }
 
@@ -835,6 +834,25 @@ export const TYPE_LINK_EXEMPTIONS: Readonly<Record<string, string>> = {
   ConsolidationSurvey: 'curator consolidation survey is owned by packages/evolution/evolution-curator/README.md',
   ConsolidationReport: 'curator consolidation report is owned by packages/evolution/evolution-curator/README.md',
   ConsolidationCostRow: 'skill consolidation cost row is owned by packages/skill/evolution-skill-telemetry/README.md',
+  EvolutionMemoryValue: 'evolution-controller scope projection is owned by packages/evolution/evolution-controller/src/types.ts',
+  EvolutionScopeRequest: 'evolution-controller scope request is owned by packages/evolution/evolution-controller/src/types.ts',
+  EvolutionSetInstructionsRequest: 'evolution-controller instruction write is owned by packages/evolution/evolution-controller/src/types.ts',
+  EvolutionSetLessonsRequest: 'evolution-controller lessons write is owned by packages/evolution/evolution-controller/src/types.ts',
+  EvolutionSetProfileRequest: 'evolution-controller profile write is owned by packages/evolution/evolution-controller/src/types.ts',
+  EvolutionAddContextItemRequest: 'evolution-controller context attach is owned by packages/evolution/evolution-controller/src/types.ts',
+  EvolutionRemoveContextItemRequest: 'evolution-controller context detach is owned by packages/evolution/evolution-controller/src/types.ts',
+  EvolutionRebuildMemoryRequest: 'evolution-controller rebuild request is owned by packages/evolution/evolution-controller/src/types.ts',
+  EvolutionListStagedRequest: 'evolution-controller staged-list request is owned by packages/evolution/evolution-controller/src/types.ts',
+  EvolutionStagedValue: 'evolution-controller staged-list result is owned by packages/evolution/evolution-controller/src/types.ts',
+  EvolutionResolveStagedRequest: 'evolution-controller staged decision is owned by packages/evolution/evolution-controller/src/types.ts',
+  EvolutionTimelineRequest: 'evolution-controller journey request is owned by packages/evolution/evolution-controller/src/types.ts',
+  EvolutionFollowFrame: 'evolution-controller stream frame is owned by packages/evolution/evolution-controller/src/types.ts',
+  EvolutionCuratorStatus: 'curator status projection is owned by packages/client/ui-evolution/src/types.ts',
+  JourneyTimeline: 'journey read model is owned by packages/evolution/command-evolution/src/types.ts',
+  ShareGptConversation: 'ShareGPT conversation record is owned by packages/evolution/evolution-trajectory/src/types.ts',
+  ShareGptInput: 'ShareGPT shaping input is owned by packages/evolution/evolution-trajectory/src/types.ts',
+  TrajectoryExportOptions: 'trajectory export options are owned by packages/evolution/evolution-trajectory/src/types.ts',
+  TrajectoryExportResult: 'trajectory export result is owned by packages/evolution/evolution-trajectory/src/types.ts',
 }
 
 /** Repository data policy consumed by the Cordis catalog projector. */

@@ -4,6 +4,8 @@ Status: implemented
 
 English | [中文](2026-09-10-workspace-page-composer-band.zh.md)
 
+> The seat's `padding-top` remains the current shape of this decision's docking offsets, but the pad itself is superseded by [the page top inset](2026-09-12-workspace-page-top-inset.md): the page owns the space above the band.
+
 ## Problem
 
 [The live-composer decision](2026-09-10-workspace-page-live-composer.md) gave the Workspace page the conversation's resident composer instead of a hand-rolled ask box, and [the center-track page seat](2026-09-10-center-track-page-seat.md) put that composer at the column floor: the frame's page layer reserved the seat's published height at its own bottom edge, so the page read name/description → Outputs → chats → composer.

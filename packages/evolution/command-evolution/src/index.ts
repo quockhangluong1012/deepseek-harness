@@ -79,7 +79,7 @@ const JOURNEY_USAGE = 'Usage: /journey [today | 7d | 30d | all]'
 const JOURNEY_EXPORT_USAGE = 'Usage: /journey export [today | 7d | 30d | all] [--out <path>]'
 
 /** Argument grammar for `/skills`; anything else reports usage. */
-const SKILLS_USAGE = 'Usage: /skills pending | approve <id> | diff <id>'
+const SKILLS_USAGE = 'Usage: /skills pending | approve <id>'
 
 /** Argument grammar for `/curator`; anything else reports usage. */
 const CURATOR_USAGE = 'Usage: /curator status | run [--dry-run] | adopt <name> | purge [--dry-run] | rollback --id <id> | ledger | pin <name> | unpin <name>'
@@ -201,7 +201,9 @@ async function mutateStaged(
 }
 
 /**
- * Execute `/memory` against the session's scope.
+ * Execute `/memory` against the session's scope. A bare invocation reports the
+ * pending list, the grammar's default verb, as a bare `/journey` reports its
+ * default window.
  * @param ctx - plugin context carrying the evolution memory store.
  * @param scope - scope identity resolved from the invoking session.
  * @param invocation - raw command input.
@@ -213,7 +215,7 @@ async function executeMemory(
   invocation: CommandInvocation,
 ): Promise<CommandResult> {
   const [verb, id, ...rest] = splitArgs(invocation.rawInput)
-  if (verb === 'pending' && id === undefined && rest.length === 0) {
+  if ((verb === undefined || verb === 'pending') && id === undefined && rest.length === 0) {
     const record = ctx.evolutionMemory.read(scope)
     return { kind: 'success', text: formatStagedList(record?.staged ?? [], 'write') }
   }
@@ -391,7 +393,8 @@ async function executeJourney(
 /**
  * Execute `/skills` against the session's scope: the skill-kind half of staged
  * governance. Approving drops an entry whose skill write already happened
- * through `skill_manage`; the payload diff arrives with background proposals.
+ * through `skill_manage`. A bare invocation reports the pending list, as
+ * `/memory` does.
  * @param ctx - plugin context carrying the evolution memory store.
  * @param scope - scope identity resolved from the invoking session.
  * @param invocation - raw command input.
@@ -404,7 +407,7 @@ async function executeSkills(
 ): Promise<CommandResult> {
   const [verb, id, ...rest] = splitArgs(invocation.rawInput)
   const staged = (ctx.evolutionMemory.read(scope)?.staged ?? []).filter(entry => entry.kind === 'skill')
-  if (verb === 'pending' && id === undefined && rest.length === 0) {
+  if ((verb === undefined || verb === 'pending') && id === undefined && rest.length === 0) {
     return { kind: 'success', text: staged.length === 0 ? SKILLS_EMPTY : formatStagedList(staged, 'skill proposal') }
   }
   if (verb === 'approve' && id !== undefined && rest.length === 0) {
@@ -416,12 +419,6 @@ async function executeSkills(
       'approve',
       `Approved staged skill ${entry.op} (${entry.gist}). The skill file itself is written by skill_manage; approve only after that write landed.`,
     )
-  }
-  if (verb === 'diff' && id !== undefined && rest.length === 0) {
-    return {
-      kind: 'error',
-      text: 'Staged skill diffs arrive with background skill proposals: the entry payload has no declared shape yet.',
-    }
   }
   return { kind: 'error', text: SKILLS_USAGE }
 }
@@ -867,6 +864,7 @@ export function apply(ctx: Context, config: Config): void {
       definitionId: CommandDefinitionId('@deepseek-ai/dsh-command-evolution/memory'),
       name: 'memory',
       description: 'Review staged evolution memory writes',
+      input: { hint: 'pending | approve <id> | reject <id>' },
       handler: (invocation: CommandInvocation) => track(handleCommand(ctx, profile, 'memory', invocation)),
     })
     yield ctx.commands.register({
@@ -885,18 +883,21 @@ export function apply(ctx: Context, config: Config): void {
       definitionId: CommandDefinitionId('@deepseek-ai/dsh-command-evolution/skills'),
       name: 'skills',
       description: 'Review staged skill proposals',
+      input: { hint: 'pending | approve <id>' },
       handler: (invocation: CommandInvocation) => track(handleCommand(ctx, profile, 'skills', invocation)),
     })
     yield ctx.commands.register({
       definitionId: CommandDefinitionId('@deepseek-ai/dsh-command-evolution/curator'),
       name: 'curator',
       description: 'Manage skill curation: status, pass history, adopt, purge, pin, and rollback',
+      input: { hint: 'status | run | adopt <name> | purge | rollback | ledger | pin <name>' },
       handler: (invocation: CommandInvocation) => track(executeCurator(ctx, invocation)),
     })
     yield ctx.commands.register({
       definitionId: CommandDefinitionId('@deepseek-ai/dsh-command-evolution/trajectory'),
       name: 'trajectory',
       description: 'Export this session or this scope as share-ready conversations',
+      input: { hint: '[--out <path>] [--all]' },
       handler: (invocation: CommandInvocation) => track(handleCommand(ctx, profile, 'trajectory', invocation)),
     })
     yield ctx.commands.register({

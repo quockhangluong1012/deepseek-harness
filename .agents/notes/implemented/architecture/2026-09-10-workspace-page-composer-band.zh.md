@@ -4,6 +4,8 @@ Status: implemented
 
 [English](2026-09-10-workspace-page-composer-band.md) | 中文
 
+> seat 的 `padding-top`（本条决策中停靠偏移的形状）本身已被[页面顶部内缩](2026-09-12-workspace-page-top-inset.zh.md)取代：band 之上的空间归页面所有。
+
 ## Problem
 
 [常驻输入区决策](2026-09-10-workspace-page-live-composer.zh.md) 让 Workspace 页面使用会话的常驻 composer，而不是手写的 ask box；[中栏页面席位](2026-09-10-center-track-page-seat.zh.md) 又把该 composer 放在中栏底部：frame 的 page layer 在自身下边缘预留 seat 公布的高度，因此页面读作 名称与描述 → 产出 → 会话 → composer。

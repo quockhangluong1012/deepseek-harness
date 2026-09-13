@@ -465,9 +465,9 @@
    publishes that band's box on the document root (the same channel that
    carries this seat's height back to the frame's page layer). The seat docks
    into the band, level with the main column the page's outputs and chats fill,
-   so the page reads header → composer → body. The top pad lifts the card off
-   the header and keeps the input card's elevation hairline — 0.5px drawn
-   outside the card's box — inside the seat, where the header cannot clip it. */
+   so the page reads header → composer → body. The page owns the space above
+   the band — it is the page's own top inset and the gap under its identity row
+   — so the seat adds no pad of its own. */
 .root[data-page-occupied] .composerSeat {
   /* The composer is the page's hero: the band's published box is its own, and
      it keeps none of the chat width cap or the side clearance, so the input
@@ -479,7 +479,6 @@
   margin-right: var(--dsh-page-composer-right, 0px);
   margin-bottom: auto;
   margin-left: var(--dsh-page-composer-left, 0px);
-  padding-top: 24px;
 }
 
 /* The page band's preset row: the hero's Workspace row without the picker

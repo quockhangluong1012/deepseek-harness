@@ -47,14 +47,13 @@ The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-a
 
 | Input | Result |
 |---|---|
-| `/memory pending` | List the scope's staged entries as `- <id> [<kind>:<op>] <gist> (session '<origin>', <instant>)`, or `No pending writes.` when nothing awaits approval. |
+| `/memory`, `/memory pending` | List the scope's staged entries as `- <id> [<kind>:<op>] <gist> (session '<origin>', <instant>)`, or `No pending writes.` when nothing awaits approval. Bare `/memory` reports the same list. |
 | `/memory approve <id>` | Apply one memory-kind entry and report `Approved staged <op> (<gist>).`; an unknown id reports `No staged write '<id>'.`; a skill-kind id is redirected to `/skills approve`. |
 | `/memory reject <id>` | Drop one entry without applying it and report `Rejected staged write '<id>'.`. |
-| `/memory`, `/memory <anything-else>` | `Usage: /memory pending \| approve <id> \| reject <id>` — the grammar is fixed. |
-| `/skills pending` | List the scope's staged skill entries, or the empty state naming where proposals come from. |
+| `/memory <anything-else>` | `Usage: /memory pending \| approve <id> \| reject <id>` — the grammar is fixed. |
+| `/skills`, `/skills pending` | List the scope's staged skill entries, or the empty state naming where proposals come from. Bare `/skills` reports the same list. |
 | `/skills approve <id>` | Drop a staged skill entry whose skill write already landed and report the approval with that reminder; an id that is not a staged skill reports `No staged skill '<id>'.`. |
-| `/skills diff <id>` | Reports that staged skill diffs arrive with background skill proposals — the entry payload has no declared shape yet. |
-| `/skills`, `/skills <anything-else>` | `Usage: /skills pending \| approve <id> \| diff <id>`. |
+| `/skills <anything-else>` | `Usage: /skills pending \| approve <id>`. |
 | `/journey [today\|7d\|30d\|all]` | Render the scope timeline: the window header, one line per active day, capacity and digest, and the staged count. Bare `/journey` reports `7d`. |
 | `/journey <anything-else>` | `Usage: /journey [today \| 7d \| 30d \| all]`. |
 | `/curator status` | Render the last pass instant, tracked-skill counts by lifecycle state with pins, and the newest recorded pass. |

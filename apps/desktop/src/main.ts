@@ -100,6 +100,10 @@ function createWindow(preload: string, show = false): BrowserWindow {
     minHeight: 600,
     show,
     autoHideMenuBar: true,
+    // Non-macOS shells render a themed web titlebar (ui-layout TitleBar); the
+    // drag region and window controls are the renderer's. macOS keeps the
+    // native frame and traffic-light controls, so no custom titlebar renders.
+    frame: process.platform === 'darwin',
     // Whale-mark icon for development and Linux/Windows windows; macOS uses the bundle icon.
     icon: join(app.getAppPath(), 'assets', 'icon.png'),
     webPreferences: {
@@ -410,6 +414,33 @@ async function main(): Promise<void> {
     return app.getVersion()
   })
 
+  // Custom titlebar window controls for the frameless app document. These
+  // address the window whose renderer sent the request, not a global target,
+  // so plugin and recovery windows never lose their independent state.
+  const windowOf = (event: IpcMainInvokeEvent): BrowserWindow => {
+    const window = BrowserWindow.fromWebContents(event.sender)
+    if (window === null) throw new Error('dsh desktop: window control request outside a BrowserWindow')
+    return window
+  }
+  ipcMain.handle(DESKTOP_IPC.windowMinimize, (event) => {
+    assertDesktopSender(event, ['app'])
+    windowOf(event).minimize()
+  })
+  ipcMain.handle(DESKTOP_IPC.windowToggleMaximize, (event) => {
+    assertDesktopSender(event, ['app'])
+    const window = windowOf(event)
+    if (window.isMaximized()) window.unmaximize()
+    else window.maximize()
+  })
+  ipcMain.handle(DESKTOP_IPC.windowClose, (event) => {
+    assertDesktopSender(event, ['app'])
+    windowOf(event).close()
+  })
+  ipcMain.handle(DESKTOP_IPC.windowIsMaximized, (event) => {
+    assertDesktopSender(event, ['app'])
+    return windowOf(event).isMaximized()
+  })
+
   const checkAndPrompt = async (manual: boolean): Promise<void> => {
     const state = await updates.check()
     if (state.phase === 'error') {
@@ -479,6 +510,12 @@ async function main(): Promise<void> {
     const window = createWindow(appPreload, true)
     mainWindow = window
     window.on('closed', () => { if (mainWindow === window) mainWindow = undefined })
+    const announceMaximized = (maximized: boolean): void => {
+      if (window.isDestroyed()) return
+      window.webContents.send(DESKTOP_IPC.windowMaximizedState, maximized)
+    }
+    window.on('maximize', () => { announceMaximized(true) })
+    window.on('unmaximize', () => { announceMaximized(false) })
     window.webContents.on('preload-error', (_event, _path, error) => {
       void showEmergencyError(error).catch((failure: unknown) => { console.error(failure) })
     })

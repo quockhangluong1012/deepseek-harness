@@ -1,0 +1,19 @@
+---
+title: Governance commands (command-evolution)
+id: governance-commands-command-evolution
+tags:
+- evolutionary-harness-dsh-cf2785
+created: '2026-09-13T01:52:55.660242Z'
+updated: '2026-09-13T02:05:09.729265Z'
+source: packages/evolution/command-evolution/src/index.ts
+status: review
+type: note
+deprecated: false
+summary: Eight slash commands over store reviewer curator trajectory and telemetry
+---
+
+# Governance commands (command-evolution)
+
+Primary source: `packages/evolution/command-evolution/src/index.ts` (human governance over store, reviewer, curator, trajectory, telemetry).
+
+`/memory pending|approve <id>|reject <id>` governs memory staged writes; skill-kind approvals redirect to `/skills`. `/skills pending|approve <id>` governs skill proposals and drops the entry only after `skill_manage` wrote the file. `/journey [today|7d|30d|all]` (default 7d) renders the scope timeline; `/journey export` bundles `timeline.json` + `session-log.jsonl` into a zip under `$DSH_HOME/exports`. `/curator status|run [--dry-run]|adopt|purge|rollback|ledger|pin|unpin` operates the lifecycle. `/refine` forwards immediately to `reviewer.rebuild`. `/trajectory [--out] [--all]` exports via the trajectory service. `/learn` builds a prompt for one ordinary turn. `/suggestions` lists blueprint-backed skills without installing schedules. The plugin owns no storage domain.

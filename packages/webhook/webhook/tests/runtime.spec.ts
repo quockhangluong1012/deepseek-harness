@@ -171,26 +171,52 @@ describe('WebhookRuntime', () => {
     expect(() => { runtime.dispatch(input as never) }).toThrow(message)
   })
 
-  it('intentionally invokes a rule again for a repeated delivery', async () => {
+  it('drops a repeated delivery inside the replay window and runs a new id', async () => {
     const { runtime } = harness()
-    const calledTwice = Promise.withResolvers<boolean>()
     let calls = 0
     runtime.register({
       id: WebhookRuleId('repeat'),
       kind: 'fixture',
       run() {
         calls++
-        if (calls === 2) calledTwice.resolve(true)
         return null
       },
     })
     runtime.dispatch(delivery())
     runtime.dispatch(delivery())
-    await calledTwice.promise
+    await new Promise<void>((resolve) => { setImmediate(resolve) })
+    expect(calls).toBe(1)
+    runtime.dispatch(delivery('delivery-2'))
+    await new Promise<void>((resolve) => { setImmediate(resolve) })
     expect(calls).toBe(2)
   })
 
-  it('keeps execution-state, retry, dedupe, and completion machinery out of the runtime', () => {
+  it('runs a repeated delivery again after the replay window lapses', async () => {
+    const { runtime } = harness()
+    let calls = 0
+    runtime.register({
+      id: WebhookRuleId('window'),
+      kind: 'fixture',
+      run() {
+        calls++
+        return null
+      },
+    })
+    vi.useFakeTimers()
+    try {
+      runtime.dispatch(delivery())
+      for (let flush = 0; flush < 10; flush++) await Promise.resolve()
+      expect(calls).toBe(1)
+      vi.setSystemTime(Date.now() + 61 * 60 * 1_000)
+      runtime.dispatch(delivery())
+      for (let flush = 0; flush < 10; flush++) await Promise.resolve()
+      expect(calls).toBe(2)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('keeps execution-state, retry, durable storage, and completion machinery out of the runtime', () => {
     const production = [
       '../src/brand.ts',
       '../src/types.ts',
@@ -214,9 +240,10 @@ describe('WebhookRuntime', () => {
     }
   })
 
-  it('creates one Session per matching repeated delivery', async () => {
+  it('creates one Session for a repeated delivery and another for a new id', async () => {
     const ctx = new Context()
     contexts.push(ctx)
+    const followedOnce = Promise.withResolvers<boolean>()
     const followedTwice = Promise.withResolvers<boolean>()
     const messages: unknown[] = []
     const session = {}
@@ -247,6 +274,7 @@ describe('WebhookRuntime', () => {
           session,
           followup: (message: unknown) => {
             messages.push(message)
+            if (messages.length === 1) followedOnce.resolve(true)
             if (messages.length === 2) followedTwice.resolve(true)
           },
         }
@@ -271,6 +299,11 @@ describe('WebhookRuntime', () => {
     })
     runtime.dispatch(delivery())
     runtime.dispatch(delivery())
+    await followedOnce.promise
+    await new Promise<void>((resolve) => { setImmediate(resolve) })
+    expect(attachSession).toHaveBeenCalledTimes(1)
+    expect(messages).toHaveLength(1)
+    runtime.dispatch(delivery('delivery-2'))
     await followedTwice.promise
     expect(attachSession).toHaveBeenCalledTimes(2)
     expect(messages).toHaveLength(2)

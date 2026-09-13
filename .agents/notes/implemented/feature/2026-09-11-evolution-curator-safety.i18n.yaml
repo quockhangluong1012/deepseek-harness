@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-11-evolution-curator-safety.md
-2026-09-11-evolution-curator-safety.md: ec479c3679a7a841c84b54c1fd7cbea6b506d4aa
-2026-09-11-evolution-curator-safety.zh.md: 5046514b82b0633be21ee3b1ea4018e7433d8f62
+2026-09-11-evolution-curator-safety.md: 84df3db11900021abf3fad6eba413ef0ee51bfdb
+2026-09-11-evolution-curator-safety.zh.md: a114d271be26859bf54228b8997dd0a9656753b3

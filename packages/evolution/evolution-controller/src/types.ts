@@ -6,7 +6,7 @@
  * @module @deepseek-ai/dsh-evolution-controller/types
  */
 
-import type { UsageRange } from '@deepseek-ai/dsh-usage-ledger'
+import type { UsageRange } from '@deepseek-ai/dsh-usage-ledger/types'
 import type {
   EvolutionContextItem,
   EvolutionExtraction,
@@ -14,7 +14,7 @@ import type {
   EvolutionOutput,
   StagedResolution,
   StagedWrite,
-} from '@deepseek-ai/dsh-evolution-memory'
+} from '@deepseek-ai/dsh-evolution-memory/types'
 import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
 
 export type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
@@ -25,7 +25,7 @@ export type {
   EvolutionOutput,
   StagedResolution,
   StagedWrite,
-} from '@deepseek-ai/dsh-evolution-memory'
+} from '@deepseek-ai/dsh-evolution-memory/types'
 export type {
   JourneyTimeline,
   TimelineCumulative,
@@ -33,7 +33,7 @@ export type {
   TimelineDelta,
   TimelineDeltaKind,
   TimelinePending,
-} from '@deepseek-ai/dsh-command-evolution'
+} from '@deepseek-ai/dsh-command-evolution/types'
 
 /** One scope's evolution state projected for Remote consumers. */
 export interface EvolutionMemoryValue {

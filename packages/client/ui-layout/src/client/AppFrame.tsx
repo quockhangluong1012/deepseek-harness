@@ -26,7 +26,7 @@
  * source and forwards its snapshot with the main render.
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import type { ReactNode } from 'react'
+import type { CSSProperties, ReactNode } from 'react'
 import type {
   InjectFace, PropsLocale, PropsRenderSlots, PropsRuntime, PropsStore,
 } from '@deepseek-ai/dsh-client-ui-slots'
@@ -34,8 +34,18 @@ import type {
 import type { AppFrameInjected } from './index.ts'
 import { computeColumns, RIGHTBAR_DEFAULT_RATIO, SIDEBAR_AUTO_COLLAPSE, SIDEBAR_DEFAULT } from './columns.ts'
 import { DocumentTitle } from './DocumentTitle.tsx'
+import { hasFramelessTitleBar, TitleBar } from './TitleBar.tsx'
 import type { createLayoutStore } from './stores.ts'
 import css from './AppFrame.module.css'
+
+/** CSS variable carrying the framed titlebar height for row and handle offsets. */
+const TITLEBAR_HEIGHT_VAR = '--dsh-titlebar-height'
+
+/**
+ * Frameless titlebar row height in px; the arranged columns grid rows shift
+ * down by this and the titlebar substructure stretches to fill the row.
+ */
+export const FRAMELESS_TITLEBAR_HEIGHT = 32
 
 /** Full composed props: runtime share + child-slot render share + store share + injected hook sources. */
 export type AppFrameProps =
@@ -215,15 +225,19 @@ export function AppFrame({
   ), [usePanelInfo, renderSlot, pageOccupied])
   const overlays = useMemo(() => renderSlot('shell.overlay', {}), [renderSlot])
   const pages = useMemo(() => renderSlot('shell.page', {}), [renderSlot])
+  const frameless = useMemo(hasFramelessTitleBar, [])
 
   return (
     <div
       ref={frameRef}
       className={css.frame}
       style={{
+        [TITLEBAR_HEIGHT_VAR]: `${FRAMELESS_TITLEBAR_HEIGHT}px`,
+        gridTemplateRows: frameless ? `var(${TITLEBAR_HEIGHT_VAR}) 1fr` : '1fr',
         gridTemplateColumns:
           `${cols.sidebar}px minmax(0, 1fr) ${cols.rightbar}px`,
-      }}
+      } as CSSProperties}
+      data-titlebar={frameless || undefined}
       data-sidebar-collapsed={sidebarCollapsed || undefined}
       data-rightbar-collapsed={cols.rightbar === 0 || undefined}
       data-rightbar-fullscreen={layoutInfo.rightbarFullscreen || undefined}
@@ -235,6 +249,14 @@ export function AppFrame({
         useSessions={useSessions}
         usePanelInfo={usePanelInfo}
       />
+      {frameless && (
+        <TitleBar
+          productTitle={productTitle}
+          useSessions={useSessions}
+          usePanelInfo={usePanelInfo}
+          t={t}
+        />
+      )}
       <div className={css.sidebarCol}>
         {sidebar}
       </div>

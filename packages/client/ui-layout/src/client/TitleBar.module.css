@@ -1,0 +1,84 @@
+/* Frameless window titlebar: a drag region over the top of the web client and
+   its window controls, themed through the --dsw-* token palette so the bar
+   follows the app's light/dark theme. */
+.bar {
+  /* Spans every column track: the AppFrame places the three columns into the
+     second row when this bar exists, and the frame's column tracks are
+     declared inline per solve, so the bar stretches across all of them. */
+  grid-area: 1 / 1 / 2 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0;
+  background: var(--dsw-specific-sidebar-fill);
+  border-bottom: 0.5px solid var(--dsw-alias-border-l3);
+  -webkit-app-region: drag;
+  user-select: none;
+}
+
+.title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  padding-left: 12px;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.product {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.session {
+  font-size: 12px;
+  color: var(--dsw-alias-label-primary);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.controls {
+  display: flex;
+  align-items: stretch;
+  -webkit-app-region: no-drag;
+  height: 100%;
+}
+
+/* The three window controls. The close hover follows the Windows convention. */
+.control {
+  width: 46px;
+  height: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  padding: 0;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  cursor: default;
+}
+
+.control:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.control:active {
+  background: var(--dsw-alias-interactive-bg-active);
+}
+
+.close:hover {
+  background: var(--dsw-static-red-600);
+  color: var(--dsw-static-neutral-00);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .control {
+    transition: none;
+  }
+}

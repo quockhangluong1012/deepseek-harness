@@ -55,6 +55,8 @@ describe('web e2e: evolution journey page (timeline / pending / curator / capaci
         provider: 'deepseek-official',
         model: 'deepseek-v4-flash',
         sessionId: 's-1',
+        inputBytes: 1_024,
+        truncated: false,
       },
     )
 
@@ -69,6 +71,8 @@ describe('web e2e: evolution journey page (timeline / pending / curator / capaci
         provider: 'deepseek-official',
         model: 'deepseek-v4-flash',
         sessionId: 's-3',
+        inputBytes: 2_048,
+        truncated: false,
       },
     )
 
@@ -98,7 +102,6 @@ describe('web e2e: evolution journey page (timeline / pending / curator / capaci
   }, 120_000)
 
   afterAll(async () => {
-    tripwire.reset?.()
     await page.close().catch(() => {})
     await browser.close().catch(() => {})
     await scaffold.close()
@@ -120,12 +123,13 @@ describe('web e2e: evolution journey page (timeline / pending / curator / capaci
     await dialog.getByRole('button', { name: 'Open', exact: true }).click()
     await dialog.waitFor({ state: 'hidden', timeout: 10_000 })
 
-    const workspace = await expect.poll(
-      () => scaffold.ctx.workspaceRegistry.resolveByPath(join(scaffold.workspaceCwd, WORKSPACE_NAME)),
+    const workspacePath = join(scaffold.workspaceCwd, WORKSPACE_NAME)
+    await expect.poll(
+      () => scaffold.ctx.workspaceRegistry.resolveByPath(workspacePath),
       { timeout: 10_000 },
-    ).not.toBeUndefined().then(() =>
-      scaffold.ctx.workspaceRegistry.resolveByPath(join(scaffold.workspaceCwd, WORKSPACE_NAME))!,
-    )
+    ).not.toBeUndefined()
+    const workspace = await scaffold.ctx.workspaceRegistry.resolveByPath(workspacePath)
+    if (workspace === undefined) throw new Error(`evolution journey e2e: workspace "${workspacePath}" was not adopted`)
 
     // Seed the evolution-memory store before the page reads it
     await seedEvolutionMemory(workspace.id)
@@ -137,7 +141,7 @@ describe('web e2e: evolution journey page (timeline / pending / curator / capaci
     await seedSession(scaffold, fixtureText, SEED_ID)
     const wsRow = page.locator('[role="treeitem"]').filter({ hasText: WORKSPACE_NAME }).first()
     await wsRow.getByText(WORKSPACE_NAME, { exact: true }).click()
-    await expect(page.getByRole('heading', { name: WORKSPACE_NAME, level: 1 })).toBeAttached({ timeout: 15_000 })
+    await page.getByRole('heading', { name: WORKSPACE_NAME, level: 1 }).waitFor({ state: 'attached', timeout: 15_000 })
 
     // Open the Evolution sidebar row
     const evolutionRow = page.locator('[role="treeitem"]').filter({ hasText: 'Evolution' }).first()
@@ -145,7 +149,7 @@ describe('web e2e: evolution journey page (timeline / pending / curator / capaci
 
     // The journey panel replaces the workspace-memory page; the workspace
     // name is the scope title, rendered as the page heading.
-    await expect(page.getByRole('heading', { name: WORKSPACE_NAME, level: 1 })).toBeAttached({ timeout: 10_000 })
+    await page.getByRole('heading', { name: WORKSPACE_NAME, level: 1 }).waitFor({ state: 'attached', timeout: 10_000 })
 
     const snapshot = await captureStableAria(
       page,

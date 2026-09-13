@@ -22,8 +22,8 @@ Extend `@deepseek-ai/dsh-evolution-curator` with `src/safety.ts` behind three se
 
 ## Consequences
 
-Every real pass is now reversible and auditable: status surfaces list passes with snapshots and transition counts, operators roll back whole passes or single entries, and each rollback's own before/after blobs keep the chain walkable. `dryRun`, empty, and backup-disabled passes write nothing. Ledger corruption fails loudly on read instead of rolling back the wrong skill.
+Every real pass is now reversible and auditable: status surfaces list passes with snapshots and transition counts, operators roll back whole passes or single entries, and each rollback's own before/after blobs keep the chain walkable. `dryRun`, empty, and backup-disabled passes write nothing. Ledger corruption fails loudly on read — naming the ledger path and the offending line — instead of rolling back the wrong skill.
 
 ## Testing
 
-Eleven safety specs pin directory resolution, hashing, snapshot contents with unresolved names, keep-N pruning, ledger round-trip with malformed-line failure, real-pass snapshots with tarball contents and pass listing, whole-pass and single-entry rollback with restamping, fail-closed unknown ids/missing blobs/untracked skills/corrupt evidence, store-absent refusal, and fresh-home reads — plus eleven carried-over transition specs. Per-file 100% holds on statements, branches, functions, and lines.
+Eleven safety specs pin directory resolution, hashing, snapshot contents with unresolved names, keep-N pruning, ledger round-trip with a malformed line failing by ledger path and line number, real-pass snapshots with tarball contents and pass listing, whole-pass and single-entry rollback with restamping, fail-closed unknown ids/missing blobs/untracked skills/corrupt evidence, store-absent refusal, and fresh-home reads — plus eleven carried-over transition specs. Per-file 100% holds on statements, branches, functions, and lines.

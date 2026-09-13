@@ -27,7 +27,7 @@ kind: "package-reference"
 
 `WebhookRule<K>` 具有带 brand 类型的唯一 `id`、提供方 `kind` 与 `run(delivery, signal)`。回调可以执行任意受信任代码，并返回 `null` 或一个 `WebhookSessionRequest`。同类规则彼此独立启动；某个回调抛出异常或其返回的 Promise 被拒绝时，只会记录日志，不会阻止同级规则。
 
-`VerifiedWebhookDelivery` 携带提供方种类、已配置来源 id、提供方交付 id、规范化的无损 JSON 与接收时间。运行时会在共享前快照并冻结完整值。`deliveryId` 仅是来源信息；重复交付会再次运行规则。
+`VerifiedWebhookDelivery` 携带提供方种类、已配置来源 id、提供方交付 id、规范化的无损 JSON 与接收时间。运行时会在共享前快照并冻结完整值。`deliveryId` 既是来源信息，也是重放抑制键：一小时有界进程内窗口内的重复交付会被确认但不再运行规则；超出窗口（或重启后）的重复仍会再次运行规则。
 
 注册是一项 effect。它的可等待 disposer 会先隐藏规则，再中止并排空活动回调。回调必须观察所提供的 signal；忽略取消的同进程代码无法被安全强制停止。
 
@@ -69,7 +69,7 @@ kind: "package-reference"
 <a id="known-limitations-and-deferred-work"></a>
 
 - **仅限进程内 fire-and-forget** — 崩溃会丢失尚未接纳提示词的规则调用；不存在队列、回放或重试。
-- **无内置去重** — 提供方重复交付可能创建重复会话；需要幂等性的规则自行负责。
+- **有界重放抑制，而非幂等** —— 一小时进程内窗口内的重复（kind、source、deliveryId）会被丢弃；超出窗口、重启后或 id 不同的重复仍会创建重复会话，需要幂等性的规则自行负责。
 - **无完成结果** — HTTP 接受与规则结算都不报告 Agent 成功、idle 或输出。
 - **受信任回调必须配合取消** — 运行时 teardown 会中止并等待回调，但无法终止任意同进程代码。
 - **Workspace 创建可能比失败的会话尝试更长寿** — 空 Workspace 会保留，因为另一个并发调用者可能已经使用它。

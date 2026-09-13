@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-The Webhook family receives authenticated provider events and runs trusted programmatic rules. A rule can create an ordinary root Session inside a Web Workspace. Dispatch is process-local and fire-and-forget, with no delivery database, queue, retry, deduplication, or Agent-completion state.
+The Webhook family receives authenticated provider events and runs trusted programmatic rules. A rule can create an ordinary root Session inside a Web Workspace. Dispatch is process-local and fire-and-forget, with no delivery database, queue, retry, or Agent-completion state — only a bounded one-hour replay window that drops redelivered ids.
 
 ## Table of Contents
 

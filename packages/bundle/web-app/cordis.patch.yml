@@ -131,13 +131,15 @@
 
     - id: command-evolution
       name: '@deepseek-ai/dsh-command-evolution'
+      config:
+        profile: default
+
+    - id: evolution-trajectory
+      name: '@deepseek-ai/dsh-evolution-trajectory'
 
     # Scope verbs and the journey read model over Typert Remote: the page's
     # data source. Its `profile` namespaces the scope key, and it shares the
     # `default` namespace with the reviewer and the brief injector above.
-    - id: evolution-trajectory
-      name: '@deepseek-ai/dsh-evolution-trajectory'
-
     - id: evolution-controller
       name: '@deepseek-ai/dsh-evolution-controller'
       config:

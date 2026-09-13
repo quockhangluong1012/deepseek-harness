@@ -20,6 +20,8 @@ Status: implemented
 
 `/skills pending | approve <id> | diff <id>` 拥有 skill 类暂存条目。批准会丢弃那条由人已经通过 `skill_manage` 写完 skill 文件的条目（存储的批准路径刻意不执行任何写入），成功文本也这样说明。`/memory approve` 遇到 skill 类 id 时改为指向 `/skills approve <id>`，而 `/skills approve` 遇到 memory 类 id 时报告 `No staged skill '<id>'.`——每类只有一条裁决路径，绝不跨类静默应用。`diff` 如实报告缺口：在后台评审能够提出 skill 之前，暂存载荷还没有声明形状。
 
+裸 `/memory` 或 `/skills` 报告待处理清单。`pending` 是文法的默认动词而非必需动词，与裸 `/journey` 的 `7d` 一致：不带参数伸手调用命令的读者读到的是状态；而从菜单挑选无参命令的客户端——合成器派发裸 token——得到的也是同一份清单，而不是用法拒绝。
+
 `/curator status` 是宿主级的，不解析 scope，而 `/curator run [--dry-run]` 运行由间隔触发器拥有的同一次维护通过——语法在挂载检查之前校验，因此即使没有整理器，畸形动词也报告用法：它通过 `ctx.get` 读取 `evolutionCurator.lastRunAt()` / `passes()` 与 `evolutionSkillTelemetry.entries()`，因此缺少这两个服务的部署仍会得到命令，只是答案诚实地变短（`The evolution curator is not mounted.`，或 `Tracked skills: unavailable (skill telemetry is not mounted).`）。该通过报告其移动、跳过计数与快照 id，并标明预览不写入任何内容。
 
 ## Consequences
@@ -34,7 +36,7 @@ skill 类治理现在是人必须理解的两步契约：先写 skill，再批�
 
 `packages/evolution/command-evolution/tests/journey.spec.ts` 以固定时钟锁定纯模型：跨两个 UTC+7 日的分桶、`today`/`7d`/`all` 的窗口过滤、有限区间的补零与 `all` 的仅数据、手工编辑兜底、容量／摘要／文档字节、待裁决投影，以及包括空区间与零容量在内的渲染文本。
 
-`packages/evolution/command-evolution/tests/command-evolution.spec.ts` 通过真实注册表锁定命令：五个命令的注册与销毁、用法错误、无 scope 时的拒绝、用种子数据逐字渲染的 `/journey`（日键由 `dayKeyUTC7` 计算）、`/skills` 的空状态与仅列 skill 的清单、批准后条目被丢弃、两个命令上的跨类拒绝、`diff` 的缺口提示，带/不带 telemetry、带已记录 pass 的 `/curator status`，以及两种模式下的 `/curator run` 及其跳过计数、快照行、单复数措辞与未挂载拒绝。
+`packages/evolution/command-evolution/tests/command-evolution.spec.ts` 通过真实注册表锁定命令：五个命令的注册与销毁、未知与畸形动词的用法错误（裸 `/memory` 与 `/skills` 列出待处理清单）、无 scope 时的拒绝、用种子数据逐字渲染的 `/journey`（日键由 `dayKeyUTC7` 计算）、`/skills` 的空状态与仅列 skill 的清单、批准后条目被丢弃、两个命令上的跨类拒绝、`diff` 的缺口提示，带/不带 telemetry、带已记录 pass 的 `/curator status`，以及两种模式下的 `/curator run` 及其跳过计数、快照行、单复数措辞与未挂载拒绝。
 
 文档闸门让契约保持可见：新导出上的 `verify-package-readme-limitations`、`verify-package-readme-summaries`、`verify-export-jsdoc`，以及 README 三件套的 `verify-translation-pairing`。
 

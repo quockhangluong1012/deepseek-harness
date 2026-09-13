@@ -34,6 +34,10 @@
   border-right: 0.5px solid var(--dsw-alias-border-l3);
 }
 
+.frame[data-titlebar] .sidebarCol {
+  grid-area: 2 / 1;
+}
+
 .centerCol {
   grid-area: 1 / 2;
   min-width: 0;
@@ -44,6 +48,10 @@
      the column, so the page layer beside it wins by a single declared rank
      instead of a number that has to stay ahead of every occupant's. */
   isolation: isolate;
+}
+
+.frame[data-titlebar] .centerCol {
+  grid-area: 2 / 2;
 }
 
 /*
@@ -73,6 +81,10 @@
   pointer-events: none;
 }
 
+.frame[data-titlebar] .pageLayer {
+  grid-area: 2 / 2;
+}
+
 /* Drag handles are frame children (columns clip overflow): an 8px hit strip
    centered on the column border via inline left, above column content. No
    handle draws a visible pill: the details column was the only one that did,
@@ -91,6 +103,11 @@
   /* Rides the same curve as the tracks so the pill stays on the moving
      border during collapse/expand; paused while dragging (frame rule). */
   transition: left var(--ds-transition-duration-slow) var(--ds-ease-in-out);
+}
+
+/* In the frameless shell the handle spans only the column row, under the titlebar. */
+.frame[data-titlebar] .handle {
+  top: var(--dsh-titlebar-height);
 }
 
 .frame[data-dragging] .handle {
@@ -123,6 +140,10 @@
   position: relative;
   min-width: 0;
   overflow: visible;
+}
+
+.frame[data-titlebar] .rightbarCol {
+  grid-area: 2 / 3;
 }
 
 .overlayLayer {

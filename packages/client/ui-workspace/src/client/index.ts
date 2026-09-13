@@ -146,6 +146,10 @@ export function apply(ctx: Context): void {
         ? {}
         : {
           openWorkspacePage: (workspaceId: WorkspaceId) => {
+            // The centre shows one route at a time: the page takes the track
+            // from a selected global panel, which would otherwise stay on
+            // screen above it and hide the page's own composer band.
+            ctx.layout.selectPanel(null)
             opener.open(workspaceId)
           },
         }),

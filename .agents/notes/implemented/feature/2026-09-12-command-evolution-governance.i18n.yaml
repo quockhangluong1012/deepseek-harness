@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-12-command-evolution-governance.md
-2026-09-12-command-evolution-governance.md: 1fd23a3095c124232b5398c1aa69f1562fcef7da
-2026-09-12-command-evolution-governance.zh.md: 32bc199e87ee2639d641507426c9b2f821a10c8f
+2026-09-12-command-evolution-governance.md: 4fb449c70ab2d129d03ad9484c596a61b0f8c1a2
+2026-09-12-command-evolution-governance.zh.md: 38fce379b3f5b53c7614d62d1e46ae266dcdff92

@@ -54,7 +54,20 @@ function snapshotDelivery(delivery: VerifiedWebhookDelivery): VerifiedWebhookDel
   return deepFreeze(snapshot)
 }
 
+/**
+ * Duplicate-delivery suppression window. A repeated (kind, source, deliveryId)
+ * inside it is acknowledged without re-running rules: providers redeliver on
+ * transport failure and operators redeliver manually, and each repeat would
+ * otherwise mint another Session. A fixed security invariant, not a tunable:
+ * process-local and bounded, so a restart forgets and repeats past the window
+ * run again.
+ */
+const DEDUPE_WINDOW_MS = 60 * 60 * 1_000
+/** Cap on remembered delivery ids; the oldest entry goes when the store is full. */
+const DEDUPE_MAX_ENTRIES = 10_000
+
 /** Fire-and-forget rule runtime. Session creation is the only built-in action. */
+
 export class WebhookRuntime extends Service {
   static inject = [
     'agents',
@@ -66,6 +79,9 @@ export class WebhookRuntime extends Service {
   ]
 
   private readonly rules = new Map<WebhookRuleId, RuleRegistration>()
+
+  /** First-seen timestamps of recent deliveries by (kind, source, deliveryId). */
+  private readonly seenDeliveries = new Map<string, number>()
   private readonly selfCtx: Context
   private closing = false
 
@@ -126,10 +142,41 @@ export class WebhookRuntime extends Service {
   dispatch<K extends string>(delivery: VerifiedWebhookDelivery<K>): void {
     if (this.closing) throw new Error('webhook runtime is closing')
     const snapshot = snapshotDelivery(delivery)
+    if (this.isDuplicate(snapshot)) {
+      this.selfCtx.logger.debug(
+        `webhook: duplicate delivery ${JSON.stringify(snapshot.deliveryId)} from ${JSON.stringify(snapshot.source)} ignored`,
+      )
+      return
+    }
     for (const registration of [...this.rules.values()]) {
       if (registration.closing || registration.rule.kind !== snapshot.kind) continue
       this.startInvocation(registration, snapshot)
     }
+  }
+
+  /**
+   * Record one delivery and report whether it repeats a recent one. Expired
+   * entries leave on the next dispatch, so the store stays bounded by time
+   * and by {@link DEDUPE_MAX_ENTRIES}.
+   * @param delivery - validated detached delivery to check.
+   * @returns true when the same (kind, source, deliveryId) arrived inside the window.
+   */
+  private isDuplicate(delivery: VerifiedWebhookDelivery): boolean {
+    const key = JSON.stringify([delivery.kind, delivery.source, delivery.deliveryId])
+    const now = Date.now()
+    const firstSeen = this.seenDeliveries.get(key)
+    if (firstSeen !== undefined && now - firstSeen < DEDUPE_WINDOW_MS) return true
+    this.seenDeliveries.set(key, now)
+    for (const [remembered, at] of this.seenDeliveries) {
+      if (now - at < DEDUPE_WINDOW_MS) break
+      this.seenDeliveries.delete(remembered)
+    }
+    while (this.seenDeliveries.size > DEDUPE_MAX_ENTRIES) {
+      const oldest = this.seenDeliveries.keys().next()
+      if (oldest.done === true) break
+      this.seenDeliveries.delete(oldest.value)
+    }
+    return false
   }
 
   /** Start one contained invocation and attach it to registration teardown. */

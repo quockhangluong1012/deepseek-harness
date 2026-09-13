@@ -120,14 +120,14 @@ export class EvolutionTrajectoryExporter extends TypertRemoteService {
    * @throws RemoteError with `session/not-found` when storage holds no such Session.
    */
   @Remote
-  async exportSession(sessionId: string, options: TrajectoryExportOptions = {}): Promise<TrajectoryExportResult> {
+  async exportSession(sessionId: string, options?: TrajectoryExportOptions): Promise<TrajectoryExportResult> {
     const id = brandString<SessionId>(sessionId)
     const events = await this.readEvents(id)
     if (events === undefined) {
       throw new RemoteError('session/not-found', `Session "${sessionId}" not found`, { sessionId: id })
     }
     const conversations = shapeShareGpt({ sessionId, events })
-    return this.write(options.out ?? join(this.outDir(), trajectoryFileName(sessionId)), conversations)
+    return this.write(options?.out ?? join(this.outDir(), trajectoryFileName(sessionId)), conversations)
   }
 
   /**
@@ -140,7 +140,7 @@ export class EvolutionTrajectoryExporter extends TypertRemoteService {
    * @throws RemoteError with `workspace/not-found` when the scope names no registered Workspace.
    */
   @Remote
-  async exportScope(scopeId: string, options: TrajectoryExportOptions = {}): Promise<TrajectoryExportResult> {
+  async exportScope(scopeId: string, options?: TrajectoryExportOptions): Promise<TrajectoryExportResult> {
     // The scope identity is opaque `profile:workspaceId`; profiles never
     // contain a separator, so the first one divides the key.
     const separator = scopeId.indexOf(':')
@@ -151,7 +151,7 @@ export class EvolutionTrajectoryExporter extends TypertRemoteService {
         workspaceId: WorkspaceId(workspaceKey),
       })
     }
-    const directory = options.out ?? this.outDir()
+    const directory = options?.out ?? this.outDir()
     await mkdir(directory, { recursive: true })
     const archived = new Set(this.ctx.workspaceRegistry.archivedSessionIds.map(id => String(id)))
     let conversations = 0

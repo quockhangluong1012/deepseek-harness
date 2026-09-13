@@ -434,6 +434,23 @@ describe('UiWorkspaceService', () => {
     })
   })
 
+  it('shows a global panel only after vacating the centre-track page', () => {
+    const b = bench()
+    const close = vi.fn()
+    b.ctx.provide('workspacePage', { close } as never)
+    b.selectPanel.mockImplementation(() => {
+      // The page must already be gone when the panel takes the track.
+      expect(close).toHaveBeenCalledOnce()
+    })
+    b.uiWorkspace.showPanel('panel-a' as MainPanelId)
+    expect(close).toHaveBeenCalledOnce()
+    expect(b.selectPanel).toHaveBeenCalledExactlyOnceWith('panel-a')
+    // No page plugin loaded: the panel alone is the whole route change.
+    const bare = bench()
+    bare.uiWorkspace.showPanel('panel-b' as MainPanelId)
+    expect(bare.selectPanel).toHaveBeenCalledExactlyOnceWith('panel-b')
+  })
+
   it('opens the recent Workspace after both baselines arrive', async () => {
     const b = bench()
     b.sessions.create.mockResolvedValue(sid('initial'))

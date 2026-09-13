@@ -12,11 +12,16 @@
    that composer — and each painted region opts back in. */
 .page {
   position: relative;
+  /* border-box: `height: 100%` must keep the top inset inside the track the
+     page layer clips to, not add to it. */
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
   height: 100%;
   min-height: 0;
   overflow: hidden;
+  /* The page's own top inset: the identity row clears the track's top edge. */
+  padding-top: 20px;
   /* The page's one top gap: the identity row above, the band and the rail's
      first card opening on the same line below it. */
   gap: 24px;

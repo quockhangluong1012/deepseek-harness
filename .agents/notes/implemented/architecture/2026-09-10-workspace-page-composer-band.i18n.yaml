@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-10-workspace-page-composer-band.md
-2026-09-10-workspace-page-composer-band.md: 97076ed0ace9eb87fb1274d98722ba37023587f1
-2026-09-10-workspace-page-composer-band.zh.md: 6877b076d1dc5b1b13db99fda24f6a040dd4ba6e
+2026-09-10-workspace-page-composer-band.md: caf9daf6c2ddc1a71e2280384bea78d018fa0293
+2026-09-10-workspace-page-composer-band.zh.md: c23540171cd87af5a7e2af99744753c959ef4543

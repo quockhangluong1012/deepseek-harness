@@ -223,10 +223,12 @@
       "@deepseek-ai/dsh-client-ui-usage-dashboard/client": ["./packages/client/ui-usage-dashboard/src/client"],
       "@deepseek-ai/dsh-client-ui-evolution": ["./packages/client/ui-evolution/src"],
       "@deepseek-ai/dsh-client-ui-evolution/client": ["./packages/client/ui-evolution/src/client"],
+      "@deepseek-ai/dsh-client-ui-evolution/types": ["./packages/client/ui-evolution/src/types.ts"],
       "@deepseek-ai/dsh-usage-ledger/types": ["./packages/session/usage-ledger/src/types.ts"],
       "@deepseek-ai/dsh-client-ui-workspace": ["./packages/client/ui-workspace/src"],
       "@deepseek-ai/dsh-client-ui-workspace-memory": ["./packages/client/ui-workspace-memory/src"],
       "@deepseek-ai/dsh-client-ui-workspace-memory/client": ["./packages/client/ui-workspace-memory/src/client"],
+      "@deepseek-ai/dsh-client-ui-workspace-memory/types": ["./packages/client/ui-workspace-memory/src/types.ts"],
       "@deepseek-ai/dsh-client-ui-theme": ["./packages/client/ui-theme/src"],
       "@deepseek-ai/dsh-client-ui-settings": ["./packages/client/ui-settings/src"],
       "@deepseek-ai/dsh-client-ui-settings-general": ["./packages/client/ui-settings-general/src"],
@@ -261,6 +263,12 @@
       // session-log-export lives under session-query/, so the generated aliases map only its
       // bare name; the browser half needs this explicit subpath for source-mode dynamic imports.
       "@deepseek-ai/dsh-session-log-export/client": ["./packages/session-query/session-log-export/src/client"],
+      // The evolution family's wire vocabulary lives in node-free `types.ts`
+      // leaves that the Remote client and the controller reach by subpath; the
+      // generated region maps bare package names only.
+      "@deepseek-ai/dsh-command-evolution/types": ["./packages/evolution/command-evolution/src/types.ts"],
+      "@deepseek-ai/dsh-evolution-controller/types": ["./packages/evolution/evolution-controller/src/types.ts"],
+      "@deepseek-ai/dsh-evolution-memory/types": ["./packages/evolution/evolution-memory/src/types.ts"],
       // BEGIN generated package aliases — pnpm run gen-tsconfig-paths
       "@deepseek-ai/dsh-acp": ["./packages/acp/acp/src"],
       "@deepseek-ai/dsh-acp-app": ["./packages/bundle/acp-app/src"],
@@ -306,13 +314,13 @@
       "@deepseek-ai/dsh-e2b": ["./packages/e2b/e2b/src"],
       "@deepseek-ai/dsh-evolution-controller": ["./packages/evolution/evolution-controller/src"],
       "@deepseek-ai/dsh-evolution-curator": ["./packages/evolution/evolution-curator/src"],
-      "@deepseek-ai/dsh-evolution-scorer": ["./packages/evolution/evolution-scorer/src"],
-      "@deepseek-ai/dsh-evolution-trajectory": ["./packages/evolution/evolution-trajectory/src"],
       "@deepseek-ai/dsh-evolution-memory": ["./packages/evolution/evolution-memory/src"],
       "@deepseek-ai/dsh-evolution-memory-context": ["./packages/context/evolution-memory-context/src"],
       "@deepseek-ai/dsh-evolution-reviewer": ["./packages/evolution/evolution-reviewer/src"],
+      "@deepseek-ai/dsh-evolution-scorer": ["./packages/evolution/evolution-scorer/src"],
       "@deepseek-ai/dsh-evolution-skill-manage": ["./packages/skill/evolution-skill-manage/src"],
       "@deepseek-ai/dsh-evolution-skill-telemetry": ["./packages/skill/evolution-skill-telemetry/src"],
+      "@deepseek-ai/dsh-evolution-trajectory": ["./packages/evolution/evolution-trajectory/src"],
       "@deepseek-ai/dsh-file-reference": ["./packages/context/file-reference/src"],
       "@deepseek-ai/dsh-file-reference-local": ["./packages/context/file-reference-local/src"],
       "@deepseek-ai/dsh-fs": ["./packages/fs/fs/src"],

@@ -18,7 +18,7 @@ const JsExpr = new yaml.Type('tag:yaml.org,2002:js', {
     resolve: (data) => typeof data === 'string',
     construct: (data) => ({ __jsExpr: data }),
     predicate: isJsExpr,
-    represent: (data) => data['__jsExpr'],
+    represent: (data) => String(data.__jsExpr),
 });
 /**
  * The entry-list YAML dialect: `!!js` scalars round-trip as expression nodes

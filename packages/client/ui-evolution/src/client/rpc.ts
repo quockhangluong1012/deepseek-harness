@@ -27,6 +27,11 @@ export type EvolutionBaseline = Extract<EvolutionFollowFrame, { type: 'baseline'
 /** Increment frame: one Scope's record changed. */
 export type EvolutionUpsert = Extract<EvolutionFollowFrame, { type: 'upsert' }>
 
+// Every verb here mirrors the generated `evolution` / `evolutionCurator` faces
+// exactly, cancellation included: the Client API counts arguments against the
+// Host contract, so a Hand-written face that declares a trailing AbortSignal
+// the Host method does not take fails at the call, not at the type.
+
 /** Raw result-carrying unary verbs of the `evolution` Remote namespace. */
 export interface RawVerbs {
   /** Load one Scope's record. */
@@ -34,24 +39,21 @@ export interface RawVerbs {
   /** Render one Scope's journey over a window. */
   timeline(
     request: { readonly scopeId: WorkspaceId; readonly range: UsageRange },
-    signal?: AbortSignal,
   ): Promise<RemoteResult<JourneyTimeline>>
   /** Apply one staged write. */
   approveStaged(
     request: { readonly scopeId: WorkspaceId; readonly stagedId: string },
-    signal?: AbortSignal,
   ): Promise<RemoteResult<EvolutionMemoryValue>>
   /** Drop one staged write without applying it. */
   rejectStaged(
     request: { readonly scopeId: WorkspaceId; readonly stagedId: string },
-    signal?: AbortSignal,
   ): Promise<RemoteResult<EvolutionMemoryValue>>
 }
 
 /** Raw result-carrying face of the `evolutionCurator` Remote namespace. */
 export interface CuratorRawVerbs {
   /** Read the curator's recorded status. */
-  status(signal?: AbortSignal): Promise<RemoteResult<EvolutionCuratorStatus>>
+  status(): Promise<RemoteResult<EvolutionCuratorStatus>>
 }
 
 /** Throwing verbs the page drives. */
@@ -59,13 +61,13 @@ export interface PageVerbs {
   /** Load one Scope's record. */
   read(scopeId: WorkspaceId): Promise<EvolutionMemoryValue>
   /** Render one Scope's journey over a window. */
-  timeline(scopeId: WorkspaceId, range: UsageRange, signal: AbortSignal): Promise<JourneyTimeline>
+  timeline(scopeId: WorkspaceId, range: UsageRange): Promise<JourneyTimeline>
   /** Apply one staged write. */
   approveStaged(scopeId: WorkspaceId, stagedId: string): Promise<EvolutionMemoryValue>
   /** Drop one staged write without applying it. */
   rejectStaged(scopeId: WorkspaceId, stagedId: string): Promise<EvolutionMemoryValue>
   /** Read the curator's recorded status. */
-  curatorStatus(signal: AbortSignal): Promise<EvolutionCuratorStatus>
+  curatorStatus(): Promise<EvolutionCuratorStatus>
 }
 
 /** The page Remote: throwing verbs plus the follow-stream transport. */
@@ -99,10 +101,10 @@ export function bindPageVerbs(
   const curator = remote.evolutionCurator
   return {
     read: async scopeId => unwrapResult(await verbs.read({ scopeId })),
-    timeline: async (scopeId, range, signal) => unwrapResult(await verbs.timeline({ scopeId, range }, signal)),
+    timeline: async (scopeId, range) => unwrapResult(await verbs.timeline({ scopeId, range })),
     approveStaged: async (scopeId, stagedId) => unwrapResult(await verbs.approveStaged({ scopeId, stagedId })),
     rejectStaged: async (scopeId, stagedId) => unwrapResult(await verbs.rejectStaged({ scopeId, stagedId })),
-    curatorStatus: async signal => unwrapResult(await curator.status(signal)),
+    curatorStatus: async () => unwrapResult(await curator.status()),
   }
 }
 

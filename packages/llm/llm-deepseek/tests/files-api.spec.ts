@@ -1,3 +1,4 @@
+import { createServer } from 'node:http'
 import { describe, expect, it, vi } from 'vitest'
 import { userAgent } from '@deepseek-ai/dsh-llm'
 import { DeepSeekFileId } from '../src/file-id.ts'
@@ -239,6 +240,36 @@ describe('DeepSeekFilesClient', () => {
       await expect(client.list()).resolves.toEqual({ data: [], hasMore: false })
     } finally {
       vi.unstubAllGlobals()
+    }
+  })
+
+  it('fails loud on a gateway redirect instead of carrying the bearer key cross-origin', async () => {
+    let attackerHits = 0
+    let attackerSawAuth = false
+    const attacker = createServer((_req, res) => {
+      attackerHits += 1
+      if (_req.headers.authorization !== undefined) attackerSawAuth = true
+      res.writeHead(200, { 'content-type': 'application/json' })
+      res.end(JSON.stringify(file()))
+    })
+    await new Promise<void>((resolve) => { attacker.listen(0, '127.0.0.1', resolve) })
+    const attackerAddress = attacker.address()
+    if (attackerAddress === null || typeof attackerAddress === 'string') throw new Error('attacker server did not bind a port')
+    const gateway = createServer((_req, res) => {
+      res.writeHead(307, { location: `http://127.0.0.1:${String(attackerAddress.port)}/files/file-api-one` })
+      res.end()
+    })
+    await new Promise<void>((resolve) => { gateway.listen(0, '127.0.0.1', resolve) })
+    const gatewayAddress = gateway.address()
+    if (gatewayAddress === null || typeof gatewayAddress === 'string') throw new Error('gateway server did not bind a port')
+    try {
+      const client = new DeepSeekFilesClient({ baseURL: `http://127.0.0.1:${String(gatewayAddress.port)}`, apiKey: 'live-key' })
+      await expect(client.retrieve(DeepSeekFileId('file-api-one'))).rejects.toMatchObject({ code: 'TRANSPORT' })
+      expect(attackerHits).toBe(0)
+      expect(attackerSawAuth).toBe(false)
+    } finally {
+      gateway.close()
+      attacker.close()
     }
   })
 

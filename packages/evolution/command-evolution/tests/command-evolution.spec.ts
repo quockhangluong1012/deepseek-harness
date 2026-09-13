@@ -304,6 +304,7 @@ describe('@deepseek-ai/dsh-command-evolution registration', () => {
         definitionId: '@deepseek-ai/dsh-command-evolution/memory',
         name: 'memory',
         description: 'Review staged evolution memory writes',
+        input: { hint: 'pending | approve <id> | reject <id>' },
       })
       expect(test.ctx.commands.list(agent)).toContainEqual({
         definitionId: '@deepseek-ai/dsh-command-evolution/refine',
@@ -319,16 +320,19 @@ describe('@deepseek-ai/dsh-command-evolution registration', () => {
         definitionId: '@deepseek-ai/dsh-command-evolution/skills',
         name: 'skills',
         description: 'Review staged skill proposals',
+        input: { hint: 'pending | approve <id>' },
       })
       expect(test.ctx.commands.list(agent)).toContainEqual({
         definitionId: '@deepseek-ai/dsh-command-evolution/curator',
         name: 'curator',
         description: 'Manage skill curation: status, pass history, adopt, purge, pin, and rollback',
+        input: { hint: 'status | run | adopt <name> | purge | rollback | ledger | pin <name>' },
       })
       expect(test.ctx.commands.list(agent)).toContainEqual({
         definitionId: '@deepseek-ai/dsh-command-evolution/trajectory',
         name: 'trajectory',
         description: 'Export this session or this scope as share-ready conversations',
+        input: { hint: '[--out <path>] [--all]' },
       })
       expect(test.ctx.commands.list(agent)).toContainEqual({
         definitionId: '@deepseek-ai/dsh-command-evolution/learn',
@@ -376,13 +380,12 @@ describe('@deepseek-ai/dsh-command-evolution registration', () => {
 })
 
 describe('/memory human command', () => {
-  it('reports usage for bare, unknown, and malformed inputs', async () => {
+  it('reports usage for unknown and malformed inputs', async () => {
     const test = await harness()
     try {
       const session = sessionIn(test.ctx, test.dir, 'usage')
       test.workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: test.dir, sessionIds: [session.id] })
       const usage = { kind: 'error', text: 'Usage: /memory pending | approve <id> | reject <id>' } as const
-      expect((await run(test, session, '/memory')).result).toEqual(usage)
       expect((await run(test, session, '/memory frobnicate')).result).toEqual(usage)
       expect((await run(test, session, '/memory pending extra')).result).toEqual(usage)
       expect((await run(test, session, '/memory approve')).result).toEqual(usage)
@@ -448,6 +451,8 @@ describe('/memory human command', () => {
       const empty = await run(test, session, '/memory pending')
       expect(empty.result).toEqual({ kind: 'success', text: 'No pending writes.' })
       expectLifecycle(test, session, 'memory', ' pending', empty.result)
+      // The bare command reports the same list: `pending` is the default verb.
+      expect((await run(test, session, '/memory')).result).toEqual(empty.result)
 
       const first = await test.ctx.evolutionMemory.stageWrite({
         scopeId: id, kind: 'memory', op: 'setLessons',
@@ -715,11 +720,11 @@ describe('/skills human command', () => {
     try {
       const session = sessionIn(test.ctx, test.dir, 'skills-usage')
       test.workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: test.dir, sessionIds: [session.id] })
-      const usage = { kind: 'error', text: 'Usage: /skills pending | approve <id> | diff <id>' } as const
-      expect((await run(test, session, '/skills')).result).toEqual(usage)
+      const usage = { kind: 'error', text: 'Usage: /skills pending | approve <id>' } as const
       expect((await run(test, session, '/skills pending extra')).result).toEqual(usage)
       expect((await run(test, session, '/skills approve')).result).toEqual(usage)
       expect((await run(test, session, '/skills approve a b')).result).toEqual(usage)
+      expect((await run(test, session, '/skills diff abc')).result).toEqual(usage)
     } finally {
       await shutdown(test)
     }
@@ -732,6 +737,11 @@ describe('/skills human command', () => {
       const id = test.scope('ws-1')
       test.workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: test.dir, sessionIds: [session.id] })
       expect((await run(test, session, '/skills pending')).result).toEqual({
+        kind: 'success',
+        text: 'No pending skill proposals. Background review proposes skills once the reviewer fork lands; write one directly with skill_manage.',
+      })
+      // The bare command reports the same list: `pending` is the default verb.
+      expect((await run(test, session, '/skills')).result).toEqual({
         kind: 'success',
         text: 'No pending skill proposals. Background review proposes skills once the reviewer fork lands; write one directly with skill_manage.',
       })
@@ -778,7 +788,7 @@ describe('/skills human command', () => {
     }
   })
 
-  it('refuses ids that are not staged skills and names the payload gap for diffs', async () => {
+  it('refuses ids that are not staged skills and reports usage for diffs', async () => {
     const test = await harness()
     try {
       const session = sessionIn(test.ctx, test.dir, 'skills-refuse')
@@ -798,7 +808,7 @@ describe('/skills human command', () => {
       })
       expect((await run(test, session, `/skills diff ${memory.id}`)).result).toEqual({
         kind: 'error',
-        text: 'Staged skill diffs arrive with background skill proposals: the entry payload has no declared shape yet.',
+        text: 'Usage: /skills pending | approve <id>',
       })
     } finally {
       await shutdown(test)

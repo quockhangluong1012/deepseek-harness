@@ -174,7 +174,8 @@ describe('evolution curator safety', () => {
     await appendLedger(home, { ...entry, id: 'entry-two' })
     expect(await readLedger(home)).toHaveLength(2)
     await writeFile(join(home, 'ledger.jsonl'), 'not json\n', { flag: 'a' })
-    await expect(readLedger(home)).rejects.toThrow()
+    await expect(readLedger(home)).rejects
+      .toThrow(`evolution-curator: ledger "${join(home, 'ledger.jsonl')}" line 3 is not valid JSON`)
   })
 
   it('writes snapshots and ledger entries for real passes', async () => {
