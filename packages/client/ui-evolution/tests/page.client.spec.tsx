@@ -351,7 +351,7 @@ describe('evolution journey page', () => {
     const staged = [{
       id: 'staged-2',
       kind: 'memory' as const,
-      op: 'addLesson',
+      op: 'replaceArtifacts',
       payload: {},
       originSessionId: 's-2',
       createdAt: '2026-09-12T00:00:00.000Z',
