@@ -49,7 +49,7 @@ The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-a
 
 ### Budget and digest
 
-Empty sections are omitted and an all-empty record injects nothing. Under pressure trailing context items drop first, then lessons truncate, then the profile truncates with lessons already gone, then instructions truncate last; one notice line names every drop and truncation, and file bytes are re-read at injection time while the recorded size stays a snapshot. The digest covers instructions, lessons, profile, and context only, so output indexing and staged writes never re-inject the brief.
+Empty sections are omitted and an all-empty record injects nothing. Under pressure trailing context items drop first, then the weakest lesson artifacts drop whole — strongest first by confidence, ties broken by ascending id, and a lesson is never truncated mid-statement — then the profile truncates with lessons already gone, then instructions truncate last; one notice line names every drop and truncation, and file bytes are re-read at injection time while the recorded size stays a snapshot. The digest covers instructions, lessons, profile, and context only, so output indexing and staged writes never re-inject the brief.
 
 Recalled context material — items labelled with the store's `RECALL_LABEL_PREFIX` — renders after every item the user attached, because the renderer drops trailing context first and recalled material outranks nothing the user attached.
 
@@ -86,7 +86,7 @@ No invariant companion is published because the injector owns no durable state o
 <a id="further-exploration"></a>
 ## Further Exploration
 
-- [Evolutionary Harness specification](../../../specs/evolutionary-harness.spec.md) — the behaviour contract this package implements.
+- [Evolutionary Harness specification](../../../specs/evolutionary-harness-spec-v10-complete.md) — the behaviour contract this package implements.
 - [Context group map](../README.md) — sibling request-context packages; the package lives in the `context/` group beside its workspace counterpart.
 - [Generated configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-evolution-memory-context) — every accepted config field.
 
@@ -99,7 +99,7 @@ No invariant companion is published because the injector owns no durable state o
 
 #### What the model sees
 
-One durable `user/message` carrying the framed brief: the scope title, directory, and `Memory usage: used/cap (pct%)` header, then the `Instructions`, `Lessons`, `User profile`, and per-item `Context: label` sections that are non-empty, plus one budget notice line when anything was dropped or truncated.
+One durable `user/message` carrying the framed brief: the scope title, directory, and `Memory usage: used/cap (pct%)` header, then the `Instructions`, `Lessons`, `User profile`, and per-item `Context: label` sections that are non-empty, plus one budget notice line when anything was dropped or truncated. The `Lessons` section renders one line per stored artifact — `- <statement> (confidence: 0.82)` — strongest first: confidence descending, ties broken by ascending `id` so the same record always renders the same order. Under budget pressure the weakest artifacts drop whole, and when not even one fits the section is omitted entirely rather than sending a truncated statement.
 
 ##### Verbatim text for this field, when needed
 

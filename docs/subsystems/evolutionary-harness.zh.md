@@ -4,7 +4,7 @@
 
 演进式 Harness 中的作用域是 profile 加 workspace（或 profile 全局记录）的持久化记录：用户编写的指令、模型维护的经验与用户画像、附加上下文、产出文件索引，以及等待审批的暂存写入（`ctx.evolutionMemory`，`packages/evolution/evolution-memory`）。Harness 在后台从用户行为中学习，整理有界记忆，并在使用中改进技能；每一次习得性写入都有上限，可按配置暂存，有日志，可回滚。
 
-来源：[`specs/evolutionary-harness.spec.md`](../../specs/evolutionary-harness.spec.md)
+来源：[`specs/evolutionary-harness-spec-v10-complete.md`](../../specs/evolutionary-harness-spec-v10-complete.md)
 
 ## 组成部分
 
@@ -28,7 +28,7 @@
 | [`evolution-skill-manage`](../../packages/skill/evolution-skill-manage/README.zh.md) | 面向模型的 `skill_manage` 工具，以文件形式创建、补丁、重写、写入、删除技能 | 注册到 `ctx.tools` |
 | [`evolution-curator`](../../packages/evolution/evolution-curator/README.zh.md) | 闲置触发的自动技能生命周期流转，带试运行预览 | `ctx.evolutionCurator` |
 
-作用域标识是以 `EvolutionScopeId` 构造的不透明 `profile:workspaceId`（或 `profile:global`）键。经验编辑接受一个期望恰好出现一次的子串：未知子串以 `evolution/item-not-found` 拒绝，歧义子串以 `evolution/ambiguous-match` 拒绝。存储位于本机 `$DSH_HOME` 之下；不向项目目录内写入任何内容。
+作用域标识是以 `EvolutionScopeId` 构造的不透明 `profile:workspaceId`（或 `profile:global`）键。经验是按身份（即规范化后的 statement）寻址的工件，因此一次编辑命名它所改动的工件，而不是拼接一份文档。存储位于本机 `$DSH_HOME` 之下；不向项目目录内写入任何内容。
 
 ## 生成的 API
 

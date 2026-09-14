@@ -1,5 +1,5 @@
 ---
-description: "Evolution memory brief injector with scope nudges and capacity variable (agent pre-step), for hosts composing the self-learning harness."
+description: "Evolution memory brief injector with scope nudges (agent pre-step), for hosts composing the self-learning harness."
 kind: "package-reference"
 ---
 
@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-`dsh-evolution-memory-context` 把作用域的指令、经验、画像与附加上下文渲染成一条持久 `user/message` 简报，拼接到 `agent/pre-step`——记录摘要变化时替换简报，不变时什么也不加。它还在系统提示背后注册演进提示分节与 `evolution_memory_usage` 容量变量。当同一作用域的每个会话都应看到该作用域的共享知识、且不希望每回合重读存储时，选择本包。
+`dsh-evolution-memory-context` 把作用域的指令、经验、画像与附加上下文渲染成一条持久 `user/message` 简报，拼接到 `agent/pre-step`——记录摘要变化时替换简报，不变时什么也不加。它还在系统提示背后注册演进提示分节；容量用量只在简报头部报告，永不插值进系统提示，因此一次记忆写入无法使请求的缓存前缀失效。当同一作用域的每个会话都应看到该作用域的共享知识、且不希望每回合重读存储时，选择本包。
 
 ## 目录
 
@@ -49,7 +49,7 @@ kind: "package-reference"
 
 ### 预算与摘要
 
-空分节省略，全空记录不注入。压力之下先丢弃尾部上下文条目，再截断经验，然后在经验已清空的前提下截断画像，最后截断指令；一行通知列出每次丢弃与截断，文件字节在注入时重读，记录的大小保持快照。摘要仅覆盖指令、经验、画像与上下文，因此产出索引与暂存写入永不触发重注。
+空分节省略，全空记录不注入。压力之下先丢弃尾部上下文条目，再整体丢弃最弱的经验工件——按置信度从强到弱，置信度相同则以 id 升序定序，且经验永不从中间截断——然后在经验已清空的前提下截断画像，最后截断指令；一行通知列出每次丢弃与截断，文件字节在注入时重读，记录的大小保持快照。摘要仅覆盖指令、经验、画像与上下文，因此产出索引与暂存写入永不触发重注。
 
 被召回的上下文材料——标签以存储的 `RECALL_LABEL_PREFIX` 开头的条目——渲染在用户附加的每个条目之后，因为渲染器最先丢弃尾部上下文，而被召回材料让位于用户附加的任何内容。
 
@@ -71,7 +71,7 @@ kind: "package-reference"
 |---|---|
 | [`src/index.ts`](src/index.ts) | 插件入口：pre-step 注入、归属缓存、文件物化、分节接线 |
 | [`src/render.ts`](src/render.ts) | 字节预算内的纯简报渲染 |
-| [`src/sections.ts`](src/sections.ts) | 提示分节文本、技能工具可见性、容量格式化 |
+| [`src/sections.ts`](src/sections.ts) | 提示分节文本（静态——无插值）、技能工具可见性、回合间隔判定 |
 
 ### 失败与恢复
 
@@ -86,7 +86,7 @@ kind: "package-reference"
 <a id="further-exploration"></a>
 ## 进一步探索
 
-- [演进式 Harness 规范](../../../specs/evolutionary-harness.spec.md)——本包实现的行为契约。
+- [演进式 Harness 规范](../../../specs/evolutionary-harness-spec-v10-complete.md)——本包实现的行为契约。
 - [context 组地图](../README.zh.md)——相邻的请求上下文包；本包位于 `context/` 分组，与 workspace 对应物并列。
 - [生成的配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-evolution-memory-context)——每个可接受的配置字段。
 
@@ -99,7 +99,7 @@ kind: "package-reference"
 
 #### 模型所见
 
-一条持久 `user/message` 承载组帧后的简报：作用域标题、目录、`Memory usage: used/cap (pct%)` 头，以及非空的 `Instructions`、`Lessons`、`User profile` 与逐条 `Context: label` 分节；有丢弃或截断时附一行预算通知。
+一条持久 `user/message` 承载组帧后的简报：作用域标题、目录、`Memory usage: used/cap (pct%)` 头，以及非空的 `Instructions`、`Lessons`、`User profile` 与逐条 `Context: label` 分节；有丢弃或截断时附一行预算通知。`Lessons` 分节为每个存储的工件渲染一行——`- <statement> (confidence: 0.82)`——按强度从强到弱：置信度降序，置信度相同则以 `id` 升序定序，因此同一记录总是渲染出同一顺序。预算压力下最弱的工件整体丢弃；连一个都放不下时该分节被整体省略，而不是发出一条被截断的 statement。
 
 ##### 本字段原文（如需）
 
@@ -115,11 +115,11 @@ kind: "package-reference"
 
 前缀稳定：记录不变时简报追加在认领批次之后，重复的相同简报保留可复用前缀；记录变化则替换，并从该点起使复用失效。
 
-### 提示分节与变量
+### 提示分节
 
 #### 模型所见
 
-三个提示分节（`evolution-lessons-skills`、`evolution-memory-scope`、`evolution-session-search`）与它们插值的 `evolution_memory_usage` 容量变量。技能提示仅在可见的 `skill_manage` 工具旁、且回合数恰为 `skillNudgeInterval` 的整数倍时渲染；作用域提示仅在回合数为 `memoryNudgeInterval` 整数倍时渲染；会话搜索提示始终渲染。尚无已观测回合的会话按其第一回合计，因此间隔为 `1` 的作用域提示会在它之前渲染，而更宽的间隔要等到自己的倍数。
+三个提示分节：`evolution-lessons-skills`、`evolution-memory-scope`、`evolution-session-search`——全部为固定文本，无插值。技能提示仅在可见的 `skill_manage` 工具旁、且回合数恰为 `skillNudgeInterval` 的整数倍时渲染；作用域提示仅在回合数为 `memoryNudgeInterval` 整数倍时渲染；会话搜索提示始终渲染。尚无已观测回合的会话按其第一回合计，因此间隔为 `1` 的作用域提示会在它之前渲染，而更宽的间隔要等到自己的倍数。
 
 ##### 本字段原文（如需）
 
@@ -129,11 +129,11 @@ To recall earlier work in this scope, search past sessions before asking the use
 
 #### Token 影响
 
-按节奏有界：每次组装一条会话搜索提示、每 `memoryNudgeInterval` 回合一条作用域提示、在 `skill_manage` 可见时每 `skillNudgeInterval` 回合一条技能提示，另加一个插值后的容量值。
+按节奏有界：每次组装一条会话搜索提示、每 `memoryNudgeInterval` 回合一条作用域提示、在 `skill_manage` 可见时每 `skillNudgeInterval` 回合一条技能提示。
 
 #### KV Cache effect
 
-在节奏窗口内前缀稳定：分节文本跨请求完全重复，提示集合只在间隔回合变化，只有插值后的容量值随用量而变。
+与记忆内容无关地保持前缀稳定：分节文本固定且不带任何按作用域的值，因此提示集合只在间隔回合变化，永不因一次记忆写入而变化。容量用量只在简报头部报告（见上），而它本就经由自身的摘要门控替换——一次记忆写入无法使本层级的缓存前缀失效。
 
 ## 已知限制与延期工作
 
@@ -145,7 +145,6 @@ To recall earlier work in this scope, search past sessions before asking the use
 - **一次一条简报**——记录变化追加完整替换；被取代的简报累积，直到压缩将其遮蔽。
 - **文件上下文每次刷新重读**——预算约束模型字节，不约束磁盘读取。
 - **文件容量快照**——磁盘文件变化时，不刷新记录的大小。
-- **变量名小写**——框架变量语法拒绝规范的驼峰 `{{evolutionMemoryUsage}}`，容量变量以 `{{evolution_memory_usage}}` 发布。
 - **无按会话文件读取器**——文件条目相对进程文件系统解析，而非 workspace 作用域读取器。
 
 <a id="dev-note"></a>

@@ -4,7 +4,7 @@ English | [中文](evolutionary-harness.zh.md)
 
 A scope in the Evolutionary Harness is the durable record of a profile plus a workspace (or the profile-global record): user-authored instructions, model-maintained lessons and user profile, attached context, a produced-file index, and staged writes awaiting approval (`ctx.evolutionMemory`, `packages/evolution/evolution-memory`). The harness learns from user behaviour in the background, curates bounded memory, and improves skills during use; every learned write is capped, staged when configured, logged, and rollback-capable.
 
-Source: [`specs/evolutionary-harness.spec.md`](../../specs/evolutionary-harness.spec.md)
+Source: [`specs/evolutionary-harness-spec-v10-complete.md`](../../specs/evolutionary-harness-spec-v10-complete.md)
 
 ## Parts
 
@@ -28,7 +28,7 @@ Source: [`specs/evolutionary-harness.spec.md`](../../specs/evolutionary-harness.
 | [`evolution-skill-manage`](../../packages/skill/evolution-skill-manage/README.md) | Model-facing `skill_manage` tool that creates, patches, edits, writes, removes, and deletes skills as files | registers on `ctx.tools` |
 | [`evolution-curator`](../../packages/evolution/evolution-curator/README.md) | Idle-triggered automatic skill lifecycle transitions with dry-run previews | `ctx.evolutionCurator` |
 
-Scope identities are opaque `profile:workspaceId` (or `profile:global`) keys built with `EvolutionScopeId`. Lesson edits take a substring expected exactly once; an unknown substring rejects with `evolution/item-not-found` and an ambiguous one with `evolution/ambiguous-match`. Storage is machine-local under `$DSH_HOME`; nothing writes inside the project directory.
+Scope identities are opaque `profile:workspaceId` (or `profile:global`) keys built with `EvolutionScopeId`. Lessons are artifacts addressed by identity — the normalized statement — so an edit names the artifact it changes instead of splicing a document. Storage is machine-local under `$DSH_HOME`; nothing writes inside the project directory.
 
 ## Generated API
 

@@ -36,6 +36,34 @@ Depends on: `Stream` (`@agentclientprotocol/sdk`)
 
 来源：[`packages/acp/acp/src/index.ts:75`](../packages/acp/acp/src/index.ts)
 
+<a id="deepseek-aidsh-active-memory-context"></a>
+
+## `@deepseek-ai/dsh-active-memory-context`
+
+需要：`workspaceRegistry` · `sessionQuery`
+
+```ts config-catalog
+/** Plugin configuration: brief cap, result bounds, and search cadence. */
+export interface Config {
+  /** Cap on the complete emitted text including the frame. */
+  maxBytes: number
+  /** Candidate results ranked per search, before the relevance threshold. Defaults to 5. */
+  topK?: number
+  /**
+   * Minimum cosine similarity a hit must clear to be worth injecting, in the
+   * configured embedding model's own vector space. A nearest-neighbor search
+   * always returns its closest candidates even when none are truly relevant,
+   * so this is what tells an off-topic turn apart from an on-topic one.
+   * Recalibrate after switching embedding providers or models. Defaults to 0.7.
+   */
+  relevanceThreshold?: number
+  /** Turns between active-memory searches. Defaults to 1 (every turn). */
+  turnInterval?: number
+}
+```
+
+来源：[`packages/context/active-memory-context/src/index.ts:39`](../packages/context/active-memory-context/src/index.ts)
+
 <a id="deepseek-aidsh-agent-default-model"></a>
 
 ## `@deepseek-ai/dsh-agent-default-model`
@@ -851,7 +879,7 @@ export interface Config {
 export interface Config {
   /** Capacity-bar denominator and hard ceiling on stored bytes. */
   capacityBytes: number
-  /** Lessons document cap in UTF-8 bytes. */
+  /** Lessons cap: UTF-8 bytes of the serialized artifact array. */
   maxAgentBytes?: number
   /** User profile document cap in UTF-8 bytes. */
   maxUserBytes?: number
@@ -863,10 +891,23 @@ export interface Config {
   maxOutputs?: number
   /** Decided staged entries retained per scope. */
   maxResolutions?: number
+  /** Minimum similarity to an existing artifact that justifies merging instead of storing separately. */
+  mergeSimilarityFloor?: number
+  /** Hours between two maintenance sweeps of every stored scope. */
+  maintenanceIntervalHours?: number
+  /** Refutations at or above which decay prunes an artifact regardless of age. */
+  refutationFloor?: number
+  /**
+   * Days a new artifact is given as its ttl when its caller supplies none.
+   * Decay prunes an artifact this many days after the last write that touched
+   * it, so keeping one alive takes a write that reaches it: a refine pass over
+   * the scope's lessons or an explicit edit, never a read.
+   */
+  defaultTtlDays?: number
 }
 ```
 
-来源：[`packages/evolution/evolution-memory/src/index.ts:124`](../packages/evolution/evolution-memory/src/index.ts)
+来源：[`packages/evolution/evolution-memory/src/index.ts:155`](../packages/evolution/evolution-memory/src/index.ts)
 
 <a id="deepseek-aidsh-evolution-memory-context"></a>
 
@@ -888,7 +929,7 @@ export interface Config {
 }
 ```
 
-来源：[`packages/context/evolution-memory-context/src/index.ts:85`](../packages/context/evolution-memory-context/src/index.ts)
+来源：[`packages/context/evolution-memory-context/src/index.ts:86`](../packages/context/evolution-memory-context/src/index.ts)
 
 <a id="deepseek-aidsh-evolution-reviewer"></a>
 
@@ -2498,6 +2539,18 @@ export interface Config extends SessionQueryConfig {
    * Defaults to 2000.
    */
   maxVectorCandidates?: number
+  /**
+   * Search pages retained in the bounded result cache, evicted least-recently-used
+   * past this bound. Defaults to 1000.
+   */
+  resultCacheEntries?: number
+  /**
+   * Milliseconds a cached search page stays answerable before a repeat request
+   * re-queries the index. A corpus change invalidates immediately regardless of
+   * this bound, since the cache key carries the corpus generation. Defaults to
+   * 3600000 (one hour).
+   */
+  resultCacheTtlMs?: number
 }
 
 /** SQLite module/handle opening phase; `never` disables full-text search entirely. */
@@ -2509,7 +2562,7 @@ export type JournalMode = 'wal' | 'delete' | 'truncate' | 'persist'
 
 Depends on: [`SessionQueryConfig`](../packages/session-query/session-query/src/index.ts)
 
-来源：[`packages/session-query/session-query-sqlite/src/index.ts:102`](../packages/session-query/session-query-sqlite/src/index.ts)
+来源：[`packages/session-query/session-query-sqlite/src/index.ts:109`](../packages/session-query/session-query-sqlite/src/index.ts)
 
 <a id="deepseek-aidsh-session-reference"></a>
 
