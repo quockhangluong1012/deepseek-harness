@@ -12,6 +12,7 @@ import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import SqliteSessionQueryEngine from '@deepseek-ai/dsh-session-query-sqlite'
 import SessionQueryEngine, {
+  SessionQueryError,
   type SemanticSessionSearchHit,
   type SessionSearchExecContext,
   type SessionSearchHit,
@@ -103,6 +104,61 @@ function fakeEmbeddings(): FakeEmbeddings {
 
 interface Workspace { id: WorkspaceId; title: string; path: string; sessionIds: SessionId[] }
 
+/** One entity a graph double can answer with. */
+interface FakeEntity { id: string; label: string }
+
+/** Knowledge-graph double plus every read it received. */
+interface FakeGraph {
+  calls: {
+    find: Array<{ scope: string; query: string; limit: number }>
+    expand: Array<{ scope: string; subject: string; depth: number; limit: number }>
+  }
+  service: {
+    find: (scope: string, query: string, limit: number) => unknown[]
+    expand: (scope: string, subject: string, depth: number, limit: number) => unknown[]
+  }
+}
+
+/**
+ * Knowledge-graph double: `find` answers `seed` for every query and `expand`
+ * the configured `neighbors`, both recording their arguments. `fail` makes one
+ * read throw, the way a mounted but broken engine would.
+ * @param options - seed entity, expanded neighbors, and which read to fail.
+ * @returns the double and its recorded calls.
+ */
+function fakeGraph(options: {
+  seed?: FakeEntity
+  neighbors?: readonly FakeEntity[]
+  fail?: 'find' | 'expand'
+} = {}): FakeGraph {
+  const calls: FakeGraph['calls'] = { find: [], expand: [] }
+  return {
+    calls,
+    service: {
+      find: (scope, query, limit) => {
+        calls.find.push({ scope, query, limit })
+        if (options.fail === 'find') throw new Error('graph read failed')
+        return options.seed === undefined ? [] : [{ ...options.seed, kind: null }]
+      },
+      expand: (scope, subject, depth, limit) => {
+        calls.expand.push({ scope, subject, depth, limit })
+        if (options.fail === 'expand') throw new Error('graph read failed')
+        return (options.neighbors ?? []).map((node, index) => ({
+          node: { ...node, kind: null },
+          path: ['relates_to'],
+          depth: index + 1,
+        }))
+      },
+    },
+  }
+}
+
+/** The brief's rendered text, or an empty string when the step injected none. */
+function briefText(message: UserMessage | undefined): string {
+  const block = message?.content.find(part => part.type === 'text')
+  return block?.type === 'text' ? block.text : ''
+}
+
 async function harness(
   config: activeMemoryContext.Config = { maxBytes: 4096 },
   embeddings?: FakeEmbeddingsService,
@@ -130,6 +186,30 @@ async function persist(ctx: Context, id: string, text: string, createdAt = 10): 
   await writer.append(messageEvents(text))
   await writer.close()
   return meta
+}
+
+/**
+ * Build the scope a graph-leg test searches in: the live `current` session plus
+ * the named siblings, all registered as one workspace.
+ * @param ctx - harness context.
+ * @param workspaces - the registry the harness answers `list`/`get` from.
+ * @param siblings - sibling id and persisted text pairs.
+ * @returns the live session the pre-step runs for.
+ */
+async function scopeWith(
+  ctx: Context,
+  workspaces: Map<string, Workspace>,
+  siblings: readonly { id: string; text: string }[],
+): Promise<Session> {
+  const session = ctx.sessions.create(SessionId('current'), { meta: header('current') })
+  for (const sibling of siblings) await persist(ctx, sibling.id, sibling.text)
+  workspaces.set('ws-1', {
+    id: WorkspaceId('ws-1'),
+    title: 'Project',
+    path: '/unused',
+    sessionIds: [session.id, ...siblings.map(sibling => SessionId(sibling.id))],
+  })
+  return session
 }
 
 function fakeAgent(session: Session): Agent {
@@ -496,6 +576,202 @@ describe('active-memory-context injector', () => {
     expect(briefsOf(second.kind === 'enter' ? second.messages : [])).toHaveLength(0)
     expect(fake.batches).toHaveLength(0)
   })
+
+  it('merges the sessions the graph reaches into the brief', async () => {
+    const { ctx, workspaces } = await harness({ maxBytes: 4096 })
+    const session = await scopeWith(ctx, workspaces, [
+      { id: 'sibling-atlas', text: 'atlas launch slipped a week' },
+      { id: 'sibling-ava', text: 'ava owns the rollout' },
+    ])
+    const graph = fakeGraph({ seed: { id: 'atlas', label: 'Atlas' }, neighbors: [{ id: 'ava', label: 'Ava' }] })
+    ctx.provide('evolutionGraph', graph.service as never)
+
+    const decision = await preStep(ctx, fakeAgent(session), [textMessage('what about atlas')])
+    const text = briefText(briefsOf(decision.kind === 'enter' ? decision.messages : [])[0])
+
+    expect(text).toContain('sibling-atlas')
+    expect(text).toContain('sibling-ava')
+    expect(text).toContain('via graph connections')
+    expect(graph.calls.find).toEqual([{ scope: 'default:ws-1', query: 'what about atlas', limit: 1 }])
+    expect(graph.calls.expand).toEqual([{ scope: 'default:ws-1', subject: 'Atlas', depth: 1, limit: 5 }])
+  })
+
+  it('behaves exactly as before when no graph is mounted', async () => {
+    const fake = fakeEmbeddings()
+    const { ctx, workspaces } = await harness({ maxBytes: 4096 }, fake.service)
+    const session = await scopeWith(ctx, workspaces, [{ id: 'sibling-needle', text: 'needle in the stack' }])
+
+    const decision = await preStep(ctx, fakeAgent(session), [textMessage('needle')])
+    const text = briefText(briefsOf(decision.kind === 'enter' ? decision.messages : [])[0])
+
+    expect(text).toContain('sibling-needle')
+    expect(text).toContain('similarity 1.00')
+    expect(text).not.toContain('via graph connections')
+  })
+
+  it('keeps the vector-only brief when the graph matches no entity', async () => {
+    const fake = fakeEmbeddings()
+    const { ctx, workspaces } = await harness({ maxBytes: 4096 }, fake.service)
+    const session = await scopeWith(ctx, workspaces, [{ id: 'sibling-needle', text: 'needle in the stack' }])
+    const graph = fakeGraph()
+    ctx.provide('evolutionGraph', graph.service as never)
+
+    const decision = await preStep(ctx, fakeAgent(session), [textMessage('needle')])
+    const text = briefText(briefsOf(decision.kind === 'enter' ? decision.messages : [])[0])
+
+    expect(text).toContain('sibling-needle')
+    expect(text).not.toContain('via graph connections')
+    expect(graph.calls.expand).toEqual([])
+  })
+
+  it('ignores a mounted service that offers no graph reads', async () => {
+    const fake = fakeEmbeddings()
+    const { ctx, workspaces } = await harness({ maxBytes: 4096 }, fake.service)
+    const session = await scopeWith(ctx, workspaces, [{ id: 'sibling-needle', text: 'needle in the stack' }])
+    ctx.provide('evolutionGraph', { find: () => [] } as never)
+
+    const decision = await preStep(ctx, fakeAgent(session), [textMessage('needle')])
+    const text = briefText(briefsOf(decision.kind === 'enter' ? decision.messages : [])[0])
+
+    expect(text).toContain('sibling-needle')
+  })
+
+  it('keeps the vector-only brief when the graph lookup throws', async () => {
+    const fake = fakeEmbeddings()
+    const { ctx, workspaces } = await harness({ maxBytes: 4096 }, fake.service)
+    const session = await scopeWith(ctx, workspaces, [
+      { id: 'sibling-needle', text: 'needle in the stack' },
+      { id: 'sibling-ava', text: 'ava owns the rollout' },
+    ])
+    ctx.provide('evolutionGraph', fakeGraph({ seed: { id: 'atlas', label: 'Atlas' }, fail: 'find' }).service as never)
+
+    const decision = await preStep(ctx, fakeAgent(session), [textMessage('needle')])
+    const text = briefText(briefsOf(decision.kind === 'enter' ? decision.messages : [])[0])
+
+    expect(text).toContain('sibling-needle')
+    expect(text).not.toContain('sibling-ava')
+  })
+
+  it('keeps the vector-only brief when the graph expansion throws', async () => {
+    const fake = fakeEmbeddings()
+    const { ctx, workspaces } = await harness({ maxBytes: 4096 }, fake.service)
+    const session = await scopeWith(ctx, workspaces, [
+      { id: 'sibling-needle', text: 'needle in the stack' },
+      { id: 'sibling-ava', text: 'ava owns the rollout' },
+    ])
+    const graph = fakeGraph({
+      seed: { id: 'atlas', label: 'Atlas' },
+      neighbors: [{ id: 'ava', label: 'Ava' }],
+      fail: 'expand',
+    })
+    ctx.provide('evolutionGraph', graph.service as never)
+
+    const decision = await preStep(ctx, fakeAgent(session), [textMessage('needle')])
+    const text = briefText(briefsOf(decision.kind === 'enter' ? decision.messages : [])[0])
+
+    expect(text).toContain('sibling-needle')
+    expect(text).not.toContain('sibling-ava')
+  })
+
+  it('skips the graph leg when the session has no resolvable workspace membership', async () => {
+    const { ctx } = await harness({ maxBytes: 4096 })
+    const session = ctx.sessions.create(SessionId('outsider'), { meta: header('outsider') })
+    const graph = fakeGraph({ seed: { id: 'atlas', label: 'Atlas' } })
+    ctx.provide('evolutionGraph', graph.service as never)
+
+    const decision = await preStep(ctx, fakeAgent(session), [textMessage('atlas')])
+
+    expect(briefsOf(decision.kind === 'enter' ? decision.messages : [])).toHaveLength(0)
+    expect(graph.calls.find).toEqual([])
+  })
+
+  it('reads the graph under the configured profile, depth, and label cap', async () => {
+    const { ctx, workspaces } = await harness({ maxBytes: 4096, profile: 'team', graphDepth: 2, graphLimit: 1 })
+    const session = await scopeWith(ctx, workspaces, [
+      { id: 'sibling-atlas', text: 'atlas launch slipped a week' },
+      { id: 'sibling-ava', text: 'ava owns the rollout' },
+    ])
+    const graph = fakeGraph({ seed: { id: 'atlas', label: 'Atlas' }, neighbors: [{ id: 'ava', label: 'Ava' }] })
+    ctx.provide('evolutionGraph', graph.service as never)
+
+    const decision = await preStep(ctx, fakeAgent(session), [textMessage('atlas')])
+    const text = briefText(briefsOf(decision.kind === 'enter' ? decision.messages : [])[0])
+
+    expect(graph.calls.find).toEqual([{ scope: 'team:ws-1', query: 'atlas', limit: 1 }])
+    expect(graph.calls.expand).toEqual([{ scope: 'team:ws-1', subject: 'Atlas', depth: 2, limit: 1 }])
+    expect(text).toContain('sibling-atlas')
+    expect(text).not.toContain('sibling-ava')
+  })
+
+  it('keeps searching the remaining graph labels when one label search fails', async () => {
+    class SelectiveSessionQuery extends SqliteSessionQueryEngine {
+      readonly failing = new Set<string>()
+
+      override searchSessions(
+        request: SessionSearchRequest,
+        exec?: SessionSearchExecContext,
+      ): Promise<SessionSearchPage<SessionSearchHit>> {
+        if (this.failing.has(request.query)) {
+          return Promise.reject(new SessionQueryError('search disabled', 'SESSION_QUERY_SEARCH_DISABLED'))
+        }
+        return super.searchSessions(request, exec)
+      }
+    }
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(SessionProjectionRegistry)
+    await ctx.plugin(JsonlSessionPersistence, { root: await temporaryPath('sessions'), compression: 'none' })
+    await ctx.plugin(SelectiveSessionQuery, { path: await temporaryPath('derived.db') })
+    const workspaces = new Map<string, Workspace>()
+    ctx.provide('workspaceRegistry', {
+      list: () => [...workspaces.values()],
+      get: (id: WorkspaceId) => workspaces.get(String(id)),
+    } as never)
+    await ctx.plugin(activeMemoryContext, { maxBytes: 4096 })
+    contexts.push(ctx)
+    const session = await scopeWith(ctx, workspaces, [
+      { id: 'sibling-atlas', text: 'atlas launch slipped a week' },
+      { id: 'sibling-ava', text: 'ava owns the rollout' },
+    ])
+    ctx.provide('evolutionGraph', fakeGraph({
+      seed: { id: 'atlas', label: 'Atlas' },
+      neighbors: [{ id: 'ava', label: 'Ava' }],
+    }).service as never)
+    const engine = ctx.get('sessionQuery') as SelectiveSessionQuery
+    engine.failing.add('Atlas')
+
+    const decision = await preStep(ctx, fakeAgent(session), [textMessage('atlas')])
+    const text = briefText(briefsOf(decision.kind === 'enter' ? decision.messages : [])[0])
+
+    expect(text).toContain('sibling-ava')
+    expect(text).not.toContain('sibling-atlas')
+  })
+
+  it('propagates a lexical search failure that is not a SessionQueryError', async () => {
+    class BrokenLexicalSessionQuery extends SqliteSessionQueryEngine {
+      override searchSessions(): Promise<never> {
+        return Promise.reject(new Error('lexical boom'))
+      }
+    }
+    const fake = fakeEmbeddings()
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(SessionProjectionRegistry)
+    await ctx.plugin(JsonlSessionPersistence, { root: await temporaryPath('sessions'), compression: 'none' })
+    ctx.provide('embeddings', fake.service as never)
+    await ctx.plugin(BrokenLexicalSessionQuery, { path: await temporaryPath('derived.db') })
+    const workspaces = new Map<string, Workspace>()
+    ctx.provide('workspaceRegistry', {
+      list: () => [...workspaces.values()],
+      get: (id: WorkspaceId) => workspaces.get(String(id)),
+    } as never)
+    await ctx.plugin(activeMemoryContext, { maxBytes: 4096 })
+    contexts.push(ctx)
+    const session = await scopeWith(ctx, workspaces, [{ id: 'sibling-needle', text: 'needle in the stack' }])
+    ctx.provide('evolutionGraph', fakeGraph({ seed: { id: 'atlas', label: 'Atlas' } }).service as never)
+
+    await expect(preStep(ctx, fakeAgent(session), [textMessage('needle')])).rejects.toThrow('lexical boom')
+  })
 })
 
 describe('resolveConfig', () => {
@@ -505,15 +781,29 @@ describe('resolveConfig', () => {
       topK: 5,
       relevanceThreshold: 0.7,
       turnInterval: 1,
+      profile: 'default',
+      graphDepth: 1,
+      graphLimit: 5,
     })
   })
 
   it('keeps every explicitly configured value as given', () => {
-    expect(resolveConfig({ maxBytes: 2048, topK: 3, relevanceThreshold: 0.42, turnInterval: 4 })).toEqual({
+    expect(resolveConfig({
       maxBytes: 2048,
       topK: 3,
       relevanceThreshold: 0.42,
       turnInterval: 4,
+      profile: 'team',
+      graphDepth: 2,
+      graphLimit: 7,
+    })).toEqual({
+      maxBytes: 2048,
+      topK: 3,
+      relevanceThreshold: 0.42,
+      turnInterval: 4,
+      profile: 'team',
+      graphDepth: 2,
+      graphLimit: 7,
     })
   })
 })

@@ -5398,6 +5398,12 @@ importers:
       '@deepseek-ai/dsh-embeddings':
         specifier: workspace:^
         version: link:../../llm/embeddings
+      '@deepseek-ai/dsh-evolution-graph':
+        specifier: workspace:^
+        version: link:../../evolution/evolution-graph
+      '@deepseek-ai/dsh-evolution-memory':
+        specifier: workspace:^
+        version: link:../../evolution/evolution-memory
       '@deepseek-ai/dsh-llm':
         specifier: workspace:^
         version: link:../../llm/llm

@@ -10,10 +10,12 @@ import { realpath } from 'node:fs/promises'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type { PreStepDecision } from '@deepseek-ai/dsh-agent'
+import type { GraphNode, GraphReach } from '@deepseek-ai/dsh-evolution-graph'
+import { EvolutionScopeId } from '@deepseek-ai/dsh-evolution-memory'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { Session, SessionEvent, SessionId, UserMessage } from '@deepseek-ai/dsh-session'
-import type { SemanticSessionSearchHit } from '@deepseek-ai/dsh-session-query'
-import { SessionQueryError } from '@deepseek-ai/dsh-session-query'
+import type { SemanticSessionSearchHit, SessionSearchHit } from '@deepseek-ai/dsh-session-query'
+import { fuseSessionRankings, SessionQueryError } from '@deepseek-ai/dsh-session-query'
 import type {} from '@deepseek-ai/dsh-workspace'
 import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
 import { renderActiveMemoryBrief } from './render.ts'
@@ -51,6 +53,16 @@ export interface Config {
   relevanceThreshold?: number
   /** Turns between active-memory searches. Defaults to 1 (every turn). */
   turnInterval?: number
+  /**
+   * Scope-identity namespace the graph leg reads, which must match the profile
+   * the scope's graph was extracted under — a mismatch reads an empty graph and
+   * silently degrades to the vector leg. Defaults to 'default'.
+   */
+  profile?: string
+  /** Hops the graph leg expands from the entity it matched. Defaults to 1. */
+  graphDepth?: number
+  /** Entity labels one graph expansion may seed searches with. Defaults to 5. */
+  graphLimit?: number
 }
 
 /** Schemastery validation for {@link Config}. */
@@ -59,6 +71,9 @@ export const Config: z<Config> = z.object({
   topK: z.number().step(1).min(1).default(5),
   relevanceThreshold: z.number().min(0).max(1).default(0.7),
   turnInterval: z.number().step(1).min(1).default(1),
+  profile: z.string().default('default'),
+  graphDepth: z.number().step(1).min(1).default(1),
+  graphLimit: z.number().step(1).min(1).default(5),
 })
 
 /** Plugin configuration with every optional field resolved. */
@@ -67,6 +82,9 @@ export interface ResolvedConfig {
   topK: number
   relevanceThreshold: number
   turnInterval: number
+  profile: string
+  graphDepth: number
+  graphLimit: number
 }
 
 /**
@@ -81,6 +99,9 @@ export function resolveConfig(config: Config): ResolvedConfig {
     topK: config.topK ?? 5,
     relevanceThreshold: config.relevanceThreshold ?? 0.7,
     turnInterval: config.turnInterval ?? 1,
+    profile: config.profile ?? 'default',
+    graphDepth: config.graphDepth ?? 1,
+    graphLimit: config.graphLimit ?? 5,
   }
 }
 
@@ -117,12 +138,62 @@ function textOf(message: UserMessage): string {
 }
 
 /**
+ * The slice of `ctx.evolutionGraph` this plugin reads: label lookup and bounded
+ * expansion. Declared here rather than imported so active memory keeps no hard
+ * dependency on the graph package — the engine is optional infrastructure, and
+ * a deployment without one falls back to the vector leg alone.
+ */
+interface GraphSeam {
+  /**
+   * Find entities whose label contains a query.
+   * @param scopeId - scope identity.
+   * @param query - case-insensitive label substring.
+   * @param limit - maximum entities returned.
+   * @returns the matching entities, most-connected first.
+   */
+  find(scopeId: EvolutionScopeId, query: string, limit: number): GraphNode[]
+  /**
+   * Expand one entity's neighborhood breadth-first.
+   * @param scopeId - scope identity.
+   * @param subject - subject label, matched by normalized identity.
+   * @param depth - maximum hops, at least 1.
+   * @param limit - maximum reached entities.
+   * @returns the reached entities, origin first.
+   */
+  expand(scopeId: EvolutionScopeId, subject: string, depth: number, limit: number): GraphReach[]
+}
+
+/**
+ * Whether a context value offers the graph reads this leg calls. Absent and
+ * foreign values answer false instead of throwing, so a missing — or older —
+ * graph degrades to the vector leg rather than failing the turn.
+ * @param value - the value read from `ctx.get('evolutionGraph')`.
+ * @returns whether the value can look entities up and expand them.
+ */
+function isGraphSeam(value: unknown): value is GraphSeam {
+  return typeof Reflect.get(Object(value), 'find') === 'function'
+    && typeof Reflect.get(Object(value), 'expand') === 'function'
+}
+
+/**
+ * The slice of one `ctx.workspaceRegistry` entry this plugin keys its work by:
+ * the id a scope identity is built from and the sessions it owns. Declared here
+ * rather than imported so only those two reads are depended on.
+ */
+interface ScopeWorkspace {
+  /** Stable record id the evolution scope identity is built from. */
+  readonly id: WorkspaceId
+  /** Sessions the registry currently accounts to this workspace. */
+  readonly sessionIds: readonly SessionId[]
+}
+
+/**
  * Register the pre-step active-memory search for the lifetime of `ctx`.
  * @param ctx - plugin context; listeners dispose with it.
  * @param config - byte cap, result bounds, and search cadence.
  */
 export function apply(ctx: Context, config: Config): void {
-  const { maxBytes, topK, relevanceThreshold, turnInterval } = resolveConfig(config)
+  const { maxBytes, topK, relevanceThreshold, turnInterval, profile, graphDepth, graphLimit } = resolveConfig(config)
   const workspaceBySession = new Map<string, WorkspaceId | null>()
   const turnsBySession = new Map<string, number>()
   const searchedForTurn = new Map<string, number>()
@@ -144,27 +215,31 @@ export function apply(ctx: Context, config: Config): void {
     searchedForTurn.clear()
   }, 'active-memory-context.cache')
 
-  /** Workspace membership already known from an exact session-id match. */
-  const memberSessionIds = (session: Session): readonly SessionId[] | undefined => {
+  /**
+   * Workspace membership already known from an exact session-id match. The
+   * whole entry is returned because the graph leg keys its scope by the
+   * workspace id, not only by the session list the vector leg filters.
+   */
+  const memberWorkspace = (session: Session): ScopeWorkspace | undefined => {
     const key = String(session.id)
     const cached = workspaceBySession.get(key)
     if (cached === null) return undefined
     if (cached !== undefined) {
       const workspace = ctx.workspaceRegistry.get(cached)
-      if (workspace !== undefined) return workspace.sessionIds
+      if (workspace !== undefined) return workspace
       workspaceBySession.delete(key)
     }
     const found = ctx.workspaceRegistry.list().find(entry => entry.sessionIds.includes(session.id))
     if (found === undefined) return undefined
     workspaceBySession.set(key, found.id)
-    return found.sessionIds
+    return found
   }
 
   /** Full membership resolution, falling back to a canonical-cwd match. */
   const scopeSessionIds = async (session: Session): Promise<readonly SessionId[] | undefined> => {
     const key = String(session.id)
-    const direct = memberSessionIds(session)
-    if (direct !== undefined) return direct
+    const direct = memberWorkspace(session)
+    if (direct !== undefined) return direct.sessionIds
     const cwd = session.header.cwd
     const canonical = cwd === undefined ? undefined : await realpath(cwd).catch(() => undefined)
     const match = canonical === undefined
@@ -205,6 +280,54 @@ export function apply(ctx: Context, config: Config): void {
     return page.items.filter(hit => hit.score >= relevanceThreshold)
   }
 
+  /**
+   * Search the scope's other sessions by the labels of the entities the graph
+   * reaches from `query`, so a turn about one known subject also finds the
+   * sessions connected to it rather than only the ones that read like it. Hits
+   * come back unscored: relevance here is a connection, not a distance.
+   *
+   * Fail-soft throughout — an unmounted, older, or failing graph yields no
+   * results instead of blocking the turn.
+   */
+  const searchGraph = async (
+    session: Session,
+    query: string,
+  ): Promise<readonly SessionSearchHit[]> => {
+    const graph: unknown = ctx.get('evolutionGraph')
+    if (!isGraphSeam(graph)) return []
+    const workspace = memberWorkspace(session)
+    if (workspace === undefined) return []
+    const scope = EvolutionScopeId(profile, String(workspace.id))
+    let seed: GraphNode | undefined
+    try {
+      seed = graph.find(scope, query, 1)[0]
+    } catch {
+      return []
+    }
+    if (seed === undefined) return []
+    let reached: readonly GraphReach[]
+    try {
+      reached = graph.expand(scope, seed.label, graphDepth, graphLimit)
+    } catch {
+      return []
+    }
+    const labels = [...new Set([seed.label, ...reached.map(entry => entry.node.label)])].slice(0, graphLimit)
+    const others = workspace.sessionIds.filter(id => id !== session.id)
+    const hits: SessionSearchHit[] = []
+    for (const label of labels) {
+      try {
+        const page = await ctx.sessionQuery.searchSessions(
+          { query: label, sessionFilters: [{ kind: 'id', values: others }], limit: topK },
+        )
+        hits.push(...page.items)
+      } catch (error) {
+        if (error instanceof SessionQueryError) continue
+        throw error
+      }
+    }
+    return hits
+  }
+
   ctx.on('agent/pre-step', async (input, next): Promise<PreStepDecision> => {
     const decision = await next()
     if (decision.kind === 'reject' || input.signal.aborted) return decision
@@ -215,9 +338,13 @@ export function apply(ctx: Context, config: Config): void {
     const query = input.messages.map(textOf).join('\n').trim()
     if (query.length === 0) return decision
     searchedForTurn.set(key, turn)
-    const hits = await search(input.agent.session, query, input.signal)
-    if (hits.length === 0) return decision
-    const rendered = renderActiveMemoryBrief(hits, maxBytes)
+    const vectorHits = await search(input.agent.session, query, input.signal)
+    const graphHits = await searchGraph(input.agent.session, query)
+    // Both legs rank the same corpus, so the fusion is what makes a session
+    // both channels agree on outrank one only a single channel found.
+    const fused = fuseSessionRankings(vectorHits, graphHits)
+    if (fused.length === 0) return decision
+    const rendered = renderActiveMemoryBrief(fused, maxBytes)
     if (rendered === undefined) return decision
     const brief = createUserMessage({
       content: [{ type: 'text', text: rendered }],

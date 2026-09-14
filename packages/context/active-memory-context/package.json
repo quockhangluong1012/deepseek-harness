@@ -29,6 +29,8 @@
   "peerDependencies": {
     "@deepseek-ai/cordis": "workspace:^",
     "@deepseek-ai/dsh-agent": "workspace:^",
+    "@deepseek-ai/dsh-evolution-graph": "workspace:^",
+    "@deepseek-ai/dsh-evolution-memory": "workspace:^",
     "@deepseek-ai/dsh-llm": "workspace:^",
     "@deepseek-ai/dsh-session": "workspace:^",
     "@deepseek-ai/dsh-session-query": "workspace:^",
@@ -41,6 +43,8 @@
     "@deepseek-ai/cordis": "workspace:^",
     "@deepseek-ai/dsh-agent": "workspace:^",
     "@deepseek-ai/dsh-embeddings": "workspace:^",
+    "@deepseek-ai/dsh-evolution-graph": "workspace:^",
+    "@deepseek-ai/dsh-evolution-memory": "workspace:^",
     "@deepseek-ai/dsh-llm": "workspace:^",
     "@deepseek-ai/dsh-session": "workspace:^",
     "@deepseek-ai/dsh-session-persistence-jsonl": "workspace:^",

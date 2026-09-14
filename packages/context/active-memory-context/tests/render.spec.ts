@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { SessionId, SessionSeq, SESSION_FORMAT_VERSION } from '@deepseek-ai/dsh-session'
-import type { SemanticSessionSearchHit } from '@deepseek-ai/dsh-session-query'
+import type { SemanticSessionSearchHit, SessionSearchHit } from '@deepseek-ai/dsh-session-query'
 import { escapeFrameBody, renderActiveMemoryBrief } from '../src/render.ts'
 
 function hit(id: string, snippet: string, score: number, time = 1_700_000_000_000): SemanticSessionSearchHit {
@@ -20,7 +20,39 @@ function hit(id: string, snippet: string, score: number, time = 1_700_000_000_00
   }
 }
 
+/**
+ * The same hit without the vector score, which is what a session reached
+ * through the knowledge graph looks like.
+ * @param id - session id.
+ * @param snippet - matched excerpt.
+ * @param time - match timestamp.
+ * @returns the hit as the graph leg returns it.
+ */
+function graphHit(id: string, snippet: string, time = 1_700_000_000_000): SessionSearchHit {
+  const scored = hit(id, snippet, 0, time)
+  return {
+    header: scored.header,
+    live: scored.live,
+    persisted: scored.persisted,
+    bestMatch: scored.bestMatch,
+  }
+}
+
 describe('renderActiveMemoryBrief', () => {
+  it('renders a fused hit that carries no vector score', () => {
+    const text = renderActiveMemoryBrief([graphHit('gamma', 'atlas launch')], 4096)
+    expect(text).toContain('[session gamma @')
+    expect(text).toContain('via graph connections')
+    expect(text).not.toContain('similarity')
+  })
+
+  it('renders a hit whose runtime score is not a number as a graph connection', () => {
+    const hits = [{ ...graphHit('delta', 'atlas launch'), score: undefined }] as unknown as readonly SessionSearchHit[]
+    const text = renderActiveMemoryBrief(hits, 4096)
+    expect(text).toContain('via graph connections')
+    expect(text).not.toContain('similarity')
+  })
+
   it('answers undefined for no hits', () => {
     expect(renderActiveMemoryBrief([], 4096)).toBeUndefined()
   })
