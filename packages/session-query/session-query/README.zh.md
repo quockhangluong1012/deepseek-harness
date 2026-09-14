@@ -41,6 +41,8 @@ kind: "package-reference"
 | `traceSession(id)` | 已知祖先链与递归后代树 |
 | `traceEvent(request)` | 一个事件的位置替换与被引用源事件关系 |
 | `searchSessions(request)` / `searchEvents(request)` | 全文搜索分页结果，由挂载的后端实现 |
+| `searchSessionsSemantic(request)` | 按语义而非文本匹配排名，由挂载的后端实现 |
+| `searchSessionsHybrid(request)` | 两个通道按倒数排名融合，两个通道都排得靠前的会话胜过任一通道单独找到的 |
 
 不带正文的记录只公开 `SessionHeader.isSeeded`。返回事件正文的读取（`readSession`、`readSurface`、`readEvent`）与保留的 `SessionObservation` 值还携带精确 `inheritedEventCount`，因此调用方无需从日志推断切点即可区分继承事件与自有事件。
 

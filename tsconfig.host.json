@@ -217,6 +217,7 @@
     { "path": "./packages/evolution/evolution-heartbeat" },
     { "path": "./packages/evolution/evolution-feedback" },
     { "path": "./packages/evolution/evolution-graph" },
+    { "path": "./packages/evolution/evolution-dreaming" },
     { "path": "./packages/evolution/evolution-controller" },
     { "path": "./packages/evolution/evolution-scorer" },
     { "path": "./packages/evolution/evolution-trajectory" },

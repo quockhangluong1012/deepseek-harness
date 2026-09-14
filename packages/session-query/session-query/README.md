@@ -41,6 +41,8 @@ Use `ctx.sessionQuery` from application code when you need to read or search ses
 | `traceSession(id)` | The known ancestor chain and recursive descendant trees |
 | `traceEvent(request)` | One event's positional replacements and cited source-event relationships |
 | `searchSessions(request)` / `searchEvents(request)` | Full-text search pages, implemented by the mounted backend |
+| `searchSessionsSemantic(request)` | Ranking by meaning rather than by matching text, implemented by the mounted backend |
+| `searchSessionsHybrid(request)` | Both channels, fused by reciprocal rank, so a session both place highly outranks one either found alone |
 
 Body-free records expose only `SessionHeader.isSeeded`. Reads that return event bodies (`readSession`, `readSurface`, `readEvent`) and retained `SessionObservation` values also carry the exact `inheritedEventCount`, so callers can distinguish inherited and owned events without inferring a cut from the log.
 

@@ -1149,6 +1149,36 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'evolutionDreaming',
+    summary: 'Durable per-scope dreaming.',
+    description: 'Durable per-scope dreaming. Opens the `evolution_dreams` domain at init, registers the automatic cycle with the heartbeat when one is mounted, and closes the domain through `ctx.effect`.',
+    methods: [
+      {
+        signature: 'read(scopeId: EvolutionScopeId): DreamsRecord | undefined',
+        description: 'Read one scope\'s dreams.',
+        parameters: [{ name: 'scopeId', description: 'scope identity.' }],
+        returns: 'a detached copy, or undefined when the scope has never dreamed.',
+      },
+      {
+        signature: 'async run( phase: DreamPhase, scopeId: EvolutionScopeId, sessionIds: readonly string[], now: string = new Date().toISOString(), ): Promise<DreamPhaseReport>',
+        description: 'Run one phase for one scope.',
+        parameters: [{ name: 'phase', description: 'which phase to run.' }, { name: 'scopeId', description: 'scope identity.' }, { name: 'sessionIds', description: 'sessions whose recorded failures the cycle scans.' }, { name: 'now', description: 'ISO-8601 instant to stamp, defaulting to the wall clock.' }],
+        returns: 'what the phase did.',
+      },
+      {
+        signature: 'async dream( scopeId: EvolutionScopeId, sessionIds: readonly string[], now: string = new Date().toISOString(), ): Promise<DreamReport>',
+        description: 'Run the complete cycle: light, then REM, then deep.',
+        parameters: [{ name: 'scopeId', description: 'scope identity.' }, { name: 'sessionIds', description: 'sessions whose recorded failures the cycle scans.' }, { name: 'now', description: 'ISO-8601 instant to stamp, defaulting to the wall clock.' }],
+        returns: 'what each phase did.',
+      },
+      {
+        signature: 'async dreamAll(signal?: AbortSignal): Promise<void>',
+        description: 'Dream every workspace the registry knows. A missing registry makes this a no-op rather than a failure: the automatic cycle is optional infrastructure, while an explicit `run` or `dream` call always works.',
+        parameters: [{ name: 'signal', description: 'aborts between workspaces at plugin teardown.' }],
+      },
+    ],
+  },
+  {
     key: 'evolutionFeedback',
     summary: 'Per-session failure-observation store.',
     description: 'Per-session failure-observation store. Opens the `evolution_feedback` domain at init and closes it through `ctx.effect`.',
@@ -2322,6 +2352,18 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Search the live-preferred logical corpus and group by session.',
         parameters: [{ name: 'request', description: 'query text, metadata filters, page size, and cursor.' }, { name: 'exec', description: 'optional cancellation control.' }],
         returns: 'session hits ranked by their strongest matching event.',
+      },
+      {
+        signature: 'abstract searchSessionsSemantic( request: SessionSearchRequest, exec?: SessionSearchExecContext, ): Promise<SessionSearchPage<SessionSearchHit>>',
+        description: 'Search the live-preferred logical corpus by meaning rather than by matching text. A provider without a vector channel refuses this call instead of degrading to a lexical one, so a caller that asked for semantic results never receives silently different ones.',
+        parameters: [{ name: 'request', description: 'query text, metadata filters, and page size.' }, { name: 'exec', description: 'optional cancellation control.' }],
+        returns: 'session hits ranked by vector similarity to the query.',
+      },
+      {
+        signature: 'async searchSessionsHybrid( request: SessionSearchRequest, exec?: SessionSearchExecContext, ): Promise<SessionSearchPage<SessionSearchHit>>',
+        description: 'Search the corpus through both channels and fuse their rankings by reciprocal rank, so a session both channels place highly outranks one only a single channel found.',
+        parameters: [{ name: 'request', description: 'query text, metadata filters, and page size.' }, { name: 'exec', description: 'optional cancellation control.' }],
+        returns: 'fused session hits, best combined rank first.',
       },
       {
         signature: 'abstract searchEvents( request: SessionEventSearchRequest, exec?: SessionSearchExecContext, ): Promise<SessionEventSearchPage>',
@@ -4974,6 +5016,38 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'DomainTableSpec',
     declaration: 'export interface DomainTableSpec<K extends string = string, V = unknown> {\n    readonly valueSchema: ZodType<V>;\n    readonly __key?: K;\n}',
+  },
+  {
+    name: 'DreamNarrative',
+    declaration: 'export interface DreamNarrative {\n    at: string;\n    scanned: number;\n    staged: number;\n    themes: readonly DreamTheme[];\n    promoted: number;\n    pruned: number;\n}',
+  },
+  {
+    name: 'DreamPhase',
+    declaration: 'export type DreamPhase = \'light\' | \'rem\' | \'deep\';',
+  },
+  {
+    name: 'DreamPhaseReport',
+    declaration: 'export interface DreamPhaseReport {\n    phase: DreamPhase;\n    scopeId: string;\n    scanned: number;\n    staged: number;\n    promoted: number;\n    pruned: number;\n}',
+  },
+  {
+    name: 'DreamPromotion',
+    declaration: 'export interface DreamPromotion {\n    id: string;\n    statement: string;\n    tool: string | null;\n    score: number;\n    signals: DreamSignals;\n    promotedAt: string;\n}',
+  },
+  {
+    name: 'DreamReport',
+    declaration: 'export interface DreamReport extends Omit<DreamPhaseReport, \'phase\'> {\n    phases: readonly DreamPhaseReport[];\n}',
+  },
+  {
+    name: 'DreamSignals',
+    declaration: 'export interface DreamSignals {\n    relevance: number;\n    frequency: number;\n    queryDiversity: number;\n    recency: number;\n    integration: number;\n    conceptRichness: number;\n}',
+  },
+  {
+    name: 'DreamsRecord',
+    declaration: 'export interface DreamsRecord {\n    narratives: readonly DreamNarrative[];\n    promotions: readonly DreamPromotion[];\n    updatedAt: string;\n}',
+  },
+  {
+    name: 'DreamTheme',
+    declaration: 'export interface DreamTheme {\n    key: string;\n    candidates: number;\n    bestScore: number;\n}',
   },
   {
     name: 'DshEnvironment',

@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-command-evolution` adds the human governance surface for the evolution harness to chat UIs: `/memory` and `/skills` govern staged writes, `/journey [today|7d|30d|all]` shows the scope's recorded activity, `/curator status|run [--dry-run]` shows curation bookkeeping and runs one maintenance pass, `/refine` rebuilds the scope's lessons, `/trajectory` exports the session or scope, `/learn` starts a research-and-save turn, and `/suggestions` lists blueprint-backed skills without scheduling them. Every command but `/learn` answers directly; `/learn` queues one ordinary turn. Choose them when a human must see and govern what background review proposed before it lands.
+`dsh-command-evolution` adds the human governance surface for the evolution harness to chat UIs: `/memory` and `/skills` govern staged writes, `/journey [today|7d|30d|all]` shows the scope's recorded activity, `/curator status|run [--dry-run]` shows curation bookkeeping and runs one maintenance pass, `/refine` rebuilds the scope's lessons, `/trajectory` exports the session or scope, `/learn` starts a research-and-save turn, and `/suggestions` lists blueprint-backed skills without scheduling them, and `/dream [light|rem|deep]` consolidates this scope's recorded failures into durable memory. Every command but `/learn` answers directly; `/learn` queues one ordinary turn. Choose them when a human must see and govern what background review proposed before it lands.
 
 ## Table of Contents
 
@@ -63,6 +63,7 @@ The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-a
 | `/refine` | Rebuild the scope's lessons through the reviewer and report `Memory rebuild complete.`. |
 | `/refine <anything>` | `Usage: /refine (no arguments)` — the command takes no arguments. |
 | `/trajectory` | Export the invoking session through the trajectory service and report `Trajectory written to <path> (<n> conversations, <n> bytes).`. |
+| `/dream [light\|rem\|deep]` | Consolidate this scope's recorded failures into durable memory, or run one phase; reports what each phase scanned, staged, promoted, and pruned. |
 | `/trajectory --out <path>` | The same export written to the given path. |
 | `/trajectory --all` | Export every session of the invoking workspace's scope instead of the current session. |
 | `/trajectory <anything-else>` | `Usage: /trajectory [--out <path>] [--all]`. |

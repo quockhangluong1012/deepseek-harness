@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-`dsh-command-evolution` 向聊天 UI 添加演进 harness 的人类治理面：`/memory` 与 `/skills` 治理暂存写入，`/journey [today|7d|30d|all]` 显示作用域已记录的活动，`/curator status|run [--dry-run]` 显示整理台账并运行一次维护通过，`/refine` 重建该作用域的经验，`/trajectory` 导出会话或作用域，`/learn` 开启一次调研并保存的回合，`/suggestions` 列出带 blueprint 的技能而不调度它们。除 `/learn` 外每个命令都直接作答；`/learn` 排队一个普通回合。当人类必须在后台评审提议落地前看到并治理它们时，选择本包。
+`dsh-command-evolution` 向聊天 UI 添加演进 harness 的人类治理面：`/memory` 与 `/skills` 治理暂存写入，`/journey [today|7d|30d|all]` 显示作用域已记录的活动，`/curator status|run [--dry-run]` 显示整理台账并运行一次维护通过，`/refine` 重建该作用域的经验，`/trajectory` 导出会话或作用域，`/learn` 开启一次调研并保存的回合，`/suggestions` 列出带 blueprint 的技能而不调度它们，`/dream [light|rem|deep]` 把该作用域已记录的失败固化为持久记忆。除 `/learn` 外每个命令都直接作答；`/learn` 排队一个普通回合。当人类必须在后台评审提议落地前看到并治理它们时，选择本包。
 
 ## 目录
 
@@ -63,6 +63,7 @@ kind: "package-reference"
 | `/refine` | 经由评审器重建作用域经验并报告 `Memory rebuild complete.`。 |
 | `/refine <anything>` | `Usage: /refine (no arguments)`——命令不接受参数。 |
 | `/trajectory` | 经轨迹服务导出调用会话并报告 `Trajectory written to <path> (<n> conversations, <n> bytes).`。 |
+| `/dream [light\|rem\|deep]` | 把该作用域已记录的失败固化为持久记忆，或运行单个阶段；报告各阶段扫描、暂存、提升与剪除的数量。 |
 | `/trajectory --out <path>` | 同一导出写入指定路径。 |
 | `/trajectory --all` | 导出调用会话所在 workspace 作用域的全部会话，而不是当前会话。 |
 | `/trajectory <anything-else>` | `Usage: /trajectory [--out <path>] [--all]`。 |

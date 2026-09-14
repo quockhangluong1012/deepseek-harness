@@ -92,6 +92,17 @@ export function decodeVector(blob: Uint8Array): readonly number[] | undefined {
 }
 
 /**
+ * Read one position of a vector whose length the caller has already bounded.
+ * @param vector - the vector being read.
+ * @param index - a position below `vector.length`.
+ * @returns the value at that position.
+ */
+function at(vector: readonly number[], index: number): number {
+  // The loop bound is the vector's own length, so the position always exists.
+  return vector[index] as number
+}
+
+/**
  * Cosine similarity between two equal-length vectors.
  * @param left - one vector.
  * @param right - the other, with the same length.
@@ -102,9 +113,8 @@ export function cosineSimilarity(left: readonly number[], right: readonly number
   let leftSquared = 0
   let rightSquared = 0
   for (let index = 0; index < left.length; index += 1) {
-    // Both vectors were checked to have the query's length before ranking.
-    const value = left[index] ?? 0
-    const other = right[index] ?? 0
+    const value = at(left, index)
+    const other = at(right, index)
     dot += value * other
     leftSquared += value * value
     rightSquared += other * other

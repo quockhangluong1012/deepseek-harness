@@ -154,6 +154,8 @@ flowchart LR
   svc_evolutionHeartbeat["ctx.evolutionHeartbeat<br/>Host-wide idle-triggered task registry"]
   pkg_evolution_feedback["evolution-feedback"]
   svc_evolutionFeedback["ctx.evolutionFeedback<br/>Per-session failure-observation store"]
+  pkg_evolution_dreaming["evolution-dreaming"]
+  svc_evolutionDreaming["ctx.evolutionDreaming<br/>Three-phase dreaming consolidation"]
   pkg_evolution_graph["evolution-graph"]
   svc_evolutionGraph["ctx.evolutionGraph<br/>Per-scope knowledge graph"]
   pkg_evolution_controller["evolution-controller"]
@@ -304,6 +306,7 @@ flowchart LR
   pkg_embeddings_http --> svc_embeddings
   pkg_evolution_controller --> svc_evolutionController
   pkg_evolution_curator --> svc_evolutionCurator
+  pkg_evolution_dreaming --> svc_evolutionDreaming
   pkg_evolution_feedback --> svc_evolutionFeedback
   pkg_evolution_graph --> svc_evolutionGraph
   pkg_evolution_heartbeat --> svc_evolutionHeartbeat
@@ -597,6 +600,7 @@ flowchart LR
 | `ctx.evolutionCurator` | `core` | [`evolution-curator`](../packages/evolution/evolution-curator) | - | - | - | The evolution-curator plugin owns idle-triggered lifecycle passes over skill telemetry; the composition supplies the idle observation through maybeRun, and no in-repo package consumes the service directly. |
 | `ctx.evolutionHeartbeat` | `core` | [`evolution-heartbeat`](../packages/evolution/evolution-heartbeat) | - | - | - | The evolution-heartbeat plugin owns the host-wide idle-triggered task registry; it registers no prompt, tool, or session event, and maintenance packages register their tasks with it. |
 | `ctx.evolutionFeedback` | `core` | [`evolution-feedback`](../packages/evolution/evolution-feedback) | - | - | - | The evolution-feedback plugin observes failing tool results per session and aggregates them into the natural-language feedback the learning loop reads; it registers no prompt, tool, or session event. |
+| `ctx.evolutionDreaming` | `core` | [`evolution-dreaming`](../packages/evolution/evolution-dreaming) | - | - | - | The evolution-dreaming plugin scores recorded failures with the six-signal composite and promotes qualified candidates into durable per-scope dreams; evolution-heartbeat drives the automatic cycle. |
 | `ctx.evolutionGraph` | `core` | [`evolution-graph`](../packages/evolution/evolution-graph) | - | - | - | The evolution-graph plugin owns durable per-scope entities and relations with bounded traversal and one deterministic extraction; command-evolution queries it through /graph. |
 | `ctx.evolutionController` | `core` | [`evolution-controller`](../packages/evolution/evolution-controller) | - | - | - | The evolution-controller plugin serves scope verbs and the journey read model over the generated evolution Remote namespace; the evolution journey page reads it from the browser. |
 | `ctx.evolutionCuratorStatus` | `core` | [`client-ui-evolution`](../packages/client/ui-evolution) | - | - | - | The evolution journey host face provides the evolutionCurator Remote namespace reporting curator status to the browser page; the generated contribution carries it to the client half. |

@@ -1564,6 +1564,113 @@ Together these imply that the next-generation Harness should be designed as an *
 
 ---
 
+# 57. External research: HKUDS/OpenSpace — evidence-driven skill evolution
+
+OpenSpace (`https://github.com/HKUDS/OpenSpace`, Python, MIT, v2) is a skill-management layer for MCP-hosted agents, read here at the source level (`openspace/skill_engine/*`, `openspace/cloud/*`, `apps/dashboard/src/api/*`) rather than from its README claims alone.
+
+## 57.1 What OpenSpace actually ships
+
+- Skills are SQLite-backed versioned records (`skill_records`, `skill_lineage_parents`, `execution_analyses`, `skill_judgments`, `skill_trust_observations`, `skill_tool_deps`, `skill_tags`), not flat Markdown files with side telemetry.
+- Evolution runs through a mode-gated pipeline: `TriggerJob → EvidencePacket → Decision → Admission → Authoring → Validator → BehaviorEval → commit-or-candidate` (`openspace/skill_engine/evolution/engine.py`).
+- Skill quality is computed from real task outcomes: a per-task `ExecutionAnalysis` carries `SkillJudgment{skill_id, skill_applied, note}` entries; `SkillRecord` derives `applied_rate`, `completion_rate`, `effective_rate`, `fallback_rate` from atomic SQL counters (`skill_engine/store.py:record_analysis`).
+- Skills carry a version DAG: `SkillOrigin = imported | captured | derived | fixed`, `SkillLineage{generation, parent_skill_ids, content_diff, content_snapshot, change_summary, created_by}` (`skill_engine/types.py`).
+- Trust is evidence-backed, not time-based: `SkillTrustState = provisional | trusted`; a skill demotes to `provisional` immediately on an attributable failure and promotes to `trusted` after `trust_promotion_min_independent_successes` (default 2) independent successful observations (`store.py:1325-1371`).
+- Failure signals are graded, not flat: `actionability ∈ {observe_only, ranking_only, trigger_review, manual_review}` × `evidence_status ∈ {complete, actionable_partial, missing_result, missing_skill_context, aggregate_only, ambiguous_subject, conflicting, external_only}`, deduplicated by `merge_key`/`failure_signature`, with a dominance precedence so the most decisive signal for one merge key wins (`skill_engine/signals/types.py`, `signals/policy.py`).
+- Retrieval is BM25 rough-rank (`rank_bm25.BM25Okapi`) → embedding cosine re-rank, cached and invalidated per skill after evolution (`skill_engine/skill_ranker.py`); pre-filtering only activates past `PREFILTER_THRESHOLD = 10` skills.
+- Rejected or blocked proposals are durable, not discarded: `EvolutionCandidate{merge_key (unique while pending), recurrence, blocked_reason, needed_evidence}` remembers what evidence was missing, so the same mistake is not silently retried (`evolution/candidates.py`).
+- Skill creation ("CAPTURED") requires a `CaptureContract{capability, procedure_refs, validation_refs, validation_summary, limitations}`: procedural evidence and independent validation evidence are both required, and overlapping or fallback-only evidence is a hard admission failure (`skill_engine/capture_contract.py`).
+- Behavior evaluation has three gates before a commit is approved: contract check, routing check (a real selector run against positive and negative trigger queries), and replay (baseline-revision-set vs candidate-revision-set); only replay can approve (`evolution/behavior_eval.py`).
+- There is no stored anti-pattern artifact. Negative knowledge lives as graded quality signals, admission hard-failures (`ephemeral_or_secret_dependent_capture`, `permission_bypass_capture`), and required negative trigger queries inside every proposal's eval plan, not a separate skill type.
+
+Source: direct reads of `openspace/skill_engine/{types,store,skill_ranker}.py`, `openspace/skill_engine/evolution/{engine,candidates,admission,validator,behavior_eval,authoring_contract}.py`, `openspace/skill_engine/{evidence,signals,triggers}/*.py`, `openspace/skill_engine/capture_contract.py`, `apps/dashboard/src/api/{types,evolution}.ts`, README.md:301-719. https://github.com/HKUDS/OpenSpace
+
+## 57.2 Mapped against this repository's actual evolution-* implementation
+
+The Harness already implements a substantial share of the mechanism families this document calls for (§3–§49) under `packages/evolution/*` and `packages/skill/evolution-skill-*` — verified by direct source reads, not the aspirational v10 description in §1:
+
+| Existing dsh mechanism | Verified current behavior |
+|---|---|
+| `evolution-feedback` | Per-session failing-tool-result store, deduplicated by tool and message. `summary(sessionIds, limit)` aggregates across sessions but has no in-repo caller (Dev Note: "the optimizer pass that consumes `summary` is the reason this store exists; until it lands, `summary` has no in-repo caller"). |
+| `evolution-skill-telemetry` | Per-skill counters (`useCount`, `viewCount`, `patchCount`), `sessionIds` correlation, `createdBy: agent \| foreground \| null`, lifecycle `state: active \| stale \| archived`. `markAgentCreated` exists but has no production caller (only exercised in `consolidate.spec.ts`, `curator.spec.ts`, `safety.spec.ts`). |
+| `evolution-curator` | Idle-triggered `active → stale → archived` transitions (time-based only, no evidence-based trust), plus opt-in LLM consolidation (`keep \| patch \| consolidate \| archive`) with tarball snapshot, append-only ledger, and rollback. `surveyCandidates` already joins a skill's `sessionIds` to `evolutionFeedback` failures, but only to inform a consolidation verdict — it never changes a skill's standing. |
+| `evolution-dreaming` | Three-phase (light/REM/deep) consolidation with a fixed six-signal weighted composite and three promotion gates (`minScore`, `minRecallCount`, `minUniqueQueries`) — the closest existing analogue to OpenSpace's admission gate, but for memory promotions, not skills. |
+| `evolution-skill-manage` | Model-facing tool (`create`, `patch`, `edit`, `write_file`, `remove_file`, `delete`). README: "Writes are immediate and unversioned — rollback is the caller's version control, not the tool." No lineage, no content hash, no revision. |
+| `evolution-memory` staged writes | `StagedWriteKind = memory \| skill`; resolutions record only `approved \| rejected`, no `merge_key`, `recurrence`, or `needed_evidence`. |
+| `evolution-scorer` | Scores one recorded corpus (workspace-diff pass, metered tokens, median wall time) — no baseline-vs-candidate A/B, no negative routing queries. |
+
+This means the gap between this document's aspirational mechanisms and the shipped Harness is smaller than §1 implies for trace capture, staged writes, and promotion gates, and larger than §1 implies for evidence-graded trust, revision lineage, and admission gates — the exact three mechanisms OpenSpace demonstrates a working design for.
+
+---
+
+# 58. Concrete integration: evidence-graded skill trust and lineage
+
+Unlike §3–§49, which describe mechanism families in the abstract, this section is a decision-complete integration already scoped against the packages above: the highest-value subset of §57 that closes two seams the Harness already built but never wired to a production caller, without adding a new storage domain or a new model call.
+
+## 58.1 Mechanism-by-mechanism decision
+
+| # | OpenSpace mechanism (source) | dsh today | Decision |
+|---|---|---|---|
+| 1 | Graded quality signal: `actionability × evidence_status × merge_key` + dominance precedence (`signals/types.py`, `signals/policy.py`) | `evolution-feedback` is a flat counted list; `summary()` has no caller | Adopt — Step 1 |
+| 2 | Evidence-backed trust `provisional ↔ trusted`: demote on failure, promote after 2 independent successes (`types.py:SkillTrustState`, `store.py:1325-1371`) | Lifecycle is time-based only | Adopt — Step 2 |
+| 3 | Evidence joined to a decision, not just displayed (`evolution/engine.py` admission) | Curator already joins `sessionIds` → feedback for reflection, never for a state change | Adopt — Step 3 |
+| 4 | Version DAG: `SkillLineage{origin, generation, parent_skill_ids, content_hash, content_snapshot, change_summary}` (`types.py`) | Rollback restores "states and moves, not patched bodies"; no revision at all | Adopt in reduced form — Step 4 (linear chain + content hash, not a full DAG) |
+| 5 | Candidate store: `merge_key` unique while pending, `recurrence`, `blocked_reason`, `needed_evidence` (`evolution/candidates.py`) | Staged writes record only `approved \| rejected` | Deferred — staged queue already prevents duplicate proposals; only worth it once a proposal is blocked repeatedly |
+| 6 | Behavior eval 3 gates incl. negative trigger queries, baseline-vs-candidate replay (`evolution/behavior_eval.py`) | `evolution-scorer` has no A/B and no negative-trigger check | Deferred — needs a two-sided scenario corpus, a separate change |
+| 7 | BM25 → embedding re-rank with cache invalidation (`skill_ranker.py`) | Catalog has no ranking | Deferred — only pays off past roughly 10 skills with a measured retrieval miss |
+| 8 | `CaptureContract` requiring independent procedure and validation evidence (`capture_contract.py`) | `skillCreationEvidence` triggers on 3 repeated output paths alone | Deferred — becomes buildable once Steps 1–2 exist |
+| 9 | Mode gating `audit_only \| fix_only \| autonomous` | `writeApproval` + curator `consolidate` flag already gate every write | Not adopted — redundant with existing gates |
+| 10 | Task-trace artifact v2 + redaction-gated upload | dsh is machine-local by design, no upload path | Not adopted — no counterpart to protect |
+
+## 58.2 Step 1 — graded failure signals in `evolution-feedback`
+
+Add to `packages/evolution/evolution-feedback/src/types.ts`:
+
+```ts
+export type FeedbackActionability = 'observe_only' | 'ranking_only' | 'trigger_review'
+export type FeedbackEvidenceStatus = 'complete' | 'actionable_partial'
+
+export interface FeedbackSignal {
+  tool: string | null
+  message: string
+  actionability: FeedbackActionability
+  evidenceStatus: FeedbackEvidenceStatus
+  mergeKey: string        // `${tool ?? ''}\u0000${message}` — same key `summary` already uses
+  count: number
+  sessions: number
+  lastAt: string
+}
+```
+
+`signals(sessionIds, limit)` reuses `summary(sessionIds, limit)`: `evidenceStatus` is `complete` when the failing call's tool was observed, else `actionable_partial`; `actionability` is `trigger_review` once `evidenceStatus === 'complete'` and `sessions >= triggerReviewSessions` (config, default 2), `ranking_only` when merely `complete`, else `observe_only`. Results sort by evidence-status rank, then actionability rank, then `sessions`, `count`, `lastAt`. No model call, no new storage — a deterministic derivation from the existing per-session record.
+
+## 58.3 Step 2 — evidence-backed trust in `evolution-skill-telemetry`
+
+Add `SkillTrustState = 'provisional' | 'trusted'` and four `SkillUsageRecord` fields: `trust`, `trustSuccesses`, `trustFailures`, `trustObservedSessions`. Zod defaults (`trust.default('trusted')`, counters `.default(0)`, sessions `.default([])`) keep this a compatible reshape — no domain version bump.
+
+`markPatched` and `markAgentCreated` — both already have real production callers (`evolution-skill-manage`'s four mutation ops; curator's `patch` verdict) — additionally set `trust: 'provisional'` and clear `trustObservedSessions`. This is the production trigger the mechanism needs; no new call site is required.
+
+New method:
+
+```ts
+async recordTrustObservation(name: string, outcome: 'success' | 'failure', sessionId: string): Promise<SkillUsageRecord | undefined>
+```
+
+`'failure'` sets `trust: 'provisional'`, increments `trustFailures`, and clears `trustObservedSessions` so promotion restarts after a failure. `'success'` is a no-op when `sessionId` is already recorded (independence); otherwise it appends the session (capped by `maxSessionIds`), increments `trustSuccesses`, and promotes to `trusted` once `trustObservedSessions.length >= trustPromotionSessions` (config, default 2).
+
+## 58.4 Step 3 — wire evidence to trust in `evolution-curator`
+
+`SurveyCandidate` gains `trust: SkillTrustState`; `SurveyFailure` is replaced outright by `FeedbackSignal` (clean cutover, no alias). In the curator's lifecycle pass, for each tracked skill: read `evolutionFeedback.signals(usage.sessionIds, maxCandidateFailures)`; if any signal reaches `trigger_review`, record one `failure` observation against the newest loading session; otherwise record one `success` observation per loading session (the store's own session-dedup makes this safe). A per-skill write failure logs one warning and never aborts the pass; `dryRun` records nothing. `command-evolution`'s `/curator status` gains a provisional/trusted count; `gen-doc-graphs.ts` records `evolutionFeedback`'s new consumer, `evolution-curator`.
+
+## 58.5 Step 4 — linear revision lineage
+
+Add `SkillRevisionOrigin = 'created' | 'patched' | 'consolidated'` and `revision`, `parentRevisionSha`, `contentSha`, `revisionOrigin`, `revisedAt` to `SkillUsageRecord`. New method `markRevised(name, origin, contentSha)` advances the chain: `revision += 1`, `parentRevisionSha = record.contentSha`, `contentSha = <new>`. Callers hash the bytes they just wrote — `evolution-skill-manage` after `create`/`patch`/`edit`, `evolution-curator` after a `patch` or `consolidate` verdict. This is deliberately a linear chain keyed by skill name, not OpenSpace's full DAG: deeper history already lives in the curator's ledger and tarball snapshots, so lineage here only needs to answer what changed since the last revision, not replace the ledger.
+
+## 58.6 What this does not do
+
+Trust is recorded and surfaced (survey, `/curator status`); it does not gate a skill's visibility to the model — that would be a product behavior change beyond what was asked. `markAgentCreated` still has no production authorship flow; Step 2 does not invent one, it only makes the existing mutation path (`markPatched`) carry real signal. Trust moves at the curator's pass cadence (`intervalHours`, default 168h), not per turn, because it requires independent sessions, not repeated turns within one.
+
+---
+
 # Sources
 
 1. Evolutionary Harness Specification v10 — uploaded source document.
@@ -1590,3 +1697,14 @@ Together these imply that the next-generation Harness should be designed as an *
 22. Liu et al. — AgentBench: https://arxiv.org/abs/2308.03688
 23. LongMemEval-V2: https://arxiv.org/abs/2605.12493
 24. Yuksekgonul et al. — TextGrad: https://arxiv.org/abs/2406.07496
+25. OpenSpace — HKUDS/OpenSpace repository: https://github.com/HKUDS/OpenSpace
+26. OpenSpace — skill_engine core types (`SkillOrigin`, `SkillLineage`, `SkillTrustState`, `ExecutionAnalysis`): https://github.com/HKUDS/OpenSpace/blob/main/openspace/skill_engine/types.py
+27. OpenSpace — skill quality store and trust-observation transitions: https://github.com/HKUDS/OpenSpace/blob/main/openspace/skill_engine/store.py
+28. OpenSpace — evolution engine, admission, validator, behavior evaluation, candidates: https://github.com/HKUDS/OpenSpace/tree/main/openspace/skill_engine/evolution
+29. OpenSpace — graded quality signals and trigger policy: https://github.com/HKUDS/OpenSpace/tree/main/openspace/skill_engine/signals
+30. OpenSpace — SkillRanker hybrid BM25/embedding retrieval: https://github.com/HKUDS/OpenSpace/blob/main/openspace/skill_engine/skill_ranker.py
+31. OpenSpace — capture contract for CAPTURED evolution: https://github.com/HKUDS/OpenSpace/blob/main/openspace/skill_engine/capture_contract.py
+32. DeepSeek Harness — evolution package group, current implementation: `packages/evolution/README.md`
+33. DeepSeek Harness — evolution-feedback, current implementation: `packages/evolution/evolution-feedback/README.md`
+34. DeepSeek Harness — evolution-skill-telemetry, current implementation: `packages/skill/evolution-skill-telemetry/README.md`
+35. DeepSeek Harness — evolution-curator, current implementation: `packages/evolution/evolution-curator/README.md`

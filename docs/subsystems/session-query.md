@@ -396,6 +396,27 @@ observeSession( sessionId: SessionId, options: SessionObservationOptions = {}, )
 abstract searchSessions( request: SessionSearchRequest, exec?: SessionSearchExecContext, ): Promise<SessionSearchPage<SessionSearchHit>>
 
 /**
+ * Search the live-preferred logical corpus by meaning rather than by
+ * matching text. A provider without a vector channel refuses this call
+ * instead of degrading to a lexical one, so a caller that asked for
+ * semantic results never receives silently different ones.
+ * @param request - query text, metadata filters, and page size.
+ * @param exec - optional cancellation control.
+ * @returns session hits ranked by vector similarity to the query.
+ */
+abstract searchSessionsSemantic( request: SessionSearchRequest, exec?: SessionSearchExecContext, ): Promise<SessionSearchPage<SessionSearchHit>>
+
+/**
+ * Search the corpus through both channels and fuse their rankings by
+ * reciprocal rank, so a session both channels place highly outranks one
+ * only a single channel found.
+ * @param request - query text, metadata filters, and page size.
+ * @param exec - optional cancellation control.
+ * @returns fused session hits, best combined rank first.
+ */
+async searchSessionsHybrid( request: SessionSearchRequest, exec?: SessionSearchExecContext, ): Promise<SessionSearchPage<SessionSearchHit>>
+
+/**
  * Search events within one live-preferred logical session.
  * @param request - target session, query text, filters, page size, and cursor.
  * @param exec - optional cancellation control.

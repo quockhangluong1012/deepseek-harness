@@ -10,6 +10,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import { Context, Service, type Fiber } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type { Session, SessionEvent, SessionHeader, SessionId, SessionLogOffset } from '@deepseek-ai/dsh-session'
+import type {} from '@deepseek-ai/dsh-embeddings'
 import type SessionPersistence from '@deepseek-ai/dsh-session-persistence'
 import type {
   SessionPersistenceRevision,
@@ -426,38 +427,52 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
     const held = this._readStoredVectors(rows, model)
     const pending = rows.filter(row => !held.has(row.doc_rowid))
     const vectors = new Map(held)
+    const produced: Array<{ row: SemanticSearchRow; vector: readonly number[] }> = []
     let queryVector: readonly number[] | undefined
     if (pending.length > 0) {
       const result = await embeddings.embed({
         texts: [...pending.map(row => row.marked_text), query],
-        signal,
+        ...(signal === undefined ? {} : { signal }),
       })
       for (const [index, row] of pending.entries()) {
         const vector = result.vectors[index]
         /* v8 ignore next -- the service returns one vector per requested text */
-        if (vector !== undefined) vectors.set(row.doc_rowid, vector)
+        if (vector === undefined) continue
+        vectors.set(row.doc_rowid, vector)
+        produced.push({ row, vector })
       }
       queryVector = result.vectors[pending.length]
     }
-    queryVector ??= (await embeddings.embed({ texts: [query], signal })).vectors[0]
+    queryVector ??= (await embeddings.embed({
+      texts: [query],
+      ...(signal === undefined ? {} : { signal }),
+    })).vectors[0]
     /* v8 ignore next -- a one-text batch always answers with one vector */
     if (queryVector === undefined) return []
-    const stored = pending.filter(row => row.live === 0).map(row => ({
-      contentHash: createHash('sha256').update(row.marked_text).digest('hex'),
-      vector: vectors.get(row.doc_rowid),
-    }))
-    const writeable = stored.filter(entry => entry.vector !== undefined)
+    const writeable = produced
+      .filter(entry => entry.row.live === 0)
+      .map(entry => ({
+        contentHash: createHash('sha256').update(entry.row.marked_text).digest('hex'),
+        vector: entry.vector,
+      }))
     if (writeable.length > 0) {
-      await this._serialized(signal, async () => {
-        const insert = this._requireDb().prepare(
-          'INSERT OR REPLACE INTO persisted_vectors (content_hash, model, vector) VALUES (?, ?, ?)',
-        )
-        for (const entry of writeable) {
-          insert.run(entry.contentHash, model, encodeVector(entry.vector ?? []))
-        }
+      await this._serialized(signal, () => {
+        this._writeVectors(writeable, model)
+        return Promise.resolve()
       })
     }
     return rankBySimilarity(rows, queryVector, vectors).map(entry => entry.row)
+  }
+
+  /** Write freshly produced document vectors into the store. */
+  private _writeVectors(
+    entries: ReadonlyArray<{ contentHash: string; vector: readonly number[] }>,
+    model: string,
+  ): void {
+    const insert = this._requireDb().prepare(
+      'INSERT OR REPLACE INTO persisted_vectors (content_hash, model, vector) VALUES (?, ?, ?)',
+    )
+    for (const entry of entries) insert.run(entry.contentHash, model, encodeVector(entry.vector))
   }
 
   /** Vectors the store already holds for these documents under this model. */
@@ -479,6 +494,7 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
       const found = select.get(model, hash) as { vector: Uint8Array } | undefined
       if (found === undefined) continue
       const vector = decodeVector(found.vector)
+      /* v8 ignore next -- only values this encoder produced are stored here. */
       if (vector !== undefined) held.set(docRowid, vector)
     }
     return held

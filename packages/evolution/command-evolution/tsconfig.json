@@ -22,6 +22,7 @@
     { "path": "../../workspace/workspace" },
     { "path": "../evolution-curator" },
     { "path": "../evolution-graph" },
+    { "path": "../evolution-dreaming" },
     { "path": "../evolution-memory" },
     { "path": "../evolution-reviewer" }
   ]

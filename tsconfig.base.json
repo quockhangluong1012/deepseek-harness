@@ -320,6 +320,7 @@
       "@deepseek-ai/dsh-embeddings-http": ["./packages/llm/embeddings-http/src"],
       "@deepseek-ai/dsh-evolution-controller": ["./packages/evolution/evolution-controller/src"],
       "@deepseek-ai/dsh-evolution-curator": ["./packages/evolution/evolution-curator/src"],
+      "@deepseek-ai/dsh-evolution-dreaming": ["./packages/evolution/evolution-dreaming/src"],
       "@deepseek-ai/dsh-evolution-feedback": ["./packages/evolution/evolution-feedback/src"],
       "@deepseek-ai/dsh-evolution-graph": ["./packages/evolution/evolution-graph/src"],
       "@deepseek-ai/dsh-evolution-heartbeat": ["./packages/evolution/evolution-heartbeat/src"],

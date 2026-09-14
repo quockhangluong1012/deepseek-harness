@@ -499,7 +499,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/evolution/command-evolution/src/index.ts:50`](../packages/evolution/command-evolution/src/index.ts)
+Source: [`packages/evolution/command-evolution/src/index.ts:51`](../packages/evolution/command-evolution/src/index.ts)
 
 <a id="deepseek-aidsh-compaction-basic"></a>
 
@@ -734,6 +734,38 @@ export interface Config {
 ```
 
 Source: [`packages/evolution/evolution-curator/src/index.ts:109`](../packages/evolution/evolution-curator/src/index.ts)
+
+<a id="deepseek-aidsh-evolution-dreaming"></a>
+
+## `@deepseek-ai/dsh-evolution-dreaming`
+
+Requires: `storageDomain`
+
+```ts config-catalog
+/** Deployment choices for the dreaming cycle. */
+export interface Config {
+  /** Composite a candidate must reach to be promoted. */
+  minScore?: number
+  /** Sighting count a candidate must reach to be promoted. */
+  minRecallCount?: number
+  /** Distinct sessions a candidate must appear in to be promoted. */
+  minUniqueQueries?: number
+  /** Days a promotion stays durable without being seen again. */
+  staleAfterDays?: number
+  /** Share of `maxPromotions` above which the decay rule runs. */
+  capacityTriggerRatio?: number
+  /** Hours between two automatic cycles. */
+  intervalHours?: number
+  /** Narratives retained per scope. */
+  maxNarratives?: number
+  /** Promotions retained per scope. */
+  maxPromotions?: number
+  /** Candidates one cycle scores. */
+  maxCandidates?: number
+}
+```
+
+Source: [`packages/evolution/evolution-dreaming/src/index.ts:54`](../packages/evolution/evolution-dreaming/src/index.ts)
 
 <a id="deepseek-aidsh-evolution-feedback"></a>
 
@@ -2456,6 +2488,13 @@ export interface Config extends SessionQueryConfig {
   persistedReadConcurrency?: number
   /** Maximum cold prepared-Session observations the inherited reader retains for reuse. Defaults to 5. */
   preparedSessionCacheSize?: number
+  /**
+   * Candidate documents one semantic search embeds and ranks. The vector
+   * channel reads the corpus rather than a full-text match, so this is what
+   * bounds both the work and the batch sent to the embedding provider.
+   * Defaults to 2000.
+   */
+  maxVectorCandidates?: number
 }
 
 /** SQLite module/handle opening phase; `never` disables full-text search entirely. */
@@ -2467,7 +2506,7 @@ export type JournalMode = 'wal' | 'delete' | 'truncate' | 'persist'
 
 Depends on: [`SessionQueryConfig`](../packages/session-query/session-query/src/index.ts)
 
-Source: [`packages/session-query/session-query-sqlite/src/index.ts:92`](../packages/session-query/session-query-sqlite/src/index.ts)
+Source: [`packages/session-query/session-query-sqlite/src/index.ts:102`](../packages/session-query/session-query-sqlite/src/index.ts)
 
 <a id="deepseek-aidsh-session-reference"></a>
 

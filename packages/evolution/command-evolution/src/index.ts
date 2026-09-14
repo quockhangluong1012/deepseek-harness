@@ -25,6 +25,7 @@ import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
 import type {} from '@deepseek-ai/dsh-evolution-graph'
 import type {} from '@deepseek-ai/dsh-evolution-memory'
 import { EvolutionScopeId } from '@deepseek-ai/dsh-evolution-memory'
+import type {} from '@deepseek-ai/dsh-evolution-dreaming'
 import type { EvolutionScopeId as EvolutionScopeIdBrand, StagedWrite } from '@deepseek-ai/dsh-evolution-memory'
 import type {} from '@deepseek-ai/dsh-evolution-reviewer'
 import type {} from '@deepseek-ai/dsh-evolution-curator'
@@ -84,6 +85,9 @@ const SKILLS_USAGE = 'Usage: /skills pending | approve <id>'
 
 /** Argument grammar for `/graph`; anything else reports usage. */
 const GRAPH_USAGE = 'Usage: /graph <entity> [relation]'
+
+/** Usage line shown when `/dream` is given arguments it does not accept. */
+const DREAM_USAGE = 'Usage: /dream [light|rem|deep]'
 
 /**
  * Split `/graph` arguments, keeping a double-quoted run together so a
@@ -862,6 +866,53 @@ async function executeCuratorUnpin(telemetry: { setPinned(name: string, pinned: 
 }
 
 /**
+ * Run one dreaming phase, or the whole cycle, for the invoking scope.
+ * @param ctx - plugin context carrying the dreaming service and the registry.
+ * @param scope - scope identity resolved from the invoking session.
+ * @param membership - the workspace the invoking session belongs to.
+ * @param invocation - raw command input and the invoking session.
+ * @returns the command result.
+ */
+async function executeDream(
+  ctx: Context,
+  scope: EvolutionScopeIdBrand,
+  membership: ScopeMembership,
+  invocation: CommandInvocation,
+): Promise<CommandResult> {
+  const dreaming = ctx.get('evolutionDreaming')
+  if (dreaming === undefined) return { kind: 'error', text: 'Dreaming consolidation is not mounted.' }
+  const [phase, ...rest] = splitArgs(invocation.rawInput)
+  const phases: readonly string[] = ['light', 'rem', 'deep']
+  if (rest.length > 0 || (phase !== undefined && !phases.includes(phase))) {
+    return { kind: 'error', text: DREAM_USAGE }
+  }
+  // The cycle scans the sessions this workspace owns; a workspace with none
+  // simply has nothing to consolidate.
+  const sessionIds = (ctx.workspaceRegistry.get(membership.id)?.sessionIds ?? []).map(id => String(id))
+  try {
+    if (phase !== undefined) {
+      const report = await dreaming.run(phase as 'light' | 'rem' | 'deep', scope, sessionIds)
+      return {
+        kind: 'success',
+        text: `Dream ${report.phase}: scanned ${report.scanned}, staged ${report.staged},`
+        + ` promoted ${report.promoted}, pruned ${report.pruned}.`,
+      }
+    }
+    const report = await dreaming.dream(scope, sessionIds)
+    const themes = dreaming.read(scope)?.narratives[0]?.themes ?? []
+    const top = themes.slice(0, 3).map(theme => `${theme.key} (${theme.candidates})`).join(', ')
+    return {
+      kind: 'success',
+      text: `Dream cycle: scanned ${report.scanned}, staged ${report.staged},`
+      + ` promoted ${report.promoted}, pruned ${report.pruned}.`
+      + (top.length === 0 ? '' : `\nTop themes: ${top}.`),
+    }
+  } catch (error) {
+    return { kind: 'error', text: error instanceof Error ? error.message : String(error) }
+  }
+}
+
+/**
  * Resolve the invocation's scope and run one scoped evolution command.
  * @param ctx - plugin context carrying the registry and the store.
  * @param profile - configured scope namespace.
@@ -872,7 +923,7 @@ async function executeCuratorUnpin(telemetry: { setPinned(name: string, pinned: 
 async function handleCommand(
   ctx: Context,
   profile: string,
-  kind: 'memory' | 'refine' | 'journey' | 'skills' | 'graph' | 'trajectory',
+  kind: 'memory' | 'refine' | 'journey' | 'skills' | 'graph' | 'trajectory' | 'dream',
   invocation: CommandInvocation,
 ): Promise<CommandResult> {
   // Exporting the invoking session needs no workspace, so `/trajectory`
@@ -892,6 +943,8 @@ async function handleCommand(
       return executeSkills(ctx, scope, invocation)
     case 'graph':
       return executeGraph(ctx, scope, invocation)
+    case 'dream':
+      return executeDream(ctx, scope, membership, invocation)
     /* v8 ignore next -- closed-union exhaustiveness guard */
     default:
       return assertNever(kind, 'command-evolution command kind')
@@ -961,6 +1014,13 @@ export function apply(ctx: Context, config: Config): void {
       description: 'Manage skill curation: status, pass history, adopt, purge, pin, and rollback',
       input: { hint: 'status | run | adopt <name> | purge | rollback | ledger | pin <name>' },
       handler: (invocation: CommandInvocation) => track(executeCurator(ctx, invocation)),
+    })
+    yield ctx.commands.register({
+      definitionId: CommandDefinitionId('@deepseek-ai/dsh-command-evolution/dream'),
+      name: 'dream',
+      description: 'Consolidate recorded failures into durable scope memory',
+      input: { hint: '[light|rem|deep]' },
+      handler: (invocation: CommandInvocation) => track(handleCommand(ctx, profile, 'dream', invocation)),
     })
     yield ctx.commands.register({
       definitionId: CommandDefinitionId('@deepseek-ai/dsh-command-evolution/trajectory'),

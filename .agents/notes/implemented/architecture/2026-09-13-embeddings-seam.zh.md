@@ -44,4 +44,4 @@ Status: implemented
 
 消费者缺失并不意味着该服务没有文档：`gen-cordis-catalog` 最初拒绝 `ctx.embeddings`，是因为其签名类型没有文档归属；把这四个类型分类之后，它便渲染在 LLM 子系统页上。那次拒绝是分类缺口，不是可达性问题。
 
-向定义中添加语义方法是对一个在线服务的破坏性改动：`SessionQueryEngine` 有一个生产子类（`SqliteSessionQueryEngine`）和分布在七个包中的七个测试替身，它们都必须同一次改动中实现新方法。在消费者存在之前，这两个包各自正确，但这项能力在仓库内没有调用方。
+向定义中添加语义方法曾是对一个在线服务的破坏性改动：`SessionQueryEngine` 有一个生产子类、七个测试替身，以及三个夹具与基准替身，它们都必须在同一次改动中回答新方法。该消费者现已存在于 `dsh-session-query-sqlite` 中，因此这条接缝是完整的——Definition、Provider，以及一个注入它的 Consumer（[向量通道](2026-09-13-session-search-vector-channel.zh.md)）。

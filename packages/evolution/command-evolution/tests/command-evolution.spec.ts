@@ -86,6 +86,13 @@ interface SkillsStub {
   gets: string[]
 }
 
+interface DreamingStub {
+  runs: Array<{ phase: string; scopeId: string; sessionIds: string[] }>
+  cycles: Array<{ scopeId: string; sessionIds: string[] }>
+  failure?: Error
+  record?: { narratives: Array<{ themes: Array<{ key: string; candidates: number }> }> }
+}
+
 interface Harness {
   ctx: Context
   plugin: Awaited<ReturnType<Context['plugin']>>
@@ -94,6 +101,7 @@ interface Harness {
   reviewer: ReviewerStub
   trajectory: TrajectoryStub
   skills: SkillsStub
+  dream: DreamingStub
   /** Ordinary turns the invoking agent queued. */
   followups: unknown[]
   scope: (name: string) => ScopeId
@@ -102,7 +110,7 @@ interface Harness {
 async function harness(
   withReviewer = true,
   governance?: GovernanceStubs,
-  extra: { trajectory?: boolean; skills?: boolean; graph?: boolean } = {},
+  extra: { trajectory?: boolean; skills?: boolean; graph?: boolean; dream?: boolean } = {},
 ): Promise<Harness> {
   const dir = await realpath(await mkdtemp(join(tmpdir(), 'evc-')))
   const ctx = new Context()
@@ -191,6 +199,22 @@ async function harness(
       },
     } as never)
   }
+  const dream: DreamingStub = { runs: [], cycles: [] }
+  if (extra.dream === true) {
+    ctx.provide('evolutionDreaming', {
+      run: async (phase: string, scopeId: string, sessionIds: readonly string[]) => {
+        dream.runs.push({ phase, scopeId, sessionIds: [...sessionIds] })
+        if (dream.failure !== undefined) throw dream.failure
+        return { phase, scopeId, scanned: 2, staged: 2, promoted: 1, pruned: 0 }
+      },
+      dream: async (scopeId: string, sessionIds: readonly string[]) => {
+        dream.cycles.push({ scopeId, sessionIds: [...sessionIds] })
+        if (dream.failure !== undefined) throw dream.failure
+        return { scopeId, scanned: 2, staged: 2, promoted: 1, pruned: 0, phases: [] }
+      },
+      read: () => dream.record,
+    } as never)
+  }
   const skills: SkillsStub = { summaries: [], definitions: {}, lists: [], gets: [] }
   if (extra.skills === true) {
     ctx.provide('skills', {
@@ -215,6 +239,7 @@ async function harness(
     dir,
     reviewer,
     trajectory,
+    dream,
     skills,
     followups: [],
     scope: (name: string) => EvolutionScopeId('test', name),
@@ -592,6 +617,95 @@ describe('/memory human command', () => {
         scopeId: id, kind: 'memory', op: 'explode', payload: {}, originSessionId: 's1', gist: 'boom',
       })
       await expect(run(test, session, `/memory approve ${staged.id}`)).rejects.toThrow("unknown staged memory op 'explode'")
+    } finally {
+      await shutdown(test)
+    }
+  })
+})
+
+describe('/dream human command', () => {
+  it('reports usage for an unknown phase and for trailing arguments', async () => {
+    const test = await harness(true, undefined, { dream: true })
+    try {
+      const session = sessionIn(test.ctx, test.dir, 'dream-usage')
+      test.workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: test.dir, sessionIds: [session.id] })
+      const usage = { kind: 'error', text: 'Usage: /dream [light|rem|deep]' } as const
+      expect((await run(test, session, '/dream nightly')).result).toEqual(usage)
+      expect((await run(test, session, '/dream light extra')).result).toEqual(usage)
+      expect(test.dream.runs).toEqual([])
+    } finally {
+      await shutdown(test)
+    }
+  })
+
+  it('says so when dreaming is not mounted', async () => {
+    const test = await harness()
+    try {
+      const session = sessionIn(test.ctx, test.dir, 'dream-unmounted')
+      test.workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: test.dir, sessionIds: [session.id] })
+      expect((await run(test, session, '/dream')).result).toEqual({
+        kind: 'error',
+        text: 'Dreaming consolidation is not mounted.',
+      })
+    } finally {
+      await shutdown(test)
+    }
+  })
+
+  it('runs one phase for the scope sessions', async () => {
+    const test = await harness(true, undefined, { dream: true })
+    try {
+      const session = sessionIn(test.ctx, test.dir, 'dream-phase')
+      test.workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: test.dir, sessionIds: [session.id] })
+      expect((await run(test, session, '/dream deep')).result).toEqual({
+        kind: 'success',
+        text: 'Dream deep: scanned 2, staged 2, promoted 1, pruned 0.',
+      })
+      expect(test.dream.runs).toEqual([{ phase: 'deep', scopeId: test.scope('ws-1'), sessionIds: [session.id] }])
+      expect(test.dream.cycles).toEqual([])
+    } finally {
+      await shutdown(test)
+    }
+  })
+
+  it('runs the full cycle and names the strongest themes', async () => {
+    const test = await harness(true, undefined, { dream: true })
+    test.dream.record = { narratives: [{ themes: [{ key: 'bash', candidates: 3 }, { key: 'pwsh', candidates: 1 }] }] }
+    try {
+      const session = sessionIn(test.ctx, test.dir, 'dream-cycle')
+      test.workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: test.dir, sessionIds: [session.id, SessionId('other')] })
+      expect((await run(test, session, '/dream')).result).toEqual({
+        kind: 'success',
+        text: 'Dream cycle: scanned 2, staged 2, promoted 1, pruned 0.'
+          + '\nTop themes: bash (3), pwsh (1).',
+      })
+      expect(test.dream.cycles).toEqual([{ scopeId: test.scope('ws-1'), sessionIds: [session.id, 'other'] }])
+    } finally {
+      await shutdown(test)
+    }
+  })
+
+  it('omits the theme line when the cycle recorded none', async () => {
+    const test = await harness(true, undefined, { dream: true })
+    try {
+      const session = sessionIn(test.ctx, test.dir, 'dream-no-themes')
+      test.workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: test.dir, sessionIds: [session.id] })
+      expect((await run(test, session, '/dream')).result).toEqual({
+        kind: 'success',
+        text: 'Dream cycle: scanned 2, staged 2, promoted 1, pruned 0.',
+      })
+    } finally {
+      await shutdown(test)
+    }
+  })
+
+  it('reports a failed pass', async () => {
+    const test = await harness(true, undefined, { dream: true })
+    test.dream.failure = new Error('dreaming exploded')
+    try {
+      const session = sessionIn(test.ctx, test.dir, 'dream-failure')
+      test.workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: test.dir, sessionIds: [session.id] })
+      expect((await run(test, session, '/dream')).result).toEqual({ kind: 'error', text: 'dreaming exploded' })
     } finally {
       await shutdown(test)
     }

@@ -530,6 +530,13 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'The evolution-feedback plugin observes failing tool results per session and aggregates them into the natural-language feedback the learning loop reads; it registers no prompt, tool, or session event.',
   },
   {
+    key: 'evolutionDreaming',
+    pkg: 'evolution-dreaming',
+    title: 'Three-phase dreaming consolidation',
+    mode: 'core',
+    note: 'The evolution-dreaming plugin scores recorded failures with the six-signal composite and promotes qualified candidates into durable per-scope dreams; evolution-heartbeat drives the automatic cycle.',
+  },
+  {
     key: 'evolutionGraph',
     pkg: 'evolution-graph',
     title: 'Per-scope knowledge graph',

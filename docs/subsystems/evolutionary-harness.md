@@ -257,6 +257,49 @@ Host Remote face over the mounted curator's ledger summary.
 
 Source: [`packages/client/ui-evolution/src/index.ts`](../../packages/client/ui-evolution/src/index.ts)
 
+<a id="ctxevolutiondreaming--evolutiondreaming"></a>
+
+### `ctx.evolutionDreaming` — `EvolutionDreaming`
+
+Durable per-scope dreaming. Opens the `evolution_dreams` domain at init, registers the automatic cycle with the heartbeat when one is mounted, and closes the domain through `ctx.effect`.
+
+```ts cordis-catalog
+/** Read one scope's dreams.
+ * @param scopeId - scope identity.
+ * @returns a detached copy, or undefined when the scope has never dreamed.
+ */
+read(scopeId: EvolutionScopeId): DreamsRecord | undefined
+
+/**
+ * Run one phase for one scope.
+ * @param phase - which phase to run.
+ * @param scopeId - scope identity.
+ * @param sessionIds - sessions whose recorded failures the cycle scans.
+ * @param now - ISO-8601 instant to stamp, defaulting to the wall clock.
+ * @returns what the phase did.
+ */
+async run( phase: DreamPhase, scopeId: EvolutionScopeId, sessionIds: readonly string[], now: string = new Date().toISOString(), ): Promise<DreamPhaseReport>
+
+/**
+ * Run the complete cycle: light, then REM, then deep.
+ * @param scopeId - scope identity.
+ * @param sessionIds - sessions whose recorded failures the cycle scans.
+ * @param now - ISO-8601 instant to stamp, defaulting to the wall clock.
+ * @returns what each phase did.
+ */
+async dream( scopeId: EvolutionScopeId, sessionIds: readonly string[], now: string = new Date().toISOString(), ): Promise<DreamReport>
+
+/**
+ * Dream every workspace the registry knows. A missing registry makes this a
+ * no-op rather than a failure: the automatic cycle is optional infrastructure,
+ * while an explicit `run` or `dream` call always works.
+ * @param signal - aborts between workspaces at plugin teardown.
+ */
+async dreamAll(signal?: AbortSignal): Promise<void>
+```
+
+Source: [`packages/evolution/evolution-dreaming/src/index.ts`](../../packages/evolution/evolution-dreaming/src/index.ts)
+
 <a id="ctxevolutionfeedback--evolutionfeedback"></a>
 
 ### `ctx.evolutionFeedback` — `EvolutionFeedback`

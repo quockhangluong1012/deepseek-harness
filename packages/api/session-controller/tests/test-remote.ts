@@ -27,7 +27,6 @@ import type {
   SessionSearchExecContext,
   SessionSearchHit,
   SessionSearchPage,
-  SessionSearchRequest,
 } from '@deepseek-ai/dsh-session-query'
 import { vi } from 'vitest'
 import {
