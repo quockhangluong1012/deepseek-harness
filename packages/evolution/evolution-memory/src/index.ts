@@ -11,8 +11,8 @@
  * the artifact they act on, and an artifact's identity never changes.
  * `applyExtractionDecisions` applies one extraction pass's whole confirm /
  * contradict / new batch as a single write, and `replaceArtifacts` is the
- * document-level counterpart, used by the markdown extraction pipeline until
- * that pipeline emits per-candidate ops. Under `overwrite` or `merge`,
+ * document-level counterpart a caller uses to replace the whole lessons list
+ * by hand — the controller's `setLessons` Remote op is its one caller.
  * `addArtifact` folds a candidate into the artifact it most resembles when an
  * embeddings service is mounted; that seam is optional, so without it only an
  * exact identity matches and a paraphrase is stored as an artifact of its own.
@@ -981,11 +981,11 @@ export class EvolutionMemoryStore extends Service {
   /**
    * Replace the whole lessons document from a candidate list: the
    * document-level counterpart to {@link addArtifact}, {@link updateArtifact},
-   * and {@link removeArtifact}, not a compatibility shim. The markdown
-   * extraction pipeline rewrites a scope's lessons as one document and uses
-   * this until it emits per-candidate ops. Every candidate is validated and
-   * given a fresh identity, counters, and instants, so a candidate list that
-   * repeats an identity is refused.
+   * and {@link removeArtifact}, not a compatibility shim. A caller replaces
+   * the whole list by hand this way; the controller's `setLessons` Remote op
+   * is its one caller. Every candidate is validated and given a fresh
+   * identity, counters, and instants, so a candidate list that repeats an
+   * identity is refused.
    * @param id - scope identity.
    * @param candidates - the whole lessons document, one candidate per fact.
    * @param extraction - provenance when model-written.
@@ -1015,9 +1015,10 @@ export class EvolutionMemoryStore extends Service {
    * `updatedAt` nor the lessons family stamp; a sweep that drops something
    * stamps the lessons family like any other lessons write.
    *
-   * `refined` is always 0. Refining the coarse artifact `wrapLegacyLessons`
-   * admits from a legacy lessons document needs the structured extraction
-   * call that belongs to Phase 2; until then the coarse artifact is a correct,
+   * `refined` is always 0. The extraction protocol folds decisions into the
+   * artifacts it reads rather than refining them, so nothing yet splits the
+   * coarse artifact `wrapLegacyLessons` admits from a legacy lessons
+   * document; until a pass does that, the coarse artifact is a correct,
    * permanent fallback and this sweep never calls an extractor.
    * @param scopeId - scope identity.
    * @param now - ISO-8601 instant to judge decay at and stamp the write with,

@@ -6,8 +6,9 @@
  * identity invariants the write path maintains — pairwise-distinct ids, each
  * id equal to `artifactKey(statement)` — hold across it. Refinement of the
  * coarse artifact `wrapLegacyLessons` admits from a legacy lessons document
- * belongs to Phase 2: the sweep does not call an extractor, and the coarse
- * artifact is a correct permanent fallback until that phase lands.
+ * is not implemented: the extraction protocol folds decisions into the
+ * artifacts it reads rather than refining them, so the sweep does not call
+ * an extractor and the coarse artifact is a correct permanent fallback.
  * @module @deepseek-ai/dsh-evolution-memory/maintenance
  */
 
@@ -17,7 +18,7 @@ import type { LessonArtifact } from './lesson-artifact.ts'
 export interface SweepResult {
   /** Artifacts dropped by decay. */
   pruned: number
-  /** Coarse migrated artifacts replaced by refined ones; always 0 in Phase 1. */
+  /** Coarse migrated artifacts replaced by refined ones; always 0 (no refinement pass exists yet). */
   refined: number
 }
 
