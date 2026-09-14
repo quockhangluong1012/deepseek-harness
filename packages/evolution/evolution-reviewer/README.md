@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-evolution-reviewer` derives evolution lessons from live Sessions without ever blocking a turn: it buffers the current turn's events as they arrive, indexes produced files at `turn/end`, recalls ranked prior work from the scope directory into the brief, and enqueues a gated deterministic extraction that rewrites the scope's lessons document — directly, or staged for approval when `writeApproval` is on. `rebuild` regenerates lessons from history through the asynchronous session query seam. Choose it when a scope's lessons should track what its Sessions actually do.
+`dsh-evolution-reviewer` derives evolution lessons from live Sessions without ever blocking a turn: it buffers the current turn's events as they arrive, indexes produced files at `turn/end`, recalls ranked prior work from the scope directory into the brief, and enqueues a gated deterministic extraction that reads the turn against a relevance-bounded slice of the scope's current artifacts and answers with a batch of `confirms` / `contradicts` / `new` decisions — applied directly, or staged for approval when `writeApproval` is on. `rebuild` folds its findings into the scope's artifacts from history through the asynchronous session query seam. Choose it when a scope's lessons should track what its Sessions actually do.
 
 ## Table of Contents
 
@@ -44,26 +44,43 @@ Mount the plugin with the memory store and a workspace registry. Scopes resolve 
 | `defer` | `auto` | `auto` queues a gated turn for later; `never` extracts at turn end |
 | `deferMaxAgeMs` | `1800000` | Age ceiling of a queued turn, measured from its session's first snapshot |
 | `maxInputBytes` | `131072` | Transcript budget per call, oldest dropped first |
-| `maxOutputTokens` | `1024` | Output token cap per call |
+| `maxOutputTokens` | `2048` | Output token cap per call, sized for a turn producing roughly ten decisions |
+| `relevantArtifactLimit` | `20` | Most artifacts one call shows the model, ranked most relevant first |
 | `timeoutMs` | `60000` | Call deadline |
 | `rebuildSessionLimit` | `20` | Sessions scanned by a rebuild |
 | `recallLimit` | `20` | Ranked recall results selected per search, for sessions and for events |
 | `recallQueryChars` | `160` | Cap on the recall query derived from a turn's newest human message |
-| `squeezeBytes` | `65536` | Byte budget the squeezed lessons document must fit; keep at or below the store's `maxAgentBytes` |
-| `squeezeOrder` | `References, Decisions, Preferences, Purpose` | Pressure order: the heading whose body clears first comes first |
 | `outputTools` | `write,edit,str_replace_editor` | Successful tool calls that count as productions |
 | `provider`/`model` | unset | Route override; both or neither, else the session route applies |
 | `writeApproval` | `false` | Background extractions stage for approval instead of writing |
 
+`maxOutputTokens` sizes a decision batch rather than a document: each `new` candidate carries a full artifact, each `confirms` or `contradicts` is a few tokens, and `2048` covers a turn producing on the order of ten decisions. A busier scope raises it.
+
 The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-evolution-reviewer) is the exhaustive source for every accepted field.
+
+### Structured decisions
+
+One extraction call shows the model the `relevantArtifactLimit` most relevant artifacts of the scope, numbered from 1, beside this turn's transcript, and expects a JSON array of decisions:
+
+| Action | Meaning |
+|---|---|
+| `confirms` | The artifact listed at that index is upheld by this turn — a `validationCount` bump |
+| `contradicts` | The artifact listed at that index is contradicted — a `refutationCount` bump, optionally with a corrected statement and confidence |
+| `new` | A fact no listed artifact covers — the full candidate fields, with `source` taken from the extracting session |
+
+An empty array is the model reporting nothing and is a common answer. The model addresses artifacts by the ordinal it was shown and never by id; the reviewer resolves each index back to a real artifact id from the exact list it sent, so no index-based value reaches a staged payload or the store. A decision naming an index outside the list sent is dropped with a warning, and an unreadable answer warns and leaves the stored artifacts as they were.
+
+The turn's whole batch is one write. `applyExtractionDecisions` folds it in decision order against the record read at write time, and the store checks the lessons cap on that one result: a batch past the cap drops its longest `new` statement and retries, then drops the contradictions' replacement statements while keeping their counter bumps, and propagates the rejection once there is nothing left to drop.
 
 ### Writing and approval
 
-Turn extraction stores the whole lessons document as one coarse artifact — the squeezed text as its statement — with `background_review` provenance. Under `writeApproval` the same document stages as a `replaceArtifacts` op for `/memory approve` instead, and only an explicit `rebuild` (provenance `rebuild`) keeps writing directly. A failed extraction warns and keeps the previous document; teardown and session disposal abort in-flight calls.
+Turn extraction stages the batch as one `applyDecisions` entry per call when `writeApproval` is on, so `/memory approve <id>` applies the whole batch atomically against the record read at approval time. A rebuild (provenance `rebuild`) always writes directly, as does a batch with nothing to approve in it. A failed extraction warns and keeps the stored artifacts; teardown and session disposal abort in-flight calls.
 
-### Lean squeeze
+### Relevance window
 
-Between the extractor and the store, `squeezeLessons` reduces the model's output to the four memory headings: prose before the first heading and lines under any other heading are dropped. When the result still exceeds `squeezeBytes`, bodies clear whole one heading at a time in `squeezeOrder` — the first heading listed goes first — and the last body still standing is clipped at a UTF-8 boundary. The stored document is flagged `truncated` whenever material was lost this way. A `squeezeBytes` set above the store's own `maxAgentBytes` does not survive that cap either, because the cap measures the serialized artifact array, in which the statement appears twice — as `statement` and as the normalized identity keying it — inside a fixed envelope. The retry therefore solves for the longest statement prefix whose artifact fits, searching the prefix length against the store's own reported measurement rather than assuming the text budget equals the cap.
+Every extraction call ranks the scope's artifacts against the turn's text and shows the model only the most relevant `relevantArtifactLimit` of them. With `ctx.embeddings` mounted, the turn text and every artifact statement are embedded in one batch and ranked by cosine similarity; with none mounted, when the batch throws, or when it answers without a query vector, ranking falls back to most-recently-updated first. Ranking never fails an extraction.
+
+The window bounds cost and required output regardless of scope size, and it costs completeness: an artifact this turn's text does not bring into the window is never confirmed by this call, so it ages under the store's `defaultTtlDays` unless a later turn ranks it back in.
 
 ### Ranked recall
 
@@ -71,7 +88,7 @@ While background review is enabled, each observed turn derives a recall query fr
 
 ### Rebuild and defer
 
-A rebuild selects its material the same way: the scope's newest observed human request drives a ranked, directory-scoped `searchSessions`, each ranked session's events come back through `searchEvents`, and every selected event passes the shared admission rule before it is framed. Rows accumulate least-relevant-first, so the transcript byte cap drops recall rather than the strongest match. An absent or partial search seam, an empty ranked result, a failing search, or a scope with no observed turn falls back to the exact `readSurface` scan.
+A rebuild selects its material the same way: the scope's newest observed human request drives a ranked, directory-scoped `searchSessions`, each ranked session's events come back through `searchEvents`, and every selected event passes the shared admission rule before it is framed. Rows accumulate least-relevant-first, so the transcript byte cap drops recall rather than the strongest match. An absent or partial search seam, an empty ranked result, a failing search, or a scope with no observed turn falls back to the exact `readSurface` scan. A rebuild then folds the batch it produces into the artifacts already stored, exactly as a live turn does, instead of replacing them.
 
 Under the default `defer: auto`, a gated turn waits in an in-memory per-session queue instead of extracting at `turn/end`. Turns that close before the flush coalesce: the newest snapshot replaces the queued one while the first snapshot's `deferMaxAgeMs` deadline and timer stand, so a busy session cannot postpone its extraction indefinitely. Disposal and teardown drop queued turns without extracting them; `defer: never` restores the immediate turn-end extraction.
 
@@ -93,9 +110,9 @@ The reviewer observes `session/event` and buffers the current turn's admitted ro
 
 | File | Role |
 |---|---|
-| [`src/index.ts`](src/index.ts) | Plugin entry: `EvolutionReviewer` service, turn buffering, gating, ranked recall, rebuild |
-| [`src/prompt.ts`](src/prompt.ts) | Extraction system prompt, JSON input framing, UTF-8 clipping |
-| [`src/squeeze.ts`](src/squeeze.ts) | Lean squeeze: heading collection, pressure order, UTF-8 clipping |
+| [`src/index.ts`](src/index.ts) | Plugin entry: `EvolutionReviewer` service, turn buffering, gating, ranked recall, rebuild, index resolution, batch write |
+| [`src/protocol.ts`](src/protocol.ts) | Extraction system prompt, request framing with the indexed artifact list, decision schema and parser |
+| [`src/relevance.ts`](src/relevance.ts) | Relevance-bounded selection: similarity ranking through the optional embeddings seam, recency fallback |
 
 ### Failure and recovery
 
@@ -123,7 +140,7 @@ No invariant companion is published because the reviewer owns no durable state o
 
 #### What the model sees
 
-The extraction call sends the framed transcript plus the current lessons document as one auxiliary user message with a lessons system prompt.
+The extraction call sends one auxiliary user message holding this turn's transcript as JSON plus the numbered list of the relevant artifacts' statements, with a lessons system prompt.
 
 ##### Verbatim text for this field, when needed
 
@@ -133,7 +150,7 @@ You distill durable lessons for an agent scope from one turn of conversation.
 
 #### Token effect
 
-Capped: one auxiliary request per gated turn, bounded by `maxInputBytes` of transcript plus the lessons document, and `maxOutputTokens` of completion. Recall adds one indexed search per observed turn and at most one context item to the scope record; its material reaches the model only through the next brief.
+Capped: one auxiliary request per gated turn, bounded by `maxInputBytes` of transcript plus the `relevantArtifactLimit` artifact statements, and `maxOutputTokens` of completion. Recall adds one indexed search per observed turn and at most one context item to the scope record; its material reaches the model only through the next brief.
 
 #### KV Cache effect
 
@@ -145,13 +162,16 @@ Independent of live requests: the extraction is a separate one-shot model call w
 
 These limits define when the reviewer is a poor fit. They are current package constraints.
 
-- **Lessons only** — extraction rewrites `agentLessons`; the user profile stays hand-authored until the controller slice arrives.
+- **Lessons only** — extraction writes `agentLessons`; the user profile stays hand-authored until the controller slice arrives.
 - **No subagent review fork** — extraction runs in-process on the per-scope chain; delegated background agents with tool whitelists are deferred.
 - **Queued turns are in-memory** — a restart or teardown before the `deferMaxAgeMs` deadline drops them instead of persisting the snapshot.
 - **Turns in flight at mount** — sessions already mid-turn when the reviewer loads extract from their observed suffix.
 - **Recall needs the ranked seam** — without `sessionQuery` a rebuild rejects; without its ranked readers, recall writes nothing and rebuilds fall back to the exact surface scan.
 - **One recall item per scope** — a changed hit replaces the previous item and changes the record digest, so the next brief is a fresh one; an unchanged hit rewrites nothing.
 - **Recall queries are literal phrases** — the search backend matches the derived query as data, so a query that never appeared verbatim in an indexed session returns no candidate.
+- **The window is not the whole store** — an artifact outside the relevance window is invisible to that call, so a still-true fact the window keeps missing decays under `defaultTtlDays` with nothing left to confirm it.
+- **A batch is approved whole** — one staged entry per extraction call means a reviewer cannot accept a `confirms` while rejecting a `contradicts` from the same turn; the choice is the whole batch or none of it.
+- **A contested fact keeps its identity** — a contradiction may replace an artifact's statement, but the artifact keeps the id every caller addresses it by, so the id no longer spells the statement it holds.
 
 <a id="dev-note"></a>
 ### Dev Note

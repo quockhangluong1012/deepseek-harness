@@ -47,7 +47,7 @@ kind: "package-reference"
 
 | 输入 | 结果 |
 |---|---|
-| `/memory`、`/memory pending` | 以 `- <id> [<kind>:<op>] <gist> (session '<origin>', <instant>)` 列出作用域的暂存条目；无待审批项时返回 `No pending writes.`。裸 `/memory` 报告同一列表。 |
+| `/memory`、`/memory pending` | 以 `- <id> [<kind>:<op>] <gist> (session '<origin>', <instant>)` 列出作用域的暂存条目；无待审批项时返回 `No pending writes.`。`applyDecisions` 条目之下还会为每个决策各列一行缩进明细。裸 `/memory` 报告同一列表。 |
 | `/memory approve <id>` | 应用一条记忆类条目并报告 `Approved staged <op> (<gist>).`；未知 id 报告 `No staged write '<id>'.`；技能类 id 会被重定向到 `/skills approve`。 |
 | `/memory reject <id>` | 不应用而丢弃一条并报告 `Rejected staged write '<id>'.`。 |
 | `/memory <anything-else>` | `Usage: /memory pending \| approve <id> \| reject <id>`——文法固定。 |
@@ -71,6 +71,8 @@ kind: "package-reference"
 | `/learn` | `Usage: /learn <anything>`——命令需要一个主题。 |
 | `/suggestions` | 列出 frontmatter 声明了 blueprint 的技能，格式为 `- <name>: <description> (schedule <schedule>, deliver <session\|file>)`，并附上不会调度任何内容的提醒。 |
 | `/suggestions <anything>` | `Usage: /suggestions (no arguments)`。 |
+
+`applyDecisions` 条目在 gist 里给出一批决策的计数——confirms、contradicts 与 new 各多少条——并在该行之下为每个决策各列一行缩进明细：`new '<statement>'`、`confirms '<current statement>'` 或 `contradicts '<current statement>'`，而当该条反驳携带了更正后的 statement 时则是 `contradicts '<current statement>' → '<replacement>'`。`confirms` 或 `contradicts` 的目标渲染为记录当前为该工件持有的 statement；记录已不再持有时则渲染为该工件的 id——该 id 正是工件创建时所用的规范化 statement，因此读起来仍是文本。其他操作只打印自己的 gist 行；渲染器读不懂其载荷的 `applyDecisions` 条目同样如此：读不懂的暂存载荷不渲染任何明细行，而不是让整张列表失败。
 
 ### 你会看到什么
 
@@ -114,7 +116,7 @@ kind: "package-reference"
 
 ### 对话会发生什么
 
-批准经由存储自身的写入链应用暂存的记忆操作，因此上限与子串拒绝会像直接存储调用一样保留条目；拒绝丢弃任一类别。命令生命周期记入会话日志，永不进入模型历史。`/learn` 是唯一会开启回合的命令：它把一段由提示词构建器撰写的消息作为自己回合的唯一普通消息排队，模型随后用已有工具收集材料，并经由受提案门控的 `skill_manage` 写入器提议一个技能。
+批准经由存储自身的写入链应用暂存的记忆操作，因此上限与子串拒绝会像直接存储调用一样保留条目；拒绝丢弃任一类别。一批暂存的 `applyDecisions` 是一次写入：批准会在审批时读到的记录上应用整批，因此上限拒绝会让它的每一条决策一起留在暂存。命令生命周期记入会话日志，永不进入模型历史。`/learn` 是唯一会开启回合的命令：它把一段由提示词构建器撰写的消息作为自己回合的唯一普通消息排队，模型随后用已有工具收集材料，并经由受提案门控的 `skill_manage` 写入器提议一个技能。
 
 -----
 

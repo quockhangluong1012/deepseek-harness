@@ -904,7 +904,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/evolution/evolution-memory/src/index.ts:155`](../packages/evolution/evolution-memory/src/index.ts)
+Source: [`packages/evolution/evolution-memory/src/index.ts:161`](../packages/evolution/evolution-memory/src/index.ts)
 
 <a id="deepseek-aidsh-evolution-memory-context"></a>
 
@@ -947,7 +947,12 @@ export interface Config {
   enabled?: boolean
   /** Transcript budget per call in UTF-8 bytes. */
   maxInputBytes?: number
-  /** Output token cap per call. */
+  /**
+   * Output token cap per call. Sized for the decision protocol's output, which
+   * scales with the decisions one turn produces: a `new` candidate carries full
+   * artifact fields, while a `confirms`/`contradicts` is a few tokens, and the
+   * default covers roughly ten decisions with headroom.
+   */
   maxOutputTokens?: number
   /** Skip extraction for trivial turns below this admitted-text byte size. */
   minTurnTextBytes?: number
@@ -965,10 +970,8 @@ export interface Config {
   recallLimit?: number
   /** Cap on the recall query derived from a turn's newest human message. */
   recallQueryChars?: number
-  /** UTF-8 byte budget the squeezed lessons document must fit. */
-  squeezeBytes?: number
-  /** Pressure order: the heading whose body clears first comes first. */
-  squeezeOrder?: string[]
+  /** Most artifacts one extraction call shows the model, most relevant first. */
+  relevantArtifactLimit?: number
   /** Call deadline in milliseconds. */
   timeoutMs?: number
   /** Stage background extractions for approval instead of writing them. */
@@ -976,7 +979,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/evolution/evolution-reviewer/src/index.ts:47`](../packages/evolution/evolution-reviewer/src/index.ts)
+Source: [`packages/evolution/evolution-reviewer/src/index.ts:46`](../packages/evolution/evolution-reviewer/src/index.ts)
 
 <a id="deepseek-aidsh-evolution-scorer"></a>
 

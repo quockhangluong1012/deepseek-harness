@@ -47,7 +47,7 @@ The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-a
 
 | Input | Result |
 |---|---|
-| `/memory`, `/memory pending` | List the scope's staged entries as `- <id> [<kind>:<op>] <gist> (session '<origin>', <instant>)`, or `No pending writes.` when nothing awaits approval. Bare `/memory` reports the same list. |
+| `/memory`, `/memory pending` | List the scope's staged entries as `- <id> [<kind>:<op>] <gist> (session '<origin>', <instant>)`, or `No pending writes.` when nothing awaits approval. An `applyDecisions` entry continues with one indented line per decision. Bare `/memory` reports the same list. |
 | `/memory approve <id>` | Apply one memory-kind entry and report `Approved staged <op> (<gist>).`; an unknown id reports `No staged write '<id>'.`; a skill-kind id is redirected to `/skills approve`. |
 | `/memory reject <id>` | Drop one entry without applying it and report `Rejected staged write '<id>'.`. |
 | `/memory <anything-else>` | `Usage: /memory pending \| approve <id> \| reject <id>` — the grammar is fixed. |
@@ -71,6 +71,8 @@ The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-a
 | `/learn` | `Usage: /learn <anything>` — the command needs a topic. |
 | `/suggestions` | List the skills whose frontmatter declares a blueprint, as `- <name>: <description> (schedule <schedule>, deliver <session\|file>)`, plus the reminder that nothing is scheduled. |
 | `/suggestions <anything>` | `Usage: /suggestions (no arguments)`. |
+
+An `applyDecisions` entry names its batch in the gist — the counts of confirms, contradicts, and new — and continues under that line with one indented line per decision: `new '<statement>'`, `confirms '<current statement>'` or `contradicts '<current statement>'`, and `contradicts '<current statement>' → '<replacement>'` when the contradiction carried a corrected statement. A `confirms` or `contradicts` target renders as the statement the record currently holds for it, and as the artifact's id when the record no longer holds it — that id is the normalized statement the artifact was created from, so it still reads as text. Every other op prints its gist line alone, and so does an `applyDecisions` entry whose payload the renderer cannot read: an unreadable staged payload renders no detail lines instead of failing the list.
 
 ### What you see
 
@@ -114,7 +116,7 @@ Surfaces without `ctx.commands` cannot invoke them; staged writes then wait for 
 
 ### What happens to the conversation
 
-Approving applies the staged memory op through the store's own write chain, so cap and substring rejections keep the entry staged exactly as a direct store call would; rejecting drops either kind. The command lifecycle is recorded in the session log but never enters model history. `/learn` is the one command that starts a turn: it queues a prompt-authored message as the sole ordinary message of its own turn, and the model then gathers material with the tools it already has and proposes one skill through the gated `skill_manage` writer.
+Approving applies the staged memory op through the store's own write chain, so cap and substring rejections keep the entry staged exactly as a direct store call would; rejecting drops either kind. A staged `applyDecisions` batch is one write: approval applies the whole batch against the record read at approval time, so a cap rejection keeps every decision of it staged together. The command lifecycle is recorded in the session log but never enters model history. `/learn` is the one command that starts a turn: it queues a prompt-authored message as the sole ordinary message of its own turn, and the model then gathers material with the tools it already has and proposes one skill through the gated `skill_manage` writer.
 
 -----
 

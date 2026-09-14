@@ -833,6 +833,7 @@ export const TYPE_LINK_EXEMPTIONS: Readonly<Record<string, string>> = {
   EvolutionContextItemInput: 'evolution-memory context input is owned by packages/evolution/evolution-memory/README.md',
   EvolutionOutput: 'evolution-memory produced-file entry is owned by packages/evolution/evolution-memory/README.md',
   EvolutionExtraction: 'evolution-memory extraction provenance is owned by packages/evolution/evolution-memory/README.md',
+  LessonDecision: 'one extraction pass decision batch is owned by packages/evolution/evolution-memory/README.md',
   LessonArtifact: 'durable lesson artifact is owned by packages/evolution/evolution-memory/README.md',
   LessonArtifactInput: 'caller-supplied lesson artifact fields are owned by packages/evolution/evolution-memory/README.md',
   LessonArtifactPatch: 'patchable lesson artifact fields are owned by packages/evolution/evolution-memory/README.md',

@@ -1325,6 +1325,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the stored record.',
       },
       {
+        signature: 'async applyExtractionDecisions( id: EvolutionScopeId, decisions: readonly LessonDecision[], extraction?: EvolutionExtraction, ): Promise<EvolutionMemoryRecord>',
+        description: 'Apply one extraction pass\'s whole decision batch: a `confirms` bumps the addressed artifact\'s `validationCount`, a `contradicts` bumps its `refutationCount` and replaces the statement and confidence it carries, and a `new` candidate is added through addArtifact\'s merge-by-meaning path — so a candidate the model called new that coincides with an artifact outside the list it was shown folds into that artifact rather than accumulating beside it.\n\nA decision naming an artifact the record no longer holds is skipped, not refused: the target was resolved against an earlier read, and a prune can land in between.\n\nThe batch is one write: it stages or applies as a unit and stamps one lessons family stamp, matching the one-item-per-call shape this path replaces. A batch that changed nothing — an empty one, or one whose only decisions named artifacts the record no longer holds — stamps no family, exactly as addArtifact does when its add stores nothing; the provenance of the call that found nothing is still recorded.',
+        parameters: [{ name: 'id', description: 'scope identity.' }, { name: 'decisions', description: 'the confirmed, contradicted, and new facts, in the order the extraction reported them.' }, { name: 'extraction', description: 'provenance of the call that produced the batch.' }],
+        returns: 'the stored record.',
+      },
+      {
         signature: 'async replaceArtifacts( id: EvolutionScopeId, candidates: readonly LessonArtifactInput[], extraction?: EvolutionExtraction, ): Promise<EvolutionMemoryRecord>',
         description: 'Replace the whole lessons document from a candidate list: the document-level counterpart to addArtifact, updateArtifact, and removeArtifact, not a compatibility shim. The markdown extraction pipeline rewrites a scope\'s lessons as one document and uses this until it emits per-candidate ops. Every candidate is validated and given a fresh identity, counters, and instants, so a candidate list that repeats an identity is refused.',
         parameters: [{ name: 'id', description: 'scope identity.' }, { name: 'candidates', description: 'the whole lessons document, one candidate per fact.' }, { name: 'extraction', description: 'provenance when model-written.' }],
@@ -1387,7 +1393,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     methods: [
       {
         signature: 'async rebuild(scopeId: EvolutionScopeId, signal: AbortSignal): Promise<void>',
-        description: 'Rebuild the lessons document from the scope\'s chat history, read through the asynchronous session query seam: ranked recall selects candidate events first, and each one still passes the shared admission rule. Rebuilds write directly even when background approval staging is on: the caller explicitly asked for them.',
+        description: 'Rebuild the scope\'s lessons from its chat history, read through the asynchronous session query seam: ranked recall selects candidate events first, and each one still passes the shared admission rule.\n\nA rebuild folds its findings into the artifacts already stored — the same relevance-bounded decision protocol a live turn uses, run against the whole selected history instead of one turn\'s buffer — so it confirms and corrects what it finds rather than wiping what is there. Rebuilds write directly even when background approval staging is on: the caller explicitly asked for them.',
         parameters: [{ name: 'scopeId', description: 'scope identity.' }, { name: 'signal', description: 'caller cancellation.' }],
         returns: 'resolution after the store write.',
       },
@@ -5522,6 +5528,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'LessonArtifactPatch',
     declaration: 'export type LessonArtifactPatch = Partial<Pick<LessonArtifact, \'conditions\' | \'confidence\' | \'evidence\' | \'ttlDays\'>>;',
+  },
+  {
+    name: 'LessonDecision',
+    declaration: 'export type LessonDecision = {\n    kind: \'confirms\';\n    artifactId: string;\n} | {\n    kind: \'contradicts\';\n    artifactId: string;\n    statement?: string | undefined;\n    confidence?: number | undefined;\n} | {\n    kind: \'new\';\n    candidate: LessonArtifactInput;\n    strategy?: LessonMergeStrategy | undefined;\n};',
   },
   {
     name: 'LessonMergeStrategy',
