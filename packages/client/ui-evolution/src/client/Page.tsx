@@ -205,6 +205,7 @@ export function EvolutionPage({ scopeId, scopeTitle, remote, t }: EvolutionPageP
   const profileBytes = timeline?.cumulative.profileBytes ?? 0
   const digest = timeline?.cumulative.digest ?? ''
   const passes: readonly CuratorPassSummary[] = curator?.passes ?? []
+  const orderedLessons = strongestFirst(value?.lessons ?? [])
 
   return (
     <section className={css.page} aria-label={t('page.title')} data-testid="evolution-page">
@@ -341,11 +342,11 @@ export function EvolutionPage({ scopeId, scopeTitle, remote, t }: EvolutionPageP
           <div className={css.cardHead}>
             <h2 className={css.cardTitle}>{t('lessons.title')}</h2>
           </div>
-          {(value?.lessons.length ?? 0) === 0
+          {orderedLessons.length === 0
             ? <p className={css.empty}>{t('lessons.empty')}</p>
             : (
               <ul className={css.lessons} data-testid="evolution-lessons">
-                {strongestFirst(value?.lessons ?? []).map(artifact => (
+                {orderedLessons.map(artifact => (
                   <li key={artifact.id} className={css.lessonRow}>
                     <span className={css.lessonStatement}>{artifact.statement}</span>
                     <span className={css.lessonMeta}>

@@ -193,7 +193,7 @@ describe('evolution journey page', () => {
     const staged = [{
       id: 'staged-1',
       kind: 'memory' as const,
-      op: 'setLessons',
+      op: 'replaceArtifacts',
       payload: {},
       originSessionId: 's-9',
       createdAt: '2026-09-12T00:00:00.000Z',
@@ -206,7 +206,7 @@ describe('evolution journey page', () => {
         { day: '2026-09-12', kind: 'profile', gist: 'edited by hand', sessionId: null, at: '2026-09-12T01:02:00.000Z' },
         { day: '2026-09-12', kind: 'context', gist: 'notes', sessionId: null, at: '2026-09-12T01:03:00.000Z' },
         { day: '2026-09-12', kind: 'outputs', gist: 'write /tmp/a.md', sessionId: 's-1', at: '2026-09-12T01:04:00.000Z' },
-        { day: '2026-09-12', kind: 'staged', gist: 'memory:setLessons staged', sessionId: 's-1', at: '2026-09-12T01:05:00.000Z' },
+        { day: '2026-09-12', kind: 'staged', gist: 'memory:replaceArtifacts staged', sessionId: 's-1', at: '2026-09-12T01:05:00.000Z' },
       ],
       contextAttached: 1,
       outputsIndexed: 1,
@@ -249,7 +249,7 @@ describe('evolution journey page', () => {
     expect(screen.getByText('timeline.window:{"range":"range.7d","active":1,"days":3}')).toBeDefined()
 
     // Pending rows carry the wire vocabulary and the origin session.
-    expect(screen.getByText('memory:setLessons lesson: pending')).toBeDefined()
+    expect(screen.getByText('memory:replaceArtifacts lesson: pending')).toBeDefined()
     expect(screen.getByText('pending.origin:{"session":"s-9"}')).toBeDefined()
 
     // The curator card reads the recorded pass, not a guess.
@@ -271,6 +271,27 @@ describe('evolution journey page', () => {
     expect(lessons.map(row => row.querySelector('span')?.textContent)).toEqual(['stronger lesson', 'weaker lesson'])
     expect(screen.getByText('lessons.confidence:{"confidence":"0.90"}')).toBeDefined()
     expect(screen.getByText('lessons.confidence:{"confidence":"0.20"}')).toBeDefined()
+  })
+
+  it('breaks equal confidence by ascending identity so the order is deterministic', async () => {
+    const remote = remoteOf({
+      // Equal confidence, and the ids run opposite to the statements, so only
+      // the id tiebreak can produce the order asserted below: ordering by
+      // statement instead would put 'alpha fact' first.
+      read: vi.fn(async () => valueOf({ lessons: [
+        { ...lessonOf('zebra fact', 0.75), id: 'a' },
+        { ...lessonOf('alpha fact', 0.75), id: 'z' },
+        { ...lessonOf('middle fact', 0.75), id: 'm' },
+      ] })),
+    })
+    const { container } = render(<EvolutionPage scopeId={SCOPE} scopeTitle='fixture' remote={remote} t={t} />)
+    expect(await screen.findByText('fixture')).toBeDefined()
+    await waitFor(() => {
+      expect(container.querySelector('[data-testid="evolution-lessons"]')).not.toBeNull()
+    })
+    const lessons = [...container.querySelectorAll('[data-testid="evolution-lessons"] li')]
+    expect(lessons.map(row => row.querySelector('span')?.textContent))
+      .toEqual(['zebra fact', 'middle fact', 'alpha fact'])
   })
 
   it('states an empty lessons document honestly', async () => {
@@ -442,7 +463,7 @@ describe('evolution journey page', () => {
     const staged = [{
       id: 'staged-4',
       kind: 'memory' as const,
-      op: 'setLessons',
+      op: 'replaceArtifacts',
       payload: {},
       originSessionId: 's-4',
       createdAt: '2026-09-12T00:00:00.000Z',
@@ -463,7 +484,7 @@ describe('evolution journey page', () => {
     })
     settle(valueOf({ staged: [] }))
     await waitFor(() => {
-      expect(screen.queryByText('memory:setLessons lesson: pending')).toBeNull()
+      expect(screen.queryByText('memory:replaceArtifacts lesson: pending')).toBeNull()
     })
   })
 
@@ -471,7 +492,7 @@ describe('evolution journey page', () => {
     const staged = [{
       id: 'staged-5',
       kind: 'memory' as const,
-      op: 'setLessons',
+      op: 'replaceArtifacts',
       payload: {},
       originSessionId: 's-5',
       createdAt: '2026-09-12T00:00:00.000Z',
