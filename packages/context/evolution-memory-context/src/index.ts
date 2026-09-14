@@ -46,6 +46,7 @@ export {
   byteLength,
   evolutionBriefSections,
   renderEvolutionBrief,
+  renderLessonLines,
   unavailableFileLine,
 } from './render.ts'
 export type { MaterializedContext } from './render.ts'

@@ -9,13 +9,18 @@ import type { UserMessage } from '@deepseek-ai/dsh-llm'
 import SessionStore, { Session, SessionId } from '@deepseek-ai/dsh-session'
 import Storage from '@deepseek-ai/dsh-storage'
 import { DomainFacility } from '@deepseek-ai/dsh-storage-domain'
-import { EvolutionScopeId } from '@deepseek-ai/dsh-evolution-memory'
+import { EvolutionScopeId, type LessonArtifactInput } from '@deepseek-ai/dsh-evolution-memory'
 import type { EvolutionScopeId as ScopeId } from '@deepseek-ai/dsh-evolution-memory/types'
 import { WorkspaceId } from '@deepseek-ai/dsh-workspace'
 import { MemoryMediaPool, MemoryStorageBackend } from '../../../storage/storage-domain/tests/helpers/memory-backend.ts'
 import * as evolutionMemoryContext from '../src/index.ts'
 
 const SIGNAL = new AbortController().signal
+
+/** One lesson artifact candidate for the store's addArtifact write. */
+function lessonInput(statement: string): LessonArtifactInput {
+  return { statement, source: 's1', conditions: '', evidence: 'fact', confidence: 0.9, scope: 'project' }
+}
 
 interface Harness {
   ctx: Context
@@ -128,7 +133,7 @@ describe('evolution-memory-context injector', () => {
       const id = scope('ws-1')
       workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: dir, sessionIds: [session.id] })
       await ctx.evolutionMemory.setInstructions(id, 'follow the guide')
-      await ctx.evolutionMemory.setLessons(id, 'the project is green')
+      await ctx.evolutionMemory.addArtifact(id, lessonInput('the project is green'))
       await ctx.evolutionMemory.setUserProfile(id, 'likes brevity')
 
       const first = await preStep(ctx, fakeAgent(session))
@@ -531,14 +536,14 @@ describe('evolution-memory-context injector', () => {
       const session = sessionIn(ctx, dir, 's1')
       const id = scope('ws-1')
       workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: dir, sessionIds: [session.id] })
-      await ctx.evolutionMemory.setLessons(id, 'model knowledge')
+      await ctx.evolutionMemory.addArtifact(id, lessonInput('model knowledge'))
       const first = await preStep(ctx, fakeAgent(session))
       const lessonsBriefs = briefsOf(first.kind === 'enter' ? first.messages : [])
       expect(lessonsBriefs).toHaveLength(1)
       expect(textOf(lessonsBriefs[0] as UserMessage)).toContain('model knowledge')
       session.append('user/message', lessonsBriefs[0] as UserMessage, { surfaceOp: 'append' })
 
-      await ctx.evolutionMemory.setLessons(id, '')
+      await ctx.evolutionMemory.replaceArtifacts(id, [])
       await ctx.evolutionMemory.setUserProfile(id, 'night person')
       const second = await preStep(ctx, fakeAgent(session))
       const profileBriefs = briefsOf(second.kind === 'enter' ? second.messages : [])

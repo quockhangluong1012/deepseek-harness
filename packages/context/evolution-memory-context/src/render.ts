@@ -5,6 +5,7 @@
  */
 
 import { truncateUtf8 } from '@deepseek-ai/dsh-evolution-memory'
+import type { LessonArtifact } from '@deepseek-ai/dsh-evolution-memory'
 import type { ContextSnapshotSection } from '@deepseek-ai/dsh-llm'
 
 const SYSTEM_REMINDER_OPEN = '<system-reminder>'
@@ -47,8 +48,7 @@ interface BriefDraft {
   profile: string
   context: readonly MaterializedContext[]
   droppedItems: number
-  lessonsFrom: number
-  lessonsTo: number
+  droppedLessons: number
   profileFrom: number
   profileTo: number
   instructionsFrom: number
@@ -63,10 +63,11 @@ interface ComputedBrief {
 
 /**
  * Render the complete brief including its frame. Empty sections are omitted.
- * Under pressure trailing context items drop first, then lessons truncate,
- * then the profile truncates with lessons already gone, then instructions
- * truncate last with lessons and profile already gone. One notice line names
- * every drop and truncation.
+ * Under pressure trailing context items drop first, then the weakest lesson
+ * artifacts drop (strongest first, whole artifacts only — a lesson is never
+ * truncated mid-statement), then the profile truncates with lessons already
+ * gone, then instructions truncate last with lessons and profile already
+ * gone. One notice line names every drop and truncation.
  * @param input - scope title, path, usage, documents, and materialized context.
  * @param maxBytes - cap on the complete emitted text including the frame.
  * @returns bounded brief text, or empty string when every section is empty.
@@ -103,9 +104,53 @@ interface EvolutionBriefInput {
   path: string
   usage: BriefUsage
   instructions: string
-  lessons: string
+  lessons: readonly LessonArtifact[]
   profile: string
   context: readonly MaterializedContext[]
+}
+
+/**
+ * Order artifacts strongest-first: confidence descending, ties broken by
+ * ascending `id` so equal-confidence artifacts render deterministically.
+ * @param artifacts - the scope's artifacts.
+ * @returns a new array in strongest-first order.
+ */
+function orderedLessons(artifacts: readonly LessonArtifact[]): LessonArtifact[] {
+  return [...artifacts].sort((left, right) =>
+    right.confidence - left.confidence || (left.id < right.id ? -1 : 1))
+}
+
+/**
+ * Render the lines for the first `kept` artifacts of a strongest-first order.
+ * @param ordered - artifacts already in strongest-first order.
+ * @param kept - how many leading artifacts to render.
+ * @returns the joined lesson lines, or the empty string when none are kept.
+ */
+function lessonLines(ordered: readonly LessonArtifact[], kept: number): string {
+  return ordered.slice(0, kept)
+    .map(artifact => `- ${artifact.statement} (confidence: ${artifact.confidence.toFixed(2)})`)
+    .join('\n')
+}
+
+/**
+ * Render lesson artifacts best-first, dropping the lowest-confidence ones
+ * until the block fits its byte budget. Artifacts are never truncated
+ * mid-statement: when not even one fits, the block is empty rather than a
+ * partial line.
+ * @param artifacts - the scope's artifacts.
+ * @param maxBytes - byte budget for the rendered block.
+ * @returns the rendered lines and how many artifacts were dropped.
+ */
+export function renderLessonLines(
+  artifacts: readonly LessonArtifact[],
+  maxBytes: number,
+): { text: string; dropped: number } {
+  const ordered = orderedLessons(artifacts)
+  for (let kept = ordered.length; kept > 0; kept -= 1) {
+    const text = lessonLines(ordered, kept)
+    if (byteLength(text) <= maxBytes) return { text, dropped: ordered.length - kept }
+  }
+  return { text: '', dropped: ordered.length }
 }
 
 function computeEvolutionBrief(input: EvolutionBriefInput, maxBytes: number): ComputedBrief {
@@ -115,14 +160,14 @@ function computeEvolutionBrief(input: EvolutionBriefInput, maxBytes: number): Co
     && input.context.length === 0) return { text: '', sections: [] }
   const percent = Math.floor(input.usage.usedBytes * 100 / input.usage.capacityBytes)
   const header = `# Workspace memory: ${input.title}\nDirectory: ${input.path}\nMemory usage: ${input.usage.usedBytes}/${input.usage.capacityBytes} (${percent}%)`
+  const ordered = orderedLessons(input.lessons)
   const draft: BriefDraft = {
     instructions: input.instructions,
-    lessons: input.lessons,
+    lessons: lessonLines(ordered, ordered.length),
     profile: input.profile,
     context: input.context,
     droppedItems: 0,
-    lessonsFrom: byteLength(input.lessons),
-    lessonsTo: byteLength(input.lessons),
+    droppedLessons: 0,
     profileFrom: byteLength(input.profile),
     profileTo: byteLength(input.profile),
     instructionsFrom: byteLength(input.instructions),
@@ -141,15 +186,18 @@ function computeEvolutionBrief(input: EvolutionBriefInput, maxBytes: number): Co
   draft.context = []
   draft.droppedItems = input.context.length
 
-  // Then truncate lessons, keeping profile and instructions intact.
-  if (input.lessons.length > 0) {
-    const truncated = truncateField(header, draft, maxBytes, 'lessons')
-    if (truncated !== undefined) return truncated
+  // Then drop the weakest lessons — the trailing artifacts in strongest-first
+  // order — until the block fits, keeping profile and instructions intact.
+  // Reaching `kept = 0` leaves an empty lessons block rather than a truncated
+  // one, which is what the brief renders when no artifact fits.
+  for (let kept = ordered.length - 1; kept >= 0; kept -= 1) {
+    draft.lessons = lessonLines(ordered, kept)
+    draft.droppedLessons = ordered.length - kept
+    const candidate = buildBrief(header, draft, maxBytes)
+    if (byteLength(candidate.text) <= maxBytes) return candidate
   }
 
-  // Then drop lessons and truncate the profile.
-  draft.lessons = ''
-  draft.lessonsTo = 0
+  // Then truncate the profile.
   if (input.profile.length > 0) {
     const truncated = truncateField(header, draft, maxBytes, 'profile')
     if (truncated !== undefined) return truncated
@@ -173,6 +221,9 @@ function computeEvolutionBrief(input: EvolutionBriefInput, maxBytes: number): Co
     SYSTEM_REMINDER_CLOSE,
   ].join('\n')
   if (byteLength(framedFallback) <= maxBytes) {
+    /* v8 ignore next -- reaching this fallback means some section overflowed, and every
+     * overflow path records a drop or a truncation in the notice; all four sections empty
+     * returns earlier, so the notice is never empty here. */
     return { text: framedFallback, sections: notice.length > 0 ? [{ name: 'Notice', text: notice }] : [] }
   }
   // Hard-truncated below the notice's own byte length: no section can carry
@@ -229,8 +280,8 @@ function noticeFor(draft: BriefDraft, maxBytes: number): string {
   if (draft.droppedItems > 0) {
     clauses.push(`omitted ${draft.droppedItems} context item${draft.droppedItems === 1 ? '' : 's'}`)
   }
-  if (draft.lessonsTo < draft.lessonsFrom) {
-    clauses.push(`truncated lessons from ${draft.lessonsFrom} to ${draft.lessonsTo} bytes`)
+  if (draft.droppedLessons > 0) {
+    clauses.push(`omitted ${draft.droppedLessons} lesson artifact${draft.droppedLessons === 1 ? '' : 's'}`)
   }
   if (draft.profileTo < draft.profileFrom) {
     clauses.push(`truncated profile from ${draft.profileFrom} to ${draft.profileTo} bytes`)
@@ -254,9 +305,9 @@ function truncateField(
   header: string,
   draft: BriefDraft,
   maxBytes: number,
-  field: 'lessons' | 'profile' | 'instructions',
+  field: 'profile' | 'instructions',
 ): ComputedBrief | undefined {
-  const full = field === 'lessons' ? draft.lessons : field === 'profile' ? draft.profile : draft.instructions
+  const full = field === 'profile' ? draft.profile : draft.instructions
   const originalBytes = byteLength(full)
   let low = 0
   let high = originalBytes
@@ -267,10 +318,7 @@ function truncateField(
   while (low <= high) {
     const mid = Math.floor((low + high) / 2)
     const candidate = truncateUtf8(full, mid)
-    if (field === 'lessons') {
-      draft.lessons = candidate
-      draft.lessonsTo = byteLength(candidate)
-    } else if (field === 'profile') {
+    if (field === 'profile') {
       draft.profile = candidate
       draft.profileTo = byteLength(candidate)
     } else {

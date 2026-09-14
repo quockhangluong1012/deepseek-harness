@@ -118,7 +118,9 @@ describe('evolution-memory-context composition', () => {
       const agent = await loop.create(SessionId('evolution-composition'), { provider: 'mock', model: 'mock' }, { cwd: dir })
       workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: dir, sessionIds: [agent.session.id] })
       await ctx.evolutionMemory.setInstructions(scope, 'follow the guide')
-      await ctx.evolutionMemory.addLesson(scope, 'tabs win')
+      await ctx.evolutionMemory.addArtifact(scope, {
+        statement: 'tabs win', source: 's1', conditions: '', evidence: 'fact', confidence: 0.9, scope: 'project',
+      })
 
       agent.followup(createUserMessage({ content: [{ type: 'text', text: 'hello' }], source: { kind: 'user' } }))
       await waitForIdle(ctx, agent)
