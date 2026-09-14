@@ -1933,6 +1933,9 @@ importers:
 
   packages/bundle/web-app:
     dependencies:
+      '@deepseek-ai/dsh-active-memory-context':
+        specifier: workspace:^
+        version: link:../../context/active-memory-context
       '@deepseek-ai/dsh-agent-presets':
         specifier: workspace:^
         version: link:../../preset/agent-presets
@@ -2134,6 +2137,12 @@ importers:
       '@deepseek-ai/dsh-cordis-host-runner':
         specifier: workspace:^
         version: link:../../extensions/cordis-host-runner
+      '@deepseek-ai/dsh-embeddings':
+        specifier: workspace:^
+        version: link:../../llm/embeddings
+      '@deepseek-ai/dsh-embeddings-http':
+        specifier: workspace:^
+        version: link:../../llm/embeddings-http
       '@deepseek-ai/dsh-evolution-controller':
         specifier: workspace:^
         version: link:../../evolution/evolution-controller

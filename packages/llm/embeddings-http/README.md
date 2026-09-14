@@ -41,6 +41,7 @@ English | [中文](README.zh.md)
 | `route` | `http` | Route this endpoint serves on `ctx.embeddings` |
 | `baseURL` | required | Endpoint base; `/embeddings` is appended, and a trailing slash is trimmed |
 | `model` | required | Embedding model this endpoint serves |
+| `fallbackModel` | unset | Second model retried once when the primary request fails; omit for fail-fast |
 | `apiKey` | unset | Literal bearer key; prefer `apiKeyEnv` so no secret enters a configuration file |
 | `apiKeyEnv` | unset | Credential reference resolved once per batch; omit for an endpoint that needs no key |
 | `timeoutMs` | `30000` | Deadline for one request |
@@ -65,7 +66,7 @@ The request body is `{ model, input }` with the model from the resolved spec, so
 
 ### Failure and recovery
 
-A rejected HTTP status reports the status and a bounded slice of the body. A body that is not JSON, carries no `data` array, leaves a text unanswered, places an index outside the batch, or carries a non-numeric value all fail `MALFORMED_RESPONSE` — a partially read response would otherwise be cached as if it were complete. No invariant companion is published: the endpoint is the sole authority on the vectors, so there is no second independent observation to check it against.
+A rejected HTTP status reports the status and a bounded slice of the body. A body that is not JSON, carries no `data` array, leaves a text unanswered, places an index outside the batch, or carries a non-numeric value all fail `MALFORMED_RESPONSE` — a partially read response would otherwise be cached as if it were complete. When `fallbackModel` is set, any primary failure retries the whole batch once under the fallback model (each attempt gets its own `timeoutMs`); when both fail, the error names both models and both failures. No invariant companion is published: the endpoint is the sole authority on the vectors, so there is no second independent observation to check it against.
 
 </details>
 

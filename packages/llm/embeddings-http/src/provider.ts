@@ -22,6 +22,8 @@ export interface HttpEmbeddingsOptions {
   baseURL: string
   /** Model served when a request names none. */
   model: string
+  /** Second model retried once when the primary request fails; omit for fail-fast. */
+  fallbackModel?: string | undefined
   /** Deadline for one request in milliseconds. */
   timeoutMs: number
   /** Resolves the bearer key per request, so a rotated credential reaches the next call; undefined sends none. */
@@ -90,6 +92,7 @@ export class HttpEmbeddingsProvider extends EmbeddingsProvider {
   private readonly endpoint: string
   private readonly timeoutMs: number
   private readonly apiKey: (() => Promise<string | undefined>) | undefined
+  private readonly fallbackModel: string | undefined
   private readonly send: typeof globalThis.fetch
 
   /**
@@ -101,11 +104,13 @@ export class HttpEmbeddingsProvider extends EmbeddingsProvider {
     this.endpoint = `${options.baseURL.replace(/\/+$/, '')}/embeddings`
     this.timeoutMs = options.timeoutMs
     this.apiKey = options.apiKey
+    this.fallbackModel = options.fallbackModel
     this.send = options.fetch ?? globalThis.fetch
   }
 
   /**
-   * Embed one batch against the endpoint.
+   * Embed one batch, retrying once with the fallback model when the primary
+   * request fails. Each attempt gets its own `timeoutMs` deadline.
    * @param spec - the resolved route and model.
    * @param texts - texts to embed, in the order their vectors must return.
    * @param signal - cancels the request, including a caller abort.
@@ -113,6 +118,37 @@ export class HttpEmbeddingsProvider extends EmbeddingsProvider {
    */
   async embed(
     spec: EmbeddingSpec,
+    texts: readonly string[],
+    signal?: AbortSignal,
+  ): Promise<readonly (readonly number[])[]> {
+    try {
+      return await this.post(spec.model, spec.provider, texts, signal)
+    } catch (primary: unknown) {
+      const fallback = this.fallbackModel
+      if (fallback === undefined) throw primary
+      try {
+        return await this.post(fallback, spec.provider, texts, signal)
+      } catch (fallbackError: unknown) {
+        throw new EmbeddingsError(
+          `embedding endpoint ${this.endpoint} failed for model "${spec.model}" (${String(primary)})`
+          + ` and fallback "${fallback}" (${String(fallbackError)})`,
+          'HTTP_ERROR',
+        )
+      }
+    }
+  }
+
+  /**
+   * Post one batch for one model and read its vectors.
+   * @param model - model name sent as the request's `model`.
+   * @param provider - provider name carried into validation errors.
+   * @param texts - texts to embed, in the order their vectors must return.
+   * @param signal - cancels the request, including a caller abort.
+   * @returns one vector per text, in the same order.
+   */
+  private async post(
+    model: string,
+    provider: string,
     texts: readonly string[],
     signal?: AbortSignal,
   ): Promise<readonly (readonly number[])[]> {
@@ -124,7 +160,7 @@ export class HttpEmbeddingsProvider extends EmbeddingsProvider {
         'content-type': 'application/json',
         ...(key === undefined ? {} : { authorization: `Bearer ${key}` }),
       },
-      body: JSON.stringify({ model: spec.model, input: texts }),
+      body: JSON.stringify({ model, input: texts }),
       signal: call.signal,
     })
     if (!response.ok) {
@@ -142,6 +178,6 @@ export class HttpEmbeddingsProvider extends EmbeddingsProvider {
         cause: error,
       })
     }
-    return readVectors(spec.provider, payload, texts.length)
+    return readVectors(provider, payload, texts.length)
   }
 }

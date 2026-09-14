@@ -42,6 +42,12 @@ export interface Config {
   baseURL: string
   /** Embedding model this endpoint serves. */
   model: string
+  /**
+   * Second model retried once when the primary request fails (a backup
+   * `:free`-tier model, for example). Omit for fail-fast. Each attempt gets
+   * its own `timeoutMs` deadline.
+   */
+  fallbackModel?: string
   /** Literal bearer key; prefer {@link Config.apiKeyEnv} so no secret enters configuration files. */
   apiKey?: string
   /** Credential reference resolved per batch; omit for an endpoint that needs no key. */
@@ -55,6 +61,7 @@ export const Config: z<Config> = z.object({
   route: z.string().default(DEFAULT_EMBEDDINGS_ROUTE),
   baseURL: z.string().required(),
   model: z.string().required(),
+  fallbackModel: z.string(),
   apiKey: z.string().role('secret'),
   apiKeyEnv: z.string().role('credential-ref'),
   timeoutMs: z.number().step(1).min(1).default(DEFAULT_EMBEDDINGS_TIMEOUT_MS),
@@ -90,6 +97,7 @@ export function apply(ctx: Context, config: Config): void {
   ctx.embeddings.registerProvider([route], new HttpEmbeddingsProvider({
     baseURL: config.baseURL,
     model: config.model,
+    fallbackModel: config.fallbackModel,
     timeoutMs: config.timeoutMs ?? DEFAULT_EMBEDDINGS_TIMEOUT_MS,
     apiKey: resolveKey,
   }))

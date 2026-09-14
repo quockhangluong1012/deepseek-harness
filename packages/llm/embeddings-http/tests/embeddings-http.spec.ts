@@ -104,6 +104,39 @@ describe('http embeddings provider', () => {
     await expect(provider.embed(spec, ['x'])).rejects.toThrow('answered 429: quota exhausted')
   })
 
+  it('retries once with the fallback model when the primary request fails', async () => {
+    let calls = 0
+    const { provider, sent } = providerHarness(
+      () => {
+        calls += 1
+        return calls === 1
+          ? new Response('overloaded', { status: 529 })
+          : jsonResponse({ data: [{ embedding: [2] }] })
+      },
+      { fallbackModel: 'fallback-model' },
+    )
+    const vectors = await provider.embed(spec, ['x'])
+    expect(vectors).toEqual([[2]])
+    expect(sent.map(request => (JSON.parse(request.init.body as string) as { model: string }).model)).toEqual(['embed-model', 'fallback-model'])
+  })
+  it('leaves the fallback untouched when the primary request succeeds', async () => {
+    const { provider, sent } = providerHarness(() => jsonResponse({ data: [{ embedding: [1] }] }), {
+      fallbackModel: 'fallback-model',
+    })
+    await provider.embed(spec, ['x'])
+    expect(sent).toHaveLength(1)
+  })
+
+  it('reports both models when the primary and the fallback fail', async () => {
+    const { provider } = providerHarness(() => new Response('down', { status: 500 }), {
+      fallbackModel: 'fallback-model',
+    })
+    await expect(provider.embed(spec, ['x'])).rejects.toThrow(
+      'failed for model "embed-model" (EmbeddingsError: embedding endpoint https://embed.example/v1/embeddings answered 500: down)'
+      + ' and fallback "fallback-model" (EmbeddingsError: embedding endpoint https://embed.example/v1/embeddings answered 500: down)',
+    )
+  })
+
   it('refuses a body that is not JSON', async () => {
     const { provider } = providerHarness(() => new Response('not json', { status: 200 }))
     await expect(provider.embed(spec, ['x'])).rejects.toThrow('did not return JSON')
@@ -164,6 +197,30 @@ describe('http embeddings plugin', () => {
     expect(named.embeddings.resolve({ texts: [] })).toEqual({ provider: 'custom', model: 'm' })
     const standard = await harness({ baseURL: 'https://e.example', model: 'm' })
     expect(standard.embeddings.resolve({ texts: [] })).toEqual({ provider: 'http', model: 'm' })
+  })
+
+  it('retries with the configured fallback model through the mounted service', async () => {
+    const models: string[] = []
+    let calls = 0
+    const original = globalThis.fetch
+    globalThis.fetch = ((_url: string | URL, init?: RequestInit) => {
+      calls += 1
+      models.push((JSON.parse(init?.body as string) as { model: string }).model)
+      return Promise.resolve(calls === 1
+        ? new Response('overloaded', { status: 529 })
+        : jsonResponse({ data: [{ embedding: [1] }] }))
+    }) as unknown as typeof globalThis.fetch
+    try {
+      const { ctx } = await harness({
+        baseURL: 'https://e.example',
+        model: 'primary-model',
+        fallbackModel: 'fallback-model',
+      })
+      await expect(embeddingsOf(ctx).embed({ texts: ['x'] })).resolves.toMatchObject({ vectors: [[1]] })
+    } finally {
+      globalThis.fetch = original
+    }
+    expect(models).toEqual(['primary-model', 'fallback-model'])
   })
 
   it('resolves a configured credential reference for every batch', async () => {

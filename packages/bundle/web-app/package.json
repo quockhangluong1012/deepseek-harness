@@ -39,6 +39,7 @@
     }
   },
   "dependencies": {
+    "@deepseek-ai/dsh-active-memory-context": "workspace:^",
     "@deepseek-ai/dsh-agent-presets": "workspace:^",
     "@deepseek-ai/dsh-api-remotes": "workspace:^",
     "@deepseek-ai/dsh-api-session-controller": "workspace:^",
@@ -106,6 +107,8 @@
     "@deepseek-ai/dsh-command-evolution": "workspace:^",
     "@deepseek-ai/dsh-cordis-client-runner": "workspace:^",
     "@deepseek-ai/dsh-cordis-host-runner": "workspace:^",
+    "@deepseek-ai/dsh-embeddings": "workspace:^",
+    "@deepseek-ai/dsh-embeddings-http": "workspace:^",
     "@deepseek-ai/dsh-evolution-controller": "workspace:^",
     "@deepseek-ai/dsh-evolution-curator": "workspace:^",
     "@deepseek-ai/dsh-evolution-dreaming": "workspace:^",

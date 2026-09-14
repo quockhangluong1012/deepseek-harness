@@ -41,6 +41,7 @@ kind: "package-reference"
 | `route` | `http` | 本后端在 `ctx.embeddings` 上服务的路由 |
 | `baseURL` | 必填 | 后端基址；会追加 `/embeddings`，并去掉末尾斜杠 |
 | `model` | 必填 | 本后端服务的嵌入模型 |
+| `fallbackModel` | 未设 | 主请求失败时重试一次的第二个模型；省略则快速失败 |
 | `apiKey` | 未设 | 字面 bearer 密钥；优先用 `apiKeyEnv`，以免密钥进入配置文件 |
 | `apiKeyEnv` | 未设 | 每批解析一次的凭据引用；不需要密钥的后端可省略 |
 | `timeoutMs` | `30000` | 单次请求的截止时间 |
@@ -65,7 +66,7 @@ kind: "package-reference"
 
 ### 失败与恢复
 
-被拒绝的 HTTP 状态会报告状态码与响应体的一段有界切片。响应体不是 JSON、没有 `data` 数组、遗漏某个文本、把索引放在批次之外，或带有非数值，全部以 `MALFORMED_RESPONSE` 失败——否则被部分读取的响应会被当作完整结果缓存下来。不发布 invariant 伴生包：后端是向量的唯一权威，不存在可供核对的第二个独立观测。
+被拒绝的 HTTP 状态会报告状态码与响应体的一段有界切片。响应体不是 JSON、没有 `data` 数组、遗漏某个文本、把索引放在批次之外，或带有非数值，全部以 `MALFORMED_RESPONSE` 失败——否则被部分读取的响应会被当作完整结果缓存下来。设置了 `fallbackModel` 时，主失败会让整批在备用模型下重试一次（每次尝试各有自己的 `timeoutMs`）；两者都失败时，错误同时写明两个模型与两次失败。不发布 invariant 伴生包：后端是向量的唯一权威，不存在可供核对的第二个独立观测。
 
 </details>
 

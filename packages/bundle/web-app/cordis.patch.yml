@@ -122,6 +122,28 @@
     - id: evolution-graph
       name: '@deepseek-ai/dsh-evolution-graph'
 
+    # Semantic memory (§14): the embeddings registry, one OpenRouter provider,
+    # and the pre-step search that injects sibling-session briefs. The key
+    # resolves from the launching environment per batch (no credentials seam
+    # needed); without OPENROUTER_API_KEY the vector channel degrades to no
+    # results and turns run unchanged. The 0.7 threshold is calibrated for
+    # the primary model below; switching models means recalibrating it.
+    - id: embeddings
+      name: '@deepseek-ai/dsh-embeddings'
+
+    - id: embeddings-http
+      name: '@deepseek-ai/dsh-embeddings-http'
+      config:
+        baseURL: 'https://openrouter.ai/api/v1'
+        model: 'nvidia/llama-nemotron-embed-vl-1b-v2:free'
+        fallbackModel: 'nvidia/nemotron-3-embed-1b:free'
+        apiKeyEnv: 'OPENROUTER_API_KEY'
+
+    - id: active-memory-context
+      name: '@deepseek-ai/dsh-active-memory-context'
+      config:
+        maxBytes: 16384
+
     # Evolution family (`specs/evolutionary-harness.spec.md`): per-scope memory,
     # the background reviewer, the brief injector, skill telemetry and
     # management, the curator pass, and the governance commands. The reviewer

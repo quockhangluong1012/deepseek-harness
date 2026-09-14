@@ -684,6 +684,12 @@ export interface Config {
   baseURL: string
   /** Embedding model this endpoint serves. */
   model: string
+  /**
+   * Second model retried once when the primary request fails (a backup
+   * `:free`-tier model, for example). Omit for fail-fast. Each attempt gets
+   * its own `timeoutMs` deadline.
+   */
+  fallbackModel?: string
   /** Literal bearer key; prefer {@link Config.apiKeyEnv} so no secret enters configuration files. */
   apiKey?: string
   /** Credential reference resolved per batch; omit for an endpoint that needs no key. */
@@ -3852,9 +3858,9 @@ export interface Config {
   /**
    * Minimum billed requests today before the alert can fire, so a thin
    * early-day sample cannot trip it. Meaningful only alongside
-   * {@link cacheHitAlertThreshold}.
+   * {@link cacheHitAlertThreshold}. Defaults to `20` when unset.
    */
-  readonly cacheHitAlertMinRequests: number
+  readonly cacheHitAlertMinRequests?: number
 }
 ```
 
