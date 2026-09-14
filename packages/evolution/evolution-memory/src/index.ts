@@ -416,12 +416,18 @@ function freshArtifact(candidate: LessonArtifactInput, id: string, now: string):
  * with the same identity cannot be told apart from the first; under any other
  * strategy the artifact `pickMergeTarget` selected absorbs the candidate. A
  * candidate with no selected target becomes its own artifact.
+ *
+ * `target` was selected outside the write chain, from the record as it read
+ * before the similarity lookup awaited, so the artifact it names is resolved
+ * again here against the record actually being written: a concurrent write can
+ * have changed the matched artifact or removed it entirely. A removed match
+ * falls back to the candidate's own identity and then, absent both, to a fresh
+ * artifact, so a candidate is never dropped by a write that reports success.
  * @param record - current record value.
  * @param candidate - validated caller-supplied artifact fields.
  * @param strategy - how the candidate folds into a selected artifact.
  * @param target - the artifact selected for this candidate outside the write
- * chain, where the similarity lookup can await; undefined when nothing
- * matched closely enough.
+ * chain; undefined when nothing matched closely enough.
  * @param now - ISO-8601 instant to stamp.
  * @returns the candidate record without the family stamp, or `record` itself
  * when the add stores nothing.
@@ -434,12 +440,14 @@ function addArtifactTo(
   now: string,
 ): EvolutionMemoryRecord {
   const id = artifactIdOf(candidate)
-  if (target !== undefined) {
-    const merged = mergeArtifact(target, candidate, strategy, now)
-    return { ...record, agentLessons: record.agentLessons.map(artifact => artifact.id === target.id ? merged : artifact) }
+  const matched = record.agentLessons.find(artifact => artifact.id === target?.id)
+    ?? record.agentLessons.find(artifact => artifact.id === id)
+  if (matched === undefined) {
+    return { ...record, agentLessons: [...record.agentLessons, freshArtifact(candidate, id, now)] }
   }
-  if (record.agentLessons.some(artifact => artifact.id === id)) return record
-  return { ...record, agentLessons: [...record.agentLessons, freshArtifact(candidate, id, now)] }
+  if (strategy === 'keep_both') return record
+  const merged = mergeArtifact(matched, candidate, strategy, now)
+  return { ...record, agentLessons: record.agentLessons.map(artifact => artifact.id === matched.id ? merged : artifact) }
 }
 
 /**

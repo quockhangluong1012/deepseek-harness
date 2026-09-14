@@ -83,6 +83,12 @@ interface FakeEmbeddings {
   batches: string[][]
   /** Vectors keyed by text; a text with no entry contributes no vector. */
   vectors: Map<string, readonly number[]>
+  /**
+   * Runs inside the embed call, which is the window between the store reading
+   * the record and entering its write chain — the seam a concurrent writer
+   * lands in.
+   */
+  onEmbed?: () => Promise<void>
 }
 
 async function harness(embeddings?: FakeEmbeddings) {
@@ -96,6 +102,7 @@ async function harness(embeddings?: FakeEmbeddings) {
     ctx.provide('embeddings', {
       embed: async ({ texts }: { texts: readonly string[] }) => {
         embeddings.batches.push([...texts])
+        await embeddings.onEmbed?.()
         const vectors: Array<readonly number[]> = []
         for (const text of texts) {
           const vector = embeddings.vectors.get(text)
@@ -211,6 +218,49 @@ describe('evolution-memory addArtifact merging', () => {
     const after = store.read(id)
     expect(after?.agentLessons).toHaveLength(1)
     expect(after?.agentLessons[0]).toMatchObject({ id: 'use postgres', conditions: 'database work; rechecked' })
+    await fiber.dispose()
+  })
+
+  it('stores the candidate when the matched artifact is removed before the add lands', async () => {
+    const embeddings: FakeEmbeddings = { batches: [], vectors: vectorsOf([['use postgres 15', 1], ['use postgres', 0.93]]) }
+    const { fiber, store } = await harness(embeddings)
+    const id = scope()
+    await store.addArtifact(id, storeCandidate('use postgres', { conditions: 'database work' }))
+    // The removal lands in the window between the store's pre-read and its
+    // write, so the resolved target no longer exists by the time it is used.
+    embeddings.onEmbed = async () => { await store.removeArtifact(id, 'use postgres') }
+    const record = await store.addArtifact(id, storeCandidate('use postgres 15', { conditions: 'rechecked' }), 'merge')
+    expect(record.agentLessons.map(entry => entry.statement)).toEqual(['use postgres 15'])
+    expect(record.agentLessons[0]).toMatchObject({
+      id: artifactKey('use postgres 15'), statement: 'use postgres 15', conditions: 'rechecked',
+      validationCount: 0, createdAt: record.agentLessons[0]?.updatedAt,
+    })
+    expect(store.read(id)?.agentLessons).toEqual(record.agentLessons)
+    await fiber.dispose()
+  })
+
+  it('merges from the record at write time, not from the snapshot the target came from', async () => {
+    const embeddings: FakeEmbeddings = { batches: [], vectors: vectorsOf([['use postgres 15', 1], ['use postgres', 0.93]]) }
+    const { fiber, store } = await harness(embeddings)
+    const id = scope()
+    const seeded = await store.addArtifact(id, storeCandidate('use postgres', { conditions: 'database work', confidence: 0.6 }))
+    const createdAt = seeded.agentLessons[0]?.createdAt as string
+    // The edit lands after the target was measured, before the add writes.
+    embeddings.onEmbed = async () => {
+      await store.updateArtifact(id, 'use postgres', { conditions: 'concurrent', confidence: 0.95 })
+    }
+    const record = await store.addArtifact(
+      id,
+      storeCandidate('use postgres 15', { conditions: 'rechecked', confidence: 0.9 }),
+      'merge',
+    )
+    expect(record.agentLessons).toHaveLength(1)
+    // The concurrent edit's conditions are the ones unioned, so a merge from
+    // the stale snapshot ('database work; rechecked', 0.9) cannot pass.
+    expect(record.agentLessons[0]).toMatchObject({
+      id: 'use postgres', statement: 'use postgres', conditions: 'concurrent; rechecked', confidence: 0.95, createdAt,
+    })
+    expect(store.read(id)?.agentLessons).toEqual(record.agentLessons)
     await fiber.dispose()
   })
 })
