@@ -1111,6 +1111,266 @@ describe('evolution-memory store', () => {
   })
 })
 
+describe('evolution-memory extraction decisions', () => {
+  it('applies a whole batch in one write with provenance', async () => {
+    const { fiber, store } = await harness()
+    const id = scope()
+    const seeded = await store.addArtifact(id, candidate('use postgres', { conditions: 'database work' }))
+    const contradicted = seeded.agentLessons[0]?.id as string
+    const extraction: EvolutionExtraction = {
+      at: '2026-09-14T00:00:00.000Z',
+      sessionId: 's9',
+      provider: 'p',
+      model: 'm',
+      origin: 'background_review',
+      inputBytes: 7,
+      truncated: false,
+    }
+    const record = await store.applyExtractionDecisions(id, [
+      { kind: 'confirms', artifactId: contradicted },
+      { kind: 'contradicts', artifactId: contradicted, confidence: 0.2 },
+      { kind: 'new', candidate: candidate('prefers terse answers') },
+    ], extraction)
+    expect(record.agentLessons.map(entry => entry.statement)).toEqual(['use postgres', 'prefers terse answers'])
+    expect(record.agentLessons[0]).toMatchObject({
+      validationCount: 1,
+      refutationCount: 1,
+      confidence: 0.2,
+      conditions: 'database work',
+    })
+    expect(record.agentLessons[1]).toMatchObject({ validationCount: 0, refutationCount: 0 })
+    expect(record.lastExtraction).toEqual(extraction)
+    expect(record.memoryUpdatedAt).toBe(record.lessonsUpdatedAt)
+    await fiber.dispose()
+  })
+
+  it('folds a new decision into the artifact its statement already keys', async () => {
+    const { fiber, store } = await harness()
+    const id = scope()
+    await store.addArtifact(id, candidate('use postgres', { conditions: 'database work' }))
+    const record = await store.applyExtractionDecisions(id, [
+      {
+        kind: 'new',
+        candidate: candidate('Use Postgres', { conditions: 'database work only', confidence: 0.95 }),
+        strategy: 'overwrite',
+      },
+    ])
+    // The model called it new, but an artifact outside the list it was shown
+    // already carries the identity, so it merges instead of accumulating.
+    expect(record.agentLessons).toHaveLength(1)
+    expect(record.agentLessons[0]).toMatchObject({
+      id: 'use postgres',
+      statement: 'use postgres',
+      conditions: 'database work only',
+      confidence: 0.95,
+    })
+    await fiber.dispose()
+  })
+
+  it('stores nothing for a new decision that duplicates under keep_both', async () => {
+    const { fiber, store } = await harness()
+    const id = scope()
+    await store.addArtifact(id, candidate('use postgres'))
+    const before = store.read(id)
+    const record = await store.applyExtractionDecisions(id, [
+      { kind: 'new', candidate: candidate('Use Postgres'), strategy: 'keep_both' },
+    ])
+    expect(record.agentLessons).toEqual(before?.agentLessons)
+    await fiber.dispose()
+  })
+
+  it('records an empty batch as a pass that found nothing', async () => {
+    const { fiber, store } = await harness()
+    const id = scope()
+    await store.addArtifact(id, candidate('use postgres'))
+    const before = store.read(id)
+    const extraction: EvolutionExtraction = {
+      at: '2026-09-14T00:00:00.000Z',
+      sessionId: 's9',
+      provider: 'p',
+      model: 'm',
+      origin: 'foreground',
+      inputBytes: 7,
+      truncated: false,
+    }
+    const record = await store.applyExtractionDecisions(id, [], extraction)
+    expect(record.agentLessons).toEqual(before?.agentLessons)
+    expect(record.lastExtraction).toEqual(extraction)
+    expect(record.memoryUpdatedAt).toBe(record.lessonsUpdatedAt)
+    await fiber.dispose()
+  })
+
+  it('seeds an absent scope from a batch that adds a fact', async () => {
+    const { fiber, store } = await harness()
+    const id = scope('fresh')
+    expect(store.read(id)).toBeUndefined()
+    const record = await store.applyExtractionDecisions(id, [
+      { kind: 'new', candidate: candidate('prefers terse answers') },
+    ])
+    expect(record.agentLessons.map(entry => entry.statement)).toEqual(['prefers terse answers'])
+    expect(record.agentLessons[0]?.validationCount).toBe(0)
+    await fiber.dispose()
+  })
+
+  it('applies a batch without stamping provenance the caller did not supply', async () => {
+    const { fiber, store } = await harness()
+    const id = scope()
+    await store.addArtifact(id, candidate('use postgres'))
+    const record = await store.applyExtractionDecisions(id, [{ kind: 'confirms', artifactId: 'use postgres' }])
+    expect(record.agentLessons[0]?.validationCount).toBe(1)
+    expect(record.lastExtraction).toBeNull()
+    await fiber.dispose()
+  })
+
+  it('rejects a batch past the lessons cap without mutating', async () => {
+    const { fiber, store } = await harness({ capacityBytes: 4096, maxAgentBytes: 400 })
+    const id = scope()
+    const seeded = await store.addArtifact(id, candidate('kept'))
+    const kept = seeded.agentLessons[0]?.id as string
+    const before = store.read(id)
+    await expect(store.applyExtractionDecisions(id, [
+      { kind: 'confirms', artifactId: kept },
+      { kind: 'new', candidate: candidate('x'.repeat(400)) },
+    ])).rejects.toMatchObject({ code: 'evolution/too-large' })
+    expect(store.read(id)).toEqual(before)
+    await fiber.dispose()
+  })
+
+  it('refuses a decision outside the vocabulary without mutating', async () => {
+    const { fiber, store } = await harness()
+    const id = scope()
+    await store.addArtifact(id, candidate('kept'))
+    const before = store.read(id)
+    await expect(store.applyExtractionDecisions(id, [
+      { kind: 'contradicts', artifactId: 'kept', confidence: 2 },
+    ])).rejects.toThrow()
+    expect(store.read(id)).toEqual(before)
+    await fiber.dispose()
+  })
+
+  it('stages a whole batch and applies it on approval', async () => {
+    const { fiber, store } = await harness()
+    const id = scope()
+    await store.addArtifact(id, candidate('use postgres'))
+    const staged = await store.stageWrite({
+      scopeId: id,
+      kind: 'memory',
+      op: 'applyDecisions',
+      payload: artifactPayload({
+        decisions: [
+          { kind: 'confirms', artifactId: 'use postgres' },
+          { kind: 'new', candidate: candidate('prefers terse answers') },
+        ],
+        extraction: {
+          at: '2026-09-14T00:00:00.000Z',
+          sessionId: 's9',
+          provider: 'p',
+          model: 'm',
+          origin: 'background_review',
+          inputBytes: 7,
+          truncated: false,
+        },
+      }),
+      originSessionId: 's9',
+      gist: 'N confirms, M contradicts, K new',
+    })
+    await store.approveStaged(staged.id)
+    const record = store.read(id)
+    expect(record?.agentLessons.map(entry => entry.statement)).toEqual(['use postgres', 'prefers terse answers'])
+    expect(record?.agentLessons[0]?.validationCount).toBe(1)
+    expect(record?.lastExtraction).toMatchObject({ sessionId: 's9', origin: 'background_review' })
+    expect(record?.staged).toEqual([])
+    expect(record?.resolutions?.[0]).toMatchObject({ op: 'applyDecisions', decision: 'approved' })
+    await fiber.dispose()
+  })
+
+  it('folds a staged new decision into the artifact it already matches', async () => {
+    const { fiber, store } = await harness()
+    const id = scope()
+    await store.addArtifact(id, candidate('use postgres', { conditions: 'database work' }))
+    const staged = await store.stageWrite({
+      scopeId: id,
+      kind: 'memory',
+      op: 'applyDecisions',
+      payload: artifactPayload({
+        decisions: [
+          {
+            kind: 'new',
+            candidate: candidate('Use Postgres', { conditions: 'database work only' }),
+            strategy: 'merge',
+          },
+        ],
+      }),
+      originSessionId: 's1',
+      gist: 'g',
+    })
+    await store.approveStaged(staged.id)
+    const record = store.read(id)
+    expect(record?.agentLessons).toHaveLength(1)
+    expect(record?.agentLessons[0]).toMatchObject({ conditions: 'database work; database work only' })
+    await fiber.dispose()
+  })
+
+  it('leaves the artifacts alone when a staged batch is rejected', async () => {
+    const { fiber, store } = await harness()
+    const id = scope()
+    await store.addArtifact(id, candidate('use postgres'))
+    const before = store.read(id)
+    const staged = await store.stageWrite({
+      scopeId: id,
+      kind: 'memory',
+      op: 'applyDecisions',
+      payload: artifactPayload({
+        decisions: [
+          { kind: 'contradicts', artifactId: 'use postgres', statement: 'use mysql' },
+          { kind: 'new', candidate: candidate('prefers terse answers') },
+        ],
+      }),
+      originSessionId: 's1',
+      gist: 'g',
+    })
+    await store.rejectStaged(staged.id)
+    const after = store.read(id)
+    expect(after?.agentLessons).toEqual(before?.agentLessons)
+    expect(after?.staged).toEqual([])
+    expect(after?.resolutions?.[0]).toMatchObject({ op: 'applyDecisions', decision: 'rejected' })
+    await fiber.dispose()
+  })
+
+  it('keeps a staged batch that a cap or a malformed decision rejects', async () => {
+    const { fiber, store } = await harness({ capacityBytes: 4096, maxAgentBytes: 400 })
+    const id = scope()
+    await store.addArtifact(id, candidate('kept'))
+    const before = store.read(id)
+    const overCap = await store.stageWrite({
+      scopeId: id,
+      kind: 'memory',
+      op: 'applyDecisions',
+      payload: artifactPayload({ decisions: [{ kind: 'new', candidate: candidate('x'.repeat(400)) }] }),
+      originSessionId: 's1',
+      gist: 'g',
+    })
+    await expect(store.approveStaged(overCap.id)).rejects.toMatchObject({ code: 'evolution/too-large' })
+    const missing = await store.stageWrite({
+      scopeId: id, kind: 'memory', op: 'applyDecisions', payload: {}, originSessionId: 's1', gist: 'g',
+    })
+    await expect(store.approveStaged(missing.id)).rejects.toThrow("must carry an array 'decisions'")
+    const malformed = await store.stageWrite({
+      scopeId: id,
+      kind: 'memory',
+      op: 'applyDecisions',
+      payload: artifactPayload({ decisions: [{ kind: 'unrelated', artifactId: 'kept' }] }),
+      originSessionId: 's1',
+      gist: 'g',
+    })
+    await expect(store.approveStaged(malformed.id)).rejects.toThrow()
+    expect(store.read(id)?.agentLessons).toEqual(before?.agentLessons)
+    expect(store.read(id)?.lessonsUpdatedAt).toBe(before?.lessonsUpdatedAt)
+    expect(store.read(id)?.staged).toHaveLength(3)
+    await fiber.dispose()
+  })
+})
+
 describe('evolution-memory decisions and family stamps', () => {
   it('records the decided entry on both decisions', async () => {
     const { fiber, store } = await harness()

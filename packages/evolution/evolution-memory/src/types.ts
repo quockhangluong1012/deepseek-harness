@@ -9,6 +9,7 @@ import type { Branded } from '@deepseek-ai/dsh-brand'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import type {} from '@deepseek-ai/dsh-typert-protocol'
 import type { LessonArtifact, LessonArtifactInput, LessonArtifactPatch, LessonMergeStrategy } from './lesson-artifact.ts'
+import type { LessonDecision } from './decisions.ts'
 
 // The artifact vocabulary is re-exported here so a browser-safe consumer —
 // the controller's wire face, for one — can name the artifact types without
@@ -109,6 +110,14 @@ export interface MemoryStagedRemoveArtifactPayload {
  */
 export interface MemoryStagedReplaceArtifactsPayload {
   candidates: LessonArtifactInput[]
+}
+
+/**
+ * Payload for the `applyDecisions` staged op: one extraction pass's whole
+ * decision batch, applied as a single write.
+ */
+export interface MemoryStagedApplyDecisionsPayload {
+  decisions: LessonDecision[]
 }
 
 /** One staged write awaiting approval. Staged entries never count toward capacity. */
