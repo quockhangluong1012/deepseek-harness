@@ -1,9 +1,9 @@
 /**
  * Durable per-scope evolution memory store (`ctx.evolutionMemory`): the
- * user-authored instructions, the model-maintained lessons and profile
- * documents with provenance and per-family stamps, attached text and file
- * context items, the produced-file index, staged writes awaiting approval,
- * and the newest-first log of decided staged entries, over the
+ * user-authored instructions, the model-maintained lesson artifacts and
+ * profile document with provenance and per-family stamps, attached text and
+ * file context items, the produced-file index, staged writes awaiting
+ * approval, and the newest-first log of decided staged entries, over the
  * `evolution_memory` domain.
  *
  * Reads are synchronous from the domain's validated memory. Every cap is
@@ -18,6 +18,8 @@ import z from '@deepseek-ai/schemastery'
 import type { KvTable } from '@deepseek-ai/dsh-storage-domain'
 import { RemoteError } from '@deepseek-ai/dsh-typert-protocol'
 import { digestOf, usedBytesOf, utf8Bytes } from './digest.ts'
+import { artifactKey, lessonArtifact, lessonArtifactInput } from './lesson-artifact.ts'
+import type { LessonArtifact, LessonArtifactInput, LessonArtifactPatch, LessonMergeStrategy } from './lesson-artifact.ts'
 import { evolutionExtraction, evolutionMemoryDomainSpec, stagedWritePayload } from './spec.ts'
 import type {
   EvolutionContextItem,
@@ -39,15 +41,25 @@ export type {
   EvolutionMemoryRecord,
   EvolutionMemoryUsage,
   EvolutionOutput,
-  MemoryStagedRemovePayload,
-  MemoryStagedReplacePayload,
+  MemoryStagedAddArtifactPayload,
+  MemoryStagedRemoveArtifactPayload,
   MemoryStagedTextPayload,
+  MemoryStagedUpdateArtifactPayload,
   StagedResolution,
   StagedWrite,
   StagedWriteInput,
 } from './types.ts'
 export { evolutionMemoryDomainSpec } from './spec.ts'
 export { digestOf, usedBytesOf, EMPTY_DIGEST, truncateUtf8, utf8Bytes } from './digest.ts'
+export { artifactKey, lessonArtifact, lessonArtifactInput, normalizeStatement, wrapLegacyLessons } from './lesson-artifact.ts'
+export type {
+  LessonArtifact,
+  LessonArtifactInput,
+  LessonArtifactPatch,
+  LessonArtifactScope,
+  LessonEvidenceKind,
+  LessonMergeStrategy,
+} from './lesson-artifact.ts'
 
 /**
  * Label prefix marking context the reviewer recalled from session history
@@ -202,7 +214,7 @@ export function resolveConfig(config: Config): ResolvedConfig {
 function freshRecord(): Omit<EvolutionMemoryRecord, 'updatedAt'> & { updatedAt?: string } {
   return {
     instructions: '',
-    agentLessons: '',
+    agentLessons: [],
     userProfile: '',
     instructionsUpdatedAt: null,
     lessonsUpdatedAt: null,
@@ -295,62 +307,8 @@ function itemNotFound(itemId: string): RemoteError<'evolution/item-not-found'> {
   return new RemoteError('evolution/item-not-found', `no evolution memory item '${itemId}'`, { itemId })
 }
 
-function ambiguousMatch(oldText: string, candidates: readonly string[]): RemoteError<'evolution/ambiguous-match'> {
-  return new RemoteError(
-    'evolution/ambiguous-match',
-    `evolution memory lesson '${oldText}' matches ${candidates.length} times; disambiguate with a longer substring`,
-    { oldText, candidates },
-  )
-}
-
 function stagedNotFound(stagedId: string): RemoteError<'evolution/staged-not-found'> {
   return new RemoteError('evolution/staged-not-found', `no staged evolution write '${stagedId}'`, { stagedId })
-}
-
-/** Fixed bound on the ambiguous-match error payload; failed writes carry excerpts, not the document. */
-const MAX_AMBIGUOUS_CANDIDATES = 5
-
-/**
- * Locate every non-overlapping occurrence of a substring.
- * @param haystack - the lessons document to search.
- * @param needle - non-empty substring to find; callers reject empties loudly.
- * @returns start offsets in ascending order.
- */
-function findOccurrences(haystack: string, needle: string): number[] {
-  const offsets: number[] = []
-  let from = 0
-  while (true) {
-    const at = haystack.indexOf(needle, from)
-    if (at === -1) return offsets
-    offsets.push(at)
-    from = at + needle.length
-  }
-}
-
-/**
- * Render one ambiguous occurrence as a bounded excerpt for the rejection payload.
- * @param lessons - the lessons document holding the match.
- * @param at - start offset of the match.
- * @param length - length of the matched substring.
- * @returns surrounding text identifying the occurrence.
- */
-function excerptAt(lessons: string, at: number, length: number): string {
-  return lessons.slice(Math.max(0, at - 30), at + length + 30)
-}
-
-/**
- * Resolve one unique lesson substring or reject loudly.
- * @param lessons - the lessons document to search.
- * @param oldText - non-empty substring expected exactly once.
- * @returns the single start offset.
- */
-function uniqueOffset(lessons: string, oldText: string): number {
-  const offsets = findOccurrences(lessons, oldText)
-  if (offsets.length === 0) throw itemNotFound(oldText)
-  if (offsets.length > 1) {
-    throw ambiguousMatch(oldText, offsets.slice(0, MAX_AMBIGUOUS_CANDIDATES).map(at => excerptAt(lessons, at, oldText.length)))
-  }
-  return offsets[0] as number
 }
 
 function checkCapacity(record: EvolutionMemoryRecord, capacityBytes: number): void {
@@ -373,18 +331,74 @@ function contextItemSize(input: EvolutionContextItemInput, resolved: ResolvedCon
 }
 
 /**
- * Pure lessons replacement with caps enforced; timestamps are the caller's job.
+ * Add one candidate to a record's artifacts. A candidate whose identity is
+ * already present replaces that artifact when the strategy says so; otherwise
+ * the candidate is appended beside it.
  * @param record - current record value.
- * @param text - replacement lessons document.
- * @param resolved - normalized caps.
- * @returns the candidate record without timestamp stamps.
+ * @param candidate - validated caller-supplied artifact fields.
+ * @param strategy - what to do when the identity is already present.
+ * @param now - ISO-8601 instant to stamp.
+ * @returns the candidate record without the family stamp.
  */
-function applySetLessons(record: EvolutionMemoryRecord, text: string, resolved: ResolvedConfig): EvolutionMemoryRecord {
-  const bytes = utf8Bytes(text)
-  if (bytes > resolved.maxAgentBytes) throw tooLarge('agentLessons', bytes, resolved.maxAgentBytes)
-  const next = { ...record, agentLessons: text }
-  checkCapacity(next, resolved.capacityBytes)
-  return next
+function addArtifactTo(
+  record: EvolutionMemoryRecord,
+  candidate: LessonArtifactInput,
+  strategy: LessonMergeStrategy,
+  now: string,
+): EvolutionMemoryRecord {
+  const existing = record.agentLessons.find(artifact => artifact.id === artifactKey(candidate.statement))
+  if (existing === undefined || strategy === 'keep_both') {
+    const fresh: LessonArtifact = {
+      ...structuredClone(candidate),
+      id: artifactKey(candidate.statement),
+      validationCount: 0,
+      refutationCount: 0,
+      createdAt: now,
+      updatedAt: now,
+    }
+    return { ...record, agentLessons: [...record.agentLessons, fresh] }
+  }
+  return patchArtifactIn(record, existing.id, candidate, now)
+}
+
+/**
+ * Apply a patch to one existing artifact. Fields the patch omits keep their
+ * stored value; identity, counters, and the creation instant never change.
+ * @param record - current record value.
+ * @param id - the addressed artifact.
+ * @param patch - caller-supplied changes; absent fields are left alone.
+ * @param now - ISO-8601 instant to stamp.
+ * @returns the candidate record without the family stamp.
+ */
+function patchArtifactIn(
+  record: EvolutionMemoryRecord,
+  id: string,
+  patch: object,
+  now: string,
+): EvolutionMemoryRecord {
+  const existing = record.agentLessons.find(artifact => artifact.id === id)
+  if (existing === undefined) throw itemNotFound(id)
+  const merged = lessonArtifact.parse({
+    ...existing,
+    ...patch,
+    id: existing.id,
+    validationCount: existing.validationCount,
+    refutationCount: existing.refutationCount,
+    createdAt: existing.createdAt,
+    updatedAt: now,
+  })
+  return { ...record, agentLessons: record.agentLessons.map(artifact => artifact.id === id ? merged : artifact) }
+}
+
+/**
+ * Drop one existing artifact.
+ * @param record - current record value.
+ * @param id - the addressed artifact.
+ * @returns the candidate record without the family stamp.
+ */
+function removeArtifactFrom(record: EvolutionMemoryRecord, id: string): EvolutionMemoryRecord {
+  if (!record.agentLessons.some(artifact => artifact.id === id)) throw itemNotFound(id)
+  return { ...record, agentLessons: record.agentLessons.filter(artifact => artifact.id !== id) }
 }
 
 /**
@@ -404,8 +418,10 @@ function applySetProfile(record: EvolutionMemoryRecord, text: string, resolved: 
 
 interface StagedPayloadFields {
   readonly text?: unknown
-  readonly oldText?: unknown
-  readonly content?: unknown
+  readonly id?: unknown
+  readonly candidate?: unknown
+  readonly patch?: unknown
+  readonly strategy?: unknown
   readonly extraction?: unknown
 }
 
@@ -417,15 +433,53 @@ function stagedFields(payload: unknown, op: string): StagedPayloadFields {
 }
 
 /**
- * Read a required string field from a staged payload.
+ * Read the required replacement text of a staged payload.
  * @param fields - payload fields.
- * @param field - field name to read.
  * @param op - staged op name for the failure message.
  * @returns the string value.
  */
-function requiredField(fields: StagedPayloadFields, field: 'text' | 'oldText' | 'content', op: string): string {
-  const value = fields[field]
-  if (typeof value !== 'string') throw new Error(`evolution-memory: staged op '${op}' payload must carry a string '${field}'`)
+function requiredText(fields: StagedPayloadFields, op: string): string {
+  const value = fields.text
+  if (typeof value !== 'string') throw new Error(`evolution-memory: staged op '${op}' payload must carry a string 'text'`)
+  return value
+}
+
+/**
+ * Read the artifact identity an `updateArtifact` or `removeArtifact` payload addresses.
+ * @param fields - payload fields.
+ * @returns the addressed artifact identity.
+ */
+function requiredId(fields: StagedPayloadFields): string {
+  const value = fields.id
+  if (typeof value !== 'string' || value.length === 0) {
+    throw new Error("evolution-memory: staged artifact op payload must carry a non-empty string 'id'")
+  }
+  return value
+}
+
+/**
+ * Read the patch object of an `updateArtifact` payload.
+ * @param fields - payload fields.
+ * @returns the candidate patch object, validated when it is merged.
+ */
+function patchFields(fields: StagedPayloadFields): object {
+  const patch = fields.patch
+  if (typeof patch !== 'object' || patch === null || Array.isArray(patch)) {
+    throw new Error("evolution-memory: staged updateArtifact payload must carry an object 'patch'")
+  }
+  return patch
+}
+
+/**
+ * Read the optional merge strategy of an `addArtifact` payload.
+ * @param value - the raw payload field.
+ * @returns the strategy, defaulting to `keep_both`.
+ */
+function mergeStrategyField(value: unknown): LessonMergeStrategy {
+  if (value === undefined) return 'keep_both'
+  if (value !== 'overwrite' && value !== 'merge' && value !== 'keep_both') {
+    throw new Error(`evolution-memory: unknown merge strategy ${JSON.stringify(value)}`)
+  }
   return value
 }
 
@@ -444,55 +498,42 @@ function withStagedExtraction(record: EvolutionMemoryRecord, fields: StagedPaylo
 
 /**
  * Apply one memory-kind staged operation to a record value. Cap and
- * substring rejections propagate with the staged entry kept.
+ * unknown-identity rejections propagate with the staged entry kept.
  * @param record - current record value.
  * @param entry - staged entry to apply.
  * @param resolved - normalized caps.
  * @returns the candidate record without timestamp stamps, plus the memory
- * family the op changed (a duplicate add changes none).
+ * family the op changed.
  */
 function applyMemoryStagedOp(
   record: EvolutionMemoryRecord,
   entry: StagedWrite,
   resolved: ResolvedConfig,
-): { record: EvolutionMemoryRecord; family: MemoryFamily | null } {
+): { record: EvolutionMemoryRecord; family: MemoryFamily } {
   const fields = stagedFields(entry.payload, entry.op)
   switch (entry.op) {
     case 'setInstructions': {
-      const next = { ...record, instructions: requiredField(fields, 'text', entry.op) }
+      const next = { ...record, instructions: requiredText(fields, entry.op) }
       checkCapacity(next, resolved.capacityBytes)
       return { record: next, family: 'instructions' }
     }
-    case 'setLessons': {
-      const next = withStagedExtraction(applySetLessons(record, requiredField(fields, 'text', entry.op), resolved), fields)
-      return { record: next, family: 'lessons' }
+    case 'addArtifact': {
+      const candidate = lessonArtifactInput.parse(fields.candidate)
+      const strategy = mergeStrategyField(fields.strategy)
+      const next = addArtifactTo(record, candidate, strategy, new Date().toISOString())
+      checkCapacity(next, resolved.capacityBytes)
+      return { record: withStagedExtraction(next, fields), family: 'lessons' }
     }
-    case 'addLesson': {
-      const text = requiredField(fields, 'text', entry.op)
-      if (text.length === 0) throw new Error(`evolution-memory: staged op '${entry.op}' payload 'text' must be non-empty`)
-      if (record.agentLessons.includes(text)) return { record, family: null }
-      const joined = record.agentLessons === '' ? text : `${record.agentLessons}\n${text}`
-      const next = withStagedExtraction(applySetLessons(record, joined, resolved), fields)
-      return { record: next, family: 'lessons' }
+    case 'updateArtifact': {
+      const next = patchArtifactIn(record, requiredId(fields), patchFields(fields), new Date().toISOString())
+      checkCapacity(next, resolved.capacityBytes)
+      return { record: withStagedExtraction(next, fields), family: 'lessons' }
     }
-    case 'replaceLesson': {
-      const oldText = requiredField(fields, 'oldText', entry.op)
-      const content = requiredField(fields, 'content', entry.op)
-      if (oldText.length === 0) throw new Error(`evolution-memory: staged op '${entry.op}' payload 'oldText' must be non-empty`)
-      const at = uniqueOffset(record.agentLessons, oldText)
-      const joined = record.agentLessons.slice(0, at) + content + record.agentLessons.slice(at + oldText.length)
-      const next = withStagedExtraction(applySetLessons(record, joined, resolved), fields)
-      return { record: next, family: 'lessons' }
-    }
-    case 'removeLesson': {
-      const oldText = requiredField(fields, 'oldText', entry.op)
-      if (oldText.length === 0) throw new Error(`evolution-memory: staged op '${entry.op}' payload 'oldText' must be non-empty`)
-      const at = uniqueOffset(record.agentLessons, oldText)
-      const joined = record.agentLessons.slice(0, at) + record.agentLessons.slice(at + oldText.length)
-      return { record: { ...record, agentLessons: joined }, family: 'lessons' }
+    case 'removeArtifact': {
+      return { record: removeArtifactFrom(record, requiredId(fields)), family: 'lessons' }
     }
     case 'setUserProfile': {
-      const next = withStagedExtraction(applySetProfile(record, requiredField(fields, 'text', entry.op), resolved), fields)
+      const next = withStagedExtraction(applySetProfile(record, requiredText(fields, entry.op), resolved), fields)
       return { record: next, family: 'profile' }
     }
     default:
@@ -593,79 +634,66 @@ export class EvolutionMemoryStore extends Service {
    * @returns the stored record.
    */
   async setInstructions(id: EvolutionScopeId, instructions: string): Promise<EvolutionMemoryRecord> {
-    const current = this.requireTable().get(storageKey(id) as EvolutionScopeId)
-    const priorItems = current === undefined
-      ? 0
-      : current.contextItems.reduce((sum, item) => sum + item.sizeBytes, 0)
-    const nextUsed = utf8Bytes(instructions) + utf8Bytes(current?.agentLessons ?? '') + utf8Bytes(current?.userProfile ?? '') + priorItems
-    if (nextUsed > this.resolved.capacityBytes) throw capacityExceeded(nextUsed, this.resolved.capacityBytes)
-    const now = new Date().toISOString()
-    return this.write(id, () => ({ instructions, instructionsUpdatedAt: now }))
-  }
-
-  /**
-   * Replace the whole lessons document by hand or from extraction.
-   * @param id - scope identity.
-   * @param text - replacement lessons document.
-   * @param extraction - provenance when model-written.
-   * @returns the stored record.
-   */
-  async setLessons(id: EvolutionScopeId, text: string, extraction?: EvolutionExtraction): Promise<EvolutionMemoryRecord> {
-    const now = new Date().toISOString()
-    return this.write(id, record => stampFamily({
-      ...applySetLessons(record, text, this.resolved),
-      ...extraction === undefined ? {} : { lastExtraction: structuredClone(extraction) },
-    }, 'lessons', now))
-  }
-
-  /**
-   * Append one lesson. An exact duplicate resolves without writing.
-   * @param id - scope identity.
-   * @param text - non-empty lesson text to append.
-   * @returns the stored record, unchanged when the lesson already exists.
-   */
-  async addLesson(id: EvolutionScopeId, text: string): Promise<EvolutionMemoryRecord> {
-    if (text.length === 0) throw new Error('evolution-memory: lesson text must be non-empty')
-    const current = this.requireTable().get(storageKey(id) as EvolutionScopeId)
-    if (current !== undefined && current.agentLessons.includes(text)) return structuredClone(current)
     const now = new Date().toISOString()
     return this.write(id, (record) => {
-      const joined = record.agentLessons === '' ? text : `${record.agentLessons}\n${text}`
-      return stampFamily(applySetLessons(record, joined, this.resolved), 'lessons', now)
+      const next = { ...record, instructions }
+      checkCapacity(next, this.resolved.capacityBytes)
+      return stampFamily(next, 'instructions', now)
     })
   }
 
   /**
-   * Replace one uniquely-matching lesson substring.
+   * Add one candidate artifact to the lessons. An exact duplicate of an
+   * existing statement either replaces it or is kept beside it, per strategy.
    * @param id - scope identity.
-   * @param oldText - non-empty substring expected exactly once.
-   * @param content - replacement text.
+   * @param candidate - the fact to store.
+   * @param strategy - what to do when the identity is already present.
    * @returns the stored record.
    */
-  async replaceLesson(id: EvolutionScopeId, oldText: string, content: string): Promise<EvolutionMemoryRecord> {
-    if (oldText.length === 0) throw new Error('evolution-memory: oldText must be non-empty')
-    const current = this.requireTable().get(storageKey(id) as EvolutionScopeId)
-    if (current === undefined) throw itemNotFound(oldText)
-    const at = uniqueOffset(current.agentLessons, oldText)
-    const joined = current.agentLessons.slice(0, at) + content + current.agentLessons.slice(at + oldText.length)
+  async addArtifact(
+    id: EvolutionScopeId,
+    candidate: LessonArtifactInput,
+    strategy: LessonMergeStrategy = 'keep_both',
+  ): Promise<EvolutionMemoryRecord> {
+    const parsed = lessonArtifactInput.parse(candidate)
     const now = new Date().toISOString()
-    return this.write(id, record => stampFamily(applySetLessons(record, joined, this.resolved), 'lessons', now))
+    return this.write(id, (record) => {
+      const next = addArtifactTo(record, parsed, strategy, now)
+      checkCapacity(next, this.resolved.capacityBytes)
+      return stampFamily(next, 'lessons', now)
+    })
   }
 
   /**
-   * Remove one uniquely-matching lesson substring.
+   * Patch one existing artifact. Identity, counters, and the creation instant
+   * are not patchable.
    * @param id - scope identity.
-   * @param oldText - non-empty substring expected exactly once.
+   * @param artifactId - the addressed artifact.
+   * @param patch - changes to apply; absent fields keep their stored value.
    * @returns the stored record.
    */
-  async removeLesson(id: EvolutionScopeId, oldText: string): Promise<EvolutionMemoryRecord> {
-    if (oldText.length === 0) throw new Error('evolution-memory: oldText must be non-empty')
-    const current = this.requireTable().get(storageKey(id) as EvolutionScopeId)
-    if (current === undefined) throw itemNotFound(oldText)
-    const at = uniqueOffset(current.agentLessons, oldText)
-    const joined = current.agentLessons.slice(0, at) + current.agentLessons.slice(at + oldText.length)
+  async updateArtifact(
+    id: EvolutionScopeId,
+    artifactId: string,
+    patch: LessonArtifactPatch,
+  ): Promise<EvolutionMemoryRecord> {
     const now = new Date().toISOString()
-    return this.write(id, record => stampFamily({ ...record, agentLessons: joined }, 'lessons', now))
+    return this.write(id, (record) => {
+      const next = patchArtifactIn(record, artifactId, patch, now)
+      checkCapacity(next, this.resolved.capacityBytes)
+      return stampFamily(next, 'lessons', now)
+    })
+  }
+
+  /**
+   * Drop one existing artifact.
+   * @param id - scope identity.
+   * @param artifactId - the addressed artifact.
+   * @returns the stored record.
+   */
+  async removeArtifact(id: EvolutionScopeId, artifactId: string): Promise<EvolutionMemoryRecord> {
+    const now = new Date().toISOString()
+    return this.write(id, record => stampFamily(removeArtifactFrom(record, artifactId), 'lessons', now))
   }
 
   /**
@@ -771,7 +799,7 @@ export class EvolutionMemoryStore extends Service {
       const resolutions = withResolution(record.resolutions, target, 'approved', now, resolved.maxResolutions)
       if (target.kind === 'skill') return { ...record, staged: remaining, resolutions, updatedAt: now }
       const applied = applyMemoryStagedOp(record, target, resolved)
-      const stamped = applied.family === null ? applied.record : stampFamily(applied.record, applied.family, now)
+      const stamped = stampFamily(applied.record, applied.family, now)
       return { ...stamped, staged: remaining, resolutions, updatedAt: now }
     })
   }

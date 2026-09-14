@@ -7,6 +7,7 @@
 
 import { z } from 'zod'
 import { defineDomain, domainTable } from '@deepseek-ai/dsh-storage-domain'
+import { lessonArtifact, wrapLegacyLessons } from './lesson-artifact.ts'
 import type {
   EvolutionContextItem,
   EvolutionExtraction,
@@ -85,7 +86,15 @@ export const stagedResolution = z.object({
  */
 export const evolutionMemoryRecord = z.object({
   instructions: z.string(),
-  agentLessons: z.string(),
+  /**
+   * Legacy records stored this as a markdown string. The transform admits them
+   * as one coarse artifact so a domain written before the artifact model opens
+   * and reads synchronously; the heartbeat maintenance task refines it later.
+   */
+  agentLessons: z.union([
+    z.string().transform(text => wrapLegacyLessons(text, new Date(0).toISOString())),
+    z.array(lessonArtifact),
+  ]),
   userProfile: z.string(),
   instructionsUpdatedAt: z.string().nullable().default(null),
   lessonsUpdatedAt: z.string().nullable().default(null),
@@ -110,7 +119,11 @@ export type EvolutionMemoryRecordRow = z.infer<typeof evolutionMemoryRecord>
  */
 export const evolutionMemoryDomainSpec = defineDomain({
   name: 'evolution_memory',
-  version: 1,
+  version: 2,
+  // Version 1 stored `agentLessons` as a markdown string; the record schema
+  // still parses that shape, so vouched-for v1 documents are readable. Their
+  // first write stamps version 2.
+  compatibleVersions: [1],
   layout: 'per-record',
   tables: {
     records: domainTable<EvolutionScopeId, EvolutionMemoryRecord>(

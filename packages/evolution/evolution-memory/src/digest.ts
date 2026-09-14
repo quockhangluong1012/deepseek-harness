@@ -64,7 +64,8 @@ export function truncateUtf8(value: string, maxBytes: number): string {
  */
 export function usedBytesOf(record: EvolutionMemoryRecord | undefined): number {
   if (record === undefined) return 0
-  let used = utf8Bytes(record.instructions) + utf8Bytes(record.agentLessons) + utf8Bytes(record.userProfile)
+  let used = utf8Bytes(record.instructions) + utf8Bytes(record.userProfile)
+  for (const artifact of record.agentLessons) used += utf8Bytes(JSON.stringify(artifact))
   for (const item of record.contextItems) used += item.sizeBytes
   return used
 }

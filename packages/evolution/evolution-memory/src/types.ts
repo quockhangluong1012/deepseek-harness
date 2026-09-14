@@ -8,6 +8,7 @@
 import type { Branded } from '@deepseek-ai/dsh-brand'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import type {} from '@deepseek-ai/dsh-typert-protocol'
+import type { LessonArtifact, LessonArtifactInput, LessonArtifactPatch, LessonMergeStrategy } from './lesson-artifact.ts'
 
 declare module '@deepseek-ai/dsh-typert-protocol' {
   interface RemoteErrorDetailsMap {
@@ -15,10 +16,8 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     'evolution/too-large': { readonly field: string; readonly bytes: number; readonly maxBytes: number }
     /** The write would exceed the item count or push used bytes past capacity. */
     'evolution/capacity-exceeded': { readonly usedBytes: number; readonly capacityBytes: number }
-    /** No context item carries that id, or no lesson carries that substring. */
+    /** No context item or lesson artifact carries that id. */
     'evolution/item-not-found': { readonly itemId: string }
-    /** A lesson substring matches more than once; the caller must disambiguate. */
-    'evolution/ambiguous-match': { readonly oldText: string; readonly candidates: readonly string[] }
     /** No staged write carries that id. */
     'evolution/staged-not-found': { readonly stagedId: string }
     /** The rebuild could not produce a document. */
@@ -73,25 +72,30 @@ export interface EvolutionExtraction {
 export type StagedWriteKind = 'memory' | 'skill'
 
 /**
- * Text payload for the `setInstructions`, `setLessons`, `addLesson`, and
- * `setUserProfile` staged ops. Lessons and profile ops may carry extraction
- * provenance, which approval stamps as `lastExtraction`.
+ * Text payload for the `setInstructions` and `setUserProfile` staged ops.
+ * A profile op may carry extraction provenance, which approval stamps as
+ * `lastExtraction`.
  */
 export interface MemoryStagedTextPayload {
   text: string
   extraction?: EvolutionExtraction
 }
 
-/** Payload for the `replaceLesson` staged op. */
-export interface MemoryStagedReplacePayload {
-  oldText: string
-  content: string
-  extraction?: EvolutionExtraction
+/** Payload for the `addArtifact` staged op. */
+export interface MemoryStagedAddArtifactPayload {
+  candidate: LessonArtifactInput
+  strategy?: LessonMergeStrategy
 }
 
-/** Payload for the `removeLesson` staged op. */
-export interface MemoryStagedRemovePayload {
-  oldText: string
+/** Payload for the `updateArtifact` staged op. */
+export interface MemoryStagedUpdateArtifactPayload {
+  id: string
+  patch: LessonArtifactPatch
+}
+
+/** Payload for the `removeArtifact` staged op. */
+export interface MemoryStagedRemoveArtifactPayload {
+  id: string
 }
 
 /** One staged write awaiting approval. Staged entries never count toward capacity. */
@@ -134,8 +138,8 @@ export interface StagedWriteInput {
 export interface EvolutionMemoryRecord {
   /** User-authored rules for every Session in this scope. */
   instructions: string
-  /** Model-maintained lessons document; markdown, user-editable. */
-  agentLessons: string
+  /** Model-maintained lessons: one structured artifact per extracted fact. */
+  agentLessons: readonly LessonArtifact[]
   /** Model-maintained user profile document; markdown, user-editable. */
   userProfile: string
   /** ISO-8601 instant of the last instructions write, or null when never written. */

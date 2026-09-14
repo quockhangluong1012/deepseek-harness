@@ -3,9 +3,15 @@ import { Context } from '@deepseek-ai/cordis'
 import Storage from '@deepseek-ai/dsh-storage'
 import { DomainFacility } from '@deepseek-ai/dsh-storage-domain'
 import { MemoryMediaPool, MemoryStorageBackend } from '../../../storage/storage-domain/tests/helpers/memory-backend.ts'
-import EvolutionMemoryStore, { EvolutionScopeId, resolveConfig, scopeIdFromStorageKey, storageKey } from '../src/index.ts'
+import EvolutionMemoryStore, {
+  EvolutionScopeId,
+  resolveConfig,
+  scopeIdFromStorageKey,
+  storageKey,
+  type LessonArtifactInput,
+} from '../src/index.ts'
 import type { EvolutionScopeId as ScopeId } from '../src/types.ts'
-import { evolutionMemoryRecord } from '../src/spec.ts'
+import { evolutionMemoryDomainSpec, evolutionMemoryRecord } from '../src/spec.ts'
 import { digestOf, truncateUtf8 } from '../src/digest.ts'
 
 async function harness(
@@ -24,6 +30,19 @@ async function harness(
 
 function scope(name = 'ws-1'): ScopeId {
   return EvolutionScopeId('test', name)
+}
+
+/** One caller-supplied artifact candidate, with the fields a test varies pinned. */
+function candidate(statement: string, overrides: Partial<LessonArtifactInput> = {}): LessonArtifactInput {
+  return {
+    statement,
+    source: 's1',
+    conditions: '',
+    evidence: 'fact',
+    confidence: 0.9,
+    scope: 'project',
+    ...overrides,
+  }
 }
 
 describe('evolution-memory scope ids', () => {
@@ -95,7 +114,7 @@ describe('evolution-memory store', () => {
     const id = scope()
     const record = await store.setInstructions(id, 'follow the repo guide')
     expect(record.instructions).toBe('follow the repo guide')
-    expect(record.agentLessons).toBe('')
+    expect(record.agentLessons).toEqual([])
     expect(record.userProfile).toBe('')
     expect(record.memoryUpdatedAt).toBeNull()
     expect(record.staged).toEqual([])
@@ -115,15 +134,16 @@ describe('evolution-memory store', () => {
     await fiber.dispose()
   })
 
-  it('setInstructions accounts for retained lessons, profile, and items', async () => {
-    const { fiber, store } = await harness({ capacityBytes: 12 })
+  it('setInstructions accounts for retained artifacts, profile, and items', async () => {
+    const { fiber, store } = await harness({ capacityBytes: 1024 })
     const id = scope()
-    await store.addLesson(id, 'abcde')
+    await store.addArtifact(id, candidate('abcde'))
     await store.setUserProfile(id, 'fgh')
     await store.addContextItem(id, { kind: 'text', label: 'n', text: 'hi' })
+    const withoutInstructions = store.usage(id).usedBytes
     await store.setInstructions(id, 'jk')
-    expect(store.usage(id).usedBytes).toBe(12)
-    await expect(store.setInstructions(id, 'jkl')).rejects.toMatchObject({
+    expect(store.usage(id).usedBytes).toBe(withoutInstructions + 2)
+    await expect(store.setInstructions(id, 'x'.repeat(1024))).rejects.toMatchObject({
       code: 'evolution/capacity-exceeded',
     })
     expect(store.read(id)?.instructions).toBe('jk')
@@ -140,164 +160,138 @@ describe('evolution-memory store', () => {
     await fiber.dispose()
   })
 
-  it('setLessons replaces the document with provenance', async () => {
+  it('addArtifact assigns identity, counters, and instants', async () => {
     const { fiber, store } = await harness()
     const id = scope()
-    const plain = await store.setLessons(id, 'prefer tabs')
-    expect(plain.agentLessons).toBe('prefer tabs')
-    expect(typeof plain.memoryUpdatedAt).toBe('string')
-    expect(plain.lastExtraction).toBeNull()
-    const extraction = {
-      at: '2026-01-01T00:00:00.000Z',
-      sessionId: 's1',
-      provider: 'p',
-      model: 'm',
-      origin: 'background_review' as const,
-      inputBytes: 12,
-      truncated: false,
-    }
-    const proven = await store.setLessons(id, 'prefer spaces', extraction)
-    expect(proven.lastExtraction).toMatchObject({ provider: 'p', model: 'm', origin: 'background_review' })
+    const record = await store.addArtifact(id, candidate('  Use PostgreSQL 15  '))
+    expect(record.agentLessons).toHaveLength(1)
+    expect(record.agentLessons[0]).toMatchObject({
+      id: 'use postgresql 15',
+      statement: '  Use PostgreSQL 15  ',
+      source: 's1',
+      conditions: '',
+      evidence: 'fact',
+      confidence: 0.9,
+      validationCount: 0,
+      refutationCount: 0,
+      scope: 'project',
+    })
+    expect(record.agentLessons[0]?.createdAt).toBe(record.agentLessons[0]?.updatedAt)
+    expect(typeof record.lessonsUpdatedAt).toBe('string')
+    expect(record.memoryUpdatedAt).toBe(record.lessonsUpdatedAt)
     await fiber.dispose()
   })
 
-  it('setLessons caps reject without mutating', async () => {
-    const { fiber, store } = await harness({ capacityBytes: 64 })
+  it('charges capacity for the artifact array, not for a stringified form', async () => {
+    const { fiber, store } = await harness()
     const id = scope()
-    await store.setLessons(id, 'ok')
+    await store.addArtifact(id, {
+      statement: 'x'.repeat(64), source: 's1', conditions: '', evidence: 'fact', confidence: 0.9, scope: 'project',
+    })
+    expect(store.usage(id).usedBytes).toBeGreaterThanOrEqual(64)
+    await fiber.dispose()
+  })
+
+  it('addArtifact keeps a repeated statement when the strategy says keep both', async () => {
+    const { fiber, store } = await harness()
+    const id = scope()
+    await store.addArtifact(id, candidate('use postgres'))
+    const record = await store.addArtifact(id, candidate('Use Postgres'))
+    expect(record.agentLessons.map(artifact => artifact.id)).toEqual(['use postgres', 'use postgres'])
+    await fiber.dispose()
+  })
+
+  it('addArtifact overwrites an exact-identity collision when asked', async () => {
+    const { fiber, store } = await harness()
+    const id = scope()
+    const first = await store.addArtifact(id, candidate('use postgres', { conditions: 'database work', confidence: 0.6 }))
+    const createdAt = first.agentLessons[0]?.createdAt as string
+    const record = await store.addArtifact(
+      id,
+      candidate('use postgres', { conditions: 'database work only', confidence: 0.95, source: 's2' }),
+      'overwrite',
+    )
+    expect(record.agentLessons).toHaveLength(1)
+    expect(record.agentLessons[0]).toMatchObject({
+      id: 'use postgres',
+      conditions: 'database work only',
+      confidence: 0.95,
+      source: 's2',
+      validationCount: 0,
+      refutationCount: 0,
+      createdAt,
+    })
+    await fiber.dispose()
+  })
+
+  it('addArtifact rejects a candidate outside the artifact vocabulary', async () => {
+    const { fiber, store } = await harness()
+    const id = scope()
+    await expect(store.addArtifact(id, candidate('unbounded confidence', { confidence: 2 }))).rejects.toThrow()
+    expect(store.read(id)).toBeUndefined()
+    await fiber.dispose()
+  })
+
+  it('addArtifact caps reject without mutating', async () => {
+    const { fiber, store } = await harness({ capacityBytes: 400 })
+    const id = scope()
+    await store.addArtifact(id, candidate('ok'))
     const before = store.read(id)
-    await expect(store.setLessons(id, 'x'.repeat(70000))).rejects.toMatchObject({ code: 'evolution/too-large' })
-    await expect(store.setLessons(id, 'y'.repeat(100))).rejects.toMatchObject({ code: 'evolution/capacity-exceeded' })
-    expect(store.read(id)).toEqual(before)
-    await fiber.dispose()
-  })
-
-  it('setLessons capacity accounts for retained context items', async () => {
-    const { fiber, store } = await harness({ capacityBytes: 12 })
-    const id = scope()
-    await store.addContextItem(id, { kind: 'text', label: 'note', text: 'hello' })
-    await store.setLessons(id, 'abcdefg')
-    await expect(store.setLessons(id, 'abcdefgh')).rejects.toMatchObject({
+    await expect(store.addArtifact(id, candidate('x'.repeat(400)))).rejects.toMatchObject({
       code: 'evolution/capacity-exceeded',
     })
-    await fiber.dispose()
-  })
-
-  it('addLesson appends and joins with newlines', async () => {
-    const { fiber, store } = await harness()
-    const id = scope()
-    await store.addLesson(id, 'first')
-    const record = await store.addLesson(id, 'second')
-    expect(record.agentLessons).toBe('first\nsecond')
-    expect(typeof record.memoryUpdatedAt).toBe('string')
-    await fiber.dispose()
-  })
-
-  it('addLesson duplicate resolves without writing', async () => {
-    const { fiber, store } = await harness()
-    const id = scope()
-    await store.addLesson(id, 'first\nsecond')
-    const before = store.read(id)
-    const after = await store.addLesson(id, 'first')
-    expect(after).toEqual(before)
-    await fiber.dispose()
-  })
-
-  it('addLesson rejects empty text', async () => {
-    const { fiber, store } = await harness()
-    await expect(store.addLesson(scope(), '')).rejects.toThrow('lesson text must be non-empty')
-    await fiber.dispose()
-  })
-
-  it('addLesson caps reject without mutating', async () => {
-    const { fiber, store } = await harness({ capacityBytes: 64 })
-    const id = scope()
-    await store.addLesson(id, 'ok')
-    const before = store.read(id)
-    await expect(store.addLesson(id, 'x'.repeat(70000))).rejects.toMatchObject({ code: 'evolution/too-large' })
-    await expect(store.addLesson(id, 'y'.repeat(100))).rejects.toMatchObject({ code: 'evolution/capacity-exceeded' })
     expect(store.read(id)).toEqual(before)
     await fiber.dispose()
   })
 
-  it('replaceLesson swaps a unique substring', async () => {
+  it('updateArtifact patches fields and keeps identity, counters, and creation instant', async () => {
     const { fiber, store } = await harness()
     const id = scope()
-    await store.addLesson(id, 'first\nsecond')
-    const record = await store.replaceLesson(id, 'second', 'third')
-    expect(record.agentLessons).toBe('first\nthird')
-    expect(typeof record.memoryUpdatedAt).toBe('string')
+    const added = await store.addArtifact(id, candidate('use postgres', { conditions: 'database work' }))
+    const artifactId = added.agentLessons[0]?.id as string
+    const createdAt = added.agentLessons[0]?.createdAt as string
+    await store.addArtifact(id, candidate('keep me'))
+    const record = await store.updateArtifact(id, artifactId, { conditions: 'database work only', confidence: 0.95 })
+    expect(record.agentLessons).toHaveLength(2)
+    expect(record.agentLessons[0]).toMatchObject({
+      id: artifactId,
+      statement: 'use postgres',
+      conditions: 'database work only',
+      confidence: 0.95,
+      createdAt,
+      validationCount: 0,
+      refutationCount: 0,
+    })
+    expect(record.agentLessons[1]?.statement).toBe('keep me')
+    await expect(store.updateArtifact(id, artifactId, { confidence: 2 })).rejects.toThrow()
+    expect(store.read(id)?.agentLessons[0]?.confidence).toBe(0.95)
     await fiber.dispose()
   })
 
-  it('replaceLesson rejects unknown substrings', async () => {
+  it('artifact ops reject an unknown artifact id', async () => {
     const { fiber, store } = await harness()
-    await expect(store.replaceLesson(scope('absent'), 'missing', 'x')).rejects.toMatchObject({
+    const id = scope()
+    await store.addArtifact(id, candidate('use postgres'))
+    await expect(store.updateArtifact(id, 'absent', { confidence: 0.5 })).rejects.toMatchObject({
       code: 'evolution/item-not-found',
     })
-    const id = scope('present')
-    await store.addLesson(id, 'hello')
-    await expect(store.replaceLesson(id, 'missing', 'x')).rejects.toMatchObject({
-      code: 'evolution/item-not-found',
-    })
-    expect(store.read(id)?.agentLessons).toBe('hello')
+    await expect(store.removeArtifact(id, 'absent')).rejects.toMatchObject({ code: 'evolution/item-not-found' })
+    expect(store.read(id)?.agentLessons).toHaveLength(1)
+    const absent = scope('absent')
+    await expect(store.removeArtifact(absent, 'absent')).rejects.toMatchObject({ code: 'evolution/item-not-found' })
+    expect(store.read(absent)).toBeUndefined()
     await fiber.dispose()
   })
 
-  it('replaceLesson rejects ambiguous substrings with candidates', async () => {
+  it('removeArtifact drops the addressed artifact', async () => {
     const { fiber, store } = await harness()
     const id = scope()
-    await store.setLessons(id, 'aa one aa two aa three aa four aa five aa six aa')
-    const before = store.read(id)
-    const failure = await store.replaceLesson(id, 'aa', 'bb').then(
-      () => { throw new Error('expected ambiguous rejection') },
-      (error: unknown) => error as { code?: string; details?: { oldText?: string; candidates?: readonly string[] } },
-    )
-    expect(failure.code).toBe('evolution/ambiguous-match')
-    expect(failure.details?.oldText).toBe('aa')
-    expect(failure.details?.candidates).toHaveLength(5)
-    expect(store.read(id)).toEqual(before)
-    await fiber.dispose()
-  })
-
-  it('replaceLesson rejects empty oldText', async () => {
-    const { fiber, store } = await harness()
-    await expect(store.replaceLesson(scope(), '', 'x')).rejects.toThrow('oldText must be non-empty')
-    await fiber.dispose()
-  })
-
-  it('replaceLesson caps reject without mutating', async () => {
-    const { fiber, store } = await harness({ capacityBytes: 1024 })
-    const id = scope()
-    await store.addLesson(id, 'short')
-    const before = store.read(id)
-    await expect(store.replaceLesson(id, 'short', 'x'.repeat(70000))).rejects.toMatchObject({
-      code: 'evolution/too-large',
-    })
-    expect(store.read(id)).toEqual(before)
-    await fiber.dispose()
-  })
-
-  it('removeLesson deletes a unique substring', async () => {
-    const { fiber, store } = await harness()
-    const id = scope()
-    await store.addLesson(id, 'first\nsecond')
-    const record = await store.removeLesson(id, '\nsecond')
-    expect(record.agentLessons).toBe('first')
-    await fiber.dispose()
-  })
-
-  it('removeLesson rejects unknown and ambiguous substrings', async () => {
-    const { fiber, store } = await harness()
-    await expect(store.removeLesson(scope('absent'), 'missing')).rejects.toMatchObject({
-      code: 'evolution/item-not-found',
-    })
-    const id = scope('present')
-    await store.addLesson(id, 'one two one')
-    await expect(store.removeLesson(id, 'missing')).rejects.toMatchObject({ code: 'evolution/item-not-found' })
-    await expect(store.removeLesson(id, 'one')).rejects.toMatchObject({ code: 'evolution/ambiguous-match' })
-    await expect(store.removeLesson(id, '')).rejects.toThrow('oldText must be non-empty')
-    expect(store.read(id)?.agentLessons).toBe('one two one')
+    await store.addArtifact(id, candidate('first'))
+    const two = await store.addArtifact(id, candidate('second'))
+    const firstId = two.agentLessons[0]?.id as string
+    const record = await store.removeArtifact(id, firstId)
+    expect(record.agentLessons.map(artifact => artifact.statement)).toEqual(['second'])
+    expect(record.memoryUpdatedAt).toBe(record.lessonsUpdatedAt)
     await fiber.dispose()
   })
 
@@ -462,11 +456,11 @@ describe('evolution-memory store', () => {
     await fiber.dispose()
   })
 
-  it('digest covers instructions, lessons, profile, and context only', async () => {
+  it('digest covers instructions, artifacts, profile, and context only', async () => {
     const { fiber, store } = await harness()
     const id = scope()
     await store.setInstructions(id, 'i')
-    await store.setLessons(id, 'l')
+    await store.addArtifact(id, candidate('l'))
     await store.setUserProfile(id, 'p')
     const covered = store.digest(id)
     await store.addContextItem(id, { kind: 'text', label: 'c', text: 't' })
@@ -557,15 +551,15 @@ describe('evolution-memory store', () => {
     await fiber.dispose()
   })
 
-  it('approveStaged applies staged lessons with extraction', async () => {
+  it('approveStaged applies a staged artifact add with extraction', async () => {
     const { fiber, store } = await harness()
     const id = scope()
     const staged = await store.stageWrite({
       scopeId: id,
       kind: 'memory',
-      op: 'setLessons',
+      op: 'addArtifact',
       payload: {
-        text: 'reviewed lesson',
+        candidate: candidate('reviewed fact'),
         extraction: {
           at: '2026-01-01T00:00:00.000Z',
           sessionId: 's9',
@@ -581,54 +575,67 @@ describe('evolution-memory store', () => {
     })
     await store.approveStaged(staged.id)
     const record = store.read(id)
-    expect(record?.agentLessons).toBe('reviewed lesson')
+    expect(record?.agentLessons.map(artifact => artifact.statement)).toEqual(['reviewed fact'])
     expect(typeof record?.memoryUpdatedAt).toBe('string')
     expect(record?.lastExtraction).toMatchObject({ sessionId: 's9', origin: 'background_review' })
     expect(record?.staged).toEqual([])
     await fiber.dispose()
   })
 
-  it('approveStaged applies lesson add, replace, remove, and profile ops', async () => {
+  it('approveStaged applies artifact add, update, and remove ops', async () => {
     const { fiber, store } = await harness()
     const id = scope()
-    await store.setLessons(id, 'alpha\nbeta')
     const add = await store.stageWrite({
-      scopeId: id, kind: 'memory', op: 'addLesson', payload: { text: 'gamma' }, originSessionId: 's1', gist: 'g',
+      scopeId: id, kind: 'memory', op: 'addArtifact', originSessionId: 's1', gist: 'g',
+      payload: {
+        candidate: { statement: 'Use PostgreSQL 15', source: 's1', conditions: 'database work', evidence: 'fact', confidence: 0.9, scope: 'project' },
+      },
     })
     await store.approveStaged(add.id)
-    expect(store.read(id)?.agentLessons).toBe('alpha\nbeta\ngamma')
-    const replace = await store.stageWrite({
-      scopeId: id,
-      kind: 'memory',
-      op: 'replaceLesson',
-      payload: { oldText: 'beta', content: 'BETA' },
-      originSessionId: 's1',
-      gist: 'g',
+    let record = store.read(id)
+    expect(record?.agentLessons).toHaveLength(1)
+    const artifactId = record?.agentLessons[0]?.id as string
+    expect(record?.agentLessons[0]?.statement).toBe('Use PostgreSQL 15')
+
+    const patch = await store.stageWrite({
+      scopeId: id, kind: 'memory', op: 'updateArtifact', originSessionId: 's1', gist: 'g',
+      payload: { id: artifactId, patch: { confidence: 0.95, conditions: 'database work only' } },
     })
-    await store.approveStaged(replace.id)
-    expect(store.read(id)?.agentLessons).toBe('alpha\nBETA\ngamma')
+    await store.approveStaged(patch.id)
+    record = store.read(id)
+    expect(record?.agentLessons[0]?.confidence).toBe(0.95)
+    expect(record?.agentLessons[0]?.id).toBe(artifactId)
+
     const remove = await store.stageWrite({
-      scopeId: id, kind: 'memory', op: 'removeLesson', payload: { oldText: '\nBETA' }, originSessionId: 's1', gist: 'g',
+      scopeId: id, kind: 'memory', op: 'removeArtifact', originSessionId: 's1', gist: 'g',
+      payload: { id: artifactId },
     })
     await store.approveStaged(remove.id)
-    expect(store.read(id)?.agentLessons).toBe('alpha\ngamma')
-    const profile = await store.stageWrite({
-      scopeId: id, kind: 'memory', op: 'setUserProfile', payload: { text: 'night owl' }, originSessionId: 's1', gist: 'g',
-    })
-    await store.approveStaged(profile.id)
-    expect(store.read(id)?.userProfile).toBe('night owl')
+    expect(store.read(id)?.agentLessons).toEqual([])
     await fiber.dispose()
   })
 
-  it('approveStaged applies a staged addLesson onto empty lessons', async () => {
+  it('keeps a staged artifact op whose payload names no existing artifact', async () => {
+    const { fiber, store } = await harness()
+    const id = scope()
+    const staged = await store.stageWrite({
+      scopeId: id, kind: 'memory', op: 'removeArtifact', originSessionId: 's1', gist: 'g',
+      payload: { id: 'absent' },
+    })
+    await expect(store.approveStaged(staged.id)).rejects.toMatchObject({ code: 'evolution/item-not-found' })
+    expect(store.read(id)?.staged).toHaveLength(1)
+    await fiber.dispose()
+  })
+
+  it('approveStaged applies a staged artifact add to an empty record', async () => {
     const { fiber, store } = await harness()
     const id = scope()
     await store.setInstructions(id, 'rules')
     const staged = await store.stageWrite({
-      scopeId: id, kind: 'memory', op: 'addLesson', payload: { text: 'first' }, originSessionId: 's1', gist: 'g',
+      scopeId: id, kind: 'memory', op: 'addArtifact', payload: { candidate: candidate('first') }, originSessionId: 's1', gist: 'g',
     })
     await store.approveStaged(staged.id)
-    expect(store.read(id)?.agentLessons).toBe('first')
+    expect(store.read(id)?.agentLessons.map(artifact => artifact.statement)).toEqual(['first'])
     await fiber.dispose()
   })
 
@@ -645,19 +652,19 @@ describe('evolution-memory store', () => {
     await fiber.dispose()
   })
 
-  it('approveStaged drops a duplicate lesson add without touching content', async () => {
+  it('approveStaged keeps both when a staged add repeats a statement', async () => {
     const { fiber, store } = await harness()
     const id = scope()
-    await store.setLessons(id, 'alpha')
-    const before = store.read(id)
+    await store.addArtifact(id, candidate('alpha'))
     const staged = await store.stageWrite({
-      scopeId: id, kind: 'memory', op: 'addLesson', payload: { text: 'alpha' }, originSessionId: 's1', gist: 'g',
+      scopeId: id, kind: 'memory', op: 'addArtifact', originSessionId: 's1', gist: 'g',
+      payload: { candidate: candidate('alpha'), strategy: 'keep_both' },
     })
     await store.approveStaged(staged.id)
     const after = store.read(id)
-    expect(after?.agentLessons).toBe('alpha')
+    expect(after?.agentLessons.map(artifact => artifact.statement)).toEqual(['alpha', 'alpha'])
     expect(after?.staged).toEqual([])
-    expect(after?.memoryUpdatedAt).toBe(before?.memoryUpdatedAt)
+    expect(after?.resolutions?.[0]?.decision).toBe('approved')
     await fiber.dispose()
   })
 
@@ -673,7 +680,7 @@ describe('evolution-memory store', () => {
     const after = store.read(id)
     expect(after?.staged).toEqual([])
     expect(after?.instructions).toBe(before?.instructions)
-    expect(after?.agentLessons).toBe(before?.agentLessons)
+    expect(after?.agentLessons).toEqual(before?.agentLessons)
     await fiber.dispose()
   })
 
@@ -695,13 +702,14 @@ describe('evolution-memory store', () => {
     await fiber.dispose()
   })
 
-  it('approveStaged keeps the entry when caps reject', async () => {
+  it('approveStaged keeps the entry when capacity rejects', async () => {
     const { fiber, store } = await harness()
     const id = scope()
     const staged = await store.stageWrite({
-      scopeId: id, kind: 'memory', op: 'setLessons', payload: { text: 'x'.repeat(70000) }, originSessionId: 's1', gist: 'g',
+      scopeId: id, kind: 'memory', op: 'addArtifact', originSessionId: 's1', gist: 'g',
+      payload: { candidate: candidate('x'.repeat(1024)) },
     })
-    await expect(store.approveStaged(staged.id)).rejects.toMatchObject({ code: 'evolution/too-large' })
+    await expect(store.approveStaged(staged.id)).rejects.toMatchObject({ code: 'evolution/capacity-exceeded' })
     expect(store.read(id)?.staged).toHaveLength(1)
     await fiber.dispose()
   })
@@ -710,65 +718,67 @@ describe('evolution-memory store', () => {
     const { fiber, store } = await harness()
     const id = scope()
     const scalar = await store.stageWrite({
-      scopeId: id, kind: 'memory', op: 'setLessons', payload: 'nope', originSessionId: 's1', gist: 'g',
+      scopeId: id, kind: 'memory', op: 'setInstructions', payload: 'nope', originSessionId: 's1', gist: 'g',
     })
     await expect(store.approveStaged(scalar.id)).rejects.toThrow('payload must be an object')
     const nil = await store.stageWrite({
-      scopeId: id, kind: 'memory', op: 'setLessons', payload: null, originSessionId: 's1', gist: 'g',
+      scopeId: id, kind: 'memory', op: 'setInstructions', payload: null, originSessionId: 's1', gist: 'g',
     })
     await expect(store.approveStaged(nil.id)).rejects.toThrow('payload must be an object')
-    const missing = await store.stageWrite({
-      scopeId: id, kind: 'memory', op: 'setLessons', payload: {}, originSessionId: 's1', gist: 'g',
+    const missingText = await store.stageWrite({
+      scopeId: id, kind: 'memory', op: 'setInstructions', payload: {}, originSessionId: 's1', gist: 'g',
     })
-    await expect(store.approveStaged(missing.id)).rejects.toThrow("must carry a string 'text'")
-    const emptyAdd = await store.stageWrite({
-      scopeId: id, kind: 'memory', op: 'addLesson', payload: { text: '' }, originSessionId: 's1', gist: 'g',
+    await expect(store.approveStaged(missingText.id)).rejects.toThrow("must carry a string 'text'")
+    const missingCandidate = await store.stageWrite({
+      scopeId: id, kind: 'memory', op: 'addArtifact', payload: {}, originSessionId: 's1', gist: 'g',
     })
-    await expect(store.approveStaged(emptyAdd.id)).rejects.toThrow("'text' must be non-empty")
-    const emptyReplace = await store.stageWrite({
+    await expect(store.approveStaged(missingCandidate.id)).rejects.toThrow()
+    const badStrategy = await store.stageWrite({
       scopeId: id,
       kind: 'memory',
-      op: 'replaceLesson',
-      payload: { oldText: '', content: 'x' },
+      op: 'addArtifact',
+      payload: { candidate: candidate('fine'), strategy: 'absorb' },
       originSessionId: 's1',
       gist: 'g',
     })
-    await expect(store.approveStaged(emptyReplace.id)).rejects.toThrow("'oldText' must be non-empty")
-    const emptyRemove = await store.stageWrite({
-      scopeId: id, kind: 'memory', op: 'removeLesson', payload: { oldText: '' }, originSessionId: 's1', gist: 'g',
-    })
-    await expect(store.approveStaged(emptyRemove.id)).rejects.toThrow("'oldText' must be non-empty")
+    await expect(store.approveStaged(badStrategy.id)).rejects.toThrow('unknown merge strategy "absorb"')
     const badExtraction = await store.stageWrite({
       scopeId: id,
       kind: 'memory',
-      op: 'setLessons',
+      op: 'setUserProfile',
       payload: { text: 'fine', extraction: { provider: 42 } },
       originSessionId: 's1',
       gist: 'g',
     })
     await expect(store.approveStaged(badExtraction.id)).rejects.toThrow('invalid extraction')
-    expect(store.read(id)?.staged).toHaveLength(7)
+    expect(store.read(id)?.staged).toHaveLength(6)
     await fiber.dispose()
   })
 
-  it('approveStaged keeps the entry when the lesson is missing or ambiguous', async () => {
+  it('approveStaged rejects malformed artifact payloads and keeps the entry', async () => {
     const { fiber, store } = await harness()
     const id = scope()
-    await store.setLessons(id, 'one two one')
-    const missing = await store.stageWrite({
-      scopeId: id,
-      kind: 'memory',
-      op: 'replaceLesson',
-      payload: { oldText: 'absent', content: 'x' },
-      originSessionId: 's1',
-      gist: 'g',
+    const missingId = await store.stageWrite({
+      scopeId: id, kind: 'memory', op: 'updateArtifact', payload: {}, originSessionId: 's1', gist: 'g',
     })
-    await expect(store.approveStaged(missing.id)).rejects.toMatchObject({ code: 'evolution/item-not-found' })
-    const ambiguous = await store.stageWrite({
-      scopeId: id, kind: 'memory', op: 'removeLesson', payload: { oldText: 'one' }, originSessionId: 's1', gist: 'g',
+    await expect(store.approveStaged(missingId.id)).rejects.toThrow("must carry a non-empty string 'id'")
+    const emptyId = await store.stageWrite({
+      scopeId: id, kind: 'memory', op: 'removeArtifact', payload: { id: '' }, originSessionId: 's1', gist: 'g',
     })
-    await expect(store.approveStaged(ambiguous.id)).rejects.toMatchObject({ code: 'evolution/ambiguous-match' })
-    expect(store.read(id)?.staged).toHaveLength(2)
+    await expect(store.approveStaged(emptyId.id)).rejects.toThrow("must carry a non-empty string 'id'")
+    const scalarPatch = await store.stageWrite({
+      scopeId: id, kind: 'memory', op: 'updateArtifact', payload: { id: 'x', patch: 'nope' }, originSessionId: 's1', gist: 'g',
+    })
+    await expect(store.approveStaged(scalarPatch.id)).rejects.toThrow("must carry an object 'patch'")
+    const nilPatch = await store.stageWrite({
+      scopeId: id, kind: 'memory', op: 'updateArtifact', payload: { id: 'x', patch: null }, originSessionId: 's1', gist: 'g',
+    })
+    await expect(store.approveStaged(nilPatch.id)).rejects.toThrow("must carry an object 'patch'")
+    const listPatch = await store.stageWrite({
+      scopeId: id, kind: 'memory', op: 'updateArtifact', payload: { id: 'x', patch: [] }, originSessionId: 's1', gist: 'g',
+    })
+    await expect(store.approveStaged(listPatch.id)).rejects.toThrow("must carry an object 'patch'")
+    expect(store.read(id)?.staged).toHaveLength(5)
     await fiber.dispose()
   })
 
@@ -817,7 +827,7 @@ describe('evolution-memory store', () => {
   it('stored objects never leak by reference', async () => {
     const { fiber, store } = await harness()
     const id = scope()
-    const payload = { text: 'original' }
+    const payload = { candidate: candidate('original') }
     const record = await store.setInstructions(id, 'i')
     const mutable = record as unknown as { instructions: string; contextItems: unknown[] }
     mutable.instructions = 'mutated'
@@ -832,12 +842,12 @@ describe('evolution-memory store', () => {
     expect(store.read(id)?.instructions).toBe('i')
     expect(store.read(id)?.contextItems).toEqual([])
     const staged = await store.stageWrite({
-      scopeId: id, kind: 'memory', op: 'setLessons', payload, originSessionId: 's1', gist: 'g',
+      scopeId: id, kind: 'memory', op: 'addArtifact', payload, originSessionId: 's1', gist: 'g',
     })
-    payload.text = 'mutated'
+    payload.candidate.statement = 'mutated'
     staged.gist = 'mutated'
     await store.approveStaged(staged.id)
-    expect(store.read(id)?.agentLessons).toBe('original')
+    expect(store.read(id)?.agentLessons.map(artifact => artifact.statement)).toEqual(['original'])
     await fiber.dispose()
   })
 
@@ -931,7 +941,7 @@ describe('evolution-memory decisions and family stamps', () => {
       expect(instructed.memoryUpdatedAt).toBeNull()
 
       vi.setSystemTime(new Date('2026-01-02T00:00:00.000Z'))
-      const lessoned = await store.addLesson(id, 'one lesson')
+      const lessoned = await store.addArtifact(id, candidate('one lesson'))
       expect(lessoned.instructionsUpdatedAt).toBe(instructed.instructionsUpdatedAt)
       expect(lessoned.lessonsUpdatedAt).toBe('2026-01-02T00:00:00.000Z')
       expect(lessoned.profileUpdatedAt).toBeNull()
@@ -947,7 +957,7 @@ describe('evolution-memory decisions and family stamps', () => {
 
       // Lessons newer than profile: the derived aggregate follows the lessons.
       vi.setSystemTime(new Date('2026-01-04T00:00:00.000Z'))
-      const relearned = await store.addLesson(id, 'another lesson')
+      const relearned = await store.addArtifact(id, candidate('another lesson'))
       expect(relearned.lessonsUpdatedAt).toBe('2026-01-04T00:00:00.000Z')
       expect(relearned.profileUpdatedAt).toBe(profiled.profileUpdatedAt)
       expect(relearned.memoryUpdatedAt).toBe(relearned.lessonsUpdatedAt)
@@ -979,22 +989,25 @@ describe('evolution-memory decisions and family stamps', () => {
     expect(afterProfile?.profileUpdatedAt).toBe(afterProfile?.memoryUpdatedAt)
     expect(afterProfile?.lessonsUpdatedAt).toBeNull()
 
-    // A duplicate add changes no content, so it stamps no family.
-    await store.setLessons(id, 'kept lesson')
-    const stamped = store.read(id)?.lessonsUpdatedAt
-    const duplicate = await store.stageWrite({
-      scopeId: id, kind: 'memory', op: 'addLesson', payload: { text: 'kept lesson' }, originSessionId: 's1', gist: 'g',
+    // An artifact write stamps the lessons family and the derived aggregate.
+    const beforeArtifact = store.read(id)
+    const artifact = await store.stageWrite({
+      scopeId: id, kind: 'memory', op: 'addArtifact', originSessionId: 's1', gist: 'g',
+      payload: { candidate: candidate('kept lesson') },
     })
-    await store.approveStaged(duplicate.id)
-    expect(store.read(id)?.lessonsUpdatedAt).toBe(stamped)
-    expect(store.read(id)?.resolutions?.[0]?.decision).toBe('approved')
+    await store.approveStaged(artifact.id)
+    const afterArtifact = store.read(id)
+    expect(afterArtifact?.agentLessons.map(entry => entry.statement)).toEqual(['kept lesson'])
+    expect(afterArtifact?.memoryUpdatedAt).toBe(afterArtifact?.lessonsUpdatedAt)
+    expect(afterArtifact?.instructionsUpdatedAt).toBe(beforeArtifact?.instructionsUpdatedAt)
+    expect(afterArtifact?.resolutions?.[0]?.decision).toBe('approved')
     await fiber.dispose()
   })
 
-  it('accepts a record stored before the family stamps existed', () => {
+  it('admits a record stored as a legacy lessons string as one coarse artifact', () => {
     const legacy = {
       instructions: 'rules',
-      agentLessons: 'lessons',
+      agentLessons: '## Purpose\nOld work',
       userProfile: '',
       memoryUpdatedAt: '2026-01-01T00:00:00.000Z',
       contextItems: [],
@@ -1005,10 +1018,21 @@ describe('evolution-memory decisions and family stamps', () => {
     }
     const parsed = evolutionMemoryRecord.parse(legacy)
     expect(parsed.instructions).toBe('rules')
+    expect(parsed.agentLessons).toHaveLength(1)
+    expect(parsed.agentLessons[0]).toMatchObject({
+      statement: '## Purpose\nOld work',
+      source: 'migration-pending',
+      confidence: 0.5,
+    })
     expect(parsed.memoryUpdatedAt).toBe('2026-01-01T00:00:00.000Z')
     expect(parsed.instructionsUpdatedAt).toBeNull()
     expect(parsed.lessonsUpdatedAt).toBeNull()
     expect(parsed.profileUpdatedAt).toBeNull()
     expect(parsed.resolutions).toEqual([])
+  })
+
+  it('declares the artifact format as version 2 while still reading version 1', () => {
+    expect(evolutionMemoryDomainSpec.version).toBe(2)
+    expect(evolutionMemoryDomainSpec.compatibleVersions).toEqual([1])
   })
 })
