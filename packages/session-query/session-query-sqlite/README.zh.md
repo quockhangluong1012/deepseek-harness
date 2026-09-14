@@ -52,6 +52,8 @@ kind: "package-reference"
 | `persistedReadConcurrency` | `4` | 继承批量读取的并发持久化日志读取数 |
 | `preparedSessionCacheSize` | `5` | 继承的 `observeSession` 读取器为复用保留的冷 prepared-Session 观察数 |
 | `maxVectorCandidates` | `2000` | 单次语义检索嵌入并排序的文档数，决定发往嵌入提供方的批量大小 |
+| `resultCacheEntries` | `1000` | 有界结果缓存保留的搜索页数，超出后按最近最少使用淘汰 |
+| `resultCacheTtlMs` | `3600000` | 缓存页保持可用的毫秒数；语料变化会立即使其失效，因为键中带有语料代数 |
 
 生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-session-query-sqlite)是每个受支持字段及其 JSDoc 的穷尽式真源。
 
@@ -60,6 +62,8 @@ kind: "package-reference"
 `searchSessions` 搜索整个语料库，并按每个会话匹配最强的事件分组结果；`searchEvents` 搜索一个逻辑会话。查询是字面短语：首尾空白会被移除、内部空白会被规范化，引号、`OR`、`NEAR` 和 `*` 等 FTS5 语法被视为数据，绝不作为可执行查询语法。元数据过滤器（会话 id、cwd、创建时间、父级、可用性、事件 seq/时间/类型/表层）在排序前缩小结果。默认搜索全部 `current`、`shadowed` 与 `log-only` 事件；传入表层过滤器可缩小范围。
 
 排序是确定性的：实际 FTS5 高亮匹配 span 更多的在前，然后文档更短的在前，事件时间、会话 id 与 seq 打破平局。结果携带按 `snippetChars` 个 Unicode 码点截断的纯文本摘录，没有提供方专用数值分数。分页通过不透明 `SessionSearchCursor` 延续，游标绑定到规范化后的确切请求；相关语料库变化时游标变为陈旧（`SESSION_QUERY_STALE_CURSOR`），会话内游标可在不相关会话变化后延续，跨会话游标则不能。
+
+重复请求——相同规范化查询、相同页、相同语料世代——直接从有界内存结果缓存中作答，而不重新查询 SQLite。缓存键携带语料世代，因此语料变化会立即使受影响的页失效，而不依赖显式的失效逻辑；条目在到期后按 `resultCacheTtlMs` 过期，或超出 `resultCacheEntries` 后按最近最少使用淘汰。
 
 `unicode61` tokenizer 匹配 token 与短语，而非任意子字符串：`AI` 不匹配 token `BRAID`。需要执行字面、空白灵活的字符串子串扫描时，使用带 `text` 子句的 `ctx.sessionQuery.filterEvents()`。
 
@@ -98,6 +102,8 @@ kind: "package-reference"
 |---|---|
 | [`src/index.ts`](src/index.ts) | 服务：配置、openAt 生命周期、串行化对账、查询执行、游标 |
 | [`src/query.ts`](src/query.ts) | 请求规范化、参数化谓词、摘录、谓词与绑定预算 |
+| [`src/semantic.ts`](src/semantic.ts) | 语义候选 SQL、向量编解码、余弦相似度排序 |
+| [`src/result-cache.ts`](src/result-cache.ts) | 有界、按世代加键的搜索页 TTL 缓存 |
 | [`src/schema.ts`](src/schema.ts) | 数据库 schema、application id 归属、原地重置、仅所有者文件创建 |
 | — | 不发布运行时不变式伴生入口；系统会在每次串行化查询边界校验对账、游标世代与派生索引归属。 |
 

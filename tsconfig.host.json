@@ -225,6 +225,7 @@
     { "path": "./packages/workspace/workspace-memory-llm" },
     { "path": "./packages/context/workspace-memory-context" },
     { "path": "./packages/context/evolution-memory-context" },
+    { "path": "./packages/context/active-memory-context" },
     { "path": "./packages/session/session-title" },
     { "path": "./packages/session/session-title-llm" },
     { "path": "./packages/session/session-title-first-prompt-llm" },

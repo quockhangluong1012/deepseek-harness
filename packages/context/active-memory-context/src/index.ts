@@ -1,0 +1,228 @@
+/**
+ * Active memory sub-agent: before each eligible turn, searches past sessions
+ * in the same workspace for content relevant to what the user just asked,
+ * and splices matching snippets into `agent/pre-step` ahead of the model's
+ * response — proactive retrieval instead of the user having to ask for it.
+ * @module @deepseek-ai/dsh-active-memory-context
+ */
+
+import { realpath } from 'node:fs/promises'
+import type { Context } from '@deepseek-ai/cordis'
+import z from '@deepseek-ai/schemastery'
+import type { PreStepDecision } from '@deepseek-ai/dsh-agent'
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import type { Session, SessionEvent, SessionId, UserMessage } from '@deepseek-ai/dsh-session'
+import type { SemanticSessionSearchHit } from '@deepseek-ai/dsh-session-query'
+import { SessionQueryError } from '@deepseek-ai/dsh-session-query'
+import type {} from '@deepseek-ai/dsh-workspace'
+import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
+import { renderActiveMemoryBrief } from './render.ts'
+
+export { escapeFrameBody, renderActiveMemoryBrief } from './render.ts'
+
+/** Source of one active-memory brief message: a scored search result, never a user-authored message. */
+export interface ActiveMemorySource {
+  kind: 'active-memory'
+  form: 'search-result'
+}
+
+declare module '@deepseek-ai/dsh-llm' {
+  interface MessageSourceMap {
+    'active-memory': ActiveMemorySource
+  }
+}
+
+/** Cordis plugin name used by loader diagnostics. */
+export const name = 'active-memory-context'
+
+/** Plugin configuration: brief cap, result bounds, and search cadence. */
+export interface Config {
+  /** Cap on the complete emitted text including the frame. */
+  maxBytes: number
+  /** Candidate results ranked per search, before the relevance threshold. Defaults to 5. */
+  topK?: number
+  /**
+   * Minimum cosine similarity a hit must clear to be worth injecting, in the
+   * configured embedding model's own vector space. A nearest-neighbor search
+   * always returns its closest candidates even when none are truly relevant,
+   * so this is what tells an off-topic turn apart from an on-topic one.
+   * Recalibrate after switching embedding providers or models. Defaults to 0.7.
+   */
+  relevanceThreshold?: number
+  /** Turns between active-memory searches. Defaults to 1 (every turn). */
+  turnInterval?: number
+}
+
+/** Schemastery validation for {@link Config}. */
+export const Config: z<Config> = z.object({
+  maxBytes: z.number().step(1).min(1).required(),
+  topK: z.number().step(1).min(1).default(5),
+  relevanceThreshold: z.number().min(0).max(1).default(0.7),
+  turnInterval: z.number().step(1).min(1).default(1),
+})
+
+/** Plugin configuration with every optional field resolved. */
+export interface ResolvedConfig {
+  maxBytes: number
+  topK: number
+  relevanceThreshold: number
+  turnInterval: number
+}
+
+/**
+ * Resolve cadence and threshold defaults before the injector registers
+ * anything, keeping one owner for the values.
+ * @param config - validated plugin configuration.
+ * @returns configuration with every field present.
+ */
+export function resolveConfig(config: Config): ResolvedConfig {
+  return {
+    maxBytes: config.maxBytes,
+    topK: config.topK ?? 5,
+    relevanceThreshold: config.relevanceThreshold ?? 0.7,
+    turnInterval: config.turnInterval ?? 1,
+  }
+}
+
+/**
+ * Required host services. `sessionQuery` is a hard requirement — mounting
+ * this plugin is asking for session-query-backed active memory, so a
+ * deployment that forgets to mount the query service fails loudly at load
+ * instead of the injector silently never firing.
+ */
+export const inject = ['workspaceRegistry', 'sessionQuery']
+
+/**
+ * Decide whether a search on the configured cadence is due on `turn`. A
+ * session with no observed `turn/start` yet counts as turn 0 and reads as
+ * its first turn, mirroring `dsh-evolution-memory-context`'s nudge cadence.
+ * @param turn - observed `turn/start` count for the session; 0 before the first.
+ * @param interval - turns between searches, from the validated config (at least 1).
+ * @returns true when this turn falls on the interval.
+ */
+export function isSearchTurn(turn: number, interval: number): boolean {
+  return Math.max(turn, 1) % interval === 0
+}
+
+/**
+ * Concatenate every text part of one message's content.
+ * @param message - a proposed step message.
+ * @returns the message's plain-text content, or an empty string when it carries none.
+ */
+function textOf(message: UserMessage): string {
+  return message.content
+    .filter((block): block is { type: 'text'; text: string } => block.type === 'text')
+    .map(block => block.text)
+    .join('\n')
+}
+
+/**
+ * Register the pre-step active-memory search for the lifetime of `ctx`.
+ * @param ctx - plugin context; listeners dispose with it.
+ * @param config - byte cap, result bounds, and search cadence.
+ */
+export function apply(ctx: Context, config: Config): void {
+  const { maxBytes, topK, relevanceThreshold, turnInterval } = resolveConfig(config)
+  const workspaceBySession = new Map<string, WorkspaceId | null>()
+  const turnsBySession = new Map<string, number>()
+  const searchedForTurn = new Map<string, number>()
+
+  ctx.on('session/event', (session: Session, event: SessionEvent) => {
+    if (event.type !== 'turn/start') return
+    const key = String(session.id)
+    turnsBySession.set(key, (turnsBySession.get(key) ?? 0) + 1)
+  })
+  ctx.on('session/disposed', (session: Session) => {
+    const key = String(session.id)
+    workspaceBySession.delete(key)
+    turnsBySession.delete(key)
+    searchedForTurn.delete(key)
+  })
+  ctx.effect(() => () => {
+    workspaceBySession.clear()
+    turnsBySession.clear()
+    searchedForTurn.clear()
+  }, 'active-memory-context.cache')
+
+  /** Workspace membership already known from an exact session-id match. */
+  const memberSessionIds = (session: Session): readonly SessionId[] | undefined => {
+    const key = String(session.id)
+    const cached = workspaceBySession.get(key)
+    if (cached === null) return undefined
+    if (cached !== undefined) {
+      const workspace = ctx.workspaceRegistry.get(cached)
+      if (workspace !== undefined) return workspace.sessionIds
+      workspaceBySession.delete(key)
+    }
+    const found = ctx.workspaceRegistry.list().find(entry => entry.sessionIds.includes(session.id))
+    if (found === undefined) return undefined
+    workspaceBySession.set(key, found.id)
+    return found.sessionIds
+  }
+
+  /** Full membership resolution, falling back to a canonical-cwd match. */
+  const scopeSessionIds = async (session: Session): Promise<readonly SessionId[] | undefined> => {
+    const key = String(session.id)
+    const direct = memberSessionIds(session)
+    if (direct !== undefined) return direct
+    const cwd = session.header.cwd
+    const canonical = cwd === undefined ? undefined : await realpath(cwd).catch(() => undefined)
+    const match = canonical === undefined
+      ? undefined
+      : ctx.workspaceRegistry.list().find(entry => entry.path === canonical)
+    if (match === undefined) {
+      workspaceBySession.set(key, null)
+      return undefined
+    }
+    workspaceBySession.set(key, match.id)
+    return match.sessionIds
+  }
+
+  /**
+   * Search the scope's other sessions for content relevant to `query`,
+   * degrading to no results rather than blocking the turn when the vector
+   * channel is unavailable or the session has no resolvable scope.
+   */
+  const search = async (
+    session: Session,
+    query: string,
+    signal: AbortSignal,
+  ): Promise<readonly SemanticSessionSearchHit[]> => {
+    const scopeIds = await scopeSessionIds(session)
+    if (scopeIds === undefined) return []
+    const others = scopeIds.filter(id => id !== session.id)
+    if (others.length === 0) return []
+    let page: { items: readonly SemanticSessionSearchHit[] }
+    try {
+      page = await ctx.sessionQuery.searchSessionsSemantic(
+        { query, sessionFilters: [{ kind: 'id', values: others }], limit: topK },
+        { signal },
+      )
+    } catch (error) {
+      if (error instanceof SessionQueryError) return []
+      throw error
+    }
+    return page.items.filter(hit => hit.score >= relevanceThreshold)
+  }
+
+  ctx.on('agent/pre-step', async (input, next): Promise<PreStepDecision> => {
+    const decision = await next()
+    if (decision.kind === 'reject' || input.signal.aborted) return decision
+    const key = String(input.agent.session.id)
+    const turn = turnsBySession.get(key) ?? 0
+    if (!isSearchTurn(turn, turnInterval)) return decision
+    if (searchedForTurn.get(key) === turn) return decision
+    const query = input.messages.map(textOf).join('\n').trim()
+    if (query.length === 0) return decision
+    searchedForTurn.set(key, turn)
+    const hits = await search(input.agent.session, query, input.signal)
+    if (hits.length === 0) return decision
+    const rendered = renderActiveMemoryBrief(hits, maxBytes)
+    if (rendered === undefined) return decision
+    const brief = createUserMessage({
+      content: [{ type: 'text', text: rendered }],
+      source: { kind: 'active-memory', form: 'search-result' },
+    })
+    return { ...decision, messages: [...decision.messages, brief] }
+  })
+}

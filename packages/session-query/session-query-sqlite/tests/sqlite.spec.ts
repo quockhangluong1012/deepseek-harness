@@ -210,15 +210,21 @@ describe('SQLite session search', () => {
     expect((defaultCtx.sessionQuery as SqliteSessionQueryEngine).config.openAt).toBe('startup')
     expect((defaultCtx.sessionQuery as SqliteSessionQueryEngine).config.persistedReadConcurrency)
       .toBe(SESSION_QUERY_DEFAULT_PERSISTED_INSPECT_CONCURRENCY)
+    expect((defaultCtx.sessionQuery as SqliteSessionQueryEngine).config.resultCacheEntries).toBe(1000)
+    expect((defaultCtx.sessionQuery as SqliteSessionQueryEngine).config.resultCacheTtlMs).toBe(3_600_000)
 
     const configuredValue = 2
     const configured = new SqliteSessionQueryEngine.Config({
       path: ':memory:',
       openAt: 'first-search',
       persistedReadConcurrency: configuredValue,
+      resultCacheEntries: 3,
+      resultCacheTtlMs: 500,
     })
     expect(configured.openAt).toBe('first-search')
     expect(configured.persistedReadConcurrency).toBe(configuredValue)
+    expect(configured.resultCacheEntries).toBe(3)
+    expect(configured.resultCacheTtlMs).toBe(500)
     const configuredCtx = await liveContext(configured)
     expect((configuredCtx.sessionQuery as SqliteSessionQueryEngine).config.persistedReadConcurrency)
       .toBe(configuredValue)
@@ -229,6 +235,16 @@ describe('SQLite session search', () => {
         persistedReadConcurrency,
       })).toThrow()
     }
+    for (const resultCacheEntries of [0, Number.MAX_SAFE_INTEGER + 1]) {
+      expect(() => new SqliteSessionQueryEngine.Config({
+        path: ':memory:',
+        resultCacheEntries,
+      })).toThrow()
+    }
+    expect(() => new SqliteSessionQueryEngine.Config({
+      path: ':memory:',
+      resultCacheTtlMs: -1,
+    })).toThrow()
     expect(() => new SqliteSessionQueryEngine.Config({
       path: ':memory:',
       openAt: 'later' as never,

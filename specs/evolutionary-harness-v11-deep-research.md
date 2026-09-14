@@ -1590,7 +1590,7 @@ The Harness already implements a substantial share of the mechanism families thi
 
 | Existing dsh mechanism | Verified current behavior |
 |---|---|
-| `evolution-feedback` | Per-session failing-tool-result store, deduplicated by tool and message. `summary(sessionIds, limit)` aggregates across sessions but has no in-repo caller (Dev Note: "the optimizer pass that consumes `summary` is the reason this store exists; until it lands, `summary` has no in-repo caller"). |
+| `evolution-feedback` | Per-session failing-tool-result store, deduplicated by tool and message. `summary(sessionIds, limit)` **does** have callers (`evolution-curator:482`, `evolution-dreaming` light phase — corrected from an earlier "no in-repo caller" reading, see §58.0), but the result is display-only and drives no state transition. The package is also **not mounted** in the product profile (`packages/bundle/web-app/cordis.patch.yml`), so today those callers never observe a result at all. |
 | `evolution-skill-telemetry` | Per-skill counters (`useCount`, `viewCount`, `patchCount`), `sessionIds` correlation, `createdBy: agent \| foreground \| null`, lifecycle `state: active \| stale \| archived`. `markAgentCreated` exists but has no production caller (only exercised in `consolidate.spec.ts`, `curator.spec.ts`, `safety.spec.ts`). |
 | `evolution-curator` | Idle-triggered `active → stale → archived` transitions (time-based only, no evidence-based trust), plus opt-in LLM consolidation (`keep \| patch \| consolidate \| archive`) with tarball snapshot, append-only ledger, and rollback. `surveyCandidates` already joins a skill's `sessionIds` to `evolutionFeedback` failures, but only to inform a consolidation verdict — it never changes a skill's standing. |
 | `evolution-dreaming` | Three-phase (light/REM/deep) consolidation with a fixed six-signal weighted composite and three promotion gates (`minScore`, `minRecallCount`, `minUniqueQueries`) — the closest existing analogue to OpenSpace's admission gate, but for memory promotions, not skills. |
@@ -1602,72 +1602,408 @@ This means the gap between this document's aspirational mechanisms and the shipp
 
 ---
 
-# 58. Concrete integration: evidence-graded skill trust and lineage
+# 58. Concrete integration: evidence-graded skill trust, lineage, admission gate, and preimage rollback
 
-Unlike §3–§49, which describe mechanism families in the abstract, this section is a decision-complete integration already scoped against the packages above: the highest-value subset of §57 that closes two seams the Harness already built but never wired to a production caller, without adding a new storage domain or a new model call.
+Unlike §3–§49, which describe mechanism families in the abstract, this section is decision-complete and scoped against the packages above: the highest-value subset of §57 that closes seams the Harness already built but never wired to a production caller, without adding a new storage domain, a new model call, or a new package. It supersedes §58 as originally drafted with facts verified by a direct source read on 2026-09-14 (§58.0), and extends the original four-step sketch to seven steps that must land together to close **one** governed, production-running loop:
 
-## 58.1 Mechanism-by-mechanism decision
+```
+tool result error → graded signal → skill trust → survey/verdict
+       ↑                                                  ↓
+   ledger + preimage  ←  admission gate  ←  revision + contentSha
+```
 
-| # | OpenSpace mechanism (source) | dsh today | Decision |
+Required order: 1 → 2 → (3, 4, 5) → 6 → 7. The tree builds and existing tests stay green after every step (step 4 deletes `SurveyFailure`, so it must land together with step 1).
+
+## 58.0 Verified state (2026-09-14 session read; supersedes conflicting claims above)
+
+A direct source read of this repository, done for this integration rather than taken from §1's description, corrects and sharpens §57.2:
+
+| Verified fact | Consequence |
+|---|---|
+| `evolution-feedback` is **not mounted** in the repository's only product profile, `packages/bundle/web-app/cordis.patch.yml` (9 of 13 evolution packages are mounted; this one is not). `ctx.get('evolutionFeedback')` is always `undefined` in the curator today. | §58.7 mounts it — without this, §58.2 and §58.5 never run in production. |
+| `evolution-feedback.summary()` **does** have callers — `evolution-curator:482` and `evolution-dreaming`'s light phase — contradicting the "no in-repo caller" claim in §57.2's original table. The result is display-only today; it drives no state transition. | §58.5 turns it into a decision. |
+| `markAgentCreated` has **no production caller** anywhere (only exercised from 4 spec files). `surveyCandidates()` filters out `usage.createdBy !== 'agent'`, so the consolidation machinery (fork LLM, verdict, snapshot, ledger) is dead code in the shipped product — there are zero agent-created skills in production today. | §58.4 wires authorship back in. |
+| Skill lifecycle transitions purely on elapsed time (`decideTransition`: idle past `staleAfterDays`/`archiveAfterDays`); no evidence participates. | §58.3 + §58.5. |
+| `skill_manage` writes `SKILL.md` directly with `writeFile` — no revision, no content hash, no preimage. `applyConsolidation`'s `patch` branch does the same, with ledger `before: null, after: null`. The package README's rollback description ("restore lifecycle states") does not, in fact, restore a patched body. | §58.3 (lineage) + §58.6 (preimage + admission gate). |
+| `applyConsolidation` does not validate the body the model returns; a body that drops its frontmatter breaks the skill and there is no way back. | §58.6. |
+| No fixture under `snapshots/` mounts any `evolution-*` package — none of this touches the snapshot-refresh surface, and none of it adds content to a model prompt (the feedback store contributes nothing to prompts). | — |
+| `pnpm run verify-md-links` is already red before this work (~40 links to `specs/evolutionary-harness.spec.md`, `specs/improvement.spec.md`, `specs/workspace-memory.md`, none of which exist). Out of scope; verify by diffing the error list, not by running the aggregate `doc-sync`. | §58.10. |
+
+## 58.1 Mechanism-by-mechanism decision (revised)
+
+| # | Mechanism | dsh today (verified) | Decision |
 |---|---|---|---|
-| 1 | Graded quality signal: `actionability × evidence_status × merge_key` + dominance precedence (`signals/types.py`, `signals/policy.py`) | `evolution-feedback` is a flat counted list; `summary()` has no caller | Adopt — Step 1 |
-| 2 | Evidence-backed trust `provisional ↔ trusted`: demote on failure, promote after 2 independent successes (`types.py:SkillTrustState`, `store.py:1325-1371`) | Lifecycle is time-based only | Adopt — Step 2 |
-| 3 | Evidence joined to a decision, not just displayed (`evolution/engine.py` admission) | Curator already joins `sessionIds` → feedback for reflection, never for a state change | Adopt — Step 3 |
-| 4 | Version DAG: `SkillLineage{origin, generation, parent_skill_ids, content_hash, content_snapshot, change_summary}` (`types.py`) | Rollback restores "states and moves, not patched bodies"; no revision at all | Adopt in reduced form — Step 4 (linear chain + content hash, not a full DAG) |
-| 5 | Candidate store: `merge_key` unique while pending, `recurrence`, `blocked_reason`, `needed_evidence` (`evolution/candidates.py`) | Staged writes record only `approved \| rejected` | Deferred — staged queue already prevents duplicate proposals; only worth it once a proposal is blocked repeatedly |
-| 6 | Behavior eval 3 gates incl. negative trigger queries, baseline-vs-candidate replay (`evolution/behavior_eval.py`) | `evolution-scorer` has no A/B and no negative-trigger check | Deferred — needs a two-sided scenario corpus, a separate change |
-| 7 | BM25 → embedding re-rank with cache invalidation (`skill_ranker.py`) | Catalog has no ranking | Deferred — only pays off past roughly 10 skills with a measured retrieval miss |
-| 8 | `CaptureContract` requiring independent procedure and validation evidence (`capture_contract.py`) | `skillCreationEvidence` triggers on 3 repeated output paths alone | Deferred — becomes buildable once Steps 1–2 exist |
-| 9 | Mode gating `audit_only \| fix_only \| autonomous` | `writeApproval` + curator `consolidate` flag already gate every write | Not adopted — redundant with existing gates |
-| 10 | Task-trace artifact v2 + redaction-gated upload | dsh is machine-local by design, no upload path | Not adopted — no counterpart to protect |
+| 1 | Graded quality signal: `actionability × evidence_status × merge_key`, dominance-ordered | `evolution-feedback` is a flat counted list; `summary()` has callers but they only display, never decide | Adopt — Step 1 |
+| 2 | Evidence-backed trust `provisional ↔ trusted`: demote on an attributable failure, promote after N independent successes, anchored so evidence collected before a fix cannot self-promote | Lifecycle is time-based only | Adopt — Step 2 |
+| 3 | Linear revision lineage: `revision`, `contentSha`, `parentRevisionSha` per skill | No revision at all; `skill_manage` and `applyConsolidation` both `writeFile` blind | Adopt — Step 2 (bundled with trust: same "artifact changed → prior evidence invalidated" reset) |
+| 4 | Authorship wired to the one tool that actually writes agent-authored skills | `markAgentCreated` has zero production callers; the consolidation machinery it gates is dead code | Adopt — Step 3 |
+| 5 | Evidence joined to a decision, not just displayed | Curator already joins `sessionIds` → feedback for the consolidation prompt, never for a state change | Adopt — Step 4 |
+| 6 | Admission gate before commit (schema/frontmatter validity) | `applyConsolidation` writes `verdict.body` unchecked | Adopt — Step 5 |
+| 7 | Preimage + rollback that restores a patched body, not just lifecycle state | Rollback README says "restore lifecycle states"; body is not restored; ledger `before`/`after` are `null` | Adopt — Step 5 |
+| 8 | Provider mounted where its consumer runs | `evolution-feedback` absent from the only product profile | Adopt — Step 6 |
+| 9 | Candidate store: `merge_key` unique while pending, `recurrence`, `blocked_reason`, `needed_evidence` | Staged writes record only `approved \| rejected` | Deferred — no repeated-block signal exists yet to justify it |
+| 10 | Behavior eval 3 gates incl. negative trigger queries, baseline-vs-candidate replay | `evolution-scorer` has no A/B and no negative-trigger check | Deferred — zero agent-created skills exist today; nothing to A/B until Step 4 has run in production |
+| 11 | BM25 → embedding re-rank with cache invalidation | Catalog has no ranking | Deferred — only pays off past roughly 10 skills with a measured retrieval miss |
+| 12 | `CaptureContract` requiring independent procedure + validation evidence | `skillCreationEvidence` triggers on repeated output paths alone | Deferred — buildable once Steps 1–4 exist |
 
 ## 58.2 Step 1 — graded failure signals in `evolution-feedback`
 
-Add to `packages/evolution/evolution-feedback/src/types.ts`:
+`packages/evolution/evolution-feedback/src/types.ts` adds:
 
 ```ts
+/** How decisive a signal is for a state transition. */
 export type FeedbackActionability = 'observe_only' | 'ranking_only' | 'trigger_review'
+
+/** Whether there is enough evidence to attribute a failure to a specific tool. */
 export type FeedbackEvidenceStatus = 'complete' | 'actionable_partial'
 
-export interface FeedbackSignal {
-  tool: string | null
-  message: string
+/** One aggregated failure, with its evidence grade attached. */
+export interface FeedbackSignal extends FeedbackSummaryEntry {
   actionability: FeedbackActionability
   evidenceStatus: FeedbackEvidenceStatus
-  mergeKey: string        // `${tool ?? ''}\u0000${message}` — same key `summary` already uses
-  count: number
-  sessions: number
-  lastAt: string
+  /** `${tool ?? ''}\u0000${message}` — the exact key `summary()` already uses internally. */
+  mergeKey: string
 }
 ```
 
-`signals(sessionIds, limit)` reuses `summary(sessionIds, limit)`: `evidenceStatus` is `complete` when the failing call's tool was observed, else `actionable_partial`; `actionability` is `trigger_review` once `evidenceStatus === 'complete'` and `sessions >= triggerReviewSessions` (config, default 2), `ranking_only` when merely `complete`, else `observe_only`. Results sort by evidence-status rank, then actionability rank, then `sessions`, `count`, `lastAt`. No model call, no new storage — a deterministic derivation from the existing per-session record.
+`packages/evolution/evolution-feedback/src/index.ts`:
 
-## 58.3 Step 2 — evidence-backed trust in `evolution-skill-telemetry`
-
-Add `SkillTrustState = 'provisional' | 'trusted'` and four `SkillUsageRecord` fields: `trust`, `trustSuccesses`, `trustFailures`, `trustObservedSessions`. Zod defaults (`trust.default('trusted')`, counters `.default(0)`, sessions `.default([])`) keep this a compatible reshape — no domain version bump.
-
-`markPatched` and `markAgentCreated` — both already have real production callers (`evolution-skill-manage`'s four mutation ops; curator's `patch` verdict) — additionally set `trust: 'provisional'` and clear `trustObservedSessions`. This is the production trigger the mechanism needs; no new call site is required.
-
-New method:
+1. Extract the merge key already built inline at `summary()` line 142 into a module-private `mergeKeyOf(tool: string | null, message: string): string`. `summary()` keeps its exact current behavior and sort order (it now has real callers — do not change it).
+2. Add a public method, placed right after `summary()`:
 
 ```ts
-async recordTrustObservation(name: string, outcome: 'success' | 'failure', sessionId: string): Promise<SkillUsageRecord | undefined>
+signals(sessionIds: readonly string[], limit: number): FeedbackSignal[]
 ```
 
-`'failure'` sets `trust: 'provisional'`, increments `trustFailures`, and clears `trustObservedSessions` so promotion restarts after a failure. `'success'` is a no-op when `sessionId` is already recorded (independence); otherwise it appends the session (capped by `maxSessionIds`), increments `trustSuccesses`, and promotes to `trusted` once `trustObservedSessions.length >= trustPromotionSessions` (config, default 2).
+   - Built on `this.summary(sessionIds, limit)` (reused, no second table read).
+   - `evidenceStatus = entry.tool === null ? 'actionable_partial' : 'complete'` (a `null` tool means the failing call itself was not observable).
+   - `actionability`: `'trigger_review'` when `evidenceStatus === 'complete' && entry.sessions >= this.resolved.triggerReviewSessions`; `'ranking_only'` when merely `evidenceStatus === 'complete'`; else `'observe_only'`.
+   - `mergeKey = mergeKeyOf(entry.tool, entry.message)`.
+   - Sort by descending precedence: `evidenceStatus` rank (`complete` 2 / `actionable_partial` 1) → `actionability` rank (`trigger_review` 3 / `ranking_only` 2 / `observe_only` 1) → `sessions` → `count` → `lastAt`. No model call, no new domain.
+3. `Config` adds `triggerReviewSessions?: number` with JSDoc (required for `gen-config-catalog`'s `checkMemberDocs`), zod `z.number().step(1).min(1).default(2)`; add to `ResolvedConfig` and `resolveConfig` (destructured default `= 2`, never a hidden `??`).
 
-## 58.4 Step 3 — wire evidence to trust in `evolution-curator`
+## 58.3 Step 2 — evidence-backed trust and revision lineage in `evolution-skill-telemetry`
 
-`SurveyCandidate` gains `trust: SkillTrustState`; `SurveyFailure` is replaced outright by `FeedbackSignal` (clean cutover, no alias). In the curator's lifecycle pass, for each tracked skill: read `evolutionFeedback.signals(usage.sessionIds, maxCandidateFailures)`; if any signal reaches `trigger_review`, record one `failure` observation against the newest loading session; otherwise record one `success` observation per loading session (the store's own session-dedup makes this safe). A per-skill write failure logs one warning and never aborts the pass; `dryRun` records nothing. `command-evolution`'s `/curator status` gains a provisional/trusted count; `gen-doc-graphs.ts` records `evolutionFeedback`'s new consumer, `evolution-curator`.
+`src/types.ts` adds, and extends `SkillUsageRecord` with, seven fields:
 
-## 58.5 Step 4 — linear revision lineage
+```ts
+/** A skill's trust standing, derived from evidence rather than elapsed time. */
+export type SkillTrustState = 'provisional' | 'trusted'
 
-Add `SkillRevisionOrigin = 'created' | 'patched' | 'consolidated'` and `revision`, `parentRevisionSha`, `contentSha`, `revisionOrigin`, `revisedAt` to `SkillUsageRecord`. New method `markRevised(name, origin, contentSha)` advances the chain: `revision += 1`, `parentRevisionSha = record.contentSha`, `contentSha = <new>`. Callers hash the bytes they just wrote — `evolution-skill-manage` after `create`/`patch`/`edit`, `evolution-curator` after a `patch` or `consolidate` verdict. This is deliberately a linear chain keyed by skill name, not OpenSpace's full DAG: deeper history already lives in the curator's ledger and tarball snapshots, so lineage here only needs to answer what changed since the last revision, not replace the ledger.
+/** The most recent failure attributed to this skill — negative knowledge on the artifact itself. */
+export interface SkillTrustFailure {
+  mergeKey: string
+  message: string
+  at: string
+}
+```
 
-## 58.6 What this does not do
+```ts
+  trust: SkillTrustState
+  /** Times demoted by evidence (does not count demotions caused by an edit). */
+  trustFailures: number
+  /** Sessions already counted toward a pending promotion, newest first. */
+  trustObservedSessions: readonly string[]
+  /** Newest session at the moment of the last demotion; only sessions newer than this count. */
+  trustAnchorSessionId: string | null
+  lastTrustFailure: SkillTrustFailure | null
+  /** Times the SKILL.md body has changed, starting at 0. A linear chain keyed by skill name. */
+  revision: number
+  /** sha256-hex of the current SKILL.md body, or null when never written through this path. */
+  contentSha: string | null
+  parentRevisionSha: string | null
+```
 
-Trust is recorded and surfaced (survey, `/curator status`); it does not gate a skill's visibility to the model — that would be a product behavior change beyond what was asked. `markAgentCreated` still has no production authorship flow; Step 2 does not invent one, it only makes the existing mutation path (`markPatched`) carry real signal. Trust moves at the curator's pass cadence (`intervalHours`, default 168h), not per turn, because it requires independent sessions, not repeated turns within one.
+`src/spec.ts` adds exactly these fields to `skillUsageRecord`, **all `.default(...)`**, without bumping `version` (per the file's own rule — "compatible reshapes add an optional or defaulted field, never a version bump"):
+
+```ts
+  trust: z.enum(['provisional', 'trusted']).default('trusted'),
+  trustFailures: z.number().int().nonnegative().default(0),
+  trustObservedSessions: z.array(z.string()).default([]),
+  trustAnchorSessionId: z.string().nullable().default(null),
+  lastTrustFailure: z.object({ mergeKey: z.string(), message: z.string(), at: z.string() }).nullable().default(null),
+  revision: z.number().int().nonnegative().default(0),
+  contentSha: z.string().nullable().default(null),
+  parentRevisionSha: z.string().nullable().default(null),
+```
+
+`src/index.ts`:
+
+1. `freshRecord()` (line 106): `trust: 'trusted'`, `trustFailures: 0`, `trustObservedSessions: []`, `trustAnchorSessionId: null`, `lastTrustFailure: null`, `revision: 0`, `contentSha: null`, `parentRevisionSha: null`. New records default `trusted` because no evidence yet exists against them; only an artifact the **model wrote** or that was **just edited** drops to `provisional`.
+2. A module-private helper (one place defines "the artifact changed, so prior evidence no longer counts"):
+
+```ts
+function resetTrust(record: SkillUsageRecord): SkillUsageRecord {
+  return {
+    ...record,
+    trust: 'provisional',
+    trustObservedSessions: [],
+    trustAnchorSessionId: record.sessionIds[0] ?? null,
+  }
+}
+```
+
+3. `markPatched` (line 231) and `markAgentCreated` (line 244) apply `resetTrust` to the record they return. `markAgentCreated` keeps its existing "no change, no write" early exit, but that exit must now also require `trust === 'provisional'` — the guard becomes `current.createdBy === 'agent' && current.trust === 'provisional'`.
+4. `markAgentCreated`'s JSDoc is rewritten: `createdBy: 'agent'` means **the model wrote this skill through `skill_manage`**, not yet vouched for by a user; `markAdopted` (`/curator adopt`) is the user-vouching path. Drop the "foreground creates never call this" line.
+5. New public method:
+
+```ts
+/**
+ * Records one trust observation for a skill. Only sessions newer than the
+ * last demotion's anchor count, so evidence collected before a fix cannot
+ * self-promote the skill again.
+ * @param name - skill name.
+ * @param outcome - the observed outcome.
+ * @param sessionId - the session that loaded this skill.
+ * @param failure - attribution evidence, used only for `'failure'`.
+ * @returns the saved record, or undefined for an excluded source.
+ */
+async recordTrustObservation(
+  name: string,
+  outcome: 'success' | 'failure',
+  sessionId: string,
+  failure?: SkillTrustFailure,
+): Promise<SkillUsageRecord | undefined>
+```
+
+   - An excluded source (`isExcludedSkillSource(await this.lookupSource(name))`) returns `undefined`, no write.
+   - `'failure'` → `{ ...resetTrust(record), trustFailures: record.trustFailures + 1, lastTrustFailure: failure ?? record.lastTrustFailure }`.
+   - `'success'` → inside the `write` callback:
+     - `const anchorAt = record.trustAnchorSessionId === null ? -1 : record.sessionIds.indexOf(record.trustAnchorSessionId)`
+     - `const at = record.sessionIds.indexOf(sessionId)`; if `anchorAt !== -1 && (at === -1 || at >= anchorAt)` return `record` unchanged (the session is not newer than the anchor; `sessionIds` is newest-first, so a smaller index is newer).
+     - if `record.trustObservedSessions.includes(sessionId)` return `record` unchanged (counted independently per session).
+     - otherwise: `trustObservedSessions = [sessionId, ...record.trustObservedSessions].slice(0, this.resolved.maxSessionIds)`, and `trust = next.length >= this.resolved.trustPromotionSessions ? 'trusted' : record.trust`.
+   - When the record would not change, return before calling `write` — no wasted disk write.
+6. New public method:
+
+```ts
+/**
+ * Records a new revision of the SKILL.md body. The store hashes it itself so
+ * only one place defines the shape of `contentSha`; rewriting identical
+ * content is a no-op.
+ * @param name - skill name.
+ * @param content - the exact bytes just written to SKILL.md.
+ * @returns the saved record, or undefined for an excluded source.
+ */
+async markRevised(name: string, content: string): Promise<SkillUsageRecord | undefined>
+```
+
+   `contentSha = createHash('sha256').update(content).digest('hex')` (`node:crypto`). If `record.contentSha === contentSha`, return the current record unchanged. Otherwise `{ ...resetTrust(record), revision: record.revision + 1, parentRevisionSha: record.contentSha, contentSha }`.
+7. `Config` adds `trustPromotionSessions?: number` (JSDoc + `z.number().step(1).min(1).default(2)`) plus `ResolvedConfig` and `resolveConfig` wiring.
+
+## 58.4 Step 3 — reconnect authorship and lineage in `evolution-skill-manage`
+
+`packages/skill/evolution-skill-manage/src/index.ts`:
+
+1. `createSkill`'s signature becomes `createSkill(ctx: Context, createDir: string, args: ResolvedManageArgs, signal: AbortSignal)`; the call site in `execute` (line 139) becomes `createSkill(ctx, createDir, args, signal)`.
+2. In `createSkill`, right after the successful `writeFile`, before `return`:
+
+```ts
+const telemetry = ctx.get('evolutionSkillTelemetry')
+await telemetry?.markAgentCreated(args.name)
+await telemetry?.markRevised(args.name, /* the file content just written */)
+```
+
+   (`buildSkillFile(...)` already builds the string — assign it to a variable and reuse it for both `writeFile` and `markRevised`; do not re-read the file from disk.)
+3. `patchSkill` (lines 262-263): after `markPatched`, add `await ctx.get('evolutionSkillTelemetry')?.markRevised(args.name, next)`.
+4. `editSkill` (lines 285-286): build `const file = \`---\n${split.head}\n---\n${content}\`` once, write it, then `markRevised(args.name, file)`.
+5. `write_file` / `remove_file` keep calling only `markPatched` — `SKILL.md`'s body is unchanged, so there is no new revision, but trust still resets (this package's behavior does change here: any write, even to a side file, invalidates prior trust evidence).
+6. The package README states plainly: every `create` through `skill_manage` carries `agent` provenance; a user vouches for it with `/curator adopt <name>`; `consolidate` defaults to off, so this is not a silent behavior change.
+
+## 58.5 Step 4 — evidence enters decisions in `evolution-curator`
+
+`packages/evolution/evolution-curator/src/types.ts`:
+
+1. **Delete** `SurveyFailure` outright (clean cutover, no alias). `SurveyCandidate.failures` becomes `readonly FeedbackSignal[]` (`import type { FeedbackSignal } from '@deepseek-ai/dsh-evolution-feedback'` — already a peer with a tsconfig reference, no new dependency).
+2. `SurveyCandidate` gains: `trust: SkillTrustState`, `revision: number`, `contentSha: string | null`, `lastTrustFailure: SkillTrustFailure | null` (all re-exported types from telemetry, the same pattern `SkillLifecycleState` already uses at lines 7-9).
+3. `RollbackReport` gains `restoredFiles: string[]` (used in §58.6) — `/** Skills whose SKILL.md body was restored from a preimage, in ledger order. */`.
+
+`packages/evolution/evolution-curator/src/index.ts`:
+
+4. In `run()`'s per-skill loop (lines 371-404), **after** the three `continue` exclusions (pinned/protected/excluded) and **before** `decideTransition`, insert a trust-recording block; skip it entirely when `dryRun`:
+
+```ts
+if (!dryRun) {
+  try {
+    const signals = this.ctx.get('evolutionFeedback')?.signals(usage.sessionIds, this.resolved.maxCandidateFailures) ?? []
+    const attributable = signals.find(signal => signal.actionability === 'trigger_review')
+    if (attributable !== undefined) {
+      const newest = usage.sessionIds[0]
+      if (newest !== undefined) {
+        await telemetry.recordTrustObservation(name, 'failure', newest, {
+          mergeKey: attributable.mergeKey,
+          message: attributable.message,
+          at,
+        })
+      }
+    } else {
+      for (const sessionId of usage.sessionIds) {
+        await telemetry.recordTrustObservation(name, 'success', sessionId)
+      }
+    }
+  } catch (error) {
+    this.ctx.logger.warn(`evolution curator could not record trust for '${name}': ${String(error)}`)
+  }
+}
+```
+
+   One broken skill must not break the lifecycle pass: catch per skill, log **one** `warn`, continue. When `evolutionFeedback` is not mounted, `signals` is `[]`, so every session counts as success — the correct behavior when there is no evidence against the skill and the seam is simply absent.
+5. `surveyCandidates()` (lines 480-487): replace `feedback.summary(...).map(...)` with `feedback.signals(usage.sessionIds, this.resolved.maxCandidateFailures)` (no mapping needed — `FeedbackSignal` is already the survey shape), and add `trust: usage.trust`, `revision: usage.revision`, `contentSha: usage.contentSha`, `lastTrustFailure: usage.lastTrustFailure`.
+6. `src/consolidate.ts` — `frameConsolidationInput`: print `trust` and `revision` per candidate, and `actionability`/`evidenceStatus`/`sessions` per failure, so the verdict is driven by **how decisive the evidence is**, not a raw error string. `consolidationInstructions()` gains exactly one sentence: only `patch`/`archive` a skill that is `provisional` or has a `trigger_review` signal; a `trusted` skill with no signal is `keep`.
+7. `packages/evolution/command-evolution/src/index.ts` — `executeCuratorStatus` (lines 729-748): the "Tracked skills" line gains a `· trust: <N> provisional, <M> trusted` suffix counted from `telemetry.entries()`.
+
+## 58.6 Step 5 — admission gate + preimage for patches, and body-restoring rollback
+
+`packages/evolution/evolution-curator/src/safety.ts` adds three exports (a content blob uses a `.md` extension, and never touches `writeBlob`/`readBlob`, which address `blobs/<sha>.json` for records — an existing user's on-disk record blobs must keep reading exactly as before):
+
+```ts
+export function textSha(text: string): string                                   // sha256-hex
+export async function writeTextBlob(home: string, sha: string, text: string): Promise<void>   // blobs/<sha>.md
+export async function readTextBlob(home: string, sha: string): Promise<string>
+```
+
+`recordSha` becomes `return textSha(JSON.stringify(record))`, so only one place hashes (value unchanged, existing blobs still match).
+
+`packages/evolution/evolution-curator/src/consolidate.ts`:
+
+1. Add a dependency on `@deepseek-ai/dsh-evolution-skill-manage` (peer + dev, `workspace:^`) to `packages/evolution/evolution-curator/package.json`, and `{ "path": "../../skill/evolution-skill-manage" }` to `tsconfig.json` references. No dependency cycle: skill-manage never references curator.
+2. A module-private helper, reusing the exact invariant `skill_manage edit` already enforces (one implementation of one invariant):
+
+```ts
+/** Validates a body before commit: same invariant `skill_manage edit` checks. */
+function isValidSkillBody(name: string, body: string): boolean {
+  const split = splitFrontmatter(body)
+  if (split === undefined) return false
+  try {
+    validateSkillHead(split.head, name)
+    return true
+  } catch {
+    // Swallows only frontmatter-validation errors; a broken verdict is
+    // dropped like any other inapplicable verdict, and the pass continues.
+    return false
+  }
+}
+```
+
+   (`splitFrontmatter`, `validateSkillHead`, `SKILL_FILE` are already re-exported from `@deepseek-ai/dsh-evolution-skill-manage/src/index.ts:29-39`.)
+3. The `patch` branch inside `applyConsolidation` (lines 266-282) is rewritten to reject first, write the preimage, then commit:
+
+```ts
+if (verdict.action === 'patch') {
+  if (verdict.body === undefined || !isValidSkillBody(verdict.name, verdict.body)) {
+    applied.skipped += 1
+    continue
+  }
+  const file = join(dir, SKILL_FILE)
+  const previous = await readFile(file, 'utf8')
+  const beforeSha = textSha(previous)
+  await writeTextBlob(deps.home, beforeSha, previous)
+  await writeFile(file, verdict.body)
+  const revised = await deps.telemetry.markRevised(verdict.name, verdict.body)
+  await appendLedger(deps.home, {
+    id: randomUUID(),
+    at: deps.at,
+    actor: 'curator',
+    action: 'patch',
+    evidence: { passId: deps.passId, name: verdict.name, dir, file },
+    before: beforeSha,
+    after: revised?.contentSha ?? textSha(verdict.body),
+  })
+  continue
+}
+```
+
+`packages/evolution/evolution-curator/src/index.ts`:
+
+4. `rollbackPass` (lines 705-717): before calling `applyRollback`, add
+
+```ts
+const patches = entries.filter(entry => entry.action === 'patch' && entry.evidence['passId'] === passId)
+const restoredFiles = await this.revertPatchedBodies(label, patches, options.now ?? Date.now())
+```
+
+   and return `{ ...report, restoredDirs, restoredFiles }`. `rollbackEntry` returns `restoredFiles: []`.
+5. New private `revertPatchedBodies(label, patches, now): Promise<string[]>`, fail-closed in the same style `applyRollback` already uses (verify everything, then write):
+   - Skip an entry whose `entry.before === null` or that is missing `evidence.file`: that patch was written **before** this change landed, so it has no preimage to restore (documented in a comment — not a silent skip of an existing referent).
+   - For every remaining entry: `before` must have a `blobs/<sha>.md` blob (`pathExists`); if missing, `throw new Error(\`evolution-curator: rollback ${label} is missing the body blob for '<name>'\`)`.
+   - Only after verifying every entry: for each, `writeFile(file, await readTextBlob(home, entry.before))`, then `telemetry.markRevised(name, body)` so `contentSha` matches disk, then a `rollback` ledger entry with `evidence: { rollbackOf: label, name, file }`, `before: <current sha>`, `after: entry.before`.
+6. `command-evolution` `/curator rollback` (lines 813-816): add one line when `restoredFiles.length > 0`: `` `Restored bodies: ${report.restoredFiles.join(', ')}` ``.
+
+## 58.7 Step 6 — mount `evolution-feedback` into the product profile
+
+Without this, Steps 1 and 4 never run in the shipped product.
+
+1. `packages/bundle/web-app/package.json`: add exactly one line, `"@deepseek-ai/dsh-evolution-feedback": "workspace:^"`, to `dependencies`, alphabetically between `dsh-evolution-curator` (line 110) and `dsh-evolution-memory` (line 111). Not in `devDependencies` — that block only mirrors `peerDependencies` (cordis, loader, shell-env) and contains no evolution package.
+2. `packages/bundle/web-app/cordis.patch.yml`: insert **before** `evolution-curator` (a consumer must be listed after its provider):
+
+```yaml
+    - id: evolution-feedback
+      name: '@deepseek-ai/dsh-evolution-feedback'
+```
+
+   No `config` block: the defaults (`enabled: true`, `maxEntries: 100`, `maxMessageChars: 500`, `triggerReviewSessions: 2`) are the intended values.
+3. Update the evolution-block comment just above (lines 102-106) to name the feedback store.
+
+## 58.8 Step 7 — regenerate docs/catalogs and record an Agent Note
+
+1. `scripts/gen-doc-graphs.ts`, `evolutionFeedback` entry (~line 545): add `consumers: ['evolution-curator', 'evolution-dreaming']` and rewrite `note` for the new role (graded signals now decide skill trust). `evolutionSkillTelemetry` entry: add trust + revision to `note`.
+2. Run the generators in order: `gen-config-catalog`, `gen-cordis-catalog`, `gen-doc-graphs`, `gen-module-graph` (the new dependency from §58.6.1 changes the module graph).
+3. Every bilingual README triple (`README.md` + `README.zh.md` + `README.i18n.yaml`) must be edited in the same pass: `evolution-feedback`, `evolution-skill-telemetry`, `evolution-skill-manage`, `evolution-curator`, `command-evolution`, and `packages/evolution/README.md` (its package table is missing `evolution-dreaming` — add the row). Re-hash each pair with `pnpm run verify-translation-pairing --write <file>`.
+4. An Agent Note triple, `.agents/notes/implemented/architecture/2026-09-14-evidence-graded-skill-trust.md` + `.zh.md` + `.i18n.yaml`, following the template in `.agents/notes/implemented/architecture/2026-09-13-evolution-feedback.md`. Content: why trust follows evidence rather than elapsed time; why the anchor session exists (evidence collected before an edit must not self-promote); why the preimage uses a separate `.md` blob instead of touching `writeBlob`; why `createdBy: 'agent'` now means "the model wrote this through `skill_manage`".
+
+## 58.9 Critical files & anchors
+
+- `packages/evolution/evolution-feedback/src/index.ts:135-157` — `summary()`; `signals()` must reuse the exact merge key `${tool ?? ''}\u0000${message}` at line 142 and must not change `summary()`'s sort order.
+- `packages/skill/evolution-skill-telemetry/src/spec.ts:16-30` — the zod schema; every new field **requires** `.default(...)`, `version: 1` stays unchanged. `src/index.ts:340-349` `write()` is the sole write path; `freshRecord()` is at line 106.
+- `packages/evolution/evolution-curator/src/index.ts:371-404` (`run()`'s per-skill loop, where trust is recorded), `:459-492` (`surveyCandidates`), `:705-717` (`rollbackPass`), `:793-830` (`applyRollback` — the fail-closed template `revertPatchedBodies` mirrors).
+- `packages/evolution/evolution-curator/src/consolidate.ts:266-282` — the `patch` branch that today overwrites unchecked with ledger `before/after: null`; this is where the admission gate and preimage land.
+- `packages/evolution/evolution-curator/src/safety.ts:71-73,112-115,252-254` — `recordSha`/`writeBlob`/`readBlob` address `blobs/<sha>.json`; the new content blob must use a different extension so it never collides with an existing user's record blobs.
+- `packages/bundle/web-app/cordis.patch.yml:102-147` — the repository's only evolution block; entry order is resolve order.
+
+## 58.10 Verification
+
+Run from the repo root (`C:/project/.NET/deepseek-harness`), no API key required.
+
+```sh
+pnpm exec vitest run packages/evolution/evolution-feedback packages/skill/evolution-skill-telemetry packages/skill/evolution-skill-manage packages/evolution/evolution-curator packages/evolution/command-evolution
+```
+
+New behavioral evidence (concrete input → observable output) goes into each package's existing spec file:
+
+- `packages/evolution/evolution-feedback/tests/feedback.spec.ts`: record two failures in two sessions — one with an observable `tool`/`call`, one without. `signals(['s1','s2'], 10)` returns the tool-bearing signal **first**, `evidenceStatus: 'complete'`, `actionability: 'trigger_review'` (default `triggerReviewSessions: 2`), `mergeKey === "<tool>\u0000<message>"`; the tool-less signal is `actionable_partial` / `observe_only`. On the same data, `summary()` still sorts by `count` as before. A failure seen in only one session is `ranking_only`.
+- `packages/skill/evolution-skill-telemetry/tests/telemetry.spec.ts`: `markUsed` on a new skill → `trust: 'trusted'`, `revision: 0`; `markRevised(name, 'body-1')` → `revision: 1`, `contentSha` is the sha256 of `'body-1'`, `parentRevisionSha: null`, `trust: 'provisional'`; `markRevised(name, 'body-1')` again → no change. `markRevised(name, 'body-2')` → `revision: 2`, `parentRevisionSha` equals the prior `contentSha`. Trust: after `markPatched` (anchor = the newest session at that time), `recordTrustObservation(name,'success',<a session older than the anchor>)` → **still** `provisional` and `trustObservedSessions` stays empty; two sessions newer than the anchor → `trusted`; `recordTrustObservation(name,'failure','sN',{mergeKey,message,at})` → `provisional`, `trustFailures: 1`, `lastTrustFailure.message` matches the recorded string, `trustObservedSessions` empty again.
+- `packages/skill/evolution-skill-manage/tests/manage.spec.ts`: `create` → record has `createdBy: 'agent'`, `revision: 1`, `trust: 'provisional'`, `contentSha` equal to the sha256 of the file just written; a following `patch` → `revision: 2`, `parentRevisionSha` equal to the prior `contentSha`; `write_file` → `revision` unchanged.
+- `packages/evolution/evolution-curator/tests/curator.spec.ts` (proves the **end-to-end loop**): a skill with `createdBy:'agent'`, `markUsed` across two sessions; feedback returns one `trigger_review` signal → after `run()` the record is `provisional`, `lastTrustFailure.mergeKey` matches the signal, and `surveyCandidates()` reports `failures[0].actionability === 'trigger_review'` with `trust: 'provisional'`. Counter-scenario: no `trigger_review` signal, two sessions newer than the anchor → after `run()` the record is `trusted`. Third scenario: `run({dryRun:true})` records no trust at all.
+- `packages/evolution/evolution-curator/tests/consolidate.spec.ts`: a `patch` verdict with a body **missing frontmatter** → `skipped` increments, `SKILL.md` **unchanged**, no `patch` ledger entry; a `patch` verdict with a valid body → the file changes, the ledger entry has different `before`/`after` shas, and `blobs/<before>.md` exists and equals the old file body.
+- `packages/evolution/evolution-curator/tests/safety.spec.ts` or `curator.spec.ts`: after a consolidation pass with a patch, `rollbackPass(passId)` restores `SKILL.md` to the exact prior bytes, `report.restoredFiles` includes the skill name, and the record's `contentSha` matches the restored disk content; an older patch entry (`before: null`) is skipped rather than thrown.
+- `packages/evolution/command-evolution/tests/command-evolution.spec.ts`: `/curator status` prints the `trust: N provisional, M trusted` suffix; `/curator rollback --id <id>` prints `Restored bodies: …` when a file was restored.
+
+Static gates, in order:
+
+```sh
+pnpm run gen-config-catalog && pnpm run gen-cordis-catalog && pnpm run gen-doc-graphs && pnpm run gen-module-graph
+pnpm run typecheck && pnpm run lint
+pnpm run constraints && pnpm run verify-cordis-config
+pnpm run verify-translation-pairing
+pnpm exec vitest run --coverage packages/evolution/evolution-feedback packages/skill/evolution-skill-telemetry packages/evolution/evolution-curator
+```
+
+The repository's coverage gate is **100% per-file** on `packages/*/*/src`: every new branch (the three `actionability` grades, two `evidenceStatus` grades, the anchor branches `-1`/`at === -1`/`at >= anchorAt`, the `markRevised` identical-sha branch, the excluded-source branch, both `isValidSkillBody` false reasons, the missing-preimage rollback branch) needs a corresponding test, or CI goes red.
+
+## 58.11 Assumptions & contingencies
+
+- `pnpm run verify-md-links` is **already red before this change** (~40 links to `specs/evolutionary-harness.spec.md`, `specs/improvement.spec.md`, `specs/workspace-memory.md` — none of the three files exist). Not fixed here. Check by running the gate and diffing against this pre-existing list — **no new broken link may appear**. Use the individual gates above instead of the aggregate `pnpm run doc-sync`; if `doc-sync` is run anyway, expect exactly those three pre-existing errors.
+- After Step 3, `createdBy: 'agent'` means "the model wrote this through `skill_manage`" — broader than the old JSDoc's "background review" framing. Consequence: a skill a user asked the agent to write also enters the survey. Acceptable because `consolidate` defaults to `false` and needs a provider/model, and the user still has `/curator adopt`, `/curator pin`, and `protectedNames`. A narrower semantics would need a separate authorship flag, not a reinterpretation of this one — but only once a real background-authorship flow exists.
+- Trust is only **recorded and displayed**; it does not gate a skill's visibility to the model. The one new gate is the patch admission gate in Step 5 (frontmatter validity), not a new policy gate.
+- Trust advances at the curator's pass cadence (`intervalHours`, default 168h), not per turn — it needs independent sessions, not repeated turns within one.
+- If `gen-doc-graphs` rejects a name in `consumers` (e.g. because `evolution-dreaming` is not a declared-dependency consumer), fall back to `['evolution-curator']` only, and if that is still rejected, edit only `note`.
+- If `pnpm run constraints` requires `@deepseek-ai/dsh-evolution-skill-manage` in both `peerDependencies` and `devDependencies` at the same range (as curator's other peers), do that; if it instead rejects an evolution → skill cross-group dependency, drop §58.6.1–.2 and replace `isValidSkillBody` with an inline check in `consolidate.ts`: the body must start with `---\n`, have a closing `\n---\n`, and its head must match `/^name:\s*<name>\s*$/m` and `/^description:\s*\S/m`.
+- Step 5 is independent of Step 4: if it must be cut, cut it as one block (`restoredFiles` types, safety helpers, the `consolidate.ts` patch branch, rollback) without touching Steps 1–4.
+- Does not touch `snapshots/`: confirmed no fixture mounts any `evolution-*` package, and none of this adds content reaching a model prompt (the feedback store contributes nothing to prompts).
+
+## 58.12 What this integration does not do
+
+Trust is recorded and surfaced (survey, `/curator status`); it does not gate a skill's visibility to the model — that would be a product behavior change beyond what was asked. `markAgentCreated` still has no separate background-authorship flow; Step 3 does not invent one, it only makes the one tool that writes agent-authored skills carry real signal. Trust moves at the curator's pass cadence, not per turn, because it requires independent sessions rather than repeated turns within one. The admission gate in Step 5 checks frontmatter validity only — it is not OpenSpace's three-gate behavior evaluation (§57.1's `behavior_eval.py`); that needs a baseline-vs-candidate replay corpus, deliberately deferred (§58.1 row 10) because there are zero agent-created skills in production to replay until Step 3 and Step 6 have both run.
 
 ---
 

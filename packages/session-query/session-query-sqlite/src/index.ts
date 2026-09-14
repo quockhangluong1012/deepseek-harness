@@ -66,6 +66,7 @@ import {
   rankBySimilarity,
   SEMANTIC_CANDIDATES_SQL,
 } from './semantic.ts'
+import { SessionResultCache } from './result-cache.ts'
 
 export {
   SESSION_QUERY_SQLITE_APPLICATION_ID,
@@ -92,6 +93,11 @@ export const SESSION_QUERY_SQLITE_SNIPPET_CHARS = 240
 
 /** Candidate documents one semantic search ranks, before its page limit applies. */
 export const SESSION_QUERY_SQLITE_DEFAULT_VECTOR_CANDIDATES = 2000
+
+/** Search pages retained in the bounded result cache. */
+export const SESSION_QUERY_SQLITE_DEFAULT_RESULT_CACHE_ENTRIES = 1000
+/** Milliseconds a cached search page stays answerable. */
+export const SESSION_QUERY_SQLITE_DEFAULT_RESULT_CACHE_TTL_MS = 3_600_000
 
 // One transient source change gets a retry; repeated churn fails rather than monopolizing the queue.
 const STABLE_OBSERVATION_ATTEMPTS = 2
@@ -134,6 +140,18 @@ export interface Config extends SessionQueryConfig {
    * Defaults to 2000.
    */
   maxVectorCandidates?: number
+  /**
+   * Search pages retained in the bounded result cache, evicted least-recently-used
+   * past this bound. Defaults to 1000.
+   */
+  resultCacheEntries?: number
+  /**
+   * Milliseconds a cached search page stays answerable before a repeat request
+   * re-queries the index. A corpus change invalidates immediately regardless of
+   * this bound, since the cache key carries the corpus generation. Defaults to
+   * 3600000 (one hour).
+   */
+  resultCacheTtlMs?: number
 }
 
 interface ResolvedConfig {
@@ -147,6 +165,8 @@ interface ResolvedConfig {
   persistedReadConcurrency: number
   preparedSessionCacheSize: number
   maxVectorCandidates: number
+  resultCacheEntries: number
+  resultCacheTtlMs: number
 }
 
 interface ObservedSession {
@@ -251,6 +271,16 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
       .min(1)
       .max(Number.MAX_SAFE_INTEGER)
       .default(SESSION_QUERY_SQLITE_DEFAULT_VECTOR_CANDIDATES),
+    resultCacheEntries: z.number()
+      .step(1)
+      .min(1)
+      .max(Number.MAX_SAFE_INTEGER)
+      .default(SESSION_QUERY_SQLITE_DEFAULT_RESULT_CACHE_ENTRIES),
+    resultCacheTtlMs: z.number()
+      .step(1)
+      .min(0)
+      .max(Number.MAX_SAFE_INTEGER)
+      .default(SESSION_QUERY_SQLITE_DEFAULT_RESULT_CACHE_TTL_MS),
   })
 
   /** Validated and defaulted backend configuration. */
@@ -268,12 +298,17 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
   private _closed = false
   private _closePromise: Promise<void> | undefined
   private readonly _optionalPersistenceFiber: Fiber
+  private readonly _resultCache: SessionResultCache<SearchRow>
 
   constructor(ctx: Context, config: Config) {
     // The assignment expression resolves before the base constructor can
     // register `ctx.sessionQuery`; keep that same validated value afterward.
     super(ctx, config = resolveConfig(config))
     this.config = config as ResolvedConfig
+    this._resultCache = new SessionResultCache({
+      maxEntries: this.config.resultCacheEntries,
+      ttlMs: this.config.resultCacheTtlMs,
+    })
     this._optionalPersistenceFiber = ctx.inject(['sessionPersistence'], (childCtx: Context) => {
       const service = childCtx.sessionPersistence
       const binding = { identity: Symbol(), service }
@@ -311,7 +346,9 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
       const offset = normalized.cursor === undefined
         ? 0
         : decodeCursor(normalized.cursor, this._instance, 'sessions', fingerprint, generation)
-      const rows = this._querySessions(normalized, offset, persistenceBinding)
+      const cacheKey = `sessions|${fingerprint}|${generation}|${offset}|${normalized.limit}`
+      const rows = this._resultCache.get(cacheKey, Date.now())
+        ?? this._cacheRows(cacheKey, this._querySessions(normalized, offset, persistenceBinding))
       return page(rows, normalized.limit, row => this._sessionHit(row), cursorOffset => encodeCursor({
         version: 1,
         instance: this._instance,
@@ -339,7 +376,9 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
       const offset = normalized.cursor === undefined
         ? 0
         : decodeCursor(normalized.cursor, this._instance, 'events', fingerprint, target.generation)
-      const rows = this._queryEvents(normalized, offset, persistenceBinding)
+      const cacheKey = `events|${fingerprint}|${target.generation}|${offset}|${normalized.limit}`
+      const rows = this._resultCache.get(cacheKey, Date.now())
+        ?? this._cacheRows(cacheKey, this._queryEvents(normalized, offset, persistenceBinding))
       return {
         session: target.header,
         ...page(rows, normalized.limit, row => this._eventHit(row), cursorOffset => encodeCursor({
@@ -534,6 +573,7 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
     }
     this._db?.close()
     this._db = undefined
+    this._resultCache.clear()
   }
 
   private async _open(): Promise<void> {
@@ -888,6 +928,12 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
     `).all(...bindings) as unknown as SearchRow[]
   }
 
+  /** Store one page under `key` at the current instant, then return it unchanged. */
+  private _cacheRows(key: string, rows: SearchRow[]): SearchRow[] {
+    this._resultCache.set(key, rows, Date.now())
+    return rows
+  }
+
   private _targetObservation(
     sessionId: SessionId,
     persistenceBinding: PersistenceBinding,
@@ -1212,6 +1258,8 @@ function resolveConfig(config: Config): ResolvedConfig {
     preparedSessionCacheSize: config.preparedSessionCacheSize
       ?? SESSION_QUERY_DEFAULT_PREPARED_SESSION_CACHE_SIZE,
     maxVectorCandidates: config.maxVectorCandidates ?? SESSION_QUERY_SQLITE_DEFAULT_VECTOR_CANDIDATES,
+    resultCacheEntries: config.resultCacheEntries ?? SESSION_QUERY_SQLITE_DEFAULT_RESULT_CACHE_ENTRIES,
+    resultCacheTtlMs: config.resultCacheTtlMs ?? SESSION_QUERY_SQLITE_DEFAULT_RESULT_CACHE_TTL_MS,
   }
   if (typeof resolved.path !== 'string' || resolved.path.trim().length === 0) {
     throw invalidConfig('path must not be blank')

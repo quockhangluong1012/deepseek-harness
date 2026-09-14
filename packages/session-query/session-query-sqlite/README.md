@@ -52,6 +52,8 @@ Choose it when you want full-text recall over prior sessions with ranking and pa
 | `persistedReadConcurrency` | `4` | Concurrent persisted-log reads for inherited batch reads |
 | `preparedSessionCacheSize` | `5` | Cold prepared-Session observations the inherited `observeSession` reader retains for reuse |
 | `maxVectorCandidates` | `2000` | Documents one semantic search embeds and ranks, bounding the batch it sends to the embedding provider |
+| `resultCacheEntries` | `1000` | Search pages kept in the bounded result cache, evicted least-recently-used past this bound |
+| `resultCacheTtlMs` | `3600000` | Milliseconds a cached page stays answerable; a corpus change invalidates immediately regardless, since the key carries the corpus generation |
 
 The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-session-query-sqlite) is the exhaustive source for every accepted field and its JSDoc.
 
@@ -60,6 +62,8 @@ The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-a
 `searchSessions` searches the whole corpus and groups results by each session's strongest matching event; `searchEvents` searches one logical session. Queries are literal phrases: they are trimmed and whitespace-normalized, and FTS5 syntax such as quotes, `OR`, `NEAR`, and `*` is treated as data, never as executable query syntax. Metadata filters (session id, cwd, created-at, parent, availability, event seq/time/type/surface) narrow results before ranking. All `current`, `shadowed`, and `log-only` events are searchable by default; pass a surface filter to narrow.
 
 Ranking is deterministic: more actual FTS5 highlighted-match spans first, then shorter documents, with event time, session id, and seq breaking ties. Results carry plain-text snippets bounded by `snippetChars` Unicode code points, with no provider-specific numeric score. Pages continue through an opaque `SessionSearchCursor` bound to the exact normalized request; a cursor becomes stale when its relevant corpus changes (`SESSION_QUERY_STALE_CURSOR`), and a within-session cursor survives changes to unrelated sessions while a cross-session cursor does not.
+
+A repeat request — same normalized query, same page, same corpus generation — answers from a bounded in-memory result cache instead of re-querying SQLite. The cache key carries the corpus generation, so a corpus change invalidates the affected pages immediately rather than through explicit invalidation logic; entries otherwise expire after `resultCacheTtlMs` or get evicted least-recently-used past `resultCacheEntries`.
 
 The `unicode61` tokenizer matches tokens and phrases, not arbitrary substrings: `AI` does not match the token `BRAID`. Use `ctx.sessionQuery.filterEvents()` with a `text` clause when a literal whitespace-flexible substring scan is required.
 
@@ -98,6 +102,8 @@ The design history lives in the [SQLite FTS5 session search note](../../../.agen
 |---|---|
 | [`src/index.ts`](src/index.ts) | Service: config, openAt lifecycle, serialized reconciliation, query execution, cursors |
 | [`src/query.ts`](src/query.ts) | Request normalization, parameterized predicates, snippets, predicate and binding budgets |
+| [`src/semantic.ts`](src/semantic.ts) | Semantic candidate SQL, vector encode/decode, cosine-similarity ranking |
+| [`src/result-cache.ts`](src/result-cache.ts) | Bounded, generation-keyed TTL cache of search pages |
 | [`src/schema.ts`](src/schema.ts) | Database schema, application-id ownership, in-place reset, owner-only file creation |
 | — | No runtime invariant companion is published; reconciliation, cursor generations, and derived-index ownership are validated at each serialized query boundary. |
 

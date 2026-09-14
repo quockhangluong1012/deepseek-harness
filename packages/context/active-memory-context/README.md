@@ -1,0 +1,127 @@
+---
+description: "Proactive per-turn memory search: injects semantically relevant past-session snippets into agent pre-step before the model responds, for hosts composing the self-learning harness."
+kind: "package-reference"
+---
+
+# @deepseek-ai/dsh-active-memory-context
+
+English | [中文](README.zh.md)
+
+## Summary
+
+`dsh-active-memory-context` searches other sessions in the same workspace with the user's newest message before the model responds, and splices the relevance-filtered results into `agent/pre-step` — proactive retrieval instead of the user having to ask "search past sessions" or wait for a periodic nudge. It complements `dsh-evolution-memory-context`, which injects a static per-scope brief (instructions, lessons, profile) that never depends on what the user just asked; this package injects a different result every turn, keyed to the turn's own content. Choose it when a scope's prior sessions should surface automatically without the model spending a tool call to search for them.
+
+## Table of Contents
+
+- [Use this package](#use-this-package)
+- [Understand the implementation](#understand-the-implementation)
+- [Further Exploration](#further-exploration)
+- [Model Experience](#model-experience)
+- [Known Limitations and Deferred Work](#known-limitations-and-deferred-work)
+
+-----
+
+<a id="use-this-package"></a>
+## Use this package
+
+Mount the plugin with the workspace registry and a session-query backend whose vector channel is populated (an embeddings service, e.g. `dsh-embeddings-http`, mounted behind `dsh-session-query-sqlite`). Scopes resolve per turn from workspace membership (registry session ids, falling back to a canonical-path `cwd` match); turns outside any workspace, or in a workspace with no other session, add nothing.
+
+### Configuration
+
+`maxBytes` is required: the deployment must choose what a brief may cost, the same discipline `dsh-evolution-memory-context` applies to its own brief.
+
+```yaml
+- name: '@deepseek-ai/dsh-active-memory-context'
+  config:
+    maxBytes: 4096
+```
+
+| Field | Default | Meaning |
+|---|---|---|
+| `maxBytes` | required | Cap on the complete emitted text including the frame |
+| `topK` | `5` | Candidate results ranked per search, before the relevance threshold |
+| `relevanceThreshold` | `0.7` | Minimum cosine similarity a hit must clear to be worth injecting |
+| `turnInterval` | `1` | Turns between active-memory searches |
+
+The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-active-memory-context) is the exhaustive source for every accepted field.
+
+### Why a relevance threshold, not just a result count
+
+A nearest-neighbor vector search always answers with its closest candidates, however far they actually are — there is no "no match" case built into cosine similarity. `topK` alone would silently inject an off-topic turn's "closest" memories as if they were relevant. `relevanceThreshold` is the quality gate the spec calls for: a hit only surfaces once it clears the threshold, on the same 0–1 cosine scale the mounted embedding model itself produces. Recalibrate the threshold after switching embedding providers or models, since the scale is meaningful only within one model's own vector space.
+
+### Cost and cadence
+
+Every eligible turn runs one semantic search (an embedding call for the query, plus whatever documents the vector store does not already hold — see `dsh-session-query-sqlite`'s lazy embedding design). `turnInterval` throttles that cost the same way `dsh-evolution-memory-context`'s nudge intervals do: a session with no observed `turn/start` yet counts as turn 0 and reads as its first turn, so `turnInterval: 1` searches on the very first turn. A retried step for the same observed turn never re-searches: the injector remembers the last turn it searched for.
+
+-----
+
+<a id="understand-the-implementation"></a>
+## Understand the implementation
+
+<details>
+<summary>Implementation internals — click to expand</summary>
+
+### Design concept
+
+At each `agent/pre-step`, the injector reads the text of the proposed step's own messages (not whatever an earlier listener already appended, so a search never uses another package's injected brief as its own query), resolves the session's workspace, and — unless the search is off cadence or was already run for this observed turn — calls `ctx.sessionQuery.searchSessionsSemantic` scoped to the workspace's other sessions (the current session is always excluded, so a session can never surface its own just-submitted message as its own "relevant memory"). Hits below `relevanceThreshold` are dropped; the survivors render into one framed `user/message` and append to the step, bounded by `maxBytes`, weakest hits dropped first when the budget is tight.
+
+A vector-channel failure (`SESSION_QUERY_SEMANTIC_UNAVAILABLE`, `SESSION_QUERY_SEARCH_DISABLED`) degrades to no injection rather than blocking the turn; any other failure propagates, since it signals a genuine defect rather than an expected deployment state.
+
+### Source map
+
+| File | Role |
+|---|---|
+| [`src/index.ts`](src/index.ts) | Plugin entry: pre-step search, workspace membership, turn cadence, relevance filtering |
+| [`src/render.ts`](src/render.ts) | Pure brief rendering within the byte budget |
+
+### Failure and recovery
+
+Missing or unresolvable workspace membership, an empty query, an off-cadence turn, a below-threshold result set, and a brief that does not fit `maxBytes` all degrade to no injection rather than failing the step. No invariant companion is published because the injector owns no durable state of its own: membership and turn counters are process-local caches rebuilt from `ctx.workspaceRegistry` and observed session events, never the source of truth.
+
+</details>
+
+-----
+
+<a id="further-exploration"></a>
+## Further Exploration
+
+- [Evolutionary Harness specification](../../../specs/evolutionary-harness-spec-v10-complete.md) §14 — the Active Memory Sub-Agent behavior this package implements.
+- [dsh-session-query](../../session-query/session-query/README.md) — the search service this package calls; see its vector-channel section for how relevance scores are produced.
+- [dsh-evolution-memory-context](../evolution-memory-context/README.md) — the sibling static per-scope brief injector; read both to see why they are two packages, not one.
+- [Session Query subsystem reference](../../../docs/subsystems/session-query.md) — the full type-level search contract.
+
+-----
+
+<a id="model-experience"></a>
+## Model Experience
+
+### Request context and condition
+
+#### What the model sees
+
+One `user/message` per eligible turn, when a relevant hit survives filtering: a framed block naming each surviving session, its match timestamp, its cosine similarity, and a snippet of the matching text.
+
+##### Verbatim text for this field, when needed
+
+```markdown
+<system-reminder>
+Relevant memory found in earlier sessions in this scope:
+1. [session <id> @ <timestamp>, similarity <score>] <snippet>
+</system-reminder>
+```
+
+#### Token effect
+
+Bounded by `maxBytes`; zero when no hit clears `relevanceThreshold`, the turn is off cadence, or the session has no resolvable workspace.
+
+#### KV Cache effect
+
+Varies with the turn's own content by design: this is proactive retrieval keyed to what the user just asked, not a digest-gated static brief. It is appended after the turn's own messages, so it never disturbs a stable prefix from earlier turns.
+
+## Known Limitations and Deferred Work
+
+<a id="known-limitations-and-deferred-work"></a>
+
+- **Turn cadence counts process-observed turns** — the interval counter starts at plugin load and clears on session disposal, so a resumed session begins again from its first observed `turn/start`, the same limitation `dsh-evolution-memory-context` documents for its own nudge cadence.
+- **One embedding call per eligible turn** — cost scales with `turnInterval`; there is no cross-turn result cache, since the query differs every turn by design.
+- **Workspace-scoped only** — a session outside any workspace, or the sole session in one, never receives active memory.
