@@ -64,8 +64,11 @@ Host Remote service over the durable evolution record. The stream is owned by th
 @Remote('setInstructions') async setInstructions(request: EvolutionSetInstructionsRequest): Promise<EvolutionMemoryValue>
 
 /**
- * Replace the lessons document by hand.
- * @param request - scope identity and new document.
+ * Replace the scope's lesson artifacts wholesale. This is the document-level
+ * verb the editor drives: the supplied list becomes the whole lessons
+ * document, so an artifact the caller omits is dropped rather than kept
+ * beside the new ones.
+ * @param request - scope identity and the complete artifact list.
  * @returns the updated projection.
  */
 @Remote('setLessons') async setLessons(request: EvolutionSetLessonsRequest): Promise<EvolutionMemoryValue>
@@ -488,38 +491,73 @@ digest(id: EvolutionScopeId): string
 async setInstructions(id: EvolutionScopeId, instructions: string): Promise<EvolutionMemoryRecord>
 
 /**
- * Replace the whole lessons document by hand or from extraction.
+ * Add one candidate artifact to the lessons. A candidate whose identity —
+ * its normalized statement — is already present stores nothing under
+ * `keep_both`, and under `overwrite` or `merge` folds into the artifact the
+ * candidate matches: the one its identity already keys, otherwise the most
+ * similar artifact at or above `mergeSimilarityFloor`, measured through the
+ * optional `ctx.embeddings` seam. Without that seam only identity matches,
+ * so a paraphrase is stored as an artifact of its own. `keep_both` never
+ * merges: a candidate that is not an exact identity is stored beside the
+ * artifact it resembles.
  * @param id - scope identity.
- * @param text - replacement lessons document.
+ * @param candidate - the fact to store.
+ * @param strategy - how the candidate folds into the artifact it matches.
+ * @returns the stored record, or the current record unchanged when the add
+ * stores nothing.
+ */
+async addArtifact( id: EvolutionScopeId, candidate: LessonArtifactInput, strategy: LessonMergeStrategy = 'keep_both', ): Promise<EvolutionMemoryRecord>
+
+/**
+ * Patch one existing artifact. Identity, counters, statement, and the
+ * creation instant are not patchable.
+ * @param id - scope identity.
+ * @param artifactId - the addressed artifact.
+ * @param patch - changes to apply; absent fields keep their stored value.
+ * @returns the stored record.
+ */
+async updateArtifact( id: EvolutionScopeId, artifactId: string, patch: LessonArtifactPatch, ): Promise<EvolutionMemoryRecord>
+
+/**
+ * Drop one existing artifact.
+ * @param id - scope identity.
+ * @param artifactId - the addressed artifact.
+ * @returns the stored record.
+ */
+async removeArtifact(id: EvolutionScopeId, artifactId: string): Promise<EvolutionMemoryRecord>
+
+/**
+ * Replace the whole lessons document from a candidate list: the
+ * document-level counterpart to {@link addArtifact}, {@link updateArtifact},
+ * and {@link removeArtifact}, not a compatibility shim. The markdown
+ * extraction pipeline rewrites a scope's lessons as one document and uses
+ * this until it emits per-candidate ops. Every candidate is validated and
+ * given a fresh identity, counters, and instants, so a candidate list that
+ * repeats an identity is refused.
+ * @param id - scope identity.
+ * @param candidates - the whole lessons document, one candidate per fact.
  * @param extraction - provenance when model-written.
  * @returns the stored record.
  */
-async setLessons(id: EvolutionScopeId, text: string, extraction?: EvolutionExtraction): Promise<EvolutionMemoryRecord>
+async replaceArtifacts( id: EvolutionScopeId, candidates: readonly LessonArtifactInput[], extraction?: EvolutionExtraction, ): Promise<EvolutionMemoryRecord>
 
 /**
- * Append one lesson. An exact duplicate resolves without writing.
- * @param id - scope identity.
- * @param text - non-empty lesson text to append.
- * @returns the stored record, unchanged when the lesson already exists.
+ * Apply decay to one scope's artifacts: drop every artifact `prunable`
+ * condemns by ttl or refutation floor and leave the rest untouched. A sweep
+ * that finds nothing to drop reaches no write at all, so it moves neither
+ * `updatedAt` nor the lessons family stamp; a sweep that drops something
+ * stamps the lessons family like any other lessons write.
+ *
+ * `refined` is always 0. Refining the coarse artifact `wrapLegacyLessons`
+ * admits from a legacy lessons document needs the structured extraction
+ * call that belongs to Phase 2; until then the coarse artifact is a correct,
+ * permanent fallback and this sweep never calls an extractor.
+ * @param scopeId - scope identity.
+ * @param now - ISO-8601 instant to judge decay at and stamp the write with,
+ * defaulting to the wall clock.
+ * @returns what the sweep changed.
  */
-async addLesson(id: EvolutionScopeId, text: string): Promise<EvolutionMemoryRecord>
-
-/**
- * Replace one uniquely-matching lesson substring.
- * @param id - scope identity.
- * @param oldText - non-empty substring expected exactly once.
- * @param content - replacement text.
- * @returns the stored record.
- */
-async replaceLesson(id: EvolutionScopeId, oldText: string, content: string): Promise<EvolutionMemoryRecord>
-
-/**
- * Remove one uniquely-matching lesson substring.
- * @param id - scope identity.
- * @param oldText - non-empty substring expected exactly once.
- * @returns the stored record.
- */
-async removeLesson(id: EvolutionScopeId, oldText: string): Promise<EvolutionMemoryRecord>
+async sweep(scopeId: EvolutionScopeId, now: string = new Date().toISOString()): Promise<SweepResult>
 
 /**
  * Replace the whole user profile document by hand or from extraction.

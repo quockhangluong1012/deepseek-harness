@@ -1008,8 +1008,8 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: '@Remote(\'setLessons\') async setLessons(request: EvolutionSetLessonsRequest): Promise<EvolutionMemoryValue>',
-        description: 'Replace the lessons document by hand.',
-        parameters: [{ name: 'request', description: 'scope identity and new document.' }],
+        description: 'Replace the scope\'s lesson artifacts wholesale. This is the document-level verb the editor drives: the supplied list becomes the whole lessons document, so an artifact the caller omits is dropped rather than kept beside the new ones.',
+        parameters: [{ name: 'request', description: 'scope identity and the complete artifact list.' }],
         returns: 'the updated projection.',
       },
       {
@@ -1307,28 +1307,34 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the stored record.',
       },
       {
-        signature: 'async setLessons(id: EvolutionScopeId, text: string, extraction?: EvolutionExtraction): Promise<EvolutionMemoryRecord>',
-        description: 'Replace the whole lessons document by hand or from extraction.',
-        parameters: [{ name: 'id', description: 'scope identity.' }, { name: 'text', description: 'replacement lessons document.' }, { name: 'extraction', description: 'provenance when model-written.' }],
+        signature: 'async addArtifact( id: EvolutionScopeId, candidate: LessonArtifactInput, strategy: LessonMergeStrategy = \'keep_both\', ): Promise<EvolutionMemoryRecord>',
+        description: 'Add one candidate artifact to the lessons. A candidate whose identity — its normalized statement — is already present stores nothing under `keep_both`, and under `overwrite` or `merge` folds into the artifact the candidate matches: the one its identity already keys, otherwise the most similar artifact at or above `mergeSimilarityFloor`, measured through the optional `ctx.embeddings` seam. Without that seam only identity matches, so a paraphrase is stored as an artifact of its own. `keep_both` never merges: a candidate that is not an exact identity is stored beside the artifact it resembles.',
+        parameters: [{ name: 'id', description: 'scope identity.' }, { name: 'candidate', description: 'the fact to store.' }, { name: 'strategy', description: 'how the candidate folds into the artifact it matches.' }],
+        returns: 'the stored record, or the current record unchanged when the add stores nothing.',
+      },
+      {
+        signature: 'async updateArtifact( id: EvolutionScopeId, artifactId: string, patch: LessonArtifactPatch, ): Promise<EvolutionMemoryRecord>',
+        description: 'Patch one existing artifact. Identity, counters, statement, and the creation instant are not patchable.',
+        parameters: [{ name: 'id', description: 'scope identity.' }, { name: 'artifactId', description: 'the addressed artifact.' }, { name: 'patch', description: 'changes to apply; absent fields keep their stored value.' }],
         returns: 'the stored record.',
       },
       {
-        signature: 'async addLesson(id: EvolutionScopeId, text: string): Promise<EvolutionMemoryRecord>',
-        description: 'Append one lesson. An exact duplicate resolves without writing.',
-        parameters: [{ name: 'id', description: 'scope identity.' }, { name: 'text', description: 'non-empty lesson text to append.' }],
-        returns: 'the stored record, unchanged when the lesson already exists.',
-      },
-      {
-        signature: 'async replaceLesson(id: EvolutionScopeId, oldText: string, content: string): Promise<EvolutionMemoryRecord>',
-        description: 'Replace one uniquely-matching lesson substring.',
-        parameters: [{ name: 'id', description: 'scope identity.' }, { name: 'oldText', description: 'non-empty substring expected exactly once.' }, { name: 'content', description: 'replacement text.' }],
+        signature: 'async removeArtifact(id: EvolutionScopeId, artifactId: string): Promise<EvolutionMemoryRecord>',
+        description: 'Drop one existing artifact.',
+        parameters: [{ name: 'id', description: 'scope identity.' }, { name: 'artifactId', description: 'the addressed artifact.' }],
         returns: 'the stored record.',
       },
       {
-        signature: 'async removeLesson(id: EvolutionScopeId, oldText: string): Promise<EvolutionMemoryRecord>',
-        description: 'Remove one uniquely-matching lesson substring.',
-        parameters: [{ name: 'id', description: 'scope identity.' }, { name: 'oldText', description: 'non-empty substring expected exactly once.' }],
+        signature: 'async replaceArtifacts( id: EvolutionScopeId, candidates: readonly LessonArtifactInput[], extraction?: EvolutionExtraction, ): Promise<EvolutionMemoryRecord>',
+        description: 'Replace the whole lessons document from a candidate list: the document-level counterpart to addArtifact, updateArtifact, and removeArtifact, not a compatibility shim. The markdown extraction pipeline rewrites a scope\'s lessons as one document and uses this until it emits per-candidate ops. Every candidate is validated and given a fresh identity, counters, and instants, so a candidate list that repeats an identity is refused.',
+        parameters: [{ name: 'id', description: 'scope identity.' }, { name: 'candidates', description: 'the whole lessons document, one candidate per fact.' }, { name: 'extraction', description: 'provenance when model-written.' }],
         returns: 'the stored record.',
+      },
+      {
+        signature: 'async sweep(scopeId: EvolutionScopeId, now: string = new Date().toISOString()): Promise<SweepResult>',
+        description: 'Apply decay to one scope\'s artifacts: drop every artifact `prunable` condemns by ttl or refutation floor and leave the rest untouched. A sweep that finds nothing to drop reaches no write at all, so it moves neither `updatedAt` nor the lessons family stamp; a sweep that drops something stamps the lessons family like any other lessons write.\n\n`refined` is always 0. Refining the coarse artifact `wrapLegacyLessons` admits from a legacy lessons document needs the structured extraction call that belongs to Phase 2; until then the coarse artifact is a correct, permanent fallback and this sweep never calls an extractor.',
+        parameters: [{ name: 'scopeId', description: 'scope identity.' }, { name: 'now', description: 'ISO-8601 instant to judge decay at and stamp the write with, defaulting to the wall clock.' }],
+        returns: 'what the sweep changed.',
       },
       {
         signature: 'async setUserProfile(id: EvolutionScopeId, text: string, extraction?: EvolutionExtraction): Promise<EvolutionMemoryRecord>',
@@ -2354,14 +2360,14 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'session hits ranked by their strongest matching event.',
       },
       {
-        signature: 'abstract searchSessionsSemantic( request: SessionSearchRequest, exec?: SessionSearchExecContext, ): Promise<SessionSearchPage<SessionSearchHit>>',
+        signature: 'abstract searchSessionsSemantic( request: SessionSearchRequest, exec?: SessionSearchExecContext, ): Promise<SessionSearchPage<SemanticSessionSearchHit>>',
         description: 'Search the live-preferred logical corpus by meaning rather than by matching text. A provider without a vector channel refuses this call instead of degrading to a lexical one, so a caller that asked for semantic results never receives silently different ones.',
         parameters: [{ name: 'request', description: 'query text, metadata filters, and page size.' }, { name: 'exec', description: 'optional cancellation control.' }],
         returns: 'session hits ranked by vector similarity to the query.',
       },
       {
         signature: 'async searchSessionsHybrid( request: SessionSearchRequest, exec?: SessionSearchExecContext, ): Promise<SessionSearchPage<SessionSearchHit>>',
-        description: 'Search the corpus through both channels and fuse their rankings by reciprocal rank, so a session both channels place highly outranks one only a single channel found.',
+        description: 'Search the corpus through both channels and fuse their rankings by reciprocal rank, so a session both channels place highly outranks one only a single channel found. The fused ranking stays a plain `SessionSearchHit[]`: reciprocal-rank fusion blends two heterogeneous rankings into one order, so no single per-hit number describes the result the way `searchSessionsSemantic`\'s own cosine score describes its own single-channel ranking.',
         parameters: [{ name: 'request', description: 'query text, metadata filters, and page size.' }, { name: 'exec', description: 'optional cancellation control.' }],
         returns: 'fused session hits, best combined rank first.',
       },
@@ -5127,7 +5133,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'EvolutionMemoryRecord',
-    declaration: 'export interface EvolutionMemoryRecord {\n    instructions: string;\n    agentLessons: string;\n    userProfile: string;\n    instructionsUpdatedAt: string | null;\n    lessonsUpdatedAt: string | null;\n    profileUpdatedAt: string | null;\n    memoryUpdatedAt: string | null;\n    contextItems: readonly EvolutionContextItem[];\n    outputs: readonly EvolutionOutput[];\n    lastExtraction: EvolutionExtraction | null;\n    staged: readonly StagedWrite[];\n    resolutions: readonly StagedResolution[];\n    updatedAt: string;\n}',
+    declaration: 'export interface EvolutionMemoryRecord {\n    instructions: string;\n    agentLessons: readonly LessonArtifact[];\n    userProfile: string;\n    instructionsUpdatedAt: string | null;\n    lessonsUpdatedAt: string | null;\n    profileUpdatedAt: string | null;\n    memoryUpdatedAt: string | null;\n    contextItems: readonly EvolutionContextItem[];\n    outputs: readonly EvolutionOutput[];\n    lastExtraction: EvolutionExtraction | null;\n    staged: readonly StagedWrite[];\n    resolutions: readonly StagedResolution[];\n    updatedAt: string;\n}',
   },
   {
     name: 'EvolutionRebuildMemoryRequest',
@@ -5143,7 +5149,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'EvolutionSetLessonsRequest',
-    declaration: 'export interface EvolutionSetLessonsRequest extends EvolutionScopeRequest {\n    readonly lessons: string;\n}',
+    declaration: 'export interface EvolutionSetLessonsRequest extends EvolutionScopeRequest {\n    readonly artifacts: readonly LessonArtifactInput[];\n}',
   },
   {
     name: 'EvolutionSetProfileRequest',
@@ -5508,6 +5514,18 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'KvUnitDescriptor',
     declaration: 'export interface KvUnitDescriptor {\n    readonly name: string;\n    readonly version: number;\n    readonly tables: readonly string[];\n    readonly hasGlobal: boolean;\n    readonly layout?: \'single\' | \'per-record\';\n    readonly compatibleVersions?: readonly number[];\n}',
+  },
+  {
+    name: 'LessonArtifactInput',
+    declaration: 'export type LessonArtifactInput = Omit<LessonArtifact, \'id\' | \'validationCount\' | \'refutationCount\' | \'createdAt\' | \'updatedAt\'>;',
+  },
+  {
+    name: 'LessonArtifactPatch',
+    declaration: 'export type LessonArtifactPatch = Partial<Pick<LessonArtifact, \'conditions\' | \'confidence\' | \'evidence\' | \'ttlDays\'>>;',
+  },
+  {
+    name: 'LessonMergeStrategy',
+    declaration: 'export type LessonMergeStrategy = \'overwrite\' | \'merge\' | \'keep_both\';',
   },
   {
     name: 'LlmAdapter',
@@ -6064,6 +6082,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SearchResultView',
     declaration: 'export type SearchResultView = SearchMatchesResultView | SearchPathsResultView;',
+  },
+  {
+    name: 'SemanticSessionSearchHit',
+    declaration: 'export interface SemanticSessionSearchHit extends SessionSearchHit {\n    score: number;\n}',
   },
   {
     name: 'SendTeamMessageRequest',
@@ -6948,6 +6970,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SurveyFailure',
     declaration: 'export interface SurveyFailure {\n    tool: string | null;\n    message: string;\n    count: number;\n    sessions: number;\n}',
+  },
+  {
+    name: 'SweepResult',
+    declaration: 'export interface SweepResult {\n    pruned: number;\n    refined: number;\n}',
   },
   {
     name: 'SystemMessage',
