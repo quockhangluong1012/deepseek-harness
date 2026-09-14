@@ -144,6 +144,13 @@ export function addArtifactTo(
   const id = artifactIdOf(candidate)
   const matched = record.agentLessons.find(artifact => artifact.id === target?.id)
     ?? record.agentLessons.find(artifact => artifact.id === id)
+    // A `contradicts` decision can correct an artifact's statement while the
+    // artifact keeps the id it is addressed by, so the id and the normalized
+    // statement part company. Matching the statement as well keeps a later
+    // candidate spelling that statement from being stored as a twin — and does
+    // so without depending on the embeddings seam, which a similarity-only
+    // match would.
+    ?? record.agentLessons.find(artifact => artifactKey(artifact.statement) === id)
   if (matched === undefined) {
     return { ...record, agentLessons: [...record.agentLessons, freshArtifact(candidate, id, now, defaultTtlDays)] }
   }
@@ -181,8 +188,10 @@ function confirmArtifactIn(record: EvolutionMemoryRecord, artifactId: string, no
  * decision did not supply, so the corrected fact keeps its lineage, its
  * confirmation history, and the identity every caller addresses it by. The
  * cost of keeping the id is that a corrected artifact's id no longer equals
- * the normalized statement it now carries, so a later candidate spelling that
- * statement exactly matches it by similarity rather than by identity.
+ * the normalized statement it now carries; `addArtifactTo` therefore resolves
+ * a candidate by its statement as well as by its id, so the corrected
+ * artifact still absorbs a later candidate spelling that statement — with or
+ * without an embeddings seam.
  *
  * A decision naming an artifact the record no longer holds is skipped, on the
  * same terms {@link confirmArtifactIn} states.

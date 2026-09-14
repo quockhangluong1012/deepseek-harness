@@ -681,6 +681,9 @@ function applyMemoryStagedOp(
     case 'applyDecisions': {
       const decisions = requiredDecisions(fields)
       const next = applyDecisionsTo(record, decisions, resolved, addTargets)
+      // A batch that stored and changed nothing — an empty batch, or only
+      // no-ops — stamps no family, exactly as the `addArtifact` case above.
+      if (next === record) return { record, family: null }
       checkArtifactCaps(next, resolved)
       return { record: withStagedExtraction(next, fields), family: 'lessons' }
     }
@@ -947,7 +950,10 @@ export class EvolutionMemoryStore extends Service {
    *
    * The batch is one write: it stages or applies as a unit and stamps one
    * lessons family stamp, matching the one-item-per-call shape this path
-   * replaces.
+   * replaces. A batch that changed nothing — an empty one, or one whose only
+   * decisions named artifacts the record no longer holds — stamps no family,
+   * exactly as {@link addArtifact} does when its add stores nothing; the
+   * provenance of the call that found nothing is still recorded.
    * @param id - scope identity.
    * @param decisions - the confirmed, contradicted, and new facts, in the
    * order the extraction reported them.
@@ -965,10 +971,10 @@ export class EvolutionMemoryStore extends Service {
     return this.write(id, (record) => {
       const next = applyDecisionsTo(record, parsed, this.resolved, addTargets)
       checkArtifactCaps(next, this.resolved)
-      return stampFamily({
-        ...next,
+      return {
+        ...next === record ? {} : stampFamily(next, 'lessons', now),
         ...extraction === undefined ? {} : { lastExtraction: structuredClone(extraction) },
-      }, 'lessons', now)
+      }
     })
   }
 

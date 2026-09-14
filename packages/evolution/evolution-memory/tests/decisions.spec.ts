@@ -227,6 +227,27 @@ describe('applying a decision batch', () => {
     ])
   })
 
+  it('absorbs a candidate spelling a corrected statement, without embeddings', () => {
+    const corrected = apply(record([artifact('use postgres')]), [
+      { kind: 'contradicts', artifactId: 'use postgres', statement: 'mysql is the database' },
+    ])
+    // The correction kept the id, so the artifact is addressed as 'use postgres'
+    // while its statement now normalizes to a different key.
+    expect(corrected.agentLessons[0]?.id).toBe('use postgres')
+    const after = apply(corrected, [
+      { kind: 'new', candidate: candidate('Mysql is the Database', { conditions: 'rechecked' }), strategy: 'overwrite' },
+    ])
+    expect(after.agentLessons).toHaveLength(1)
+    expect(after.agentLessons[0]).toMatchObject({
+      id: 'use postgres',
+      conditions: 'rechecked',
+      refutationCount: 2,
+      updatedAt: NOW,
+    })
+    // A corrected twin is a taken identity even under keep_both.
+    expect(apply(corrected, [{ kind: 'new', candidate: candidate('mysql is the database') }])).toBe(corrected)
+  })
+
   it('leaves an empty batch with the record it was given', () => {
     const base = record([artifact('use postgres')])
     expect(apply(base, [])).toBe(base)

@@ -1179,7 +1179,7 @@ describe('evolution-memory extraction decisions', () => {
     await fiber.dispose()
   })
 
-  it('records an empty batch as a pass that found nothing', async () => {
+  it('stamps no family for a batch that changed nothing', async () => {
     const { fiber, store } = await harness()
     const id = scope()
     await store.addArtifact(id, candidate('use postgres'))
@@ -1195,12 +1195,31 @@ describe('evolution-memory extraction decisions', () => {
     }
     const record = await store.applyExtractionDecisions(id, [], extraction)
     expect(record.agentLessons).toEqual(before?.agentLessons)
+    // The pass found nothing, so it stamped no family — the same rule
+    // `addArtifact` follows when its add stores nothing. The provenance of the
+    // call that found nothing is still recorded.
     expect(record.lastExtraction).toEqual(extraction)
-    expect(record.memoryUpdatedAt).toBe(record.lessonsUpdatedAt)
+    expect(record.lessonsUpdatedAt).toBe(before?.lessonsUpdatedAt)
+    expect(record.memoryUpdatedAt).toBe(before?.memoryUpdatedAt)
     await fiber.dispose()
   })
 
-  it('seeds an absent scope from a batch that adds a fact', async () => {
+  it('stamps no family for a batch whose decisions all named gone artifacts', async () => {
+    const { fiber, store } = await harness()
+    const id = scope()
+    await store.addArtifact(id, candidate('use postgres'))
+    const before = store.read(id)
+    const record = await store.applyExtractionDecisions(id, [
+      { kind: 'confirms', artifactId: 'pruned fact' },
+      { kind: 'contradicts', artifactId: 'pruned fact', statement: 'rewritten' },
+    ])
+    expect(record.agentLessons).toEqual(before?.agentLessons)
+    expect(record.lessonsUpdatedAt).toBe(before?.lessonsUpdatedAt)
+    expect(record.memoryUpdatedAt).toBe(before?.memoryUpdatedAt)
+    await fiber.dispose()
+  })
+
+  it('seeds an absent scope from a batch that adds a fact, stamping the family', async () => {
     const { fiber, store } = await harness()
     const id = scope('fresh')
     expect(store.read(id)).toBeUndefined()
@@ -1209,6 +1228,10 @@ describe('evolution-memory extraction decisions', () => {
     ])
     expect(record.agentLessons.map(entry => entry.statement)).toEqual(['prefers terse answers'])
     expect(record.agentLessons[0]?.validationCount).toBe(0)
+    // A batch that changed something does stamp: this scope had no lessons
+    // family instant to carry over, so only a stamped write can produce one.
+    expect(record.lessonsUpdatedAt).toEqual(expect.any(String))
+    expect(record.memoryUpdatedAt).toBe(record.lessonsUpdatedAt)
     await fiber.dispose()
   })
 
@@ -1308,6 +1331,61 @@ describe('evolution-memory extraction decisions', () => {
     const record = store.read(id)
     expect(record?.agentLessons).toHaveLength(1)
     expect(record?.agentLessons[0]).toMatchObject({ conditions: 'database work; database work only' })
+    await fiber.dispose()
+  })
+
+  it('stamps the lessons family for a staged batch that changed something', async () => {
+    const { fiber, store } = await harness()
+    const id = scope()
+    await store.setInstructions(id, 'rules')
+    const before = store.read(id)
+    expect(before?.lessonsUpdatedAt).toBeNull()
+    const staged = await store.stageWrite({
+      scopeId: id,
+      kind: 'memory',
+      op: 'applyDecisions',
+      payload: artifactPayload({ decisions: [{ kind: 'new', candidate: candidate('prefers terse answers') }] }),
+      originSessionId: 's1',
+      gist: '0 confirms, 0 contradicts, 1 new',
+    })
+    await store.approveStaged(staged.id)
+    const after = store.read(id)
+    expect(after?.agentLessons.map(entry => entry.statement)).toEqual(['prefers terse answers'])
+    // Only a stamped write can give a scope its first lessons instant, so this
+    // proves the no-op rule above did not become "never stamp".
+    expect(after?.lessonsUpdatedAt).toEqual(expect.any(String))
+    expect(after?.memoryUpdatedAt).toBe(after?.lessonsUpdatedAt)
+    expect(after?.instructionsUpdatedAt).toBe(before?.instructionsUpdatedAt)
+    await fiber.dispose()
+  })
+
+  it('stamps no family for a staged batch that changed nothing', async () => {
+    const { fiber, store } = await harness()
+    const id = scope()
+    await store.addArtifact(id, candidate('use postgres'))
+    const before = store.read(id)
+    const staged = await store.stageWrite({
+      scopeId: id,
+      kind: 'memory',
+      op: 'applyDecisions',
+      payload: artifactPayload({
+        decisions: [
+          { kind: 'new', candidate: candidate('Use Postgres'), strategy: 'keep_both' },
+          { kind: 'confirms', artifactId: 'pruned fact' },
+        ],
+      }),
+      originSessionId: 's1',
+      gist: '0 confirms, 0 contradicts, 1 new',
+    })
+    await store.approveStaged(staged.id)
+    const after = store.read(id)
+    expect(after?.agentLessons).toEqual(before?.agentLessons)
+    expect(after?.staged).toEqual([])
+    // Every decision was a no-op, so the op changed no content and stamped no
+    // family, exactly as a repeated `addArtifact` does.
+    expect(after?.lessonsUpdatedAt).toBe(before?.lessonsUpdatedAt)
+    expect(after?.memoryUpdatedAt).toBe(before?.memoryUpdatedAt)
+    expect(after?.resolutions?.[0]).toMatchObject({ op: 'applyDecisions', decision: 'approved' })
     await fiber.dispose()
   })
 

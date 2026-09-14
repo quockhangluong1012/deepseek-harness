@@ -114,10 +114,13 @@ export interface MemoryStagedReplaceArtifactsPayload {
 
 /**
  * Payload for the `applyDecisions` staged op: one extraction pass's whole
- * decision batch, applied as a single write.
+ * decision batch, applied as a single write. The optional `extraction` is the
+ * provenance of the call that produced the batch, stamped on approval exactly
+ * as `replaceArtifacts` and `addArtifact` stamp theirs.
  */
 export interface MemoryStagedApplyDecisionsPayload {
   decisions: LessonDecision[]
+  extraction?: EvolutionExtraction
 }
 
 /** One staged write awaiting approval. Staged entries never count toward capacity. */
