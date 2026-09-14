@@ -99,6 +99,29 @@
       config:
         maxBytes: 16384
 
+    # Autonomy slice: idle-triggered background maintenance, mounted before
+    # the Evolution family below because `evolution-memory`'s own init reads
+    # `ctx.get('evolutionHeartbeat')` once and never rechecks it, so the
+    # heartbeat must already be provided by the time memory initializes. The
+    # heartbeat is a host-wide due-check timer that runs no work of its own;
+    # feedback records failing tool results with no model call; dreaming
+    # reads feedback's observations and promotes durable narratives into its
+    # own `evolution_dreams` domain on the heartbeat's schedule (and via
+    # `/dream`), making no model call either; the graph stores per-scope
+    # entities and relations for the read-only `/graph` command. Feedback is
+    # mounted before dreaming, its one reader.
+    - id: evolution-heartbeat
+      name: '@deepseek-ai/dsh-evolution-heartbeat'
+
+    - id: evolution-feedback
+      name: '@deepseek-ai/dsh-evolution-feedback'
+
+    - id: evolution-dreaming
+      name: '@deepseek-ai/dsh-evolution-dreaming'
+
+    - id: evolution-graph
+      name: '@deepseek-ai/dsh-evolution-graph'
+
     # Evolution family (`specs/evolutionary-harness.spec.md`): per-scope memory,
     # the background reviewer, the brief injector, skill telemetry and
     # management, the curator pass, and the governance commands. The reviewer

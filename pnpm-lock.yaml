@@ -2140,6 +2140,18 @@ importers:
       '@deepseek-ai/dsh-evolution-curator':
         specifier: workspace:^
         version: link:../../evolution/evolution-curator
+      '@deepseek-ai/dsh-evolution-dreaming':
+        specifier: workspace:^
+        version: link:../../evolution/evolution-dreaming
+      '@deepseek-ai/dsh-evolution-feedback':
+        specifier: workspace:^
+        version: link:../../evolution/evolution-feedback
+      '@deepseek-ai/dsh-evolution-graph':
+        specifier: workspace:^
+        version: link:../../evolution/evolution-graph
+      '@deepseek-ai/dsh-evolution-heartbeat':
+        specifier: workspace:^
+        version: link:../../evolution/evolution-heartbeat
       '@deepseek-ai/dsh-evolution-memory':
         specifier: workspace:^
         version: link:../../evolution/evolution-memory
