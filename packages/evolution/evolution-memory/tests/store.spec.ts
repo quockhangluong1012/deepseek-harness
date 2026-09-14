@@ -87,6 +87,7 @@ describe('evolution-memory scope ids', () => {
       maxContextItems: 50,
       maxOutputs: 200,
       maxResolutions: 200,
+      mergeSimilarityFloor: 0.87,
     })
   })
 })

@@ -10,7 +10,11 @@
  * statement: `addArtifact`, `updateArtifact`, and `removeArtifact` each name
  * the artifact they act on, and an artifact's identity never changes.
  * `replaceArtifacts` is the document-level counterpart, used by the markdown
- * extraction pipeline until that pipeline emits per-candidate ops.
+ * extraction pipeline until that pipeline emits per-candidate ops. Under
+ * `overwrite` or `merge`, `addArtifact` folds a candidate into the artifact it
+ * most resembles when an embeddings service is mounted; that seam is optional,
+ * so without it only an exact identity matches and a paraphrase is stored as
+ * an artifact of its own.
  *
  * Reads are synchronous from the domain's validated memory. Every cap is
  * checked before the write chain is entered, and a rejected write never
@@ -24,8 +28,9 @@ import z from '@deepseek-ai/schemastery'
 import type { KvTable } from '@deepseek-ai/dsh-storage-domain'
 import { RemoteError } from '@deepseek-ai/dsh-typert-protocol'
 import { artifactBytesOf, digestOf, usedBytesOf, utf8Bytes } from './digest.ts'
-import { artifactKey, lessonArtifact, lessonArtifactInput } from './lesson-artifact.ts'
+import { artifactKey, lessonArtifactInput } from './lesson-artifact.ts'
 import type { LessonArtifact, LessonArtifactInput, LessonArtifactPatch, LessonMergeStrategy } from './lesson-artifact.ts'
+import { cosineSimilarity, mergeArtifact, pickMergeTarget } from './merge.ts'
 import { evolutionExtraction, evolutionMemoryDomainSpec, stagedWritePayload } from './spec.ts'
 import type {
   EvolutionContextItem,
@@ -59,6 +64,7 @@ export type {
 export { evolutionMemoryDomainSpec } from './spec.ts'
 export { digestOf, usedBytesOf, EMPTY_DIGEST, truncateUtf8, utf8Bytes, artifactBytesOf } from './digest.ts'
 export { artifactKey, lessonArtifact, lessonArtifactInput, normalizeStatement, wrapLegacyLessons } from './lesson-artifact.ts'
+export { cosineSimilarity, mergeArtifact, pickMergeTarget } from './merge.ts'
 export type {
   LessonArtifact,
   LessonArtifactInput,
@@ -155,6 +161,8 @@ export interface Config {
   maxOutputs?: number
   /** Decided staged entries retained per scope. */
   maxResolutions?: number
+  /** Minimum similarity to an existing artifact that justifies merging instead of storing separately. */
+  mergeSimilarityFloor?: number
 }
 
 /** Capacity-bar denominator and hard ceiling on stored bytes. */
@@ -178,6 +186,9 @@ const maxOutputsField = z.number().step(1).min(1).default(200)
 /** Decided staged entries retained per scope. */
 const maxResolutionsField = z.number().step(1).min(1).default(200)
 
+/** Similarity floor for merging a candidate into an existing artifact. */
+const mergeSimilarityFloorField = z.number().min(0).max(1).default(0.87)
+
 /** Validated deployment choices; `capacityBytes` is required. */
 export const Config: z<Config> = z.object({
   capacityBytes: capacityBytesField,
@@ -187,6 +198,7 @@ export const Config: z<Config> = z.object({
   maxContextItems: maxContextItemsField,
   maxOutputs: maxOutputsField,
   maxResolutions: maxResolutionsField,
+  mergeSimilarityFloor: mergeSimilarityFloorField,
 })
 
 /** Normalized configuration used by the store. */
@@ -198,6 +210,7 @@ export interface ResolvedConfig {
   maxContextItems: number
   maxOutputs: number
   maxResolutions: number
+  mergeSimilarityFloor: number
 }
 
 /**
@@ -214,8 +227,18 @@ export function resolveConfig(config: Config): ResolvedConfig {
     maxContextItems = 50,
     maxOutputs = 200,
     maxResolutions = 200,
+    mergeSimilarityFloor = 0.87,
   } = config
-  return { capacityBytes, maxAgentBytes, maxUserBytes, maxContextItemBytes, maxContextItems, maxOutputs, maxResolutions }
+  return {
+    capacityBytes,
+    maxAgentBytes,
+    maxUserBytes,
+    maxContextItemBytes,
+    maxContextItems,
+    maxOutputs,
+    maxResolutions,
+    mergeSimilarityFloor,
+  }
 }
 
 function freshRecord(): Omit<EvolutionMemoryRecord, 'updatedAt'> & { updatedAt?: string } {
@@ -388,42 +411,17 @@ function freshArtifact(candidate: LessonArtifactInput, id: string, now: string):
 }
 
 /**
- * Fold caller-supplied changes onto a stored artifact, re-deriving the fields
- * the store owns: identity, counters, and the creation instant.
- * @param existing - the artifact being changed.
- * @param changes - the fields to apply.
- * @param statement - the statement to store. A patch keeps the stored one; a
- * candidate that collided with the identity supplies its own, which carries
- * the same identity by construction.
- * @param now - ISO-8601 instant to stamp.
- * @returns the revalidated artifact.
- */
-function mergedArtifact(
-  existing: LessonArtifact,
-  changes: object,
-  statement: string,
-  now: string,
-): LessonArtifact {
-  return lessonArtifact.parse({
-    ...existing,
-    ...changes,
-    id: existing.id,
-    statement,
-    validationCount: existing.validationCount,
-    refutationCount: existing.refutationCount,
-    createdAt: existing.createdAt,
-    updatedAt: now,
-  })
-}
-
-/**
  * Add one candidate to a record's artifacts. A candidate whose identity is
- * already present replaces that artifact when the strategy says so;
- * `keep_both` stores nothing over an identity that is present, because a
- * second artifact with the same identity cannot be told apart from the first.
+ * already present stores nothing under `keep_both`, because a second artifact
+ * with the same identity cannot be told apart from the first; under any other
+ * strategy the artifact `pickMergeTarget` selected absorbs the candidate. A
+ * candidate with no selected target becomes its own artifact.
  * @param record - current record value.
  * @param candidate - validated caller-supplied artifact fields.
- * @param strategy - what to do when the identity is already present.
+ * @param strategy - how the candidate folds into a selected artifact.
+ * @param target - the artifact selected for this candidate outside the write
+ * chain, where the similarity lookup can await; undefined when nothing
+ * matched closely enough.
  * @param now - ISO-8601 instant to stamp.
  * @returns the candidate record without the family stamp, or `record` itself
  * when the add stores nothing.
@@ -432,16 +430,16 @@ function addArtifactTo(
   record: EvolutionMemoryRecord,
   candidate: LessonArtifactInput,
   strategy: LessonMergeStrategy,
+  target: LessonArtifact | undefined,
   now: string,
 ): EvolutionMemoryRecord {
   const id = artifactIdOf(candidate)
-  const existing = record.agentLessons.find(artifact => artifact.id === id)
-  if (existing === undefined) {
-    return { ...record, agentLessons: [...record.agentLessons, freshArtifact(candidate, id, now)] }
+  if (target !== undefined) {
+    const merged = mergeArtifact(target, candidate, strategy, now)
+    return { ...record, agentLessons: record.agentLessons.map(artifact => artifact.id === target.id ? merged : artifact) }
   }
-  if (strategy === 'keep_both') return record
-  const merged = mergedArtifact(existing, candidate, candidate.statement, now)
-  return { ...record, agentLessons: record.agentLessons.map(artifact => artifact.id === id ? merged : artifact) }
+  if (record.agentLessons.some(artifact => artifact.id === id)) return record
+  return { ...record, agentLessons: [...record.agentLessons, freshArtifact(candidate, id, now)] }
 }
 
 /**
@@ -489,7 +487,7 @@ function patchArtifactIn(
 ): EvolutionMemoryRecord {
   const existing = record.agentLessons.find(artifact => artifact.id === id)
   if (existing === undefined) throw itemNotFound(id)
-  const merged = mergedArtifact(existing, patch, existing.statement, now)
+  const merged = mergeArtifact(existing, { ...existing, ...patch }, 'overwrite', now)
   return { ...record, agentLessons: record.agentLessons.map(artifact => artifact.id === id ? merged : artifact) }
 }
 
@@ -620,6 +618,8 @@ function withStagedExtraction(record: EvolutionMemoryRecord, fields: StagedPaylo
  * @param record - current record value.
  * @param entry - staged entry to apply.
  * @param resolved - normalized caps.
+ * @param addTarget - the artifact a staged `addArtifact` absorbs, selected
+ * before the write chain was entered; undefined for every other op.
  * @returns the candidate record without timestamp stamps, plus the memory
  * family the op changed, or `null` when the op stored nothing.
  */
@@ -627,6 +627,7 @@ function applyMemoryStagedOp(
   record: EvolutionMemoryRecord,
   entry: StagedWrite,
   resolved: ResolvedConfig,
+  addTarget: LessonArtifact | undefined,
 ): { record: EvolutionMemoryRecord; family: MemoryFamily | null } {
   const fields = stagedFields(entry.payload, entry.op)
   switch (entry.op) {
@@ -638,7 +639,7 @@ function applyMemoryStagedOp(
     case 'addArtifact': {
       const candidate = lessonArtifactInput.parse(fields.candidate)
       const strategy = mergeStrategyField(fields.strategy)
-      const next = addArtifactTo(record, candidate, strategy, new Date().toISOString())
+      const next = addArtifactTo(record, candidate, strategy, addTarget, new Date().toISOString())
       if (next === record) return { record, family: null }
       checkArtifactCaps(next, resolved)
       return { record: withStagedExtraction(next, fields), family: 'lessons' }
@@ -692,6 +693,27 @@ function mergeOutputs(
     merged.set(entry.path, { ...entry })
   }
   return [...merged.values()].sort((a, b) => b.at.localeCompare(a.at)).slice(0, maxOutputs)
+}
+
+/**
+ * The slice of `ctx.embeddings` this store calls. It is declared here rather
+ * than imported so the store keeps no dependency on an embeddings package:
+ * the seam is optional, and the store must work with nothing mounted.
+ */
+interface EmbeddingsSeam {
+  /** Embed one batch of texts, one vector per text in request order. */
+  embed(request: { texts: readonly string[] }): Promise<{ vectors: readonly (readonly number[])[] }>
+}
+
+/**
+ * Whether a context value offers the embeddings seam this store calls. An
+ * absent or foreign value answers false instead of throwing, and `Object`
+ * keeps the check total for nullish and primitive values.
+ * @param value - the value read from `ctx.get('embeddings')`.
+ * @returns whether the value can embed a batch.
+ */
+function isEmbeddingsSeam(value: unknown): value is EmbeddingsSeam {
+  return typeof Reflect.get(Object(value), 'embed') === 'function'
 }
 
 /**
@@ -770,11 +792,16 @@ export class EvolutionMemoryStore extends Service {
   /**
    * Add one candidate artifact to the lessons. A candidate whose identity —
    * its normalized statement — is already present stores nothing under
-   * `keep_both`, and replaces the existing artifact under `overwrite` or
-   * `merge`.
+   * `keep_both`, and under `overwrite` or `merge` folds into the artifact the
+   * candidate matches: the one its identity already keys, otherwise the most
+   * similar artifact at or above `mergeSimilarityFloor`, measured through the
+   * optional `ctx.embeddings` seam. Without that seam only identity matches,
+   * so a paraphrase is stored as an artifact of its own. `keep_both` never
+   * merges: a candidate that is not an exact identity is stored beside the
+   * artifact it resembles.
    * @param id - scope identity.
    * @param candidate - the fact to store.
-   * @param strategy - what to do when the identity is already present.
+   * @param strategy - how the candidate folds into the artifact it matches.
    * @returns the stored record, or the current record unchanged when the add
    * stores nothing.
    */
@@ -786,15 +813,19 @@ export class EvolutionMemoryStore extends Service {
     const parsed = lessonArtifactInput.parse(candidate)
     const key = artifactKey(parsed.statement)
     const current = this.requireTable().get(storageKey(id) as EvolutionScopeId)
+    const artifacts = current?.agentLessons ?? []
     // An add that stores nothing must not enter the write chain, which stamps
     // `updatedAt` on every accepted call. `addArtifactTo` reaches the same
     // decision for the staged path.
-    if (strategy === 'keep_both' && current?.agentLessons.some(artifact => artifact.id === key) === true) {
+    if (strategy === 'keep_both' && current !== undefined && current.agentLessons.some(artifact => artifact.id === key)) {
       return structuredClone(current)
     }
+    const target = strategy === 'keep_both'
+      ? undefined
+      : pickMergeTarget(parsed, artifacts, await this.similarities(parsed, artifacts), this.resolved.mergeSimilarityFloor)
     const now = new Date().toISOString()
     return this.write(id, (record) => {
-      const next = addArtifactTo(record, parsed, strategy, now)
+      const next = addArtifactTo(record, parsed, strategy, target, now)
       checkArtifactCaps(next, this.resolved)
       return stampFamily(next, 'lessons', now)
     })
@@ -949,17 +980,18 @@ export class EvolutionMemoryStore extends Service {
    * @returns resolution after durability.
    */
   async approveStaged(id: string): Promise<void> {
-    const scope = this.findStagedScope(id)
-    if (scope === undefined) throw stagedNotFound(id)
+    const located = this.findStaged(id)
+    if (located === undefined) throw stagedNotFound(id)
     const resolved = this.resolved
-    await this.requireTable().update(scope, (record) => {
+    const addTarget = await this.stagedAddTarget(located.record, located.entry)
+    await this.requireTable().update(located.scope, (record) => {
       const target = record.staged.find(candidate => candidate.id === id)
       if (target === undefined) throw stagedNotFound(id)
       const now = new Date().toISOString()
       const remaining = record.staged.filter(candidate => candidate.id !== id)
       const resolutions = withResolution(record.resolutions, target, 'approved', now, resolved.maxResolutions)
       if (target.kind === 'skill') return { ...record, staged: remaining, resolutions, updatedAt: now }
-      const applied = applyMemoryStagedOp(record, target, resolved)
+      const applied = applyMemoryStagedOp(record, target, resolved, addTarget)
       const stamped = applied.family === null ? applied.record : stampFamily(applied.record, applied.family, now)
       return { ...stamped, staged: remaining, resolutions, updatedAt: now }
     })
@@ -971,10 +1003,10 @@ export class EvolutionMemoryStore extends Service {
    * @returns resolution after durability.
    */
   async rejectStaged(id: string): Promise<void> {
-    const scope = this.findStagedScope(id)
-    if (scope === undefined) throw stagedNotFound(id)
+    const located = this.findStaged(id)
+    if (located === undefined) throw stagedNotFound(id)
     const maxResolutions = this.resolved.maxResolutions
-    await this.requireTable().update(scope, (record) => {
+    await this.requireTable().update(located.scope, (record) => {
       const target = record.staged.find(candidate => candidate.id === id)
       if (target === undefined) throw stagedNotFound(id)
       const now = new Date().toISOString()
@@ -1016,13 +1048,71 @@ export class EvolutionMemoryStore extends Service {
 
   /**
    * Locate the record holding one staged entry. Table keys are storage keys;
-   * the returned key is the same encoding `update` expects.
+   * the returned scope is the same encoding `update` expects.
+   * @param id - staged entry identity.
+   * @returns the owning scope, its record, and the entry, or undefined when no
+   * scope holds it.
    */
-  private findStagedScope(id: string): EvolutionScopeId | undefined {
+  private findStaged(
+    id: string,
+  ): { scope: EvolutionScopeId; record: EvolutionMemoryRecord; entry: StagedWrite } | undefined {
     for (const [scope, record] of this.requireTable().entries()) {
-      if (record.staged.some(candidate => candidate.id === id)) return scope
+      const entry = record.staged.find(candidate => candidate.id === id)
+      if (entry !== undefined) return { scope, record, entry }
     }
     return undefined
+  }
+
+  /**
+   * Resolve the artifact a staged `addArtifact` folds into, before the write
+   * chain is entered: the similarity lookup awaits the embeddings seam, and
+   * the table update runs its callback synchronously.
+   * @param record - the owning scope's current record.
+   * @param entry - the staged entry being approved.
+   * @returns the selected target, or undefined when the entry is not an
+   * `addArtifact` that merges.
+   */
+  private async stagedAddTarget(
+    record: EvolutionMemoryRecord,
+    entry: StagedWrite,
+  ): Promise<LessonArtifact | undefined> {
+    if (entry.kind !== 'memory' || entry.op !== 'addArtifact') return undefined
+    const fields = stagedFields(entry.payload, entry.op)
+    if (mergeStrategyField(fields.strategy) === 'keep_both') return undefined
+    const candidate = lessonArtifactInput.parse(fields.candidate)
+    return pickMergeTarget(
+      candidate,
+      record.agentLessons,
+      await this.similarities(candidate, record.agentLessons),
+      this.resolved.mergeSimilarityFloor,
+    )
+  }
+
+  /**
+   * Measure one candidate against a scope's artifacts through the optional
+   * `ctx.embeddings` seam. Without that seam nothing is measured, so only an
+   * exact statement identity can match; paraphrase detection is off rather
+   * than the write failing.
+   * @param candidate - validated caller-supplied artifact fields.
+   * @param artifacts - the scope's existing artifacts.
+   * @returns similarity per artifact id, empty without embeddings.
+   */
+  private async similarities(
+    candidate: LessonArtifactInput,
+    artifacts: readonly LessonArtifact[],
+  ): Promise<ReadonlyMap<string, number>> {
+    const raw: unknown = this.ctx.get('embeddings')
+    if (!isEmbeddingsSeam(raw) || artifacts.length === 0) return new Map()
+    const result = await raw.embed({ texts: [candidate.statement, ...artifacts.map(artifact => artifact.statement)] })
+    const query = result.vectors[0]
+    if (query === undefined) return new Map()
+    const scores = new Map<string, number>()
+    for (const [index, artifact] of artifacts.entries()) {
+      const vector = result.vectors[index + 1]
+      if (vector === undefined) continue
+      scores.set(artifact.id, cosineSimilarity(query, vector))
+    }
+    return scores
   }
 
   private async write(
