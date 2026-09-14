@@ -33,34 +33,6 @@ Depends on: `Stream` (`@agentclientprotocol/sdk`)
 
 Source: [`packages/acp/acp/src/index.ts:75`](../packages/acp/acp/src/index.ts)
 
-<a id="deepseek-aidsh-active-memory-context"></a>
-
-## `@deepseek-ai/dsh-active-memory-context`
-
-Requires: `workspaceRegistry` · `sessionQuery`
-
-```ts config-catalog
-/** Plugin configuration: brief cap, result bounds, and search cadence. */
-export interface Config {
-  /** Cap on the complete emitted text including the frame. */
-  maxBytes: number
-  /** Candidate results ranked per search, before the relevance threshold. Defaults to 5. */
-  topK?: number
-  /**
-   * Minimum cosine similarity a hit must clear to be worth injecting, in the
-   * configured embedding model's own vector space. A nearest-neighbor search
-   * always returns its closest candidates even when none are truly relevant,
-   * so this is what tells an off-topic turn apart from an on-topic one.
-   * Recalibrate after switching embedding providers or models. Defaults to 0.7.
-   */
-  relevanceThreshold?: number
-  /** Turns between active-memory searches. Defaults to 1 (every turn). */
-  turnInterval?: number
-}
-```
-
-Source: [`packages/context/active-memory-context/src/index.ts:39`](../packages/context/active-memory-context/src/index.ts)
-
 <a id="deepseek-aidsh-agent-default-model"></a>
 
 ## `@deepseek-ai/dsh-agent-default-model`
@@ -2536,18 +2508,6 @@ export interface Config extends SessionQueryConfig {
    * Defaults to 2000.
    */
   maxVectorCandidates?: number
-  /**
-   * Search pages retained in the bounded result cache, evicted least-recently-used
-   * past this bound. Defaults to 1000.
-   */
-  resultCacheEntries?: number
-  /**
-   * Milliseconds a cached search page stays answerable before a repeat request
-   * re-queries the index. A corpus change invalidates immediately regardless of
-   * this bound, since the cache key carries the corpus generation. Defaults to
-   * 3600000 (one hour).
-   */
-  resultCacheTtlMs?: number
 }
 
 /** SQLite module/handle opening phase; `never` disables full-text search entirely. */
@@ -2559,7 +2519,7 @@ export type JournalMode = 'wal' | 'delete' | 'truncate' | 'persist'
 
 Depends on: [`SessionQueryConfig`](../packages/session-query/session-query/src/index.ts)
 
-Source: [`packages/session-query/session-query-sqlite/src/index.ts:109`](../packages/session-query/session-query-sqlite/src/index.ts)
+Source: [`packages/session-query/session-query-sqlite/src/index.ts:103`](../packages/session-query/session-query-sqlite/src/index.ts)
 
 <a id="deepseek-aidsh-session-reference"></a>
 
