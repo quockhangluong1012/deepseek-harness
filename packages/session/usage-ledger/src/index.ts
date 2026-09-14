@@ -102,9 +102,9 @@ export interface Config {
   /**
    * Minimum billed requests today before the alert can fire, so a thin
    * early-day sample cannot trip it. Meaningful only alongside
-   * {@link cacheHitAlertThreshold}.
+   * {@link cacheHitAlertThreshold}. Defaults to `20` when unset.
    */
-  readonly cacheHitAlertMinRequests: number
+  readonly cacheHitAlertMinRequests?: number
 }
 
 /** Validated deployment choices; every tunable is explicit, none defaulted silently. */
@@ -303,7 +303,7 @@ export class UsageLedger extends Service {
       this.cacheAlertHealthy = true
     }
     const row = this.ledger.daily[day]
-    if (row === undefined || row.requests < this.config.cacheHitAlertMinRequests) return
+    if (row === undefined || row.requests < (this.config.cacheHitAlertMinRequests ?? 20)) return
     const rate = cacheHitAvg(row.cacheReadTokens, row.inputTokens)
     const healthy = rate >= threshold
     if (!healthy && this.cacheAlertHealthy) {
