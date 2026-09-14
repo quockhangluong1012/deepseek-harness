@@ -31,6 +31,8 @@ import { artifactBytesOf, digestOf, usedBytesOf, utf8Bytes } from './digest.ts'
 import { artifactKey, lessonArtifactInput } from './lesson-artifact.ts'
 import type { LessonArtifact, LessonArtifactInput, LessonArtifactPatch, LessonMergeStrategy } from './lesson-artifact.ts'
 import { cosineSimilarity, mergeArtifact, pickMergeTarget } from './merge.ts'
+import { prunable } from './maintenance.ts'
+import type { SweepResult } from './maintenance.ts'
 import { evolutionExtraction, evolutionMemoryDomainSpec, stagedWritePayload } from './spec.ts'
 import type {
   EvolutionContextItem,
@@ -65,6 +67,7 @@ export { evolutionMemoryDomainSpec } from './spec.ts'
 export { digestOf, usedBytesOf, EMPTY_DIGEST, truncateUtf8, utf8Bytes, artifactBytesOf } from './digest.ts'
 export { artifactKey, lessonArtifact, lessonArtifactInput, normalizeStatement, wrapLegacyLessons } from './lesson-artifact.ts'
 export { cosineSimilarity, mergeArtifact, pickMergeTarget } from './merge.ts'
+export type { SweepResult } from './maintenance.ts'
 export type {
   LessonArtifact,
   LessonArtifactInput,
@@ -81,6 +84,9 @@ export type {
  * a brief drops under its byte budget.
  */
 export const RECALL_LABEL_PREFIX = 'Recall: '
+
+/** Heartbeat task name carrying the automatic maintenance sweep. */
+export const EVOLUTION_MEMORY_MAINTENANCE_TASK = 'evolution-memory-maintenance'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -163,6 +169,12 @@ export interface Config {
   maxResolutions?: number
   /** Minimum similarity to an existing artifact that justifies merging instead of storing separately. */
   mergeSimilarityFloor?: number
+  /** Hours between two maintenance sweeps of every stored scope. */
+  maintenanceIntervalHours?: number
+  /** Refutations at or above which decay prunes an artifact regardless of age. */
+  refutationFloor?: number
+  /** Days a new artifact is given when its caller supplies no ttl. */
+  defaultTtlDays?: number
 }
 
 /** Capacity-bar denominator and hard ceiling on stored bytes. */
@@ -189,6 +201,15 @@ const maxResolutionsField = z.number().step(1).min(1).default(200)
 /** Similarity floor for merging a candidate into an existing artifact. */
 const mergeSimilarityFloorField = z.number().min(0).max(1).default(0.87)
 
+/** Hours between two maintenance sweeps of every stored scope. */
+const maintenanceIntervalHoursField = z.number().step(1).min(1).default(24)
+
+/** Refutations at or above which decay prunes an artifact regardless of age. */
+const refutationFloorField = z.number().step(1).min(1).default(3)
+
+/** Days a new artifact is given when its caller supplies no ttl. */
+const defaultTtlDaysField = z.number().step(1).min(1).default(30)
+
 /** Validated deployment choices; `capacityBytes` is required. */
 export const Config: z<Config> = z.object({
   capacityBytes: capacityBytesField,
@@ -199,6 +220,9 @@ export const Config: z<Config> = z.object({
   maxOutputs: maxOutputsField,
   maxResolutions: maxResolutionsField,
   mergeSimilarityFloor: mergeSimilarityFloorField,
+  maintenanceIntervalHours: maintenanceIntervalHoursField,
+  refutationFloor: refutationFloorField,
+  defaultTtlDays: defaultTtlDaysField,
 })
 
 /** Normalized configuration used by the store. */
@@ -211,6 +235,9 @@ export interface ResolvedConfig {
   maxOutputs: number
   maxResolutions: number
   mergeSimilarityFloor: number
+  maintenanceIntervalHours: number
+  refutationFloor: number
+  defaultTtlDays: number
 }
 
 /**
@@ -228,6 +255,9 @@ export function resolveConfig(config: Config): ResolvedConfig {
     maxOutputs = 200,
     maxResolutions = 200,
     mergeSimilarityFloor = 0.87,
+    maintenanceIntervalHours = 24,
+    refutationFloor = 3,
+    defaultTtlDays = 30,
   } = config
   return {
     capacityBytes,
@@ -238,6 +268,9 @@ export function resolveConfig(config: Config): ResolvedConfig {
     maxOutputs,
     maxResolutions,
     mergeSimilarityFloor,
+    maintenanceIntervalHours,
+    refutationFloor,
+    defaultTtlDays,
   }
 }
 
@@ -725,6 +758,36 @@ function isEmbeddingsSeam(value: unknown): value is EmbeddingsSeam {
 }
 
 /**
+ * The slice of `ctx.evolutionHeartbeat` this store registers with. It is
+ * declared here rather than imported so the store keeps no dependency on the
+ * heartbeat package: the engine is optional infrastructure, and the store must
+ * work — with `sweep` callable directly — when nothing mounts one.
+ */
+interface HeartbeatSeam {
+  /**
+   * Register one periodic maintenance task.
+   * @param task - identity, cadence, and the work to run.
+   * @returns the disposer removing the task.
+   */
+  register(task: {
+    name: string
+    intervalHours: number
+    run: (signal: AbortSignal) => Promise<void> | void
+  }): () => void
+}
+
+/**
+ * Whether a context value offers the heartbeat seam this store calls. Mirrors
+ * {@link isEmbeddingsSeam}: absent and foreign values answer false instead of
+ * throwing.
+ * @param value - the value read from `ctx.get('evolutionHeartbeat')`.
+ * @returns whether the value can register a task.
+ */
+function isHeartbeatSeam(value: unknown): value is HeartbeatSeam {
+  return typeof Reflect.get(Object(value), 'register') === 'function'
+}
+
+/**
  * Durable per-scope evolution memory store. Opens the `evolution_memory`
  * domain at init and closes it through `ctx.effect`.
  */
@@ -743,11 +806,26 @@ export class EvolutionMemoryStore extends Service {
     this.resolved = resolveConfig(config)
   }
 
-  /** Open the domain and publish the table handle. */
+  /** Open the domain, publish the table handle, and register the maintenance sweep. */
   protected async [Service.init](): Promise<void> {
     const domain = await this.ctx.storageDomain.open(evolutionMemoryDomainSpec)
     this.ctx.effect(() => () => domain.close(), 'evolution-memory.domainClose')
     this.table = domain.table('records')
+    const heartbeat: unknown = this.ctx.get('evolutionHeartbeat')
+    if (!isHeartbeatSeam(heartbeat)) return
+    this.ctx.effect(
+      () => heartbeat.register({
+        name: EVOLUTION_MEMORY_MAINTENANCE_TASK,
+        intervalHours: this.resolved.maintenanceIntervalHours,
+        run: async (signal: AbortSignal) => {
+          for (const [key] of this.requireTable().entries()) {
+            if (signal.aborted) return
+            await this.sweep(scopeIdFromStorageKey(key))
+          }
+        },
+      }),
+      'evolution-memory.heartbeatTask',
+    )
   }
 
   /**
@@ -894,6 +972,39 @@ export class EvolutionMemoryStore extends Service {
       checkArtifactCaps(next, this.resolved)
       return stampFamily(next, 'lessons', now)
     })
+  }
+
+  /**
+   * Apply decay to one scope's artifacts: drop every artifact `prunable`
+   * condemns by ttl or refutation floor and leave the rest untouched. A sweep
+   * that finds nothing to drop reaches no write at all, so it moves neither
+   * `updatedAt` nor the lessons family stamp; a sweep that drops something
+   * stamps the lessons family like any other lessons write.
+   *
+   * `refined` is always 0. Refining the coarse artifact `wrapLegacyLessons`
+   * admits from a legacy lessons document needs the structured extraction
+   * call that belongs to Phase 2; until then the coarse artifact is a correct,
+   * permanent fallback and this sweep never calls an extractor.
+   * @param scopeId - scope identity.
+   * @param now - ISO-8601 instant to judge decay at and stamp the write with,
+   * defaulting to the wall clock.
+   * @returns what the sweep changed.
+   */
+  async sweep(scopeId: EvolutionScopeId, now: string = new Date().toISOString()): Promise<SweepResult> {
+    const record = this.read(scopeId)
+    if (record === undefined) return { pruned: 0, refined: 0 }
+    const instant = Date.parse(now)
+    const decayed = (artifact: LessonArtifact): boolean => prunable(artifact, instant, this.resolved.refutationFloor)
+    if (!record.agentLessons.some(decayed)) return { pruned: 0, refined: 0 }
+    // The write chain resolves the record again below: another write can have
+    // landed since the read above, and the survivors must come from the record
+    // actually being written, not from the snapshot that decided to write.
+    const updated = await this.write(scopeId, current => stampFamily(
+      { ...current, agentLessons: current.agentLessons.filter(artifact => !decayed(artifact)) },
+      'lessons',
+      now,
+    ))
+    return { pruned: record.agentLessons.length - updated.agentLessons.length, refined: 0 }
   }
 
   /**

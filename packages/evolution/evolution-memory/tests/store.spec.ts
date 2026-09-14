@@ -88,6 +88,9 @@ describe('evolution-memory scope ids', () => {
       maxOutputs: 200,
       maxResolutions: 200,
       mergeSimilarityFloor: 0.87,
+      maintenanceIntervalHours: 24,
+      refutationFloor: 3,
+      defaultTtlDays: 30,
     })
   })
 })
