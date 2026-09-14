@@ -34,12 +34,12 @@
             - text: write /tmp/out2.md
           - listitem:
             - text: Staged
-            - text: memory:setLessons add lesson about error handling
+            - text: memory:replaceArtifacts add lesson about error handling
   - region "Pending approvals":
     - heading "Pending approvals" [level=2]
     - list:
       - listitem:
-        - text: memory:setLessons add lesson about error handling
+        - text: memory:replaceArtifacts add lesson about error handling
         - text: from session s-9
         - button "Approve"
         - button "Reject"
