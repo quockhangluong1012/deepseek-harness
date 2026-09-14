@@ -34,13 +34,54 @@ function fakeFeedback(rows: SummaryRow[]) {
   }
 }
 
-/** Memory double exposing one record for the scope. */
-function fakeMemory(record: Partial<EvolutionMemoryRecord> | undefined) {
+/** Record fields a spec pins, with lesson text in place of the artifact array. */
+interface FakeMemoryRecord extends Partial<Omit<EvolutionMemoryRecord, 'agentLessons'>> {
+  /** The lesson text the relevance read must see, as one artifact statement. */
+  agentLessons?: string
+}
+
+/**
+ * Memory double exposing one record for the scope. The lessons family is an
+ * artifact array, so a spec names the lesson text it expects the relevance
+ * read to compare against and this folds it into one artifact's statement.
+ * @param record - record fields to expose, or undefined for no record.
+ * @returns a memory double whose `read` answers the scope.
+ */
+function fakeMemory(record: FakeMemoryRecord | undefined) {
   return {
     read: () => (record === undefined
       ? undefined
-      : { instructions: '', agentLessons: '', userProfile: '', ...record } as EvolutionMemoryRecord),
+      : {
+        instructions: '',
+        userProfile: '',
+        ...record,
+        agentLessons: lessons(record.agentLessons),
+      } as EvolutionMemoryRecord),
   }
+}
+
+/**
+ * One lesson document as an artifact array: one artifact whose statement is
+ * the given text, empty when there is no text.
+ * @param text - the lesson text the spec pins.
+ * @returns the artifact array the record stores.
+ */
+function lessons(text: string | undefined): EvolutionMemoryRecord['agentLessons'] {
+  if (text === undefined) return []
+  return [{
+    id: text,
+    statement: text,
+    source: 's1',
+    conditions: '',
+    evidence: 'inference',
+    confidence: 0.5,
+    validationCount: 0,
+    refutationCount: 0,
+    scope: 'project',
+    ttlDays: 30,
+    createdAt: '2026-09-12T00:00:00.000Z',
+    updatedAt: '2026-09-12T00:00:00.000Z',
+  }]
 }
 
 async function harness(
@@ -198,6 +239,20 @@ describe('dreaming cycle', () => {
     const second = await dreaming.dream(scope, ['s1'], later)
     expect(second.pruned).toBe(1)
     expect(dreaming.read(scope)?.promotions).toHaveLength(0)
+    await ctx.fiber.dispose()
+  })
+
+  it('scores relevance against the scope artifacts, not a stringified record', async () => {
+    const { ctx, dreaming } = await harness({}, {
+      feedback: fakeFeedback([strong()]),
+      // The words that make the candidate relevant live in the artifact's
+      // statement; nothing else in the record carries them.
+      memory: fakeMemory({ instructions: 'unrelated rules', agentLessons: KNOWN }),
+    })
+    await dreaming.run('light', scope, ['s1'])
+    const deep = await dreaming.run('deep', scope, ['s1'], NOW)
+    expect(deep.promoted).toBe(1)
+    expect(dreaming.read(scope)?.promotions[0]?.score).toBeGreaterThanOrEqual(0.65)
     await ctx.fiber.dispose()
   })
 

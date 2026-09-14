@@ -368,9 +368,15 @@ export class EvolutionDreaming extends Service {
   /** Score one candidate against the scope's existing memory. */
   private score(candidate: DreamCandidate, scopeId: EvolutionScopeId, now: string) {
     const memory = this.ctx.get('evolutionMemory')?.read(scopeId)
+    // The lessons family is an artifact array, so the words the relevance
+    // signal compares against are the statements, not the array's shell.
     const known = memory === undefined
       ? ''
-      : [memory.instructions, memory.agentLessons, memory.userProfile].join('\n')
+      : [
+        memory.instructions,
+        ...memory.agentLessons.map(artifact => artifact.statement),
+        memory.userProfile,
+      ].join('\n')
     return scoreCandidate({
       relevance: known.length === 0 ? 0 : lexicalRelevance(candidate.statement, known),
       count: candidate.count,

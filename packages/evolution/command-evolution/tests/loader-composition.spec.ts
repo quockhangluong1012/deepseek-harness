@@ -12,12 +12,49 @@ import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import Storage, { storageBackendServiceKey } from '@deepseek-ai/dsh-storage'
 import * as StorageDomain from '@deepseek-ai/dsh-storage-domain'
 import { EvolutionScopeId } from '@deepseek-ai/dsh-evolution-memory'
+import type { EvolutionMemoryRecord, LessonArtifactInput } from '@deepseek-ai/dsh-evolution-memory'
+import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import * as EvolutionMemory from '@deepseek-ai/dsh-evolution-memory'
 import { WorkspaceId } from '@deepseek-ai/dsh-workspace'
 import { MemoryMediaPool, MemoryStorageBackend } from '../../../storage/storage-domain/tests/helpers/memory-backend.ts'
 import * as CommandEvolution from '@deepseek-ai/dsh-command-evolution'
 
 const pool = new MemoryMediaPool()
+
+/** One caller-supplied lesson artifact, the shape a staged replace carries. */
+function candidate(statement: string): LessonArtifactInput {
+  return {
+    statement,
+    source: 's1',
+    conditions: '',
+    evidence: 'inference',
+    confidence: 0.5,
+    scope: 'project',
+  }
+}
+
+/**
+ * A staged payload carrying artifact candidates. `LessonArtifactInput` is a
+ * mapped type whose optional `ttlDays` admits `undefined`, so it is not
+ * assignable to the store's `JsonValue` payload type even though the value
+ * stored is JSON; the store validates the candidate when the entry is
+ * approved, so the bridge cast is test-side only.
+ * @param value - the payload object to hand the store.
+ * @returns the same object typed as a JSON value.
+ */
+function artifactPayload(value: object): JsonValue {
+  return value as unknown as JsonValue
+}
+
+/**
+ * The stored lessons document as one text: the artifacts' statements joined in
+ * stored order.
+ * @param record - the stored scope record, or undefined when absent.
+ * @returns the document text the assertions compare against.
+ */
+function lessonsOf(record: EvolutionMemoryRecord | undefined): string {
+  return (record?.agentLessons ?? []).map(artifact => artifact.statement).join('\n')
+}
 
 const memoryBackendPlugin = {
   name: 'test-memory-backend',
@@ -62,9 +99,16 @@ function reviewerPlugin(calls: { scope: unknown }[]) {
       ctx.provide('evolutionReviewer', {
         rebuild: async (scopeId: unknown) => {
           calls.push({ scope: scopeId })
-          await ctx.evolutionMemory.setLessons(
-            scopeId as Parameters<typeof ctx.evolutionMemory.setLessons>[0],
-            'rebuilt lessons',
+          await ctx.evolutionMemory.replaceArtifacts(
+            scopeId as Parameters<typeof ctx.evolutionMemory.replaceArtifacts>[0],
+            [{
+              statement: 'rebuilt lessons',
+              source: 's1',
+              conditions: '',
+              evidence: 'inference',
+              confidence: 0.5,
+              scope: 'project',
+            }],
           )
         },
       } as never)
@@ -155,26 +199,27 @@ describe('command-evolution real Loader composition', () => {
     expect(pending?.result).toEqual({ kind: 'success', text: 'No pending writes.' })
 
     const staged = await context.evolutionMemory.stageWrite({
-      scopeId: scope, kind: 'memory', op: 'setLessons',
-      payload: { text: 'loader lessons' }, originSessionId: 's1', gist: 'loader proposal',
+      scopeId: scope, kind: 'memory', op: 'replaceArtifacts',
+      payload: artifactPayload({ candidates: [candidate('loader lessons')] }),
+      originSessionId: 's1', gist: 'loader proposal',
     })
     const listed = await context.commands.execute(agent, '/memory pending', [], signal)
     expect(listed?.result).toEqual({
       kind: 'success',
-      text: `1 pending write:\n- ${staged.id} [memory:setLessons] loader proposal (session 's1', ${staged.createdAt})`,
+      text: `1 pending write:\n- ${staged.id} [memory:replaceArtifacts] loader proposal (session 's1', ${staged.createdAt})`,
     })
 
     const approved = await context.commands.execute(agent, `/memory approve ${staged.id}`, [], signal)
     expect(approved?.result).toEqual({
       kind: 'success',
-      text: 'Approved staged setLessons (loader proposal).',
+      text: 'Approved staged replaceArtifacts (loader proposal).',
     })
-    expect(context.evolutionMemory.read(scope)?.agentLessons).toBe('loader lessons')
+    expect(lessonsOf(context.evolutionMemory.read(scope))).toBe('loader lessons')
 
     const refined = await context.commands.execute(agent, '/refine', [], signal)
     expect(refined?.result).toEqual({ kind: 'success', text: 'Memory rebuild complete.' })
     expect(rebuilds).toEqual([{ scope }])
-    expect(context.evolutionMemory.read(scope)?.agentLessons).toBe('rebuilt lessons')
+    expect(lessonsOf(context.evolutionMemory.read(scope))).toBe('rebuilt lessons')
 
     expect(session.snapshotEvents().map(event => event.type).filter(type => type === 'command/run' || type === 'command/done'))
       .toEqual(['command/run', 'command/done', 'command/run', 'command/done', 'command/run', 'command/done', 'command/run', 'command/done'])

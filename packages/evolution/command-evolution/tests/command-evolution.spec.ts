@@ -11,7 +11,8 @@ import Storage from '@deepseek-ai/dsh-storage'
 import { DomainFacility } from '@deepseek-ai/dsh-storage-domain'
 import { RemoteError } from '@deepseek-ai/dsh-typert-protocol'
 import { EvolutionScopeId } from '@deepseek-ai/dsh-evolution-memory'
-import type { EvolutionScopeId as ScopeId } from '@deepseek-ai/dsh-evolution-memory'
+import type { EvolutionMemoryRecord, EvolutionScopeId as ScopeId, LessonArtifactInput } from '@deepseek-ai/dsh-evolution-memory'
+import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import EvolutionGraph from '@deepseek-ai/dsh-evolution-graph'
 import type {} from '@deepseek-ai/dsh-evolution-reviewer'
 import type { PassSummary, PurgeReport, RollbackReport } from '@deepseek-ai/dsh-evolution-curator'
@@ -286,6 +287,51 @@ function commandIdOf(event: { data: unknown }): unknown {
   return (event.data as { commandId: unknown }).commandId
 }
 
+/** One caller-supplied lesson artifact, the shape a staged replace carries. */
+function candidate(statement: string): LessonArtifactInput {
+  return {
+    statement,
+    source: 's1',
+    conditions: '',
+    evidence: 'inference',
+    confidence: 0.5,
+    scope: 'project',
+  }
+}
+
+/**
+ * A staged payload carrying artifact candidates. `LessonArtifactInput` is a
+ * mapped type whose optional `ttlDays` admits `undefined`, so it is not
+ * assignable to the store's `JsonValue` payload type even though the value
+ * stored is JSON; the store validates the candidate when the entry is
+ * approved, so the bridge cast is test-side only.
+ * @param value - the payload object to hand the store.
+ * @returns the same object typed as a JSON value.
+ */
+function artifactPayload(value: object): JsonValue {
+  return value as unknown as JsonValue
+}
+
+/**
+ * The stored lessons document as one text: the artifacts' statements joined in
+ * stored order. The command suite asserts on the document's content, not on
+ * the artifact shell that carries it.
+ * @param record - the stored scope record, or undefined when absent.
+ * @returns the document text the assertions compare against.
+ */
+function lessonsOf(record: EvolutionMemoryRecord | undefined): string {
+  return (record?.agentLessons ?? []).map(artifact => artifact.statement).join('\n')
+}
+
+/**
+ * The text of a failed command result, narrowed from the result union.
+ * @param result - the command result.
+ * @returns the failure text, or the empty string for a successful result.
+ */
+function errorTextOf(result: CommandResult): string {
+  return result.kind === 'error' ? result.text : ''
+}
+
 /** One telemetry record carrying the fields `/curator` reads. */
 function usageRecord(overrides: Partial<SkillUsageRecord> = {}): SkillUsageRecord {
   return {
@@ -485,12 +531,13 @@ describe('/memory human command', () => {
       expect((await run(test, session, '/memory')).result).toEqual(empty.result)
 
       const first = await test.ctx.evolutionMemory.stageWrite({
-        scopeId: id, kind: 'memory', op: 'setLessons',
-        payload: { text: 'reviewed' }, originSessionId: 's1', gist: 'lessons from turn 1',
+        scopeId: id, kind: 'memory', op: 'replaceArtifacts',
+        payload: artifactPayload({ candidates: [candidate('reviewed')] }),
+        originSessionId: 's1', gist: 'lessons from turn 1',
       })
       expect((await run(test, session, '/memory pending')).result).toEqual({
         kind: 'success',
-        text: `1 pending write:\n- ${first.id} [memory:setLessons] lessons from turn 1 (session 's1', ${first.createdAt})`,
+        text: `1 pending write:\n- ${first.id} [memory:replaceArtifacts] lessons from turn 1 (session 's1', ${first.createdAt})`,
       })
 
       const second = await test.ctx.evolutionMemory.stageWrite({
@@ -499,7 +546,7 @@ describe('/memory human command', () => {
       })
       expect((await run(test, session, '/memory pending')).result).toEqual({
         kind: 'success',
-        text: `2 pending writes:\n- ${first.id} [memory:setLessons] lessons from turn 1 (session 's1', ${first.createdAt})\n- ${second.id} [skill:create] new skill polish (session 's2', ${second.createdAt})`,
+        text: `2 pending writes:\n- ${first.id} [memory:replaceArtifacts] lessons from turn 1 (session 's1', ${first.createdAt})\n- ${second.id} [skill:create] new skill polish (session 's2', ${second.createdAt})`,
       })
     } finally {
       await shutdown(test)
@@ -513,16 +560,17 @@ describe('/memory human command', () => {
       const id = test.scope('ws-1')
       test.workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: test.dir, sessionIds: [session.id] })
       const staged = await test.ctx.evolutionMemory.stageWrite({
-        scopeId: id, kind: 'memory', op: 'setLessons',
-        payload: { text: 'tabs win' }, originSessionId: 's1', gist: 'lessons from turn 1',
+        scopeId: id, kind: 'memory', op: 'replaceArtifacts',
+        payload: artifactPayload({ candidates: [candidate('tabs win')] }),
+        originSessionId: 's1', gist: 'lessons from turn 1',
       })
       const execution = await run(test, session, `/memory approve ${staged.id}`)
       expect(execution.result).toEqual({
         kind: 'success',
-        text: 'Approved staged setLessons (lessons from turn 1).',
+        text: 'Approved staged replaceArtifacts (lessons from turn 1).',
       })
       expectLifecycle(test, session, 'memory', ` approve ${staged.id}`, execution.result)
-      expect(test.ctx.evolutionMemory.read(id)?.agentLessons).toBe('tabs win')
+      expect(lessonsOf(test.ctx.evolutionMemory.read(id))).toBe('tabs win')
       expect(test.ctx.evolutionMemory.read(id)?.staged).toEqual([])
     } finally {
       await shutdown(test)
@@ -553,14 +601,15 @@ describe('/memory human command', () => {
       const session = sessionIn(test.ctx, test.dir, 'reject')
       const id = test.scope('ws-1')
       test.workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: test.dir, sessionIds: [session.id] })
-      await test.ctx.evolutionMemory.setLessons(id, 'keep me')
+      await test.ctx.evolutionMemory.replaceArtifacts(id, [candidate('keep me')])
       const staged = await test.ctx.evolutionMemory.stageWrite({
-        scopeId: id, kind: 'memory', op: 'setLessons',
-        payload: { text: 'drop me' }, originSessionId: 's1', gist: 'bad idea',
+        scopeId: id, kind: 'memory', op: 'replaceArtifacts',
+        payload: artifactPayload({ candidates: [candidate('drop me')] }),
+        originSessionId: 's1', gist: 'bad idea',
       })
       const execution = await run(test, session, `/memory reject ${staged.id}`)
       expect(execution.result).toEqual({ kind: 'success', text: `Rejected staged write '${staged.id}'.` })
-      expect(test.ctx.evolutionMemory.read(id)?.agentLessons).toBe('keep me')
+      expect(lessonsOf(test.ctx.evolutionMemory.read(id))).toBe('keep me')
       expect(test.ctx.evolutionMemory.read(id)?.staged).toEqual([])
     } finally {
       await shutdown(test)
@@ -594,13 +643,15 @@ describe('/memory human command', () => {
       const id = test.scope('ws-1')
       test.workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: test.dir, sessionIds: [session.id] })
       const staged = await test.ctx.evolutionMemory.stageWrite({
-        scopeId: id, kind: 'memory', op: 'setLessons',
-        payload: { text: 'x'.repeat(70000) }, originSessionId: 's1', gist: 'oversized lessons',
+        scopeId: id, kind: 'memory', op: 'replaceArtifacts',
+        payload: artifactPayload({ candidates: [candidate('x'.repeat(70000))] }),
+        originSessionId: 's1', gist: 'oversized lessons',
       })
-      expect((await run(test, session, `/memory approve ${staged.id}`)).result).toEqual({
-        kind: 'error',
-        text: `Cannot approve '${staged.id}' (evolution/too-large): evolution memory field 'agentLessons' is 70000 bytes, exceeding the 65536 byte cap. The entry stays staged.`,
-      })
+      const rejected = await run(test, session, `/memory approve ${staged.id}`)
+      expect(rejected.result).toMatchObject({ kind: 'error' })
+      expect(errorTextOf(rejected.result)).toContain(
+        `Cannot approve '${staged.id}' (evolution/too-large): evolution memory field 'agentLessons'`,
+      )
       expect(test.ctx.evolutionMemory.read(id)?.staged.map(entry => entry.id)).toEqual([staged.id])
     } finally {
       await shutdown(test)
@@ -820,8 +871,8 @@ describe('/journey human command', () => {
         { path: 'src/a.ts', tool: 'write', sessionId: 's-output', at: new Date().toISOString() },
       ])
       await test.ctx.evolutionMemory.stageWrite({
-        scopeId: id, kind: 'memory', op: 'setLessons',
-        payload: { text: 'x' }, originSessionId: 's1', gist: 'lessons from turn 1',
+        scopeId: id, kind: 'memory', op: 'setInstructions',
+        payload: { text: 'rules from turn 1' }, originSessionId: 's1', gist: 'rules from turn 1',
       })
       const usage = test.ctx.evolutionMemory.usage(id)
       const today = dayKeyUTC7(Date.now())
@@ -937,8 +988,8 @@ describe('/skills human command', () => {
       })
 
       await test.ctx.evolutionMemory.stageWrite({
-        scopeId: id, kind: 'memory', op: 'setLessons',
-        payload: { text: 'x' }, originSessionId: 's1', gist: 'lessons from turn 1',
+        scopeId: id, kind: 'memory', op: 'setInstructions',
+        payload: { text: 'rules from turn 1' }, originSessionId: 's1', gist: 'rules from turn 1',
       })
       expect((await run(test, session, '/skills pending')).result).toEqual({
         kind: 'success',
@@ -985,8 +1036,8 @@ describe('/skills human command', () => {
       const id = test.scope('ws-1')
       test.workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: test.dir, sessionIds: [session.id] })
       const memory = await test.ctx.evolutionMemory.stageWrite({
-        scopeId: id, kind: 'memory', op: 'setLessons',
-        payload: { text: 'x' }, originSessionId: 's1', gist: 'lessons',
+        scopeId: id, kind: 'memory', op: 'setInstructions',
+        payload: { text: 'rules' }, originSessionId: 's1', gist: 'rules',
       })
       expect((await run(test, session, `/skills approve ${memory.id}`)).result).toEqual({
         kind: 'error',

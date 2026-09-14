@@ -16,7 +16,7 @@
 
 import { dayKeyUTC7, daysOfRange, windowStartOfRange } from '@deepseek-ai/dsh-usage-ledger'
 import type { UsageRange } from '@deepseek-ai/dsh-usage-ledger'
-import { utf8Bytes } from '@deepseek-ai/dsh-evolution-memory'
+import { artifactBytesOf, utf8Bytes } from '@deepseek-ai/dsh-evolution-memory'
 import type { EvolutionMemoryRecord, StagedWrite } from '@deepseek-ai/dsh-evolution-memory'
 
 export type {
@@ -192,7 +192,7 @@ export function scopeTimeline(input: TimelineInput): JourneyTimeline {
       usedBytes: input.usedBytes,
       capacityBytes: input.capacityBytes,
       digest: input.digest,
-      lessonsBytes: utf8Bytes(record?.agentLessons ?? ''),
+      lessonsBytes: artifactBytesOf(record?.agentLessons ?? []),
       profileBytes: utf8Bytes(record?.userProfile ?? ''),
     },
     pending: (record?.staged ?? []).map(pendingOf),

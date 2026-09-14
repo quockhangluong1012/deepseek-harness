@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { EvolutionMemoryRecord } from '@deepseek-ai/dsh-evolution-memory'
+import type { EvolutionMemoryRecord, LessonArtifact } from '@deepseek-ai/dsh-evolution-memory'
 import { renderTimeline, scopeTimeline } from '../src/journey.ts'
 import type { TimelineInput } from '../src/journey.ts'
 
@@ -14,10 +14,30 @@ import type { TimelineInput } from '../src/journey.ts'
 /** A fixed clock so day keys never depend on when the suite runs. */
 const NOW = Date.parse('2026-09-12T05:00:00.000Z')
 
+/**
+ * The one lesson artifact the default record carries. Its serialized size is
+ * what `lessonsBytes` reports, so the title of this fixture is also the
+ * cumulative assertion's expectation.
+ */
+const LESSON: LessonArtifact = {
+  id: 'lessons here',
+  statement: 'lessons here',
+  source: 's1',
+  conditions: '',
+  evidence: 'inference',
+  confidence: 0.5,
+  validationCount: 0,
+  refutationCount: 0,
+  scope: 'project',
+  ttlDays: 30,
+  createdAt: '2026-09-12T04:00:00.000Z',
+  updatedAt: '2026-09-12T04:00:00.000Z',
+}
+
 function record(overrides: Partial<EvolutionMemoryRecord> = {}): EvolutionMemoryRecord {
   return {
     instructions: 'prefer tabs',
-    agentLessons: 'lessons here',
+    agentLessons: [LESSON],
     userProfile: 'profile here',
     memoryUpdatedAt: null,
     instructionsUpdatedAt: null,
@@ -67,7 +87,7 @@ describe('scopeTimeline', () => {
         ],
         staged: [
           {
-            id: 'st1', kind: 'memory', op: 'setLessons', payload: { text: 'x' },
+            id: 'st1', kind: 'memory', op: 'replaceArtifacts', payload: { candidates: [] },
             originSessionId: 's-staged', createdAt: '2026-09-12T03:30:00.000Z', gist: 'lessons from turn 1',
           },
         ],
@@ -197,9 +217,9 @@ describe('scopeTimeline', () => {
     const timeline = scopeTimeline(input({
       record: record({
         resolutions: [
-          { id: 'sid', kind: 'memory', op: 'setLessons', gist: 'gist', decision: 'approved', at: '2026-09-10T01:00:00.000Z', originSessionId: 's1' },
-          { id: 'sid', kind: 'memory', op: 'setLessons', gist: 'gist', decision: 'rejected', at: '2026-09-10T02:00:00.000Z', originSessionId: 's1' },
-          { id: 'sid', kind: 'memory', op: 'setLessons', gist: 'gist', decision: 'approved', at: '2026-09-01T00:00:00.000Z', originSessionId: 's1' },
+          { id: 'sid', kind: 'memory', op: 'replaceArtifacts', gist: 'gist', decision: 'approved', at: '2026-09-10T01:00:00.000Z', originSessionId: 's1' },
+          { id: 'sid', kind: 'memory', op: 'replaceArtifacts', gist: 'gist', decision: 'rejected', at: '2026-09-10T02:00:00.000Z', originSessionId: 's1' },
+          { id: 'sid', kind: 'memory', op: 'replaceArtifacts', gist: 'gist', decision: 'approved', at: '2026-09-01T00:00:00.000Z', originSessionId: 's1' },
         ],
       }),
     }))
@@ -215,7 +235,7 @@ describe('scopeTimeline', () => {
 
     const all = scopeTimeline(input({
       range: 'all',
-      record: record({ resolutions: [{ id: 'sid', kind: 'memory', op: 'setLessons', gist: 'gist', decision: 'rejected', at: '2026-01-02T00:00:00.000Z', originSessionId: 's1' }] }),
+      record: record({ resolutions: [{ id: 'sid', kind: 'memory', op: 'replaceArtifacts', gist: 'gist', decision: 'rejected', at: '2026-01-02T00:00:00.000Z', originSessionId: 's1' }] }),
     }))
     expect(all.days.map(day => day.day)).toEqual(['2026-01-02'])
     expect(all.days[0]?.stagedRejected).toBe(1)
@@ -253,7 +273,7 @@ describe('scopeTimeline', () => {
       originSessionId: 's-origin',
       createdAt: '2026-09-12T03:00:00.000Z',
     }])
-    expect(timeline.cumulative.lessonsBytes).toBe(12)
+    expect(timeline.cumulative.lessonsBytes).toBe(267)
     expect(timeline.cumulative.profileBytes).toBe(12)
   })
 })
@@ -267,7 +287,7 @@ describe('renderTimeline', () => {
         outputs: [{ path: 'src/a.ts', tool: 'write', sessionId: 's1', at: '2026-09-12T02:00:00.000Z' }],
         staged: [
           {
-            id: 'st1', kind: 'memory', op: 'setLessons', payload: { text: 'x' },
+            id: 'st1', kind: 'memory', op: 'replaceArtifacts', payload: { candidates: [] },
             originSessionId: 's1', createdAt: '2026-09-12T03:00:00.000Z', gist: 'lessons',
           },
         ],
@@ -276,7 +296,7 @@ describe('renderTimeline', () => {
     expect(text).toBe([
       'Journey (7d) · 2026-09-06..2026-09-12',
       '2026-09-12  outputs 1 · staged 1',
-      'Memory 250/1000 bytes (25%) · lessons 12 · profile 12 · digest deadbeef',
+      'Memory 250/1000 bytes (25%) · lessons 267 · profile 12 · digest deadbeef',
       '1 staged write; run /memory pending.',
     ].join('\n'))
   })
@@ -319,7 +339,7 @@ describe('renderTimeline', () => {
         ],
         staged: [
           {
-            id: 'st1', kind: 'memory', op: 'setLessons', payload: { text: 'x' },
+            id: 'st1', kind: 'memory', op: 'replaceArtifacts', payload: { candidates: [] },
             originSessionId: 's1', createdAt: '2026-09-12T03:00:00.000Z', gist: 'lessons',
           },
           {
@@ -336,7 +356,7 @@ describe('renderTimeline', () => {
       text.split('\n')[3],
       '2 staged writes; run /memory pending.',
     ])
-    expect(text.split('\n')[3]).toContain('lessons 12')
+    expect(text.split('\n')[3]).toContain('lessons 267')
   })
 
   it('still renders a header and the empty body for a timeline without days', () => {
@@ -362,8 +382,8 @@ describe('renderTimeline', () => {
         instructionsUpdatedAt: '2026-09-12T00:10:00.000Z',
         profileUpdatedAt: '2026-09-12T01:10:00.000Z',
         resolutions: [
-          { id: 'sid', kind: 'memory', op: 'setLessons', gist: 'gist', decision: 'approved', at: '2026-09-12T02:00:00.000Z', originSessionId: 's1' },
-          { id: 'sid', kind: 'memory', op: 'setLessons', gist: 'gist', decision: 'rejected', at: '2026-09-12T03:00:00.000Z', originSessionId: 's1' },
+          { id: 'sid', kind: 'memory', op: 'replaceArtifacts', gist: 'gist', decision: 'approved', at: '2026-09-12T02:00:00.000Z', originSessionId: 's1' },
+          { id: 'sid', kind: 'memory', op: 'replaceArtifacts', gist: 'gist', decision: 'rejected', at: '2026-09-12T03:00:00.000Z', originSessionId: 's1' },
         ],
       }),
     })))
@@ -372,7 +392,7 @@ describe('renderTimeline', () => {
 
   it('keeps a decision-only day in a bounded window', () => {
     const text = renderTimeline(scopeTimeline(input({
-      record: record({ resolutions: [{ id: 'sid', kind: 'memory', op: 'setLessons', gist: 'gist', decision: 'approved', at: '2026-09-11T04:00:00.000Z', originSessionId: 's1' }] }),
+      record: record({ resolutions: [{ id: 'sid', kind: 'memory', op: 'replaceArtifacts', gist: 'gist', decision: 'approved', at: '2026-09-11T04:00:00.000Z', originSessionId: 's1' }] }),
     })))
     expect(text).toContain('2026-09-11  approved 1')
   })
