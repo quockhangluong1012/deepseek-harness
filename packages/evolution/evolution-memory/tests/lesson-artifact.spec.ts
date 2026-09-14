@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { artifactKey, lessonArtifact, wrapLegacyLessons } from '../src/lesson-artifact.ts'
+import { artifactKey, lessonArtifact, lessonArtifactInput, wrapLegacyLessons } from '../src/lesson-artifact.ts'
 
 const NOW = '2026-09-13T00:00:00.000Z'
 
@@ -12,6 +12,7 @@ describe('lesson artifacts', () => {
   it('wraps a legacy lessons document as one coarse artifact', () => {
     const wrapped = wrapLegacyLessons('## Purpose\nWork', NOW)
     expect(wrapped).toHaveLength(1)
+    expect(wrapped[0].id).toBe(artifactKey('## Purpose\nWork'))
     expect(wrapped[0]).toMatchObject({
       statement: '## Purpose\nWork',
       source: 'migration-pending',
@@ -41,6 +42,25 @@ describe('lesson artifacts', () => {
       id: 'x', statement: 's', source: 'src', conditions: '', evidence: 'fact',
       confidence: 2, validationCount: 0, refutationCount: 0, scope: 'project',
       createdAt: NOW, updatedAt: NOW,
+    }).success).toBe(false)
+  })
+
+  it('parses a caller-supplied candidate through the input schema', () => {
+    const candidate = {
+      statement: 'prefer pnpm over npm',
+      source: 'session-1',
+      conditions: '',
+      evidence: 'fact' as const,
+      confidence: 0.5,
+      scope: 'project' as const,
+    }
+    expect(lessonArtifactInput.parse(candidate)).toEqual(candidate)
+  })
+
+  it('rejects a candidate that omits the scope', () => {
+    expect(lessonArtifactInput.safeParse({
+      statement: 'prefer pnpm over npm', source: 'session-1', conditions: '',
+      evidence: 'fact', confidence: 0.5,
     }).success).toBe(false)
   })
 })

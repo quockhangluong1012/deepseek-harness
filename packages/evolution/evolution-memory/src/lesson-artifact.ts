@@ -5,7 +5,7 @@
  * @module @deepseek-ai/dsh-evolution-memory/lesson-artifact
  */
 
-import z from 'zod'
+import { z } from 'zod'
 
 /** Whether an artifact came from a fact, a direct observation, or a model inference. */
 export type LessonEvidenceKind = 'fact' | 'observation' | 'inference'
@@ -37,7 +37,7 @@ export interface LessonArtifact {
   /** Scope this applies at. */
   scope: LessonArtifactScope
   /** Days without confirmation before decay may prune this artifact; absent never expires by age. */
-  ttlDays?: number
+  ttlDays?: number | undefined
   /** ISO-8601 creation instant. */
   createdAt: string
   /** ISO-8601 instant of the last validation, refutation, or edit. */
@@ -58,18 +58,11 @@ export type LessonArtifactPatch = Partial<
   Pick<LessonArtifact, 'statement' | 'conditions' | 'confidence' | 'evidence' | 'ttlDays'>
 >
 
-/**
- * Zod's optional output admits an explicit `undefined`, which
- * `exactOptionalPropertyTypes` makes a distinct type from `ttlDays?: number`.
- * Schemas annotate with this so their parsed output matches the declaration.
- */
-type OptionalTtl<T> = Omit<T, 'ttlDays'> & { ttlDays?: number | undefined }
-
 const evidenceKind = z.enum(['fact', 'observation', 'inference'])
 const artifactScope = z.enum(['user', 'project', 'global'])
 
 /** Durable shape of one lesson artifact. */
-export const lessonArtifact: z.ZodType<OptionalTtl<LessonArtifact>> = z.object({
+export const lessonArtifact: z.ZodType<LessonArtifact> = z.object({
   id: z.string().min(1),
   statement: z.string().min(1),
   source: z.string(),
@@ -85,7 +78,7 @@ export const lessonArtifact: z.ZodType<OptionalTtl<LessonArtifact>> = z.object({
 })
 
 /** Durable shape of a caller-supplied new artifact. */
-export const lessonArtifactInput: z.ZodType<OptionalTtl<LessonArtifactInput>> = z.object({
+export const lessonArtifactInput: z.ZodType<LessonArtifactInput> = z.object({
   statement: z.string().min(1),
   source: z.string(),
   conditions: z.string(),
