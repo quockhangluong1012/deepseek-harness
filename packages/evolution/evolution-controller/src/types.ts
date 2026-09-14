@@ -12,6 +12,8 @@ import type {
   EvolutionExtraction,
   EvolutionMemoryUsage,
   EvolutionOutput,
+  LessonArtifact,
+  LessonArtifactInput,
   StagedResolution,
   StagedWrite,
 } from '@deepseek-ai/dsh-evolution-memory/types'
@@ -23,6 +25,8 @@ export type {
   EvolutionExtraction,
   EvolutionMemoryUsage,
   EvolutionOutput,
+  LessonArtifact,
+  LessonArtifactInput,
   StagedResolution,
   StagedWrite,
 } from '@deepseek-ai/dsh-evolution-memory/types'
@@ -41,8 +45,8 @@ export interface EvolutionMemoryValue {
   readonly workspaceId: WorkspaceId
   /** User-authored rules for the scope. */
   readonly instructions: string
-  /** Model-maintained lessons document. */
-  readonly lessons: string
+  /** Model-maintained lesson artifacts, strongest first is the renderer's order. */
+  readonly lessons: readonly LessonArtifact[]
   /** Model-maintained user-profile document. */
   readonly profile: string
   /** Last write to the lessons/profile family, or null when never written. */
@@ -82,9 +86,10 @@ export interface EvolutionSetInstructionsRequest extends EvolutionScopeRequest {
   readonly instructions: string
 }
 
-/** Replace the lessons document by hand. */
+/** Replace the lessons document wholesale. */
 export interface EvolutionSetLessonsRequest extends EvolutionScopeRequest {
-  readonly lessons: string
+  /** The whole lessons document, one candidate per fact. */
+  readonly artifacts: readonly LessonArtifactInput[]
 }
 
 /** Replace the user-profile document by hand. */

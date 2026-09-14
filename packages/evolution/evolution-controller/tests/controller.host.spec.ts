@@ -10,7 +10,8 @@ import { RemoteError } from '@deepseek-ai/dsh-typert-protocol'
 import WorkspaceRegistry from '@deepseek-ai/dsh-workspace'
 import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
 import EvolutionMemoryStore, { EvolutionScopeId } from '@deepseek-ai/dsh-evolution-memory'
-import type { EvolutionMemoryRecord } from '@deepseek-ai/dsh-evolution-memory'
+import type { EvolutionMemoryRecord, LessonArtifactInput } from '@deepseek-ai/dsh-evolution-memory'
+import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import { dayKeyUTC7 } from '@deepseek-ai/dsh-usage-ledger'
 import EvolutionController, { evolutionMemoryValue } from '../src/index.ts'
 import type { EvolutionFollowFrame, EvolutionMemoryValue } from '../src/types.ts'
@@ -18,6 +19,31 @@ import { MemoryStorageBackend } from '../../../storage/storage-domain/tests/help
 
 const roots: Context[] = []
 const tempDirs: string[] = []
+
+/** One caller-supplied lesson artifact, the shape the Remote verb carries. */
+function candidate(statement: string): LessonArtifactInput {
+  return {
+    statement,
+    source: 's1',
+    conditions: '',
+    evidence: 'inference',
+    confidence: 0.5,
+    scope: 'project',
+  }
+}
+
+/**
+ * A staged payload carrying artifact candidates. `LessonArtifactInput` is a
+ * mapped type whose optional `ttlDays` admits `undefined`, so it is not
+ * assignable to the store's `JsonValue` payload type even though the value
+ * stored is JSON; the store validates the candidate when the entry is
+ * approved, so the bridge cast is test-side only.
+ * @param value - the payload object to hand the store.
+ * @returns the same object typed as a JSON value.
+ */
+function artifactPayload(value: object): JsonValue {
+  return value as unknown as JsonValue
+}
 
 afterEach(async () => {
   await Promise.all(roots.splice(0).map(ctx => ctx.fiber.dispose()))
@@ -67,7 +93,7 @@ describe('EvolutionController', () => {
     expect(value).toMatchObject({
       workspaceId: workspace.id,
       instructions: '',
-      lessons: '',
+      lessons: [],
       profile: '',
       memoryUpdatedAt: null,
       instructionsUpdatedAt: null,
@@ -109,31 +135,47 @@ describe('EvolutionController', () => {
   it('writes instructions, lessons, and the profile with usage', async () => {
     const { controller, ctx, workspace } = await harness()
     await controller.setInstructions({ scopeId: workspace.id, instructions: 'prefer tabs' })
-    const lessons = await controller.setLessons({ scopeId: workspace.id, lessons: 'lessons' })
+    const lessons = await controller.setLessons({
+      scopeId: workspace.id,
+      artifacts: [candidate('lessons')],
+    })
     const profile = await controller.setProfile({ scopeId: workspace.id, profile: 'profile' })
-    expect(lessons).toMatchObject({ instructions: 'prefer tabs', lessons: 'lessons', profile: '' })
-    expect(profile).toMatchObject({ lessons: 'lessons', profile: 'profile' })
+    expect(lessons).toMatchObject({ instructions: 'prefer tabs', profile: '' })
+    expect(lessons.lessons.map(artifact => artifact.statement)).toEqual(['lessons'])
+    expect(profile.lessons.map(artifact => artifact.statement)).toEqual(['lessons'])
+    expect(profile).toMatchObject({ profile: 'profile' })
     expect(typeof profile.memoryUpdatedAt).toBe('string')
     expect(profile.usage.usedBytes).toBeGreaterThan(0)
     expect(ctx.evolutionMemory.read(EvolutionScopeId('test', String(workspace.id)))?.userProfile).toBe('profile')
 
-    // Model provenance from a store-level write projects onto the Remote face.
-    await ctx.evolutionMemory.setLessons(EvolutionScopeId('test', String(workspace.id)), 'derived', {
-      at: '2026-01-01T00:00:00.000Z',
-      sessionId: 's1',
-      provider: 'p',
-      model: 'm',
-      origin: 'background_review',
-      inputBytes: 7,
-      truncated: false,
+    // The verb replaces the whole document: an omitted artifact is dropped.
+    const replaced = await controller.setLessons({
+      scopeId: workspace.id,
+      artifacts: [candidate('replacement')],
     })
+    expect(replaced.lessons.map(artifact => artifact.statement)).toEqual(['replacement'])
+
+    // Model provenance from a store-level write projects onto the Remote face.
+    await ctx.evolutionMemory.replaceArtifacts(
+      EvolutionScopeId('test', String(workspace.id)),
+      [candidate('derived')],
+      {
+        at: '2026-01-01T00:00:00.000Z',
+        sessionId: 's1',
+        provider: 'p',
+        model: 'm',
+        origin: 'background_review',
+        inputBytes: 7,
+        truncated: false,
+      },
+    )
     expect((await controller.read({ scopeId: workspace.id })).lastExtraction).toMatchObject({ provider: 'p', model: 'm' })
 
     await expect(
       controller.setInstructions({ scopeId: workspace.id, instructions: 'x'.repeat(70000) }),
     ).rejects.toMatchObject({ code: 'evolution/capacity-exceeded' })
     for (const call of [
-      () => controller.setLessons({ scopeId: 'missing' as WorkspaceId, lessons: 'x' }),
+      () => controller.setLessons({ scopeId: 'missing' as WorkspaceId, artifacts: [] }),
       () => controller.setProfile({ scopeId: 'missing' as WorkspaceId, profile: 'x' }),
     ]) {
       await expect(call()).rejects.toMatchObject({ code: 'workspace/not-found' })
@@ -143,7 +185,14 @@ describe('EvolutionController', () => {
   it('projects the decided entries and per-family stamps the record carries', () => {
     const record: EvolutionMemoryRecord = {
       instructions: 'rules',
-      agentLessons: 'lessons',
+      agentLessons: [{
+        ...candidate('lessons'),
+        id: 'lessons',
+        validationCount: 0,
+        refutationCount: 0,
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      }],
       userProfile: 'profile',
       memoryUpdatedAt: '2026-01-02T00:00:00.000Z',
       instructionsUpdatedAt: '2026-01-01T00:00:00.000Z',
@@ -152,8 +201,8 @@ describe('EvolutionController', () => {
       contextItems: [{ kind: 'text', id: 'i1', label: 'note', text: 'x', sizeBytes: 1, addedAt: '2026-01-01T00:00:00.000Z' }],
       outputs: [{ path: 'a.ts', tool: 'write', sessionId: 's1', at: '2026-01-01T00:00:00.000Z' }],
       lastExtraction: null,
-      staged: [{ id: 'st1', kind: 'memory', op: 'setLessons', payload: {}, originSessionId: 's1', createdAt: '2026-01-01T00:00:00.000Z', gist: 'g' }],
-      resolutions: [{ id: 'st0', kind: 'memory', op: 'setLessons', gist: 'g', decision: 'approved', at: '2026-01-01T00:00:00.000Z', originSessionId: 's1' }],
+      staged: [{ id: 'st1', kind: 'memory', op: 'replaceArtifacts', payload: {}, originSessionId: 's1', createdAt: '2026-01-01T00:00:00.000Z', gist: 'g' }],
+      resolutions: [{ id: 'st0', kind: 'memory', op: 'replaceArtifacts', gist: 'g', decision: 'approved', at: '2026-01-01T00:00:00.000Z', originSessionId: 's1' }],
       updatedAt: '2026-01-03T00:00:00.000Z',
     }
     const value = evolutionMemoryValue('ws-1' as WorkspaceId, record, { usedBytes: 5, capacityBytes: 10 })
@@ -327,14 +376,16 @@ describe('EvolutionController', () => {
     expect(await controller.listStaged({ scopeId: workspace.id })).toEqual({ staged: [] })
 
     const entry = await ctx.evolutionMemory.stageWrite({
-      scopeId: scope, kind: 'memory', op: 'setLessons',
-      payload: { text: 'staged lessons' }, originSessionId: 's1', gist: 'staged proposal',
+      scopeId: scope, kind: 'memory', op: 'replaceArtifacts',
+      payload: artifactPayload({ candidates: [candidate('staged lessons')] }),
+      originSessionId: 's1', gist: 'staged proposal',
     })
     expect(await controller.listStaged({ scopeId: workspace.id })).toEqual({ staged: [entry] })
 
     // The entry belongs to this scope, so the decision lands.
     const approved = await controller.approveStaged({ scopeId: workspace.id, stagedId: entry.id })
-    expect(approved).toMatchObject({ lessons: 'staged lessons', staged: [] })
+    expect(approved.lessons.map(artifact => artifact.statement)).toEqual(['staged lessons'])
+    expect(approved.staged).toEqual([])
 
     // A staged id from another scope is reported as absent, never decided.
     const otherDir = join(root, 'other')
@@ -342,8 +393,9 @@ describe('EvolutionController', () => {
     const otherWorkspace = await ctx.workspaceRegistry.create(otherDir)
     const otherScope = EvolutionScopeId('test', String(otherWorkspace.id))
     const other = await ctx.evolutionMemory.stageWrite({
-      scopeId: otherScope, kind: 'memory', op: 'setLessons',
-      payload: { text: 'other lessons' }, originSessionId: 's2', gist: 'other proposal',
+      scopeId: otherScope, kind: 'memory', op: 'replaceArtifacts',
+      payload: artifactPayload({ candidates: [candidate('other lessons')] }),
+      originSessionId: 's2', gist: 'other proposal',
     })
     await expect(
       controller.rejectStaged({ scopeId: workspace.id, stagedId: other.id }),
@@ -366,7 +418,7 @@ describe('EvolutionController', () => {
     expect(await controller.rejectStaged({ scopeId: otherWorkspace.id, stagedId: other.id })).toMatchObject({
       staged: [],
     })
-    expect(ctx.evolutionMemory.read(otherScope)?.agentLessons).toBe('')
+    expect(ctx.evolutionMemory.read(otherScope)?.agentLessons).toEqual([])
   })
 
   it('timelines the resolved scope and rejects unknown ranges', async () => {

@@ -15,6 +15,7 @@ import type {
   EvolutionCuratorStatus,
   EvolutionMemoryValue,
   JourneyTimeline,
+  LessonArtifact,
   StagedWrite,
   TimelineDayBucket,
   UsageRange,
@@ -85,6 +86,18 @@ export function bucketTallies(bucket: TimelineDayBucket, t: PageTranslate): read
 export function barPercent(bytes: number, capacity: number): number {
   if (capacity <= 0) return 0
   return Math.min(100, (bytes / capacity) * 100)
+}
+
+/**
+ * Order lesson artifacts strongest-first, matching the brief renderer: higher
+ * confidence precedes lower, and equal confidence falls back to ascending
+ * identity so the page's order is deterministic.
+ * @param artifacts - the Scope's lesson artifacts.
+ * @returns a new array in strongest-first order.
+ */
+export function strongestFirst(artifacts: readonly LessonArtifact[]): readonly LessonArtifact[] {
+  return [...artifacts].sort((left, right) =>
+    right.confidence - left.confidence || (left.id < right.id ? -1 : 1))
 }
 
 function messageOf(reason: unknown): string {
@@ -266,8 +279,8 @@ export function EvolutionPage({ scopeId, scopeTitle, remote, t }: EvolutionPageP
               <ul className={css.pending} data-testid="evolution-pending">
                 {pending.map(entry => (
                   <li key={entry.id} className={css.pendingRow}>
-                    {/* Wire vocabulary (`memory:setLessons`) stays verbatim;
-                        the gist is the entry's own one-line summary. */}
+                    {/* Wire vocabulary (`memory:replaceArtifacts`) stays
+                        verbatim; the gist is the entry's own one-line summary. */}
                     <span className={css.pendingGist}>{`${entry.kind}:${entry.op} ${entry.gist}`}</span>
                     <span className={css.pendingMeta}>
                       {t('pending.origin', { session: entry.originSessionId })}
@@ -322,6 +335,26 @@ export function EvolutionPage({ scopeId, scopeTitle, remote, t }: EvolutionPageP
                     </ul>
                   </>
                 )}
+        </section>
+
+        <section aria-label={t('lessons.title')} className={css.card}>
+          <div className={css.cardHead}>
+            <h2 className={css.cardTitle}>{t('lessons.title')}</h2>
+          </div>
+          {(value?.lessons.length ?? 0) === 0
+            ? <p className={css.empty}>{t('lessons.empty')}</p>
+            : (
+              <ul className={css.lessons} data-testid="evolution-lessons">
+                {strongestFirst(value?.lessons ?? []).map(artifact => (
+                  <li key={artifact.id} className={css.lessonRow}>
+                    <span className={css.lessonStatement}>{artifact.statement}</span>
+                    <span className={css.lessonMeta}>
+                      {t('lessons.confidence', { confidence: artifact.confidence.toFixed(2) })}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
         </section>
 
         <section aria-label={t('capacity.title')} className={css.card}>

@@ -253,6 +253,36 @@
   font-variant-numeric: tabular-nums;
 }
 
+.lessons {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.lessonRow {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+  line-height: 17px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.lessonStatement {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.lessonMeta {
+  flex: none;
+  color: var(--dsw-alias-label-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
 .bars {
   display: flex;
   flex-direction: column;

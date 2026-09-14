@@ -76,7 +76,7 @@ export function evolutionMemoryValue(
     return {
       workspaceId,
       instructions: '',
-      lessons: '',
+      lessons: [],
       profile: '',
       memoryUpdatedAt: null,
       instructionsUpdatedAt: null,
@@ -94,7 +94,7 @@ export function evolutionMemoryValue(
   return {
     workspaceId,
     instructions: record.instructions,
-    lessons: record.agentLessons,
+    lessons: structuredClone([...record.agentLessons]),
     profile: record.userProfile,
     memoryUpdatedAt: record.memoryUpdatedAt,
     instructionsUpdatedAt: record.instructionsUpdatedAt,
@@ -273,14 +273,17 @@ export class EvolutionController extends TypertRemoteService {
   }
 
   /**
-   * Replace the lessons document by hand.
-   * @param request - scope identity and new document.
+   * Replace the scope's lesson artifacts wholesale. This is the document-level
+   * verb the editor drives: the supplied list becomes the whole lessons
+   * document, so an artifact the caller omits is dropped rather than kept
+   * beside the new ones.
+   * @param request - scope identity and the complete artifact list.
    * @returns the updated projection.
    */
   @Remote('setLessons')
   async setLessons(request: EvolutionSetLessonsRequest): Promise<EvolutionMemoryValue> {
     const workspace = this.requireWorkspace(request.scopeId)
-    await this.ctx.evolutionMemory.setLessons(this.scopeOf(workspace.id), request.lessons)
+    await this.ctx.evolutionMemory.replaceArtifacts(this.scopeOf(workspace.id), request.artifacts)
     return this.projectValue(workspace.id)
   }
 

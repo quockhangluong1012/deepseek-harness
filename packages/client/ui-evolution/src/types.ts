@@ -17,6 +17,22 @@ export type EvolutionContextItem =
   | { kind: 'text'; id: string; label: string; text: string; sizeBytes: number; addedAt: string }
   | { kind: 'file'; id: string; label: string; path: string; sizeBytes: number; addedAt: string }
 
+/** One durable lesson artifact, mirrored from the scope record. */
+export interface LessonArtifact {
+  id: string
+  statement: string
+  source: string
+  conditions: string
+  evidence: 'fact' | 'observation' | 'inference'
+  confidence: number
+  validationCount: number
+  refutationCount: number
+  scope: 'user' | 'project' | 'global'
+  ttlDays?: number | undefined
+  createdAt: string
+  updatedAt: string
+}
+
 /** One produced-file index entry, mirrored from the scope record. */
 export interface EvolutionOutput {
   path: string
@@ -68,7 +84,8 @@ export interface EvolutionMemoryUsage {
 export interface EvolutionMemoryValue {
   readonly workspaceId: WorkspaceId
   readonly instructions: string
-  readonly lessons: string
+  /** Model-maintained lesson artifacts, in the order the Host projected them. */
+  readonly lessons: readonly LessonArtifact[]
   readonly profile: string
   readonly memoryUpdatedAt: string | null
   readonly instructionsUpdatedAt: string | null

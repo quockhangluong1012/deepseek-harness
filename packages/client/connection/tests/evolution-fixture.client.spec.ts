@@ -12,7 +12,7 @@ import type { ClientConnectionRpc, ConnectionRpcResult } from '../src/rpc.ts'
 interface EvolutionValue {
   readonly workspaceId: string
   readonly instructions: string
-  readonly lessons: string
+  readonly lessons: readonly { readonly statement: string }[]
   readonly profile: string
   readonly instructionsUpdatedAt: string | null
   readonly contextItems: readonly { readonly id: string; readonly label: string }[]
@@ -82,7 +82,7 @@ describe('fixture evolution transport', () => {
     expect(seeded).toMatchObject({
       workspaceId: SCOPE,
       instructions: 'Prefer tabs.',
-      lessons: 'Fixture lessons.',
+      lessons: [{ statement: 'Fixture lessons.' }],
       profile: 'Fixture profile.',
       usage: { capacityBytes: 131072 },
     })
@@ -96,7 +96,7 @@ describe('fixture evolution transport', () => {
     await expect(read(rpc, OTHER)).resolves.toMatchObject({
       workspaceId: OTHER,
       instructions: '',
-      lessons: '',
+      lessons: [],
       staged: [],
       usage: { usedBytes: 0, capacityBytes: 131072 },
     })
@@ -112,7 +112,9 @@ describe('fixture evolution transport', () => {
     expect((first as { values: readonly unknown[] }).values).toHaveLength(2)
 
     expect((await write(rpc, 'evolution/setInstructions', { instructions: 'Prefer spaces.' })).instructions).toBe('Prefer spaces.')
-    expect((await write(rpc, 'evolution/setLessons', { lessons: 'Hand-written lessons.' })).lessons).toBe('Hand-written lessons.')
+    expect((await write(rpc, 'evolution/setLessons', { artifacts: [
+      { statement: 'Hand-written lessons.', source: 's1', conditions: '', evidence: 'inference', confidence: 0.5, scope: 'project' },
+    ] })).lessons.map(lesson => lesson.statement)).toEqual(['Hand-written lessons.'])
     expect((await write(rpc, 'evolution/setProfile', { profile: 'Hand-written profile.' })).profile).toBe('Hand-written profile.')
     const text = await write(rpc, 'evolution/addContextItem', { kind: 'text', label: 'paste', text: 'pasted body' })
     expect(text.contextItems.map(item => item.label)).toEqual(['notes', 'paste'])
@@ -120,7 +122,8 @@ describe('fixture evolution transport', () => {
     expect(file.contextItems.map(item => item.label)).toEqual(['notes', 'paste', 'readme'])
     const removed = await write(rpc, 'evolution/removeContextItem', { itemId: 'fx-ctx-2' })
     expect(removed.contextItems.map(item => item.label)).toEqual(['notes', 'readme'])
-    expect((await write(rpc, 'evolution/rebuildMemory', {})).lessons).toBe('Rebuilt fixture lessons.')
+    expect((await write(rpc, 'evolution/rebuildMemory', {})).lessons.map(lesson => lesson.statement))
+      .toEqual(['Rebuilt fixture lessons.'])
 
     // Every write published exactly one upsert behind the baseline.
     const frames: unknown[] = []
@@ -134,7 +137,7 @@ describe('fixture evolution transport', () => {
     const pending = await rpc.call('/api', 'evolution/listStaged', { args: { request: { scopeId: SCOPE } } })
     expect(pending).toMatchObject({
       ok: true,
-      value: { staged: [{ id: 'fx-staged-1', kind: 'memory', op: 'setLessons' }] },
+      value: { staged: [{ id: 'fx-staged-1', kind: 'memory', op: 'replaceArtifacts' }] },
     })
 
     const approved = await write(rpc, 'evolution/approveStaged', { stagedId: 'fx-staged-1' })

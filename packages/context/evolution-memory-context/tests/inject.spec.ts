@@ -148,7 +148,7 @@ describe('evolution-memory-context injector', () => {
       expect(text).toContain('Memory usage: ')
       expect(ctx.evolutionMemory.digest(id)).toBe(digest)
       // Presented as distinct named parts, not one undifferentiated block.
-      const source = briefs[0]?.source as { form: string; sections: { name: string; text: string }[] }
+      const source = briefs[0]?.source as unknown as { form: string; sections: { name: string; text: string }[] }
       expect(source.form).toBe('snapshot')
       expect(source.sections.map(section => section.name)).toEqual([
         'Overview', 'Instructions', 'Lessons', 'User profile',
@@ -182,7 +182,7 @@ describe('evolution-memory-context injector', () => {
       const digest = ctx.evolutionMemory.digest(id)
       const logged = createUserMessage({
         content: [{ type: 'text', text: 'older brief' }],
-        source: { kind: 'evolution-memory', form: 'instructions', scopeId: id, digest },
+        source: { kind: 'evolution-memory', form: 'snapshot', scopeId: id, digest, sections: [] },
       })
       let surface: { events: readonly { type: string; data: unknown }[] } | Error = {
         events: [{ type: 'user/message', data: { content: logged.content, source: logged.source } }],
@@ -514,7 +514,7 @@ describe('evolution-memory-context injector', () => {
       await ctx.evolutionMemory.setInstructions(id, 'rules')
       const current = createUserMessage({
         content: [{ type: 'text', text: 'current brief' }],
-        source: { kind: 'evolution-memory', form: 'instructions', scopeId: id, digest: ctx.evolutionMemory.digest(id) },
+        source: { kind: 'evolution-memory', form: 'snapshot', scopeId: id, digest: ctx.evolutionMemory.digest(id), sections: [] },
       })
       const first = await agentEvents(ctx, fakeAgent(session)).waterfall(
         'agent/pre-step',

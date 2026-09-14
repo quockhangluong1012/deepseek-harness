@@ -8,15 +8,34 @@ import type {
   EvolutionFollowFrame,
   EvolutionMemoryValue,
   JourneyTimeline,
+  LessonArtifact,
   WorkspaceId,
 } from '../src/types.ts'
 import { bindPageVerbs, followEvolution, unwrapResult } from '../src/client/rpc.ts'
+
+/** One lesson artifact carried by the projection fixtures. */
+function lessonOf(statement: string): LessonArtifact {
+  return {
+    id: statement,
+    statement,
+    source: 's1',
+    conditions: '',
+    evidence: 'inference',
+    confidence: 0.5,
+    validationCount: 0,
+    refutationCount: 0,
+    scope: 'project',
+    ttlDays: 30,
+    createdAt: new Date(0).toISOString(),
+    updatedAt: new Date(0).toISOString(),
+  }
+}
 
 function valueOf(overrides: Partial<EvolutionMemoryValue> = {}): EvolutionMemoryValue {
   return {
     workspaceId: 'ws-1' as WorkspaceId,
     instructions: '',
-    lessons: '',
+    lessons: [],
     profile: '',
     memoryUpdatedAt: null,
     instructionsUpdatedAt: null,
@@ -90,7 +109,7 @@ describe('evolution rpc face', () => {
 
   it('follows baselines and upserts through the snapshot stream', async () => {
     const baseline = valueOf()
-    const upsert = valueOf({ lessons: 'new' })
+    const upsert = valueOf({ lessons: [lessonOf('new')] })
     const frames: EvolutionFollowFrame[] = [
       { type: 'baseline', values: [baseline] },
       { type: 'upsert', value: upsert },

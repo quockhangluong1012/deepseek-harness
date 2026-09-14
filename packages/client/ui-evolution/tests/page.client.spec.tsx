@@ -13,6 +13,7 @@ import type {
   EvolutionFollowFrame,
   EvolutionMemoryValue,
   JourneyTimeline,
+  LessonArtifact,
   TimelineDayBucket,
   WorkspaceId,
 } from '../src/types.ts'
@@ -32,11 +33,29 @@ const t: PageTranslate = (key, params) => (params === undefined ? key : `${key}:
 
 const SCOPE = 'ws-1'
 
+/** One lesson artifact carried by the projection fixtures. */
+function lessonOf(statement: string, confidence: number): LessonArtifact {
+  return {
+    id: statement,
+    statement,
+    source: 's1',
+    conditions: '',
+    evidence: 'inference',
+    confidence,
+    validationCount: 0,
+    refutationCount: 0,
+    scope: 'project',
+    ttlDays: 30,
+    createdAt: new Date(0).toISOString(),
+    updatedAt: new Date(0).toISOString(),
+  }
+}
+
 function valueOf(overrides: Partial<EvolutionMemoryValue> = {}): EvolutionMemoryValue {
   return {
     workspaceId: SCOPE as WorkspaceId,
     instructions: '',
-    lessons: '',
+    lessons: [],
     profile: '',
     memoryUpdatedAt: null,
     instructionsUpdatedAt: null,
@@ -196,7 +215,11 @@ describe('evolution journey page', () => {
       stagedRejected: 1,
     })
     const remote = remoteOf({
-      read: vi.fn(async () => valueOf({ staged, usage: { usedBytes: 250, capacityBytes: 1000 } })),
+      read: vi.fn(async () => valueOf({
+        staged,
+        lessons: [lessonOf('weaker lesson', 0.2), lessonOf('stronger lesson', 0.9)],
+        usage: { usedBytes: 250, capacityBytes: 1000 },
+      })),
       timeline: vi.fn(async () => timelineOf({
         days: [active, bucketOf('2026-09-11'), bucketOf('2026-09-10')],
         cumulative: { usedBytes: 250, capacityBytes: 1000, digest: 'digest-7', lessonsBytes: 100, profileBytes: 50 },
@@ -242,6 +265,22 @@ describe('evolution journey page', () => {
     expect(screen.getByText('capacity.digest:{"digest":"digest-7"}')).toBeDefined()
     const widths = [...container.querySelectorAll<HTMLElement>('[style]')].map(node => node.style.width)
     expect(widths).toEqual(['25%', '10%', '5%'])
+
+    // The lessons card renders every artifact statement, strongest first.
+    const lessons = [...container.querySelectorAll('[data-testid="evolution-lessons"] li')]
+    expect(lessons.map(row => row.querySelector('span')?.textContent)).toEqual(['stronger lesson', 'weaker lesson'])
+    expect(screen.getByText('lessons.confidence:{"confidence":"0.90"}')).toBeDefined()
+    expect(screen.getByText('lessons.confidence:{"confidence":"0.20"}')).toBeDefined()
+  })
+
+  it('states an empty lessons document honestly', async () => {
+    const remote = remoteOf()
+    const { container } = render(<EvolutionPage scopeId={SCOPE} scopeTitle='fixture' remote={remote} t={t} />)
+    expect(await screen.findByText('fixture')).toBeDefined()
+    await waitFor(() => {
+      expect(container.querySelector('[data-testid="evolution-lessons"]')).toBeNull()
+    })
+    expect(screen.getByText('lessons.empty')).toBeDefined()
   })
 
   it('switches the window and refetches the timeline', async () => {

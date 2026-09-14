@@ -429,10 +429,55 @@ interface FixtureEvolutionResolution {
   originSessionId: SessionId
 }
 
+/**
+ * Read the artifact candidates out of a fixture request body. The fixture
+ * mirrors the Host's schema check to the extent a client can be wrong:
+ * anything the caller did not shape as a candidate list reads as an empty
+ * document, which is the same wholesale replacement the Host performs.
+ * @param value - the `artifacts` field of the request body.
+ * @returns the candidate list to store.
+ */
+function fixtureCandidatesOf(value: unknown): readonly FixtureCandidate[] {
+  if (!Array.isArray(value)) return []
+  return value.map((raw) => {
+    const candidate = (typeof raw === 'object' && raw !== null ? raw : {}) as Partial<FixtureCandidate>
+    return {
+      statement: String(candidate.statement ?? ''),
+      source: String(candidate.source ?? ''),
+      conditions: String(candidate.conditions ?? ''),
+      evidence: candidate.evidence === 'fact' || candidate.evidence === 'observation' ? candidate.evidence : 'inference',
+      confidence: typeof candidate.confidence === 'number' ? candidate.confidence : 0.5,
+      scope: candidate.scope === 'user' || candidate.scope === 'global' ? candidate.scope : 'project',
+    }
+  })
+}
+
+/** Fixture-local mirror of one lesson artifact. */
+interface FixtureLessonArtifact {
+  id: string
+  statement: string
+  source: string
+  conditions: string
+  evidence: 'fact' | 'observation' | 'inference'
+  confidence: number
+  validationCount: number
+  refutationCount: number
+  scope: 'user' | 'project' | 'global'
+  ttlDays?: number | undefined
+  createdAt: string
+  updatedAt: string
+}
+
+/** Fixture-local mirror of caller-supplied lesson artifact fields. */
+type FixtureCandidate = Omit<
+  FixtureLessonArtifact,
+  'id' | 'validationCount' | 'refutationCount' | 'createdAt' | 'updatedAt'
+>
+
 /** Fixture-local mirror of one Scope's evolution record. */
 interface FixtureEvolutionScope {
   instructions: string
-  lessons: string
+  lessons: readonly FixtureLessonArtifact[]
   profile: string
   instructionsUpdatedAt: string | null
   lessonsUpdatedAt: string | null
@@ -461,7 +506,7 @@ type FixtureEvolutionFollowFrame =
 interface FixtureEvolutionValue {
   readonly workspaceId: WorkspaceId
   readonly instructions: string
-  readonly lessons: string
+  readonly lessons: readonly FixtureLessonArtifact[]
   readonly profile: string
   readonly memoryUpdatedAt: string | null
   readonly instructionsUpdatedAt: string | null
@@ -2142,9 +2187,18 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
   // record, which is the honest state the page renders before the first write.
   const evolutionScopes = new Map<string, FixtureEvolutionScope>()
   const evolutionBytes = (value: string): number => new TextEncoder().encode(value).length
+  /**
+   * Fixture parallel of the store's lessons charge: the artifact array is not
+   * a string, so it is measured one serialized artifact at a time.
+   */
+  const evolutionLessonBytes = (lessons: readonly FixtureLessonArtifact[]): number => {
+    let used = 0
+    for (const lesson of lessons) used += evolutionBytes(JSON.stringify(lesson))
+    return used
+  }
   const emptyEvolutionScope = (): FixtureEvolutionScope => ({
     instructions: '',
-    lessons: '',
+    lessons: [],
     profile: '',
     instructionsUpdatedAt: null,
     lessonsUpdatedAt: null,
@@ -2157,7 +2211,20 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
   if (!options.empty) {
     evolutionScopes.set(String(wid('fx-ws-fixture')), {
       instructions: 'Prefer tabs.',
-      lessons: 'Fixture lessons.',
+      lessons: [{
+        id: 'fixture lessons',
+        statement: 'Fixture lessons.',
+        source: 'fx-alpha',
+        conditions: '',
+        evidence: 'inference',
+        confidence: 0.5,
+        validationCount: 0,
+        refutationCount: 0,
+        scope: 'project',
+        ttlDays: 30,
+        createdAt: fixtureEpoch,
+        updatedAt: fixtureEpoch,
+      }],
       profile: 'Fixture profile.',
       instructionsUpdatedAt: fixtureEpoch,
       lessonsUpdatedAt: fixtureEpoch,
@@ -2179,8 +2246,8 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
       staged: [{
         id: 'fx-staged-1',
         kind: 'memory',
-        op: 'setLessons',
-        payload: { text: 'Staged fixture lesson.' },
+        op: 'replaceArtifacts',
+        payload: { candidates: [{ statement: 'Staged fixture lesson.' }] },
         originSessionId: sid('fx-alpha'),
         createdAt: fixtureEpoch,
         gist: 'lesson: staged fixture note',
@@ -2188,7 +2255,7 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
       resolutions: [{
         id: 'fx-res-1',
         kind: 'memory',
-        op: 'addLesson',
+        op: 'addArtifact',
         gist: 'lesson: approved fixture note',
         decision: 'approved',
         at: fixtureEpoch,
@@ -2206,13 +2273,33 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
         // range filter drops, so both sides of that filter stay reachable.
         id: 'fx-res-old',
         kind: 'memory',
-        op: 'addLesson',
+        op: 'addArtifact',
         gist: 'lesson: older approved fixture note',
         decision: 'approved',
         at: new Date(Date.now() - 40 * 86_400_000).toISOString(),
         originSessionId: sid('fx-alpha'),
       }],
     })
+  }
+  /**
+   * Fixture parallel of the host's document-level lesson write: the supplied
+   * candidates become the whole document, each stored with the identity,
+   * counters, and instants the store assigns.
+   * @param scope - the fixture scope to rewrite.
+   * @param candidates - the whole lesson document, one candidate per fact.
+   */
+  const replaceFixtureLessons = (scope: FixtureEvolutionScope, candidates: readonly FixtureCandidate[]): void => {
+    const at = new Date().toISOString()
+    scope.lessons = candidates.map(candidate => ({
+      ...candidate,
+      id: candidate.statement.trim().toLowerCase().replaceAll(/\s+/g, ' '),
+      ttlDays: candidate.ttlDays ?? 30,
+      validationCount: 0,
+      refutationCount: 0,
+      createdAt: at,
+      updatedAt: at,
+    }))
+    scope.lessonsUpdatedAt = at
   }
   const evolutionScopeOf = (workspaceId: string): FixtureEvolutionScope => {
     const existing = evolutionScopes.get(workspaceId)
@@ -2222,7 +2309,7 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
     return created
   }
   const evolutionUsageOf = (scope: FixtureEvolutionScope): { usedBytes: number; capacityBytes: number } => ({
-    usedBytes: evolutionBytes(scope.instructions) + evolutionBytes(scope.lessons) + evolutionBytes(scope.profile)
+    usedBytes: evolutionBytes(scope.instructions) + evolutionLessonBytes(scope.lessons) + evolutionBytes(scope.profile)
       + scope.contextItems.reduce((total, item) => total + item.sizeBytes, 0),
     capacityBytes: FIXTURE_EVOLUTION_CAPACITY,
   })
@@ -2312,8 +2399,8 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
       cumulative: {
         usedBytes: evolutionUsageOf(scope).usedBytes,
         capacityBytes: FIXTURE_EVOLUTION_CAPACITY,
-        digest: `fx-${String(scope.instructions.length)}-${String(scope.lessons.length)}-${String(scope.profile.length)}`,
-        lessonsBytes: evolutionBytes(scope.lessons),
+        digest: `fx-${String(scope.instructions.length)}-${String(scope.lessons.map(lesson => lesson.statement).join(' ').length)}-${String(scope.profile.length)}`,
+        lessonsBytes: evolutionLessonBytes(scope.lessons),
         profileBytes: evolutionBytes(scope.profile),
       },
       pending: scope.staged.map(entry => ({
@@ -4390,8 +4477,7 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
           })
         case 'evolution/setLessons':
           return evolutionWrite(evolutionRequest, (scope, body) => {
-            scope.lessons = String(body['lessons'] ?? '')
-            scope.lessonsUpdatedAt = new Date().toISOString()
+            replaceFixtureLessons(scope, fixtureCandidatesOf(body['artifacts']))
           })
         case 'evolution/setProfile':
           return evolutionWrite(evolutionRequest, (scope, body) => {
@@ -4416,8 +4502,14 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
           })
         case 'evolution/rebuildMemory':
           return evolutionWrite(evolutionRequest, (scope) => {
-            scope.lessons = 'Rebuilt fixture lessons.'
-            scope.lessonsUpdatedAt = new Date().toISOString()
+            replaceFixtureLessons(scope, [{
+              statement: 'Rebuilt fixture lessons.',
+              source: 'fx-rebuild',
+              conditions: '',
+              evidence: 'inference',
+              confidence: 0.5,
+              scope: 'project',
+            }])
           })
         case 'evolution/listStaged':
           return withEvolution(evolutionRequest, (_id, scope) => ({
