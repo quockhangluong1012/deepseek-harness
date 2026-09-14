@@ -44,37 +44,40 @@ describe('web e2e: evolution journey page (timeline / pending / curator / capaci
   async function seedEvolutionMemory(workspaceId: WorkspaceId): Promise<void> {
     const scopeId = EvolutionScopeId('default', String(workspaceId))
     const store = scaffold.ctx.evolutionMemory
+    const at = (instant: string) => ({
+      at: instant,
+      origin: 'background_review' as const,
+      provider: 'deepseek-official',
+      model: 'deepseek-v4-flash',
+      sessionId: 's-1',
+      inputBytes: 1_024,
+      truncated: false,
+    })
 
     // Day 1 (2026-09-10 UTC+7): first lesson write
-    await store.setLessons(scopeId,
-      '* Use punycode for IDN domains when constructing request URLs\n'
-      + '* Always cite sources when returning research results',
-      {
-        at: '2026-09-10T08:00:00.000Z',
-        origin: 'background_review',
-        provider: 'deepseek-official',
-        model: 'deepseek-v4-flash',
-        sessionId: 's-1',
-        inputBytes: 1_024,
-        truncated: false,
-      },
-    )
+    await store.replaceArtifacts(scopeId, [{
+      statement:
+        '* Use punycode for IDN domains when constructing request URLs\n'
+        + '* Always cite sources when returning research results',
+      source: 's-1',
+      conditions: '',
+      evidence: 'inference',
+      confidence: 0.5,
+      scope: 'project',
+    }], at('2026-09-10T08:00:00.000Z'))
 
     // Day 2 (2026-09-11 UTC+7): lesson update + outputs + staged write
-    await store.setLessons(scopeId,
-      '* Use punycode for IDN domains when constructing request URLs\n'
-      + '* Always cite sources when returning research results\n'
-      + '* Prefer markdown over HTML for all output formatting',
-      {
-        at: '2026-09-11T02:00:00.000Z',
-        origin: 'background_review',
-        provider: 'deepseek-official',
-        model: 'deepseek-v4-flash',
-        sessionId: 's-3',
-        inputBytes: 2_048,
-        truncated: false,
-      },
-    )
+    await store.replaceArtifacts(scopeId, [{
+      statement:
+        '* Use punycode for IDN domains when constructing request URLs\n'
+        + '* Always cite sources when returning research results\n'
+        + '* Prefer markdown over HTML for all output formatting',
+      source: 's-3',
+      conditions: '',
+      evidence: 'inference',
+      confidence: 0.5,
+      scope: 'project',
+    }], { ...at('2026-09-11T02:00:00.000Z'), inputBytes: 2_048, sessionId: 's-3' })
 
     await store.recordOutputs(scopeId, [
       { tool: 'write', path: '/tmp/out1.md', at: '2026-09-11T02:00:01.000Z', sessionId: 's-3' },
@@ -84,8 +87,8 @@ describe('web e2e: evolution journey page (timeline / pending / curator / capaci
     await store.stageWrite({
       scopeId,
       kind: 'memory',
-      op: 'setLessons',
-      payload: { text: 'add lesson about error handling' },
+      op: 'replaceArtifacts',
+      payload: { candidates: [{ statement: 'add lesson about error handling' }] },
       originSessionId: 's-9',
       gist: 'add lesson about error handling',
     })
