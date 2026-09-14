@@ -297,13 +297,17 @@ export function apply(ctx: Context, config: Config): void {
     if (!isGraphSeam(graph)) return []
     const workspace = memberWorkspace(session)
     if (workspace === undefined) return []
-    const scope = EvolutionScopeId(profile, String(workspace.id))
-    // The graph is matched by label, so a whole turn never seeds it: scan the
-    // turn's own words instead and let the earliest-mentioned entity win. The
-    // budget is `graphLimit` lookups, the same bound the label cap uses.
-    const tokens = query.toLowerCase().split(/\s+/).slice(0, graphLimit)
-    let seed: GraphNode | undefined
+    let labels: string[]
     try {
+      // `EvolutionScopeId` refuses an empty profile and one containing ':', so
+      // the scope is built inside this guard with every other graph read: a
+      // misconfigured profile must degrade the leg, not reject the turn.
+      const scope = EvolutionScopeId(profile, String(workspace.id))
+      // The graph is matched by label, so a whole turn never seeds it: scan the
+      // turn's own words instead and let the earliest-mentioned entity win. The
+      // budget is `graphLimit` lookups, the same bound the label cap uses.
+      const tokens = query.toLowerCase().split(/\s+/).slice(0, graphLimit)
+      let seed: GraphNode | undefined
       for (const token of tokens) {
         /* v8 ignore next -- query is trimmed and non-empty, so no token is empty; kept as find's empty needle matches every entity. */
         if (token.length === 0) continue
@@ -313,17 +317,14 @@ export function apply(ctx: Context, config: Config): void {
           break
         }
       }
+      if (seed === undefined) return []
+      // The seam proves `expand` is callable, not that it honors its contract,
+      // so reading the reached nodes stays inside the guard as well.
+      const reached = graph.expand(scope, seed.label, graphDepth, graphLimit)
+      labels = [...new Set([seed.label, ...reached.map(entry => entry.node.label)])].slice(0, graphLimit)
     } catch {
       return []
     }
-    if (seed === undefined) return []
-    let reached: readonly GraphReach[]
-    try {
-      reached = graph.expand(scope, seed.label, graphDepth, graphLimit)
-    } catch {
-      return []
-    }
-    const labels = [...new Set([seed.label, ...reached.map(entry => entry.node.label)])].slice(0, graphLimit)
     const others = workspace.sessionIds.filter(id => id !== session.id)
     const hits: SessionSearchHit[] = []
     for (const label of labels) {

@@ -731,6 +731,40 @@ describe('active-memory-context injector', () => {
     expect(text).not.toContain('sibling-ava')
   })
 
+  it('degrades to the vector leg when the configured profile is not a valid scope', async () => {
+    for (const profile of ['team:eu', '']) {
+      const fake = fakeEmbeddings()
+      const { ctx, workspaces } = await harness({ maxBytes: 4096, profile }, fake.service)
+      const session = await scopeWith(ctx, workspaces, [{ id: 'sibling-needle', text: 'needle in the stack' }])
+      const graph = fakeGraph({ labels: ['Needle'], neighbors: ['Ava'] })
+      ctx.provide('evolutionGraph', graph.service as never)
+
+      // `EvolutionScopeId` rejects this profile, so the turn must still resolve.
+      const decision = await preStep(ctx, fakeAgent(session), [textMessage('needle')])
+      const text = briefText(briefsOf(decision.kind === 'enter' ? decision.messages : [])[0])
+
+      expect(text).toContain('sibling-needle')
+      expect(text).not.toContain('via graph connections')
+      expect(graph.calls.find).toEqual([])
+    }
+  })
+
+  it('degrades to the vector leg when the graph expansion returns a non-array', async () => {
+    const fake = fakeEmbeddings()
+    const { ctx, workspaces } = await harness({ maxBytes: 4096 }, fake.service)
+    const session = await scopeWith(ctx, workspaces, [{ id: 'sibling-needle', text: 'needle in the stack' }])
+    ctx.provide('evolutionGraph', {
+      find: () => [{ id: 'needle', label: 'Needle', kind: null }],
+      expand: () => 'not an array',
+    } as never)
+
+    const decision = await preStep(ctx, fakeAgent(session), [textMessage('needle')])
+    const text = briefText(briefsOf(decision.kind === 'enter' ? decision.messages : [])[0])
+
+    expect(text).toContain('sibling-needle')
+    expect(text).not.toContain('via graph connections')
+  })
+
   it('skips the graph leg when the session has no resolvable workspace membership', async () => {
     const { ctx } = await harness({ maxBytes: 4096 })
     const session = ctx.sessions.create(SessionId('outsider'), { meta: header('outsider') })
