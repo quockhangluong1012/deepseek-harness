@@ -254,6 +254,41 @@ function isWorkspaceSeam(value: unknown): value is WorkspaceSeam {
   return typeof Reflect.get(Object(value), 'list') === 'function'
 }
 
+/**
+ * One live session's route source, as this producer reads it.
+ */
+interface SessionRouteSource {
+  /**
+   * @returns the route the session's latest request ran on, or undefined when it has made none.
+   */
+  requestHeader(): { config: { provider: string; model: string } } | undefined
+}
+
+/**
+ * The slice of `ctx.sessions` this producer reads: the live session a buffered
+ * batch asks for its request route. Declared here rather than imported so the
+ * graph keeps no dependency on a service it can run without, and read through
+ * `ctx.get` rather than `ctx.sessions` so a mount that provides none resolves
+ * no route instead of throwing out of the sweep.
+ */
+interface SessionsSeam {
+  /**
+   * @param id - the session to look up.
+   * @returns the live session, or undefined when none holds that id.
+   */
+  get(id: SessionId): SessionRouteSource | undefined
+}
+
+/**
+ * Whether a context value offers the session lookup this producer reads.
+ * Absent and foreign values answer false instead of throwing.
+ * @param value - the value read from `ctx.get('sessions')`.
+ * @returns whether the value can look a session up.
+ */
+function isSessionsSeam(value: unknown): value is SessionsSeam {
+  return typeof Reflect.get(Object(value), 'get') === 'function'
+}
+
 /** One scope's unextracted text and the sessions it was observed in. */
 interface PendingScope {
   /** Scope identity the batch will be extracted into. */
@@ -548,9 +583,11 @@ export class EvolutionGraph extends Service {
    * Only user and assistant messages carry conversation text: anything else, a
    * message with no text part, a session no workspace owns, and a mount with
    * no workspace roster are all ignored. Text is appended while it fits the
-   * `maxInputBytes` budget, dropping the oldest text to make room; a single
-   * message larger than the whole budget is dropped rather than clearing the
-   * batch for content that can never fit.
+   * `maxInputBytes` budget, dropping the oldest text to make room.
+   *
+   * A message larger than the whole budget can never be carried, so it is
+   * dropped whole — and it never opens an entry of its own: an entry with no
+   * text would still resolve a route and pay for an empty call on every run.
    * @param sessionId - the session the event was published from.
    * @param event - the session event to read text from.
    */
@@ -567,12 +604,12 @@ export class EvolutionGraph extends Service {
     const workspace = registry.list().find(entry => entry.sessionIds.includes(sessionId))
     if (workspace === undefined) return
     const scope = EvolutionScopeId(this.resolved.profile, workspace.id)
+    const size = utf8Bytes(text)
+    if (size > this.resolved.maxInputBytes) return
     const key = String(scope)
     const buffered = this.pending.get(key) ?? { scope, sessionIds: [], texts: [], bytes: 0 }
     this.pending.set(key, buffered)
     if (!buffered.sessionIds.includes(sessionId)) buffered.sessionIds.push(sessionId)
-    const size = utf8Bytes(text)
-    if (size > this.resolved.maxInputBytes) return
     // This text fits the budget on its own, so emptying the batch always
     // satisfies the bound and the loop never reads past its oldest entry.
     while (buffered.bytes + size > this.resolved.maxInputBytes) {
@@ -586,10 +623,14 @@ export class EvolutionGraph extends Service {
    * Extract and clear every scope with buffered text. Scopes are visited
    * oldest-buffered first and the run bails out between them when its signal
    * aborts. A scope whose route cannot be resolved, or a mount with no model
-   * seam at all, keeps its buffer for a later run instead of spending it. A
-   * scope whose extraction fails is caught and still cleared: one bad scope
-   * must not starve the others, and the batch is delivered at most once rather
-   * than retried forever.
+   * seam at all, keeps its buffer for a later run instead of spending it.
+   *
+   * A scope's batch leaves the buffer before its call is awaited, not after:
+   * text published while that call is in flight appends to a fresh entry and
+   * is picked up by the next run, where clearing the entry afterwards would
+   * have dropped it unseen. A call that fails is caught and leaves the batch
+   * spent — one bad scope must not starve the others, and the batch is
+   * delivered at most once rather than retried forever.
    * @param signal - the heartbeat's cancellation signal.
    */
   private async extractPending(signal: AbortSignal): Promise<void> {
@@ -598,12 +639,12 @@ export class EvolutionGraph extends Service {
       if (signal.aborted) return
       const route = this.resolveRoute(buffered.sessionIds)
       if (route === undefined) continue
+      const text = buffered.texts.join('\n')
+      this.pending.delete(key)
       try {
-        await this.extract(buffered.scope, buffered.texts.join('\n'), route, signal)
+        await this.extract(buffered.scope, text, route, signal)
       } catch {
-        // Per-scope isolation: the batch below is spent either way.
-      } finally {
-        this.pending.delete(key)
+        // Per-scope isolation: the batch above is spent either way.
       }
     }
   }
@@ -619,8 +660,10 @@ export class EvolutionGraph extends Service {
     if (this.resolved.provider !== undefined && this.resolved.model !== undefined) {
       return { provider: this.resolved.provider, model: this.resolved.model }
     }
+    const sessions: unknown = this.ctx.get('sessions')
+    if (!isSessionsSeam(sessions)) return undefined
     const header = sessionIds
-      .map(id => this.ctx.sessions.get(id)?.requestHeader())
+      .map(id => sessions.get(id)?.requestHeader())
       .find(entry => entry !== undefined)
     return header === undefined
       ? undefined

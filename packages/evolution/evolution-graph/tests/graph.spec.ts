@@ -291,14 +291,20 @@ describe('heartbeat extraction', () => {
    * whole extraction run. The workspace and session seams are fakes rather
    * than mounts: the producer reaches both structurally.
    * @param config - plugin configuration.
-   * @param chunks - the extraction answer the model streams.
-   * @param seams - workspace roster, session lookup, and whether to provide the model seam.
+   * @param chunks - the extraction answer the model streams, for every call.
+   * @param seams - workspace roster, session lookup, the model seam, a per-call answer script, and a per-call hook.
    * @returns the mounted graph, the recorded calls, and the registered tasks.
    */
   async function producerHarness(
     config: Record<string, unknown> = {},
     chunks: StreamChunk[] = answer('{"triples":[]}'),
-    seams: { workspaces?: unknown; sessions?: unknown; llm?: boolean } = {},
+    seams: {
+      workspaces?: unknown
+      sessions?: unknown
+      llm?: boolean
+      answers?: readonly StreamChunk[][]
+      onCall?: (ctx: Context, call: number) => void
+    } = {},
   ) {
     const tasks: Array<{
       name: string
@@ -312,17 +318,22 @@ describe('heartbeat extraction', () => {
     ctx.storage.mount('domain', facility)
     ctx.provide('storageDomain', facility)
     const calls: GenerateOptions[] = []
-    const provideLlm = (streamChunks: StreamChunk[]): void => {
+    const sequences = seams.answers ?? [chunks]
+    const provideLlm = (): void => {
       ctx.provide('llm', {
         stream: (options: GenerateOptions) => {
           calls.push(options)
+          // The script is one sequence per call; a short script repeats its
+          // last entry, and the harness always passes at least one.
+          const sequence = sequences[Math.min(calls.length - 1, sequences.length - 1)] as StreamChunk[]
+          seams.onCall?.(ctx, calls.length)
           return (async function* () {
-            yield* streamChunks
+            yield* sequence
           })()
         },
       } as never)
     }
-    if (seams.llm !== false) provideLlm(chunks)
+    if (seams.llm !== false) provideLlm()
     ctx.provide('evolutionHeartbeat', {
       register: (task: {
         name: string
@@ -521,7 +532,7 @@ describe('heartbeat extraction', () => {
       h.ctx.emit('session/event', session as never, messageEvent('user/message', [{ type: 'text', text: 'Ava worked on Atlas' }]) as never)
       await h.tasks[0]?.run(new AbortController().signal)
       expect(h.calls).toHaveLength(0)
-      h.provideLlm(chunks)
+      h.provideLlm()
       await h.tasks[0]?.run(new AbortController().signal)
       expect(h.calls).toHaveLength(1)
       expect(h.graph.find(EvolutionScopeId('default', 'ws'), 'ava')).toHaveLength(1)
@@ -548,6 +559,126 @@ describe('heartbeat extraction', () => {
       expect(h.calls).toHaveLength(1)
       const sent = h.calls[0]?.messages[0]?.content.map(block => (block.type === 'text' ? block.text : '')).join('')
       expect(sent).toBe('bbbbbb\ncc')
+    } finally {
+      await h.fiber.dispose()
+    }
+  })
+
+  it('drops an oversized message without opening a batch of its own', async () => {
+    const session = { id: 's1', requestHeader: () => ({ config: { provider: 'p', model: 'm' } }) }
+    const h = await producerHarness({ maxInputBytes: 10 }, answer('{"triples":[]}'), {
+      workspaces: { list: () => [{ id: 'ws', sessionIds: ['s1'] }] },
+      sessions: { get: () => session },
+    })
+    try {
+      const emit = (text: string): void => {
+        h.ctx.emit('session/event', session as never, messageEvent('user/message', [{ type: 'text', text }]) as never)
+      }
+      emit('r'.repeat(11))
+      // Nothing was buffered, so the scope is idle: no call, no empty record,
+      // and no entry left behind to pay again on the next run.
+      await h.tasks[0]?.run(new AbortController().signal)
+      expect(h.calls).toHaveLength(0)
+      expect(h.graph.read(EvolutionScopeId('default', 'ws'))).toBeUndefined()
+      await h.tasks[0]?.run(new AbortController().signal)
+      expect(h.calls).toHaveLength(0)
+      // A later message that fits still opens a batch on its own.
+      emit('fits')
+      await h.tasks[0]?.run(new AbortController().signal)
+      expect(h.calls).toHaveLength(1)
+    } finally {
+      await h.fiber.dispose()
+    }
+  })
+
+  it('keeps text published while an extraction is in flight', async () => {
+    const session = { id: 's1', requestHeader: () => ({ config: { provider: 'p', model: 'm' } }) }
+    const h = await producerHarness({}, answer('{"triples":[]}'), {
+      workspaces: { list: () => [{ id: 'ws', sessionIds: ['s1'] }] },
+      sessions: { get: () => session },
+      answers: [
+        answer('{"triples":[{"from":"Ava","relation":"worked_on","to":"Atlas"}]}'),
+        answer('{"triples":[{"from":"Bo","relation":"owns","to":"Car"}]}'),
+      ],
+      // The model is answering while the user keeps typing the same scope.
+      onCall: (ctx) => {
+        ctx.emit('session/event', session as never, messageEvent('user/message', [{ type: 'text', text: 'Bo owns Car' }]) as never)
+      },
+    })
+    try {
+      h.ctx.emit('session/event', session as never, messageEvent('user/message', [{ type: 'text', text: 'Ava worked on Atlas' }]) as never)
+      await h.tasks[0]?.run(new AbortController().signal)
+      expect(h.calls).toHaveLength(1)
+      expect(h.graph.find(EvolutionScopeId('default', 'ws'), 'ava')).toHaveLength(1)
+      // The late text survived the run it arrived during and is the next batch.
+      await h.tasks[0]?.run(new AbortController().signal)
+      expect(h.calls).toHaveLength(2)
+      expect(h.graph.find(EvolutionScopeId('default', 'ws'), 'bo')).toHaveLength(1)
+    } finally {
+      await h.fiber.dispose()
+    }
+  })
+
+  it('keeps the buffer when no session lookup is mounted', async () => {
+    const h = await producerHarness({}, answer('{"triples":[{"from":"Ava","relation":"worked_on","to":"Atlas"}]}'), {
+      workspaces: { list: () => [{ id: 'ws', sessionIds: ['s1'] }] },
+    })
+    try {
+      h.ctx.emit('session/event', { id: 's1' } as never, messageEvent('user/message', [{ type: 'text', text: 'Ava worked on Atlas' }]) as never)
+      await h.tasks[0]?.run(new AbortController().signal)
+      expect(h.calls).toHaveLength(0)
+      h.ctx.provide('sessions', { get: () => ({ requestHeader: () => ({ config: { provider: 'p', model: 'm' } }) }) } as never)
+      await h.tasks[0]?.run(new AbortController().signal)
+      expect(h.calls).toHaveLength(1)
+      expect(h.graph.find(EvolutionScopeId('default', 'ws'), 'ava')).toHaveLength(1)
+    } finally {
+      await h.fiber.dispose()
+    }
+  })
+
+  it('isolates a failing scope from the rest of the sweep', async () => {
+    const first = { id: 's1', requestHeader: () => ({ config: { provider: 'p', model: 'm' } }) }
+    const second = { id: 's2', requestHeader: () => ({ config: { provider: 'p', model: 'm' } }) }
+    const h = await producerHarness({}, answer('{"triples":[]}'), {
+      workspaces: { list: () => [{ id: 'a', sessionIds: ['s1'] }, { id: 'b', sessionIds: ['s2'] }] },
+      sessions: { get: (id: string) => (id === 's1' ? first : second) },
+      answers: [answer('not json'), answer('{"triples":[{"from":"Bo","relation":"owns","to":"Car"}]}')],
+    })
+    try {
+      h.ctx.emit('session/event', first as never, messageEvent('user/message', [{ type: 'text', text: 'the first scope' }]) as never)
+      h.ctx.emit('session/event', second as never, messageEvent('user/message', [{ type: 'text', text: 'the second scope' }]) as never)
+      await h.tasks[0]?.run(new AbortController().signal)
+      expect(h.calls).toHaveLength(2)
+      expect(h.graph.read(EvolutionScopeId('default', 'a'))).toBeUndefined()
+      expect(h.graph.find(EvolutionScopeId('default', 'b'), 'bo')).toHaveLength(1)
+    } finally {
+      await h.fiber.dispose()
+    }
+  })
+
+  it('leaves later scopes buffered when the run aborts mid-sweep', async () => {
+    const controller = new AbortController()
+    const first = { id: 's1', requestHeader: () => ({ config: { provider: 'p', model: 'm' } }) }
+    const second = { id: 's2', requestHeader: () => ({ config: { provider: 'p', model: 'm' } }) }
+    const h = await producerHarness({}, answer('{"triples":[]}'), {
+      workspaces: { list: () => [{ id: 'a', sessionIds: ['s1'] }, { id: 'b', sessionIds: ['s2'] }] },
+      sessions: { get: (id: string) => (id === 's1' ? first : second) },
+      onCall: () => {
+        controller.abort()
+      },
+    })
+    try {
+      h.ctx.emit('session/event', first as never, messageEvent('user/message', [{ type: 'text', text: 'the first scope' }]) as never)
+      h.ctx.emit('session/event', second as never, messageEvent('user/message', [{ type: 'text', text: 'the second scope' }]) as never)
+      await h.tasks[0]?.run(controller.signal)
+      // The abort ended the sweep after the first scope, before any work for
+      // the second one: its batch is still there for the next run.
+      expect(h.calls).toHaveLength(1)
+      expect(h.graph.read(EvolutionScopeId('default', 'a'))).toBeUndefined()
+      expect(h.graph.read(EvolutionScopeId('default', 'b'))).toBeUndefined()
+      await h.tasks[0]?.run(new AbortController().signal)
+      expect(h.calls).toHaveLength(2)
+      expect(h.graph.read(EvolutionScopeId('default', 'b'))).toBeDefined()
     } finally {
       await h.fiber.dispose()
     }
