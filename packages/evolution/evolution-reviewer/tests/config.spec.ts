@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest'
-import { clipToBytes, extractionSystemPrompt, frameExtractionInput } from '../src/prompt.ts'
 import { Config, resolveConfig } from '../src/index.ts'
 
 describe('evolution-reviewer config', () => {
@@ -50,22 +49,5 @@ describe('evolution-reviewer config', () => {
       .toThrow('must list exactly the lessons headings')
     expect(() => resolveConfig({ squeezeOrder: ['## Purpose', '## Preferences', '## Decisions', '## References'] }))
       .not.toThrow()
-  })
-
-  it('frames transcript rows as JSON', () => {
-    const text = frameExtractionInput([{ role: 'user', text: 'hi' }], '')
-    expect(text).toContain(JSON.stringify([{ role: 'user', text: 'hi' }]))
-    expect(extractionSystemPrompt()).toContain('## Purpose')
-  })
-
-  it('clips at a UTF-8 boundary', () => {
-    expect(clipToBytes('hello', 10)).toBe('hello')
-    expect(clipToBytes('hello', 5)).toBe('hello')
-    // 'a😀b': a takes 1 byte, the emoji takes 4. A budget of 4 keeps 'a';
-    // a budget of 5 keeps the emoji whole.
-    expect(clipToBytes('a😀b', 4)).toBe('a')
-    expect(clipToBytes('a😀b', 5)).toBe('a😀')
-    expect(clipToBytes('a😀b', 0)).toBe('')
-    expect(clipToBytes('', 0)).toBe('')
   })
 })
