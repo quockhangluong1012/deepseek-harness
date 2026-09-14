@@ -2,8 +2,10 @@
  * Evolution background reviewer (`ctx.evolutionReviewer`): per-turn
  * produced-file indexing, gated per-turn lessons extraction, ranked recall
  * of prior scope work into the brief, and on-demand rebuild from session
- * history. Extraction is a deterministic derivation; failures log a warning
- * and leave the previous document intact.
+ * history. Extraction is a deterministic derivation: the model answers one
+ * turn with a batch of `confirms` / `contradicts` / `new` decisions about the
+ * relevance-bounded slice of the scope's current artifacts it was shown, and
+ * a failure logs a warning and leaves the stored artifacts as they were.
  *
  * The reviewer never scans session history synchronously. It buffers the
  * current turn's events as they arrive on `session/event` and flushes the
@@ -26,15 +28,12 @@ import { RemoteError, remoteErrorOf } from '@deepseek-ai/dsh-typert-protocol'
 import type {} from '@deepseek-ai/dsh-workspace'
 import { WorkspaceId } from '@deepseek-ai/dsh-workspace'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
-import type { EvolutionExtraction, EvolutionOutput } from '@deepseek-ai/dsh-evolution-memory'
-import { EvolutionScopeId, RECALL_LABEL_PREFIX, normalizeStatement, truncateUtf8, utf8Bytes } from '@deepseek-ai/dsh-evolution-memory'
+import type { EvolutionExtraction, EvolutionOutput, LessonDecision } from '@deepseek-ai/dsh-evolution-memory'
+import { EvolutionScopeId, RECALL_LABEL_PREFIX, utf8Bytes } from '@deepseek-ai/dsh-evolution-memory'
 import { skillCreationEvidence } from '@deepseek-ai/dsh-evolution-skill-telemetry'
-import { extractionSystemPrompt, frameExtractionInput } from './prompt.ts'
-import { LESSON_HEADINGS } from './prompt.ts'
-import { DEFAULT_SQUEEZE_ORDER, squeezeLessons } from './squeeze.ts'
-
-export { clipToBytes, extractionSystemPrompt, frameExtractionInput } from './prompt.ts'
-export { DEFAULT_SQUEEZE_ORDER, squeezeLessons } from './squeeze.ts'
+import { extractionSystemPrompt, frameExtractionRequest, parseExtractionDecisions } from './protocol.ts'
+import type { ExtractionDecision, IndexedArtifact } from './protocol.ts'
+import { selectRelevantArtifacts } from './relevance.ts'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -55,7 +54,12 @@ export interface Config {
   enabled?: boolean
   /** Transcript budget per call in UTF-8 bytes. */
   maxInputBytes?: number
-  /** Output token cap per call. */
+  /**
+   * Output token cap per call. Sized for the decision protocol's output, which
+   * scales with the decisions one turn produces: a `new` candidate carries full
+   * artifact fields, while a `confirms`/`contradicts` is a few tokens, and the
+   * default covers roughly ten decisions with headroom.
+   */
   maxOutputTokens?: number
   /** Skip extraction for trivial turns below this admitted-text byte size. */
   minTurnTextBytes?: number
@@ -73,10 +77,8 @@ export interface Config {
   recallLimit?: number
   /** Cap on the recall query derived from a turn's newest human message. */
   recallQueryChars?: number
-  /** UTF-8 byte budget the squeezed lessons document must fit. */
-  squeezeBytes?: number
-  /** Pressure order: the heading whose body clears first comes first. */
-  squeezeOrder?: string[]
+  /** Most artifacts one extraction call shows the model, most relevant first. */
+  relevantArtifactLimit?: number
   /** Call deadline in milliseconds. */
   timeoutMs?: number
   /** Stage background extractions for approval instead of writing them. */
@@ -93,7 +95,9 @@ export const Config: z<Config> = z.object({
   deferMaxAgeMs: z.number().step(1).min(0).default(1800000),
   enabled: z.boolean().default(true),
   maxInputBytes: z.number().step(1).min(1).default(131072),
-  maxOutputTokens: z.number().step(1).min(1).default(1024),
+  // A decision batch scales with the decisions one turn produces, so the cap
+  // is sized for roughly ten of them.
+  maxOutputTokens: z.number().step(1).min(1).default(2048),
   minTurnTextBytes: z.number().step(1).min(0).default(200),
   model: z.string(),
   outputTools: z.array(z.string()).default(['write', 'edit', 'str_replace_editor']),
@@ -102,8 +106,7 @@ export const Config: z<Config> = z.object({
   rebuildSessionLimit: z.number().step(1).min(1).default(20),
   recallLimit: z.number().step(1).min(1).default(20),
   recallQueryChars: z.number().step(1).min(1).default(160),
-  squeezeBytes: z.number().step(1).min(1).default(65536),
-  squeezeOrder: z.array(z.string()).default([...DEFAULT_SQUEEZE_ORDER]),
+  relevantArtifactLimit: z.number().step(1).min(1).default(20),
   timeoutMs: z.number().step(1).min(1).default(60000),
   writeApproval: z.boolean().default(false),
 })
@@ -124,15 +127,13 @@ export interface ResolvedConfig {
   rebuildSessionLimit: number
   recallLimit: number
   recallQueryChars: number
-  squeezeBytes: number
-  squeezeOrder: readonly string[]
+  relevantArtifactLimit: number
   timeoutMs: number
   writeApproval: boolean
 }
 
 /**
- * Resolve defaults and validate the provider/model pair, the profile, and the
- * squeeze pressure order.
+ * Resolve defaults and validate the provider/model pair and the profile.
  * @param config - user-facing plugin configuration.
  * @returns normalized runtime configuration.
  */
@@ -153,36 +154,18 @@ export function resolveConfig(config: Config = {}): ResolvedConfig {
     deferMaxAgeMs: config.deferMaxAgeMs ?? 1800000,
     enabled: config.enabled ?? true,
     maxInputBytes: config.maxInputBytes ?? 131072,
-    maxOutputTokens: config.maxOutputTokens ?? 1024,
+    maxOutputTokens: config.maxOutputTokens ?? 2048,
     minTurnTextBytes: config.minTurnTextBytes ?? 200,
     outputTools: config.outputTools ?? ['write', 'edit', 'str_replace_editor'],
     profile,
     rebuildSessionLimit: config.rebuildSessionLimit ?? 20,
     recallLimit: config.recallLimit ?? 20,
     recallQueryChars: config.recallQueryChars ?? 160,
-    squeezeBytes: config.squeezeBytes ?? 65536,
-    squeezeOrder: checkSqueezeOrder(config.squeezeOrder ?? DEFAULT_SQUEEZE_ORDER),
+    relevantArtifactLimit: config.relevantArtifactLimit ?? 20,
     timeoutMs: config.timeoutMs ?? 60000,
     writeApproval: config.writeApproval ?? false,
     ...hasProvider && hasModel ? { provider: config.provider, model: config.model } : {},
   }
-}
-
-/**
- * Validate the configured pressure order as a permutation of the memory
- * headings: an order missing a heading would silently drop that section from
- * every extraction.
- * @param order - configured heading order.
- * @returns the order, unchanged.
- */
-function checkSqueezeOrder(order: readonly string[]): readonly string[] {
-  const missing = LESSON_HEADINGS.filter(heading => !order.includes(heading))
-  if (order.length !== LESSON_HEADINGS.length || missing.length > 0) {
-    throw new Error(
-      `evolution-reviewer: squeezeOrder must list exactly the lessons headings ${LESSON_HEADINGS.join(', ')}`,
-    )
-  }
-  return order
 }
 
 /** Timeout reason code for review calls. */
@@ -216,6 +199,57 @@ interface DeferredTurn {
   rows: TranscriptRow[]
   route: { provider: string; model: string }
   timer: ReturnType<typeof setTimeout>
+}
+
+/** Provenance of one extraction call, everything but its route and session. */
+interface ExtractionMeta {
+  at: string
+  turn: number
+  inputBytes: number
+  origin: 'background_review' | 'rebuild'
+}
+
+/**
+ * Drop what can still push a decision batch past the store's lessons cap: the
+ * `new` decision carrying the longest statement, or — once no `new` decision is
+ * left — every contradiction's replacement statement, which keeps its counter
+ * bump and loses only the text update.
+ *
+ * A whole fact either fits or is deferred to a later turn, which is a cleaner
+ * failure than a mid-sentence clip; a contradiction's counter is the fact the
+ * decision reported, and its text is the part that can be deferred.
+ * @param decisions - the batch the store rejected.
+ * @returns the reduced batch and what was dropped, or undefined when nothing in
+ * the batch can shrink it any further.
+ */
+function reduceOverCapBatch(
+  decisions: readonly LessonDecision[],
+): { decisions: LessonDecision[]; note: string } | undefined {
+  let longest = -1
+  let longestBytes = -1
+  for (const [index, decision] of decisions.entries()) {
+    if (decision.kind !== 'new') continue
+    const bytes = utf8Bytes(decision.candidate.statement)
+    if (bytes > longestBytes) {
+      longestBytes = bytes
+      longest = index
+    }
+  }
+  if (longest !== -1) {
+    return {
+      decisions: decisions.filter((_, index) => index !== longest),
+      note: `a new artifact statement of ${longestBytes} bytes`,
+    }
+  }
+  const corrects = (decision: LessonDecision): boolean =>
+    decision.kind === 'contradicts' && decision.statement !== undefined
+  if (!decisions.some(corrects)) return undefined
+  return {
+    decisions: decisions.map(decision => corrects(decision) && decision.kind === 'contradicts'
+      ? { kind: 'contradicts', artifactId: decision.artifactId, confidence: decision.confidence }
+      : decision),
+    note: "the contradictions' replacement statements",
+  }
 }
 
 /**
@@ -415,11 +449,16 @@ export class EvolutionReviewer extends Service {
   }
 
   /**
-   * Rebuild the lessons document from the scope's chat history, read through
-   * the asynchronous session query seam: ranked recall selects candidate
-   * events first, and each one still passes the shared admission rule.
-   * Rebuilds write directly even when background approval staging is on: the
-   * caller explicitly asked for them.
+   * Rebuild the scope's lessons from its chat history, read through the
+   * asynchronous session query seam: ranked recall selects candidate events
+   * first, and each one still passes the shared admission rule.
+   *
+   * A rebuild folds its findings into the artifacts already stored — the same
+   * relevance-bounded decision protocol a live turn uses, run against the whole
+   * selected history instead of one turn's buffer — so it confirms and corrects
+   * what it finds rather than wiping what is there. Rebuilds write directly
+   * even when background approval staging is on: the caller explicitly asked
+   * for them.
    * @param scopeId - scope identity.
    * @param signal - caller cancellation.
    * @returns resolution after the store write.
@@ -469,16 +508,11 @@ export class EvolutionReviewer extends Service {
     const { rows: cappedOldest, inputBytes } = capRowsByBytes(rows, this.resolved.maxInputBytes)
     const framed = [...cappedOldest].reverse()
     const firstSession = sessionIds[0] ?? ('' as SessionId)
-    const document = await this.callModel(route, framed, '', signal, firstSession)
-    await this.storeDocument(scopeId, document.text, {
+    await this.extract(scopeId, route, framed, signal, firstSession, {
       at: new Date().toISOString(),
-      sessionId: String(firstSession),
       turn: 0,
-      provider: route.provider,
-      model: route.model,
-      origin: 'rebuild',
       inputBytes,
-      truncated: document.truncated,
+      origin: 'rebuild',
     })
   }
 
@@ -810,21 +844,11 @@ export class EvolutionReviewer extends Service {
     this.bySession.set(String(session.id), controller)
     try {
       const { rows: capped, inputBytes } = capRowsByBytes([...rows], this.resolved.maxInputBytes)
-      const record = this.ctx.evolutionMemory.read(scope)
-      // The store hands lessons back as artifacts; the prompt's "current
-      // lessons" is their statements as one document, which is what the
-      // extraction was shown when the document was written.
-      const prior = (record?.agentLessons ?? []).map(artifact => artifact.statement).join('\n\n')
-      const document = await this.callModel(route, capped, prior, controller.signal, session.id)
-      await this.storeDocument(scope, document.text, {
+      await this.extract(scope, route, capped, controller.signal, session.id, {
         at: new Date().toISOString(),
-        sessionId: String(session.id),
         turn,
-        provider: route.provider,
-        model: route.model,
-        origin: 'background_review',
         inputBytes,
-        truncated: document.truncated,
+        origin: 'background_review',
       })
       this.lastExtractionAt.set(String(scope), Date.now())
     } catch (error) {
@@ -943,15 +967,205 @@ export class EvolutionReviewer extends Service {
       : { provider: routed.config.provider, model: routed.config.model })
   }
 
+  /**
+   * Run one extraction call end to end and fold its decisions into the scope:
+   * rank the scope's current artifacts against this call's transcript, show the
+   * model the relevance-bounded indexed slice beside that transcript, then
+   * resolve every decision back to a real artifact id and apply the batch as
+   * one write — staged for approval when background approval is configured.
+   * @param scope - scope identity.
+   * @param route - resolved model route.
+   * @param rows - transcript rows, already byte-capped.
+   * @param signal - caller cancellation.
+   * @param sessionId - the extracting session, stamped on every new candidate.
+   * @param meta - provenance of the call.
+   */
+  private async extract(
+    scope: EvolutionScopeId,
+    route: { provider: string; model: string },
+    rows: readonly TranscriptRow[],
+    signal: AbortSignal,
+    sessionId: SessionId,
+    meta: ExtractionMeta,
+  ): Promise<void> {
+    const relevant = await this.indexedArtifacts(scope, rows)
+    const response = await this.callModel(route, rows, relevant, signal, sessionId)
+    const decisions = this.resolveDecisions(parseExtractionDecisions(response.text), relevant, String(sessionId))
+    await this.applyExtraction(scope, decisions, {
+      at: meta.at,
+      sessionId: String(sessionId),
+      provider: route.provider,
+      model: route.model,
+      origin: meta.origin,
+      inputBytes: meta.inputBytes,
+      truncated: response.truncated,
+    }, meta.turn)
+  }
+
+  /**
+   * Number the artifacts one extraction call may reference: the relevance-
+   * bounded slice of the scope's current artifacts for this call's transcript,
+   * numbered from 1 so the model addresses them without ever seeing an id.
+   * @param scope - scope identity.
+   * @param rows - the transcript rows this call shows the model.
+   * @returns the indexed artifacts, in the order the prompt lists them.
+   */
+  private async indexedArtifacts(scope: EvolutionScopeId, rows: readonly TranscriptRow[]): Promise<IndexedArtifact[]> {
+    const artifacts = this.ctx.evolutionMemory.read(scope)?.agentLessons ?? []
+    const queryText = rows.map(row => row.text).join('\n')
+    const relevant = await selectRelevantArtifacts(this.ctx, artifacts, queryText, this.resolved.relevantArtifactLimit)
+    return relevant.map((artifact, offset) => ({ index: offset + 1, artifact }))
+  }
+
+  /**
+   * Resolve the model's index-addressed decisions into the store's id-addressed
+   * ones, against the exact list this call sent. The parser accepts any index
+   * of 1 or more, so one outside that list is malformed: it is dropped with a
+   * warning rather than failing the whole batch, the same tolerance the store
+   * shows a decision naming an artifact a concurrent prune removed.
+   *
+   * A `new` candidate takes its `source` from this extraction's session, which
+   * only the caller knows: the model's decision carries no provenance field.
+   * @param decisions - the decisions the model reported.
+   * @param relevant - the indexed artifacts this call was shown.
+   * @param source - session id stamped on every new candidate.
+   * @returns the resolvable decisions, in reported order.
+   */
+  private resolveDecisions(
+    decisions: readonly ExtractionDecision[],
+    relevant: readonly IndexedArtifact[],
+    source: string,
+  ): LessonDecision[] {
+    const resolved: LessonDecision[] = []
+    for (const decision of decisions) {
+      if (decision.action === 'new') {
+        resolved.push({
+          kind: 'new',
+          candidate: {
+            statement: decision.statement,
+            source,
+            conditions: decision.conditions,
+            evidence: decision.evidence,
+            confidence: decision.confidence,
+            scope: decision.scope,
+            ...decision.ttlDays === undefined ? {} : { ttlDays: decision.ttlDays },
+          },
+        })
+        continue
+      }
+      const artifactId = relevant[decision.index - 1]?.artifact.id
+      if (artifactId === undefined) {
+        this.ctx.logger.warn(
+          `evolution review dropped a ${decision.action} decision naming index ${decision.index},`
+          + ` outside the ${relevant.length} artifacts this call was shown`,
+        )
+        continue
+      }
+      resolved.push(decision.action === 'confirms'
+        ? { kind: 'confirms', artifactId }
+        : {
+          kind: 'contradicts',
+          artifactId,
+          ...decision.statement === undefined ? {} : { statement: decision.statement },
+          ...decision.confidence === undefined ? {} : { confidence: decision.confidence },
+        })
+    }
+    return resolved
+  }
+
+  /**
+   * Write one resolved decision batch: staged as a single `applyDecisions`
+   * entry when background approval is configured, applied directly otherwise.
+   * A rebuild always writes directly — the caller explicitly asked for it — and
+   * an empty batch carries nothing to approve, so it applies as the provenance
+   * stamp it is.
+   * @param scope - scope identity.
+   * @param decisions - the resolved batch.
+   * @param extraction - provenance of the call that produced the batch.
+   * @param turn - the turn the batch was extracted from, named in the staged gist.
+   */
+  private async applyExtraction(
+    scope: EvolutionScopeId,
+    decisions: readonly LessonDecision[],
+    extraction: EvolutionExtraction,
+    turn: number,
+  ): Promise<void> {
+    if (this.resolved.writeApproval && extraction.origin === 'background_review' && decisions.length > 0) {
+      await this.ctx.evolutionMemory.stageWrite({
+        scopeId: scope,
+        kind: 'memory',
+        op: 'applyDecisions',
+        // The payload is a JSON record field; the store validates it at its
+        // own write boundary.
+        payload: { decisions, extraction } as unknown as JsonValue,
+        originSessionId: extraction.sessionId,
+        gist: `${gistOf(decisions)} from turn ${turn} of session '${extraction.sessionId}'`,
+      })
+      return
+    }
+    await this.writeDecisions(scope, decisions, extraction)
+  }
+
+  /**
+   * Apply one decision batch, shedding what makes it too large for the store's
+   * lessons cap instead of failing the turn.
+   *
+   * The cap can be exceeded by any combination of the batch's statements, so a
+   * rejected batch drops the longest `new` statement and retries; once no `new`
+   * decision is left, the contradictions' replacement statements go next. The
+   * retry count is bounded by the batch's own `new` count plus one, after which
+   * there is nothing left to drop and the failure propagates.
+   * @param scope - scope identity.
+   * @param decisions - the resolved batch.
+   * @param extraction - provenance of the call that produced the batch.
+   */
+  private async writeDecisions(
+    scope: EvolutionScopeId,
+    decisions: readonly LessonDecision[],
+    extraction: EvolutionExtraction,
+  ): Promise<void> {
+    let pending = decisions
+    let provenance = extraction
+    let retries = decisions.filter(decision => decision.kind === 'new').length + 1
+    for (;;) {
+      try {
+        await this.ctx.evolutionMemory.applyExtractionDecisions(scope, pending, provenance)
+        return
+      } catch (error) {
+        const failure = remoteErrorOf(error)
+        if (failure?.code !== 'evolution/too-large' || retries === 0) throw error
+        const reduced = reduceOverCapBatch(pending)
+        if (reduced === undefined) throw error
+        retries -= 1
+        this.ctx.logger.warn(
+          `evolution review extraction for '${String(scope)}' exceeds the store's lessons cap;`
+          + ` dropping ${reduced.note} and retrying`,
+        )
+        pending = reduced.decisions
+        provenance = { ...provenance, truncated: true }
+      }
+    }
+  }
+
+  /**
+   * Call the model once with the indexed artifact list and this call's
+   * transcript, and settle its answer.
+   * @param route - resolved model route.
+   * @param rows - transcript rows, already byte-capped.
+   * @param relevant - the numbered artifacts the prompt lists.
+   * @param signal - caller cancellation.
+   * @param sessionId - the extracting session.
+   * @returns the settled answer text and whether the model stopped on its cap.
+   */
   private async callModel(
     route: { provider: string; model: string },
     rows: readonly TranscriptRow[],
-    currentLessons: string,
+    relevant: readonly IndexedArtifact[],
     signal: AbortSignal,
     sessionId: SessionId,
   ): Promise<{ text: string; truncated: boolean }> {
     using callDeadline = deadline(signal, this.resolved.timeoutMs, EVOLUTION_REVIEW_TIMEOUT)
-    const framed = frameExtractionInput(rows, currentLessons)
+    const framed = frameExtractionRequest(rows, relevant)
     const messages = [createUserMessage({
       content: [{ type: 'text', text: framed }],
       source: { kind: 'plugin', plugin: 'dsh-evolution-reviewer' },
@@ -975,106 +1189,16 @@ export class EvolutionReviewer extends Service {
     callDeadline.signal.throwIfAborted()
     return finishText(assembler)
   }
-
-  private async storeDocument(
-    scope: EvolutionScopeId,
-    text: string,
-    meta: {
-      at: string
-      sessionId: string
-      turn: number
-      provider: string
-      model: string
-      origin: 'background_review' | 'rebuild'
-      inputBytes: number
-      truncated: boolean
-    },
-  ): Promise<void> {
-    // The squeeze reduces extractor output to the memory headings and sheds
-    // bodies under pressure before the store sees it; lost material is
-    // reported through the stored provenance.
-    const squeezed = squeezeLessons(text, this.resolved.squeezeBytes, this.resolved.squeezeOrder)
-    const extraction: EvolutionExtraction = {
-      at: meta.at,
-      sessionId: meta.sessionId,
-      provider: meta.provider,
-      model: meta.model,
-      origin: meta.origin,
-      inputBytes: meta.inputBytes,
-      truncated: meta.truncated || squeezed.truncated,
-    }
-    // The markdown extraction still rewrites the whole lessons document as one
-    // squeezed blob, so it stores as one coarse artifact under a stable
-    // identity: a re-run replaces that artifact instead of accumulating a
-    // second one, which is the document-level semantics this pipeline has.
-    // Structured per-fact artifacts are a later plan.
-    const candidate = {
-      statement: squeezed.text,
-      source: meta.sessionId,
-      conditions: '',
-      evidence: 'inference',
-      confidence: 0.5,
-      scope: 'project',
-    } as const
-    if (this.resolved.writeApproval && meta.origin === 'background_review') {
-      await this.ctx.evolutionMemory.stageWrite({
-        scopeId: scope,
-        kind: 'memory',
-        op: 'replaceArtifacts',
-        // The payload is a JSON record field; the store validates it at its
-        // own write boundary.
-        payload: { candidates: [candidate], extraction } as unknown as JsonValue,
-        originSessionId: meta.sessionId,
-        gist: `lessons from turn ${meta.turn} of session '${meta.sessionId}'`,
-      })
-      return
-    }
-    try {
-      await this.ctx.evolutionMemory.replaceArtifacts(scope, [candidate], extraction)
-    } catch (error) {
-      const failure = remoteErrorOf(error)
-      if (failure?.code !== 'evolution/too-large') throw error
-      // The cap that rejects is the serialized artifact array, not the
-      // document text the squeeze budget measures, so the text is clipped to
-      // what the store's own measurement admits.
-      const clipped = fitArtifactCap(squeezed.text, failure.details.bytes, failure.details.maxBytes)
-      await this.ctx.evolutionMemory.replaceArtifacts(
-        scope,
-        [{ ...candidate, statement: clipped }],
-        { ...extraction, truncated: true },
-      )
-    }
-  }
 }
 
 /**
- * Longest prefix of a lessons document whose stored artifact fits the
- * store's serialized lessons cap.
- *
- * The cap counts the serialized artifact array, and an artifact carries its
- * statement twice: once as `statement` and once as the normalized identity
- * that keys it, inside a fixed envelope. The text budget is therefore not the
- * cap. `measuredBytes` is what the store measured for the whole document, so
- * subtracting this text's serialized contribution leaves exactly that
- * envelope, and searching the prefix length against the same measurement the
- * store applies stays exact for any JSON escaping or collapsed whitespace.
- * @param text - the document text the store rejected.
- * @param measuredBytes - serialized bytes the store reported for it.
- * @param maxBytes - the cap it reported.
- * @returns the longest fitting prefix, empty when not even one byte fits.
+ * One-line summary of a decision batch, the gist a staged entry carries.
+ * @param decisions - the resolved batch.
+ * @returns the confirms/contradicts/new counts.
  */
-function fitArtifactCap(text: string, measuredBytes: number, maxBytes: number): string {
-  const serialized = (candidate: string): number =>
-    utf8Bytes(JSON.stringify(candidate)) + utf8Bytes(JSON.stringify(normalizeStatement(candidate)))
-  const envelope = measuredBytes - serialized(text)
-  let low = 0
-  let high = utf8Bytes(text)
-  while (low < high) {
-    const mid = Math.ceil((low + high) / 2)
-    if (envelope + serialized(truncateUtf8(text, mid)) <= maxBytes) low = mid
-    else high = mid - 1
-  }
-  return truncateUtf8(text, low)
+function gistOf(decisions: readonly LessonDecision[]): string {
+  const count = (kind: LessonDecision['kind']): number => decisions.filter(decision => decision.kind === kind).length
+  return `${count('confirms')} confirms, ${count('contradicts')} contradicts, ${count('new')} new`
 }
 
 export default EvolutionReviewer

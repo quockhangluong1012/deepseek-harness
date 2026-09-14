@@ -23,11 +23,12 @@ import type {
 } from '@deepseek-ai/dsh-session-query'
 import Storage from '@deepseek-ai/dsh-storage'
 import { DomainFacility } from '@deepseek-ai/dsh-storage-domain'
-import { EvolutionScopeId, artifactBytesOf, artifactKey } from '@deepseek-ai/dsh-evolution-memory'
+import { RemoteError } from '@deepseek-ai/dsh-typert-protocol'
+import { EvolutionScopeId, artifactKey } from '@deepseek-ai/dsh-evolution-memory'
 import type { EvolutionMemoryRecord } from '@deepseek-ai/dsh-evolution-memory'
 import { WorkspaceId } from '@deepseek-ai/dsh-workspace'
 import { MemoryMediaPool, MemoryStorageBackend } from '../../../storage/storage-domain/tests/helpers/memory-backend.ts'
-import EvolutionReviewer, { DEFAULT_SQUEEZE_ORDER, squeezeLessons } from '../src/index.ts'
+import EvolutionReviewer from '../src/index.ts'
 import type { Config as ReviewerConfig } from '../src/index.ts'
 
 interface FakeWorkspace {
@@ -146,11 +147,49 @@ function immediate(text: string, finish: FinishReason = { kind: 'stop' }) {
 }
 
 /**
- * The stored lessons document, as the extraction pipeline wrote it: the
- * artifacts' statements joined in stored order. These specs assert on the
- * document's content, not on the artifact shell that carries it.
+ * One `new` decision in the shape the extraction protocol asks the model for.
+ * @param statement - the fact to store.
+ * @param extra - decision fields to override or add.
+ * @returns the decision object.
+ */
+function newDecision(statement: string, extra: Record<string, unknown> = {}): Record<string, unknown> {
+  return { action: 'new', statement, conditions: '', evidence: 'fact', confidence: 0.9, scope: 'project', ...extra }
+}
+
+/**
+ * One decision referencing a listed artifact by its 1-based index.
+ * @param action - the decision kind.
+ * @param index - the ordinal the prompt showed the artifact under.
+ * @param extra - decision fields to override or add.
+ * @returns the decision object.
+ */
+function artifactDecision(action: 'confirms' | 'contradicts', index: number, extra: Record<string, unknown> = {}) {
+  return { action, index, ...extra }
+}
+
+/**
+ * A model answer carrying exactly these decisions.
+ * @param decisions - the decisions the model reports.
+ * @returns the answer text.
+ */
+function answer(...decisions: unknown[]): string {
+  return JSON.stringify(decisions)
+}
+
+/** A store rejection indistinguishable from the one the lessons cap raises. */
+function tooLarge(): RemoteError<'evolution/too-large'> {
+  return new RemoteError('evolution/too-large', 'lessons over cap', {
+    field: 'agentLessons',
+    bytes: 70000,
+    maxBytes: 65536,
+  })
+}
+
+/**
+ * The stored artifacts' statements joined in stored order, for the assertions
+ * that only care which facts a scope holds, not about their shells.
  * @param scope - the projected scope record.
- * @returns the document text the assertions compare against.
+ * @returns the joined statements, or the empty string for an absent record.
  */
 function lessonsOf(scope: EvolutionMemoryRecord | undefined): string {
   return (scope?.agentLessons ?? []).map(artifact => artifact.statement).join('\n')
@@ -405,7 +444,7 @@ describe('evolution reviewer', () => {
     const h = await harness({ provider: 'deepseek', model: 'chat' })
     dirs.push(h.dir)
     try {
-      h.streamImpl = immediate('## Purpose\nWork\n## Preferences\nNone\n## Decisions\nNone\n## References\nNone')
+      h.streamImpl = immediate(answer(newDecision('Work')))
       const session = sessionIn(h.ctx, h.dir, 's1')
       const id = h.scope('ws-1')
       h.workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: h.dir, sessionIds: [session.id] })
@@ -423,10 +462,13 @@ describe('evolution reviewer', () => {
         model: 'chat',
         temperature: 0,
         purpose: 'evolution-review',
+        maxTokens: 2048,
       })
-      const framed = (h.calls[0]?.messages[0]?.content[0] as { text: string }).text
+      const framed = framedText(h.calls[0])
       expect(framed).toContain('the sky is blue')
       expect(framed).not.toContain('injected context')
+      // Nothing is stored yet, so the prompt lists no artifact to reference.
+      expect(framed).toContain('<relevant-artifacts>\n</relevant-artifacts>')
       expect(h.ctx.evolutionMemory.read(id)?.lastExtraction).toMatchObject({
         provider: 'deepseek',
         model: 'chat',
@@ -442,7 +484,7 @@ describe('evolution reviewer', () => {
     const h = await harness({ provider: 'p', model: 'm' })
     dirs.push(h.dir)
     try {
-      h.streamImpl = immediate('## Purpose\nSeen\n## Preferences\nB\n## Decisions\nC\n## References\nD')
+      h.streamImpl = immediate(answer(newDecision('Seen')))
       const session = sessionIn(h.ctx, h.dir, 's1')
       const id = h.scope('ws-1')
       h.workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: h.dir, sessionIds: [session.id] })
@@ -459,50 +501,213 @@ describe('evolution reviewer', () => {
       await vi.waitFor(() => {
         expect(lessonsOf(h.ctx.evolutionMemory.read(id))).toContain('Seen')
       })
-      const framed = (h.calls[0]?.messages[0]?.content[0] as { text: string }).text
+      const framed = framedText(h.calls[0])
       expect(framed).toContain('[]')
     } finally {
       await h.fiber.dispose()
     }
   })
 
-  it('replaces the lessons document with one artifact holding the squeezed extraction', async () => {
+  it('stores a new decision as a fresh artifact beside the artifacts already held', async () => {
     const h = await harness({ provider: 'p', model: 'm' })
     dirs.push(h.dir)
     try {
-      const extracted = '## Purpose\nWork\n## Preferences\nB\n## Decisions\nC\n## References\nD'
-      h.streamImpl = immediate(extracted)
+      h.streamImpl = immediate(answer(newDecision('Work', { conditions: 'when building', confidence: 0.7, ttlDays: 5 })))
       const session = sessionIn(h.ctx, h.dir, 's1')
       const id = h.scope('ws-1')
       h.workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: h.dir, sessionIds: [session.id] })
-      // A document the extraction must replace outright: `replaceArtifacts`
-      // semantics, not an add beside what is already stored.
+      // A `new` decision adds beside what is already stored: the scope keeps
+      // the facts it holds and gains one.
       await h.ctx.evolutionMemory.replaceArtifacts(id, [{
         statement: 'a stale lesson', source: 's0', conditions: '', evidence: 'fact', confidence: 0.9, scope: 'user',
       }])
 
       appendTurn(session, 1, { user: `remember ${'a'.repeat(300)}`, assistant: 'ok' })
       await vi.waitFor(() => {
-        expect(h.ctx.evolutionMemory.read(id)?.lastExtraction).not.toBeNull()
+        expect(h.ctx.evolutionMemory.read(id)?.agentLessons).toHaveLength(2)
       })
       const record = h.ctx.evolutionMemory.read(id)
-      // The squeezed text, computed the way the reviewer computes it, is the
-      // whole stored document.
-      const squeezed = squeezeLessons(extracted, 65536, [...DEFAULT_SQUEEZE_ORDER]).text
-      expect(record?.agentLessons).toHaveLength(1)
-      expect(record?.agentLessons[0]).toMatchObject({
-        id: artifactKey(squeezed),
-        statement: squeezed,
+      // Every candidate field comes from the decision, `source` from the
+      // extracting session: the model's decision carries no provenance.
+      expect(record?.agentLessons).toHaveLength(2)
+      expect(record?.agentLessons.find(artifact => artifact.id === artifactKey('Work'))).toMatchObject({
+        statement: 'Work',
         source: String(session.id),
-        conditions: '',
-        evidence: 'inference',
-        confidence: 0.5,
+        conditions: 'when building',
+        evidence: 'fact',
+        confidence: 0.7,
         scope: 'project',
+        ttlDays: 5,
         validationCount: 0,
         refutationCount: 0,
       })
-      expect(record?.agentLessons.some(artifact => artifact.statement === 'a stale lesson')).toBe(false)
+      expect(record?.agentLessons.some(artifact => artifact.statement === 'a stale lesson')).toBe(true)
       expect(record?.lastExtraction).toMatchObject({ origin: 'background_review', provider: 'p', model: 'm' })
+    } finally {
+      await h.fiber.dispose()
+    }
+  })
+
+  it('bumps validationCount on a confirmed artifact and refutationCount on a contradicted one', async () => {
+    const h = await harness({ provider: 'p', model: 'm' })
+    dirs.push(h.dir)
+    try {
+      const session = sessionIn(h.ctx, h.dir, 's1')
+      const id = h.scope('ws-1')
+      h.workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: h.dir, sessionIds: [session.id] })
+      await h.ctx.evolutionMemory.replaceArtifacts(id, [
+        { statement: 'first fact', source: 's0', conditions: '', evidence: 'fact', confidence: 0.9, scope: 'project' },
+        { statement: 'second fact', source: 's0', conditions: '', evidence: 'fact', confidence: 0.9, scope: 'project' },
+      ])
+      h.streamImpl = immediate(answer(
+        artifactDecision('confirms', 1),
+        // A contradiction with no replacement text only bumps the counter.
+        artifactDecision('contradicts', 2, { confidence: 0.2 }),
+      ))
+      appendTurn(session, 1, { user: 'both facts came up again', assistant: 'noted' })
+      await vi.waitFor(() => {
+        expect(h.ctx.evolutionMemory.read(id)?.agentLessons[0]?.validationCount).toBe(1)
+      })
+      const record = h.ctx.evolutionMemory.read(id)
+      expect(record?.agentLessons).toHaveLength(2)
+      expect(record?.agentLessons[0]).toMatchObject({
+        statement: 'first fact',
+        validationCount: 1,
+        refutationCount: 0,
+      })
+      expect(record?.agentLessons[1]).toMatchObject({
+        statement: 'second fact',
+        validationCount: 0,
+        refutationCount: 1,
+        confidence: 0.2,
+      })
+      // The prompt showed both artifacts under their ordinals, so both
+      // decisions resolved to the artifacts they named.
+      const framed = framedText(h.calls[0])
+      expect(framed).toContain('1. first fact')
+      expect(framed).toContain('2. second fact')
+    } finally {
+      await h.fiber.dispose()
+    }
+  })
+
+  it('drops a decision naming an index outside the relevance window', async () => {
+    const h = await harness({ provider: 'p', model: 'm', relevantArtifactLimit: 2 })
+    dirs.push(h.dir)
+    const warn = vi.spyOn(h.ctx.logger, 'warn').mockImplementation(() => {})
+    try {
+      const session = sessionIn(h.ctx, h.dir, 's1')
+      const id = h.scope('ws-1')
+      h.workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: h.dir, sessionIds: [session.id] })
+      await h.ctx.evolutionMemory.replaceArtifacts(id, [
+        { statement: 'first fact', source: 's0', conditions: '', evidence: 'fact', confidence: 0.9, scope: 'project' },
+        { statement: 'second fact', source: 's0', conditions: '', evidence: 'fact', confidence: 0.9, scope: 'project' },
+        { statement: 'third fact', source: 's0', conditions: '', evidence: 'fact', confidence: 0.9, scope: 'project' },
+      ])
+      h.streamImpl = immediate(answer(artifactDecision('confirms', 3)))
+      appendTurn(session, 1, { user: 'the third fact holds', assistant: 'noted' })
+      await vi.waitFor(() => {
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining('dropped a confirms decision naming index 3'))
+      })
+      // The window is a hard bound: the third artifact was never listed, so no
+      // decision can reach it, and the whole batch is not lost over one
+      // unaddressable entry.
+      expect(framedText(h.calls[0])).toContain('<relevant-artifacts>\n1. first fact\n2. second fact\n</relevant-artifacts>')
+      expect(h.ctx.evolutionMemory.read(id)?.agentLessons.map(artifact => artifact.validationCount)).toEqual([0, 0, 0])
+    } finally {
+      warn.mockRestore()
+      await h.fiber.dispose()
+    }
+  })
+
+  it('stores nothing and keeps the stored artifacts when an answer is not a batch', async () => {
+    const h = await harness({ provider: 'p', model: 'm' })
+    dirs.push(h.dir)
+    const warn = vi.spyOn(h.ctx.logger, 'warn').mockImplementation(() => {})
+    try {
+      const session = sessionIn(h.ctx, h.dir, 's1')
+      const id = h.scope('ws-1')
+      h.workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: h.dir, sessionIds: [session.id] })
+      await h.ctx.evolutionMemory.replaceArtifacts(id, [{
+        statement: 'stable doc', source: 's1', conditions: '', evidence: 'inference', confidence: 0.5, scope: 'project',
+      }])
+      h.streamImpl = immediate('I could not find anything worth keeping.')
+      appendTurn(session, 1, { user: 'nothing durable here', assistant: 'agreed' })
+      await vi.waitFor(() => {
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining('did not return JSON'))
+      })
+      expect(lessonsOf(h.ctx.evolutionMemory.read(id))).toBe('stable doc')
+    } finally {
+      warn.mockRestore()
+      await h.fiber.dispose()
+    }
+  })
+
+  it('records provenance without staging when the model reports nothing', async () => {
+    const h = await harness({ provider: 'p', model: 'm', writeApproval: true })
+    dirs.push(h.dir)
+    try {
+      h.streamImpl = immediate(answer())
+      const session = sessionIn(h.ctx, h.dir, 's1')
+      const id = h.scope('ws-1')
+      h.workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: h.dir, sessionIds: [session.id] })
+      appendTurn(session, 1, { user: 'nothing durable here', assistant: 'agreed' })
+      await vi.waitFor(() => {
+        expect(h.ctx.evolutionMemory.read(id)?.lastExtraction).toMatchObject({ origin: 'background_review' })
+      })
+      // An empty batch carries nothing to approve: the call's provenance is
+      // recorded and nothing is left waiting on a human.
+      expect(h.ctx.evolutionMemory.read(id)?.staged).toEqual([])
+      expect(h.ctx.evolutionMemory.read(id)?.agentLessons).toEqual([])
+    } finally {
+      await h.fiber.dispose()
+    }
+  })
+
+  it('rebuild folds its findings into the stored artifacts instead of replacing them', async () => {
+    const h = await harness(
+      { provider: 'p', model: 'm', enabled: false },
+      async () => ({ events: [userEvent('the parser answer holds')] }),
+    )
+    dirs.push(h.dir)
+    try {
+      h.streamImpl = immediate(answer(artifactDecision('confirms', 1)))
+      const session = sessionIn(h.ctx, h.dir, 's1')
+      const id = h.scope('ws-1')
+      h.workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: h.dir, sessionIds: [session.id] })
+      await h.ctx.evolutionMemory.replaceArtifacts(id, [{
+        statement: 'existing fact', source: 's0', conditions: '', evidence: 'fact', confidence: 0.9, scope: 'project',
+      }])
+      await h.ctx.evolutionReviewer.rebuild(id, new AbortController().signal)
+      const record = h.ctx.evolutionMemory.read(id)
+      // The rebuilt history also supports the stored fact, so it is confirmed
+      // rather than duplicated, and the history is shown beside it.
+      expect(record?.agentLessons).toHaveLength(1)
+      expect(record?.agentLessons[0]).toMatchObject({ statement: 'existing fact', validationCount: 1 })
+      expect(record?.lastExtraction).toMatchObject({ origin: 'rebuild', provider: 'p', model: 'm' })
+      const framed = framedText(h.calls[0])
+      expect(framed).toContain('1. existing fact')
+      expect(framed).toContain('the parser answer holds')
+    } finally {
+      await h.fiber.dispose()
+    }
+  })
+
+  it('rebuild writes directly while background approval is configured', async () => {
+    const h = await harness(
+      { provider: 'p', model: 'm', enabled: false, writeApproval: true },
+      async () => ({ events: [userEvent('history worth keeping')] }),
+    )
+    dirs.push(h.dir)
+    try {
+      h.streamImpl = immediate(answer(newDecision('rebuilt fact')))
+      const session = sessionIn(h.ctx, h.dir, 's1')
+      const id = h.scope('ws-1')
+      h.workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: h.dir, sessionIds: [session.id] })
+      await h.ctx.evolutionReviewer.rebuild(id, new AbortController().signal)
+      const record = h.ctx.evolutionMemory.read(id)
+      expect(record?.staged).toEqual([])
+      expect(record?.agentLessons.map(artifact => artifact.statement)).toEqual(['rebuilt fact'])
     } finally {
       await h.fiber.dispose()
     }
@@ -512,7 +717,7 @@ describe('evolution reviewer', () => {
     const h = await harness()
     dirs.push(h.dir)
     try {
-      h.streamImpl = immediate('## Purpose\nA\n## Preferences\nB\n## Decisions\nC\n## References\nD')
+      h.streamImpl = immediate(answer(newDecision('A')))
       const session = sessionIn(h.ctx, h.dir, 's1')
       const id = h.scope('ws-1')
       h.workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: h.dir, sessionIds: [session.id] })
@@ -522,7 +727,7 @@ describe('evolution reviewer', () => {
       })
       appendTurn(session, 1, { user: 'remember alpha', assistant: 'ok' })
       await vi.waitFor(() => {
-        expect(lessonsOf(h.ctx.evolutionMemory.read(id))).toContain('## Purpose')
+        expect(lessonsOf(h.ctx.evolutionMemory.read(id))).toContain('A')
       })
       expect(h.calls[0]).toMatchObject({ provider: 'deepseek', model: 'reasoner' })
 
@@ -542,7 +747,7 @@ describe('evolution reviewer', () => {
     const h = await harness({ provider: 'p', model: 'm', minTurnTextBytes: 200, cooldownMs: 60000 })
     dirs.push(h.dir)
     try {
-      h.streamImpl = immediate('## Purpose\nA\n## Preferences\nB\n## Decisions\nC\n## References\nD')
+      h.streamImpl = immediate(answer(newDecision('A')))
       const session = sessionIn(h.ctx, h.dir, 's1')
       const id = h.scope('ws-1')
       h.workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: h.dir, sessionIds: [session.id] })
@@ -552,7 +757,7 @@ describe('evolution reviewer', () => {
 
       appendTurn(session, 2, { user: `remember ${'x'.repeat(300)}`, assistant: 'ok' })
       await vi.waitFor(() => {
-        expect(lessonsOf(h.ctx.evolutionMemory.read(id))).toContain('## Purpose')
+        expect(lessonsOf(h.ctx.evolutionMemory.read(id))).toContain('A')
       })
       appendTurn(session, 3, { user: `remember ${'y'.repeat(300)}`, assistant: 'ok' })
       await new Promise(resolve => setTimeout(resolve, 50))
@@ -571,7 +776,7 @@ describe('evolution reviewer', () => {
     const h = await harness({ provider: 'p', model: 'm', defer: 'never' })
     dirs.push(h.dir)
     try {
-      h.streamImpl = immediate('## Purpose\nImmediate\n## Preferences\nB\n## Decisions\nC\n## References\nD')
+      h.streamImpl = immediate(answer(newDecision('Immediate')))
       const session = sessionIn(h.ctx, h.dir, 's1')
       const id = h.scope('ws-1')
       h.workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: h.dir, sessionIds: [session.id] })
@@ -590,7 +795,7 @@ describe('evolution reviewer', () => {
     const h = await harness({ provider: 'p', model: 'm', defer: 'auto', deferMaxAgeMs: 0 })
     dirs.push(h.dir)
     try {
-      h.streamImpl = immediate('## Purpose\nDeferred\n## Preferences\nB\n## Decisions\nC\n## References\nD')
+      h.streamImpl = immediate(answer(newDecision('Deferred')))
       const session = sessionIn(h.ctx, h.dir, 's1')
       const id = h.scope('ws-1')
       h.workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: h.dir, sessionIds: [session.id] })
@@ -610,7 +815,7 @@ describe('evolution reviewer', () => {
     const h = await harness({ provider: 'p', model: 'm' }, undefined, { cooldownMs: 0, minTurnTextBytes: 0, profile: 'test' })
     dirs.push(h.dir)
     try {
-      h.streamImpl = immediate('## Purpose\nDefault\n## Preferences\nB\n## Decisions\nC\n## References\nD')
+      h.streamImpl = immediate(answer(newDecision('Default')))
       const session = sessionIn(h.ctx, h.dir, 's1')
       const id = h.scope('ws-1')
       h.workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: h.dir, sessionIds: [session.id] })
@@ -630,7 +835,7 @@ describe('evolution reviewer', () => {
     const h = await harness({ provider: 'p', model: 'm', defer: 'auto', deferMaxAgeMs: 0 })
     dirs.push(h.dir)
     try {
-      h.streamImpl = immediate('## Purpose\nCoalesced\n## Preferences\nB\n## Decisions\nC\n## References\nD')
+      h.streamImpl = immediate(answer(newDecision('Coalesced')))
       const session = sessionIn(h.ctx, h.dir, 's1')
       const id = h.scope('ws-1')
       h.workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: h.dir, sessionIds: [session.id] })
@@ -640,7 +845,7 @@ describe('evolution reviewer', () => {
         expect(lessonsOf(h.ctx.evolutionMemory.read(id))).toContain('Coalesced')
       })
       expect(h.calls).toHaveLength(1)
-      const framed = (h.calls[0]?.messages[0]?.content[0] as { text: string }).text
+      const framed = framedText(h.calls[0])
       expect(framed).toContain('beta acknowledged')
       expect(framed).not.toContain('alpha acknowledged')
       expect(framed).not.toContain('alpha detail')
@@ -654,7 +859,7 @@ describe('evolution reviewer', () => {
   it('drops a queued turn on teardown', async () => {
     const h = await harness({ provider: 'p', model: 'm', defer: 'auto', deferMaxAgeMs: 60000 })
     dirs.push(h.dir)
-    h.streamImpl = immediate('## Purpose\nTorn\n## Preferences\nB\n## Decisions\nC\n## References\nD')
+    h.streamImpl = immediate(answer(newDecision('Torn')))
     const session = sessionIn(h.ctx, h.dir, 's1')
     const id = h.scope('ws-1')
     h.workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: h.dir, sessionIds: [session.id] })
@@ -675,7 +880,7 @@ describe('evolution reviewer', () => {
     // can keep the aborted turn from extracting.
     const cleared = vi.spyOn(globalThis, 'clearTimeout').mockImplementation(() => {})
     try {
-      h.streamImpl = immediate('## Purpose\nDropped\n## Preferences\nB\n## Decisions\nC\n## References\nD')
+      h.streamImpl = immediate(answer(newDecision('Dropped')))
       const session = sessionIn(h.ctx, h.dir, 's1')
       const id = h.scope('ws-1')
       h.workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: h.dir, sessionIds: [session.id] })
@@ -696,9 +901,10 @@ describe('evolution reviewer', () => {
     }
   })
 
-  it('tolerates max-tokens and keeps the previous document on failures', async () => {
+  it('tolerates max-tokens and keeps the stored artifacts on failures', async () => {
     const h = await harness({ provider: 'p', model: 'm' })
     dirs.push(h.dir)
+    const warn = vi.spyOn(h.ctx.logger, 'warn').mockImplementation(() => {})
     try {
       const session = sessionIn(h.ctx, h.dir, 's1')
       const id = h.scope('ws-1')
@@ -707,22 +913,33 @@ describe('evolution reviewer', () => {
         statement: 'stable doc', source: 's1', conditions: '', evidence: 'inference', confidence: 0.5, scope: 'project',
       }])
 
-      h.streamImpl = immediate('partial doc', { kind: 'max-tokens' })
+      // A truncated answer that is still a readable batch applies, and says
+      // so through the stored provenance.
+      h.streamImpl = immediate(answer(newDecision('partial doc')), { kind: 'max-tokens' })
       appendTurn(session, 1, { user: `remember ${'a'.repeat(300)}`, assistant: 'ok' })
       await vi.waitFor(() => {
         expect(h.ctx.evolutionMemory.read(id)?.lastExtraction).toMatchObject({ truncated: true })
       })
-      expect(lessonsOf(h.ctx.evolutionMemory.read(id))).toBe('partial doc')
+      expect(lessonsOf(h.ctx.evolutionMemory.read(id))).toBe('stable doc\npartial doc')
+
+      // An answer cut mid-batch is not a batch at all: the turn fails soft and
+      // the stored artifacts stand.
+      h.streamImpl = immediate('[{"action":"new","statement":"cut off', { kind: 'max-tokens' })
+      appendTurn(session, 2, { user: `remember ${'f'.repeat(300)}`, assistant: 'ok' })
+      await vi.waitFor(() => {
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining('extraction failed'))
+      })
+      expect(lessonsOf(h.ctx.evolutionMemory.read(id))).toBe('stable doc\npartial doc')
 
       h.streamImpl = immediate('', { kind: 'error', failure: { message: 'boom', code: 'E_UPSTREAM' } })
-      appendTurn(session, 2, { user: `remember ${'b'.repeat(300)}`, assistant: 'ok' })
+      appendTurn(session, 3, { user: `remember ${'b'.repeat(300)}`, assistant: 'ok' })
       await new Promise(resolve => setTimeout(resolve, 50))
-      expect(lessonsOf(h.ctx.evolutionMemory.read(id))).toBe('partial doc')
+      expect(lessonsOf(h.ctx.evolutionMemory.read(id))).toBe('stable doc\npartial doc')
 
       h.streamImpl = immediate('', { kind: 'aborted', failure: { message: 'gone', code: 'ABORTED' } })
-      appendTurn(session, 3, { user: `remember ${'c'.repeat(300)}`, assistant: 'ok' })
+      appendTurn(session, 4, { user: `remember ${'c'.repeat(300)}`, assistant: 'ok' })
       await new Promise(resolve => setTimeout(resolve, 50))
-      expect(lessonsOf(h.ctx.evolutionMemory.read(id))).toBe('partial doc')
+      expect(lessonsOf(h.ctx.evolutionMemory.read(id))).toBe('stable doc\npartial doc')
 
       h.streamImpl = async function* (): AsyncIterable<StreamChunk> {
         yield { type: 'block-start', index: 0, blockType: 'text' }
@@ -733,62 +950,174 @@ describe('evolution reviewer', () => {
         }
         yield { type: 'finish', reason: { kind: 'stop' } }
       }
-      appendTurn(session, 4, { user: `remember ${'d'.repeat(300)}`, assistant: 'ok' })
+      appendTurn(session, 5, { user: `remember ${'d'.repeat(300)}`, assistant: 'ok' })
       await new Promise(resolve => setTimeout(resolve, 50))
-      expect(lessonsOf(h.ctx.evolutionMemory.read(id))).toBe('partial doc')
+      expect(lessonsOf(h.ctx.evolutionMemory.read(id))).toBe('stable doc\npartial doc')
 
       h.streamImpl = async function* (): AsyncIterable<StreamChunk> {
         yield { type: 'block-start', index: 0, blockType: 'text' }
         yield { type: 'block-end', index: 0, block: { type: 'text', text: 'x' } }
         yield { type: 'finish', reason: { kind: 'tool-calls' } }
       }
-      appendTurn(session, 5, { user: `remember ${'e'.repeat(300)}`, assistant: 'ok' })
+      appendTurn(session, 6, { user: `remember ${'e'.repeat(300)}`, assistant: 'ok' })
       await new Promise(resolve => setTimeout(resolve, 50))
-      expect(lessonsOf(h.ctx.evolutionMemory.read(id))).toBe('partial doc')
+      expect(lessonsOf(h.ctx.evolutionMemory.read(id))).toBe('stable doc\npartial doc')
     } finally {
+      warn.mockRestore()
       await h.fiber.dispose()
     }
   })
 
-  it('clips over-budget output to the store cap before retrying', async () => {
+  it('drops the longest new statement when the batch exceeds the lessons cap', async () => {
     const h = await harness({ provider: 'p', model: 'm' })
     dirs.push(h.dir)
+    const warn = vi.spyOn(h.ctx.logger, 'warn').mockImplementation(() => {})
     try {
-      h.streamImpl = immediate(`## Purpose\n${'z'.repeat(70000)}\n## Preferences\n-\n## Decisions\n-\n## References\n-`)
+      h.streamImpl = immediate(answer(newDecision('kept fact'), newDecision('z'.repeat(70000))))
       const session = sessionIn(h.ctx, h.dir, 's1')
       const id = h.scope('ws-1')
       h.workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: h.dir, sessionIds: [session.id] })
       appendTurn(session, 1, { user: `remember ${'q'.repeat(300)}`, assistant: 'ok' })
       await vi.waitFor(() => {
-        expect(lessonsOf(h.ctx.evolutionMemory.read(id)).length).toBeGreaterThan(0)
+        expect(lessonsOf(h.ctx.evolutionMemory.read(id))).toBe('kept fact')
       })
-      const record = h.ctx.evolutionMemory.read(id)
-      expect(artifactBytesOf(record?.agentLessons ?? [])).toBeLessThanOrEqual(65536)
-      expect(record?.lastExtraction).toMatchObject({ truncated: true })
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('dropping a new artifact statement of 70000 bytes'))
+      // The whole fact that fit is stored; the one that did not is deferred.
+      expect(h.ctx.evolutionMemory.read(id)?.lastExtraction).toMatchObject({ truncated: true })
+    } finally {
+      warn.mockRestore()
+      await h.fiber.dispose()
+    }
+  })
+
+  it('drops the longest new statement after a store rejection and applies the rest', async () => {
+    const h = await harness({ provider: 'p', model: 'm' })
+    dirs.push(h.dir)
+    try {
+      const session = sessionIn(h.ctx, h.dir, 's1')
+      const id = h.scope('ws-1')
+      h.workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: h.dir, sessionIds: [session.id] })
+      // A store that rejects the first batch whatever its size, so the retry
+      // itself is observable without building a 64 KiB scope.
+      const applied: string[][] = []
+      const real = h.ctx.evolutionMemory.applyExtractionDecisions.bind(h.ctx.evolutionMemory)
+      vi.spyOn(h.ctx.evolutionMemory, 'applyExtractionDecisions').mockImplementation(async (scope, decisions, extraction) => {
+        applied.push(decisions.map(decision => decision.kind === 'new' ? decision.candidate.statement : decision.kind))
+        if (applied.length === 1) throw tooLarge()
+        return await real(scope, decisions, extraction)
+      })
+      // The longer statement comes first, so the scan for the longest one
+      // compares and rejects a shorter candidate.
+      h.streamImpl = immediate(answer(newDecision('a longer fact'), newDecision('shorter fact')))
+      appendTurn(session, 1, { user: `remember ${'q'.repeat(300)}`, assistant: 'ok' })
+      await vi.waitFor(() => {
+        expect(lessonsOf(h.ctx.evolutionMemory.read(id))).toBe('shorter fact')
+      })
+      // The retry carried the batch minus its longest statement.
+      expect(applied).toEqual([['a longer fact', 'shorter fact'], ['shorter fact']])
+      expect(h.ctx.evolutionMemory.read(id)?.lastExtraction).toMatchObject({ truncated: true })
     } finally {
       await h.fiber.dispose()
     }
   })
 
-  it('stages background extractions for approval when configured', async () => {
-    const h = await harness({ provider: 'p', model: 'm', writeApproval: true })
+  it('gives up when the batch cannot shrink any further', async () => {
+    const h = await harness({ provider: 'p', model: 'm' })
     dirs.push(h.dir)
+    const warn = vi.spyOn(h.ctx.logger, 'warn').mockImplementation(() => {})
     try {
-      h.streamImpl = immediate('## Purpose\nStaged\n## Preferences\nB\n## Decisions\nC\n## References\nD')
       const session = sessionIn(h.ctx, h.dir, 's1')
       const id = h.scope('ws-1')
       h.workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: h.dir, sessionIds: [session.id] })
+      await h.ctx.evolutionMemory.replaceArtifacts(id, [{
+        statement: 'stable doc', source: 's1', conditions: '', evidence: 'inference', confidence: 0.5, scope: 'project',
+      }])
+      const attempts: string[] = []
+      vi.spyOn(h.ctx.evolutionMemory, 'applyExtractionDecisions').mockImplementation(async (_scope, decisions) => {
+        attempts.push(decisions.map(decision => decision.kind === 'new'
+          ? `new:${decision.candidate.statement}`
+          : decision.kind === 'contradicts' && decision.statement !== undefined ? 'contradicts+text' : decision.kind).join(','))
+        throw tooLarge()
+      })
+      h.streamImpl = immediate(answer(
+        artifactDecision('confirms', 1),
+        newDecision('fresh fact'),
+        artifactDecision('contradicts', 1, { statement: 'corrected text' }),
+      ))
+      appendTurn(session, 1, { user: `remember ${'q'.repeat(300)}`, assistant: 'ok' })
+      // One new decision and one contradiction to strip, beside a confirmation
+      // that is never dropped: the batch shrinks twice and the third rejection
+      // propagates, because a batch of counters alone is all that is left.
+      await vi.waitFor(() => {
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining('extraction failed'))
+      })
+      expect(attempts).toEqual([
+        'confirms,new:fresh fact,contradicts+text',
+        'confirms,contradicts+text',
+        'confirms,contradicts',
+      ])
+      expect(lessonsOf(h.ctx.evolutionMemory.read(id))).toBe('stable doc')
+
+      // A batch of counters alone has nothing left to drop, so its rejection
+      // propagates without a retry.
+      h.streamImpl = immediate(answer(artifactDecision('confirms', 1)))
+      appendTurn(session, 2, { user: 'the stable doc still holds', assistant: 'ok' })
+      await vi.waitFor(() => {
+        expect(attempts).toHaveLength(4)
+      })
+      expect(attempts[3]).toBe('confirms')
+      expect(lessonsOf(h.ctx.evolutionMemory.read(id))).toBe('stable doc')
+    } finally {
+      warn.mockRestore()
+      await h.fiber.dispose()
+    }
+  })
+
+  it('stages one applyDecisions entry carrying the whole batch for approval', async () => {
+    const h = await harness({ provider: 'p', model: 'm', writeApproval: true })
+    dirs.push(h.dir)
+    try {
+      const session = sessionIn(h.ctx, h.dir, 's1')
+      const id = h.scope('ws-1')
+      h.workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: h.dir, sessionIds: [session.id] })
+      await h.ctx.evolutionMemory.replaceArtifacts(id, [
+        { statement: 'first fact', source: 's0', conditions: '', evidence: 'fact', confidence: 0.9, scope: 'project' },
+        { statement: 'second fact', source: 's0', conditions: '', evidence: 'fact', confidence: 0.9, scope: 'project' },
+      ])
+      h.streamImpl = immediate(answer(
+        artifactDecision('confirms', 1),
+        artifactDecision('contradicts', 2, { statement: 'corrected second fact' }),
+        newDecision('Staged'),
+      ))
       appendTurn(session, 1, { user: `remember ${'s'.repeat(300)}`, assistant: 'ok' })
       await vi.waitFor(() => {
         expect(h.ctx.evolutionMemory.read(id)?.staged).toHaveLength(1)
       })
       const record = h.ctx.evolutionMemory.read(id)
-      expect(record?.agentLessons).toEqual([])
-      expect(record?.staged[0]).toMatchObject({ kind: 'memory', op: 'replaceArtifacts', originSessionId: String(session.id) })
-      expect(record?.staged[0]?.gist).toContain('turn 1')
+      // Nothing lands until approval, and the one entry carries all three
+      // decisions: one staged item per call, not per decision.
+      expect(record?.agentLessons.map(artifact => artifact.statement)).toEqual(['first fact', 'second fact'])
+      expect(record?.staged[0]).toMatchObject({
+        kind: 'memory',
+        op: 'applyDecisions',
+        originSessionId: String(session.id),
+        gist: "1 confirms, 1 contradicts, 1 new from turn 1 of session 's1'",
+      })
+      expect(record?.staged[0]?.payload).toMatchObject({ decisions: [
+        { kind: 'confirms', artifactId: 'first fact' },
+        { kind: 'contradicts', artifactId: 'second fact', statement: 'corrected second fact' },
+        { kind: 'new', candidate: { statement: 'Staged', source: 's1' } },
+      ] })
+
       await h.ctx.evolutionMemory.approveStaged(record?.staged[0]?.id as string)
-      expect(lessonsOf(h.ctx.evolutionMemory.read(id))).toContain('Staged')
-      expect(h.ctx.evolutionMemory.read(id)?.staged).toHaveLength(0)
+      const applied = h.ctx.evolutionMemory.read(id)
+      expect(applied?.staged).toHaveLength(0)
+      expect(applied?.agentLessons.find(artifact => artifact.id === 'first fact')).toMatchObject({ validationCount: 1 })
+      expect(applied?.agentLessons.find(artifact => artifact.id === 'second fact')).toMatchObject({
+        refutationCount: 1,
+        statement: 'corrected second fact',
+      })
+      expect(applied?.agentLessons.some(artifact => artifact.statement === 'Staged')).toBe(true)
     } finally {
       await h.fiber.dispose()
     }
@@ -830,7 +1159,7 @@ describe('evolution reviewer', () => {
       })
       h.streamImpl = () => (async function* (): AsyncIterable<StreamChunk> {
         await gate
-        yield* textChunks('## Purpose\nA\n## Preferences\nB\n## Decisions\nC\n## References\nD')
+        yield* textChunks(answer(newDecision('A')))
       })()
       const session = sessionIn(h.ctx, h.dir, 's1')
       const id = h.scope('ws-1')
@@ -844,7 +1173,7 @@ describe('evolution reviewer', () => {
       expect(signal.aborted).toBe(true)
       release()
       await new Promise(resolve => setTimeout(resolve, 50))
-      expect(lessonsOf(h.ctx.evolutionMemory.read(id))).not.toContain('## Purpose')
+      expect(lessonsOf(h.ctx.evolutionMemory.read(id))).not.toContain('R')
     } finally {
       await h.fiber.dispose()
     }
@@ -858,7 +1187,7 @@ describe('evolution reviewer', () => {
     )
     dirs.push(h.dir)
     try {
-      h.streamImpl = immediate('## Purpose\nR\n## Preferences\nB\n## Decisions\nC\n## References\nD')
+      h.streamImpl = immediate(answer(newDecision('R')))
       const old = sessionIn(h.ctx, h.dir, 'old')
       appendTurn(old, 1, { user: 'old fact one', assistant: 'ok' })
       const current = sessionIn(h.ctx, h.dir, 'current')
@@ -877,12 +1206,12 @@ describe('evolution reviewer', () => {
       })
       h.archived.push(archived.id)
       await h.ctx.evolutionReviewer.rebuild(id, new AbortController().signal)
-      const framed = (h.calls[0]?.messages[0]?.content[0] as { text: string }).text
+      const framed = framedText(h.calls[0])
       expect(framed).toContain('new fact two')
       expect(framed).toContain('old fact one')
       expect(framed).not.toContain('archived fact three')
       expect(framed.indexOf('new fact two')).toBeLessThan(framed.indexOf('old fact one'))
-      expect(lessonsOf(h.ctx.evolutionMemory.read(id))).toContain('## Purpose')
+      expect(lessonsOf(h.ctx.evolutionMemory.read(id))).toContain('R')
       expect(h.ctx.evolutionMemory.read(id)?.lastExtraction).toMatchObject({
         provider: 'p',
         model: 'm',
@@ -901,7 +1230,7 @@ describe('evolution reviewer', () => {
     )
     dirs.push(h.dir)
     try {
-      h.streamImpl = immediate('## Purpose\nR\n## Preferences\nB\n## Decisions\nC\n## References\nD')
+      h.streamImpl = immediate(answer(newDecision('R')))
       const newest = sessionIn(h.ctx, h.dir, 'newest')
       const older = sessionIn(h.ctx, h.dir, 'older')
       surfaces.set(String(newest.id), [userEvent('newest fact')])
@@ -928,7 +1257,7 @@ describe('evolution reviewer', () => {
     }))
     dirs.push(h.dir)
     try {
-      h.streamImpl = immediate('## Purpose\nR\n## Preferences\nB\n## Decisions\nC\n## References\nD')
+      h.streamImpl = immediate(answer(newDecision('R')))
       const session = sessionIn(h.ctx, h.dir, 's1')
       const id = h.scope('ws-1')
       h.workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: h.dir, sessionIds: [session.id] })
@@ -954,7 +1283,7 @@ describe('evolution reviewer', () => {
     }))
     dirs.push(h.dir)
     try {
-      h.streamImpl = immediate('## Purpose\nR\n## Preferences\nB\n## Decisions\nC\n## References\nD')
+      h.streamImpl = immediate(answer(newDecision('R')))
       const session = sessionIn(h.ctx, h.dir, 's1')
       const id = h.scope('ws-1')
       h.workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: h.dir, sessionIds: [session.id] })
@@ -977,7 +1306,7 @@ describe('evolution reviewer', () => {
     }))
     dirs.push(h.dir)
     try {
-      h.streamImpl = immediate('## Purpose\nR\n## Preferences\nB\n## Decisions\nC\n## References\nD')
+      h.streamImpl = immediate(answer(newDecision('R')))
       const session = sessionIn(h.ctx, h.dir, 's1')
       session.append('request/header', {
         header: { config: { provider: 'qp', model: 'qm' } },
@@ -987,7 +1316,7 @@ describe('evolution reviewer', () => {
       h.workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: h.dir, sessionIds: [session.id] })
       await h.ctx.evolutionReviewer.rebuild(id, new AbortController().signal)
       expect(h.calls[0]).toMatchObject({ provider: 'qp', model: 'qm' })
-      const framed = (h.calls[0]?.messages[0]?.content[0] as { text: string }).text
+      const framed = framedText(h.calls[0])
       expect(framed).toContain('semantic one')
       expect(framed).toContain('semantic two')
     } finally {
@@ -1011,7 +1340,7 @@ describe('evolution reviewer', () => {
     const h = await harness({ enabled: false }, async () => ({ events: [userEvent('hello world')] }))
     dirs.push(h.dir)
     try {
-      h.streamImpl = immediate('## Purpose\nR\n## Preferences\nB\n## Decisions\nC\n## References\nD')
+      h.streamImpl = immediate(answer(newDecision('R')))
       const session = sessionIn(h.ctx, h.dir, 's1')
       appendTurn(session, 1, { user: 'hello world', assistant: 'ok' })
       const id = h.scope('ws-1')
@@ -1056,11 +1385,11 @@ describe('evolution reviewer', () => {
     dirs.push(h.dir)
     const warn = vi.spyOn(h.ctx.logger, 'warn').mockImplementation(() => {})
     try {
-      h.streamImpl = immediate('## Purpose\nR\n## Preferences\nB\n## Decisions\nC\n## References\nD')
+      h.streamImpl = immediate(answer(newDecision('R')))
       const id = h.scope('ws-1')
       h.workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: h.dir, sessionIds: [SessionId('ghost')] })
       await h.ctx.evolutionReviewer.rebuild(id, new AbortController().signal)
-      expect(lessonsOf(h.ctx.evolutionMemory.read(id))).toContain('## Purpose')
+      expect(lessonsOf(h.ctx.evolutionMemory.read(id))).toContain('R')
       expect(warn).toHaveBeenCalledWith(expect.stringContaining('rebuild skipped session'))
     } finally {
       warn.mockRestore()
@@ -1072,7 +1401,7 @@ describe('evolution reviewer', () => {
     const h = await harness({ provider: 'p', model: 'm', enabled: false }, async () => ({ events: [] }))
     dirs.push(h.dir)
     try {
-      h.streamImpl = immediate('## Purpose\nR\n## Preferences\nB\n## Decisions\nC\n## References\nD')
+      h.streamImpl = immediate(answer(newDecision('R')))
       const emptyId = h.scope('ws-empty')
       h.workspaces.set('ws-empty', {
         id: WorkspaceId('ws-empty'),
@@ -1081,7 +1410,7 @@ describe('evolution reviewer', () => {
         sessionIds: [],
       })
       await h.ctx.evolutionReviewer.rebuild(emptyId, new AbortController().signal)
-      expect(lessonsOf(h.ctx.evolutionMemory.read(emptyId))).toContain('## Purpose')
+      expect(lessonsOf(h.ctx.evolutionMemory.read(emptyId))).toContain('R')
       expect(h.calls[0]).toMatchObject({ provider: 'p', model: 'm' })
     } finally {
       await h.fiber.dispose()
@@ -1094,7 +1423,7 @@ describe('evolution reviewer', () => {
     }))
     dirs.push(h.dir)
     try {
-      h.streamImpl = immediate('## Purpose\nR\n## Preferences\nB\n## Decisions\nC\n## References\nD')
+      h.streamImpl = immediate(answer(newDecision('R')))
       const only = sessionIn(h.ctx, h.dir, 'solo')
       appendTurn(only, 1, { user: 'placeholder', assistant: 'ok' })
       const id = h.scope('ws-1')
@@ -1106,11 +1435,11 @@ describe('evolution reviewer', () => {
       })
       await h.ctx.evolutionReviewer.rebuild(id, new AbortController().signal)
       const record = h.ctx.evolutionMemory.read(id)
-      expect(lessonsOf(record)).toContain('## Purpose')
+      expect(lessonsOf(record)).toContain('R')
       expect(record?.lastExtraction).toMatchObject({ sessionId: String(only.id), truncated: false })
       // The lone over-budget row is kept whole instead of dropped.
       expect(record?.lastExtraction?.inputBytes).toBeGreaterThan(60)
-      const framed = (h.calls[0]?.messages[0]?.content[0] as { text: string }).text
+      const framed = framedText(h.calls[0])
       expect(framed).toContain('lone')
     } finally {
       await h.fiber.dispose()
@@ -1126,10 +1455,10 @@ describe('evolution reviewer', () => {
     })
     try {
       h.streamImpl = () => {
-        if (h.calls.length > 1) return immediate('## Purpose\nB\n## Preferences\nB\n## Decisions\nB\n## References\nB')()
+        if (h.calls.length > 1) return immediate(answer(newDecision('B')))()
         return (async function* (): AsyncIterable<StreamChunk> {
           await gate
-          yield* textChunks('## Purpose\nA\n## Preferences\nA\n## Decisions\nA\n## References\nA')
+          yield* textChunks(answer(newDecision('A')))
         })()
       }
       const session = sessionIn(h.ctx, h.dir, 's1')
@@ -1145,7 +1474,7 @@ describe('evolution reviewer', () => {
         expect(h.calls).toHaveLength(2)
       })
       await vi.waitFor(() => {
-        expect(lessonsOf(h.ctx.evolutionMemory.read(id))).toContain('## Purpose')
+        expect(lessonsOf(h.ctx.evolutionMemory.read(id))).toContain('A')
       })
       await new Promise(resolve => setTimeout(resolve, 50))
     } finally {
@@ -1163,7 +1492,7 @@ describe('evolution reviewer', () => {
       })
       h.streamImpl = () => (async function* (): AsyncIterable<StreamChunk> {
         await gate
-        yield* textChunks('## Purpose\nA\n## Preferences\nB\n## Decisions\nC\n## References\nD')
+        yield* textChunks(answer(newDecision('A')))
       })()
       const session = sessionIn(h.ctx, h.dir, 's1')
       const id = h.scope('ws-1')
@@ -1238,26 +1567,26 @@ describe('evolution reviewer', () => {
     }))
     dirs.push(h.dir)
     try {
-      h.streamImpl = immediate('## Purpose\nR\n## Preferences\nB\n## Decisions\nC\n## References\nD')
+      h.streamImpl = immediate(answer(newDecision('R')))
       const session = sessionIn(h.ctx, h.dir, 's1')
       appendTurn(session, 1, { user: `remember ${'w'.repeat(500)}`, assistant: 'ok' })
       const id = h.scope('ws-1')
       h.workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: h.dir, sessionIds: [session.id] })
       await h.ctx.evolutionReviewer.rebuild(id, new AbortController().signal)
-      expect(lessonsOf(h.ctx.evolutionMemory.read(id))).toContain('## Purpose')
-      const framed = (h.calls[0]?.messages[0]?.content[0] as { text: string }).text
+      expect(lessonsOf(h.ctx.evolutionMemory.read(id))).toContain('R')
+      const framed = framedText(h.calls[0])
       expect(framed).toContain('kept')
       expect(framed).not.toContain('dropped')
 
       const failing = await harness({ provider: 'p', model: 'm' })
       dirs.push(failing.dir)
       try {
-        failing.streamImpl = immediate('## Purpose\nR\n## Preferences\nB\n## Decisions\nC\n## References\nD')
+        failing.streamImpl = immediate(answer(newDecision('R')))
         const other = sessionIn(failing.ctx, failing.dir, 's2')
         appendTurn(other, 1, { user: `remember ${'v'.repeat(300)}`, assistant: 'ok' })
         const otherWorkspace = { id: WorkspaceId('ws-2'), title: 'P', path: failing.dir, sessionIds: [other.id] }
         failing.workspaces.set('ws-2', otherWorkspace)
-        const recordSpy = vi.spyOn(failing.ctx.evolutionMemory, 'replaceArtifacts').mockRejectedValueOnce(new Error('lost write'))
+        const recordSpy = vi.spyOn(failing.ctx.evolutionMemory, 'applyExtractionDecisions').mockRejectedValueOnce(new Error('lost write'))
         appendTurn(other, 2, { user: `remember ${'u'.repeat(300)}`, assistant: 'ok' })
         await vi.waitFor(() => {
           expect(recordSpy).toHaveBeenCalled()
@@ -1275,7 +1604,7 @@ describe('evolution reviewer', () => {
     const h = await harness({ provider: 'p', model: 'm' })
     dirs.push(h.dir)
     try {
-      h.streamImpl = immediate('## Purpose\nLate\n## Preferences\nB\n## Decisions\nC\n## References\nD')
+      h.streamImpl = immediate(answer(newDecision('Late')))
       const session = sessionIn(h.ctx, h.dir, 's1')
       const id = h.scope('ws-1')
       h.workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: h.dir, sessionIds: [session.id] })
@@ -1283,7 +1612,7 @@ describe('evolution reviewer', () => {
       await vi.waitFor(() => {
         expect(lessonsOf(h.ctx.evolutionMemory.read(id))).toContain('Late')
       })
-      const framed = (h.calls[0]?.messages[0]?.content[0] as { text: string }).text
+      const framed = framedText(h.calls[0])
       expect(framed).toContain('[]')
     } finally {
       await h.fiber.dispose()
@@ -1293,7 +1622,7 @@ describe('evolution reviewer', () => {
   it('performs no extraction or indexing after teardown', async () => {
     const h = await harness({ provider: 'p', model: 'm' })
     dirs.push(h.dir)
-    h.streamImpl = immediate('## Purpose\nR\n## Preferences\nB\n## Decisions\nC\n## References\nD')
+    h.streamImpl = immediate(answer(newDecision('R')))
     const session = sessionIn(h.ctx, h.dir, 's1')
     const id = h.scope('ws-1')
     h.workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: h.dir, sessionIds: [session.id] })
@@ -1328,7 +1657,7 @@ describe('evolution reviewer', () => {
     )
     dirs.push(h.dir)
     try {
-      h.streamImpl = immediate('## Purpose\nR\n## Preferences\nB\n## Decisions\nC\n## References\nD')
+      h.streamImpl = immediate(answer(newDecision('R')))
       const session = sessionIn(h.ctx, h.dir, 's1')
       const id = h.scope('ws-1')
       h.workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: h.dir, sessionIds: [session.id] })
@@ -1377,13 +1706,13 @@ describe('evolution reviewer', () => {
     )
     dirs.push(h.dir)
     try {
-      h.streamImpl = immediate('## Purpose\nR\n## Preferences\nB\n## Decisions\nC\n## References\nD')
+      h.streamImpl = immediate(answer(newDecision('R')))
       const session = sessionIn(h.ctx, h.dir, 's1')
       const id = h.scope('ws-1')
       h.workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: h.dir, sessionIds: [session.id] })
       appendTurn(session, 1, { user: 'fix the parser', assistant: 'ok' })
       await vi.waitFor(() => {
-        expect(lessonsOf(h.ctx.evolutionMemory.read(id))).toContain('## Purpose')
+        expect(lessonsOf(h.ctx.evolutionMemory.read(id))).toContain('R')
       })
       expect(h.ctx.evolutionMemory.read(id)?.contextItems).toEqual([])
     } finally {
@@ -1402,7 +1731,7 @@ describe('evolution reviewer', () => {
     const bare = await harness({ provider: 'p', model: 'm' }, undefined, { ...IMMEDIATE_TURNS, enabled: true })
     dirs.push(bare.dir)
     try {
-      const stream = immediate('## Purpose\nR\n## Preferences\nB\n## Decisions\nC\n## References\nD')
+      const stream = immediate(answer(newDecision('R')))
       exact.streamImpl = stream
       bare.streamImpl = stream
       const searched = sessionIn(exact.ctx, exact.dir, 's1')
@@ -1415,7 +1744,7 @@ describe('evolution reviewer', () => {
       })
       appendTurn(searched, 1, { user: `remember ${'a'.repeat(300)}`, assistant: 'ok' })
       await vi.waitFor(() => {
-        expect(lessonsOf(exact.ctx.evolutionMemory.read(searchedId))).toContain('## Purpose')
+        expect(lessonsOf(exact.ctx.evolutionMemory.read(searchedId))).toContain('R')
       })
       expect(exact.ctx.evolutionMemory.read(searchedId)?.contextItems).toEqual([])
 
@@ -1451,7 +1780,7 @@ describe('evolution reviewer', () => {
     const blank = await harness({ provider: 'p', model: 'm' }, undefined, { ...IMMEDIATE_TURNS, enabled: true })
     dirs.push(blank.dir)
     try {
-      const stream = immediate('## Purpose\nR\n## Preferences\nB\n## Decisions\nC\n## References\nD')
+      const stream = immediate(answer(newDecision('R')))
       onlySelf.streamImpl = stream
       blank.streamImpl = stream
       const session = sessionIn(onlySelf.ctx, onlySelf.dir, 's1')
@@ -1464,7 +1793,7 @@ describe('evolution reviewer', () => {
       })
       appendTurn(session, 1, { user: `remember ${'c'.repeat(300)}`, assistant: 'ok' })
       await vi.waitFor(() => {
-        expect(lessonsOf(onlySelf.ctx.evolutionMemory.read(id))).toContain('## Purpose')
+        expect(lessonsOf(onlySelf.ctx.evolutionMemory.read(id))).toContain('R')
       })
       expect(onlySelf.ctx.evolutionMemory.read(id)?.contextItems).toEqual([])
 
@@ -1498,7 +1827,7 @@ describe('evolution reviewer', () => {
     dirs.push(h.dir)
     const warn = vi.spyOn(h.ctx.logger, 'warn').mockImplementation(() => {})
     try {
-      h.streamImpl = immediate('## Purpose\nR\n## Preferences\nB\n## Decisions\nC\n## References\nD')
+      h.streamImpl = immediate(answer(newDecision('R')))
       const session = sessionIn(h.ctx, h.dir, 's1')
       const id = h.scope('ws-1')
       h.workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: h.dir, sessionIds: [session.id] })
@@ -1537,7 +1866,7 @@ describe('evolution reviewer', () => {
     )
     dirs.push(h.dir)
     try {
-      h.streamImpl = immediate('## Purpose\nR\n## Preferences\nB\n## Decisions\nC\n## References\nD')
+      h.streamImpl = immediate(answer(newDecision('R')))
       const session = sessionIn(h.ctx, h.dir, 'asker')
       const older = sessionIn(h.ctx, h.dir, 'older')
       const id = h.scope('ws-1')
@@ -1620,7 +1949,7 @@ describe('evolution reviewer', () => {
     )
     dirs.push(unseen.dir)
     try {
-      const stream = immediate('## Purpose\nR\n## Preferences\nB\n## Decisions\nC\n## References\nD')
+      const stream = immediate(answer(newDecision('R')))
       // A scope with no observed turn has no recall query, ranked or not.
       unseen.streamImpl = stream
       const quiet = sessionIn(unseen.ctx, unseen.dir, 'quiet')
@@ -1780,22 +2109,32 @@ describe('evolution reviewer', () => {
     }
   })
 
-  it('clips to the store cap when the squeeze budget exceeds it', async () => {
-    const h = await harness({ provider: 'p', model: 'm', squeezeBytes: 70000 })
+  it('strips a contradiction replacement that cannot fit and keeps the counter bump', async () => {
+    const h = await harness({ provider: 'p', model: 'm' })
     dirs.push(h.dir)
+    const warn = vi.spyOn(h.ctx.logger, 'warn').mockImplementation(() => {})
     try {
-      h.streamImpl = immediate(`## Purpose\n${'z'.repeat(70000)}\n## Preferences\n-\n## Decisions\n-\n## References\n-`)
       const session = sessionIn(h.ctx, h.dir, 's1')
       const id = h.scope('ws-1')
       h.workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: h.dir, sessionIds: [session.id] })
+      await h.ctx.evolutionMemory.replaceArtifacts(id, [{
+        statement: 'short fact', source: 's0', conditions: '', evidence: 'fact', confidence: 0.9, scope: 'project',
+      }])
+      // Only a contradiction is left to shed, so its text goes and its counter
+      // stays: the batch carries nothing else that can shrink.
+      h.streamImpl = immediate(answer(artifactDecision('contradicts', 1, { statement: 'z'.repeat(70000) })))
       appendTurn(session, 1, { user: `remember ${'q'.repeat(300)}`, assistant: 'ok' })
       await vi.waitFor(() => {
-        expect(lessonsOf(h.ctx.evolutionMemory.read(id))).toContain('## Purpose')
+        expect(h.ctx.evolutionMemory.read(id)?.agentLessons[0]?.refutationCount).toBe(1)
       })
-      const record = h.ctx.evolutionMemory.read(id)
-      expect(artifactBytesOf(record?.agentLessons ?? [])).toBeLessThanOrEqual(65536)
-      expect(record?.lastExtraction).toMatchObject({ truncated: true })
+      expect(h.ctx.evolutionMemory.read(id)?.agentLessons[0]).toMatchObject({
+        statement: 'short fact',
+        refutationCount: 1,
+      })
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining("dropping the contradictions' replacement statements"))
+      expect(h.ctx.evolutionMemory.read(id)?.lastExtraction).toMatchObject({ truncated: true })
     } finally {
+      warn.mockRestore()
       await h.fiber.dispose()
     }
   })

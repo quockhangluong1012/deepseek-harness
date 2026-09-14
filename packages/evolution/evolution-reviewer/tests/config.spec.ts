@@ -32,22 +32,20 @@ describe('evolution-reviewer config', () => {
     expect(() => Config({ deferMaxAgeMs: -1 })).toThrow()
   })
 
-  it('defaults the recall and squeeze budgets', () => {
+  it('defaults the recall, relevance, and output budgets', () => {
     expect(resolveConfig({})).toMatchObject({
+      maxOutputTokens: 2048,
       recallLimit: 20,
       recallQueryChars: 160,
-      squeezeBytes: 65536,
+      relevantArtifactLimit: 20,
     })
-    expect(resolveConfig({}).squeezeOrder).toEqual(['## References', '## Decisions', '## Preferences', '## Purpose'])
-    expect(resolveConfig({ recallLimit: 3, recallQueryChars: 40, squeezeBytes: 512 }).squeezeBytes).toBe(512)
-  })
-
-  it('rejects a pressure order that drops a lesson heading', () => {
-    expect(() => resolveConfig({ squeezeOrder: ['## Purpose'] }))
-      .toThrow('must list exactly the lessons headings')
-    expect(() => resolveConfig({ squeezeOrder: ['## Purpose', '## Preferences', '## Decisions', '## Elsewhere'] }))
-      .toThrow('must list exactly the lessons headings')
-    expect(() => resolveConfig({ squeezeOrder: ['## Purpose', '## Preferences', '## Decisions', '## References'] }))
-      .not.toThrow()
+    expect(Config({}).relevantArtifactLimit).toBe(20)
+    expect(resolveConfig({ recallLimit: 3, recallQueryChars: 40, relevantArtifactLimit: 5 })).toMatchObject({
+      recallLimit: 3,
+      recallQueryChars: 40,
+      relevantArtifactLimit: 5,
+    })
+    // A window of zero would show the model no artifact to decide about.
+    expect(() => Config({ relevantArtifactLimit: 0 })).toThrow()
   })
 })
