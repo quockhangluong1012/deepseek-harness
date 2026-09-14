@@ -53,9 +53,14 @@ export type LessonArtifactInput = Omit<
   'id' | 'validationCount' | 'refutationCount' | 'createdAt' | 'updatedAt'
 >
 
-/** Readable artifact fields a caller may change on an existing artifact. */
+/**
+ * Readable artifact fields a caller may change on an existing artifact. A
+ * changed statement is a different fact, so it is expressed as a remove plus
+ * an add rather than a patch: an artifact's identity is derived from its
+ * statement, and a patch never moves either.
+ */
 export type LessonArtifactPatch = Partial<
-  Pick<LessonArtifact, 'statement' | 'conditions' | 'confidence' | 'evidence' | 'ttlDays'>
+  Pick<LessonArtifact, 'conditions' | 'confidence' | 'evidence' | 'ttlDays'>
 >
 
 const evidenceKind = z.enum(['fact', 'observation', 'inference'])

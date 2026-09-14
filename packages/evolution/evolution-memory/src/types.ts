@@ -98,6 +98,14 @@ export interface MemoryStagedRemoveArtifactPayload {
   id: string
 }
 
+/**
+ * Payload for the `replaceArtifacts` staged op: the whole lessons document,
+ * expressed as artifact candidates.
+ */
+export interface MemoryStagedReplaceArtifactsPayload {
+  candidates: LessonArtifactInput[]
+}
+
 /** One staged write awaiting approval. Staged entries never count toward capacity. */
 export interface StagedWrite {
   id: string

@@ -6,6 +6,7 @@
  */
 
 import { createHash } from 'node:crypto'
+import type { LessonArtifact } from './lesson-artifact.ts'
 import type { EvolutionMemoryRecord } from './types.ts'
 
 /** Fixed digest for an absent record; the injector emits no message for it. */
@@ -57,6 +58,19 @@ export function truncateUtf8(value: string, maxBytes: number): string {
 }
 
 /**
+ * UTF-8 bytes a lessons document occupies once serialized, one artifact at a
+ * time. A JSON array is not a string, so `Buffer.byteLength` cannot measure it
+ * whole.
+ * @param artifacts - the record's lesson artifacts.
+ * @returns the summed serialized byte count.
+ */
+export function artifactBytesOf(artifacts: readonly LessonArtifact[]): number {
+  let used = 0
+  for (const artifact of artifacts) used += utf8Bytes(JSON.stringify(artifact))
+  return used
+}
+
+/**
  * Capacity charged against `capacityBytes`: instructions + lessons + profile
  * + Σ context item sizes. Outputs and staged writes are excluded.
  * @param record - the stored record, or undefined when absent.
@@ -64,8 +78,7 @@ export function truncateUtf8(value: string, maxBytes: number): string {
  */
 export function usedBytesOf(record: EvolutionMemoryRecord | undefined): number {
   if (record === undefined) return 0
-  let used = utf8Bytes(record.instructions) + utf8Bytes(record.userProfile)
-  for (const artifact of record.agentLessons) used += utf8Bytes(JSON.stringify(artifact))
+  let used = utf8Bytes(record.instructions) + utf8Bytes(record.userProfile) + artifactBytesOf(record.agentLessons)
   for (const item of record.contextItems) used += item.sizeBytes
   return used
 }

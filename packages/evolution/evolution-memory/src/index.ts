@@ -6,6 +6,12 @@
  * approval, and the newest-first log of decided staged entries, over the
  * `evolution_memory` domain.
  *
+ * Lesson artifacts are addressed by identity, which is their normalized
+ * statement: `addArtifact`, `updateArtifact`, and `removeArtifact` each name
+ * the artifact they act on, and an artifact's identity never changes.
+ * `replaceArtifacts` is the document-level counterpart, used by the markdown
+ * extraction pipeline until that pipeline emits per-candidate ops.
+ *
  * Reads are synchronous from the domain's validated memory. Every cap is
  * checked before the write chain is entered, and a rejected write never
  * mutates the record. Stored objects never leak by reference.
@@ -17,7 +23,7 @@ import { Context, Service } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type { KvTable } from '@deepseek-ai/dsh-storage-domain'
 import { RemoteError } from '@deepseek-ai/dsh-typert-protocol'
-import { digestOf, usedBytesOf, utf8Bytes } from './digest.ts'
+import { artifactBytesOf, digestOf, usedBytesOf, utf8Bytes } from './digest.ts'
 import { artifactKey, lessonArtifact, lessonArtifactInput } from './lesson-artifact.ts'
 import type { LessonArtifact, LessonArtifactInput, LessonArtifactPatch, LessonMergeStrategy } from './lesson-artifact.ts'
 import { evolutionExtraction, evolutionMemoryDomainSpec, stagedWritePayload } from './spec.ts'
@@ -43,6 +49,7 @@ export type {
   EvolutionOutput,
   MemoryStagedAddArtifactPayload,
   MemoryStagedRemoveArtifactPayload,
+  MemoryStagedReplaceArtifactsPayload,
   MemoryStagedTextPayload,
   MemoryStagedUpdateArtifactPayload,
   StagedResolution,
@@ -50,7 +57,7 @@ export type {
   StagedWriteInput,
 } from './types.ts'
 export { evolutionMemoryDomainSpec } from './spec.ts'
-export { digestOf, usedBytesOf, EMPTY_DIGEST, truncateUtf8, utf8Bytes } from './digest.ts'
+export { digestOf, usedBytesOf, EMPTY_DIGEST, truncateUtf8, utf8Bytes, artifactBytesOf } from './digest.ts'
 export { artifactKey, lessonArtifact, lessonArtifactInput, normalizeStatement, wrapLegacyLessons } from './lesson-artifact.ts'
 export type {
   LessonArtifact,
@@ -136,7 +143,7 @@ export function scopeIdFromStorageKey(key: string): EvolutionScopeId {
 export interface Config {
   /** Capacity-bar denominator and hard ceiling on stored bytes. */
   capacityBytes: number
-  /** Lessons document cap in UTF-8 bytes. */
+  /** Lessons cap: UTF-8 bytes of the serialized artifact array. */
   maxAgentBytes?: number
   /** User profile document cap in UTF-8 bytes. */
   maxUserBytes?: number
@@ -153,7 +160,7 @@ export interface Config {
 /** Capacity-bar denominator and hard ceiling on stored bytes. */
 const capacityBytesField = z.number().step(1).min(1).required()
 
-/** Lessons document cap in UTF-8 bytes. */
+/** Lessons cap: UTF-8 bytes of the serialized artifact array. */
 const maxAgentBytesField = z.number().step(1).min(1).default(65536)
 
 /** User profile document cap in UTF-8 bytes. */
@@ -331,14 +338,95 @@ function contextItemSize(input: EvolutionContextItemInput, resolved: ResolvedCon
 }
 
 /**
+ * Enforce both lessons caps on a candidate record: the serialized artifact
+ * array against `maxAgentBytes`, then the whole record against the scope
+ * capacity.
+ * @param record - candidate record value, before the family stamp.
+ * @param resolved - normalized caps.
+ */
+function checkArtifactCaps(record: EvolutionMemoryRecord, resolved: ResolvedConfig): void {
+  const bytes = artifactBytesOf(record.agentLessons)
+  if (bytes > resolved.maxAgentBytes) throw tooLarge('agentLessons', bytes, resolved.maxAgentBytes)
+  checkCapacity(record, resolved.capacityBytes)
+}
+
+/**
+ * Derive the identity a candidate stores under, refusing a statement that
+ * normalizes away to nothing. An empty identity is not merely useless: it
+ * would persist a record the artifact schema rejects, and the next open of the
+ * domain would refuse the whole store.
+ * @param candidate - validated caller-supplied artifact fields.
+ * @returns the non-empty identity.
+ */
+function artifactIdOf(candidate: LessonArtifactInput): string {
+  const id = artifactKey(candidate.statement)
+  if (id.length === 0) {
+    throw new Error(
+      `evolution-memory: artifact statement ${JSON.stringify(candidate.statement)} is blank once normalized and cannot key an artifact`,
+    )
+  }
+  return id
+}
+
+/**
+ * Build one stored artifact from a validated candidate, assigning the fields
+ * no caller supplies.
+ * @param candidate - validated caller-supplied artifact fields.
+ * @param id - identity the artifact stores under.
+ * @param now - ISO-8601 instant to stamp as both instants.
+ * @returns the artifact with its store-assigned identity, counters, and instants.
+ */
+function freshArtifact(candidate: LessonArtifactInput, id: string, now: string): LessonArtifact {
+  return {
+    ...structuredClone(candidate),
+    id,
+    validationCount: 0,
+    refutationCount: 0,
+    createdAt: now,
+    updatedAt: now,
+  }
+}
+
+/**
+ * Fold caller-supplied changes onto a stored artifact, re-deriving the fields
+ * the store owns: identity, counters, and the creation instant.
+ * @param existing - the artifact being changed.
+ * @param changes - the fields to apply.
+ * @param statement - the statement to store. A patch keeps the stored one; a
+ * candidate that collided with the identity supplies its own, which carries
+ * the same identity by construction.
+ * @param now - ISO-8601 instant to stamp.
+ * @returns the revalidated artifact.
+ */
+function mergedArtifact(
+  existing: LessonArtifact,
+  changes: object,
+  statement: string,
+  now: string,
+): LessonArtifact {
+  return lessonArtifact.parse({
+    ...existing,
+    ...changes,
+    id: existing.id,
+    statement,
+    validationCount: existing.validationCount,
+    refutationCount: existing.refutationCount,
+    createdAt: existing.createdAt,
+    updatedAt: now,
+  })
+}
+
+/**
  * Add one candidate to a record's artifacts. A candidate whose identity is
- * already present replaces that artifact when the strategy says so; otherwise
- * the candidate is appended beside it.
+ * already present replaces that artifact when the strategy says so;
+ * `keep_both` stores nothing over an identity that is present, because a
+ * second artifact with the same identity cannot be told apart from the first.
  * @param record - current record value.
  * @param candidate - validated caller-supplied artifact fields.
  * @param strategy - what to do when the identity is already present.
  * @param now - ISO-8601 instant to stamp.
- * @returns the candidate record without the family stamp.
+ * @returns the candidate record without the family stamp, or `record` itself
+ * when the add stores nothing.
  */
 function addArtifactTo(
   record: EvolutionMemoryRecord,
@@ -346,24 +434,47 @@ function addArtifactTo(
   strategy: LessonMergeStrategy,
   now: string,
 ): EvolutionMemoryRecord {
-  const existing = record.agentLessons.find(artifact => artifact.id === artifactKey(candidate.statement))
-  if (existing === undefined || strategy === 'keep_both') {
-    const fresh: LessonArtifact = {
-      ...structuredClone(candidate),
-      id: artifactKey(candidate.statement),
-      validationCount: 0,
-      refutationCount: 0,
-      createdAt: now,
-      updatedAt: now,
-    }
-    return { ...record, agentLessons: [...record.agentLessons, fresh] }
+  const id = artifactIdOf(candidate)
+  const existing = record.agentLessons.find(artifact => artifact.id === id)
+  if (existing === undefined) {
+    return { ...record, agentLessons: [...record.agentLessons, freshArtifact(candidate, id, now)] }
   }
-  return patchArtifactIn(record, existing.id, candidate, now)
+  if (strategy === 'keep_both') return record
+  const merged = mergedArtifact(existing, candidate, candidate.statement, now)
+  return { ...record, agentLessons: record.agentLessons.map(artifact => artifact.id === id ? merged : artifact) }
+}
+
+/**
+ * Replace the whole artifact array from a candidate list, refusing an identity
+ * that appears twice and a statement that normalizes away to nothing.
+ * @param record - current record value.
+ * @param candidates - validated caller-supplied artifact fields.
+ * @param now - ISO-8601 instant to stamp as both instants.
+ * @returns the candidate record without the family stamp.
+ */
+function replaceArtifactsIn(
+  record: EvolutionMemoryRecord,
+  candidates: readonly LessonArtifactInput[],
+  now: string,
+): EvolutionMemoryRecord {
+  const seen = new Set<string>()
+  const artifacts: LessonArtifact[] = []
+  for (const candidate of candidates) {
+    const id = artifactIdOf(candidate)
+    if (seen.has(id)) {
+      throw new Error(`evolution-memory: replacement artifact list repeats identity '${id}'`)
+    }
+    seen.add(id)
+    artifacts.push(freshArtifact(candidate, id, now))
+  }
+  return { ...record, agentLessons: artifacts }
 }
 
 /**
  * Apply a patch to one existing artifact. Fields the patch omits keep their
- * stored value; identity, counters, and the creation instant never change.
+ * stored value; identity, counters, statement, and the creation instant never
+ * change. Identities are unique within a record, so this replaces exactly one
+ * artifact.
  * @param record - current record value.
  * @param id - the addressed artifact.
  * @param patch - caller-supplied changes; absent fields are left alone.
@@ -378,20 +489,13 @@ function patchArtifactIn(
 ): EvolutionMemoryRecord {
   const existing = record.agentLessons.find(artifact => artifact.id === id)
   if (existing === undefined) throw itemNotFound(id)
-  const merged = lessonArtifact.parse({
-    ...existing,
-    ...patch,
-    id: existing.id,
-    validationCount: existing.validationCount,
-    refutationCount: existing.refutationCount,
-    createdAt: existing.createdAt,
-    updatedAt: now,
-  })
+  const merged = mergedArtifact(existing, patch, existing.statement, now)
   return { ...record, agentLessons: record.agentLessons.map(artifact => artifact.id === id ? merged : artifact) }
 }
 
 /**
- * Drop one existing artifact.
+ * Drop one existing artifact. Identities are unique within a record, so this
+ * removes exactly one.
  * @param record - current record value.
  * @param id - the addressed artifact.
  * @returns the candidate record without the family stamp.
@@ -420,6 +524,7 @@ interface StagedPayloadFields {
   readonly text?: unknown
   readonly id?: unknown
   readonly candidate?: unknown
+  readonly candidates?: unknown
   readonly patch?: unknown
   readonly strategy?: unknown
   readonly extraction?: unknown
@@ -471,6 +576,19 @@ function patchFields(fields: StagedPayloadFields): object {
 }
 
 /**
+ * Read the candidate list of a `replaceArtifacts` payload.
+ * @param fields - payload fields.
+ * @returns the raw entries, each validated against the input schema by the caller.
+ */
+function requiredCandidates(fields: StagedPayloadFields): readonly unknown[] {
+  const value = fields.candidates
+  if (!Array.isArray(value)) {
+    throw new Error("evolution-memory: staged replaceArtifacts payload must carry an array 'candidates'")
+  }
+  return value
+}
+
+/**
  * Read the optional merge strategy of an `addArtifact` payload.
  * @param value - the raw payload field.
  * @returns the strategy, defaulting to `keep_both`.
@@ -503,13 +621,13 @@ function withStagedExtraction(record: EvolutionMemoryRecord, fields: StagedPaylo
  * @param entry - staged entry to apply.
  * @param resolved - normalized caps.
  * @returns the candidate record without timestamp stamps, plus the memory
- * family the op changed.
+ * family the op changed, or `null` when the op stored nothing.
  */
 function applyMemoryStagedOp(
   record: EvolutionMemoryRecord,
   entry: StagedWrite,
   resolved: ResolvedConfig,
-): { record: EvolutionMemoryRecord; family: MemoryFamily } {
+): { record: EvolutionMemoryRecord; family: MemoryFamily | null } {
   const fields = stagedFields(entry.payload, entry.op)
   switch (entry.op) {
     case 'setInstructions': {
@@ -521,16 +639,23 @@ function applyMemoryStagedOp(
       const candidate = lessonArtifactInput.parse(fields.candidate)
       const strategy = mergeStrategyField(fields.strategy)
       const next = addArtifactTo(record, candidate, strategy, new Date().toISOString())
-      checkCapacity(next, resolved.capacityBytes)
+      if (next === record) return { record, family: null }
+      checkArtifactCaps(next, resolved)
       return { record: withStagedExtraction(next, fields), family: 'lessons' }
     }
     case 'updateArtifact': {
       const next = patchArtifactIn(record, requiredId(fields), patchFields(fields), new Date().toISOString())
-      checkCapacity(next, resolved.capacityBytes)
+      checkArtifactCaps(next, resolved)
       return { record: withStagedExtraction(next, fields), family: 'lessons' }
     }
     case 'removeArtifact': {
       return { record: removeArtifactFrom(record, requiredId(fields)), family: 'lessons' }
+    }
+    case 'replaceArtifacts': {
+      const candidates = requiredCandidates(fields).map(raw => lessonArtifactInput.parse(raw))
+      const next = replaceArtifactsIn(record, candidates, new Date().toISOString())
+      checkArtifactCaps(next, resolved)
+      return { record: withStagedExtraction(next, fields), family: 'lessons' }
     }
     case 'setUserProfile': {
       const next = withStagedExtraction(applySetProfile(record, requiredText(fields, entry.op), resolved), fields)
@@ -643,12 +768,15 @@ export class EvolutionMemoryStore extends Service {
   }
 
   /**
-   * Add one candidate artifact to the lessons. An exact duplicate of an
-   * existing statement either replaces it or is kept beside it, per strategy.
+   * Add one candidate artifact to the lessons. A candidate whose identity —
+   * its normalized statement — is already present stores nothing under
+   * `keep_both`, and replaces the existing artifact under `overwrite` or
+   * `merge`.
    * @param id - scope identity.
    * @param candidate - the fact to store.
    * @param strategy - what to do when the identity is already present.
-   * @returns the stored record.
+   * @returns the stored record, or the current record unchanged when the add
+   * stores nothing.
    */
   async addArtifact(
     id: EvolutionScopeId,
@@ -656,17 +784,25 @@ export class EvolutionMemoryStore extends Service {
     strategy: LessonMergeStrategy = 'keep_both',
   ): Promise<EvolutionMemoryRecord> {
     const parsed = lessonArtifactInput.parse(candidate)
+    const key = artifactKey(parsed.statement)
+    const current = this.requireTable().get(storageKey(id) as EvolutionScopeId)
+    // An add that stores nothing must not enter the write chain, which stamps
+    // `updatedAt` on every accepted call. `addArtifactTo` reaches the same
+    // decision for the staged path.
+    if (strategy === 'keep_both' && current?.agentLessons.some(artifact => artifact.id === key) === true) {
+      return structuredClone(current)
+    }
     const now = new Date().toISOString()
     return this.write(id, (record) => {
       const next = addArtifactTo(record, parsed, strategy, now)
-      checkCapacity(next, this.resolved.capacityBytes)
+      checkArtifactCaps(next, this.resolved)
       return stampFamily(next, 'lessons', now)
     })
   }
 
   /**
-   * Patch one existing artifact. Identity, counters, and the creation instant
-   * are not patchable.
+   * Patch one existing artifact. Identity, counters, statement, and the
+   * creation instant are not patchable.
    * @param id - scope identity.
    * @param artifactId - the addressed artifact.
    * @param patch - changes to apply; absent fields keep their stored value.
@@ -680,7 +816,7 @@ export class EvolutionMemoryStore extends Service {
     const now = new Date().toISOString()
     return this.write(id, (record) => {
       const next = patchArtifactIn(record, artifactId, patch, now)
-      checkCapacity(next, this.resolved.capacityBytes)
+      checkArtifactCaps(next, this.resolved)
       return stampFamily(next, 'lessons', now)
     })
   }
@@ -694,6 +830,31 @@ export class EvolutionMemoryStore extends Service {
   async removeArtifact(id: EvolutionScopeId, artifactId: string): Promise<EvolutionMemoryRecord> {
     const now = new Date().toISOString()
     return this.write(id, record => stampFamily(removeArtifactFrom(record, artifactId), 'lessons', now))
+  }
+
+  /**
+   * Replace the whole lessons document from a candidate list: the
+   * document-level counterpart to {@link addArtifact}, {@link updateArtifact},
+   * and {@link removeArtifact}, not a compatibility shim. The markdown
+   * extraction pipeline rewrites a scope's lessons as one document and uses
+   * this until it emits per-candidate ops. Every candidate is validated and
+   * given a fresh identity, counters, and instants, so a candidate list that
+   * repeats an identity is refused.
+   * @param id - scope identity.
+   * @param candidates - the whole lessons document, one candidate per fact.
+   * @returns the stored record.
+   */
+  async replaceArtifacts(
+    id: EvolutionScopeId,
+    candidates: readonly LessonArtifactInput[],
+  ): Promise<EvolutionMemoryRecord> {
+    const parsed = candidates.map(candidate => lessonArtifactInput.parse(candidate))
+    const now = new Date().toISOString()
+    return this.write(id, (record) => {
+      const next = replaceArtifactsIn(record, parsed, now)
+      checkArtifactCaps(next, this.resolved)
+      return stampFamily(next, 'lessons', now)
+    })
   }
 
   /**
@@ -799,7 +960,7 @@ export class EvolutionMemoryStore extends Service {
       const resolutions = withResolution(record.resolutions, target, 'approved', now, resolved.maxResolutions)
       if (target.kind === 'skill') return { ...record, staged: remaining, resolutions, updatedAt: now }
       const applied = applyMemoryStagedOp(record, target, resolved)
-      const stamped = stampFamily(applied.record, applied.family, now)
+      const stamped = applied.family === null ? applied.record : stampFamily(applied.record, applied.family, now)
       return { ...stamped, staged: remaining, resolutions, updatedAt: now }
     })
   }

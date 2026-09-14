@@ -15,7 +15,13 @@ import { evolutionMemoryDomainSpec, evolutionMemoryRecord } from '../src/spec.ts
 import { digestOf, truncateUtf8 } from '../src/digest.ts'
 
 async function harness(
-  config: { capacityBytes: number; maxContextItems?: number; maxOutputs?: number; maxResolutions?: number } = { capacityBytes: 1024 },
+  config: {
+    capacityBytes: number
+    maxAgentBytes?: number
+    maxContextItems?: number
+    maxOutputs?: number
+    maxResolutions?: number
+  } = { capacityBytes: 1024 },
 ) {
   const pool = new MemoryMediaPool()
   const ctx = new Context()
@@ -192,12 +198,17 @@ describe('evolution-memory store', () => {
     await fiber.dispose()
   })
 
-  it('addArtifact keeps a repeated statement when the strategy says keep both', async () => {
+  it('addArtifact stores nothing when keep_both meets an existing identity', async () => {
     const { fiber, store } = await harness()
     const id = scope()
     await store.addArtifact(id, candidate('use postgres'))
-    const record = await store.addArtifact(id, candidate('Use Postgres'))
-    expect(record.agentLessons.map(artifact => artifact.id)).toEqual(['use postgres', 'use postgres'])
+    const before = store.read(id)
+    const after = await store.addArtifact(id, candidate('Use Postgres'))
+    expect(after.agentLessons).toHaveLength(1)
+    expect(after.agentLessons[0]?.statement).toBe('use postgres')
+    // A no-op reaches no write at all, so not even `updatedAt` moves.
+    expect(after).toEqual(before)
+    expect(store.read(id)).toEqual(before)
     await fiber.dispose()
   })
 
@@ -206,12 +217,13 @@ describe('evolution-memory store', () => {
     const id = scope()
     const first = await store.addArtifact(id, candidate('use postgres', { conditions: 'database work', confidence: 0.6 }))
     const createdAt = first.agentLessons[0]?.createdAt as string
+    await store.addArtifact(id, candidate('keep me'))
     const record = await store.addArtifact(
       id,
       candidate('use postgres', { conditions: 'database work only', confidence: 0.95, source: 's2' }),
       'overwrite',
     )
-    expect(record.agentLessons).toHaveLength(1)
+    expect(record.agentLessons).toHaveLength(2)
     expect(record.agentLessons[0]).toMatchObject({
       id: 'use postgres',
       conditions: 'database work only',
@@ -221,6 +233,8 @@ describe('evolution-memory store', () => {
       refutationCount: 0,
       createdAt,
     })
+    // The overwrite replaces exactly the addressed artifact.
+    expect(record.agentLessons[1]?.statement).toBe('keep me')
     await fiber.dispose()
   })
 
@@ -241,6 +255,55 @@ describe('evolution-memory store', () => {
       code: 'evolution/capacity-exceeded',
     })
     expect(store.read(id)).toEqual(before)
+    await fiber.dispose()
+  })
+
+  it('refuses a statement with no identity, on a present and an absent record', async () => {
+    const { fiber, store } = await harness()
+    const id = scope()
+    await store.addArtifact(id, candidate('use postgres'))
+    const before = store.read(id)
+    await expect(store.addArtifact(id, candidate('   \n\t '))).rejects.toThrow('is blank once normalized')
+    expect(store.read(id)).toEqual(before)
+    // The guard fires before the record is seeded, so nothing is written at all.
+    const blank = scope('blank')
+    await expect(store.addArtifact(blank, candidate('   '))).rejects.toThrow('is blank once normalized')
+    expect(store.read(blank)).toBeUndefined()
+    await fiber.dispose()
+  })
+
+  it('refuses a blank statement at a staged add and keeps the entry', async () => {
+    const { fiber, store } = await harness()
+    const id = scope()
+    await store.setInstructions(id, 'rules')
+    const before = store.read(id)
+    const staged = await store.stageWrite({
+      scopeId: id, kind: 'memory', op: 'addArtifact', originSessionId: 's1', gist: 'g',
+      payload: { candidate: candidate('  ') },
+    })
+    await expect(store.approveStaged(staged.id)).rejects.toThrow('is blank once normalized')
+    const after = store.read(id)
+    expect(after?.agentLessons).toEqual([])
+    expect(after?.instructionsUpdatedAt).toBe(before?.instructionsUpdatedAt)
+    expect(after?.staged).toHaveLength(1)
+    await fiber.dispose()
+  })
+
+  it('enforces maxAgentBytes against the serialized artifact array', async () => {
+    const { fiber, store } = await harness({ capacityBytes: 4096, maxAgentBytes: 400 })
+    const id = scope()
+    const before = store.read(id)
+    await expect(store.addArtifact(id, candidate('x'.repeat(400)))).rejects.toMatchObject({
+      code: 'evolution/too-large',
+    })
+    expect(store.read(id)).toEqual(before)
+    const added = await store.addArtifact(id, candidate('short'))
+    const artifactId = added.agentLessons[0]?.id as string
+    const withOne = store.read(id)
+    await expect(store.updateArtifact(id, artifactId, { conditions: 'x'.repeat(400) })).rejects.toMatchObject({
+      code: 'evolution/too-large',
+    })
+    expect(store.read(id)).toEqual(withOne)
     await fiber.dispose()
   })
 
@@ -268,6 +331,25 @@ describe('evolution-memory store', () => {
     await fiber.dispose()
   })
 
+  it('a patch cannot rewrite the statement an artifact is keyed by', async () => {
+    const { fiber, store } = await harness()
+    const id = scope()
+    const added = await store.addArtifact(id, candidate('use postgres'))
+    const artifactId = added.agentLessons[0]?.id as string
+    // `statement` is absent from `LessonArtifactPatch`, so the durable payload
+    // is the route that can carry one; it must not land.
+    const staged = await store.stageWrite({
+      scopeId: id, kind: 'memory', op: 'updateArtifact', originSessionId: 's1', gist: 'g',
+      payload: { id: artifactId, patch: { statement: 'use mysql', confidence: 0.5 } },
+    })
+    await store.approveStaged(staged.id)
+    const after = store.read(id)?.agentLessons[0]
+    expect(after?.statement).toBe('use postgres')
+    expect(after?.id).toBe(artifactId)
+    expect(after?.confidence).toBe(0.5)
+    await fiber.dispose()
+  })
+
   it('artifact ops reject an unknown artifact id', async () => {
     const { fiber, store } = await harness()
     const id = scope()
@@ -292,6 +374,79 @@ describe('evolution-memory store', () => {
     const record = await store.removeArtifact(id, firstId)
     expect(record.agentLessons.map(artifact => artifact.statement)).toEqual(['second'])
     expect(record.memoryUpdatedAt).toBe(record.lessonsUpdatedAt)
+    await fiber.dispose()
+  })
+
+  it('an update past the capacity cap rejects without mutating', async () => {
+    const { fiber, store } = await harness({ capacityBytes: 600 })
+    const id = scope()
+    const added = await store.addArtifact(id, candidate('use postgres'))
+    const artifactId = added.agentLessons[0]?.id as string
+    const before = store.read(id)
+    await expect(store.updateArtifact(id, artifactId, { conditions: 'x'.repeat(600) })).rejects.toMatchObject({
+      code: 'evolution/capacity-exceeded',
+    })
+    expect(store.read(id)).toEqual(before)
+    await fiber.dispose()
+  })
+
+  it('a staged update past the capacity cap keeps the entry and the artifacts', async () => {
+    const { fiber, store } = await harness({ capacityBytes: 600 })
+    const id = scope()
+    const added = await store.addArtifact(id, candidate('use postgres'))
+    const artifactId = added.agentLessons[0]?.id as string
+    const before = store.read(id)
+    const staged = await store.stageWrite({
+      scopeId: id, kind: 'memory', op: 'updateArtifact', originSessionId: 's1', gist: 'g',
+      payload: { id: artifactId, patch: { conditions: 'x'.repeat(600) } },
+    })
+    await expect(store.approveStaged(staged.id)).rejects.toMatchObject({ code: 'evolution/capacity-exceeded' })
+    const after = store.read(id)
+    expect(after?.agentLessons).toEqual(before?.agentLessons)
+    expect(after?.lessonsUpdatedAt).toBe(before?.lessonsUpdatedAt)
+    expect(after?.staged).toHaveLength(1)
+    await fiber.dispose()
+  })
+
+  it('replaceArtifacts rewrites the whole array, clearing it for an empty list', async () => {
+    const { fiber, store } = await harness()
+    const id = scope()
+    await store.addArtifact(id, candidate('old one'))
+    await store.addArtifact(id, candidate('old two'))
+    const replaced = await store.replaceArtifacts(id, [candidate('new one'), candidate('new two')])
+    expect(replaced.agentLessons.map(artifact => artifact.statement)).toEqual(['new one', 'new two'])
+    expect(replaced.agentLessons.map(artifact => artifact.id)).toEqual(['new one', 'new two'])
+    expect(replaced.agentLessons[0]?.createdAt).toBe(replaced.agentLessons[1]?.createdAt)
+    expect(replaced.memoryUpdatedAt).toBe(replaced.lessonsUpdatedAt)
+    const cleared = await store.replaceArtifacts(id, [])
+    expect(cleared.agentLessons).toEqual([])
+    await fiber.dispose()
+  })
+
+  it('replaceArtifacts refuses a repeated identity or a blank statement without mutating', async () => {
+    const { fiber, store } = await harness()
+    const id = scope()
+    await store.addArtifact(id, candidate('kept'))
+    const before = store.read(id)
+    await expect(store.replaceArtifacts(id, [candidate('same'), candidate('Same')]))
+      .rejects.toThrow("repeats identity 'same'")
+    await expect(store.replaceArtifacts(id, [candidate('fine'), candidate(' \n ')]))
+      .rejects.toThrow('is blank once normalized')
+    await expect(store.replaceArtifacts(id, [candidate('fine'), candidate('off vocabulary', { confidence: 2 })]))
+      .rejects.toThrow()
+    expect(store.read(id)).toEqual(before)
+    await fiber.dispose()
+  })
+
+  it('replaceArtifacts refuses a list past the lessons cap without mutating', async () => {
+    const { fiber, store } = await harness({ capacityBytes: 4096, maxAgentBytes: 400 })
+    const id = scope()
+    await store.addArtifact(id, candidate('kept'))
+    const before = store.read(id)
+    await expect(store.replaceArtifacts(id, [candidate('x'.repeat(400))])).rejects.toMatchObject({
+      code: 'evolution/too-large',
+    })
+    expect(store.read(id)).toEqual(before)
     await fiber.dispose()
   })
 
@@ -627,6 +782,53 @@ describe('evolution-memory store', () => {
     await fiber.dispose()
   })
 
+  it('approveStaged replaces the whole array with extraction', async () => {
+    const { fiber, store } = await harness()
+    const id = scope()
+    await store.addArtifact(id, candidate('dropped'))
+    const staged = await store.stageWrite({
+      scopeId: id,
+      kind: 'memory',
+      op: 'replaceArtifacts',
+      payload: {
+        candidates: [candidate('one'), candidate('two')],
+        extraction: {
+          at: '2026-01-01T00:00:00.000Z',
+          sessionId: 's9',
+          provider: 'p',
+          model: 'm',
+          origin: 'rebuild',
+          inputBytes: 7,
+          truncated: false,
+        },
+      },
+      originSessionId: 's9',
+      gist: 'g',
+    })
+    await store.approveStaged(staged.id)
+    const record = store.read(id)
+    expect(record?.agentLessons.map(artifact => artifact.statement)).toEqual(['one', 'two'])
+    expect(record?.lastExtraction).toMatchObject({ sessionId: 's9', origin: 'rebuild' })
+    expect(record?.staged).toEqual([])
+    await fiber.dispose()
+  })
+
+  it('keeps a staged replaceArtifacts whose list repeats an identity', async () => {
+    const { fiber, store } = await harness()
+    const id = scope()
+    await store.addArtifact(id, candidate('kept'))
+    const before = store.read(id)
+    const staged = await store.stageWrite({
+      scopeId: id, kind: 'memory', op: 'replaceArtifacts', originSessionId: 's1', gist: 'g',
+      payload: { candidates: [candidate('same'), candidate('same')] },
+    })
+    await expect(store.approveStaged(staged.id)).rejects.toThrow("repeats identity 'same'")
+    const after = store.read(id)
+    expect(after?.agentLessons).toEqual(before?.agentLessons)
+    expect(after?.staged).toHaveLength(1)
+    await fiber.dispose()
+  })
+
   it('approveStaged applies a staged artifact add to an empty record', async () => {
     const { fiber, store } = await harness()
     const id = scope()
@@ -652,18 +854,22 @@ describe('evolution-memory store', () => {
     await fiber.dispose()
   })
 
-  it('approveStaged keeps both when a staged add repeats a statement', async () => {
+  it('approveStaged drops a repeated artifact add without touching content', async () => {
     const { fiber, store } = await harness()
     const id = scope()
     await store.addArtifact(id, candidate('alpha'))
+    const before = store.read(id)
     const staged = await store.stageWrite({
       scopeId: id, kind: 'memory', op: 'addArtifact', originSessionId: 's1', gist: 'g',
       payload: { candidate: candidate('alpha'), strategy: 'keep_both' },
     })
     await store.approveStaged(staged.id)
     const after = store.read(id)
-    expect(after?.agentLessons.map(artifact => artifact.statement)).toEqual(['alpha', 'alpha'])
+    expect(after?.agentLessons.map(artifact => artifact.statement)).toEqual(['alpha'])
     expect(after?.staged).toEqual([])
+    // The op changed no content, so it stamped no family.
+    expect(after?.lessonsUpdatedAt).toBe(before?.lessonsUpdatedAt)
+    expect(after?.memoryUpdatedAt).toBe(before?.memoryUpdatedAt)
     expect(after?.resolutions?.[0]?.decision).toBe('approved')
     await fiber.dispose()
   })
@@ -778,7 +984,11 @@ describe('evolution-memory store', () => {
       scopeId: id, kind: 'memory', op: 'updateArtifact', payload: { id: 'x', patch: [] }, originSessionId: 's1', gist: 'g',
     })
     await expect(store.approveStaged(listPatch.id)).rejects.toThrow("must carry an object 'patch'")
-    expect(store.read(id)?.staged).toHaveLength(5)
+    const missingCandidates = await store.stageWrite({
+      scopeId: id, kind: 'memory', op: 'replaceArtifacts', payload: {}, originSessionId: 's1', gist: 'g',
+    })
+    await expect(store.approveStaged(missingCandidates.id)).rejects.toThrow("must carry an array 'candidates'")
+    expect(store.read(id)?.staged).toHaveLength(6)
     await fiber.dispose()
   })
 
