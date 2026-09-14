@@ -7,6 +7,7 @@ import { DomainFacility } from '@deepseek-ai/dsh-storage-domain'
 import { EvolutionScopeId } from '@deepseek-ai/dsh-evolution-memory'
 import { MemoryMediaPool, MemoryStorageBackend } from '../../../storage/storage-domain/tests/helpers/memory-backend.ts'
 import EvolutionGraph, {
+  EVOLUTION_GRAPH_EXTRACT_TASK,
   normalizeNodeId,
   normalizeRelation,
   parseTriples,
@@ -260,5 +261,295 @@ describe('evolution graph', () => {
     expect(() => parseTriples('not json')).toThrow('did not return JSON')
     expect(() => parseTriples('[]')).toThrow('did not return a JSON object')
     expect(() => parseTriples('{"triples":{}}')).toThrow('returned no triples array')
+  })
+})
+
+describe('heartbeat extraction', () => {
+  /**
+   * One session event for a message whose content is the given blocks.
+   * @param type - which of the two message events the producer reads to build.
+   * @param content - the message's content blocks.
+   * @returns the event as it would be published on `session/event`.
+   */
+  function messageEvent(
+    type: 'user/message' | 'assistant/message',
+    content: Array<Record<string, unknown>>,
+  ): unknown {
+    const message = {
+      id: 'm1',
+      role: type === 'user/message' ? 'user' : 'assistant',
+      content,
+      source: { kind: 'plugin', plugin: 'test' },
+    }
+    return type === 'user/message'
+      ? { type, seq: 1, time: 0, data: message }
+      : { type, seq: 1, time: 0, data: { turn: 1, step: 1, message, stream: [] } }
+  }
+
+  /**
+   * A context with every seam the producer reads, so one test can drive a
+   * whole extraction run. The workspace and session seams are fakes rather
+   * than mounts: the producer reaches both structurally.
+   * @param config - plugin configuration.
+   * @param chunks - the extraction answer the model streams.
+   * @param seams - workspace roster, session lookup, and whether to provide the model seam.
+   * @returns the mounted graph, the recorded calls, and the registered tasks.
+   */
+  async function producerHarness(
+    config: Record<string, unknown> = {},
+    chunks: StreamChunk[] = answer('{"triples":[]}'),
+    seams: { workspaces?: unknown; sessions?: unknown; llm?: boolean } = {},
+  ) {
+    const tasks: Array<{
+      name: string
+      intervalHours: number
+      run: (signal: AbortSignal) => Promise<void> | void
+    }> = []
+    const ctx = new Context()
+    await ctx.plugin(Storage)
+    ctx.storage.backend.register('memory', new MemoryStorageBackend(new MemoryMediaPool()))
+    const facility = new DomainFacility(ctx, { backend: 'memory', routes: {} })
+    ctx.storage.mount('domain', facility)
+    ctx.provide('storageDomain', facility)
+    const calls: GenerateOptions[] = []
+    const provideLlm = (streamChunks: StreamChunk[]): void => {
+      ctx.provide('llm', {
+        stream: (options: GenerateOptions) => {
+          calls.push(options)
+          return (async function* () {
+            yield* streamChunks
+          })()
+        },
+      } as never)
+    }
+    if (seams.llm !== false) provideLlm(chunks)
+    ctx.provide('evolutionHeartbeat', {
+      register: (task: {
+        name: string
+        intervalHours: number
+        run: (signal: AbortSignal) => Promise<void> | void
+      }) => {
+        tasks.push(task)
+        return () => {}
+      },
+    } as never)
+    if (seams.workspaces !== undefined) ctx.provide('workspaceRegistry', seams.workspaces as never)
+    if (seams.sessions !== undefined) ctx.provide('sessions', seams.sessions as never)
+    const fiber = await ctx.plugin(EvolutionGraph, config)
+    return { ctx, fiber, graph: ctx.evolutionGraph, calls, tasks, provideLlm }
+  }
+
+  it('registers the extract task on the heartbeat seam', async () => {
+    const h = await producerHarness()
+    try {
+      expect(h.tasks).toHaveLength(1)
+      expect(h.tasks[0]?.name).toBe('evolution-graph-extract')
+      expect(h.tasks[0]?.name).toBe(EVOLUTION_GRAPH_EXTRACT_TASK)
+      expect(h.tasks[0]?.intervalHours).toBe(6)
+    } finally {
+      await h.fiber.dispose()
+    }
+  })
+
+  it('extracts buffered scope text and clears the buffer on success', async () => {
+    const session = { id: 's1', requestHeader: () => ({ config: { provider: 'p', model: 'm' } }) }
+    const h = await producerHarness(
+      {},
+      answer('{"triples":[{"from":"Ava","relation":"worked_on","to":"Atlas"}]}'),
+      { workspaces: { list: () => [{ id: 'ws', sessionIds: ['s1'] }] }, sessions: { get: () => session } },
+    )
+    try {
+      h.ctx.emit('session/event', session as never, messageEvent('user/message', [{ type: 'text', text: 'Ava worked on Atlas' }]) as never)
+      await h.tasks[0]?.run(new AbortController().signal)
+      expect(h.calls).toHaveLength(1)
+      expect(h.calls[0]).toMatchObject({ provider: 'p', model: 'm' })
+      expect(h.graph.find(EvolutionScopeId('default', 'ws'), 'ava')).toHaveLength(1)
+      // The batch was consumed: an idle scope costs a second run nothing.
+      await h.tasks[0]?.run(new AbortController().signal)
+      expect(h.calls).toHaveLength(1)
+    } finally {
+      await h.fiber.dispose()
+    }
+  })
+
+  it('makes no LLM call when no scope has buffered text', async () => {
+    const h = await producerHarness({}, answer('{"triples":[]}'), {
+      workspaces: { list: () => [{ id: 'ws', sessionIds: ['s1'] }] },
+      sessions: { get: () => undefined },
+    })
+    try {
+      await h.tasks[0]?.run(new AbortController().signal)
+      expect(h.calls).toHaveLength(0)
+    } finally {
+      await h.fiber.dispose()
+    }
+  })
+
+  it('extracts through the configured route without a session to ask', async () => {
+    const h = await producerHarness(
+      { provider: 'cfg', model: 'cfg-model' },
+      answer('{"triples":[{"from":"Ava","relation":"worked_on","to":"Atlas"}]}'),
+      { workspaces: { list: () => [{ id: 'ws', sessionIds: ['s1'] }] } },
+    )
+    try {
+      h.ctx.emit('session/event', { id: 's1' } as never, messageEvent('user/message', [{ type: 'text', text: 'Ava worked on Atlas' }]) as never)
+      await h.tasks[0]?.run(new AbortController().signal)
+      expect(h.calls).toHaveLength(1)
+      expect(h.calls[0]).toMatchObject({ provider: 'cfg', model: 'cfg-model' })
+      expect(h.graph.find(EvolutionScopeId('default', 'ws'), 'ava')).toHaveLength(1)
+    } finally {
+      await h.fiber.dispose()
+    }
+  })
+
+  it('skips scopes whose route cannot be resolved', async () => {
+    let live: unknown
+    const h = await producerHarness(
+      {},
+      answer('{"triples":[{"from":"Ava","relation":"worked_on","to":"Atlas"}]}'),
+      { workspaces: { list: () => [{ id: 'ws', sessionIds: ['s1'] }] }, sessions: { get: () => live } },
+    )
+    try {
+      h.ctx.emit('session/event', { id: 's1' } as never, messageEvent('user/message', [{ type: 'text', text: 'Ava worked on Atlas' }]) as never)
+      await h.tasks[0]?.run(new AbortController().signal)
+      expect(h.calls).toHaveLength(0)
+      live = { id: 's1', requestHeader: () => undefined }
+      await h.tasks[0]?.run(new AbortController().signal)
+      expect(h.calls).toHaveLength(0)
+      // The buffer survived both runs, so a route that appears later still extracts it.
+      live = { id: 's1', requestHeader: () => ({ config: { provider: 'p', model: 'm' } }) }
+      await h.tasks[0]?.run(new AbortController().signal)
+      expect(h.calls).toHaveLength(1)
+      expect(h.calls[0]).toMatchObject({ provider: 'p', model: 'm' })
+      expect(h.graph.find(EvolutionScopeId('default', 'ws'), 'ava')).toHaveLength(1)
+    } finally {
+      await h.fiber.dispose()
+    }
+  })
+
+  it('clears the buffer even when extraction fails', async () => {
+    const session = { id: 's1', requestHeader: () => ({ config: { provider: 'p', model: 'm' } }) }
+    const h = await producerHarness({}, answer('not json'), {
+      workspaces: { list: () => [{ id: 'ws', sessionIds: ['s1'] }] },
+      sessions: { get: () => session },
+    })
+    try {
+      h.ctx.emit('session/event', session as never, messageEvent('user/message', [{ type: 'text', text: 'Ava worked on Atlas' }]) as never)
+      await h.tasks[0]?.run(new AbortController().signal)
+      expect(h.calls).toHaveLength(1)
+      expect(h.graph.read(EvolutionScopeId('default', 'ws'))).toBeUndefined()
+      // At most once: the failed batch is not retried.
+      await h.tasks[0]?.run(new AbortController().signal)
+      expect(h.calls).toHaveLength(1)
+    } finally {
+      await h.fiber.dispose()
+    }
+  })
+
+  it('buffers only user and assistant message text', async () => {
+    const session = { id: 's1', requestHeader: () => ({ config: { provider: 'p', model: 'm' } }) }
+    const h = await producerHarness({}, answer('{"triples":[]}'), {
+      workspaces: { list: () => [{ id: 'ws', sessionIds: ['s1'] }] },
+      sessions: { get: () => session },
+    })
+    try {
+      h.ctx.emit('session/event', session as never, { type: 'turn/start', seq: 1, time: 0, data: { turn: 1 } } as never)
+      h.ctx.emit('session/event', session as never, messageEvent('user/message', []) as never)
+      h.ctx.emit('session/event', session as never, messageEvent('user/message', [{ type: 'text', text: 'from user' }]) as never)
+      h.ctx.emit('session/event', session as never, messageEvent('assistant/message', [
+        { type: 'reasoning', text: 'never buffered' },
+        { type: 'text', text: 'from assistant' },
+      ]) as never)
+      await h.tasks[0]?.run(new AbortController().signal)
+      expect(h.calls).toHaveLength(1)
+      const sent = h.calls[0]?.messages[0]?.content.map(block => (block.type === 'text' ? block.text : '')).join('')
+      expect(sent).toBe('from user\nfrom assistant')
+    } finally {
+      await h.fiber.dispose()
+    }
+  })
+
+  it('ignores messages it cannot place in a workspace', async () => {
+    const unowned = await producerHarness({}, answer('{"triples":[]}'), {
+      workspaces: { list: () => [{ id: 'ws', sessionIds: ['someone-else'] }] },
+      sessions: { get: () => undefined },
+    })
+    const bare = await producerHarness()
+    try {
+      const text = messageEvent('user/message', [{ type: 'text', text: 'Ava worked on Atlas' }])
+      unowned.ctx.emit('session/event', { id: 's1' } as never, text as never)
+      await unowned.tasks[0]?.run(new AbortController().signal)
+      expect(unowned.calls).toHaveLength(0)
+      bare.ctx.emit('session/event', { id: 's1' } as never, text as never)
+      await bare.tasks[0]?.run(new AbortController().signal)
+      expect(bare.calls).toHaveLength(0)
+    } finally {
+      await unowned.fiber.dispose()
+      await bare.fiber.dispose()
+    }
+  })
+
+  it('stops before extracting when the signal is already aborted', async () => {
+    const session = { id: 's1', requestHeader: () => ({ config: { provider: 'p', model: 'm' } }) }
+    const h = await producerHarness({}, answer('{"triples":[]}'), {
+      workspaces: { list: () => [{ id: 'ws', sessionIds: ['s1'] }] },
+      sessions: { get: () => session },
+    })
+    try {
+      h.ctx.emit('session/event', session as never, messageEvent('user/message', [{ type: 'text', text: 'Ava worked on Atlas' }]) as never)
+      const aborted = new AbortController()
+      aborted.abort()
+      await h.tasks[0]?.run(aborted.signal)
+      expect(h.calls).toHaveLength(0)
+      // An aborted run spends nothing, so the next one still has the batch.
+      await h.tasks[0]?.run(new AbortController().signal)
+      expect(h.calls).toHaveLength(1)
+    } finally {
+      await h.fiber.dispose()
+    }
+  })
+
+  it('keeps buffered text until the llm seam is provided', async () => {
+    const session = { id: 's1', requestHeader: () => ({ config: { provider: 'p', model: 'm' } }) }
+    const chunks = answer('{"triples":[{"from":"Ava","relation":"worked_on","to":"Atlas"}]}')
+    const h = await producerHarness({}, chunks, {
+      workspaces: { list: () => [{ id: 'ws', sessionIds: ['s1'] }] },
+      sessions: { get: () => session },
+      llm: false,
+    })
+    try {
+      h.ctx.emit('session/event', session as never, messageEvent('user/message', [{ type: 'text', text: 'Ava worked on Atlas' }]) as never)
+      await h.tasks[0]?.run(new AbortController().signal)
+      expect(h.calls).toHaveLength(0)
+      h.provideLlm(chunks)
+      await h.tasks[0]?.run(new AbortController().signal)
+      expect(h.calls).toHaveLength(1)
+      expect(h.graph.find(EvolutionScopeId('default', 'ws'), 'ava')).toHaveLength(1)
+    } finally {
+      await h.fiber.dispose()
+    }
+  })
+
+  it('drops text larger than the input budget and keeps the newest', async () => {
+    const session = { id: 's1', requestHeader: () => ({ config: { provider: 'p', model: 'm' } }) }
+    const h = await producerHarness({ maxInputBytes: 10 }, answer('{"triples":[]}'), {
+      workspaces: { list: () => [{ id: 'ws', sessionIds: ['s1'] }] },
+      sessions: { get: () => session },
+    })
+    try {
+      const emit = (text: string): void => {
+        h.ctx.emit('session/event', session as never, messageEvent('user/message', [{ type: 'text', text }]) as never)
+      }
+      emit('aaaaaaaaaaaaaaaaaaaa')
+      emit('aaaa')
+      emit('bbbbbb')
+      emit('cc')
+      await h.tasks[0]?.run(new AbortController().signal)
+      expect(h.calls).toHaveLength(1)
+      const sent = h.calls[0]?.messages[0]?.content.map(block => (block.type === 'text' ? block.text : '')).join('')
+      expect(sent).toBe('bbbbbb\ncc')
+    } finally {
+      await h.fiber.dispose()
+    }
   })
 })

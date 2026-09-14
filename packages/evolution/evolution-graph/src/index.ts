@@ -8,6 +8,11 @@
  * sentence a relation was read from. Extraction is one `temperature: 0` call
  * whose output is validated before it is merged, and every traversal is
  * bounded by configured limits.
+ *
+ * A registered heartbeat task keeps the graph filling on its own: session
+ * text is buffered per scope as it is published, and each run extracts one
+ * buffered scope at a time and clears what it consumed. An idle scope costs
+ * nothing, and text buffered before a restart is lost rather than retried.
  * @module @deepseek-ai/dsh-evolution-graph
  */
 
@@ -15,10 +20,11 @@ import { Context, Service } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { BlockAssembler, createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions } from '@deepseek-ai/dsh-llm'
+import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import type { KvTable } from '@deepseek-ai/dsh-storage-domain'
 import { deadline } from '@deepseek-ai/dsh-timeout'
 import type {} from '@deepseek-ai/dsh-llm'
-import { EvolutionScopeId, storageKey, truncateUtf8 } from '@deepseek-ai/dsh-evolution-memory'
+import { EvolutionScopeId, storageKey, truncateUtf8, utf8Bytes } from '@deepseek-ai/dsh-evolution-memory'
 import { graphDomainSpec } from './spec.ts'
 import type {
   GraphAnswer,
@@ -33,6 +39,9 @@ export { graphEdge, graphNode, graphDomainSpec, graphRecordSchema } from './spec
 
 /** Timeout reason code for one extraction run. */
 export const EVOLUTION_GRAPH_TIMEOUT = 'EVOLUTION_GRAPH_TIMEOUT'
+
+/** Heartbeat task name carrying the automatic extraction sweep. */
+export const EVOLUTION_GRAPH_EXTRACT_TASK = 'evolution-graph-extract'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -55,6 +64,14 @@ export interface Config {
   maxOutputTokens?: number
   /** Deadline for one extraction call in milliseconds. */
   timeoutMs?: number
+  /** Hours between two heartbeat extraction runs. */
+  intervalHours?: number
+  /**
+   * Scope-identity namespace placed before the workspace key, shared with the
+   * reviewer, the brief injector, and the controller so they read and write
+   * one scope (`profile: default` in `packages/bundle/web-app/cordis.patch.yml`).
+   */
+  profile?: string
   /** Provider route for extraction; set together with `model`. */
   provider?: string
   /** Model id for extraction; set together with `provider`. */
@@ -69,6 +86,8 @@ export const Config: z<Config> = z.object({
   maxInputBytes: z.number().step(1).min(1).default(131072),
   maxOutputTokens: z.number().step(1).min(1).default(1024),
   timeoutMs: z.number().step(1).min(1).default(60000),
+  intervalHours: z.number().step(1).min(1).default(6),
+  profile: z.string().default('default'),
   provider: z.string(),
   model: z.string(),
 })
@@ -81,6 +100,8 @@ export interface ResolvedConfig {
   maxInputBytes: number
   maxOutputTokens: number
   timeoutMs: number
+  intervalHours: number
+  profile: string
   provider: string | undefined
   model: string | undefined
 }
@@ -99,13 +120,26 @@ export function resolveConfig(config: Config): ResolvedConfig {
     maxInputBytes = 131072,
     maxOutputTokens = 1024,
     timeoutMs = 60000,
+    intervalHours = 6,
+    profile = 'default',
     provider,
     model,
   } = config
   if ((provider === undefined) !== (model === undefined)) {
     throw new Error('evolution-graph: provider and model must be set together')
   }
-  return { maxNodes, maxEdges, maxQueryLimit, maxInputBytes, maxOutputTokens, timeoutMs, provider, model }
+  return {
+    maxNodes,
+    maxEdges,
+    maxQueryLimit,
+    maxInputBytes,
+    maxOutputTokens,
+    timeoutMs,
+    intervalHours,
+    profile,
+    provider,
+    model,
+  }
 }
 
 /** Outcome of one merged observation batch. */
@@ -169,29 +203,114 @@ function upsertNode(nodes: Map<string, GraphNode>, id: string, label: string, ki
 }
 
 /**
+ * The slice of `ctx.evolutionHeartbeat` this producer registers with. It is
+ * declared here rather than imported so the graph keeps no dependency on the
+ * heartbeat package: the engine is optional infrastructure, and the graph must
+ * work — with `extract` callable directly — when nothing mounts one.
+ */
+interface HeartbeatSeam {
+  /**
+   * Register one periodic task.
+   * @param task - identity, cadence, and the work to run.
+   * @returns the disposer removing the task.
+   */
+  register(task: {
+    name: string
+    intervalHours: number
+    run: (signal: AbortSignal) => Promise<void> | void
+  }): () => void
+}
+
+/**
+ * Whether a context value offers the heartbeat seam this producer calls.
+ * Absent and foreign values answer false instead of throwing.
+ * @param value - the value read from `ctx.get('evolutionHeartbeat')`.
+ * @returns whether the value can register a task.
+ */
+function isHeartbeatSeam(value: unknown): value is HeartbeatSeam {
+  return typeof Reflect.get(Object(value), 'register') === 'function'
+}
+
+/**
+ * The slice of `ctx.workspaceRegistry` this producer reads: the workspace
+ * roster and, per entry, the id its scope is keyed by and the sessions it
+ * owns. Declared here rather than imported so the graph keeps no dependency on
+ * the workspace package.
+ */
+interface WorkspaceSeam {
+  /**
+   * @returns the workspaces in registry order.
+   */
+  list(): readonly { id: string; sessionIds: readonly SessionId[] }[]
+}
+
+/**
+ * Whether a context value offers the workspace roster this producer reads.
+ * Absent and foreign values answer false instead of throwing.
+ * @param value - the value read from `ctx.get('workspaceRegistry')`.
+ * @returns whether the value publishes a workspace roster.
+ */
+function isWorkspaceSeam(value: unknown): value is WorkspaceSeam {
+  return typeof Reflect.get(Object(value), 'list') === 'function'
+}
+
+/** One scope's unextracted text and the sessions it was observed in. */
+interface PendingScope {
+  /** Scope identity the batch will be extracted into. */
+  scope: EvolutionScopeId
+  /** Sessions the batch's text came from, in first-seen order. */
+  sessionIds: SessionId[]
+  /** Buffered message texts, oldest first. */
+  texts: string[]
+  /** Total UTF-8 size of `texts`. */
+  bytes: number
+}
+
+/**
  * Durable per-scope knowledge graph. Opens the `evolution_graph` domain at
- * init and closes it through `ctx.effect`.
+ * init, closes it through `ctx.effect`, and registers the heartbeat task that
+ * extracts the scopes it has buffered text for.
  */
 export class EvolutionGraph extends Service {
   static inject = ['storageDomain']
 
   private table?: KvTable<string, GraphRecord>
   private readonly resolved: ResolvedConfig
+  private readonly pending = new Map<string, PendingScope>()
 
   /**
    * @param ctx - Host context carrying the storage domain.
-   * @param config - caps, query bounds, and the extraction route.
+   * @param config - caps, query bounds, extraction cadence, and the extraction route.
    */
   constructor(ctx: Context, config: Config = {}) {
     super(ctx, 'evolutionGraph')
     this.resolved = resolveConfig(config)
   }
 
-  /** Open the domain and publish the table handle. */
+  /**
+   * Open the domain, publish the table handle, start buffering session text,
+   * and register the extraction task when a heartbeat engine is mounted.
+   */
   protected async [Service.init](): Promise<void> {
     const domain = await this.ctx.storageDomain.open(graphDomainSpec)
     this.ctx.effect(() => () => domain.close(), 'evolution-graph.domainClose')
     this.table = domain.table('records')
+    this.ctx.on('session/event', (session, event) => {
+      this.bufferEvent(session.id, event)
+    })
+    this.ctx.effect(() => () => {
+      this.pending.clear()
+    }, 'evolution-graph.pendingText')
+    const heartbeat: unknown = this.ctx.get('evolutionHeartbeat')
+    if (!isHeartbeatSeam(heartbeat)) return
+    this.ctx.effect(
+      () => heartbeat.register({
+        name: EVOLUTION_GRAPH_EXTRACT_TASK,
+        intervalHours: this.resolved.intervalHours,
+        run: (signal: AbortSignal) => this.extractPending(signal),
+      }),
+      'evolution-graph.heartbeatTask',
+    )
   }
 
   /**
@@ -422,6 +541,90 @@ export class EvolutionGraph extends Service {
     const triples = parseTriples(answer)
     const merged = await this.observe(scopeId, triples)
     return { ...merged, observed: triples.length }
+  }
+
+  /**
+   * Buffer one observed message's text under the scope that owns its session.
+   * Only user and assistant messages carry conversation text: anything else, a
+   * message with no text part, a session no workspace owns, and a mount with
+   * no workspace roster are all ignored. Text is appended while it fits the
+   * `maxInputBytes` budget, dropping the oldest text to make room; a single
+   * message larger than the whole budget is dropped rather than clearing the
+   * batch for content that can never fit.
+   * @param sessionId - the session the event was published from.
+   * @param event - the session event to read text from.
+   */
+  private bufferEvent(sessionId: SessionId, event: SessionEvent): void {
+    if (event.type !== 'user/message' && event.type !== 'assistant/message') return
+    const message = event.type === 'user/message' ? event.data : event.data.message
+    const text = message.content
+      .filter((block): block is { type: 'text'; text: string } => block.type === 'text')
+      .map(block => block.text)
+      .join('\n')
+    if (text === '') return
+    const registry: unknown = this.ctx.get('workspaceRegistry')
+    if (!isWorkspaceSeam(registry)) return
+    const workspace = registry.list().find(entry => entry.sessionIds.includes(sessionId))
+    if (workspace === undefined) return
+    const scope = EvolutionScopeId(this.resolved.profile, workspace.id)
+    const key = String(scope)
+    const buffered = this.pending.get(key) ?? { scope, sessionIds: [], texts: [], bytes: 0 }
+    this.pending.set(key, buffered)
+    if (!buffered.sessionIds.includes(sessionId)) buffered.sessionIds.push(sessionId)
+    const size = utf8Bytes(text)
+    if (size > this.resolved.maxInputBytes) return
+    // This text fits the budget on its own, so emptying the batch always
+    // satisfies the bound and the loop never reads past its oldest entry.
+    while (buffered.bytes + size > this.resolved.maxInputBytes) {
+      buffered.bytes -= utf8Bytes(buffered.texts.shift() as string)
+    }
+    buffered.texts.push(text)
+    buffered.bytes += size
+  }
+
+  /**
+   * Extract and clear every scope with buffered text. Scopes are visited
+   * oldest-buffered first and the run bails out between them when its signal
+   * aborts. A scope whose route cannot be resolved, or a mount with no model
+   * seam at all, keeps its buffer for a later run instead of spending it. A
+   * scope whose extraction fails is caught and still cleared: one bad scope
+   * must not starve the others, and the batch is delivered at most once rather
+   * than retried forever.
+   * @param signal - the heartbeat's cancellation signal.
+   */
+  private async extractPending(signal: AbortSignal): Promise<void> {
+    if (this.ctx.get('llm') === undefined) return
+    for (const [key, buffered] of [...this.pending]) {
+      if (signal.aborted) return
+      const route = this.resolveRoute(buffered.sessionIds)
+      if (route === undefined) continue
+      try {
+        await this.extract(buffered.scope, buffered.texts.join('\n'), route, signal)
+      } catch {
+        // Per-scope isolation: the batch below is spent either way.
+      } finally {
+        this.pending.delete(key)
+      }
+    }
+  }
+
+  /**
+   * Resolve the route one buffered scope extracts through: the configured
+   * pair when the composition names one, else the request route of the first
+   * of its sessions that can report one.
+   * @param sessionIds - sessions the buffered batch was observed in.
+   * @returns the route to call, or undefined when neither source names one.
+   */
+  private resolveRoute(sessionIds: readonly SessionId[]): { provider: string; model: string } | undefined {
+    if (this.resolved.provider !== undefined && this.resolved.model !== undefined) {
+      return { provider: this.resolved.provider, model: this.resolved.model }
+    }
+    const header = sessionIds
+      .map(id => this.ctx.sessions.get(id)?.requestHeader())
+      .find(entry => entry !== undefined)
+    return header === undefined
+      ? undefined
+      : { provider: header.config.provider, model: header.config.model }
   }
 
   /** Replace one scope's graph, seeding it on the first write. */
