@@ -11,7 +11,7 @@ import Storage from '@deepseek-ai/dsh-storage'
 import { DomainFacility } from '@deepseek-ai/dsh-storage-domain'
 import { RemoteError } from '@deepseek-ai/dsh-typert-protocol'
 import { EvolutionScopeId } from '@deepseek-ai/dsh-evolution-memory'
-import type { EvolutionMemoryRecord, EvolutionScopeId as ScopeId, LessonArtifactInput } from '@deepseek-ai/dsh-evolution-memory'
+import type { EvolutionMemoryRecord, EvolutionScopeId as ScopeId, LessonArtifactInput, LessonDecision } from '@deepseek-ai/dsh-evolution-memory'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import EvolutionGraph from '@deepseek-ai/dsh-evolution-graph'
 import type {} from '@deepseek-ai/dsh-evolution-reviewer'
@@ -547,6 +547,93 @@ describe('/memory human command', () => {
       expect((await run(test, session, '/memory pending')).result).toEqual({
         kind: 'success',
         text: `2 pending writes:\n- ${first.id} [memory:replaceArtifacts] lessons from turn 1 (session 's1', ${first.createdAt})\n- ${second.id} [skill:create] new skill polish (session 's2', ${second.createdAt})`,
+      })
+    } finally {
+      await shutdown(test)
+    }
+  })
+
+  it('names every decision of a staged applyDecisions batch in the pending list', async () => {
+    const test = await harness()
+    try {
+      const session = sessionIn(test.ctx, test.dir, 'decisions-pending')
+      const id = test.scope('ws-1')
+      test.workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: test.dir, sessionIds: [session.id] })
+      await test.ctx.evolutionMemory.replaceArtifacts(id, [candidate('use spaces'), candidate('kept fact')])
+      const stored = test.ctx.evolutionMemory.read(id)?.agentLessons ?? []
+      const keptId = stored.find(artifact => artifact.statement === 'kept fact')?.id ?? ''
+      const spacesId = stored.find(artifact => artifact.statement === 'use spaces')?.id ?? ''
+      const decisions: LessonDecision[] = [
+        { kind: 'confirms', artifactId: keptId },
+        { kind: 'contradicts', artifactId: spacesId, statement: 'use tabs' },
+        // A contradiction with no replacement text only bumps the counter, so
+        // the detail names the contested fact and stops there.
+        { kind: 'contradicts', artifactId: keptId },
+        { kind: 'new', candidate: candidate('prefer pnpm') },
+      ]
+      const staged = await test.ctx.evolutionMemory.stageWrite({
+        scopeId: id,
+        kind: 'memory',
+        op: 'applyDecisions',
+        payload: artifactPayload({ decisions, extraction: { origin: 'background_review', sessionId: 's1', provider: 'p', model: 'm', at: '2026-09-14T00:00:00.000Z' } }),
+        originSessionId: 's1',
+        gist: "1 confirms, 2 contradicts, 1 new from turn 1 of session 's1'",
+      })
+      expect((await run(test, session, '/memory pending')).result).toEqual({
+        kind: 'success',
+        text: [
+          '1 pending write:',
+          `- ${staged.id} [memory:applyDecisions] 1 confirms, 2 contradicts, 1 new from turn 1 of session 's1' (session 's1', ${staged.createdAt})`,
+          "  confirms 'kept fact'",
+          "  contradicts 'use spaces' → 'use tabs'",
+          "  contradicts 'kept fact'",
+          "  new 'prefer pnpm'",
+        ].join('\n'),
+      })
+    } finally {
+      await shutdown(test)
+    }
+  })
+
+  it('names an applyDecisions entry whose payload it cannot read, without detail', async () => {
+    const test = await harness()
+    try {
+      const session = sessionIn(test.ctx, test.dir, 'decisions-unreadable')
+      const id = test.scope('ws-1')
+      test.workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: test.dir, sessionIds: [session.id] })
+      // The payload is unvalidated JSON, so a list the renderer cannot read
+      // degrades to the entry's own line instead of failing `/memory pending`.
+      const staged = await test.ctx.evolutionMemory.stageWrite({
+        scopeId: id,
+        kind: 'memory',
+        op: 'applyDecisions',
+        payload: artifactPayload({ decisions: [
+          'not a decision',
+          { kind: 'confirms' },
+          { kind: 'confirms', artifactId: 'pruned fact' },
+          { kind: 'new', candidate: {} },
+          { kind: 'retracts', artifactId: 'x' },
+        ] }),
+        originSessionId: 's2',
+        gist: 'unreadable batch',
+      })
+      const bare = await test.ctx.evolutionMemory.stageWrite({
+        scopeId: id,
+        kind: 'memory',
+        op: 'applyDecisions',
+        payload: artifactPayload({}),
+        originSessionId: 's2',
+        gist: 'no decisions',
+      })
+      expect((await run(test, session, '/memory pending')).result).toEqual({
+        kind: 'success',
+        text: [
+          '2 pending writes:',
+          `- ${staged.id} [memory:applyDecisions] unreadable batch (session 's2', ${staged.createdAt})`,
+          // The addressed artifact is gone, so the id itself is the best name left.
+          "  confirms 'pruned fact'",
+          `- ${bare.id} [memory:applyDecisions] no decisions (session 's2', ${bare.createdAt})`,
+        ].join('\n'),
       })
     } finally {
       await shutdown(test)

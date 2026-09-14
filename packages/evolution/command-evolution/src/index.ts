@@ -26,7 +26,7 @@ import type {} from '@deepseek-ai/dsh-evolution-graph'
 import type {} from '@deepseek-ai/dsh-evolution-memory'
 import { EvolutionScopeId } from '@deepseek-ai/dsh-evolution-memory'
 import type {} from '@deepseek-ai/dsh-evolution-dreaming'
-import type { EvolutionScopeId as EvolutionScopeIdBrand, StagedWrite } from '@deepseek-ai/dsh-evolution-memory'
+import type { EvolutionScopeId as EvolutionScopeIdBrand, LessonArtifact, StagedWrite } from '@deepseek-ai/dsh-evolution-memory'
 import type {} from '@deepseek-ai/dsh-evolution-reviewer'
 import type {} from '@deepseek-ai/dsh-evolution-curator'
 import type { EvolutionCurator, PassSummary, PurgeReport, RollbackReport } from '@deepseek-ai/dsh-evolution-curator'
@@ -34,7 +34,7 @@ import type {} from '@deepseek-ai/dsh-evolution-skill-telemetry'
 import type { SkillUsageRecord } from '@deepseek-ai/dsh-evolution-skill-telemetry'
 import type { SkillBlueprint } from '@deepseek-ai/dsh-skill'
 import { isUsageRange, type UsageRange } from '@deepseek-ai/dsh-usage-ledger'
-import { assertNever } from '@deepseek-ai/dsh-util-values'
+import { assertNever, type JsonValue } from '@deepseek-ai/dsh-util-values'
 import z from '@deepseek-ai/schemastery'
 import { strToU8, zipSync } from 'fflate'
 import { renderTimeline, scopeTimeline } from './journey.ts'
@@ -163,24 +163,97 @@ async function resolveMembership(ctx: Context, session: Session): Promise<ScopeM
 }
 
 /**
- * Render one staged entry as a stable single line.
+ * Narrow a JSON value to an object, or undefined for any other shape.
+ * @param value - the value to narrow.
+ * @returns the object, or undefined.
+ */
+function objectOf(value: JsonValue | undefined): { readonly [key: string]: JsonValue } | undefined {
+  return typeof value === 'object' && value !== null && !Array.isArray(value) ? value : undefined
+}
+
+/**
+ * Read one named string field of a JSON value.
+ * @param value - the value to read from.
+ * @param key - the field name.
+ * @returns the field's text, or undefined when absent or not a string.
+ */
+function stringFieldOf(value: JsonValue | undefined, key: string): string | undefined {
+  const field = objectOf(value)?.[key]
+  return typeof field === 'string' ? field : undefined
+}
+
+/**
+ * Render one decision of an `applyDecisions` batch: the fact it upholds, the
+ * correction it makes, or the fact it adds.
+ * @param raw - one element of the payload's `decisions` array.
+ * @param lessons - the scope's current artifacts, for a contradiction's old text.
+ * @returns the detail text, or undefined for an element this renderer cannot read.
+ */
+function decisionDetail(raw: JsonValue, lessons: readonly LessonArtifact[]): string | undefined {
+  const decision = objectOf(raw)
+  if (decision === undefined) return undefined
+  if (decision['kind'] === 'new') {
+    const statement = stringFieldOf(decision['candidate'], 'statement')
+    return statement === undefined ? undefined : `new '${statement}'`
+  }
+  const artifactId = stringFieldOf(decision, 'artifactId')
+  if (artifactId === undefined) return undefined
+  // A decision addresses an artifact by id, which stops equaling its statement
+  // once a contradiction corrects it, so the current statement is what the
+  // reviewer needs to see. An id the record no longer holds reads as itself: a
+  // pruned target stays named rather than dropping out of the list.
+  const referred = lessons.find(lesson => lesson.id === artifactId)?.statement ?? artifactId
+  if (decision['kind'] === 'confirms') return `confirms '${referred}'`
+  if (decision['kind'] !== 'contradicts') return undefined
+  // A contradiction with no replacement text only bumps the refutation count,
+  // so the contested fact is the whole story.
+  const replacement = stringFieldOf(decision, 'statement')
+  return replacement === undefined ? `contradicts '${referred}'` : `contradicts '${referred}' → '${replacement}'`
+}
+
+/**
+ * Render the per-decision detail of a staged `applyDecisions` entry. The
+ * payload is unvalidated JSON, so anything this renderer cannot read renders no
+ * line rather than failing `/memory pending`.
  * @param entry - staged entry from the scope record.
+ * @param lessons - the scope's current artifacts.
+ * @returns one indented line per recognizable decision, empty for every other op.
+ */
+function decisionLines(entry: StagedWrite, lessons: readonly LessonArtifact[]): string[] {
+  if (entry.op !== 'applyDecisions') return []
+  const decisions = objectOf(entry.payload)?.['decisions']
+  if (!Array.isArray(decisions)) return []
+  const lines: string[] = []
+  for (const decision of decisions) {
+    const detail = decisionDetail(decision, lessons)
+    if (detail !== undefined) lines.push(`  ${detail}`)
+  }
+  return lines
+}
+
+/**
+ * Render one staged entry as a stable single line, followed by one indented
+ * line per decision when the entry carries an `applyDecisions` batch.
+ * @param entry - staged entry from the scope record.
+ * @param lessons - the scope's current artifacts, for a contradiction's old text.
  * @returns the pending-list line naming id, kind, op, gist, origin, and instant.
  */
-function formatPendingLine(entry: StagedWrite): string {
-  return `- ${entry.id} [${entry.kind}:${entry.op}] ${entry.gist} (session '${entry.originSessionId}', ${entry.createdAt})`
+function formatPendingLine(entry: StagedWrite, lessons: readonly LessonArtifact[]): string {
+  const line = `- ${entry.id} [${entry.kind}:${entry.op}] ${entry.gist} (session '${entry.originSessionId}', ${entry.createdAt})`
+  return [line, ...decisionLines(entry, lessons)].join('\n')
 }
 
 /**
  * Render a staged-entry list, honestly empty when nothing awaits a decision.
  * @param staged - staged entries in record order.
  * @param noun - singular noun naming what the entries are.
+ * @param lessons - the scope's current artifacts; a skill proposal resolves against none.
  * @returns the command text.
  */
-function formatStagedList(staged: readonly StagedWrite[], noun: string): string {
+function formatStagedList(staged: readonly StagedWrite[], noun: string, lessons: readonly LessonArtifact[]): string {
   if (staged.length === 0) return `No pending ${noun}s.`
   const header = staged.length === 1 ? `1 pending ${noun}:` : `${staged.length} pending ${noun}s:`
-  return [header, ...staged.map(formatPendingLine)].join('\n')
+  return [header, ...staged.map(entry => formatPendingLine(entry, lessons))].join('\n')
 }
 
 /**
@@ -240,7 +313,7 @@ async function executeMemory(
   const [verb, id, ...rest] = splitArgs(invocation.rawInput)
   if ((verb === undefined || verb === 'pending') && id === undefined && rest.length === 0) {
     const record = ctx.evolutionMemory.read(scope)
-    return { kind: 'success', text: formatStagedList(record?.staged ?? [], 'write') }
+    return { kind: 'success', text: formatStagedList(record?.staged ?? [], 'write', record?.agentLessons ?? []) }
   }
   if ((verb === 'approve' || verb === 'reject') && id !== undefined && rest.length === 0) {
     const entry = ctx.evolutionMemory.read(scope)?.staged.find(candidate => candidate.id === id)
@@ -472,7 +545,9 @@ async function executeSkills(
   const [verb, id, ...rest] = splitArgs(invocation.rawInput)
   const staged = (ctx.evolutionMemory.read(scope)?.staged ?? []).filter(entry => entry.kind === 'skill')
   if ((verb === undefined || verb === 'pending') && id === undefined && rest.length === 0) {
-    return { kind: 'success', text: staged.length === 0 ? SKILLS_EMPTY : formatStagedList(staged, 'skill proposal') }
+    // A skill proposal stages a skill write, never an artifact batch, so there
+    // is no artifact text for its list to resolve.
+    return { kind: 'success', text: staged.length === 0 ? SKILLS_EMPTY : formatStagedList(staged, 'skill proposal', []) }
   }
   if (verb === 'approve' && id !== undefined && rest.length === 0) {
     const entry = staged.find(candidate => candidate.id === id)
