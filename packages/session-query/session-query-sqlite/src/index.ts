@@ -28,6 +28,7 @@ import SessionQueryEngine, {
 } from '@deepseek-ai/dsh-session-query'
 import type {
   Config as SessionQueryConfig,
+  SemanticSessionSearchHit,
   SessionEventSearchDocument,
   SessionEventSearchHit,
   SessionEventSearchPage,
@@ -365,7 +366,7 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
   override async searchSessionsSemantic(
     request: SessionSearchRequest,
     exec?: SessionSearchExecContext,
-  ): Promise<SessionSearchPage<SessionSearchHit>> {
+  ): Promise<SessionSearchPage<SemanticSessionSearchHit>> {
     this._assertSearchEnabled()
     const normalized = normalizeSessionRequest(request, this.config)
     const signal = exec?.signal
@@ -376,7 +377,9 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
       return this._querySemanticCandidates(normalized, persistenceBinding)
     })
     const ranked = await this._rankSemantic(normalized.query, candidates, signal)
-    return { items: ranked.slice(0, normalized.limit).map(row => this._sessionHit(row)) }
+    return {
+      items: ranked.slice(0, normalized.limit).map(entry => ({ ...this._sessionHit(entry.row), score: entry.score })),
+    }
   }
 
   /** Read the filtered candidate documents the vector channel ranks. */
@@ -414,7 +417,7 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
     query: string,
     rows: readonly SemanticSearchRow[],
     signal: AbortSignal | undefined,
-  ): Promise<SemanticSearchRow[]> {
+  ): Promise<Array<{ row: SemanticSearchRow; score: number }>> {
     if (rows.length === 0) return []
     const embeddings = this.ctx.get('embeddings')
     if (embeddings === undefined) {
@@ -461,7 +464,7 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
         return Promise.resolve()
       })
     }
-    return rankBySimilarity(rows, queryVector, vectors).map(entry => entry.row)
+    return rankBySimilarity(rows, queryVector, vectors)
   }
 
   /** Write freshly produced document vectors into the store. */

@@ -404,12 +404,16 @@ abstract searchSessions( request: SessionSearchRequest, exec?: SessionSearchExec
  * @param exec - optional cancellation control.
  * @returns session hits ranked by vector similarity to the query.
  */
-abstract searchSessionsSemantic( request: SessionSearchRequest, exec?: SessionSearchExecContext, ): Promise<SessionSearchPage<SessionSearchHit>>
+abstract searchSessionsSemantic( request: SessionSearchRequest, exec?: SessionSearchExecContext, ): Promise<SessionSearchPage<SemanticSessionSearchHit>>
 
 /**
  * Search the corpus through both channels and fuse their rankings by
  * reciprocal rank, so a session both channels place highly outranks one
- * only a single channel found.
+ * only a single channel found. The fused ranking stays a plain
+ * `SessionSearchHit[]`: reciprocal-rank fusion blends two heterogeneous
+ * rankings into one order, so no single per-hit number describes the
+ * result the way `searchSessionsSemantic`'s own cosine score describes
+ * its own single-channel ranking.
  * @param request - query text, metadata filters, and page size.
  * @param exec - optional cancellation control.
  * @returns fused session hits, best combined rank first.

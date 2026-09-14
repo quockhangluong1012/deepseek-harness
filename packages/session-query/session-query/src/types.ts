@@ -286,3 +286,20 @@ export interface SessionSearchHit extends SessionRecord {
   /** Strongest matching event for this session. */
   bestMatch: SessionEventSearchHit
 }
+
+/**
+ * One semantic-channel hit plus the cosine similarity that ranked it. Only
+ * `searchSessionsSemantic` returns this: a single embedding model's own
+ * scores are comparable to each other, but not across providers, so
+ * `searchSessionsHybrid`'s fused ranking (which blends this channel with
+ * lexical matching) stays a plain `SessionSearchHit[]` with no score.
+ */
+export interface SemanticSessionSearchHit extends SessionSearchHit {
+  /**
+   * Cosine similarity between the query and this hit's best-matching
+   * document, in the configured embedding model's own vector space.
+   * Comparable only against other scores from the same model; recalibrate
+   * any threshold after switching embedding providers or models.
+   */
+  score: number
+}
