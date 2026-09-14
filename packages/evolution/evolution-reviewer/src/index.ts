@@ -27,9 +27,9 @@ import type {} from '@deepseek-ai/dsh-workspace'
 import { WorkspaceId } from '@deepseek-ai/dsh-workspace'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import type { EvolutionExtraction, EvolutionOutput } from '@deepseek-ai/dsh-evolution-memory'
-import { EvolutionScopeId, RECALL_LABEL_PREFIX } from '@deepseek-ai/dsh-evolution-memory'
+import { EvolutionScopeId, RECALL_LABEL_PREFIX, normalizeStatement, truncateUtf8, utf8Bytes } from '@deepseek-ai/dsh-evolution-memory'
 import { skillCreationEvidence } from '@deepseek-ai/dsh-evolution-skill-telemetry'
-import { clipToBytes, extractionSystemPrompt, frameExtractionInput } from './prompt.ts'
+import { extractionSystemPrompt, frameExtractionInput } from './prompt.ts'
 import { LESSON_HEADINGS } from './prompt.ts'
 import { DEFAULT_SQUEEZE_ORDER, squeezeLessons } from './squeeze.ts'
 
@@ -811,7 +811,11 @@ export class EvolutionReviewer extends Service {
     try {
       const { rows: capped, inputBytes } = capRowsByBytes([...rows], this.resolved.maxInputBytes)
       const record = this.ctx.evolutionMemory.read(scope)
-      const document = await this.callModel(route, capped, record?.agentLessons ?? '', controller.signal, session.id)
+      // The store hands lessons back as artifacts; the prompt's "current
+      // lessons" is their statements as one document, which is what the
+      // extraction was shown when the document was written.
+      const prior = (record?.agentLessons ?? []).map(artifact => artifact.statement).join('\n\n')
+      const document = await this.callModel(route, capped, prior, controller.signal, session.id)
       await this.storeDocument(scope, document.text, {
         at: new Date().toISOString(),
         sessionId: String(session.id),
@@ -999,30 +1003,78 @@ export class EvolutionReviewer extends Service {
       inputBytes: meta.inputBytes,
       truncated: meta.truncated || squeezed.truncated,
     }
+    // The markdown extraction still rewrites the whole lessons document as one
+    // squeezed blob, so it stores as one coarse artifact under a stable
+    // identity: a re-run replaces that artifact instead of accumulating a
+    // second one, which is the document-level semantics this pipeline has.
+    // Structured per-fact artifacts are a later plan.
+    const candidate = {
+      statement: squeezed.text,
+      source: meta.sessionId,
+      conditions: '',
+      evidence: 'inference',
+      confidence: 0.5,
+      scope: 'project',
+    } as const
     if (this.resolved.writeApproval && meta.origin === 'background_review') {
       await this.ctx.evolutionMemory.stageWrite({
         scopeId: scope,
         kind: 'memory',
-        op: 'setLessons',
+        op: 'replaceArtifacts',
         // The payload is a JSON record field; the store validates it at its
         // own write boundary.
-        payload: { text: squeezed.text, extraction } as unknown as JsonValue,
+        payload: { candidates: [candidate], extraction } as unknown as JsonValue,
         originSessionId: meta.sessionId,
         gist: `lessons from turn ${meta.turn} of session '${meta.sessionId}'`,
       })
       return
     }
     try {
-      await this.ctx.evolutionMemory.setLessons(scope, squeezed.text, extraction)
+      await this.ctx.evolutionMemory.replaceArtifacts(scope, [candidate], extraction)
     } catch (error) {
       const failure = remoteErrorOf(error)
       if (failure?.code !== 'evolution/too-large') throw error
-      // A store cap below the squeeze budget still rejects: clip to the
-      // store's own cap, which stays authoritative over the retry.
-      const clipped = clipToBytes(squeezed.text, failure.details.maxBytes)
-      await this.ctx.evolutionMemory.setLessons(scope, clipped, { ...extraction, truncated: true })
+      // The cap that rejects is the serialized artifact array, not the
+      // document text the squeeze budget measures, so the text is clipped to
+      // what the store's own measurement admits.
+      const clipped = fitArtifactCap(squeezed.text, failure.details.bytes, failure.details.maxBytes)
+      await this.ctx.evolutionMemory.replaceArtifacts(
+        scope,
+        [{ ...candidate, statement: clipped }],
+        { ...extraction, truncated: true },
+      )
     }
   }
+}
+
+/**
+ * Longest prefix of a lessons document whose stored artifact fits the
+ * store's serialized lessons cap.
+ *
+ * The cap counts the serialized artifact array, and an artifact carries its
+ * statement twice: once as `statement` and once as the normalized identity
+ * that keys it, inside a fixed envelope. The text budget is therefore not the
+ * cap. `measuredBytes` is what the store measured for the whole document, so
+ * subtracting this text's serialized contribution leaves exactly that
+ * envelope, and searching the prefix length against the same measurement the
+ * store applies stays exact for any JSON escaping or collapsed whitespace.
+ * @param text - the document text the store rejected.
+ * @param measuredBytes - serialized bytes the store reported for it.
+ * @param maxBytes - the cap it reported.
+ * @returns the longest fitting prefix, empty when not even one byte fits.
+ */
+function fitArtifactCap(text: string, measuredBytes: number, maxBytes: number): string {
+  const serialized = (candidate: string): number =>
+    utf8Bytes(JSON.stringify(candidate)) + utf8Bytes(JSON.stringify(normalizeStatement(candidate)))
+  const envelope = measuredBytes - serialized(text)
+  let low = 0
+  let high = utf8Bytes(text)
+  while (low < high) {
+    const mid = Math.ceil((low + high) / 2)
+    if (envelope + serialized(truncateUtf8(text, mid)) <= maxBytes) low = mid
+    else high = mid - 1
+  }
+  return truncateUtf8(text, low)
 }
 
 export default EvolutionReviewer

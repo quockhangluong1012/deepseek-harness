@@ -23,10 +23,12 @@ import type {
 } from '@deepseek-ai/dsh-session-query'
 import Storage from '@deepseek-ai/dsh-storage'
 import { DomainFacility } from '@deepseek-ai/dsh-storage-domain'
-import { EvolutionScopeId } from '@deepseek-ai/dsh-evolution-memory'
+import { EvolutionScopeId, artifactBytesOf, artifactKey } from '@deepseek-ai/dsh-evolution-memory'
+import type { EvolutionMemoryRecord } from '@deepseek-ai/dsh-evolution-memory'
 import { WorkspaceId } from '@deepseek-ai/dsh-workspace'
 import { MemoryMediaPool, MemoryStorageBackend } from '../../../storage/storage-domain/tests/helpers/memory-backend.ts'
-import EvolutionReviewer, { type Config as ReviewerConfig } from '../src/index.ts'
+import EvolutionReviewer, { DEFAULT_SQUEEZE_ORDER, squeezeLessons } from '../src/index.ts'
+import type { Config as ReviewerConfig } from '../src/index.ts'
 
 interface FakeWorkspace {
   id: WorkspaceId
@@ -141,6 +143,17 @@ function immediate(text: string, finish: FinishReason = { kind: 'stop' }) {
   return async function* (): AsyncIterable<StreamChunk> {
     yield* textChunks(text, finish)
   }
+}
+
+/**
+ * The stored lessons document, as the extraction pipeline wrote it: the
+ * artifacts' statements joined in stored order. These specs assert on the
+ * document's content, not on the artifact shell that carries it.
+ * @param scope - the projected scope record.
+ * @returns the document text the assertions compare against.
+ */
+function lessonsOf(scope: EvolutionMemoryRecord | undefined): string {
+  return (scope?.agentLessons ?? []).map(artifact => artifact.statement).join('\n')
 }
 
 function sessionIn(ctx: Context, dir: string, name: string): Session {
@@ -402,7 +415,7 @@ describe('evolution reviewer', () => {
         assistant: 'noted',
       })
       await vi.waitFor(() => {
-        expect(h.ctx.evolutionMemory.read(id)?.agentLessons).toContain('Work')
+        expect(lessonsOf(h.ctx.evolutionMemory.read(id))).toContain('Work')
       })
       expect(h.calls).toHaveLength(1)
       expect(h.calls[0]).toMatchObject({
@@ -444,10 +457,52 @@ describe('evolution reviewer', () => {
       )
       session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
       await vi.waitFor(() => {
-        expect(h.ctx.evolutionMemory.read(id)?.agentLessons).toContain('Seen')
+        expect(lessonsOf(h.ctx.evolutionMemory.read(id))).toContain('Seen')
       })
       const framed = (h.calls[0]?.messages[0]?.content[0] as { text: string }).text
       expect(framed).toContain('[]')
+    } finally {
+      await h.fiber.dispose()
+    }
+  })
+
+  it('replaces the lessons document with one artifact holding the squeezed extraction', async () => {
+    const h = await harness({ provider: 'p', model: 'm' })
+    dirs.push(h.dir)
+    try {
+      const extracted = '## Purpose\nWork\n## Preferences\nB\n## Decisions\nC\n## References\nD'
+      h.streamImpl = immediate(extracted)
+      const session = sessionIn(h.ctx, h.dir, 's1')
+      const id = h.scope('ws-1')
+      h.workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: h.dir, sessionIds: [session.id] })
+      // A document the extraction must replace outright: `replaceArtifacts`
+      // semantics, not an add beside what is already stored.
+      await h.ctx.evolutionMemory.replaceArtifacts(id, [{
+        statement: 'a stale lesson', source: 's0', conditions: '', evidence: 'fact', confidence: 0.9, scope: 'user',
+      }])
+
+      appendTurn(session, 1, { user: `remember ${'a'.repeat(300)}`, assistant: 'ok' })
+      await vi.waitFor(() => {
+        expect(h.ctx.evolutionMemory.read(id)?.lastExtraction).not.toBeNull()
+      })
+      const record = h.ctx.evolutionMemory.read(id)
+      // The squeezed text, computed the way the reviewer computes it, is the
+      // whole stored document.
+      const squeezed = squeezeLessons(extracted, 65536, [...DEFAULT_SQUEEZE_ORDER]).text
+      expect(record?.agentLessons).toHaveLength(1)
+      expect(record?.agentLessons[0]).toMatchObject({
+        id: artifactKey(squeezed),
+        statement: squeezed,
+        source: String(session.id),
+        conditions: '',
+        evidence: 'inference',
+        confidence: 0.5,
+        scope: 'project',
+        validationCount: 0,
+        refutationCount: 0,
+      })
+      expect(record?.agentLessons.some(artifact => artifact.statement === 'a stale lesson')).toBe(false)
+      expect(record?.lastExtraction).toMatchObject({ origin: 'background_review', provider: 'p', model: 'm' })
     } finally {
       await h.fiber.dispose()
     }
@@ -467,7 +522,7 @@ describe('evolution reviewer', () => {
       })
       appendTurn(session, 1, { user: 'remember alpha', assistant: 'ok' })
       await vi.waitFor(() => {
-        expect(h.ctx.evolutionMemory.read(id)?.agentLessons).toContain('## Purpose')
+        expect(lessonsOf(h.ctx.evolutionMemory.read(id))).toContain('## Purpose')
       })
       expect(h.calls[0]).toMatchObject({ provider: 'deepseek', model: 'reasoner' })
 
@@ -497,7 +552,7 @@ describe('evolution reviewer', () => {
 
       appendTurn(session, 2, { user: `remember ${'x'.repeat(300)}`, assistant: 'ok' })
       await vi.waitFor(() => {
-        expect(h.ctx.evolutionMemory.read(id)?.agentLessons).toContain('## Purpose')
+        expect(lessonsOf(h.ctx.evolutionMemory.read(id))).toContain('## Purpose')
       })
       appendTurn(session, 3, { user: `remember ${'y'.repeat(300)}`, assistant: 'ok' })
       await new Promise(resolve => setTimeout(resolve, 50))
@@ -522,7 +577,7 @@ describe('evolution reviewer', () => {
       h.workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: h.dir, sessionIds: [session.id] })
       appendTurn(session, 1, { user: `remember ${'n'.repeat(300)}`, assistant: 'noted' })
       await vi.waitFor(() => {
-        expect(h.ctx.evolutionMemory.read(id)?.agentLessons).toContain('Immediate')
+        expect(lessonsOf(h.ctx.evolutionMemory.read(id))).toContain('Immediate')
       })
       expect(h.calls).toHaveLength(1)
       expect(h.ctx.evolutionMemory.read(id)?.lastExtraction).toMatchObject({ origin: 'background_review' })
@@ -543,7 +598,7 @@ describe('evolution reviewer', () => {
       expect(h.calls).toHaveLength(0)
       await new Promise(resolve => setTimeout(resolve, 0))
       await vi.waitFor(() => {
-        expect(h.ctx.evolutionMemory.read(id)?.agentLessons).toContain('Deferred')
+        expect(lessonsOf(h.ctx.evolutionMemory.read(id))).toContain('Deferred')
       })
       expect(h.calls).toHaveLength(1)
     } finally {
@@ -582,7 +637,7 @@ describe('evolution reviewer', () => {
       appendTurn(session, 1, { user: 'remember the alpha detail', assistant: 'alpha acknowledged' })
       appendTurn(session, 2, { user: 'remember the beta detail', assistant: 'beta acknowledged' })
       await vi.waitFor(() => {
-        expect(h.ctx.evolutionMemory.read(id)?.agentLessons).toContain('Coalesced')
+        expect(lessonsOf(h.ctx.evolutionMemory.read(id))).toContain('Coalesced')
       })
       expect(h.calls).toHaveLength(1)
       const framed = (h.calls[0]?.messages[0]?.content[0] as { text: string }).text
@@ -648,24 +703,26 @@ describe('evolution reviewer', () => {
       const session = sessionIn(h.ctx, h.dir, 's1')
       const id = h.scope('ws-1')
       h.workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: h.dir, sessionIds: [session.id] })
-      await h.ctx.evolutionMemory.setLessons(id, 'stable doc')
+      await h.ctx.evolutionMemory.replaceArtifacts(id, [{
+        statement: 'stable doc', source: 's1', conditions: '', evidence: 'inference', confidence: 0.5, scope: 'project',
+      }])
 
       h.streamImpl = immediate('partial doc', { kind: 'max-tokens' })
       appendTurn(session, 1, { user: `remember ${'a'.repeat(300)}`, assistant: 'ok' })
       await vi.waitFor(() => {
         expect(h.ctx.evolutionMemory.read(id)?.lastExtraction).toMatchObject({ truncated: true })
       })
-      expect(h.ctx.evolutionMemory.read(id)?.agentLessons).toBe('partial doc')
+      expect(lessonsOf(h.ctx.evolutionMemory.read(id))).toBe('partial doc')
 
       h.streamImpl = immediate('', { kind: 'error', failure: { message: 'boom', code: 'E_UPSTREAM' } })
       appendTurn(session, 2, { user: `remember ${'b'.repeat(300)}`, assistant: 'ok' })
       await new Promise(resolve => setTimeout(resolve, 50))
-      expect(h.ctx.evolutionMemory.read(id)?.agentLessons).toBe('partial doc')
+      expect(lessonsOf(h.ctx.evolutionMemory.read(id))).toBe('partial doc')
 
       h.streamImpl = immediate('', { kind: 'aborted', failure: { message: 'gone', code: 'ABORTED' } })
       appendTurn(session, 3, { user: `remember ${'c'.repeat(300)}`, assistant: 'ok' })
       await new Promise(resolve => setTimeout(resolve, 50))
-      expect(h.ctx.evolutionMemory.read(id)?.agentLessons).toBe('partial doc')
+      expect(lessonsOf(h.ctx.evolutionMemory.read(id))).toBe('partial doc')
 
       h.streamImpl = async function* (): AsyncIterable<StreamChunk> {
         yield { type: 'block-start', index: 0, blockType: 'text' }
@@ -678,7 +735,7 @@ describe('evolution reviewer', () => {
       }
       appendTurn(session, 4, { user: `remember ${'d'.repeat(300)}`, assistant: 'ok' })
       await new Promise(resolve => setTimeout(resolve, 50))
-      expect(h.ctx.evolutionMemory.read(id)?.agentLessons).toBe('partial doc')
+      expect(lessonsOf(h.ctx.evolutionMemory.read(id))).toBe('partial doc')
 
       h.streamImpl = async function* (): AsyncIterable<StreamChunk> {
         yield { type: 'block-start', index: 0, blockType: 'text' }
@@ -687,7 +744,7 @@ describe('evolution reviewer', () => {
       }
       appendTurn(session, 5, { user: `remember ${'e'.repeat(300)}`, assistant: 'ok' })
       await new Promise(resolve => setTimeout(resolve, 50))
-      expect(h.ctx.evolutionMemory.read(id)?.agentLessons).toBe('partial doc')
+      expect(lessonsOf(h.ctx.evolutionMemory.read(id))).toBe('partial doc')
     } finally {
       await h.fiber.dispose()
     }
@@ -703,10 +760,10 @@ describe('evolution reviewer', () => {
       h.workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: h.dir, sessionIds: [session.id] })
       appendTurn(session, 1, { user: `remember ${'q'.repeat(300)}`, assistant: 'ok' })
       await vi.waitFor(() => {
-        expect(h.ctx.evolutionMemory.read(id)?.agentLessons.length).toBeGreaterThan(0)
+        expect(lessonsOf(h.ctx.evolutionMemory.read(id)).length).toBeGreaterThan(0)
       })
       const record = h.ctx.evolutionMemory.read(id)
-      expect(Buffer.byteLength(record?.agentLessons ?? '', 'utf8')).toBeLessThanOrEqual(65536)
+      expect(artifactBytesOf(record?.agentLessons ?? [])).toBeLessThanOrEqual(65536)
       expect(record?.lastExtraction).toMatchObject({ truncated: true })
     } finally {
       await h.fiber.dispose()
@@ -726,11 +783,11 @@ describe('evolution reviewer', () => {
         expect(h.ctx.evolutionMemory.read(id)?.staged).toHaveLength(1)
       })
       const record = h.ctx.evolutionMemory.read(id)
-      expect(record?.agentLessons).toBe('')
-      expect(record?.staged[0]).toMatchObject({ kind: 'memory', op: 'setLessons', originSessionId: String(session.id) })
+      expect(record?.agentLessons).toEqual([])
+      expect(record?.staged[0]).toMatchObject({ kind: 'memory', op: 'replaceArtifacts', originSessionId: String(session.id) })
       expect(record?.staged[0]?.gist).toContain('turn 1')
       await h.ctx.evolutionMemory.approveStaged(record?.staged[0]?.id as string)
-      expect(h.ctx.evolutionMemory.read(id)?.agentLessons).toContain('Staged')
+      expect(lessonsOf(h.ctx.evolutionMemory.read(id))).toContain('Staged')
       expect(h.ctx.evolutionMemory.read(id)?.staged).toHaveLength(0)
     } finally {
       await h.fiber.dispose()
@@ -787,7 +844,7 @@ describe('evolution reviewer', () => {
       expect(signal.aborted).toBe(true)
       release()
       await new Promise(resolve => setTimeout(resolve, 50))
-      expect(h.ctx.evolutionMemory.read(id)?.agentLessons ?? '').not.toContain('## Purpose')
+      expect(lessonsOf(h.ctx.evolutionMemory.read(id))).not.toContain('## Purpose')
     } finally {
       await h.fiber.dispose()
     }
@@ -825,7 +882,7 @@ describe('evolution reviewer', () => {
       expect(framed).toContain('old fact one')
       expect(framed).not.toContain('archived fact three')
       expect(framed.indexOf('new fact two')).toBeLessThan(framed.indexOf('old fact one'))
-      expect(h.ctx.evolutionMemory.read(id)?.agentLessons).toContain('## Purpose')
+      expect(lessonsOf(h.ctx.evolutionMemory.read(id))).toContain('## Purpose')
       expect(h.ctx.evolutionMemory.read(id)?.lastExtraction).toMatchObject({
         provider: 'p',
         model: 'm',
@@ -1003,7 +1060,7 @@ describe('evolution reviewer', () => {
       const id = h.scope('ws-1')
       h.workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: h.dir, sessionIds: [SessionId('ghost')] })
       await h.ctx.evolutionReviewer.rebuild(id, new AbortController().signal)
-      expect(h.ctx.evolutionMemory.read(id)?.agentLessons).toContain('## Purpose')
+      expect(lessonsOf(h.ctx.evolutionMemory.read(id))).toContain('## Purpose')
       expect(warn).toHaveBeenCalledWith(expect.stringContaining('rebuild skipped session'))
     } finally {
       warn.mockRestore()
@@ -1024,7 +1081,7 @@ describe('evolution reviewer', () => {
         sessionIds: [],
       })
       await h.ctx.evolutionReviewer.rebuild(emptyId, new AbortController().signal)
-      expect(h.ctx.evolutionMemory.read(emptyId)?.agentLessons).toContain('## Purpose')
+      expect(lessonsOf(h.ctx.evolutionMemory.read(emptyId))).toContain('## Purpose')
       expect(h.calls[0]).toMatchObject({ provider: 'p', model: 'm' })
     } finally {
       await h.fiber.dispose()
@@ -1049,7 +1106,7 @@ describe('evolution reviewer', () => {
       })
       await h.ctx.evolutionReviewer.rebuild(id, new AbortController().signal)
       const record = h.ctx.evolutionMemory.read(id)
-      expect(record?.agentLessons).toContain('## Purpose')
+      expect(lessonsOf(record)).toContain('## Purpose')
       expect(record?.lastExtraction).toMatchObject({ sessionId: String(only.id), truncated: false })
       // The lone over-budget row is kept whole instead of dropped.
       expect(record?.lastExtraction?.inputBytes).toBeGreaterThan(60)
@@ -1088,7 +1145,7 @@ describe('evolution reviewer', () => {
         expect(h.calls).toHaveLength(2)
       })
       await vi.waitFor(() => {
-        expect(h.ctx.evolutionMemory.read(id)?.agentLessons).toContain('## Purpose')
+        expect(lessonsOf(h.ctx.evolutionMemory.read(id))).toContain('## Purpose')
       })
       await new Promise(resolve => setTimeout(resolve, 50))
     } finally {
@@ -1187,7 +1244,7 @@ describe('evolution reviewer', () => {
       const id = h.scope('ws-1')
       h.workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: h.dir, sessionIds: [session.id] })
       await h.ctx.evolutionReviewer.rebuild(id, new AbortController().signal)
-      expect(h.ctx.evolutionMemory.read(id)?.agentLessons).toContain('## Purpose')
+      expect(lessonsOf(h.ctx.evolutionMemory.read(id))).toContain('## Purpose')
       const framed = (h.calls[0]?.messages[0]?.content[0] as { text: string }).text
       expect(framed).toContain('kept')
       expect(framed).not.toContain('dropped')
@@ -1200,7 +1257,7 @@ describe('evolution reviewer', () => {
         appendTurn(other, 1, { user: `remember ${'v'.repeat(300)}`, assistant: 'ok' })
         const otherWorkspace = { id: WorkspaceId('ws-2'), title: 'P', path: failing.dir, sessionIds: [other.id] }
         failing.workspaces.set('ws-2', otherWorkspace)
-        const recordSpy = vi.spyOn(failing.ctx.evolutionMemory, 'setLessons').mockRejectedValueOnce(new Error('lost write'))
+        const recordSpy = vi.spyOn(failing.ctx.evolutionMemory, 'replaceArtifacts').mockRejectedValueOnce(new Error('lost write'))
         appendTurn(other, 2, { user: `remember ${'u'.repeat(300)}`, assistant: 'ok' })
         await vi.waitFor(() => {
           expect(recordSpy).toHaveBeenCalled()
@@ -1224,7 +1281,7 @@ describe('evolution reviewer', () => {
       h.workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: h.dir, sessionIds: [session.id] })
       session.append('turn/end', { turn: 7, reason: { kind: 'completed' } })
       await vi.waitFor(() => {
-        expect(h.ctx.evolutionMemory.read(id)?.agentLessons).toContain('Late')
+        expect(lessonsOf(h.ctx.evolutionMemory.read(id))).toContain('Late')
       })
       const framed = (h.calls[0]?.messages[0]?.content[0] as { text: string }).text
       expect(framed).toContain('[]')
@@ -1326,7 +1383,7 @@ describe('evolution reviewer', () => {
       h.workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: h.dir, sessionIds: [session.id] })
       appendTurn(session, 1, { user: 'fix the parser', assistant: 'ok' })
       await vi.waitFor(() => {
-        expect(h.ctx.evolutionMemory.read(id)?.agentLessons).toContain('## Purpose')
+        expect(lessonsOf(h.ctx.evolutionMemory.read(id))).toContain('## Purpose')
       })
       expect(h.ctx.evolutionMemory.read(id)?.contextItems).toEqual([])
     } finally {
@@ -1358,7 +1415,7 @@ describe('evolution reviewer', () => {
       })
       appendTurn(searched, 1, { user: `remember ${'a'.repeat(300)}`, assistant: 'ok' })
       await vi.waitFor(() => {
-        expect(exact.ctx.evolutionMemory.read(searchedId)?.agentLessons).toContain('## Purpose')
+        expect(lessonsOf(exact.ctx.evolutionMemory.read(searchedId))).toContain('## Purpose')
       })
       expect(exact.ctx.evolutionMemory.read(searchedId)?.contextItems).toEqual([])
 
@@ -1407,7 +1464,7 @@ describe('evolution reviewer', () => {
       })
       appendTurn(session, 1, { user: `remember ${'c'.repeat(300)}`, assistant: 'ok' })
       await vi.waitFor(() => {
-        expect(onlySelf.ctx.evolutionMemory.read(id)?.agentLessons).toContain('## Purpose')
+        expect(lessonsOf(onlySelf.ctx.evolutionMemory.read(id))).toContain('## Purpose')
       })
       expect(onlySelf.ctx.evolutionMemory.read(id)?.contextItems).toEqual([])
 
@@ -1604,6 +1661,82 @@ describe('evolution reviewer', () => {
     }
   })
 
+  it('names several repeated outputs in the plural and warns when the proposal cannot be staged', async () => {
+    const h = await harness()
+    dirs.push(h.dir)
+    const warn = vi.spyOn(h.ctx.logger, 'warn').mockImplementation(() => {})
+    try {
+      const session = sessionIn(h.ctx, h.dir, 's1')
+      const id = h.scope('ws-1')
+      h.workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: h.dir, sessionIds: [session.id] })
+      const first = join(h.dir, 'readme.md')
+      const second = join(h.dir, 'notes.md')
+      const at = new Date().toISOString()
+      const output = (path: string) => ({ path, tool: 'write', sessionId: 's0', at })
+      // Two paths reach the threshold, so the proposal names both.
+      const origRead = h.ctx.evolutionMemory.read.bind(h.ctx.evolutionMemory)
+      vi.spyOn(h.ctx.evolutionMemory, 'read').mockImplementation((scopeId: unknown) => {
+        const record = origRead(scopeId as Parameters<typeof origRead>[0])
+        if (record === undefined) return record
+        return { ...record, outputs: [
+          output(first), output(first), output(first), output(second), output(second), output(second),
+        ]}
+      })
+      const staged = vi.spyOn(h.ctx.evolutionMemory, 'stageWrite').mockRejectedValue(new Error('staging offline'))
+      const produced = join(h.dir, 'out.ts')
+      await writeFile(produced, 'export const x = 1\n')
+      appendTurn(session, 1, {
+        user: 'write out.ts',
+        assistant: 'ok',
+        calls: [{ name: 'write', args: JSON.stringify({ file_path: produced }) }],
+      })
+      await vi.waitFor(() => {
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining('skill proposal staging failed'))
+      })
+      // A rejected proposal is a warning, not a failed turn: indexing stands.
+      expect(staged).toHaveBeenCalledWith(expect.objectContaining({
+        kind: 'skill',
+        op: 'create',
+        originSessionId: String(session.id),
+        gist: `Repeated outputs: ${first}, ${second}`,
+      }))
+      expect(origRead(id)?.outputs).toHaveLength(1)
+    } finally {
+      warn.mockRestore()
+      await h.fiber.dispose()
+    }
+  })
+
+  it('proposes no skill when the indexed record carries no outputs', async () => {
+    const h = await harness()
+    dirs.push(h.dir)
+    try {
+      const session = sessionIn(h.ctx, h.dir, 's1')
+      const id = h.scope('ws-1')
+      h.workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: h.dir, sessionIds: [session.id] })
+      const origRead = h.ctx.evolutionMemory.read.bind(h.ctx.evolutionMemory)
+      vi.spyOn(h.ctx.evolutionMemory, 'read').mockImplementation((scopeId: unknown) => {
+        const record = origRead(scopeId as Parameters<typeof origRead>[0])
+        return record === undefined ? record : { ...record, outputs: [] }
+      })
+      const staged = vi.spyOn(h.ctx.evolutionMemory, 'stageWrite')
+      const produced = join(h.dir, 'out.ts')
+      await writeFile(produced, 'export const x = 1\n')
+      appendTurn(session, 1, {
+        user: 'write out.ts',
+        assistant: 'ok',
+        calls: [{ name: 'write', args: JSON.stringify({ file_path: produced }) }],
+      })
+      await vi.waitFor(() => {
+        expect(origRead(id)?.outputs).toHaveLength(1)
+      })
+      // No outputs in view is no evidence, so nothing is proposed.
+      expect(staged).not.toHaveBeenCalled()
+    } finally {
+      await h.fiber.dispose()
+    }
+  })
+
   it('stages a skill proposal when skillCreationEvidence fires on output paths', async () => {
     const h = await harness()
     dirs.push(h.dir)
@@ -1657,10 +1790,10 @@ describe('evolution reviewer', () => {
       h.workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: h.dir, sessionIds: [session.id] })
       appendTurn(session, 1, { user: `remember ${'q'.repeat(300)}`, assistant: 'ok' })
       await vi.waitFor(() => {
-        expect(h.ctx.evolutionMemory.read(id)?.agentLessons).toContain('## Purpose')
+        expect(lessonsOf(h.ctx.evolutionMemory.read(id))).toContain('## Purpose')
       })
       const record = h.ctx.evolutionMemory.read(id)
-      expect(Buffer.byteLength(record?.agentLessons ?? '', 'utf8')).toBeLessThanOrEqual(65536)
+      expect(artifactBytesOf(record?.agentLessons ?? [])).toBeLessThanOrEqual(65536)
       expect(record?.lastExtraction).toMatchObject({ truncated: true })
     } finally {
       await h.fiber.dispose()
