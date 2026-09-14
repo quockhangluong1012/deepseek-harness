@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## Summary
 
-`dsh-client-ui-evolution` 拥有演进历程页面以及本包的 `evolutionCurator` Remote 命名空间。页面按可切换的时间窗口（今天、7 天、30 天、全部）展示某个作用域记录到的演进：读模型能证明的每日桶——指令、经验与画像的写入、上下文附件、产出文件、待审写入，以及按日统计的审批决策——并排呈现等待决定的待审写入、整理器记录到的运行，以及简报相对记录上限的已用字节。作用域动词位于 Host 的 `ctx.evolutionController`（`evolution` 命名空间）；整理器状态面之所以在本包，是因为浏览器无法读取 Host 的 Cordis 服务。
+`dsh-client-ui-evolution` 拥有演进历程页面以及本包的 `evolutionCurator` Remote 命名空间。页面按可切换的时间窗口（今天、7 天、30 天、全部）展示某个作用域记录到的演进：读模型能证明的每日桶——指令、经验与画像的写入、上下文附件、产出文件、待审写入，以及按日统计的审批决策——并排呈现等待决定的待审写入、该作用域当前的经验工件（按置信度从高到低渲染）、整理器记录到的运行，以及简报相对记录上限的已用字节。作用域动词位于 Host 的 `ctx.evolutionController`（`evolution` 命名空间）；整理器状态面之所以在本包，是因为浏览器无法读取 Host 的 Cordis 服务。
 
 ## Table of Contents
 

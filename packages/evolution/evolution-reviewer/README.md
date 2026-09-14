@@ -59,11 +59,11 @@ The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-a
 
 ### Writing and approval
 
-Turn extraction writes the whole lessons document with `background_review` provenance. Under `writeApproval` the same document stages as a `setLessons` op for `/memory approve` instead, and only an explicit `rebuild` (provenance `rebuild`) keeps writing directly. A failed extraction warns and keeps the previous document; teardown and session disposal abort in-flight calls.
+Turn extraction stores the whole lessons document as one coarse artifact — the squeezed text as its statement — with `background_review` provenance. Under `writeApproval` the same document stages as a `replaceArtifacts` op for `/memory approve` instead, and only an explicit `rebuild` (provenance `rebuild`) keeps writing directly. A failed extraction warns and keeps the previous document; teardown and session disposal abort in-flight calls.
 
 ### Lean squeeze
 
-Between the extractor and the store, `squeezeLessons` reduces the model's output to the four memory headings: prose before the first heading and lines under any other heading are dropped. When the result still exceeds `squeezeBytes`, bodies clear whole one heading at a time in `squeezeOrder` — the first heading listed goes first — and the last body still standing is clipped at a UTF-8 boundary. The stored document is flagged `truncated` whenever material was lost this way, and the store's own `maxAgentBytes` still caps a `squeezeBytes` set above it, clipping at a UTF-8 boundary before the single retry.
+Between the extractor and the store, `squeezeLessons` reduces the model's output to the four memory headings: prose before the first heading and lines under any other heading are dropped. When the result still exceeds `squeezeBytes`, bodies clear whole one heading at a time in `squeezeOrder` — the first heading listed goes first — and the last body still standing is clipped at a UTF-8 boundary. The stored document is flagged `truncated` whenever material was lost this way. A `squeezeBytes` set above the store's own `maxAgentBytes` does not survive that cap either, because the cap measures the serialized artifact array, in which the statement appears twice — as `statement` and as the normalized identity keying it — inside a fixed envelope. The retry therefore solves for the longest statement prefix whose artifact fits, searching the prefix length against the store's own reported measurement rather than assuming the text budget equals the cap.
 
 ### Ranked recall
 

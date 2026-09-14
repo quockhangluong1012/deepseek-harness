@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-client-ui-evolution` owns the evolution journey page and this package's `evolutionCurator` Remote namespace. The page shows one Scope's recorded evolution over a switchable window (today, 7 days, 30 days, all) with the day buckets the read model proves — instructions, lessons, and profile writes, context attachments, produced files, staged writes, and the staged decisions counted per day — beside the staged writes awaiting a decision, the curator's recorded passes, and the brief's charged bytes against the record's ceiling. Scope verbs live on the Host `ctx.evolutionController` (`evolution` namespace); the curator status face exists here because a browser cannot read a Host Cordis service.
+`dsh-client-ui-evolution` owns the evolution journey page and this package's `evolutionCurator` Remote namespace. The page shows one Scope's recorded evolution over a switchable window (today, 7 days, 30 days, all) with the day buckets the read model proves — instructions, lessons, and profile writes, context attachments, produced files, staged writes, and the staged decisions counted per day — beside the staged writes awaiting a decision, the Scope's current lesson artifacts rendered strongest-first with their confidence, the curator's recorded passes, and the brief's charged bytes against the record's ceiling. Scope verbs live on the Host `ctx.evolutionController` (`evolution` namespace); the curator status face exists here because a browser cannot read a Host Cordis service.
 
 ## Table of Contents
 

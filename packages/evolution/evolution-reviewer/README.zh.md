@@ -59,11 +59,11 @@ kind: "package-reference"
 
 ### 写入与审批
 
-回合提取以 `background_review` 来源重写整份经验文档。在 `writeApproval` 下，同一文档改为以 `setLessons` 操作暂存，等待 `/memory approve`；只有显式 `rebuild`（来源 `rebuild`）保持直接写入。失败的提取告警并保留旧文档； teardown 与会话释放会中止在途调用。
+回合提取把整份经验文档存为一个粗粒度工件——其 statement 即挤压后的文本——来源为 `background_review`。在 `writeApproval` 下，同一文档改为以 `replaceArtifacts` 操作暂存，等待 `/memory approve`；只有显式 `rebuild`（来源 `rebuild`）保持直接写入。失败的提取告警并保留旧文档； teardown 与会话释放会中止在途调用。
 
 ### 精简挤压
 
-在提取器与存储之间，`squeezeLessons` 把模型输出归约为四个记忆标题：首个标题之前的散文与任何其他标题之下的行都会被丢弃。结果仍超出 `squeezeBytes` 时，按 `squeezeOrder` 逐标题整体清空正文——列在最前的标题最先清空——最后一个仍在的正文在 UTF-8 边界处裁剪。只要由此丢失了材料，存储的文档就标记 `truncated`；若 `squeezeBytes` 配得高于存储自身的 `maxAgentBytes`，存储仍会上限约束它，在唯一一次重试前于 UTF-8 边界裁剪。
+在提取器与存储之间，`squeezeLessons` 把模型输出归约为四个记忆标题：首个标题之前的散文与任何其他标题之下的行都会被丢弃。结果仍超出 `squeezeBytes` 时，按 `squeezeOrder` 逐标题整体清空正文——列在最前的标题最先清空——最后一个仍在的正文在 UTF-8 边界处裁剪。只要由此丢失了材料，存储的文档就标记 `truncated`。若 `squeezeBytes` 配得高于存储自身的 `maxAgentBytes`，也过不了该上限：上限度量的是序列化后的工件数组，其中 statement 出现两次——一次作为 `statement`，一次作为给它命名的规范化标识——并包在固定外壳里。因此重试求解的是「工件能容纳的最长 statement 前缀」，用存储自己报告的度量去搜索前缀长度，而不是假定文本预算等于上限。
 
 ### 排序召回
 

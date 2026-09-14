@@ -47,7 +47,7 @@ Mount it beside `dsh-evolution-memory` and a workspace registry when a Web clien
 |---|---|---|
 | `read` | `{ scopeId }` | The scope's projected record, or the empty projection when it has none. |
 | `setInstructions` | `{ scopeId, instructions }` | Replaces the user-authored rules and returns the projection. |
-| `setLessons` | `{ scopeId, lessons }` | Replaces the lessons document by hand and returns the projection. |
+| `setLessons` | `{ scopeId, artifacts }` | Replaces the whole lesson-artifact list and returns the projection; an artifact the caller omits is dropped rather than kept beside the new ones. |
 | `setProfile` | `{ scopeId, profile }` | Replaces the user-profile document by hand and returns the projection. |
 | `addContextItem` | `{ scopeId, kind, label, text }` or `{ scopeId, kind, label, path }` | Attaches pasted text or a real file inside the Workspace. |
 | `removeContextItem` | `{ scopeId, itemId }` | Detaches one context item. |
