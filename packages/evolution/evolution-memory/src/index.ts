@@ -173,7 +173,12 @@ export interface Config {
   maintenanceIntervalHours?: number
   /** Refutations at or above which decay prunes an artifact regardless of age. */
   refutationFloor?: number
-  /** Days a new artifact is given when its caller supplies no ttl. */
+  /**
+   * Days a new artifact is given as its ttl when its caller supplies none.
+   * Decay prunes an artifact this many days after the last write that touched
+   * it, so keeping one alive takes a write that reaches it: a refine pass over
+   * the scope's lessons or an explicit edit, never a read.
+   */
   defaultTtlDays?: number
 }
 
@@ -430,12 +435,14 @@ function artifactIdOf(candidate: LessonArtifactInput): string {
  * @param candidate - validated caller-supplied artifact fields.
  * @param id - identity the artifact stores under.
  * @param now - ISO-8601 instant to stamp as both instants.
+ * @param defaultTtlDays - ttl to give the artifact when the candidate carries none.
  * @returns the artifact with its store-assigned identity, counters, and instants.
  */
-function freshArtifact(candidate: LessonArtifactInput, id: string, now: string): LessonArtifact {
+function freshArtifact(candidate: LessonArtifactInput, id: string, now: string, defaultTtlDays: number): LessonArtifact {
   return {
     ...structuredClone(candidate),
     id,
+    ttlDays: candidate.ttlDays ?? defaultTtlDays,
     validationCount: 0,
     refutationCount: 0,
     createdAt: now,
@@ -462,6 +469,7 @@ function freshArtifact(candidate: LessonArtifactInput, id: string, now: string):
  * @param target - the artifact selected for this candidate outside the write
  * chain; undefined when nothing matched closely enough.
  * @param now - ISO-8601 instant to stamp.
+ * @param defaultTtlDays - ttl a new artifact is given when the candidate carries none.
  * @returns the candidate record without the family stamp, or `record` itself
  * when the add stores nothing.
  */
@@ -471,12 +479,13 @@ function addArtifactTo(
   strategy: LessonMergeStrategy,
   target: LessonArtifact | undefined,
   now: string,
+  defaultTtlDays: number,
 ): EvolutionMemoryRecord {
   const id = artifactIdOf(candidate)
   const matched = record.agentLessons.find(artifact => artifact.id === target?.id)
     ?? record.agentLessons.find(artifact => artifact.id === id)
   if (matched === undefined) {
-    return { ...record, agentLessons: [...record.agentLessons, freshArtifact(candidate, id, now)] }
+    return { ...record, agentLessons: [...record.agentLessons, freshArtifact(candidate, id, now, defaultTtlDays)] }
   }
   if (strategy === 'keep_both') return record
   const merged = mergeArtifact(matched, candidate, strategy, now)
@@ -489,12 +498,14 @@ function addArtifactTo(
  * @param record - current record value.
  * @param candidates - validated caller-supplied artifact fields.
  * @param now - ISO-8601 instant to stamp as both instants.
+ * @param defaultTtlDays - ttl an artifact is given when its candidate carries none.
  * @returns the candidate record without the family stamp.
  */
 function replaceArtifactsIn(
   record: EvolutionMemoryRecord,
   candidates: readonly LessonArtifactInput[],
   now: string,
+  defaultTtlDays: number,
 ): EvolutionMemoryRecord {
   const seen = new Set<string>()
   const artifacts: LessonArtifact[] = []
@@ -504,7 +515,7 @@ function replaceArtifactsIn(
       throw new Error(`evolution-memory: replacement artifact list repeats identity '${id}'`)
     }
     seen.add(id)
-    artifacts.push(freshArtifact(candidate, id, now))
+    artifacts.push(freshArtifact(candidate, id, now, defaultTtlDays))
   }
   return { ...record, agentLessons: artifacts }
 }
@@ -680,7 +691,7 @@ function applyMemoryStagedOp(
     case 'addArtifact': {
       const candidate = lessonArtifactInput.parse(fields.candidate)
       const strategy = mergeStrategyField(fields.strategy)
-      const next = addArtifactTo(record, candidate, strategy, addTarget, new Date().toISOString())
+      const next = addArtifactTo(record, candidate, strategy, addTarget, new Date().toISOString(), resolved.defaultTtlDays)
       if (next === record) return { record, family: null }
       checkArtifactCaps(next, resolved)
       return { record: withStagedExtraction(next, fields), family: 'lessons' }
@@ -695,7 +706,7 @@ function applyMemoryStagedOp(
     }
     case 'replaceArtifacts': {
       const candidates = requiredCandidates(fields).map(raw => lessonArtifactInput.parse(raw))
-      const next = replaceArtifactsIn(record, candidates, new Date().toISOString())
+      const next = replaceArtifactsIn(record, candidates, new Date().toISOString(), resolved.defaultTtlDays)
       checkArtifactCaps(next, resolved)
       return { record: withStagedExtraction(next, fields), family: 'lessons' }
     }
@@ -911,7 +922,7 @@ export class EvolutionMemoryStore extends Service {
       : pickMergeTarget(parsed, artifacts, await this.similarities(parsed, artifacts), this.resolved.mergeSimilarityFloor)
     const now = new Date().toISOString()
     return this.write(id, (record) => {
-      const next = addArtifactTo(record, parsed, strategy, target, now)
+      const next = addArtifactTo(record, parsed, strategy, target, now, this.resolved.defaultTtlDays)
       checkArtifactCaps(next, this.resolved)
       return stampFamily(next, 'lessons', now)
     })
@@ -968,7 +979,7 @@ export class EvolutionMemoryStore extends Service {
     const parsed = candidates.map(candidate => lessonArtifactInput.parse(candidate))
     const now = new Date().toISOString()
     return this.write(id, (record) => {
-      const next = replaceArtifactsIn(record, parsed, now)
+      const next = replaceArtifactsIn(record, parsed, now, this.resolved.defaultTtlDays)
       checkArtifactCaps(next, this.resolved)
       return stampFamily(next, 'lessons', now)
     })
@@ -996,15 +1007,18 @@ export class EvolutionMemoryStore extends Service {
     const instant = Date.parse(now)
     const decayed = (artifact: LessonArtifact): boolean => prunable(artifact, instant, this.resolved.refutationFloor)
     if (!record.agentLessons.some(decayed)) return { pruned: 0, refined: 0 }
-    // The write chain resolves the record again below: another write can have
-    // landed since the read above, and the survivors must come from the record
-    // actually being written, not from the snapshot that decided to write.
-    const updated = await this.write(scopeId, current => stampFamily(
-      { ...current, agentLessons: current.agentLessons.filter(artifact => !decayed(artifact)) },
-      'lessons',
-      now,
-    ))
-    return { pruned: record.agentLessons.length - updated.agentLessons.length, refined: 0 }
+    // The record the snapshot above decided on is not necessarily the record
+    // the write chain resolves: another write can land in between. Both the
+    // survivors and the count therefore come from the record actually being
+    // written, so `pruned` is what this sweep removed, never what the stale
+    // snapshot expected it to remove.
+    let pruned = 0
+    await this.write(scopeId, (current) => {
+      const kept = current.agentLessons.filter(artifact => !decayed(artifact))
+      pruned = current.agentLessons.length - kept.length
+      return stampFamily({ ...current, agentLessons: kept }, 'lessons', now)
+    })
+    return { pruned, refined: 0 }
   }
 
   /**
