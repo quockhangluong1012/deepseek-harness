@@ -970,18 +970,23 @@ export class EvolutionMemoryStore extends Service {
    * repeats an identity is refused.
    * @param id - scope identity.
    * @param candidates - the whole lessons document, one candidate per fact.
+   * @param extraction - provenance when model-written.
    * @returns the stored record.
    */
   async replaceArtifacts(
     id: EvolutionScopeId,
     candidates: readonly LessonArtifactInput[],
+    extraction?: EvolutionExtraction,
   ): Promise<EvolutionMemoryRecord> {
     const parsed = candidates.map(candidate => lessonArtifactInput.parse(candidate))
     const now = new Date().toISOString()
     return this.write(id, (record) => {
       const next = replaceArtifactsIn(record, parsed, now, this.resolved.defaultTtlDays)
       checkArtifactCaps(next, this.resolved)
-      return stampFamily(next, 'lessons', now)
+      return stampFamily({
+        ...next,
+        ...extraction === undefined ? {} : { lastExtraction: structuredClone(extraction) },
+      }, 'lessons', now)
     })
   }
 

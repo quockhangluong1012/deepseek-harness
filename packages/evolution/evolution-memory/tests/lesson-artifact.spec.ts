@@ -12,7 +12,7 @@ describe('lesson artifacts', () => {
   it('wraps a legacy lessons document as one coarse artifact', () => {
     const wrapped = wrapLegacyLessons('## Purpose\nWork', NOW)
     expect(wrapped).toHaveLength(1)
-    expect(wrapped[0].id).toBe(artifactKey('## Purpose\nWork'))
+    expect(wrapped[0]?.id).toBe(artifactKey('## Purpose\nWork'))
     expect(wrapped[0]).toMatchObject({
       statement: '## Purpose\nWork',
       source: 'migration-pending',

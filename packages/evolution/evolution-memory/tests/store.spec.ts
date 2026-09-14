@@ -9,10 +9,25 @@ import EvolutionMemoryStore, {
   scopeIdFromStorageKey,
   storageKey,
   type LessonArtifactInput,
+  type EvolutionExtraction,
 } from '../src/index.ts'
 import type { EvolutionScopeId as ScopeId } from '../src/types.ts'
+import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import { evolutionMemoryDomainSpec, evolutionMemoryRecord } from '../src/spec.ts'
 import { digestOf, truncateUtf8 } from '../src/digest.ts'
+
+/**
+ * A staged payload carrying artifact candidates. `LessonArtifactInput` is a
+ * mapped type whose optional `ttlDays` admits `undefined`, so it is not
+ * assignable to the store's `JsonValue` payload type even though the value
+ * stored is JSON; the store validates the candidate when the entry is
+ * approved, so the bridge casts are test-side only.
+ * @param value - the payload object to hand the store.
+ * @returns the same object typed as a JSON value.
+ */
+function artifactPayload(value: object): JsonValue {
+  return value as unknown as JsonValue
+}
 
 async function harness(
   config: {
@@ -283,7 +298,7 @@ describe('evolution-memory store', () => {
     const before = store.read(id)
     const staged = await store.stageWrite({
       scopeId: id, kind: 'memory', op: 'addArtifact', originSessionId: 's1', gist: 'g',
-      payload: { candidate: candidate('  ') },
+      payload: artifactPayload({ candidate: candidate('  ') }),
     })
     await expect(store.approveStaged(staged.id)).rejects.toThrow('is blank once normalized')
     const after = store.read(id)
@@ -451,6 +466,28 @@ describe('evolution-memory store', () => {
       code: 'evolution/too-large',
     })
     expect(store.read(id)).toEqual(before)
+    await fiber.dispose()
+  })
+
+  it('replaceArtifacts stamps provenance when given extraction and leaves it alone otherwise', async () => {
+    const { fiber, store } = await harness()
+    const id = scope()
+    const extraction: EvolutionExtraction = {
+      at: '2026-01-01T00:00:00.000Z',
+      sessionId: 's9',
+      provider: 'p',
+      model: 'm',
+      origin: 'background_review',
+      inputBytes: 7,
+      truncated: true,
+    }
+    const stamped = await store.replaceArtifacts(id, [candidate('one')], extraction)
+    expect(stamped.lastExtraction).toEqual(extraction)
+    // The stored provenance is a copy, not the caller's object.
+    expect(stamped.lastExtraction).not.toBe(extraction)
+    const plain = await store.replaceArtifacts(id, [candidate('two')])
+    expect(plain.agentLessons.map(artifact => artifact.statement)).toEqual(['two'])
+    expect(plain.lastExtraction).toEqual(extraction)
     await fiber.dispose()
   })
 
@@ -717,7 +754,7 @@ describe('evolution-memory store', () => {
       scopeId: id,
       kind: 'memory',
       op: 'addArtifact',
-      payload: {
+      payload: artifactPayload({
         candidate: candidate('reviewed fact'),
         extraction: {
           at: '2026-01-01T00:00:00.000Z',
@@ -728,7 +765,7 @@ describe('evolution-memory store', () => {
           inputBytes: 7,
           truncated: false,
         },
-      },
+      }),
       originSessionId: 's9',
       gist: 'g',
     })
@@ -794,7 +831,7 @@ describe('evolution-memory store', () => {
       scopeId: id,
       kind: 'memory',
       op: 'replaceArtifacts',
-      payload: {
+      payload: artifactPayload({
         candidates: [candidate('one'), candidate('two')],
         extraction: {
           at: '2026-01-01T00:00:00.000Z',
@@ -805,7 +842,7 @@ describe('evolution-memory store', () => {
           inputBytes: 7,
           truncated: false,
         },
-      },
+      }),
       originSessionId: 's9',
       gist: 'g',
     })
@@ -824,7 +861,7 @@ describe('evolution-memory store', () => {
     const before = store.read(id)
     const staged = await store.stageWrite({
       scopeId: id, kind: 'memory', op: 'replaceArtifacts', originSessionId: 's1', gist: 'g',
-      payload: { candidates: [candidate('same'), candidate('same')] },
+      payload: artifactPayload({ candidates: [candidate('same'), candidate('same')] }),
     })
     await expect(store.approveStaged(staged.id)).rejects.toThrow("repeats identity 'same'")
     const after = store.read(id)
@@ -838,7 +875,7 @@ describe('evolution-memory store', () => {
     const id = scope()
     await store.setInstructions(id, 'rules')
     const staged = await store.stageWrite({
-      scopeId: id, kind: 'memory', op: 'addArtifact', payload: { candidate: candidate('first') }, originSessionId: 's1', gist: 'g',
+      scopeId: id, kind: 'memory', op: 'addArtifact', payload: artifactPayload({ candidate: candidate('first') }), originSessionId: 's1', gist: 'g',
     })
     await store.approveStaged(staged.id)
     expect(store.read(id)?.agentLessons.map(artifact => artifact.statement)).toEqual(['first'])
@@ -865,7 +902,7 @@ describe('evolution-memory store', () => {
     const before = store.read(id)
     const staged = await store.stageWrite({
       scopeId: id, kind: 'memory', op: 'addArtifact', originSessionId: 's1', gist: 'g',
-      payload: { candidate: candidate('alpha'), strategy: 'keep_both' },
+      payload: artifactPayload({ candidate: candidate('alpha'), strategy: 'keep_both' }),
     })
     await store.approveStaged(staged.id)
     const after = store.read(id)
@@ -917,7 +954,7 @@ describe('evolution-memory store', () => {
     const id = scope()
     const staged = await store.stageWrite({
       scopeId: id, kind: 'memory', op: 'addArtifact', originSessionId: 's1', gist: 'g',
-      payload: { candidate: candidate('x'.repeat(1024)) },
+      payload: artifactPayload({ candidate: candidate('x'.repeat(1024)) }),
     })
     await expect(store.approveStaged(staged.id)).rejects.toMatchObject({ code: 'evolution/capacity-exceeded' })
     expect(store.read(id)?.staged).toHaveLength(1)
@@ -947,7 +984,7 @@ describe('evolution-memory store', () => {
       scopeId: id,
       kind: 'memory',
       op: 'addArtifact',
-      payload: { candidate: candidate('fine'), strategy: 'absorb' },
+      payload: artifactPayload({ candidate: candidate('fine'), strategy: 'absorb' }),
       originSessionId: 's1',
       gist: 'g',
     })
@@ -1056,7 +1093,7 @@ describe('evolution-memory store', () => {
     expect(store.read(id)?.instructions).toBe('i')
     expect(store.read(id)?.contextItems).toEqual([])
     const staged = await store.stageWrite({
-      scopeId: id, kind: 'memory', op: 'addArtifact', payload, originSessionId: 's1', gist: 'g',
+      scopeId: id, kind: 'memory', op: 'addArtifact', payload: artifactPayload(payload), originSessionId: 's1', gist: 'g',
     })
     payload.candidate.statement = 'mutated'
     staged.gist = 'mutated'
@@ -1207,7 +1244,7 @@ describe('evolution-memory decisions and family stamps', () => {
     const beforeArtifact = store.read(id)
     const artifact = await store.stageWrite({
       scopeId: id, kind: 'memory', op: 'addArtifact', originSessionId: 's1', gist: 'g',
-      payload: { candidate: candidate('kept lesson') },
+      payload: artifactPayload({ candidate: candidate('kept lesson') }),
     })
     await store.approveStaged(artifact.id)
     const afterArtifact = store.read(id)

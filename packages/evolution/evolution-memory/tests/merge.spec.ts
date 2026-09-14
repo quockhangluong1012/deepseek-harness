@@ -7,6 +7,20 @@ import EvolutionMemoryStore, { EvolutionScopeId } from '../src/index.ts'
 import { artifactKey, type LessonArtifact, type LessonArtifactInput } from '../src/lesson-artifact.ts'
 import { cosineSimilarity, mergeArtifact, pickMergeTarget } from '../src/merge.ts'
 import type { EvolutionScopeId as ScopeId } from '../src/types.ts'
+import type { JsonValue } from '@deepseek-ai/dsh-util-values'
+
+/**
+ * A staged payload carrying artifact candidates. `LessonArtifactInput` is a
+ * mapped type whose optional `ttlDays` admits `undefined`, so it is not
+ * assignable to the store's `JsonValue` payload type even though the value
+ * stored is JSON; the store validates the candidate when the entry is
+ * approved, so the bridge cast is test-side only.
+ * @param value - the payload object to hand the store.
+ * @returns the same object typed as a JSON value.
+ */
+function artifactPayload(value: object): JsonValue {
+  return value as unknown as JsonValue
+}
 
 const NOW = '2026-09-13T00:00:00.000Z'
 
@@ -212,7 +226,7 @@ describe('evolution-memory addArtifact merging', () => {
     await store.addArtifact(id, storeCandidate('use postgres', { conditions: 'database work' }))
     const staged = await store.stageWrite({
       scopeId: id, kind: 'memory', op: 'addArtifact', originSessionId: 's1', gist: 'g',
-      payload: { candidate: storeCandidate('use postgres 15', { conditions: 'rechecked' }), strategy: 'merge' },
+      payload: artifactPayload({ candidate: storeCandidate('use postgres 15', { conditions: 'rechecked' }), strategy: 'merge' }),
     })
     await store.approveStaged(staged.id)
     const after = store.read(id)

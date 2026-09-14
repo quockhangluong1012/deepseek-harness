@@ -10,6 +10,11 @@ import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import type {} from '@deepseek-ai/dsh-typert-protocol'
 import type { LessonArtifact, LessonArtifactInput, LessonArtifactPatch, LessonMergeStrategy } from './lesson-artifact.ts'
 
+// The artifact vocabulary is re-exported here so a browser-safe consumer —
+// the controller's wire face, for one — can name the artifact types without
+// importing the package root, whose module body reaches for `node:crypto`.
+export type { LessonArtifact, LessonArtifactInput, LessonArtifactPatch, LessonMergeStrategy } from './lesson-artifact.ts'
+
 declare module '@deepseek-ai/dsh-typert-protocol' {
   interface RemoteErrorDetailsMap {
     /** A field exceeds its configured byte cap. */
