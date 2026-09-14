@@ -104,9 +104,6 @@ function fakeEmbeddings(): FakeEmbeddings {
 
 interface Workspace { id: WorkspaceId; title: string; path: string; sessionIds: SessionId[] }
 
-/** One entity a graph double can answer with. */
-interface FakeEntity { id: string; label: string }
-
 /** Knowledge-graph double plus every read it received. */
 interface FakeGraph {
   calls: {
@@ -120,31 +117,39 @@ interface FakeGraph {
 }
 
 /**
- * Knowledge-graph double: `find` answers `seed` for every query and `expand`
- * the configured `neighbors`, both recording their arguments. `fail` makes one
- * read throw, the way a mounted but broken engine would.
- * @param options - seed entity, expanded neighbors, and which read to fail.
+ * Knowledge-graph double over a fixed entity set. `find` matches a label that
+ * *contains* the query, exactly like `EvolutionGraph.find`, so a whole-turn
+ * lookup answers nothing and only a token lookup can seed. `expand` returns the
+ * configured neighbors. Both record their arguments; `fail` makes one read
+ * throw, the way a mounted but broken engine would.
+ * @param options - the scope's entity labels, its neighbors, and which read to fail.
  * @returns the double and its recorded calls.
  */
 function fakeGraph(options: {
-  seed?: FakeEntity
-  neighbors?: readonly FakeEntity[]
+  labels?: readonly string[]
+  neighbors?: readonly string[]
   fail?: 'find' | 'expand'
 } = {}): FakeGraph {
   const calls: FakeGraph['calls'] = { find: [], expand: [] }
+  const nodes = (labels: readonly string[]) => labels.map(label => ({
+    id: label.toLowerCase(),
+    label,
+    kind: null,
+  }))
   return {
     calls,
     service: {
       find: (scope, query, limit) => {
         calls.find.push({ scope, query, limit })
         if (options.fail === 'find') throw new Error('graph read failed')
-        return options.seed === undefined ? [] : [{ ...options.seed, kind: null }]
+        const needle = query.trim().toLowerCase()
+        return nodes((options.labels ?? []).filter(label => label.toLowerCase().includes(needle))).slice(0, limit)
       },
       expand: (scope, subject, depth, limit) => {
         calls.expand.push({ scope, subject, depth, limit })
         if (options.fail === 'expand') throw new Error('graph read failed')
-        return (options.neighbors ?? []).map((node, index) => ({
-          node: { ...node, kind: null },
+        return nodes(options.neighbors ?? []).map((node, index) => ({
+          node,
           path: ['relates_to'],
           depth: index + 1,
         }))
@@ -583,17 +588,72 @@ describe('active-memory-context injector', () => {
       { id: 'sibling-atlas', text: 'atlas launch slipped a week' },
       { id: 'sibling-ava', text: 'ava owns the rollout' },
     ])
-    const graph = fakeGraph({ seed: { id: 'atlas', label: 'Atlas' }, neighbors: [{ id: 'ava', label: 'Ava' }] })
+    const graph = fakeGraph({ labels: ['Atlas'], neighbors: ['Ava'] })
     ctx.provide('evolutionGraph', graph.service as never)
 
-    const decision = await preStep(ctx, fakeAgent(session), [textMessage('what about atlas')])
+    const decision = await preStep(ctx, fakeAgent(session), [textMessage('atlas')])
     const text = briefText(briefsOf(decision.kind === 'enter' ? decision.messages : [])[0])
 
     expect(text).toContain('sibling-atlas')
     expect(text).toContain('sibling-ava')
     expect(text).toContain('via graph connections')
-    expect(graph.calls.find).toEqual([{ scope: 'default:ws-1', query: 'what about atlas', limit: 1 }])
+    expect(graph.calls.find).toEqual([{ scope: 'default:ws-1', query: 'atlas', limit: 1 }])
     expect(graph.calls.expand).toEqual([{ scope: 'default:ws-1', subject: 'Atlas', depth: 1, limit: 5 }])
+  })
+
+  it('seeds a multi-word turn from the word that names an entity', async () => {
+    const { ctx, workspaces } = await harness({ maxBytes: 4096 })
+    const session = await scopeWith(ctx, workspaces, [
+      { id: 'sibling-atlas', text: 'atlas launch slipped a week' },
+      { id: 'sibling-ava', text: 'ava owns the rollout' },
+    ])
+    const graph = fakeGraph({ labels: ['Atlas'], neighbors: ['Ava'] })
+    ctx.provide('evolutionGraph', graph.service as never)
+
+    const decision = await preStep(ctx, fakeAgent(session), [textMessage('what about the ATLAS launch?')])
+    const text = briefText(briefsOf(decision.kind === 'enter' ? decision.messages : [])[0])
+
+    expect(graph.calls.find.map(call => call.query)).toEqual(['what', 'about', 'the', 'atlas'])
+    expect(graph.calls.expand).toEqual([{ scope: 'default:ws-1', subject: 'Atlas', depth: 1, limit: 5 }])
+    expect(text).toContain('sibling-atlas')
+    expect(text).toContain('sibling-ava')
+  })
+
+  it('spends at most graphLimit label lookups on a turn that names no entity', async () => {
+    const fake = fakeEmbeddings()
+    const { ctx, workspaces } = await harness({ maxBytes: 4096, graphLimit: 3 }, fake.service)
+    const session = await scopeWith(ctx, workspaces, [{ id: 'sibling-needle', text: 'needle in the stack' }])
+    const graph = fakeGraph({ labels: ['Atlas'] })
+    ctx.provide('evolutionGraph', graph.service as never)
+
+    const decision = await preStep(ctx, fakeAgent(session), [textMessage('needle alpha beta gamma delta')])
+    const text = briefText(briefsOf(decision.kind === 'enter' ? decision.messages : [])[0])
+
+    expect(graph.calls.find.map(call => call.query)).toEqual(['needle', 'alpha', 'beta'])
+    expect(graph.calls.expand).toEqual([])
+    expect(text).toContain('sibling-needle')
+    expect(text).not.toContain('via graph connections')
+  })
+
+  it('leaves the brief byte-identical to the vector-only result when the turn names no entity', async () => {
+    const withGraph = fakeEmbeddings()
+    const mounted = await harness({ maxBytes: 4096 }, withGraph.service)
+    const mountedSession = await scopeWith(mounted.ctx, mounted.workspaces, [
+      { id: 'sibling-needle', text: 'needle in the stack' },
+    ])
+    mounted.ctx.provide('evolutionGraph', fakeGraph({ labels: ['Atlas'] }).service as never)
+    const mountedDecision = await preStep(mounted.ctx, fakeAgent(mountedSession), [textMessage('needle please')])
+
+    const withoutGraph = fakeEmbeddings()
+    const alone = await harness({ maxBytes: 4096 }, withoutGraph.service)
+    const aloneSession = await scopeWith(alone.ctx, alone.workspaces, [
+      { id: 'sibling-needle', text: 'needle in the stack' },
+    ])
+    const aloneDecision = await preStep(alone.ctx, fakeAgent(aloneSession), [textMessage('needle please')])
+
+    const briefs = (decision: typeof mountedDecision) => briefsOf(decision.kind === 'enter' ? decision.messages : [])
+    expect(briefs(mountedDecision)).toHaveLength(1)
+    expect(briefText(briefs(mountedDecision)[0])).toBe(briefText(briefs(aloneDecision)[0]))
   })
 
   it('behaves exactly as before when no graph is mounted', async () => {
@@ -643,7 +703,7 @@ describe('active-memory-context injector', () => {
       { id: 'sibling-needle', text: 'needle in the stack' },
       { id: 'sibling-ava', text: 'ava owns the rollout' },
     ])
-    ctx.provide('evolutionGraph', fakeGraph({ seed: { id: 'atlas', label: 'Atlas' }, fail: 'find' }).service as never)
+    ctx.provide('evolutionGraph', fakeGraph({ labels: ['Atlas'], fail: 'find' }).service as never)
 
     const decision = await preStep(ctx, fakeAgent(session), [textMessage('needle')])
     const text = briefText(briefsOf(decision.kind === 'enter' ? decision.messages : [])[0])
@@ -659,11 +719,9 @@ describe('active-memory-context injector', () => {
       { id: 'sibling-needle', text: 'needle in the stack' },
       { id: 'sibling-ava', text: 'ava owns the rollout' },
     ])
-    const graph = fakeGraph({
-      seed: { id: 'atlas', label: 'Atlas' },
-      neighbors: [{ id: 'ava', label: 'Ava' }],
-      fail: 'expand',
-    })
+    // The seed label must match a token of the turn so the leg actually reaches
+    // `expand`, which is the read under test here.
+    const graph = fakeGraph({ labels: ['Needle'], neighbors: ['Ava'], fail: 'expand' })
     ctx.provide('evolutionGraph', graph.service as never)
 
     const decision = await preStep(ctx, fakeAgent(session), [textMessage('needle')])
@@ -676,7 +734,7 @@ describe('active-memory-context injector', () => {
   it('skips the graph leg when the session has no resolvable workspace membership', async () => {
     const { ctx } = await harness({ maxBytes: 4096 })
     const session = ctx.sessions.create(SessionId('outsider'), { meta: header('outsider') })
-    const graph = fakeGraph({ seed: { id: 'atlas', label: 'Atlas' } })
+    const graph = fakeGraph({ labels: ['Atlas'] })
     ctx.provide('evolutionGraph', graph.service as never)
 
     const decision = await preStep(ctx, fakeAgent(session), [textMessage('atlas')])
@@ -691,7 +749,7 @@ describe('active-memory-context injector', () => {
       { id: 'sibling-atlas', text: 'atlas launch slipped a week' },
       { id: 'sibling-ava', text: 'ava owns the rollout' },
     ])
-    const graph = fakeGraph({ seed: { id: 'atlas', label: 'Atlas' }, neighbors: [{ id: 'ava', label: 'Ava' }] })
+    const graph = fakeGraph({ labels: ['Atlas'], neighbors: ['Ava'] })
     ctx.provide('evolutionGraph', graph.service as never)
 
     const decision = await preStep(ctx, fakeAgent(session), [textMessage('atlas')])
@@ -733,10 +791,7 @@ describe('active-memory-context injector', () => {
       { id: 'sibling-atlas', text: 'atlas launch slipped a week' },
       { id: 'sibling-ava', text: 'ava owns the rollout' },
     ])
-    ctx.provide('evolutionGraph', fakeGraph({
-      seed: { id: 'atlas', label: 'Atlas' },
-      neighbors: [{ id: 'ava', label: 'Ava' }],
-    }).service as never)
+    ctx.provide('evolutionGraph', fakeGraph({ labels: ['Atlas'], neighbors: ['Ava'] }).service as never)
     const engine = ctx.get('sessionQuery') as SelectiveSessionQuery
     engine.failing.add('Atlas')
 
@@ -768,7 +823,9 @@ describe('active-memory-context injector', () => {
     await ctx.plugin(activeMemoryContext, { maxBytes: 4096 })
     contexts.push(ctx)
     const session = await scopeWith(ctx, workspaces, [{ id: 'sibling-needle', text: 'needle in the stack' }])
-    ctx.provide('evolutionGraph', fakeGraph({ seed: { id: 'atlas', label: 'Atlas' } }).service as never)
+    // The label must match a token of the turn, or the graph leg seeds nothing
+    // and never reaches the lexical search whose failure this test propagates.
+    ctx.provide('evolutionGraph', fakeGraph({ labels: ['Needle'] }).service as never)
 
     await expect(preStep(ctx, fakeAgent(session), [textMessage('needle')])).rejects.toThrow('lexical boom')
   })

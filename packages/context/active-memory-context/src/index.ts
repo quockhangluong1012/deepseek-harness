@@ -282,9 +282,9 @@ export function apply(ctx: Context, config: Config): void {
 
   /**
    * Search the scope's other sessions by the labels of the entities the graph
-   * reaches from `query`, so a turn about one known subject also finds the
-   * sessions connected to it rather than only the ones that read like it. Hits
-   * come back unscored: relevance here is a connection, not a distance.
+   * reaches from the turn's own words, so a turn about one known subject also
+   * finds the sessions connected to it rather than only the ones that read like
+   * it. Hits come back unscored: relevance here is a connection, not a distance.
    *
    * Fail-soft throughout — an unmounted, older, or failing graph yields no
    * results instead of blocking the turn.
@@ -298,9 +298,21 @@ export function apply(ctx: Context, config: Config): void {
     const workspace = memberWorkspace(session)
     if (workspace === undefined) return []
     const scope = EvolutionScopeId(profile, String(workspace.id))
+    // The graph is matched by label, so a whole turn never seeds it: scan the
+    // turn's own words instead and let the earliest-mentioned entity win. The
+    // budget is `graphLimit` lookups, the same bound the label cap uses.
+    const tokens = query.toLowerCase().split(/\s+/).slice(0, graphLimit)
     let seed: GraphNode | undefined
     try {
-      seed = graph.find(scope, query, 1)[0]
+      for (const token of tokens) {
+        /* v8 ignore next -- query is trimmed and non-empty, so no token is empty; kept as find's empty needle matches every entity. */
+        if (token.length === 0) continue
+        const found = graph.find(scope, token, 1)
+        if (found.length > 0) {
+          seed = found[0]
+          break
+        }
+      }
     } catch {
       return []
     }
