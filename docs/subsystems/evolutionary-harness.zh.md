@@ -556,11 +556,11 @@ async applyExtractionDecisions( id: EvolutionScopeId, decisions: readonly Lesson
 /**
  * Replace the whole lessons document from a candidate list: the
  * document-level counterpart to {@link addArtifact}, {@link updateArtifact},
- * and {@link removeArtifact}, not a compatibility shim. The markdown
- * extraction pipeline rewrites a scope's lessons as one document and uses
- * this until it emits per-candidate ops. Every candidate is validated and
- * given a fresh identity, counters, and instants, so a candidate list that
- * repeats an identity is refused.
+ * and {@link removeArtifact}, not a compatibility shim. A caller replaces
+ * the whole list by hand this way; the controller's `setLessons` Remote op
+ * is its one caller. Every candidate is validated and given a fresh
+ * identity, counters, and instants, so a candidate list that repeats an
+ * identity is refused.
  * @param id - scope identity.
  * @param candidates - the whole lessons document, one candidate per fact.
  * @param extraction - provenance when model-written.
@@ -575,9 +575,10 @@ async replaceArtifacts( id: EvolutionScopeId, candidates: readonly LessonArtifac
  * `updatedAt` nor the lessons family stamp; a sweep that drops something
  * stamps the lessons family like any other lessons write.
  *
- * `refined` is always 0. Refining the coarse artifact `wrapLegacyLessons`
- * admits from a legacy lessons document needs the structured extraction
- * call that belongs to Phase 2; until then the coarse artifact is a correct,
+ * `refined` is always 0. The extraction protocol folds decisions into the
+ * artifacts it reads rather than refining them, so nothing yet splits the
+ * coarse artifact `wrapLegacyLessons` admits from a legacy lessons
+ * document; until a pass does that, the coarse artifact is a correct,
  * permanent fallback and this sweep never calls an extractor.
  * @param scopeId - scope identity.
  * @param now - ISO-8601 instant to judge decay at and stamp the write with,
