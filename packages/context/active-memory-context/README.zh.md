@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 摘要
 
-`dsh-active-memory-context` 在模型作答前，用用户最新一条消息去搜索同一 workspace 下的其它会话，并把经过相关性过滤的结果拼接进 `agent/pre-step`——这是主动检索，而不必让用户开口说"搜索既往会话"，也不用等周期性提示。它与 `dsh-evolution-memory-context` 互补：后者注入的是静态的、按 scope 的简报（instructions、lessons、profile），内容从不依赖用户刚问了什么；本包每一轮注入的内容都不同，取决于该轮自身的内容。当一个 scope 里既往的会话应当自动浮现、而不必让模型耗费一次工具调用去搜索时，选择本包。
+`dsh-active-memory-context` 在模型作答前，用用户最新一条消息去搜索同一 workspace 下的其它会话，并把经过相关性过滤的结果拼接进 `agent/pre-step`——这是主动检索，而不必让用户开口说"搜索既往会话"，也不用等周期性提示。它与 `dsh-evolution-memory-context` 互补：后者注入的是静态的、按 scope 的简报（instructions、lessons、profile），内容从不依赖用户刚问了什么；本包每一轮注入的内容都不同，取决于该轮自身的内容。当组合还提供 `ctx.evolutionGraph` 时，第二条腿会从该轮次提到的实体出发沿图的连接检索，因此挂在已知实体上的会话即使读起来不像该轮次也会浮现。当一个 scope 里既往的会话应当自动浮现、而不必让模型耗费一次工具调用去搜索时，选择本包。
 
 ## 目录
 
@@ -24,7 +24,7 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用本包
 
-挂载本插件时需要 workspace registry，以及一个向量通道已就绪的 session-query 后端（在 `dsh-session-query-sqlite` 之后挂载嵌入服务，例如 `dsh-embeddings-http`）。作用域按每轮从 workspace 成员关系解析（registry 中的 session id，回退到 canonical-path 的 `cwd` 匹配）；不属于任何 workspace 的轮次，或所在 workspace 没有其它会话的轮次，都不会注入任何内容。
+挂载本插件时需要 workspace registry，以及一个向量通道已就绪的 session-query 后端（在 `dsh-session-query-sqlite` 之后挂载嵌入服务，例如 `dsh-embeddings-http`）。作用域按每轮从 workspace 成员关系解析（registry 中的 session id，回退到 canonical-path 的 `cwd` 匹配）；不属于任何 workspace 的轮次，或所在 workspace 没有其它会话的轮次，都不会注入任何内容。若挂载还提供 `ctx.evolutionGraph`，则会额外获得下文所述的图谱腿；没有它时，简报与仅有向量腿的结果完全一致。
 
 ### 配置
 
@@ -42,6 +42,9 @@ kind: "package-reference"
 | `topK` | `5` | 每次搜索在应用相关性阈值前排序的候选结果数 |
 | `relevanceThreshold` | `0.7` | 命中要值得注入所需达到的最低余弦相似度 |
 | `turnInterval` | `1` | 两次 active-memory 搜索之间间隔的轮数 |
+| `profile` | `default` | 图谱腿读取的作用域身份命名空间；必须与该 scope 图谱被提取时所用的 profile 一致 |
+| `graphDepth` | `1` | 图谱腿自命中实体向外展开的跳数 |
+| `graphLimit` | `5` | 一次图谱展开可用于播种搜索的实体标签数 |
 
 生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-active-memory-context)是每个可接受字段的详尽来源。
 
@@ -51,7 +54,7 @@ kind: "package-reference"
 
 ### 成本与节奏
 
-每个符合条件的轮次都会运行一次语义搜索（为查询做一次嵌入调用，加上向量存储尚未持有的文档——参见 `dsh-session-query-sqlite` 的惰性嵌入设计）。`turnInterval` 用与 `dsh-evolution-memory-context` 的提示间隔相同的方式限制这部分成本：尚未观察到 `turn/start` 的会话计为第 0 轮，读作其第一轮，因此 `turnInterval: 1` 会在第一轮就搜索。同一个已观察轮次内的重试步骤永不重新搜索：注入器记得自己上一次为哪一轮搜索过。
+每个符合条件的轮次都会运行一次语义搜索（为查询做一次嵌入调用，加上向量存储尚未持有的文档——参见 `dsh-session-query-sqlite` 的惰性嵌入设计）。图谱腿不增加嵌入调用，也不增加模型调用：它只是对本地图谱做标签查找，外加至多 `graphLimit` 次落在该轮次本就搜索的语料上的文本搜索。`turnInterval` 用与 `dsh-evolution-memory-context` 的提示间隔相同的方式限制这部分成本：尚未观察到 `turn/start` 的会话计为第 0 轮，读作其第一轮，因此 `turnInterval: 1` 会在第一轮就搜索。同一个已观察轮次内的重试步骤永不重新搜索：注入器记得自己上一次为哪一轮搜索过。
 
 -----
 
@@ -67,16 +70,18 @@ kind: "package-reference"
 
 向量通道失败（`SESSION_QUERY_SEMANTIC_UNAVAILABLE`、`SESSION_QUERY_SEARCH_DISABLED`）会降级为不注入，而不是阻塞该轮次；其它任何失败都会向上传播,因为那意味着真正的缺陷,而非预期中的部署状态。
 
+当挂载提供 `ctx.evolutionGraph` 时，第二条腿按连接而非相似度检索。图谱按标签匹配，所以整轮文本不是可用的查询：该腿扫描该轮次自己的前若干个词——至多 `graphLimit` 个——取其中第一个作用域图谱认识的词，向外展开 `graphDepth` 跳，并按每个到达的标签在同一语料上各做一次文本搜索，标签数受 `graphLimit` 约束。这些命中不携带分数，因为它们的相关性是连接而不是距离，因此简报用 `via graph connections` 标注，而不是编造一个相似度。两条腿排序的是同一份语料，因此两个排名按倒数排名融合：两条腿都找到的会话排在其一单独找到的会话之前。图谱通过 `ctx.get('evolutionGraph')` 获取，因此未挂载、版本较旧或失败的图谱会让简报与仅有向量腿的结果完全一致。
+
 ### 源码地图
 
 | 文件 | 职责 |
 |---|---|
-| [`src/index.ts`](src/index.ts) | 插件入口：pre-step 搜索、workspace 成员关系、轮次节奏、相关性过滤 |
+| [`src/index.ts`](src/index.ts) | 插件入口：pre-step 搜索、workspace 成员关系、轮次节奏、相关性过滤、图谱腿与排名融合 |
 | [`src/render.ts`](src/render.ts) | 在字节预算内的纯简报渲染 |
 
 ### 失败与恢复
 
-缺失或无法解析的 workspace 成员关系、空查询、不在节奏上的轮次、低于阈值的结果集，以及放不进 `maxBytes` 的简报，都会降级为不注入，而不是让该步骤失败。没有发布运行时不变式伴生入口,因为注入器不拥有任何自己的持久状态:成员关系与轮次计数器都是进程本地缓存,从 `ctx.workspaceRegistry` 与已观察到的会话事件重建,从不是权威来源。
+缺失或无法解析的 workspace 成员关系、空查询、不在节奏上的轮次、低于阈值的结果集、未挂载或对该 profile 无内容的图谱，以及放不进 `maxBytes` 的简报，都会降级为不注入——或仅保留向量腿的命中——而不是让该步骤失败。没有发布运行时不变式伴生入口,因为注入器不拥有任何自己的持久状态:成员关系与轮次计数器都是进程本地缓存,从 `ctx.workspaceRegistry` 与已观察到的会话事件重建,从不是权威来源。
 
 </details>
 
@@ -88,6 +93,7 @@ kind: "package-reference"
 - [演进 harness 规范](../../../specs/evolutionary-harness-spec-v10-complete.md) §14——本包实现的 Active Memory Sub-Agent 行为。
 - [dsh-session-query](../../session-query/session-query/README.zh.md)——本包调用的搜索服务；参见其向量通道章节了解相关性分数如何产生。
 - [dsh-evolution-memory-context](../evolution-memory-context/README.zh.md)——同级的静态按-scope 简报注入器;两者都读一遍就能看出为什么它们是两个包而非一个。
+- [dsh-evolution-graph](../../evolution/evolution-graph/README.zh.md)——为第二条搜索腿播种的知识图谱。
 - [Session Query 子系统参考](../../../docs/subsystems/session-query.zh.md)——完整的类型级搜索契约。
 
 -----
@@ -99,7 +105,7 @@ kind: "package-reference"
 
 #### 模型看到什么
 
-每个符合条件的轮次,若有相关命中在过滤后幸存,就有一条 `user/message`:一个带框架的文本块,列出每个幸存会话、其命中时间戳、余弦相似度,以及匹配文本的片段。
+每个符合条件的轮次,若有相关命中在过滤后幸存,就有一条 `user/message`:一个带框架的文本块,列出每个幸存会话、其命中时间戳,以及匹配文本的片段;每行标注该命中的余弦相似度,或对经图谱到达、无分数的命中标注 `via graph connections`。
 
 ##### 该字段的逐字文本(如需要)
 
@@ -107,6 +113,7 @@ kind: "package-reference"
 <system-reminder>
 Relevant memory found in earlier sessions in this scope:
 1. [session <id> @ <timestamp>, similarity <score>] <snippet>
+2. [session <id> @ <timestamp>, via graph connections] <snippet>
 </system-reminder>
 ```
 

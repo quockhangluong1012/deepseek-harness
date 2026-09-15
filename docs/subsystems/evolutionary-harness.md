@@ -334,7 +334,7 @@ Source: [`packages/evolution/evolution-feedback/src/index.ts`](../../packages/ev
 
 ### `ctx.evolutionGraph` — `EvolutionGraph`
 
-Durable per-scope knowledge graph. Opens the `evolution_graph` domain at init and closes it through `ctx.effect`.
+Durable per-scope knowledge graph. Opens the `evolution_graph` domain at init, closes it through `ctx.effect`, and registers the heartbeat task that extracts the scopes it has buffered text for.
 
 ```ts cordis-catalog
 /**

@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-active-memory-context` searches other sessions in the same workspace with the user's newest message before the model responds, and splices the relevance-filtered results into `agent/pre-step` — proactive retrieval instead of the user having to ask "search past sessions" or wait for a periodic nudge. It complements `dsh-evolution-memory-context`, which injects a static per-scope brief (instructions, lessons, profile) that never depends on what the user just asked; this package injects a different result every turn, keyed to the turn's own content. Choose it when a scope's prior sessions should surface automatically without the model spending a tool call to search for them.
+`dsh-active-memory-context` searches other sessions in the same workspace with the user's newest message before the model responds, and splices the relevance-filtered results into `agent/pre-step` — proactive retrieval instead of the user having to ask "search past sessions" or wait for a periodic nudge. It complements `dsh-evolution-memory-context`, which injects a static per-scope brief (instructions, lessons, profile) that never depends on what the user just asked; this package injects a different result every turn, keyed to the turn's own content. When the composition also provides `ctx.evolutionGraph`, a second leg follows the graph's connections from the entities the turn names, so a session attached to a known entity surfaces even when it does not read like the turn. Choose it when a scope's prior sessions should surface automatically without the model spending a tool call to search for them.
 
 ## Table of Contents
 
@@ -24,7 +24,7 @@ English | [中文](README.zh.md)
 <a id="use-this-package"></a>
 ## Use this package
 
-Mount the plugin with the workspace registry and a session-query backend whose vector channel is populated (an embeddings service, e.g. `dsh-embeddings-http`, mounted behind `dsh-session-query-sqlite`). Scopes resolve per turn from workspace membership (registry session ids, falling back to a canonical-path `cwd` match); turns outside any workspace, or in a workspace with no other session, add nothing.
+Mount the plugin with the workspace registry and a session-query backend whose vector channel is populated (an embeddings service, e.g. `dsh-embeddings-http`, mounted behind `dsh-session-query-sqlite`). Scopes resolve per turn from workspace membership (registry session ids, falling back to a canonical-path `cwd` match); turns outside any workspace, or in a workspace with no other session, add nothing. A mount that also provides `ctx.evolutionGraph` gains the graph leg below; without it the brief is exactly the vector-only one.
 
 ### Configuration
 
@@ -42,6 +42,9 @@ Mount the plugin with the workspace registry and a session-query backend whose v
 | `topK` | `5` | Candidate results ranked per search, before the relevance threshold |
 | `relevanceThreshold` | `0.7` | Minimum cosine similarity a hit must clear to be worth injecting |
 | `turnInterval` | `1` | Turns between active-memory searches |
+| `profile` | `default` | Scope-identity namespace the graph leg reads; must match the profile the scope's graph was extracted under |
+| `graphDepth` | `1` | Hops the graph leg expands from the entity it matched |
+| `graphLimit` | `5` | Entity labels one graph expansion may seed searches with |
 
 The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-active-memory-context) is the exhaustive source for every accepted field.
 
@@ -51,7 +54,7 @@ A nearest-neighbor vector search always answers with its closest candidates, how
 
 ### Cost and cadence
 
-Every eligible turn runs one semantic search (an embedding call for the query, plus whatever documents the vector store does not already hold — see `dsh-session-query-sqlite`'s lazy embedding design). `turnInterval` throttles that cost the same way `dsh-evolution-memory-context`'s nudge intervals do: a session with no observed `turn/start` yet counts as turn 0 and reads as its first turn, so `turnInterval: 1` searches on the very first turn. A retried step for the same observed turn never re-searches: the injector remembers the last turn it searched for.
+Every eligible turn runs one semantic search (an embedding call for the query, plus whatever documents the vector store does not already hold — see `dsh-session-query-sqlite`'s lazy embedding design). The graph leg adds no embedding call and no model call: it is label lookups against the local graph plus at most `graphLimit` text searches on the corpus the turn already searches. `turnInterval` throttles that cost the same way `dsh-evolution-memory-context`'s nudge intervals do: a session with no observed `turn/start` yet counts as turn 0 and reads as its first turn, so `turnInterval: 1` searches on the very first turn. A retried step for the same observed turn never re-searches: the injector remembers the last turn it searched for.
 
 -----
 
@@ -67,16 +70,18 @@ At each `agent/pre-step`, the injector reads the text of the proposed step's own
 
 A vector-channel failure (`SESSION_QUERY_SEMANTIC_UNAVAILABLE`, `SESSION_QUERY_SEARCH_DISABLED`) degrades to no injection rather than blocking the turn; any other failure propagates, since it signals a genuine defect rather than an expected deployment state.
 
+When a mount provides `ctx.evolutionGraph`, a second leg searches by connection instead of similarity. The graph matches labels, so a whole turn is not a usable query: the leg scans the turn's own leading words — at most `graphLimit` of them — and takes the first the scope's graph knows, expands it `graphDepth` hops, and searches the same corpus by text once per reached label, labels capped at `graphLimit`. These hits come back unscored, because their relevance is a connection rather than a distance, and the brief labels them `via graph connections` instead of inventing a similarity. The two legs rank one corpus, so their rankings are fused by reciprocal rank: a session both legs found outranks one only a single leg found. The graph is reached through `ctx.get('evolutionGraph')`, so an unmounted, older, or failing graph leaves the brief identical to the vector-only result.
+
 ### Source map
 
 | File | Role |
 |---|---|
-| [`src/index.ts`](src/index.ts) | Plugin entry: pre-step search, workspace membership, turn cadence, relevance filtering |
+| [`src/index.ts`](src/index.ts) | Plugin entry: pre-step search, workspace membership, turn cadence, relevance filtering, the graph leg, and rank fusion |
 | [`src/render.ts`](src/render.ts) | Pure brief rendering within the byte budget |
 
 ### Failure and recovery
 
-Missing or unresolvable workspace membership, an empty query, an off-cadence turn, a below-threshold result set, and a brief that does not fit `maxBytes` all degrade to no injection rather than failing the step. No invariant companion is published because the injector owns no durable state of its own: membership and turn counters are process-local caches rebuilt from `ctx.workspaceRegistry` and observed session events, never the source of truth.
+Missing or unresolvable workspace membership, an empty query, an off-cadence turn, a below-threshold result set, a graph that is unmounted or holds nothing for the scope's profile, and a brief that does not fit `maxBytes` all degrade to no injection — or to the vector leg's hits alone — rather than failing the step. No invariant companion is published because the injector owns no durable state of its own: membership and turn counters are process-local caches rebuilt from `ctx.workspaceRegistry` and observed session events, never the source of truth.
 
 </details>
 
@@ -88,6 +93,7 @@ Missing or unresolvable workspace membership, an empty query, an off-cadence tur
 - [Evolutionary Harness specification](../../../specs/evolutionary-harness-spec-v10-complete.md) §14 — the Active Memory Sub-Agent behavior this package implements.
 - [dsh-session-query](../../session-query/session-query/README.md) — the search service this package calls; see its vector-channel section for how relevance scores are produced.
 - [dsh-evolution-memory-context](../evolution-memory-context/README.md) — the sibling static per-scope brief injector; read both to see why they are two packages, not one.
+- [dsh-evolution-graph](../../evolution/evolution-graph/README.md) — the knowledge graph whose labels seed the second search leg.
 - [Session Query subsystem reference](../../../docs/subsystems/session-query.md) — the full type-level search contract.
 
 -----
@@ -99,7 +105,7 @@ Missing or unresolvable workspace membership, an empty query, an off-cadence tur
 
 #### What the model sees
 
-One `user/message` per eligible turn, when a relevant hit survives filtering: a framed block naming each surviving session, its match timestamp, its cosine similarity, and a snippet of the matching text.
+One `user/message` per eligible turn, when a relevant hit survives filtering: a framed block naming each surviving session, its match timestamp, and a snippet of the matching text, each line noting either the hit's cosine similarity or `via graph connections` for an unscored hit reached through the graph.
 
 ##### Verbatim text for this field, when needed
 
@@ -107,6 +113,7 @@ One `user/message` per eligible turn, when a relevant hit survives filtering: a 
 <system-reminder>
 Relevant memory found in earlier sessions in this scope:
 1. [session <id> @ <timestamp>, similarity <score>] <snippet>
+2. [session <id> @ <timestamp>, via graph connections] <snippet>
 </system-reminder>
 ```
 

@@ -40,9 +40,11 @@ ctx.evolutionGraph.find(scope, 'project')                     // entities by lab
 
 `/graph` 命令是随包提供的消费者：`/graph "Project X"` 列出该实体的连接，`/graph "Project X" worked_on` 回答单个关系。多词实体需加引号；多出的未加引号词会报用法错误，而不是悄悄只取部分名称。
 
+本插件同时也是图谱的生产者。与 `dsh-evolution-heartbeat` 一起挂载时，它会缓冲每个作用域内用户与助手消息的文本，并注册 `evolution-graph-extract` 任务：每经过 `intervalHours`，该任务会提取自上次运行以来累积了文本的每个作用域，并随之清空该作用域的缓冲。因此空闲的作用域不产生任何模型调用。未挂载心跳引擎时，本包仍可观察、读取与按需提取；缺失的只是自动巡扫。
+
 ### 配置
 
-上界、查询边界与提取路由是可在 `cordis.yml` 中修改的、经过校验的 `Config` 成员。
+上界、查询边界、提取路由，以及自动巡扫的节奏与作用域命名空间，都是可在 `cordis.yml` 中修改的、经过校验的 `Config` 成员。
 
 ```yaml
 - name: '@deepseek-ai/dsh-evolution-graph'
@@ -59,10 +61,14 @@ ctx.evolutionGraph.find(scope, 'project')                     // entities by lab
 | `maxInputBytes` | `131072` | 单次提取调用的文本预算（UTF-8 字节） |
 | `maxOutputTokens` | `1024` | 单次提取调用的输出 token 上限 |
 | `timeoutMs` | `60000` | 单次提取调用的截止时间 |
+| `intervalHours` | `6` | 两次自动提取运行之间相隔的小时数 |
+| `profile` | `default` | 作用域身份命名空间；必须与读取本图的各消费者所用 profile 一致 |
 | `provider` | 未设 | 提取路由；与 `model` 同时设置 |
 | `model` | 未设 | 提取模型；设置 `provider` 时必需 |
 
 生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-evolution-graph)是每个可接受字段的详尽来源。
+
+当 `provider` 与 `model` 均未设置时，自动运行会取该作用域被缓冲的会话中第一个能报告请求路由的会话所用的路由，与 `dsh-evolution-reviewer` 使用同一回退；两种来源都解析不出路由的作用域会保留其缓冲，留待下次运行。
 
 -----
 
@@ -113,7 +119,7 @@ ctx.evolutionGraph.find(scope, 'project')                     // entities by lab
 
 #### Token 影响
 
-有上限：每次提取一次请求，受 `maxInputBytes` 的源文本与 `maxOutputTokens` 的补全约束。遍历与所有读取都不调用模型。
+有上限：每次提取一次请求，受 `maxInputBytes` 的源文本与 `maxOutputTokens` 的补全约束；一次自动运行会为每个有缓冲文本的作用域发出一次这样的请求，空闲作用域则不发。遍历与所有读取都不调用模型。
 
 #### KV Cache 影响
 
@@ -125,7 +131,7 @@ ctx.evolutionGraph.find(scope, 'project')                     // entities by lab
 
 这些限制界定了图谱不适合的场景。它们是当前包约束。
 
-- **在线回合路径上没有生产者**——`extract` 在调用方请求时运行；没有任何东西会在回合结束后自动建图。
+- **被缓冲的文本有两条丢失途径**——自动巡扫在提取该作用域的那一次运行中消耗其缓冲，因此若进程在此之前重启，自上次运行以来观察到的文本会丢失；缓冲区超过 `maxInputBytes` 时，最旧的消息会被丢弃以腾出空间。窗口受 `intervalHours` 与字节上限共同约束。
 - **关系不做语义去重**——`worked_on` 与 `workedOn` 会归一化成两个不同关系，也没有任何东西合并近义词。
 - **关系永不被移除**——被后来的资料否证的边仍保留其计数；只有提高上限或新建作用域才能重新开始。
 - **遍历是无向的**——`expand` 双向行走，因此会把入边当作出边报告，并且报的是关系名而非其反向名。

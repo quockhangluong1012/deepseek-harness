@@ -1200,7 +1200,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
   {
     key: 'evolutionGraph',
     summary: 'Durable per-scope knowledge graph.',
-    description: 'Durable per-scope knowledge graph. Opens the `evolution_graph` domain at init and closes it through `ctx.effect`.',
+    description: 'Durable per-scope knowledge graph. Opens the `evolution_graph` domain at init, closes it through `ctx.effect`, and registers the heartbeat task that extracts the scopes it has buffered text for.',
     methods: [
       {
         signature: 'read(scopeId: EvolutionScopeId): GraphRecord | undefined',

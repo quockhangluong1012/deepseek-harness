@@ -40,9 +40,11 @@ ctx.evolutionGraph.find(scope, 'project')                     // entities by lab
 
 The `/graph` command is the shipped consumer: `/graph "Project X"` lists an entity's connections, and `/graph "Project X" worked_on` answers one relation. A multi-word entity is quoted; an unquoted extra word is a usage error rather than a silent partial name.
 
+The plugin also produces the graph. Mounted beside `dsh-evolution-heartbeat`, it buffers the text of each scope's user and assistant messages and registers the `evolution-graph-extract` task: every `intervalHours` the task extracts each scope that accumulated text since its last run and clears that scope's buffer as it goes. An idle scope therefore costs no model call. A mount with no heartbeat engine still observes, reads, and extracts on demand; only the automatic sweep is absent.
+
 ### Configuration
 
-Caps, query bounds, and the extraction route are validated `Config` members changeable from `cordis.yml`.
+Caps, query bounds, the extraction route, and the automatic sweep's cadence and scope namespace are validated `Config` members changeable from `cordis.yml`.
 
 ```yaml
 - name: '@deepseek-ai/dsh-evolution-graph'
@@ -59,10 +61,14 @@ Caps, query bounds, and the extraction route are validated `Config` members chan
 | `maxInputBytes` | `131072` | Text budget for one extraction call in UTF-8 bytes |
 | `maxOutputTokens` | `1024` | Output-token cap for one extraction call |
 | `timeoutMs` | `60000` | Deadline for one extraction call |
+| `intervalHours` | `6` | Hours between two automatic extraction runs |
+| `profile` | `default` | Scope-identity namespace; must match the profile the readers of this graph use |
 | `provider` | unset | Extraction route; set together with `model` |
 | `model` | unset | Extraction model; required when `provider` is set |
 
 The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-evolution-graph) is the exhaustive source for every accepted field.
+
+With `provider` and `model` unset, an automatic run takes the route from the request route of the first of that scope's buffered sessions that can report one, the same fallback `dsh-evolution-reviewer` uses; a scope whose route resolves neither way keeps its buffer for a later run.
 
 -----
 
@@ -113,7 +119,7 @@ One user message carrying the clipped source text and a fixed system prompt that
 
 #### Token effect
 
-Capped: one request per extraction, bounded by `maxInputBytes` of source text and `maxOutputTokens` of completion. Traversal and every read call no model.
+Capped: one request per extraction, bounded by `maxInputBytes` of source text and `maxOutputTokens` of completion; an automatic run makes one such request per scope with buffered text and none for an idle scope. Traversal and every read call no model.
 
 #### KV Cache effect
 
@@ -125,7 +131,7 @@ Independent of live requests: extraction is a separate one-shot call with its ow
 
 These limits define when the graph is a poor fit. They are current package constraints.
 
-- **No producer on the live turn path** — `extract` runs when a caller asks for it; nothing builds the graph automatically after a turn.
+- **Buffered text has two ways to be missed** — the automatic sweep consumes each scope's buffer on the run that extracts it, so text observed since the last run is lost if the process restarts first, and a buffer past `maxInputBytes` drops its oldest message to make room. The window is bounded by `intervalHours` and by the byte cap.
 - **Relations are not deduplicated semantically** — `worked_on` and `workedOn` normalize to different relations, and nothing merges near-synonyms.
 - **No relation is ever removed** — an edge that a later source contradicts keeps its count; only a raised cap or a new scope starts over.
 - **Traversal is undirected** — `expand` walks edges in both directions, so it reports incoming relations as if they were outgoing, naming the relation rather than its inverse.

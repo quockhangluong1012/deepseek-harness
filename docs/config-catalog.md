@@ -56,10 +56,20 @@ export interface Config {
   relevanceThreshold?: number
   /** Turns between active-memory searches. Defaults to 1 (every turn). */
   turnInterval?: number
+  /**
+   * Scope-identity namespace the graph leg reads, which must match the profile
+   * the scope's graph was extracted under — a mismatch reads an empty graph and
+   * silently degrades to the vector leg. Defaults to 'default'.
+   */
+  profile?: string
+  /** Hops the graph leg expands from the entity it matched. Defaults to 1. */
+  graphDepth?: number
+  /** Entity labels one graph expansion may seed searches with. Defaults to 5. */
+  graphLimit?: number
 }
 ```
 
-Source: [`packages/context/active-memory-context/src/index.ts:39`](../packages/context/active-memory-context/src/index.ts)
+Source: [`packages/context/active-memory-context/src/index.ts:41`](../packages/context/active-memory-context/src/index.ts)
 
 <a id="deepseek-aidsh-agent-default-model"></a>
 
@@ -842,6 +852,14 @@ export interface Config {
   maxOutputTokens?: number
   /** Deadline for one extraction call in milliseconds. */
   timeoutMs?: number
+  /** Hours between two heartbeat extraction runs. */
+  intervalHours?: number
+  /**
+   * Scope-identity namespace placed before the workspace key, shared with the
+   * reviewer, the brief injector, and the controller so they read and write
+   * one scope (`profile: default` in `packages/bundle/web-app/cordis.patch.yml`).
+   */
+  profile?: string
   /** Provider route for extraction; set together with `model`. */
   provider?: string
   /** Model id for extraction; set together with `provider`. */
@@ -849,7 +867,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/evolution/evolution-graph/src/index.ts:45`](../packages/evolution/evolution-graph/src/index.ts)
+Source: [`packages/evolution/evolution-graph/src/index.ts:54`](../packages/evolution/evolution-graph/src/index.ts)
 
 <a id="deepseek-aidsh-evolution-heartbeat"></a>
 
