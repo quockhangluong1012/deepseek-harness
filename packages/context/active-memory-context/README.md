@@ -44,7 +44,7 @@ Mount the plugin with the workspace registry and a session-query backend whose v
 | `turnInterval` | `1` | Turns between active-memory searches |
 | `profile` | `default` | Scope-identity namespace the graph leg reads; must match the profile the scope's graph was extracted under |
 | `graphDepth` | `1` | Hops the graph leg expands from the entity it matched |
-| `graphLimit` | `5` | Entity labels one graph expansion may seed searches with |
+| `graphLimit` | `5` | Turn-leading words the entity scan tries, entities one `expand` may return, and labels the expansion may seed searches with |
 
 The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-active-memory-context) is the exhaustive source for every accepted field.
 

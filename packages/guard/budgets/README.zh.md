@@ -41,6 +41,8 @@ kind: "package-reference"
     maxTotalTokens: 200000   # reject a step once measured request pressure reaches this
     maxToolCalls: 50         # reject a step once this many tool calls are dispatched in the turn
     maxWallMs: 600000        # reject a step once the turn has run this long
+    maxCostUsd: 5             # reject a step once the turn's priced cost reaches this many USD
+    usdPerMillionTokens: 3    # USD per million measured tokens: what the deployment's model costs
 ```
 
 | 字段 | 默认值 | 含义 |
@@ -48,6 +50,8 @@ kind: "package-reference"
 | `maxTotalTokens` | 未设置（关闭） | 单个步骤实测请求压力的上限，在该步骤之前比较 |
 | `maxToolCalls` | 未设置（关闭） | 单个轮次内已分发工具调用的上限 |
 | `maxWallMs` | 未设置（关闭） | 单个轮次挂钟时长的上限，从其 `turn/start` 起算 |
+| `maxCostUsd` | 未设置（关闭） | 单个轮次实测成本（美元）的上限，在该步骤之前比较；需要同时设置 `usdPerMillionTokens` |
+| `usdPerMillionTokens` | 未设置（无作用） | 每百万实测 token 的部署定价（美元），即部署所用模型的成本；没有 `maxCostUsd` 时不起任何作用 |
 
 未设置的上限即处于关闭状态，因此无配置挂载的插件不会拒绝任何步骤。非正数或非有限值会让插件加载失败并给出明确错误，而不是悄悄关闭它所声明的上限；生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-budgets)是受支持取值的完整清单。
 
@@ -86,7 +90,7 @@ guard 建立在四项承诺之上：
 
 ### 各项上限分别比较什么
 
-`maxToolCalls` 比较该轮次已计入的 `tool/call` 事件数。`maxWallMs` 用 `Date.now() - facts.startedAt` 与该轮次自身的 `turn/start` 时间戳比较，因此是挂钟时间而非 CPU 时间。`maxTotalTokens` 比较 `ctx.tokenMeter.measure(agent.session).totalTokens`——计量器对请求总压力的估算，它在安全时复用提供方用量，否则重新计价当前 surface；这是对请求的测量，不是账单。
+`maxToolCalls` 比较该轮次已计入的 `tool/call` 事件数。`maxWallMs` 用 `Date.now() - facts.startedAt` 与该轮次自身的 `turn/start` 时间戳比较，因此是挂钟时间而非 CPU 时间。`maxTotalTokens` 比较 `ctx.tokenMeter.measure(agent.session).totalTokens`——计量器对请求总压力的估算，它在安全时复用提供方用量，否则重新计价当前 surface；这是对请求的测量，不是账单。`maxCostUsd` 按 `usdPerMillionTokens` 的每百万 token 价格为同一测量值计价，并比较该轮次的美元成本。
 
 ### 源码地图
 
@@ -138,11 +142,11 @@ guard 建立在四项承诺之上：
 这些限制说明 guard 何时不合适。它们是当前包约束，不是任务积压。
 
 - **读取时必需的事件**——`budget/exceeded` 记录不携带 `ignorable` 标记（append 路径无法写入该标记），因此比该事件更早的 harness 会拒绝整份日志，而不是跳过这次切断。读取由更新的 harness 切断过的日志前，请先升级读取方。
-- **没有成本上限**——规范中的 `maxCostUsd` 在 harness 中没有计价来源，因此没有任何随附上限为轮次计价。在计价 seam 出现之前，token 上限是金钱的替代指标。
+- **没有计价来源**——harness 自身无法为模型定价：`maxCostUsd` 按部署配置的 `usdPerMillionTokens` 以每百万 token 为单位乘以实测压力，因此过期的价格会悄悄误算每一轮的成本。请按提供方的现行费率设置价格，并在更换模型时重新校准。
 - **每个轮次的事实只覆盖被观察到的轮次**——插件加载时已经打开的轮次没有条目，永远不会被切断；这也意味着在轮次中途挂载的插件无法约束它挂载时所处的那个轮次。
 - **只在步骤之间检查**——单次长时间模型调用或工具执行不会被中断；上限在下一个拟进入的步骤生效，而永不提出步骤的 agent（例如挂起的提供方调用）不会被本 guard 停止。
 - **按轮次而非按会话**——每个轮次都会重新获得完整上限，因此长会话可以多次花掉同一份额度。
-- **人类输入绕过所有上限**——这是有意为之，但也意味着持续 steer 的用户会让轮次越过全部三项约束。
+- **人类输入绕过所有上限**——这是设计使然，但它意味着持续引导的用户会让轮次活过每一道上限。
 
 <a id="dev-note"></a>
 ### 开发备注
@@ -152,6 +156,6 @@ guard 建立在四项承诺之上：
 
 本开发备注是维护者的工作上下文：开放问题与尚未决定的探索方向。它明确不具权威性——已交付的行为、限制与既定理由以上文、包代码和相关 Agent Note 为准。
 
-字段名与[演化 harness 规范](../../../specs/evolutionary-harness.spec.md)表格不同：该表列出 `maxInputTokens` 与 `maxCostUsd`，而实际交付的字段是 `maxTotalTokens`，因为 `ctx.tokenMeter` 测量的是请求总压力而非仅输入 token；成本则在计价来源出现之前保持延期。
+字段名与[演化 harness 规范](../../../specs/evolutionary-harness.spec.md)表格不同：该表列出 `maxInputTokens` 与 `maxCostUsd`，而实际交付的字段是 `maxTotalTokens`，因为 `ctx.tokenMeter` 测量的是请求总压力而非仅输入 token；成本则由部署配置的 `usdPerMillionTokens` 计价，而非 harness 计价来源——后者并不存在。
 
 </details>

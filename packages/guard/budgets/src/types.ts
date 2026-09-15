@@ -6,7 +6,7 @@
  */
 
 /** Every ceiling name, in the order the guard evaluates them. */
-export const CEILINGS = ['maxTotalTokens', 'maxToolCalls', 'maxWallMs'] as const
+export const CEILINGS = ['maxTotalTokens', 'maxToolCalls', 'maxWallMs', 'maxCostUsd'] as const
 
 /** One ceiling a deployment can configure, named by its `Config` field. */
 export type CeilingName = typeof CEILINGS[number]

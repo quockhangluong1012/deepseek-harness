@@ -632,8 +632,10 @@ export class EvolutionGraph extends Service {
 
   /**
    * Extract and clear every scope with buffered text. Scopes are visited
-   * oldest-buffered first and the run bails out between them when its signal
-   * aborts. A scope whose route cannot be resolved, or a mount with no model
+   * oldest-buffered first and the sweep stops between them when its signal
+   * aborts — and the abort joins the failures, so an aborted run reports its
+   * aggregated error instead of resolving as a success that spent batches.
+   * A scope whose route cannot be resolved, or a mount with no model
    * seam at all, keeps its buffer for a later run instead of spending it.
    *
    * A scope's batch leaves the buffer before its call is awaited, not after:
@@ -651,7 +653,10 @@ export class EvolutionGraph extends Service {
     if (this.ctx.get('llm') === undefined) return
     const failures: string[] = []
     for (const [key, buffered] of [...this.pending]) {
-      if (signal.aborted) return
+      if (signal.aborted) {
+        failures.push(`${key}: run aborted`)
+        break
+      }
       const route = this.resolveRoute(buffered.sessionIds)
       if (route === undefined) continue
       const text = buffered.texts.join('\n')

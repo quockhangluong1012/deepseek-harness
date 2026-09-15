@@ -44,7 +44,7 @@ kind: "package-reference"
 | `turnInterval` | `1` | 两次 active-memory 搜索之间间隔的轮数 |
 | `profile` | `default` | 图谱腿读取的作用域身份命名空间；必须与该 scope 图谱被提取时所用的 profile 一致 |
 | `graphDepth` | `1` | 图谱腿自命中实体向外展开的跳数 |
-| `graphLimit` | `5` | 一次图谱展开可用于播种搜索的实体标签数 |
+| `graphLimit` | `5` | 尝试实体扫描的轮次前导词数、一次 `expand` 可返回的实体数，以及展开后可用于播种搜索的标签数 |
 
 生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-active-memory-context)是每个可接受字段的详尽来源。
 

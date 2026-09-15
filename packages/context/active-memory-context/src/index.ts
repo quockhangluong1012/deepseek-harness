@@ -196,6 +196,17 @@ interface ScopeWorkspace {
 }
 
 /**
+ * Scope members besides the turn's own session: a session never surfaces its
+ * own just-submitted message as its own "relevant memory".
+ * @param ids - every session id in the scope.
+ * @param self - the session whose turn is being briefed.
+ * @returns the scope without that session.
+ */
+function otherSessionIds(ids: readonly SessionId[], self: SessionId): SessionId[] {
+  return ids.filter(id => id !== self)
+}
+
+/**
  * Register the pre-step active-memory search for the lifetime of `ctx`.
  * @param ctx - plugin context; listeners dispose with it.
  * @param config - byte cap, result bounds, and search cadence.
@@ -264,7 +275,8 @@ export function apply(ctx: Context, config: Config): void {
   /**
    * Search the scope's other sessions for content relevant to `query`,
    * degrading to no results rather than blocking the turn when the vector
-   * channel is unavailable or the session has no resolvable scope.
+   * channel is unavailable or the session has no resolvable scope. Each
+   * degradation is debug-logged.
    */
   const search = async (
     session: Session,
@@ -273,7 +285,7 @@ export function apply(ctx: Context, config: Config): void {
   ): Promise<readonly SemanticSessionSearchHit[]> => {
     const scopeIds = await scopeSessionIds(session)
     if (scopeIds === undefined) return []
-    const others = scopeIds.filter(id => id !== session.id)
+    const others = otherSessionIds(scopeIds, session.id)
     if (others.length === 0) return []
     let page: { items: readonly SemanticSessionSearchHit[] }
     try {
@@ -282,7 +294,10 @@ export function apply(ctx: Context, config: Config): void {
         { signal },
       )
     } catch (error) {
-      if (error instanceof SessionQueryError) return []
+      if (error instanceof SessionQueryError) {
+        ctx.logger.debug(`active-memory: vector leg degraded (${error.code})`)
+        return []
+      }
       throw error
     }
     return page.items.filter(hit => hit.score >= relevanceThreshold)
@@ -295,7 +310,7 @@ export function apply(ctx: Context, config: Config): void {
    * it. Hits come back unscored: relevance here is a connection, not a distance.
    *
    * Fail-soft throughout — an unmounted, older, or failing graph yields no
-   * results instead of blocking the turn.
+   * results instead of blocking the turn. Each degradation is debug-logged.
    */
   const searchGraph = async (
     session: Session,
@@ -334,10 +349,11 @@ export function apply(ctx: Context, config: Config): void {
       // so reading the reached nodes stays inside the guard as well.
       const reached = graph.expand(scope, seed.label, graphDepth, graphLimit)
       labels = [...new Set([seed.label, ...reached.map(entry => entry.node.label)])].slice(0, graphLimit)
-    } catch {
+    } catch (error) {
+      ctx.logger.debug(`active-memory: graph leg degraded (${String(error)})`)
       return []
     }
-    const others = workspace.sessionIds.filter(id => id !== session.id)
+    const others = otherSessionIds(workspace.sessionIds, session.id)
     const hits: SessionSearchHit[] = []
     const seen = new Set<string>()
     for (const label of labels) {
@@ -357,7 +373,10 @@ export function apply(ctx: Context, config: Config): void {
           hits.push(item)
         }
       } catch (error) {
-        if (error instanceof SessionQueryError) continue
+        if (error instanceof SessionQueryError) {
+          ctx.logger.debug(`active-memory: graph label search degraded (${error.code})`)
+          continue
+        }
         throw error
       }
     }

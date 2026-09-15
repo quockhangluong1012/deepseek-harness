@@ -41,6 +41,8 @@ Mount the plugin with the ceilings the deployment wants:
     maxTotalTokens: 200000   # reject a step once measured request pressure reaches this
     maxToolCalls: 50         # reject a step once this many tool calls are dispatched in the turn
     maxWallMs: 600000        # reject a step once the turn has run this long
+    maxCostUsd: 5             # reject a step once the turn's priced cost reaches this many USD
+    usdPerMillionTokens: 3    # USD per million measured tokens: what the deployment's model costs
 ```
 
 | Field | Default | Meaning |
@@ -48,6 +50,8 @@ Mount the plugin with the ceilings the deployment wants:
 | `maxTotalTokens` | unset (off) | Ceiling on the measured request pressure of one step, compared before that step |
 | `maxToolCalls` | unset (off) | Ceiling on tool calls dispatched in one turn |
 | `maxWallMs` | unset (off) | Ceiling on one turn's wall-clock duration, measured from its `turn/start` |
+| `maxCostUsd` | unset (off) | Ceiling on one turn's measured cost in USD, compared before that step; needs `usdPerMillionTokens` |
+| `usdPerMillionTokens` | unset (inert) | Deployment price of one million measured tokens in USD; without `maxCostUsd` it does nothing |
 
 Each ceiling is off while unset, and a plugin mounted with no configuration rejects nothing. A non-positive or non-finite value fails plugin load with a clear error instead of silently disabling the ceiling it names, and the generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-budgets) is the complete list of accepted values.
 
@@ -86,7 +90,7 @@ One `agent/pre-step` listener evaluates a proposed step. It delegates untouched 
 
 ### What each ceiling compares
 
-`maxToolCalls` compares the turn's counted `tool/call` events. `maxWallMs` compares `Date.now() - facts.startedAt` against the turn's own `turn/start` timestamp, so it is wall clock, not CPU time. `maxTotalTokens` compares `ctx.tokenMeter.measure(agent.session).totalTokens` — the meter's estimate of total request pressure, which reuses provider usage when it is safe to do so and reprices the current surface otherwise; it is a measurement of the request, not a bill.
+`maxToolCalls` compares the turn's counted `tool/call` events. `maxWallMs` compares `Date.now() - facts.startedAt` against the turn's own `turn/start` timestamp, so it is wall clock, not CPU time. `maxTotalTokens` compares `ctx.tokenMeter.measure(agent.session).totalTokens` — the meter's estimate of total request pressure, which reuses provider usage when it is safe to do so and reprices the current surface otherwise; it is a measurement of the request, not a bill. `maxCostUsd` prices that same measurement at `usdPerMillionTokens` per million tokens and compares the turn's cost in USD.
 
 ### Source map
 
@@ -138,11 +142,11 @@ Append-only; rejecting a step adds nothing to the request surface, so existing K
 These limits define when the guard is a poor fit. They are current package constraints, not a task backlog.
 
 - **Required-on-read event** — the `budget/exceeded` record carries no `ignorable` marker (the append path cannot write one), so a harness older than the event refuses the whole log instead of skipping the cut. Upgrade the reader before reading a log a newer harness cut.
-- **No cost ceiling** — the specification's `maxCostUsd` has no pricing source in the harness, so no shipped ceiling prices a turn. The token ceiling is the monetary proxy until a pricing seam exists.
+- **No pricing source** — the harness cannot price a model by itself: `maxCostUsd` multiplies the measured pressure by the deployment's `usdPerMillionTokens` per million tokens, so a stale price silently misprices every turn. Set the price from the provider's current rate and recalibrate when the model changes.
 - **Per-turn facts only for observed turns** — a turn already open when the plugin loads has no entry and is never cut, which also means a plugin mounted mid-turn cannot bound the turn it was mounted during.
 - **Checked between steps** — a single long model call or tool execution is not interrupted; the ceiling takes effect at the next proposed step, and an agent that never proposes one (a hung provider call) is not stopped by this guard.
 - **Per-turn, never per-session** — each turn gets the full ceiling again, so a long session can spend the same budget many times.
-- **Human input bypasses every ceiling** — by design, but it means a user who keeps steering keeps the turn alive past all three bounds.
+- **Human input bypasses every ceiling** — by design, but it means a user who keeps steering keeps the turn alive past every bound.
 
 <a id="dev-note"></a>
 ### Dev Note
@@ -152,6 +156,6 @@ These limits define when the guard is a poor fit. They are current package const
 
 This Dev Note is working context for maintainers: open questions and directions that are not decided. It is explicitly non-authoritative — shipped behavior, limits, and accepted rationale live in the sections above, the package code, and the linked Agent Notes.
 
-The field names differ from the [evolutionary-harness specification](../../../specs/evolutionary-harness.spec.md) table, which lists `maxInputTokens` and `maxCostUsd`: the shipped field is `maxTotalTokens` because `ctx.tokenMeter` measures total request pressure rather than input tokens alone, and cost stays deferred until a pricing source exists.
+The field names differ from the [evolutionary-harness specification](../../../specs/evolutionary-harness.spec.md) table, which lists `maxInputTokens` and `maxCostUsd`: the shipped field is `maxTotalTokens` because `ctx.tokenMeter` measures total request pressure rather than input tokens alone, and cost is priced by the deployment's `usdPerMillionTokens` instead of a harness pricing source, which does not exist.
 
 </details>

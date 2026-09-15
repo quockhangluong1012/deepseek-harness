@@ -515,7 +515,7 @@ describe('heartbeat extraction', () => {
     }
   })
 
-  it('stops before extracting when the signal is already aborted', async () => {
+  it('reports the abort instead of resolving when the signal is already aborted', async () => {
     const session = { id: 's1', requestHeader: () => ({ config: { provider: 'p', model: 'm' } }) }
     const h = await producerHarness({}, answer('{"triples":[]}'), {
       workspaces: { list: () => [{ id: 'ws', sessionIds: ['s1'] }] },
@@ -525,7 +525,9 @@ describe('heartbeat extraction', () => {
       h.ctx.emit('session/event', session as never, messageEvent('user/message', [{ type: 'text', text: 'Ava worked on Atlas' }]) as never)
       const aborted = new AbortController()
       aborted.abort()
-      await h.tasks[0]?.run(aborted.signal)
+      // The abort joins the sweep's failures: an aborted run reports instead
+      // of resolving as a success.
+      await expect(h.tasks[0]?.run(aborted.signal)).rejects.toThrow('default:ws: run aborted')
       expect(h.calls).toHaveLength(0)
       // An aborted run spends nothing, so the next one still has the batch.
       await h.tasks[0]?.run(new AbortController().signal)
@@ -744,9 +746,10 @@ describe('heartbeat extraction', () => {
     try {
       h.ctx.emit('session/event', first as never, messageEvent('user/message', [{ type: 'text', text: 'the first scope' }]) as never)
       h.ctx.emit('session/event', second as never, messageEvent('user/message', [{ type: 'text', text: 'the second scope' }]) as never)
-      await h.tasks[0]?.run(controller.signal)
-      // The abort ended the sweep after the first scope, before any work for
-      // the second one: its batch is still there for the next run.
+      // The abort joins the sweep's failures: the run reports instead of
+      // resolving, after the first scope, before any work for the second
+      // one — its batch is still there for the next run.
+      await expect(h.tasks[0]?.run(controller.signal)).rejects.toThrow(': run aborted')
       expect(h.calls).toHaveLength(1)
       expect(h.graph.read(EvolutionScopeId('default', 'a'))).toBeUndefined()
       expect(h.graph.read(EvolutionScopeId('default', 'b'))).toBeUndefined()

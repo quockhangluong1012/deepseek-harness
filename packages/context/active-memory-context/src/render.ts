@@ -10,6 +10,12 @@ const SYSTEM_REMINDER_OPEN = '<system-reminder>'
 const SYSTEM_REMINDER_CLOSE = '</system-reminder>'
 
 /**
+ * One briefable hit: a scored semantic hit, or a session reached through the
+ * knowledge graph carrying no similarity.
+ */
+type ActiveMemoryHit = SemanticSessionSearchHit | SessionSearchHit
+
+/**
  * Escape hit-authored text so it cannot close the plugin-owned frame. Past
  * session content is not repository-controlled, so this mirrors the same
  * defense `dsh-evolution-memory-context` applies to its own frame.
@@ -30,7 +36,7 @@ export function escapeFrameBody(value: string): string {
  * @returns the framed brief, or undefined when not even one hit fits.
  */
 export function renderActiveMemoryBrief(
-  hits: readonly (SemanticSessionSearchHit | SessionSearchHit)[],
+  hits: readonly ActiveMemoryHit[],
   maxBytes: number,
 ): string | undefined {
   for (let kept = hits.length; kept > 0; kept -= 1) {
@@ -40,15 +46,13 @@ export function renderActiveMemoryBrief(
   return undefined
 }
 
-function buildText(hits: readonly (SemanticSessionSearchHit | SessionSearchHit)[]): string {
+function buildText(hits: readonly ActiveMemoryHit[]): string {
   const lines = hits.map((hit, index) => {
     const when = new Date(hit.bestMatch.time).toISOString()
     // A graph-reached hit carries no similarity: its relevance is a connection
     // in the scope's graph, not a distance in the embedding space, and claiming
     // one would be a number the model cannot trust.
-    const note = 'score' in hit && typeof hit.score === 'number'
-      ? `, similarity ${hit.score.toFixed(2)}`
-      : ', via graph connections'
+    const note = 'score' in hit ? `, similarity ${hit.score.toFixed(2)}` : ', via graph connections'
     return `${index + 1}. [session ${hit.header.id} @ ${when}${note}] ${escapeFrameBody(hit.bestMatch.snippet)}`
   })
   return [

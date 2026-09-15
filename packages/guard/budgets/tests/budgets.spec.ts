@@ -102,7 +102,9 @@ describe('ceilings off', () => {
 
 describe('ceilings configured but not reached', () => {
   it('completes the turn normally when every ceiling stays above the observed activity', async () => {
-    const { ctx, warnings } = await harness({ maxTotalTokens: 1_000_000, maxToolCalls: 10, maxWallMs: 3_600_000 })
+    const { ctx, warnings } = await harness({
+      maxTotalTokens: 1_000_000, maxToolCalls: 10, maxWallMs: 3_600_000, maxCostUsd: 1_000_000, usdPerMillionTokens: 10,
+    })
     const adapter = new MockAdapter([
       toolCallResponse('c1', 'probe', { q: 1 }),
       toolCallResponse('c2', 'probe', { q: 1 }),
@@ -193,6 +195,49 @@ describe('maxTotalTokens', () => {
     expect(warnings[0]).toMatch(/^budgets: agent "a1" turn 1: maxTotalTokens ceiling reached \(observed \d+ >= limit 1\)$/)
   })
 })
+
+describe('maxCostUsd', () => {
+  it('blocks a turn whose priced request pressure reaches the cost ceiling', async () => {
+    // One million USD per million tokens prices one measured token at one
+    // USD, so the first step's pressure already reaches a one-USD ceiling.
+    const { ctx, warnings } = await harness({ maxCostUsd: 1, usdPerMillionTokens: 1_000_000 })
+    const adapter = new MockAdapter([
+      toolCallResponse('c1', 'probe', { q: 1 }),
+      textResponse('done'),
+    ])
+    ctx.llm.registerAdapter(['mock'], adapter)
+    const agent = await ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+    followup(agent, 'go')
+    await waitForIdle(ctx, agent)
+
+    expect(adapter.requests).toHaveLength(1)
+    expect(turnEndReasons(agent)).toEqual([{ kind: 'blocked' }])
+    expect(budgetExceededEvents(agent.session)).toHaveLength(1)
+    expect(budgetExceededEvents(agent.session)[0]).toMatchObject({ name: 'maxCostUsd', limit: 1, turn: 1, step: 2 })
+    expect(budgetExceededEvents(agent.session)[0]!.observed).toBeGreaterThanOrEqual(1)
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0]).toMatch(/^budgets: agent "a1" turn 1: maxCostUsd ceiling reached \(observed [\d.]+ >= limit 1\)$/)
+  })
+  it('leaves a priced turn alone when no cost ceiling is configured', async () => {
+    // A token ceiling the turn never reaches still walks past the cost
+    // branch with no cost ceiling set.
+    const { ctx, warnings } = await harness({ usdPerMillionTokens: 10, maxTotalTokens: 1_000_000 })
+    const adapter = new MockAdapter([
+      toolCallResponse('c1', 'probe', { q: 1 }),
+      textResponse('done'),
+    ])
+    ctx.llm.registerAdapter(['mock'], adapter)
+    const agent = await ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+    followup(agent, 'go')
+    await waitForIdle(ctx, agent)
+
+    expect(adapter.requests).toHaveLength(2)
+    expect(turnEndReasons(agent)).toEqual([{ kind: 'completed' }])
+    expect(budgetExceededEvents(agent.session)).toEqual([])
+    expect(warnings).toEqual([])
+  })
+})
+
 
 describe('budget/exceeded durability', () => {
   it('records the cut once, before the blocked turn end, and replays as a required event', async () => {
@@ -324,8 +369,11 @@ describe('config validation fails loud', () => {
     ['a negative ceiling', { maxToolCalls: -1 }],
     ['a NaN ceiling', { maxTotalTokens: Number.NaN }],
     ['an infinite ceiling', { maxWallMs: Number.POSITIVE_INFINITY }],
+    ['a cost ceiling without a price', { maxCostUsd: 1 }],
+    ['a free price', { maxCostUsd: 1, usdPerMillionTokens: 0 }],
+    ['a negative price', { usdPerMillionTokens: -5 }],
   ])('rejects %s at plugin load', async (_label, config) => {
     const { ctx } = await spine()
-    await expect(Promise.resolve(ctx.plugin(Budgets, config))).rejects.toThrow(/must be a positive finite number/)
+    await expect(Promise.resolve(ctx.plugin(Budgets, config))).rejects.toThrow(/must be a positive finite number|needs usdPerMillionTokens/)
   })
 })

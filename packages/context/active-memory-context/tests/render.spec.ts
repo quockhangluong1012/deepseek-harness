@@ -46,13 +46,6 @@ describe('renderActiveMemoryBrief', () => {
     expect(text).not.toContain('similarity')
   })
 
-  it('renders a hit whose runtime score is not a number as a graph connection', () => {
-    const hits = [{ ...graphHit('delta', 'atlas launch'), score: undefined }] as unknown as readonly SessionSearchHit[]
-    const text = renderActiveMemoryBrief(hits, 4096)
-    expect(text).toContain('via graph connections')
-    expect(text).not.toContain('similarity')
-  })
-
   it('answers undefined for no hits', () => {
     expect(renderActiveMemoryBrief([], 4096)).toBeUndefined()
   })

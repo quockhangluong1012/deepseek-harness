@@ -427,6 +427,17 @@ export interface Config {
   maxToolCalls?: number
   /** Ceiling on one turn's wall-clock duration in milliseconds, measured from its `turn/start`. */
   maxWallMs?: number
+  /**
+   * Ceiling on one turn's measured cost in USD, compared before that step.
+   * Priced at `usdPerMillionTokens`, which must be set alongside it.
+   */
+  maxCostUsd?: number
+  /**
+   * Deployment price of one million measured tokens in USD. The harness has
+   * no pricing source of its own, so the deployment names what its model
+   * costs; without a cost ceiling it is inert.
+   */
+  usdPerMillionTokens?: number
 }
 ```
 

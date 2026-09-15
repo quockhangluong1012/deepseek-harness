@@ -39,6 +39,17 @@ export interface Config {
   maxToolCalls?: number
   /** Ceiling on one turn's wall-clock duration in milliseconds, measured from its `turn/start`. */
   maxWallMs?: number
+  /**
+   * Ceiling on one turn's measured cost in USD, compared before that step.
+   * Priced at `usdPerMillionTokens`, which must be set alongside it.
+   */
+  maxCostUsd?: number
+  /**
+   * Deployment price of one million measured tokens in USD. The harness has
+   * no pricing source of its own, so the deployment names what its model
+   * costs; without a cost ceiling it is inert.
+   */
+  usdPerMillionTokens?: number
 }
 
 /** Runtime configuration schema for the budgets plugin. */
@@ -46,6 +57,8 @@ export const Config: z<Config> = z.object({
   maxTotalTokens: z.number(),
   maxToolCalls: z.number(),
   maxWallMs: z.number(),
+  maxCostUsd: z.number(),
+  usdPerMillionTokens: z.number(),
 })
 
 /** One turn's observed activity: its number, when it started, and how many tool calls it dispatched. */
@@ -79,6 +92,13 @@ function validateCeilings(config: Config): void {
       throw new Error(`budgets: ${key} must be a positive finite number, got ${String(value)}`)
     }
   }
+  const { maxCostUsd, usdPerMillionTokens } = config
+  if (maxCostUsd !== undefined && usdPerMillionTokens === undefined) {
+    throw new Error('budgets: maxCostUsd needs usdPerMillionTokens, the deployment price of one million measured tokens')
+  }
+  if (usdPerMillionTokens !== undefined && (!Number.isFinite(usdPerMillionTokens) || usdPerMillionTokens <= 0)) {
+    throw new Error(`budgets: usdPerMillionTokens must be a positive finite number, got ${String(usdPerMillionTokens)}`)
+  }
 }
 
 /**
@@ -98,7 +118,7 @@ function reachedCeiling(
   session: Session,
   facts: TurnFacts,
 ): ReachedCeiling | undefined {
-  const { maxToolCalls, maxWallMs, maxTotalTokens } = config
+  const { maxToolCalls, maxWallMs, maxTotalTokens, maxCostUsd, usdPerMillionTokens } = config
   if (maxToolCalls !== undefined && facts.toolCalls >= maxToolCalls) {
     return { name: 'maxToolCalls', observed: facts.toolCalls, limit: maxToolCalls }
   }
@@ -106,10 +126,16 @@ function reachedCeiling(
     const elapsed = Date.now() - facts.startedAt
     if (elapsed >= maxWallMs) return { name: 'maxWallMs', observed: elapsed, limit: maxWallMs }
   }
-  if (maxTotalTokens !== undefined) {
+  if (maxTotalTokens !== undefined || maxCostUsd !== undefined) {
     const measured = ctx.tokenMeter.measure(session).totalTokens
-    if (measured >= maxTotalTokens) {
+    if (maxTotalTokens !== undefined && measured >= maxTotalTokens) {
       return { name: 'maxTotalTokens', observed: measured, limit: maxTotalTokens }
+    }
+    // `validateCeilings` rejects this ceiling without a price at load, so the
+    // price is defined whenever this branch runs.
+    if (maxCostUsd !== undefined && usdPerMillionTokens !== undefined) {
+      const cost = (measured * usdPerMillionTokens) / 1_000_000
+      if (cost >= maxCostUsd) return { name: 'maxCostUsd', observed: cost, limit: maxCostUsd }
     }
   }
   return undefined
