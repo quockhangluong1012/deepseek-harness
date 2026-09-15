@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-15-graph-vector-fusion.md
-2026-09-15-graph-vector-fusion.md: 7bd7cefdb383bde40638063aa9b9ed9f48da3f6d
-2026-09-15-graph-vector-fusion.zh.md: 266280f1bdef1b336c27e5e97dd78c844d10a65a
+2026-09-15-graph-vector-fusion.md: 08cadca2657155917b138eda2986d438151c9934
+2026-09-15-graph-vector-fusion.zh.md: 50be57f39182b594a75c27ef6bec9fc54da2e8f8

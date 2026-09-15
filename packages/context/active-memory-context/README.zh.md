@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 摘要
 
-`dsh-active-memory-context` 在模型作答前，用用户最新一条消息去搜索同一 workspace 下的其它会话，并把经过相关性过滤的结果拼接进 `agent/pre-step`——这是主动检索，而不必让用户开口说"搜索既往会话"，也不用等周期性提示。它与 `dsh-evolution-memory-context` 互补：后者注入的是静态的、按 scope 的简报（instructions、lessons、profile），内容从不依赖用户刚问了什么；本包每一轮注入的内容都不同，取决于该轮自身的内容。当组合还提供 `ctx.evolutionGraph` 时，第二条腿会从该轮次提到的实体出发沿图的连接检索，因此挂在已知实体上的会话即使读起来不像该轮次也会浮现。当一个 scope 里既往的会话应当自动浮现、而不必让模型耗费一次工具调用去搜索时，选择本包。
+`dsh-active-memory-context` 在模型作答前，用用户最新一条消息去搜索同一 workspace 下的其它会话，并把经过相关性过滤的结果拼接进 `agent/pre-step`——这是主动检索，而不必让用户开口说"搜索既往会话"。它与 `dsh-evolution-memory-context` 互补：后者注入的是静态的、按 scope 的简报，内容从不依赖用户刚问了什么；本包每一轮注入的内容都不同，取决于该轮自身的内容。若提供 `ctx.evolutionGraph`，第二条腿会从该轮次提到的实体出发沿图的连接检索。当一个 scope 里既往的会话应当自动浮现时，选择本包。
 
 ## 目录
 
@@ -24,7 +24,7 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用本包
 
-挂载本插件时需要 workspace registry，以及一个向量通道已就绪的 session-query 后端（在 `dsh-session-query-sqlite` 之后挂载嵌入服务，例如 `dsh-embeddings-http`）。作用域按每轮从 workspace 成员关系解析（registry 中的 session id，回退到 canonical-path 的 `cwd` 匹配）；不属于任何 workspace 的轮次，或所在 workspace 没有其它会话的轮次，都不会注入任何内容。若挂载还提供 `ctx.evolutionGraph`，则会额外获得下文所述的图谱腿；没有它时，简报与仅有向量腿的结果完全一致。
+挂载本插件时需要 workspace registry，以及一个向量通道已就绪的 session-query 后端（在 `dsh-session-query-sqlite` 之后挂载嵌入服务，例如 `dsh-embeddings-http`）。作用域按每轮从 workspace 成员关系解析（registry 中的 session id，回退到 canonical-path 的 `cwd` 匹配）；不属于任何 workspace 的轮次，或所在 workspace 没有其它会话的轮次，都不会注入任何内容。若挂载还提供 `ctx.evolutionGraph`，则会额外获得下文所述的图谱腿；没有它时，简报只承载向量腿自己的命中——每个会话一行，按融合顺序排列。
 
 ### 配置
 
@@ -70,7 +70,7 @@ kind: "package-reference"
 
 向量通道失败（`SESSION_QUERY_SEMANTIC_UNAVAILABLE`、`SESSION_QUERY_SEARCH_DISABLED`）会降级为不注入，而不是阻塞该轮次；其它任何失败都会向上传播,因为那意味着真正的缺陷,而非预期中的部署状态。
 
-当挂载提供 `ctx.evolutionGraph` 时，第二条腿按连接而非相似度检索。图谱按标签匹配，所以整轮文本不是可用的查询：该腿扫描该轮次自己的前若干个词——至多 `graphLimit` 个——取其中第一个作用域图谱认识的词，向外展开 `graphDepth` 跳，并按每个到达的标签在同一语料上各做一次文本搜索，标签数受 `graphLimit` 约束。这些命中不携带分数，因为它们的相关性是连接而不是距离，因此简报用 `via graph connections` 标注，而不是编造一个相似度。两条腿排序的是同一份语料，因此两个排名按倒数排名融合：两条腿都找到的会话排在其一单独找到的会话之前。图谱通过 `ctx.get('evolutionGraph')` 获取，因此未挂载、版本较旧或失败的图谱会让简报与仅有向量腿的结果完全一致。
+当挂载提供 `ctx.evolutionGraph` 时，第二条腿按连接而非相似度检索。图谱按标签匹配，所以整轮文本不是可用的查询：该腿扫描该轮次自己的前若干个词——至多 `graphLimit` 个——取其中第一个作用域图谱认识的词，向外展开 `graphDepth` 跳，并按每个到达的标签在同一会话语料上各做一次文本搜索，标签数受 `graphLimit` 约束。这些命中不携带分数，因为它们的相关性是连接而不是距离，因此简报用 `via graph connections` 标注，而不是编造一个相似度。两条腿按倒数排名融合：两条腿都找到的会话排在其一单独找到的会话之前；又因为融合按会话 id 归并，当一个会话有两份文档都达到阈值时，简报只为其保留一行。图谱通过 `ctx.get('evolutionGraph')` 获取，因此未挂载、版本较旧或失败的图谱会让简报只承载向量腿自己的命中——同样的会话，每个一行，按融合顺序排列。图谱腿仅凭 registry 成员关系解析其作用域，因此只被向量腿通过 canonical-path `cwd` 回退匹配到的会话不会获得图谱腿。
 
 ### 源码地图
 

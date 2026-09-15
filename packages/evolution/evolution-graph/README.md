@@ -131,7 +131,7 @@ Independent of live requests: extraction is a separate one-shot call with its ow
 
 These limits define when the graph is a poor fit. They are current package constraints.
 
-- **Buffered text has two ways to be missed** — the automatic sweep consumes each scope's buffer on the run that extracts it, so text observed since the last run is lost if the process restarts first, and a buffer past `maxInputBytes` drops its oldest message to make room. The window is bounded by `intervalHours` and by the byte cap.
+- **Buffered text can be missed three ways** — the automatic sweep consumes each scope's buffer on the run that extracts it, so text observed since the last run is lost if the process restarts first; a buffer past `maxInputBytes` drops its oldest message to make room; and one message larger than the whole budget is refused rather than clipped, so it is never buffered and no later run can reach it. The window is bounded by `intervalHours` and by the byte cap.
 - **Relations are not deduplicated semantically** — `worked_on` and `workedOn` normalize to different relations, and nothing merges near-synonyms.
 - **No relation is ever removed** — an edge that a later source contradicts keeps its count; only a raised cap or a new scope starts over.
 - **Traversal is undirected** — `expand` walks edges in both directions, so it reports incoming relations as if they were outgoing, naming the relation rather than its inverse.

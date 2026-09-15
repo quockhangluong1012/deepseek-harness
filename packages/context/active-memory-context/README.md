@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-active-memory-context` searches other sessions in the same workspace with the user's newest message before the model responds, and splices the relevance-filtered results into `agent/pre-step` — proactive retrieval instead of the user having to ask "search past sessions" or wait for a periodic nudge. It complements `dsh-evolution-memory-context`, which injects a static per-scope brief (instructions, lessons, profile) that never depends on what the user just asked; this package injects a different result every turn, keyed to the turn's own content. When the composition also provides `ctx.evolutionGraph`, a second leg follows the graph's connections from the entities the turn names, so a session attached to a known entity surfaces even when it does not read like the turn. Choose it when a scope's prior sessions should surface automatically without the model spending a tool call to search for them.
+`dsh-active-memory-context` searches other sessions in the same workspace with the user's newest message before the model responds, and splices the relevance-filtered results into `agent/pre-step` — proactive retrieval instead of the user having to ask "search past sessions". It complements `dsh-evolution-memory-context`, which injects a static per-scope brief that never depends on what the user just asked; this package injects a different result every turn, keyed to the turn's own content. Given `ctx.evolutionGraph`, a second leg follows the graph's connections from the entities the turn names. Choose it when prior sessions should surface automatically.
 
 ## Table of Contents
 
@@ -24,7 +24,7 @@ English | [中文](README.zh.md)
 <a id="use-this-package"></a>
 ## Use this package
 
-Mount the plugin with the workspace registry and a session-query backend whose vector channel is populated (an embeddings service, e.g. `dsh-embeddings-http`, mounted behind `dsh-session-query-sqlite`). Scopes resolve per turn from workspace membership (registry session ids, falling back to a canonical-path `cwd` match); turns outside any workspace, or in a workspace with no other session, add nothing. A mount that also provides `ctx.evolutionGraph` gains the graph leg below; without it the brief is exactly the vector-only one.
+Mount the plugin with the workspace registry and a session-query backend whose vector channel is populated (an embeddings service, e.g. `dsh-embeddings-http`, mounted behind `dsh-session-query-sqlite`). Scopes resolve per turn from workspace membership (registry session ids, falling back to a canonical-path `cwd` match); turns outside any workspace, or in a workspace with no other session, add nothing. A mount that also provides `ctx.evolutionGraph` gains the graph leg below; without it the brief holds the vector leg's own hits — one line per session, in fusion order.
 
 ### Configuration
 
@@ -70,7 +70,7 @@ At each `agent/pre-step`, the injector reads the text of the proposed step's own
 
 A vector-channel failure (`SESSION_QUERY_SEMANTIC_UNAVAILABLE`, `SESSION_QUERY_SEARCH_DISABLED`) degrades to no injection rather than blocking the turn; any other failure propagates, since it signals a genuine defect rather than an expected deployment state.
 
-When a mount provides `ctx.evolutionGraph`, a second leg searches by connection instead of similarity. The graph matches labels, so a whole turn is not a usable query: the leg scans the turn's own leading words — at most `graphLimit` of them — and takes the first the scope's graph knows, expands it `graphDepth` hops, and searches the same corpus by text once per reached label, labels capped at `graphLimit`. These hits come back unscored, because their relevance is a connection rather than a distance, and the brief labels them `via graph connections` instead of inventing a similarity. The two legs rank one corpus, so their rankings are fused by reciprocal rank: a session both legs found outranks one only a single leg found. The graph is reached through `ctx.get('evolutionGraph')`, so an unmounted, older, or failing graph leaves the brief identical to the vector-only result.
+When a mount provides `ctx.evolutionGraph`, a second leg searches by connection instead of similarity. The graph matches labels, so a whole turn is not a usable query: the leg scans the turn's own leading words — at most `graphLimit` of them — and takes the first the scope's graph knows, expands it `graphDepth` hops, and searches the same session corpus by text once per reached label, labels capped at `graphLimit`. These hits come back unscored, because their relevance is a connection rather than a distance, and the brief labels them `via graph connections` instead of inventing a similarity. The two legs fuse by reciprocal rank: a session both legs found outranks one only a single leg found, and since fusion keys by session id the brief carries one line per session where two documents of one session both qualified. The graph is reached through `ctx.get('evolutionGraph')`, so an unmounted, older, or failing graph leaves the brief to the vector leg's own hits — the same sessions, one line each, in fusion order. The graph leg resolves its scope from registry membership alone, so a session the vector leg matched only through its canonical-path `cwd` fallback gains no graph leg.
 
 ### Source map
 

@@ -36,6 +36,6 @@ Reads are three traversals over the same record: `answer` follows one named rela
 
 A scope can now be asked about structure and answer from a bounded index rather than by re-reading transcripts, and the extraction boundary keeps a model's malformed answer out of durable storage.
 
-The trade-offs are recorded in the package README: nothing builds the graph on the live turn path yet, relations are not deduplicated semantically (`worked_on` and `workedOn` are two relations), no relation is ever removed, traversal is undirected so an incoming edge is reported with the relation name rather than its inverse, and the caps refuse rather than evict.
+The trade-offs are recorded in the package README: relations are not deduplicated semantically (`worked_on` and `workedOn` are two relations), no relation is ever removed, traversal is undirected so an incoming edge is reported with the relation name rather than its inverse, and the caps refuse rather than evict.
 
-The package ships complete: a definition, a consumer command, and the extraction that feeds it. The remaining gap is a producer on the turn path, which is deferred rather than assumed.
+The package ships complete: a definition, a consumer command, the extraction that feeds it, and a producer. Mounted beside `dsh-evolution-heartbeat`, the graph buffers each scope's user and assistant message text and registers the `evolution-graph-extract` task, which extracts whatever accumulated since its last run — the [graph-vector fusion](2026-09-15-graph-vector-fusion.md) note records that design and its staleness bounds.
