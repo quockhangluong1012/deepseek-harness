@@ -40,7 +40,7 @@ ctx.evolutionGraph.find(scope, 'project')                     // entities by lab
 
 The `/graph` command is the shipped consumer: `/graph "Project X"` lists an entity's connections, and `/graph "Project X" worked_on` answers one relation. A multi-word entity is quoted; an unquoted extra word is a usage error rather than a silent partial name.
 
-The plugin also produces the graph. Mounted beside `dsh-evolution-heartbeat`, it buffers the text of each scope's user and assistant messages and registers the `evolution-graph-extract` task: every `intervalHours` the task extracts each scope that accumulated text since its last run and clears that scope's buffer as it goes. An idle scope therefore costs no model call. A mount with no heartbeat engine still observes, reads, and extracts on demand; only the automatic sweep is absent.
+The plugin also produces the graph. Mounted beside `dsh-evolution-heartbeat`, it buffers the text of each scope's user and assistant messages and registers the `evolution-graph-extract` task: every `intervalHours` the task extracts each scope that accumulated text since its last run and clears that scope's buffer as it goes. An idle scope therefore costs no model call. `intervalHours` is not by itself when a run happens: the task passes no idle threshold of its own, so the engine's host-wide `minIdleHours` (default 2) must also have elapsed, and a run beyond that needs a live session in the scope able to report a request route unless `provider` and `model` are configured. A host that never idles that long extracts nothing, and its buffers keep dropping their oldest text to stay inside `maxInputBytes`. A mount with no heartbeat engine still observes, reads, and extracts on demand; only the automatic sweep is absent.
 
 ### Configuration
 
@@ -90,7 +90,7 @@ Both caps are enforced at the write, not at the read: `observe` refuses a new en
 
 ### Failure and recovery
 
-Invalid records fail the domain open loudly: a lost relation count would silently reorder which connection a traversal treats as strongest. Reads throw before the store starts. A half-set extraction route fails at load. Extraction validates the model's answer at that boundary — unreadable JSON, a non-object, a missing array, or a failed or aborted finish all reject, and nothing is stored from a rejected extraction.
+Invalid records fail the domain open loudly: a lost relation count would silently reorder which connection a traversal treats as strongest. Reads throw before the store starts. A half-set extraction route fails at load. Extraction validates the model's answer at that boundary — unreadable JSON, a non-object, a missing array, or a failed or aborted finish all reject, and nothing is stored from a rejected extraction. An automatic sweep keeps its per-scope isolation and then reports: every scope that failed is named with its cause in one aggregated error, so a permanently failing route shows up in the heartbeat's bookkeeping instead of a run that discarded its text silently.
 
 No invariant companion is published because the domain table is the only copy of this state, so there is no second independent observation to check it against.
 
@@ -131,7 +131,7 @@ Independent of live requests: extraction is a separate one-shot call with its ow
 
 These limits define when the graph is a poor fit. They are current package constraints.
 
-- **Buffered text can be missed three ways** — the automatic sweep consumes each scope's buffer on the run that extracts it, so text observed since the last run is lost if the process restarts first; a buffer past `maxInputBytes` drops its oldest message to make room; and one message larger than the whole budget is refused rather than clipped, so it is never buffered and no later run can reach it. The window is bounded by `intervalHours` and by the byte cap.
+- **Buffered text can be missed three ways** — the automatic sweep consumes each scope's buffer on the run that extracts it, so text observed since the last run is lost if the process restarts first; a buffer past `maxInputBytes` drops its oldest message to make room; and one message larger than the whole budget is refused rather than clipped, so it is never buffered and no later run can reach it. The window is bounded by the idle-gated sweep interval — see above, `intervalHours` plus the engine's `minIdleHours` — and by the byte cap.
 - **Relations are not deduplicated semantically** — `worked_on` and `workedOn` normalize to different relations, and nothing merges near-synonyms.
 - **No relation is ever removed** — an edge that a later source contradicts keeps its count; only a raised cap or a new scope starts over.
 - **Traversal is undirected** — `expand` walks edges in both directions, so it reports incoming relations as if they were outgoing, naming the relation rather than its inverse.

@@ -67,7 +67,12 @@ export interface Config {
   profile?: string
   /** Hops the graph leg expands from the entity it matched. Defaults to 1. */
   graphDepth?: number
-  /** Entity labels one graph expansion may seed searches with. Defaults to 5. */
+  /**
+   * Bound the graph leg spends three ways on one turn: how many of the turn's
+   * leading words the entity scan tries, how many entities one `expand` may
+   * return, and how many labels that expansion may then seed searches with.
+   * Defaults to 5.
+   */
   graphLimit?: number
 }
 ```

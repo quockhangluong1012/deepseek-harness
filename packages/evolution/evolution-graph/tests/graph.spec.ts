@@ -7,6 +7,7 @@ import { DomainFacility } from '@deepseek-ai/dsh-storage-domain'
 import { EvolutionScopeId } from '@deepseek-ai/dsh-evolution-memory'
 import { MemoryMediaPool, MemoryStorageBackend } from '../../../storage/storage-domain/tests/helpers/memory-backend.ts'
 import EvolutionGraph, {
+  Config,
   EVOLUTION_GRAPH_EXTRACT_TASK,
   normalizeNodeId,
   normalizeRelation,
@@ -70,6 +71,17 @@ describe('evolution graph', () => {
     const graph = new EvolutionGraph(ctx, {})
     expect(() => graph.read(scope)).toThrow('not started yet')
     expect(() => graph.answer(scope, 'a', 'b')).toThrow('not started yet')
+  })
+
+  it('refuses to load with a profile that can never name a scope', async () => {
+    // `EvolutionScopeId` builds `<profile>:<workspace>`, so accepting this
+    // profile would empty every read under it instead of failing at load.
+    await expect(harness({ profile: '' })).rejects.toThrow('profile must be non-empty')
+    await expect(harness({ profile: 'team:eu' })).rejects.toThrow("profile must not contain ':'")
+    // The schema refuses the same values before a mount is even attempted.
+    expect(() => Config({ profile: '' })).toThrow(/regexp/)
+    expect(() => Config({ profile: 'team:eu' })).toThrow(/regexp/)
+    expect(Config({ profile: 'team' }).profile).toBe('team')
   })
 
   it('merges triples, reinforcing a repeat instead of duplicating it', async () => {
@@ -438,7 +450,7 @@ describe('heartbeat extraction', () => {
     }
   })
 
-  it('clears the buffer even when extraction fails', async () => {
+  it('clears the buffer even when extraction fails, reporting the failure', async () => {
     const session = { id: 's1', requestHeader: () => ({ config: { provider: 'p', model: 'm' } }) }
     const h = await producerHarness({}, answer('not json'), {
       workspaces: { list: () => [{ id: 'ws', sessionIds: ['s1'] }] },
@@ -446,11 +458,14 @@ describe('heartbeat extraction', () => {
     })
     try {
       h.ctx.emit('session/event', session as never, messageEvent('user/message', [{ type: 'text', text: 'Ava worked on Atlas' }]) as never)
-      await h.tasks[0]?.run(new AbortController().signal)
+      // The batch is spent, and the failure reaches the runner instead of
+      // being recorded as a run that succeeded.
+      await expect(h.tasks[0]?.run(new AbortController().signal))
+        .rejects.toThrow(/default:ws: .*did not return JSON/)
       expect(h.calls).toHaveLength(1)
       expect(h.graph.read(EvolutionScopeId('default', 'ws'))).toBeUndefined()
-      // At most once: the failed batch is not retried.
-      await h.tasks[0]?.run(new AbortController().signal)
+      // At most once: the failed batch is not retried, so the next run is clean.
+      await expect(h.tasks[0]?.run(new AbortController().signal)).resolves.toBeUndefined()
       expect(h.calls).toHaveLength(1)
     } finally {
       await h.fiber.dispose()
@@ -647,10 +662,69 @@ describe('heartbeat extraction', () => {
     try {
       h.ctx.emit('session/event', first as never, messageEvent('user/message', [{ type: 'text', text: 'the first scope' }]) as never)
       h.ctx.emit('session/event', second as never, messageEvent('user/message', [{ type: 'text', text: 'the second scope' }]) as never)
-      await h.tasks[0]?.run(new AbortController().signal)
+      // The failing scope does not stop the one behind it: both calls happen,
+      // and only then does the sweep report the failure.
+      await expect(h.tasks[0]?.run(new AbortController().signal)).rejects.toThrow(/default:a: .*did not return JSON/)
       expect(h.calls).toHaveLength(2)
       expect(h.graph.read(EvolutionScopeId('default', 'a'))).toBeUndefined()
       expect(h.graph.find(EvolutionScopeId('default', 'b'), 'bo')).toHaveLength(1)
+    } finally {
+      await h.fiber.dispose()
+    }
+  })
+
+  it('reports every failed scope in one error after extracting the rest', async () => {
+    const first = { id: 's1', requestHeader: () => ({ config: { provider: 'p', model: 'm' } }) }
+    const second = { id: 's2', requestHeader: () => ({ config: { provider: 'p', model: 'm' } }) }
+    const third = { id: 's3', requestHeader: () => ({ config: { provider: 'p', model: 'm' } }) }
+    const h = await producerHarness({}, answer('{"triples":[]}'), {
+      workspaces: {
+        list: () => [
+          { id: 'a', sessionIds: ['s1'] },
+          { id: 'b', sessionIds: ['s2'] },
+          { id: 'c', sessionIds: ['s3'] },
+        ],
+      },
+      sessions: {
+        get: (id: string) => (id === 's1' ? first : id === 's2' ? second : third),
+      },
+      answers: [
+        answer('not json'),
+        answer('not json'),
+        answer('{"triples":[{"from":"Bo","relation":"owns","to":"Car"}]}'),
+      ],
+    })
+    try {
+      h.ctx.emit('session/event', first as never, messageEvent('user/message', [{ type: 'text', text: 'the first scope' }]) as never)
+      h.ctx.emit('session/event', second as never, messageEvent('user/message', [{ type: 'text', text: 'the second scope' }]) as never)
+      h.ctx.emit('session/event', third as never, messageEvent('user/message', [{ type: 'text', text: 'the third scope' }]) as never)
+      // One error names both failures with their own causes, and the scope
+      // that still works was extracted before the sweep reported them.
+      await expect(h.tasks[0]?.run(new AbortController().signal))
+        .rejects.toThrow(/default:a: .*did not return JSON; default:b: .*did not return JSON/)
+      expect(h.calls).toHaveLength(3)
+      expect(h.graph.find(EvolutionScopeId('default', 'c'), 'bo')).toHaveLength(1)
+      expect(h.graph.read(EvolutionScopeId('default', 'a'))).toBeUndefined()
+      expect(h.graph.read(EvolutionScopeId('default', 'b'))).toBeUndefined()
+    } finally {
+      await h.fiber.dispose()
+    }
+  })
+
+  it('reports a cause that is not an Error', async () => {
+    const session = { id: 's1', requestHeader: () => ({ config: { provider: 'p', model: 'm' } }) }
+    const h = await producerHarness({}, answer('{"triples":[]}'), {
+      workspaces: { list: () => [{ id: 'ws', sessionIds: ['s1'] }] },
+      sessions: { get: () => session },
+      // The model seam is a foreign value: it may throw anything, and the
+      // report still has to name what it threw.
+      onCall: () => {
+        throw 'route refused'
+      },
+    })
+    try {
+      h.ctx.emit('session/event', session as never, messageEvent('user/message', [{ type: 'text', text: 'Ava worked on Atlas' }]) as never)
+      await expect(h.tasks[0]?.run(new AbortController().signal)).rejects.toThrow('default:ws: route refused')
     } finally {
       await h.fiber.dispose()
     }

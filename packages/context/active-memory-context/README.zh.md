@@ -54,7 +54,7 @@ kind: "package-reference"
 
 ### 成本与节奏
 
-每个符合条件的轮次都会运行一次语义搜索（为查询做一次嵌入调用，加上向量存储尚未持有的文档——参见 `dsh-session-query-sqlite` 的惰性嵌入设计）。图谱腿不增加嵌入调用，也不增加模型调用：它只是对本地图谱做标签查找，外加至多 `graphLimit` 次落在该轮次本就搜索的语料上的文本搜索。`turnInterval` 用与 `dsh-evolution-memory-context` 的提示间隔相同的方式限制这部分成本：尚未观察到 `turn/start` 的会话计为第 0 轮，读作其第一轮，因此 `turnInterval: 1` 会在第一轮就搜索。同一个已观察轮次内的重试步骤永不重新搜索：注入器记得自己上一次为哪一轮搜索过。
+每个符合条件的轮次都会运行一次语义搜索（为查询做一次嵌入调用，加上向量存储尚未持有的文档——参见 `dsh-session-query-sqlite` 的惰性嵌入设计）。图谱腿不增加嵌入调用，也不增加模型调用：它只是对本地图谱做标签查找，外加至多 `graphLimit` 次落在该轮次本就搜索的语料上的文本搜索。那条词法通道与向量腿所需的是同一个开关：两个随包组合都以 `openAt: never` 挂载 `dsh-session-query-sqlite`，此时每次标签搜索都会抛出 `SESSION_QUERY_SEARCH_DISABLED`，在启用内容搜索之前图谱腿不贡献任何内容。`turnInterval` 用与 `dsh-evolution-memory-context` 的提示间隔相同的方式限制这部分成本：尚未观察到 `turn/start` 的会话计为第 0 轮，读作其第一轮，因此 `turnInterval: 1` 会在第一轮就搜索。同一个已观察轮次内的重试步骤永不重新搜索：注入器记得自己上一次为哪一轮搜索过。
 
 -----
 

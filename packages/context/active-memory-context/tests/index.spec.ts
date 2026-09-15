@@ -635,6 +635,49 @@ describe('active-memory-context injector', () => {
     expect(text).not.toContain('via graph connections')
   })
 
+  it('counts a session once when more than one label matches it', async () => {
+    const fake = fakeEmbeddings()
+    const { ctx, workspaces } = await harness({ maxBytes: 4096 }, fake.service)
+    const session = await scopeWith(ctx, workspaces, [
+      { id: 'mmm-both', text: 'needle atlas' },
+      { id: 'zzz-multi', text: 'atlas ava bora' },
+    ])
+    const graph = fakeGraph({ labels: ['Atlas'], neighbors: ['Ava', 'Bora'] })
+    ctx.provide('evolutionGraph', graph.service as never)
+
+    const decision = await preStep(ctx, fakeAgent(session), [textMessage('needle atlas')])
+    const text = briefText(briefsOf(decision.kind === 'enter' ? decision.messages : [])[0])
+
+    // Three labels match `zzz-multi`, which is why the leg keeps one hit per
+    // session: counted once per match it would carry three reciprocal-rank
+    // contributions and outrank `mmm-both`, the session both legs found.
+    expect([...text.matchAll(/\[session ([^ ]+)/g)].map(match => match[1]))
+      .toEqual(['mmm-both', 'zzz-multi'])
+  })
+
+  it('does not seed the graph from a word too short to name an entity', async () => {
+    const fake = fakeEmbeddings()
+    const { ctx, workspaces } = await harness({ maxBytes: 4096 }, fake.service)
+    const session = await scopeWith(ctx, workspaces, [
+      { id: 'sibling-needle', text: 'needle in the stack' },
+      { id: 'sibling-ava', text: 'ava owns the rollout' },
+    ])
+    // `find` matches any label containing the token, so the turn's own "a"
+    // would otherwise seed Atlas and spend the label budget on an entity the
+    // turn never named.
+    const graph = fakeGraph({ labels: ['Atlas'], neighbors: ['Ava'] })
+    ctx.provide('evolutionGraph', graph.service as never)
+
+    const decision = await preStep(ctx, fakeAgent(session), [textMessage('needle a')])
+    const text = briefText(briefsOf(decision.kind === 'enter' ? decision.messages : [])[0])
+
+    expect(graph.calls.find.map(call => call.query)).toEqual(['needle'])
+    expect(graph.calls.expand).toEqual([])
+    expect(text).toContain('sibling-needle')
+    expect(text).not.toContain('via graph connections')
+    expect(text).not.toContain('sibling-ava')
+  })
+
   it('leaves the brief byte-identical to the vector-only result when the turn names no entity', async () => {
     const withGraph = fakeEmbeddings()
     const mounted = await harness({ maxBytes: 4096 }, withGraph.service)
@@ -731,21 +774,43 @@ describe('active-memory-context injector', () => {
     expect(text).not.toContain('sibling-ava')
   })
 
-  it('degrades to the vector leg when the configured profile is not a valid scope', async () => {
-    for (const profile of ['team:eu', '']) {
-      const fake = fakeEmbeddings()
-      const { ctx, workspaces } = await harness({ maxBytes: 4096, profile }, fake.service)
-      const session = await scopeWith(ctx, workspaces, [{ id: 'sibling-needle', text: 'needle in the stack' }])
-      const graph = fakeGraph({ labels: ['Needle'], neighbors: ['Ava'] })
-      ctx.provide('evolutionGraph', graph.service as never)
+  it('degrades to the vector leg when the scope key is not a valid scope', async () => {
+    const fake = fakeEmbeddings()
+    const { ctx, workspaces } = await harness({ maxBytes: 4096 }, fake.service)
+    const session = ctx.sessions.create(SessionId('current'), { meta: header('current') })
+    await persist(ctx, 'sibling-needle', 'needle in the stack')
+    // A registry workspace id is unvalidated, and `EvolutionScopeId` refuses
+    // one holding ':': the turn must still resolve without the graph leg.
+    workspaces.set('ws:1', {
+      id: WorkspaceId('ws:1'),
+      title: 'Project',
+      path: '/unused',
+      sessionIds: [session.id, SessionId('sibling-needle')],
+    })
+    const graph = fakeGraph({ labels: ['Needle'], neighbors: ['Ava'] })
+    ctx.provide('evolutionGraph', graph.service as never)
 
-      // `EvolutionScopeId` rejects this profile, so the turn must still resolve.
-      const decision = await preStep(ctx, fakeAgent(session), [textMessage('needle')])
-      const text = briefText(briefsOf(decision.kind === 'enter' ? decision.messages : [])[0])
+    const decision = await preStep(ctx, fakeAgent(session), [textMessage('needle')])
+    const text = briefText(briefsOf(decision.kind === 'enter' ? decision.messages : [])[0])
 
-      expect(text).toContain('sibling-needle')
-      expect(text).not.toContain('via graph connections')
-      expect(graph.calls.find).toEqual([])
+    expect(text).toContain('sibling-needle')
+    expect(text).not.toContain('via graph connections')
+    expect(graph.calls.find).toEqual([])
+  })
+
+  it('refuses a profile that can never name a scope', async () => {
+    for (const profile of ['', 'team:eu']) {
+      const ctx = new Context()
+      await ctx.plugin(SessionStore)
+      await ctx.plugin(SessionProjectionRegistry)
+      await ctx.plugin(JsonlSessionPersistence, { root: await temporaryPath('sessions'), compression: 'none' })
+      await ctx.plugin(SqliteSessionQueryEngine, { path: await temporaryPath('derived.db') })
+      ctx.provide('workspaceRegistry', { list: () => [], get: () => undefined } as never)
+      contexts.push(ctx)
+
+      // `EvolutionScopeId` builds `<profile>:<workspace>`, so accepting this
+      // profile would empty the graph leg on every turn instead of failing.
+      await expect(ctx.plugin(activeMemoryContext, { maxBytes: 4096, profile })).rejects.toThrow(/profile/)
     }
   })
 

@@ -61,7 +61,12 @@ export interface Config {
   profile?: string
   /** Hops the graph leg expands from the entity it matched. Defaults to 1. */
   graphDepth?: number
-  /** Entity labels one graph expansion may seed searches with. Defaults to 5. */
+  /**
+   * Bound the graph leg spends three ways on one turn: how many of the turn's
+   * leading words the entity scan tries, how many entities one `expand` may
+   * return, and how many labels that expansion may then seed searches with.
+   * Defaults to 5.
+   */
   graphLimit?: number
 }
 
@@ -71,7 +76,10 @@ export const Config: z<Config> = z.object({
   topK: z.number().step(1).min(1).default(5),
   relevanceThreshold: z.number().min(0).max(1).default(0.7),
   turnInterval: z.number().step(1).min(1).default(1),
-  profile: z.string().default('default'),
+  // `EvolutionScopeId` builds `<profile>:<workspace>`, so a profile that is
+  // empty or holds ':' can never name a scope. Refuse it at load: accepted at
+  // load, it would instead empty the graph leg every turn.
+  profile: z.string().pattern(/^[^:]+$/).default('default'),
   graphDepth: z.number().step(1).min(1).default(1),
   graphLimit: z.number().step(1).min(1).default(5),
 })
@@ -299,9 +307,10 @@ export function apply(ctx: Context, config: Config): void {
     if (workspace === undefined) return []
     let labels: string[]
     try {
-      // `EvolutionScopeId` refuses an empty profile and one containing ':', so
-      // the scope is built inside this guard with every other graph read: a
-      // misconfigured profile must degrade the leg, not reject the turn.
+      // `EvolutionScopeId` refuses an empty key and one containing ':', and the
+      // workspace key comes from the registry, which validates neither, so the
+      // scope is built inside this guard with every other graph read: a bad
+      // workspace key must degrade the leg, not reject the turn.
       const scope = EvolutionScopeId(profile, String(workspace.id))
       // The graph is matched by label, so a whole turn never seeds it: scan the
       // turn's own words instead and let the earliest-mentioned entity win. The
@@ -309,8 +318,11 @@ export function apply(ctx: Context, config: Config): void {
       const tokens = query.toLowerCase().split(/\s+/).slice(0, graphLimit)
       let seed: GraphNode | undefined
       for (const token of tokens) {
-        /* v8 ignore next -- query is trimmed and non-empty, so no token is empty; kept as find's empty needle matches every entity. */
-        if (token.length === 0) continue
+        // `find` matches any label containing the token, so a word under three
+        // characters ("a", "in", "is") is a turn's own grammar rather than a
+        // name: seeding on it would spend the whole label budget on the most
+        // connected label that happens to contain the substring.
+        if (token.length < 3) continue
         const found = graph.find(scope, token, 1)
         if (found.length > 0) {
           seed = found[0]
@@ -327,12 +339,23 @@ export function apply(ctx: Context, config: Config): void {
     }
     const others = workspace.sessionIds.filter(id => id !== session.id)
     const hits: SessionSearchHit[] = []
+    const seen = new Set<string>()
     for (const label of labels) {
       try {
         const page = await ctx.sessionQuery.searchSessions(
           { query: label, sessionFilters: [{ kind: 'id', values: others }], limit: topK },
         )
-        hits.push(...page.items)
+        // Labels overlap — a session can match two of them in one page each —
+        // so the leg keeps the first hit per session and each session enters
+        // the fusion's reciprocal-rank sum once. Counting a session again per
+        // matching label would outrank genuine two-leg agreement with one leg's
+        // repeated evidence.
+        for (const item of page.items) {
+          const id = String(item.header.id)
+          if (seen.has(id)) continue
+          seen.add(id)
+          hits.push(item)
+        }
       } catch (error) {
         if (error instanceof SessionQueryError) continue
         throw error

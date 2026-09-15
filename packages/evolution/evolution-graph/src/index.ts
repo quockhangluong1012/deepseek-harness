@@ -87,7 +87,10 @@ export const Config: z<Config> = z.object({
   maxOutputTokens: z.number().step(1).min(1).default(1024),
   timeoutMs: z.number().step(1).min(1).default(60000),
   intervalHours: z.number().step(1).min(1).default(6),
-  profile: z.string().default('default'),
+  // `EvolutionScopeId` builds `<profile>:<workspace>`, so a profile that is
+  // empty or holds ':' can never name a scope. Refuse it at load: accepted at
+  // load, it would instead empty the reader's graph every time.
+  profile: z.string().pattern(/^[^:]+$/).default('default'),
   provider: z.string(),
   model: z.string(),
 })
@@ -107,8 +110,10 @@ export interface ResolvedConfig {
 }
 
 /**
- * Resolve defaults for the optional fields. A half-set extraction route fails
- * loudly: a fork that cannot name a model would otherwise skip silently.
+ * Resolve defaults for the optional fields. A half-set extraction route and a
+ * profile that cannot name a scope both fail loudly: a fork that cannot name a
+ * model, or whose every read keys a scope that can never exist, would
+ * otherwise skip or empty silently.
  * @param config - user-facing plugin configuration.
  * @returns normalized runtime configuration.
  */
@@ -127,6 +132,12 @@ export function resolveConfig(config: Config): ResolvedConfig {
   } = config
   if ((provider === undefined) !== (model === undefined)) {
     throw new Error('evolution-graph: provider and model must be set together')
+  }
+  // `EvolutionScopeId` builds `<profile>:<workspace>` and refuses both forms,
+  // so a mount that accepted one here would fail every scope it built instead.
+  if (profile.length === 0) throw new Error('evolution-graph: profile must be non-empty')
+  if (profile.includes(':')) {
+    throw new Error(`evolution-graph: profile must not contain ':', got ${JSON.stringify(profile)}`)
   }
   return {
     maxNodes,
@@ -630,11 +641,15 @@ export class EvolutionGraph extends Service {
    * is picked up by the next run, where clearing the entry afterwards would
    * have dropped it unseen. A call that fails is caught and leaves the batch
    * spent — one bad scope must not starve the others, and the batch is
-   * delivered at most once rather than retried forever.
+   * delivered at most once rather than retried forever. The failures are kept
+   * and rethrown as one aggregated error once the sweep is over, so the
+   * heartbeat stamps the run failed and warns instead of recording a silent
+   * success that discarded everything it could not extract.
    * @param signal - the heartbeat's cancellation signal.
    */
   private async extractPending(signal: AbortSignal): Promise<void> {
     if (this.ctx.get('llm') === undefined) return
+    const failures: string[] = []
     for (const [key, buffered] of [...this.pending]) {
       if (signal.aborted) return
       const route = this.resolveRoute(buffered.sessionIds)
@@ -643,9 +658,14 @@ export class EvolutionGraph extends Service {
       this.pending.delete(key)
       try {
         await this.extract(buffered.scope, text, route, signal)
-      } catch {
-        // Per-scope isolation: the batch above is spent either way.
+      } catch (error) {
+        // Isolation without silence: the sweep continues, and this scope's
+        // cause travels back to the caller with every other one.
+        failures.push(`${key}: ${error instanceof Error ? error.message : String(error)}`)
       }
+    }
+    if (failures.length > 0) {
+      throw new Error(`evolution-graph: extraction failed for ${failures.length} scope(s): ${failures.join('; ')}`)
     }
   }
 
