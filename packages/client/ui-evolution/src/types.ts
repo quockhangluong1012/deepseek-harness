@@ -187,4 +187,8 @@ export interface EvolutionCuratorStatus {
   lastRunAt: string | null
   /** Recorded passes, newest first. */
   passes: readonly CuratorPassSummary[]
+  /** Today's cache-hit share (0..1), or null when the ledger holds no load. */
+  cacheHitRate: number | null
+  /** Aggregate skill failure share (0..1), or null with no recorded loads. */
+  skillFailureRate: number | null
 }

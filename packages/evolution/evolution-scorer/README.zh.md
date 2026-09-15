@@ -44,6 +44,10 @@ if (outcome.status === 'scored') console.log(outcome.score.pass, outcome.score.t
 
 语料根目录必填；尝试次数是可在 `cordis.yml` 中修改的、经过校验的成员。
 
+### 触发器与技能评估
+
+`shouldOptimize(usage, thresholds)` 是纯触发器，决定一个技能的已记录结果是否值得运行一次优化：至少 `triggerMinUses` 次加载且失败占比超过 `triggerFailureRate`，其中占比为 `failureCount / (useCount + failureCount)`——正是遥测记录所记录的公式。`evaluateSkill({ skill, scenarios, agent, run })` 经由已有的 `score` 为每个具名场景评分，并聚合成优化器三元组：仅当每个场景都通过时 `pass` 才成立，token 与耗时取各场景中位数之和。一个场景被跳过则整个评估随之跳过并附上理由，因为基于不完整的评估做优化等于在不存在的证据上做选择；未指名任何场景的技能同样跳过。
+
 ```yaml
 - name: '@deepseek-ai/dsh-evolution-scorer'
   config:
@@ -55,6 +59,8 @@ if (outcome.status === 'scored') console.log(outcome.score.pass, outcome.score.t
 |---|---|---|
 | `corpusDir` | `required` | 语料根目录的绝对路径，每个录制场景一个子目录 |
 | `attempts` | `3` | 每次评分的全新进程尝试次数；中位数取自这些样本 |
+| `triggerMinUses` | `20` | 失败率据以触发优化前所需的已记录加载次数 |
+| `triggerFailureRate` | `0.3` | 技能触发优化必须超过的失败占比 |
 
 生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-evolution-scorer)是每个可接受字段的详尽来源。
 

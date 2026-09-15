@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-`dsh-evolution-feedback` 把失败的工具结果变成按会话持久化的观测，并汇总为学习回路所读取的自然语言反馈。它按投递原样观察 `session/event`，只记录其工具调用已被看见的失败 `tool/result`，重复出现时累加计数而不是追加第二条，并按会话保留最新的 `maxEntries` 条。此处不调用任何模型。`summary` 按工具与消息合并多个会话，并统计有多少个会话报告过该失败，因此"四个会话各出现一次"的故障排在"单个会话重复四次"之前。
+`dsh-evolution-feedback` 把失败的工具结果变成按会话持久化的观测，并汇总为学习回路所读取的自然语言反馈。它按投递原样观察 `session/event`，只记录其工具调用已被看见的失败 `tool/result`，重复出现时累加计数而不是追加第二条，并按会话保留最新的 `maxEntries` 条。此处不调用任何模型。`summary` 按工具与消息合并多个会话，并统计有多少个会话报告过该失败，因此"四个会话各出现一次"的故障排在"单个会话重复四次"之前。`signals` 为同一份汇总分级：自身调用从未被看见的失败只能观察；被 `triggerReviewSessions` 个不同会话报告过的失败触发复审；介于两者之间的只参与排序、不做决定。
 
 ## 目录
 
@@ -25,7 +25,7 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用本包
 
-挂载本插件即可，观测无需额外接线。用 `entries` 读取单个会话的失败，或用 `summary` 读取多个会话合并后的失败。
+挂载本插件即可，观测无需额外接线。用 `entries` 读取单个会话的失败，用 `summary` 读取多个会话合并后的失败，用 `signals` 读取决策所消费的分级信号。
 
 ```ts
 const failures = ctx.evolutionFeedback.summary(workspace.sessionIds, 10)
@@ -34,17 +34,23 @@ for (const failure of failures) {
 }
 ```
 
-其 `tool/call` 从未被看见的失败结果记为空工具名；既无文本也无失败码的结果记为空消息——两者都是真实状态，而非错误。成功的结果不记录任何内容。
+```ts
+const signals = ctx.evolutionFeedback.signals(workspace.sessionIds, 10)
+const decisive = signals.find(signal => signal.actionability === 'trigger_review')
+```
+
+其 `tool/call` 从未被看见的失败结果记为空工具名；既无文本也无失败码的结果记为空消息——两者都是真实状态，而非错误。成功的结果不记录任何内容。`signals` 对分级后的汇总排序，因此关键信号不会被仅凭计数的条目挤出上限；`summary` 保持按计数排序。
 
 ### 配置
 
-观测默认开启；两个上界是可在 `cordis.yml` 中修改的、经过校验的 `Config` 成员。
+观测默认开启；每个字段都是可在 `cordis.yml` 中修改的、经过校验的 `Config` 成员。
 
 ```yaml
 - name: '@deepseek-ai/dsh-evolution-feedback'
   config:
     maxEntries: 50
     maxMessageChars: 300
+    triggerReviewSessions: 3
 ```
 
 | 字段 | 默认值 | 含义 |
@@ -52,6 +58,7 @@ for (const failure of failures) {
 | `enabled` | `true` | 是否观测失败的工具结果；无论开关如何，读取始终可用 |
 | `maxEntries` | `100` | 每个会话保留的观测条数，最新在前 |
 | `maxMessageChars` | `500` | 单条失败消息记录的字符预算 |
+| `triggerReviewSessions` | `2` | 同一失败需被多少个不同会话报告才触发复审 |
 
 生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-evolution-feedback)是每个可接受字段的详尽来源。
 
@@ -121,6 +128,6 @@ for (const failure of failures) {
 <details>
 <summary>面向维护者的工作上下文——点击展开</summary>
 
-消费 `summary` 的优化器趟次正是本存储存在的原因；在它落地之前，`summary` 在仓库内尚无调用方。尚无设计负责人。
+`summary` 只用于整理器的观测提示与 dreaming 的 light 阶段展示，真正把 `signals` 变成决定的是整理器趟次：可归因的失败会把它所关联的技能降级。该消费者设置 `triggerReviewSessions`；默认值 2 避免单个坏会话就降级一个技能。
 
 </details>

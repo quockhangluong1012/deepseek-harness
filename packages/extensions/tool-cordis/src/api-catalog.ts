@@ -1104,6 +1104,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the consolidation report, or undefined when no run happened.',
       },
       {
+        signature: 'async staged(): Promise<StagedSkill[]>',
+        description: 'List the skills the ledger currently stages, worst failure rate first with ties by ascending name. Only the newest entry per skill counts, so a skill restaged after further failures appears once at its latest rate.',
+        parameters: [],
+        returns: 'one row per staged skill.',
+      },
+      {
         signature: 'async adopt(name: string): Promise<SkillUsageRecord>',
         description: 'Adopt one agent-created skill into user-directed standing, recording the movement in the ledger. Manual only: clocks never reset.',
         parameters: [{ name: 'name', description: 'skill name.' }],
@@ -1142,9 +1148,9 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     methods: [
       {
         signature: '@Remote(\'status\') async status(): Promise<EvolutionCuratorStatus>',
-        description: 'Read the curator\'s recorded status. An unmounted curator is reported as such — never as a pass that never ran.',
+        description: 'Read the curator\'s recorded status plus the two dashboard rates: today\'s cache-hit share from the usage ledger and the aggregate skill failure rate from telemetry. Either rate is null when its source is unmounted or holds no loads. An unmounted curator is reported as such — never as a pass that never ran.',
         parameters: [],
-        returns: 'the mounted flag, newest pass instant, and recorded passes.',
+        returns: 'the mounted flag, newest pass instant, recorded passes, and rates.',
       },
     ],
   },
@@ -1194,6 +1200,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Aggregate the given sessions\' failures by tool and message, most-observed first. Distinct sessions that reported a failure are counted, so a failure seen once in four sessions outranks four repeats in one.',
         parameters: [{ name: 'sessionIds', description: 'sessions to aggregate, in caller order.' }, { name: 'limit', description: 'maximum entries returned.' }],
         returns: 'the aggregated failures, newest-highest-count first.',
+      },
+      {
+        signature: 'signals(sessionIds: readonly string[], limit: number): FeedbackSignal[]',
+        description: 'Grade the given sessions\' failures by how decisive each is for a state transition, most decisive first. A failure whose own call was never observed carries no attribution, so it only observes; an attributable failure seen in `triggerReviewSessions` distinct sessions triggers a review, and fewer sessions rank without deciding. Grading happens before the limit, so a decisive signal is never truncated away by a count-ranked one.',
+        parameters: [{ name: 'sessionIds', description: 'sessions to aggregate, in caller order.' }, { name: 'limit', description: 'maximum signals returned.' }],
+        returns: 'the graded signals, decisive first.',
       },
     ],
   },
@@ -1400,6 +1412,26 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'evolutionScorer',
+    summary: 'Recorded-session scorer.',
+    description: 'Recorded-session scorer. One score runs the scenario in `attempts` fresh processes, measures each attempt\'s harvested sessions through `ctx.tokenMeter`, and reduces the attempts to the metric triple. Nothing is written: the runner\'s replay fixtures and the expected workspace are read-only inputs.',
+    methods: [
+      {
+        signature: 'async score(request: ScoreRequest): Promise<ScoreOutcome>',
+        description: 'Score one scenario against its recorded fixtures.\n\nEvery attempt boots a fresh process through the caller\'s runner in the keyless replay tier, and is scored against `workspace.expected/` when the scenario ships one, or against its own initial workspace otherwise.',
+        parameters: [{ name: 'request', description: 'scenario name plus the agent composition and runner to boot it with.' }],
+        returns: 'the metric triple, or the reason the scenario could not be scored.',
+        throws: ['when the configured corpus does not exist, a shipped fixture cannot be parsed, or the runner fails; only an unknown scenario and an absent fixture are skips.'],
+      },
+      {
+        signature: 'async evaluateSkill(request: EvaluateSkillRequest): Promise<SkillEvaluation>',
+        description: 'Evaluate one skill over its corpus scenarios and aggregate the metric triple an optimizer selects on. Every scenario must score: a skipped scenario means the corpus does not describe what the skill was asked to prove, and optimizing on a partial evaluation would select on evidence that is not there — so one skip skips the whole evaluation with its reason attached.',
+        parameters: [{ name: 'request', description: 'skill name plus the scenarios, agent composition, and runner to score it with.' }],
+        returns: 'the aggregated triple with per-scenario records, or the reason the skill could not be evaluated.',
+      },
+    ],
+  },
+  {
     key: 'evolutionSkillTelemetry',
     summary: 'Durable per-skill telemetry store.',
     description: 'Durable per-skill telemetry store. Opens the `evolution_skill_usage` domain at init and closes it through `ctx.effect`. A passive `tools/post-execute` observer counts successful `skill`-tool loads as uses; views, patches, provenance, pins, and states arrive through the explicit marks below.',
@@ -1423,6 +1455,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the stored record, or undefined for excluded sources.',
       },
       {
+        signature: 'async markFailed(name: string, source?: string): Promise<SkillUsageRecord | undefined>',
+        description: 'Count one failed `skill`-tool load. Successful loads arrive through markUsed; this is the failure half, called by the same `tools/post-execute` observer. Exclusion matches markUsed.',
+        parameters: [{ name: 'name', description: 'skill name.' }, { name: 'source', description: 'catalog source when the caller already resolved it.' }],
+        returns: 'the stored record, or undefined for excluded sources.',
+      },
+      {
         signature: 'async markViewed(name: string, source?: string): Promise<SkillUsageRecord | undefined>',
         description: 'Count one human view. Exclusion matches markUsed.',
         parameters: [{ name: 'name', description: 'skill name.' }, { name: 'source', description: 'catalog source when the caller already resolved it.' }],
@@ -1436,15 +1474,27 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'async markAgentCreated(name: string): Promise<SkillUsageRecord>',
-        description: 'Record background-review authorship. Resolves without writing when the record already carries it; foreground creates never call this, so their provenance stays user-directed.',
+        description: 'Record model authorship of a skill body. The model wrote this skill through `skill_manage`, so its standing is provisional until evidence or `/curator adopt` vouches for it. Resolves without writing when the record already carries both facts.',
         parameters: [{ name: 'name', description: 'skill name.' }],
         returns: 'the stored record.',
       },
       {
         signature: 'async markAdopted(name: string): Promise<SkillUsageRecord>',
-        description: 'Adopt one agent-created skill into user-directed standing. Only records carrying background-review authorship move; everything else rejects, and clocks never reset.',
+        description: 'Adopt one model-authored skill into user-directed standing. Only records carrying model authorship move; everything else rejects, and clocks never reset.',
         parameters: [{ name: 'name', description: 'skill name.' }],
         returns: 'the stored record with user-directed provenance.',
+      },
+      {
+        signature: 'async recordTrustObservation( name: string, outcome: \'success\' | \'failure\', sessionId: string, failure?: SkillTrustFailure, ): Promise<SkillUsageRecord | undefined>',
+        description: 'Record one trust observation for a skill. A failure with attribution demotes the skill and restamps the anchor; a success counts only when its session is newer than that anchor and has not been counted yet, so evidence gathered before a fix cannot promote the skill again. Excluded sources resolve to no record, and an observation that changes nothing writes nothing.',
+        parameters: [{ name: 'name', description: 'skill name.' }, { name: 'outcome', description: 'the observed outcome.' }, { name: 'sessionId', description: 'the session that loaded this skill.' }, { name: 'failure', description: 'attribution evidence, used only for `\'failure\'`.' }],
+        returns: 'the stored record, or undefined for excluded sources.',
+      },
+      {
+        signature: 'async markRevised(name: string, content: string): Promise<SkillUsageRecord | undefined>',
+        description: 'Record a new revision of the SKILL.md body. The store hashes the content itself, so one place defines the shape of `contentSha`; the same bytes again is a no-op, and a real change resets trust like any other edit.',
+        parameters: [{ name: 'name', description: 'skill name.' }, { name: 'content', description: 'the exact bytes just written to SKILL.md.' }],
+        returns: 'the stored record, or undefined for excluded sources.',
       },
       {
         signature: 'async drop(name: string): Promise<boolean>',
@@ -4430,6 +4480,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type AgentStatus = \'idle\' | \'running\';',
   },
   {
+    name: 'AgentUnderTest',
+    declaration: 'export interface AgentUnderTest {\n    binScript: string;\n    libBinScript?: string | undefined;\n    configPath: string;\n    profile?: string;\n    tsconfigPath: string;\n}',
+  },
+  {
     name: 'ApiKeyRecord',
     declaration: 'export interface ApiKeyRecord {\n    readonly kind: \'api-key\';\n    readonly key?: string;\n    readonly env?: Readonly<Record<string, string>>;\n}',
   },
@@ -4775,7 +4829,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ContextFormed',
-    declaration: 'export type ContextFormed = {\n    readonly form?: never;\n} | {\n    readonly form: \'instructions\';\n} | {\n    readonly form: \'catalog\';\n} | {\n    readonly form: \'snapshot\';\n    readonly sections: readonly ContextSnapshotSection[];\n} | {\n    readonly form: \'notice\';\n    readonly summary: string;\n} | {\n    readonly form: \'relay\';\n} | {\n    readonly form: \'recall\';\n};',
+    declaration: 'export type ContextFormed = {\n    readonly form?: never;\n} | {\n    readonly form: \'instructions\';\n} | {\n    readonly form: \'catalog\';\n} | {\n    readonly form: \'snapshot\';\n    readonly sections: readonly ContextSnapshotSection[];\n    readonly supersedes?: true;\n} | {\n    readonly form: \'notice\';\n    readonly summary: string;\n} | {\n    readonly form: \'relay\';\n} | {\n    readonly form: \'recall\';\n};',
   },
   {
     name: 'ContextSnapshotSection',
@@ -4923,7 +4977,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'CuratorReport',
-    declaration: 'export interface CuratorReport {\n    at: string;\n    dryRun: boolean;\n    scanned: number;\n    transitions: CuratorTransition[];\n    skippedPinned: number;\n    skippedProtected: number;\n    skippedExcluded: number;\n    passId: string | null;\n    snapshot: string | null;\n    consolidation?: ConsolidationReport | undefined;\n}',
+    declaration: 'export interface CuratorReport {\n    at: string;\n    dryRun: boolean;\n    scanned: number;\n    transitions: CuratorTransition[];\n    skippedPinned: number;\n    skippedProtected: number;\n    skippedExcluded: number;\n    passId: string | null;\n    snapshot: string | null;\n    consolidation?: ConsolidationReport | undefined;\n    staged: StagedCandidate[];\n}',
   },
   {
     name: 'CuratorRunOptions',
@@ -4943,7 +4997,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'DeepSeekLlmApiExtensionRequest',
-    declaration: 'export interface DeepSeekLlmApiExtensionRequest {\n    readonly body: Readonly<Record<string, DeepSeekLlmApiJson>>;\n    readonly sessionId?: string;\n    readonly purpose?: \'compaction\' | \'session-title\' | \'workspace-memory\' | \'evolution-review\';\n    readonly signal: AbortSignal;\n}',
+    declaration: 'export interface DeepSeekLlmApiExtensionRequest {\n    readonly body: Readonly<Record<string, DeepSeekLlmApiJson>>;\n    readonly sessionId?: string;\n    readonly purpose?: \'compaction\' | \'session-title\' | \'workspace-memory\' | \'evolution-review\' | \'evolution-optimize\';\n    readonly signal: AbortSignal;\n}',
   },
   {
     name: 'DeepSeekLlmApiJson',
@@ -5122,6 +5176,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface EpochHeader {\n    config: LlmCallConfig;\n    adapterDefaults?: LlmCallConfigAdapterDefaults;\n    tools?: ToolSchema[];\n}',
   },
   {
+    name: 'EvaluateSkillRequest',
+    declaration: 'export interface EvaluateSkillRequest {\n    skill: string;\n    scenarios: readonly string[];\n    agent: AgentUnderTest;\n    run: ScenarioRunner;\n}',
+  },
+  {
     name: 'EvolutionAddContextItemRequest',
     declaration: 'export interface EvolutionAddContextItemRequest extends EvolutionScopeRequest {\n    readonly kind: \'text\' | \'file\';\n    readonly label: string;\n    readonly text?: string;\n    readonly path?: string;\n}',
   },
@@ -5131,7 +5189,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'EvolutionCuratorStatus',
-    declaration: 'export interface EvolutionCuratorStatus {\n    mounted: boolean;\n    lastRunAt: string | null;\n    passes: readonly CuratorPassSummary[];\n}',
+    declaration: 'export interface EvolutionCuratorStatus {\n    mounted: boolean;\n    lastRunAt: string | null;\n    passes: readonly CuratorPassSummary[];\n    cacheHitRate: number | null;\n    skillFailureRate: number | null;\n}',
   },
   {
     name: 'EvolutionListStagedRequest',
@@ -5166,12 +5224,24 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface EvolutionStagedValue {\n    readonly staged: readonly StagedWrite[];\n}',
   },
   {
+    name: 'FeedbackActionability',
+    declaration: 'export type FeedbackActionability = \'observe_only\' | \'ranking_only\' | \'trigger_review\';',
+  },
+  {
     name: 'FeedbackCategory',
     declaration: 'export type FeedbackCategory = \'task-result\' | \'instruction-following\' | \'product-interaction\' | \'service-stability\' | \'resource-cost\' | \'security-privacy-permission\' | \'other\';',
   },
   {
     name: 'FeedbackEntry',
     declaration: 'export interface FeedbackEntry {\n    tool: string | null;\n    message: string;\n    count: number;\n    firstAt: string;\n    lastAt: string;\n}',
+  },
+  {
+    name: 'FeedbackEvidenceStatus',
+    declaration: 'export type FeedbackEvidenceStatus = \'complete\' | \'actionable_partial\';',
+  },
+  {
+    name: 'FeedbackSignal',
+    declaration: 'export interface FeedbackSignal extends FeedbackSummaryEntry {\n    actionability: FeedbackActionability;\n    evidenceStatus: FeedbackEvidenceStatus;\n    mergeKey: string;\n}',
   },
   {
     name: 'FeedbackSummaryEntry',
@@ -5263,7 +5333,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'GenerateOptions',
-    declaration: 'export interface GenerateOptions {\n    provider: string;\n    model: string;\n    reasoningEffort?: ReasoningEffortId;\n    messages: Message[];\n    system?: string;\n    tools?: ToolSchema[];\n    temperature?: number;\n    maxTokens?: number;\n    stop?: string[];\n    signal?: AbortSignal;\n    sessionId?: Branded<\'SessionId\'>;\n    purpose?: \'compaction\' | \'session-title\' | \'workspace-memory\' | \'evolution-review\';\n}',
+    declaration: 'export interface GenerateOptions {\n    provider: string;\n    model: string;\n    reasoningEffort?: ReasoningEffortId;\n    messages: Message[];\n    system?: string;\n    tools?: ToolSchema[];\n    temperature?: number;\n    maxTokens?: number;\n    stop?: string[];\n    signal?: AbortSignal;\n    sessionId?: Branded<\'SessionId\'>;\n    purpose?: \'compaction\' | \'session-title\' | \'workspace-memory\' | \'evolution-review\' | \'evolution-optimize\';\n}',
   },
   {
     name: 'GenericCallView',
@@ -5400,6 +5470,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'IndexInjectionPlacement',
     declaration: 'export type IndexInjectionPlacement = \'head\' | \'body\';',
+  },
+  {
+    name: 'InputScript',
+    declaration: 'export interface InputScript {\n    steps: InputStep[];\n    permissionAnswers?: PermissionAnswer[];\n}',
+  },
+  {
+    name: 'InputStep',
+    declaration: 'export type InputStep = {\n    op: \'initialize\';\n} | {\n    op: \'newSession\';\n} | {\n    op: \'newSessionExpectError\';\n    additionalDirectories?: string[];\n} | {\n    op: \'prompt\';\n    text: string;\n} | {\n    op: \'promptContent\';\n    content: AcpContentBlock[];\n} | {\n    op: \'promptAndWaitForAgentMessage\';\n    text: string;\n    waitForText: string;\n} | {\n    op: \'promptExpectError\';\n    text: string;\n} | {\n    op: \'promptAndCancel\';\n    text: string;\n    waitForFile?: {\n        path: string;\n        timeoutMs?: number;\n    };\n} | {\n    op: \'waitForFile\';\n    path: string;\n    timeoutMs?: number;\n} | {\n    op: \'waitForTurnStart\';\n    minimumTurn?: number;\n    timeoutMs?: number;\n} | {\n    op: \'waitForTurnEnd\';\n    timeoutMs?: number;\n} | {\n    op: \'waitForSubagentTurnEnd\';\n    child?: number;\n    minimumTurn?: number;\n    timeoutMs?: number;\n} | {\n    op: \'waitForGoalPhase\';\n    phase: \'active\' | \'paused\' | \'blocked\' | \'complete\';\n    timeoutMs?: number;\n} | {\n    op: \'waitForInboxMessage\';\n    text: string;\n    timeoutMs?: number;\n} | {\n    op: \'waitForTitleAfterTurnEnd\';\n    timeoutMs?: number;\n} | {\n    op: \'waitForEventAfterTurnEnd\';\n    type: string;\n    timeoutMs?: number;\n} | {\n    op: \'cancel\';\n    waitForFile?: {\n        path: string;\n        timeoutMs?: number;\n    };\n};',
   },
   {
     name: 'InspectorId',
@@ -5794,6 +5872,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface PassSummary {\n    passId: string;\n    at: string;\n    snapshot: string;\n    transitions: number;\n}',
   },
   {
+    name: 'PermissionAnswer',
+    declaration: 'export interface PermissionAnswer {\n    kind: \'allow_once\' | \'allow_always\' | \'reject_once\' | \'reject_always\';\n}',
+  },
+  {
     name: 'PermissionSelect',
     declaration: 'export interface PermissionSelect {\n    options: PresetOption[];\n    currentValue: string;\n}',
   },
@@ -6011,7 +6093,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'RollbackReport',
-    declaration: 'export interface RollbackReport {\n    at: string;\n    label: string;\n    restored: RollbackRestored[];\n    preRollback: string;\n    restoredDirs: string[];\n}',
+    declaration: 'export interface RollbackReport {\n    at: string;\n    label: string;\n    restored: RollbackRestored[];\n    preRollback: string;\n    restoredDirs: string[];\n    restoredFiles: string[];\n}',
   },
   {
     name: 'RollbackRestored',
@@ -6058,6 +6140,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface SaveTextSpill {\n    owner: SpillOwner;\n    source: SpillSource;\n    suggestedName: string;\n    content: string;\n}',
   },
   {
+    name: 'ScenarioRunner',
+    declaration: 'export type ScenarioRunner = (input: InputScript, options: RunOptions) => Promise<RunResult>;',
+  },
+  {
     name: 'ScheduledToolDispatch',
     declaration: 'export type ScheduledToolDispatch = {\n    kind: \'post-result\';\n    result: ToolExecutionResult;\n} | {\n    kind: \'final-result\';\n    result: ToolExecutionResult;\n};',
   },
@@ -6072,6 +6158,18 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'ScopeKey',
     declaration: 'export type ScopeKey = object;',
+  },
+  {
+    name: 'ScoreOutcome',
+    declaration: 'export type ScoreOutcome = {\n    status: \'scored\';\n    score: ScoreRecord;\n} | {\n    status: \'skipped\';\n    scenario: string;\n    reason: string;\n};',
+  },
+  {
+    name: 'ScoreRecord',
+    declaration: 'export interface ScoreRecord {\n    scenario: string;\n    pass: boolean;\n    changes: readonly WorkspaceChange[];\n    tokens: number;\n    wallTimeMs: number;\n    samples: readonly number[];\n}',
+  },
+  {
+    name: 'ScoreRequest',
+    declaration: 'export interface ScoreRequest {\n    scenario: string;\n    agent: AgentUnderTest;\n    run: ScenarioRunner;\n}',
   },
   {
     name: 'SearchFileMatches',
@@ -6714,6 +6812,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface SkillEntry {\n    readonly path?: string;\n    readonly name: string;\n    readonly description: string;\n    readonly whenToUse?: string;\n    readonly modelInvocable: boolean;\n}',
   },
   {
+    name: 'SkillEvaluation',
+    declaration: 'export type SkillEvaluation = {\n    status: \'evaluated\';\n    score: SkillScore;\n} | {\n    status: \'skipped\';\n    skill: string;\n    reason: string;\n};',
+  },
+  {
     name: 'SkillInvocationPolicy',
     declaration: 'export interface SkillInvocationPolicy {\n    readonly modelInvocable: boolean;\n    readonly userInvocable: boolean;\n}',
   },
@@ -6754,6 +6856,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type SkillResourceBase = {\n    readonly kind: \'directory\';\n    readonly path: string;\n} | {\n    readonly kind: \'url\';\n    readonly url: string;\n} | {\n    readonly kind: \'opaque\';\n    readonly description: string;\n};',
   },
   {
+    name: 'SkillScore',
+    declaration: 'export interface SkillScore {\n    skill: string;\n    pass: boolean;\n    tokens: number;\n    wallTimeMs: number;\n    scores: readonly ScoreRecord[];\n}',
+  },
+  {
     name: 'SkillSource',
     declaration: 'export type SkillSource = \'project-dsh\' | \'project-hermes\' | \'project-agents\' | \'runtime\' | \'user-dsh\' | \'user-agents\' | \'custom\' | \'bundled\' | (string & {});',
   },
@@ -6762,8 +6868,16 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface SkillSummary {\n    readonly path?: string;\n    readonly name: string;\n    readonly description: string;\n    readonly whenToUse?: string;\n    readonly invocation: SkillInvocationPolicy;\n    readonly source: SkillSource;\n    readonly provider: string;\n    readonly resourceBase?: SkillResourceBase;\n}',
   },
   {
+    name: 'SkillTrustFailure',
+    declaration: 'export interface SkillTrustFailure {\n    mergeKey: string;\n    message: string;\n    at: string;\n}',
+  },
+  {
+    name: 'SkillTrustState',
+    declaration: 'export type SkillTrustState = \'provisional\' | \'trusted\';',
+  },
+  {
     name: 'SkillUsageRecord',
-    declaration: 'export interface SkillUsageRecord {\n    useCount: number;\n    viewCount: number;\n    patchCount: number;\n    lastUsedAt: string | null;\n    sessionIds: readonly string[];\n    lastViewedAt: string | null;\n    lastPatchedAt: string | null;\n    createdAt: string;\n    state: SkillLifecycleState;\n    pinned: boolean;\n    createdBy: SkillCreatedBy;\n    absorbedInto: string | null;\n    archivedAt: string | null;\n}',
+    declaration: 'export interface SkillUsageRecord {\n    useCount: number;\n    viewCount: number;\n    patchCount: number;\n    lastUsedAt: string | null;\n    failureCount?: number;\n    lastOutcome?: \'ok\' | \'failed\';\n    sessionIds: readonly string[];\n    lastViewedAt: string | null;\n    lastPatchedAt: string | null;\n    createdAt: string;\n    state: SkillLifecycleState;\n    pinned: boolean;\n    createdBy: SkillCreatedBy;\n    absorbedInto: string | null;\n    archivedAt: string | null;\n    trust: SkillTrustState;\n    trustFailures: number;\n    trustObservedSessions: readonly string[];\n    trustAnchorSessionId: string | null;\n    lastTrustFailure: SkillTrustFailure | null;\n    revision: number;\n    contentSha: string | null;\n    parentRevisionSha: string | null;\n}',
   },
   {
     name: 'SkillViewOptions',
@@ -6792,6 +6906,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SpillSource',
     declaration: 'export type SpillSource = {\n    kind: \'tool\';\n    toolName: string;\n    callId: ToolCallId;\n    label: string;\n} | {\n    kind: \'session-reference\';\n    sessionId: SessionId;\n    label: string;\n};',
+  },
+  {
+    name: 'StagedCandidate',
+    declaration: 'export interface StagedCandidate {\n    name: string;\n    useCount: number;\n    failureCount: number;\n    failureRate: number;\n    reason: string;\n}',
+  },
+  {
+    name: 'StagedSkill',
+    declaration: 'export interface StagedSkill extends StagedCandidate {\n    at: string;\n}',
   },
   {
     name: 'StagedWriteInput',
@@ -6975,11 +7097,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SurveyCandidate',
-    declaration: 'export interface SurveyCandidate {\n    name: string;\n    description: string;\n    source: string;\n    state: SkillLifecycleState;\n    idleDays: number;\n    useCount: number;\n    viewCount: number;\n    patchCount: number;\n    lastUsedAt: string | null;\n    failures: readonly SurveyFailure[];\n}',
-  },
-  {
-    name: 'SurveyFailure',
-    declaration: 'export interface SurveyFailure {\n    tool: string | null;\n    message: string;\n    count: number;\n    sessions: number;\n}',
+    declaration: 'export interface SurveyCandidate {\n    name: string;\n    description: string;\n    source: string;\n    state: SkillLifecycleState;\n    idleDays: number;\n    useCount: number;\n    viewCount: number;\n    patchCount: number;\n    lastUsedAt: string | null;\n    failures: readonly FeedbackSignal[];\n    trust: SkillTrustState;\n    revision: number;\n    contentSha: string | null;\n    lastTrustFailure: SkillTrustFailure | null;\n}',
   },
   {
     name: 'SweepResult',
@@ -7576,6 +7694,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'WorkspaceByteRange',
     declaration: 'export interface WorkspaceByteRange {\n    readonly offset?: number;\n    readonly length?: number;\n}',
+  },
+  {
+    name: 'WorkspaceChange',
+    declaration: 'export interface WorkspaceChange {\n    path: string;\n    kind: \'added\' | \'removed\' | \'changed\';\n}',
   },
   {
     name: 'WorkspaceContextItemInput',

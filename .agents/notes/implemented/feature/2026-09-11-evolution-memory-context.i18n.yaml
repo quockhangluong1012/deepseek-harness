@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-11-evolution-memory-context.md
-2026-09-11-evolution-memory-context.md: 3bdf134d5b213b737d90665f89c260bfdf42878c
-2026-09-11-evolution-memory-context.zh.md: eb7eed14547aa9501109d18242dff8a626bc0d90
+2026-09-11-evolution-memory-context.md: 6ee5b3d6bef4d9e8e1e9bcf66706a0c2ebddd06e
+2026-09-11-evolution-memory-context.zh.md: 30e5ce93e8a2387cf209222ed1199a72f1fe7b00

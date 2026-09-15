@@ -34,6 +34,7 @@ import type {} from '@deepseek-ai/dsh-session-projection'
 import type { Context } from '@deepseek-ai/cordis'
 import { ReactLoopInbox } from './inbox.ts'
 import { RuntimeContextProjection } from './runtime-context.ts'
+import { SnapshotInjectionProjection } from './snapshot-injections.ts'
 import { AssistantStreamAttempt } from './assistant-stream.ts'
 import { SystemPromptProjection } from './runtime-context.ts'
 import { executeToolCalls } from './tool-calls.ts'
@@ -97,6 +98,7 @@ export class ReactLoopAgent implements Agent {
   /** Surface generation at attachment or the preceding built request. */
   private requestSurfaceGeneration: number
   private readonly runtimeContext: RuntimeContextProjection
+  private readonly snapshotInjections: SnapshotInjectionProjection
   /** Process-local revision of assistant frames for this attached Session. */
   private assistantStreamRevision = 0
   private assistantAttemptCounter = 0
@@ -127,6 +129,7 @@ export class ReactLoopAgent implements Agent {
       }
     }
     this.runtimeContext = new RuntimeContextProjection(this.ctx, session)
+    this.snapshotInjections = new SnapshotInjectionProjection(this.ctx, session)
     this.systemPrompt = new SystemPromptProjection(session)
   }
 
@@ -426,7 +429,9 @@ export class ReactLoopAgent implements Agent {
       }
       if (firstAttempt) {
         for (const message of decision.messages) {
-          this.session.append('user/message', message, { surfaceOp: 'append' })
+          // A snapshot supersedes its producer's previous one on the surface;
+          // everything else joins the transcript where it was committed.
+          this.session.append('user/message', message, this.snapshotInjections.intentFor(message.source))
         }
       }
       firstAttempt = false

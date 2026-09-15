@@ -318,24 +318,34 @@ export function EvolutionPage({ scopeId, scopeTitle, remote, t }: EvolutionPageP
             ? <p className={css.status}>{t('page.loading')}</p>
             : curator === null || !curator.mounted
               ? <p className={css.empty}>{t('curator.unmounted')}</p>
-              : passes.length === 0
-                ? <p className={css.empty}>{t('curator.empty')}</p>
-                : (
-                  <>
-                    {curator.lastRunAt !== null && (
-                      <p className={css.meta}>{t('curator.lastRun', { at: curator.lastRunAt })}</p>
+              : (
+                <>
+                  {curator.cacheHitRate !== null && (
+                    <p className={css.meta}>{t('curator.cacheHit', { percent: Math.round(curator.cacheHitRate * 100) })}</p>
+                  )}
+                  {curator.skillFailureRate !== null && (
+                    <p className={css.meta}>{t('curator.failureRate', { percent: Math.round(curator.skillFailureRate * 100) })}</p>
+                  )}
+                  {passes.length === 0
+                    ? <p className={css.empty}>{t('curator.empty')}</p>
+                    : (
+                      <>
+                        {curator.lastRunAt !== null && (
+                          <p className={css.meta}>{t('curator.lastRun', { at: curator.lastRunAt })}</p>
+                        )}
+                        <p className={css.meta}>{t('curator.passes', { n: passes.length })}</p>
+                        <ul className={css.passes} data-testid="evolution-curator-passes">
+                          {passes.map(pass => (
+                            <li key={pass.passId} className={css.pass}>
+                              <span className={css.passId}>{pass.passId}</span>
+                              <span className={css.passMeta}>{t('curator.transitions', { n: pass.transitions })}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </>
                     )}
-                    <p className={css.meta}>{t('curator.passes', { n: passes.length })}</p>
-                    <ul className={css.passes} data-testid="evolution-curator-passes">
-                      {passes.map(pass => (
-                        <li key={pass.passId} className={css.pass}>
-                          <span className={css.passId}>{pass.passId}</span>
-                          <span className={css.passMeta}>{t('curator.transitions', { n: pass.transitions })}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </>
-                )}
+                </>
+              )}
         </section>
 
         <section aria-label={t('lessons.title')} className={css.card}>

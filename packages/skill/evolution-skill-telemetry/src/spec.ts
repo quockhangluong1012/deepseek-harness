@@ -27,6 +27,14 @@ export const skillUsageRecord = z.object({
   createdBy: z.enum(['agent', 'foreground']).nullable(),
   absorbedInto: z.string().nullable(),
   archivedAt: z.string().nullable(),
+  trust: z.enum(['provisional', 'trusted']).default('trusted'),
+  trustFailures: z.number().int().nonnegative().default(0),
+  trustObservedSessions: z.array(z.string()).default([]),
+  trustAnchorSessionId: z.string().nullable().default(null),
+  lastTrustFailure: z.object({ mergeKey: z.string(), message: z.string(), at: z.string() }).nullable().default(null),
+  revision: z.number().int().nonnegative().default(0),
+  contentSha: z.string().nullable().default(null),
+  parentRevisionSha: z.string().nullable().default(null),
 })
 
 /** One stored record, inferred from {@link skillUsageRecord}. */

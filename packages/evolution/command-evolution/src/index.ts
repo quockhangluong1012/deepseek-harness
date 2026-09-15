@@ -30,6 +30,7 @@ import type { EvolutionScopeId as EvolutionScopeIdBrand, LessonArtifact, StagedW
 import type {} from '@deepseek-ai/dsh-evolution-reviewer'
 import type {} from '@deepseek-ai/dsh-evolution-curator'
 import type { EvolutionCurator, PassSummary, PurgeReport, RollbackReport } from '@deepseek-ai/dsh-evolution-curator'
+import type { EvolutionOptimizer, OptimizeReport } from '@deepseek-ai/dsh-evolution-optimizer'
 import type {} from '@deepseek-ai/dsh-evolution-skill-telemetry'
 import type { SkillUsageRecord } from '@deepseek-ai/dsh-evolution-skill-telemetry'
 import type { SkillBlueprint } from '@deepseek-ai/dsh-skill'
@@ -105,7 +106,7 @@ function graphArgs(raw: string): string[] {
 }
 
 /** Argument grammar for `/curator`; anything else reports usage. */
-const CURATOR_USAGE = 'Usage: /curator status | run [--dry-run] | adopt <name> | purge [--dry-run] | rollback --id <id> | ledger | pin <name> | unpin <name>'
+const CURATOR_USAGE = 'Usage: /curator status | run [--dry-run] | staged | adopt <name> | purge [--dry-run] | rollback --id <id> | ledger | pin <name> | unpin <name> | optimize <skill> <scenario...> | experiments [skill]'
 
 /** Argument grammar for `/trajectory`; anything else reports usage. */
 const TRAJECTORY_USAGE = 'Usage: /trajectory [--out <path>] [--all]'
@@ -750,12 +751,14 @@ async function executeSuggestions(ctx: Context, invocation: CommandInvocation): 
 
 /**
  * Execute `/curator`: dispatch to the handler for each sub-verb. Pin and
- * unpin only need telemetry; every other verb requires the curator.
- * @param ctx - plugin context carrying the optional curator and telemetry.
+ * unpin only need telemetry, optimize needs the optimizer and a scope, and
+ * every other verb requires the curator.
+ * @param ctx - plugin context carrying the optional curator, telemetry, and optimizer.
+ * @param profile - configured scope namespace for the optimize scope.
  * @param invocation - raw command input.
  * @returns the command result.
  */
-async function executeCurator(ctx: Context, invocation: CommandInvocation): Promise<CommandResult> {
+async function executeCurator(ctx: Context, profile: string, invocation: CommandInvocation): Promise<CommandResult> {
   const args = splitArgs(invocation.rawInput)
   const verb = args[0]
   const rest = args.slice(1)
@@ -768,9 +771,16 @@ async function executeCurator(ctx: Context, invocation: CommandInvocation): Prom
     if (telemetry === undefined) return { kind: 'error', text: 'Skill telemetry is not mounted. Pin/unpin requires the telemetry store.' }
     return verb === 'pin' ? executeCuratorPin(telemetry, rest[0]!) : executeCuratorUnpin(telemetry, rest[0]!)
   }
-
-  // Validate args for every curator verb before resolving the curator so
-  // malformed invocations report usage even when the curator is absent.
+  // Optimize needs the optimizer and a scope, not the curator.
+  if (verb === 'experiments') {
+    if (rest.length > 1) return { kind: 'error', text: CURATOR_USAGE }
+    return executeCuratorExperiments(ctx, profile, invocation, rest[0])
+  }
+  if (verb === 'optimize') {
+    const skill = rest[0]
+    if (skill === undefined || rest.length < 2) return { kind: 'error', text: CURATOR_USAGE }
+    return executeCuratorOptimize(ctx, profile, invocation, skill, rest.slice(1))
+  }
   switch (verb) {
     case 'status': if (rest.length > 0) return { kind: 'error', text: CURATOR_USAGE }; break
     case 'run': if (rest.length > 1 || (rest.length === 1 && rest[0] !== '--dry-run')) return { kind: 'error', text: CURATOR_USAGE }; break
@@ -778,6 +788,7 @@ async function executeCurator(ctx: Context, invocation: CommandInvocation): Prom
     case 'purge': if (rest.length > 1 || (rest.length === 1 && rest[0] !== '--dry-run')) return { kind: 'error', text: CURATOR_USAGE }; break
     case 'rollback': if (rest.length !== 2 || rest[0] !== '--id') return { kind: 'error', text: CURATOR_USAGE }; break
     case 'ledger': if (rest.length > 0) return { kind: 'error', text: CURATOR_USAGE }; break
+    case 'staged': if (rest.length > 0) return { kind: 'error', text: CURATOR_USAGE }; break
     default: return { kind: 'error', text: CURATOR_USAGE }
   }
 
@@ -785,34 +796,142 @@ async function executeCurator(ctx: Context, invocation: CommandInvocation): Prom
   if (curator === undefined) return { kind: 'error', text: 'The evolution curator is not mounted.' }
 
   switch (verb) {
-    case 'status': return executeCuratorStatus(ctx, curator)
+    case 'status': return executeCuratorStatus(ctx, curator, invocation.signal)
     case 'run': return runCuratorPass(curator, rest[0] === '--dry-run')
     case 'adopt': return executeCuratorAdopt(curator, rest[0]!)
     case 'purge': return executeCuratorPurge(curator, rest[0] === '--dry-run')
     case 'rollback': return executeCuratorRollback(curator, rest[1]!)
     case 'ledger': return executeCuratorLedger(curator)
+    case 'staged': return executeCuratorStaged(curator)
     default: return { kind: 'error', text: CURATOR_USAGE }
   }
 }
 
 /**
- * Execute `/curator status`: bookkeeping and tracked-skill counts.
- * @param ctx - plugin context carrying the optional telemetry.
- * @param curator - the mounted curator service.
+ * Execute `/curator optimize <skill> <scenario...>`: run one offline
+ * optimization and report its outcome. A staged winner names its entry id;
+ * anything else names the reason no patch was staged.
+ * @param ctx - plugin context carrying the optional optimizer.
+ * @param profile - configured scope namespace for the staged patch.
+ * @param invocation - raw command input plus the invoking agent.
+ * @param skill - skill to optimize.
+ * @param scenarios - corpus scenario names, in run order.
  * @returns the command result.
  */
-async function executeCuratorStatus(ctx: Context, curator: EvolutionCurator): Promise<CommandResult> {
+async function executeCuratorOptimize(
+  ctx: Context,
+  profile: string,
+  invocation: CommandInvocation,
+  skill: string,
+  scenarios: string[],
+): Promise<CommandResult> {
+  const optimizer = ctx.get('evolutionOptimizer') as EvolutionOptimizer | undefined
+  if (optimizer === undefined) return { kind: 'error', text: 'The evolution optimizer is not mounted.' }
+  const membership = await resolveMembership(ctx, invocation.agent.session)
+  if (membership === undefined) return { kind: 'error', text: 'This session is outside any workspace scope.' }
+  const scope = EvolutionScopeId(profile, String(membership.id))
+  let report: OptimizeReport
+  try {
+    report = await optimizer.optimize({
+      skill,
+      scenarios,
+      scopeId: scope,
+      originSessionId: String(invocation.agent.session.id),
+      signal: invocation.signal,
+    })
+  } catch (error) {
+    return { kind: 'error', text: error instanceof Error ? error.message : String(error) }
+  }
+  if (report.status === 'staged') {
+    const holdout = report.holdout === null
+      ? ''
+      : ` Holdout: ${String(report.holdout.winner.pass)} pass at ${report.holdout.winner.tokens} tokens vs baseline ${String(report.holdout.baseline.pass)} pass at ${report.holdout.baseline.tokens} tokens.`
+    return {
+      kind: 'success',
+      text: `Optimized '${skill}': staged skill patch ${report.stagedId}.${holdout} Write the skill with skill_manage, then '/skills approve ${report.stagedId}' to drop the entry.`,
+    }
+  }
+  return { kind: 'success', text: `Optimized '${skill}': ${report.reason ?? report.status}.` }
+}
+
+/**
+ * Execute `/curator experiments [skill]`: read the scope's optimization
+ * ledger, newest first, so a human sees what was tried before spending on
+ * another run. An empty ledger says so rather than reporting a bare zero.
+ * @param ctx - plugin context carrying the optional optimizer.
+ * @param profile - configured scope namespace the runs staged into.
+ * @param invocation - raw command input plus the invoking agent.
+ * @param skill - skill to read, or undefined for the whole scope.
+ * @returns the command result.
+ */
+async function executeCuratorExperiments(
+  ctx: Context,
+  profile: string,
+  invocation: CommandInvocation,
+  skill: string | undefined,
+): Promise<CommandResult> {
+  const optimizer = ctx.get('evolutionOptimizer') as EvolutionOptimizer | undefined
+  if (optimizer === undefined) return { kind: 'error', text: 'The evolution optimizer is not mounted.' }
+  const membership = await resolveMembership(ctx, invocation.agent.session)
+  if (membership === undefined) return { kind: 'error', text: 'This session is outside any workspace scope.' }
+  const scope = EvolutionScopeId(profile, String(membership.id))
+  const rows = optimizer.experiments(scope, skill === undefined ? {} : { skill })
+  if (rows.length === 0) {
+    return {
+      kind: 'success',
+      text: skill === undefined
+        ? 'No optimizations recorded in this scope.'
+        : `No optimizations recorded for '${skill}'.`,
+    }
+  }
+  const lines = rows.map((row) => {
+    const staged = row.stagedId === null ? '' : ` ${row.stagedId}`
+    const confidence = row.confidence === null ? '' : ` ${row.confidence.wins}/${row.confidence.runs}`
+    const reason = row.reason === null ? '' : ` — ${row.reason}`
+    return `${row.at} ${row.skill}: ${row.outcome}${staged}${confidence}${reason}`
+  })
+  return { kind: 'success', text: [`Experiments (newest first): ${rows.length}`, ...lines].join('\n') }
+}
+
+/**
+ * Execute `/curator status`: bookkeeping, tracked-skill counts, and the two
+ * dashboard rates (today's cache-hit share from the usage ledger, aggregate
+ * skill failure rate from telemetry). Either rate reports its missing source
+ * rather than a number it cannot prove.
+ * @param ctx - plugin context carrying the optional telemetry and ledger.
+ * @param curator - the mounted curator service.
+ * @param signal - caller cancellation for the ledger read.
+ * @returns the command result.
+ */
+async function executeCuratorStatus(ctx: Context, curator: EvolutionCurator, signal: AbortSignal): Promise<CommandResult> {
   const telemetry = ctx.get('evolutionSkillTelemetry')
   const entries = telemetry?.entries() ?? []
   const state = (lifecycle: 'active' | 'stale' | 'archived'): number =>
     entries.filter(entry => entry.usage.state === lifecycle).length
+  const loads = entries.reduce((sum, entry) => sum + entry.usage.useCount + (entry.usage.failureCount ?? 0), 0)
+  const failures = entries.reduce((sum, entry) => sum + (entry.usage.failureCount ?? 0), 0)
+  const ledger = ctx.get('usageLedger')
+  const today = ledger === undefined ? undefined : await ledger.summary('today', signal)
   const passes = await curator.passes()
+  const staged = await curator.staged()
+  const worst = staged[0]
   const newest = passes[0]
   const lines = [
     `Curator: last pass ${curator.lastRunAt() ?? 'never'}`,
     telemetry === undefined
       ? 'Tracked skills: unavailable (skill telemetry is not mounted).'
-      : `Tracked skills: ${entries.length} (active ${state('active')}, stale ${state('stale')}, archived ${state('archived')}, pinned ${entries.filter(entry => entry.usage.pinned).length})`,
+      : `Tracked skills: ${entries.length} (active ${state('active')}, stale ${state('stale')}, archived ${state('archived')}, pinned ${entries.filter(entry => entry.usage.pinned).length}) · trust: ${entries.filter(entry => entry.usage.trust === 'provisional').length} provisional, ${entries.filter(entry => entry.usage.trust === 'trusted').length} trusted`,
+    today === undefined
+      ? 'Cache hit (today): unavailable (usage ledger is not mounted).'
+      : `Cache hit (today): ${Math.round(today.totals.cacheHitAvg * 100)}% (${today.totals.requests} requests)`,
+    telemetry === undefined
+      ? 'Skill failure rate: unavailable (skill telemetry is not mounted).'
+      : loads === 0
+        ? 'Skill failure rate: no recorded loads.'
+        : `Skill failure rate: ${Math.round((failures / loads) * 100)}% across ${entries.length} skills (${loads} loads)`,
+    worst === undefined
+      ? 'Staged for review: 0'
+      : `Staged for review: ${staged.length} · worst ${worst.name} (${Math.round(worst.failureRate * 100)}%)`,
     newest === undefined
       ? 'Recorded passes: 0'
       : `Recorded passes: ${passes.length} · newest ${newest.passId} at ${newest.at} (${newest.transitions} transition${newest.transitions === 1 ? '' : 's'})`,
@@ -836,6 +955,9 @@ async function runCuratorPass(curator: EvolutionCurator, dryRun: boolean): Promi
         ? `Curator pass previewed at ${report.at}: ${plural(report.scanned, 'tracked skill')}, ${plural(report.transitions.length, 'transition')} (no writes)`
         : `Curator pass complete at ${report.at}: ${plural(report.scanned, 'tracked skill')}, ${plural(report.transitions.length, 'transition')}`,
       ...report.transitions.map(transition => `- ${transition.name}: ${transition.from} → ${transition.to}`),
+      report.staged.length === 0
+        ? 'Staged for review: none'
+        : `Staged for review: ${plural(report.staged.length, 'skill')} (${report.staged.map(candidate => candidate.name).join(', ')})`,
       `Skipped: ${report.skippedPinned} pinned, ${report.skippedProtected} protected, ${report.skippedExcluded} bundled or hub`,
       report.passId === null ? 'Snapshot: none' : `Snapshot: ${report.passId}`,
     ].join('\n'),
@@ -888,6 +1010,7 @@ async function executeCuratorRollback(curator: EvolutionCurator, id: string): Pr
       text: [
         `Rolled back ${report.label} at ${report.at}: ${report.restored.length} skill${report.restored.length === 1 ? '' : 's'} restored`,
         ...report.restored.map(r => `- ${r.name}: ${r.from} → ${r.to}`),
+        ...(report.restoredFiles.length === 0 ? [] : [`Restored bodies: ${report.restoredFiles.join(', ')}`]),
       ].join('\n'),
     }
   } catch (err: unknown) {
@@ -908,6 +1031,18 @@ async function executeCuratorLedger(curator: EvolutionCurator): Promise<CommandR
     `- ${p.passId} at ${p.at}: ${p.transitions} transition${p.transitions === 1 ? '' : 's'}`,
   )
   return { kind: 'success', text: [`${passes.length} pass${passes.length === 1 ? '' : 'es'}:`, ...lines].join('\n') }
+}
+
+/**
+ * Execute `/curator staged`: list the skills staged for review, worst first.
+ * @param curator - the mounted curator service.
+ * @returns the command result.
+ */
+async function executeCuratorStaged(curator: EvolutionCurator): Promise<CommandResult> {
+  const rows = await curator.staged()
+  if (rows.length === 0) return { kind: 'success', text: 'No staged skills.' }
+  const lines = rows.map(row => `- ${row.name}: ${row.reason} (staged ${row.at})`)
+  return { kind: 'success', text: [`${rows.length} staged skill${rows.length === 1 ? '' : 's'}:`, ...lines].join('\n') }
 }
 
 /**
@@ -1086,9 +1221,9 @@ export function apply(ctx: Context, config: Config): void {
     yield ctx.commands.register({
       definitionId: CommandDefinitionId('@deepseek-ai/dsh-command-evolution/curator'),
       name: 'curator',
-      description: 'Manage skill curation: status, pass history, adopt, purge, pin, and rollback',
-      input: { hint: 'status | run | adopt <name> | purge | rollback | ledger | pin <name>' },
-      handler: (invocation: CommandInvocation) => track(executeCurator(ctx, invocation)),
+      description: 'Manage skill curation: status, pass history, adopt, purge, pin, rollback, and optimize',
+      input: { hint: 'status | run | adopt <name> | purge | rollback | ledger | pin <name> | optimize <skill> <scenario...> | experiments [skill]' },
+      handler: (invocation: CommandInvocation) => track(executeCurator(ctx, profile, invocation)),
     })
     yield ctx.commands.register({
       definitionId: CommandDefinitionId('@deepseek-ai/dsh-command-evolution/dream'),

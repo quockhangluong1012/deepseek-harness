@@ -41,7 +41,7 @@ No invariant companion is published: the Host face projects the mounted curator 
 
 ### Design concept
 
-The browser half reads two Remote namespaces: the controller's `evolution` (Scope reads, staged decisions, the journey timeline, and the follow stream) and this package's `evolutionCurator` (the curator's recorded passes). The follow stream keeps one complete baseline per generation and an upsert per durable Scope change, so a background extraction or an approval lands without a refetch; the page's own record projection carries the pending list, which makes a decision retire its row in the same step the controller answers.
+The browser half reads two Remote namespaces: the controller's `evolution` (Scope reads, staged decisions, the journey timeline, and the follow stream) and this package's `evolutionCurator` (the curator's recorded passes plus today's cache-hit share and the aggregate skill failure rate). The follow stream keeps one complete baseline per generation and an upsert per durable Scope change, so a background extraction or an approval lands without a refetch; the page's own record projection carries the pending list, which makes a decision retire its row in the same step the controller answers.
 
 ### Source map
 
@@ -81,7 +81,7 @@ Independent of live requests: the package never touches a request prefix, so it 
 
 - **Web only** — the page lives in the web composition; other profiles have no surface.
 - **No journey export or web scenario** — the specification's ZIP export and the `snapshots/web/evolution-journey` scenario are out of scope for this slice; the user waived snapshot work, so the page is verified on the real surface instead.
-- **The curator card reads passes only** — transitions, rollback, and consolidation reports stay CLI surfaces.
+- **The curator card reads passes and two rates** — today's cache-hit share and the aggregate skill failure rate, each hidden when its source is unmounted or holds no loads; transitions, rollback, and consolidation reports stay CLI surfaces.
 - **Read-only brief** — the page displays charged bytes and the digest; editing instructions, lessons, and profile stays with the CLI until the page grows those editors.
 
 <a id="dev-note"></a>

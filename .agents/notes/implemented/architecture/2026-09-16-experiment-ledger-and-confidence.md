@@ -1,0 +1,37 @@
+# Agent Note: Experiment ledger and repeated-comparison promotion
+
+Status: implemented
+
+English | [中文](2026-09-16-experiment-ledger-and-confidence.zh.md)
+
+## Problem
+
+`specs/evolutionary-harness-v11-deep-research.md` §29 asks that every experiment become searchable memory, §47 that a promotion rest on more than one good run, and §48 that a run record enough of itself to be told apart from stochastic luck. The §51 survey found all three absent: `EvolutionOptimizer.optimize` kept nothing between runs, so the same failing rewrite could be produced and thrown away indefinitely, a later run could not see which operators or scenarios had already been tried, and a single comparison against a re-scored baseline was the whole evidence for a promotion.
+
+## Decision
+
+Two mechanisms, both in `dsh-evolution-optimizer`, because they are the write side and the read side of one run:
+
+1. **One durable row per run that reached evaluation.** The optimizer opens its own storage domain (`evolution_experiments`, `src/experiments.ts`) and appends a row after every run whose mutation produced candidate bodies: identity and time, scope, skill, the evidence text, the mutation operators that produced candidates, the search and holdout scenarios, the baseline and winner triples, the confidence tally, the outcome, the reason, the staged id when one was created, the provider and model, and the SHA-256 of the body the run started from and of the body it promoted. Bodies are not stored — the digests identify them. `experiments(scopeId, { skill, limit })` returns the newest rows first, `/curator experiments [skill]` prints them, and each scope keeps `maxExperiments` rows, dropping the oldest as new ones land.
+2. **An approved promotion is a floor.** `regressionFloor` reads the scope's decided staged entries, keeps the skill's *approved* ones, and looks up the strongest recorded winner measured under the same comparability key — the search scenarios (order-insensitive), the provider, the model, and the attempts per scenario. A winner that approval already dominates is refused with `status: 'regressed'`, the floor named in the report (`floor: { triple, stagedId, at }`), and nothing staged. The key exists because a triple from another scenario set or another attempt count describes a different measurement; `samples` (the fewest attempts any scored scenario took) is now recorded on every row so the key can include it.
+3. **`confirmationRuns` turns a win into a repeated win.** After the search, the holdout check, and the Pareto pick, each further run scores the baseline and the winner again as a pair under fresh processes; promotion requires the winner to take every pair. A winner that loses one is refused with `status: 'unconfirmed'` and `confidence: { runs, wins }`, and the pairs are paid for from the same budget ceiling as the search.
+
+`OptimizeReport` gains `confidence` and `floor`, `status` gains `unconfirmed` and `regressed`, and `optimize` becomes a thin wrapper that records what `execute` returns — a run that never produced candidate bodies (no telemetry record, below the trigger, unreadable body, empty mutation answer) writes nothing.
+
+## Alternatives considered
+
+- **Recording inside `evolution-memory`'s scope record.** Rejected: that record is model-visible content — it is rendered into the brief and digested into the prompt — and it is byte-capped. Experiment history is operator-facing and unbounded, so it would have displaced memory content and changed every brief digest.
+- **Reusing the curator's ledger.** Rejected: that ledger is content-addressed patch history owned by a different service, and the optimizer is not its writer; sharing it would have coupled two lifecycles for one read path.
+- **A confirmation that resamples scenarios, seeds, or model routes** (the spec's "multiple seeds, multiple task slices, different evaluator routes"). Deferred, not refused: it needs a corpus larger than the caller's scenario list and per-repetition manifest data, and this change records the digest of both bodies so a later repetition can be recognized as comparable. Repeating the same pair is the honest first step — it rules out a lucky reading, not a lucky corpus.
+- **Gating promotion on a confidence interval** rather than an all-pairs win. Rejected for now: the scorer's triple is three attempts per scenario with a median, and inventing an interval over that would claim more statistical power than the harness measures.
+- **Comparing every recorded winner, not only the approved ones.** Rejected: a staged entry nobody decided yet — or one a human rejected — is not an accepted improvement, and treating it as a floor would block the very change that fixes it.
+- **Tracking the floor in its own durable record.** Rejected: the ledger already stores the winner triple, the scenarios, the route, and the attempt count, and `evolution-memory` already stores the decision; a third copy could disagree with either.
+- **Failing the run when the ledger write fails.** Rejected: the promotion already happened in the memory store, and turning a successful stage into an error because a diagnostic row did not land would lose the caller's only handle on it. The failure is reported on the host logger instead.
+
+## Consequences
+
+A second run now starts from what the first one measured, a promotion needs its comparison to repeat, and every operator, scenario set, and held-out failure is readable after the fact. Three costs are stated in the package README: the ledger records runs rather than approvals (counting accepted improvements means reading the scope's staged-entry resolutions too), confirmation repeats the comparison rather than the corpus, and `confirmationRuns` above 1 multiplies the scoring cost of a run by the tally.
+
+The floor's one open assumption is recorded in the package README: it compares a candidate only with results measured under the same conditions, and it defends only promotions a human accepted. `floor` is null whenever no approved promotion shares the key, which is also what a deployment sees before anyone approves anything.
+
+Verification: 68 optimizer tests (the ledger write, per-outcome rows, the trigger-skip writing nothing, skill and scope filtering, page limits, retention, the confirmation win and loss paths, a confirmation skip, a budget spent during confirmation, the regression floor refusing and passing, a rejected promotion and a foreign scenario set and a different attempt count each removing the floor, and a broken ledger that still returns the promotion) plus pure tests for `experimentPage` and `staleExperiments`, and 111 command tests including the new verb's empty, filtered, and unfiltered listings. 100% statements, branches, functions, and lines on `packages/evolution/evolution-optimizer/src`.

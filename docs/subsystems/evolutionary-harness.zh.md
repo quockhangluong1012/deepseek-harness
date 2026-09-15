@@ -197,6 +197,14 @@ async surveyCandidates(options: CuratorRunOptions = {}): Promise<ConsolidationSu
 async consolidate(options: CuratorRunOptions = {}): Promise<ConsolidationReport | undefined>
 
 /**
+ * List the skills the ledger currently stages, worst failure rate first
+ * with ties by ascending name. Only the newest entry per skill counts, so a
+ * skill restaged after further failures appears once at its latest rate.
+ * @returns one row per staged skill.
+ */
+async staged(): Promise<StagedSkill[]>
+
+/**
  * Adopt one agent-created skill into user-directed standing, recording the
  * movement in the ledger. Manual only: clocks never reset.
  * @param name - skill name.
@@ -251,9 +259,12 @@ Host Remote face over the mounted curator's ledger summary.
 
 ```ts cordis-catalog
 /**
- * Read the curator's recorded status. An unmounted curator is reported as
- * such — never as a pass that never ran.
- * @returns the mounted flag, newest pass instant, and recorded passes.
+ * Read the curator's recorded status plus the two dashboard rates: today's
+ * cache-hit share from the usage ledger and the aggregate skill failure
+ * rate from telemetry. Either rate is null when its source is unmounted or
+ * holds no loads. An unmounted curator is reported as such — never as a
+ * pass that never ran.
+ * @returns the mounted flag, newest pass instant, recorded passes, and rates.
  */
 @Remote('status') async status(): Promise<EvolutionCuratorStatus>
 ```
@@ -326,6 +337,20 @@ entries(sessionId: string): readonly FeedbackEntry[]
  * @returns the aggregated failures, newest-highest-count first.
  */
 summary(sessionIds: readonly string[], limit: number): FeedbackSummaryEntry[]
+
+/**
+ * Grade the given sessions' failures by how decisive each is for a state
+ * transition, most decisive first. A failure whose own call was never
+ * observed carries no attribution, so it only observes; an attributable
+ * failure seen in `triggerReviewSessions` distinct sessions triggers a
+ * review, and fewer sessions rank without deciding. Grading happens before
+ * the limit, so a decisive signal is never truncated away by a count-ranked
+ * one.
+ * @param sessionIds - sessions to aggregate, in caller order.
+ * @param limit - maximum signals returned.
+ * @returns the graded signals, decisive first.
+ */
+signals(sessionIds: readonly string[], limit: number): FeedbackSignal[]
 ```
 
 Source: [`packages/evolution/evolution-feedback/src/index.ts`](../../packages/evolution/evolution-feedback/src/index.ts)
@@ -681,6 +706,41 @@ async rebuild(scopeId: EvolutionScopeId, signal: AbortSignal): Promise<void>
 
 Source: [`packages/evolution/evolution-reviewer/src/index.ts`](../../packages/evolution/evolution-reviewer/src/index.ts)
 
+<a id="ctxevolutionscorer--evolutionscorer"></a>
+
+### `ctx.evolutionScorer` — `EvolutionScorer`
+
+Recorded-session scorer. One score runs the scenario in `attempts` fresh processes, measures each attempt's harvested sessions through `ctx.tokenMeter`, and reduces the attempts to the metric triple. Nothing is written: the runner's replay fixtures and the expected workspace are read-only inputs.
+
+```ts cordis-catalog
+/**
+ * Score one scenario against its recorded fixtures.
+ *
+ * Every attempt boots a fresh process through the caller's runner in the
+ * keyless replay tier, and is scored against `workspace.expected/` when the
+ * scenario ships one, or against its own initial workspace otherwise.
+ * @param request - scenario name plus the agent composition and runner to boot it with.
+ * @returns the metric triple, or the reason the scenario could not be scored.
+ * @throws when the configured corpus does not exist, a shipped fixture cannot be parsed,
+ * or the runner fails; only an unknown scenario and an absent fixture are skips.
+ */
+async score(request: ScoreRequest): Promise<ScoreOutcome>
+
+/**
+ * Evaluate one skill over its corpus scenarios and aggregate the metric
+ * triple an optimizer selects on. Every scenario must score: a skipped
+ * scenario means the corpus does not describe what the skill was asked to
+ * prove, and optimizing on a partial evaluation would select on evidence
+ * that is not there — so one skip skips the whole evaluation with its
+ * reason attached.
+ * @param request - skill name plus the scenarios, agent composition, and runner to score it with.
+ * @returns the aggregated triple with per-scenario records, or the reason the skill could not be evaluated.
+ */
+async evaluateSkill(request: EvaluateSkillRequest): Promise<SkillEvaluation>
+```
+
+Source: [`packages/evolution/evolution-scorer/src/index.ts`](../../packages/evolution/evolution-scorer/src/index.ts)
+
 <a id="ctxevolutionskilltelemetry--evolutionskilltelemetry"></a>
 
 ### `ctx.evolutionSkillTelemetry` — `EvolutionSkillTelemetry`
@@ -714,6 +774,16 @@ entries(): { name: string; usage: SkillUsageRecord }[]
 async markUsed(name: string, source?: string, sessionId?: string): Promise<SkillUsageRecord | undefined>
 
 /**
+ * Count one failed `skill`-tool load. Successful loads arrive through
+ * {@link markUsed}; this is the failure half, called by the same
+ * `tools/post-execute` observer. Exclusion matches {@link markUsed}.
+ * @param name - skill name.
+ * @param source - catalog source when the caller already resolved it.
+ * @returns the stored record, or undefined for excluded sources.
+ */
+async markFailed(name: string, source?: string): Promise<SkillUsageRecord | undefined>
+
+/**
  * Count one human view. Exclusion matches {@link markUsed}.
  * @param name - skill name.
  * @param source - catalog source when the caller already resolved it.
@@ -730,22 +800,48 @@ async markViewed(name: string, source?: string): Promise<SkillUsageRecord | unde
 async markPatched(name: string, source?: string): Promise<SkillUsageRecord | undefined>
 
 /**
- * Record background-review authorship. Resolves without writing when the
- * record already carries it; foreground creates never call this, so their
- * provenance stays user-directed.
+ * Record model authorship of a skill body. The model wrote this skill
+ * through `skill_manage`, so its standing is provisional until evidence or
+ * `/curator adopt` vouches for it. Resolves without writing when the record
+ * already carries both facts.
  * @param name - skill name.
  * @returns the stored record.
  */
 async markAgentCreated(name: string): Promise<SkillUsageRecord>
 
 /**
- * Adopt one agent-created skill into user-directed standing. Only records
- * carrying background-review authorship move; everything else rejects, and
- * clocks never reset.
+ * Adopt one model-authored skill into user-directed standing. Only records
+ * carrying model authorship move; everything else rejects, and clocks never
+ * reset.
  * @param name - skill name.
  * @returns the stored record with user-directed provenance.
  */
 async markAdopted(name: string): Promise<SkillUsageRecord>
+
+/**
+ * Record one trust observation for a skill. A failure with attribution
+ * demotes the skill and restamps the anchor; a success counts only when its
+ * session is newer than that anchor and has not been counted yet, so
+ * evidence gathered before a fix cannot promote the skill again. Excluded
+ * sources resolve to no record, and an observation that changes nothing
+ * writes nothing.
+ * @param name - skill name.
+ * @param outcome - the observed outcome.
+ * @param sessionId - the session that loaded this skill.
+ * @param failure - attribution evidence, used only for `'failure'`.
+ * @returns the stored record, or undefined for excluded sources.
+ */
+async recordTrustObservation( name: string, outcome: 'success' | 'failure', sessionId: string, failure?: SkillTrustFailure, ): Promise<SkillUsageRecord | undefined>
+
+/**
+ * Record a new revision of the SKILL.md body. The store hashes the content
+ * itself, so one place defines the shape of `contentSha`; the same bytes
+ * again is a no-op, and a real change resets trust like any other edit.
+ * @param name - skill name.
+ * @param content - the exact bytes just written to SKILL.md.
+ * @returns the stored record, or undefined for excluded sources.
+ */
+async markRevised(name: string, content: string): Promise<SkillUsageRecord | undefined>
 
 /**
  * Forget one skill's record entirely. Purge calls this after removing the

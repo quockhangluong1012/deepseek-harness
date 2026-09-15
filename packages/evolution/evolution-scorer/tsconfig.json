@@ -10,6 +10,7 @@
     { "path": "../../../vendor/schemastery" },
     { "path": "../../core/session" },
     { "path": "../../llm/token-meter" },
+    { "path": "../../skill/evolution-skill-telemetry" },
     { "path": "../../test-support/llm-replay" },
     { "path": "../../test-support/session-snapshot" }
   ]

@@ -25,12 +25,18 @@ function bench(curator?: object) {
 }
 
 describe('EvolutionCuratorStatusController', () => {
-  it('reports an unmounted curator with no passes', async () => {
-    const { ctx, controller } = await bench()
+  it('reports an unmounted curator with no passes and null rates', async () => {
+    const { ctx, controller } = bench()
     // The service is provided under the class's own key (cordis wraps the
     // instance, so identity is not comparable; the verbs below are).
     expect(ctx.get('evolutionCuratorStatus')).toBeDefined()
-    await expect(controller.status()).resolves.toEqual({ mounted: false, lastRunAt: null, passes: [] })
+    await expect(controller.status()).resolves.toEqual({
+      mounted: false,
+      lastRunAt: null,
+      passes: [],
+      cacheHitRate: null,
+      skillFailureRate: null,
+    })
   })
 
   it('projects the mounted curator passes and newest instant', async () => {
@@ -38,7 +44,7 @@ describe('EvolutionCuratorStatusController', () => {
       { passId: 'pass-2', at: '2026-09-11T00:00:00.000Z', snapshot: 'b.tar.gz', transitions: 1 },
       { passId: 'pass-1', at: '2026-09-04T00:00:00.000Z', snapshot: 'a.tar.gz', transitions: 3 },
     ]
-    const { controller } = await bench({
+    const { controller } = bench({
       lastRunAt: () => '2026-09-11T00:00:00.000Z',
       passes: async () => passes,
     })
@@ -46,6 +52,35 @@ describe('EvolutionCuratorStatusController', () => {
       mounted: true,
       lastRunAt: '2026-09-11T00:00:00.000Z',
       passes,
+      cacheHitRate: null,
+      skillFailureRate: null,
+    })
+  })
+
+  it('reads both dashboard rates from the ledger and telemetry', async () => {
+    const ctx = new Context()
+    roots.push(ctx)
+    ctx.provide('typert', {
+      lookups: { configure: () => () => {} },
+      contexts: { configureHost: () => () => {} },
+    } as never)
+    ctx.provide('evolutionCurator', { lastRunAt: () => null, passes: async () => [] } as never)
+    ctx.provide('usageLedger', {
+      summary: async () => ({ totals: { cacheHitAvg: 0.73, requests: 142 } }),
+    } as never)
+    ctx.provide('evolutionSkillTelemetry', {
+      entries: () => [
+        { usage: { useCount: 10, failureCount: 2, state: 'active', pinned: false } },
+        { usage: { useCount: 4, state: 'stale', pinned: false } },
+      ],
+    } as never)
+    await expect(new EvolutionCuratorStatusController(ctx).status()).resolves.toEqual({
+      mounted: true,
+      lastRunAt: null,
+      passes: [],
+      cacheHitRate: 0.73,
+      // 2 failures over 10 + 2 + 4 loads.
+      skillFailureRate: 2 / 16,
     })
   })
 })

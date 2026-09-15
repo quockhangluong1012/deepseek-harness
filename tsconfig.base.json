@@ -327,6 +327,7 @@
       "@deepseek-ai/dsh-evolution-heartbeat": ["./packages/evolution/evolution-heartbeat/src"],
       "@deepseek-ai/dsh-evolution-memory": ["./packages/evolution/evolution-memory/src"],
       "@deepseek-ai/dsh-evolution-memory-context": ["./packages/context/evolution-memory-context/src"],
+      "@deepseek-ai/dsh-evolution-optimizer": ["./packages/evolution/evolution-optimizer/src"],
       "@deepseek-ai/dsh-evolution-reviewer": ["./packages/evolution/evolution-reviewer/src"],
       "@deepseek-ai/dsh-evolution-scorer": ["./packages/evolution/evolution-scorer/src"],
       "@deepseek-ai/dsh-evolution-skill-manage": ["./packages/skill/evolution-skill-manage/src"],

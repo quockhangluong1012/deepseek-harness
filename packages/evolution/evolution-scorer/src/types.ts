@@ -96,3 +96,42 @@ export interface ScoreRequest {
 
 /** Fresh-process scenario runner: `runScenario` from `@deepseek-ai/dsh-session-snapshot` satisfies it. */
 export type ScenarioRunner = (input: InputScript, options: RunOptions) => Promise<RunResult>
+
+/** Thresholds the optimization trigger reads to decide whether a record speaks. */
+export interface TriggerThresholds {
+  /** Recorded loads required before a failure rate counts. */
+  minUses: number
+  /** Failure share a record must exceed, in 0..1. */
+  failureRate: number
+}
+
+/** One skill evaluation: which skill, over which corpus scenarios, and how to run them. */
+export interface EvaluateSkillRequest {
+  /** Skill the scenarios exercise. */
+  skill: string
+  /** Scenario directory names inside the configured corpus, in run order. */
+  scenarios: readonly string[]
+  /** Agent composition the runner boots; the scorer always runs it in keyless replay mode. */
+  agent: AgentUnderTest
+  /** Fresh-process runner; {@link processScenarioRunner} and the snapshot harness's `runScenario` satisfy it. */
+  run: ScenarioRunner
+}
+
+/** One skill's aggregated metric triple: the Pareto input an optimizer selects on. */
+export interface SkillScore {
+  /** Skill the triple belongs to. */
+  skill: string
+  /** Whether every scenario's workspace matched its expected state. */
+  pass: boolean
+  /** Billed tokens summed over the scenarios' medians. */
+  tokens: number
+  /** Wall-clock milliseconds summed over the scenarios' medians. */
+  wallTimeMs: number
+  /** Per-scenario records in run order. */
+  scores: readonly ScoreRecord[]
+}
+
+/** Result of evaluating one skill. */
+export type SkillEvaluation =
+  | { status: 'evaluated'; score: SkillScore }
+  | { status: 'skipped'; skill: string; reason: string }

@@ -1,4 +1,5 @@
 import { afterAll, afterEach, describe, expect, it } from 'vitest'
+import { createHash } from 'node:crypto'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -11,7 +12,7 @@ import type { SkillUsageRecord } from '@deepseek-ai/dsh-evolution-skill-telemetr
 import { MemoryMediaPool, MemoryStorageBackend } from '../../../storage/storage-domain/tests/helpers/memory-backend.ts'
 import EvolutionCurator, { resolveConfig } from '../src/index.ts'
 import { applyConsolidation, frameConsolidationInput } from '../src/consolidate.ts'
-import { curatorHome, pathExists, readLedger } from '../src/safety.ts'
+import { appendLedger, curatorHome, pathExists, readLedger, readTextBlob, textSha } from '../src/safety.ts'
 import type { LedgerEntry } from '../src/safety.ts'
 
 const savedHome = process.env['DSH_HOME']
@@ -157,19 +158,38 @@ describe('evolution curator consolidation', () => {
       patchCount: 0,
       lastUsedAt: null,
       failures: [],
+      trust: 'provisional' as const,
+      revision: 2,
+      contentSha: 'sha-2',
+      lastTrustFailure: null,
     }
     const roomy = frameConsolidationInput([candidate], 65536)
     expect(roomy.truncated).toBe(false)
     expect(roomy.text).toContain('"leaf"')
     expect(roomy.inputBytes).toBe(Buffer.byteLength(roomy.text))
+    // The frame carries how strong the skill's evidence is, so the verdict is
+    // driven by graded signals rather than a raw error string.
+    expect(roomy.text).toContain('"trust":"provisional"')
+    expect(roomy.text).toContain('"revision":2')
     // Recorded failures ride in the survey, so the verdict reflects what broke
     // in the sessions that used the skill rather than its author's intent.
     const evidenced = frameConsolidationInput([{
       ...candidate,
-      failures: [{ tool: 'bash', message: 'command not found', count: 3, sessions: 2 }],
+      failures: [{
+        tool: 'bash',
+        message: 'command not found',
+        count: 3,
+        sessions: 2,
+        firstAt: 't0',
+        lastAt: 't1',
+        actionability: 'trigger_review' as const,
+        evidenceStatus: 'complete' as const,
+        mergeKey: 'bash\u0000command not found',
+      }],
     }], 65536)
     expect(evidenced.text).toContain('command not found')
     expect(evidenced.text).toContain('"sessions":2')
+    expect(evidenced.text).toContain('"actionability":"trigger_review"')
     const tight = frameConsolidationInput([candidate, { ...candidate, name: 'other' }], 100)
     expect(tight.truncated).toBe(true)
     expect(tight.text).not.toContain('"leaf"')
@@ -266,12 +286,14 @@ describe('evolution curator consolidation', () => {
     }
   })
 
-  it('rewrites a body on a patch verdict and skips a patch without one', async () => {
+  it('rewrites a body on a patch verdict and skips patches that would break the skill', async () => {
+    const rewritten = '---\nname: leaf\ndescription: leaf skill\n---\nrewritten by the umbrella pass\n'
     const h = await harness({
       curatorConfig: CONSOLIDATING,
       respond: async (_request, index) => (index === 0
         ? toolTurn([
-          call('skill_apply', { name: 'leaf', action: 'patch', body: 'rewritten by the umbrella pass\n' }),
+          call('skill_apply', { name: 'leaf', action: 'patch', body: rewritten }),
+          call('skill_apply', { name: 'leaf', action: 'patch', body: 'rewritten without its frontmatter\n' }),
           call('skill_apply', { name: 'bare', action: 'patch' }),
         ])
         : textTurn('done')),
@@ -282,8 +304,9 @@ describe('evolution curator consolidation', () => {
       await h.telemetry?.markAgentCreated('leaf')
       await h.telemetry?.markAgentCreated('bare')
       const report = await h.curator.consolidate()
-      expect(report?.skipped).toBe(1)
-      expect(await readFile(join(h.home, 'skills', 'leaf', 'SKILL.md'), 'utf8')).toBe('rewritten by the umbrella pass\n')
+      // The body-less verdict and the body that drops frontmatter are both refused.
+      expect(report?.skipped).toBe(2)
+      expect(await readFile(join(h.home, 'skills', 'leaf', 'SKILL.md'), 'utf8')).toBe(rewritten)
       const entries = await readLedger(curatorHome())
       const patches = entries.filter(entry => entry.action === 'patch')
       expect(patches).toHaveLength(1)
@@ -461,6 +484,124 @@ describe('evolution curator consolidation', () => {
       expect(report?.verdicts).toEqual([{ name: 'pinned', action: 'archive' }])
       expect(await pathExists(join(h.home, 'skills', 'pinned'))).toBe(true)
       expect(await pathExists(join(h.home, 'skills', '.archive'))).toBe(false)
+    } finally {
+      await h.fiber.dispose()
+    }
+  })
+
+  it('commits only a body that keeps valid frontmatter, and stores its preimage', async () => {
+    const h = await harness({ curatorConfig: CONSOLIDATING })
+    try {
+      h.skills.push(await packageSkill(h.home, 'leaf'))
+      await h.telemetry?.markAgentCreated('leaf')
+      const telemetry = h.telemetry
+      if (telemetry === undefined) throw new Error('expected telemetry')
+      const dir = join(h.home, 'skills', 'leaf')
+      const original = await readFile(join(dir, 'SKILL.md'), 'utf8')
+      const candidate = {
+        name: 'leaf',
+        description: 'leaf skill',
+        source: 'user-dsh',
+        state: 'active' as const,
+        idleDays: 0,
+        useCount: 0,
+        viewCount: 0,
+        patchCount: 0,
+        lastUsedAt: null,
+        failures: [],
+        trust: 'provisional' as const,
+        revision: 0,
+        contentSha: null,
+        lastTrustFailure: null,
+      }
+      const applied = await applyConsolidation({
+        at: '2026-06-01T00:00:00.000Z',
+        passId: 'pass-patch',
+        home: curatorHome(),
+        telemetry,
+        candidates: new Map([['leaf', candidate]]),
+        dirs: new Map([['leaf', dir]]),
+      }, [
+        { name: 'leaf', action: 'patch', body: 'no fenced head at all\n' },
+        { name: 'leaf', action: 'patch', body: '---\nname: other\ndescription: d\n---\nbody\n' },
+        { name: 'leaf', action: 'patch', body: '---\nname: leaf\ndescription: leaf skill\n---\nrewritten\n' },
+      ])
+      // Two bodies would break the skill; only the valid one landed.
+      expect(applied.skipped).toBe(2)
+      expect(applied.patched).toBe(1)
+      expect(await readFile(join(dir, 'SKILL.md'), 'utf8')).toContain('rewritten')
+      const rows = (await readLedger(curatorHome())).filter(entry => entry.action === 'patch')
+      expect(rows).toHaveLength(1)
+      expect(rows[0]?.before).toBe(textSha(original))
+      expect(rows[0]?.after).toBe(telemetry.read('leaf')?.contentSha)
+      expect(rows[0]?.evidence['file']).toBe(join(dir, 'SKILL.md'))
+      expect(await readTextBlob(curatorHome(), textSha(original))).toBe(original)
+    } finally {
+      await h.fiber.dispose()
+    }
+  })
+
+  it('restores a patched body on rollback and skips rows that predate preimages', async () => {
+    const h = await harness({
+      curatorConfig: CONSOLIDATING,
+      respond: async (_request, index) => (index === 0
+        ? toolTurn([call('skill_apply', {
+          name: 'leaf',
+          action: 'patch',
+          body: '---\nname: leaf\ndescription: leaf skill\n---\nrewritten body\n',
+        })])
+        : textTurn('done')),
+    })
+    try {
+      h.skills.push(await packageSkill(h.home, 'leaf'))
+      await h.telemetry?.markAgentCreated('leaf')
+      const file = join(h.home, 'skills', 'leaf', 'SKILL.md')
+      const original = await readFile(file, 'utf8')
+      const report = await h.curator.consolidate()
+      const passId = report?.passId
+      if (passId === null || passId === undefined) throw new Error('expected a consolidation pass')
+      expect(await readFile(file, 'utf8')).toContain('rewritten body')
+      // A patch row written before bodies were snapshotted has no preimage.
+      await appendLedger(curatorHome(), {
+        id: 'legacy',
+        at: '2026-06-01T00:00:00.000Z',
+        actor: 'curator',
+        action: 'patch',
+        evidence: { passId, name: 'leaf', dir: join(h.home, 'skills', 'leaf'), file },
+        before: null,
+        after: null,
+      })
+      const rolled = await h.curator.rollbackPass(passId)
+      expect(rolled.restoredFiles).toEqual(['leaf'])
+      expect(await readFile(file, 'utf8')).toBe(original)
+      expect(h.telemetry?.read('leaf')?.contentSha).toBe(createHash('sha256').update(original).digest('hex'))
+      const rows = (await readLedger(curatorHome())).filter(entry => entry.action === 'rollback')
+      expect(rows.at(-1)).toMatchObject({ evidence: { rollbackOf: `pass '${passId}'`, name: 'leaf', file } })
+    } finally {
+      await h.fiber.dispose()
+    }
+  })
+
+  it('fails a body rollback closed when a preimage is gone', async () => {
+    const h = await harness({
+      curatorConfig: CONSOLIDATING,
+      respond: async (_request, index) => (index === 0
+        ? toolTurn([call('skill_apply', {
+          name: 'leaf',
+          action: 'patch',
+          body: '---\nname: leaf\ndescription: leaf skill\n---\nrewritten body\n',
+        })])
+        : textTurn('done')),
+    })
+    try {
+      h.skills.push(await packageSkill(h.home, 'leaf'))
+      await h.telemetry?.markAgentCreated('leaf')
+      const report = await h.curator.consolidate()
+      const passId = report?.passId
+      if (passId === null || passId === undefined) throw new Error('expected a consolidation pass')
+      const rows = (await readLedger(curatorHome())).filter(entry => entry.action === 'patch')
+      await rm(join(curatorHome(), 'blobs', `${rows[0]?.before as string}.md`))
+      await expect(h.curator.rollbackPass(passId)).rejects.toThrow('is missing the body blob')
     } finally {
       await h.fiber.dispose()
     }

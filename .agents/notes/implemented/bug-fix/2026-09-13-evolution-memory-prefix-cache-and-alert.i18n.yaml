@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-13-evolution-memory-prefix-cache-and-alert.md
+2026-09-13-evolution-memory-prefix-cache-and-alert.md: 2f48945f9013cd26d06c9d034147d920f231bbca
+2026-09-13-evolution-memory-prefix-cache-and-alert.zh.md: a8c0d9c23572aff262acf52f5c83a127d9cb58f5

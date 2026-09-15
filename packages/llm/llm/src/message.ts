@@ -86,6 +86,14 @@ export type ContextFormed =
     readonly form: 'snapshot'
     /** The named contributions this snapshot assembled, in order. */
     readonly sections: readonly ContextSnapshotSection[]
+    /**
+     * Declares that this snapshot is the producer's current state rather than
+     * one entry in a timeline: the loop replaces the producer's previous
+     * snapshot on the surface with this one, and the log keeps both. A
+     * producer whose snapshots accumulate — a reading per step, where a later
+     * entry refers to the earlier one — leaves this unset.
+     */
+    readonly supersedes?: true
   }
   | {
     readonly form: 'notice'

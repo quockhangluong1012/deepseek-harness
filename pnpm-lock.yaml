@@ -3199,6 +3199,9 @@ importers:
       '@deepseek-ai/dsh-evolution-curator':
         specifier: workspace:^
         version: link:../../evolution/evolution-curator
+      '@deepseek-ai/dsh-evolution-skill-telemetry':
+        specifier: workspace:^
+        version: link:../../skill/evolution-skill-telemetry
       '@deepseek-ai/dsh-usage-ledger':
         specifier: workspace:^
         version: link:../../session/usage-ledger
@@ -6218,6 +6221,9 @@ importers:
       '@deepseek-ai/dsh-evolution-memory':
         specifier: workspace:^
         version: link:../evolution-memory
+      '@deepseek-ai/dsh-evolution-optimizer':
+        specifier: workspace:^
+        version: link:../evolution-optimizer
       '@deepseek-ai/dsh-evolution-reviewer':
         specifier: workspace:^
         version: link:../evolution-reviewer
@@ -6313,6 +6319,9 @@ importers:
       '@deepseek-ai/dsh-evolution-feedback':
         specifier: workspace:^
         version: link:../evolution-feedback
+      '@deepseek-ai/dsh-evolution-skill-manage':
+        specifier: workspace:^
+        version: link:../../skill/evolution-skill-manage
       '@deepseek-ai/dsh-evolution-skill-telemetry':
         specifier: workspace:^
         version: link:../../skill/evolution-skill-telemetry
@@ -6478,6 +6487,40 @@ importers:
         specifier: workspace:^
         version: link:../../util/values
 
+  packages/evolution/evolution-optimizer:
+    dependencies:
+      '@deepseek-ai/schemastery':
+        specifier: link:../../../vendor/schemastery
+        version: link:../../../vendor/schemastery
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:^
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-evolution-memory':
+        specifier: workspace:^
+        version: link:../evolution-memory
+      '@deepseek-ai/dsh-evolution-scorer':
+        specifier: workspace:^
+        version: link:../evolution-scorer
+      '@deepseek-ai/dsh-evolution-skill-telemetry':
+        specifier: workspace:^
+        version: link:../../skill/evolution-skill-telemetry
+      '@deepseek-ai/dsh-llm':
+        specifier: workspace:^
+        version: link:../../llm/llm
+      '@deepseek-ai/dsh-session-snapshot':
+        specifier: workspace:^
+        version: link:../../test-support/session-snapshot
+      '@deepseek-ai/dsh-skill':
+        specifier: workspace:^
+        version: link:../../skill/skill
+      '@deepseek-ai/dsh-storage-domain':
+        specifier: workspace:^
+        version: link:../../storage/storage-domain
+
   packages/evolution/evolution-reviewer:
     dependencies:
       '@deepseek-ai/schemastery':
@@ -6533,6 +6576,9 @@ importers:
       '@deepseek-ai/cordis':
         specifier: workspace:^
         version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-evolution-skill-telemetry':
+        specifier: workspace:^
+        version: link:../../skill/evolution-skill-telemetry
       '@deepseek-ai/dsh-llm-replay':
         specifier: workspace:^
         version: link:../../test-support/llm-replay
@@ -12513,6 +12559,9 @@ importers:
       '@deepseek-ai/dsh-deepseek-llm-api-extensions':
         specifier: workspace:^
         version: link:../../packages/llm/deepseek-llm-api-extensions
+      '@deepseek-ai/dsh-embeddings':
+        specifier: workspace:^
+        version: link:../../packages/llm/embeddings
       '@deepseek-ai/dsh-fs':
         specifier: workspace:^
         version: link:../../packages/fs/fs

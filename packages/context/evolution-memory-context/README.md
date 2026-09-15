@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-evolution-memory-context` renders one durable `user/message` brief from a scope's instructions, lessons, profile, and attached context, and splices it into `agent/pre-step` — replacing the brief when the record digest changes and adding nothing when it does not. It also registers the evolution nudge sections behind the system prompt; capacity usage is reported only in the brief's header, never interpolated into the system prompt, so a memory write cannot invalidate the request's cached prefix. Choose it when every Session in a scope should see that scope's shared knowledge without re-reading storage on every turn.
+`dsh-evolution-memory-context` renders one durable `user/message` brief from a scope's instructions, lessons, profile, and attached context, and splices it into `agent/pre-step` — replacing the brief when the record digest changes and adding nothing when it does not. The brief declares `supersedes`, so the loop replaces the scope's previous brief on the surface: the model reads the live brief once while the log keeps every brief that was ever injected. It also registers the evolution nudge sections behind the system prompt; capacity usage is reported only in the brief's header, never interpolated into the system prompt, so a memory write cannot invalidate the request's cached prefix. Choose it when every Session in a scope should see that scope's shared knowledge without re-reading storage on every turn.
 
 ## Table of Contents
 
@@ -44,12 +44,12 @@ Mount the plugin with the memory store and a workspace registry. Scopes resolve 
 | `profile` | required | Scope-identity namespace placed before the workspace key |
 | `memoryNudgeInterval` | `1` | Turns between scope-narrowing nudges |
 | `skillNudgeInterval` | `10` | Turns between lessons-to-skills nudges |
+| `capacityWarnPct` | `0.8` | Usage ratio at or above which the brief header warns to consolidate |
 
 The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-evolution-memory-context) is the exhaustive source for every accepted field.
 
 ### Budget and digest
-
-Empty sections are omitted and an all-empty record injects nothing. Under pressure trailing context items drop first, then the weakest lesson artifacts drop whole — strongest first by confidence, ties broken by ascending id, and a lesson is never truncated mid-statement — then the profile truncates with lessons already gone, then instructions truncate last; one notice line names every drop and truncation, and file bytes are re-read at injection time while the recorded size stays a snapshot. The digest covers instructions, lessons, profile, and context only, so output indexing and staged writes never re-inject the brief.
+Empty sections are omitted and an all-empty record injects nothing. Under pressure trailing context items drop first, then the weakest lesson artifacts drop whole — strongest first by confidence, ties broken by ascending id, and a lesson is never truncated mid-statement — then the profile truncates with lessons already gone, then instructions truncate last; one notice line names every drop and truncation, and file bytes are re-read at injection time while the recorded size stays a snapshot. The digest covers instructions, lessons, profile, and context only, so output indexing and staged writes never re-inject the brief. Once usage reaches `capacityWarnPct` the header carries a near-capacity warning telling the model to consolidate instead of adding, ahead of the store's hard reject at full capacity.
 
 Recalled context material — items labelled with the store's `RECALL_LABEL_PREFIX` — renders after every item the user attached, because the renderer drops trailing context first and recalled material outranks nothing the user attached.
 
@@ -141,7 +141,7 @@ Prefix-stable regardless of memory content: section text is fixed and carries no
 
 These limits define when the injector is a poor fit. They are current package constraints.
 
-- **One brief at a time** — a changed record appends a complete replacement; superseded briefs accumulate until compaction shadows them.
+- **One brief at a time on the surface, every brief in the log** — a changed record commits a complete replacement, the loop supersedes the scope's previous brief on the surface, and the superseded brief stays a durable log record that a transcript and a replay still show. A session that accumulated duplicates before the brief declared `supersedes` keeps them until compaction shadows them; new turns never add another.
 - **File context re-read per refresh** — the budget bounds model bytes, not disk reads.
 - **File capacity snapshot** — the recorded size is not refreshed when the file changes on disk.
 - **No per-session file reader** — file items resolve against the process filesystem, not a workspace-scoped reader.

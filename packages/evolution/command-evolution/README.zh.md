@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-`dsh-command-evolution` 向聊天 UI 添加演进 harness 的人类治理面：`/memory` 与 `/skills` 治理暂存写入，`/journey [today|7d|30d|all]` 显示作用域已记录的活动，`/curator status|run [--dry-run]` 显示整理台账并运行一次维护通过，`/refine` 重建该作用域的经验，`/trajectory` 导出会话或作用域，`/learn` 开启一次调研并保存的回合，`/suggestions` 列出带 blueprint 的技能而不调度它们，`/dream [light|rem|deep]` 把该作用域已记录的失败固化为持久记忆。除 `/learn` 外每个命令都直接作答；`/learn` 排队一个普通回合。当人类必须在后台评审提议落地前看到并治理它们时，选择本包。
+`dsh-command-evolution` 向聊天 UI 添加演进 harness 的人类治理面：`/memory` 与 `/skills` 治理暂存写入，`/journey [today|7d|30d|all]` 显示作用域已记录的活动，`/curator status|run [--dry-run]|staged` 显示整理台账、运行一次维护通过，并列出为复核而分选的技能，`/refine` 重建该作用域的经验，`/trajectory` 导出会话或作用域，`/learn` 开启一次调研并保存的回合，`/suggestions` 列出带 blueprint 的技能而不调度它们，`/dream [light|rem|deep]` 把该作用域已记录的失败固化为持久记忆。除 `/learn` 外每个命令都直接作答；`/learn` 排队一个普通回合。当人类必须在后台评审提议落地前看到并治理它们时，选择本包。
 
 ## 目录
 
@@ -56,10 +56,18 @@ kind: "package-reference"
 | `/skills <anything-else>` | `Usage: /skills pending \| approve <id>`。 |
 | `/journey [today\|7d\|30d\|all]` | 渲染作用域时间线：窗口标题、每个活跃日一行、容量与摘要，以及暂存计数。裸 `/journey` 报告 `7d`。 |
 | `/journey <anything-else>` | `Usage: /journey [today \| 7d \| 30d \| all]`。 |
-| `/curator status` | 渲染上次通过的时刻、按生命周期状态（含置顶）统计的被跟踪技能计数，以及最新记录的通过。 |
+| `/curator status` | 渲染上次通过的时刻、按生命周期状态（含置顶）与信任状态统计的被跟踪技能计数、来自用量台账的今日缓存命中率、来自遥测的技能失败率汇总、待复核分选数及最差失败率，以及最新记录的通过。任一比率在其来源未挂载时具名说明。 |
 | `/curator run` | 立即运行一次维护通过：报告移动、跳过计数与快照 id。 |
 | `/curator run --dry-run` | 同一通过只预览不写入；快照行显示 `Snapshot: none`。 |
-| `/curator <anything-else>` | `Usage: /curator status \| /curator run [--dry-run]`。 |
+| `/curator staged` | 列出台账为复核而分选的技能，失败率最差在前，并附选择各项的证据与分选时刻。 |
+| `/curator optimize <skill> <scenario...>` | 在具名语料场景上运行一次离线优化，报告分选技能补丁 id 或未分选的原因。需要优化器已挂载且位于工作区作用域内。 |
+| `/curator experiments [skill]` | 按最新优先打印本作用域的优化台账——时间、技能、结果、分选 id、置信度计数与原因——让下一次运行从已经试过的东西出发。需要优化器已挂载且位于工作区作用域内。 |
+| `/curator adopt <name>` | 把由模型写出的技能认领为用户主导，并报告 `Adopted '<name>' (state: <state>)`；无模型作者身份一律拒绝。 |
+| `/curator purge [--dry-run]` | 删除超过 TTL 的归档技能，并报告按目录或按记录的删除与因置顶而跳过者；`--dry-run` 只预览名单而不写入。 |
+| `/curator rollback --id <id>` | 回滚一次已记录的通过：先报告被恢复的生命周期状态，若 SKILL.md 正文由其前像恢复，再输出 `Restored bodies: <names>`。 |
+| `/curator ledger` | 按新到旧列出已记录的通过及其流转计数。 |
+| `/curator pin <name>` / `/curator unpin <name>` | 置顶或取消置顶一个被跟踪技能，并报告 `Pinned '<name>'` / `Unpinned '<name>'`。 |
+| `/curator <anything-else>` | `Usage: /curator status \| run [--dry-run] \| staged \| adopt <name> \| purge [--dry-run] \| rollback --id <id> \| ledger \| pin <name> \| unpin <name> \| optimize <skill> <scenario...> \| experiments [skill]`. |
 | `/refine` | 经由评审器重建作用域经验并报告 `Memory rebuild complete.`。 |
 | `/refine <anything>` | `Usage: /refine (no arguments)`——命令不接受参数。 |
 | `/trajectory` | 经轨迹服务导出调用会话并报告 `Trajectory written to <path> (<n> conversations, <n> bytes).`。 |

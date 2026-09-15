@@ -7,7 +7,7 @@ This matrix shows which packages dispatch each harness-owned event and which pac
 
 | Event | Mode | Declared in | Dispatchers | Listeners |
 | --- | --- | --- | --- | --- |
-| `agent-loop/config-start-failed` | `emit` | [`packages/core/agent-loop/src/index.ts:264`](../packages/core/agent-loop/src/index.ts) | [`agent-loop`](../packages/core/agent-loop) (`events.dispatch`) | - |
+| `agent-loop/config-start-failed` | `emit` | [`packages/core/agent-loop/src/index.ts:266`](../packages/core/agent-loop/src/index.ts) | [`agent-loop`](../packages/core/agent-loop) (`events.dispatch`) | - |
 | `agent-preset/selected` | `emit` | [`packages/preset/agent-presets/src/types.ts:82`](../packages/preset/agent-presets/src/types.ts) | [`agent-presets`](../packages/preset/agent-presets) (`emit`) | `remotes` |
 | `agent/assistant-stream` | `emit` | [`packages/core/agent/src/runtime-types.ts:373`](../packages/core/agent/src/runtime-types.ts) | [`agent-loop`](../packages/core/agent-loop) (`emit`) | [`headless`](../packages/bundle/headless), `session-controller` |
 | `agent/created` | `emit` | [`packages/core/agent/src/runtime-types.ts:258`](../packages/core/agent/src/runtime-types.ts) | [`agent`](../packages/core/agent) (`events.dispatch`) | [`agent-presets`](../packages/preset/agent-presets), [`file-reference-local`](../packages/context/file-reference-local), [`goal-round-driver`](../packages/goal/goal-round-driver), [`loader-smoke`](../packages/test-support/loader-smoke), [`schedule`](../packages/schedule/schedule), `tool-agent-team`, [`tool-subagent`](../packages/subagent/tool-subagent) |

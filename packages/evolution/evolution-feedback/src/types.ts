@@ -35,3 +35,19 @@ export interface FeedbackSummaryEntry extends FeedbackEntry {
   /** Distinct sessions that reported this failure. */
   sessions: number
 }
+
+/** How decisive a signal is for a state transition. */
+export type FeedbackActionability = 'observe_only' | 'ranking_only' | 'trigger_review'
+
+/** Whether there is enough evidence to attribute a failure to a specific tool. */
+export type FeedbackEvidenceStatus = 'complete' | 'actionable_partial'
+
+/** One aggregated failure, with its evidence grade attached. */
+export interface FeedbackSignal extends FeedbackSummaryEntry {
+  /** Whether the failure decides a transition, only ranks, or merely observes. */
+  actionability: FeedbackActionability
+  /** Whether the failing call itself was observable. */
+  evidenceStatus: FeedbackEvidenceStatus
+  /** Tool-and-message identity this failure merges under. */
+  mergeKey: string
+}

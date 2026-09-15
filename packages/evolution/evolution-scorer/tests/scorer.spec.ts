@@ -150,6 +150,61 @@ describe('EvolutionScorer', () => {
   })
 
   it('defaults to three attempts when the configuration names only the corpus', () => {
-    expect(resolveConfig({ corpusDir: corpus })).toEqual({ corpusDir: corpus, attempts: 3 })
+    expect(resolveConfig({ corpusDir: corpus })).toEqual({
+      corpusDir: corpus,
+      attempts: 3,
+      triggerMinUses: 20,
+      triggerFailureRate: 0.3,
+    })
+  })
+
+  it('aggregates one skill over every scenario into the optimizer triple', async () => {
+    const evaluation = await scorer(1).evaluateSkill({
+      skill: 'writer',
+      scenarios: ['text-turn', 'read-only'],
+      agent: AGENT,
+      run: fakeRunner,
+    })
+    expect(evaluation.status).toBe('evaluated')
+    if (evaluation.status !== 'evaluated') throw new Error('expected an evaluation')
+    expect(evaluation.score).toMatchObject({
+      skill: 'writer',
+      pass: true,
+      tokens: RECORDED_USAGE_TOKENS * 2,
+    })
+    expect(evaluation.score.scores.map(record => record.scenario)).toEqual(['text-turn', 'read-only'])
+  })
+
+  it('fails the skill without failing the evaluation when one scenario diverges', async () => {
+    const evaluation = await scorer(1).evaluateSkill({
+      skill: 'writer',
+      scenarios: ['text-turn', 'workspace-edit'],
+      agent: AGENT,
+      run: fakeRunner,
+    })
+    expect(evaluation).toMatchObject({ status: 'evaluated', score: { skill: 'writer', pass: false } })
+  })
+
+  it('skips the whole evaluation when one scenario cannot be scored', async () => {
+    const evaluation = await scorer(1).evaluateSkill({
+      skill: 'writer',
+      scenarios: ['text-turn', 'absent'],
+      agent: AGENT,
+      run: fakeRunner,
+    })
+    expect(evaluation).toEqual({
+      status: 'skipped',
+      skill: 'writer',
+      reason: "scenario 'absent' is not in the corpus",
+    })
+  })
+
+  it('skips a skill that names no evaluation scenarios', async () => {
+    const evaluation = await scorer(1).evaluateSkill({ skill: 'writer', scenarios: [], agent: AGENT, run: fakeRunner })
+    expect(evaluation).toEqual({
+      status: 'skipped',
+      skill: 'writer',
+      reason: "skill 'writer' names no evaluation scenarios",
+    })
   })
 })

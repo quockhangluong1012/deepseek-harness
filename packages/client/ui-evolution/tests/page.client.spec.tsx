@@ -122,7 +122,10 @@ function remoteOf(overrides: Partial<PageRemote> = {}): PageRemote {
     timeline: vi.fn(async () => timelineOf()),
     approveStaged: vi.fn(async () => valueOf()),
     rejectStaged: vi.fn(async () => valueOf()),
-    curatorStatus: vi.fn(async () => ({ mounted: true, lastRunAt: null as string | null, passes: [] })),
+    curatorStatus: vi.fn(async () => ({
+      mounted: true, lastRunAt: null as string | null, passes: [],
+      cacheHitRate: null, skillFailureRate: null,
+    })),
     follow: () => (async function* (): AsyncIterable<EvolutionFollowFrame> {})(),
     openStream: openStreamOf,
     ...overrides,
@@ -229,6 +232,8 @@ describe('evolution journey page', () => {
         mounted: true,
         lastRunAt: '2026-09-11T00:00:00.000Z',
         passes: [{ passId: 'pass-2', at: '2026-09-11T00:00:00.000Z', snapshot: 'b.tar.gz', transitions: 3 }],
+        cacheHitRate: 0.73,
+        skillFailureRate: 0.125,
       })),
     })
     const { container } = render(<EvolutionPage scopeId={SCOPE} scopeTitle='fixture' remote={remote} t={t} />)
@@ -257,6 +262,8 @@ describe('evolution journey page', () => {
     expect(screen.getByText('curator.passes:{"n":1}')).toBeDefined()
     expect(screen.getByText('pass-2')).toBeDefined()
     expect(screen.getByText('curator.transitions:{"n":3}')).toBeDefined()
+    expect(screen.getByText('curator.cacheHit:{"percent":73}')).toBeDefined()
+    expect(screen.getByText('curator.failureRate:{"percent":13}')).toBeDefined()
 
     // Capacity bars come from the record's usage and the timeline's documents.
     expect(screen.getByText('capacity.used:{"used":250,"capacity":1000}')).toBeDefined()
@@ -403,7 +410,7 @@ describe('evolution journey page', () => {
     const remote = remoteOf({
       read: vi.fn(async () => { throw new Error('read failed') }),
       timeline: vi.fn(async () => { throw new Error('timeline failed') }),
-      curatorStatus: vi.fn(async () => ({ mounted: false, lastRunAt: null, passes: [] })),
+      curatorStatus: vi.fn(async () => ({ mounted: false, lastRunAt: null, passes: [], cacheHitRate: null, skillFailureRate: null })),
     })
     render(<EvolutionPage scopeId={SCOPE} scopeTitle={null} remote={remote} t={t} />)
     expect(await screen.findByRole('alert')).toBeDefined()
@@ -419,12 +426,16 @@ describe('evolution journey page', () => {
   })
 
   it('renders an unmounted curator and an unrecorded one honestly', async () => {
-    const unmounted = remoteOf({ curatorStatus: vi.fn(async () => ({ mounted: false, lastRunAt: null, passes: [] })) })
+    const unmounted = remoteOf({ curatorStatus: vi.fn(async () => ({
+      mounted: false, lastRunAt: null, passes: [], cacheHitRate: null, skillFailureRate: null,
+    })) })
     const first = render(<EvolutionPage scopeId={SCOPE} scopeTitle={null} remote={unmounted} t={t} />)
     expect(await screen.findByText('curator.unmounted')).toBeDefined()
     first.unmount()
 
-    const unrecorded = remoteOf({ curatorStatus: vi.fn(async () => ({ mounted: true, lastRunAt: null, passes: [] })) })
+    const unrecorded = remoteOf({ curatorStatus: vi.fn(async () => ({
+      mounted: true, lastRunAt: null, passes: [], cacheHitRate: null, skillFailureRate: null,
+    })) })
     render(<EvolutionPage scopeId={SCOPE} scopeTitle={null} remote={unrecorded} t={t} />)
     expect(await screen.findByText('curator.empty')).toBeDefined()
   })
@@ -521,7 +532,7 @@ describe('evolution journey page', () => {
     view.unmount()
     settleRead(valueOf())
     settleTimeline(timelineOf())
-    settleCurator({ mounted: false, lastRunAt: null, passes: [] })
+    settleCurator({ mounted: false, lastRunAt: null, passes: [], cacheHitRate: null, skillFailureRate: null })
     await waitFor(() => {
       expect(remote.read).toHaveBeenCalledWith(SCOPE)
     })

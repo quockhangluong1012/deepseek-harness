@@ -61,9 +61,14 @@ function appendCall(
 
 describe('evolution feedback', () => {
   it('resolves observation defaults', () => {
-    expect(resolveConfig({})).toEqual({ enabled: true, maxEntries: 100, maxMessageChars: 500 })
-    expect(resolveConfig({ enabled: false, maxEntries: 5, maxMessageChars: 20 }))
-      .toEqual({ enabled: false, maxEntries: 5, maxMessageChars: 20 })
+    expect(resolveConfig({})).toEqual({
+      enabled: true,
+      maxEntries: 100,
+      maxMessageChars: 500,
+      triggerReviewSessions: 2,
+    })
+    expect(resolveConfig({ enabled: false, maxEntries: 5, maxMessageChars: 20, triggerReviewSessions: 3 }))
+      .toEqual({ enabled: false, maxEntries: 5, maxMessageChars: 20, triggerReviewSessions: 3 })
   })
 
   it('reads throw before the store starts', () => {
@@ -71,6 +76,7 @@ describe('evolution feedback', () => {
     const feedback = new EvolutionFeedback(ctx, {})
     expect(() => feedback.entries('s1')).toThrow('not started yet')
     expect(() => feedback.summary(['s1'], 5)).toThrow('not started yet')
+    expect(() => feedback.signals(['s1'], 5)).toThrow('not started yet')
   })
 
   it('records a failing call and ignores a successful one', async () => {
@@ -285,6 +291,115 @@ describe('evolution feedback', () => {
       appendCall(h.session, 1, 'bash', 'denied', false)
       await delay(20)
       expect(h.feedback.entries('s1')).toEqual([])
+    } finally {
+      await h.fiber.dispose()
+    }
+  })
+
+  it('grades signals by attribution and session reach, decisive first', async () => {
+    const h = await harness()
+    try {
+      const second = h.ctx.sessions.create(SessionId('s2'), { meta: { cwd: process.cwd() } })
+      appendCall(h.session, 1, 'bash', 'denied', false)
+      appendCall(h.session, 2, 'bash', 'denied', false)
+      appendCall(second, 1, 'bash', 'denied', false)
+      appendCall(second, 2, 'read', 'missing', false)
+      const orphan = ToolCallId('orphan')
+      second.append('tool/result', {
+        turn: 3,
+        step: 1,
+        message: createToolResultMessage({
+          callId: orphan,
+          content: [{ type: 'text', text: 'unattributed' }],
+          isError: true,
+        }),
+      }, { surfaceOp: 'append' })
+      await vi.waitFor(() => {
+        expect(h.feedback.entries('s2')).toHaveLength(3)
+      })
+      const signals = h.feedback.signals(['s1', 's2'], 5)
+      expect(signals).toMatchObject([
+        {
+          tool: 'bash',
+          message: 'denied',
+          count: 3,
+          sessions: 2,
+          evidenceStatus: 'complete',
+          actionability: 'trigger_review',
+          mergeKey: 'bash\u0000denied',
+        },
+        {
+          tool: 'read',
+          message: 'missing',
+          sessions: 1,
+          evidenceStatus: 'complete',
+          actionability: 'ranking_only',
+        },
+        {
+          tool: null,
+          message: 'unattributed',
+          evidenceStatus: 'actionable_partial',
+          actionability: 'observe_only',
+          mergeKey: '\u0000unattributed',
+        },
+      ])
+      expect(h.feedback.signals(['s1', 's2'], 1)).toHaveLength(1)
+      expect(h.feedback.signals(['absent'], 5)).toEqual([])
+    } finally {
+      await h.fiber.dispose()
+    }
+  })
+
+  it('keeps a decisive signal when a merely counted one leads the summary', async () => {
+    const h = await harness()
+    try {
+      const second = h.ctx.sessions.create(SessionId('s2'), { meta: { cwd: process.cwd() } })
+      for (const turn of [1, 2, 3]) appendCall(h.session, turn, 'bash', 'denied', false)
+      appendCall(h.session, 4, 'read', 'missing', false)
+      appendCall(second, 1, 'read', 'missing', false)
+      await vi.waitFor(() => {
+        expect(h.feedback.entries('s1')).toHaveLength(2)
+      })
+      expect(h.feedback.summary(['s1', 's2'], 1)[0]).toMatchObject({ tool: 'bash', message: 'denied', count: 3 })
+      expect(h.feedback.signals(['s1', 's2'], 1)[0]).toMatchObject({
+        tool: 'read',
+        message: 'missing',
+        sessions: 2,
+        actionability: 'trigger_review',
+      })
+    } finally {
+      await h.fiber.dispose()
+    }
+  })
+
+  it('ranks a failure below the configured trigger threshold', async () => {
+    const h = await harness({ triggerReviewSessions: 3 })
+    try {
+      const second = h.ctx.sessions.create(SessionId('s2'), { meta: { cwd: process.cwd() } })
+      appendCall(h.session, 1, 'bash', 'denied', false)
+      appendCall(second, 1, 'bash', 'denied', false)
+      await vi.waitFor(() => {
+        expect(h.feedback.entries('s2')).toHaveLength(1)
+      })
+      expect(h.feedback.signals(['s1', 's2'], 5)[0]).toMatchObject({ sessions: 2, actionability: 'ranking_only' })
+    } finally {
+      await h.fiber.dispose()
+    }
+  })
+
+  it('orders equally graded signals by reach, then count, then recency', async () => {
+    const h = await harness()
+    try {
+      appendCall(h.session, 1, 'bash', 'alpha', false)
+      await delay(5)
+      appendCall(h.session, 2, 'bash', 'beta', false)
+      await delay(5)
+      appendCall(h.session, 3, 'bash', 'gamma', false)
+      appendCall(h.session, 4, 'bash', 'alpha', false)
+      await vi.waitFor(() => {
+        expect(h.feedback.entries('s1')).toHaveLength(3)
+      })
+      expect(h.feedback.signals(['s1'], 5).map(signal => signal.message)).toEqual(['alpha', 'gamma', 'beta'])
     } finally {
       await h.fiber.dispose()
     }

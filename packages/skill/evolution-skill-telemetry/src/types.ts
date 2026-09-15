@@ -10,6 +10,19 @@ export type SkillLifecycleState = 'active' | 'stale' | 'archived'
 /** Provenance of a skill's creation: background review or user-directed. */
 export type SkillCreatedBy = 'agent' | 'foreground' | null
 
+/** A skill's trust standing, derived from evidence rather than elapsed time. */
+export type SkillTrustState = 'provisional' | 'trusted'
+
+/** The most recent failure attributed to a skill. */
+export interface SkillTrustFailure {
+  /** Tool-and-message identity of the failure, as the feedback store merges it. */
+  mergeKey: string
+  /** Failure message recorded with the signal. */
+  message: string
+  /** ISO-8601 instant the observation was recorded. */
+  at: string
+}
+
 /** Durable per-skill usage record stored in the `evolution_skill_usage` domain. */
 export interface SkillUsageRecord {
   /** Successful model loads through the skill tool. */
@@ -20,6 +33,16 @@ export interface SkillUsageRecord {
   patchCount: number
   /** ISO-8601 instant of the last load, or null when never loaded. */
   lastUsedAt: string | null
+  /**
+   * Failed `skill`-tool loads. Absent until the first failure; consumers
+   * compute the failure rate as `failureCount / (useCount + failureCount)`.
+   */
+  failureCount?: number
+  /**
+   * Outcome of the most recent `skill`-tool load, or undefined when the
+   * skill was never loaded through the tool.
+   */
+  lastOutcome?: 'ok' | 'failed'
   /**
    * Sessions that loaded this skill, newest first and deduplicated, capped by
    * the store's `maxSessionIds`. Correlation is what lets a consumer pull the
@@ -43,6 +66,22 @@ export interface SkillUsageRecord {
   absorbedInto: string | null
   /** ISO-8601 instant the skill entered `archived`, or null otherwise. */
   archivedAt: string | null
+  /** Trust standing derived from independent observations, not elapsed time. */
+  trust: SkillTrustState
+  /** Times evidence demoted this skill; an edit is not a demotion. */
+  trustFailures: number
+  /** Sessions already counted toward a pending promotion, newest first. */
+  trustObservedSessions: readonly string[]
+  /** Newest session at the moment of the last demotion; only newer sessions count. */
+  trustAnchorSessionId: string | null
+  /** Most recent failure attributed to this skill, or null when none was recorded. */
+  lastTrustFailure: SkillTrustFailure | null
+  /** Times the SKILL.md body changed, starting at 0. */
+  revision: number
+  /** sha256-hex of the current SKILL.md body, or null when never written through this store. */
+  contentSha: string | null
+  /** Body hash the current revision replaced, or null for the first revision. */
+  parentRevisionSha: string | null
 }
 
 /** One produced output path repeated at least the skill-creation threshold. */

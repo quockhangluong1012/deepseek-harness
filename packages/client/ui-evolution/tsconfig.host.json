@@ -17,6 +17,9 @@
       "path": "../../evolution/evolution-curator"
     },
     {
+      "path": "../../skill/evolution-skill-telemetry"
+    },
+    {
       "path": "../../session/usage-ledger"
     },
     {

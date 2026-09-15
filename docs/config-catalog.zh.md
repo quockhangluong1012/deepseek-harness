@@ -793,6 +793,10 @@ export interface Config {
   maxCandidateFailures?: number
   /** Per-consolidation-request deadline in milliseconds. */
   timeoutMs?: number
+  /** Recorded loads required before a failure rate stages a skill. */
+  stageMinUses?: number
+  /** Failure share a skill must exceed to be staged, in 0..1. */
+  stageFailureRate?: number
 }
 ```
 
@@ -845,10 +849,12 @@ export interface Config {
   maxEntries?: number
   /** Character budget for one recorded failure message. */
   maxMessageChars?: number
+  /** Distinct sessions reporting one failure before it triggers a review. */
+  triggerReviewSessions?: number
 }
 ```
 
-来源：[`packages/evolution/evolution-feedback/src/index.ts:34`](../packages/evolution/evolution-feedback/src/index.ts)
+来源：[`packages/evolution/evolution-feedback/src/index.ts:41`](../packages/evolution/evolution-feedback/src/index.ts)
 
 <a id="deepseek-aidsh-evolution-graph"></a>
 
@@ -966,10 +972,80 @@ export interface Config {
   memoryNudgeInterval?: number
   /** Turns between lessons-to-skills nudges. */
   skillNudgeInterval?: number
+  /** Usage ratio at or above which the brief header warns to consolidate. */
+  capacityWarnPct?: number
 }
 ```
 
 来源：[`packages/context/evolution-memory-context/src/index.ts:86`](../packages/context/evolution-memory-context/src/index.ts)
+
+<a id="deepseek-aidsh-evolution-optimizer"></a>
+
+## `@deepseek-ai/dsh-evolution-optimizer`
+
+Requires: `storageDomain`
+
+```ts config-catalog
+/**
+ * Mutation breadth, framing budgets, the LLM route, the trigger copy, and the
+ * default agent composition are deployment choices changeable from cordis.yml.
+ */
+export interface Config {
+  /** Mutation candidates per run. */
+  maxCandidates?: number
+  /** Byte budget for one framed mutation request. */
+  maxInputBytes?: number
+  /** Output-token cap for one mutation request. */
+  maxOutputTokens?: number
+  /** Provider route for the mutation request; required to optimize. */
+  provider?: string
+  /** Model id for the mutation request; required to optimize. */
+  model?: string
+  /** Recorded loads required before a failure rate counts. */
+  triggerMinUses?: number
+  /** Failure share a record must exceed, in 0..1. */
+  triggerFailureRate?: number
+  /**
+   * Corpus scenarios reserved for the promotion check. They are never scored
+   * during search, and a winner the baseline dominates on them is refused.
+   */
+  holdoutScenarios?: string[]
+  /** Billed tokens one run may spend on candidate scoring; 0 leaves it unbounded. */
+  budgetTokens?: number
+  /** Wall time in milliseconds one run may spend on candidate scoring; 0 leaves it unbounded. */
+  budgetWallTimeMs?: number
+  /**
+   * Scenarios every candidate is screened on before the survivors are scored
+   * in full; 0 disables screening.
+   */
+  screenScenarioCount?: number
+  /**
+   * Mutation operators the run draws its candidates from, in request order.
+   * The candidate budget is split evenly across them.
+   */
+  operators?: string[]
+  /**
+   * Paired winner-versus-baseline comparisons a promotion must win; 1 keeps
+   * the single comparison the search already made.
+   */
+  confirmationRuns?: number
+  /** Experiments one scope keeps, newest first; older rows are dropped as new ones land. */
+  maxExperiments?: number
+  /** Experiments one read returns, newest first. */
+  experimentPageSize?: number
+  /** Agent composition variant attempts boot with unless the request names one. */
+  agent: {
+    /** Source bin entry variant attempts boot. */
+    binScript: string
+    /** Base config or profile patch the entry loads. */
+    configPath: string
+    /** Repo tsconfig resolving unbuilt workspace imports. */
+    tsconfigPath: string
+  }
+}
+```
+
+来源: [`packages/evolution/evolution-optimizer/src/index.ts:68`](../packages/evolution/evolution-optimizer/src/index.ts)
 
 <a id="deepseek-aidsh-evolution-reviewer"></a>
 
@@ -1040,6 +1116,10 @@ export interface Config {
   corpusDir: string
   /** Fresh-process attempts per score; the median is taken over their samples. */
   attempts?: number
+  /** Recorded loads required before a failure rate triggers optimization. */
+  triggerMinUses?: number
+  /** Failure share a skill must exceed to trigger optimization, in 0..1. */
+  triggerFailureRate?: number
 }
 ```
 
@@ -1072,10 +1152,12 @@ export interface Config {
 export interface Config {
   /** Sessions retained per skill for failure correlation, newest first. */
   maxSessionIds?: number
+  /** Independently observed successes that promote a provisional skill to trusted. */
+  trustPromotionSessions?: number
 }
 ```
 
-来源：[`packages/skill/evolution-skill-telemetry/src/index.ts:81`](../packages/skill/evolution-skill-telemetry/src/index.ts)
+来源：[`packages/skill/evolution-skill-telemetry/src/index.ts:85`](../packages/skill/evolution-skill-telemetry/src/index.ts)
 
 <a id="deepseek-aidsh-evolution-trajectory"></a>
 

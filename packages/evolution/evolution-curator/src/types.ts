@@ -4,7 +4,8 @@
  * @module @deepseek-ai/dsh-evolution-curator/src/types
  */
 
-import type { SkillLifecycleState } from '@deepseek-ai/dsh-evolution-skill-telemetry'
+import type { FeedbackSignal } from '@deepseek-ai/dsh-evolution-feedback'
+import type { SkillLifecycleState, SkillTrustFailure, SkillTrustState } from '@deepseek-ai/dsh-evolution-skill-telemetry'
 
 export type { SkillLifecycleState }
 
@@ -56,6 +57,8 @@ export interface CuratorReport {
   snapshot: string | null
   /** Consolidation outcome when the LLM pass is opted in and ran; otherwise undefined. */
   consolidation?: ConsolidationReport | undefined
+  /** Skills this pass staged for review, worst failure rate first. */
+  staged: StagedCandidate[]
 }
 
 /** Clock override for rollback calls. */
@@ -86,6 +89,8 @@ export interface RollbackReport {
   preRollback: string
   /** Skills whose relocated package directories moved back, in ledger order. */
   restoredDirs: string[]
+  /** Skills whose SKILL.md body was restored from a preimage, in ledger order. */
+  restoredFiles: string[]
 }
 
 /** One ledger pass summary for status surfaces. */
@@ -121,27 +126,19 @@ export interface SurveyCandidate {
   /** ISO-8601 instant of the last load, or null when never loaded. */
   lastUsedAt: string | null
   /**
-   * Failures recorded in the sessions that loaded this skill, most-observed
-   * first and capped by `maxCandidateFailures`. Empty when no feedback store is
-   * mounted or none of those sessions failed.
+   * Graded failures recorded in the sessions that loaded this skill, most
+   * decisive first and capped by `maxCandidateFailures`. Empty when no
+   * feedback store is mounted or none of those sessions failed.
    */
-  failures: readonly SurveyFailure[]
-}
-
-/**
- * One failure observed while a surveyed skill was in play. This is the
- * reflection input a consolidation verdict reads: what actually went wrong in
- * the sessions that used the skill, not what its author predicted.
- */
-export interface SurveyFailure {
-  /** Tool whose call failed, or null when the failing call was not observed. */
-  tool: string | null
-  /** Failing result text, already normalized and clipped by the feedback store. */
-  message: string
-  /** Times the failure was observed across the correlated sessions. */
-  count: number
-  /** Distinct sessions that reported it. */
-  sessions: number
+  failures: readonly FeedbackSignal[]
+  /** Trust standing the pass recorded for this skill. */
+  trust: SkillTrustState
+  /** Body revisions recorded for this skill. */
+  revision: number
+  /** sha256-hex of the current body, or null when never written through telemetry. */
+  contentSha: string | null
+  /** Most recent failure attributed to this skill, or null when none. */
+  lastTrustFailure: SkillTrustFailure | null
 }
 
 /** Agent-created skills awaiting a consolidation verdict, sorted by name. */
@@ -214,4 +211,32 @@ export interface ConsolidationReport {
   skipped: number
   /** Fork requests spent. */
   steps: number
+}
+
+/** One skill a pass staged for review, with the outcome evidence that selected it. */
+export interface StagedCandidate {
+  /** Skill name. */
+  name: string
+  /** Successful loads recorded beside the failures. */
+  useCount: number
+  /** Recorded failed loads. */
+  failureCount: number
+  /** Failures as a share of every recorded load, in 0..1. */
+  failureRate: number
+  /** Why the pass staged it. */
+  reason: string
+}
+
+/** One staged skill read back from the ledger, carrying its staging instant. */
+export interface StagedSkill extends StagedCandidate {
+  /** ISO-8601 instant the staging entry was appended. */
+  at: string
+}
+
+/** Thresholds the staging step reads to decide whether a record speaks. */
+export interface StageThresholds {
+  /** Recorded loads required before a failure rate counts. */
+  minUses: number
+  /** Failure share a record must exceed, in 0..1. */
+  failureRate: number
 }

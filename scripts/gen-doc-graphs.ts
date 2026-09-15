@@ -490,7 +490,7 @@ const SERVICE_ROLES: ServiceRole[] = [
     title: 'Skill curation telemetry store',
     mode: 'core',
     consumers: ['evolution-skill-manage', 'evolution-curator'],
-    note: 'The telemetry plugin owns durable per-skill counters, provenance, pins, and lifecycle state; evolution-skill-manage reports mutations and reads pins through the optional service, and evolution-curator drives lifecycle transitions over the same store.',
+    note: 'The telemetry plugin owns durable per-skill counters, provenance, pins, lifecycle state, evidence-backed trust, and the SKILL.md revision chain; evolution-skill-manage reports mutations and reads pins through the optional service, and evolution-curator drives lifecycle transitions and records trust observations over the same store.',
   },
   {
     key: 'evolutionMemory',
@@ -527,7 +527,8 @@ const SERVICE_ROLES: ServiceRole[] = [
     pkg: 'evolution-feedback',
     title: 'Per-session failure-observation store',
     mode: 'core',
-    note: 'The evolution-feedback plugin observes failing tool results per session and aggregates them into the natural-language feedback the learning loop reads; it registers no prompt, tool, or session event.',
+    consumers: ['evolution-curator', 'evolution-dreaming'],
+    note: 'The evolution-feedback plugin observes failing tool results per session and grades the aggregate by attribution strength and session reach; evolution-curator turns its decisive signals into skill trust, and evolution-dreaming reads its summary in the light phase. It registers no prompt, tool, or session event.',
   },
   {
     key: 'evolutionDreaming',
@@ -549,6 +550,14 @@ const SERVICE_ROLES: ServiceRole[] = [
     title: 'Evolution scope Remote controller',
     mode: 'core',
     note: 'The evolution-controller plugin serves scope verbs and the journey read model over the generated evolution Remote namespace; the evolution journey page reads it from the browser.',
+  },
+  {
+    key: 'evolutionScorer',
+    pkg: 'evolution-scorer',
+    title: 'Recorded-session improvement scorer',
+    mode: 'core',
+    consumers: ['evolution-optimizer'],
+    note: 'The evolution-scorer plugin runs a scenario through the recorded-session harness and reduces the attempts to the pass/tokens/wall-time triple; it writes nothing, and evolution-optimizer reads the same verdict to decide whether a candidate beats its baseline.',
   },
   {
     key: 'evolutionCuratorStatus',

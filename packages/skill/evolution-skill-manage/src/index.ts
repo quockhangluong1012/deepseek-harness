@@ -136,7 +136,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       const signal = exec.signal
       switch (args.op) {
         case 'create':
-          return createSkill(createDir, args, signal)
+          return createSkill(ctx, createDir, args, signal)
         case 'patch':
           return patchSkill(ctx, args, cwd, signal)
         case 'edit':
@@ -217,6 +217,7 @@ function requiredArg(value: string | null | undefined, field: string, op: string
 }
 
 async function createSkill(
+  ctx: Context,
   createDir: string,
   args: ResolvedManageArgs,
   signal: AbortSignal,
@@ -225,11 +226,12 @@ async function createSkill(
   const body = requiredArg(args.content ?? undefined, 'content', 'create')
   const dir = join(createDir, args.name)
   const file = join(dir, SKILL_FILE)
+  const content = buildSkillFile(args.name, description, body)
   signal.throwIfAborted()
   await mkdir(dir, { recursive: true })
   signal.throwIfAborted()
   try {
-    await writeFile(file, buildSkillFile(args.name, description, body), { flag: 'wx', signal })
+    await writeFile(file, content, { flag: 'wx', signal })
   } catch (error) {
     /* v8 ignore else -- Non-EEXIST creation failures need a platform permission or I/O fault. */
     if ((error as { code?: string }).code === 'EEXIST') {
@@ -238,6 +240,9 @@ async function createSkill(
     /* v8 ignore next -- Non-EEXIST creation failures need a platform permission or I/O fault. */
     throw error
   }
+  const telemetry = ctx.get('evolutionSkillTelemetry')
+  await telemetry?.markAgentCreated(args.name)
+  await telemetry?.markRevised(args.name, content)
   return { op: 'create', name: args.name, path: file }
 }
 
@@ -260,7 +265,9 @@ async function patchSkill(
   const next = replaceUniqueSubstring(current, oldText, newText, `skill "${args.name}" patch`)
   signal.throwIfAborted()
   await writeFile(resolved.file, next, { signal })
-  await ctx.get('evolutionSkillTelemetry')?.markPatched(args.name, resolved.source)
+  const telemetry = ctx.get('evolutionSkillTelemetry')
+  await telemetry?.markPatched(args.name, resolved.source)
+  await telemetry?.markRevised(args.name, next)
   return { op: 'patch', name: args.name, path: resolved.file }
 }
 
@@ -282,8 +289,11 @@ async function editSkill(
   if (split === undefined) throw new Error(`skill "${args.name}" has malformed frontmatter: ${resolved.file}`)
   validateSkillHead(split.head, args.name)
   signal.throwIfAborted()
-  await writeFile(resolved.file, `---\n${split.head}\n---\n${content}`, { signal })
-  await ctx.get('evolutionSkillTelemetry')?.markPatched(args.name, resolved.source)
+  const file = `---\n${split.head}\n---\n${content}`
+  await writeFile(resolved.file, file, { signal })
+  const telemetry = ctx.get('evolutionSkillTelemetry')
+  await telemetry?.markPatched(args.name, resolved.source)
+  await telemetry?.markRevised(args.name, file)
   return { op: 'edit', name: args.name, path: resolved.file }
 }
 

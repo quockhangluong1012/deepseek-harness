@@ -23,7 +23,8 @@ import { BlockAssembler, createAssistantMessage, createToolResultMessage, create
 import type { ContentBlock, GenerateOptions, Message, StreamChunk, ToolSchema } from '@deepseek-ai/dsh-llm'
 import type { SkillUsageRecord } from '@deepseek-ai/dsh-evolution-skill-telemetry'
 import type { EvolutionSkillTelemetry } from '@deepseek-ai/dsh-evolution-skill-telemetry'
-import { appendLedger, moveTree, pathExists } from './safety.ts'
+import { SKILL_FILE, splitFrontmatter, validateSkillHead } from '@deepseek-ai/dsh-evolution-skill-manage'
+import { appendLedger, moveTree, pathExists, textSha, writeTextBlob } from './safety.ts'
 import type { ConsolidationVerdict, SurveyCandidate } from './types.ts'
 
 /** File extensions whose `${DSH_SKILL_DIR}` references are rewritten on re-home. */
@@ -48,11 +49,12 @@ export function consolidationInstructions(): string {
     'You consolidate agent-created skills in one maintenance pass.',
     'For each candidate, call skill_view to inspect its package, then call skill_apply exactly once with one of:',
     '- keep: leave it alone.',
-    '- patch: rewrite its SKILL.md body (send the complete replacement body).',
+    '- patch: rewrite SKILL.md (send the complete file, frontmatter included); a body that would break the frontmatter is refused.',
     '- consolidate: merge it into an umbrella skill named by `into`; its whole package is re-homed under the umbrella.',
     '- archive: retire it; its whole package moves to .archive/.',
     'Apply consolidate only when the umbrella already exists and clearly owns the topic.',
     'Never rewrite a package that ships references/, templates/, scripts/, or assets/ down to SKILL.md alone.',
+    'Only patch or archive a skill that is provisional or carries a trigger_review signal; a trusted skill with no such signal is keep.',
   ].join('\n')
 }
 
@@ -105,7 +107,7 @@ export function consolidationTools(): ToolSchema[] {
           name: { type: 'string', description: 'Skill name from the candidate list.' },
           action: { type: 'string', enum: ['keep', 'patch', 'consolidate', 'archive'] },
           into: { type: 'string', description: 'Umbrella skill for a consolidate verdict.' },
-          body: { type: 'string', description: 'Complete replacement SKILL.md body for a patch verdict.' },
+          body: { type: 'string', description: 'Complete replacement SKILL.md file for a patch verdict, frontmatter included.' },
         },
         required: ['name', 'action'],
       },
@@ -234,6 +236,8 @@ export interface ConsolidationApplied {
   transitions: { name: string; before: SkillUsageRecord; after: SkillUsageRecord; dir: string }[]
   /** Verdicts skipped as ineligible or unsafe. */
   skipped: number
+  /** Bodies committed in place, each with a stored preimage. */
+  patched: number
 }
 
 /**
@@ -250,7 +254,7 @@ export async function applyConsolidation(
   deps: ConsolidationApplyDeps,
   verdicts: readonly ConsolidationVerdict[],
 ): Promise<ConsolidationApplied> {
-  const applied: ConsolidationApplied = { transitions: [], skipped: 0 }
+  const applied: ConsolidationApplied = { transitions: [], skipped: 0, patched: 0 }
   for (const verdict of verdicts) {
     if (verdict.action === 'keep') continue
     if (!deps.candidates.has(verdict.name)) {
@@ -264,19 +268,25 @@ export async function applyConsolidation(
       continue
     }
     if (verdict.action === 'patch') {
-      if (verdict.body === undefined) {
+      if (verdict.body === undefined || !isValidSkillBody(verdict.name, verdict.body)) {
         applied.skipped += 1
         continue
       }
-      await writeFile(join(dir, 'SKILL.md'), verdict.body)
+      const file = join(dir, SKILL_FILE)
+      const previous = await readFile(file, 'utf8')
+      const beforeSha = textSha(previous)
+      await writeTextBlob(deps.home, beforeSha, previous)
+      await writeFile(file, verdict.body)
+      await deps.telemetry.markRevised(verdict.name, verdict.body)
+      applied.patched += 1
       await appendLedger(deps.home, {
         id: randomUUID(),
         at: deps.at,
         actor: 'curator',
         action: 'patch',
-        evidence: { passId: deps.passId, name: verdict.name, dir },
-        before: null,
-        after: null,
+        evidence: { passId: deps.passId, name: verdict.name, dir, file },
+        before: beforeSha,
+        after: textSha(verdict.body),
       })
       continue
     }
@@ -309,6 +319,28 @@ export async function applyConsolidation(
     applied.transitions.push({ name: verdict.name, before, after, dir: destination })
   }
   return applied
+}
+
+/**
+ * Validate a replacement body before commit with the invariant
+ * `skill_manage edit` already enforces: parseable frontmatter that keeps the
+ * skill's own name and a description. A body failing it would break the skill
+ * and leave no way back.
+ * @param name - skill name the body must keep.
+ * @param body - replacement body from the verdict.
+ * @returns whether the body may be committed.
+ */
+function isValidSkillBody(name: string, body: string): boolean {
+  const split = splitFrontmatter(body)
+  if (split === undefined) return false
+  try {
+    validateSkillHead(split.head, name)
+    return true
+  } catch {
+    // Swallows only frontmatter-validation errors: a body that fails the
+    // check is dropped like any other inapplicable verdict.
+    return false
+  }
 }
 
 /**

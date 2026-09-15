@@ -18,7 +18,9 @@ import {
   recordSha,
   resolveBackupDir,
   snapshotPass,
+  textSha,
   writeBlob,
+  writeTextBlob,
 } from '../src/safety.ts'
 import type { LedgerEntry } from '../src/safety.ts'
 import type { SkillUsageRecord } from '@deepseek-ai/dsh-evolution-skill-telemetry'
@@ -88,6 +90,14 @@ function fakeRecord(overrides: Partial<SkillUsageRecord> = {}): SkillUsageRecord
     createdAt: '2026-01-01T00:00:00.000Z',
     state: 'active',
     pinned: false,
+    trust: 'trusted',
+    trustFailures: 0,
+    trustObservedSessions: [],
+    trustAnchorSessionId: null,
+    lastTrustFailure: null,
+    revision: 0,
+    contentSha: null,
+    parentRevisionSha: null,
     createdBy: null,
     absorbedInto: null,
     archivedAt: null,
@@ -292,7 +302,7 @@ describe('evolution curator safety', () => {
       const logged = entries.filter(entry => entry.action === 'adopt')
       expect(logged).toHaveLength(1)
       expect(logged[0]).toMatchObject({ actor: 'operator', evidence: { name: 'writer' } })
-      await expect(h.curator.adopt('writer')).rejects.toThrow('without background-review authorship')
+      await expect(h.curator.adopt('writer')).rejects.toThrow('without model authorship')
       await expect(h.curator.adopt('ghost')).rejects.toThrow("has no record for 'ghost'")
     } finally {
       await h.fiber.dispose()
@@ -402,6 +412,66 @@ describe('evolution curator safety', () => {
       })
       await expect(h.curator.rollbackPass('pass-one')).rejects.toThrow('requires the telemetry store')
       expect(await h.curator.passes()).toHaveLength(1)
+    } finally {
+      await h.fiber.dispose()
+    }
+  })
+
+  it('refuses to restore bodies without the telemetry store', async () => {
+    const h = await harness({ telemetry: false })
+    try {
+      const home = curatorHome()
+      await appendLedger(home, {
+        id: 'pass-entry',
+        at: new Date().toISOString(),
+        actor: 'curator',
+        action: 'pass',
+        evidence: { passId: 'pass-patch', snapshot: 'pass-x.tar.gz', names: 'old', unresolved: '' },
+        before: null,
+        after: null,
+      })
+      await appendLedger(home, {
+        id: 'patch-entry',
+        at: new Date().toISOString(),
+        actor: 'curator',
+        action: 'patch',
+        evidence: { passId: 'pass-patch', name: 'old', dir: '/skills/old', file: join('/skills/old', 'SKILL.md') },
+        before: 'body-sha',
+        after: 'body-sha',
+      })
+      await expect(h.curator.rollbackPass('pass-patch')).rejects.toThrow('requires the telemetry store')
+    } finally {
+      await h.fiber.dispose()
+    }
+  })
+
+  it('refuses to restore a body for a skill that is no longer tracked', async () => {
+    const h = await harness()
+    try {
+      const home = curatorHome()
+      const body = 'the body its patch replaced\n'
+      await writeTextBlob(home, textSha(body), body)
+      await h.telemetry?.markUsed('old')
+      await appendLedger(home, {
+        id: 'pass-entry',
+        at: new Date().toISOString(),
+        actor: 'curator',
+        action: 'pass',
+        evidence: { passId: 'pass-patch', snapshot: 'pass-x.tar.gz', names: 'old', unresolved: '' },
+        before: null,
+        after: null,
+      })
+      await appendLedger(home, {
+        id: 'patch-entry',
+        at: new Date().toISOString(),
+        actor: 'curator',
+        action: 'patch',
+        evidence: { passId: 'pass-patch', name: 'old', dir: join(home, 'skills', 'old'), file: join(home, 'skills', 'old', 'SKILL.md') },
+        before: textSha(body),
+        after: 'ignored',
+      })
+      await h.telemetry?.drop('old')
+      await expect(h.curator.rollbackPass('pass-patch')).rejects.toThrow('cannot restore untracked skill')
     } finally {
       await h.fiber.dispose()
     }

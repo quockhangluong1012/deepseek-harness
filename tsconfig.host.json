@@ -220,6 +220,7 @@
     { "path": "./packages/evolution/evolution-dreaming" },
     { "path": "./packages/evolution/evolution-controller" },
     { "path": "./packages/evolution/evolution-scorer" },
+    { "path": "./packages/evolution/evolution-optimizer" },
     { "path": "./packages/evolution/evolution-trajectory" },
     { "path": "./packages/evolution/command-evolution" },
     { "path": "./packages/workspace/workspace-memory-llm" },

@@ -2,9 +2,11 @@
 
 Status: implemented
 
+English | [中文](2026-09-13-evolution-memory-prefix-cache-and-alert.zh.md)
+
 ## Problem
 
-A review against `specs/evolutionary-harness-prompt-v6.md` (recorded in [`docs/superpowers/specs/2026-09-13-evolutionary-harness-review-v6.md`](../../../../docs/superpowers/specs/2026-09-13-evolutionary-harness-review-v6.md)) found that `dsh-evolution-memory-context` interpolated a live `{{evolution_memory_usage}}` value into the `evolution-memory-scope` system-prompt section — a decision recorded in [the injector's original Agent Note](../feature/2026-09-11-evolution-memory-context.md). Because the whole system prompt is one surface node that `SystemPromptProjection` (`packages/core/agent-loop/src/runtime-context.ts`) replaces in place whenever its rendered text changes, any evolution-memory write that moved the usage number invalidated the provider's cached prefix for every tool schema and every other static section in the same request — not just the memory-adjacent text. Separately, the usage ledger already computed a `cacheHitAvg` rollup (`packages/session/usage-ledger/src/aggregate.ts`) but nothing watched it, so a cache-hit regression like this one had no way to surface itself operationally.
+A review against `specs/evolutionary-harness-prompt-v6.md` (recorded in `docs/superpowers/specs/2026-09-13-evolutionary-harness-review-v6.md`) found that `dsh-evolution-memory-context` interpolated a live `{{evolution_memory_usage}}` value into the `evolution-memory-scope` system-prompt section — a decision recorded in [the injector's original Agent Note](../feature/2026-09-11-evolution-memory-context.md). Because the whole system prompt is one surface node that `SystemPromptProjection` (`packages/core/agent-loop/src/runtime-context.ts`) replaces in place whenever its rendered text changes, any evolution-memory write that moved the usage number invalidated the provider's cached prefix for every tool schema and every other static section in the same request — not just the memory-adjacent text. Separately, the usage ledger already computed a `cacheHitAvg` rollup (`packages/session/usage-ledger/src/aggregate.ts`) but nothing watched it, so a cache-hit regression like this one had no way to surface itself operationally.
 
 ## Decision
 

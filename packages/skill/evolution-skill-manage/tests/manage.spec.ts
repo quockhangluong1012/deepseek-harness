@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
+import { createHash } from 'node:crypto'
 import { mkdtemp, mkdir, realpath, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -122,6 +123,31 @@ describe('evolution skill_manage', () => {
         .toContain('invalid skill name')
       expect((await manage(h.ctx, { op: 'create', name: 'nodesc', content: 'b' })).text).toContain('`description`')
       expect((await manage(h.ctx, { op: 'create', name: 'nobody', description: 'd' })).text).toContain('`content`')
+    } finally {
+      await h.fiber.dispose()
+    }
+  })
+
+  it('records model authorship and the revision chain of every body write', async () => {
+    const h = await harness()
+    dirs.push(h.dir)
+    try {
+      await manage(h.ctx, { op: 'create', name: 'writer', description: 'd', content: 'first body\n' })
+      const file = join(h.dir, 'skills', 'writer', 'SKILL.md')
+      const created = h.ctx.evolutionSkillTelemetry.read('writer')
+      expect(created).toMatchObject({ createdBy: 'agent', revision: 1, parentRevisionSha: null, trust: 'provisional' })
+      expect(created?.contentSha).toBe(createHash('sha256').update(await readFile(file, 'utf8')).digest('hex'))
+      h.skills.push({ name: 'writer', source: 'user-dsh', path: file })
+      await manage(h.ctx, { op: 'patch', name: 'writer', old_text: 'first body', new_text: 'second body' })
+      const patched = h.ctx.evolutionSkillTelemetry.read('writer')
+      expect(patched).toMatchObject({ revision: 2, parentRevisionSha: created?.contentSha })
+      expect(patched?.contentSha).toBe(createHash('sha256').update(await readFile(file, 'utf8')).digest('hex'))
+      await manage(h.ctx, { op: 'edit', name: 'writer', content: 'third body\n' })
+      expect(h.ctx.evolutionSkillTelemetry.read('writer'))
+        .toMatchObject({ revision: 3, parentRevisionSha: patched?.contentSha })
+      // A supporting file is not a revision of the body.
+      await manage(h.ctx, { op: 'write_file', name: 'writer', path: 'notes.md', content: 'notes\n' })
+      expect(h.ctx.evolutionSkillTelemetry.read('writer')).toMatchObject({ revision: 3, patchCount: 3 })
     } finally {
       await h.fiber.dispose()
     }

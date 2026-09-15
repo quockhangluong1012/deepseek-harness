@@ -19,9 +19,10 @@ import type { RunOptions } from '@deepseek-ai/dsh-session-snapshot'
 import { measureRunTokens } from './sessions.ts'
 import { loadScenarioPlan } from './scenario.ts'
 import { scoreRun } from './score.ts'
-import type { ScoreAttempt, ScoreOutcome, ScoreRequest } from './types.ts'
+import type { EvaluateSkillRequest, ScoreAttempt, ScoreOutcome, ScoreRecord, ScoreRequest, SkillEvaluation } from './types.ts'
 
 export type {
+  EvaluateSkillRequest,
   ScoreAttempt,
   ScoreInput,
   ScoreOutcome,
@@ -30,6 +31,9 @@ export type {
   ScenarioPlan,
   ScenarioPlanResult,
   ScenarioRunner,
+  SkillEvaluation,
+  SkillScore,
+  TriggerThresholds,
   WorkspaceChange,
 } from './types.ts'
 export { processScenarioRunner } from './runner.ts'
@@ -38,6 +42,7 @@ export { scoreRun } from './score.ts'
 export { measureRunTokens } from './sessions.ts'
 export { medianOf } from './statistics.ts'
 export { diffWorkspace } from './workspace.ts'
+export { shouldOptimize } from './trigger.ts'
 
 /**
  * Corpus location and attempt count are deployment choices: which corpus a
@@ -48,6 +53,10 @@ export interface Config {
   corpusDir: string
   /** Fresh-process attempts per score; the median is taken over their samples. */
   attempts?: number
+  /** Recorded loads required before a failure rate triggers optimization. */
+  triggerMinUses?: number
+  /** Failure share a skill must exceed to trigger optimization, in 0..1. */
+  triggerFailureRate?: number
 }
 
 /** Corpus location a host must name; there is no useful repository-independent default. */
@@ -60,12 +69,16 @@ const attemptsField = z.number().step(1).min(1).default(3)
 export const Config: z<Config> = z.object({
   corpusDir: corpusDirField,
   attempts: attemptsField,
+  triggerMinUses: z.number().step(1).min(1).default(20),
+  triggerFailureRate: z.number().min(0).max(1).default(0.3),
 })
 
 /** Normalized configuration used by the scorer. */
 export interface ResolvedConfig {
   corpusDir: string
   attempts: number
+  triggerMinUses: number
+  triggerFailureRate: number
 }
 
 /**
@@ -74,8 +87,15 @@ export interface ResolvedConfig {
  * @returns normalized runtime configuration.
  */
 export function resolveConfig(config: Config): ResolvedConfig {
-  const { corpusDir, attempts = 3 } = config
-  return { corpusDir, attempts }
+  const { corpusDir, attempts = 3, triggerMinUses = 20, triggerFailureRate = 0.3 } = config
+  return { corpusDir, attempts, triggerMinUses, triggerFailureRate }
+}
+
+declare module '@deepseek-ai/cordis' {
+  interface Context {
+    /** Measured improvement scorer. */
+    evolutionScorer: EvolutionScorer
+  }
 }
 
 /**
@@ -143,6 +163,40 @@ export class EvolutionScorer extends Service {
         ...expected === undefined ? {} : { expected },
         attempts,
       }),
+    }
+  }
+
+  /**
+   * Evaluate one skill over its corpus scenarios and aggregate the metric
+   * triple an optimizer selects on. Every scenario must score: a skipped
+   * scenario means the corpus does not describe what the skill was asked to
+   * prove, and optimizing on a partial evaluation would select on evidence
+   * that is not there — so one skip skips the whole evaluation with its
+   * reason attached.
+   * @param request - skill name plus the scenarios, agent composition, and runner to score it with.
+   * @returns the aggregated triple with per-scenario records, or the reason the skill could not be evaluated.
+   */
+  async evaluateSkill(request: EvaluateSkillRequest): Promise<SkillEvaluation> {
+    if (request.scenarios.length === 0) {
+      return { status: 'skipped', skill: request.skill, reason: `skill '${request.skill}' names no evaluation scenarios` }
+    }
+    const scores: ScoreRecord[] = []
+    for (const scenario of request.scenarios) {
+      const outcome = await this.score({ scenario, agent: request.agent, run: request.run })
+      if (outcome.status === 'skipped') {
+        return { status: 'skipped', skill: request.skill, reason: outcome.reason }
+      }
+      scores.push(outcome.score)
+    }
+    return {
+      status: 'evaluated',
+      score: {
+        skill: request.skill,
+        pass: scores.every(record => record.pass),
+        tokens: scores.reduce((sum, record) => sum + record.tokens, 0),
+        wallTimeMs: scores.reduce((sum, record) => sum + record.wallTimeMs, 0),
+        scores,
+      },
     }
   }
 }

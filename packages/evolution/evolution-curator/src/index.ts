@@ -16,7 +16,7 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import { rm } from 'node:fs/promises'
+import { rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { Context, Service } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
@@ -27,6 +27,7 @@ import type {} from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-evolution-feedback'
 import { deadline } from '@deepseek-ai/dsh-timeout'
 import type { SkillLifecycleState, SkillUsageRecord } from '@deepseek-ai/dsh-evolution-skill-telemetry'
+import type { EvolutionSkillTelemetry } from '@deepseek-ai/dsh-evolution-skill-telemetry'
 import { curatorDomainSpec } from './spec.ts'
 import {
   appendLedger,
@@ -34,6 +35,7 @@ import {
   pathExists,
   readBlob,
   readLedger,
+  readTextBlob,
   recordSha,
   resolveBackupDir,
   reverseMoves,
@@ -42,6 +44,7 @@ import {
   writeBlob,
 } from './safety.ts'
 import type { LedgerEntry } from './safety.ts'
+import { orderStaged, stageCandidate } from './stage.ts'
 import {
   applyConsolidation,
   executeConsolidationTool,
@@ -60,6 +63,8 @@ import type {
   PurgeReport,
   RollbackOptions,
   RollbackReport,
+  StagedCandidate,
+  StagedSkill,
   SurveyCandidate,
 } from './types.ts'
 
@@ -76,6 +81,9 @@ export type {
   PurgeReport,
   RollbackOptions,
   RollbackReport,
+  StageThresholds,
+  StagedCandidate,
+  StagedSkill,
 } from './types.ts'
 export { curatorDomainSpec } from './spec.ts'
 
@@ -148,6 +156,10 @@ export interface Config {
   maxCandidateFailures?: number
   /** Per-consolidation-request deadline in milliseconds. */
   timeoutMs?: number
+  /** Recorded loads required before a failure rate stages a skill. */
+  stageMinUses?: number
+  /** Failure share a skill must exceed to be staged, in 0..1. */
+  stageFailureRate?: number
 }
 
 /** Validated deployment choices. */
@@ -173,6 +185,8 @@ export const Config: z<Config> = z.object({
   maxSteps: z.number().step(1).min(1).default(4),
   maxCandidateFailures: z.number().step(1).min(0).default(5),
   timeoutMs: z.number().step(1).min(1).default(60000),
+  stageMinUses: z.number().step(1).min(1).default(20),
+  stageFailureRate: z.number().min(0).max(1).default(0.3),
 })
 
 /** Normalized configuration used by the curator. */
@@ -198,6 +212,8 @@ export interface ResolvedConfig {
   maxSteps: number
   maxCandidateFailures: number
   timeoutMs: number
+  stageMinUses: number
+  stageFailureRate: number
 }
 
 /**
@@ -228,6 +244,8 @@ export function resolveConfig(config: Config): ResolvedConfig {
     maxSteps = 4,
     maxCandidateFailures = 5,
     timeoutMs = 60000,
+    stageMinUses = 20,
+    stageFailureRate = 0.3,
   } = config
   if (archiveAfterDays < staleAfterDays) {
     throw new Error(`evolution-curator: archiveAfterDays (${archiveAfterDays}) must not be below staleAfterDays (${staleAfterDays})`)
@@ -257,6 +275,8 @@ export function resolveConfig(config: Config): ResolvedConfig {
     maxSteps,
     maxCandidateFailures,
     timeoutMs,
+    stageMinUses,
+    stageFailureRate,
   }
 }
 
@@ -357,6 +377,7 @@ export class EvolutionCurator extends Service {
       skippedExcluded: 0,
       passId: null,
       snapshot: null,
+      staged: [],
     }
     const telemetry = this.ctx.get('evolutionSkillTelemetry')
     if (telemetry === undefined) {
@@ -368,22 +389,30 @@ export class EvolutionCurator extends Service {
     const summaries = await this.ctx.skills.list()
     const sourceOf = new Map(summaries.map(skill => [skill.name, skill.source] as const))
     const applied: { transition: CuratorTransition; before: SkillUsageRecord; after: SkillUsageRecord }[] = []
+    const thresholds = { minUses: this.resolved.stageMinUses, failureRate: this.resolved.stageFailureRate }
     for (const { name, usage } of telemetry.entries()) {
       report.scanned += 1
-      if (usage.pinned) {
-        report.skippedPinned += 1
+      const source = sourceOf.get(name) ?? 'custom'
+      // Hub sources are always outside curation; bundled built-ins follow
+      // `pruneBuiltins`. Protected names are the operator's explicit opt-out.
+      if (source.startsWith('hub') || (this.resolved.pruneBuiltins && source === 'bundled')) {
+        report.skippedExcluded += 1
         continue
       }
       if (this.resolved.protectedNames.includes(name)) {
         report.skippedProtected += 1
         continue
       }
-      const source = sourceOf.get(name) ?? 'custom'
-      // Hub sources are always outside curation; bundled built-ins follow
-      // `pruneBuiltins`.
-      if (source.startsWith('hub') || (this.resolved.pruneBuiltins && source === 'bundled')) {
-        report.skippedExcluded += 1
+      // Staging is evidence, never movement, so a pinned skill still stages:
+      // the pin protects a skill from being moved, not from being looked at.
+      const candidate = stageCandidate(name, usage, thresholds)
+      if (candidate !== undefined) report.staged.push(candidate)
+      if (usage.pinned) {
+        report.skippedPinned += 1
         continue
+      }
+      if (!dryRun) {
+        await this.recordTrust(telemetry, name, usage, at)
       }
       const idleMs = now - Date.parse(usage.lastUsedAt ?? usage.createdAt)
       const to = decideTransition(usage.state, idleMs, staleMs, archiveMs)
@@ -401,6 +430,10 @@ export class EvolutionCurator extends Service {
         report.transitions.push(transition)
         applied.push({ transition, before: usage, after })
       }
+    }
+    report.staged = orderStaged(report.staged)
+    if (!dryRun && report.staged.length > 0 && this.resolved.backup.enabled) {
+      await this.recordStaging(at, report.staged)
     }
     if (!dryRun && applied.length > 0 && this.resolved.backup.enabled) {
       const passId = randomUUID()
@@ -479,12 +512,11 @@ export class EvolutionCurator extends Service {
         lastUsedAt: usage.lastUsedAt,
         failures: feedback === undefined
           ? []
-          : feedback.summary(usage.sessionIds, this.resolved.maxCandidateFailures).map(entry => ({
-            tool: entry.tool,
-            message: entry.message,
-            count: entry.count,
-            sessions: entry.sessions,
-          })),
+          : feedback.signals(usage.sessionIds, this.resolved.maxCandidateFailures),
+        trust: usage.trust,
+        revision: usage.revision,
+        contentSha: usage.contentSha,
+        lastTrustFailure: usage.lastTrustFailure,
       })
     }
     candidates.sort((a, b) => (a.name < b.name ? -1 : 1))
@@ -573,7 +605,10 @@ export class EvolutionCurator extends Service {
     }
     const applied = await applyConsolidation({ at, passId, home, telemetry, candidates, dirs }, verdicts)
     let snapshot: string | null = null
-    if (applied.transitions.length > 0 && this.resolved.backup.enabled) {
+    // A pass that only patched bodies still records its `pass` row: that row
+    // is the anchor `/curator rollback --id` resolves, and each patch row
+    // carries the preimage its rollback restores.
+    if ((applied.transitions.length > 0 || applied.patched > 0) && this.resolved.backup.enabled) {
       const movedDirs = new Map(applied.transitions.map(transition => [transition.name, transition.dir] as const))
       snapshot = await this.backupPass(at, passId, applied.transitions.map(transition => ({
         name: transition.name,
@@ -595,6 +630,105 @@ export class EvolutionCurator extends Service {
 
   private async stampLastRun(at: string): Promise<void> {
     await this.requireTable().put(STATE_KEY, { lastRunAt: at })
+  }
+
+  /**
+   * Record what the correlated evidence says about one skill's trust. An
+   * attributable failure demotes it; without one, every session that loaded it
+   * counts as an independent success observation. A failing store must not
+   * break the lifecycle pass, so one skill's error is logged and the pass
+   * continues.
+   * @param telemetry - store receiving the observation.
+   * @param name - skill name.
+   * @param usage - the record as the pass found it.
+   * @param at - ISO-8601 instant the pass ran.
+   */
+  private async recordTrust(
+    telemetry: EvolutionSkillTelemetry,
+    name: string,
+    usage: SkillUsageRecord,
+    at: string,
+  ): Promise<void> {
+    try {
+      const feedback = this.ctx.get('evolutionFeedback')
+      const signals = feedback === undefined
+        ? []
+        : feedback.signals(usage.sessionIds, this.resolved.maxCandidateFailures)
+      const attributable = signals.find(signal => signal.actionability === 'trigger_review')
+      if (attributable === undefined) {
+        for (const sessionId of usage.sessionIds) {
+          await telemetry.recordTrustObservation(name, 'success', sessionId)
+        }
+        return
+      }
+      const newest = usage.sessionIds[0]
+      if (newest === undefined) return
+      await telemetry.recordTrustObservation(name, 'failure', newest, {
+        mergeKey: attributable.mergeKey,
+        message: attributable.message,
+        at,
+      })
+    } catch (error) {
+      this.ctx.logger.warn(`evolution curator could not record trust for '${name}': ${String(error)}`)
+    }
+  }
+
+  /**
+   * Append one ledger line per newly staged skill. A skill still failing at
+   * counters already on the ledger is staged already, so re-appending would
+   * grow the ledger by one line every pass forever; the counters are the
+   * comparison, and they only move when the skill was used again.
+   * @param at - ISO-8601 instant of the pass.
+   * @param staged - this pass's staged candidates.
+   */
+  private async recordStaging(at: string, staged: readonly StagedCandidate[]): Promise<void> {
+    const home = curatorHome()
+    const latest = new Map<string, string>()
+    for (const entry of await readLedger(home)) {
+      if (entry.action !== 'stage') continue
+      latest.set(reqEvidence(entry, 'name'), `${reqEvidence(entry, 'useCount')}:${reqEvidence(entry, 'failureCount')}`)
+    }
+    for (const candidate of staged) {
+      if (latest.get(candidate.name) === `${candidate.useCount}:${candidate.failureCount}`) continue
+      await appendLedger(home, {
+        id: randomUUID(),
+        at,
+        actor: 'curator',
+        action: 'stage',
+        evidence: {
+          name: candidate.name,
+          useCount: String(candidate.useCount),
+          failureCount: String(candidate.failureCount),
+          failureRate: String(candidate.failureRate),
+          reason: candidate.reason,
+        },
+        before: null,
+        after: null,
+      })
+    }
+  }
+
+  /**
+   * List the skills the ledger currently stages, worst failure rate first
+   * with ties by ascending name. Only the newest entry per skill counts, so a
+   * skill restaged after further failures appears once at its latest rate.
+   * @returns one row per staged skill.
+   */
+  async staged(): Promise<StagedSkill[]> {
+    const latest = new Map<string, StagedSkill>()
+    for (const entry of await readLedger(curatorHome())) {
+      if (entry.action !== 'stage') continue
+      const name = reqEvidence(entry, 'name')
+      latest.set(name, {
+        name,
+        useCount: Number(reqEvidence(entry, 'useCount')),
+        failureCount: Number(reqEvidence(entry, 'failureCount')),
+        failureRate: Number(reqEvidence(entry, 'failureRate')),
+        reason: reqEvidence(entry, 'reason'),
+        at: entry.at,
+      })
+    }
+    return orderStaged([...latest.values()])
   }
 
   /**
@@ -711,9 +845,11 @@ export class EvolutionCurator extends Service {
       .filter(entry => entry.action === 'move' && entry.evidence['passId'] === passId)
       .map(entry => ({ name: reqEvidence(entry, 'name'), from: reqEvidence(entry, 'from'), to: reqEvidence(entry, 'to') }))
     const restoredDirs = await this.reversePackageMoves(label, moves, options.now ?? Date.now())
+    const patches = entries.filter(entry => entry.action === 'patch' && entry.evidence['passId'] === passId)
+    const restoredFiles = await this.revertPatchedBodies(label, patches, options.now ?? Date.now())
     const transitions = entries.filter(entry => entry.action === 'transition' && entry.evidence['passId'] === passId)
     const report = await this.applyRollback(curatorHome(), label, transitions, options.now ?? Date.now())
-    return { ...report, restoredDirs }
+    return { ...report, restoredDirs, restoredFiles }
   }
 
   /**
@@ -728,7 +864,7 @@ export class EvolutionCurator extends Service {
     const entry = entries.find(candidate => candidate.id === entryId && candidate.action === 'transition')
     if (entry === undefined) throw new Error(`evolution-curator: unknown ledger entry '${entryId}'`)
     const report = await this.applyRollback(curatorHome(), `entry '${entryId}'`, [entry], options.now ?? Date.now())
-    return { ...report, restoredDirs: [] }
+    return { ...report, restoredDirs: [], restoredFiles: [] }
   }
 
   private async backupPass(
@@ -790,7 +926,56 @@ export class EvolutionCurator extends Service {
     return restored
   }
 
-  private async applyRollback(home: string, label: string, transitions: LedgerEntry[], now: number): Promise<Omit<RollbackReport, 'restoredDirs'>> {
+  /**
+   * Restore the SKILL.md bodies one pass's patch rows replaced, then ledger
+   * each restoration. Fails closed like {@link applyRollback}: every preimage
+   * is verified before any file is written.
+   * @param label - human label of the rolled-back unit.
+   * @param patches - patch rows of that unit, in ledger order.
+   * @param now - epoch milliseconds the rollback reasons about.
+   * @returns the skill names whose body was restored, in ledger order.
+   */
+  private async revertPatchedBodies(label: string, patches: readonly LedgerEntry[], now: number): Promise<string[]> {
+    if (patches.length === 0) return []
+    const home = curatorHome()
+    const telemetry = this.ctx.get('evolutionSkillTelemetry')
+    if (telemetry === undefined) throw new Error(`evolution-curator: rollback ${label} requires the telemetry store`)
+    const verified: { entry: LedgerEntry; name: string; file: string; body: string; current: SkillUsageRecord }[] = []
+    for (const entry of patches) {
+      const entryName = reqEvidence(entry, 'name')
+      const file = entry.evidence['file']
+      // A patch row written before bodies were snapshotted has no preimage to
+      // restore, so that skill keeps the body its patch produced.
+      if (entry.before === null || file === undefined) continue
+      if (!(await pathExists(join(home, 'blobs', `${entry.before}.md`)))) {
+        throw new Error(`evolution-curator: rollback ${label} is missing the body blob for '${entryName}'`)
+      }
+      const current = telemetry.read(entryName)
+      if (current === undefined) {
+        throw new Error(`evolution-curator: rollback ${label} cannot restore untracked skill '${entryName}'`)
+      }
+      verified.push({ entry, name: entryName, file, body: await readTextBlob(home, entry.before), current })
+    }
+    const at = new Date(now).toISOString()
+    const restored: string[] = []
+    for (const v of verified) {
+      await writeFile(v.file, v.body)
+      await telemetry.markRevised(v.name, v.body)
+      await appendLedger(home, {
+        id: randomUUID(),
+        at,
+        actor: 'operator',
+        action: 'rollback',
+        evidence: { rollbackOf: label, name: v.name, file: v.file },
+        before: v.current.contentSha,
+        after: v.entry.before,
+      })
+      restored.push(v.name)
+    }
+    return restored
+  }
+
+  private async applyRollback(home: string, label: string, transitions: LedgerEntry[], now: number): Promise<Omit<RollbackReport, 'restoredDirs' | 'restoredFiles'>> {
     const at = new Date(now).toISOString()
     const telemetry = this.ctx.get('evolutionSkillTelemetry')
     if (telemetry === undefined) throw new Error(`evolution-curator: rollback ${label} requires the telemetry store`)

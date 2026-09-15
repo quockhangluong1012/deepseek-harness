@@ -10,7 +10,7 @@ Status: implemented
 
 ## 决策
 
-在 `context/` 分组、workspace 对应物之旁交付 `@deepseek-ai/dsh-evolution-memory-context`，沿用[评审器决策](2026-09-11-evolution-reviewer.zh.md)。注入器在 `agent/pre-step` 追加一条持久 `user/message`，携带 `evolution-memory` 来源（含作用域 id 与摘要）；摘要变化则替换，不变则什么也不加。摘要比较分三级——按会话的内存标记、已认领批次、经由异步会话查询面的已记录表层——稳态回合零 I/O，重启后重新解析而不重复。框架逐字遵循规范（`# Workspace memory`、目录、`Memory usage: used/cap (pct%)`、指令、经验、用户画像、逐条上下文）：先丢弃尾部上下文，再截断经验，然后在经验已清空的前提下截断画像，最后截断指令；一行通知列出每次删减。本包还注册三个提示分节与容量变量：经验转技能指引仅在可见的 `skill_manage` 工具旁渲染，作用域收窄指引插值用量变量，会话搜索提示始终渲染。不新增组合行，因此在配置行落入 `web-app` 之前，所有 profile 的行为保持字节一致。
+在 `context/` 分组、workspace 对应物之旁交付 `@deepseek-ai/dsh-evolution-memory-context`，沿用[评审器决策](2026-09-11-evolution-reviewer.zh.md)。注入器在 `agent/pre-step` 追加一条持久 `user/message`，携带 `evolution-memory` 来源（含作用域 id 与摘要）；摘要变化则替换，不变则什么也不加。摘要比较分三级——按会话的内存标记、已认领批次、经由异步会话查询面的已记录表层——稳态回合零 I/O，重启后重新解析而不重复。框架逐字遵循规范（`# Workspace memory`、目录、`Memory usage: used/cap (pct%)`、指令、经验、用户画像、逐条上下文）：先丢弃尾部上下文，再截断经验，然后在经验已清空的前提下截断画像，最后截断指令；一行通知列出每次删减。本包还注册三个提示分节：经验转技能指引仅在可见的 `skill_manage` 工具旁渲染，作用域收窄指引命名作用域，会话搜索提示始终渲染。不新增组合行，因此在配置行落入 `web-app` 之前，所有 profile 的行为保持字节一致。**已被取代的事实：** 作用域收窄指引原本把 `{{evolution_memory_usage}}` 容量变量直接插值进该 system-prompt 分节；[后来的评审](../bug-fix/2026-09-13-evolution-memory-prefix-cache-and-alert.zh.md)发现这会在每次记忆写入时使 provider 的缓存前缀失效并将其移除——用量如今只在简报自身的头部报告，即上文所述。
 
 ## 备选方案
 

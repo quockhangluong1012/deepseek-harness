@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-12-journey-export-zip.md
+2026-09-12-journey-export-zip.md: 162b79702895edbd29c210bf66daca6b8a389e3b
+2026-09-12-journey-export-zip.zh.md: 793ac5b16a6310352cf29d8180f70545d008d0b9

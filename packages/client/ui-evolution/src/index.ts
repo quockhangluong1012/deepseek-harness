@@ -10,6 +10,8 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import type {} from '@deepseek-ai/dsh-evolution-curator'
+import type {} from '@deepseek-ai/dsh-evolution-skill-telemetry'
+import type {} from '@deepseek-ai/dsh-usage-ledger'
 import type { EvolutionCuratorStatus } from './types.ts'
 
 export type * from './types.ts'
@@ -36,15 +38,32 @@ export class EvolutionCuratorStatusController extends TypertRemoteService {
   }
 
   /**
-   * Read the curator's recorded status. An unmounted curator is reported as
-   * such — never as a pass that never ran.
-   * @returns the mounted flag, newest pass instant, and recorded passes.
+   * Read the curator's recorded status plus the two dashboard rates: today's
+   * cache-hit share from the usage ledger and the aggregate skill failure
+   * rate from telemetry. Either rate is null when its source is unmounted or
+   * holds no loads. An unmounted curator is reported as such — never as a
+   * pass that never ran.
+   * @returns the mounted flag, newest pass instant, recorded passes, and rates.
    */
   @Remote('status')
   async status(): Promise<EvolutionCuratorStatus> {
+    const none = { mounted: false as const, lastRunAt: null, passes: [] as const, cacheHitRate: null, skillFailureRate: null }
     const curator = this.ctx.get('evolutionCurator')
-    if (curator === undefined) return { mounted: false, lastRunAt: null, passes: [] }
-    return { mounted: true, lastRunAt: curator.lastRunAt(), passes: await curator.passes() }
+    if (curator === undefined) return none
+    const ledger = this.ctx.get('usageLedger')
+    // The face owns no caller cancellation; the ledger read is an in-memory
+    // fold, so it runs under a signal that never aborts.
+    const today = ledger === undefined ? undefined : await ledger.summary('today', new AbortController().signal)
+    const entries = this.ctx.get('evolutionSkillTelemetry')?.entries() ?? []
+    const loads = entries.reduce((sum, entry) => sum + entry.usage.useCount + (entry.usage.failureCount ?? 0), 0)
+    const failures = entries.reduce((sum, entry) => sum + (entry.usage.failureCount ?? 0), 0)
+    return {
+      mounted: true as const,
+      lastRunAt: curator.lastRunAt(),
+      passes: await curator.passes(),
+      cacheHitRate: today === undefined ? null : today.totals.cacheHitAvg,
+      skillFailureRate: loads === 0 ? null : failures / loads,
+    }
   }
 }
 

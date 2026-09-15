@@ -25,8 +25,9 @@ import type { SkillUsageRecord } from '@deepseek-ai/dsh-evolution-skill-telemetr
 /** Ledger actor for curator passes and transitions. */
 export type LedgerActor = 'curator' | 'operator'
 
-/** Ledger entry kinds: passes, transitions, rollbacks, adoptions, purges, consolidation cost rows, body patches, and package moves. */
-export type LedgerAction = 'pass' | 'transition' | 'rollback' | 'adopt' | 'purge' | 'cost' | 'patch' | 'move'
+/** Ledger entry kinds: passes, transitions, rollbacks, adoptions, purges,
+ * staged reviews, consolidation cost rows, body patches, and package moves. */
+export type LedgerAction = 'pass' | 'transition' | 'rollback' | 'adopt' | 'purge' | 'stage' | 'cost' | 'patch' | 'move'
 
 /**
  * One append-only ledger entry. Before/after hold content-addressed blob
@@ -69,7 +70,40 @@ export function curatorHome(): string {
  * @returns lowercase hex sha256.
  */
 export function recordSha(record: SkillUsageRecord): string {
-  return createHash('sha256').update(JSON.stringify(record)).digest('hex')
+  return textSha(JSON.stringify(record))
+}
+
+/**
+ * Hash one text into its content address.
+ * @param text - text to address.
+ * @returns lowercase hex sha256.
+ */
+export function textSha(text: string): string {
+  return createHash('sha256').update(text).digest('hex')
+}
+
+/**
+ * Store one SKILL.md body under its content address. Bodies use a `.md`
+ * extension so they never collide with the `.json` record blobs a previous
+ * version wrote.
+ * @param home - curator home directory.
+ * @param sha - content address of the body.
+ * @param text - exact body bytes to store.
+ */
+export async function writeTextBlob(home: string, sha: string, text: string): Promise<void> {
+  const dir = join(home, 'blobs')
+  await mkdir(dir, { recursive: true })
+  await writeFile(join(dir, `${sha}.md`), text)
+}
+
+/**
+ * Read one SKILL.md body by content address.
+ * @param home - curator home directory.
+ * @param sha - content address of the body.
+ * @returns the stored body bytes.
+ */
+export async function readTextBlob(home: string, sha: string): Promise<string> {
+  return readFile(join(home, 'blobs', `${sha}.md`), 'utf8')
 }
 
 /**

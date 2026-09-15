@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-`dsh-evolution-skill-manage` 发布面向模型的 `skill_manage` 工具：`create` 在受管目录新建技能，`patch` 替换一处恰好出现一次的子串，`edit` 在保留 frontmatter 的前提下重写技能正文，`write_file` 与 `remove_file` 维护附属文件，`delete` 删除整个技能。已有技能在目录发现它的位置原地变更。每次变更在遥测挂载时向其报告；置顶阻止删除，但永不阻止补丁。当模型应把持久技能当作文件整理、而不是守着一份冻结集合作答时，选择本包。
+`dsh-evolution-skill-manage` 发布面向模型的 `skill_manage` 工具：`create` 在受管目录新建技能，`patch` 替换一处恰好出现一次的子串，`edit` 在保留 frontmatter 的前提下重写技能正文，`write_file` 与 `remove_file` 维护附属文件，`delete` 删除整个技能。已有技能在目录发现它的位置原地变更。每次变更在遥测挂载时向其报告：`create` 携带模型作者身份，正文写入推进修订链，任何写入都把该技能的信任重置为临时状态，直到出现独立证据或经 `/curator adopt` 认领。置顶阻止删除，但永不阻止补丁。当模型应把持久技能当作文件整理、而不是守着一份冻结集合作答时，选择本包。
 
 ## 目录
 
@@ -64,7 +64,7 @@ kind: "package-reference"
 
 ### 失败与恢复
 
-被拒绝的变更永不触碰文件系统。目录技能经由 `resolveSkillDir` 解析，它在一切读取之前拒绝随包与 hub 来源、无文件条目与不可写目标。变更经由 `ctx.get('evolutionSkillTelemetry')` 报告，因此遥测未挂载时工具照常工作。创建时的 `EEXIST` 冲突报告已存在路径；其余 I/O 失败向上传播。
+被拒绝的变更永不触碰文件系统。目录技能经由 `resolveSkillDir` 解析，它在一切读取之前拒绝随包与 hub 来源、无文件条目与不可写目标。变更经由 `ctx.get('evolutionSkillTelemetry')` 报告，因此遥测未挂载时工具照常工作；存储记录的修订正是该操作写出的文件文本，由存储自己求哈希，而不是再从磁盘读回。创建时的 `EEXIST` 冲突报告已存在路径；其余 I/O 失败向上传播。
 
 不发布 invariant 伴生包，因为每个操作在单次流程中解析、检查并写入同一个文件系统位置，不存在可能分歧的两个独立观测。
 

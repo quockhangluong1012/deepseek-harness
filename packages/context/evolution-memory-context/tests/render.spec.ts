@@ -30,6 +30,7 @@ function input(overrides: Partial<Parameters<typeof renderEvolutionBrief>[0]> = 
     title: 'Project',
     path: '/work/project',
     usage: { usedBytes: 10, capacityBytes: 100 },
+    capacityWarnPct: 0.8,
     instructions: '',
     lessons: [],
     profile: '',
@@ -88,6 +89,31 @@ describe('evolution brief rendering', () => {
     expect(text).toContain('## Context: note\nattached words')
     expect(text).toContain('</system-reminder>')
     expect(text).not.toContain('budget')
+  })
+
+  it('warns in the header once usage reaches the warn threshold', () => {
+    const full = renderEvolutionBrief(input({
+      instructions: 'follow the guide',
+      usage: { usedBytes: 80, capacityBytes: 100 },
+      capacityWarnPct: 0.8,
+    }), 8192)
+    expect(full).toContain('Memory usage: 80/100 (80%) — near capacity: consolidate instead of adding')
+    const below = renderEvolutionBrief(input({
+      instructions: 'follow the guide',
+      usage: { usedBytes: 79, capacityBytes: 100 },
+      capacityWarnPct: 0.8,
+    }), 8192)
+    expect(below).toContain('Memory usage: 79/100 (79%)')
+    expect(below).not.toContain('near capacity')
+  })
+
+  it('honours a custom warn threshold', () => {
+    const text = renderEvolutionBrief(input({
+      instructions: 'follow the guide',
+      usage: { usedBytes: 10, capacityBytes: 100 },
+      capacityWarnPct: 0.1,
+    }), 8192)
+    expect(text).toContain('near capacity')
   })
 
   it('omits empty sections', () => {

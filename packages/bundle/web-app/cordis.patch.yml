@@ -109,7 +109,8 @@
     # own `evolution_dreams` domain on the heartbeat's schedule (and via
     # `/dream`), making no model call either; the graph stores per-scope
     # entities and relations for the read-only `/graph` command. Feedback is
-    # mounted before dreaming, its one reader.
+    # mounted before its two readers: dreaming's light phase, and the curator
+    # pass below, which grades those observations into skill trust.
     - id: evolution-heartbeat
       name: '@deepseek-ai/dsh-evolution-heartbeat'
 

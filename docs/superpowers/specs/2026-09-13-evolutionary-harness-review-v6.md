@@ -444,3 +444,38 @@ không muốn giữ. Về mặt kỹ thuật, patch trông hợp lý (opt-in, c�
 được viết mà không có sự đồng ý — **người dùng cần tự quyết định giữ, sửa tiếp, hay revert** trước khi coi Batch 1/
 Phase 2 là "đã xong". Tài liệu này KHÔNG coi patch đó là một phần của kế hoạch đã duyệt; mục 5 (Kế hoạch triển khai)
 vẫn mô tả Batch 1 như việc CẦN LÀM, không phải đã làm.
+
+---
+
+## 7. Cập nhật xác minh (2026-09-15, đọc thẳng mã nguồn)
+
+Phần này ghi lại trạng thái đã kiểm chứng bằng đọc source, và **thay thế mọi khẳng định mâu thuẫn ở các mục 1–6 phía
+trên**; phần thân tài liệu giữ nguyên như bản gốc để làm lịch sử quyết định.
+
+### 7.1 Trạng thái batch
+
+| Batch | Trạng thái | Bằng chứng |
+|---|---|---|
+| 1 (G1 prefix cache + G9 alert) | shipped | `packages/context/evolution-memory-context/src/sections.ts` (không còn `{{evolution_memory_usage}}`); `packages/session/usage-ledger/src/index.ts` (`cacheHitAlertThreshold`, event `usage/cache-hit-low`) |
+| 2 (G2 replace-in-place + G3 spec sync) | **shipped trong batch này** | `packages/core/agent-loop/src/snapshot-injections.ts` + `agent.ts` (append pre-step dùng `intentFor`); nguồn brief khai báo `supersedes` trong `packages/context/evolution-memory-context/src/index.ts`; test `docs/../evolution-memory-context/tests/composition.spec.ts` nay khẳng định request chỉ mang MỘT brief. G3: file spec được trích dẫn (`specs/evolutionary-harness.spec.md`) không còn tồn tại trong repo |
+| 3 (outcome telemetry) | shipped | `packages/skill/evolution-skill-telemetry/src/index.ts` (`markFailed`, `lastOutcome`, `failureCount`) với consumer thật qua observer `tools/post-execute` |
+| 4 (curator staging) | shipped | `packages/evolution/evolution-curator/src/stage.ts` (`stageCandidate`, `orderStaged`) + ledger staging trong `src/index.ts` |
+| 5 (trigger + evaluate) | shipped, **chưa mount** | `packages/evolution/evolution-scorer/src/trigger.ts`, `src/index.ts`; không profile nào trong `packages/bundle/*/cordis.patch.yml` mount nó |
+| 6 (optimizer) | shipped, **chưa mount** | `packages/evolution/evolution-optimizer/src/*`; `/curator optimize` báo "The evolution optimizer is not mounted." trên composition đã ship |
+| 7 (tài liệu + dashboard) | shipped | `packages/client/ui-evolution/src/client/Page.tsx` (`curator.cacheHit`, `curator.failureRate`), `/curator status` trong `packages/evolution/command-evolution/src/index.ts` |
+
+### 7.2 Các khẳng định trong thân tài liệu nay sai
+
+- **Mục "Lưu ý quan trọng" (patch nháp chưa duyệt)**: `cacheHitAlertThreshold` đã được duyệt và hợp nhất cùng batch 1;
+  `evictOldestContextOnCapacity` không tồn tại trong mã nguồn hiện tại (không có trong `evolution-memory`).
+- **§2 và §4.3 (Dreaming)**: ba pha light/REM/deep với narrative **đã có** — `packages/evolution/evolution-dreaming`,
+  mount trong `packages/bundle/web-app/cordis.patch.yml`, lệnh `/dream [light|rem|deep]`.
+- **G4**: outcome telemetry không chỉ được thêm mà còn có writer thật và bốn consumer.
+- **G5**: package client `dsh-client-ui-evolution` tồn tại.
+- **G11**: trigger nằm ở `evolution-scorer/src/trigger.ts` với ngưỡng là `Config`, không phải hằng số.
+
+### 7.3 Việc còn mở tính đến 2026-09-15
+
+- **Optimizer và scorer chưa được mount ở bất kỳ profile nào** → `/curator optimize` và `/curator experiments` trả
+  "not mounted" trong sản phẩm đã ship. Đây là khoảng trống wire-up, không phải thiếu mã nguồn.
+- Phần còn lại của bản đồ ưu tiên v11 §51 (12 mục absent, 9 partial) xem `specs/evolutionary-harness-v11-deep-research.md`.

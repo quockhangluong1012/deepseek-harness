@@ -28,6 +28,8 @@ flowchart TD
   end
   subgraph group_llm["packages/llm"]
     pkg_deepseek_llm_api_extensions["deepseek-llm-api-extensions"]
+    pkg_embeddings["embeddings"]
+    pkg_embeddings_http["embeddings-http"]
     pkg_llm["llm"]
     pkg_llm_deepseek["llm-deepseek"]
     pkg_llm_fallback["llm-fallback"]
@@ -158,6 +160,7 @@ flowchart TD
     pkg_client_ui_directory_picker_browse["client-ui-directory-picker-browse"]
     pkg_client_ui_directory_picker_native["client-ui-directory-picker-native"]
     pkg_client_ui_dockkit["client-ui-dockkit"]
+    pkg_client_ui_evolution["client-ui-evolution"]
     pkg_client_ui_goal["client-ui-goal"]
     pkg_client_ui_input_trigger["client-ui-input-trigger"]
     pkg_client_ui_jobs["client-ui-jobs"]
@@ -174,6 +177,7 @@ flowchart TD
     pkg_client_ui_schedule["client-ui-schedule"]
     pkg_client_ui_session["client-ui-session"]
     pkg_client_ui_settings["client-ui-settings"]
+    pkg_client_ui_settings_authorization["client-ui-settings-authorization"]
     pkg_client_ui_settings_general["client-ui-settings-general"]
     pkg_client_ui_settings_models["client-ui-settings-models"]
     pkg_client_ui_settings_plugin_inventory["client-ui-settings-plugin-inventory"]
@@ -206,6 +210,7 @@ flowchart TD
     pkg_compaction_tool_result_pruner["compaction-tool-result-pruner"]
   end
   subgraph group_context["packages/context"]
+    pkg_active_memory_context["active-memory-context"]
     pkg_agent_instructions["agent-instructions"]
     pkg_evolution_memory_context["evolution-memory-context"]
     pkg_file_reference["file-reference"]
@@ -217,6 +222,7 @@ flowchart TD
   end
   subgraph group_credentials["packages/credentials"]
     pkg_authorization["authorization"]
+    pkg_authorization_remote["authorization-remote"]
     pkg_credentials["credentials"]
     pkg_credentials_local["credentials-local"]
   end
@@ -227,9 +233,17 @@ flowchart TD
   end
   subgraph group_evolution["packages/evolution"]
     pkg_command_evolution["command-evolution"]
+    pkg_evolution_controller["evolution-controller"]
     pkg_evolution_curator["evolution-curator"]
+    pkg_evolution_dreaming["evolution-dreaming"]
+    pkg_evolution_feedback["evolution-feedback"]
+    pkg_evolution_graph["evolution-graph"]
+    pkg_evolution_heartbeat["evolution-heartbeat"]
     pkg_evolution_memory["evolution-memory"]
+    pkg_evolution_optimizer["evolution-optimizer"]
     pkg_evolution_reviewer["evolution-reviewer"]
+    pkg_evolution_scorer["evolution-scorer"]
+    pkg_evolution_trajectory["evolution-trajectory"]
   end
   subgraph group_experimental["packages/experimental"]
     pkg_experimental_agent_team["experimental-agent-team"]
@@ -395,6 +409,7 @@ flowchart TD
     pkg_workspace_memory["workspace-memory"]
     pkg_workspace_memory_llm["workspace-memory-llm"]
   end
+  pkg_embeddings --> pkg_llm
   pkg_scope --> pkg_invariants
   pkg_web --> pkg_llm
   pkg_attachment --> pkg_brand
@@ -425,6 +440,11 @@ flowchart TD
   pkg_storage_sqlite --> pkg_storage
   pkg_subprocess --> pkg_http_proxy
   pkg_typert_loader --> pkg_typert_registry
+  pkg_embeddings_http --> pkg_credentials
+  pkg_embeddings_http --> pkg_embeddings
+  pkg_embeddings_http --> pkg_launch_environment
+  pkg_embeddings_http --> pkg_llm
+  pkg_embeddings_http --> pkg_timeout
   pkg_session --> pkg_scope
   pkg_system_prompt --> pkg_invariants
   pkg_system_prompt --> pkg_llm
@@ -456,6 +476,7 @@ flowchart TD
   pkg_evolution_memory --> pkg_storage
   pkg_evolution_memory --> pkg_storage_domain
   pkg_evolution_memory --> pkg_typert_protocol
+  pkg_evolution_memory --> pkg_util_values
   pkg_subprocess_local --> pkg_subprocess
   pkg_subprocess_local --> pkg_timeout
   pkg_skill_badge --> pkg_skill
@@ -468,6 +489,20 @@ flowchart TD
   pkg_code_runtime_worker_thread --> pkg_code_runtime
   pkg_code_runtime_worker_thread --> pkg_session
   pkg_code_runtime_worker_thread --> pkg_timeout
+  pkg_authorization_remote --> pkg_authorization
+  pkg_authorization_remote --> pkg_credentials
+  pkg_authorization_remote --> pkg_typert_protocol
+  pkg_evolution_feedback --> pkg_evolution_memory
+  pkg_evolution_feedback --> pkg_llm
+  pkg_evolution_feedback --> pkg_session
+  pkg_evolution_feedback --> pkg_storage_domain
+  pkg_evolution_graph --> pkg_evolution_memory
+  pkg_evolution_graph --> pkg_llm
+  pkg_evolution_graph --> pkg_session
+  pkg_evolution_graph --> pkg_storage_domain
+  pkg_evolution_graph --> pkg_timeout
+  pkg_evolution_heartbeat --> pkg_session
+  pkg_evolution_heartbeat --> pkg_storage_domain
   pkg_persona --> pkg_system_prompt
   pkg_sandbox --> pkg_llm
   pkg_sandbox --> pkg_session
@@ -599,11 +634,16 @@ flowchart TD
   pkg_tmux_context --> pkg_shell
   pkg_fs_e2b --> pkg_e2b
   pkg_fs_e2b --> pkg_fs
-  pkg_evolution_reviewer --> pkg_evolution_memory
-  pkg_evolution_reviewer --> pkg_llm
-  pkg_evolution_reviewer --> pkg_session
-  pkg_evolution_reviewer --> pkg_typert_protocol
-  pkg_evolution_reviewer --> pkg_workspace
+  pkg_evolution_dreaming --> pkg_evolution_feedback
+  pkg_evolution_dreaming --> pkg_evolution_heartbeat
+  pkg_evolution_dreaming --> pkg_evolution_memory
+  pkg_evolution_dreaming --> pkg_storage_domain
+  pkg_evolution_dreaming --> pkg_workspace
+  pkg_evolution_trajectory --> pkg_brand
+  pkg_evolution_trajectory --> pkg_session
+  pkg_evolution_trajectory --> pkg_session_persistence
+  pkg_evolution_trajectory --> pkg_typert_protocol
+  pkg_evolution_trajectory --> pkg_workspace
   pkg_commands --> pkg_agent
   pkg_commands --> pkg_attachment
   pkg_commands --> pkg_brand
@@ -792,6 +832,7 @@ flowchart TD
   pkg_evolution_skill_telemetry --> pkg_typert_protocol
   pkg_tool_skill --> pkg_agent
   pkg_tool_skill --> pkg_llm
+  pkg_tool_skill --> pkg_shell
   pkg_tool_skill --> pkg_skill
   pkg_tool_skill --> pkg_tools
   pkg_tool_web --> pkg_llm
@@ -985,11 +1026,18 @@ flowchart TD
   pkg_compaction_tool_result_pruner --> pkg_llm
   pkg_compaction_tool_result_pruner --> pkg_session
   pkg_compaction_tool_result_pruner --> pkg_token_meter
-  pkg_evolution_curator --> pkg_evolution_skill_telemetry
-  pkg_evolution_curator --> pkg_skill
-  pkg_evolution_curator --> pkg_storage
-  pkg_evolution_curator --> pkg_storage_domain
-  pkg_evolution_curator --> pkg_typert_protocol
+  pkg_evolution_reviewer --> pkg_evolution_memory
+  pkg_evolution_reviewer --> pkg_evolution_skill_telemetry
+  pkg_evolution_reviewer --> pkg_llm
+  pkg_evolution_reviewer --> pkg_session
+  pkg_evolution_reviewer --> pkg_typert_protocol
+  pkg_evolution_reviewer --> pkg_util_values
+  pkg_evolution_reviewer --> pkg_workspace
+  pkg_evolution_scorer --> pkg_evolution_skill_telemetry
+  pkg_evolution_scorer --> pkg_llm_replay
+  pkg_evolution_scorer --> pkg_session
+  pkg_evolution_scorer --> pkg_session_snapshot
+  pkg_evolution_scorer --> pkg_token_meter
   pkg_tool_cordis --> pkg_agent
   pkg_tool_cordis --> pkg_cordis_host_runner
   pkg_tool_cordis --> pkg_llm
@@ -1064,6 +1112,7 @@ flowchart TD
   pkg_subagent --> pkg_typert_protocol
   pkg_subagent --> pkg_user_approval
   pkg_subagent --> pkg_util_time
+  pkg_session_query_sqlite --> pkg_embeddings
   pkg_session_query_sqlite --> pkg_session
   pkg_session_query_sqlite --> pkg_session_persistence
   pkg_session_query_sqlite --> pkg_session_query
@@ -1082,6 +1131,13 @@ flowchart TD
   pkg_compaction_basic --> pkg_llm
   pkg_compaction_basic --> pkg_session
   pkg_compaction_basic --> pkg_token_meter
+  pkg_active_memory_context --> pkg_agent
+  pkg_active_memory_context --> pkg_evolution_graph
+  pkg_active_memory_context --> pkg_evolution_memory
+  pkg_active_memory_context --> pkg_llm
+  pkg_active_memory_context --> pkg_session
+  pkg_active_memory_context --> pkg_session_query
+  pkg_active_memory_context --> pkg_workspace
   pkg_evolution_memory_context --> pkg_agent
   pkg_evolution_memory_context --> pkg_evolution_memory
   pkg_evolution_memory_context --> pkg_fs
@@ -1103,15 +1159,23 @@ flowchart TD
   pkg_session_reference --> pkg_spill
   pkg_session_reference --> pkg_system_prompt
   pkg_session_reference --> pkg_typert_protocol
-  pkg_command_evolution --> pkg_commands
-  pkg_command_evolution --> pkg_evolution_curator
-  pkg_command_evolution --> pkg_evolution_memory
-  pkg_command_evolution --> pkg_evolution_reviewer
-  pkg_command_evolution --> pkg_evolution_skill_telemetry
-  pkg_command_evolution --> pkg_typert_protocol
-  pkg_command_evolution --> pkg_usage_ledger
-  pkg_command_evolution --> pkg_util_values
-  pkg_command_evolution --> pkg_workspace
+  pkg_evolution_curator --> pkg_evolution_feedback
+  pkg_evolution_curator --> pkg_evolution_skill_manage
+  pkg_evolution_curator --> pkg_evolution_skill_telemetry
+  pkg_evolution_curator --> pkg_llm
+  pkg_evolution_curator --> pkg_session
+  pkg_evolution_curator --> pkg_skill
+  pkg_evolution_curator --> pkg_storage
+  pkg_evolution_curator --> pkg_storage_domain
+  pkg_evolution_curator --> pkg_timeout
+  pkg_evolution_curator --> pkg_typert_protocol
+  pkg_evolution_optimizer --> pkg_evolution_memory
+  pkg_evolution_optimizer --> pkg_evolution_scorer
+  pkg_evolution_optimizer --> pkg_evolution_skill_telemetry
+  pkg_evolution_optimizer --> pkg_llm
+  pkg_evolution_optimizer --> pkg_session_snapshot
+  pkg_evolution_optimizer --> pkg_skill
+  pkg_evolution_optimizer --> pkg_storage_domain
   pkg_webhook_github --> pkg_credentials
   pkg_webhook_github --> pkg_host_webserver
   pkg_webhook_github --> pkg_session
@@ -1188,6 +1252,21 @@ flowchart TD
   pkg_api_session_controller --> pkg_util_values
   pkg_api_session_controller --> pkg_util_workspace_path
   pkg_api_session_controller --> pkg_workspace
+  pkg_command_evolution --> pkg_commands
+  pkg_command_evolution --> pkg_evolution_curator
+  pkg_command_evolution --> pkg_evolution_dreaming
+  pkg_command_evolution --> pkg_evolution_graph
+  pkg_command_evolution --> pkg_evolution_memory
+  pkg_command_evolution --> pkg_evolution_optimizer
+  pkg_command_evolution --> pkg_evolution_reviewer
+  pkg_command_evolution --> pkg_evolution_skill_telemetry
+  pkg_command_evolution --> pkg_llm
+  pkg_command_evolution --> pkg_session_log_export
+  pkg_command_evolution --> pkg_skill
+  pkg_command_evolution --> pkg_typert_protocol
+  pkg_command_evolution --> pkg_usage_ledger
+  pkg_command_evolution --> pkg_util_values
+  pkg_command_evolution --> pkg_workspace
   pkg_experimental_agent_team --> pkg_agent
   pkg_experimental_agent_team --> pkg_invariants
   pkg_experimental_agent_team --> pkg_llm
@@ -1217,6 +1296,14 @@ flowchart TD
   pkg_subagent_fork_in_process --> pkg_subagent_in_process_driver
   pkg_subagent_spawn_in_process --> pkg_subagent
   pkg_subagent_spawn_in_process --> pkg_subagent_in_process_driver
+  pkg_evolution_controller --> pkg_command_evolution
+  pkg_evolution_controller --> pkg_deque
+  pkg_evolution_controller --> pkg_evolution_memory
+  pkg_evolution_controller --> pkg_evolution_reviewer
+  pkg_evolution_controller --> pkg_storage_domain
+  pkg_evolution_controller --> pkg_typert_protocol
+  pkg_evolution_controller --> pkg_usage_ledger
+  pkg_evolution_controller --> pkg_workspace
   pkg_experimental_client_ui_agent_team --> pkg_api_remotes
   pkg_experimental_client_ui_agent_team --> pkg_api_session_controller
   pkg_experimental_client_ui_agent_team --> pkg_client_locale
@@ -1314,6 +1401,7 @@ flowchart TD
 | [`client-ui-directory-picker-browse`](../packages/client/ui-directory-picker-browse) | `client` | — |
 | [`client-ui-directory-picker-native`](../packages/client/ui-directory-picker-native) | `client` | — |
 | [`client-ui-dockkit`](../packages/client/ui-dockkit) | `client` | — |
+| [`client-ui-evolution`](../packages/client/ui-evolution) | `client` | — |
 | [`client-ui-goal`](../packages/client/ui-goal) | `client` | — |
 | [`client-ui-input-trigger`](../packages/client/ui-input-trigger) | `client` | — |
 | [`client-ui-jobs`](../packages/client/ui-jobs) | `client` | — |
@@ -1330,6 +1418,7 @@ flowchart TD
 | [`client-ui-schedule`](../packages/client/ui-schedule) | `client` | — |
 | [`client-ui-session`](../packages/client/ui-session) | `client` | — |
 | [`client-ui-settings`](../packages/client/ui-settings) | `client` | — |
+| [`client-ui-settings-authorization`](../packages/client/ui-settings-authorization) | `client` | — |
 | [`client-ui-settings-general`](../packages/client/ui-settings-general) | `client` | — |
 | [`client-ui-settings-models`](../packages/client/ui-settings-models) | `client` | — |
 | [`client-ui-settings-plugin-inventory`](../packages/client/ui-settings-plugin-inventory) | `client` | — |
@@ -1375,6 +1464,7 @@ flowchart TD
 | [`typert-generator`](../packages/typert/generator) | `typert` | — |
 | [`typert-protocol`](../packages/typert/protocol) | `typert` | — |
 | [`typert-registry`](../packages/typert/registry) | `typert` | — |
+| [`embeddings`](../packages/llm/embeddings) | `llm` | [`llm`](../packages/llm/llm) |
 | [`scope`](../packages/core/scope) | `core` | [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`web`](../packages/web/web) | `web` | [`llm`](../packages/llm/llm) |
 | [`attachment`](../packages/attachment/attachment) | `attachment` | [`brand`](../packages/util/brand) |
@@ -1392,6 +1482,7 @@ flowchart TD
 | [`storage-sqlite`](../packages/storage/storage-sqlite) | `storage` | [`storage`](../packages/storage/storage) |
 | [`subprocess`](../packages/subprocess/subprocess) | `subprocess` | [`http-proxy`](../packages/util/http-proxy) |
 | [`typert-loader`](../packages/typert/loader) | `typert` | [`typert-registry`](../packages/typert/registry) |
+| [`embeddings-http`](../packages/llm/embeddings-http) | `llm` | [`credentials`](../packages/credentials/credentials), [`embeddings`](../packages/llm/embeddings), [`launch-environment`](../packages/util/launch-environment), [`llm`](../packages/llm/llm), [`timeout`](../packages/util/timeout) |
 | [`session`](../packages/core/session) | `core` | [`scope`](../packages/core/scope) |
 | [`system-prompt`](../packages/core/system-prompt) | `core` | [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`scope`](../packages/core/scope) |
 | [`skill`](../packages/skill/skill) | `skill` | [`llm`](../packages/llm/llm), [`scope`](../packages/core/scope) |
@@ -1404,12 +1495,16 @@ flowchart TD
 | [`authorization`](../packages/credentials/authorization) | `credentials` | [`credentials`](../packages/credentials/credentials), [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm) |
 | [`credentials-local`](../packages/credentials/credentials-local) | `credentials` | [`atomic-write`](../packages/util/atomic-write), [`credentials`](../packages/credentials/credentials), [`home-paths`](../packages/util/home-paths), [`launch-environment`](../packages/util/launch-environment) |
 | [`subprocess-e2b`](../packages/e2b/subprocess-e2b) | `e2b` | [`e2b`](../packages/e2b/e2b), [`subprocess`](../packages/subprocess/subprocess), [`timeout`](../packages/util/timeout) |
-| [`evolution-memory`](../packages/evolution/evolution-memory) | `evolution` | [`brand`](../packages/util/brand), [`storage`](../packages/storage/storage), [`storage-domain`](../packages/storage/storage-domain), [`typert-protocol`](../packages/typert/protocol) |
+| [`evolution-memory`](../packages/evolution/evolution-memory) | `evolution` | [`brand`](../packages/util/brand), [`storage`](../packages/storage/storage), [`storage-domain`](../packages/storage/storage-domain), [`typert-protocol`](../packages/typert/protocol), [`util-values`](../packages/util/values) |
 | [`subprocess-local`](../packages/subprocess/subprocess-local) | `subprocess` | [`subprocess`](../packages/subprocess/subprocess), [`timeout`](../packages/util/timeout) |
 | [`skill-badge`](../packages/skill/skill-badge) | `skill` | [`skill`](../packages/skill/skill) |
 | [`spill`](../packages/spill/spill) | `spill` | [`brand`](../packages/util/brand), [`llm`](../packages/llm/llm), [`session`](../packages/core/session) |
 | [`app-boot`](../packages/boot/app-boot) | `boot` | [`home-paths`](../packages/util/home-paths), [`launch-environment`](../packages/util/launch-environment), [`system-prompt`](../packages/core/system-prompt) |
 | [`code-runtime-worker-thread`](../packages/code-runtime/code-runtime-worker-thread) | `code-runtime` | [`code-runtime`](../packages/code-runtime/code-runtime), [`session`](../packages/core/session), [`timeout`](../packages/util/timeout) |
+| [`authorization-remote`](../packages/credentials/authorization-remote) | `credentials` | [`authorization`](../packages/credentials/authorization), [`credentials`](../packages/credentials/credentials), [`typert-protocol`](../packages/typert/protocol) |
+| [`evolution-feedback`](../packages/evolution/evolution-feedback) | `evolution` | [`evolution-memory`](../packages/evolution/evolution-memory), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`storage-domain`](../packages/storage/storage-domain) |
+| [`evolution-graph`](../packages/evolution/evolution-graph) | `evolution` | [`evolution-memory`](../packages/evolution/evolution-memory), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`storage-domain`](../packages/storage/storage-domain), [`timeout`](../packages/util/timeout) |
+| [`evolution-heartbeat`](../packages/evolution/evolution-heartbeat) | `evolution` | [`session`](../packages/core/session), [`storage-domain`](../packages/storage/storage-domain) |
 | [`persona`](../packages/preset/persona) | `preset` | [`system-prompt`](../packages/core/system-prompt) |
 | [`sandbox`](../packages/sandbox/sandbox) | `sandbox` | [`llm`](../packages/llm/llm), [`session`](../packages/core/session) |
 | [`session-format-catalog`](../packages/session/session-format-catalog) | `session` | [`session`](../packages/core/session) |
@@ -1446,7 +1541,8 @@ flowchart TD
 | [`time-context`](../packages/context/time-context) | `context` | [`agent`](../packages/core/agent), [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`session-projection`](../packages/session/session-projection) |
 | [`tmux-context`](../packages/context/tmux-context) | `context` | [`agent`](../packages/core/agent), [`session`](../packages/core/session), [`session-projection`](../packages/session/session-projection), [`shell`](../packages/shell/shell) |
 | [`fs-e2b`](../packages/e2b/fs-e2b) | `e2b` | [`e2b`](../packages/e2b/e2b), [`fs`](../packages/fs/fs) |
-| [`evolution-reviewer`](../packages/evolution/evolution-reviewer) | `evolution` | [`evolution-memory`](../packages/evolution/evolution-memory), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`typert-protocol`](../packages/typert/protocol), [`workspace`](../packages/workspace/workspace) |
+| [`evolution-dreaming`](../packages/evolution/evolution-dreaming) | `evolution` | [`evolution-feedback`](../packages/evolution/evolution-feedback), [`evolution-heartbeat`](../packages/evolution/evolution-heartbeat), [`evolution-memory`](../packages/evolution/evolution-memory), [`storage-domain`](../packages/storage/storage-domain), [`workspace`](../packages/workspace/workspace) |
+| [`evolution-trajectory`](../packages/evolution/evolution-trajectory) | `evolution` | [`brand`](../packages/util/brand), [`session`](../packages/core/session), [`session-persistence`](../packages/session/session-persistence), [`typert-protocol`](../packages/typert/protocol), [`workspace`](../packages/workspace/workspace) |
 | [`commands`](../packages/interaction/commands) | `interaction` | [`agent`](../packages/core/agent), [`attachment`](../packages/attachment/attachment), [`brand`](../packages/util/brand), [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`scope`](../packages/core/scope), [`session`](../packages/core/session), [`typert-protocol`](../packages/typert/protocol) |
 | [`user-approval`](../packages/interaction/user-approval) | `interaction` | [`agent`](../packages/core/agent), [`brand`](../packages/util/brand), [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`scope`](../packages/core/scope), [`session`](../packages/core/session), [`system-prompt`](../packages/core/system-prompt) |
 | [`user-questions`](../packages/interaction/user-questions) | `interaction` | [`agent`](../packages/core/agent), [`llm`](../packages/llm/llm), [`scope`](../packages/core/scope) |
@@ -1483,7 +1579,7 @@ flowchart TD
 | [`tool-fs-search`](../packages/fs/tool-fs-search) | `fs` | [`llm`](../packages/llm/llm), [`output-retention`](../packages/util/output-retention), [`session`](../packages/core/session), [`spill`](../packages/spill/spill), [`subprocess`](../packages/subprocess/subprocess), [`system-prompt`](../packages/core/system-prompt), [`timeout`](../packages/util/timeout), [`tools`](../packages/core/tools) |
 | [`tool-present`](../packages/fs/tool-present) | `fs` | [`agent`](../packages/core/agent), [`fs`](../packages/fs/fs), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`session-projection`](../packages/session/session-projection), [`tools`](../packages/core/tools) |
 | [`evolution-skill-telemetry`](../packages/skill/evolution-skill-telemetry) | `skill` | [`brand`](../packages/util/brand), [`skill`](../packages/skill/skill), [`storage`](../packages/storage/storage), [`storage-domain`](../packages/storage/storage-domain), [`tools`](../packages/core/tools), [`typert-protocol`](../packages/typert/protocol) |
-| [`tool-skill`](../packages/skill/tool-skill) | `skill` | [`agent`](../packages/core/agent), [`llm`](../packages/llm/llm), [`skill`](../packages/skill/skill), [`tools`](../packages/core/tools) |
+| [`tool-skill`](../packages/skill/tool-skill) | `skill` | [`agent`](../packages/core/agent), [`llm`](../packages/llm/llm), [`shell`](../packages/shell/shell), [`skill`](../packages/skill/skill), [`tools`](../packages/core/tools) |
 | [`tool-web`](../packages/web/tool-web) | `web` | [`llm`](../packages/llm/llm), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools), [`web`](../packages/web/web) |
 | [`spill-policy`](../packages/spill/spill-policy) | `spill` | [`llm`](../packages/llm/llm), [`output-retention`](../packages/util/output-retention), [`session`](../packages/core/session), [`spill`](../packages/spill/spill), [`tools`](../packages/core/tools) |
 | [`tool-todo`](../packages/todo/tool-todo) | `todo` | [`agent`](../packages/core/agent), [`invariants`](../packages/runtime-diagnostics/invariants), [`session`](../packages/core/session), [`session-projection`](../packages/session/session-projection), [`tools`](../packages/core/tools) |
@@ -1520,7 +1616,8 @@ flowchart TD
 | [`api-settings-controller`](../packages/api/settings-controller) | `api` | [`agent-presets`](../packages/preset/agent-presets), [`credentials`](../packages/credentials/credentials), [`native-command`](../packages/util/native-command), [`session`](../packages/core/session), [`settings`](../packages/settings/settings), [`typert-protocol`](../packages/typert/protocol) |
 | [`web-app`](../packages/bundle/web-app) | `bundle` | [`shell-env`](../packages/shell/shell-env), [`system-prompt`](../packages/core/system-prompt) |
 | [`compaction-tool-result-pruner`](../packages/compaction/compaction-tool-result-pruner) | `compaction` | [`compaction`](../packages/compaction/compaction), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`token-meter`](../packages/llm/token-meter) |
-| [`evolution-curator`](../packages/evolution/evolution-curator) | `evolution` | [`evolution-skill-telemetry`](../packages/skill/evolution-skill-telemetry), [`skill`](../packages/skill/skill), [`storage`](../packages/storage/storage), [`storage-domain`](../packages/storage/storage-domain), [`typert-protocol`](../packages/typert/protocol) |
+| [`evolution-reviewer`](../packages/evolution/evolution-reviewer) | `evolution` | [`evolution-memory`](../packages/evolution/evolution-memory), [`evolution-skill-telemetry`](../packages/skill/evolution-skill-telemetry), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`typert-protocol`](../packages/typert/protocol), [`util-values`](../packages/util/values), [`workspace`](../packages/workspace/workspace) |
+| [`evolution-scorer`](../packages/evolution/evolution-scorer) | `evolution` | [`evolution-skill-telemetry`](../packages/skill/evolution-skill-telemetry), [`llm-replay`](../packages/test-support/llm-replay), [`session`](../packages/core/session), [`session-snapshot`](../packages/test-support/session-snapshot), [`token-meter`](../packages/llm/token-meter) |
 | [`tool-cordis`](../packages/extensions/tool-cordis) | `extensions` | [`agent`](../packages/core/agent), [`cordis-host-runner`](../packages/extensions/cordis-host-runner), [`llm`](../packages/llm/llm), [`scope`](../packages/core/scope), [`session`](../packages/core/session), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools) |
 | [`budgets`](../packages/guard/budgets) | `guard` | [`agent`](../packages/core/agent), [`session`](../packages/core/session), [`token-meter`](../packages/llm/token-meter) |
 | [`host-plugin-inventory`](../packages/host/plugin-inventory) | `host` | [`agent-presets`](../packages/preset/agent-presets), [`brand`](../packages/util/brand), [`typert-protocol`](../packages/typert/protocol) |
@@ -1530,12 +1627,14 @@ flowchart TD
 | [`agent-loop-testkit`](../packages/test-support/agent-loop-testkit) | `test-support` | [`agent`](../packages/core/agent), [`agent-loop`](../packages/core/agent-loop), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`session-projection`](../packages/session/session-projection), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools) |
 | [`webhook`](../packages/webhook/webhook) | `webhook` | [`agent`](../packages/core/agent), [`agent-default-model`](../packages/core/agent-default-model), [`agent-presets`](../packages/preset/agent-presets), [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`permission-presets`](../packages/interaction/permission-presets), [`session`](../packages/core/session), [`session-title`](../packages/session/session-title), [`workspace`](../packages/workspace/workspace) |
 | [`subagent`](../packages/subagent/subagent) | `subagent` | [`agent`](../packages/core/agent), [`agent-presets`](../packages/preset/agent-presets), [`attachment`](../packages/attachment/attachment), [`invariants`](../packages/runtime-diagnostics/invariants), [`jobs`](../packages/jobs/jobs), [`llm`](../packages/llm/llm), [`sandbox`](../packages/sandbox/sandbox), [`sandbox-policy`](../packages/sandbox/sandbox-policy), [`scope`](../packages/core/scope), [`session`](../packages/core/session), [`session-persistence`](../packages/session/session-persistence), [`session-projection`](../packages/session/session-projection), [`session-projection-cache`](../packages/session/session-projection-cache), [`session-query`](../packages/session-query/session-query), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools), [`typert-protocol`](../packages/typert/protocol), [`user-approval`](../packages/interaction/user-approval), [`util-time`](../packages/util/time) |
-| [`session-query-sqlite`](../packages/session-query/session-query-sqlite) | `session-query` | [`session`](../packages/core/session), [`session-persistence`](../packages/session/session-persistence), [`session-query`](../packages/session-query/session-query) |
+| [`session-query-sqlite`](../packages/session-query/session-query-sqlite) | `session-query` | [`embeddings`](../packages/llm/embeddings), [`session`](../packages/core/session), [`session-persistence`](../packages/session/session-persistence), [`session-query`](../packages/session-query/session-query) |
 | [`tool-session-query`](../packages/session-query/tool-session-query) | `session-query` | [`agent`](../packages/core/agent), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`session-projection`](../packages/session/session-projection), [`session-query`](../packages/session-query/session-query), [`system-prompt`](../packages/core/system-prompt), [`timeout`](../packages/util/timeout), [`tools`](../packages/core/tools) |
 | [`compaction-basic`](../packages/compaction/compaction-basic) | `compaction` | [`agent`](../packages/core/agent), [`commands`](../packages/interaction/commands), [`compaction`](../packages/compaction/compaction), [`compaction-tool-result-pruner`](../packages/compaction/compaction-tool-result-pruner), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`token-meter`](../packages/llm/token-meter) |
+| [`active-memory-context`](../packages/context/active-memory-context) | `context` | [`agent`](../packages/core/agent), [`evolution-graph`](../packages/evolution/evolution-graph), [`evolution-memory`](../packages/evolution/evolution-memory), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`session-query`](../packages/session-query/session-query), [`workspace`](../packages/workspace/workspace) |
 | [`evolution-memory-context`](../packages/context/evolution-memory-context) | `context` | [`agent`](../packages/core/agent), [`evolution-memory`](../packages/evolution/evolution-memory), [`fs`](../packages/fs/fs), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`session-query`](../packages/session-query/session-query), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools), [`workspace`](../packages/workspace/workspace) |
 | [`session-reference`](../packages/context/session-reference) | `context` | [`agent`](../packages/core/agent), [`compaction`](../packages/compaction/compaction), [`llm`](../packages/llm/llm), [`output-retention`](../packages/util/output-retention), [`session`](../packages/core/session), [`session-projection`](../packages/session/session-projection), [`session-projection-cache`](../packages/session/session-projection-cache), [`session-query`](../packages/session-query/session-query), [`session-title`](../packages/session/session-title), [`spill`](../packages/spill/spill), [`system-prompt`](../packages/core/system-prompt), [`typert-protocol`](../packages/typert/protocol) |
-| [`command-evolution`](../packages/evolution/command-evolution) | `evolution` | [`commands`](../packages/interaction/commands), [`evolution-curator`](../packages/evolution/evolution-curator), [`evolution-memory`](../packages/evolution/evolution-memory), [`evolution-reviewer`](../packages/evolution/evolution-reviewer), [`evolution-skill-telemetry`](../packages/skill/evolution-skill-telemetry), [`typert-protocol`](../packages/typert/protocol), [`usage-ledger`](../packages/session/usage-ledger), [`util-values`](../packages/util/values), [`workspace`](../packages/workspace/workspace) |
+| [`evolution-curator`](../packages/evolution/evolution-curator) | `evolution` | [`evolution-feedback`](../packages/evolution/evolution-feedback), [`evolution-skill-manage`](../packages/skill/evolution-skill-manage), [`evolution-skill-telemetry`](../packages/skill/evolution-skill-telemetry), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`skill`](../packages/skill/skill), [`storage`](../packages/storage/storage), [`storage-domain`](../packages/storage/storage-domain), [`timeout`](../packages/util/timeout), [`typert-protocol`](../packages/typert/protocol) |
+| [`evolution-optimizer`](../packages/evolution/evolution-optimizer) | `evolution` | [`evolution-memory`](../packages/evolution/evolution-memory), [`evolution-scorer`](../packages/evolution/evolution-scorer), [`evolution-skill-telemetry`](../packages/skill/evolution-skill-telemetry), [`llm`](../packages/llm/llm), [`session-snapshot`](../packages/test-support/session-snapshot), [`skill`](../packages/skill/skill), [`storage-domain`](../packages/storage/storage-domain) |
 | [`webhook-github`](../packages/webhook/webhook-github) | `webhook` | [`credentials`](../packages/credentials/credentials), [`host-webserver`](../packages/host/webserver), [`session`](../packages/core/session), [`webhook`](../packages/webhook/webhook) |
 | [`subagent-acp`](../packages/subagent/subagent-acp) | `subagent` | [`agent`](../packages/core/agent), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`subagent`](../packages/subagent/subagent), [`subprocess`](../packages/subprocess/subprocess), [`timeout`](../packages/util/timeout) |
 | [`subagent-claude-code`](../packages/subagent/subagent-claude-code) | `subagent` | [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`subagent`](../packages/subagent/subagent), [`subprocess`](../packages/subprocess/subprocess), [`timeout`](../packages/util/timeout) |
@@ -1545,12 +1644,14 @@ flowchart TD
 | [`tool-subagent-control`](../packages/subagent/tool-subagent-control) | `subagent` | [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`subagent`](../packages/subagent/subagent), [`tools`](../packages/core/tools) |
 | [`hooks-claude-code`](../packages/hooks/hooks-claude-code) | `hooks` | [`agent`](../packages/core/agent), [`hook-protocol`](../packages/hooks/hook-protocol), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`session-projection`](../packages/session/session-projection), [`subagent`](../packages/subagent/subagent), [`tools`](../packages/core/tools) |
 | [`api-session-controller`](../packages/api/session-controller) | `api` | [`agent`](../packages/core/agent), [`agent-default-model`](../packages/core/agent-default-model), [`agent-presets`](../packages/preset/agent-presets), [`api-gateway`](../packages/api/gateway), [`attachment`](../packages/attachment/attachment), [`client-connection`](../packages/client/connection), [`client-file-upload`](../packages/client/file-upload), [`commands`](../packages/interaction/commands), [`file-reference`](../packages/context/file-reference), [`fs`](../packages/fs/fs), [`jobs`](../packages/jobs/jobs), [`llm`](../packages/llm/llm), [`native-command`](../packages/util/native-command), [`scope`](../packages/core/scope), [`session`](../packages/core/session), [`session-persistence`](../packages/session/session-persistence), [`session-projection`](../packages/session/session-projection), [`session-projection-cache`](../packages/session/session-projection-cache), [`session-query`](../packages/session-query/session-query), [`session-title`](../packages/session/session-title), [`skill`](../packages/skill/skill), [`subagent`](../packages/subagent/subagent), [`typert-protocol`](../packages/typert/protocol), [`typert-registry`](../packages/typert/registry), [`util-time`](../packages/util/time), [`util-values`](../packages/util/values), [`util-workspace-path`](../packages/util/workspace-path), [`workspace`](../packages/workspace/workspace) |
+| [`command-evolution`](../packages/evolution/command-evolution) | `evolution` | [`commands`](../packages/interaction/commands), [`evolution-curator`](../packages/evolution/evolution-curator), [`evolution-dreaming`](../packages/evolution/evolution-dreaming), [`evolution-graph`](../packages/evolution/evolution-graph), [`evolution-memory`](../packages/evolution/evolution-memory), [`evolution-optimizer`](../packages/evolution/evolution-optimizer), [`evolution-reviewer`](../packages/evolution/evolution-reviewer), [`evolution-skill-telemetry`](../packages/skill/evolution-skill-telemetry), [`llm`](../packages/llm/llm), [`session-log-export`](../packages/session-query/session-log-export), [`skill`](../packages/skill/skill), [`typert-protocol`](../packages/typert/protocol), [`usage-ledger`](../packages/session/usage-ledger), [`util-values`](../packages/util/values), [`workspace`](../packages/workspace/workspace) |
 | [`experimental-agent-team`](../packages/experimental/agent-team) | `experimental` | [`agent`](../packages/core/agent), [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`session-persistence`](../packages/session/session-persistence), [`session-projection`](../packages/session/session-projection), [`subagent`](../packages/subagent/subagent), [`typert-protocol`](../packages/typert/protocol) |
 | [`sdk-protocol`](../packages/sdk/protocol) | `sdk` | [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`subagent`](../packages/subagent/subagent) |
 | [`tool-ralph`](../packages/workflow/tool-ralph) | `workflow` | [`agent`](../packages/core/agent), [`llm`](../packages/llm/llm), [`subagent`](../packages/subagent/subagent), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools), [`workflow`](../packages/workflow/workflow) |
 | [`workflow-worker-thread`](../packages/workflow/workflow-worker-thread) | `workflow` | [`agent`](../packages/core/agent), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`subagent`](../packages/subagent/subagent), [`tools`](../packages/core/tools), [`workflow`](../packages/workflow/workflow) |
 | [`subagent-fork-in-process`](../packages/subagent/subagent-fork-in-process) | `subagent` | [`agent`](../packages/core/agent), [`session`](../packages/core/session), [`subagent`](../packages/subagent/subagent), [`subagent-in-process-driver`](../packages/subagent/subagent-in-process-driver) |
 | [`subagent-spawn-in-process`](../packages/subagent/subagent-spawn-in-process) | `subagent` | [`subagent`](../packages/subagent/subagent), [`subagent-in-process-driver`](../packages/subagent/subagent-in-process-driver) |
+| [`evolution-controller`](../packages/evolution/evolution-controller) | `evolution` | [`command-evolution`](../packages/evolution/command-evolution), [`deque`](../packages/util/deque), [`evolution-memory`](../packages/evolution/evolution-memory), [`evolution-reviewer`](../packages/evolution/evolution-reviewer), [`storage-domain`](../packages/storage/storage-domain), [`typert-protocol`](../packages/typert/protocol), [`usage-ledger`](../packages/session/usage-ledger), [`workspace`](../packages/workspace/workspace) |
 | [`experimental-client-ui-agent-team`](../packages/experimental/client-ui-agent-team) | `experimental` | [`api-remotes`](../packages/api/remotes), [`api-session-controller`](../packages/api/session-controller), [`client-locale`](../packages/client/locale), [`client-ui-conversation`](../packages/client/ui-conversation), [`client-ui-primitives`](../packages/client/ui-primitives), [`client-ui-renderer`](../packages/client/ui-renderer), [`client-ui-session`](../packages/client/ui-session), [`client-ui-slots`](../packages/client/ui-slots), [`experimental-agent-team`](../packages/experimental/agent-team), [`session`](../packages/core/session), [`typert-protocol`](../packages/typert/protocol) |
 | [`experimental-tool-agent-team`](../packages/experimental/tool-agent-team) | `experimental` | [`agent`](../packages/core/agent), [`experimental-agent-team`](../packages/experimental/agent-team), [`session`](../packages/core/session), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools) |
 | [`sdk-client`](../packages/sdk/client) | `sdk` | [`llm`](../packages/llm/llm), [`sdk-protocol`](../packages/sdk/protocol), [`session`](../packages/core/session) |

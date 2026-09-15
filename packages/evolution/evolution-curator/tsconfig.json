@@ -12,6 +12,7 @@
     { "path": "../../core/session" },
     { "path": "../../llm/llm" },
     { "path": "../../skill/skill" },
+    { "path": "../../skill/evolution-skill-manage" },
     { "path": "../../skill/evolution-skill-telemetry" },
     { "path": "../evolution-feedback" },
     { "path": "../../storage/storage" },

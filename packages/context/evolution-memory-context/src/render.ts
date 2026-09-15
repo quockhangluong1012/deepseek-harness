@@ -103,6 +103,8 @@ interface EvolutionBriefInput {
   title: string
   path: string
   usage: BriefUsage
+  /** Usage ratio at or above which the header carries the consolidate warning. */
+  capacityWarnPct: number
   instructions: string
   lessons: readonly LessonArtifact[]
   profile: string
@@ -158,8 +160,10 @@ function computeEvolutionBrief(input: EvolutionBriefInput, maxBytes: number): Co
     && input.lessons.length === 0
     && input.profile.length === 0
     && input.context.length === 0) return { text: '', sections: [] }
-  const percent = Math.floor(input.usage.usedBytes * 100 / input.usage.capacityBytes)
-  const header = `# Workspace memory: ${input.title}\nDirectory: ${input.path}\nMemory usage: ${input.usage.usedBytes}/${input.usage.capacityBytes} (${percent}%)`
+  const ratio = input.usage.usedBytes / input.usage.capacityBytes
+  const percent = Math.floor(ratio * 100)
+  const warn = ratio >= input.capacityWarnPct ? ' — near capacity: consolidate instead of adding' : ''
+  const header = `# Workspace memory: ${input.title}\nDirectory: ${input.path}\nMemory usage: ${input.usage.usedBytes}/${input.usage.capacityBytes} (${percent}%)${warn}`
   const ordered = orderedLessons(input.lessons)
   const draft: BriefDraft = {
     instructions: input.instructions,

@@ -107,6 +107,7 @@ describe('evolution-memory-context injector', () => {
     const loadMessage = async (config: {
       memoryNudgeInterval?: number
       skillNudgeInterval?: number
+      capacityWarnPct?: number
     }): Promise<string> => {
       const ctx = new Context()
       ctx.provide('workspaceRegistry', { list: () => [] } as never)
@@ -121,8 +122,10 @@ describe('evolution-memory-context injector', () => {
     expect(await loadMessage({ memoryNudgeInterval: 0 })).toMatch(/memoryNudgeInterval expected number >= 1/)
     expect(await loadMessage({ skillNudgeInterval: 0 })).toMatch(/skillNudgeInterval expected number >= 1/)
     expect(await loadMessage({ memoryNudgeInterval: -4 })).toMatch(/memoryNudgeInterval expected number >= 1/)
-    expect(await loadMessage({ skillNudgeInterval: 1.5 })).toMatch(/skillNudgeInterval expected number multiple of 1/)
     expect(await loadMessage({ memoryNudgeInterval: 1, skillNudgeInterval: 10 })).toBe('loaded')
+    expect(await loadMessage({ capacityWarnPct: 1.5 })).toMatch(/capacityWarnPct/)
+    expect(await loadMessage({ capacityWarnPct: -0.1 })).toMatch(/capacityWarnPct/)
+    expect(await loadMessage({ capacityWarnPct: 0.5 })).toBe('loaded')
   })
 
   it('injects one brief, skips the unchanged turn, and replaces on change', async () => {

@@ -1,0 +1,18 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "lib/types"
+  },
+  "include": ["src"],
+  "references": [
+    { "path": "../../../vendor/cordis" },
+    { "path": "../../../vendor/schemastery" },
+    { "path": "../evolution-memory" },
+    { "path": "../evolution-scorer" },
+    { "path": "../../llm/llm" },
+    { "path": "../../skill/evolution-skill-telemetry" },
+    { "path": "../../skill/skill" },
+    { "path": "../../test-support/session-snapshot" }
+  ]
+}

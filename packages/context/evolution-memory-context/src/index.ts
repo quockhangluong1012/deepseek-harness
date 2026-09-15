@@ -65,8 +65,11 @@ export const name = 'evolution-memory-context'
 /**
  * Typed source carried by every injected brief. `form: 'snapshot'` presents
  * Instructions/Lessons/Profile/Context as distinct named parts instead of one
- * undifferentiated block; a later brief for the same scope supersedes an
- * earlier one, matching the form's own semantics.
+ * undifferentiated block, and `supersedes` declares what a brief is: the
+ * scope's current state, so the loop replaces the previous brief with it on
+ * the surface while the log keeps both. The alternative — every brief ever
+ * injected staying in the model's context — would stack stale instructions
+ * beside the current ones.
  */
 export interface EvolutionMemorySource {
   kind: 'evolution-memory'
@@ -92,6 +95,8 @@ export interface Config {
   memoryNudgeInterval?: number
   /** Turns between lessons-to-skills nudges. */
   skillNudgeInterval?: number
+  /** Usage ratio at or above which the brief header warns to consolidate. */
+  capacityWarnPct?: number
 }
 
 /** Schemastery validation for {@link Config}. */
@@ -100,6 +105,7 @@ export const Config: z<Config> = z.object({
   profile: z.string().required(),
   memoryNudgeInterval: z.number().step(1).min(1).default(1),
   skillNudgeInterval: z.number().step(1).min(1).default(10),
+  capacityWarnPct: z.number().min(0).max(1).default(0.8),
 })
 
 /** Plugin configuration with the optional nudge cadences resolved. */
@@ -112,6 +118,8 @@ export interface ResolvedConfig {
   memoryNudgeInterval: number
   /** Turns between lessons-to-skills nudges. */
   skillNudgeInterval: number
+  /** Usage ratio at or above which the brief header warns to consolidate. */
+  capacityWarnPct: number
 }
 
 /**
@@ -127,6 +135,7 @@ export function resolveConfig(config: Config): ResolvedConfig {
     profile: config.profile,
     memoryNudgeInterval: config.memoryNudgeInterval ?? 1,
     skillNudgeInterval: config.skillNudgeInterval ?? 10,
+    capacityWarnPct: config.capacityWarnPct ?? 0.8,
   }
 }
 
@@ -168,7 +177,7 @@ function claimedDigest(claimed: readonly UserMessage[]): string | undefined {
  * @param config - byte cap on the complete brief and scope namespace.
  */
 export function apply(ctx: Context, config: Config): void {
-  const { maxBytes, profile, memoryNudgeInterval, skillNudgeInterval } = resolveConfig(config)
+  const { maxBytes, profile, memoryNudgeInterval, skillNudgeInterval, capacityWarnPct } = resolveConfig(config)
   checkProfile(profile)
   const workspaceBySession = new Map<string, WorkspaceId | null>()
   const injectedDigests = new Map<string, string>()
@@ -343,6 +352,7 @@ export function apply(ctx: Context, config: Config): void {
       title: membership.title,
       path: membership.path,
       usage: { usedBytes: usage.usedBytes, capacityBytes: usage.capacityBytes },
+      capacityWarnPct,
       instructions: record.instructions,
       lessons: record.agentLessons,
       profile: record.userProfile,
@@ -354,7 +364,7 @@ export function apply(ctx: Context, config: Config): void {
     // hasContent above already excludes: reaching here always injects.
     const brief = createUserMessage({
       content: [{ type: 'text', text }],
-      source: { kind: 'evolution-memory', form: 'snapshot', scopeId: scope, digest, sections },
+      source: { kind: 'evolution-memory', form: 'snapshot', scopeId: scope, digest, sections, supersedes: true },
     })
     injectedDigests.set(sessionKey, digest)
     return { ...decision, messages: [...decision.messages, brief] }

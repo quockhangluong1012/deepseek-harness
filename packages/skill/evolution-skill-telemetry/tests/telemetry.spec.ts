@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { createHash } from 'node:crypto'
 import { Context } from '@deepseek-ai/cordis'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
@@ -30,8 +31,9 @@ async function harness(sources: Record<string, string> = {}, config: Record<stri
 
 describe('evolution skill telemetry', () => {
   it('resolves the correlation bound', () => {
-    expect(resolveConfig({})).toEqual({ maxSessionIds: 20 })
-    expect(resolveConfig({ maxSessionIds: 3 })).toEqual({ maxSessionIds: 3 })
+    expect(resolveConfig({})).toEqual({ maxSessionIds: 20, trustPromotionSessions: 2 })
+    expect(resolveConfig({ maxSessionIds: 3, trustPromotionSessions: 4 }))
+      .toEqual({ maxSessionIds: 3, trustPromotionSessions: 4 })
   })
 
   it('correlates uses with their sessions, newest first', async () => {
@@ -95,6 +97,31 @@ describe('evolution skill telemetry', () => {
     await fiber.dispose()
   })
 
+  it('tracks load outcomes and counts failures', async () => {
+    const { fiber, store } = await harness({ catalog: 'user-dsh' })
+    try {
+      const failed = await store.markFailed('catalog')
+      expect(failed).toMatchObject({ useCount: 0, failureCount: 1, lastOutcome: 'failed' })
+      const used = await store.markUsed('catalog')
+      expect(used).toMatchObject({ useCount: 1, failureCount: 1, lastOutcome: 'ok' })
+      const failedAgain = await store.markFailed('catalog')
+      expect(failedAgain).toMatchObject({ useCount: 1, failureCount: 2, lastOutcome: 'failed' })
+    } finally {
+      await fiber.dispose()
+    }
+  })
+
+  it('skips outcome writes for excluded sources', async () => {
+    const { fiber, store } = await harness({ box: 'bundled' })
+    try {
+      expect(await store.markFailed('box')).toBeUndefined()
+      expect(store.read('box')).toBeUndefined()
+    } finally {
+      await fiber.dispose()
+    }
+  })
+
+
   it('skips bundled and hub skills without writing', async () => {
     const { fiber, store } = await harness({ box: 'bundled', shared: 'hub-nightly' })
     expect(await store.markUsed('box')).toBeUndefined()
@@ -146,10 +173,93 @@ describe('evolution skill telemetry', () => {
     const adopted = await store.markAdopted('writer')
     expect(adopted).toMatchObject({ createdBy: 'foreground' })
     expect(adopted.createdAt).toBe(seeded.createdAt)
-    await expect(store.markAdopted('writer')).rejects.toThrow('without background-review authorship')
+    await expect(store.markAdopted('writer')).rejects.toThrow('without model authorship')
     await store.markUsed('plain')
-    await expect(store.markAdopted('plain')).rejects.toThrow('without background-review authorship')
+    await expect(store.markAdopted('plain')).rejects.toThrow('without model authorship')
     await fiber.dispose()
+  })
+
+  it('tracks body revisions as a hash chain and resets trust on every edit', async () => {
+    const { fiber, store } = await harness()
+    try {
+      const used = await store.markUsed('writer')
+      expect(used).toMatchObject({ trust: 'trusted', revision: 0, contentSha: null, parentRevisionSha: null })
+      const first = await store.markRevised('writer', 'body-1')
+      expect(first).toMatchObject({
+        revision: 1,
+        parentRevisionSha: null,
+        trust: 'provisional',
+        contentSha: createHash('sha256').update('body-1').digest('hex'),
+      })
+      // The same bytes again is not a new revision.
+      expect(await store.markRevised('writer', 'body-1')).toMatchObject({ revision: 1 })
+      const second = await store.markRevised('writer', 'body-2')
+      expect(second).toMatchObject({ revision: 2, parentRevisionSha: first?.contentSha })
+      expect((await store.markPatched('writer'))?.trust).toBe('provisional')
+    } finally {
+      await fiber.dispose()
+    }
+  })
+
+  it('promotes trust from sessions newer than the last demotion, and from nothing else', async () => {
+    const { fiber, store } = await harness()
+    try {
+      await store.markUsed('writer', undefined, 's1')
+      // An edit demotes the skill and anchors it at the newest session seen then.
+      expect((await store.markPatched('writer'))?.trust).toBe('provisional')
+      const before = await store.recordTrustObservation('writer', 'success', 's1')
+      expect(before).toMatchObject({ trust: 'provisional', trustObservedSessions: [] })
+      // A session the record never listed cannot count either.
+      expect(await store.recordTrustObservation('writer', 'success', 'unknown'))
+        .toMatchObject({ trust: 'provisional', trustObservedSessions: [] })
+      await store.markUsed('writer', undefined, 's2')
+      expect(await store.recordTrustObservation('writer', 'success', 's2'))
+        .toMatchObject({ trust: 'provisional', trustObservedSessions: ['s2'] })
+      // One session counts once, however many turns it loads the skill.
+      expect(await store.recordTrustObservation('writer', 'success', 's2'))
+        .toMatchObject({ trust: 'provisional', trustObservedSessions: ['s2'] })
+      await store.markUsed('writer', undefined, 's3')
+      expect(await store.recordTrustObservation('writer', 'success', 's3'))
+        .toMatchObject({ trust: 'trusted', trustObservedSessions: ['s3', 's2'] })
+      const demoted = await store.recordTrustObservation('writer', 'failure', 's3', {
+        mergeKey: 'bash\u0000denied',
+        message: 'denied',
+        at: '2026-09-16T00:00:00.000Z',
+      })
+      expect(demoted).toMatchObject({
+        trust: 'provisional',
+        trustFailures: 1,
+        trustObservedSessions: [],
+        trustAnchorSessionId: 's3',
+        lastTrustFailure: { mergeKey: 'bash\u0000denied', message: 'denied', at: '2026-09-16T00:00:00.000Z' },
+      })
+      // A failure reported without attribution keeps the last attributed one.
+      expect(await store.recordTrustObservation('writer', 'failure', 's3'))
+        .toMatchObject({ trustFailures: 2, lastTrustFailure: { mergeKey: 'bash\u0000denied' } })
+    } finally {
+      await fiber.dispose()
+    }
+  })
+
+  it('seeds an unrecorded skill from its first success observation', async () => {
+    const { fiber, store } = await harness()
+    try {
+      expect(await store.recordTrustObservation('ghost', 'success', 's1'))
+        .toMatchObject({ trust: 'trusted', trustObservedSessions: ['s1'] })
+    } finally {
+      await fiber.dispose()
+    }
+  })
+
+  it('skips trust and revision writes for excluded sources', async () => {
+    const { fiber, store } = await harness({ box: 'bundled' })
+    try {
+      expect(await store.recordTrustObservation('box', 'success', 's1')).toBeUndefined()
+      expect(await store.markRevised('box', 'body')).toBeUndefined()
+      expect(store.read('box')).toBeUndefined()
+    } finally {
+      await fiber.dispose()
+    }
   })
 
   it('drops records reporting whether one existed', async () => {
@@ -180,8 +290,7 @@ describe('evolution skill telemetry', () => {
     expect(revived).toMatchObject({ state: 'active', absorbedInto: null, archivedAt: null })
     await fiber.dispose()
   })
-
-  it('counts skill-tool loads and ignores failures and foreign tools', async () => {
+  it('counts skill-tool loads and ignores foreign tools', async () => {
     const { ctx, fiber, store } = await harness({ catalog: 'user-dsh' })
     try {
       await ctx.plugin(SystemPrompt)
@@ -228,6 +337,30 @@ describe('evolution skill telemetry', () => {
       await ctx.tools.execute({ callId: ToolCallId('c4'), name: 'skill', arguments: {}, signal })
       await new Promise(resolve => setTimeout(resolve, 50))
       expect(store.read('catalog')?.useCount).toBe(2)
+    } finally {
+      await fiber.dispose()
+    }
+  })
+
+  it('records failed skill-tool loads as outcomes', async () => {
+    const { ctx, fiber, store } = await harness({ catalog: 'user-dsh' })
+    try {
+      await ctx.plugin(SystemPrompt)
+      await ctx.plugin(ToolRuntime)
+      const signal = new AbortController().signal
+      ctx.tools.register(defineContentToolFixture({
+        name: 'skill',
+        description: 'd',
+        parameters: { name: { type: 'string', description: 'd' } },
+        execute: async (args) => {
+          if ((args as { name?: unknown }).name === 'doomed') throw new Error('load offline')
+          return [{ type: 'text' as const, text: 'body' }]
+        },
+      }))
+      await ctx.tools.execute({ callId: ToolCallId('c1'), name: 'skill', arguments: { name: 'doomed' }, signal })
+      await vi.waitFor(() => {
+        expect(store.read('doomed')).toMatchObject({ useCount: 0, failureCount: 1, lastOutcome: 'failed' })
+      })
     } finally {
       await fiber.dispose()
     }

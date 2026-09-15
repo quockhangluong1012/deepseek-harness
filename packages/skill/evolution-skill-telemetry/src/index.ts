@@ -12,6 +12,7 @@
 
 import { Context, Service } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
+import { createHash } from 'node:crypto'
 import type { PostToolDecision, ToolExecution, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import type { KvTable } from '@deepseek-ai/dsh-storage-domain'
 import type {} from '@deepseek-ai/dsh-skill'
@@ -20,6 +21,7 @@ import type {
   ConsolidationCostRow,
   SkillCreationEvidence,
   SkillLifecycleState,
+  SkillTrustFailure,
   SkillUsageRecord,
 } from './types.ts'
 
@@ -28,6 +30,8 @@ export type {
   RepeatedOutput,
   SkillCreationEvidence,
   SkillLifecycleState,
+  SkillTrustFailure,
+  SkillTrustState,
   SkillUsageRecord,
 } from './types.ts'
 export { skillUsageDomainSpec } from './spec.ts'
@@ -81,16 +85,20 @@ export function isExcludedSkillSource(source: string): boolean {
 export interface Config {
   /** Sessions retained per skill for failure correlation, newest first. */
   maxSessionIds?: number
+  /** Independently observed successes that promote a provisional skill to trusted. */
+  trustPromotionSessions?: number
 }
 
 /** Validated deployment choices. */
 export const Config: z<Config> = z.object({
   maxSessionIds: z.number().step(1).min(1).default(20),
+  trustPromotionSessions: z.number().step(1).min(1).default(2),
 })
 
 /** Normalized configuration used by the store. */
 export interface ResolvedConfig {
   maxSessionIds: number
+  trustPromotionSessions: number
 }
 
 /**
@@ -99,8 +107,8 @@ export interface ResolvedConfig {
  * @returns normalized runtime configuration.
  */
 export function resolveConfig(config: Config): ResolvedConfig {
-  const { maxSessionIds = 20 } = config
-  return { maxSessionIds }
+  const { maxSessionIds = 20, trustPromotionSessions = 2 } = config
+  return { maxSessionIds, trustPromotionSessions }
 }
 
 function freshRecord(): SkillUsageRecord {
@@ -118,6 +126,30 @@ function freshRecord(): SkillUsageRecord {
     createdBy: null,
     absorbedInto: null,
     archivedAt: null,
+    trust: 'trusted',
+    trustFailures: 0,
+    trustObservedSessions: [],
+    trustAnchorSessionId: null,
+    lastTrustFailure: null,
+    revision: 0,
+    contentSha: null,
+    parentRevisionSha: null,
+  }
+}
+
+/**
+ * Invalidate the trust evidence of a record whose artifact changed. The skill
+ * returns to provisional until independent observations re-earn it, and only
+ * sessions newer than the newest one seen here count toward that.
+ * @param record - the record being changed.
+ * @returns the record with trust reset.
+ */
+function resetTrust(record: SkillUsageRecord): SkillUsageRecord {
+  return {
+    ...record,
+    trust: 'provisional',
+    trustObservedSessions: [],
+    trustAnchorSessionId: record.sessionIds[0] ?? null,
   }
 }
 
@@ -148,11 +180,12 @@ export class EvolutionSkillTelemetry extends Service {
       next: () => Promise<PostToolDecision>,
     ): Promise<PostToolDecision> => {
       const decision = await next()
-      if (exec.name === 'skill' && !result.isError) {
+      if (exec.name === 'skill') {
         const name = (exec.arguments as { name?: unknown }).name
         if (typeof name === 'string') {
           try {
-            await this.markUsed(name, undefined, exec.agent?.session.id)
+            if (result.isError) await this.markFailed(name)
+            else await this.markUsed(name, undefined, exec.agent?.session.id)
           } catch (error) {
             this.ctx.logger.warn(`evolution skill telemetry use recording failed for '${name}': ${String(error)}`)
           }
@@ -203,10 +236,28 @@ export class EvolutionSkillTelemetry extends Service {
     return this.write(name, record => ({
       ...record,
       useCount: record.useCount + 1,
+      lastOutcome: 'ok',
       lastUsedAt: now,
       sessionIds: sessionId === undefined
         ? record.sessionIds
         : [sessionId, ...record.sessionIds.filter(id => id !== sessionId)].slice(0, this.resolved.maxSessionIds),
+    }))
+  }
+
+  /**
+   * Count one failed `skill`-tool load. Successful loads arrive through
+   * {@link markUsed}; this is the failure half, called by the same
+   * `tools/post-execute` observer. Exclusion matches {@link markUsed}.
+   * @param name - skill name.
+   * @param source - catalog source when the caller already resolved it.
+   * @returns the stored record, or undefined for excluded sources.
+   */
+  async markFailed(name: string, source?: string): Promise<SkillUsageRecord | undefined> {
+    if (isExcludedSkillSource(source ?? await this.lookupSource(name))) return undefined
+    return this.write(name, record => ({
+      ...record,
+      failureCount: (record.failureCount ?? 0) + 1,
+      lastOutcome: 'failed',
     }))
   }
 
@@ -231,26 +282,33 @@ export class EvolutionSkillTelemetry extends Service {
   async markPatched(name: string, source?: string): Promise<SkillUsageRecord | undefined> {
     if (isExcludedSkillSource(source ?? await this.lookupSource(name))) return undefined
     const now = new Date().toISOString()
-    return this.write(name, record => ({ ...record, patchCount: record.patchCount + 1, lastPatchedAt: now }))
+    return this.write(name, record => ({
+      ...resetTrust(record),
+      patchCount: record.patchCount + 1,
+      lastPatchedAt: now,
+    }))
   }
 
   /**
-   * Record background-review authorship. Resolves without writing when the
-   * record already carries it; foreground creates never call this, so their
-   * provenance stays user-directed.
+   * Record model authorship of a skill body. The model wrote this skill
+   * through `skill_manage`, so its standing is provisional until evidence or
+   * `/curator adopt` vouches for it. Resolves without writing when the record
+   * already carries both facts.
    * @param name - skill name.
    * @returns the stored record.
    */
   async markAgentCreated(name: string): Promise<SkillUsageRecord> {
     const current = this.requireTable().get(name)
-    if (current !== undefined && current.createdBy === 'agent') return structuredClone(current)
-    return this.write(name, record => ({ ...record, createdBy: 'agent' }))
+    if (current !== undefined && current.createdBy === 'agent' && current.trust === 'provisional') {
+      return structuredClone(current)
+    }
+    return this.write(name, record => ({ ...resetTrust(record), createdBy: 'agent' }))
   }
 
   /**
-   * Adopt one agent-created skill into user-directed standing. Only records
-   * carrying background-review authorship move; everything else rejects, and
-   * clocks never reset.
+   * Adopt one model-authored skill into user-directed standing. Only records
+   * carrying model authorship move; everything else rejects, and clocks never
+   * reset.
    * @param name - skill name.
    * @returns the stored record with user-directed provenance.
    */
@@ -258,9 +316,87 @@ export class EvolutionSkillTelemetry extends Service {
     const current = this.requireTable().get(name)
     if (current === undefined) throw new Error(`evolution skill telemetry has no record for '${name}'`)
     if (current.createdBy !== 'agent') {
-      throw new Error(`evolution skill telemetry cannot adopt '${name}' without background-review authorship`)
+      throw new Error(`evolution skill telemetry cannot adopt '${name}' without model authorship`)
     }
     return this.write(name, record => ({ ...record, createdBy: 'foreground' }))
+  }
+
+  /**
+   * Record one trust observation for a skill. A failure with attribution
+   * demotes the skill and restamps the anchor; a success counts only when its
+   * session is newer than that anchor and has not been counted yet, so
+   * evidence gathered before a fix cannot promote the skill again. Excluded
+   * sources resolve to no record, and an observation that changes nothing
+   * writes nothing.
+   * @param name - skill name.
+   * @param outcome - the observed outcome.
+   * @param sessionId - the session that loaded this skill.
+   * @param failure - attribution evidence, used only for `'failure'`.
+   * @returns the stored record, or undefined for excluded sources.
+   */
+  async recordTrustObservation(
+    name: string,
+    outcome: 'success' | 'failure',
+    sessionId: string,
+    failure?: SkillTrustFailure,
+  ): Promise<SkillUsageRecord | undefined> {
+    if (isExcludedSkillSource(await this.lookupSource(name))) return undefined
+    if (outcome === 'failure') {
+      return this.write(name, record => ({
+        ...resetTrust(record),
+        trustFailures: record.trustFailures + 1,
+        lastTrustFailure: failure ?? record.lastTrustFailure,
+      }))
+    }
+    const current = this.requireTable().get(name)
+    if (current !== undefined) {
+      const observed = this.observed(current, sessionId)
+      if (observed === current) return structuredClone(current)
+    }
+    return this.write(name, record => this.observed(record, sessionId))
+  }
+
+  /**
+   * Record a new revision of the SKILL.md body. The store hashes the content
+   * itself, so one place defines the shape of `contentSha`; the same bytes
+   * again is a no-op, and a real change resets trust like any other edit.
+   * @param name - skill name.
+   * @param content - the exact bytes just written to SKILL.md.
+   * @returns the stored record, or undefined for excluded sources.
+   */
+  async markRevised(name: string, content: string): Promise<SkillUsageRecord | undefined> {
+    if (isExcludedSkillSource(await this.lookupSource(name))) return undefined
+    const contentSha = createHash('sha256').update(content).digest('hex')
+    const current = this.requireTable().get(name)
+    if (current !== undefined && current.contentSha === contentSha) return structuredClone(current)
+    return this.write(name, record => ({
+      ...resetTrust(record),
+      revision: record.revision + 1,
+      parentRevisionSha: record.contentSha,
+      contentSha,
+    }))
+  }
+
+  /**
+   * Apply one success observation, or return the record unchanged when the
+   * session cannot count toward promotion.
+   * @param record - the record being observed.
+   * @param sessionId - the session that loaded this skill.
+   * @returns the record after the observation.
+   */
+  private observed(record: SkillUsageRecord, sessionId: string): SkillUsageRecord {
+    const anchorAt = record.trustAnchorSessionId === null
+      ? -1
+      : record.sessionIds.indexOf(record.trustAnchorSessionId)
+    const at = record.sessionIds.indexOf(sessionId)
+    if (anchorAt !== -1 && (at === -1 || at >= anchorAt)) return record
+    if (record.trustObservedSessions.includes(sessionId)) return record
+    const trusted = [sessionId, ...record.trustObservedSessions].slice(0, this.resolved.maxSessionIds)
+    return {
+      ...record,
+      trustObservedSessions: trusted,
+      trust: trusted.length >= this.resolved.trustPromotionSessions ? 'trusted' : record.trust,
+    }
   }
 
   /**

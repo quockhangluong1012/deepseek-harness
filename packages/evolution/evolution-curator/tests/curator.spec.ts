@@ -6,8 +6,10 @@ import { Context } from '@deepseek-ai/cordis'
 import Storage from '@deepseek-ai/dsh-storage'
 import { DomainFacility } from '@deepseek-ai/dsh-storage-domain'
 import EvolutionSkillTelemetry from '@deepseek-ai/dsh-evolution-skill-telemetry'
+import type { FeedbackSignal } from '@deepseek-ai/dsh-evolution-feedback'
 import { MemoryMediaPool, MemoryStorageBackend } from '../../../storage/storage-domain/tests/helpers/memory-backend.ts'
 import EvolutionCurator, { resolveConfig } from '../src/index.ts'
+import { curatorHome, readLedger } from '../src/safety.ts'
 
 const DAY = 24 * 3600 * 1000
 const HOUR = 3600 * 1000
@@ -37,6 +39,7 @@ async function harness(options: {
   sources?: Record<string, string>
   telemetry?: boolean
   feedFailures?: boolean
+  feedSignals?: FeedbackSignal[]
   curatorConfig?: Record<string, unknown>
 } = {}) {
   const home = await mkdtemp(join(tmpdir(), 'curator-home-'))
@@ -52,17 +55,30 @@ async function harness(options: {
     .map(([name, source]) => ({ name, source, description: `${name} skill` }))
   const state = { failList: false }
   const feedbackCalls: { sessionIds: string[]; limit: number }[] = []
+  const signals: FeedbackSignal[] = options.feedFailures === true
+    ? [{
+      tool: 'bash',
+      message: 'command not found',
+      count: 4,
+      sessions: 2,
+      firstAt: 't0',
+      lastAt: 't1',
+      actionability: 'trigger_review',
+      evidenceStatus: 'complete',
+      mergeKey: 'bash\u0000command not found',
+    }]
+    : options.feedSignals ?? []
   ctx.provide('skills', {
     list: async () => {
       if (state.failList) throw new Error('catalog unavailable')
       return skills.map(skill => ({ ...skill }))
     },
   } as never)
-  if (options.feedFailures === true) {
+  if (options.feedFailures === true || options.feedSignals !== undefined) {
     ctx.provide('evolutionFeedback', {
-      summary: (sessionIds: readonly string[], limit: number) => {
+      signals: (sessionIds: readonly string[], limit: number) => {
         feedbackCalls.push({ sessionIds: [...sessionIds], limit })
-        return [{ tool: 'bash', message: 'command not found', count: 4, sessions: 2, firstAt: 't0', lastAt: 't1' }]
+        return signals
       },
     } as never)
   }
@@ -95,6 +111,8 @@ describe('evolution curator', () => {
       maxOutputTokens: 2048,
       maxSteps: 4,
       timeoutMs: 60000,
+      stageMinUses: 20,
+      stageFailureRate: 0.3,
     })
     expect(() => resolveConfig({ staleAfterDays: 90, archiveAfterDays: 30 }))
       .toThrow('must not be below staleAfterDays')
@@ -121,6 +139,10 @@ describe('evolution curator', () => {
         state: 'active',
         idleDays: 0,
         useCount: 1,
+        trust: 'provisional',
+        revision: 0,
+        contentSha: null,
+        lastTrustFailure: null,
       })
       expect(typeof byName.get('writer')?.lastUsedAt).toBe('string')
       expect(byName.get('midnight')).toMatchObject({ lastUsedAt: null, useCount: 0 })
@@ -177,6 +199,82 @@ describe('evolution curator', () => {
     const h = await harness({ telemetry: false })
     try {
       expect(await h.curator.surveyCandidates()).toMatchObject({ candidates: [] })
+    } finally {
+      await h.fiber.dispose()
+    }
+  })
+
+  it('demotes a skill whose correlated sessions carry an attributable failure', async () => {
+    const h = await harness({ sources: { writer: 'user-dsh' }, feedFailures: true })
+    try {
+      await h.telemetry?.markAgentCreated('writer')
+      await h.telemetry?.markUsed('writer', undefined, 'session-1')
+      await h.curator.run({ now: T0 })
+      expect(h.telemetry?.read('writer')).toMatchObject({
+        trust: 'provisional',
+        trustFailures: 1,
+        trustAnchorSessionId: 'session-1',
+        lastTrustFailure: {
+          mergeKey: 'bash\u0000command not found',
+          message: 'command not found',
+          at: new Date(T0).toISOString(),
+        },
+      })
+      expect(h.feedbackCalls).toEqual([{ sessionIds: ['session-1'], limit: 5 }])
+    } finally {
+      await h.fiber.dispose()
+    }
+  })
+
+  it('records nothing for an attributable failure when no session is correlated', async () => {
+    const h = await harness({ sources: { writer: 'user-dsh' }, feedFailures: true })
+    try {
+      await h.telemetry?.markAgentCreated('writer')
+      await h.curator.run({ now: T0 })
+      expect(h.telemetry?.read('writer')).toMatchObject({ trust: 'provisional', trustFailures: 0 })
+    } finally {
+      await h.fiber.dispose()
+    }
+  })
+
+  it('counts correlated sessions as successes when no signal decides, and without a store', async () => {
+    const graded = await harness({ sources: { writer: 'user-dsh' }, feedSignals: [{ tool: 'bash', message: 'slow', count: 1, sessions: 1, firstAt: 't0', lastAt: 't1', actionability: 'ranking_only', evidenceStatus: 'complete', mergeKey: 'bash\u0000slow' }] })
+    try {
+      await graded.telemetry?.markAgentCreated('writer')
+      await graded.telemetry?.markUsed('writer', undefined, 'session-1')
+      await graded.telemetry?.markUsed('writer', undefined, 'session-2')
+      await graded.curator.run({ now: T0 })
+      expect(graded.telemetry?.read('writer')).toMatchObject({
+        trust: 'trusted',
+        trustObservedSessions: ['session-1', 'session-2'],
+      })
+    } finally {
+      await graded.fiber.dispose()
+    }
+    const bare = await harness({ sources: { writer: 'user-dsh' } })
+    try {
+      await bare.telemetry?.markAgentCreated('writer')
+      await bare.telemetry?.markUsed('writer', undefined, 'session-1')
+      await bare.curator.run({ now: T0 })
+      expect(bare.telemetry?.read('writer')?.trustObservedSessions).toEqual(['session-1'])
+    } finally {
+      await bare.fiber.dispose()
+    }
+  })
+
+  it('records no trust during a dry run and survives a failing store', async () => {
+    const h = await harness({ sources: { writer: 'user-dsh' } })
+    try {
+      await h.telemetry?.markAgentCreated('writer')
+      await h.telemetry?.markUsed('writer', undefined, 'session-1')
+      await h.curator.run({ now: T0, dryRun: true })
+      expect(h.telemetry?.read('writer')?.trustObservedSessions).toEqual([])
+      const warn = vi.spyOn(h.ctx.logger, 'warn').mockImplementation(() => {})
+      vi.spyOn(h.telemetry as EvolutionSkillTelemetry, 'recordTrustObservation')
+        .mockRejectedValue(new Error('store offline'))
+      const report = await h.curator.run({ now: T0 })
+      expect(report.scanned).toBe(1)
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining("could not record trust for 'writer'"))
     } finally {
       await h.fiber.dispose()
     }
@@ -422,6 +520,125 @@ describe('evolution curator', () => {
     }
   })
 
+  it('stages skills over both thresholds only', async () => {
+    const h = await harness({
+      sources: { boundary: 'user-dsh', flaky: 'user-dsh', thin: 'user-dsh' },
+      curatorConfig: { stageMinUses: 4, stageFailureRate: 0.5 },
+    })
+    try {
+      // 2/4 is exactly the threshold, which is not yet over it.
+      for (let i = 0; i < 2; i += 1) await h.telemetry?.markUsed('boundary')
+      for (let i = 0; i < 2; i += 1) await h.telemetry?.markFailed('boundary')
+      // 3/4 is over the rate with the sample gate met.
+      for (let i = 0; i < 1; i += 1) await h.telemetry?.markUsed('flaky')
+      for (let i = 0; i < 3; i += 1) await h.telemetry?.markFailed('flaky')
+      // 3/3 is a perfect rate over three loads, which says nothing yet.
+      for (let i = 0; i < 3; i += 1) await h.telemetry?.markFailed('thin')
+      const report = await h.curator.run({ now: Date.now(), dryRun: true })
+      expect(report.staged).toEqual([{
+        name: 'flaky',
+        useCount: 1,
+        failureCount: 3,
+        failureRate: 0.75,
+        reason: 'failures 3/4 exceed 50%',
+      }])
+    } finally {
+      await h.fiber.dispose()
+    }
+  })
+
+  it('records one staging line per counter change and reads the newest per skill', async () => {
+    const config = { stageMinUses: 4, stageFailureRate: 0.5 }
+    const h = await harness({ sources: { flaky: 'user-dsh' }, curatorConfig: config })
+    const stageLines = async (): Promise<number> =>
+      (await readLedger(curatorHome())).filter(entry => entry.action === 'stage').length
+    try {
+      await h.telemetry?.markUsed('flaky')
+      for (let i = 0; i < 3; i += 1) await h.telemetry?.markFailed('flaky')
+      const first = await h.curator.run({ now: Date.now() })
+      expect(first.staged).toHaveLength(1)
+      expect(await stageLines()).toBe(1)
+      await h.curator.run({ now: Date.now() })
+      expect(await stageLines()).toBe(1)
+      await h.telemetry?.markFailed('flaky')
+      const second = await h.curator.run({ now: Date.now() })
+      expect(second.staged).toMatchObject([{ failureCount: 4, failureRate: 0.8 }])
+      expect(await stageLines()).toBe(2)
+      // A pass that moves a skill writes its own entries, so the staging read
+      // and the dedupe see a ledger holding more than staging lines.
+      await h.curator.run({ now: Date.now() + 45 * DAY })
+      const mixed = await h.curator.run({ now: Date.now() + 45 * DAY })
+      expect(mixed.transitions).toEqual([])
+      expect(mixed.staged).toHaveLength(1)
+      expect(await stageLines()).toBe(2)
+      expect(await h.curator.staged()).toMatchObject([
+        { name: 'flaky', useCount: 1, failureCount: 4, failureRate: 0.8 },
+      ])
+    } finally {
+      await h.fiber.dispose()
+    }
+  })
+
+  it('orders staged skills worst first and reports them without writing under dry-run', async () => {
+    const config = { stageMinUses: 4, stageFailureRate: 0.1 }
+    const h = await harness({
+      sources: { mild: 'user-dsh', severe: 'user-dsh', beta: 'user-dsh', alpha: 'user-dsh' },
+      curatorConfig: config,
+    })
+    try {
+      // Equal rates across three skills, so the tie-break decides their order.
+      for (const name of ['mild', 'beta', 'alpha']) {
+        for (let i = 0; i < 3; i += 1) await h.telemetry?.markUsed(name)
+        for (let i = 0; i < 3; i += 1) await h.telemetry?.markFailed(name)
+      }
+      // One higher rate leads the report.
+      await h.telemetry?.markUsed('severe')
+      for (let i = 0; i < 5; i += 1) await h.telemetry?.markFailed('severe')
+      const preview = await h.curator.run({ now: Date.now(), dryRun: true })
+      expect(preview.staged.map(candidate => candidate.name)).toEqual(['severe', 'alpha', 'beta', 'mild'])
+      expect(await h.curator.staged()).toEqual([])
+    } finally {
+      await h.fiber.dispose()
+    }
+  })
+
+  it('stages pinned skills while protected ones stay out', async () => {
+    const h = await harness({
+      sources: { pinned: 'user-dsh', kept: 'user-dsh' },
+      curatorConfig: { stageMinUses: 4, stageFailureRate: 0.5, protectedNames: ['kept'] },
+    })
+    try {
+      for (const name of ['pinned', 'kept']) {
+        await h.telemetry?.markUsed(name)
+        for (let i = 0; i < 3; i += 1) await h.telemetry?.markFailed(name)
+      }
+      await h.telemetry?.setPinned('pinned', true)
+      const report = await h.curator.run({ now: Date.now() })
+      // A pin protects against movement, not against being looked at.
+      expect(report.staged.map(candidate => candidate.name)).toEqual(['pinned'])
+      expect(report.skippedProtected).toBe(1)
+      expect(h.telemetry?.read('pinned')).toMatchObject({ state: 'active' })
+    } finally {
+      await h.fiber.dispose()
+    }
+  })
+
+  it('skips staging ledger lines when backups are off', async () => {
+    const h = await harness({
+      sources: { flaky: 'user-dsh' },
+      curatorConfig: { backup: { enabled: false }, stageMinUses: 4, stageFailureRate: 0.5 },
+    })
+    try {
+      await h.telemetry?.markUsed('flaky')
+      for (let i = 0; i < 3; i += 1) await h.telemetry?.markFailed('flaky')
+      const report = await h.curator.run({ now: Date.now() })
+      expect(report.staged).toHaveLength(1)
+      expect(await h.curator.staged()).toEqual([])
+    } finally {
+      await h.fiber.dispose()
+    }
+  })
+
   it('advances bookkeeping without the telemetry store', async () => {
     const h = await harness({ telemetry: false })
     try {
@@ -429,6 +646,7 @@ describe('evolution curator', () => {
       const report = await h.curator.run({ now })
       expect(report.scanned).toBe(0)
       expect(report.transitions).toEqual([])
+      expect(report.staged).toEqual([])
       expect(h.curator.lastRunAt()).toBe(new Date(now).toISOString())
     } finally {
       await h.fiber.dispose()

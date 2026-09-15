@@ -173,11 +173,13 @@ describe('evolution-memory-context composition', () => {
       const briefs = loggedUserTexts(agent).filter(entry => entry.kind === 'evolution-memory')
       expect(briefs).toHaveLength(2)
       expect(briefs[1]?.text).toContain('second rules')
-      // The change appends a complete replacement; the superseded brief stays
-      // in the surface, so the request carries both frames.
+      // The change commits a complete replacement and declares `supersedes`, so
+      // the surface carries the live brief once: the superseded frame stays in
+      // the log but never reaches the model.
       const framed = framedTexts(requests.at(-1))
-      expect(framed).toHaveLength(2)
-      expect(framed[1]).toContain('second rules')
+      expect(framed).toHaveLength(1)
+      expect(framed[0]).toContain('second rules')
+      expect(framed[0]).not.toContain('first rules')
 
       const before = requests.length
       const outsider = await loop.create(SessionId('evolution-outsider'), { provider: 'mock', model: 'mock' }, { cwd: elsewhere })

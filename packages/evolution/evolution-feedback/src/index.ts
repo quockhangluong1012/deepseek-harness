@@ -18,7 +18,14 @@ import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import type { KvTable } from '@deepseek-ai/dsh-storage-domain'
 import { truncateUtf8 } from '@deepseek-ai/dsh-evolution-memory'
 import { feedbackDomainSpec } from './spec.ts'
-import type { FeedbackEntry, FeedbackRecord, FeedbackSummaryEntry } from './types.ts'
+import type {
+  FeedbackActionability,
+  FeedbackEntry,
+  FeedbackEvidenceStatus,
+  FeedbackRecord,
+  FeedbackSignal,
+  FeedbackSummaryEntry,
+} from './types.ts'
 
 export type * from './types.ts'
 export { feedbackEntry, feedbackDomainSpec, feedbackRecordSchema } from './spec.ts'
@@ -38,6 +45,8 @@ export interface Config {
   maxEntries?: number
   /** Character budget for one recorded failure message. */
   maxMessageChars?: number
+  /** Distinct sessions reporting one failure before it triggers a review. */
+  triggerReviewSessions?: number
 }
 
 /** Validated deployment choices. */
@@ -45,6 +54,7 @@ export const Config: z<Config> = z.object({
   enabled: z.boolean().default(true),
   maxEntries: z.number().step(1).min(1).default(100),
   maxMessageChars: z.number().step(1).min(1).default(500),
+  triggerReviewSessions: z.number().step(1).min(1).default(2),
 })
 
 /** Normalized configuration used by the store. */
@@ -52,6 +62,7 @@ export interface ResolvedConfig {
   enabled: boolean
   maxEntries: number
   maxMessageChars: number
+  triggerReviewSessions: number
 }
 
 /**
@@ -60,8 +71,30 @@ export interface ResolvedConfig {
  * @returns normalized runtime configuration.
  */
 export function resolveConfig(config: Config): ResolvedConfig {
-  const { enabled = true, maxEntries = 100, maxMessageChars = 500 } = config
-  return { enabled, maxEntries, maxMessageChars }
+  const { enabled = true, maxEntries = 100, maxMessageChars = 500, triggerReviewSessions = 2 } = config
+  return { enabled, maxEntries, maxMessageChars, triggerReviewSessions }
+}
+
+/** Decisiveness of a signal for a state transition, highest first. */
+const ACTIONABILITY_RANK: Record<FeedbackActionability, number> = {
+  observe_only: 1,
+  ranking_only: 2,
+  trigger_review: 3,
+}
+
+/** Strength of the attribution evidence, highest first. */
+const EVIDENCE_RANK: Record<FeedbackEvidenceStatus, number> = { actionable_partial: 1, complete: 2 }
+
+/**
+ * The identity one aggregated failure merges under: its tool and its message.
+ * A failure whose call was never observed keeps the empty prefix, which no
+ * named tool produces, so it never merges into an attributed failure.
+ * @param tool - failing tool, or null when the call was not observed.
+ * @param message - normalized failure message.
+ * @returns the merge key.
+ */
+function mergeKeyOf(tool: string | null, message: string): string {
+  return `${tool ?? ''}\u0000${message}`
 }
 
 /**
@@ -133,13 +166,57 @@ export class EvolutionFeedback extends Service {
    * @returns the aggregated failures, newest-highest-count first.
    */
   summary(sessionIds: readonly string[], limit: number): FeedbackSummaryEntry[] {
+    return this.aggregate(sessionIds).slice(0, limit)
+  }
+
+  /**
+   * Grade the given sessions' failures by how decisive each is for a state
+   * transition, most decisive first. A failure whose own call was never
+   * observed carries no attribution, so it only observes; an attributable
+   * failure seen in `triggerReviewSessions` distinct sessions triggers a
+   * review, and fewer sessions rank without deciding. Grading happens before
+   * the limit, so a decisive signal is never truncated away by a count-ranked
+   * one.
+   * @param sessionIds - sessions to aggregate, in caller order.
+   * @param limit - maximum signals returned.
+   * @returns the graded signals, decisive first.
+   */
+  signals(sessionIds: readonly string[], limit: number): FeedbackSignal[] {
+    const graded = this.aggregate(sessionIds).map((entry): FeedbackSignal => {
+      const evidenceStatus: FeedbackEvidenceStatus = entry.tool === null ? 'actionable_partial' : 'complete'
+      const actionability: FeedbackActionability = evidenceStatus === 'actionable_partial'
+        ? 'observe_only'
+        : entry.sessions >= this.resolved.triggerReviewSessions ? 'trigger_review' : 'ranking_only'
+      return {
+        ...entry,
+        actionability,
+        evidenceStatus,
+        mergeKey: mergeKeyOf(entry.tool, entry.message),
+      }
+    })
+    return graded
+      .sort((left, right) => EVIDENCE_RANK[right.evidenceStatus] - EVIDENCE_RANK[left.evidenceStatus]
+        || ACTIONABILITY_RANK[right.actionability] - ACTIONABILITY_RANK[left.actionability]
+        || right.sessions - left.sessions
+        || right.count - left.count
+        || Date.parse(right.lastAt) - Date.parse(left.lastAt))
+      .slice(0, limit)
+  }
+
+  /**
+   * Merge the given sessions' failures by tool and message, most-observed
+   * first. The one aggregation both read paths start from.
+   * @param sessionIds - sessions to aggregate, in caller order.
+   * @returns every aggregated failure, ordered by count then recency.
+   */
+  private aggregate(sessionIds: readonly string[]): FeedbackSummaryEntry[] {
     const table = this.requireTable()
     const merged = new Map<string, FeedbackSummaryEntry>()
     for (const sessionId of sessionIds) {
       const record = table.get(sessionId)
       if (record === undefined) continue
       for (const entry of record.entries) {
-        const key = `${entry.tool ?? ''}\u0000${entry.message}`
+        const key = mergeKeyOf(entry.tool, entry.message)
         const existing = merged.get(key)
         if (existing === undefined) {
           merged.set(key, { ...entry, sessions: 1 })
@@ -153,7 +230,6 @@ export class EvolutionFeedback extends Service {
     }
     return [...merged.values()]
       .sort((left, right) => right.count - left.count || Date.parse(right.lastAt) - Date.parse(left.lastAt))
-      .slice(0, limit)
   }
 
   /** Route one delivered event into the pending-call table or a recorded failure. */

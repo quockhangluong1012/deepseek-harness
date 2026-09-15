@@ -163,6 +163,9 @@ flowchart LR
   svc_evolutionGraph["ctx.evolutionGraph<br/>Per-scope knowledge graph"]
   pkg_evolution_controller["evolution-controller"]
   svc_evolutionController["ctx.evolutionController<br/>Evolution scope Remote controller"]
+  pkg_evolution_scorer["evolution-scorer"]
+  svc_evolutionScorer["ctx.evolutionScorer<br/>Recorded-session improvement scorer"]
+  pkg_evolution_optimizer["evolution-optimizer"]
   pkg_client_ui_evolution["client-ui-evolution"]
   svc_evolutionCuratorStatus["ctx.evolutionCuratorStatus<br/>Evolution curator-status Remote face"]
   pkg_evolution_trajectory["evolution-trajectory"]
@@ -315,6 +318,7 @@ flowchart LR
   pkg_evolution_heartbeat --> svc_evolutionHeartbeat
   pkg_evolution_memory --> svc_evolutionMemory
   pkg_evolution_reviewer --> svc_evolutionReviewer
+  pkg_evolution_scorer --> svc_evolutionScorer
   pkg_evolution_skill_telemetry --> svc_evolutionSkillTelemetry
   pkg_evolution_trajectory --> svc_evolutionTrajectory
   pkg_experimental_agent_team --> svc_agentTeams
@@ -435,10 +439,13 @@ flowchart LR
   svc_dynamicCordisRunner --> pkg_tool_cordis
   svc_e2b --> pkg_fs_e2b
   svc_e2b --> pkg_subprocess_e2b
+  svc_evolutionFeedback --> pkg_evolution_curator
+  svc_evolutionFeedback --> pkg_evolution_dreaming
   svc_evolutionMemory --> pkg_command_evolution
   svc_evolutionMemory --> pkg_evolution_memory_context
   svc_evolutionMemory --> pkg_evolution_reviewer
   svc_evolutionReviewer --> pkg_command_evolution
+  svc_evolutionScorer --> pkg_evolution_optimizer
   svc_evolutionSkillTelemetry --> pkg_evolution_curator
   svc_evolutionSkillTelemetry --> pkg_evolution_skill_manage
   svc_fileReferences --> pkg_api_session_controller
@@ -598,15 +605,16 @@ flowchart LR
 | `ctx.usageLedger` | `core` | [`usage-ledger`](../packages/session/usage-ledger) | - | [`client-ui-usage-dashboard`](../packages/client/ui-usage-dashboard) | - | The usage-ledger plugin folds billed attempts into durable per-day and per-model counters; the usage dashboard host face delegates its summary reads to the service. |
 | `ctx.usageDashboard` | `core` | [`client-ui-usage-dashboard`](../packages/client/ui-usage-dashboard) | - | - | - | The usage dashboard host face provides the usageDashboard Remote namespace over ctx.usageLedger; the generated contribution carries it to the browser half, which reads it over the wire. |
 | `ctx.skills` | `seam` | [`skill`](../packages/skill/skill) | [`skill-badge`](../packages/skill/skill-badge), [`skill-filesystem`](../packages/skill/skill-filesystem) | [`tool-skill`](../packages/skill/tool-skill) | - | Merges provider skill catalogs; tool-skill renders the session-prefix catalog and loads complete skill bodies. |
-| `ctx.evolutionSkillTelemetry` | `core` | [`evolution-skill-telemetry`](../packages/skill/evolution-skill-telemetry) | - | [`evolution-skill-manage`](../packages/skill/evolution-skill-manage), [`evolution-curator`](../packages/evolution/evolution-curator) | - | The telemetry plugin owns durable per-skill counters, provenance, pins, and lifecycle state; evolution-skill-manage reports mutations and reads pins through the optional service, and evolution-curator drives lifecycle transitions over the same store. |
+| `ctx.evolutionSkillTelemetry` | `core` | [`evolution-skill-telemetry`](../packages/skill/evolution-skill-telemetry) | - | [`evolution-skill-manage`](../packages/skill/evolution-skill-manage), [`evolution-curator`](../packages/evolution/evolution-curator) | - | The telemetry plugin owns durable per-skill counters, provenance, pins, lifecycle state, evidence-backed trust, and the SKILL.md revision chain; evolution-skill-manage reports mutations and reads pins through the optional service, and evolution-curator drives lifecycle transitions and records trust observations over the same store. |
 | `ctx.evolutionMemory` | `core` | [`evolution-memory`](../packages/evolution/evolution-memory) | - | [`evolution-reviewer`](../packages/evolution/evolution-reviewer), [`evolution-memory-context`](../packages/context/evolution-memory-context), [`command-evolution`](../packages/evolution/command-evolution) | - | The evolution-memory plugin owns the durable per-scope record; evolution-reviewer and evolution-memory-context read and write it, and command-evolution resolves staged approvals against it. |
 | `ctx.evolutionReviewer` | `core` | [`evolution-reviewer`](../packages/evolution/evolution-reviewer) | - | [`command-evolution`](../packages/evolution/command-evolution) | - | The evolution-reviewer plugin derives lessons in the background; command-evolution calls its rebuild for /refine, and no other package reads the service. |
 | `ctx.evolutionCurator` | `core` | [`evolution-curator`](../packages/evolution/evolution-curator) | - | - | - | The evolution-curator plugin owns idle-triggered lifecycle passes over skill telemetry; the composition supplies the idle observation through maybeRun, and no in-repo package consumes the service directly. |
 | `ctx.evolutionHeartbeat` | `core` | [`evolution-heartbeat`](../packages/evolution/evolution-heartbeat) | - | - | - | The evolution-heartbeat plugin owns the host-wide idle-triggered task registry; it registers no prompt, tool, or session event, and maintenance packages register their tasks with it. |
-| `ctx.evolutionFeedback` | `core` | [`evolution-feedback`](../packages/evolution/evolution-feedback) | - | - | - | The evolution-feedback plugin observes failing tool results per session and aggregates them into the natural-language feedback the learning loop reads; it registers no prompt, tool, or session event. |
+| `ctx.evolutionFeedback` | `core` | [`evolution-feedback`](../packages/evolution/evolution-feedback) | - | [`evolution-curator`](../packages/evolution/evolution-curator), [`evolution-dreaming`](../packages/evolution/evolution-dreaming) | - | The evolution-feedback plugin observes failing tool results per session and grades the aggregate by attribution strength and session reach; evolution-curator turns its decisive signals into skill trust, and evolution-dreaming reads its summary in the light phase. It registers no prompt, tool, or session event. |
 | `ctx.evolutionDreaming` | `core` | [`evolution-dreaming`](../packages/evolution/evolution-dreaming) | - | - | - | The evolution-dreaming plugin scores recorded failures with the six-signal composite and promotes qualified candidates into durable per-scope dreams; evolution-heartbeat drives the automatic cycle. |
 | `ctx.evolutionGraph` | `core` | [`evolution-graph`](../packages/evolution/evolution-graph) | - | - | - | The evolution-graph plugin owns durable per-scope entities and relations with bounded traversal and one deterministic extraction; command-evolution queries it through /graph. |
 | `ctx.evolutionController` | `core` | [`evolution-controller`](../packages/evolution/evolution-controller) | - | - | - | The evolution-controller plugin serves scope verbs and the journey read model over the generated evolution Remote namespace; the evolution journey page reads it from the browser. |
+| `ctx.evolutionScorer` | `core` | [`evolution-scorer`](../packages/evolution/evolution-scorer) | - | [`evolution-optimizer`](../packages/evolution/evolution-optimizer) | - | The evolution-scorer plugin runs a scenario through the recorded-session harness and reduces the attempts to the pass/tokens/wall-time triple; it writes nothing, and evolution-optimizer reads the same verdict to decide whether a candidate beats its baseline. |
 | `ctx.evolutionCuratorStatus` | `core` | [`client-ui-evolution`](../packages/client/ui-evolution) | - | - | - | The evolution journey host face provides the evolutionCurator Remote namespace reporting curator status to the browser page; the generated contribution carries it to the client half. |
 | `ctx.evolutionTrajectory` | `core` | [`evolution-trajectory`](../packages/evolution/evolution-trajectory) | - | - | - | The evolution-trajectory plugin exports one Session or every Session of a scope as ShareGPT trajectories, written on the Host path. |
 | `ctx.agents` | `core` | [`agent`](../packages/core/agent) | - | [`agent-loop`](../packages/core/agent-loop), [`acp`](../packages/acp/acp), [`subagent-in-process-driver`](../packages/subagent/subagent-in-process-driver) | - | Owns live Agent handles, the create/resume factory seam, and process-local initiator propagation. |

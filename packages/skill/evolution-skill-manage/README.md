@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-evolution-skill-manage` publishes the model-facing `skill_manage` tool: `create` starts a skill in the managed directory, `patch` replaces one uniquely-occurring substring, `edit` rewrites a skill body behind kept frontmatter, `write_file` and `remove_file` maintain supporting files, and `delete` removes a whole skill. Existing skills mutate in place where the catalog found them. Every mutation reports to skill telemetry when it is mounted; pins block deletion but never patches. Choose it when the model should curate durable skills as files instead of answering from a frozen set.
+`dsh-evolution-skill-manage` publishes the model-facing `skill_manage` tool: `create` starts a skill in the managed directory, `patch` replaces one uniquely-occurring substring, `edit` rewrites a skill body behind kept frontmatter, `write_file` and `remove_file` maintain supporting files, and `delete` removes a whole skill. Existing skills mutate in place where the catalog found them. Every mutation reports to skill telemetry when it is mounted: a `create` carries model authorship, a body write advances the revision chain, and any write resets the skill's trust to provisional until independent evidence or `/curator adopt` vouches for it. Pins block deletion but never patches. Choose it when the model should curate durable skills as files instead of answering from a frozen set.
 
 ## Table of Contents
 
@@ -64,7 +64,7 @@ The tool enforces its operation set in the executor, not the schema: `op` is a p
 
 ### Failure and recovery
 
-A rejected mutation never touches the filesystem. Catalog skills resolve through `resolveSkillDir`, which refuses bundled and hub sources, file-less entries, and unwritable targets before any read. Mutations report through `ctx.get('evolutionSkillTelemetry')`, so the tool works with telemetry unmounted. The `EEXIST` collision on create reports the existing path; other I/O failures propagate.
+A rejected mutation never touches the filesystem. Catalog skills resolve through `resolveSkillDir`, which refuses bundled and hub sources, file-less entries, and unwritable targets before any read. Mutations report through `ctx.get('evolutionSkillTelemetry')`, so the tool works with telemetry unmounted; the revision the store records is the exact file text the operation wrote, hashed by the store rather than re-read from disk. The `EEXIST` collision on create reports the existing path; other I/O failures propagate.
 
 No invariant companion is published because each operation resolves, checks, and writes one filesystem location in a single pass, so there are no two independent observations that could diverge.
 

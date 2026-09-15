@@ -44,6 +44,10 @@ Choose it when a change should be judged by measurement rather than by an exact 
 
 The corpus root is required; the attempt count is a validated member changeable from `cordis.yml`.
 
+### Trigger and skill evaluation
+
+`shouldOptimize(usage, thresholds)` is the pure trigger that decides whether one skill's recorded outcome warrants an optimization run: at least `triggerMinUses` loads with a failure share over `triggerFailureRate`, where the share is `failureCount / (useCount + failureCount)` — the rate the telemetry record documents. `evaluateSkill({ skill, scenarios, agent, run })` scores each named scenario through the existing `score` and aggregates the optimizer triple: `pass` holds only when every scenario passes, and tokens and wall time sum the per-scenario medians. One skipped scenario skips the whole evaluation with its reason, because optimizing on a partial evaluation would select on evidence that is not there; a skill naming no scenarios skips the same way.
+
 ```yaml
 - name: '@deepseek-ai/dsh-evolution-scorer'
   config:
@@ -55,6 +59,8 @@ The corpus root is required; the attempt count is a validated member changeable 
 |---|---|---|
 | `corpusDir` | `required` | Absolute corpus root holding one directory per recorded scenario |
 | `attempts` | `3` | Fresh-process attempts per score; the median is taken over their samples |
+| `triggerMinUses` | `20` | Recorded loads required before a failure rate triggers optimization |
+| `triggerFailureRate` | `0.3` | Failure share a skill must exceed to trigger optimization |
 
 The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-evolution-scorer) is the exhaustive source for every accepted field.
 

@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-evolution-feedback` turns failing tool results into durable per-session observations and aggregates them into the natural-language feedback the learning loop reads. It observes `session/event` as delivered, records only a failing `tool/result` whose tool call it saw, counts a repeat instead of appending it twice, and keeps the newest `maxEntries` per session. Nothing calls a model. `summary` merges several sessions by tool and message, counting how many sessions reported each failure, so a fault seen once in four sessions outranks one repeated four times in a single session.
+`dsh-evolution-feedback` turns failing tool results into durable per-session observations and aggregates them into the natural-language feedback the learning loop reads. It observes `session/event` as delivered, records only a failing `tool/result` whose tool call it saw, counts a repeat instead of appending it twice, and keeps the newest `maxEntries` per session. Nothing calls a model. `summary` merges several sessions by tool and message, counting how many sessions reported each failure, so a fault seen once in four sessions outranks one repeated four times in a single session. `signals` grades that same aggregation: a failure whose own call was never observed only observes, one reported by `triggerReviewSessions` distinct sessions triggers a review, and anything in between ranks without deciding.
 
 ## Table of Contents
 
@@ -25,7 +25,7 @@ English | [中文](README.zh.md)
 <a id="use-this-package"></a>
 ## Use this package
 
-Mount the plugin; observation needs no further wiring. Read one session's failures with `entries`, or several sessions' merged failures with `summary`.
+Mount the plugin; observation needs no further wiring. Read one session's failures with `entries`, several sessions' merged failures with `summary`, or the graded signals a decision consumes with `signals`.
 
 ```ts
 const failures = ctx.evolutionFeedback.summary(workspace.sessionIds, 10)
@@ -34,17 +34,23 @@ for (const failure of failures) {
 }
 ```
 
-A failing result whose `tool/call` was never observed records a null tool, and one carrying neither text nor a failure code records an empty message — both are real states, not errors. A successful result records nothing.
+```ts
+const signals = ctx.evolutionFeedback.signals(workspace.sessionIds, 10)
+const decisive = signals.find(signal => signal.actionability === 'trigger_review')
+```
+
+A failing result whose `tool/call` was never observed records a null tool, and one carrying neither text nor a failure code records an empty message — both are real states, not errors. A successful result records nothing. `signals` sorts the graded aggregation, so a decisive signal survives a limit that a merely counted one would fill; `summary` keeps its count ordering.
 
 ### Configuration
 
-Observation is on by default; the two bounds are validated `Config` members changeable from `cordis.yml`.
+Observation is on by default; every field is a validated `Config` member changeable from `cordis.yml`.
 
 ```yaml
 - name: '@deepseek-ai/dsh-evolution-feedback'
   config:
     maxEntries: 50
     maxMessageChars: 300
+    triggerReviewSessions: 3
 ```
 
 | Field | Default | Meaning |
@@ -52,6 +58,7 @@ Observation is on by default; the two bounds are validated `Config` members chan
 | `enabled` | `true` | Whether failing tool results are observed; reads stay available either way |
 | `maxEntries` | `100` | Observations retained per session, newest first |
 | `maxMessageChars` | `500` | Character budget for one recorded failure message |
+| `triggerReviewSessions` | `2` | Distinct sessions reporting one failure before it triggers a review |
 
 The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-evolution-feedback) is the exhaustive source for every accepted field.
 
@@ -121,6 +128,6 @@ These limits define when the store is a poor fit. They are current package const
 <details>
 <summary>Working context for maintainers — click to expand</summary>
 
-The optimizer pass that consumes `summary` is the reason this store exists; until it lands, `summary` has no in-repo caller. No design owner yet.
+`summary` is display-only for the curator's survey prompt and dreaming's light phase, and the curator pass is what turns `signals` into a decision: an attributable failure demotes the skill it was correlated with. That consumer sets `triggerReviewSessions`; the default of two keeps a single bad session from demoting a skill on its own.
 
 </details>

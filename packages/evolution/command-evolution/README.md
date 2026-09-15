@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-command-evolution` adds the human governance surface for the evolution harness to chat UIs: `/memory` and `/skills` govern staged writes, `/journey [today|7d|30d|all]` shows the scope's recorded activity, `/curator status|run [--dry-run]` shows curation bookkeeping and runs one maintenance pass, `/refine` rebuilds the scope's lessons, `/trajectory` exports the session or scope, `/learn` starts a research-and-save turn, and `/suggestions` lists blueprint-backed skills without scheduling them, and `/dream [light|rem|deep]` consolidates this scope's recorded failures into durable memory. Every command but `/learn` answers directly; `/learn` queues one ordinary turn. Choose them when a human must see and govern what background review proposed before it lands.
+`dsh-command-evolution` adds the human governance surface for the evolution harness to chat UIs: `/memory` and `/skills` govern staged writes, `/journey [today|7d|30d|all]` shows the scope's recorded activity, `/curator status|run [--dry-run]|staged` shows curation bookkeeping, runs one maintenance pass, and lists the skills staged for review, `/refine` rebuilds the scope's lessons, `/trajectory` exports the session or scope, `/learn` starts a research-and-save turn, and `/suggestions` lists blueprint-backed skills without scheduling them, and `/dream [light|rem|deep]` consolidates this scope's recorded failures into durable memory. Every command but `/learn` answers directly; `/learn` queues one ordinary turn. Choose them when a human must see and govern what background review proposed before it lands.
 
 ## Table of Contents
 
@@ -56,10 +56,18 @@ The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-a
 | `/skills <anything-else>` | `Usage: /skills pending \| approve <id>`. |
 | `/journey [today\|7d\|30d\|all]` | Render the scope timeline: the window header, one line per active day, capacity and digest, and the staged count. Bare `/journey` reports `7d`. |
 | `/journey <anything-else>` | `Usage: /journey [today \| 7d \| 30d \| all]`. |
-| `/curator status` | Render the last pass instant, tracked-skill counts by lifecycle state with pins, and the newest recorded pass. |
+| `/curator status` | Render the last pass instant, tracked-skill counts by lifecycle state with pins and trust standing, today's cache-hit share from the usage ledger, the aggregate skill failure rate from telemetry, the staged-for-review count with the worst rate, and the newest recorded pass. Either rate names its missing source when unmounted. |
 | `/curator run` | Run one maintenance pass now: report the movements, skip counts, and snapshot id. |
 | `/curator run --dry-run` | The same pass previewed without writing; the snapshot line reads `Snapshot: none`. |
-| `/curator <anything-else>` | `Usage: /curator status \| /curator run [--dry-run]`. |
+| `/curator staged` | List the skills the ledger stages for review, worst failure rate first, with the evidence that selected each and when it was staged. |
+| `/curator optimize <skill> <scenario...>` | Run one offline optimization over the named corpus scenarios and report the staged skill patch id, or the reason nothing was staged. Requires the optimizer mounted and a workspace scope. |
+| `/curator experiments [skill]` | Print the scope's optimization ledger newest first — time, skill, outcome, staged id, confidence tally, and reason — so a second run starts from what was already tried. Requires the optimizer mounted and a workspace scope. |
+| `/curator adopt <name>` | Claim model-authored skills into user-directed standing and report `Adopted '<name>' (state: <state>)`; anything without model authorship rejects. |
+| `/curator purge [--dry-run]` | Remove archived skills past their TTL and report the directory-or-record removals and pin skips; `--dry-run` previews the list without writing. |
+| `/curator rollback --id <id>` | Roll one recorded pass back: report the restored lifecycle states, then `Restored bodies: <names>` when SKILL.md bodies were restored from their preimages. |
+| `/curator ledger` | List recorded passes newest-first with their transition counts. |
+| `/curator pin <name>` / `/curator unpin <name>` | Pin or unpin one tracked skill and report `Pinned '<name>'` / `Unpinned '<name>'`. |
+| `/curator <anything-else>` | `Usage: /curator status \| run [--dry-run] \| staged \| adopt <name> \| purge [--dry-run] \| rollback --id <id> \| ledger \| pin <name> \| unpin <name> \| optimize <skill> <scenario...> \| experiments [skill]`. |
 | `/refine` | Rebuild the scope's lessons through the reviewer and report `Memory rebuild complete.`. |
 | `/refine <anything>` | `Usage: /refine (no arguments)` — the command takes no arguments. |
 | `/trajectory` | Export the invoking session through the trajectory service and report `Trajectory written to <path> (<n> conversations, <n> bytes).`. |

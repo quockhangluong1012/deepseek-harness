@@ -71,7 +71,10 @@ function rawOf() {
     timeline: vi.fn(async () => ({ ok: true as const, value: timeline })),
     approveStaged: vi.fn(async () => ({ ok: true as const, value })),
     rejectStaged: vi.fn(async () => ({ ok: true as const, value })),
-    status: vi.fn(async () => ({ ok: true as const, value: { mounted: true, lastRunAt: null, passes: [] } })),
+    status: vi.fn(async () => ({
+      ok: true as const,
+      value: { mounted: true, lastRunAt: null, passes: [], cacheHitRate: null, skillFailureRate: null },
+    })),
   }
 }
 
