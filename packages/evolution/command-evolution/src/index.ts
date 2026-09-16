@@ -30,7 +30,9 @@ import type { EvolutionScopeId as EvolutionScopeIdBrand, LessonArtifact, StagedW
 import type {} from '@deepseek-ai/dsh-evolution-reviewer'
 import type {} from '@deepseek-ai/dsh-evolution-curator'
 import type { EvolutionCurator, PassSummary, PurgeReport, RollbackReport } from '@deepseek-ai/dsh-evolution-curator'
-import type { EvolutionOptimizer, OptimizeReport } from '@deepseek-ai/dsh-evolution-optimizer'
+import type { EvolutionOptimizer, ExperimentRecord, OptimizeReport } from '@deepseek-ai/dsh-evolution-optimizer'
+import { rankFrontier } from './frontier.ts'
+import type { FrontierInput } from './frontier.ts'
 import type {} from '@deepseek-ai/dsh-evolution-skill-telemetry'
 import type { SkillUsageRecord } from '@deepseek-ai/dsh-evolution-skill-telemetry'
 import type { SkillBlueprint } from '@deepseek-ai/dsh-skill'
@@ -116,6 +118,14 @@ const LEARN_USAGE = 'Usage: /learn <anything>'
 
 /** Argument grammar for `/suggestions`; the command takes no arguments. */
 const SUGGESTIONS_USAGE = 'Usage: /suggestions (no arguments)'
+
+/** Argument grammar for `/frontier`; the command takes no arguments. */
+const FRONTIER_USAGE = 'Usage: /frontier (no arguments)'
+
+/** The feedback surface `/frontier` reads, resolved dynamically at call time. */
+interface FrontierFeedback {
+  signals(sessionIds: readonly string[], limit: number): readonly { message: string }[]
+}
 
 /** The honest empty state while background review cannot propose skills yet. */
 const SKILLS_EMPTY = 'No pending skill proposals. Background review proposes skills once the reviewer fork lands; write one directly with skill_manage.'
@@ -750,6 +760,94 @@ async function executeSuggestions(ctx: Context, invocation: CommandInvocation): 
 }
 
 /**
+ * Read one skill's newest measured winner: the first ledger row, newest
+ * first, that produced a winner at all. Runs that never scored one carry no
+ * score, so they cannot move the frontier.
+ * @param rows - the skill's ledger rows, newest first.
+ * @returns the winner behind the frontier score, or null when unmeasured.
+ */
+function newestWinner(rows: readonly ExperimentRecord[]): {
+  pass: boolean
+  tokens: number
+  confidence: { wins: number; runs: number } | null
+} | null {
+  const measured = rows.find(row => row.winner !== null)
+  if (measured?.winner === null || measured?.winner === undefined) return null
+  return {
+    pass: measured.winner.pass,
+    tokens: measured.winner.tokens,
+    confidence: measured.confidence === null ? null : { wins: measured.confidence.wins, runs: measured.confidence.runs },
+  }
+}
+
+/**
+ * Execute `/frontier`: rank this scope's skills weakest first from measured
+ * evidence — optimizer winners, telemetry failures and coverage, and the top
+ * failure observed while each skill was in play. The optimizer and telemetry
+ * are required; the catalog only supplies descriptions and feedback only the
+ * top failure message, so either degrades to less text rather than an error.
+ * @param ctx - plugin context carrying the evolution seams.
+ * @param scope - the invoking session's scope.
+ * @param invocation - raw command input plus the invoking agent.
+ * @returns the command result.
+ */
+async function executeFrontier(ctx: Context, scope: EvolutionScopeId, invocation: CommandInvocation): Promise<CommandResult> {
+  if (splitArgs(invocation.rawInput).length > 0) return { kind: 'error', text: FRONTIER_USAGE }
+  const optimizer = ctx.get('evolutionOptimizer') as EvolutionOptimizer | undefined
+  if (optimizer === undefined) return { kind: 'error', text: 'The evolution optimizer is not mounted.' }
+  const telemetry = ctx.get('evolutionSkillTelemetry')
+  if (telemetry === undefined) return { kind: 'error', text: 'Skill telemetry is not mounted. The frontier needs the telemetry store.' }
+  const catalog = ctx.get('skills') as SkillCatalog | undefined
+  const feedback = ctx.get('evolutionFeedback') as FrontierFeedback | undefined
+  const cwd = invocation.agent.session.header.cwd
+  const options = cwd === undefined ? { signal: invocation.signal } : { cwd, signal: invocation.signal }
+  const byName = new Map(telemetry.entries().map(entry => [entry.name, entry.usage]))
+  const names = new Set<string>(byName.keys())
+  for (const row of optimizer.experiments(scope, {})) names.add(row.skill)
+  const inputs: FrontierInput[] = []
+  for (const name of names) {
+    const usage = byName.get(name)
+    // Archived skills never rank; skip their reads too, not just their rows.
+    if (usage?.state === 'archived') continue
+    const winner = newestWinner(optimizer.experiments(scope, { skill: name }))
+    const sessionIds = usage === undefined ? [] : [...usage.sessionIds]
+    const top = feedback !== undefined && sessionIds.length > 0
+      ? feedback.signals(sessionIds, 1)[0]?.message ?? null
+      : null
+    inputs.push({
+      name,
+      description: catalog === undefined ? undefined : (await catalog.get(name, options))?.description,
+      // The archived skip above means no archived input ever reaches the ranker.
+      archived: false,
+      useCount: usage?.useCount ?? 0,
+      failureCount: usage?.failureCount ?? 0,
+      trustFailures: usage?.trustFailures ?? 0,
+      sessions: sessionIds.length,
+      winner,
+      topFailure: top,
+    })
+  }
+  const rows = rankFrontier(inputs)
+  if (rows.length === 0) return { kind: 'success', text: 'No measured capabilities yet.' }
+  return {
+    kind: 'success',
+    text: [
+      `Frontier (weakest first): ${rows.length}`,
+      ...rows.map((row) => {
+        const confidence = row.confidence === null ? '' : ` ${row.confidence}`
+        const failures = row.failures === 0
+          ? ''
+          : ` · ${row.failures} failure${row.failures === 1 ? '' : 's'}${row.topFailure === null ? '' : ` (top: '${row.topFailure}')`}`
+        const description = row.description === undefined ? '' : `: ${row.description}`
+        const loads = `${row.loads} load${row.loads === 1 ? '' : 's'} in ${row.sessions} session${row.sessions === 1 ? '' : 's'}`
+        return `- ${row.name}: ${row.score}${confidence}${failures} · ${loads}${description}`
+      }),
+      'Weakest first: failing without a passing winner, then unmeasured, then passing.',
+    ].join('\n'),
+  }
+}
+
+/**
  * Execute `/curator`: dispatch to the handler for each sub-verb. Pin and
  * unpin only need telemetry, optimize needs the optimizer and a scope, and
  * every other verb requires the curator.
@@ -1139,7 +1237,7 @@ async function executeDream(
 async function handleCommand(
   ctx: Context,
   profile: string,
-  kind: 'memory' | 'refine' | 'journey' | 'skills' | 'graph' | 'trajectory' | 'dream',
+  kind: 'memory' | 'refine' | 'journey' | 'skills' | 'graph' | 'trajectory' | 'dream' | 'frontier',
   invocation: CommandInvocation,
 ): Promise<CommandResult> {
   // Exporting the invoking session needs no workspace, so `/trajectory`
@@ -1161,6 +1259,8 @@ async function handleCommand(
       return executeGraph(ctx, scope, invocation)
     case 'dream':
       return executeDream(ctx, scope, membership, invocation)
+    case 'frontier':
+      return executeFrontier(ctx, scope, invocation)
     /* v8 ignore next -- closed-union exhaustiveness guard */
     default:
       return assertNever(kind, 'command-evolution command kind')
@@ -1257,6 +1357,12 @@ export function apply(ctx: Context, config: Config): void {
       name: 'suggestions',
       description: 'List blueprint-backed skills without scheduling them',
       handler: (invocation: CommandInvocation) => track(executeSuggestions(ctx, invocation)),
+    })
+    yield ctx.commands.register({
+      definitionId: CommandDefinitionId('@deepseek-ai/dsh-command-evolution/frontier'),
+      name: 'frontier',
+      description: 'Rank this scope\'s capabilities weakest first from measured evidence',
+      handler: (invocation: CommandInvocation) => track(handleCommand(ctx, profile, 'frontier', invocation)),
     })
   }, 'command-evolution lifecycle')
 }

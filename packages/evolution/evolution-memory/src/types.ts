@@ -78,13 +78,28 @@ export interface EvolutionExtraction {
 export type StagedWriteKind = 'memory' | 'skill'
 
 /**
- * Text payload for the `setInstructions` and `setUserProfile` staged ops.
- * A profile op may carry extraction provenance, which approval stamps as
- * `lastExtraction`.
+ * Text payload for the `setInstructions`, `setUserProfile`, and
+ * `appendEpisodic` staged ops. A profile op may carry extraction
+ * provenance, which approval stamps as `lastExtraction`.
  */
 export interface MemoryStagedTextPayload {
   text: string
   extraction?: EvolutionExtraction
+}
+
+/**
+ * One raw session note in the scope's episodic tier: the daily log §2.1 keeps
+ * beside the curated semantic families. Approval appends it verbatim and the
+ * append path prunes notes the retention window has outlived, so entries are
+ * short-lived consolidation material, never a second lessons document.
+ */
+export interface EpisodicEntry {
+  /** UTC calendar day the note landed, `YYYY-MM-DD`, derived from `addedAt`. */
+  day: string
+  /** The note as approved, verbatim. */
+  text: string
+  /** ISO-8601 instant the note was appended. */
+  addedAt: string
 }
 
 /** Payload for the `addArtifact` staged op. */
@@ -184,6 +199,8 @@ export interface EvolutionMemoryRecord {
   contextItems: readonly EvolutionContextItem[]
   /** Produced-file index, newest first. */
   outputs: readonly EvolutionOutput[]
+  /** Episodic tier: raw session notes in append order, pruned by retention. */
+  episodic: readonly EpisodicEntry[]
   /** Provenance of the last model-written lessons or profile, or null. */
   lastExtraction: EvolutionExtraction | null
   /** Writes awaiting approval, oldest first. */

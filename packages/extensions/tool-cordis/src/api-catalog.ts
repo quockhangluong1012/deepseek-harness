@@ -5172,6 +5172,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface EncodedImageAttachment {\n    mediaType: ImageMediaType;\n    data: string;\n    name?: string;\n}',
   },
   {
+    name: 'EpisodicEntry',
+    declaration: 'export interface EpisodicEntry {\n    day: string;\n    text: string;\n    addedAt: string;\n}',
+  },
+  {
     name: 'EpochHeader',
     declaration: 'export interface EpochHeader {\n    config: LlmCallConfig;\n    adapterDefaults?: LlmCallConfigAdapterDefaults;\n    tools?: ToolSchema[];\n}',
   },
@@ -5197,7 +5201,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'EvolutionMemoryRecord',
-    declaration: 'export interface EvolutionMemoryRecord {\n    instructions: string;\n    agentLessons: readonly LessonArtifact[];\n    userProfile: string;\n    instructionsUpdatedAt: string | null;\n    lessonsUpdatedAt: string | null;\n    profileUpdatedAt: string | null;\n    memoryUpdatedAt: string | null;\n    contextItems: readonly EvolutionContextItem[];\n    outputs: readonly EvolutionOutput[];\n    lastExtraction: EvolutionExtraction | null;\n    staged: readonly StagedWrite[];\n    resolutions: readonly StagedResolution[];\n    updatedAt: string;\n}',
+    declaration: 'export interface EvolutionMemoryRecord {\n    instructions: string;\n    agentLessons: readonly LessonArtifact[];\n    userProfile: string;\n    instructionsUpdatedAt: string | null;\n    lessonsUpdatedAt: string | null;\n    profileUpdatedAt: string | null;\n    memoryUpdatedAt: string | null;\n    contextItems: readonly EvolutionContextItem[];\n    outputs: readonly EvolutionOutput[];\n    episodic: readonly EpisodicEntry[];\n    lastExtraction: EvolutionExtraction | null;\n    staged: readonly StagedWrite[];\n    resolutions: readonly StagedResolution[];\n    updatedAt: string;\n}',
   },
   {
     name: 'EvolutionRebuildMemoryRequest',

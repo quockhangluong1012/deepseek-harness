@@ -556,7 +556,7 @@ export interface Config {
 }
 ```
 
-来源：[`packages/evolution/command-evolution/src/index.ts:51`](../packages/evolution/command-evolution/src/index.ts)
+来源：[`packages/evolution/command-evolution/src/index.ts:54`](../packages/evolution/command-evolution/src/index.ts)
 
 <a id="deepseek-aidsh-compaction-basic"></a>
 
@@ -764,6 +764,8 @@ export interface Config {
   staleAfterDays?: number
   /** Idle days moving `stale` to `archived`. */
   archiveAfterDays?: number
+  /** Attributed trust failures moving `active` to `stale`, regardless of idleness. */
+  staleTrustFailureFloor?: number
   /** Skill names exempt from automatic transitions, such as schedule references. */
   protectedNames?: string[]
   /** Whether bundled built-in skills are pruned from passes; hub sources are always exempt. */
@@ -800,12 +802,11 @@ export interface Config {
 }
 ```
 
-来源：[`packages/evolution/evolution-curator/src/index.ts:109`](../packages/evolution/evolution-curator/src/index.ts)
+来源：[`packages/evolution/evolution-curator/src/index.ts:117`](../packages/evolution/evolution-curator/src/index.ts)
 
 <a id="deepseek-aidsh-evolution-dreaming"></a>
 
 ## `@deepseek-ai/dsh-evolution-dreaming`
-
 需要：`storageDomain`
 
 ```ts config-catalog
@@ -950,6 +951,13 @@ export interface Config {
    * the scope's lessons or an explicit edit, never a read.
    */
   defaultTtlDays?: number
+  /**
+   * Days an episodic note stays readable after it landed; the append path
+   * drops older notes, so the tier stays a short-lived daily log.
+   */
+  episodicRetentionDays?: number
+  /** Episodic notes retained per scope past the age cut, newest kept. */
+  maxEpisodicEntries?: number
 }
 ```
 

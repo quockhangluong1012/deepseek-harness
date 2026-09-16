@@ -127,6 +127,8 @@ export interface Config {
   staleAfterDays?: number
   /** Idle days moving `stale` to `archived`. */
   archiveAfterDays?: number
+  /** Attributed trust failures moving `active` to `stale`, regardless of idleness. */
+  staleTrustFailureFloor?: number
   /** Skill names exempt from automatic transitions, such as schedule references. */
   protectedNames?: string[]
   /** Whether bundled built-in skills are pruned from passes; hub sources are always exempt. */
@@ -170,6 +172,7 @@ export const Config: z<Config> = z.object({
   tickMinutes: z.number().step(1).min(1).default(15),
   staleAfterDays: z.number().step(1).min(1).default(30),
   archiveAfterDays: z.number().step(1).min(1).default(90),
+  staleTrustFailureFloor: z.number().step(1).min(1).default(3),
   protectedNames: z.array(z.string()).default([]),
   pruneBuiltins: z.boolean().default(true),
   backup: z.object({
@@ -197,6 +200,7 @@ export interface ResolvedConfig {
   tickMinutes: number
   staleAfterDays: number
   archiveAfterDays: number
+  staleTrustFailureFloor: number
   protectedNames: string[]
   pruneBuiltins: boolean
   backup: {
@@ -232,6 +236,7 @@ export function resolveConfig(config: Config): ResolvedConfig {
     tickMinutes = 15,
     staleAfterDays = 30,
     archiveAfterDays = 90,
+    staleTrustFailureFloor = 3,
     protectedNames = [],
     pruneBuiltins = true,
     backup: { enabled: backupEnabled = true, keep: backupKeep = 5 } = {},
@@ -263,6 +268,7 @@ export function resolveConfig(config: Config): ResolvedConfig {
     tickMinutes,
     staleAfterDays,
     archiveAfterDays,
+    staleTrustFailureFloor,
     protectedNames,
     pruneBuiltins,
     backup: { enabled: backupEnabled, keep: backupKeep },
@@ -281,16 +287,84 @@ export function resolveConfig(config: Config): ResolvedConfig {
 }
 
 /**
- * Decide one skill's automatic movement from its idle age.
+ * Failure evidence beyond idleness, read off the telemetry record the pass
+ * already holds. Absent counters read as zero, never as movement.
+ */
+interface StalenessEvidence {
+  /** Times attributed evidence demoted this skill. */
+  trustFailures: number
+  /** An attributed failure with no newer load answering it. */
+  failureUnanswered: boolean
+  /** `skill`-tool loads and failures observed, for the rate rule. */
+  loads: number
+  /** Failed `skill`-tool loads. */
+  failureCount: number
+  /** Outcome of the most recent load, or undefined when never loaded. */
+  lastOutcome: 'ok' | 'failed' | undefined
+  /** Whether the most recent load is newer than the last attributed failure. */
+  usedAfterFailure: boolean
+}
+
+/** Floors behind the failure-driven movements. */
+interface StalenessFloors {
+  /** Attributed failures moving `active` to `stale`. */
+  trustFailureFloor: number
+  /** Loads required before a failure rate can move a skill. */
+  minUses: number
+  /** Failure share a skill must exceed to move, in 0..1. */
+  failureRate: number
+}
+
+/**
+ * Decide one skill's automatic movement from its idle age and its failure
+ * evidence. Idleness still moves skills down on its own; attributed trust
+ * failures and a bad load rate move an `active` skill down even while it is
+ * used — but only while the evidence is unanswered, so a later successful
+ * load quiets the rule instead of oscillating against the revival below.
+ * A `stale` skill whose most recent load succeeded — recently enough to
+ * still be inside the stale window, and newer than its last attributed
+ * failure — returns to `active`; past the archive horizon it archives
+ * instead, so no successful load resurrects the long dead.
  * @param state - current lifecycle state.
  * @param idleMs - milliseconds since last use, or seeding when never used.
  * @param staleMs - idle threshold leaving `active`.
  * @param archiveMs - idle threshold leaving `stale`.
- * @returns the next state, or undefined when the skill stays put.
+ * @param evidence - failure evidence off the telemetry record.
+ * @param floors - floors behind the failure-driven movements.
+ * @returns the next state with its reason, or undefined when the skill stays put.
  */
-function decideTransition(state: SkillLifecycleState, idleMs: number, staleMs: number, archiveMs: number): SkillLifecycleState | undefined {
-  if (state === 'active' && idleMs > staleMs) return 'stale'
-  if (state === 'stale' && idleMs > archiveMs) return 'archived'
+function decideTransition(
+  state: SkillLifecycleState,
+  idleMs: number,
+  staleMs: number,
+  archiveMs: number,
+  evidence: StalenessEvidence,
+  floors: StalenessFloors,
+): { state: SkillLifecycleState; reason: string } | undefined {
+  if (state === 'active') {
+    if (idleMs > staleMs) {
+      return { state: 'stale', reason: `idle ${Math.floor(idleMs / 86400000)}d exceeds ${Math.floor(staleMs / 86400000)}d` }
+    }
+    if (evidence.trustFailures >= floors.trustFailureFloor && evidence.failureUnanswered) {
+      return { state: 'stale', reason: `trust failures ${evidence.trustFailures} reach ${floors.trustFailureFloor}` }
+    }
+    if (evidence.lastOutcome === 'failed' && evidence.loads >= floors.minUses && evidence.failureCount / evidence.loads > floors.failureRate) {
+      return {
+        state: 'stale',
+        reason: `failures ${evidence.failureCount}/${evidence.loads} exceed ${Math.round(floors.failureRate * 100)}%`,
+      }
+    }
+    return undefined
+  }
+  if (state === 'stale') {
+    if (idleMs > archiveMs) {
+      return { state: 'archived', reason: `idle ${Math.floor(idleMs / 86400000)}d exceeds ${Math.floor(archiveMs / 86400000)}d` }
+    }
+    if (evidence.lastOutcome === 'ok' && idleMs <= staleMs && evidence.usedAfterFailure) {
+      return { state: 'active', reason: `last load ok ${Math.floor(idleMs / 86400000)}d ago` }
+    }
+    return undefined
+  }
   return undefined
 }
 
@@ -415,18 +489,33 @@ export class EvolutionCurator extends Service {
         await this.recordTrust(telemetry, name, usage, at)
       }
       const idleMs = now - Date.parse(usage.lastUsedAt ?? usage.createdAt)
-      const to = decideTransition(usage.state, idleMs, staleMs, archiveMs)
-      if (to === undefined) continue
+      const failureCount = usage.failureCount ?? 0
+      const loads = usage.useCount + failureCount
+      const lastUsedMs = usage.lastUsedAt === null ? null : Date.parse(usage.lastUsedAt)
+      const failureMs = usage.lastTrustFailure === null ? null : Date.parse(usage.lastTrustFailure.at)
+      const moved = decideTransition(usage.state, idleMs, staleMs, archiveMs, {
+        trustFailures: usage.trustFailures,
+        failureUnanswered: failureMs !== null && (lastUsedMs === null || failureMs > lastUsedMs),
+        loads,
+        failureCount,
+        lastOutcome: usage.lastOutcome,
+        usedAfterFailure: lastUsedMs !== null && (failureMs === null || lastUsedMs > failureMs),
+      }, {
+        trustFailureFloor: this.resolved.staleTrustFailureFloor,
+        minUses: this.resolved.stageMinUses,
+        failureRate: this.resolved.stageFailureRate,
+      })
+      if (moved === undefined) continue
       const transition: CuratorTransition = {
         name,
         from: usage.state,
-        to,
-        reason: `idle ${Math.floor(idleMs / 86400000)}d exceeds ${to === 'stale' ? this.resolved.staleAfterDays : this.resolved.archiveAfterDays}d`,
+        to: moved.state,
+        reason: moved.reason,
       }
       if (dryRun) {
         report.transitions.push(transition)
       } else {
-        const after = await telemetry.setState(name, to)
+        const after = await telemetry.setState(name, moved.state)
         report.transitions.push(transition)
         applied.push({ transition, before: usage, after })
       }

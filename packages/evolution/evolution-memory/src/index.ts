@@ -34,7 +34,7 @@ import type { LessonArtifact, LessonArtifactInput, LessonArtifactPatch, LessonMe
 import { cosineSimilarity, mergeArtifact, pickMergeTarget } from './merge.ts'
 import { addArtifactTo, applyLessonDecisions, artifactIdOf, freshArtifact, lessonDecision } from './decisions.ts'
 import type { LessonDecision } from './decisions.ts'
-import { prunable } from './maintenance.ts'
+import { pruneEpisodic, prunable } from './maintenance.ts'
 import type { SweepResult } from './maintenance.ts'
 import { evolutionExtraction, evolutionMemoryDomainSpec, stagedWritePayload } from './spec.ts'
 import type {
@@ -186,6 +186,13 @@ export interface Config {
    * the scope's lessons or an explicit edit, never a read.
    */
   defaultTtlDays?: number
+  /**
+   * Days an episodic note stays readable after it landed; the append path
+   * drops older notes, so the tier stays a short-lived daily log.
+   */
+  episodicRetentionDays?: number
+  /** Episodic notes retained per scope past the age cut, newest kept. */
+  maxEpisodicEntries?: number
 }
 
 /** Capacity-bar denominator and hard ceiling on stored bytes. */
@@ -221,6 +228,12 @@ const refutationFloorField = z.number().step(1).min(1).default(3)
 /** Days a new artifact is given when its caller supplies no ttl. */
 const defaultTtlDaysField = z.number().step(1).min(1).default(30)
 
+/** Days an episodic note stays readable after it landed. */
+const episodicRetentionDaysField = z.number().step(1).min(1).default(7)
+
+/** Episodic notes retained per scope past the age cut, newest kept. */
+const maxEpisodicEntriesField = z.number().step(1).min(1).default(100)
+
 /** Validated deployment choices; `capacityBytes` is required. */
 export const Config: z<Config> = z.object({
   capacityBytes: capacityBytesField,
@@ -234,6 +247,8 @@ export const Config: z<Config> = z.object({
   maintenanceIntervalHours: maintenanceIntervalHoursField,
   refutationFloor: refutationFloorField,
   defaultTtlDays: defaultTtlDaysField,
+  episodicRetentionDays: episodicRetentionDaysField,
+  maxEpisodicEntries: maxEpisodicEntriesField,
 })
 
 /** Normalized configuration used by the store. */
@@ -249,6 +264,8 @@ export interface ResolvedConfig {
   maintenanceIntervalHours: number
   refutationFloor: number
   defaultTtlDays: number
+  episodicRetentionDays: number
+  maxEpisodicEntries: number
 }
 
 /**
@@ -269,6 +286,8 @@ export function resolveConfig(config: Config): ResolvedConfig {
     maintenanceIntervalHours = 24,
     refutationFloor = 3,
     defaultTtlDays = 30,
+    episodicRetentionDays = 7,
+    maxEpisodicEntries = 100,
   } = config
   return {
     capacityBytes,
@@ -282,6 +301,8 @@ export function resolveConfig(config: Config): ResolvedConfig {
     maintenanceIntervalHours,
     refutationFloor,
     defaultTtlDays,
+    episodicRetentionDays,
+    maxEpisodicEntries,
   }
 }
 
@@ -296,6 +317,7 @@ function freshRecord(): Omit<EvolutionMemoryRecord, 'updatedAt'> & { updatedAt?:
     memoryUpdatedAt: null,
     contextItems: [],
     outputs: [],
+    episodic: [],
     lastExtraction: null,
     staged: [],
     resolutions: [],
@@ -690,6 +712,26 @@ function applyMemoryStagedOp(
     case 'setUserProfile': {
       const next = withStagedExtraction(applySetProfile(record, requiredText(fields, entry.op), resolved), fields)
       return { record: next, family: 'profile' }
+    }
+    case 'appendEpisodic': {
+      const text = requiredText(fields, entry.op)
+      if (text.trim().length === 0) {
+        throw new Error("evolution-memory: staged appendEpisodic payload must carry a non-blank 'text'")
+      }
+      const now = new Date().toISOString()
+      const next = {
+        ...record,
+        // Episodic material stamps no family: it is unapproved consolidation
+        // input, not a curated document, so no family instant moves for it.
+        episodic: pruneEpisodic(
+          [...record.episodic, { day: now.slice(0, 10), text, addedAt: now }],
+          Date.parse(now),
+          resolved.episodicRetentionDays,
+          resolved.maxEpisodicEntries,
+        ),
+      }
+      checkCapacity(next, resolved.capacityBytes)
+      return { record: next, family: null }
     }
     default:
       throw new Error(`evolution-memory: unknown staged memory op '${entry.op}'`)

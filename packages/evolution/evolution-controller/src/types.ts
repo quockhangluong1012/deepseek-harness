@@ -13,6 +13,7 @@ import type {
   EvolutionMemoryUsage,
   EvolutionOutput,
   LessonArtifact,
+  EpisodicEntry,
   LessonArtifactInput,
   StagedResolution,
   StagedWrite,
@@ -61,6 +62,8 @@ export interface EvolutionMemoryValue {
   readonly contextItems: readonly EvolutionContextItem[]
   /** Produced-file index, newest first. */
   readonly outputs: readonly EvolutionOutput[]
+  /** Episodic tier: raw session notes in append order. */
+  readonly episodic: readonly EpisodicEntry[]
   /** Provenance of the last model-written document, or null. */
   readonly lastExtraction: EvolutionExtraction | null
   /** Writes still awaiting a decision, oldest first. */

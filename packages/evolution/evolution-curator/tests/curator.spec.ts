@@ -113,6 +113,7 @@ describe('evolution curator', () => {
       timeoutMs: 60000,
       stageMinUses: 20,
       stageFailureRate: 0.3,
+      staleTrustFailureFloor: 3,
     })
     expect(() => resolveConfig({ staleAfterDays: 90, archiveAfterDays: 30 }))
       .toThrow('must not be below staleAfterDays')
@@ -401,12 +402,14 @@ describe('evolution curator', () => {
     try {
       await h.telemetry?.markUsed('old')
       await h.telemetry?.markUsed('older')
-      await h.telemetry?.setState('older', 'stale')
       await h.telemetry?.markUsed('fresh')
       const now = Date.now()
       const idle = await h.curator.run({ now })
       expect(idle.scanned).toBe(3)
       expect(idle.transitions).toEqual([])
+      // Stage 'older' as pre-staled after the quiet pass: a stale label with a
+      // fresher ok load behind it is exactly what the revival rule answers.
+      await h.telemetry?.setState('older', 'stale')
       const first = await h.curator.run({ now: now + 45 * DAY })
       expect(first.scanned).toBe(3)
       expect(first.transitions).toHaveLength(2)
@@ -542,6 +545,128 @@ describe('evolution curator', () => {
         failureRate: 0.75,
         reason: 'failures 3/4 exceed 50%',
       }])
+    } finally {
+      await h.fiber.dispose()
+    }
+  })
+
+  it('stales an active skill on repeated unattributed failures', async () => {
+    const h = await harness({ sources: { rotten: 'user-dsh' } })
+    try {
+      await h.telemetry?.markUsed('rotten', undefined, 's1')
+      const failedAt = new Date(Date.now() + HOUR).toISOString()
+      for (let i = 0; i < 3; i += 1) {
+        await h.telemetry?.recordTrustObservation('rotten', 'failure', `s-f${i}`, {
+          mergeKey: 'bash\u0000broken', message: 'broken', at: failedAt,
+        })
+      }
+      const report = await h.curator.run({ now: Date.now() + 2 * HOUR })
+      expect(report.transitions).toEqual([{
+        name: 'rotten', from: 'active', to: 'stale', reason: 'trust failures 3 reach 3',
+      }])
+      expect(h.telemetry?.read('rotten')).toMatchObject({ state: 'stale' })
+    } finally {
+      await h.fiber.dispose()
+    }
+  })
+
+  it('leaves an active skill alone when a later load answers its failures', async () => {
+    const h = await harness({ sources: { answered: 'user-dsh' } })
+    try {
+      await h.telemetry?.markUsed('answered', undefined, 's1')
+      // Backdated attribution: the answering load below is genuinely newer.
+      const failedAt = new Date(Date.now() - 2 * HOUR).toISOString()
+      for (let i = 0; i < 3; i += 1) {
+        await h.telemetry?.recordTrustObservation('answered', 'failure', `s-f${i}`, {
+          mergeKey: 'bash\u0000broken', message: 'broken', at: failedAt,
+        })
+      }
+      await h.telemetry?.markUsed('answered', undefined, 's2')
+      const report = await h.curator.run({ now: Date.now() + HOUR })
+      expect(report.transitions).toEqual([])
+      expect(h.telemetry?.read('answered')).toMatchObject({ state: 'active' })
+    } finally {
+      await h.fiber.dispose()
+    }
+  })
+
+  it('stales a never-loaded skill on attributed failures alone', async () => {
+    const h = await harness({})
+    try {
+      const failedAt = new Date(Date.now() + HOUR).toISOString()
+      for (let i = 0; i < 3; i += 1) {
+        await h.telemetry?.recordTrustObservation('ghost', 'failure', `s-f${i}`, {
+          mergeKey: 'bash\u0000broken', message: 'broken', at: failedAt,
+        })
+      }
+      const report = await h.curator.run({ now: Date.now() + 2 * HOUR })
+      expect(report.transitions).toEqual([{
+        name: 'ghost', from: 'active', to: 'stale', reason: 'trust failures 3 reach 3',
+      }])
+    } finally {
+      await h.fiber.dispose()
+    }
+  })
+
+  it('stales an active skill on a bad load rate ending in failure', async () => {
+    const h = await harness({
+      sources: { flaky: 'user-dsh' },
+      curatorConfig: { stageMinUses: 4, stageFailureRate: 0.5 },
+    })
+    try {
+      await h.telemetry?.markUsed('flaky')
+      for (let i = 0; i < 3; i += 1) await h.telemetry?.markFailed('flaky')
+      const report = await h.curator.run({ now: Date.now(), dryRun: true })
+      expect(report.transitions).toEqual([{
+        name: 'flaky', from: 'active', to: 'stale', reason: 'failures 3/4 exceed 50%',
+      }])
+      expect(h.telemetry?.read('flaky')).toMatchObject({ state: 'active' })
+    } finally {
+      await h.fiber.dispose()
+    }
+  })
+
+  it('leaves a bad-rate skill alone when its latest load succeeded', async () => {
+    const h = await harness({
+      sources: { recovering: 'user-dsh' },
+      curatorConfig: { stageMinUses: 4, stageFailureRate: 0.5 },
+    })
+    try {
+      await h.telemetry?.markUsed('recovering')
+      for (let i = 0; i < 3; i += 1) await h.telemetry?.markFailed('recovering')
+      await h.telemetry?.markUsed('recovering')
+      const report = await h.curator.run({ now: Date.now() })
+      expect(report.transitions).toEqual([])
+      expect(h.telemetry?.read('recovering')).toMatchObject({ state: 'active' })
+    } finally {
+      await h.fiber.dispose()
+    }
+  })
+
+  it('revives a stale skill on a fresh successful load', async () => {
+    const h = await harness({ sources: { back: 'user-dsh' } })
+    try {
+      await h.telemetry?.setState('back', 'stale')
+      await h.telemetry?.markUsed('back', undefined, 's9')
+      const report = await h.curator.run({ now: Date.now() })
+      expect(report.transitions).toEqual([{
+        name: 'back', from: 'stale', to: 'active', reason: 'last load ok 0d ago',
+      }])
+      expect(h.telemetry?.read('back')).toMatchObject({ state: 'active' })
+    } finally {
+      await h.fiber.dispose()
+    }
+  })
+
+  it('archives past the horizon instead of reviving the long dead', async () => {
+    const h = await harness({ sources: { gone: 'user-dsh' } })
+    try {
+      await h.telemetry?.setState('gone', 'stale')
+      await h.telemetry?.markUsed('gone', undefined, 's9')
+      const report = await h.curator.run({ now: Date.now() + 100 * DAY })
+      expect(report.transitions).toHaveLength(1)
+      expect(report.transitions[0]).toMatchObject({ name: 'gone', from: 'stale', to: 'archived' })
+      expect(report.transitions[0]?.reason).toContain('exceeds 90d')
     } finally {
       await h.fiber.dispose()
     }

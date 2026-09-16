@@ -1,5 +1,5 @@
 ---
-description: "面向人类的 /memory、/skills、/journey、/curator、/refine、/trajectory、/learn 与 /suggestions 命令，治理暂存的演进写入、作用域活动、会话导出与技能整理（ctx.commands），供治理自学习 harness 的宿主使用。"
+description: "面向人类的 /memory、/skills、/journey、/curator、/refine、/trajectory、/learn、/suggestions 与 /frontier 命令，治理暂存的演进写入、作用域活动、会话导出与技能整理（ctx.commands），供治理自学习 harness 的宿主使用。"
 kind: "package-reference"
 ---
 
@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-`dsh-command-evolution` 向聊天 UI 添加演进 harness 的人类治理面：`/memory` 与 `/skills` 治理暂存写入，`/journey [today|7d|30d|all]` 显示作用域已记录的活动，`/curator status|run [--dry-run]|staged` 显示整理台账、运行一次维护通过，并列出为复核而分选的技能，`/refine` 重建该作用域的经验，`/trajectory` 导出会话或作用域，`/learn` 开启一次调研并保存的回合，`/suggestions` 列出带 blueprint 的技能而不调度它们，`/dream [light|rem|deep]` 把该作用域已记录的失败固化为持久记忆。除 `/learn` 外每个命令都直接作答；`/learn` 排队一个普通回合。当人类必须在后台评审提议落地前看到并治理它们时，选择本包。
+`dsh-command-evolution` 向聊天 UI 添加演进 harness 的人类治理面：`/memory` 与 `/skills` 治理暂存写入，`/journey [today|7d|30d|all]` 显示作用域已记录的活动，`/curator status|run [--dry-run]|staged` 显示整理台账、运行一次维护通过，并列出为复核而分选的技能，`/refine` 重建该作用域的经验，`/trajectory` 导出会话或作用域，`/learn` 开启一次调研并保存的回合，`/suggestions` 列出带 blueprint 的技能而不调度它们，`/frontier` 按实测证据把该作用域的能力从最弱到最强排序，`/dream [light|rem|deep]` 把该作用域已记录的失败固化为持久记忆。除 `/learn` 外每个命令都直接作答；`/learn` 排队一个普通回合。当人类必须在后台评审提议落地前看到并治理它们时，选择本包。
 
 ## 目录
 
@@ -79,6 +79,8 @@ kind: "package-reference"
 | `/learn` | `Usage: /learn <anything>`——命令需要一个主题。 |
 | `/suggestions` | 列出 frontmatter 声明了 blueprint 的技能，格式为 `- <name>: <description> (schedule <schedule>, deliver <session\|file>)`，并附上不会调度任何内容的提醒。 |
 | `/suggestions <anything>` | `Usage: /suggestions (no arguments)`。 |
+| `/frontier` | 按实测证据把该作用域的技能从最弱到最强排序，格式为 `- <name>: <score> [<wins>/<runs>] [· <n> failures [(top: '<message>')]] · <loads> loads in <sessions> sessions[: <description>]`，末尾附排序规则。 |
+| `/frontier <anything>` | `Usage: /frontier (no arguments)`。 |
 
 `applyDecisions` 条目在 gist 里给出一批决策的计数——confirms、contradicts 与 new 各多少条——并在该行之下为每个决策各列一行缩进明细：`new '<statement>'`、`confirms '<current statement>'` 或 `contradicts '<current statement>'`，而当该条反驳携带了更正后的 statement 时则是 `contradicts '<current statement>' → '<replacement>'`。`confirms` 或 `contradicts` 的目标渲染为记录当前为该工件持有的 statement；记录已不再持有时则渲染为该工件的 id——该 id 正是工件创建时所用的规范化 statement，因此读起来仍是文本。其他操作只打印自己的 gist 行；渲染器读不懂其载荷的 `applyDecisions` 条目同样如此：读不懂的暂存载荷不渲染任何明细行，而不是让整张列表失败。
 
@@ -100,6 +102,9 @@ kind: "package-reference"
 | 在任何 workspace 作用域之外使用 `--all` | `This session is outside any workspace scope.` |
 | 导出被拒绝 | `Trajectory export failed (<code>): <detail>.` |
 | 未挂载技能注册表时 `/suggestions` | `The skill registry is not mounted.` |
+| 未挂载优化器时 `/frontier` | `The evolution optimizer is not mounted.` |
+| 未挂载遥测时 `/frontier` | `Skill telemetry is not mounted. The frontier needs the telemetry store.` |
+| 没有任何技能时 `/frontier` | `No measured capabilities yet.` |
 | 没有任何带 blueprint 的技能时 `/suggestions` | `No blueprint-backed skills. A skill appears here when its frontmatter declares a blueprint; this command never installs the schedule it names.` |
 
 取消 `/refine` 即停止等待：注册表以中止原因结算调用，与 `/compact` 的取消约定一致。除上述预期情形外的失败会以错误形式呈现，而不会被静默转换。

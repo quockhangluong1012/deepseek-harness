@@ -250,38 +250,74 @@ export class EvolutionDreaming extends Service {
     }
   }
 
-  /** Light phase: gather and deduplicate the scope's recorded failures. */
+  /**
+   * Light phase: gather and deduplicate the scope's recorded failures and its
+   * episodic notes. Either source may be absent; an episodic note restating a
+   * recorded failure folds into the same candidate, so raw session material
+   * reaches the REM phase through the same consolidation path.
+   */
   private stage(scopeId: EvolutionScopeId, sessionIds: readonly string[]): DreamCandidate[] {
-    const feedback = this.ctx.get('evolutionFeedback')
-    if (feedback === undefined) {
-      this.stageCache.set(storageKey(scopeId), [])
-      return []
-    }
-    const summary = feedback.summary(sessionIds, this.resolved.maxCandidates)
     const byId = new Map<string, DreamCandidate>()
-    for (const entry of summary) {
-      const id = candidateId(entry.message)
-      if (id.length === 0) continue
+    const add = (
+      statement: string,
+      tool: string | null,
+      count: number,
+      sessions: number,
+      firstAt: string,
+      lastAt: string,
+    ): void => {
+      const id = candidateId(statement)
+      if (id.length === 0) return
       const existing = byId.get(id)
-      if (existing !== undefined) {
-        byId.set(id, {
-          ...existing,
-          count: existing.count + entry.count,
-          sessions: Math.max(existing.sessions, entry.sessions),
-          firstAt: existing.firstAt < entry.firstAt ? existing.firstAt : entry.firstAt,
-          lastAt: existing.lastAt > entry.lastAt ? existing.lastAt : entry.lastAt,
+      if (existing === undefined) {
+        byId.set(id, { id, statement, tool, count, sessions, firstAt, lastAt })
+        return
+      }
+      byId.set(id, {
+        ...existing,
+        count: existing.count + count,
+        sessions: Math.max(existing.sessions, sessions),
+        firstAt: existing.firstAt < firstAt ? existing.firstAt : firstAt,
+        lastAt: existing.lastAt > lastAt ? existing.lastAt : lastAt,
+      })
+    }
+    const feedback = this.ctx.get('evolutionFeedback')
+    if (feedback !== undefined) {
+      for (const entry of feedback.summary(sessionIds, this.resolved.maxCandidates)) {
+        add(entry.message, entry.tool, entry.count, entry.sessions, entry.firstAt, entry.lastAt)
+      }
+    }
+    // Episodic notes re-stage while retention keeps them: the deep phase's
+    // promoted set already refuses a second promotion, exactly as it does for
+    // failures the feedback seam reports again. One note is one sighting;
+    // sightings on distinct days are the independent contexts the deep phase
+    // gates on, so a note repeated across days can promote while a once-off
+    // note can only reinforce a failure the feedback seam also reported.
+    const sightings = new Map<string, { statement: string; count: number; days: Set<string>; firstAt: string; lastAt: string }>()
+    for (const note of this.ctx.get('evolutionMemory')?.read(scopeId)?.episodic ?? []) {
+      const id = candidateId(note.text)
+      if (id.length === 0) continue
+      const held = sightings.get(id)
+      if (held === undefined) {
+        sightings.set(id, {
+          statement: note.text,
+          count: 1,
+          days: new Set([note.day]),
+          firstAt: note.addedAt,
+          lastAt: note.addedAt,
         })
         continue
       }
-      byId.set(id, {
-        id,
-        statement: entry.message,
-        tool: entry.tool,
-        count: entry.count,
-        sessions: entry.sessions,
-        firstAt: entry.firstAt,
-        lastAt: entry.lastAt,
-      })
+      held.count += 1
+      held.days.add(note.day)
+      if (note.addedAt < held.firstAt) {
+        held.firstAt = note.addedAt
+        held.statement = note.text
+      }
+      if (note.addedAt > held.lastAt) held.lastAt = note.addedAt
+    }
+    for (const seen of sightings.values()) {
+      add(seen.statement, null, seen.count, seen.days.size, seen.firstAt, seen.lastAt)
     }
     const staged = [...byId.values()]
     this.stageCache.set(storageKey(scopeId), staged)

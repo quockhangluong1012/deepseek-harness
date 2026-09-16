@@ -11,7 +11,8 @@ import EvolutionMemoryStore, {
 } from '../src/index.ts'
 import type { EvolutionScopeId as ScopeId } from '../src/types.ts'
 import { artifactKey, type LessonArtifact } from '../src/lesson-artifact.ts'
-import { prunable } from '../src/maintenance.ts'
+import { pruneEpisodic, prunable } from '../src/maintenance.ts'
+import type { EpisodicEntry } from '../src/types.ts'
 import { evolutionMemoryDomainSpec, evolutionMemoryRecord } from '../src/spec.ts'
 
 const NOW = Date.parse('2026-09-13T00:00:00.000Z')
@@ -24,6 +25,29 @@ function artifact(overrides: Partial<LessonArtifact> = {}): LessonArtifact {
     createdAt: '2026-09-01T00:00:00.000Z', updatedAt: '2026-09-01T00:00:00.000Z', ...overrides,
   }
 }
+
+/** One episodic note `n` days before the fixed now. */
+function note(text: string, daysAgo: number): EpisodicEntry {
+  const at = new Date(NOW - daysAgo * DAY).toISOString()
+  return { day: at.slice(0, 10), text, addedAt: at }
+}
+
+describe('episodic retention', () => {
+  it('drops notes past retention and keeps the boundary', () => {
+    expect(pruneEpisodic([note('old', 8), note('edge', 7), note('new', 1)], NOW, 7, 100).map(entry => entry.text))
+      .toEqual(['edge', 'new'])
+  })
+
+  it('keeps the newest past the count cap, oldest first out', () => {
+    expect(pruneEpisodic([note('one', 1), note('two', 1), note('three', 1)], NOW, 7, 2).map(entry => entry.text))
+      .toEqual(['two', 'three'])
+  })
+
+  it('keeps every note inside both bounds', () => {
+    expect(pruneEpisodic([], NOW, 7, 100)).toEqual([])
+    expect(pruneEpisodic([note('one', 1)], NOW, 7, 100)).toHaveLength(1)
+  })
+})
 
 describe('artifact decay', () => {
   it('never prunes an artifact without a ttl', () => {
@@ -225,6 +249,7 @@ describe('evolution-memory sweep', () => {
       memoryUpdatedAt: '2026-01-01T00:00:00.000Z',
       contextItems: [],
       outputs: [],
+      episodic: [],
       lastExtraction: null,
       staged: [],
       updatedAt: '2026-01-01T00:00:00.000Z',

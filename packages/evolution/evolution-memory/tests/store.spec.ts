@@ -106,6 +106,8 @@ describe('evolution-memory scope ids', () => {
       maintenanceIntervalHours: 24,
       refutationFloor: 3,
       defaultTtlDays: 30,
+      episodicRetentionDays: 7,
+      maxEpisodicEntries: 100,
     })
   })
 })

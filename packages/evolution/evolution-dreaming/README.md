@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-evolution-dreaming` consolidates what a scope keeps failing at into durable memory, in three phases modelled on sleep. **Light** gathers the scope's recorded failures and deduplicates them by statement. **REM** derives the themes they share and writes a narrative. **Deep** is the only phase that writes durable memory: it scores every candidate with the six-signal weighted composite, promotes those clearing all three gates, and drops promotions the decay rule has outlived. Weights are fixed — they are the algorithm; thresholds, cadence, and retention are configuration.
+`dsh-evolution-dreaming` consolidates what a scope keeps failing at into durable memory, in three phases modelled on sleep. **Light** gathers the scope's recorded failures and its episodic notes, deduplicating by statement: one note is one sighting, sightings on distinct days are the independent contexts the deep phase gates on, and a note restating a recorded failure folds into that failure's candidate. **REM** derives the themes they share and writes a narrative. **Deep** is the only phase that writes durable memory: it scores every candidate with the six-signal weighted composite, promotes those clearing all three gates, and drops promotions the decay rule has outlived. Weights are fixed — they are the algorithm; thresholds, cadence, and retention are configuration.
 
 ## Table of Contents
 
@@ -85,7 +85,7 @@ Each dimension is normalized to `0..1` before weighting, so no signal can domina
 
 ### Phase separation
 
-Only the deep phase writes durable memory. Light and REM may run on their own for inspection without changing what the scope has learned, and the automatic cycle runs all three in order. Promotions live in the plugin's own domain, never in the model-owned lessons document, so two writers never contend for one document.
+Only the deep phase writes durable memory. Light and REM may run on their own for inspection without changing what the scope has learned, and the automatic cycle runs all three in order. Episodic notes re-stage while the memory retention window keeps them — the deep phase's promoted set already refuses a second promotion, exactly as it does for failures the feedback seam reports again — so a repeated note is re-scored with decayed recency rather than tracked as consumed. Promotions live in the plugin's own domain, never in the model-owned lessons document, so two writers never contend for one document.
 
 ### Failure and recovery
 

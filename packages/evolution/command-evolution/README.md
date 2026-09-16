@@ -1,5 +1,5 @@
 ---
-description: "Human-facing /memory, /skills, /journey, /curator, /refine, /trajectory, /learn, and /suggestions commands governing staged evolution writes, scope activity, session export, and skill curation (ctx.commands), for hosts governing the self-learning harness."
+description: "Human-facing /memory, /skills, /journey, /curator, /refine, /trajectory, /learn, /suggestions, and /frontier commands governing staged evolution writes, scope activity, session export, and skill curation (ctx.commands), for hosts governing the self-learning harness."
 kind: "package-reference"
 ---
 
@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-command-evolution` adds the human governance surface for the evolution harness to chat UIs: `/memory` and `/skills` govern staged writes, `/journey [today|7d|30d|all]` shows the scope's recorded activity, `/curator status|run [--dry-run]|staged` shows curation bookkeeping, runs one maintenance pass, and lists the skills staged for review, `/refine` rebuilds the scope's lessons, `/trajectory` exports the session or scope, `/learn` starts a research-and-save turn, and `/suggestions` lists blueprint-backed skills without scheduling them, and `/dream [light|rem|deep]` consolidates this scope's recorded failures into durable memory. Every command but `/learn` answers directly; `/learn` queues one ordinary turn. Choose them when a human must see and govern what background review proposed before it lands.
+`dsh-command-evolution` adds the human governance surface for the evolution harness to chat UIs: `/memory` and `/skills` govern staged writes, `/journey [today|7d|30d|all]` shows the scope's recorded activity, `/curator status|run [--dry-run]|staged` shows curation bookkeeping, runs one maintenance pass, and lists the skills staged for review, `/refine` rebuilds the scope's lessons, `/trajectory` exports the session or scope, `/learn` starts a research-and-save turn, and `/suggestions` lists blueprint-backed skills without scheduling them, `/frontier` ranks the scope's capabilities weakest first from measured evidence, and `/dream [light|rem|deep]` consolidates this scope's recorded failures into durable memory. Every command but `/learn` answers directly; `/learn` queues one ordinary turn. Choose them when a human must see and govern what background review proposed before it lands.
 
 ## Table of Contents
 
@@ -79,6 +79,8 @@ The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-a
 | `/learn` | `Usage: /learn <anything>` — the command needs a topic. |
 | `/suggestions` | List the skills whose frontmatter declares a blueprint, as `- <name>: <description> (schedule <schedule>, deliver <session\|file>)`, plus the reminder that nothing is scheduled. |
 | `/suggestions <anything>` | `Usage: /suggestions (no arguments)`. |
+| `/frontier` | Rank this scope's skills weakest first from measured evidence, as `- <name>: <score> [<wins>/<runs>] [· <n> failures [(top: '<message>')]] · <loads> loads in <sessions> sessions[: <description>]`, ending with the ranking rule. |
+| `/frontier <anything>` | `Usage: /frontier (no arguments)`. |
 
 An `applyDecisions` entry names its batch in the gist — the counts of confirms, contradicts, and new — and continues under that line with one indented line per decision: `new '<statement>'`, `confirms '<current statement>'` or `contradicts '<current statement>'`, and `contradicts '<current statement>' → '<replacement>'` when the contradiction carried a corrected statement. A `confirms` or `contradicts` target renders as the statement the record currently holds for it, and as the artifact's id when the record no longer holds it — that id is the normalized statement the artifact was created from, so it still reads as text. Every other op prints its gist line alone, and so does an `applyDecisions` entry whose payload the renderer cannot read: an unreadable staged payload renders no detail lines instead of failing the list.
 
@@ -100,6 +102,9 @@ The commands turn each expected failure into a stable message you can show direc
 | `--all` outside every workspace scope | `This session is outside any workspace scope.` |
 | A rejected export | `Trajectory export failed (<code>): <detail>.` |
 | `/suggestions` without the skill registry mounted | `The skill registry is not mounted.` |
+| `/frontier` without the optimizer mounted | `The evolution optimizer is not mounted.` |
+| `/frontier` without telemetry mounted | `Skill telemetry is not mounted. The frontier needs the telemetry store.` |
+| `/frontier` with no skills anywhere | `No measured capabilities yet.` |
 | `/suggestions` with no blueprint-backed skill | `No blueprint-backed skills. A skill appears here when its frontmatter declares a blueprint; this command never installs the schedule it names.` |
 
 Cancelling `/refine` stops the wait: the registry settles the invocation with the abort reason, matching the `/compact` cancellation contract. Failures other than these expected cases surface as errors rather than being silently converted.

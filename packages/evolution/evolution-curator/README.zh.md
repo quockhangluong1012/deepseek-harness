@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-`dsh-evolution-curator` 运行技能生命周期整理的自动、无模型一半——闲置技能沿技能遥测从 `active` 经 `stale` 到 `archived`，带试运行预览、首次运行递延与闲置门控——以及可选、由模型驱动的一半：把 agent 创建的技能归并为伞技能。置顶技能、受保护名称、随包与 hub 来源永不移动。本插件每个 host 只挂载一次，并自己拥有计划：它观测 host 范围的会话活动，运行一次启动时到期检查，随后按周期滴答。真实通过记录自己做过什么——每个被补丁的正文都留下前像——并按整轮或单条目失败关闭地回滚；手工认领由模型写出的技能，TTL 清理删除归档技能及其目录；每趟还会把与某技能关联的失败分级为该技能的信任状态。遥测缺席时，自动方法退化为记账或空报告。
+`dsh-evolution-curator` 运行技能生命周期整理的自动、无模型一半——技能沿技能遥测的闲置时长与失败证据从 `active` 经 `stale` 到 `archived`，最新一次加载成功的 stale 技能有回 `active` 的路，带试运行预览、首次运行递延与闲置门控——以及可选、由模型驱动的一半：把 agent 创建的技能归并为伞技能。置顶技能、受保护名称、随包与 hub 来源永不移动。本插件每个 host 只挂载一次，并自己拥有计划：它观测 host 范围的会话活动，运行一次启动时到期检查，随后按周期滴答。真实通过记录自己做过什么——每个被补丁的正文都留下前像——并按整轮或单条目失败关闭地回滚；手工认领由模型写出的技能，TTL 清理删除归档技能及其目录；每趟还会把与某技能关联的失败分级为该技能的信任状态。遥测缺席时，自动方法退化为记账或空报告。
 
 挂载本身就是全部触发：`enabled: false` 不启动定时器，也不触碰记账。
 
@@ -29,7 +29,7 @@ kind: "package-reference"
 
 Host 启动时挂载本插件一次。此后它自行拥有维护计划：自己观测 host 范围的 `session/event` 活动，运行一次启动时到期检查，并以 `unref()` 过的定时器每 `tickMinutes` 重复一次到期检查，定时器随插件处置。到期检查仅在 `lastRunAt` 起经过 `intervalHours`，且 `minIdleHours` 内没有会话事件到达时才运行一次通过；本进程观测到任何活动之前，host 视为闲置。首次检查只播种 `lastRunAt` 并递延一个周期，因此短命 CLI 运行只贡献其启动时刻，而不运行任何东西。`enabled: false` 不启动定时器，也不触碰记账。
 
-调用 `maybeRun` 可自行运行同一次到期检查（闲置门控可用 `idleMs` 显式覆盖），调用 `run` 做无条件通过，以 `dryRun: true` 预览报告而不写入。一次通过检查每个被跟踪的技能：闲置时长从上次加载起算，从未加载则从播种起算。`active` 在超过 `staleAfterDays` 后进入 `stale`，`stale` 在超过 `archiveAfterDays` 后进入 `archived`。报告以理由列出每次移动，并给出置顶、受保护名称与被排除来源的跳过计数；写了快照时还携带通过标识与快照文件名。`lastRunAt` 读取上次通过时刻，供状态界面使用。
+调用 `maybeRun` 可自行运行同一次到期检查（闲置门控可用 `idleMs` 显式覆盖），调用 `run` 做无条件通过，以 `dryRun: true` 预览报告而不写入。一次通过检查每个被跟踪的技能：闲置时长从上次加载起算，从未加载则从播种起算。`active` 在超过 `staleAfterDays` 后进入 `stale`——或更早地因失败证据进入：在没有更新的加载回应它们的情况下，被归因的信任失败数达到 `staleTrustFailureFloor`，或在至少 `stageMinUses` 次加载上加载失败率超过 `staleFailureRate` 且最近一次加载是失败的。最近一次加载成功、仍在 stale 窗口以内、且新于其最近一次被归因失败的 `stale` 技能回到 `active`；超过 `archiveAfterDays` 则照样归档——期限永远优先于复活。报告以理由列出每次移动，并给出置顶、受保护名称与被排除来源的跳过计数；写了快照时还携带通过标识与快照文件名。`lastRunAt` 读取上次通过时刻，供状态界面使用。
 
 `consolidate: true` 时，该通过随后对 agent 创建的技能运行一次 LLM 归并（见[归并](#consolidation)）。
 
@@ -60,6 +60,7 @@ Host 启动时挂载本插件一次。此后它自行拥有维护计划：自己
 | `tickMinutes` | `15` | host 范围到期检查之间的小时数 |
 | `staleAfterDays` | `30` | `active` 进入 `stale` 的闲置天数 |
 | `archiveAfterDays` | `90` | `stale` 进入 `archived` 的闲置天数 |
+| `staleTrustFailureFloor` | `3` | 在没有更新的加载回应的情况下，使 `active` 进入 `stale` 的被归因信任失败数 |
 | `protectedNames` | `[]` | 豁免自动流转的技能名，如计划引用 |
 | `pruneBuiltins` | `true` | 从通过中剪除随包内置技能；hub 来源始终豁免 |
 | `backup.enabled` | `true` | 快照与台账写入的总开关 |

@@ -153,6 +153,58 @@ describe('dreaming cycle', () => {
     await ctx.fiber.dispose()
   })
 
+  it('stages episodic notes without feedback, skipping blank ones', async () => {
+    const { ctx, dreaming } = await harness({}, {
+      memory: fakeMemory({ episodic: [
+        { day: '2026-09-12', text: 'user corrected the approach at step 3', addedAt: '2026-09-12T00:00:00.000Z' },
+        { day: '2026-09-12', text: '   ', addedAt: '2026-09-12T00:00:00.000Z' },
+      ] }),
+    })
+    const light = await dreaming.run('light', scope, ['s1'])
+    expect(light.staged).toBe(1)
+    expect(light.scanned).toBe(1)
+    await ctx.fiber.dispose()
+  })
+
+  it('folds an episodic note restating a failure into the same candidate', async () => {
+    const { ctx, dreaming } = await harness({}, {
+      feedback: fakeFeedback([strong({ tool: 'bash', count: 1, sessions: 1 })]),
+      memory: fakeMemory({
+        agentLessons: KNOWN,
+        episodic: [
+          { day: '2026-09-12', text: 'DISK IS FULL while writing the cache', addedAt: '2026-09-12T00:00:00.000Z' },
+        ],
+      }),
+    })
+    await dreaming.run('light', scope, ['s1'])
+    const rem = await dreaming.run('rem', scope, ['s1'])
+    expect(rem.staged).toBe(1)
+    expect(dreaming.read(scope)?.narratives[0]?.themes.map(theme => theme.key)).toEqual(['bash'])
+    await ctx.fiber.dispose()
+  })
+
+  it('promotes a note repeated across days without any recorded failure', async () => {
+    const { ctx, dreaming } = await harness({ minScore: 0 }, {
+      memory: fakeMemory({
+        agentLessons: KNOWN,
+        episodic: [
+          { day: '2026-09-10', text: 'disk is full while writing the cache', addedAt: '2026-09-10T00:00:00.000Z' },
+          { day: '2026-09-12', text: 'DISK IS FULL while writing the cache', addedAt: '2026-09-09T00:00:00.000Z' },
+          { day: '2026-09-11', text: 'disk is full while writing the cache', addedAt: '2026-09-11T00:00:00.000Z' },
+        ],
+      }),
+    })
+    await dreaming.run('light', scope, ['s1'])
+    const deep = await dreaming.run('deep', scope, ['s1'])
+    expect(deep.promoted).toBe(1)
+    const promoted = dreaming.read(scope)?.promotions[0]
+    // Three sightings on two days clear the recall and diversity gates, and
+    // the statement is the earliest sighting's text.
+    expect(promoted?.statement).toBe('DISK IS FULL while writing the cache')
+    expect(promoted?.tool).toBeNull()
+    await ctx.fiber.dispose()
+  })
+
   it('writes a themed narrative in the REM phase without promoting anything', async () => {
     const { ctx, dreaming } = await harness({}, {
       feedback: fakeFeedback([strong({ tool: 'bash' }), strong({ tool: null, message: 'other failure here' })]),

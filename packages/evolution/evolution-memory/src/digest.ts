@@ -1,7 +1,8 @@
 /**
  * Digest of the brief's inputs: instructions, lessons, profile, and context
- * items only. Outputs, staged writes, and timestamps never invalidate the
- * injected brief.
+ * items only. Outputs, staged writes, episodic notes, and timestamps never
+ * invalidate the injected brief: the brief renders the curated snapshot, and
+ * raw consolidation material must not re-inject an identical brief.
  * @module @deepseek-ai/dsh-evolution-memory/src/digest
  */
 
@@ -72,7 +73,9 @@ export function artifactBytesOf(artifacts: readonly LessonArtifact[]): number {
 
 /**
  * Capacity charged against `capacityBytes`: instructions + lessons + profile
- * + Σ context item sizes. Outputs and staged writes are excluded.
+ * + Σ context item sizes + Σ episodic note text. Outputs and staged writes
+ * are excluded; the fixed per-note `day`/`addedAt` overhead is bounded by
+ * `maxEpisodicEntries` and excluded.
  * @param record - the stored record, or undefined when absent.
  * @returns charged bytes, or 0 when absent.
  */
@@ -80,5 +83,6 @@ export function usedBytesOf(record: EvolutionMemoryRecord | undefined): number {
   if (record === undefined) return 0
   let used = utf8Bytes(record.instructions) + utf8Bytes(record.userProfile) + artifactBytesOf(record.agentLessons)
   for (const item of record.contextItems) used += item.sizeBytes
+  for (const note of record.episodic) used += utf8Bytes(note.text)
   return used
 }

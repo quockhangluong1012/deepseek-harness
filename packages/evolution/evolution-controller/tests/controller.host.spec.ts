@@ -101,6 +101,7 @@ describe('EvolutionController', () => {
       profileUpdatedAt: null,
       contextItems: [],
       outputs: [],
+      episodic: [],
       lastExtraction: null,
       staged: [],
       resolutions: [],
@@ -200,6 +201,7 @@ describe('EvolutionController', () => {
       profileUpdatedAt: '2026-01-03T00:00:00.000Z',
       contextItems: [{ kind: 'text', id: 'i1', label: 'note', text: 'x', sizeBytes: 1, addedAt: '2026-01-01T00:00:00.000Z' }],
       outputs: [{ path: 'a.ts', tool: 'write', sessionId: 's1', at: '2026-01-01T00:00:00.000Z' }],
+      episodic: [{ day: '2026-01-01', text: 'note', addedAt: '2026-01-01T00:00:00.000Z' }],
       lastExtraction: null,
       staged: [{ id: 'st1', kind: 'memory', op: 'replaceArtifacts', payload: {}, originSessionId: 's1', createdAt: '2026-01-01T00:00:00.000Z', gist: 'g' }],
       resolutions: [{ id: 'st0', kind: 'memory', op: 'replaceArtifacts', gist: 'g', decision: 'approved', at: '2026-01-01T00:00:00.000Z', originSessionId: 's1' }],
@@ -213,6 +215,7 @@ describe('EvolutionController', () => {
       profileUpdatedAt: '2026-01-03T00:00:00.000Z',
       resolutions: [{ id: 'st0', decision: 'approved' }],
       staged: [{ id: 'st1' }],
+      episodic: [{ day: '2026-01-01', text: 'note' }],
       usage: { usedBytes: 5, capacityBytes: 10 },
     })
     // The projection is detached from the stored objects.

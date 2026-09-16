@@ -50,12 +50,14 @@ kind: "package-reference"
 | `maintenanceIntervalHours` | `24` | 两次维护扫描每个已存作用域之间的小时数 |
 | `refutationFloor` | `3` | 反驳数达到该值后，衰退无论存续时长都会剪除该工件 |
 | `defaultTtlDays` | `30` | 候选未自带 ttl 时，新工件被赋予的 ttl 天数 |
+| `episodicRetentionDays` | `7` | 情景笔记落地后可读的天数；追加路径会丢弃更早的笔记 |
+| `maxEpisodicEntries` | `100` | 每个作用域在年龄裁剪之后保留的情景笔记数，保留最新的 |
 
 生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-evolution-memory)是每个可接受字段的详尽来源。
 
 ### 容量与摘要
 
-容量为 `instructions` 加 `userProfile` 的 UTF-8 字节长度，再加各上下文条目大小之和，再加序列化后的工件数组——逐个工件计量，因为 JSON 数组不是 `Buffer.byteLength` 能整体度量的字符串。产出索引与暂存写入不计入。摘要仅覆盖指令、经验、画像与上下文条目；产出、暂存与时间戳永不使已注入的简报失效。缺席记录读作 `undefined`、占用零字节、摘要为 `'empty'`。
+容量为 `instructions` 加 `userProfile` 的 UTF-8 字节长度，再加各上下文条目大小之和，再加序列化后的工件数组——逐个工件计量，因为 JSON 数组不是 `Buffer.byteLength` 能整体度量的字符串——再加情景笔记的文本。产出索引与暂存写入不计入。摘要仅覆盖指令、经验、画像与上下文条目；产出、暂存、情景笔记与时间戳永不使已注入的简报失效：简报渲染的是已审定的快照，未经审定的固化原材料不得让一份完全相同的简报重新注入。缺席记录读作 `undefined`、占用零字节、摘要为 `'empty'`。
 
 ### 经验工件
 
@@ -75,15 +77,19 @@ kind: "package-reference"
 
 ### 暂存写入与决策
 
-`stageWrite` 暂存一条记忆或技能提案而不触碰容量。记忆类暂存载荷指明其操作：`setInstructions` 与 `setUserProfile` 携带 `{ text }`，`addArtifact` 携带 `{ candidate, strategy }`，`updateArtifact` 携带 `{ id, patch }`，`removeArtifact` 携带 `{ id }`，`replaceArtifacts` 携带 `{ candidates }`，`applyDecisions` 携带 `{ decisions, extraction? }`。`approveStaged` 先应用记忆操作（上限拒绝、或所寻址的工件不存在时保留条目），仅移除技能条目；`rejectStaged` 直接丢弃任一条目。审批一批 `applyDecisions` 会在审批时读到的记录上原子地应用整批，并在那时解析每个 `new` 候选的合并目标——与 `addArtifact` 的暂存路径相同的「先度量、再复核」拆分，而绝非暂存时拍下的快照。
+`stageWrite` 暂存一条记忆或技能提案而不触碰容量。记忆类暂存载荷指明其操作：`setInstructions`、`setUserProfile` 与 `appendEpisodic` 携带 `{ text }`，`addArtifact` 携带 `{ candidate, strategy }`，`updateArtifact` 携带 `{ id, patch }`，`removeArtifact` 携带 `{ id }`，`replaceArtifacts` 携带 `{ candidates }`，`applyDecisions` 携带 `{ decisions, extraction? }`。`approveStaged` 先应用记忆操作（上限拒绝、或所寻址的工件不存在时保留条目），仅移除技能条目；`rejectStaged` 直接丢弃任一条目。审批一批 `applyDecisions` 会在审批时读到的记录上原子地应用整批，并在那时解析每个 `new` 候选的合并目标——与 `addArtifact` 的暂存路径相同的「先度量、再复核」拆分，而绝非暂存时拍下的快照。
 
 暂存载荷是一个 JSON 值，并在写入边界处校验：无法无损往返 JSON 的载荷会被大声拒绝，且不存储任何内容。
 
 两种决策都会把一条决策记录——条目 id、kind、op、gist、决策、来源会话与时刻——追加到记录的 `resolutions` 日志（最新优先，受 `maxResolutions` 限制）。决策记录既不计入容量，也不进入摘要，因此决定一次写入永不重新注入简报。
 
-每个记忆族各自盖自己的时间戳：`setInstructions` 盖 `instructionsUpdatedAt`，`addArtifact` / `updateArtifact` / `removeArtifact` / `replaceArtifacts` / `applyDecisions` 这一族盖 `lessonsUpdatedAt`，`setUserProfile` 盖 `profileUpdatedAt`。暂存审批只为它改动的族盖章，因此不存储任何内容的经验追加或决策批次一个都不盖。`memoryUpdatedAt` 再保留一个版本，取经验与画像两个时间戳中的较晚者。每次被接受的写入都盖上 `updatedAt`。
+每个记忆族各自盖自己的时间戳：`setInstructions` 盖 `instructionsUpdatedAt`，`addArtifact` / `updateArtifact` / `removeArtifact` / `replaceArtifacts` / `applyDecisions` 这一族盖 `lessonsUpdatedAt`，`setUserProfile` 盖 `profileUpdatedAt`。暂存审批只为它改动的族盖章，因此不存储任何内容的经验追加或决策批次一个都不盖。`appendEpisodic` 不盖任何族：情景笔记是未经审批的固化输入，不是已审定的文档。`memoryUpdatedAt` 再保留一个版本，取经验与画像两个时间戳中的较晚者。每次被接受的写入都盖上 `updatedAt`。
 
 被召回的上下文材料——评审器的排序召回——就是普通的上下文条目，其标签以导出的 `RECALL_LABEL_PREFIX` 开头，因此摘要覆盖它，简报也最先丢弃它。
+
+### 情景笔记
+
+记录在已审定各族之外的第三层是情景日志：按追加顺序排列的原始会话笔记，每条携带其 UTC 自然日。审批把笔记原文追加，随后做剪除——先丢弃超出 `episodicRetentionDays` 的，再丢弃超出 `maxEpisodicEntries` 的最旧者——因此这一层始终是短命的固化材料，而不是第二份经验文档。空白笔记会被拒绝，条目留在暂存。Dreaming 的 light 阶段把存活的笔记与 feedback 观察一起读作固化候选：一条笔记就是一次目击，不同自然日的目击就是 deep 阶段门限所要求的独立语境，而复述某条已记录失败的笔记会并入该失败的候选。笔记永不进入模型简报——简报是已审批的快照——但其文本计入容量。
 
 ### 衰退与维护
 

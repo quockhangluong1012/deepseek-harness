@@ -50,12 +50,14 @@ Mount the plugin when Sessions in a scope should share instructions, lesson arti
 | `maintenanceIntervalHours` | `24` | Hours between two maintenance sweeps of every stored scope |
 | `refutationFloor` | `3` | Refutations at or above which decay prunes an artifact regardless of age |
 | `defaultTtlDays` | `30` | Days a new artifact is given as its ttl when its candidate supplies none |
+| `episodicRetentionDays` | `7` | Days an episodic note stays readable after it landed; the append path drops older notes |
+| `maxEpisodicEntries` | `100` | Episodic notes retained per scope past the age cut, newest kept |
 
 The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-evolution-memory) is the exhaustive source for every accepted field.
 
 ### Capacity and digest
 
-Capacity is the UTF-8 byte length of `instructions` plus `userProfile` plus the sum of the context items' sizes, plus the serialized artifact array — one artifact's JSON at a time, because a JSON array is not a string `Buffer.byteLength` can measure whole. Outputs and staged writes are excluded. The digest covers instructions, lessons, profile, and context items only; outputs, staged writes, and timestamps never invalidate the injected brief. An absent record reads as `undefined`, uses zero bytes, and digests as `'empty'`.
+Capacity is the UTF-8 byte length of `instructions` plus `userProfile` plus the sum of the context items' sizes, plus the serialized artifact array — one artifact's JSON at a time, because a JSON array is not a string `Buffer.byteLength` can measure whole — plus the episodic notes' text. Outputs and staged writes are excluded. The digest covers instructions, lessons, profile, and context items only; outputs, staged writes, episodic notes, and timestamps never invalidate the injected brief: the brief renders the curated snapshot, and raw consolidation material must not re-inject an identical brief. An absent record reads as `undefined`, uses zero bytes, and digests as `'empty'`.
 
 ### Lesson artifacts
 
@@ -75,15 +77,19 @@ Decisions fold in the order the extraction reported them, against the record rea
 
 ### Staged writes and decisions
 
-`stageWrite` parks a memory or skill proposal without touching capacity. A staged memory payload names its operation: `setInstructions` and `setUserProfile` carry `{ text }`, `addArtifact` carries `{ candidate, strategy }`, `updateArtifact` carries `{ id, patch }`, `removeArtifact` carries `{ id }`, `replaceArtifacts` carries `{ candidates }`, and `applyDecisions` carries `{ decisions, extraction? }`. `approveStaged` applies a memory op (keeping the entry staged when a cap rejects it, or when the addressed artifact does not exist) and only drops a skill entry, while `rejectStaged` drops either. Approving an `applyDecisions` batch applies the whole batch atomically against the record read at approval time, and resolves each `new` candidate's merge target then — the same measure-then-re-validate split `addArtifact`'s staged path uses, never a snapshot taken when the batch was staged.
+`stageWrite` parks a memory or skill proposal without touching capacity. A staged memory payload names its operation: `setInstructions`, `setUserProfile`, and `appendEpisodic` carry `{ text }`, `addArtifact` carries `{ candidate, strategy }`, `updateArtifact` carries `{ id, patch }`, `removeArtifact` carries `{ id }`, `replaceArtifacts` carries `{ candidates }`, and `applyDecisions` carries `{ decisions, extraction? }`. `approveStaged` applies a memory op (keeping the entry staged when a cap rejects it, or when the addressed artifact does not exist) and only drops a skill entry, while `rejectStaged` drops either. Approving an `applyDecisions` batch applies the whole batch atomically against the record read at approval time, and resolves each `new` candidate's merge target then — the same measure-then-re-validate split `addArtifact`'s staged path uses, never a snapshot taken when the batch was staged.
 
 A staged payload is a JSON value and is validated at the write boundary: a payload that cannot round-trip through JSON is refused loudly and nothing is stored.
 
 Both decisions append a resolution — entry id, kind, op, gist, decision, origin session, and instant — to the record's newest-first `resolutions` log, capped by `maxResolutions`. Resolutions stay out of capacity and out of the digest, so deciding a write never re-injects the brief.
 
-Each memory family stamps its own instant: `setInstructions` stamps `instructionsUpdatedAt`, the `addArtifact` / `updateArtifact` / `removeArtifact` / `replaceArtifacts` / `applyDecisions` family stamps `lessonsUpdatedAt`, and `setUserProfile` stamps `profileUpdatedAt`. A staged approval stamps only the family its op changed, so a lesson add, or a decision batch, that changed nothing stamps none. `memoryUpdatedAt` remains for one release as the later of the lessons and profile stamps. Every accepted write stamps `updatedAt`.
+Each memory family stamps its own instant: `setInstructions` stamps `instructionsUpdatedAt`, the `addArtifact` / `updateArtifact` / `removeArtifact` / `replaceArtifacts` / `applyDecisions` family stamps `lessonsUpdatedAt`, and `setUserProfile` stamps `profileUpdatedAt`. A staged approval stamps only the family its op changed, so a lesson add, or a decision batch, that changed nothing stamps none. `appendEpisodic` stamps no family: an episodic note is unapproved consolidation input, not a curated document. `memoryUpdatedAt` remains for one release as the later of the lessons and profile stamps. Every accepted write stamps `updatedAt`.
 
 Recalled context material — the reviewer's ranked recall — is an ordinary context item labelled with the exported `RECALL_LABEL_PREFIX`, so the digest covers it and the brief drops it first.
+
+### Episodic notes
+
+The record's third tier beside the curated families is the episodic daily log: raw session notes in append order, each carrying its UTC calendar day. Approval appends the note verbatim and then prunes — first the notes past `episodicRetentionDays`, then the oldest past `maxEpisodicEntries` — so the tier stays short-lived consolidation material rather than a second lessons document. A blank note is refused and the entry stays staged. The dreaming light phase reads the surviving notes as consolidation candidates alongside the feedback observations: one note is one sighting, sightings on distinct days are the independent contexts the deep phase gates on, and a note restating a recorded failure folds into that failure's candidate. Notes never enter the model brief — the brief is the approved snapshot — but their text counts toward capacity.
 
 ### Decay and maintenance
 

@@ -13,6 +13,28 @@
  */
 
 import type { LessonArtifact } from './lesson-artifact.ts'
+import type { EpisodicEntry } from './types.ts'
+
+/**
+ * Drop the episodic notes a retention window has outlived, then the oldest
+ * notes past the count cap. Entries arrive in append order and stay in it,
+ * so the cap keeps the newest slice.
+ * @param entries - the scope's episodic notes, oldest first.
+ * @param now - epoch milliseconds to judge at.
+ * @param retentionDays - days a note stays readable after it landed.
+ * @param maxEntries - notes retained past the age cut, newest kept.
+ * @returns the surviving notes, oldest first.
+ */
+export function pruneEpisodic(
+  entries: readonly EpisodicEntry[],
+  now: number,
+  retentionDays: number,
+  maxEntries: number,
+): EpisodicEntry[] {
+  const cutoff = now - retentionDays * 86_400_000
+  const fresh = entries.filter(entry => Date.parse(entry.addedAt) >= cutoff)
+  return fresh.slice(Math.max(0, fresh.length - maxEntries))
+}
 
 /** What one sweep changed for one scope. */
 export interface SweepResult {

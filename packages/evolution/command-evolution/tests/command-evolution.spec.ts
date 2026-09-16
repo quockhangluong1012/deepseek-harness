@@ -435,6 +435,11 @@ describe('@deepseek-ai/dsh-command-evolution registration', () => {
         name: 'suggestions',
         description: 'List blueprint-backed skills without scheduling them',
       })
+      expect(test.ctx.commands.list(agent)).toContainEqual({
+        definitionId: '@deepseek-ai/dsh-command-evolution/frontier',
+        name: 'frontier',
+        description: 'Rank this scope\'s capabilities weakest first from measured evidence',
+      })
 
       await test.plugin.dispose()
       expect(test.ctx.commands.find(agent, 'memory')).toBeUndefined()
@@ -445,6 +450,7 @@ describe('@deepseek-ai/dsh-command-evolution registration', () => {
       expect(test.ctx.commands.find(agent, 'trajectory')).toBeUndefined()
       expect(test.ctx.commands.find(agent, 'learn')).toBeUndefined()
       expect(test.ctx.commands.find(agent, 'suggestions')).toBeUndefined()
+      expect(test.ctx.commands.find(agent, 'frontier')).toBeUndefined()
     } finally {
       await rm(test.dir, { recursive: true, force: true })
     }
@@ -2287,6 +2293,182 @@ describe('/refine human command', () => {
       await expect(run(unexpected, session, '/refine')).rejects.toBe(bug)
     } finally {
       await shutdown(unexpected)
+    }
+  })
+})
+
+describe('/frontier human command', () => {
+  /** One ledger row carrying the fields `/frontier` reads. */
+  function row(skill: string, overrides: Record<string, unknown> = {}): unknown {
+    return {
+      id: `${skill}-run`,
+      at: '2026-09-12T00:00:00.000Z',
+      scope: 'test:ws-1',
+      skill,
+      evidence: 'failures',
+      operators: [],
+      portfolio: [],
+      novelOperators: [],
+      scenarios: ['s1'],
+      holdout: [],
+      baseline: null,
+      winner: null,
+      confidence: null,
+      samples: 1,
+      outcome: 'staged',
+      reason: null,
+      stagedId: null,
+      provider: 'p',
+      model: 'm',
+      bodySha: 'a',
+      winnerSha: null,
+      winnerOperator: null,
+      ...overrides,
+    }
+  }
+
+  /** Mount the optimizer and telemetry doubles behind one frontier scope. */
+  function seams(
+    test: Harness,
+    options: {
+      rows?: unknown[]
+      entries?: { name: string; usage: SkillUsageRecord }[]
+      failures?: Record<string, string>
+      feedback?: boolean
+    },
+  ): void {
+    const rows = options.rows ?? []
+    test.ctx.provide('evolutionOptimizer', {
+      experiments: (_scope: unknown, query: { skill?: string } = {}) =>
+        rows.filter(entry => query.skill === undefined || (entry as { skill: string }).skill === query.skill),
+    } as never)
+    const entries = options.entries ?? []
+    test.ctx.provide('evolutionSkillTelemetry', { entries: () => entries } as never)
+    if (options.feedback === false) return
+    const failures = options.failures ?? {}
+    test.ctx.provide('evolutionFeedback', {
+      signals: (sessionIds: readonly string[]) => {
+        const hit = sessionIds.find(id => failures[id] !== undefined)
+        return hit === undefined ? [] : [{ message: failures[hit] }]
+      },
+    } as never)
+  }
+
+  function scoped(test: Harness, session: Session): void {
+    test.workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: test.dir, sessionIds: [session.id] })
+  }
+
+  it('reports usage, missing seams, and an out-of-scope session', async () => {
+    const test = await harness()
+    try {
+      const session = sessionIn(test.ctx, test.dir, 'frontier-guard')
+      scoped(test, session)
+      expect((await run(test, session, '/frontier now')).result).toEqual({
+        kind: 'error',
+        text: 'Usage: /frontier (no arguments)',
+      })
+      expect((await run(test, session, '/frontier')).result).toEqual({
+        kind: 'error',
+        text: 'The evolution optimizer is not mounted.',
+      })
+      test.ctx.provide('evolutionOptimizer', { experiments: () => [] } as never)
+      expect((await run(test, session, '/frontier')).result).toEqual({
+        kind: 'error',
+        text: 'Skill telemetry is not mounted. The frontier needs the telemetry store.',
+      })
+      test.ctx.provide('evolutionSkillTelemetry', { entries: () => [] } as never)
+      test.workspaces.delete('ws-1')
+      expect((await run(test, session, '/frontier')).result).toEqual({
+        kind: 'error',
+        text: 'This session is outside any workspace scope.',
+      })
+    } finally {
+      await shutdown(test)
+    }
+  })
+
+  it('reports the honest empty state with no skills anywhere', async () => {
+    const test = await harness()
+    try {
+      const session = sessionIn(test.ctx, test.dir, 'frontier-empty')
+      scoped(test, session)
+      seams(test, {})
+      expect((await run(test, session, '/frontier')).result).toEqual({
+        kind: 'success',
+        text: 'No measured capabilities yet.',
+      })
+    } finally {
+      await shutdown(test)
+    }
+  })
+
+  it('ranks weakest first across telemetry, ledger, feedback, and catalog', async () => {
+    const test = await harness(true, undefined, { skills: true })
+    try {
+      const session = sessionIn(test.ctx, test.dir, 'frontier-full')
+      scoped(test, session)
+      seams(test, {
+        rows: [
+          row('writer', {
+            winner: { pass: false, tokens: 800, wallTimeMs: 9 },
+            confidence: { wins: 2, runs: 5 },
+          }),
+          row('steady', {
+            winner: { pass: true, tokens: 100, wallTimeMs: 2 },
+            confidence: { wins: 4, runs: 5 },
+          }),
+          row('ghost', {}),
+        ],
+        entries: [
+          {
+            name: 'writer',
+            usage: usageRecord({ useCount: 12, failureCount: 3, trustFailures: 1, sessionIds: ['s1', 's2'] }),
+          },
+          { name: 'steady', usage: usageRecord({ useCount: 5, sessionIds: ['s3'] }) },
+          { name: 'retired', usage: usageRecord({ state: 'archived', failureCount: 9 }) },
+        ],
+        failures: { s1: 'command not found' },
+      })
+      test.skills.definitions = {
+        writer: { name: 'writer', description: 'Writes files' },
+        steady: { name: 'steady', description: 'Holds steady' },
+      }
+      expect((await run(test, session, '/frontier')).result).toEqual({
+        kind: 'success',
+        text: [
+          'Frontier (weakest first): 3',
+          "- writer: fail at 800 tokens 2/5 · 4 failures (top: 'command not found') · 12 loads in 2 sessions: Writes files",
+          '- ghost: unmeasured · 0 loads in 0 sessions',
+          '- steady: pass at 100 tokens 4/5 · 5 loads in 1 session: Holds steady',
+          'Weakest first: failing without a passing winner, then unmeasured, then passing.',
+        ].join('\n'),
+      })
+      expect(test.skills.gets).toEqual(['writer', 'steady', 'ghost'])
+    } finally {
+      await shutdown(test)
+    }
+  })
+
+  it('degrades without feedback or catalog to counts alone', async () => {
+    const test = await harness()
+    try {
+      const session = sessionIn(test.ctx, test.dir, 'frontier-bare')
+      scoped(test, session)
+      seams(test, {
+        rows: [row('writer', { winner: { pass: true, tokens: 50, wallTimeMs: 1 } })],
+        entries: [{ name: 'writer', usage: usageRecord({ useCount: 1, sessionIds: ['s1'] }) }],
+        feedback: false,
+      })
+      expect((await run(test, session, '/frontier')).result).toEqual({
+        kind: 'success',
+        text: [
+          'Frontier (weakest first): 1',
+          '- writer: pass at 50 tokens · 1 load in 1 session',
+          'Weakest first: failing without a passing winner, then unmeasured, then passing.',
+        ].join('\n'),
+      })
+    } finally {
+      await shutdown(test)
     }
   })
 })

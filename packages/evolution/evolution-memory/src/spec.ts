@@ -9,6 +9,7 @@ import { z } from 'zod'
 import { defineDomain, domainTable } from '@deepseek-ai/dsh-storage-domain'
 import { lessonArtifact, wrapLegacyLessons } from './lesson-artifact.ts'
 import type {
+  EpisodicEntry,
   EvolutionContextItem,
   EvolutionExtraction,
   EvolutionMemoryRecord,
@@ -31,6 +32,13 @@ export const evolutionContextItem = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('text'), text: z.string(), ...contextItemIdentity }),
   z.object({ kind: z.literal('file'), path: z.string(), ...contextItemIdentity }),
 ])
+
+/** One episodic note at the durable boundary. */
+export const episodicEntry: z.ZodType<EpisodicEntry> = z.object({
+  day: z.string(),
+  text: z.string(),
+  addedAt: z.string(),
+})
 
 /** One produced-file index entry at the durable boundary. */
 export const evolutionOutput = z.object({
@@ -102,6 +110,7 @@ export const evolutionMemoryRecord = z.object({
   memoryUpdatedAt: z.string().nullable(),
   contextItems: z.array(evolutionContextItem),
   outputs: z.array(evolutionOutput),
+  episodic: z.array(episodicEntry).default([]),
   lastExtraction: evolutionExtraction.nullable(),
   staged: z.array(stagedWrite),
   resolutions: z.array(stagedResolution).default([]),
@@ -133,6 +142,7 @@ export const evolutionMemoryDomainSpec = defineDomain({
 })
 
 export type {
+  EpisodicEntry,
   EvolutionContextItem,
   EvolutionExtraction,
   EvolutionMemoryRecord,
