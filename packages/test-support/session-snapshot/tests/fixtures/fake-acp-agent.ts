@@ -151,6 +151,8 @@ async function handlePrompt(id: number | string): Promise<void> {
       spillRoot: process.env.DSH_SNAPSHOT_SPILL_ROOT ?? null,
       // Scenario-supplied deployment env (the `Scenario.env` layering hook).
       permissionMode: process.env.DSH_PERMISSION_MODE ?? null,
+      // The home the harness booted this attempt with (`RunOptions.homeDir`).
+      home: process.env.DSH_HOME ?? null,
     })}`)
   }
   if (behavior.echoWorkspace === true) {

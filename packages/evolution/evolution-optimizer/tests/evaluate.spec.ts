@@ -43,23 +43,28 @@ describe('stageVariantHome', () => {
 })
 
 describe('overlayRunner', () => {
-  it('layers the overlay DSH_HOME over the caller environment', async () => {
-    let seen: NodeJS.ProcessEnv | undefined
+  it('names the overlay home through the harness option, keeping the caller environment', async () => {
+    let seen: RunOptions | undefined
     const run: ScenarioRunner = async (_input, runOptions) => {
-      seen = runOptions.env
+      seen = runOptions
       return emptyResult()
     }
     const wrapped = overlayRunner(run, '/tmp/overlay-home')
     await wrapped({ steps: [] }, options({ KEEP: '1' }))
-    expect(seen).toMatchObject({ KEEP: '1', DSH_HOME: '/tmp/overlay-home' })
+    // The replay harness builds its own DSH_HOME after layering `env`, so the
+    // overlay reaches the attempt as the home option and not as an entry the
+    // harness would overwrite.
+    expect(seen?.homeDir).toBe('/tmp/overlay-home')
+    expect(seen?.env).toMatchObject({ KEEP: '1' })
+    expect(seen?.env?.['DSH_HOME']).toBeUndefined()
   })
 })
 
 describe('scoreVariant', () => {
   it('scores through the overlay and removes it afterwards', async () => {
-    const seenEnvs: (NodeJS.ProcessEnv | undefined)[] = []
+    const seenHomes: (string | undefined)[] = []
     const run: ScenarioRunner = async (_input, runOptions) => {
-      seenEnvs.push(runOptions.env)
+      seenHomes.push(runOptions.homeDir)
       return emptyResult()
     }
     const scorer = {
@@ -77,7 +82,7 @@ describe('scoreVariant', () => {
       '# writer v2',
     )
     expect(outcome.status).toBe('evaluated')
-    const home = seenEnvs[0]?.['DSH_HOME'] ?? ''
+    const home = seenHomes[0] ?? ''
     expect(home).toMatch(/dsh-optimizer-/)
     // The overlay directory is removed once scoring settles.
     await expect(readFile(join(home, 'skills', 'writer', 'SKILL.md'), 'utf8')).rejects.toThrow()

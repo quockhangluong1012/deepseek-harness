@@ -4,7 +4,7 @@
  * storage backend.
  */
 import { describe, expect, it } from 'vitest'
-import { experimentPage, staleExperiments } from '../src/experiments.ts'
+import { describeOutcome, experimentKey, experimentPage, hasResult, repeatedExperiment, staleExperiments } from '../src/experiments.ts'
 import type { ExperimentRecord } from '../src/types.ts'
 
 function row(id: string, at: string, scope = 'profile:ws', skill = 'writer'): ExperimentRecord {
@@ -15,6 +15,8 @@ function row(id: string, at: string, scope = 'profile:ws', skill = 'writer'): Ex
     skill,
     evidence: 'evidence',
     operators: ['rewrite'],
+    portfolio: ['rewrite'],
+    novelOperators: [],
     scenarios: ['s1'],
     holdout: [],
     baseline: { pass: true, tokens: 10, wallTimeMs: 5 },
@@ -28,6 +30,7 @@ function row(id: string, at: string, scope = 'profile:ws', skill = 'writer'): Ex
     model: 'deepseek-chat',
     bodySha: 'sha',
     winnerSha: null,
+    winnerOperator: null,
   }
 }
 
@@ -49,6 +52,67 @@ describe('experimentPage', () => {
     expect(experimentPage(rows, 'profile:ws', {}, 20).map(entry => entry.id)).toEqual(['a', 'c', 'z'])
     expect(experimentPage(rows, 'profile:ws', { skill: 'writer' }, 20).map(entry => entry.id)).toEqual(['a', 'z'])
     expect(experimentPage(rows, 'profile:ws', { skill: 'other' }, 20).map(entry => entry.id)).toEqual(['c'])
+  })
+})
+
+describe('experimentKey', () => {
+  it('names one hypothesis independent of scenario and operator ordering', () => {
+    const base = {
+      skill: 'writer',
+      evidence: 'evidence',
+      scenarios: ['s1', 's2'],
+      portfolio: ['rewrite', 'compress'],
+      bodySha: 'sha',
+      provider: 'deepseek',
+      model: 'deepseek-chat',
+    }
+    const same = experimentKey({ ...base, scenarios: ['s2', 's1'], portfolio: ['compress', 'rewrite'] })
+    expect(same).toBe(experimentKey(base))
+    expect(experimentKey({ ...base, evidence: 'other' })).not.toBe(same)
+    expect(experimentKey({ ...base, scenarios: ['s1'] })).not.toBe(same)
+    expect(experimentKey({ ...base, portfolio: ['rewrite'] })).not.toBe(same)
+    expect(experimentKey({ ...base, bodySha: 'other' })).not.toBe(same)
+    expect(experimentKey({ ...base, model: 'deepseek-reasoner' })).not.toBe(same)
+  })
+
+  it('reads a key back off a recorded row', () => {
+    const parts = {
+      skill: 'writer',
+      evidence: 'evidence',
+      scenarios: ['s1'],
+      portfolio: ['rewrite'],
+      bodySha: 'sha',
+      provider: 'deepseek',
+      model: 'deepseek-chat',
+    }
+    expect(experimentKey(row('a', '2026-09-15T10:00:00.000Z'))).toBe(experimentKey(parts))
+  })
+})
+
+describe('repeatedExperiment', () => {
+  it('finds the newest run of the same experiment and names its outcome', () => {
+    const parts = {
+      skill: 'writer',
+      evidence: 'evidence',
+      scenarios: ['s1'],
+      portfolio: ['rewrite'],
+      bodySha: 'sha',
+      provider: 'deepseek',
+      model: 'deepseek-chat',
+    }
+    const key = experimentKey(parts)
+    const older = row('a', '2026-09-15T10:00:00.000Z')
+    const newer = { ...row('b', '2026-09-15T11:00:00.000Z'), outcome: 'staged' as const, stagedId: 'staged-0' }
+    expect(repeatedExperiment([newer, older], key)).toEqual(newer)
+    expect(describeOutcome(newer)).toBe('it staged a promotion')
+    expect(repeatedExperiment([older], experimentKey({ ...parts, evidence: 'other' }))).toBeUndefined()
+  })
+
+  it('does not remember a run that never evaluated', () => {
+    const unevaluated = { ...row('a', '2026-09-15T10:00:00.000Z'), baseline: null }
+    expect(hasResult(unevaluated)).toBe(false)
+    expect(hasResult(row('b', '2026-09-15T10:00:00.000Z'))).toBe(true)
+    expect(repeatedExperiment([unevaluated], experimentKey(unevaluated))).toBeUndefined()
   })
 })
 

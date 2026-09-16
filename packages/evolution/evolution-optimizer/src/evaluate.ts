@@ -27,15 +27,16 @@ export async function stageVariantHome(skill: string, body: string): Promise<str
 
 /**
  * Wrap a fresh-process runner so every attempt boots inside the overlay home.
+ * The home is a harness option, not an environment entry: the recorded-replay
+ * runner builds its own environment after layering the caller's, so an
+ * `DSH_HOME` passed through `env` would be overwritten and every attempt would
+ * measure the live skills instead of the variant.
  * @param run - base runner.
  * @param home - overlay DSH_HOME.
  * @returns the runner the scorer scores one variant with.
  */
 export function overlayRunner(run: ScenarioRunner, home: string): ScenarioRunner {
-  return (input, options) => run(input, {
-    ...options,
-    env: { ...options.env, DSH_HOME: home },
-  })
+  return (input, options) => run(input, { ...options, homeDir: home })
 }
 
 /** What one variant scoring needs beyond the harness. */

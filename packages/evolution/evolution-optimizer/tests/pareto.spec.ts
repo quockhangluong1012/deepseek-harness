@@ -6,11 +6,12 @@ import { describe, expect, it } from 'vitest'
 import { dominates, paretoFrontier, pickWinner, screenSurvivors } from '../src/pareto.ts'
 import type { EvaluatedVariant } from '../src/types.ts'
 
-function variant(index: number, pass: boolean, tokens: number, wallTimeMs: number): EvaluatedVariant {
+function variant(index: number, pass: boolean, tokens: number, wallTimeMs: number, novelty = 0): EvaluatedVariant {
   return {
     index,
     body: `variant ${index}`,
     operator: 'rewrite',
+    novelty,
     score: { skill: 'writer', pass, tokens, wallTimeMs, scores: [] },
   }
 }
@@ -50,10 +51,11 @@ describe('screenSurvivors', () => {
     expect(survivors.map(member => member.index)).toEqual([1, 2])
   })
 
-  it('ranks a pass ahead of a cheaper failure and wall time ahead of tokens at equal cost', () => {
+  it('ranks a pass ahead of a cheaper failure and novelty ahead of wall time at equal cost', () => {
     expect(screenSurvivors([variant(0, false, 1, 1), variant(1, true, 99, 99)], 1).map(member => member.index)).toEqual([1])
-    expect(screenSurvivors([variant(0, true, 5, 9), variant(1, true, 5, 2)], 1).map(member => member.index)).toEqual([1])
-    expect(screenSurvivors([variant(0, true, 5, 5), variant(1, true, 5, 5)], 1).map(member => member.index)).toEqual([0])
+    expect(screenSurvivors([variant(0, true, 5, 9, 0), variant(1, true, 5, 2, 0.4)], 1).map(member => member.index)).toEqual([1])
+    expect(screenSurvivors([variant(0, true, 5, 9, 0.4), variant(1, true, 6, 2, 0.9)], 1).map(member => member.index)).toEqual([0])
+    expect(screenSurvivors([variant(0, true, 5, 5, 0.4), variant(1, true, 5, 5, 0.4)], 1).map(member => member.index)).toEqual([0])
   })
 })
 
@@ -68,11 +70,16 @@ describe('pickWinner', () => {
     expect(winner?.index).toBe(1)
   })
 
-  it('breaks ties by wall time, then by earlier mutation', () => {
+  it('breaks ties by novelty, then wall time, then earlier mutation', () => {
     const baseline = { pass: true, tokens: 10, wallTimeMs: 10 }
-    const byWall = pickWinner(baseline, [variant(0, true, 5, 8), variant(1, true, 5, 4)])
+    // Dominance still rules: a faster candidate is not passed over for a novel
+    // one. Novelty decides only among candidates that measured the same.
+    expect(pickWinner(baseline, [variant(0, true, 5, 4, 0), variant(1, true, 5, 8, 0.5)])?.index).toBe(0)
+    const byNovelty = pickWinner(baseline, [variant(0, true, 5, 4, 0), variant(1, true, 5, 4, 0.5)])
+    expect(byNovelty?.index).toBe(1)
+    const byWall = pickWinner(baseline, [variant(0, true, 5, 8, 0.2), variant(1, true, 5, 4, 0.2)])
     expect(byWall?.index).toBe(1)
-    const byIndex = pickWinner(baseline, [variant(0, true, 5, 4), variant(1, true, 5, 4)])
+    const byIndex = pickWinner(baseline, [variant(0, true, 5, 4, 0.2), variant(1, true, 5, 4, 0.2)])
     expect(byIndex?.index).toBe(0)
   })
 

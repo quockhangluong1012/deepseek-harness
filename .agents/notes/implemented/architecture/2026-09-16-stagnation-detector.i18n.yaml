@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-16-stagnation-detector.md
+2026-09-16-stagnation-detector.md: e2071a51d0b07057488096fddc73e816d2c61309
+2026-09-16-stagnation-detector.zh.md: 3c436d7977fc690c6cf4bda2b7eee48db2b9568c

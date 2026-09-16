@@ -37,7 +37,7 @@ interface BenchSeams {
   body?: string | undefined
   mutations?: string[] | undefined
   scores?: Record<string, { pass: boolean; tokens: number; wallTimeMs: number }> | undefined
-  staged?: { id: string; gist: string }[] | undefined
+  staged?: { id: string; gist: string; kind: string; op: string; payload: unknown }[] | undefined
   llm?: boolean | undefined
   route?: boolean | undefined
   skipEvaluation?: string | undefined
@@ -82,12 +82,14 @@ async function bench(seams: BenchSeams = {}) {
   ctx.storage.mount('domain', facility)
   ctx.provide('storageDomain', seams.brokenLedger === true ? brokenDomain() : facility)
   const bodies = seams.mutations ?? []
+  let llmCalls = 0
   if (seams.llm !== false) {
     let call = 0
     ctx.provide('llm', {
       stream: () => {
         const perCall = seams.llmBodies?.[Math.min(call, (seams.llmBodies?.length ?? 1) - 1)]
         call += 1
+        llmCalls += 1
         return textTurn(JSON.stringify(perCall ?? bodies))
       },
     } as never)
@@ -130,13 +132,13 @@ async function bench(seams: BenchSeams = {}) {
       }
     },
   } as never)
-  const staged: { id: string; gist: string }[] = seams.staged ?? []
+  const staged: { id: string; gist: string; kind: string; op: string; payload: unknown }[] = seams.staged ?? []
   ctx.provide('evolutionMemory', {
     read: () => seams.resolutions === undefined
       ? undefined
       : { resolutions: seams.resolutions.map(resolution => ({ ...resolution, op: 'patch', gist: '', at: '', originSessionId: '' })) },
-    stageWrite: async (input: { gist: string }) => {
-      const entry = { id: `staged-${staged.length}`, gist: input.gist }
+    stageWrite: async (input: { gist: string; kind: string; op: string; payload: unknown }) => {
+      const entry = { id: `staged-${staged.length}`, gist: input.gist, kind: input.kind, op: input.op, payload: input.payload }
       staged.push(entry)
       return entry
     },
@@ -147,7 +149,7 @@ async function bench(seams: BenchSeams = {}) {
     ...seams.config,
   })
   const optimizer = ctx.get('evolutionOptimizer') as EvolutionOptimizer
-  return { ctx, optimizer, staged, scoreCalls }
+  return { ctx, optimizer, staged, scoreCalls, llmCalls: () => llmCalls }
 }
 const request = {
   skill: 'writer',
@@ -269,46 +271,21 @@ describe('EvolutionOptimizer', () => {
   })
 
   it('stages the winning variant as a skill patch', async () => {
-    const seenScores: string[] = []
-    const ctx = new Context()
-    roots.push(ctx)
-    ctx.provide('llm', { stream: () => textTurn(JSON.stringify(['# writer v2'])) } as never)
-    ctx.provide('evolutionSkillTelemetry', {
-      entries: () => [{ name: 'writer', usage: usage(12, 10) }],
-    } as never)
-    ctx.provide('skills', { get: async () => ({ content: '# writer' }) } as never)
-    ctx.provide('evolutionScorer', {
-      evaluateSkill: async (evalRequest: { skill: string; run: (input: never, options: never) => Promise<never> }) => {
-        // Baseline scores costly, the variant scores cheap.
-        const cheap = seenScores.length > 0
-        seenScores.push(evalRequest.skill)
-        return {
-          status: 'evaluated' as const,
-          skill: evalRequest.skill,
-          score: { skill: evalRequest.skill, pass: true, tokens: cheap ? 3 : 9, wallTimeMs: 5, scores: [] },
-        }
-      },
-    } as never)
-    const writes: { kind: string; op: string; payload: unknown }[] = []
-    ctx.provide('evolutionMemory', {
-      read: () => undefined,
-      stageWrite: async (input: { kind: string; op: string; payload: unknown }) => {
-        writes.push({ kind: input.kind, op: input.op, payload: input.payload })
-        return { id: 'staged-0' }
-      },
-    } as never)
-    const optimizer = new EvolutionOptimizer(ctx, {
-      provider: 'deepseek',
-      model: 'deepseek-chat',
-      agent: { binScript: 'bin', configPath: 'cfg', tsconfigPath: 'tsconfig' },
+    const { optimizer, staged } = await bench({
+      record: { name: 'writer', usage: usage(12, 10) },
+      body: '# writer',
+      mutations: ['# writer v2'],
+      // Baseline scores costly, the variant scores cheap.
+      scoresFor: (_scenarios, call) => ({ pass: true, tokens: call === 0 ? 9 : call === 1 ? 3 : 10, wallTimeMs: 5 }),
     })
     const report = await optimizer.optimize(request)
     expect(report.status).toBe('staged')
     expect(report.stagedId).toBe('staged-0')
     expect(report.baseline?.tokens).toBe(9)
     expect(report.candidates[0]?.score.tokens).toBe(3)
-    expect(writes).toHaveLength(1)
-    expect(writes[0]).toMatchObject({ kind: 'skill', op: 'patch' })
+    expect(staged).toHaveLength(1)
+    expect(staged[0]).toMatchObject({ kind: 'skill', op: 'patch' })
+    expect(staged[0]?.payload).toMatchObject({ skill: 'writer', body: '# writer v2', operator: 'rewrite' })
   })
 
   it('draws candidates from every configured operator and tags each one', async () => {
@@ -351,7 +328,7 @@ describe('EvolutionOptimizer', () => {
     })
     const first = await optimizer.optimize(request)
     expect(first.status).toBe('staged')
-    const second = await optimizer.optimize(request)
+    const second = await optimizer.optimize({ ...request, evidence: 'new failures' })
     expect(second.status).toBe('regressed')
     expect(second.floor?.triple).toEqual({ pass: true, tokens: 4, wallTimeMs: 5 })
     expect(second.floor?.stagedId).toBe('staged-0')
@@ -413,8 +390,8 @@ describe('EvolutionOptimizer', () => {
       resolutions: [{ id: 'staged-0', kind: 'skill', decision: 'approved' }],
     })
     expect((await optimizer.optimize(request)).status).toBe('staged')
-    expect((await optimizer.optimize(request)).status).toBe('regressed')
-    const third = await optimizer.optimize(request)
+    expect((await optimizer.optimize({ ...request, evidence: 'second try' })).status).toBe('regressed')
+    const third = await optimizer.optimize({ ...request, evidence: 'third try' })
     expect(third.status).toBe('regressed')
     expect(third.floor?.triple.tokens).toBe(4)
   })
@@ -428,7 +405,7 @@ describe('EvolutionOptimizer', () => {
       resolutions: [{ id: 'staged-0', kind: 'skill', decision: 'approved' }],
     })
     expect((await optimizer.optimize(request)).status).toBe('staged')
-    const second = await optimizer.optimize(request)
+    const second = await optimizer.optimize({ ...request, evidence: 'new failures' })
     expect(second.status).toBe('staged')
     expect(second.floor).toBeNull()
   })
@@ -635,6 +612,234 @@ describe('EvolutionOptimizer', () => {
     expect(quiet.optimizer.experiments(request.scopeId)).toHaveLength(0)
   })
 
+  it('refuses to pay for an experiment the ledger already decided', async () => {
+    const { optimizer, llmCalls } = await bench({
+      record: { name: 'writer', usage: usage(12, 10) },
+      body: '# writer',
+      mutations: ['# writer v2'],
+      scores: { writer: { pass: true, tokens: 5, wallTimeMs: 5 } },
+    })
+    expect((await optimizer.optimize(request)).status).toBe('no-improvement')
+    const spent = llmCalls()
+    const repeat = await optimizer.optimize(request)
+    expect(repeat.status).toBe('skipped')
+    expect(repeat.reason).toContain('already ran at')
+    expect(repeat.reason).toContain('nothing beat the baseline')
+    expect(llmCalls()).toBe(spent)
+  })
+
+  it('re-runs a recorded experiment when the guard is off or the evidence changed', async () => {
+    const off = await bench({
+      record: { name: 'writer', usage: usage(12, 10) },
+      body: '# writer',
+      mutations: ['# writer v2'],
+      scores: { writer: { pass: true, tokens: 5, wallTimeMs: 5 } },
+      config: { skipRepeatedExperiments: false },
+    })
+    await off.optimizer.optimize(request)
+    expect((await off.optimizer.optimize(request)).status).toBe('no-improvement')
+
+    const { optimizer } = await bench({
+      record: { name: 'writer', usage: usage(12, 10) },
+      body: '# writer',
+      mutations: ['# writer v2'],
+      scores: { writer: { pass: true, tokens: 5, wallTimeMs: 5 } },
+    })
+    await optimizer.optimize(request)
+    expect((await optimizer.optimize({ ...request, evidence: 'new failures' })).status).toBe('no-improvement')
+  })
+
+  it('switches to the operator that produced nothing once a skill stagnates', async () => {
+    const { optimizer } = await bench({
+      record: { name: 'writer', usage: usage(12, 10) },
+      body: '# writer',
+      config: { maxCandidates: 2, operators: ['rewrite', 'compress'], stagnationWindow: 1 },
+      // The first run's rewrite yields a candidate and compress yields none;
+      // the stagnant run draws from compress alone.
+      llmBodies: [['# writer v2'], [], ['# writer v3']],
+      scores: { writer: { pass: true, tokens: 5, wallTimeMs: 5 } },
+    })
+    const first = await optimizer.optimize(request)
+    expect(first.status).toBe('no-improvement')
+    expect(first.stagnant).toBe(false)
+    expect(first.candidates.map(candidate => candidate.operator)).toEqual(['rewrite'])
+    const second = await optimizer.optimize({ ...request, evidence: 'new failures' })
+    expect(second.stagnant).toBe(true)
+    expect(second.candidates.map(candidate => candidate.operator)).toEqual(['compress'])
+  })
+
+  it('keeps the configured lineup when the window already tried every operator', async () => {
+    const { optimizer } = await bench({
+      record: { name: 'writer', usage: usage(12, 10) },
+      body: '# writer',
+      config: { maxCandidates: 2, operators: ['rewrite', 'compress'], stagnationWindow: 1 },
+      llmBodies: [['# writer v2'], ['# writer v3'], ['# writer v4'], ['# writer v5']],
+      scores: { writer: { pass: true, tokens: 5, wallTimeMs: 5 } },
+    })
+    await optimizer.optimize(request)
+    const second = await optimizer.optimize({ ...request, evidence: 'new failures' })
+    expect(second.stagnant).toBe(true)
+    expect(second.candidates.map(candidate => candidate.operator)).toEqual(['rewrite', 'compress'])
+  })
+
+  it('neither remembers nor stagnates on a run that never evaluated', async () => {
+    const { optimizer } = await bench({
+      record: { name: 'writer', usage: usage(12, 10) },
+      body: '# writer',
+      mutations: ['# writer v2'],
+      config: { stagnationWindow: 1 },
+      skipEvaluation: 'the harness refused to run',
+      skipOnCall: 0,
+    })
+    expect((await optimizer.optimize(request)).status).toBe('skipped')
+    const second = await optimizer.optimize(request)
+    expect(second.status).toBe('no-improvement')
+    expect(second.stagnant).toBe(false)
+  })
+
+  it('records zero attempts for a run that measured no scenario', async () => {
+    const { optimizer } = await bench({
+      record: { name: 'writer', usage: usage(12, 10) },
+      body: '# writer',
+      mutations: ['# writer v2'],
+      scores: { writer: { pass: true, tokens: 5, wallTimeMs: 5 } },
+    })
+    expect((await optimizer.optimize({ ...request, scenarios: [] })).status).toBe('no-improvement')
+    expect(optimizer.experiments(request.scopeId)[0]?.samples).toBe(0)
+  })
+
+  it('fails loud when the ledger domain was never opened', async () => {
+    const ctx = new Context()
+    roots.push(ctx)
+    // Every seam the run resolves before it needs the ledger, so the missing
+    // domain is what it reaches first.
+    ctx.provide('evolutionScorer', { evaluateSkill: async () => ({}) } as never)
+    ctx.provide('evolutionSkillTelemetry', { entries: () => [{ name: 'writer', usage: usage(12, 10) }] } as never)
+    ctx.provide('evolutionMemory', { read: () => undefined, stageWrite: async () => ({ id: 'staged-0' }) } as never)
+    ctx.provide('skills', { get: async () => ({ content: '# writer' }) } as never)
+    ctx.provide('llm', { stream: () => textTurn('[]') } as never)
+    const optimizer = new EvolutionOptimizer(ctx, {
+      provider: 'deepseek',
+      model: 'deepseek-chat',
+      agent: { binScript: 'bin', configPath: 'cfg', tsconfigPath: 'tsconfig' },
+    })
+    await expect(optimizer.optimize(request)).rejects.toThrow('the experiments domain is not open')
+  })
+
+  it('orders the lineup by what repaired this failure before', async () => {
+    const { optimizer } = await bench({
+      record: { name: 'writer', usage: usage(12, 10) },
+      body: '# writer',
+      config: {
+        maxCandidates: 2,
+        operators: ['rewrite', 'compress'],
+        priorMinTries: 1,
+        skipRepeatedExperiments: false,
+      },
+      llmBodies: [['# rewrite a'], ['# compress a'], ['# compress b'], ['# rewrite b']],
+      // Run 1: rewrite's candidate loses to compress's; run 2 measures nothing new.
+      scoresFor: (_scenarios, call) => ({
+        pass: true,
+        tokens: call === 1 ? 8 : call === 2 ? 3 : 10,
+        wallTimeMs: 5,
+      }),
+    })
+    const first = await optimizer.optimize(request)
+    expect(first.status).toBe('staged')
+    expect(first.candidates.map(candidate => candidate.operator)).toEqual(['rewrite', 'compress'])
+    expect(optimizer.experiments(request.scopeId)[0]?.winnerOperator).toBe('compress')
+
+    // The same failure mode: compress has won here, so it leads the lineup.
+    const second = await optimizer.optimize(request)
+    expect(second.candidates.map(candidate => candidate.operator)).toEqual(['compress', 'rewrite'])
+  })
+
+  it('leaves the lineup in configuration order below the prior threshold', async () => {
+    const { optimizer } = await bench({
+      record: { name: 'writer', usage: usage(12, 10) },
+      body: '# writer',
+      config: {
+        maxCandidates: 2,
+        operators: ['rewrite', 'compress'],
+        priorMinTries: 5,
+        skipRepeatedExperiments: false,
+      },
+      llmBodies: [['# rewrite a'], ['# compress a'], ['# rewrite b'], ['# compress b']],
+      scoresFor: (_scenarios, call) => ({
+        pass: true,
+        tokens: call === 1 ? 8 : call === 2 ? 3 : 10,
+        wallTimeMs: 5,
+      }),
+    })
+    expect((await optimizer.optimize(request)).status).toBe('staged')
+    const second = await optimizer.optimize(request)
+    expect(second.candidates.map(candidate => candidate.operator)).toEqual(['rewrite', 'compress'])
+  })
+
+  it('counts a failure mode by the shape of its evidence, not its counters', async () => {
+    const { optimizer } = await bench({
+      record: { name: 'writer', usage: usage(12, 10) },
+      body: '# writer',
+      config: {
+        maxCandidates: 2,
+        operators: ['rewrite', 'compress'],
+        priorMinTries: 1,
+        skipRepeatedExperiments: false,
+      },
+      llmBodies: [['# rewrite a'], ['# compress a'], ['# compress b'], ['# rewrite b']],
+      scoresFor: (_scenarios, call) => ({
+        pass: true,
+        tokens: call === 1 ? 8 : call === 2 ? 3 : 10,
+        wallTimeMs: 5,
+      }),
+    })
+    expect((await optimizer.optimize(request)).status).toBe('staged')
+    // Counters moved, the failure did not: 11 failures over 204 loads is the
+    // same surface as 3 failures over 20 recorded loads.
+    const second = await optimizer.optimize({ ...request, evidence: '11 failures over 204 recorded loads' })
+    expect(second.candidates.map(candidate => candidate.operator)).toEqual(['compress', 'rewrite'])
+  })
+
+  it('records which operators said something new and orders the next lineup by it', async () => {
+    const { optimizer } = await bench({
+      record: { name: 'writer', usage: usage(12, 10) },
+      body: '# writer\nDo the thing.',
+      config: {
+        maxCandidates: 2,
+        operators: ['rewrite', 'compress'],
+        priorMinTries: 1,
+        skipRepeatedExperiments: false,
+        stagnationWindow: 5,
+      },
+      // Run 1: rewrite restates the body, compress adds a rule it lacks.
+      llmBodies: [
+        ['# writer\nDO   THE thing.'],
+        ['# writer\nDo the thing.\nRefuse unsafe paths.'],
+        // Run 2's candidates reformat the body instead of adding to it: not a
+        // duplicate of it byte-for-byte, and not novel in its lines either.
+        ['# writer\nDO  the thing.'],
+        ['# writer\nDo  THE thing.'],
+      ],
+      scoresFor: (_scenarios, call) => ({
+        pass: true,
+        tokens: call === 1 ? 8 : call === 2 ? 3 : 10,
+        wallTimeMs: 5,
+      }),
+    })
+    const first = await optimizer.optimize(request)
+    expect(first.status).toBe('staged')
+    expect(first.candidates.map(candidate => candidate.novelty)).toEqual([0, 1 / 3])
+    const row = optimizer.experiments(request.scopeId)[0]
+    expect(row?.winnerOperator).toBe('compress')
+    // Only compress stated a line the starting body lacked.
+    expect(row?.novelOperators).toEqual(['compress'])
+
+    // Both operators lost here before; the one that at least said something new
+    // leads the next lineup.
+    const second = await optimizer.optimize(request)
+    expect(second.candidates.map(candidate => candidate.operator)).toEqual(['compress', 'rewrite'])
+  })
+
   it('filters the ledger by skill and honours the page size', async () => {
     const { optimizer } = await bench({
       record: { name: 'writer', usage: usage(12, 10) },
@@ -644,7 +849,7 @@ describe('EvolutionOptimizer', () => {
       config: { screenScenarioCount: 0 },
     })
     await optimizer.optimize(request)
-    await optimizer.optimize({ ...request, skill: 'writer' })
+    await optimizer.optimize({ ...request, skill: 'writer', evidence: 'second run' })
     const scope = request.scopeId
     expect(optimizer.experiments(scope)).toHaveLength(2)
     expect(optimizer.experiments(scope, { limit: 1 })).toHaveLength(1)

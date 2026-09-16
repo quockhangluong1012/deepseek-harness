@@ -61,7 +61,7 @@ The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-a
 | `/curator run --dry-run` | The same pass previewed without writing; the snapshot line reads `Snapshot: none`. |
 | `/curator staged` | List the skills the ledger stages for review, worst failure rate first, with the evidence that selected each and when it was staged. |
 | `/curator optimize <skill> <scenario...>` | Run one offline optimization over the named corpus scenarios and report the staged skill patch id, or the reason nothing was staged. Requires the optimizer mounted and a workspace scope. |
-| `/curator experiments [skill]` | Print the scope's optimization ledger newest first — time, skill, outcome, staged id, confidence tally, and reason — so a second run starts from what was already tried. Requires the optimizer mounted and a workspace scope. |
+| `/curator experiments [skill]` | Print the scope's optimization ledger newest first — time, skill, outcome, the operators that produced candidates, the staged id with the operator that produced it, confidence tally, and reason — so a second run starts from what was already tried. Requires the optimizer mounted and a workspace scope. |
 | `/curator adopt <name>` | Claim model-authored skills into user-directed standing and report `Adopted '<name>' (state: <state>)`; anything without model authorship rejects. |
 | `/curator purge [--dry-run]` | Remove archived skills past their TTL and report the directory-or-record removals and pin skips; `--dry-run` previews the list without writing. |
 | `/curator rollback --id <id>` | Roll one recorded pass back: report the restored lifecycle states, then `Restored bodies: <names>` when SKILL.md bodies were restored from their preimages. |

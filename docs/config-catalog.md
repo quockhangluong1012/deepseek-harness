@@ -1026,6 +1026,24 @@ export interface Config {
    * the single comparison the search already made.
    */
   confirmationRuns?: number
+  /**
+   * Refuse a run whose exact hypothesis — same skill, evidence, scenarios,
+   * operators, starting body, and route — already has a recorded outcome;
+   * false re-runs it and pays for the same search again.
+   */
+  skipRepeatedExperiments?: boolean
+  /**
+   * Evaluated runs without a promotion that make a skill stagnant, at which
+   * point a run draws its candidates from the operators those runs had not
+   * used. 1 switches on the first failed run.
+   */
+  stagnationWindow?: number
+  /**
+   * Candidate-producing runs an operator needs under one failure signature
+   * before its record orders the lineup: below it the operator is treated as
+   * never seen there.
+   */
+  priorMinTries?: number
   /** Experiments one scope keeps, newest first; older rows are dropped as new ones land. */
   maxExperiments?: number
   /** Experiments one read returns, newest first. */
@@ -1034,15 +1052,24 @@ export interface Config {
   agent: {
     /** Source bin entry variant attempts boot. */
     binScript: string
-    /** Base config or profile patch the entry loads. */
+    /**
+     * Base config or profile patch the entry loads. A named profile layers it
+     * over that profile; without one the entry boots the file alone, which only
+     * a bin with its own config grammar accepts.
+     */
     configPath: string
+    /**
+     * Named dsh profile every attempt boots. Set it whenever `binScript` is the
+     * real `dsh` entry: the app boots profiles, not bare config files.
+     */
+    profile?: string
     /** Repo tsconfig resolving unbuilt workspace imports. */
     tsconfigPath: string
   }
 }
 ```
 
-Source: [`packages/evolution/evolution-optimizer/src/index.ts:69`](../packages/evolution/evolution-optimizer/src/index.ts)
+Source: [`packages/evolution/evolution-optimizer/src/index.ts:90`](../packages/evolution/evolution-optimizer/src/index.ts)
 
 <a id="deepseek-aidsh-evolution-reviewer"></a>
 

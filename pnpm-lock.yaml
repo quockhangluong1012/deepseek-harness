@@ -2167,9 +2167,15 @@ importers:
       '@deepseek-ai/dsh-evolution-memory-context':
         specifier: workspace:^
         version: link:../../context/evolution-memory-context
+      '@deepseek-ai/dsh-evolution-optimizer':
+        specifier: workspace:^
+        version: link:../../evolution/evolution-optimizer
       '@deepseek-ai/dsh-evolution-reviewer':
         specifier: workspace:^
         version: link:../../evolution/evolution-reviewer
+      '@deepseek-ai/dsh-evolution-scorer':
+        specifier: workspace:^
+        version: link:../../evolution/evolution-scorer
       '@deepseek-ai/dsh-evolution-skill-manage':
         specifier: workspace:^
         version: link:../../skill/evolution-skill-manage

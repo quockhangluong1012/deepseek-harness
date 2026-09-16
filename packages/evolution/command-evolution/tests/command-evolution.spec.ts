@@ -1712,6 +1712,11 @@ describe('/curator human command', () => {
         kind: 'success',
         text: `Optimized 'writer': no variant beats.`,
       })
+      report = { status: 'no-improvement', reason: 'no variant beats', stagnant: true }
+      expect((await run(test, session, '/curator optimize writer s1')).result).toEqual({
+        kind: 'success',
+        text: "Optimized 'writer': no variant beats. Recent runs promoted nothing, so it drew candidates from the operators they had not used.",
+      })
     } finally {
       await shutdown(test)
     }
@@ -1736,13 +1741,29 @@ describe('/curator human command', () => {
         at: '2026-09-15T10:00:00.000Z',
         skill: 'writer',
         outcome: 'staged',
+        operators: ['rewrite', 'compress'],
+        winnerOperator: 'compress',
         stagedId: 'staged-4',
         confidence: { runs: 2, wins: 2 },
         reason: null,
       }]
       expect((await run(test, session, '/curator experiments')).result).toEqual({
         kind: 'success',
-        text: 'Experiments (newest first): 1\n2026-09-15T10:00:00.000Z writer: staged staged-4 2/2',
+        text: 'Experiments (newest first): 1\n2026-09-15T10:00:00.000Z writer: staged [rewrite+compress] staged-4 via compress 2/2',
+      })
+      rows = [{
+        at: '2026-09-15T10:00:00.000Z',
+        skill: 'writer',
+        outcome: 'no-improvement',
+        operators: [],
+        winnerOperator: null,
+        stagedId: null,
+        confidence: null,
+        reason: 'no variant beats the baseline',
+      }]
+      expect((await run(test, session, '/curator experiments')).result).toEqual({
+        kind: 'success',
+        text: 'Experiments (newest first): 1\n2026-09-15T10:00:00.000Z writer: no-improvement — no variant beats the baseline',
       })
       expect((await run(test, session, '/curator experiments writer extra')).result).toEqual({
         kind: 'error',

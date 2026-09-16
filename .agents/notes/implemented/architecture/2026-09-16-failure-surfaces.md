@@ -1,0 +1,36 @@
+# Agent Note: Failure surfaces for mutation operators
+
+Status: implemented
+
+English | [中文](2026-09-16-failure-surfaces.zh.md)
+
+## Problem
+
+`specs/evolutionary-harness-v11-deep-research.md` §30 asks the mutation engine to choose an operator from a learned prior — a map from failure mode to the repairs that worked on it — instead of from configuration order alone. The optimizer recorded what each run measured but not *which operator produced the winning body*: [the experiment ledger](2026-09-16-experiment-ledger-and-confidence.md) stored the winner's triple and the digest of its body, and the operator that wrote it was dropped when the run returned. Without that fact no prior could be derived, and the stagnation detector's switch — itself a response to failure — could only remove operators, never prefer one.
+
+## Decision
+
+**One recorded fact, one derived ordering, one threshold.**
+
+- **The ledger records the winner's operator.** `ExperimentRecord.winnerOperator` names the operator that produced the promoted body, `null` when nothing was promoted. The run's draft carries the winning `EvaluatedVariant` rather than its body text, so the row no longer re-finds the winner among the candidates to read a triple it already holds.
+- **A failure surface is keyed by the shape of the evidence.** `failureSignature` lowercases the evidence, folds every run of digits to one `#`, and collapses whitespace: `3 failures over 20 recorded loads` and `11 failures over 204 recorded loads` are the same failure. The counters a fresh telemetry reading produces are exactly the part that would otherwise split one recurring failure mode across a different record every run.
+- **`operatorRecords` counts tries, wins, and freshness per operator for one signature**, from one scope's rows: a try for every operator that produced a candidate, a win for the one whose candidate the run promoted, and freshness for any operator listed in the row's `novelOperators` — the operators that produced at least one candidate stating instruction lines the starting body lacked, measured as [novelty](2026-09-16-optimizer-batch6.md) before selection. It skips rows that never reached evaluation, the same way the ledger's other readers do.
+- **`orderPortfolio` sorts the lineup by that record**: operators that have won this failure first (best win rate first, ties by configuration order), operators this failure has no eligible record of next (configuration order), operators that have only ever lost there last — the ones that at least stated something the body did not carry ahead of the ones that only ever repeated it, then the most-tried first. That last ordering is §31's novelty pressure applied where a single-shot optimizer can act: it cannot reward a candidate twice, but it can stop drawing from an operator that keeps restating the body. The order is the lever — `distributeCandidates` splits `maxCandidates` in lineup order, so the leading operators take the remainder.
+- **`priorMinTries` (default 3) is the evidence floor.** Below it an operator counts as never seen for that failure, so a single lucky win cannot reorder a lineup, and the prior stays silent until the ledger has actually measured something.
+- **Stagnation and the prior compose in that order**: stagnation narrows the lineup to the operators the recent window did not produce a candidate with, and the prior orders whatever lineup survives. A narrowed lineup is never widened by the prior, and a signature with no record leaves configuration order intact.
+
+## Alternatives considered
+
+- **A per-skill prior instead of a per-failure one.** Rejected: the ledger's rows already carry the skill, but a skill's failures have different causes, and averaging over them would recommend the operator that wins the most common failure rather than the one that repairs the failure at hand.
+- **Keying the surface on the exact evidence text.** Rejected: the default evidence embeds telemetry counters, so the map would hold one entry per reading and never accumulate the two or three attempts a rate needs. Folding digits is the smallest normalization that survives a re-reading, and the README states what it costs — two failures differing only in their numbers share a record.
+- **An explicit failure-mode taxonomy** (parse evidence into `stale_context`, `tool_error`, …). Rejected for now: the evidence is produced by the caller, and a classifier over free text would either be a keyword list this repository would have to maintain or a model call per run — for a prior that only orders a lineup. The signature is the taxonomy the ledger can support without inventing one.
+- **Bandit-style exploration** (UCB/Thompson over operator arms, exploring an unmeasured operator at a fixed rate). Rejected for now: promotion is rare and expensive, so a rate over the rows a scope has is already thin evidence; exploration would need to spend scored runs on purpose, which is the opposite of what the budget-bounded run promises. The ordering here is a prior, not a policy, and `priorMinTries` is what keeps it from speaking early.
+- **Freshness as a magnitude rather than a fact.** Rejected: the row records which operators stated something new, not how much, because the rule it feeds is "has this operator ever said anything here" and a per-operator maximum would have to be stored per operator to answer it. A candidate with one new line among fifty counts as fresh, which is the honest reading of "it said something".
+- **Crediting a win to every operator in the winning run's lineup.** Rejected: a lineup is measured together, so crediting all of it would teach the prior that the worst operator in a good lineup also works — the one mistake that would make the prior actively harmful.
+- **Recording the operator only in the staged payload.** Rejected: `/curator experiments` reads the ledger, and a human auditing which operator repaired what needs the fact on the row rather than inside the scope's staged entries.
+
+## Consequences
+
+The lineup a run draws from now reflects what the ledger measured for that failure, the operator behind every promotion is a recorded fact rather than a payload detail, and the stagnation switch has something to order the operators it keeps. The costs are stated in the package README: the prior is per signature and per scope rather than per skill, the signature's digit folding merges failures that differ only in magnitude, and a run only credits the operator whose candidate won, so an operator that produced a good-but-losing candidate gains a try and no win.
+
+Verification: 95 optimizer tests, including the lineup following a prior that compress won and rewrite lost, configuration order surviving below `priorMinTries`, a failure whose counters moved still leading with the operator that repaired it, and a run whose restating operator falls behind the one that added a rule; plus pure tests for `failureSignature`, `operatorRecords`, and every ordering branch in `orderPortfolio`. 100% statements, branches, functions, and lines on `packages/evolution/evolution-optimizer/src`.

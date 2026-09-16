@@ -73,6 +73,11 @@ export interface AcpTestLaunchOptions {
   configPath?: string
   /** Extra environment values layered over the parent environment. */
   env?: NodeJS.ProcessEnv
+  /**
+   * `DSH_HOME` the child boots with; defaults to `<cwd>/.dsh`. A caller that
+   * scores content staged in a home of its own names that directory here.
+   */
+  homeDir?: string
   /** Permission handler; omitted requests fail closed as `cancelled`. */
   requestPermission?: (params: RequestPermissionRequest) => Promise<RequestPermissionResponse>
 }
@@ -129,7 +134,7 @@ export function launchAcpTestAgent(options: AcpTestLaunchOptions): LaunchedAcpTe
     ...agent.profile === undefined ? {} : { sourceImport: 'tsx/esm' },
     env: {
       ...options.env,
-      DSH_HOME: join(cwd, '.dsh'),
+      DSH_HOME: options.homeDir ?? join(cwd, '.dsh'),
       DSH_AGENTS_HOME: join(cwd, '.agents'),
     },
   })

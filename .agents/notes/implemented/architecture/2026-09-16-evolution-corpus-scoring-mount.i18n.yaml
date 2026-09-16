@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-16-evolution-corpus-scoring-mount.md
+2026-09-16-evolution-corpus-scoring-mount.md: 6239bab491d47698816c95f46db539b43e1fd4e5
+2026-09-16-evolution-corpus-scoring-mount.zh.md: 3b02d3cdcbef25aa7f4d0c1410ace430b6c81f6f

@@ -178,6 +178,25 @@
     - id: evolution-curator
       name: '@deepseek-ai/dsh-evolution-curator'
 
+    # Measurement and offline optimization: `evolution-scorer` turns one
+    # recorded corpus scenario into the metric triple the optimizer selects on,
+    # and `evolution-optimizer` rewrites a SKILL.md through the mutation route
+    # and stages the Pareto winner for `/skills approve`. Both need values no
+    # shipped profile can invent — the directory of recorded scenarios, and the
+    # agent composition each scoring attempt boots (a profile plus the patch it
+    # layers, a source bin, and the repo tsconfig) — so both rows ship off and a
+    # profile or `--patch` overlay enables them with its own values; see
+    # apps/cli/config/examples/evolution-optimize/cordis.yml. Left off, the
+    # `/curator optimize` and `/curator experiments` verbs report the missing
+    # optimizer instead of guessing a corpus.
+    - id: evolution-scorer
+      name: '@deepseek-ai/dsh-evolution-scorer'
+      disabled: true
+
+    - id: evolution-optimizer
+      name: '@deepseek-ai/dsh-evolution-optimizer'
+      disabled: true
+
     - id: command-evolution
       name: '@deepseek-ai/dsh-command-evolution'
       config:

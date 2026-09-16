@@ -37,6 +37,11 @@ export interface EvaluatedVariant {
   body: string
   /** Id of the mutation operator that produced the body. */
   operator: string
+  /**
+   * Share of the body's distinct instruction lines the starting body does not
+   * already contain, in 0..1: how much new material this candidate states.
+   */
+  novelty: number
   /** Aggregated triple over the request's scenarios. */
   score: SkillScore
 }
@@ -83,6 +88,11 @@ export interface OptimizeReport {
   holdout: HoldoutCheck | null
   /** Approved floor the run measured its winner against, when one exists. */
   floor: RegressionFloor | null
+  /**
+   * Whether the skill stagnated — its recent evaluated runs promoted nothing —
+   * so this run drew its candidates from the operators those runs had not used.
+   */
+  stagnant: boolean
   /** Paired-comparison tally when the run confirmed its winner, else null. */
   confidence: PromotionConfidence | null
   /** Whether the run stopped evaluating candidates early because its budget was spent. */
@@ -113,6 +123,13 @@ export interface ExperimentRecord {
   evidence: string
   /** Mutation operators that produced the evaluated candidates. */
   operators: readonly string[]
+  /** Mutation operators the run drew from, whether or not they produced a candidate. */
+  portfolio: readonly string[]
+  /**
+   * Operators whose candidates stated at least one instruction line the run's
+   * starting body did not carry: the ones that did not merely restate it.
+   */
+  novelOperators: readonly string[]
   /** Search scenarios the run evaluated. */
   scenarios: readonly string[]
   /** Holdout scenarios the run checked, empty when none were configured. */
@@ -139,6 +156,8 @@ export interface ExperimentRecord {
   bodySha: string
   /** SHA-256 of the promoted body, absent when nothing was promoted. */
   winnerSha: string | null
+  /** Operator that produced the promoted body, absent when nothing was promoted. */
+  winnerOperator: string | null
 }
 
 /** Query one scope's experiment ledger. */
@@ -165,6 +184,10 @@ export interface ExperimentDraft {
   evidence: string
   /** Mutation operators that produced the evaluated candidates. */
   operators: readonly string[]
+  /** Mutation operators the run drew from. */
+  portfolio: readonly string[]
+  /** Operators whose candidates stated material the starting body lacked. */
+  novelOperators: readonly string[]
   /** Search scenarios the run evaluated. */
   scenarios: readonly string[]
   /** Provider route the mutation used. */
@@ -175,6 +198,6 @@ export interface ExperimentDraft {
   body: string
   /** Attempts per scenario the run's triples were measured with. */
   samples: number
-  /** Promoted body, absent when nothing was promoted. */
-  winnerBody: string | null
+  /** Winning candidate, absent when nothing was promoted. */
+  winner: EvaluatedVariant | null
 }

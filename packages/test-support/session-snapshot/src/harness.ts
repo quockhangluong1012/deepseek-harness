@@ -208,6 +208,13 @@ export interface RunOptions {
    * in `cordis.yml` so the launcher can select the replay sibling.
    */
   configPath?: string
+  /**
+   * `DSH_HOME` the agent boots with; defaults to `<cwd>/.dsh`. Callers that
+   * score a variant stage the content it exposes (a skill body, for example)
+   * into their own home and boot the attempt there, so the recorded corpus
+   * measures that content rather than the machine's live one.
+   */
+  homeDir?: string
 }
 
 /**
@@ -271,7 +278,6 @@ export async function runScenario(input: InputScript, opts: RunOptions): Promise
       DSH_SNAPSHOT_SESSIONS_ROOT: sessionsRoot,
       DSH_SNAPSHOT_SPILL_ROOT: spillRoot,
       DSH_SNAPSHOT_SPILL_LOCATOR_ROOT: snapshotSpillRoot(opts.fixtureFile),
-      DSH_HOME: join(cwd, '.dsh'),
       DSH_AGENTS_HOME: join(cwd, '.agents'),
       ...opts.overrideFile !== undefined ? { DSH_SNAPSHOT_OVERRIDE: opts.overrideFile } : {},
       ...opts.childFiles !== undefined && opts.childFiles.length > 0
@@ -293,6 +299,7 @@ export async function runScenario(input: InputScript, opts: RunOptions): Promise
     launched = launchAcpTestAgent({
       agent: opts.agent,
       cwd,
+      ...opts.homeDir !== undefined ? { homeDir: opts.homeDir } : {},
       ...opts.configPath !== undefined ? { configPath: opts.configPath } : {},
       env,
       requestPermission(params: RequestPermissionRequest): Promise<RequestPermissionResponse> {

@@ -1,0 +1,37 @@
+# Opt-in corpus scoring and offline skill optimization over the shipped Web
+# composition. `evolution-scorer` reads recorded scenarios out of `corpusDir`
+# and reports the metric triple a run selects on; `evolution-optimizer` rewrites
+# one skill's SKILL.md through the mutation route, screens and re-scores the
+# candidates, and stages the winner as a skill patch a human approves with
+# `/skills approve`.
+#
+# The paths below are the repo's own: the ACP corpus the snapshot suite records
+# into (`snapshots/acp`), the CLI source entry the attempts boot, the profile
+# those attempts run under, and the repo tsconfig that resolves unbuilt
+# workspace imports. Applied from a checkout they work as written; anywhere else
+# replace all four with your own corpus and installation paths. `corpusDir` and
+# the agent paths must be absolute, and `profile` is required whenever the bin
+# is the real `dsh` entry — a bin without it boots a bare config file instead of
+# a profile.
+#
+# Applying this patch turns on two rows that ship disabled. `/curator
+# experiments [skill]` then reads the ledger, and `/curator optimize <skill>
+# <scenario...>` runs one optimization: it needs the scenario directories to
+# exist under `corpusDir`, a skill whose recorded failure rate has passed
+# `triggerMinUses` / `triggerFailureRate`, and a credential for the mutation
+# route below.
+- id: evolution-scorer
+  disabled: false
+  config:
+    corpusDir: !!js process.cwd() + '/snapshots/acp'
+
+- id: evolution-optimizer
+  disabled: false
+  config:
+    provider: deepseek-official
+    model: deepseek-flash
+    agent:
+      binScript: !!js process.cwd() + '/apps/cli/src/bin.ts'
+      configPath: !!js process.cwd() + '/snapshots/acp/escalation-approved/cordis.yml'
+      profile: acp
+      tsconfigPath: !!js process.cwd() + '/tsconfig.json'

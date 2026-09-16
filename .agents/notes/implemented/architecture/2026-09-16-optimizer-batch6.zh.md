@@ -14,7 +14,7 @@ Review-v6 §4.4 步骤 4-5 要求最小优化器：复用整理器 LLM 模式的
 
 **变体隔离是结构性的。**每个正文在全新的 `DSH_HOME` 覆盖层（`skills/<name>/SKILL.md`）内评分，覆盖层经 runner 环境叠入；用户现网技能永不触碰，覆盖层在 `finally` 中删除。基线也在同一覆盖层 harness 下重评而非沿用旧数，因此比较天然公平。
 
-**Pareto 纯粹且严格。**（pass、token、wallTimeMs）上的支配关系；优胜者必须支配基线，平局按 token 再按耗时再按变异顺序。其他一切——空变异作答、未被击败的基线、语料跳过——都以带理由的 `no-improvement` 或 `skipped` 返回，什么都不分选。
+**Pareto 纯粹且严格。**（pass、token、wallTimeMs）上的支配关系；优胜者必须支配基线，平局按 token、再按最新颖的正文、再按耗时、再按变异顺序。新颖度（`src/novelty.ts`，§31）是候选那些互异指令行中起始正文尚未包含的比例，衡量时折叠大小写、空白与行序；它排在耗时之上，因为全新回放进程上的耗时是机器噪声，而新颖度才是改变技能行为的那个轴。支配关系仍在它之上：新颖候选绝不会压过更便宜或更快的候选，因此新颖度只在「测得相同」的候选之间起作用——三元组完全相等，或筛选阶段 pass 与 token 相等。其他一切——空变异作答、未被击败的基线、语料跳过——都以带理由的 `no-improvement` 或 `skipped` 返回，什么都不分选。
 
 **部署沿用现有技能协议。**分选 payload 携带 `{skill, body, baseline, winner}` 瘦三元组作审批证据；人类用 skill_manage 写技能，`/skills approve` 消除条目。优化器未挂载出货（与评分器一样）：在某个部署给出 agent 路径与 provider/model 路由之前，没有 profile 挂载它；此前的 `/curator optimize <skill> <scenario...>` 如实报告 `not mounted`。
 

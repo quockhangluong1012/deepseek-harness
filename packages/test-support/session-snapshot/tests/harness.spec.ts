@@ -595,6 +595,30 @@ describe('runScenario', () => {
     expect(env.childFiles).toBe(childFiles.join(delimiter))
   })
 
+  it('boots the attempt in the requested home, and under the workspace home by default', { timeout: 20_000 }, async () => {
+    const { dir, fixtureFile } = await scenario({ echoEnv: true })
+    const home = join(dir, 'variant-home')
+    const requested = await runScenario(
+      { steps: [...boot, { op: 'prompt', text: 'env?' }] },
+      { agent: AGENT, mode: 'replay', fixtureFile, homeDir: home },
+    )
+    const read = (result: { rawStdout: string }): { home: string | null } => {
+      const envChunk = result.rawStdout.split('\n')
+        .map(l => l.trim())
+        .filter(l => l.length > 0)
+        .map(l => JSON.parse(l) as { params?: { update?: { content?: { text?: string } } } })
+        .find(f => f.params?.update?.content?.text?.startsWith('env:'))
+      return JSON.parse((envChunk?.params?.update?.content?.text ?? 'env:{}').slice('env:'.length)) as { home: string | null }
+    }
+    expect(read(requested).home).toBe(home)
+    const defaulted = await runScenario(
+      { steps: [...boot, { op: 'prompt', text: 'env?' }] },
+      { agent: AGENT, mode: 'replay', fixtureFile },
+    )
+    // Without the option the attempt keeps the generated workspace home.
+    expect(read(defaulted).home).toBe(join(defaulted.cwd, '.dsh'))
+  })
+
   it('cleans acquired workspace and session roots when spill allocation fails', async () => {
     const { fixtureFile } = await scenario({})
     const failure = { error: Object.assign(new Error('spill allocation failed'), { code: 'ENOSPC' }), allocated: [] as string[] }

@@ -25,7 +25,17 @@ import type { AgentUnderTest } from '@deepseek-ai/dsh-session-snapshot'
 import { distributeCandidates, frameMutationInput, mutateOnce, resolveOperators } from './mutate.ts'
 import { dominates, pickWinner, screenSurvivors } from './pareto.ts'
 import { scoreVariant } from './evaluate.ts'
-import { experimentPage, optimizerDomainSpec, staleExperiments } from './experiments.ts'
+import {
+  describeOutcome,
+  experimentKey,
+  experimentPage,
+  hasResult,
+  optimizerDomainSpec,
+  repeatedExperiment,
+  staleExperiments,
+} from './experiments.ts'
+import { noveltyOf } from './novelty.ts'
+import { failureSignature, operatorRecords, orderPortfolio } from './surface.ts'
 import type { MutationOperator } from './mutate.ts'
 import type {
   EvaluatedVariant,
@@ -39,7 +49,18 @@ import type {
   PromotionConfidence,
 } from './types.ts'
 
-export { experimentPage, optimizerDomainSpec, staleExperiments } from './experiments.ts'
+export {
+  describeOutcome,
+  experimentKey,
+  experimentPage,
+  hasResult,
+  optimizerDomainSpec,
+  repeatedExperiment,
+  staleExperiments,
+} from './experiments.ts'
+export { noveltyOf } from './novelty.ts'
+export { failureSignature, operatorRecords, orderPortfolio } from './surface.ts'
+export type { OperatorRecord } from './surface.ts'
 export type {
   EvaluatedVariant,
   ExperimentDraft,
@@ -105,6 +126,24 @@ export interface Config {
    * the single comparison the search already made.
    */
   confirmationRuns?: number
+  /**
+   * Refuse a run whose exact hypothesis — same skill, evidence, scenarios,
+   * operators, starting body, and route — already has a recorded outcome;
+   * false re-runs it and pays for the same search again.
+   */
+  skipRepeatedExperiments?: boolean
+  /**
+   * Evaluated runs without a promotion that make a skill stagnant, at which
+   * point a run draws its candidates from the operators those runs had not
+   * used. 1 switches on the first failed run.
+   */
+  stagnationWindow?: number
+  /**
+   * Candidate-producing runs an operator needs under one failure signature
+   * before its record orders the lineup: below it the operator is treated as
+   * never seen there.
+   */
+  priorMinTries?: number
   /** Experiments one scope keeps, newest first; older rows are dropped as new ones land. */
   maxExperiments?: number
   /** Experiments one read returns, newest first. */
@@ -113,8 +152,17 @@ export interface Config {
   agent: {
     /** Source bin entry variant attempts boot. */
     binScript: string
-    /** Base config or profile patch the entry loads. */
+    /**
+     * Base config or profile patch the entry loads. A named profile layers it
+     * over that profile; without one the entry boots the file alone, which only
+     * a bin with its own config grammar accepts.
+     */
     configPath: string
+    /**
+     * Named dsh profile every attempt boots. Set it whenever `binScript` is the
+     * real `dsh` entry: the app boots profiles, not bare config files.
+     */
+    profile?: string
     /** Repo tsconfig resolving unbuilt workspace imports. */
     tsconfigPath: string
   }
@@ -135,6 +183,9 @@ export const Config: z<Config> = z.object({
   screenScenarioCount: z.number().step(1).min(0).default(0),
   operators: z.array(z.string()).default(['rewrite']),
   confirmationRuns: z.number().step(1).min(1).default(1),
+  skipRepeatedExperiments: z.boolean().default(true),
+  stagnationWindow: z.number().step(1).min(1).default(5),
+  priorMinTries: z.number().step(1).min(1).default(3),
   maxExperiments: z.number().step(1).min(1).default(200),
   experimentPageSize: z.number().step(1).min(1).default(20),
   agent: z.object({
@@ -142,6 +193,8 @@ export const Config: z<Config> = z.object({
     binScript: z.string().required(),
     /** Base config or profile patch the entry loads. */
     configPath: z.string().required(),
+    /** Named dsh profile every attempt boots; absent only for a fake bin. */
+    profile: z.string(),
     /** Repo tsconfig resolving unbuilt workspace imports. */
     tsconfigPath: z.string().required(),
   }),
@@ -162,6 +215,9 @@ export interface ResolvedConfig {
   screenScenarioCount: number
   operators: readonly MutationOperator[]
   confirmationRuns: number
+  skipRepeatedExperiments: boolean
+  stagnationWindow: number
+  priorMinTries: number
   maxExperiments: number
   experimentPageSize: number
   agent: AgentUnderTest
@@ -187,6 +243,9 @@ export function resolveConfig(config: Config): ResolvedConfig {
     screenScenarioCount = 0,
     operators = ['rewrite'],
     confirmationRuns = 1,
+    skipRepeatedExperiments = true,
+    stagnationWindow = 5,
+    priorMinTries = 3,
     maxExperiments = 200,
     experimentPageSize = 20,
     agent,
@@ -205,6 +264,9 @@ export function resolveConfig(config: Config): ResolvedConfig {
     screenScenarioCount,
     operators: resolveOperators(operators),
     confirmationRuns,
+    skipRepeatedExperiments,
+    stagnationWindow,
+    priorMinTries,
     maxExperiments,
     experimentPageSize,
     agent,
@@ -288,10 +350,12 @@ export class EvolutionOptimizer extends Service {
       skill: request.skill,
       evidence: draft.evidence,
       operators: [...draft.operators],
+      portfolio: [...draft.portfolio],
+      novelOperators: [...draft.novelOperators],
       scenarios: [...draft.scenarios],
       holdout: [...this.resolved.holdoutScenarios],
       baseline: triple(report.baseline),
-      winner: triple(report.candidates.find(candidate => candidate.body === draft.winnerBody)?.score ?? null),
+      winner: draft.winner === null ? null : triple(draft.winner.score),
       confidence: report.confidence,
       samples: draft.samples,
       outcome: report.status,
@@ -300,7 +364,8 @@ export class EvolutionOptimizer extends Service {
       provider: draft.provider,
       model: draft.model,
       bodySha: digestOf(draft.body),
-      winnerSha: draft.winnerBody === null ? null : digestOf(draft.winnerBody),
+      winnerSha: draft.winner === null ? null : digestOf(draft.winner.body),
+      winnerOperator: draft.winner?.operator ?? null,
     }
     try {
       const table = this.requireTable()
@@ -313,6 +378,45 @@ export class EvolutionOptimizer extends Service {
       // The run's own outcome is already decided; a ledger write that fails is
       // reported, not allowed to fail a promotion it did not make.
       this.ctx.logger.warn(`evolution optimizer could not record experiment for '${request.skill}': ${String(error)}`)
+    }
+  }
+
+  /**
+   * Choose the mutation lineup for one run, in the order this run draws from it.
+   *
+   * Stagnation first: a skill whose recent evaluated runs promoted nothing
+   * repeats a search that already failed, so the lineup narrows to the
+   * operators those runs did not produce a candidate with. When every
+   * configured operator has already produced one, diversity is exhausted and
+   * the configured lineup stands.
+   *
+   * Then the failure surface: the ledger's record of this failure — the
+   * evidence's shape, its magnitudes folded away — orders that lineup so the
+   * operators that have won this failure come first and the ones that only ever
+   * lost there come last, with operators this failure has never seen in
+   * between. The order decides who takes the remainder of the candidate budget.
+   * @param request - the run's scope and skill.
+   * @param evidence - the failure evidence the mutation addresses.
+   * @returns whether the skill stagnates, and the operators to draw from.
+   */
+  private mutationStrategy(
+    request: OptimizeRequest,
+    evidence: string,
+  ): { stagnant: boolean; portfolio: readonly MutationOperator[] } {
+    const rows = this.experiments(request.scopeId, {
+      skill: request.skill,
+      limit: Math.max(this.resolved.stagnationWindow, this.resolved.maxExperiments),
+    })
+    const evaluated = rows.filter(hasResult)
+    const window = evaluated.slice(0, this.resolved.stagnationWindow)
+    const stagnant = window.length >= this.resolved.stagnationWindow
+      && !window.some(row => row.outcome === 'staged')
+    const tried = new Set(window.flatMap(row => row.operators))
+    const unused = this.resolved.operators.filter(operator => !tried.has(operator.id))
+    const chosen = stagnant && unused.length > 0 ? unused : this.resolved.operators
+    return {
+      stagnant,
+      portfolio: orderPortfolio(chosen, operatorRecords(rows, failureSignature(evidence)), this.resolved.priorMinTries),
     }
   }
 
@@ -372,6 +476,7 @@ export class EvolutionOptimizer extends Service {
     if (new Set(request.scenarios).size !== request.scenarios.length || new Set(holdout).size !== holdout.length) {
       throw new Error('evolution-optimizer: a scenario list repeats a name')
     }
+    let stagnant = false
     const report = (
       status: OptimizeReport['status'],
       fields: {
@@ -383,6 +488,7 @@ export class EvolutionOptimizer extends Service {
         truncated?: boolean
         confirmed?: PromotionConfidence | null
         below?: RegressionFloor | null
+        stagnant?: boolean
       } = {},
     ): OptimizeReport => ({
       skill: request.skill,
@@ -395,6 +501,7 @@ export class EvolutionOptimizer extends Service {
       truncated: fields.truncated ?? false,
       confidence: fields.confirmed ?? null,
       floor: fields.below ?? null,
+      stagnant: fields.stagnant ?? stagnant,
     })
     const scorer = this.ctx.get('evolutionScorer')
     const telemetry = this.ctx.get('evolutionSkillTelemetry')
@@ -428,9 +535,32 @@ export class EvolutionOptimizer extends Service {
     const evidence = request.evidence ?? `${failures} failures over ${loads} recorded loads`
     const signal = request.signal ?? new AbortController().signal
     const fork = { stream: (options: Parameters<typeof llm.stream>[0]) => llm.stream(options) }
-    const mutated: { body: string; operator: string }[] = []
+    const strategy = this.mutationStrategy(request, evidence)
+    stagnant = strategy.stagnant
+    if (this.resolved.skipRepeatedExperiments) {
+      const repeated = repeatedExperiment(
+        this.experiments(request.scopeId, { skill: request.skill, limit: this.resolved.maxExperiments }),
+        experimentKey({
+          skill: request.skill,
+          evidence,
+          scenarios: request.scenarios,
+          portfolio: strategy.portfolio.map(operator => operator.id),
+          bodySha: digestOf(body),
+          provider,
+          model,
+        }),
+      )
+      if (repeated !== undefined) {
+        return {
+          report: report('skipped', {
+            reason: `this experiment already ran at ${repeated.at}, and ${describeOutcome(repeated)}`,
+          }),
+        }
+      }
+    }
+    const mutated: { body: string; operator: string; novelty: number }[] = []
     const seen = new Set<string>([body])
-    for (const allocation of distributeCandidates(this.resolved.maxCandidates, this.resolved.operators)) {
+    for (const allocation of distributeCandidates(this.resolved.maxCandidates, strategy.portfolio)) {
       const framed = frameMutationInput(
         request.skill,
         body,
@@ -455,21 +585,28 @@ export class EvolutionOptimizer extends Service {
       for (const candidate of produced) {
         if (seen.has(candidate)) continue
         seen.add(candidate)
-        mutated.push({ body: candidate, operator: allocation.operator.id })
+        // Novelty is a property of the text, measured once here against the
+        // body the run started from, so the draft, the screen, and the report
+        // all read the same number.
+        mutated.push({ body: candidate, operator: allocation.operator.id, novelty: noveltyOf(candidate, body) })
       }
     }
     if (mutated.length === 0) {
       return { report: report('no-improvement', { reason: `mutation produced no usable bodies for '${request.skill}'` }) }
     }
     let samples = 0
-    const draft = (winnerBody: string | null): ExperimentDraft => ({
+    const draft = (winner: EvaluatedVariant | null): ExperimentDraft => ({
       evidence,
       operators: [...new Set(mutated.map(variant => variant.operator))],
+      portfolio: strategy.portfolio.map(operator => operator.id),
+      novelOperators: [...new Set(mutated
+        .filter(variant => variant.novelty > 0)
+        .map(variant => variant.operator))],
       scenarios: request.scenarios,
       provider,
       model,
       body,
-      winnerBody,
+      winner,
       samples,
     })
     const deps = { scorer, skill: request.skill, scenarios: request.scenarios, agent, run }
@@ -488,8 +625,13 @@ export class EvolutionOptimizer extends Service {
     spend(baseline.score)
     samples = samplesOf(baseline.score)
     const screenCount = this.resolved.screenScenarioCount
-    let pool: readonly { index: number; body: string; operator: string }[] =
-      mutated.map((variant, index) => ({ index, body: variant.body, operator: variant.operator }))
+    let pool: readonly { index: number; body: string; operator: string; novelty: number }[] =
+      mutated.map((variant, index) => ({
+        index,
+        body: variant.body,
+        operator: variant.operator,
+        novelty: variant.novelty,
+      }))
     // The screen runs every candidate on the same short subset, so a shared
     // budget cannot strand half of them on an incomparable scale.
     if (screenCount > 0 && mutated.length > 1 && screenCount < request.scenarios.length) {
@@ -503,7 +645,13 @@ export class EvolutionOptimizer extends Service {
           }
         }
         spend(scored.score)
-        screened.push({ index, body: variant.body, operator: variant.operator, score: scored.score })
+        screened.push({
+          index,
+          body: variant.body,
+          operator: variant.operator,
+          novelty: variant.novelty,
+          score: scored.score,
+        })
       }
       pool = screenSurvivors(screened, Math.max(1, Math.ceil(mutated.length / 2)))
     }
@@ -522,7 +670,13 @@ export class EvolutionOptimizer extends Service {
         }
       }
       spend(evaluated.score)
-      candidates.push({ index: survivor.index, body: survivor.body, operator: survivor.operator, score: evaluated.score })
+      candidates.push({
+        index: survivor.index,
+        body: survivor.body,
+        operator: survivor.operator,
+        novelty: survivor.novelty,
+        score: evaluated.score,
+      })
     }
     if (candidates.length === 0) {
       return {
@@ -560,7 +714,7 @@ export class EvolutionOptimizer extends Service {
           below: floor,
           reason: `the winner for '${request.skill}' is dominated by the approved result from ${floor.at} (${floor.stagedId}) measured on the same scenarios`,
         }),
-        draft: draft(winner.body),
+        draft: draft(winner),
       }
     }
     let checked: HoldoutCheck | null = null
@@ -570,14 +724,14 @@ export class EvolutionOptimizer extends Service {
       if (baselineHoldout.status !== 'evaluated') {
         return {
           report: report('skipped', { baseline: baseline.score, candidates, reason: baselineHoldout.reason }),
-          draft: draft(winner.body),
+          draft: draft(winner),
         }
       }
       const winnerHoldout = await scoreVariant(privateDeps, winner.body)
       if (winnerHoldout.status !== 'evaluated') {
         return {
           report: report('skipped', { baseline: baseline.score, candidates, reason: winnerHoldout.reason }),
-          draft: draft(winner.body),
+          draft: draft(winner),
         }
       }
       checked = { baseline: baselineHoldout.score, winner: winnerHoldout.score }
@@ -589,7 +743,7 @@ export class EvolutionOptimizer extends Service {
             checked,
             reason: `the winner for '${request.skill}' is dominated by the baseline on the holdout scenarios`,
           }),
-          draft: draft(winner.body),
+          draft: draft(winner),
         }
       }
     }
@@ -605,14 +759,14 @@ export class EvolutionOptimizer extends Service {
             truncated: true,
             reason: `the scoring budget was spent during confirmation for '${request.skill}'`,
           }),
-          draft: draft(winner.body),
+          draft: draft(winner),
         }
       }
       const repeatBaseline = await scoreVariant(deps, body)
       if (repeatBaseline.status !== 'evaluated') {
         return {
           report: report('skipped', { baseline: baseline.score, candidates, reason: repeatBaseline.reason }),
-          draft: draft(winner.body),
+          draft: draft(winner),
         }
       }
       spend(repeatBaseline.score)
@@ -620,7 +774,7 @@ export class EvolutionOptimizer extends Service {
       if (repeatWinner.status !== 'evaluated') {
         return {
           report: report('skipped', { baseline: baseline.score, candidates, reason: repeatWinner.reason }),
-          draft: draft(winner.body),
+          draft: draft(winner),
         }
       }
       spend(repeatWinner.score)
@@ -634,7 +788,7 @@ export class EvolutionOptimizer extends Service {
             confirmed: confidence,
             reason: `the winner for '${request.skill}' repeated ${confidence.wins} of ${confidence.runs} paired comparisons`,
           }),
-          draft: draft(winner.body),
+          draft: draft(winner),
         }
       }
       confidence.wins += 1
@@ -667,7 +821,7 @@ export class EvolutionOptimizer extends Service {
         truncated,
         confirmed: confidence,
       }),
-      draft: draft(winner.body),
+      draft: draft(winner),
     }
   }
 }

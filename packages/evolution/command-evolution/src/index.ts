@@ -851,7 +851,10 @@ async function executeCuratorOptimize(
       text: `Optimized '${skill}': staged skill patch ${report.stagedId}.${holdout} Write the skill with skill_manage, then '/skills approve ${report.stagedId}' to drop the entry.`,
     }
   }
-  return { kind: 'success', text: `Optimized '${skill}': ${report.reason ?? report.status}.` }
+  const stagnant = report.stagnant
+    ? ' Recent runs promoted nothing, so it drew candidates from the operators they had not used.'
+    : ''
+  return { kind: 'success', text: `Optimized '${skill}': ${report.reason ?? report.status}.${stagnant}` }
 }
 
 /**
@@ -885,10 +888,13 @@ async function executeCuratorExperiments(
     }
   }
   const lines = rows.map((row) => {
-    const staged = row.stagedId === null ? '' : ` ${row.stagedId}`
+    const operators = row.operators.length === 0 ? '' : ` [${row.operators.join('+')}]`
+    const staged = row.stagedId === null
+      ? ''
+      : ` ${row.stagedId}${row.winnerOperator === null ? '' : ` via ${row.winnerOperator}`}`
     const confidence = row.confidence === null ? '' : ` ${row.confidence.wins}/${row.confidence.runs}`
     const reason = row.reason === null ? '' : ` — ${row.reason}`
-    return `${row.at} ${row.skill}: ${row.outcome}${staged}${confidence}${reason}`
+    return `${row.at} ${row.skill}: ${row.outcome}${operators}${staged}${confidence}${reason}`
   })
   return { kind: 'success', text: [`Experiments (newest first): ${rows.length}`, ...lines].join('\n') }
 }

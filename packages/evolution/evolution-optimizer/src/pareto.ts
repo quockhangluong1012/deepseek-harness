@@ -1,7 +1,11 @@
 /**
  * Pareto selection over the scorer's metric triple: pass dominates everything,
- * then fewer billed tokens, then less wall time. Pure, so specs drive the
- * arithmetic without spawning anything.
+ * then fewer billed tokens, then the most novel body, then less wall time.
+ * Novelty sits above wall time because it is the axis the run can act on:
+ * among candidates that cost the same, the one that states instructions the
+ * skill did not already carry is the one that changes what the skill does,
+ * while wall time over fresh replayed processes is machine noise. Pure, so
+ * specs drive the arithmetic without spawning anything.
  * @module @deepseek-ai/dsh-evolution-optimizer/pareto
  */
 
@@ -28,9 +32,10 @@ export function paretoFrontier(candidates: readonly EvaluatedVariant[]): Evaluat
 
 /**
  * Promote the `keep` best-screened variants to a full evaluation: better pass
- * state first, then fewer billed tokens, then less wall time, ties broken by
- * mutation order. Screening compares candidates on the same short scenario
- * subset, so this ordering — not dominance — decides who survives.
+ * state first, then fewer billed tokens, then the most novel body, then less
+ * wall time, ties broken by mutation order. Screening compares candidates on
+ * the same short scenario subset, so this ordering — not dominance — decides
+ * who survives.
  * @param screened - variants with the triple their screen scored.
  * @param keep - how many survive; the caller keeps at least one.
  * @returns survivors in mutation order.
@@ -40,6 +45,7 @@ export function screenSurvivors(screened: readonly EvaluatedVariant[], keep: num
     .sort((left, right) =>
       Number(right.score.pass) - Number(left.score.pass) ||
       left.score.tokens - right.score.tokens ||
+      right.novelty - left.novelty ||
       left.score.wallTimeMs - right.score.wallTimeMs ||
       left.index - right.index,
     )
@@ -49,7 +55,8 @@ export function screenSurvivors(screened: readonly EvaluatedVariant[], keep: num
 
 /**
  * Pick the winner: the frontier member that dominates the re-scored baseline,
- * breaking ties by fewer tokens, then less wall time, then earlier mutation.
+ * breaking ties by fewer tokens, then more novel body, then less wall time,
+ * then earlier mutation.
  * @param baseline - triple the baseline scored under the same harness.
  * @param candidates - evaluated variants in mutation order.
  * @returns the winning variant, or null when nothing beats the baseline.
@@ -61,6 +68,7 @@ export function pickWinner(
   const beating = paretoFrontier(candidates).filter(variant => dominates(variant.score, baseline))
   beating.sort((left, right) =>
     left.score.tokens - right.score.tokens ||
+    right.novelty - left.novelty ||
     left.score.wallTimeMs - right.score.wallTimeMs ||
     left.index - right.index,
   )

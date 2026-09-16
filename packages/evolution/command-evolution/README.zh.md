@@ -61,7 +61,7 @@ kind: "package-reference"
 | `/curator run --dry-run` | 同一通过只预览不写入；快照行显示 `Snapshot: none`。 |
 | `/curator staged` | 列出台账为复核而分选的技能，失败率最差在前，并附选择各项的证据与分选时刻。 |
 | `/curator optimize <skill> <scenario...>` | 在具名语料场景上运行一次离线优化，报告分选技能补丁 id 或未分选的原因。需要优化器已挂载且位于工作区作用域内。 |
-| `/curator experiments [skill]` | 按最新优先打印本作用域的优化台账——时间、技能、结果、分选 id、置信度计数与原因——让下一次运行从已经试过的东西出发。需要优化器已挂载且位于工作区作用域内。 |
+| `/curator experiments [skill]` | 按最新优先打印该作用域的优化台账——时间、技能、结果、产出候选的算子、分选 id 及其产出算子、置信度计数与原因——让第二次运行从已试过的东西出发。需要优化器已挂载且会话在某个工作区作用域内。 |
 | `/curator adopt <name>` | 把由模型写出的技能认领为用户主导，并报告 `Adopted '<name>' (state: <state>)`；无模型作者身份一律拒绝。 |
 | `/curator purge [--dry-run]` | 删除超过 TTL 的归档技能，并报告按目录或按记录的删除与因置顶而跳过者；`--dry-run` 只预览名单而不写入。 |
 | `/curator rollback --id <id>` | 回滚一次已记录的通过：先报告被恢复的生命周期状态，若 SKILL.md 正文由其前像恢复，再输出 `Restored bodies: <names>`。 |
