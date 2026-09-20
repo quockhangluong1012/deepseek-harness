@@ -63,6 +63,8 @@ export interface SkillSummary {
   readonly description: string
   /** Optional extra routing guidance. */
   readonly whenToUse?: string
+  /** Prerequisite skill names that must route alongside this one; absent means none. */
+  readonly requires?: readonly string[]
   /** Resolved model and user invocation controls. */
   readonly invocation: SkillInvocationPolicy
   /** Discovery source that produced this winning skill. */
@@ -734,6 +736,7 @@ function runtimeCandidate(skill: SkillDefinition): SkillCandidate {
     name: skill.name,
     description: skill.description,
     ...skill.whenToUse !== undefined ? { whenToUse: skill.whenToUse } : {},
+    ...skill.requires !== undefined ? { requires: skill.requires } : {},
     invocation: skill.invocation,
     source: skill.source,
     provider: skill.provider,
@@ -777,12 +780,14 @@ function validateCandidate(candidate: SkillCandidate, providerName: string): voi
   if (candidate.path !== undefined && typeof candidate.path !== 'string') {
     throw new TypeError(`skill provider "${providerName}" returned skill "${candidate.name}" with a non-string path`)
   }
+  validateStringArray(candidate.requires, `skill provider "${providerName}" returned skill "${candidate.name}" requires`)
 }
 
 function validateRuntimeSkill(skill: SkillRegistration): void {
   if (!SKILL_NAME.test(skill.name)) throw new Error(`invalid skill name "${skill.name}"`)
   if (skill.description.length === 0) throw new Error(`skill "${skill.name}" requires a description`)
   validateInvocation(skill.invocation, `runtime skill "${skill.name}"`)
+  validateStringArray(skill.requires, `runtime skill "${skill.name}" requires`)
 }
 
 /** Validate a definition loaded from a provider-controlled parser or remote source. */
@@ -801,6 +806,7 @@ function validateDefinition(skill: SkillDefinition): void {
   if (description.length === 0) throw new Error(`loaded skill "${name}" requires a description`)
   validateInvocation(invocation, `loaded skill "${name}"`)
   if (whenToUse !== undefined && typeof whenToUse !== 'string') throw new TypeError(`loaded skill "${name}" whenToUse must be a string`)
+  validateStringArray(skill.requires, `loaded skill "${name}" requires`)
   if (typeof source !== 'string') throw new TypeError(`loaded skill "${name}" source must be a string`)
   if (typeof provider !== 'string') throw new TypeError(`loaded skill "${name}" provider must be a string`)
   if (typeof content !== 'string') throw new TypeError(`loaded skill "${name}" content must be a string`)
@@ -859,6 +865,7 @@ function toSummary(skill: SkillDefinition | SkillCandidate): SkillSummary {
     ...skill.path === undefined ? {} : { path: skill.path },
     description,
     ...whenToUse !== undefined ? { whenToUse } : {},
+    ...skill.requires !== undefined ? { requires: skill.requires } : {},
     invocation,
     source,
     provider,
@@ -950,5 +957,8 @@ function errorMessage(error: unknown): string {
     return '[unrenderable thrown value]'
   }
 }
+
+export { rankSkills } from './rank.ts'
+export type { RankedSkill, RankSkillsOptions, SkillRankSignal, SkillRankVectors } from './rank.ts'
 
 export default SkillRegistry

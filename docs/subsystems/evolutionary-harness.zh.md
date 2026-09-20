@@ -247,6 +247,17 @@ async rollbackPass(passId: string, options: RollbackOptions = {}): Promise<Rollb
  * @returns the rollback report.
  */
 async rollbackEntry(entryId: string, options: RollbackOptions = {}): Promise<RollbackReport>
+
+/**
+ * List every open regression debt, worst first: most passes, then most
+ * sessions, then name and merge key. Passes count consecutive sightings, so
+ * two co-open debts with equal passes opened on the same pass — the order
+ * stays total through the key without reading timestamps. Synchronous: the
+ * debt table is an in-memory read over the open domain, unlike the
+ * filesystem-backed `staged()` listing.
+ * @returns the open debts, detached from the store.
+ */
+debt(): RegressionDebt[]
 ```
 
 Source: [`packages/evolution/evolution-curator/src/index.ts`](../../packages/evolution/evolution-curator/src/index.ts)
@@ -351,6 +362,36 @@ summary(sessionIds: readonly string[], limit: number): FeedbackSummaryEntry[]
  * @returns the graded signals, decisive first.
  */
 signals(sessionIds: readonly string[], limit: number): FeedbackSignal[]
+
+/**
+ * Reflect the given sessions' failures as structured reflections, most
+ * decisive first: the ledger-derived half (symptom, violated expectation,
+ * observed behavior, confidence) merged with the analyst-supplied half
+ * (root cause, corrected strategy, and friends) when one was recorded.
+ * Analytic fields stay null until `recordReflection` states them, so a
+ * reader never mistakes missing analysis for measured fact.
+ * @param sessionIds - sessions to aggregate, in caller order.
+ * @param limit - maximum reflections returned.
+ * @returns the structured reflections, decisive first.
+ */
+reflect(sessionIds: readonly string[], limit: number): StructuredReflection[]
+
+/**
+ * Read one failure's recorded analysis.
+ * @param mergeKey - tool-and-message identity, as `signals` reports it.
+ * @returns the stored analysis, or undefined when none was recorded.
+ */
+reflection(mergeKey: string): ReflectionRecord | undefined
+
+/**
+ * Record an analyst's reading of one failure, merging the supplied fields
+ * over any analysis already stored. Omitted fields keep their stored value,
+ * so a partial reading never blanks an earlier one.
+ * @param mergeKey - tool-and-message identity, as `signals` reports it.
+ * @param analysis - analytic fields to state; every field is optional.
+ * @returns the stored record after the merge.
+ */
+async recordReflection(mergeKey: string, analysis: Partial<ReflectionAnalysis>): Promise<ReflectionRecord>
 ```
 
 Source: [`packages/evolution/evolution-feedback/src/index.ts`](../../packages/evolution/evolution-feedback/src/index.ts)
@@ -642,8 +683,13 @@ async removeContextItem(id: EvolutionScopeId, itemId: string): Promise<Evolution
  * capacity; `memoryUpdatedAt` stays untouched until approval. The payload
  * is a durable record field, so it is validated as a JSON value here: a
  * non-JSON payload is refused loudly and nothing is stored.
- * @param input - scope, kind, op, payload, origin session, and gist.
- * @returns the staged entry.
+ *
+ * A non-empty `mergeKey` dedupes while pending: re-staging the same key in
+ * the same scope bumps the pending entry's `recurrence` instead of
+ * appending a duplicate, so a repeatedly proposed candidate is remembered,
+ * not silently retried.
+ * @param input - scope, kind, op, payload, origin session, gist, and merge key.
+ * @returns the staged entry, or the bumped pending entry on a repeated key.
  */
 async stageWrite(input: StagedWriteInput): Promise<StagedWrite>
 
@@ -652,8 +698,11 @@ async stageWrite(input: StagedWriteInput): Promise<StagedWrite>
  * cap or substring rejection keeps the entry staged and propagates; the
  * entry drops only after the op lands. Skill-kind entries only drop: the
  * approver reads the payload from the scope record and performs the skill
- * write before approving. Either decision is recorded in the scope's
- * resolution log, newest first.
+ * write before approving — but only when the payload carries a valid
+ * capture contract, otherwise the entry stays staged with its
+ * `blockedReason` and `neededEvidence` set and the block propagates, like a
+ * cap rejection. Either decision is recorded in the scope's resolution log,
+ * newest first.
  * @param id - staged entry identity.
  * @returns resolution after durability.
  */
@@ -665,6 +714,28 @@ async approveStaged(id: string): Promise<void>
  * @returns resolution after durability.
  */
 async rejectStaged(id: string): Promise<void>
+
+/**
+ * Mark one pending staged write as blocked, keeping it pending. A blocked
+ * entry remembers why approval cannot proceed and what evidence would
+ * unblock it, so the same proposal is not silently retried. Re-blocking
+ * overwrites the previous reason; approving or rejecting clears it by
+ * removing the entry.
+ * @param id - staged entry identity.
+ * @param reason - short block code, e.g. `capture-contract`.
+ * @param neededEvidence - evidence that would unblock approval.
+ */
+async blockStaged(id: string, reason: string, neededEvidence: readonly string[]): Promise<void>
+
+/**
+ * Attach a capture contract to one pending skill proposal. The contract
+ * must be fully valid to land; a rejected supply leaves the entry
+ * untouched. A valid supply lifts the block, but the entry still needs an
+ * explicit approval.
+ * @param id - staged entry identity.
+ * @param contract - the admission evidence to attach.
+ */
+async supplyStagedContract(id: string, contract: unknown): Promise<void>
 
 /**
  * Index produced files newest-first, collapsing repeats onto the newer
@@ -737,6 +808,20 @@ async score(request: ScoreRequest): Promise<ScoreOutcome>
  * @returns the aggregated triple with per-scenario records, or the reason the skill could not be evaluated.
  */
 async evaluateSkill(request: EvaluateSkillRequest): Promise<SkillEvaluation>
+
+/**
+ * Evaluate one skill revision through the three behavior gates: the
+ * frontmatter contract check, positive/negative trigger-query routing
+ * through the real selector, and a baseline-vs-candidate replay over the
+ * same scenarios. The cheap gates run first, so a candidate that cannot be
+ * committed or routes where it must not never spends fresh processes; only
+ * replay evidence approves. A skipped replay composition skips the whole
+ * evaluation with its reason attached.
+  * @param request - baseline and candidate replay compositions, the candidate
+  * body, the routing catalog and queries, and the routing window.
+  * @returns the gate verdicts with channel disagreement and approval, the gating reason, or the skip.
+ */
+async evaluateBehavior(request: BehaviorEvalRequest): Promise<BehaviorEvaluation>
 ```
 
 Source: [`packages/evolution/evolution-scorer/src/index.ts`](../../packages/evolution/evolution-scorer/src/index.ts)

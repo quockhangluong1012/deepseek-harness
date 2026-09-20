@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-`dsh-evolution-feedback` 把失败的工具结果变成按会话持久化的观测，并汇总为学习回路所读取的自然语言反馈。它按投递原样观察 `session/event`，只记录其工具调用已被看见的失败 `tool/result`，重复出现时累加计数而不是追加第二条，并按会话保留最新的 `maxEntries` 条。此处不调用任何模型。`summary` 按工具与消息合并多个会话，并统计有多少个会话报告过该失败，因此"四个会话各出现一次"的故障排在"单个会话重复四次"之前。`signals` 为同一份汇总分级：自身调用从未被看见的失败只能观察；被 `triggerReviewSessions` 个不同会话报告过的失败触发复审；介于两者之间的只参与排序、不做决定。
+`dsh-evolution-feedback` 把失败的工具结果变成按会话持久化的观测，并汇总为学习回路所读取的自然语言反馈。它按投递原样观察 `session/event`，只记录其工具调用已被看见的失败 `tool/result`，重复出现时累加计数而不是追加第二条，并按会话保留最新的 `maxEntries` 条。此处不调用任何模型。`summary` 按工具与消息合并多个会话，并统计有多少个会话报告过该失败，因此"四个会话各出现一次"的故障排在"单个会话重复四次"之前。`signals` 为同一份汇总分级：自身调用从未被看见的失败只能观察；被 `triggerReviewSessions` 个不同会话报告过的失败触发复审；介于两者之间的只参与排序、不做决定。`reflect` 把同样的失败返回为结构化反思——台账派生的症状、违背的预期、观测到的行为与置信度，加上分析者记录的根因与纠正策略——而 `recordReflection` 负责存储这份分析。
 
 ## 目录
 
@@ -38,6 +38,19 @@ for (const failure of failures) {
 const signals = ctx.evolutionFeedback.signals(workspace.sessionIds, 10)
 const decisive = signals.find(signal => signal.actionability === 'trigger_review')
 ```
+
+```ts
+const reflections = ctx.evolutionFeedback.reflect(workspace.sessionIds, 10)
+for (const reflection of reflections) {
+  console.log(`${reflection.symptom}: expected ${reflection.violatedExpectation} (confidence ${reflection.confidence})`)
+}
+await ctx.evolutionFeedback.recordReflection(reflections[0]!.failureId, {
+  rootCause: 'the skill suggests a flag this shell lacks',
+  correctedStrategy: 'probe the flag before using it',
+})
+```
+
+反思的分析字段在 `recordReflection` 写下之前始终为空，因此读者绝不会把缺失的分析误当成测得的事实。输入中重复的会话标识只计数一次，未知的标识不报告任何内容。
 
 其 `tool/call` 从未被看见的失败结果记为空工具名；既无文本也无失败码的结果记为空消息——两者都是真实状态，而非错误。成功的结果不记录任何内容。`signals` 对分级后的汇总排序，因此关键信号不会被仅凭计数的条目挤出上限；`summary` 保持按计数排序。
 
@@ -72,7 +85,7 @@ const decisive = signals.find(signal => signal.actionability === 'trigger_review
 
 ### 设计概念
 
-每个会话在存储域 `evolution_feedback`（版本 `1`、布局 `per-record`、表 `records`）中占一条持久记录，以会话标识为键。记录持有该会话按最新在前保留的观测，以及其最后一次写入的时刻。观测是派生状态：插件启动时不重建任何内容，因此宿主重启只是停止观测已经结束的会话，并接着观测之后的会话。
+每个会话在存储域 `evolution_feedback`（版本 `2`、布局 `per-record`、表 `records`）中占一条持久记录，以会话标识为键。记录持有该会话按最新在前保留的观测，以及其最后一次写入的时刻。第二张表 `reflections` 按失败合并键保存一份结构化反思中由分析者提供的那一半——根因、纠正策略、适用条件、反模式与候选测试——以及其最后一次分析写入。观测是派生状态：插件启动时不重建任何内容，因此宿主重启只是停止观测已经结束的会话，并接着观测之后的会话。
 
 一条观测以"工具 + 消息"为键。重复出现会让 `count` 加一、把该条移到最前，并让先前那条不再保留，因此一个反复撞上同一故障四十次的会话只留一条、计数为四十。
 
@@ -120,6 +133,7 @@ const decisive = signals.find(signal => signal.actionability === 'trigger_review
 - **观测不追溯**——只记录插件挂载期间投递的事件；挂载之前就已失败的会话不可见。
 - **工具名是尽力而为**——`tool/call` 未被看见、或在其回合结束之后才到达的结果，记为空工具名。
 - **消息是裁剪而非摘要**——过长的失败只保留前 `maxMessageChars` 个字符，因此两条不同的长失败可能在同一条上相撞。
+- **分析字段需要作者**——`reflect` 负责派生台账那一半，但根因与纠正策略在有人写下之前始终为空；目前还没有回路调用 `recordReflection`，dreaming 的 REM 阶段与复审者提炼是预定的作者。
 - **仅存于本机**——记录位于 `$DSH_HOME` 之下，绝不写入项目目录。
 
 <a id="dev-note"></a>

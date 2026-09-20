@@ -74,6 +74,74 @@ export function operatorRecords(
     left.operator.localeCompare(right.operator))
 }
 
+/** What one operator's ledger history under one failure signature reduces to. */
+export interface OperatorEffectiveness {
+  /** Operator id. */
+  operator: string
+  /** Runs in which this operator produced a candidate. */
+  attempts: number
+  /** Runs in which this operator produced the candidate the run promoted. */
+  accepted: number
+  /**
+   * Mean billed-token saving of this operator's promoted candidates over the
+   * baselines they beat, in tokens; null when it never promoted here. The
+   * ledger records triples per run rather than per candidate, so only winning
+   * rows contribute — a loss carries no measured delta.
+   */
+  meanDelta: number | null
+  /**
+   * Share of this operator's candidate-producing runs that ended `regressed`.
+   * The outcome is run-level, so every operator that produced a candidate in
+   * a regressed run shares its blame equally.
+   */
+  regressionRate: number
+}
+
+/**
+ * Summarize what the ledger learned about each operator under one failure
+ * signature: how often it was tried, how often it won, what its wins saved
+ * on average, and how often its runs regressed.
+ * @param rows - one scope's ledger rows, newest first.
+ * @param signature - failure signature, from {@link failureSignature}.
+ * @returns one summary per operator seen, by operator id.
+ */
+export function operatorEffectiveness(
+  rows: readonly ExperimentRecord[],
+  signature: string,
+): readonly OperatorEffectiveness[] {
+  interface Tally { attempts: number; accepted: number; deltaSum: number; regressed: number }
+  const tallies = new Map<string, Tally>()
+  const tally = (operator: string): Tally => {
+    const existing = tallies.get(operator)
+    if (existing !== undefined) return existing
+    const created: Tally = { attempts: 0, accepted: 0, deltaSum: 0, regressed: 0 }
+    tallies.set(operator, created)
+    return created
+  }
+  for (const row of rows) {
+    if (row.baseline === null || failureSignature(row.evidence) !== signature) continue
+    for (const operator of row.operators) {
+      const entry = tally(operator)
+      entry.attempts += 1
+      if (row.outcome === 'regressed') entry.regressed += 1
+    }
+    if (row.winnerOperator !== null && row.winner !== null) {
+      const entry = tally(row.winnerOperator)
+      entry.accepted += 1
+      entry.deltaSum += row.baseline.tokens - row.winner.tokens
+    }
+  }
+  return [...tallies.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([operator, entry]) => ({
+      operator,
+      attempts: entry.attempts,
+      accepted: entry.accepted,
+      meanDelta: entry.accepted > 0 ? entry.deltaSum / entry.accepted : null,
+      regressionRate: entry.attempts > 0 ? entry.regressed / entry.attempts : 0,
+    }))
+}
+
 /**
  * Order one mutation lineup by what the ledger learned about this failure:
  * operators that have won here first (best win rate first), then operators this

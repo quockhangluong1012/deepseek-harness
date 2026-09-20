@@ -38,12 +38,34 @@ export interface MutationOperator {
 /**
  * Built-in mutation operators. One prompt as the only mutation mechanism
  * converges on one rewrite style, so a run may draw candidates from several.
+ *
+ * Selection guide: `rewrite` clarifies without changing behavior; `compress`
+ * shortens a body the evidence shows is ignored for length; `guard` adds the
+ * missing precondition; `exemplify` teaches by example; `generalize` widens a
+ * rule that only covers the failing instance; `decompose` splits an
+ * uncheckable procedure into steps; `compose` merges overlapping rules;
+ * `reorder` moves the implicated check earlier without touching rule text;
+ * `remove-step` deletes a step the evidence shows never fires;
+ * `change-tool` swaps the implicated tool call; `change-retrieval` changes
+ * only what the body looks up; `change-evaluator` changes only how the body
+ * checks its own result. Two portfolio members from the specification stay
+ * out deliberately: `merge-two-candidates` needs two input bodies and the
+ * frame carries one, and `adversarial-patch` belongs to the contamination
+ * review, not to repair mutation.
  */
 export const MUTATION_OPERATORS: readonly MutationOperator[] = [
   { id: 'rewrite', instruction: 'Rewrite the body for clarity and ordering; change only what the evidence implicates.' },
   { id: 'compress', instruction: 'Cut the body to the shortest text that still states every rule the evidence shows matters.' },
   { id: 'guard', instruction: 'Add the precondition, refusal, or validation the evidence implicates, and nothing else.' },
   { id: 'exemplify', instruction: 'Add one worked example per rule the evidence implicates; drop nothing that already works.' },
+  { id: 'generalize', instruction: 'Widen each rule the evidence implicates so it covers the failure class, not just the failing instance.' },
+  { id: 'decompose', instruction: 'Split the procedure the evidence implicates into separately checkable steps; keep every existing rule.' },
+  { id: 'compose', instruction: 'Merge duplicated or overlapping rules the evidence implicates into one rule that states both.' },
+  { id: 'reorder', instruction: 'Move the check the evidence implicates earlier in the procedure; change no rule text.' },
+  { id: 'remove-step', instruction: 'Delete the step the evidence shows never fires or always passes; keep everything else byte-identical.' },
+  { id: 'change-tool', instruction: 'Replace the tool call the evidence implicates with the tool that actually answers the question.' },
+  { id: 'change-retrieval', instruction: 'Change only what the body retrieves — queries, sources, or lookup order — as the evidence implicates.' },
+  { id: 'change-evaluator', instruction: 'Change only how the body checks its own result — thresholds, assertions, or verification steps — as the evidence implicates.' },
 ]
 
 /**

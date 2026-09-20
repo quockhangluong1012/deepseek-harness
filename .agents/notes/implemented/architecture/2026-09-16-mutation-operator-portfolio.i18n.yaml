@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-16-mutation-operator-portfolio.md
-2026-09-16-mutation-operator-portfolio.md: 0db158fa9d43642f6947c8d4e43e3be31b1b070e
-2026-09-16-mutation-operator-portfolio.zh.md: 77df8d8165732c4c7e3c1a786e05cff539bfe624
+2026-09-16-mutation-operator-portfolio.md: 25c1fdecef27aeaea479d79e6ab3e967d52ddc3d
+2026-09-16-mutation-operator-portfolio.zh.md: bb8579c36cb21605634659f5dbd2852492b912fd

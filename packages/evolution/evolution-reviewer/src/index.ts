@@ -30,7 +30,7 @@ import { WorkspaceId } from '@deepseek-ai/dsh-workspace'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import type { EvolutionExtraction, EvolutionOutput, LessonDecision } from '@deepseek-ai/dsh-evolution-memory'
 import { EvolutionScopeId, RECALL_LABEL_PREFIX, utf8Bytes } from '@deepseek-ai/dsh-evolution-memory'
-import { skillCreationEvidence } from '@deepseek-ai/dsh-evolution-skill-telemetry'
+import { skillCreationEvidence, skillProposalMergeKey } from '@deepseek-ai/dsh-evolution-skill-telemetry'
 import { extractionSystemPrompt, frameExtractionRequest, parseExtractionDecisions } from './protocol.ts'
 import type { ExtractionDecision, IndexedArtifact } from './protocol.ts'
 import { selectRelevantArtifacts } from './relevance.ts'
@@ -888,6 +888,7 @@ export class EvolutionReviewer extends Service {
               payload: { paths: evidence.repeated.map(r => r.path), counts: evidence.repeated.map(r => r.count) },
               originSessionId: String(session.id),
               gist,
+              mergeKey: skillProposalMergeKey(evidence.repeated.map(r => r.path)),
             })
           } catch (error) {
             this.ctx.logger.warn(`evolution review skill proposal staging failed: ${String(error)}`)

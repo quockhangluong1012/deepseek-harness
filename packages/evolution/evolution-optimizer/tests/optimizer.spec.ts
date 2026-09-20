@@ -54,6 +54,8 @@ interface BenchSeams {
   sampleCount?: number | undefined
   /** Score one call by the scenarios it runs and its global call index. */
   scoresFor?: ((scenarios: readonly string[], call: number) => { pass: boolean; tokens: number; wallTimeMs: number }) | undefined
+  /** Scoring-semantics version the fake scorer reports; the ledger stamps it. */
+  scorerVersion?: number | undefined
 }
 
 /** A storage domain whose only table refuses every write. */
@@ -103,7 +105,8 @@ async function bench(seams: BenchSeams = {}) {
   const scores = seams.scores ?? {}
   const scoreCalls: string[][] = []
   let calls = 0
-  ctx.provide('evolutionScorer', {
+  const fakeScorer = {
+    version: seams.scorerVersion ?? 1,
     evaluateSkill: async (request: { skill: string; scenarios: readonly string[] }) => {
       const call = calls
       calls += 1
@@ -131,7 +134,8 @@ async function bench(seams: BenchSeams = {}) {
         },
       }
     },
-  } as never)
+  }
+  ctx.provide('evolutionScorer', fakeScorer as never)
   const staged: { id: string; gist: string; kind: string; op: string; payload: unknown }[] = seams.staged ?? []
   ctx.provide('evolutionMemory', {
     read: () => seams.resolutions === undefined
@@ -149,7 +153,7 @@ async function bench(seams: BenchSeams = {}) {
     ...seams.config,
   })
   const optimizer = ctx.get('evolutionOptimizer') as EvolutionOptimizer
-  return { ctx, optimizer, staged, scoreCalls, llmCalls: () => llmCalls }
+  return { ctx, optimizer, staged, scoreCalls, scorer: fakeScorer, llmCalls: () => llmCalls }
 }
 const request = {
   skill: 'writer',
@@ -334,7 +338,7 @@ describe('EvolutionOptimizer', () => {
     expect(second.floor?.stagedId).toBe('staged-0')
     expect(second.reason).toContain('dominated by the approved result')
     const rows = optimizer.experiments(request.scopeId)
-    expect(rows[0]).toMatchObject({ outcome: 'regressed', stagedId: null, samples: 0 })
+    expect(rows[0]).toMatchObject({ outcome: 'regressed', stagedId: null, samples: 0, addedLines: 1, removedLines: 1 })
   })
 
   it('ignores a rejected promotion and a floor measured on other scenarios', async () => {
@@ -396,6 +400,24 @@ describe('EvolutionOptimizer', () => {
     expect(third.floor?.triple.tokens).toBe(4)
   })
 
+  it('ignores an approved floor measured under an older scorer version', async () => {
+    const { optimizer, scorer } = await bench({
+      record: { name: 'writer', usage: usage(12, 10) },
+      body: '# writer',
+      mutations: ['# writer v2'],
+      // Run 1 stages a winner at 4 tokens; run 2 offers 6, which the run-1
+      // floor would dominate had the scorer version not changed.
+      scoresFor: (_scenarios, call) => ({ pass: true, tokens: call < 2 ? (call === 1 ? 4 : 10) : (call === 3 ? 6 : 10), wallTimeMs: 5 }),
+      resolutions: [{ id: 'staged-0', kind: 'skill', decision: 'approved' }],
+    })
+    expect((await optimizer.optimize(request)).status).toBe('staged')
+    scorer.version = 2
+    const second = await optimizer.optimize({ ...request, evidence: 'new failures' })
+    expect(second.status).toBe('staged')
+    expect(second.floor).toBeNull()
+    expect(optimizer.experiments(request.scopeId)[0]).toMatchObject({ scorerVersion: 2 })
+  })
+
   it('stages a candidate that still beats the approved floor', async () => {
     const { optimizer } = await bench({
       record: { name: 'writer', usage: usage(12, 10) },
@@ -413,6 +435,39 @@ describe('EvolutionOptimizer', () => {
   it('refuses a search scenario listed as holdout', async () => {
     const { optimizer } = await bench({ config: { holdoutScenarios: ['s1'] } })
     await expect(optimizer.optimize(request)).rejects.toThrow('holdout scenarios are also search scenarios: s1')
+  })
+
+  it('refuses a holdout scenario the ledger already records as search', async () => {
+    const { optimizer } = await bench({ config: { holdoutScenarios: ['s1'] } })
+    optimizer.experiments = () => [{
+      id: 'earlier',
+      at: '2026-09-15T10:00:00.000Z',
+      scope: 'profile/scope',
+      skill: 'writer',
+      evidence: 'evidence',
+      operators: ['rewrite'],
+      portfolio: ['rewrite'],
+      novelOperators: [],
+      scenarios: ['s1'],
+      holdout: [],
+      baseline: { pass: true, tokens: 10, wallTimeMs: 5 },
+      winner: null,
+      confidence: null,
+      samples: 1,
+      outcome: 'no-improvement',
+      reason: null,
+      stagedId: null,
+      provider: 'deepseek',
+      model: 'deepseek-chat',
+      bodySha: 'sha',
+      scorerVersion: 1,
+      addedLines: 0,
+      removedLines: 0,
+      winnerSha: null,
+      winnerOperator: null,
+    }]
+    await expect(optimizer.optimize({ ...request, scenarios: ['s2'] }))
+      .rejects.toThrow("holdout scenarios were already used for search for 'writer': s1")
   })
 
   it('refuses a repeated scenario name', async () => {
@@ -626,6 +681,22 @@ describe('EvolutionOptimizer', () => {
     expect(repeat.reason).toContain('already ran at')
     expect(repeat.reason).toContain('nothing beat the baseline')
     expect(llmCalls()).toBe(spent)
+  })
+
+  it('re-runs a recorded experiment after the scorer version changes', async () => {
+    const { optimizer, scorer, llmCalls } = await bench({
+      record: { name: 'writer', usage: usage(12, 10) },
+      body: '# writer',
+      mutations: ['# writer v2'],
+      scores: { writer: { pass: true, tokens: 5, wallTimeMs: 5 } },
+    })
+    expect((await optimizer.optimize(request)).status).toBe('no-improvement')
+    expect(optimizer.experiments(request.scopeId)[0]).toMatchObject({ scorerVersion: 1 })
+    const spent = llmCalls()
+    scorer.version = 2
+    expect((await optimizer.optimize(request)).status).toBe('no-improvement')
+    expect(llmCalls()).toBeGreaterThan(spent)
+    expect(optimizer.experiments(request.scopeId)[0]).toMatchObject({ scorerVersion: 2 })
   })
 
   it('re-runs a recorded experiment when the guard is off or the evidence changed', async () => {

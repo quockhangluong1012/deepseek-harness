@@ -203,8 +203,8 @@ describe('EvolutionController', () => {
       outputs: [{ path: 'a.ts', tool: 'write', sessionId: 's1', at: '2026-01-01T00:00:00.000Z' }],
       episodic: [{ day: '2026-01-01', text: 'note', addedAt: '2026-01-01T00:00:00.000Z' }],
       lastExtraction: null,
-      staged: [{ id: 'st1', kind: 'memory', op: 'replaceArtifacts', payload: {}, originSessionId: 's1', createdAt: '2026-01-01T00:00:00.000Z', gist: 'g' }],
-      resolutions: [{ id: 'st0', kind: 'memory', op: 'replaceArtifacts', gist: 'g', decision: 'approved', at: '2026-01-01T00:00:00.000Z', originSessionId: 's1' }],
+      staged: [{ id: 'st1', kind: 'memory', op: 'replaceArtifacts', payload: {}, originSessionId: 's1', createdAt: '2026-01-01T00:00:00.000Z', gist: 'g', mergeKey: null, recurrence: 1, blockedReason: null, neededEvidence: [] }],
+      resolutions: [{ id: 'st0', kind: 'memory', op: 'replaceArtifacts', gist: 'g', decision: 'approved', at: '2026-01-01T00:00:00.000Z', originSessionId: 's1', mergeKey: null, recurrence: 1 }],
       updatedAt: '2026-01-03T00:00:00.000Z',
     }
     const value = evolutionMemoryValue('ws-1' as WorkspaceId, record, { usedBytes: 5, capacityBytes: 10 })

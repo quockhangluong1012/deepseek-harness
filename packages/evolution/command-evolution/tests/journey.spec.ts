@@ -90,6 +90,7 @@ describe('scopeTimeline', () => {
           {
             id: 'st1', kind: 'memory', op: 'replaceArtifacts', payload: { candidates: [] },
             originSessionId: 's-staged', createdAt: '2026-09-12T03:30:00.000Z', gist: 'lessons from turn 1',
+            mergeKey: null, recurrence: 1, blockedReason: null, neededEvidence: [],
           },
         ],
       }),
@@ -218,9 +219,9 @@ describe('scopeTimeline', () => {
     const timeline = scopeTimeline(input({
       record: record({
         resolutions: [
-          { id: 'sid', kind: 'memory', op: 'replaceArtifacts', gist: 'gist', decision: 'approved', at: '2026-09-10T01:00:00.000Z', originSessionId: 's1' },
-          { id: 'sid', kind: 'memory', op: 'replaceArtifacts', gist: 'gist', decision: 'rejected', at: '2026-09-10T02:00:00.000Z', originSessionId: 's1' },
-          { id: 'sid', kind: 'memory', op: 'replaceArtifacts', gist: 'gist', decision: 'approved', at: '2026-09-01T00:00:00.000Z', originSessionId: 's1' },
+          { id: 'sid', kind: 'memory', op: 'replaceArtifacts', gist: 'gist', decision: 'approved', at: '2026-09-10T01:00:00.000Z', originSessionId: 's1', mergeKey: null, recurrence: 1 },
+          { id: 'sid', kind: 'memory', op: 'replaceArtifacts', gist: 'gist', decision: 'rejected', at: '2026-09-10T02:00:00.000Z', originSessionId: 's1', mergeKey: null, recurrence: 1 },
+          { id: 'sid', kind: 'memory', op: 'replaceArtifacts', gist: 'gist', decision: 'approved', at: '2026-09-01T00:00:00.000Z', originSessionId: 's1', mergeKey: null, recurrence: 1 },
         ],
       }),
     }))
@@ -236,7 +237,7 @@ describe('scopeTimeline', () => {
 
     const all = scopeTimeline(input({
       range: 'all',
-      record: record({ resolutions: [{ id: 'sid', kind: 'memory', op: 'replaceArtifacts', gist: 'gist', decision: 'rejected', at: '2026-01-02T00:00:00.000Z', originSessionId: 's1' }] }),
+      record: record({ resolutions: [{ id: 'sid', kind: 'memory', op: 'replaceArtifacts', gist: 'gist', decision: 'rejected', at: '2026-01-02T00:00:00.000Z', originSessionId: 's1', mergeKey: null, recurrence: 1 }] }),
     }))
     expect(all.days.map(day => day.day)).toEqual(['2026-01-02'])
     expect(all.days[0]?.stagedRejected).toBe(1)
@@ -262,6 +263,8 @@ describe('scopeTimeline', () => {
           {
             id: 'st1', kind: 'skill', op: 'create', payload: { name: 'polish' },
             originSessionId: 's-origin', createdAt: '2026-09-12T03:00:00.000Z', gist: 'new skill polish',
+            mergeKey: 'skill-create', recurrence: 2,
+            blockedReason: 'capture-contract', neededEvidence: ['contract must be an object'],
           },
         ],
       }),
@@ -273,7 +276,11 @@ describe('scopeTimeline', () => {
       gist: 'new skill polish',
       originSessionId: 's-origin',
       createdAt: '2026-09-12T03:00:00.000Z',
+      blockedReason: 'capture-contract',
+      neededEvidence: ['contract must be an object'],
     }])
+    const stagedDelta = timeline.days.flatMap(day => day.deltas).find(delta => delta.kind === 'staged')
+    expect(stagedDelta?.gist).toBe('skill:create new skill polish (blocked: capture-contract)')
     expect(timeline.cumulative.lessonsBytes).toBe(267)
     expect(timeline.cumulative.profileBytes).toBe(12)
   })
@@ -290,6 +297,7 @@ describe('renderTimeline', () => {
           {
             id: 'st1', kind: 'memory', op: 'replaceArtifacts', payload: { candidates: [] },
             originSessionId: 's1', createdAt: '2026-09-12T03:00:00.000Z', gist: 'lessons',
+            mergeKey: null, recurrence: 1, blockedReason: null, neededEvidence: [],
           },
         ],
       }),
@@ -342,10 +350,12 @@ describe('renderTimeline', () => {
           {
             id: 'st1', kind: 'memory', op: 'replaceArtifacts', payload: { candidates: [] },
             originSessionId: 's1', createdAt: '2026-09-12T03:00:00.000Z', gist: 'lessons',
+            mergeKey: null, recurrence: 1, blockedReason: null, neededEvidence: [],
           },
           {
             id: 'st2', kind: 'skill', op: 'create', payload: { name: 'polish' },
             originSessionId: 's1', createdAt: '2026-09-12T03:30:00.000Z', gist: 'new skill polish',
+            mergeKey: null, recurrence: 1, blockedReason: null, neededEvidence: [],
           },
         ],
       }),
@@ -383,8 +393,8 @@ describe('renderTimeline', () => {
         instructionsUpdatedAt: '2026-09-12T00:10:00.000Z',
         profileUpdatedAt: '2026-09-12T01:10:00.000Z',
         resolutions: [
-          { id: 'sid', kind: 'memory', op: 'replaceArtifacts', gist: 'gist', decision: 'approved', at: '2026-09-12T02:00:00.000Z', originSessionId: 's1' },
-          { id: 'sid', kind: 'memory', op: 'replaceArtifacts', gist: 'gist', decision: 'rejected', at: '2026-09-12T03:00:00.000Z', originSessionId: 's1' },
+          { id: 'sid', kind: 'memory', op: 'replaceArtifacts', gist: 'gist', decision: 'approved', at: '2026-09-12T02:00:00.000Z', originSessionId: 's1', mergeKey: null, recurrence: 1 },
+          { id: 'sid', kind: 'memory', op: 'replaceArtifacts', gist: 'gist', decision: 'rejected', at: '2026-09-12T03:00:00.000Z', originSessionId: 's1', mergeKey: null, recurrence: 1 },
         ],
       }),
     })))
@@ -393,7 +403,7 @@ describe('renderTimeline', () => {
 
   it('keeps a decision-only day in a bounded window', () => {
     const text = renderTimeline(scopeTimeline(input({
-      record: record({ resolutions: [{ id: 'sid', kind: 'memory', op: 'replaceArtifacts', gist: 'gist', decision: 'approved', at: '2026-09-11T04:00:00.000Z', originSessionId: 's1' }] }),
+      record: record({ resolutions: [{ id: 'sid', kind: 'memory', op: 'replaceArtifacts', gist: 'gist', decision: 'approved', at: '2026-09-11T04:00:00.000Z', originSessionId: 's1', mergeKey: null, recurrence: 1 }] }),
     })))
     expect(text).toContain('2026-09-11  approved 1')
   })

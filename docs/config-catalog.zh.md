@@ -95,6 +95,116 @@ export interface Config {
 
 来源：[`packages/core/agent-default-model/src/index.ts:41`](../packages/core/agent-default-model/src/index.ts)
 
+<a id="deepseek-aidsh-agent-kernel"></a>
+
+## `@deepseek-ai/dsh-agent-kernel`
+
+```ts config-catalog
+/**
+ * Plugin configuration. Every field is optional and `Config` supplies the
+ * fail-closed defaults: a kernel mounted with no configuration runs in shadow
+ * mode under an `ask` default policy with no ceilings, so it records every
+ * decision and changes nothing.
+ */
+export interface Config {
+  /** Whether composed decisions are acted on (`enforce`) or only recorded (`shadow`). */
+  mode?: 'shadow' | 'enforce'
+  /** Agent profile name recorded on every task contract created here. */
+  agentProfile?: string
+  /** Policy profile name recorded on every task contract created here. */
+  policyProfile?: string
+  /** Ceilings every task contract created here starts with. */
+  budgets?: ResourceBudget
+  /**
+   * Criteria every task contract created here starts with. A task completed
+   * through the turn-stopping hook must satisfy them; without any, the kernel
+   * records no verification and claims no completion.
+   */
+  acceptance?: AcceptanceCriterion[]
+  /** The permission document every action is evaluated against. */
+  policy?: PolicyDocument
+  /** Whether a task with no acceptance criterion may be reported complete. */
+  requireAcceptanceCriteria?: boolean
+  /** Whether a task whose only passing evidence is human-reported may complete. */
+  allowHumanOnlyCompletion?: boolean
+  /** Retry cap per action before the recovery engine reports no attempts remaining. */
+  maxAttemptsPerAction?: number
+  /** Whether a retry must be preceded by a checkpoint. */
+  checkpointBeforeRetry?: boolean
+}
+
+/** Ceilings one task may spend. An absent field is unbounded. */
+export interface ResourceBudget {
+  /** Model steps the task may take. */
+  readonly maxSteps?: number
+  /** Tool calls the task may dispatch. */
+  readonly maxToolCalls?: number
+  /** Measured request tokens the task may consume. */
+  readonly maxTokens?: number
+  /** Wall-clock milliseconds the task may run. */
+  readonly maxWallMs?: number
+  /** Priced cost in USD the task may spend. */
+  readonly maxCostUsd?: number
+  /** Delegation depth the task may reach. */
+  readonly maxSubagentDepth?: number
+}
+
+/** One criterion a completion decision must satisfy. */
+export interface AcceptanceCriterion {
+  /** Stable identity within the task contract. */
+  readonly id: string
+  /** Non-empty statement of what must hold. */
+  readonly description: string
+  /** Which verifier family can evaluate the criterion. */
+  readonly verifier: 'test' | 'build' | 'diff' | 'assertion' | 'human' | 'research'
+  /** Whether a failed or unknown result blocks completion. */
+  readonly required: boolean
+}
+
+/**
+ * A deployment's complete permission document. The rule list is a mutable
+ * array because it is also the `Config.policy` field's shape, which the
+ * configuration schema produces; nothing in this package mutates it.
+ */
+export interface PolicyDocument {
+  /** Decision for an action no rule matches. */
+  readonly defaults: {
+    /** Effect applied when no rule matches an action. */
+    readonly effect: PolicyEffect
+  }
+  /** Rules in declaration order; the last match wins. */
+  rules: PolicyRule[]
+}
+
+/** What a policy rule or default decides. */
+export type PolicyEffect = 'allow' | 'ask' | 'deny'
+
+/** One permission rule. The last matching rule wins. */
+export interface PolicyRule {
+  /** Action family the rule selects. */
+  readonly action: PolicyAction
+  /** Resource glob the rule selects; `**` matches any run of characters. */
+  readonly resource: string
+  /** Decision the rule makes for a matching action. */
+  readonly effect: PolicyEffect
+}
+
+/** The action families a permission rule selects. */
+export type PolicyAction =
+  | 'read'
+  | 'write'
+  | 'edit'
+  | 'shell'
+  | 'network'
+  | 'mcp'
+  | 'delegate'
+  | 'workflow'
+  | 'memory'
+  | 'policy'
+```
+
+来源：[`packages/runtime/agent-kernel/src/index.ts:78`](../packages/runtime/agent-kernel/src/index.ts)
+
 <a id="deepseek-aidsh-agent-instructions"></a>
 
 ## `@deepseek-ai/dsh-agent-instructions`
@@ -1080,7 +1190,7 @@ export interface Config {
 }
 ```
 
-来源: [`packages/evolution/evolution-optimizer/src/index.ts:90`](../packages/evolution/evolution-optimizer/src/index.ts)
+来源: [`packages/evolution/evolution-optimizer/src/index.ts:95`](../packages/evolution/evolution-optimizer/src/index.ts)
 
 <a id="deepseek-aidsh-evolution-reviewer"></a>
 
@@ -1158,7 +1268,7 @@ export interface Config {
 }
 ```
 
-来源：[`packages/evolution/evolution-scorer/src/index.ts:46`](../packages/evolution/evolution-scorer/src/index.ts)
+来源：[`packages/evolution/evolution-scorer/src/index.ts:59`](../packages/evolution/evolution-scorer/src/index.ts)
 
 <a id="deepseek-aidsh-evolution-skill-manage"></a>
 

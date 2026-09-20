@@ -9,6 +9,7 @@ import { z } from 'zod'
 import { defineDomain, domainTable } from '@deepseek-ai/dsh-storage-domain'
 import { lessonArtifact, wrapLegacyLessons } from './lesson-artifact.ts'
 import type {
+  CaptureContract,
   EpisodicEntry,
   EvolutionContextItem,
   EvolutionExtraction,
@@ -75,6 +76,10 @@ export const stagedWrite = z.object({
   originSessionId: z.string(),
   createdAt: z.string(),
   gist: z.string(),
+  mergeKey: z.string().nullable().default(null),
+  recurrence: z.number().int().min(1).default(1),
+  blockedReason: z.string().nullable().default(null),
+  neededEvidence: z.array(z.string()).default([]),
 })
 
 /** One decided staged entry at the durable boundary. */
@@ -86,6 +91,8 @@ export const stagedResolution = z.object({
   decision: z.enum(['approved', 'rejected']),
   at: z.string(),
   originSessionId: z.string(),
+  mergeKey: z.string().nullable().default(null),
+  recurrence: z.number().int().min(1).default(1),
 })
 
 /**
@@ -150,4 +157,5 @@ export type {
   EvolutionScopeId,
   StagedResolution,
   StagedWrite,
+  CaptureContract,
 }

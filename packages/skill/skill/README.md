@@ -51,7 +51,7 @@ The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-a
 - **On-demand loading.** Asking for one skill by name returns the full instruction body from whichever provider owns the winning candidate; the registry re-validates the loaded definition and rejects a stale selection whose name changed between discovery and load.
 - **Embedded skills.** Plugins register an in-memory skill with `ctx.skills.register(...)`; the registry fills in a default invocation policy and the `runtime` provider label. Same-name runtime registrations in one layer are first-wins with a warning.
 - **Provider registration.** A provider contributes its catalog with `ctx.skills.registerProvider(...)`; registration is synchronous, and the returned disposer removes the provider. `runtime` is a reserved provider name.
-- **Load-time declarations pass through.** A loaded definition may carry the `requiredEnv` names it needs, a `config` map of its own defaults, and an install `blueprint` (`{ schedule, deliver, prompt }`). The registry validates all three and hands them to the loading consumer (the model-facing loader resolves the first two); a blueprint in the wrong shape is dropped rather than failing the load. Summaries stay invocation-neutral, so none of them reaches a catalog, and a blueprint is only ever a suggestion — nothing schedules itself.
+- **Load-time declarations pass through.** A loaded definition may carry the `requiredEnv` names it needs, a `config` map of its own defaults, and an install `blueprint` (`{ schedule, deliver, prompt }`). The registry validates all three and hands them to the loading consumer (the model-facing loader resolves the first two); a blueprint in the wrong shape is dropped rather than failing the load. Summaries stay invocation-neutral, so none of them reaches a catalog, and a blueprint is only ever a suggestion — nothing schedules itself. The one exception is `requires`: prerequisite skill names are routing-relevant, so a validated `requires` list rides the summary for selectors while every other declaration stays load-time-only.
 
 An invocation policy on every skill decides which surfaces may advertise and load it: `modelInvocable` for model-facing tools and catalogs, `userInvocable` for human-facing commands. The registry keeps all four combinations, so one discovery result can serve both surfaces without conflating their catalogs.
 
@@ -91,6 +91,7 @@ The registry is host+per-scope layered, the shape the tools registry established
 | File | Role |
 |---|---|
 | [`src/index.ts`](src/index.ts) | Plugin entry, `SkillRegistry` service, candidate and definition validation, shared model-facing rendering |
+| [`src/rank.ts`](src/rank.ts) | Query-time ranking: BM25 rough rank over routing text, re-ranked by embedding similarity and downstream utility |
 | — | No runtime invariant companion is published; provider/runtime maps and revisioned caches mutate atomically inside the registry, which exposes no independent change event or snapshot for cross-checking them. |
 
 ### Catalog collection
@@ -104,6 +105,10 @@ A read (`list`/`snapshot`) collects each layer's candidates: runtime skills firs
 ### Invalidation
 
 The registry has no TTL: only a provider calling its registration-scoped `invalidate()`, or a runtime registration or disposal, clears completed catalogs. Each invalidation bumps a revision, clears the cache, and emits the `skills/change` event, whose payload carries the quarantined skill count observed by the most recent completed discovery (zero before one completes); consumers refetch with their own lookup options. `invalidate()` takes effect only while the exact registration that received it is still active, so a late callback cannot disturb a replacement provider with the same name.
+
+### Query-time ranking
+
+`rankSkills(query, skills, nameOf, textOf, options?)` ranks candidates for one query without touching the registry: a BM25 rough rank over name, description, and `whenToUse`, re-ranked by embedding cosine similarity when the caller supplies vectors and by downstream utility when it supplies signals (`SkillRankSignal`: trust standing plus recorded failure rate, mapped from telemetry without a package dependency). A caller may also supply prerequisite names per skill (`requires`, from frontmatter): a skill with a prerequisite missing from the candidate set scores zero, since routing to a skill that cannot work without an absent sibling is never the right call. Ranking is pure and synchronous — no I/O and no model calls — so the per-turn catalog path stays untouched; today its one consumer is the behavior-evaluation routing gate, which is exactly the offline selector the ranking was built for. There is no rank cache to go stale: ranks compute per call over caller-supplied revision keys, and the registry's revision-keyed collection cache already invalidates on skill evolution.
 
 </details>
 
@@ -142,6 +147,7 @@ These limits define when the registry is a poor fit or needs special operational
 - **Providers are queried sequentially** — one slow provider delays every provider registered after it; cancellation stops the caller's wait but cannot terminate work an uncooperative provider keeps running.
 - **Incomplete observations are not retained** — rejected providers are omitted and explicitly supplied candidates remain available only to the current lookup; the registry owns neither a last-good catalog nor per-provider diagnostics.
 - **Duplicate resolution is first-wins** — later lower-priority candidates within a layer are logged and hidden, and a nearer layer shadows a farther one silently; there is no API to inspect all shadowed definitions.
+- **Ranking does not reorder the catalog** — `rankSkills` is a pure offline selector; the per-turn catalog keeps its static precedence order until a measured retrieval miss justifies wiring ranking into the model-visible path.
 
 <a id="dev-note"></a>
 ### Dev Note

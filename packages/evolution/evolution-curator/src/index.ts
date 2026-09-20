@@ -24,7 +24,7 @@ import type { KvTable } from '@deepseek-ai/dsh-storage-domain'
 import type {} from '@deepseek-ai/dsh-skill'
 import type {} from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-llm'
-import type {} from '@deepseek-ai/dsh-evolution-feedback'
+import type { FeedbackSignal } from '@deepseek-ai/dsh-evolution-feedback'
 import { deadline } from '@deepseek-ai/dsh-timeout'
 import type { SkillLifecycleState, SkillUsageRecord } from '@deepseek-ai/dsh-evolution-skill-telemetry'
 import type { EvolutionSkillTelemetry } from '@deepseek-ai/dsh-evolution-skill-telemetry'
@@ -61,6 +61,7 @@ import type {
   CuratorTransition,
   PassSummary,
   PurgeReport,
+  RegressionDebt,
   RollbackOptions,
   RollbackReport,
   StagedCandidate,
@@ -79,6 +80,7 @@ export type {
   CuratorTransition,
   PassSummary,
   PurgeReport,
+  RegressionDebt,
   RollbackOptions,
   RollbackReport,
   StageThresholds,
@@ -96,6 +98,21 @@ declare module '@deepseek-ai/cordis' {
 
 /** Single bookkeeping key in the `meta` table. */
 const STATE_KEY = 'state'
+
+/**
+ * The identity one regression debt merges under: its skill and its failure.
+ * Skill names are kebab-case without whitespace, so no merge key — which
+ * starts after the separator — collides with another skill's prefix.
+ * @param name - skill carrying the failure.
+ * @param mergeKey - tool-and-message identity of the failure.
+ * @returns the debt-table key.
+ */
+/** Debt-table key separator: one NUL, the same identity merge keys use. */
+const DEBT_KEY_SEPARATOR = String.fromCharCode(0)
+
+function debtKeyOf(name: string, mergeKey: string): string {
+  return `${name}${DEBT_KEY_SEPARATOR}${mergeKey}`
+}
 
 /** Timeout reason code for one consolidation run. */
 export const EVOLUTION_CONSOLIDATE_TIMEOUT = 'EVOLUTION_CONSOLIDATE_TIMEOUT'
@@ -378,6 +395,7 @@ export class EvolutionCurator extends Service {
   static inject = ['storageDomain', 'skills']
 
   private table?: KvTable<string, { lastRunAt: string | null }>
+  private debts?: KvTable<string, RegressionDebt>
   private readonly resolved: ResolvedConfig
   /** Newest host-wide session activity this process observed, or null before any. */
   private lastActivityAt: number | null = null
@@ -403,6 +421,7 @@ export class EvolutionCurator extends Service {
     const domain = await this.ctx.storageDomain.open(curatorDomainSpec)
     this.ctx.effect(() => () => domain.close(), 'evolution-curator.domainClose')
     this.table = domain.table('meta')
+    this.debts = domain.table('debt')
     this.ctx.on('session/event', () => {
       this.lastActivityAt = Date.now()
     })
@@ -452,6 +471,7 @@ export class EvolutionCurator extends Service {
       passId: null,
       snapshot: null,
       staged: [],
+      regressionDebt: [],
     }
     const telemetry = this.ctx.get('evolutionSkillTelemetry')
     if (telemetry === undefined) {
@@ -486,7 +506,19 @@ export class EvolutionCurator extends Service {
         continue
       }
       if (!dryRun) {
-        await this.recordTrust(telemetry, name, usage, at)
+        let signals: FeedbackSignal[] | undefined
+        try {
+          const feedback = this.ctx.get('evolutionFeedback')
+          signals = feedback === undefined
+            ? []
+            : feedback.signals(usage.sessionIds, this.resolved.maxCandidateFailures)
+        } catch (error) {
+          this.ctx.logger.warn(`evolution curator could not read failures for '${name}': ${String(error)}`)
+        }
+        if (signals !== undefined) {
+          await this.recordTrust(telemetry, name, usage, at, signals)
+          await this.recordRegressionDebt(name, usage, signals, at)
+        }
       }
       const idleMs = now - Date.parse(usage.lastUsedAt ?? usage.createdAt)
       const failureCount = usage.failureCount ?? 0
@@ -521,6 +553,7 @@ export class EvolutionCurator extends Service {
       }
     }
     report.staged = orderStaged(report.staged)
+    report.regressionDebt = this.debt()
     if (!dryRun && report.staged.length > 0 && this.resolved.backup.enabled) {
       await this.recordStaging(at, report.staged)
     }
@@ -724,25 +757,23 @@ export class EvolutionCurator extends Service {
   /**
    * Record what the correlated evidence says about one skill's trust. An
    * attributable failure demotes it; without one, every session that loaded it
-   * counts as an independent success observation. A failing store must not
-   * break the lifecycle pass, so one skill's error is logged and the pass
-   * continues.
+   * counts as an independent success observation. A failing telemetry store
+   * must not break the lifecycle pass, so one skill's error is logged and the
+   * pass continues.
    * @param telemetry - store receiving the observation.
    * @param name - skill name.
    * @param usage - the record as the pass found it.
    * @param at - ISO-8601 instant the pass ran.
+   * @param signals - the pass's graded failures for this skill's sessions.
    */
   private async recordTrust(
     telemetry: EvolutionSkillTelemetry,
     name: string,
     usage: SkillUsageRecord,
     at: string,
+    signals: readonly FeedbackSignal[],
   ): Promise<void> {
     try {
-      const feedback = this.ctx.get('evolutionFeedback')
-      const signals = feedback === undefined
-        ? []
-        : feedback.signals(usage.sessionIds, this.resolved.maxCandidateFailures)
       const attributable = signals.find(signal => signal.actionability === 'trigger_review')
       if (attributable === undefined) {
         for (const sessionId of usage.sessionIds) {
@@ -759,6 +790,61 @@ export class EvolutionCurator extends Service {
       })
     } catch (error) {
       this.ctx.logger.warn(`evolution curator could not record trust for '${name}': ${String(error)}`)
+    }
+  }
+
+  /**
+   * Maintain one skill's regression debt against the pass's decisive
+   * failures. Every repeated failure deepens its open debt; a failure gone
+   * silent closes its debt even while another persists; a skill revised since
+   * a debt opened closes that debt and opens a fresh one, because the new
+   * body has not answered the old failure. Debt writes share the pass's fate
+   * like staging writes: the table is the curator's own domain, so a failure
+   * there is systemic rather than per-skill.
+   * @param name - skill name.
+   * @param usage - the record as the pass found it.
+   * @param signals - the pass's graded failures for this skill's sessions.
+   * @param at - ISO-8601 instant the pass ran.
+   */
+  private async recordRegressionDebt(
+    name: string,
+    usage: SkillUsageRecord,
+    signals: readonly FeedbackSignal[],
+    at: string,
+  ): Promise<void> {
+    const debts = this.requireDebts()
+    const prefix = debtKeyOf(name, '')
+    const decisive = new Map(signals
+      .filter(signal => signal.actionability === 'trigger_review')
+      .map(signal => [signal.mergeKey, signal] as const))
+    for (const key of debts.keys()) {
+      if (key.startsWith(prefix) && !decisive.has(key.slice(prefix.length))) await debts.delete(key)
+    }
+    for (const attributable of decisive.values()) {
+      const key = debtKeyOf(name, attributable.mergeKey)
+      const open = debts.get(key)
+      if (open !== undefined && open.revision !== usage.revision) await debts.delete(key)
+      const current = open !== undefined && open.revision === usage.revision ? open : undefined
+      if (current === undefined) {
+        await debts.put(key, {
+          name,
+          mergeKey: attributable.mergeKey,
+          message: attributable.message,
+          firstSeenAt: at,
+          lastSeenAt: at,
+          passes: 1,
+          sessions: attributable.sessions,
+          revision: usage.revision,
+        })
+        continue
+      }
+      await debts.put(key, {
+        ...current,
+        message: attributable.message,
+        lastSeenAt: at,
+        passes: current.passes + 1,
+        sessions: Math.max(current.sessions, attributable.sessions),
+      })
     }
   }
 
@@ -1106,6 +1192,30 @@ export class EvolutionCurator extends Service {
   private requireTable(): KvTable<string, { lastRunAt: string | null }> {
     if (this.table === undefined) throw new Error('evolution curator is not started yet')
     return this.table
+  }
+
+  private requireDebts(): KvTable<string, RegressionDebt> {
+    if (this.debts === undefined) throw new Error('evolution curator is not started yet')
+    return this.debts
+  }
+
+  /**
+   * List every open regression debt, worst first: most passes, then most
+   * sessions, then name and merge key. Passes count consecutive sightings, so
+   * two co-open debts with equal passes opened on the same pass — the order
+   * stays total through the key without reading timestamps. Synchronous: the
+   * debt table is an in-memory read over the open domain, unlike the
+   * filesystem-backed `staged()` listing.
+   * @returns the open debts, detached from the store.
+   */
+  debt(): RegressionDebt[] {
+    const rows = [...this.requireDebts().entries()].map(([, row]) => structuredClone(row))
+    rows.sort((left, right) =>
+      right.passes - left.passes
+      || right.sessions - left.sessions
+      || left.name.localeCompare(right.name)
+      || left.mergeKey.localeCompare(right.mergeKey))
+    return rows
   }
 }
 

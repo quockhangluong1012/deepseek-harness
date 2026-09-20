@@ -42,6 +42,7 @@ Mount the plugin with the workspace registry and a session-query backend whose v
 | `topK` | `5` | Candidate results ranked per search, before the relevance threshold |
 | `relevanceThreshold` | `0.7` | Minimum cosine similarity a hit must clear to be worth injecting |
 | `turnInterval` | `1` | Turns between active-memory searches |
+| `escalation` | `both` | Lanes per eligible turn: `both` runs vector and graph legs every turn; `graph-first` runs the local graph leg first and spends the vector leg's embedding call only when the graph leg returns nothing |
 | `profile` | `default` | Scope-identity namespace the graph leg reads; must match the profile the scope's graph was extracted under |
 | `graphDepth` | `1` | Hops the graph leg expands from the entity it matched |
 | `graphLimit` | `5` | Turn-leading words the entity scan tries, entities one `expand` may return, and labels the expansion may seed searches with |
@@ -56,6 +57,10 @@ A nearest-neighbor vector search always answers with its closest candidates, how
 
 Every eligible turn runs one semantic search (an embedding call for the query, plus whatever documents the vector store does not already hold — see `dsh-session-query-sqlite`'s lazy embedding design). The graph leg adds no embedding call and no model call: it is label lookups against the local graph plus at most `graphLimit` text searches on the corpus the turn already searches. That lexical channel is the same opt-in the vector leg needs: both shipped compositions mount `dsh-session-query-sqlite` with `openAt: never`, where each label search throws `SESSION_QUERY_SEARCH_DISABLED` and the graph leg contributes nothing until content search is enabled. `turnInterval` throttles that cost the same way `dsh-evolution-memory-context`'s nudge intervals do: a session with no observed `turn/start` yet counts as turn 0 and reads as its first turn, so `turnInterval: 1` searches on the very first turn. A retried step for the same observed turn never re-searches: the injector remembers the last turn it searched for.
 
+### Escalation lane
+
+`escalation: graph-first` runs the cheap local graph leg before the vector leg and skips the vector leg — saving its query embedding call — whenever the graph leg already connected the turn to at least one session. An unmounted, inapplicable, or empty graph leg returns nothing, so the vector leg runs exactly as it would have without escalation. The tradeoff is recall shape, not just cost: a skipped vector leg cannot surface a session only similarity would have found, so the brief holds the graph leg's connections alone. The default `both` preserves the historical behavior of running both legs every eligible turn.
+
 -----
 
 <a id="understand-the-implementation"></a>
@@ -66,7 +71,7 @@ Every eligible turn runs one semantic search (an embedding call for the query, p
 
 ### Design concept
 
-At each `agent/pre-step`, the injector reads the text of the proposed step's own messages (not whatever an earlier listener already appended, so a search never uses another package's injected brief as its own query), resolves the session's workspace, and — unless the search is off cadence or was already run for this observed turn — calls `ctx.sessionQuery.searchSessionsSemantic` scoped to the workspace's other sessions (the current session is always excluded, so a session can never surface its own just-submitted message as its own "relevant memory"). Hits below `relevanceThreshold` are dropped; the survivors render into one framed `user/message` and append to the step, bounded by `maxBytes`, weakest hits dropped first when the budget is tight.
+At each `agent/pre-step`, the injector reads the text of the proposed step's own messages (not whatever an earlier listener already appended, so a search never uses another package's injected brief as its own query), resolves the session's workspace, and — unless the search is off cadence or was already run for this observed turn — calls `ctx.sessionQuery.searchSessionsSemantic` scoped to the workspace's other sessions (the current session is always excluded, so a session can never surface its own just-submitted message as its own "relevant memory"). Hits below `relevanceThreshold` are dropped; the survivors render into one framed `user/message` and append to the step, bounded by `maxBytes`, weakest hits dropped first when the budget is tight. Under `escalation: graph-first` the graph leg below runs first instead, and this vector call happens only when it returns nothing.
 
 A vector-channel failure (`SESSION_QUERY_SEMANTIC_UNAVAILABLE`, `SESSION_QUERY_SEARCH_DISABLED`) degrades to no injection rather than blocking the turn; any other failure propagates, since it signals a genuine defect rather than an expected deployment state.
 
@@ -130,5 +135,5 @@ Varies with the turn's own content by design: this is proactive retrieval keyed 
 <a id="known-limitations-and-deferred-work"></a>
 
 - **Turn cadence counts process-observed turns** — the interval counter starts at plugin load and clears on session disposal, so a resumed session begins again from its first observed `turn/start`, the same limitation `dsh-evolution-memory-context` documents for its own nudge cadence.
-- **One embedding call per eligible turn** — cost scales with `turnInterval`; there is no cross-turn result cache, since the query differs every turn by design.
+- **One embedding call per eligible turn** — cost scales with `turnInterval`; there is no cross-turn result cache, since the query differs every turn by design. `escalation: graph-first` skips the call on turns the graph leg already answers, at the cost of similarity-only recall on those turns.
 - **Workspace-scoped only** — a session outside any workspace, or the sole session in one, never receives active memory.

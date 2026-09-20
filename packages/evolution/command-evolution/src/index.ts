@@ -990,9 +990,10 @@ async function executeCuratorExperiments(
     const staged = row.stagedId === null
       ? ''
       : ` ${row.stagedId}${row.winnerOperator === null ? '' : ` via ${row.winnerOperator}`}`
+    const change = row.addedLines > 0 || row.removedLines > 0 ? ` +${row.addedLines}/-${row.removedLines}` : ''
     const confidence = row.confidence === null ? '' : ` ${row.confidence.wins}/${row.confidence.runs}`
     const reason = row.reason === null ? '' : ` — ${row.reason}`
-    return `${row.at} ${row.skill}: ${row.outcome}${operators}${staged}${confidence}${reason}`
+    return `${row.at} ${row.skill}: ${row.outcome}${operators}${staged}${change}${confidence}${reason}`
   })
   return { kind: 'success', text: [`Experiments (newest first): ${rows.length}`, ...lines].join('\n') }
 }

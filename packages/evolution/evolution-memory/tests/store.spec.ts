@@ -13,7 +13,7 @@ import EvolutionMemoryStore, {
 } from '../src/index.ts'
 import type { EvolutionScopeId as ScopeId } from '../src/types.ts'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
-import { evolutionMemoryDomainSpec, evolutionMemoryRecord } from '../src/spec.ts'
+import { evolutionMemoryDomainSpec, evolutionMemoryRecord, stagedResolution, stagedWrite } from '../src/spec.ts'
 import { digestOf, truncateUtf8 } from '../src/digest.ts'
 
 /**
@@ -27,6 +27,23 @@ import { digestOf, truncateUtf8 } from '../src/digest.ts'
  */
 function artifactPayload(value: object): JsonValue {
   return value as unknown as JsonValue
+}
+
+/**
+ * One valid capture contract for skill-proposal tests: procedural evidence
+ * plus independent validation evidence, disjoint by construction.
+ * @param overrides - fields a test varies.
+ * @returns the contract as a JSON value for staged payloads.
+ */
+function contract(overrides: Record<string, JsonValue> = {}): JsonValue {
+  return {
+    capability: 'summarize test output',
+    procedureRefs: ['/w/out.ts'],
+    validationRefs: ['session s9 replay'],
+    validationSummary: 'replay passed 3 scenarios',
+    limitations: 'none known',
+    ...overrides,
+  }
 }
 
 async function harness(
@@ -689,6 +706,236 @@ describe('evolution-memory store', () => {
     await fiber.dispose()
   })
 
+  it('stageWrite seeds candidate fields and parses legacy shapes with defaults', async () => {
+    const { fiber, store } = await harness()
+    const id = scope()
+    const staged = await store.stageWrite({
+      scopeId: id,
+      kind: 'memory',
+      op: 'setInstructions',
+      payload: { text: 'staged rules' },
+      originSessionId: 's1',
+      gist: 'proposal from review',
+    })
+    expect(staged).toMatchObject({ mergeKey: null, recurrence: 1, blockedReason: null, neededEvidence: [] })
+    const legacyWrite = stagedWrite.parse({
+      id: 'x', kind: 'memory', op: 'o', payload: {}, originSessionId: 's', createdAt: 't', gist: 'g',
+    })
+    expect(legacyWrite).toMatchObject({ mergeKey: null, recurrence: 1, blockedReason: null, neededEvidence: [] })
+    const legacyResolution = stagedResolution.parse({
+      id: 'x', kind: 'skill', op: 'create', gist: 'g', decision: 'rejected', at: 't', originSessionId: 's',
+    })
+    expect(legacyResolution).toMatchObject({ mergeKey: null, recurrence: 1 })
+    await fiber.dispose()
+  })
+
+  it('a repeated merge key bumps recurrence instead of duplicating', async () => {
+    const { fiber, store } = await harness()
+    const id = scope()
+    const first = await store.stageWrite({
+      scopeId: id, kind: 'skill', op: 'create', payload: {}, originSessionId: 's1', gist: 'first', mergeKey: 'k',
+    })
+    expect(first).toMatchObject({ mergeKey: 'k', recurrence: 1 })
+    const second = await store.stageWrite({
+      scopeId: id, kind: 'skill', op: 'create', payload: {}, originSessionId: 's2', gist: 'second', mergeKey: 'k',
+    })
+    expect(second.id).toBe(first.id)
+    expect(second.recurrence).toBe(2)
+    const staged = store.read(id)?.staged ?? []
+    expect(staged).toHaveLength(1)
+    // The first proposal wins; the bump only counts the repeat.
+    expect(staged[0]).toMatchObject({ gist: 'first', originSessionId: 's1', recurrence: 2 })
+    await fiber.dispose()
+  })
+
+  it('distinct merge keys and scopes stay separate, and an empty key is refused', async () => {
+    const { fiber, store } = await harness()
+    const id = scope()
+    const other = scope('ws-2')
+    await store.stageWrite({
+      scopeId: id, kind: 'skill', op: 'create', payload: {}, originSessionId: 's1', gist: 'one', mergeKey: 'k1',
+    })
+    await store.stageWrite({
+      scopeId: id, kind: 'skill', op: 'create', payload: {}, originSessionId: 's1', gist: 'two', mergeKey: 'k2',
+    })
+    await store.stageWrite({
+      scopeId: other, kind: 'skill', op: 'create', payload: {}, originSessionId: 's1', gist: 'other', mergeKey: 'k1',
+    })
+    expect(store.read(id)?.staged).toHaveLength(2)
+    expect(store.read(other)?.staged).toHaveLength(1)
+    // A repeat beside a different key only bumps its own entry.
+    await store.stageWrite({
+      scopeId: id, kind: 'skill', op: 'create', payload: {}, originSessionId: 's1', gist: 'one again', mergeKey: 'k1',
+    })
+    expect(store.read(id)?.staged.map(entry => entry.recurrence)).toEqual([2, 1])
+    await expect(store.stageWrite({
+      scopeId: id, kind: 'skill', op: 'create', payload: {}, originSessionId: 's1', gist: 'g', mergeKey: '',
+    })).rejects.toThrow('mergeKey must be non-empty')
+    await fiber.dispose()
+  })
+
+  it('resolutions carry the merge key and recurrence', async () => {
+    const { fiber, store } = await harness()
+    const id = scope()
+    const staged = await store.stageWrite({
+      scopeId: id, kind: 'memory', op: 'setInstructions', payload: { text: 'x' },
+      originSessionId: 's1', gist: 'g', mergeKey: 'm',
+    })
+    await store.stageWrite({
+      scopeId: id, kind: 'memory', op: 'setInstructions', payload: { text: 'y' },
+      originSessionId: 's2', gist: 'g2', mergeKey: 'm',
+    })
+    await store.approveStaged(staged.id)
+    expect(store.read(id)?.resolutions[0]).toMatchObject({ mergeKey: 'm', recurrence: 2, decision: 'approved' })
+    await fiber.dispose()
+  })
+
+  it('blocks skill approval without a capture contract and names the evidence', async () => {
+    const { fiber, store } = await harness()
+    const id = scope()
+    const missing = await store.stageWrite({
+      scopeId: id, kind: 'skill', op: 'create', payload: { paths: ['a'] }, originSessionId: 's1', gist: 'g',
+    })
+    await expect(store.approveStaged(missing.id)).rejects.toMatchObject({ code: 'evolution/staged-blocked' })
+    expect(store.read(id)?.staged[0]).toMatchObject({
+      blockedReason: 'capture-contract',
+      neededEvidence: ['contract must be an object'],
+    })
+    expect(store.read(id)?.resolutions).toEqual([])
+    const bare = await store.stageWrite({
+      scopeId: id, kind: 'skill', op: 'create', payload: { contract: {} }, originSessionId: 's1', gist: 'h', mergeKey: 'bare',
+    })
+    await expect(store.approveStaged(bare.id)).rejects.toMatchObject({ code: 'evolution/staged-blocked' })
+    expect(store.read(id)?.staged.find(entry => entry.id === bare.id)?.neededEvidence).toEqual([
+      'capability must be a non-empty string',
+      'procedureRefs must list at least one procedure',
+      'validationRefs must list at least one independent validation',
+      'validationSummary must be a non-empty string',
+      'limitations must be a non-empty string',
+    ])
+    const shapes: JsonValue[] = ['scalar', null, ['list']]
+    let shape = 0
+    for (const payload of shapes) {
+      shape += 1
+      const entry = await store.stageWrite({
+        scopeId: id, kind: 'skill', op: 'create', payload,
+        originSessionId: 's1', gist: 'g', mergeKey: `shape-${shape}`,
+      })
+      await expect(store.approveStaged(entry.id)).rejects.toMatchObject({ code: 'evolution/staged-blocked' })
+      expect(store.read(id)?.staged.find(candidate => candidate.id === entry.id)?.neededEvidence)
+        .toEqual(['contract must be an object'])
+    }
+    await fiber.dispose()
+  })
+
+  it('blocks a skill whose validation merely restates its procedure', async () => {
+    const { fiber, store } = await harness()
+    const id = scope()
+    const staged = await store.stageWrite({
+      scopeId: id, kind: 'skill', op: 'create', originSessionId: 's1', gist: 'g',
+      payload: { paths: ['/w/out.ts'], contract: contract({ validationRefs: ['/W/OUT.ts'] }) },
+    })
+    await expect(store.approveStaged(staged.id)).rejects.toMatchObject({ code: 'evolution/staged-blocked' })
+    expect(store.read(id)?.staged[0]?.neededEvidence).toEqual([
+      'validationRefs must be independent of procedureRefs (overlap: /W/OUT.ts)',
+    ])
+    await fiber.dispose()
+  })
+
+  it('approves a skill proposal carrying a valid contract', async () => {
+    const { fiber, store } = await harness()
+    const id = scope()
+    const staged = await store.stageWrite({
+      scopeId: id, kind: 'skill', op: 'create', originSessionId: 's1', gist: 'g', mergeKey: 'admitted',
+      payload: { paths: ['/w/out.ts'], contract: contract() },
+    })
+    await store.approveStaged(staged.id)
+    const record = store.read(id)
+    expect(record?.staged).toEqual([])
+    expect(record?.resolutions[0]).toMatchObject({ mergeKey: 'admitted', recurrence: 1, decision: 'approved' })
+    await fiber.dispose()
+  })
+
+  it('supplyStagedContract lifts the block and approval follows', async () => {
+    const { fiber, store } = await harness()
+    const id = scope()
+    const staged = await store.stageWrite({
+      scopeId: id, kind: 'skill', op: 'create', payload: { paths: ['a'] }, originSessionId: 's1', gist: 'g',
+    })
+    await expect(store.approveStaged(staged.id)).rejects.toMatchObject({ code: 'evolution/staged-blocked' })
+    await store.supplyStagedContract(staged.id, {
+      capability: 'summarize test output',
+      procedureRefs: ['/w/out.ts'],
+      validationRefs: ['session s9 replay'],
+      validationSummary: 'replay passed 3 scenarios',
+      limitations: 'none known',
+    })
+    expect(store.read(id)?.staged[0]).toMatchObject({ blockedReason: null, neededEvidence: [] })
+    expect(store.read(id)?.staged[0]?.payload).toMatchObject({
+      paths: ['a'],
+      contract: { capability: 'summarize test output' },
+    })
+    await store.approveStaged(staged.id)
+    expect(store.read(id)?.staged).toEqual([])
+    expect(store.read(id)?.resolutions[0]?.decision).toBe('approved')
+    await fiber.dispose()
+  })
+
+  it('supplyStagedContract refuses an invalid contract without touching the entry', async () => {
+    const { fiber, store } = await harness()
+    const id = scope()
+    const staged = await store.stageWrite({
+      scopeId: id, kind: 'skill', op: 'create', payload: { paths: ['a'] }, originSessionId: 's1', gist: 'g',
+    })
+    await expect(store.approveStaged(staged.id)).rejects.toMatchObject({ code: 'evolution/staged-blocked' })
+    const blocked = store.read(id)?.staged[0]
+    await expect(store.supplyStagedContract(staged.id, { capability: 'only this' }))
+      .rejects.toThrow('missing evidence')
+    expect(store.read(id)?.staged[0]).toEqual(blocked)
+    await fiber.dispose()
+  })
+
+  it('supplyStagedContract refuses memory-kind, unknown ids, and non-object payloads', async () => {
+    const { fiber, store } = await harness()
+    const id = scope()
+    const memory = await store.stageWrite({
+      scopeId: id, kind: 'memory', op: 'setInstructions', payload: { text: 'x' }, originSessionId: 's1', gist: 'g',
+    })
+    await expect(store.supplyStagedContract(memory.id, contract())).rejects.toThrow('not a skill proposal')
+    await expect(store.supplyStagedContract('missing', contract())).rejects.toMatchObject({
+      code: 'evolution/staged-not-found',
+    })
+    let shape = 0
+    const supplies: JsonValue[] = ['scalar', null, ['list']]
+    for (const payload of supplies) {
+      shape += 1
+      const entry = await store.stageWrite({
+        scopeId: id, kind: 'skill', op: 'create', payload,
+        originSessionId: 's1', gist: 'g', mergeKey: `supply-shape-${shape}`,
+      })
+      await expect(store.supplyStagedContract(entry.id, contract()))
+        .rejects.toThrow('must be an object to carry a contract')
+    }
+    await fiber.dispose()
+  })
+
+  it('blockStaged marks an entry and re-blocking overwrites', async () => {
+    const { fiber, store } = await harness()
+    const id = scope()
+    const staged = await store.stageWrite({
+      scopeId: id, kind: 'memory', op: 'setInstructions', payload: { text: 'x' }, originSessionId: 's1', gist: 'g',
+    })
+    await store.blockStaged(staged.id, 'policy', ['evidence a'])
+    expect(store.read(id)?.staged[0]).toMatchObject({ blockedReason: 'policy', neededEvidence: ['evidence a'] })
+    await store.blockStaged(staged.id, 'other', ['b'])
+    expect(store.read(id)?.staged[0]).toMatchObject({ blockedReason: 'other', neededEvidence: ['b'] })
+    await expect(store.blockStaged(staged.id, '', [])).rejects.toThrow('blocked reason must be non-empty')
+    await expect(store.blockStaged('missing', 'policy', [])).rejects.toMatchObject({
+      code: 'evolution/staged-not-found',
+    })
+    await fiber.dispose()
+  })
+
   it('stageWrite rejects malformed inputs', async () => {
     const { fiber, store } = await harness()
     const id = scope()
@@ -923,7 +1170,7 @@ describe('evolution-memory store', () => {
     await store.setInstructions(id, 'rules')
     const before = store.read(id)
     const staged = await store.stageWrite({
-      scopeId: id, kind: 'skill', op: 'create', payload: { name: 'new-skill' }, originSessionId: 's1', gist: 'g',
+      scopeId: id, kind: 'skill', op: 'create', payload: { name: 'new-skill', contract: contract() }, originSessionId: 's1', gist: 'g',
     })
     await store.approveStaged(staged.id)
     const after = store.read(id)
@@ -1508,7 +1755,7 @@ describe('evolution-memory decisions and family stamps', () => {
     await store.setInstructions(id, 'rules')
     const before = { digest: store.digest(id), usage: store.usage(id) }
     const staged = await store.stageWrite({
-      scopeId: id, kind: 'skill', op: 'create', payload: {}, originSessionId: 's1', gist: 'g',
+      scopeId: id, kind: 'skill', op: 'create', payload: { contract: contract() }, originSessionId: 's1', gist: 'g',
     })
     await store.approveStaged(staged.id)
     expect(store.digest(id)).toBe(before.digest)

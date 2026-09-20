@@ -99,6 +99,13 @@ const GROUP_ORDER = [
 
 const SERVICE_ROLES: ServiceRole[] = [
   {
+    key: 'agentKernel',
+    pkg: 'agent-kernel',
+    title: 'Task contract, action ledger, and completion gate',
+    mode: 'core',
+    note: 'Observes the loop and tool waterfalls without owning execution; the session log is its only store, and it composes the sandbox and approval decisions it does not make.',
+  },
+  {
     key: 'attachments',
     pkg: 'attachment',
     title: 'Durable binary attachment storage',

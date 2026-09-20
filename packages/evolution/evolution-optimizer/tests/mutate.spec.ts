@@ -44,6 +44,13 @@ describe('mutation operators', () => {
     expect(() => resolveOperators(['nope'])).toThrow("unknown mutation operator 'nope'")
   })
 
+  it('resolves every portfolio operator with a distinct instruction', () => {
+    const ids = ['rewrite', 'compress', 'guard', 'exemplify', 'generalize', 'decompose', 'compose', 'reorder', 'remove-step', 'change-tool', 'change-retrieval', 'change-evaluator']
+    expect(MUTATION_OPERATORS.map(operator => operator.id).sort()).toEqual([...ids].sort())
+    expect(new Set(MUTATION_OPERATORS.map(operator => operator.instruction)).size).toBe(ids.length)
+    expect(resolveOperators(ids).map(operator => operator.id)).toEqual(ids)
+  })
+
   it('splits the candidate budget across the portfolio, leading operators taking the remainder', () => {
     const three = resolveOperators(['rewrite', 'compress'])
     expect(distributeCandidates(3, three).map(entry => [entry.operator.id, entry.count])).toEqual([['rewrite', 2], ['compress', 1]])

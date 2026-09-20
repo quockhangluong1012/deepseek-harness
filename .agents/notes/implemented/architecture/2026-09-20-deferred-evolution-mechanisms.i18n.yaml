@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-20-deferred-evolution-mechanisms.md
+2026-09-20-deferred-evolution-mechanisms.md: 33631894ea60a0ea63b122b7ae22ef990cc93489
+2026-09-20-deferred-evolution-mechanisms.zh.md: f01734890ce8f0f2ab555b74858e04439c8d54cf

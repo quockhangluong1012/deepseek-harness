@@ -48,6 +48,10 @@ The corpus root is required; the attempt count is a validated member changeable 
 
 `shouldOptimize(usage, thresholds)` is the pure trigger that decides whether one skill's recorded outcome warrants an optimization run: at least `triggerMinUses` loads with a failure share over `triggerFailureRate`, where the share is `failureCount / (useCount + failureCount)` — the rate the telemetry record documents. `evaluateSkill({ skill, scenarios, agent, run })` scores each named scenario through the existing `score` and aggregates the optimizer triple: `pass` holds only when every scenario passes, and tokens and wall time sum the per-scenario medians. One skipped scenario skips the whole evaluation with its reason, because optimizing on a partial evaluation would select on evidence that is not there; a skill naming no scenarios skips the same way.
 
+### Behavior evaluation
+
+`evaluateBehavior({ baseline, candidate, candidateBody, catalog, positiveQueries, negativeQueries, routingTopK?, vectors? })` judges one skill revision through three gates, cheapest first. The contract gate (`checkBehaviorContract`) refuses a body that would break the skill's frontmatter, reusing the exact invariant the skill manager enforces on edit. The routing gate (`checkBehaviorRouting`) runs positive and negative trigger queries through the real selector: every positive must rank the candidate inside `routingTopK` (default 3), every negative must keep it outside, over a catalog carrying each entry's revision key so a report never mixes revisions. Catalog entries may also carry frontmatter `requires`: a candidate whose prerequisites are absent from the catalog scores zero in the same selector and fails every positive, because routing to it could never work. A failed cheap gate stops the evaluation with `status: 'gated'` before any fresh process boots. Otherwise both replay compositions run over the same scenarios and the replay gate (`compareBehaviorReplay`) approves only when the candidate regresses nothing the baseline passed — parity on a scenario both fail is not a regression, because the gate judges "no worse" while selection judges "better". `approved` is true only when every gate passed: only replay evidence approves.
+
 ```yaml
 - name: '@deepseek-ai/dsh-evolution-scorer'
   config:
@@ -86,6 +90,10 @@ Billed tokens come from `ctx.tokenMeter.measure` and nowhere else. Each harveste
 
 A scenario directory the corpus does not contain, one without a recorded session fixture, and one without `input.json` each report `{ status: 'skipped' }` with the reason, without running anything. Only a `corpusDir` that does not exist fails loud: that is a misconfiguration, not a scenario the waived recording phase never produced.
 
+### Scoring-semantics version
+
+`SCORER_VERSION` names what a triple means. `EvolutionScorer.version` carries it, and the optimizer stamps it on every experiment row, so a scoring change retires the old floors and repeat-matches instead of comparing across them. Bump the constant with any change to what counts as pass, what counts as billed, or how the median reduces — the ledger treats the bump as a new evaluator, and the old rows stay readable but incomparable.
+
 ### Source map
 
 | File | Role |
@@ -97,6 +105,7 @@ A scenario directory the corpus does not contain, one without a recorded session
 | [`src/sessions.ts`](src/sessions.ts) | Token-meter accounting over harvested session logs |
 | [`src/statistics.ts`](src/statistics.ts) | Median over per-attempt samples |
 | [`src/runner.ts`](src/runner.ts) | The process-level runner a composition passes in |
+| [`src/behavior.ts`](src/behavior.ts) | Behavior gates: contract check, trigger-query routing, and replay comparison |
 | [`src/types.ts`](src/types.ts) | Public request, plan, attempt, and record types |
 
 No invariant companion is published: the scorer owns no durable state, so there is no second independent observation to check.
@@ -136,7 +145,7 @@ These limits define when scoring is not the right comparison. They are current p
 - **ACP runner only** — the shipped runner is the snapshot harness's ACP tier, so corpora driven another way (the headless `snapshots/session` suite) need their own runner.
 - **Median over one host** — wall time is a single-process wall clock on the scoring host, not a CPU budget; `benchmarks/` owns perf gates.
 - **Whole-run tokens** — the token number sums every harvested session, so a nested run's context is counted on each session that carries it.
-- **No Pareto or fan-out** — pairwise variant ranking and GEPA fan-out stay deferred by the specification.
+- **No Pareto or fan-out** — GEPA fan-out stays deferred by the specification; pairwise baseline-vs-candidate replay over the same scenarios is what `evaluateBehavior` compares.
 
 <a id="dev-note"></a>
 ### Dev Note

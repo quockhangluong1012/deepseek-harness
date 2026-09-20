@@ -37,6 +37,12 @@ declare module '@deepseek-ai/dsh-llm' {
 /** Cordis plugin name used by loader diagnostics. */
 export const name = 'active-memory-context'
 
+/** Retrieval lanes the injector may run on an eligible turn. */
+export const ESCALATION_MODES = ['both', 'graph-first'] as const
+
+/** Which retrieval lanes run before the vector leg spends an embedding call. */
+export type EscalationMode = typeof ESCALATION_MODES[number]
+
 /** Plugin configuration: brief cap, result bounds, and search cadence. */
 export interface Config {
   /** Cap on the complete emitted text including the frame. */
@@ -53,6 +59,13 @@ export interface Config {
   relevanceThreshold?: number
   /** Turns between active-memory searches. Defaults to 1 (every turn). */
   turnInterval?: number
+  /**
+   * Which lanes run on an eligible turn. `both` runs the vector and graph
+   * legs every turn; `graph-first` runs the local graph leg first and spends
+   * the vector leg's embedding call only when the graph leg returns nothing.
+   * Defaults to `both`, which preserves the historical behavior.
+   */
+  escalation?: EscalationMode
   /**
    * Scope-identity namespace the graph leg reads, which must match the profile
    * the scope's graph was extracted under — a mismatch reads an empty graph and
@@ -76,6 +89,7 @@ export const Config: z<Config> = z.object({
   topK: z.number().step(1).min(1).default(5),
   relevanceThreshold: z.number().min(0).max(1).default(0.7),
   turnInterval: z.number().step(1).min(1).default(1),
+  escalation: z.union([...ESCALATION_MODES]).default('both'),
   // `EvolutionScopeId` builds `<profile>:<workspace>`, so a profile that is
   // empty or holds ':' can never name a scope. Refuse it at load: accepted at
   // load, it would instead empty the graph leg every turn.
@@ -90,6 +104,7 @@ export interface ResolvedConfig {
   topK: number
   relevanceThreshold: number
   turnInterval: number
+  escalation: EscalationMode
   profile: string
   graphDepth: number
   graphLimit: number
@@ -107,6 +122,7 @@ export function resolveConfig(config: Config): ResolvedConfig {
     topK: config.topK ?? 5,
     relevanceThreshold: config.relevanceThreshold ?? 0.7,
     turnInterval: config.turnInterval ?? 1,
+    escalation: config.escalation ?? 'both',
     profile: config.profile ?? 'default',
     graphDepth: config.graphDepth ?? 1,
     graphLimit: config.graphLimit ?? 5,
@@ -212,7 +228,7 @@ function otherSessionIds(ids: readonly SessionId[], self: SessionId): SessionId[
  * @param config - byte cap, result bounds, and search cadence.
  */
 export function apply(ctx: Context, config: Config): void {
-  const { maxBytes, topK, relevanceThreshold, turnInterval, profile, graphDepth, graphLimit } = resolveConfig(config)
+  const { maxBytes, topK, relevanceThreshold, turnInterval, escalation, profile, graphDepth, graphLimit } = resolveConfig(config)
   const workspaceBySession = new Map<string, WorkspaceId | null>()
   const turnsBySession = new Map<string, number>()
   const searchedForTurn = new Map<string, number>()
@@ -393,8 +409,20 @@ export function apply(ctx: Context, config: Config): void {
     const query = input.messages.map(textOf).join('\n').trim()
     if (query.length === 0) return decision
     searchedForTurn.set(key, turn)
-    const vectorHits = await search(input.agent.session, query, input.signal)
-    const graphHits = await searchGraph(input.agent.session, query)
+    // The graph leg is local lookups plus text searches — no embedding call —
+    // so `graph-first` spends it before the vector leg and skips the vector
+    // leg when the graph already connected the turn to a session. A missing,
+    // inapplicable, or empty graph leg returns nothing and the vector leg runs
+    // exactly as it would have without escalation.
+    let vectorHits: readonly SemanticSessionSearchHit[] = []
+    let graphHits: readonly SessionSearchHit[] = []
+    if (escalation === 'graph-first') {
+      graphHits = await searchGraph(input.agent.session, query)
+      if (graphHits.length === 0) vectorHits = await search(input.agent.session, query, input.signal)
+    } else {
+      vectorHits = await search(input.agent.session, query, input.signal)
+      graphHits = await searchGraph(input.agent.session, query)
+    }
     // Both legs rank the same corpus, so the fusion is what makes a session
     // both channels agree on outrank one only a single channel found.
     const fused = fuseSessionRankings(vectorHits, graphHits)

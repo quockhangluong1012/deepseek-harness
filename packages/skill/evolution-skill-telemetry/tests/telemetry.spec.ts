@@ -7,7 +7,7 @@ import ToolRuntime, { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
 import Storage from '@deepseek-ai/dsh-storage'
 import { DomainFacility } from '@deepseek-ai/dsh-storage-domain'
 import { MemoryMediaPool, MemoryStorageBackend } from '../../../storage/storage-domain/tests/helpers/memory-backend.ts'
-import EvolutionSkillTelemetry, { isExcludedSkillSource, resolveConfig, skillCreationEvidence } from '../src/index.ts'
+import EvolutionSkillTelemetry, { isExcludedSkillSource, resolveConfig, skillCreationEvidence, skillProposalMergeKey } from '../src/index.ts'
 
 interface FakeSkill {
   name: string
@@ -453,6 +453,21 @@ describe('skill creation evidence', () => {
       { path: 'a.md', count: 3 },
       { path: 'c.md', count: 3 },
     ])
+  })
+})
+
+describe('skill proposal merge key', () => {
+  it('keys the same outputs identically regardless of order', () => {
+    expect(skillProposalMergeKey(['b.md', 'a.md'])).toBe(skillProposalMergeKey(['a.md', 'b.md']))
+    expect(skillProposalMergeKey(['a.md'])).not.toBe(skillProposalMergeKey(['b.md']))
+  })
+
+  it('normalizes paths the way the evidence counter groups them', () => {
+    expect(skillProposalMergeKey(['out\\Report.md'])).toBe(skillProposalMergeKey(['OUT/report.md/']))
+  })
+
+  it('refuses an empty path list loudly', () => {
+    expect(() => skillProposalMergeKey([])).toThrow('at least one path')
   })
 })
 

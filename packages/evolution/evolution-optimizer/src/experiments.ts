@@ -42,6 +42,9 @@ export const experimentRecordSchema = z.object({
   provider: z.string(),
   model: z.string(),
   bodySha: z.string(),
+  scorerVersion: z.number().int().nonnegative(),
+  addedLines: z.number().int().nonnegative(),
+  removedLines: z.number().int().nonnegative(),
   winnerSha: z.string().nullable(),
   winnerOperator: z.string().nullable(),
 })
@@ -79,6 +82,7 @@ export function experimentKey(parts: {
   bodySha: string
   provider: string
   model: string
+  scorerVersion: number
 }): string {
   return JSON.stringify([
     parts.skill,
@@ -88,6 +92,7 @@ export function experimentKey(parts: {
     parts.bodySha,
     parts.provider,
     parts.model,
+    parts.scorerVersion,
   ])
 }
 

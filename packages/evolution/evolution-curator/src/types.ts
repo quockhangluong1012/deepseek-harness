@@ -59,6 +59,28 @@ export interface CuratorReport {
   consolidation?: ConsolidationReport | undefined
   /** Skills this pass staged for review, worst failure rate first. */
   staged: StagedCandidate[]
+  /** Failures still open after this pass, worst first: the regression debt. */
+  regressionDebt: RegressionDebt[]
+}
+
+/** One failure a skill has not answered: open regression debt. */
+export interface RegressionDebt {
+  /** Skill carrying the failure. */
+  name: string
+  /** Tool-and-message identity the failure merges under. */
+  mergeKey: string
+  /** Failing result text, as last observed. */
+  message: string
+  /** ISO-8601 instant of the pass that opened the debt. */
+  firstSeenAt: string
+  /** ISO-8601 instant of the most recent pass that still saw it. */
+  lastSeenAt: string
+  /** Consecutive passes that saw the failure open, starting at 1. */
+  passes: number
+  /** Distinct sessions reporting the failure at the last sighting. */
+  sessions: number
+  /** Skill body revision the debt was opened against; a newer revision closes it. */
+  revision: number
 }
 
 /** Clock override for rollback calls. */

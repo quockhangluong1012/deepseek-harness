@@ -57,6 +57,13 @@ export interface Config {
   /** Turns between active-memory searches. Defaults to 1 (every turn). */
   turnInterval?: number
   /**
+   * Which lanes run on an eligible turn. `both` runs the vector and graph
+   * legs every turn; `graph-first` runs the local graph leg first and spends
+   * the vector leg's embedding call only when the graph leg returns nothing.
+   * Defaults to `both`, which preserves the historical behavior.
+   */
+  escalation?: EscalationMode
+  /**
    * Scope-identity namespace the graph leg reads, which must match the profile
    * the scope's graph was extracted under — a mismatch reads an empty graph and
    * silently degrades to the vector leg. Defaults to 'default'.
@@ -72,9 +79,12 @@ export interface Config {
    */
   graphLimit?: number
 }
+
+/** Which retrieval lanes run before the vector leg spends an embedding call. */
+export type EscalationMode = typeof ESCALATION_MODES[number]
 ```
 
-Source: [`packages/context/active-memory-context/src/index.ts:41`](../packages/context/active-memory-context/src/index.ts)
+Source: [`packages/context/active-memory-context/src/index.ts:47`](../packages/context/active-memory-context/src/index.ts)
 
 <a id="deepseek-aidsh-agent-default-model"></a>
 
@@ -131,6 +141,116 @@ export interface Config {
 ```
 
 Source: [`packages/context/agent-instructions/src/config.ts:19`](../packages/context/agent-instructions/src/config.ts)
+
+<a id="deepseek-aidsh-agent-kernel"></a>
+
+## `@deepseek-ai/dsh-agent-kernel`
+
+```ts config-catalog
+/**
+ * Plugin configuration. Every field is optional and `Config` supplies the
+ * fail-closed defaults: a kernel mounted with no configuration runs in shadow
+ * mode under an `ask` default policy with no ceilings, so it records every
+ * decision and changes nothing.
+ */
+export interface Config {
+  /** Whether composed decisions are acted on (`enforce`) or only recorded (`shadow`). */
+  mode?: 'shadow' | 'enforce'
+  /** Agent profile name recorded on every task contract created here. */
+  agentProfile?: string
+  /** Policy profile name recorded on every task contract created here. */
+  policyProfile?: string
+  /** Ceilings every task contract created here starts with. */
+  budgets?: ResourceBudget
+  /**
+   * Criteria every task contract created here starts with. A task completed
+   * through the turn-stopping hook must satisfy them; without any, the kernel
+   * records no verification and claims no completion.
+   */
+  acceptance?: AcceptanceCriterion[]
+  /** The permission document every action is evaluated against. */
+  policy?: PolicyDocument
+  /** Whether a task with no acceptance criterion may be reported complete. */
+  requireAcceptanceCriteria?: boolean
+  /** Whether a task whose only passing evidence is human-reported may complete. */
+  allowHumanOnlyCompletion?: boolean
+  /** Retry cap per action before the recovery engine reports no attempts remaining. */
+  maxAttemptsPerAction?: number
+  /** Whether a retry must be preceded by a checkpoint. */
+  checkpointBeforeRetry?: boolean
+}
+
+/** Ceilings one task may spend. An absent field is unbounded. */
+export interface ResourceBudget {
+  /** Model steps the task may take. */
+  readonly maxSteps?: number
+  /** Tool calls the task may dispatch. */
+  readonly maxToolCalls?: number
+  /** Measured request tokens the task may consume. */
+  readonly maxTokens?: number
+  /** Wall-clock milliseconds the task may run. */
+  readonly maxWallMs?: number
+  /** Priced cost in USD the task may spend. */
+  readonly maxCostUsd?: number
+  /** Delegation depth the task may reach. */
+  readonly maxSubagentDepth?: number
+}
+
+/** One criterion a completion decision must satisfy. */
+export interface AcceptanceCriterion {
+  /** Stable identity within the task contract. */
+  readonly id: string
+  /** Non-empty statement of what must hold. */
+  readonly description: string
+  /** Which verifier family can evaluate the criterion. */
+  readonly verifier: 'test' | 'build' | 'diff' | 'assertion' | 'human' | 'research'
+  /** Whether a failed or unknown result blocks completion. */
+  readonly required: boolean
+}
+
+/**
+ * A deployment's complete permission document. The rule list is a mutable
+ * array because it is also the `Config.policy` field's shape, which the
+ * configuration schema produces; nothing in this package mutates it.
+ */
+export interface PolicyDocument {
+  /** Decision for an action no rule matches. */
+  readonly defaults: {
+    /** Effect applied when no rule matches an action. */
+    readonly effect: PolicyEffect
+  }
+  /** Rules in declaration order; the last match wins. */
+  rules: PolicyRule[]
+}
+
+/** What a policy rule or default decides. */
+export type PolicyEffect = 'allow' | 'ask' | 'deny'
+
+/** One permission rule. The last matching rule wins. */
+export interface PolicyRule {
+  /** Action family the rule selects. */
+  readonly action: PolicyAction
+  /** Resource glob the rule selects; `**` matches any run of characters. */
+  readonly resource: string
+  /** Decision the rule makes for a matching action. */
+  readonly effect: PolicyEffect
+}
+
+/** The action families a permission rule selects. */
+export type PolicyAction =
+  | 'read'
+  | 'write'
+  | 'edit'
+  | 'shell'
+  | 'network'
+  | 'mcp'
+  | 'delegate'
+  | 'workflow'
+  | 'memory'
+  | 'policy'
+```
+
+Source: [`packages/runtime/agent-kernel/src/index.ts:78`](../packages/runtime/agent-kernel/src/index.ts)
 
 <a id="deepseek-aidsh-agent-loop"></a>
 
@@ -799,7 +919,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/evolution/evolution-curator/src/index.ts:117`](../packages/evolution/evolution-curator/src/index.ts)
+Source: [`packages/evolution/evolution-curator/src/index.ts:134`](../packages/evolution/evolution-curator/src/index.ts)
 
 <a id="deepseek-aidsh-evolution-dreaming"></a>
 
@@ -853,7 +973,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/evolution/evolution-feedback/src/index.ts:41`](../packages/evolution/evolution-feedback/src/index.ts)
+Source: [`packages/evolution/evolution-feedback/src/index.ts:44`](../packages/evolution/evolution-feedback/src/index.ts)
 
 <a id="deepseek-aidsh-evolution-graph"></a>
 
@@ -959,7 +1079,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/evolution/evolution-memory/src/index.ts:161`](../packages/evolution/evolution-memory/src/index.ts)
+Source: [`packages/evolution/evolution-memory/src/index.ts:166`](../packages/evolution/evolution-memory/src/index.ts)
 
 <a id="deepseek-aidsh-evolution-memory-context"></a>
 
@@ -1078,7 +1198,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/evolution/evolution-optimizer/src/index.ts:90`](../packages/evolution/evolution-optimizer/src/index.ts)
+Source: [`packages/evolution/evolution-optimizer/src/index.ts:95`](../packages/evolution/evolution-optimizer/src/index.ts)
 
 <a id="deepseek-aidsh-evolution-reviewer"></a>
 
@@ -1156,7 +1276,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/evolution/evolution-scorer/src/index.ts:51`](../packages/evolution/evolution-scorer/src/index.ts)
+Source: [`packages/evolution/evolution-scorer/src/index.ts:83`](../packages/evolution/evolution-scorer/src/index.ts)
 
 <a id="deepseek-aidsh-evolution-skill-manage"></a>
 
@@ -1190,7 +1310,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/skill/evolution-skill-telemetry/src/index.ts:85`](../packages/skill/evolution-skill-telemetry/src/index.ts)
+Source: [`packages/skill/evolution-skill-telemetry/src/index.ts:110`](../packages/skill/evolution-skill-telemetry/src/index.ts)
 
 <a id="deepseek-aidsh-evolution-trajectory"></a>
 
@@ -2885,7 +3005,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/skill/skill/src/index.ts:307`](../packages/skill/skill/src/index.ts)
+Source: [`packages/skill/skill/src/index.ts:309`](../packages/skill/skill/src/index.ts)
 
 <a id="deepseek-aidsh-skill-filesystem"></a>
 

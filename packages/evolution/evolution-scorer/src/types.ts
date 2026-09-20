@@ -7,6 +7,9 @@
 
 import type { WorkspaceSnapshotEntry } from '@deepseek-ai/dsh-session-snapshot'
 import type { AgentUnderTest, InputScript, RunOptions, RunResult } from '@deepseek-ai/dsh-session-snapshot'
+import type { SkillRankSignal, SkillRankVectors } from '@deepseek-ai/dsh-skill'
+
+export type { SkillRankSignal, SkillRankVectors }
 
 /** How one workspace path differs from its expected state. */
 export interface WorkspaceChange {
@@ -134,4 +137,150 @@ export interface SkillScore {
 /** Result of evaluating one skill. */
 export type SkillEvaluation =
   | { status: 'evaluated'; score: SkillScore }
+  | { status: 'skipped'; skill: string; reason: string }
+
+/** One skill revision under behavior evaluation. */
+export interface BehaviorRevision {
+  /** Skill name the body must keep in its frontmatter. */
+  readonly name: string
+  /** Complete replacement SKILL.md body, frontmatter included. */
+  readonly body: string
+}
+
+/** One routing-catalog entry: the candidate among its distractors. */
+export interface BehaviorCatalogSkill {
+  /** Skill name for rank lookup. */
+  readonly name: string
+  /** Routing text: name, description, and when-to-use joined by the caller. */
+  readonly text: string
+  /** Content key; bumps on every revision so a report never mixes revisions. */
+  readonly revisionKey: string
+  /** Downstream utility evidence; omission ranks on lexical fit alone. */
+  readonly signal?: SkillRankSignal | undefined
+  /** Prerequisite skill names from frontmatter `requires`; omission declares none. */
+  readonly requires?: readonly string[] | undefined
+}
+
+/** Behavior evaluation request: two replay compositions plus routing queries. */
+export interface BehaviorEvalRequest {
+  /** Replay composition running the baseline revision. */
+  readonly baseline: EvaluateSkillRequest
+  /** Replay composition running the candidate revision. */
+  readonly candidate: EvaluateSkillRequest
+  /** Candidate revision the contract gate reads. */
+  readonly candidateBody: BehaviorRevision
+  /** Routing catalog holding the candidate among distractors. */
+  readonly catalog: readonly BehaviorCatalogSkill[]
+  /** Trigger queries that must route to the candidate. */
+  readonly positiveQueries: readonly string[]
+  /** Trigger queries that must not route to the candidate. */
+  readonly negativeQueries: readonly string[]
+  /** Routing window for both query sets; 1 means top rank only. */
+  readonly routingTopK?: number | undefined
+  /** Embedding vectors for the routing selector; omission ranks without semantics. */
+  readonly vectors?: SkillRankVectors | undefined
+}
+
+/** One trigger query's routing verdict. */
+export interface BehaviorRoutingCheck {
+  /** The trigger query. */
+  readonly query: string
+  /** Whether the query must route to the candidate or avoid it. */
+  readonly expected: 'route' | 'avoid'
+  /** 1-based rank of the candidate. */
+  readonly rank: number
+  /** Whether the rank satisfies the expectation. */
+  readonly ok: boolean
+}
+
+/** Routing gate: the candidate must route on positives and avoid negatives. */
+export interface BehaviorRoutingGate {
+  /** Whether every check passed. */
+  readonly ok: boolean
+  /** Per-query verdicts in caller order. */
+  readonly checks: readonly BehaviorRoutingCheck[]
+  /** Catalog revisions the ranks were computed over, in catalog order. */
+  readonly revisions: readonly { readonly name: string; readonly revisionKey: string }[]
+}
+
+/** Contract gate: the candidate body must be committable. */
+export interface BehaviorContractGate {
+  /** Whether the body passed. */
+  readonly ok: boolean
+  /** Why the body cannot be committed, empty when it passed. */
+  readonly issues: readonly string[]
+}
+
+/** Evaluating channel in a behavior evaluation, cheapest first. */
+export type DisagreementChannel = 'contract' | 'routing' | 'replay'
+
+/** One channel's verdict on the candidate. */
+export interface ChannelVerdict {
+  /** Which channel judged. */
+  readonly channel: DisagreementChannel
+  /** Whether the channel approved the candidate. */
+  readonly ok: boolean
+}
+
+/**
+ * What the evaluating channels said about one candidate: the approving and
+ * dissenting channels in canonical order, and whether they speak with one
+ * voice. Unanimous covers both agreement to approve and agreement to
+ * reject — a split is the uncertainty signal, not the rejection itself.
+ */
+export interface EvaluatorDisagreement {
+  /** True when every reporting channel approved or every one dissented. */
+  readonly unanimous: boolean
+  /** Channels that approved, in canonical order. */
+  readonly approving: readonly DisagreementChannel[]
+  /** Channels that dissented, in canonical order. */
+  readonly dissenting: readonly DisagreementChannel[]
+}
+
+/** Replay gate: baseline-vs-candidate over the same scenarios. */
+export interface BehaviorReplayGate {
+  /** Whether the candidate regressed nothing the baseline proved. */
+  readonly ok: boolean
+  /** Baseline triple. */
+  readonly baseline: SkillScore
+  /** Candidate triple. */
+  readonly candidate: SkillScore
+  /** Scenarios the baseline passed that the candidate failed. */
+  readonly regressions: readonly string[]
+  /** Candidate minus baseline billed tokens, summed over scenario medians. */
+  readonly tokenDelta: number
+}
+
+/** Result of one behavior evaluation. */
+export type BehaviorEvaluation =
+  | {
+    /** Every gate ran; approval needs all three. */
+    status: 'evaluated'
+    /** Skill under test. */
+    skill: string
+    /** Frontmatter gate. */
+    contract: BehaviorContractGate
+    /** Trigger-query gate. */
+    routing: BehaviorRoutingGate
+    /** Baseline-vs-candidate replay gate. */
+    replay: BehaviorReplayGate
+    /** What the three channels said: unanimity or the dissenting channel. */
+    disagreement: EvaluatorDisagreement
+    /** True only when every gate passed: only replay evidence approves. */
+    approved: boolean
+  }
+  | {
+    /** A cheap gate failed, so the process-expensive replay never ran. */
+    status: 'gated'
+    /** Skill under test. */
+    skill: string
+    /** Frontmatter gate. */
+    contract: BehaviorContractGate
+    /** Trigger-query gate. */
+    routing: BehaviorRoutingGate
+    /** What the two cheap gates said; replay did not run. */
+    disagreement: EvaluatorDisagreement
+    /** Which cheap gate stopped the evaluation. */
+    reason: string
+  }
   | { status: 'skipped'; skill: string; reason: string }

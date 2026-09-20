@@ -122,7 +122,10 @@ function recordDeltas(record: EvolutionMemoryRecord | undefined): TimelineDelta[
     push('outputs', output.at, `${output.tool} ${output.path}`, output.sessionId)
   }
   for (const entry of record.staged) {
-    push('staged', entry.createdAt, `${entry.kind}:${entry.op} ${entry.gist}`, entry.originSessionId)
+    const gist = entry.blockedReason === null
+      ? `${entry.kind}:${entry.op} ${entry.gist}`
+      : `${entry.kind}:${entry.op} ${entry.gist} (blocked: ${entry.blockedReason})`
+    push('staged', entry.createdAt, gist, entry.originSessionId)
   }
   // ISO-8601 instants sort chronologically as text.
   return deltas.sort((left, right) => left.at.localeCompare(right.at))
@@ -141,6 +144,8 @@ function pendingOf(entry: StagedWrite): TimelinePending {
     gist: entry.gist,
     originSessionId: entry.originSessionId,
     createdAt: entry.createdAt,
+    blockedReason: entry.blockedReason,
+    neededEvidence: entry.neededEvidence,
   }
 }
 

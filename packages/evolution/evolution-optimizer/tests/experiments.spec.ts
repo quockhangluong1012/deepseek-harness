@@ -29,6 +29,9 @@ function row(id: string, at: string, scope = 'profile:ws', skill = 'writer'): Ex
     provider: 'deepseek',
     model: 'deepseek-chat',
     bodySha: 'sha',
+    scorerVersion: 1,
+    addedLines: 0,
+    removedLines: 0,
     winnerSha: null,
     winnerOperator: null,
   }
@@ -65,6 +68,7 @@ describe('experimentKey', () => {
       bodySha: 'sha',
       provider: 'deepseek',
       model: 'deepseek-chat',
+      scorerVersion: 1,
     }
     const same = experimentKey({ ...base, scenarios: ['s2', 's1'], portfolio: ['compress', 'rewrite'] })
     expect(same).toBe(experimentKey(base))
@@ -73,6 +77,7 @@ describe('experimentKey', () => {
     expect(experimentKey({ ...base, portfolio: ['rewrite'] })).not.toBe(same)
     expect(experimentKey({ ...base, bodySha: 'other' })).not.toBe(same)
     expect(experimentKey({ ...base, model: 'deepseek-reasoner' })).not.toBe(same)
+    expect(experimentKey({ ...base, scorerVersion: 2 })).not.toBe(same)
   })
 
   it('reads a key back off a recorded row', () => {
@@ -84,6 +89,7 @@ describe('experimentKey', () => {
       bodySha: 'sha',
       provider: 'deepseek',
       model: 'deepseek-chat',
+      scorerVersion: 1,
     }
     expect(experimentKey(row('a', '2026-09-15T10:00:00.000Z'))).toBe(experimentKey(parts))
   })
@@ -99,6 +105,7 @@ describe('repeatedExperiment', () => {
       bodySha: 'sha',
       provider: 'deepseek',
       model: 'deepseek-chat',
+      scorerVersion: 1,
     }
     const key = experimentKey(parts)
     const older = row('a', '2026-09-15T10:00:00.000Z')
@@ -113,6 +120,11 @@ describe('repeatedExperiment', () => {
     expect(hasResult(unevaluated)).toBe(false)
     expect(hasResult(row('b', '2026-09-15T10:00:00.000Z'))).toBe(true)
     expect(repeatedExperiment([unevaluated], experimentKey(unevaluated))).toBeUndefined()
+  })
+
+  it('does not match a run the scorer measured under an older version', () => {
+    const older = row('a', '2026-09-15T10:00:00.000Z')
+    expect(repeatedExperiment([older], experimentKey({ ...older, scorerVersion: 2 }))).toBeUndefined()
   })
 })
 

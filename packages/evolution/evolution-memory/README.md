@@ -81,7 +81,11 @@ Decisions fold in the order the extraction reported them, against the record rea
 
 A staged payload is a JSON value and is validated at the write boundary: a payload that cannot round-trip through JSON is refused loudly and nothing is stored.
 
-Both decisions append a resolution — entry id, kind, op, gist, decision, origin session, and instant — to the record's newest-first `resolutions` log, capped by `maxResolutions`. Resolutions stay out of capacity and out of the digest, so deciding a write never re-injects the brief.
+A staged entry is also a remembered candidate: it carries a nullable `mergeKey`, a `recurrence` count starting at 1, a nullable `blockedReason`, and a `neededEvidence` list. `stageWrite` accepts an optional `mergeKey`; re-staging the same key in the same scope while an entry is pending bumps its `recurrence` instead of appending a duplicate, so a repeatedly proposed candidate is remembered rather than silently retried. `blockStaged` marks a pending entry with a reason and the evidence that would unblock it, keeping it pending; approving or rejecting clears the block by removing the entry.
+
+Skill proposals additionally need a capture contract before approval: `capability`, `procedureRefs`, `validationRefs`, `validationSummary`, and `limitations`, with the validation refs independent of — disjoint from — the procedure refs. `approveStaged` on a skill entry without a valid contract keeps the entry staged with `blockedReason: 'capture-contract'` and the missing evidence in `neededEvidence`, and rejects with `evolution/staged-blocked`. `supplyStagedContract` attaches a fully valid contract to a pending skill proposal and lifts the block; the entry still needs an explicit approval. The reviewer stages skill proposals with a merge key derived from the produced paths, so repeated proposals bump recurrence while the admission evidence is still missing.
+
+Both decisions append a resolution — entry id, kind, op, gist, decision, origin session, instant, merge key, and recurrence — to the record's newest-first `resolutions` log, capped by `maxResolutions`. Resolutions stay out of capacity and out of the digest, so deciding a write never re-injects the brief.
 
 Each memory family stamps its own instant: `setInstructions` stamps `instructionsUpdatedAt`, the `addArtifact` / `updateArtifact` / `removeArtifact` / `replaceArtifacts` / `applyDecisions` family stamps `lessonsUpdatedAt`, and `setUserProfile` stamps `profileUpdatedAt`. A staged approval stamps only the family its op changed, so a lesson add, or a decision batch, that changed nothing stamps none. `appendEpisodic` stamps no family: an episodic note is unapproved consolidation input, not a curated document. `memoryUpdatedAt` remains for one release as the later of the lessons and profile stamps. Every accepted write stamps `updatedAt`.
 
@@ -114,6 +118,7 @@ One durable record per scope in storage domain `evolution_memory`, version `2`, 
 | File | Role |
 |---|---|
 | [`src/index.ts`](src/index.ts) | Plugin entry: `EvolutionMemoryStore` service, caps, write paths, staged approval, maintenance registration and sweep |
+| [`src/capture-contract.ts`](src/capture-contract.ts) | Skill admission gate: `CaptureContract` validation and its JSON materialization |
 | [`src/spec.ts`](src/spec.ts) | Domain declaration: record schema, legacy-document admission, and `defineDomain` spec |
 | [`src/types.ts`](src/types.ts) | Public record, context item, output, provenance, and staged-write types |
 | [`src/lesson-artifact.ts`](src/lesson-artifact.ts) | Artifact type and schema, statement identity, and admission of a legacy lessons document |

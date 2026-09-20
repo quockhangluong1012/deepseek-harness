@@ -154,6 +154,12 @@ export interface ExperimentRecord {
   model: string
   /** SHA-256 of the skill body the run started from. */
   bodySha: string
+  /** Scoring-semantics version the run measured under; rows stamped older are incomparable. */
+  scorerVersion: number
+  /** Lines the promoted body added over the starting body, zero when nothing was promoted. */
+  addedLines: number
+  /** Lines the promoted body removed from the starting body, zero when nothing was promoted. */
+  removedLines: number
   /** SHA-256 of the promoted body, absent when nothing was promoted. */
   winnerSha: string | null
   /** Operator that produced the promoted body, absent when nothing was promoted. */
@@ -194,6 +200,9 @@ export interface ExperimentDraft {
   provider: string
   /** Model id the mutation used. */
   model: string
+  /** Scoring-semantics version the mounted scorer measured under. */
+  scorerVersion: number
+
   /** Skill body the run started from. */
   body: string
   /** Attempts per scenario the run's triples were measured with. */

@@ -52,7 +52,7 @@ kind: "package-reference"
 | `/memory reject <id>` | 不应用而丢弃一条并报告 `Rejected staged write '<id>'.`。 |
 | `/memory <anything-else>` | `Usage: /memory pending \| approve <id> \| reject <id>`——文法固定。 |
 | `/skills`、`/skills pending` | 列出作用域的暂存技能条目，或给出指明提案来源的空状态。裸 `/skills` 报告同一列表。 |
-| `/skills approve <id>` | 丢弃技能写入已落地的暂存技能条目，并在批准时附带该提醒；不是暂存技能的 id 报告 `No staged skill '<id>'.`。 |
+| `/skills approve <id>` | 丢弃技能写入已落地的暂存技能条目，并在批准时附带该提醒；不是暂存技能的 id 报告 `No staged skill '<id>'.`。缺少有效捕获契约的提案保持暂存，并报告缺失的证据。 |
 | `/skills <anything-else>` | `Usage: /skills pending \| approve <id>`。 |
 | `/journey [today\|7d\|30d\|all]` | 渲染作用域时间线：窗口标题、每个活跃日一行、容量与摘要，以及暂存计数。裸 `/journey` 报告 `7d`。 |
 | `/journey <anything-else>` | `Usage: /journey [today \| 7d \| 30d \| all]`。 |
@@ -61,7 +61,7 @@ kind: "package-reference"
 | `/curator run --dry-run` | 同一通过只预览不写入；快照行显示 `Snapshot: none`。 |
 | `/curator staged` | 列出台账为复核而分选的技能，失败率最差在前，并附选择各项的证据与分选时刻。 |
 | `/curator optimize <skill> <scenario...>` | 在具名语料场景上运行一次离线优化，报告分选技能补丁 id 或未分选的原因。需要优化器已挂载且位于工作区作用域内。 |
-| `/curator experiments [skill]` | 按最新优先打印该作用域的优化台账——时间、技能、结果、产出候选的算子、分选 id 及其产出算子、置信度计数与原因——让第二次运行从已试过的东西出发。需要优化器已挂载且会话在某个工作区作用域内。 |
+| `/curator experiments [skill]` | 按最新优先打印该作用域的优化台账——时间、技能、结果、产出候选的算子、分选 id 及其产出算子、晋级行上的 `+added/-removed` 行数、置信度计数与原因——让第二次运行从已试过的东西出发。需要优化器已挂载且会话在某个工作区作用域内。 |
 | `/curator adopt <name>` | 把由模型写出的技能认领为用户主导，并报告 `Adopted '<name>' (state: <state>)`；无模型作者身份一律拒绝。 |
 | `/curator purge [--dry-run]` | 删除超过 TTL 的归档技能，并报告按目录或按记录的删除与因置顶而跳过者；`--dry-run` 只预览名单而不写入。 |
 | `/curator rollback --id <id>` | 回滚一次已记录的通过：先报告被恢复的生命周期状态，若 SKILL.md 正文由其前像恢复，再输出 `Restored bodies: <names>`。 |
@@ -93,6 +93,7 @@ kind: "package-reference"
 | 会话不在任何 workspace 内（作用域命令） | `This session is outside any workspace scope.` |
 | 经由 `/memory` 批准技能类条目 | `Staged skill '<id>' (<op>) is decided by '/skills approve <id>': write the skill with skill_manage first, then approve there to drop the entry.`——条目保持暂存。 |
 | 批准时触发上限或子串拒绝 | `Cannot approve '<id>' (<code>): <detail>. The entry stays staged.` |
+| 批准缺少准入证据的技能提案 | `Cannot approve '<id>' (evolution/staged-blocked): staged evolution write '<id>' is blocked: <needed evidence>. The entry stays staged.` |
 | 批准或拒绝未知 id | `No staged write '<id>'.` |
 | `/skills approve` 的 id 不是暂存技能 | `No staged skill '<id>'.` |
 | 未挂载评审器时 `/refine` | `The evolution reviewer is not mounted.` |

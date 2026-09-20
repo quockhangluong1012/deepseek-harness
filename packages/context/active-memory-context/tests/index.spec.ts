@@ -860,6 +860,70 @@ describe('active-memory-context injector', () => {
     expect(text).not.toContain('sibling-ava')
   })
 
+  it('skips the vector leg under graph-first escalation when the graph connects the turn', async () => {
+    const fake = fakeEmbeddings()
+    const { ctx, workspaces } = await harness({ maxBytes: 4096, escalation: 'graph-first' }, fake.service)
+    const session = await scopeWith(ctx, workspaces, [
+      { id: 'sibling-atlas', text: 'atlas launch slipped a week' },
+      { id: 'sibling-ava', text: 'ava owns the rollout' },
+    ])
+    ctx.provide('evolutionGraph', fakeGraph({ labels: ['Atlas'], neighbors: ['Ava'] }).service as never)
+
+    const decision = await preStep(ctx, fakeAgent(session), [textMessage('atlas')])
+    const text = briefText(briefsOf(decision.kind === 'enter' ? decision.messages : [])[0])
+
+    // The graph already connected the turn to both sessions, so the vector
+    // leg — and its query embedding call — never runs.
+    expect(fake.batches).toHaveLength(0)
+    expect(text).toContain('sibling-atlas')
+    expect(text).toContain('sibling-ava')
+    expect(text).toContain('via graph connections')
+  })
+
+  it('escalates to the vector leg under graph-first escalation when the graph finds nothing', async () => {
+    const fake = fakeEmbeddings()
+    const { ctx, workspaces } = await harness({ maxBytes: 4096, escalation: 'graph-first' }, fake.service)
+    const session = await scopeWith(ctx, workspaces, [{ id: 'sibling-needle', text: 'needle in the stack' }])
+    const graph = fakeGraph({ labels: ['Atlas'] })
+    ctx.provide('evolutionGraph', graph.service as never)
+
+    const decision = await preStep(ctx, fakeAgent(session), [textMessage('needle')])
+    const text = briefText(briefsOf(decision.kind === 'enter' ? decision.messages : [])[0])
+
+    expect(graph.calls.expand).toEqual([])
+    expect(fake.batches).toHaveLength(1)
+    expect(text).toContain('sibling-needle')
+    expect(text).not.toContain('via graph connections')
+  })
+
+  it('runs the vector leg under graph-first escalation when no graph is mounted', async () => {
+    const fake = fakeEmbeddings()
+    const { ctx, workspaces } = await harness({ maxBytes: 4096, escalation: 'graph-first' }, fake.service)
+    const session = await scopeWith(ctx, workspaces, [{ id: 'sibling-needle', text: 'needle in the stack' }])
+
+    const decision = await preStep(ctx, fakeAgent(session), [textMessage('needle')])
+    const text = briefText(briefsOf(decision.kind === 'enter' ? decision.messages : [])[0])
+
+    expect(fake.batches).toHaveLength(1)
+    expect(text).toContain('sibling-needle')
+  })
+
+  it('runs both legs by default even when the graph connects the turn', async () => {
+    const fake = fakeEmbeddings()
+    const { ctx, workspaces } = await harness({ maxBytes: 4096 }, fake.service)
+    const session = await scopeWith(ctx, workspaces, [
+      { id: 'sibling-atlas', text: 'atlas launch slipped a week' },
+      { id: 'sibling-ava', text: 'ava owns the rollout' },
+    ])
+    ctx.provide('evolutionGraph', fakeGraph({ labels: ['Atlas'], neighbors: ['Ava'] }).service as never)
+
+    await preStep(ctx, fakeAgent(session), [textMessage('atlas')])
+
+    // Default `both` preserves the historical behavior: the vector leg spends
+    // its embedding call regardless of what the graph leg found.
+    expect(fake.batches).toHaveLength(1)
+  })
+
   it('keeps searching the remaining graph labels when one label search fails', async () => {
     class SelectiveSessionQuery extends SqliteSessionQueryEngine {
       readonly failing = new Set<string>()
@@ -937,6 +1001,7 @@ describe('resolveConfig', () => {
       topK: 5,
       relevanceThreshold: 0.7,
       turnInterval: 1,
+      escalation: 'both',
       profile: 'default',
       graphDepth: 1,
       graphLimit: 5,
@@ -949,6 +1014,7 @@ describe('resolveConfig', () => {
       topK: 3,
       relevanceThreshold: 0.42,
       turnInterval: 4,
+      escalation: 'graph-first',
       profile: 'team',
       graphDepth: 2,
       graphLimit: 7,
@@ -957,6 +1023,7 @@ describe('resolveConfig', () => {
       topK: 3,
       relevanceThreshold: 0.42,
       turnInterval: 4,
+      escalation: 'graph-first',
       profile: 'team',
       graphDepth: 2,
       graphLimit: 7,

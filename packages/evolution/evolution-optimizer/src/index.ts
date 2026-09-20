@@ -36,6 +36,8 @@ import {
 } from './experiments.ts'
 import { noveltyOf } from './novelty.ts'
 import { failureSignature, operatorRecords, orderPortfolio } from './surface.ts'
+import { contaminatedHoldout } from './contamination.ts'
+import { diffLineCounts } from './lineage.ts'
 import type { MutationOperator } from './mutate.ts'
 import type {
   EvaluatedVariant,
@@ -60,6 +62,9 @@ export {
 } from './experiments.ts'
 export { noveltyOf } from './novelty.ts'
 export { failureSignature, operatorRecords, orderPortfolio } from './surface.ts'
+export { contaminatedHoldout } from './contamination.ts'
+export { diffLineCounts } from './lineage.ts'
+export type { LineChangeCounts } from './lineage.ts'
 export type { OperatorRecord } from './surface.ts'
 export type {
   EvaluatedVariant,
@@ -308,9 +313,9 @@ export class EvolutionOptimizer extends Service {
   /**
    * Optimize one skill and record the run: trigger-gate, mutate, screen,
    * score, check the holdout, confirm the winner, pick, stage.
-   * @param request - skill, scenarios, staging identity, and runner overrides.
    * @returns the run report; `staged` carries the staged entry id.
-   * @throws when the scenario lists overlap or repeat, a required seam
+   * @throws when the scenario lists overlap or repeat, a holdout scenario was
+   * already used for search for the skill, a required seam
    * (scorer, telemetry, memory, skills, llm) is missing, or the
    * provider/model route is missing.
    */
@@ -364,6 +369,8 @@ export class EvolutionOptimizer extends Service {
       provider: draft.provider,
       model: draft.model,
       bodySha: digestOf(draft.body),
+      scorerVersion: draft.scorerVersion,
+      ...diffLineCounts(draft.body, draft.winner?.body ?? draft.body),
       winnerSha: draft.winner === null ? null : digestOf(draft.winner.body),
       winnerOperator: draft.winner?.operator ?? null,
     }
@@ -476,6 +483,13 @@ export class EvolutionOptimizer extends Service {
     if (new Set(request.scenarios).size !== request.scenarios.length || new Set(holdout).size !== holdout.length) {
       throw new Error('evolution-optimizer: a scenario list repeats a name')
     }
+    const contaminated = contaminatedHoldout(
+      this.experiments(request.scopeId, { skill: request.skill, limit: this.resolved.maxExperiments }),
+      holdout,
+    )
+    if (contaminated.length > 0) {
+      throw new Error(`evolution-optimizer: holdout scenarios were already used for search for '${request.skill}': ${contaminated.join(', ')}`)
+    }
     let stagnant = false
     const report = (
       status: OptimizeReport['status'],
@@ -548,6 +562,7 @@ export class EvolutionOptimizer extends Service {
           bodySha: digestOf(body),
           provider,
           model,
+          scorerVersion: scorer.version,
         }),
       )
       if (repeated !== undefined) {
@@ -605,6 +620,7 @@ export class EvolutionOptimizer extends Service {
       scenarios: request.scenarios,
       provider,
       model,
+      scorerVersion: scorer.version,
       body,
       winner,
       samples,
@@ -703,7 +719,7 @@ export class EvolutionOptimizer extends Service {
     const floor = this.regressionFloor(
       request.scopeId,
       request.skill,
-      comparabilityKey({ scenarios: request.scenarios, provider, model, samples }),
+      comparabilityKey({ scenarios: request.scenarios, provider, model, samples, scorerVersion: scorer.version }),
     )
     if (floor !== null && dominates(floor.triple, winner.score)) {
       return {
@@ -712,7 +728,7 @@ export class EvolutionOptimizer extends Service {
           candidates,
           truncated,
           below: floor,
-          reason: `the winner for '${request.skill}' is dominated by the approved result from ${floor.at} (${floor.stagedId}) measured on the same scenarios`,
+          reason: `the winner for '${request.skill}' is dominated by the approved result from ${floor.at} (${floor.stagedId}) measured under the same conditions`,
         }),
         draft: draft(winner),
       }
@@ -842,10 +858,11 @@ function samplesOf(score: SkillScore): number {
 }
 
 /**
- * Comparability key for one measured triple: its scenarios, route, and attempt
- * count. Two triples with different keys were not measured under the same
- * conditions, so a regression guard must not compare them.
- * @param measured - scenarios, route, and attempt count of one measurement.
+ * Comparability key for one measured triple: its scenarios, route, attempt
+ * count, and scoring-semantics version. Two triples with different keys were
+ * not measured under the same conditions, so a regression guard must not
+ * compare them.
+ * @param measured - scenarios, route, attempt count, and scorer version of one measurement.
  * @returns the key.
  */
 function comparabilityKey(measured: {
@@ -853,8 +870,9 @@ function comparabilityKey(measured: {
   provider: string
   model: string
   samples: number
+  scorerVersion: number
 }): string {
-  return JSON.stringify([[...measured.scenarios].sort(), measured.provider, measured.model, measured.samples])
+  return JSON.stringify([[...measured.scenarios].sort(), measured.provider, measured.model, measured.samples, measured.scorerVersion])
 }
 
 /**

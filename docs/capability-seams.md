@@ -7,6 +7,8 @@ A service can be a core spine service, a swappable capability seam, or a bundle/
 
 ```mermaid
 flowchart LR
+  pkg_agent_kernel["agent-kernel"]
+  svc_agentKernel["ctx.agentKernel<br/>Task contract, action ledger, and completion gate"]
   pkg_attachment["attachment"]
   svc_attachments["ctx.attachments<br/>Durable binary attachment storage"]
   pkg_attachment_local["attachment-local"]
@@ -271,6 +273,7 @@ flowchart LR
   svc_cordisInspect["ctx.cordisInspect<br/>Dynamic Cordis inspect registry"]
   pkg_agent --> svc_agents
   pkg_agent_default_model --> svc_agentDefaultModel
+  pkg_agent_kernel --> svc_agentKernel
   pkg_agent_loop --> svc_agentLoop
   pkg_agent_presets --> svc_agentPresets
   pkg_api_gateway --> svc_typertGateway
@@ -555,6 +558,7 @@ flowchart LR
 
 | ctx key | Role | Owner | Implementations | Direct consumers | Companion plugins | Note |
 | --- | --- | --- | --- | --- | --- | --- |
+| `ctx.agentKernel` | `core` | [`agent-kernel`](../packages/runtime/agent-kernel) | - | - | - | Observes the loop and tool waterfalls without owning execution; the session log is its only store, and it composes the sandbox and approval decisions it does not make. |
 | `ctx.attachments` | `seam` | [`attachment`](../packages/attachment/attachment) | [`attachment-local`](../packages/attachment/attachment-local) | [`api-session-controller`](../packages/api/session-controller), [`tool-fs`](../packages/fs/tool-fs), [`llm-pi-ai`](../packages/llm/llm-pi-ai), [`llm-deepseek`](../packages/llm/llm-deepseek) | - | The host commits accepted images before session events; provider adapters resolve authorized durable references into provider-native content. |
 | `ctx.fileUploads` | `core` | [`client-file-upload`](../packages/client/file-upload) | - | [`api-session-controller`](../packages/api/session-controller) | - | Owns streaming intake, durable storage, and staged receipt lifetime; the Session controller binds receipts to accepted submissions. |
 | `ctx.embeddings` | `seam` | [`embeddings`](../packages/llm/embeddings) | [`embeddings-http`](../packages/llm/embeddings-http) | - | - | Providers register embedding routes; a batch resolves its route and model, serves what the content-hash cache holds, and asks the provider for the rest. No in-repo consumer injects it yet. |

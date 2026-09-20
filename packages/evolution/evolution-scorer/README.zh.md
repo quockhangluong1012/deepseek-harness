@@ -48,6 +48,10 @@ if (outcome.status === 'scored') console.log(outcome.score.pass, outcome.score.t
 
 `shouldOptimize(usage, thresholds)` 是纯触发器，决定一个技能的已记录结果是否值得运行一次优化：至少 `triggerMinUses` 次加载且失败占比超过 `triggerFailureRate`，其中占比为 `failureCount / (useCount + failureCount)`——正是遥测记录所记录的公式。`evaluateSkill({ skill, scenarios, agent, run })` 经由已有的 `score` 为每个具名场景评分，并聚合成优化器三元组：仅当每个场景都通过时 `pass` 才成立，token 与耗时取各场景中位数之和。一个场景被跳过则整个评估随之跳过并附上理由，因为基于不完整的评估做优化等于在不存在的证据上做选择；未指名任何场景的技能同样跳过。
 
+### 行为评估
+
+`evaluateBehavior({ baseline, candidate, candidateBody, catalog, positiveQueries, negativeQueries, routingTopK?, vectors? })` 用三道门（按从廉价到昂贵的顺序）评判一个技能修订。契约门（`checkBehaviorContract`）拒绝会破坏技能 frontmatter 的正文，复用技能管理器在编辑时强制执行的同一不变式。路由门（`checkBehaviorRouting`）把肯定与否定触发查询送入真实的选择器：每个肯定查询必须把候选排进 `routingTopK`（默认 3），每个否定查询必须把它挡在外面；所用的目录为每个条目携带修订键，因此一份报告永不混入不同修订。目录条目还可携带 frontmatter `requires`：前置在目录之外缺席的候选在同一选择器中得零分、挂掉每个肯定查询，因为路由到它根本不可能工作。廉价门一旦失败，评估即以 `status: 'gated'` 停止，不再启动任何全新进程。否则两个回放组合在相同场景上运行，回放门（`compareBehaviorReplay`）仅当候选没有退化基线已证明的任何场景时才批准——双方都失败的场景上的持平不是退化，因为门只判断「没有更差」，而「更好」由选择来判断。只有三道门全过，`approved` 才为真：唯有回放证据才能批准。
+
 ```yaml
 - name: '@deepseek-ai/dsh-evolution-scorer'
   config:
@@ -86,6 +90,10 @@ Web 组合里带有本行，但[默认关闭](../../bundle/web-app/cordis.patch.
 
 语料中不存在的场景目录、缺少录制会话夹具的场景、以及缺少 `input.json` 的场景，都报告带原因的 `{ status: 'skipped' }`，且不运行任何东西。只有不存在的 `corpusDir` 才大声失败：那是配置错误，而不是被豁免的录制阶段从未产出的场景。
 
+### 评分语义版本
+
+`SCORER_VERSION` 为三元组的含义命名。`EvolutionScorer.version` 携带它，优化器把它盖在每个实验行上，因此评分一变，旧下限与重复匹配即退役，不再跨版本比较。凡是改变「什么算通过、什么算计费、或中位数如何归约」的改动，都要同步提升该常量——台账把提升视为换了一个评估器，旧行仍可读，但不可比。
+
 ### 源码导览
 
 | 文件 | 职责 |
@@ -97,6 +105,7 @@ Web 组合里带有本行，但[默认关闭](../../bundle/web-app/cordis.patch.
 | [`src/sessions.ts`](src/sessions.ts) | 对采集到的会话日志做 token 计量 |
 | [`src/statistics.ts`](src/statistics.ts) | 对每次尝试的样本取中位数 |
 | [`src/runner.ts`](src/runner.ts) | 组合传入的进程级运行器 |
+| [`src/behavior.ts`](src/behavior.ts) | 行为门：契约检查、触发查询路由与回放比较 |
 | [`src/types.ts`](src/types.ts) | 公共请求、计划、尝试与记录类型 |
 
 不发布 invariant 伴生包：评分器不持有持久状态，不存在第二个可供核对的独立观测。
@@ -136,7 +145,7 @@ Web 组合里带有本行，但[默认关闭](../../bundle/web-app/cordis.patch.
 - **仅 ACP 运行器**——随包提供的运行器是快照 harness 的 ACP 层，因此以别的方式驱动的语料（headless 的 `snapshots/session` 套件）需要各自的运行器。
 - **单机中位数**——挂钟时间是评分主机上的单进程挂钟，而非 CPU 预算；性能门禁由 `benchmarks/` 负责。
 - **整轮 token**——token 数值累加每条采集到的会话，因此嵌套运行会在承载它的每个会话上重复计入上下文。
-- **无 Pareto 与扇出**——成对变体排序与 GEPA 扇出仍按规范延期。
+- **无 Pareto 与扇出**——GEPA 扇出仍按规范延期；同一场景上的基线对候选成对回放正是 `evaluateBehavior` 所比较的。
 
 <a id="dev-note"></a>
 ### 开发备注

@@ -19,10 +19,32 @@ import type { RunOptions } from '@deepseek-ai/dsh-session-snapshot'
 import { measureRunTokens } from './sessions.ts'
 import { loadScenarioPlan } from './scenario.ts'
 import { scoreRun } from './score.ts'
-import type { EvaluateSkillRequest, ScoreAttempt, ScoreOutcome, ScoreRecord, ScoreRequest, SkillEvaluation } from './types.ts'
+import { checkBehaviorContract, checkBehaviorRouting, compareBehaviorReplay } from './behavior.ts'
+import { evaluatorDisagreement } from './disagreement.ts'
+import type {
+  BehaviorEvalRequest,
+  BehaviorEvaluation,
+  EvaluateSkillRequest,
+  ScoreAttempt,
+  ScoreOutcome,
+  ScoreRecord,
+  ScoreRequest,
+  SkillEvaluation,
+} from './types.ts'
 
 export type {
+  BehaviorCatalogSkill,
+  BehaviorContractGate,
+  BehaviorEvalRequest,
+  BehaviorEvaluation,
+  BehaviorReplayGate,
+  BehaviorRevision,
+  BehaviorRoutingCheck,
+  BehaviorRoutingGate,
+  ChannelVerdict,
+  DisagreementChannel,
   EvaluateSkillRequest,
+  EvaluatorDisagreement,
   ScoreAttempt,
   ScoreInput,
   ScoreOutcome,
@@ -43,6 +65,16 @@ export { measureRunTokens } from './sessions.ts'
 export { medianOf } from './statistics.ts'
 export { diffWorkspace } from './workspace.ts'
 export { shouldOptimize } from './trigger.ts'
+export { checkBehaviorContract, checkBehaviorRouting, compareBehaviorReplay } from './behavior.ts'
+export { evaluatorDisagreement } from './disagreement.ts'
+
+/**
+ * Scoring-semantics version the optimizer stamps on every experiment row. Bump
+ * when scoring changes what a triple means; rows stamped with an older version
+ * were not measured under the same evaluator, so the ledger treats them as
+ * incomparable rather than as history.
+ */
+export const SCORER_VERSION = 1
 
 /**
  * Corpus location and attempt count are deployment choices: which corpus a
@@ -107,6 +139,13 @@ declare module '@deepseek-ai/cordis' {
  */
 export class EvolutionScorer extends Service {
   static inject = ['tokenMeter']
+
+  /**
+   * Scoring-semantics version this instance measures under. The optimizer reads
+   * it per run, so a mounted scorer that measures differently stamps its own
+   * version instead of inheriting this package's.
+   */
+  readonly version: number = SCORER_VERSION
 
   private readonly resolved: ResolvedConfig
 
@@ -197,6 +236,62 @@ export class EvolutionScorer extends Service {
         wallTimeMs: scores.reduce((sum, record) => sum + record.wallTimeMs, 0),
         scores,
       },
+    }
+  }
+
+  /**
+   * Evaluate one skill revision through the three behavior gates: the
+   * frontmatter contract check, positive/negative trigger-query routing
+   * through the real selector, and a baseline-vs-candidate replay over the
+   * same scenarios. The cheap gates run first, so a candidate that cannot be
+   * committed or routes where it must not never spends fresh processes; only
+   * replay evidence approves. A skipped replay composition skips the whole
+   * evaluation with its reason attached.
+    * @param request - baseline and candidate replay compositions, the candidate
+    * body, the routing catalog and queries, and the routing window.
+    * @returns the gate verdicts with channel disagreement and approval, the gating reason, or the skip.
+   */
+  async evaluateBehavior(request: BehaviorEvalRequest): Promise<BehaviorEvaluation> {
+    const skill = request.candidate.skill
+    const contract = checkBehaviorContract(request.candidateBody.name, request.candidateBody.body)
+    const routing = checkBehaviorRouting(
+      request.candidateBody.name,
+      request.catalog,
+      request.positiveQueries,
+      request.negativeQueries,
+      request.routingTopK ?? 3,
+      request.vectors,
+    )
+    if (!contract.ok || !routing.ok) {
+      return {
+        status: 'gated',
+        skill,
+        contract,
+        routing,
+        disagreement: evaluatorDisagreement([
+          { channel: 'contract', ok: contract.ok },
+          { channel: 'routing', ok: routing.ok },
+        ]),
+        reason: !contract.ok ? `contract gate failed: ${contract.issues.join('; ')}` : 'routing gate failed',
+      }
+    }
+    const baseline = await this.evaluateSkill(request.baseline)
+    if (baseline.status === 'skipped') return { status: 'skipped', skill, reason: baseline.reason }
+    const candidate = await this.evaluateSkill(request.candidate)
+    if (candidate.status === 'skipped') return { status: 'skipped', skill, reason: candidate.reason }
+    const replay = compareBehaviorReplay(baseline.score, candidate.score)
+    return {
+      status: 'evaluated',
+      skill,
+      contract,
+      routing,
+      replay,
+      disagreement: evaluatorDisagreement([
+        { channel: 'contract', ok: contract.ok },
+        { channel: 'routing', ok: routing.ok },
+        { channel: 'replay', ok: replay.ok },
+      ]),
+      approved: replay.ok,
     }
   }
 }

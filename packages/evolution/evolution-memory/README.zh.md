@@ -81,7 +81,11 @@ kind: "package-reference"
 
 暂存载荷是一个 JSON 值，并在写入边界处校验：无法无损往返 JSON 的载荷会被大声拒绝，且不存储任何内容。
 
-两种决策都会把一条决策记录——条目 id、kind、op、gist、决策、来源会话与时刻——追加到记录的 `resolutions` 日志（最新优先，受 `maxResolutions` 限制）。决策记录既不计入容量，也不进入摘要，因此决定一次写入永不重新注入简报。
+暂存条目同时也是被记住的候选：它携带可空的 `mergeKey`、从 1 开始的 `recurrence` 计数、可空的 `blockedReason`，以及 `neededEvidence` 列表。`stageWrite` 接受可选的 `mergeKey`；在同一 scope 内，若已有待定条目携带相同的键，再次暂存会把该条目的 `recurrence` 加一，而不是追加重复条目，因此被反复提出的候选会被记住，而不是被悄悄重试。`blockStaged` 给待定条目标记原因与可将其解禁的证据，条目保持待定；审批或拒绝会通过移除条目来清除阻塞标记。
+
+技能提案在审批前还需要一份捕获契约（capture contract）：`capability`、`procedureRefs`、`validationRefs`、`validationSummary` 与 `limitations`，且验证引用必须独立于程序引用——二者不相交。没有有效契约的技能条目调用 `approveStaged` 时，条目会留在暂存，其 `blockedReason` 为 `'capture-contract'`、`neededEvidence` 列出缺失的证据，并以 `evolution/staged-blocked` 拒绝。`supplyStagedContract` 给待定的技能提案附加一份完全有效的契约并解除阻塞；条目仍需一次显式审批。评审器用产出路径派生的合并键暂存技能提案，因此在准入证据尚未补齐时，重复提案只会推高重复计数。
+
+两种决策都会把一条决策记录——条目 id、kind、op、gist、决策、来源会话、时刻、合并键与重复计数——追加到记录的 `resolutions` 日志（最新优先，受 `maxResolutions` 限制）。决策记录既不计入容量，也不进入摘要，因此决定一次写入永不重新注入简报。
 
 每个记忆族各自盖自己的时间戳：`setInstructions` 盖 `instructionsUpdatedAt`，`addArtifact` / `updateArtifact` / `removeArtifact` / `replaceArtifacts` / `applyDecisions` 这一族盖 `lessonsUpdatedAt`，`setUserProfile` 盖 `profileUpdatedAt`。暂存审批只为它改动的族盖章，因此不存储任何内容的经验追加或决策批次一个都不盖。`appendEpisodic` 不盖任何族：情景笔记是未经审批的固化输入，不是已审定的文档。`memoryUpdatedAt` 再保留一个版本，取经验与画像两个时间戳中的较晚者。每次被接受的写入都盖上 `updatedAt`。
 
@@ -114,6 +118,7 @@ kind: "package-reference"
 | 文件 | 职责 |
 |---|---|
 | [`src/index.ts`](src/index.ts) | 插件入口：`EvolutionMemoryStore` 服务、上限、写入路径、暂存审批、维护注册与扫描 |
+| [`src/capture-contract.ts`](src/capture-contract.ts) | 技能准入门：`CaptureContract` 校验及其 JSON 物化 |
 | [`src/spec.ts`](src/spec.ts) | 域声明：记录模式、旧文档接纳与 `defineDomain` 规范 |
 | [`src/types.ts`](src/types.ts) | 公共记录、上下文条目、产出、来源与暂存写入类型 |
 | [`src/lesson-artifact.ts`](src/lesson-artifact.ts) | 工件类型与 schema、statement 身份，以及旧经验文档的接纳 |

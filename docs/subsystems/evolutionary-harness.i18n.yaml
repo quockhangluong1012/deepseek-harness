@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/subsystems/evolutionary-harness.md
-evolutionary-harness.md: 13aeac3f20be774a8f3c5d2d0478be29f689b431
-evolutionary-harness.zh.md: 389c09b0d44261cf8fd96c5f1a680cc8496f0c25
+evolutionary-harness.md: cfd5d528428dbdb779c629c49fcdb7602d1f1644
+evolutionary-harness.zh.md: 4feb1a9a2e7df3223d4cec006e122bfb3c2cf988

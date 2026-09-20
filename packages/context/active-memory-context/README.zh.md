@@ -42,6 +42,7 @@ kind: "package-reference"
 | `topK` | `5` | 每次搜索在应用相关性阈值前排序的候选结果数 |
 | `relevanceThreshold` | `0.7` | 命中要值得注入所需达到的最低余弦相似度 |
 | `turnInterval` | `1` | 两次 active-memory 搜索之间间隔的轮数 |
+| `escalation` | `both` | 每个符合条件轮次运行哪些腿：`both` 每轮同时运行向量腿与图谱腿；`graph-first` 先运行本地图谱腿，仅在图谱腿一无所获时才花费向量腿的嵌入调用 |
 | `profile` | `default` | 图谱腿读取的作用域身份命名空间；必须与该 scope 图谱被提取时所用的 profile 一致 |
 | `graphDepth` | `1` | 图谱腿自命中实体向外展开的跳数 |
 | `graphLimit` | `5` | 尝试实体扫描的轮次前导词数、一次 `expand` 可返回的实体数，以及展开后可用于播种搜索的标签数 |
@@ -56,6 +57,10 @@ kind: "package-reference"
 
 每个符合条件的轮次都会运行一次语义搜索（为查询做一次嵌入调用，加上向量存储尚未持有的文档——参见 `dsh-session-query-sqlite` 的惰性嵌入设计）。图谱腿不增加嵌入调用，也不增加模型调用：它只是对本地图谱做标签查找，外加至多 `graphLimit` 次落在该轮次本就搜索的语料上的文本搜索。那条词法通道与向量腿所需的是同一个开关：两个随包组合都以 `openAt: never` 挂载 `dsh-session-query-sqlite`，此时每次标签搜索都会抛出 `SESSION_QUERY_SEARCH_DISABLED`，在启用内容搜索之前图谱腿不贡献任何内容。`turnInterval` 用与 `dsh-evolution-memory-context` 的提示间隔相同的方式限制这部分成本：尚未观察到 `turn/start` 的会话计为第 0 轮，读作其第一轮，因此 `turnInterval: 1` 会在第一轮就搜索。同一个已观察轮次内的重试步骤永不重新搜索：注入器记得自己上一次为哪一轮搜索过。
 
+### 升级通道
+
+`escalation: graph-first` 先运行廉价的本地图谱腿，只要图谱腿已经把该轮次连接到至少一个会话，就跳过向量腿——省掉它的查询嵌入调用。未挂载、不适用或结果为空的图谱腿返回空，于是向量腿与未升级时完全一样地运行。代价不只是成本，更是召回形态：被跳过的向量腿不可能浮现只有相似度才能找到的会话，因此简报只承载图谱腿的连接。默认值 `both` 保留每轮同时运行两条腿的历史行为。
+
 -----
 
 <a id="understand-the-implementation"></a>
@@ -66,7 +71,7 @@ kind: "package-reference"
 
 ### 设计理念
 
-在每次 `agent/pre-step`，注入器读取本次提议步骤自身消息的文本（而非某个更早的监听器已经追加的内容，因此搜索绝不会把别的包注入的简报当成自己的查询词），解析该会话所属的 workspace，并且——除非搜索不在节奏上，或已经为该已观察轮次搜索过——调用 `ctx.sessionQuery.searchSessionsSemantic`，把范围限定在该 workspace 的其它会话上（当前会话总是被排除，因此一个会话永远不会把自己刚提交的消息当作自己的"相关记忆"浮现出来）。低于 `relevanceThreshold` 的命中被丢弃；幸存的命中渲染成一条带框架的 `user/message` 并追加到该步骤上，受 `maxBytes` 约束，预算紧张时最先丢弃最弱的命中。
+在每次 `agent/pre-step`，注入器读取本次提议步骤自身消息的文本（而非某个更早的监听器已经追加的内容，因此搜索绝不会把别的包注入的简报当成自己的查询词），解析该会话所属的 workspace，并且——除非搜索不在节奏上，或已经为该已观察轮次搜索过——调用 `ctx.sessionQuery.searchSessionsSemantic`，把范围限定在该 workspace 的其它会话上（当前会话总是被排除，因此一个会话永远不会把自己刚提交的消息当作自己的"相关记忆"浮现出来）。低于 `relevanceThreshold` 的命中被丢弃；幸存的命中渲染成一条带框架的 `user/message` 并追加到该步骤上，受 `maxBytes` 约束，预算紧张时最先丢弃最弱的命中。在 `escalation: graph-first` 下，下文的图谱腿改为先运行，仅在其一无所获时才发生这次向量调用。
 
 向量通道失败（`SESSION_QUERY_SEMANTIC_UNAVAILABLE`、`SESSION_QUERY_SEARCH_DISABLED`）会降级为不注入，而不是阻塞该轮次；其它任何失败都会向上传播,因为那意味着真正的缺陷,而非预期中的部署状态。
 
@@ -130,5 +135,5 @@ Relevant memory found in earlier sessions in this scope:
 <a id="known-limitations-and-deferred-work"></a>
 
 - **轮次节奏只计进程内观察到的轮次**——间隔计数器在插件加载时开始计数,并在会话释放时清空,因此一个恢复的会话会从其观察到的第一个 `turn/start` 重新开始计数,这与 `dsh-evolution-memory-context` 为自己的提示节奏记录的局限相同。
-- **每个符合条件的轮次一次嵌入调用**——成本随 `turnInterval` 缩放;没有跨轮次的结果缓存,因为按设计每轮查询都不同。
+- **每个符合条件的轮次一次嵌入调用**——成本随 `turnInterval` 缩放;没有跨轮次的结果缓存,因为按设计每轮查询都不同。`escalation: graph-first` 会在图谱腿已作答的轮次跳过该调用,代价是这些轮次失去纯相似度召回。
 - **仅限 workspace 范围**——不属于任何 workspace 的会话,或所在 workspace 里唯一的会话,永远不会收到 active memory。

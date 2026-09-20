@@ -87,6 +87,67 @@ Sources: [`packages/core/session/src/types.ts:410`](../packages/core/session/src
 
 ## Events
 
+### `action/*`
+
+<a id="actionauthorized--log-only"></a>
+
+#### `action/authorized` — log-only
+
+```ts persistence-catalog
+/**
+ * The composed runtime authorization for one action: an `allow`, or an
+ * `ask` whose human outcome the action's `action/committed` governance
+ * receipt records. Log-only audit.
+ */
+'action/authorized': ActionDecisionEvent
+```
+
+Source: [`packages/runtime/agent-kernel/src/types.ts:896`](../packages/runtime/agent-kernel/src/types.ts)
+
+<a id="actioncommitted--log-only"></a>
+
+#### `action/committed` — log-only
+
+```ts persistence-catalog
+/**
+ * The settled outcome of one executed action, paired with its proposal by
+ * `actionId`. Log-only.
+ */
+'action/committed': ActionReceipt
+```
+
+Source: [`packages/runtime/agent-kernel/src/types.ts:907`](../packages/runtime/agent-kernel/src/types.ts)
+
+<a id="actiondenied--log-only"></a>
+
+#### `action/denied` — log-only
+
+```ts persistence-catalog
+/**
+ * An action the composed policy refused, whether by rule or by the
+ * implementation's sandbox boundary. A denied action is never disguised as
+ * a tool failure. Log-only.
+ */
+'action/denied': ActionDecisionEvent
+```
+
+Source: [`packages/runtime/agent-kernel/src/types.ts:902`](../packages/runtime/agent-kernel/src/types.ts)
+
+<a id="actionproposed--log-only"></a>
+
+#### `action/proposed` — log-only
+
+```ts persistence-catalog
+/**
+ * One proposed action, written immediately before its policy evaluation so
+ * a crash between proposal and decision still records what was asked.
+ * Log-only.
+ */
+'action/proposed': ActionProposal
+```
+
+Source: [`packages/runtime/agent-kernel/src/types.ts:890`](../packages/runtime/agent-kernel/src/types.ts)
+
 ### `agent/*`
 
 <a id="agentinboxspliced--log-only"></a>
@@ -261,6 +322,38 @@ Source: [`packages/core/session/src/types.ts:327`](../packages/core/session/src/
 
 Source: [`packages/guard/budgets/src/types.ts:37`](../packages/guard/budgets/src/types.ts)
 
+### `capability/*`
+
+<a id="capabilitygrant--log-only"></a>
+
+#### `capability/grant` — log-only
+
+```ts persistence-catalog
+/**
+ * Capabilities granted to one action. Log-only audit; a grant never widens
+ * the deployment sandbox.
+ */
+'capability/grant': CapabilityGrant
+```
+
+Source: [`packages/runtime/agent-kernel/src/types.ts:921`](../packages/runtime/agent-kernel/src/types.ts)
+
+### `checkpoint/*`
+
+<a id="checkpointcreated--log-only"></a>
+
+#### `checkpoint/created` — log-only
+
+```ts persistence-catalog
+/**
+ * A checkpoint indexing one task's kernel state at a session sequence.
+ * Log-only.
+ */
+'checkpoint/created': Checkpoint
+```
+
+Source: [`packages/runtime/agent-kernel/src/types.ts:945`](../packages/runtime/agent-kernel/src/types.ts)
+
 ### `command/*`
 
 <a id="commanddone--log-only"></a>
@@ -429,6 +522,22 @@ Source: [`packages/compaction/compaction/src/types.ts:34`](../packages/compactio
 Types: [ToolCallId](subsystems/core.md)
 
 Source: [`packages/fs/tool-present/src/types.ts:15`](../packages/fs/tool-present/src/types.ts)
+
+### `failure/*`
+
+<a id="failurerecorded--log-only"></a>
+
+#### `failure/recorded` — log-only
+
+```ts persistence-catalog
+/**
+ * One classified failure. Log-only; a policy denial or approval rejection
+ * is recorded here with its own kind rather than as a tool error.
+ */
+'failure/recorded': FailureRecord
+```
+
+Source: [`packages/runtime/agent-kernel/src/types.ts:935`](../packages/runtime/agent-kernel/src/types.ts)
 
 ### `feedback/*`
 
@@ -622,7 +731,43 @@ Source: [`packages/interaction/permission-presets/src/index.ts:55`](../packages/
 'plan/mode': { active: boolean }
 ```
 
-Source: [`packages/plan/plan-mode/src/index.ts:47`](../packages/plan/plan-mode/src/index.ts)
+Source: [`packages/plan/plan-mode/src/index.ts:48`](../packages/plan/plan-mode/src/index.ts)
+
+### `policy/*`
+
+<a id="policydecision--log-only"></a>
+
+#### `policy/decision` — log-only
+
+```ts persistence-catalog
+/**
+ * The permission rules' decision about one action, written before the
+ * sandbox and human answerer are composed into the authorization.
+ * Log-only.
+ */
+'policy/decision': {
+  proposal: ActionProposal
+  decision: PolicyDecision
+}
+```
+
+Source: [`packages/runtime/agent-kernel/src/types.ts:913`](../packages/runtime/agent-kernel/src/types.ts)
+
+### `recovery/*`
+
+<a id="recoverydecided--log-only"></a>
+
+#### `recovery/decided` — log-only
+
+```ts persistence-catalog
+/**
+ * The recovery chosen for one failure, including whether the action may be
+ * retried under the same action id. Log-only.
+ */
+'recovery/decided': RecoveryDecision
+```
+
+Source: [`packages/runtime/agent-kernel/src/types.ts:940`](../packages/runtime/agent-kernel/src/types.ts)
 
 ### `request/*`
 
@@ -884,6 +1029,53 @@ Source: [`packages/subagent/tool-subagent/src/model-selection-state.ts:17`](../p
 ```
 
 Source: [`packages/core/session/src/types.ts:316`](../packages/core/session/src/types.ts)
+
+### `task/*`
+
+<a id="taskcreated--log-only"></a>
+
+#### `task/created` — log-only
+
+```ts persistence-catalog
+/**
+ * A task contract was opened for this session. The event payload is the
+ * complete contract at creation, always `status: 'intake'`,
+ * `revision: 1`. Log-only: it never enters model context.
+ */
+'task/created': TaskContract
+```
+
+Source: [`packages/runtime/agent-kernel/src/types.ts:872`](../packages/runtime/agent-kernel/src/types.ts)
+
+<a id="taskplan--log-only"></a>
+
+#### `task/plan` — log-only
+
+```ts persistence-catalog
+/**
+ * One plan revision, either the initial plan or a recovery amendment
+ * carrying the failure it answers. Log-only.
+ */
+'task/plan': PlanRevision
+```
+
+Source: [`packages/runtime/agent-kernel/src/types.ts:884`](../packages/runtime/agent-kernel/src/types.ts)
+
+<a id="tasktransitioned--log-only"></a>
+
+#### `task/transitioned` — log-only
+
+```ts persistence-catalog
+/**
+ * One accepted task-state transition. The fold of these events over
+ * `task/created` is the task's current status and revision; a transition
+ * that does not satisfy the legal edge table or the current revision is
+ * never appended. Log-only.
+ */
+'task/transitioned': StateTransition
+```
+
+Source: [`packages/runtime/agent-kernel/src/types.ts:879`](../packages/runtime/agent-kernel/src/types.ts)
 
 ### `team/*`
 
@@ -1168,6 +1360,35 @@ Source: [`packages/core/session/src/types.ts:282`](../packages/core/session/src/
 ```
 
 Source: [`packages/core/session/src/types.ts:303`](../packages/core/session/src/types.ts)
+
+### `verification/*`
+
+<a id="verificationrequested--log-only"></a>
+
+#### `verification/requested` — log-only
+
+```ts persistence-catalog
+/**
+ * A verification was requested for one task revision. Log-only.
+ */
+'verification/requested': VerificationRequest
+```
+
+Source: [`packages/runtime/agent-kernel/src/types.ts:925`](../packages/runtime/agent-kernel/src/types.ts)
+
+<a id="verificationresult--log-only"></a>
+
+#### `verification/result` — log-only
+
+```ts persistence-catalog
+/**
+ * The outcome of one verification, including the per-criterion results the
+ * completion gate reads. Log-only.
+ */
+'verification/result': VerificationResult
+```
+
+Source: [`packages/runtime/agent-kernel/src/types.ts:930`](../packages/runtime/agent-kernel/src/types.ts)
 
 ### `web/*`
 

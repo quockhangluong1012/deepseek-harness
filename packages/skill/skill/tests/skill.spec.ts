@@ -476,6 +476,7 @@ describe('SkillRegistry registry', () => {
       name: 'runtime-skill',
       description: 'Runtime',
       whenToUse: 'When runtime data is needed.',
+      requires: ['base-skill'],
       invocation,
       source: 'runtime',
       resourceBase,
@@ -493,6 +494,8 @@ describe('SkillRegistry registry', () => {
     const loaded = await ctx.skills.get('runtime-skill')
     expect(listed[0]?.resourceBase).toBe(resourceBase)
     expect(listed[0]?.invocation).toBe(invocation)
+    expect(listed[0]?.requires).toEqual(['base-skill'])
+    expect(listed[1]).not.toHaveProperty('requires')
     expect(loaded?.resourceBase).toBe(resourceBase)
     expect(loaded?.metadata).toBe(metadata)
     expect(loaded?.provider).toBe('runtime')
@@ -528,6 +531,8 @@ describe('SkillRegistry registry', () => {
       { patch: { path: 1 as unknown as string }, expected: 'path must be a string' },
       { patch: { requiredEnv: 'DSH_TOKEN' as unknown as readonly string[] }, expected: 'requiredEnv must be an array of strings' },
       { patch: { requiredEnv: ['DSH_TOKEN', 1] as unknown as readonly string[] }, expected: 'requiredEnv must be an array of strings' },
+      { patch: { requires: 'base-skill' as unknown as readonly string[] }, expected: 'requires must be an array of strings' },
+      { patch: { requires: ['base-skill', 1] as unknown as readonly string[] }, expected: 'requires must be an array of strings' },
       { patch: { config: 'region' as unknown as Record<string, string> }, expected: 'config must be an object of strings' },
       { patch: { config: ['region'] as unknown as Record<string, string> }, expected: 'config must be an object of strings' },
       { patch: { config: { region: 1 } as unknown as Record<string, string> }, expected: 'config must be an object of strings' },
@@ -606,6 +611,46 @@ describe('SkillRegistry registry', () => {
       provider: 'declared-provider',
     }])
     expect(Object.hasOwn(summaries[0] as object, 'blueprint')).toBe(false)
+  })
+
+  it('carries declared prerequisites on the definition and the summary', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SkillRegistry)
+    registerProvider(ctx, {
+      name: 'composed-provider',
+      list: () => Promise.resolve([{
+        name: 'composed-skill',
+        description: 'Candidate',
+        requires: ['base-skill'],
+        invocation: { modelInvocable: true, userInvocable: true },
+        provider: 'composed-provider',
+        source: 'test',
+        rank: 1,
+        locator: 'definition',
+      }]),
+      get: () => Promise.resolve({
+        name: 'composed-skill',
+        description: 'Definition',
+        invocation: { modelInvocable: true, userInvocable: true },
+        provider: 'composed-provider',
+        source: 'test',
+        content: 'Definition body.',
+        requires: ['base-skill'],
+      }),
+    })
+
+    // Prerequisites are routing-relevant, unlike load-time declarations, so
+    // the summary carries them for selectors while the blueprint stays out.
+    expect(await ctx.skills.get('composed-skill')).toMatchObject({ requires: ['base-skill'] })
+    const listed = await ctx.skills.list()
+    expect(listed).toEqual([{
+      name: 'composed-skill',
+      description: 'Candidate',
+      requires: ['base-skill'],
+      invocation: { modelInvocable: true, userInvocable: true },
+      source: 'test',
+      provider: 'composed-provider',
+    }])
   })
 
   it('drops an install blueprint a provider supplies in the wrong shape', async () => {

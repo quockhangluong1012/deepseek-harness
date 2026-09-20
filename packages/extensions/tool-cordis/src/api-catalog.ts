@@ -101,6 +101,62 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'agentKernel',
+    summary: 'The kernel service (`ctx.agentKernel`).',
+    description: 'The kernel service (`ctx.agentKernel`). It attaches to the loop and tool waterfalls in its constructor, so unloading the plugin unloads every listener, declaration, and attachment with it.',
+    methods: [
+      {
+        signature: 'readonly policy: PolicyEngine',
+        description: 'The permission-rule evaluator compiled from `Config.policy`.',
+        parameters: [],
+      },
+      {
+        signature: 'readonly capabilities: CapabilityRegistry',
+        description: 'The registry of tool capability declarations.',
+        parameters: [],
+      },
+      {
+        signature: 'readonly verification: VerificationGate',
+        description: 'The completion gate.',
+        parameters: [],
+      },
+      {
+        signature: 'readonly verifiers: CriterionVerifierRegistry',
+        description: 'The local criterion verifiers the gate collects results from.',
+        parameters: [],
+      },
+      {
+        signature: 'readonly recovery: DefaultRecoveryEngine',
+        description: 'The failure classifier and recovery chooser.',
+        parameters: [],
+      },
+      {
+        signature: 'readonly state: KernelLedger',
+        description: 'The read model and budget observer over session logs.',
+        parameters: [],
+      },
+      {
+        signature: 'attach(agent: Agent): KernelAttachment',
+        description: 'Attach one live agent to its task contract.',
+        parameters: [{ name: 'agent', description: 'the live agent to attach.' }],
+        returns: 'the attachment handle.',
+        throws: ['When the agent\'s session holds no `task/created` event yet; the kernel creates one at the first admitted step.'],
+      },
+      {
+        signature: 'verify(agent: Agent, changedScopes: readonly string[] = []): Promise<CompletionDecision | undefined>',
+        description: 'Verify one task revision with the registered criterion verifiers, record the request and its result, and return the completion decision.',
+        parameters: [{ name: 'agent', description: 'the live agent whose task is verified.' }, { name: 'changedScopes', description: 'scopes the task changed, for `diff` verifiers.' }],
+        returns: 'the completion decision, or undefined when the agent has no task.',
+      },
+      {
+        signature: 'checkpoint(agent: Agent, reason: CheckpointReason): Checkpoint | undefined',
+        description: 'Record one checkpoint of an agent\'s current kernel state.',
+        parameters: [{ name: 'agent', description: 'the live agent whose task is checkpointed.' }, { name: 'reason', description: 'why the checkpoint is recorded.' }],
+        returns: 'the checkpoint, or undefined when the agent has no task.',
+      },
+    ],
+  },
+  {
     key: 'agentLoop',
     summary: 'Concrete agent factory and driver service.',
     description: 'Concrete agent factory and driver service.',
@@ -1139,6 +1195,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         parameters: [{ name: 'entryId', description: 'ledger entry identity.' }, { name: 'options', description: 'clock override.' }],
         returns: 'the rollback report.',
       },
+      {
+        signature: 'debt(): RegressionDebt[]',
+        description: 'List every open regression debt, worst first: most passes, then most sessions, then name and merge key. Passes count consecutive sightings, so two co-open debts with equal passes opened on the same pass — the order stays total through the key without reading timestamps. Synchronous: the debt table is an in-memory read over the open domain, unlike the filesystem-backed `staged()` listing.',
+        parameters: [],
+        returns: 'the open debts, detached from the store.',
+      },
     ],
   },
   {
@@ -1206,6 +1268,24 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Grade the given sessions\' failures by how decisive each is for a state transition, most decisive first. A failure whose own call was never observed carries no attribution, so it only observes; an attributable failure seen in `triggerReviewSessions` distinct sessions triggers a review, and fewer sessions rank without deciding. Grading happens before the limit, so a decisive signal is never truncated away by a count-ranked one.',
         parameters: [{ name: 'sessionIds', description: 'sessions to aggregate, in caller order.' }, { name: 'limit', description: 'maximum signals returned.' }],
         returns: 'the graded signals, decisive first.',
+      },
+      {
+        signature: 'reflect(sessionIds: readonly string[], limit: number): StructuredReflection[]',
+        description: 'Reflect the given sessions\' failures as structured reflections, most decisive first: the ledger-derived half (symptom, violated expectation, observed behavior, confidence) merged with the analyst-supplied half (root cause, corrected strategy, and friends) when one was recorded. Analytic fields stay null until `recordReflection` states them, so a reader never mistakes missing analysis for measured fact.',
+        parameters: [{ name: 'sessionIds', description: 'sessions to aggregate, in caller order.' }, { name: 'limit', description: 'maximum reflections returned.' }],
+        returns: 'the structured reflections, decisive first.',
+      },
+      {
+        signature: 'reflection(mergeKey: string): ReflectionRecord | undefined',
+        description: 'Read one failure\'s recorded analysis.',
+        parameters: [{ name: 'mergeKey', description: 'tool-and-message identity, as `signals` reports it.' }],
+        returns: 'the stored analysis, or undefined when none was recorded.',
+      },
+      {
+        signature: 'async recordReflection(mergeKey: string, analysis: Partial<ReflectionAnalysis>): Promise<ReflectionRecord>',
+        description: 'Record an analyst\'s reading of one failure, merging the supplied fields over any analysis already stored. Omitted fields keep their stored value, so a partial reading never blanks an earlier one.',
+        parameters: [{ name: 'mergeKey', description: 'tool-and-message identity, as `signals` reports it.' }, { name: 'analysis', description: 'analytic fields to state; every field is optional.' }],
+        returns: 'the stored record after the merge.',
       },
     ],
   },
@@ -1374,13 +1454,13 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'async stageWrite(input: StagedWriteInput): Promise<StagedWrite>',
-        description: 'Stage one write for later approval. Staged entries never count toward capacity; `memoryUpdatedAt` stays untouched until approval. The payload is a durable record field, so it is validated as a JSON value here: a non-JSON payload is refused loudly and nothing is stored.',
-        parameters: [{ name: 'input', description: 'scope, kind, op, payload, origin session, and gist.' }],
-        returns: 'the staged entry.',
+        description: 'Stage one write for later approval. Staged entries never count toward capacity; `memoryUpdatedAt` stays untouched until approval. The payload is a durable record field, so it is validated as a JSON value here: a non-JSON payload is refused loudly and nothing is stored.\n\nA non-empty `mergeKey` dedupes while pending: re-staging the same key in the same scope bumps the pending entry\'s `recurrence` instead of appending a duplicate, so a repeatedly proposed candidate is remembered, not silently retried.',
+        parameters: [{ name: 'input', description: 'scope, kind, op, payload, origin session, gist, and merge key.' }],
+        returns: 'the staged entry, or the bumped pending entry on a repeated key.',
       },
       {
         signature: 'async approveStaged(id: string): Promise<void>',
-        description: 'Approve one staged write. Memory-kind entries apply their op first, so a cap or substring rejection keeps the entry staged and propagates; the entry drops only after the op lands. Skill-kind entries only drop: the approver reads the payload from the scope record and performs the skill write before approving. Either decision is recorded in the scope\'s resolution log, newest first.',
+        description: 'Approve one staged write. Memory-kind entries apply their op first, so a cap or substring rejection keeps the entry staged and propagates; the entry drops only after the op lands. Skill-kind entries only drop: the approver reads the payload from the scope record and performs the skill write before approving — but only when the payload carries a valid capture contract, otherwise the entry stays staged with its `blockedReason` and `neededEvidence` set and the block propagates, like a cap rejection. Either decision is recorded in the scope\'s resolution log, newest first.',
         parameters: [{ name: 'id', description: 'staged entry identity.' }],
         returns: 'resolution after durability.',
       },
@@ -1389,6 +1469,16 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Drop one staged write without applying it.',
         parameters: [{ name: 'id', description: 'staged entry identity.' }],
         returns: 'resolution after durability.',
+      },
+      {
+        signature: 'async blockStaged(id: string, reason: string, neededEvidence: readonly string[]): Promise<void>',
+        description: 'Mark one pending staged write as blocked, keeping it pending. A blocked entry remembers why approval cannot proceed and what evidence would unblock it, so the same proposal is not silently retried. Re-blocking overwrites the previous reason; approving or rejecting clears it by removing the entry.',
+        parameters: [{ name: 'id', description: 'staged entry identity.' }, { name: 'reason', description: 'short block code, e.g. `capture-contract`.' }, { name: 'neededEvidence', description: 'evidence that would unblock approval.' }],
+      },
+      {
+        signature: 'async supplyStagedContract(id: string, contract: unknown): Promise<void>',
+        description: 'Attach a capture contract to one pending skill proposal. The contract must be fully valid to land; a rejected supply leaves the entry untouched. A valid supply lifts the block, but the entry still needs an explicit approval.',
+        parameters: [{ name: 'id', description: 'staged entry identity.' }, { name: 'contract', description: 'the admission evidence to attach.' }],
       },
       {
         signature: 'async recordOutputs(id: EvolutionScopeId, entries: readonly EvolutionOutput[]): Promise<void>',
@@ -1417,6 +1507,11 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     description: 'Recorded-session scorer. One score runs the scenario in `attempts` fresh processes, measures each attempt\'s harvested sessions through `ctx.tokenMeter`, and reduces the attempts to the metric triple. Nothing is written: the runner\'s replay fixtures and the expected workspace are read-only inputs.',
     methods: [
       {
+        signature: 'readonly version: number = SCORER_VERSION',
+        description: 'Scoring-semantics version this instance measures under. The optimizer reads it per run, so a mounted scorer that measures differently stamps its own version instead of inheriting this package\'s.',
+        parameters: [],
+      },
+      {
         signature: 'async score(request: ScoreRequest): Promise<ScoreOutcome>',
         description: 'Score one scenario against its recorded fixtures.\n\nEvery attempt boots a fresh process through the caller\'s runner in the keyless replay tier, and is scored against `workspace.expected/` when the scenario ships one, or against its own initial workspace otherwise.',
         parameters: [{ name: 'request', description: 'scenario name plus the agent composition and runner to boot it with.' }],
@@ -1428,6 +1523,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Evaluate one skill over its corpus scenarios and aggregate the metric triple an optimizer selects on. Every scenario must score: a skipped scenario means the corpus does not describe what the skill was asked to prove, and optimizing on a partial evaluation would select on evidence that is not there — so one skip skips the whole evaluation with its reason attached.',
         parameters: [{ name: 'request', description: 'skill name plus the scenarios, agent composition, and runner to score it with.' }],
         returns: 'the aggregated triple with per-scenario records, or the reason the skill could not be evaluated.',
+      },
+      {
+        signature: 'async evaluateBehavior(request: BehaviorEvalRequest): Promise<BehaviorEvaluation>',
+        description: 'Evaluate one skill revision through the three behavior gates: the frontmatter contract check, positive/negative trigger-query routing through the real selector, and a baseline-vs-candidate replay over the same scenarios. The cheap gates run first, so a candidate that cannot be committed or routes where it must not never spends fresh processes; only replay evidence approves. A skipped replay composition skips the whole evaluation with its reason attached.',
+        parameters: [{ name: 'request', description: 'baseline and candidate replay compositions, the candidate body, the routing catalog and queries, and the routing window.' }],
+        returns: 'the gate verdicts with channel disagreement and approval, the gating reason, or the skip.',
       },
     ],
   },
@@ -4408,6 +4509,18 @@ export const EVENT_API: readonly EventApiEntry[] = [
 /** Shapes of every exported type the Service and Event signatures reference (transitively), sorted by name. */
 export const TYPE_API: readonly TypeApiEntry[] = [
   {
+    name: 'AcceptanceCriterion',
+    declaration: 'export interface AcceptanceCriterion {\n    readonly id: string;\n    readonly description: string;\n    readonly verifier: \'test\' | \'build\' | \'diff\' | \'assertion\' | \'human\' | \'research\';\n    readonly required: boolean;\n}',
+  },
+  {
+    name: 'ActionId',
+    declaration: 'export type ActionId = Branded<\'ActionId\'>;',
+  },
+  {
+    name: 'ActionProposal',
+    declaration: 'export interface ActionProposal {\n    readonly actionId: ActionId;\n    readonly agentId: SessionId;\n    readonly callId?: ToolCallId;\n    readonly toolName: string;\n    readonly arguments: JsonValue;\n    readonly source: \'model\' | \'workflow\' | \'subagent\' | \'user\';\n    readonly taskRevision: number;\n    readonly trust: TrustLabel;\n}',
+  },
+  {
     name: 'AdapterRegistrationHandle',
     declaration: 'export interface AdapterRegistrationHandle {\n    (): void;\n    replace(providers: string[]): void;\n}',
   },
@@ -4684,6 +4797,38 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface BashEnvVariableInfo extends BashEnvVariable {\n    contributor: string;\n    key: DshEnvironmentKey;\n}',
   },
   {
+    name: 'BehaviorCatalogSkill',
+    declaration: 'export interface BehaviorCatalogSkill {\n    readonly name: string;\n    readonly text: string;\n    readonly revisionKey: string;\n    readonly signal?: SkillRankSignal | undefined;\n    readonly requires?: readonly string[] | undefined;\n}',
+  },
+  {
+    name: 'BehaviorContractGate',
+    declaration: 'export interface BehaviorContractGate {\n    readonly ok: boolean;\n    readonly issues: readonly string[];\n}',
+  },
+  {
+    name: 'BehaviorEvalRequest',
+    declaration: 'export interface BehaviorEvalRequest {\n    readonly baseline: EvaluateSkillRequest;\n    readonly candidate: EvaluateSkillRequest;\n    readonly candidateBody: BehaviorRevision;\n    readonly catalog: readonly BehaviorCatalogSkill[];\n    readonly positiveQueries: readonly string[];\n    readonly negativeQueries: readonly string[];\n    readonly routingTopK?: number | undefined;\n    readonly vectors?: SkillRankVectors | undefined;\n}',
+  },
+  {
+    name: 'BehaviorEvaluation',
+    declaration: 'export type BehaviorEvaluation = {\n    status: \'evaluated\';\n    skill: string;\n    contract: BehaviorContractGate;\n    routing: BehaviorRoutingGate;\n    replay: BehaviorReplayGate;\n    disagreement: EvaluatorDisagreement;\n    approved: boolean;\n} | {\n    status: \'gated\';\n    skill: string;\n    contract: BehaviorContractGate;\n    routing: BehaviorRoutingGate;\n    disagreement: EvaluatorDisagreement;\n    reason: string;\n} | {\n    status: \'skipped\';\n    skill: string;\n    reason: string;\n};',
+  },
+  {
+    name: 'BehaviorReplayGate',
+    declaration: 'export interface BehaviorReplayGate {\n    readonly ok: boolean;\n    readonly baseline: SkillScore;\n    readonly candidate: SkillScore;\n    readonly regressions: readonly string[];\n    readonly tokenDelta: number;\n}',
+  },
+  {
+    name: 'BehaviorRevision',
+    declaration: 'export interface BehaviorRevision {\n    readonly name: string;\n    readonly body: string;\n}',
+  },
+  {
+    name: 'BehaviorRoutingCheck',
+    declaration: 'export interface BehaviorRoutingCheck {\n    readonly query: string;\n    readonly expected: \'route\' | \'avoid\';\n    readonly rank: number;\n    readonly ok: boolean;\n}',
+  },
+  {
+    name: 'BehaviorRoutingGate',
+    declaration: 'export interface BehaviorRoutingGate {\n    readonly ok: boolean;\n    readonly checks: readonly BehaviorRoutingCheck[];\n    readonly revisions: readonly {\n        readonly name: string;\n        readonly revisionKey: string;\n    }[];\n}',
+  },
+  {
     name: 'Branded',
     declaration: 'export type Branded<B extends string> = string & {\n    readonly [BRAND]: B;\n};',
   },
@@ -4692,8 +4837,44 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type BrandedNumber<B extends string> = number & {\n    readonly [BRAND]: B;\n};',
   },
   {
+    name: 'BudgetGovernor',
+    declaration: 'export interface BudgetGovernor {\n    measure(task: TaskContract, session: Session): BudgetSnapshot;\n}',
+  },
+  {
+    name: 'BudgetSnapshot',
+    declaration: 'export interface BudgetSnapshot {\n    readonly steps: number;\n    readonly toolCalls: number;\n    readonly wallMs: number;\n    readonly remaining: ResourceBudget;\n}',
+  },
+  {
     name: 'CacheHitLowEvent',
     declaration: 'export interface CacheHitLowEvent {\n    readonly day: string;\n    readonly cacheHitAvg: number;\n    readonly threshold: number;\n    readonly requests: number;\n}',
+  },
+  {
+    name: 'Capability',
+    declaration: 'export type Capability = \'fs.read\' | \'fs.write\' | \'fs.edit\' | \'process.exec\' | \'terminal.interactive\' | \'network.read\' | \'network.write\' | \'mcp.call\' | \'memory.read\' | \'memory.write\' | \'subagent.spawn\' | \'workflow.start\' | \'approval.request\' | \'policy.propose\';',
+  },
+  {
+    name: 'CapabilityDeclaration',
+    declaration: 'export interface CapabilityDeclaration {\n    readonly tool: string;\n    readonly capabilities: readonly Capability[];\n    resources(args: unknown): string;\n}',
+  },
+  {
+    name: 'CapabilityRegistry',
+    declaration: 'export interface CapabilityRegistry {\n    register(declaration: CapabilityDeclaration): () => void;\n    resolve(toolName: string, args: unknown): readonly CapabilityRequest[] | undefined;\n    has(toolName: string): boolean;\n    readonly size: number;\n}',
+  },
+  {
+    name: 'CapabilityRequest',
+    declaration: 'export interface CapabilityRequest {\n    readonly capability: Capability;\n    readonly resource: string;\n}',
+  },
+  {
+    name: 'Checkpoint',
+    declaration: 'export interface Checkpoint {\n    readonly checkpointId: CheckpointId;\n    readonly taskId: TaskId;\n    readonly runId: RunId;\n    readonly agentSessionId: SessionId;\n    readonly sessionSeq: SessionLogOffset;\n    readonly status: TaskStatus;\n    readonly revision: number;\n    readonly budgets: BudgetSnapshot;\n    readonly openActionIds: readonly ActionId[];\n    readonly unresolvedFailures: readonly FailureRef[];\n    readonly reason: CheckpointReason;\n    readonly createdAt: number;\n}',
+  },
+  {
+    name: 'CheckpointId',
+    declaration: 'export type CheckpointId = Branded<\'CheckpointId\'>;',
+  },
+  {
+    name: 'CheckpointReason',
+    declaration: 'export type CheckpointReason = \'turn-boundary\' | \'before-compaction\' | \'before-pause\' | \'verification-failure\' | \'before-suspension\';',
   },
   {
     name: 'ClientArtifactBaseline',
@@ -4788,6 +4969,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type CompactionTrigger = \'pressure\' | \'context-overflow\';',
   },
   {
+    name: 'CompletionDecision',
+    declaration: 'export interface CompletionDecision {\n    readonly allowed: boolean;\n    readonly reasons: readonly string[];\n}',
+  },
+  {
     name: 'CompositionRowEnablement',
     declaration: 'export type CompositionRowEnablement = boolean | \'conditional\';',
   },
@@ -4818,6 +5003,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'ConsolidationVerdict',
     declaration: 'export interface ConsolidationVerdict {\n    name: string;\n    action: \'keep\' | \'patch\' | \'consolidate\' | \'archive\';\n    into?: string | undefined;\n    body?: string | undefined;\n}',
+  },
+  {
+    name: 'Constraint',
+    declaration: 'export interface Constraint {\n    readonly kind: string;\n    readonly statement: string;\n}',
   },
   {
     name: 'ContentBlockMap',
@@ -4968,6 +5157,22 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type CredentialRef = Branded<\'CredentialRef\'>;',
   },
   {
+    name: 'CriterionResult',
+    declaration: 'export interface CriterionResult {\n    readonly criterionId: string;\n    readonly status: \'pass\' | \'fail\' | \'unknown\';\n    readonly evidence: readonly string[];\n    readonly detail?: string;\n}',
+  },
+  {
+    name: 'CriterionVerdict',
+    declaration: 'export interface CriterionVerdict {\n    readonly result: CriterionResult;\n    readonly commands?: readonly string[];\n}',
+  },
+  {
+    name: 'CriterionVerifier',
+    declaration: 'export interface CriterionVerifier {\n    readonly id: string;\n    supports(criterion: AcceptanceCriterion): boolean;\n    verify(request: VerificationRequest, criterion: AcceptanceCriterion): Promise<CriterionVerdict | undefined>;\n}',
+  },
+  {
+    name: 'CriterionVerifierRegistry',
+    declaration: 'export class CriterionVerifierRegistry {\n    register(verifier: CriterionVerifier): () => void;\n    async collect(request: VerificationRequest): Promise<{\n        results: CriterionResult[];\n        commands: string[];\n    }>;\n}',
+  },
+  {
     name: 'CuratorMaybeRunOptions',
     declaration: 'export interface CuratorMaybeRunOptions extends CuratorRunOptions {\n    idleMs?: number | undefined;\n}',
   },
@@ -4977,7 +5182,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'CuratorReport',
-    declaration: 'export interface CuratorReport {\n    at: string;\n    dryRun: boolean;\n    scanned: number;\n    transitions: CuratorTransition[];\n    skippedPinned: number;\n    skippedProtected: number;\n    skippedExcluded: number;\n    passId: string | null;\n    snapshot: string | null;\n    consolidation?: ConsolidationReport | undefined;\n    staged: StagedCandidate[];\n}',
+    declaration: 'export interface CuratorReport {\n    at: string;\n    dryRun: boolean;\n    scanned: number;\n    transitions: CuratorTransition[];\n    skippedPinned: number;\n    skippedProtected: number;\n    skippedExcluded: number;\n    passId: string | null;\n    snapshot: string | null;\n    consolidation?: ConsolidationReport | undefined;\n    staged: StagedCandidate[];\n    regressionDebt: RegressionDebt[];\n}',
   },
   {
     name: 'CuratorRunOptions',
@@ -5002,6 +5207,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'DeepSeekLlmApiJson',
     declaration: 'export type DeepSeekLlmApiJson = null | boolean | number | string | DeepSeekLlmApiJson[] | {\n    [key: string]: DeepSeekLlmApiJson;\n};',
+  },
+  {
+    name: 'DefaultRecoveryEngine',
+    declaration: 'export class DefaultRecoveryEngine implements RecoveryEngine {\n    constructor(config: RecoveryConfig);\n    classify(input: RecoveryInput): RecoveryDecision;\n}',
   },
   {
     name: 'DiffCallView',
@@ -5038,6 +5247,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'DirectoryRegistrationHandle',
     declaration: 'export interface DirectoryRegistrationHandle {\n    (): void;\n    replace(entries: readonly LlmConfigurableProvider[]): void;\n}',
+  },
+  {
+    name: 'DisagreementChannel',
+    declaration: 'export type DisagreementChannel = \'contract\' | \'routing\' | \'replay\';',
   },
   {
     name: 'Domain',
@@ -5184,6 +5397,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface EvaluateSkillRequest {\n    skill: string;\n    scenarios: readonly string[];\n    agent: AgentUnderTest;\n    run: ScenarioRunner;\n}',
   },
   {
+    name: 'EvaluatorDisagreement',
+    declaration: 'export interface EvaluatorDisagreement {\n    readonly unanimous: boolean;\n    readonly approving: readonly DisagreementChannel[];\n    readonly dissenting: readonly DisagreementChannel[];\n}',
+  },
+  {
     name: 'EvolutionAddContextItemRequest',
     declaration: 'export interface EvolutionAddContextItemRequest extends EvolutionScopeRequest {\n    readonly kind: \'text\' | \'file\';\n    readonly label: string;\n    readonly text?: string;\n    readonly path?: string;\n}',
   },
@@ -5226,6 +5443,22 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'EvolutionStagedValue',
     declaration: 'export interface EvolutionStagedValue {\n    readonly staged: readonly StagedWrite[];\n}',
+  },
+  {
+    name: 'FailureId',
+    declaration: 'export type FailureId = Branded<\'FailureId\'>;',
+  },
+  {
+    name: 'FailureKind',
+    declaration: 'export type FailureKind = \'model-auth\' | \'model-rate-limit\' | \'model-context-overflow\' | \'tool-invalid-input\' | \'tool-policy-denied\' | \'tool-transient\' | \'sandbox-denied\' | \'approval-rejected\' | \'timeout\' | \'budget-exhausted\' | \'stale-write\' | \'verification-failed\' | \'subagent-failed\' | \'workflow-failed\' | \'persistence-failed\' | \'prompt-injection\' | \'unknown\';',
+  },
+  {
+    name: 'FailureRecord',
+    declaration: 'export interface FailureRecord {\n    readonly failureId: FailureId;\n    readonly kind: FailureKind;\n    readonly actionId?: ActionId;\n    readonly toolName?: string;\n    readonly detail: string;\n    readonly at: number;\n}',
+  },
+  {
+    name: 'FailureRef',
+    declaration: 'export interface FailureRef {\n    readonly failureId: FailureId;\n    readonly kind: FailureKind;\n}',
   },
   {
     name: 'FeedbackActionability',
@@ -5584,6 +5817,22 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type JsonValue = null | boolean | number | string | JsonValue[] | {\n    [key: string]: JsonValue;\n};',
   },
   {
+    name: 'KernelAttachment',
+    declaration: 'export interface KernelAttachment {\n    readonly taskId: TaskId;\n    readonly runId: RunId;\n    snapshot(): KernelView;\n    dispose(): Promise<void>;\n}',
+  },
+  {
+    name: 'KernelLedger',
+    declaration: 'export class KernelLedger implements KernelStateReader, BudgetGovernor {\n    view(session: Session): KernelView | undefined;\n    entryOf(session: Session): LedgerEntry;\n    ledgerTask(session: Session): TaskContract;\n    measure(task: TaskContract, session: Session): BudgetSnapshot;\n}',
+  },
+  {
+    name: 'KernelStateReader',
+    declaration: 'export interface KernelStateReader {\n    view(session: Session): KernelView | undefined;\n}',
+  },
+  {
+    name: 'KernelView',
+    declaration: 'export interface KernelView {\n    readonly task: TaskContract;\n    readonly sessionId: SessionId;\n    readonly budgets: BudgetSnapshot;\n    readonly openActionIds: readonly ActionId[];\n    readonly unresolvedFailures: readonly FailureRef[];\n    readonly plan?: PlanRevision;\n    readonly checkpoint?: Checkpoint;\n}',
+  },
+  {
     name: 'KnobState',
     declaration: 'export interface KnobState {\n    preset: string | null;\n    sandbox: SandboxMode | null;\n    approval: ApprovalPolicy | null;\n}',
   },
@@ -5884,6 +6133,30 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface PermissionSelect {\n    options: PresetOption[];\n    currentValue: string;\n}',
   },
   {
+    name: 'PlanRevision',
+    declaration: 'export interface PlanRevision {\n    readonly revision: number;\n    readonly steps: readonly string[];\n    readonly failureId?: FailureId;\n    readonly createdAt: number;\n}',
+  },
+  {
+    name: 'PolicyContext',
+    declaration: 'export interface PolicyContext {\n    readonly action: ActionProposal;\n    readonly capabilities: readonly CapabilityRequest[];\n    readonly undeclared: boolean;\n    readonly sandbox: SandboxExecutionPolicy;\n}',
+  },
+  {
+    name: 'PolicyDecision',
+    declaration: 'export interface PolicyDecision {\n    readonly decisionId: PolicyDecisionId;\n    readonly actionId: ActionId;\n    readonly effect: PolicyEffect;\n    readonly matchedRuleIndex: number | null;\n    readonly capabilities: readonly CapabilityRequest[];\n    readonly reasons: readonly string[];\n}',
+  },
+  {
+    name: 'PolicyDecisionId',
+    declaration: 'export type PolicyDecisionId = Branded<\'PolicyDecisionId\'>;',
+  },
+  {
+    name: 'PolicyEffect',
+    declaration: 'export type PolicyEffect = \'allow\' | \'ask\' | \'deny\';',
+  },
+  {
+    name: 'PolicyEngine',
+    declaration: 'export interface PolicyEngine {\n    evaluate(context: PolicyContext): PolicyDecision;\n}',
+  },
+  {
     name: 'PostToolDecision',
     declaration: 'export type PostToolDecision = {\n    kind: \'accept\';\n    content?: ContentBlock[];\n    value?: never;\n    additionalContexts?: UserMessage[];\n} | {\n    kind: \'accept\';\n    value: JsonValue;\n    content?: never;\n    additionalContexts?: UserMessage[];\n} | {\n    kind: \'block\';\n    feedback: ContentBlock[];\n    additionalContexts?: UserMessage[];\n};',
   },
@@ -6016,8 +6289,44 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type ReasoningEffortId = Branded<\'ReasoningEffortId\'>;',
   },
   {
+    name: 'RecoveryAction',
+    declaration: 'export type RecoveryAction = \'retry\' | \'compact\' | \'reread\' | \'ask-user\' | \'replan\' | \'diagnose\' | \'checkpoint-pause\' | \'settle-child\' | \'quarantine\' | \'fail-closed\';',
+  },
+  {
+    name: 'RecoveryConfig',
+    declaration: 'export interface RecoveryConfig {\n    readonly checkpointBeforeRetry: boolean;\n}',
+  },
+  {
+    name: 'RecoveryDecision',
+    declaration: 'export interface RecoveryDecision {\n    readonly failureId: FailureId;\n    readonly action: RecoveryAction;\n    readonly retryable: boolean;\n    readonly attemptsRemaining: number;\n    readonly checkpointRequired: boolean;\n    readonly reason: string;\n    readonly at: number;\n}',
+  },
+  {
+    name: 'RecoveryEngine',
+    declaration: 'export interface RecoveryEngine {\n    classify(input: RecoveryInput): RecoveryDecision;\n}',
+  },
+  {
+    name: 'RecoveryInput',
+    declaration: 'export interface RecoveryInput {\n    readonly failure: FailureRecord;\n    readonly attempts: number;\n    readonly maxAttemptsPerAction: number;\n}',
+  },
+  {
     name: 'RedactedSecret',
     declaration: 'export interface RedactedSecret {\n    path: string[];\n    set: boolean;\n}',
+  },
+  {
+    name: 'ReflectionAnalysis',
+    declaration: 'export interface ReflectionAnalysis {\n    rootCause: string | null;\n    correctedStrategy: string | null;\n    reusableWhen: string | null;\n    antiPattern: string | null;\n    candidateTest: string | null;\n}',
+  },
+  {
+    name: 'ReflectionFailure',
+    declaration: 'export interface ReflectionFailure {\n    count: number;\n    sessions: number;\n    firstAt: string;\n    lastAt: string;\n}',
+  },
+  {
+    name: 'ReflectionRecord',
+    declaration: 'export interface ReflectionRecord extends ReflectionAnalysis {\n    updatedAt: string;\n}',
+  },
+  {
+    name: 'RegressionDebt',
+    declaration: 'export interface RegressionDebt {\n    name: string;\n    mergeKey: string;\n    message: string;\n    firstSeenAt: string;\n    lastSeenAt: string;\n    passes: number;\n    sessions: number;\n    revision: number;\n}',
   },
   {
     name: 'RemoteError',
@@ -6084,6 +6393,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface ResolvedSubagentStartRequest extends SubagentStartRequest {\n    readonly descriptor: SubagentDescriptorData;\n}',
   },
   {
+    name: 'ResourceBudget',
+    declaration: 'export interface ResourceBudget {\n    readonly maxSteps?: number;\n    readonly maxToolCalls?: number;\n    readonly maxTokens?: number;\n    readonly maxWallMs?: number;\n    readonly maxCostUsd?: number;\n    readonly maxSubagentDepth?: number;\n}',
+  },
+  {
     name: 'RestoredSessionOptions',
     declaration: 'export interface RestoredSessionOptions {\n    readonly seed: SessionEvent[];\n    readonly meta: SessionHeader;\n    readonly inheritedEventCount: SessionLogOffset;\n    readonly eventState: SessionSeedEventState;\n}',
   },
@@ -6102,6 +6415,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'RollbackRestored',
     declaration: 'export interface RollbackRestored {\n    name: string;\n    from: SkillLifecycleState;\n    to: SkillLifecycleState;\n}',
+  },
+  {
+    name: 'RunId',
+    declaration: 'export type RunId = Branded<\'RunId\'>;',
   },
   {
     name: 'RunnerFailureRule',
@@ -6852,6 +7169,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface SkillProviderObservation {\n    readonly candidates: readonly SkillCandidate[];\n    readonly complete: boolean;\n    readonly quarantinedCount?: number;\n}',
   },
   {
+    name: 'SkillRankSignal',
+    declaration: 'export interface SkillRankSignal {\n    readonly trusted: boolean;\n    readonly useCount: number;\n    readonly failureCount: number;\n}',
+  },
+  {
+    name: 'SkillRankVectors',
+    declaration: 'export interface SkillRankVectors {\n    readonly query: readonly number[];\n    readonly byName: ReadonlyMap<string, readonly number[]>;\n}',
+  },
+  {
     name: 'SkillRegistration',
     declaration: 'export type SkillRegistration = Omit<SkillDefinition, \'invocation\' | \'provider\'> & {\n    readonly invocation?: SkillInvocationPolicy;\n    readonly provider?: string;\n};',
   },
@@ -6869,7 +7194,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SkillSummary',
-    declaration: 'export interface SkillSummary {\n    readonly path?: string;\n    readonly name: string;\n    readonly description: string;\n    readonly whenToUse?: string;\n    readonly invocation: SkillInvocationPolicy;\n    readonly source: SkillSource;\n    readonly provider: string;\n    readonly resourceBase?: SkillResourceBase;\n}',
+    declaration: 'export interface SkillSummary {\n    readonly path?: string;\n    readonly name: string;\n    readonly description: string;\n    readonly whenToUse?: string;\n    readonly requires?: readonly string[];\n    readonly invocation: SkillInvocationPolicy;\n    readonly source: SkillSource;\n    readonly provider: string;\n    readonly resourceBase?: SkillResourceBase;\n}',
   },
   {
     name: 'SkillTrustFailure',
@@ -6921,7 +7246,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'StagedWriteInput',
-    declaration: 'export interface StagedWriteInput {\n    scopeId: EvolutionScopeId;\n    kind: StagedWriteKind;\n    op: string;\n    payload: JsonValue;\n    originSessionId: string;\n    gist: string;\n}',
+    declaration: 'export interface StagedWriteInput {\n    scopeId: EvolutionScopeId;\n    kind: StagedWriteKind;\n    op: string;\n    payload: JsonValue;\n    originSessionId: string;\n    gist: string;\n    mergeKey?: string;\n}',
   },
   {
     name: 'StagedWriteKind',
@@ -6942,6 +7267,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'StreamChunk',
     declaration: 'export type StreamChunk = {\n    type: \'block-start\';\n    index: number;\n    blockType: ContentBlockType;\n} | {\n    type: \'text-delta\';\n    index: number;\n    text: string;\n} | {\n    type: \'reasoning-delta\';\n    index: number;\n    text: string;\n} | {\n    type: \'tool-call-delta\';\n    index: number;\n    id: ToolCallId;\n    name?: string;\n    argumentsDelta: string;\n} | {\n    type: \'block-end\';\n    index: number;\n    block: ContentBlock;\n} | {\n    type: \'usage\';\n    usage: TokenUsage;\n} | {\n    type: \'finish\';\n    reason: FinishReason;\n    replayState?: ReplayEnvelope;\n};',
+  },
+  {
+    name: 'StructuredReflection',
+    declaration: 'export interface StructuredReflection {\n    failureId: string;\n    symptom: string;\n    violatedExpectation: string;\n    rootCause: string | null;\n    contributingFactors: readonly string[];\n    whatWorked: string | null;\n    whatFailed: ReflectionFailure;\n    correctedStrategy: string | null;\n    confidence: number;\n    reusableWhen: string | null;\n    antiPattern: string | null;\n    candidateTest: string | null;\n}',
   },
   {
     name: 'SubagentCapabilities',
@@ -7126,6 +7455,18 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'TableValueOf',
     declaration: 'export type TableValueOf<S extends DomainSpec, N extends keyof S[\'tables\']> = S[\'tables\'][N] extends DomainTableSpec<string, infer V> ? V : never;',
+  },
+  {
+    name: 'TaskContract',
+    declaration: 'export interface TaskContract {\n    readonly taskId: TaskId;\n    readonly runId: RunId;\n    readonly objective: string;\n    readonly constraints: readonly Constraint[];\n    readonly acceptance: readonly AcceptanceCriterion[];\n    readonly workspace?: WorkspaceRef;\n    readonly parentTaskId?: TaskId;\n    readonly agentProfile: string;\n    readonly policyProfile: string;\n    readonly budget: ResourceBudget;\n    readonly status: TaskStatus;\n    readonly revision: number;\n}',
+  },
+  {
+    name: 'TaskId',
+    declaration: 'export type TaskId = Branded<\'TaskId\'>;',
+  },
+  {
+    name: 'TaskStatus',
+    declaration: 'export type TaskStatus = \'intake\' | \'understanding\' | \'retrieving\' | \'planning\' | \'ready\' | \'executing\' | \'observing\' | \'verifying\' | \'recovering\' | \'awaiting-approval\' | \'awaiting-user\' | \'paused\' | \'completed\' | \'failed\' | \'cancelled\';',
   },
   {
     name: 'TeamId',
@@ -7384,6 +7725,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface TrajectoryExportResult {\n    readonly path: string;\n    readonly conversations: number;\n    readonly bytes: number;\n}',
   },
   {
+    name: 'TrustLabel',
+    declaration: 'export type TrustLabel = \'trusted\' | \'untrusted\' | \'unknown\';',
+  },
+  {
     name: 'TurnEndCancelCause',
     declaration: 'export type TurnEndCancelCause = AgentCancelCause | {\n    readonly kind: \'legacy\';\n};',
   },
@@ -7518,6 +7863,18 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'UserMessage',
     declaration: 'export interface UserMessage extends Message {\n    readonly role: \'user\';\n}',
+  },
+  {
+    name: 'VerificationGate',
+    declaration: 'export interface VerificationGate {\n    request(task: TaskContract, changedScopes: readonly string[]): VerificationRequest;\n    evaluate(request: VerificationRequest, results: readonly CriterionResult[], commands: readonly string[]): VerificationResult;\n    decide(task: TaskContract, result: VerificationResult, unresolvedFailures: readonly FailureRef[], budgets: BudgetSnapshot): CompletionDecision;\n}',
+  },
+  {
+    name: 'VerificationRequest',
+    declaration: 'export interface VerificationRequest {\n    readonly taskId: TaskId;\n    readonly revision: number;\n    readonly criteria: readonly AcceptanceCriterion[];\n    readonly changedScopes: readonly string[];\n}',
+  },
+  {
+    name: 'VerificationResult',
+    declaration: 'export interface VerificationResult {\n    readonly taskId: TaskId;\n    readonly revision: number;\n    readonly status: \'pass\' | \'fail\' | \'unknown\';\n    readonly criterionResults: readonly CriterionResult[];\n    readonly commands: readonly string[];\n    readonly verifierVersion: string;\n}',
   },
   {
     name: 'VerifiedWebhookDelivery',
@@ -7826,6 +8183,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'WorkspaceOrderValue',
     declaration: 'export interface WorkspaceOrderValue {\n    readonly workspaceIds: readonly WorkspaceId[];\n}',
+  },
+  {
+    name: 'WorkspaceRef',
+    declaration: 'export interface WorkspaceRef {\n    readonly root: string;\n}',
   },
   {
     name: 'WorkspaceRenameRequest',

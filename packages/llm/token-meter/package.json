@@ -22,6 +22,10 @@
       "types": "./lib/types/client.d.ts",
       "default": "./lib/types/client.js"
     },
+    "./estimate": {
+      "types": "./lib/types/estimate.d.ts",
+      "default": "./lib/types/estimate.js"
+    },
     "./src/*": "./src/*",
     "./package.json": "./package.json"
   },

@@ -62,5 +62,6 @@ One page per subsystem of the DeepSeek Harness: what it is, the data structures 
 | [usage-dashboard.md](usage-dashboard.md) | billed LLM usage: the `usageLedger` fold and durable counters, the `usageDashboard` Remote, the `usage` Sidebar tab, and the range/summary vocabulary |
 | [workspace-memory.md](workspace-memory.md) | per-Workspace durable knowledge: the memory record, brief injection, background extraction, and the Workspace page |
 | [evolutionary-harness.md](evolutionary-harness.md) | per-scope self-learning memory: the evolution record, lesson/profile writes, staged writes, and capacity accounting |
+| [agent-kernel.md](agent-kernel.md) | the control plane over the existing loop and tool seams: the task contract, the action ledger, the permission document, the completion gate, and the durable `task/*`, `action/*`, `policy/*`, and `checkpoint/*` families |
 
 > Type declarations and their JSDoc on these pages are source-equivalent and drift-checked by `pnpm run verify-type-equiv` (see [development.md](../development.md#documenting-types-verbatim-ts-type-equiv)). Ordinary blocks preserve complete declarations; `public-api` blocks preserve body-stripped public class declarations. Cordis services and events use each page's generated **Cordis API** section.

@@ -37,6 +37,7 @@ import type { LessonDecision } from './decisions.ts'
 import { pruneEpisodic, prunable } from './maintenance.ts'
 import type { SweepResult } from './maintenance.ts'
 import { evolutionExtraction, evolutionMemoryDomainSpec, stagedWritePayload } from './spec.ts'
+import { contractJson, validateCaptureContract } from './capture-contract.ts'
 import type {
   EvolutionContextItem,
   EvolutionContextItemInput,
@@ -66,7 +67,11 @@ export type {
   StagedResolution,
   StagedWrite,
   StagedWriteInput,
+  CaptureContract,
 } from './types.ts'
+export { validateCaptureContract } from './capture-contract.ts'
+export { contractJson } from './capture-contract.ts'
+export type { CaptureContractVerdict } from './capture-contract.ts'
 export { applyLessonDecisions, lessonDecision } from './decisions.ts'
 export type { LessonDecision } from './decisions.ts'
 export { evolutionMemoryDomainSpec } from './spec.ts'
@@ -379,6 +384,8 @@ function withResolution(
     decision,
     at,
     originSessionId: entry.originSessionId,
+    mergeKey: entry.mergeKey,
+    recurrence: entry.recurrence,
   }
   return [resolution, ...existing].slice(0, maxResolutions)
 }
@@ -405,6 +412,28 @@ function itemNotFound(itemId: string): RemoteError<'evolution/item-not-found'> {
 
 function stagedNotFound(stagedId: string): RemoteError<'evolution/staged-not-found'> {
   return new RemoteError('evolution/staged-not-found', `no staged evolution write '${stagedId}'`, { stagedId })
+}
+
+function stagedBlocked(stagedId: string, neededEvidence: readonly string[]): RemoteError<'evolution/staged-blocked'> {
+  return new RemoteError(
+    'evolution/staged-blocked',
+    `staged evolution write '${stagedId}' is blocked: ${neededEvidence.join('; ')}`,
+    { stagedId, neededEvidence: [...neededEvidence] },
+  )
+}
+
+/**
+ * Name the admission evidence a skill-kind staged payload is missing. A
+ * payload that is not an object cannot carry a contract at all.
+ * @param payload - the staged entry's JSON payload.
+ * @returns the missing evidence, empty when the contract admits the skill.
+ */
+function skillContractIssues(payload: unknown): string[] {
+  const contract = typeof payload === 'object' && payload !== null && !Array.isArray(payload)
+    ? (payload as Record<string, unknown>)['contract']
+    : undefined
+  const verdict = validateCaptureContract(contract)
+  return verdict.ok ? [] : [...verdict.issues]
 }
 
 function checkCapacity(record: EvolutionMemoryRecord, capacityBytes: number): void {
@@ -1142,8 +1171,13 @@ export class EvolutionMemoryStore extends Service {
    * capacity; `memoryUpdatedAt` stays untouched until approval. The payload
    * is a durable record field, so it is validated as a JSON value here: a
    * non-JSON payload is refused loudly and nothing is stored.
-   * @param input - scope, kind, op, payload, origin session, and gist.
-   * @returns the staged entry.
+   *
+   * A non-empty `mergeKey` dedupes while pending: re-staging the same key in
+   * the same scope bumps the pending entry's `recurrence` instead of
+   * appending a duplicate, so a repeatedly proposed candidate is remembered,
+   * not silently retried.
+   * @param input - scope, kind, op, payload, origin session, gist, and merge key.
+   * @returns the staged entry, or the bumped pending entry on a repeated key.
    */
   async stageWrite(input: StagedWriteInput): Promise<StagedWrite> {
     const kind: unknown = input.kind
@@ -1152,6 +1186,8 @@ export class EvolutionMemoryStore extends Service {
     }
     if (input.op.length === 0) throw new Error('evolution-memory: staged op must be non-empty')
     if (input.gist.length === 0) throw new Error('evolution-memory: staged gist must be non-empty')
+    const mergeKey = input.mergeKey ?? null
+    if (mergeKey !== null && mergeKey.length === 0) throw new Error('evolution-memory: staged mergeKey must be non-empty')
     const payload = stagedWritePayload.safeParse(input.payload)
     if (!payload.success) throw new Error('evolution-memory: staged payload must be a JSON value')
     const now = new Date().toISOString()
@@ -1163,9 +1199,21 @@ export class EvolutionMemoryStore extends Service {
       originSessionId: input.originSessionId,
       createdAt: now,
       gist: input.gist,
+      mergeKey,
+      recurrence: 1,
+      blockedReason: null,
+      neededEvidence: [],
     }
-    await this.write(input.scopeId, record => ({ ...record, staged: [...record.staged, entry] }))
-    return structuredClone(entry)
+    let staged: StagedWrite = entry
+    await this.write(input.scopeId, (record) => {
+      const pending = mergeKey === null
+        ? undefined
+        : record.staged.find(candidate => candidate.mergeKey === mergeKey)
+      if (pending === undefined) return { ...record, staged: [...record.staged, entry] }
+      staged = { ...pending, recurrence: pending.recurrence + 1 }
+      return { ...record, staged: record.staged.map(candidate => candidate.id === pending.id ? staged : candidate) }
+    })
+    return structuredClone(staged)
   }
 
   /**
@@ -1173,14 +1221,34 @@ export class EvolutionMemoryStore extends Service {
    * cap or substring rejection keeps the entry staged and propagates; the
    * entry drops only after the op lands. Skill-kind entries only drop: the
    * approver reads the payload from the scope record and performs the skill
-   * write before approving. Either decision is recorded in the scope's
-   * resolution log, newest first.
+   * write before approving — but only when the payload carries a valid
+   * capture contract, otherwise the entry stays staged with its
+   * `blockedReason` and `neededEvidence` set and the block propagates, like a
+   * cap rejection. Either decision is recorded in the scope's resolution log,
+   * newest first.
    * @param id - staged entry identity.
    * @returns resolution after durability.
    */
   async approveStaged(id: string): Promise<void> {
     const located = this.findStaged(id)
     if (located === undefined) throw stagedNotFound(id)
+    if (located.entry.kind === 'skill') {
+      const issues = skillContractIssues(located.entry.payload)
+      if (issues.length > 0) {
+        await this.requireTable().update(located.scope, (record) => {
+          if (record.staged.every(candidate => candidate.id !== id)) throw stagedNotFound(id)
+          const now = new Date().toISOString()
+          return {
+            ...record,
+            staged: record.staged.map(candidate => candidate.id === id
+              ? { ...candidate, blockedReason: 'capture-contract', neededEvidence: issues }
+              : candidate),
+            updatedAt: now,
+          }
+        })
+        throw stagedBlocked(id, issues)
+      }
+    }
     const resolved = this.resolved
     const addTargets = await this.stagedAddTargets(located.record, located.entry)
     await this.requireTable().update(located.scope, (record) => {
@@ -1213,6 +1281,69 @@ export class EvolutionMemoryStore extends Service {
         ...record,
         staged: record.staged.filter(candidate => candidate.id !== id),
         resolutions: withResolution(record.resolutions, target, 'rejected', now, maxResolutions),
+        updatedAt: now,
+      }
+    })
+  }
+
+  /**
+   * Mark one pending staged write as blocked, keeping it pending. A blocked
+   * entry remembers why approval cannot proceed and what evidence would
+   * unblock it, so the same proposal is not silently retried. Re-blocking
+   * overwrites the previous reason; approving or rejecting clears it by
+   * removing the entry.
+   * @param id - staged entry identity.
+   * @param reason - short block code, e.g. `capture-contract`.
+   * @param neededEvidence - evidence that would unblock approval.
+   */
+  async blockStaged(id: string, reason: string, neededEvidence: readonly string[]): Promise<void> {
+    if (reason.length === 0) throw new Error('evolution-memory: blocked reason must be non-empty')
+    const located = this.findStaged(id)
+    if (located === undefined) throw stagedNotFound(id)
+    await this.requireTable().update(located.scope, (record) => {
+      if (record.staged.every(candidate => candidate.id !== id)) throw stagedNotFound(id)
+      const now = new Date().toISOString()
+      return {
+        ...record,
+        staged: record.staged.map(candidate => candidate.id === id
+          ? { ...candidate, blockedReason: reason, neededEvidence: [...neededEvidence] }
+          : candidate),
+        updatedAt: now,
+      }
+    })
+  }
+
+  /**
+   * Attach a capture contract to one pending skill proposal. The contract
+   * must be fully valid to land; a rejected supply leaves the entry
+   * untouched. A valid supply lifts the block, but the entry still needs an
+   * explicit approval.
+   * @param id - staged entry identity.
+   * @param contract - the admission evidence to attach.
+   */
+  async supplyStagedContract(id: string, contract: unknown): Promise<void> {
+    const verdict = validateCaptureContract(contract)
+    if (!verdict.ok) {
+      throw new Error(`evolution-memory: staged contract is missing evidence: ${verdict.issues.join('; ')}`)
+    }
+    const located = this.findStaged(id)
+    if (located === undefined) throw stagedNotFound(id)
+    if (located.entry.kind !== 'skill') {
+      throw new Error(`evolution-memory: staged entry '${id}' is not a skill proposal`)
+    }
+    await this.requireTable().update(located.scope, (record) => {
+      const target = record.staged.find(candidate => candidate.id === id)
+      if (target === undefined) throw stagedNotFound(id)
+      const current = target.payload
+      if (typeof current !== 'object' || current === null || Array.isArray(current)) {
+        throw new Error(`evolution-memory: staged skill proposal '${id}' payload must be an object to carry a contract`)
+      }
+      const now = new Date().toISOString()
+      return {
+        ...record,
+        staged: record.staged.map(candidate => candidate.id === id
+          ? { ...candidate, payload: { ...current, contract: contractJson(verdict.contract) }, blockedReason: null, neededEvidence: [] }
+          : candidate),
         updatedAt: now,
       }
     })

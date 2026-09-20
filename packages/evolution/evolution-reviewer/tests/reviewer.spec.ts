@@ -2102,7 +2102,24 @@ describe('evolution reviewer', () => {
           kind: 'skill',
           op: 'create',
           originSessionId: String(session.id),
+          recurrence: 1,
         })
+        expect(typeof skillStage?.mergeKey).toBe('string')
+      })
+      // A second firing proposes the same candidate again: recurrence bumps,
+      // no duplicate is staged.
+      const mergeKey = origRead(id)?.staged.find(entry => entry.kind === 'skill')?.mergeKey
+      const secondOut = join(h.dir, 'second.ts')
+      await writeFile(secondOut, 'export const y = 2\n')
+      appendTurn(session, 2, {
+        user: 'write second.ts',
+        assistant: 'ok',
+        calls: [{ name: 'write', args: JSON.stringify({ file_path: secondOut }) }],
+      })
+      await vi.waitFor(() => {
+        const record = origRead(id)
+        expect(record?.staged.filter(entry => entry.kind === 'skill')).toHaveLength(1)
+        expect(record?.staged.find(entry => entry.kind === 'skill')).toMatchObject({ mergeKey, recurrence: 2 })
       })
     } finally {
       await h.fiber.dispose()

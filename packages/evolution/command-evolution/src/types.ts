@@ -71,6 +71,10 @@ export interface TimelinePending {
   originSessionId: string
   /** ISO-8601 instant the entry was staged. */
   createdAt: string
+  /** Why approval is blocked, or null when it is not. */
+  blockedReason?: string | null
+  /** Evidence that would unblock approval. */
+  neededEvidence?: readonly string[]
 }
 
 /** The scope's journey over one range. */

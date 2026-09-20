@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-evolution-feedback` turns failing tool results into durable per-session observations and aggregates them into the natural-language feedback the learning loop reads. It observes `session/event` as delivered, records only a failing `tool/result` whose tool call it saw, counts a repeat instead of appending it twice, and keeps the newest `maxEntries` per session. Nothing calls a model. `summary` merges several sessions by tool and message, counting how many sessions reported each failure, so a fault seen once in four sessions outranks one repeated four times in a single session. `signals` grades that same aggregation: a failure whose own call was never observed only observes, one reported by `triggerReviewSessions` distinct sessions triggers a review, and anything in between ranks without deciding.
+`dsh-evolution-feedback` turns failing tool results into durable per-session observations and aggregates them into the natural-language feedback the learning loop reads. It observes `session/event` as delivered, records only a failing `tool/result` whose tool call it saw, counts a repeat instead of appending it twice, and keeps the newest `maxEntries` per session. Nothing calls a model. `summary` merges several sessions by tool and message, counting how many sessions reported each failure, so a fault seen once in four sessions outranks one repeated four times in a single session. `signals` grades that same aggregation: a failure whose own call was never observed only observes, one reported by `triggerReviewSessions` distinct sessions triggers a review, and anything in between ranks without deciding. `reflect` returns the same failures as structured reflections — the ledger-derived symptom, violated expectation, observed behavior, and confidence merged with the analyst-recorded root cause and corrected strategy — and `recordReflection` stores that analysis.
 
 ## Table of Contents
 
@@ -38,6 +38,19 @@ for (const failure of failures) {
 const signals = ctx.evolutionFeedback.signals(workspace.sessionIds, 10)
 const decisive = signals.find(signal => signal.actionability === 'trigger_review')
 ```
+
+```ts
+const reflections = ctx.evolutionFeedback.reflect(workspace.sessionIds, 10)
+for (const reflection of reflections) {
+  console.log(`${reflection.symptom}: expected ${reflection.violatedExpectation} (confidence ${reflection.confidence})`)
+}
+await ctx.evolutionFeedback.recordReflection(reflections[0]!.failureId, {
+  rootCause: 'the skill suggests a flag this shell lacks',
+  correctedStrategy: 'probe the flag before using it',
+})
+```
+
+A reflection's analytic fields stay null until `recordReflection` states them, so a reader never mistakes missing analysis for measured fact. A repeated session id in the input counts once, and an unknown one reports nothing.
 
 A failing result whose `tool/call` was never observed records a null tool, and one carrying neither text nor a failure code records an empty message — both are real states, not errors. A successful result records nothing. `signals` sorts the graded aggregation, so a decisive signal survives a limit that a merely counted one would fill; `summary` keeps its count ordering.
 
@@ -72,7 +85,7 @@ The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-a
 
 ### Design concept
 
-One durable record per session in storage domain `evolution_feedback`, version `1`, layout `per-record`, table `records`, keyed by session identity. A record holds the session's retained observations newest-first plus the instant of its last write. Observation is derived state: the plugin rebuilds nothing at start-up, so a host restart simply stops observing sessions that already ended and picks up the next ones.
+One durable record per session in storage domain `evolution_feedback`, version `2`, layout `per-record`, table `records`, keyed by session identity. A record holds the session's retained observations newest-first plus the instant of its last write. A second table, `reflections`, holds the analyst-supplied half of one structured reflection per failure merge key — root cause, corrected strategy, reusable condition, anti-pattern, and candidate test — plus its last analysis write. Observation is derived state: the plugin rebuilds nothing at start-up, so a host restart simply stops observing sessions that already ended and picks up the next ones.
 
 An observation is keyed by tool and message. A repeat increments `count`, moves the entry to the front, and leaves the earlier copy out, so a session that hits one fault forty times holds one entry carrying forty.
 
@@ -120,6 +133,7 @@ These limits define when the store is a poor fit. They are current package const
 - **Observation is not retroactive** — only events delivered while the plugin is mounted are recorded; a session that failed before the mount is invisible.
 - **The tool name is best-effort** — a result whose `tool/call` was not observed, or that arrives after its turn ended, records a null tool.
 - **Messages are clipped, not summarized** — a long failure keeps its first `maxMessageChars` characters, so two different long failures can collide on one entry.
+- **Analytic fields need an author** — `reflect` derives the ledger half, but root cause and corrected strategy stay null until something states them; no loop calls `recordReflection` yet, so the dreaming REM phase and reviewer extraction are the intended authors.
 - **Machine-local only** — records live under `$DSH_HOME`, never inside the project directory.
 
 <a id="dev-note"></a>

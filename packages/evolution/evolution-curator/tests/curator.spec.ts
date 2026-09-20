@@ -285,7 +285,131 @@ describe('evolution curator', () => {
     const ctx = new Context()
     const curator = new EvolutionCurator(ctx, {})
     expect(() => curator.lastRunAt()).toThrow('not started yet')
+    expect(() => curator.debt()).toThrow('not started yet')
     await expect(curator.run()).rejects.toThrow('not started yet')
+  })
+
+  it('tracks regression debt while a decisive failure survives across passes', async () => {
+    const trigger = (mergeKey: string, sessions: number): FeedbackSignal => ({
+      tool: 'bash',
+      message: 'command not found',
+      count: 4,
+      sessions,
+      firstAt: 't0',
+      lastAt: 't1',
+      actionability: 'trigger_review',
+      evidenceStatus: 'complete',
+      mergeKey,
+    })
+    const signals = [trigger('bash\0command not found', 2)]
+    const h = await harness({ sources: { writer: 'user-dsh' }, feedSignals: signals })
+    try {
+      await h.telemetry?.markAgentCreated('writer')
+      await h.telemetry?.markUsed('writer', undefined, 'session-1')
+      await h.telemetry?.markUsed('writer', undefined, 'session-2')
+      const at = (now: number) => new Date(now).toISOString()
+      const first = await h.curator.run({ now: T0 })
+      expect(first.regressionDebt).toEqual([{
+        name: 'writer',
+        mergeKey: 'bash\0command not found',
+        message: 'command not found',
+        firstSeenAt: at(T0),
+        lastSeenAt: at(T0),
+        passes: 1,
+        sessions: 2,
+        revision: 0,
+      }])
+      expect(await h.curator.debt()).toEqual(first.regressionDebt)
+      const second = await h.curator.run({ now: T0 + DAY })
+      expect(second.regressionDebt).toMatchObject([{ passes: 2, lastSeenAt: at(T0 + DAY) }])
+      // A revision closes the old debt and opens a fresh one: the new body
+      // has not answered the old failure.
+      await h.telemetry?.markRevised('writer', 'revised body')
+      const third = await h.curator.run({ now: T0 + 2 * DAY })
+      expect(third.regressionDebt).toMatchObject([
+        { passes: 1, revision: 1, firstSeenAt: at(T0 + 2 * DAY) },
+      ])
+      // Silence closes everything the skill carries.
+      signals.splice(0)
+      const fourth = await h.curator.run({ now: T0 + 3 * DAY })
+      expect(fourth.regressionDebt).toEqual([])
+      expect(await h.curator.debt()).toEqual([])
+    } finally {
+      await h.fiber.dispose()
+    }
+  })
+
+  it('orders open debts by passes, sessions, then name and key', async () => {
+    const h = await harness({
+      sources: { writer: 'user-dsh', alpha: 'user-dsh' },
+      feedSignals: [
+        {
+          tool: 'bash', message: 'slow', count: 1, sessions: 2, firstAt: 't0', lastAt: 't1',
+          actionability: 'trigger_review', evidenceStatus: 'complete', mergeKey: 'bash\0slow',
+        },
+        {
+          tool: 'bash', message: 'stuck', count: 1, sessions: 5, firstAt: 't0', lastAt: 't1',
+          actionability: 'trigger_review', evidenceStatus: 'complete', mergeKey: 'bash\0stuck',
+        },
+      ],
+    })
+    try {
+      for (const name of ['writer', 'alpha']) {
+        await h.telemetry?.markAgentCreated(name)
+        await h.telemetry?.markUsed(name, undefined, 'session-1')
+      }
+      // Both debts open on the same pass with equal passes; sessions decides.
+      const report = await h.curator.run({ now: T0 })
+      expect(report.regressionDebt.map(entry => [entry.name, entry.mergeKey, entry.passes, entry.sessions])).toEqual([
+        ['alpha', 'bash\0stuck', 1, 5],
+        ['writer', 'bash\0stuck', 1, 5],
+        ['alpha', 'bash\0slow', 1, 2],
+        ['writer', 'bash\0slow', 1, 2],
+      ])
+    } finally {
+      await h.fiber.dispose()
+    }
+  })
+
+  it('writes no debt on a dry run', async () => {
+    const h = await harness({ sources: { writer: 'user-dsh' }, feedFailures: true })
+    try {
+      await h.telemetry?.markAgentCreated('writer')
+      await h.telemetry?.markUsed('writer', undefined, 'session-1')
+      await h.telemetry?.markUsed('writer', undefined, 'session-2')
+      const preview = await h.curator.run({ now: T0, dryRun: true })
+      expect(preview.regressionDebt).toEqual([])
+      expect(await h.curator.debt()).toEqual([])
+    } finally {
+      await h.fiber.dispose()
+    }
+  })
+
+  it('leaves trust and debt untouched when the feedback read fails', async () => {
+    const h = await harness({ sources: { writer: 'user-dsh' }, feedFailures: true })
+    try {
+      await h.telemetry?.markAgentCreated('writer')
+      await h.telemetry?.markUsed('writer', undefined, 'session-1')
+      const warn = vi.spyOn(h.ctx.logger, 'warn').mockImplementation(() => {})
+      const feedback = h.ctx.get('evolutionFeedback') as unknown as {
+        signals: (...args: unknown[]) => never
+      }
+      vi.spyOn(feedback, 'signals').mockImplementation(() => {
+        throw new Error('feedback offline')
+      })
+      try {
+        const report = await h.curator.run({ now: T0 })
+        expect(report.scanned).toBe(1)
+        expect(report.regressionDebt).toEqual([])
+        expect(await h.curator.debt()).toEqual([])
+        expect(h.telemetry?.read('writer')).toMatchObject({ trustFailures: 0 })
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining("could not read failures for 'writer'"))
+      } finally {
+        warn.mockRestore()
+      }
+    } finally {
+      await h.fiber.dispose()
+    }
   })
 
   it('seeds the bookkeeping at start-up and defers one interval', async () => {

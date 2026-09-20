@@ -1124,13 +1124,46 @@ describe('/skills human command', () => {
       test.workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: test.dir, sessionIds: [session.id] })
       const staged = await test.ctx.evolutionMemory.stageWrite({
         scopeId: id, kind: 'skill', op: 'create',
-        payload: { name: 'polish' }, originSessionId: 's2', gist: 'new skill polish',
+        payload: {
+          name: 'polish',
+          contract: {
+            capability: 'polish prose',
+            procedureRefs: ['/w/draft.md'],
+            validationRefs: ['session s2 replay'],
+            validationSummary: 'replay passed',
+            limitations: 'none known',
+          },
+        }, originSessionId: 's2', gist: 'new skill polish',
       })
       expect((await run(test, session, `/skills approve ${staged.id}`)).result).toEqual({
         kind: 'success',
         text: 'Approved staged skill create (new skill polish). The skill file itself is written by skill_manage; approve only after that write landed.',
       })
       expect(test.ctx.evolutionMemory.read(id)?.staged).toEqual([])
+    } finally {
+      await shutdown(test)
+    }
+  })
+
+  it('reports what evidence a blocked skill proposal is missing', async () => {
+    const test = await harness()
+    try {
+      const session = sessionIn(test.ctx, test.dir, 'skills-blocked')
+      const id = test.scope('ws-1')
+      test.workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: test.dir, sessionIds: [session.id] })
+      const staged = await test.ctx.evolutionMemory.stageWrite({
+        scopeId: id, kind: 'skill', op: 'create',
+        payload: { name: 'polish' }, originSessionId: 's2', gist: 'new skill polish',
+      })
+      const result = (await run(test, session, `/skills approve ${staged.id}`)).result
+      expect(result).toEqual({
+        kind: 'error',
+        text: `Cannot approve '${staged.id}' (evolution/staged-blocked): staged evolution write '${staged.id}' is blocked: contract must be an object. The entry stays staged.`,
+      })
+      expect(test.ctx.evolutionMemory.read(id)?.staged[0]).toMatchObject({
+        blockedReason: 'capture-contract',
+        neededEvidence: ['contract must be an object'],
+      })
     } finally {
       await shutdown(test)
     }
@@ -1750,12 +1783,14 @@ describe('/curator human command', () => {
         operators: ['rewrite', 'compress'],
         winnerOperator: 'compress',
         stagedId: 'staged-4',
+        addedLines: 3,
+        removedLines: 1,
         confidence: { runs: 2, wins: 2 },
         reason: null,
       }]
       expect((await run(test, session, '/curator experiments')).result).toEqual({
         kind: 'success',
-        text: 'Experiments (newest first): 1\n2026-09-15T10:00:00.000Z writer: staged [rewrite+compress] staged-4 via compress 2/2',
+        text: 'Experiments (newest first): 1\n2026-09-15T10:00:00.000Z writer: staged [rewrite+compress] staged-4 via compress +3/-1 2/2',
       })
       rows = [{
         at: '2026-09-15T10:00:00.000Z',

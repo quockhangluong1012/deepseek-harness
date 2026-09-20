@@ -39,6 +39,10 @@ Every pass also stages skills whose recorded outcome says the skill is not worki
 
 The counters in the entry are the dedupe key, so a skill still failing at counters already on the ledger is not re-appended — the ledger grows only when the skill was used again. `staged` reads the newest entry per skill, worst failure rate first with ties by ascending name, and the pass report names what it staged. `backup.enabled` gates the write, as it does every other ledger write in this package.
 
+### Regression debt
+
+Every pass also maintains one open debt per decisive failure per skill, in the `debt` table of the `evolution_curator` domain (version 2). A `trigger_review` signal for a new merge key opens a debt counting consecutive passes; a repeated sighting deepens it (`passes`, newest message, most reporting sessions); a revision closes the old debt and opens a fresh one, because the new body has not answered the old failure; a failure gone silent closes its debt even while another persists. `debt()` lists every open debt — most passes, then most sessions, then name and merge key — and the pass report carries the same list. Dry runs write nothing. Debt is the regression backlog the loop has not answered: it names failures, not verdicts, so consolidation and future benchmark growth read what to aim at rather than what was decided.
+
 ### Configuration
 
 Intervals, thresholds, retention, and the consolidation route are validated `Config` members changeable from `cordis.yml`. An archive threshold below the stale threshold fails loudly, as does a half-set `provider`/`model` pair or an opted-in consolidation without both.

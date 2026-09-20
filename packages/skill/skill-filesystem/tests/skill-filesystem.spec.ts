@@ -1214,6 +1214,37 @@ describe('FileSystemSkillProvider', () => {
     }
   })
 
+  it('parses skill prerequisites without warning and drops a malformed list', async () => {
+    const home = await tempDir('skill-requires-parse')
+    const root = join(home, '.dsh/skills')
+    await writeFrontmatterSkill(root, 'composed-skill', ['requires: [base-skill]'])
+    await writeFrontmatterSkill(root, 'base-skill', [])
+    await writeFrontmatterSkill(root, 'broken-skill', ['requires: base-skill'])
+
+    const ctx = await setupLocal(home)
+    const warn = vi.spyOn(ctx.logger, 'warn')
+    try {
+      expect((await ctx.skills.list()).map(skill => skill.name).sort())
+        .toEqual(['base-skill', 'broken-skill', 'composed-skill'])
+      const summaries = await ctx.skills.list()
+      expect(summaries.find(skill => skill.name === 'composed-skill')).toMatchObject({ requires: ['base-skill'] })
+      expect(summaries.find(skill => skill.name === 'base-skill')).not.toHaveProperty('requires')
+      expect(await ctx.skills.get('composed-skill')).toMatchObject({ requires: ['base-skill'] })
+      expect(await ctx.skills.get('broken-skill')).not.toHaveProperty('requires')
+      // The malformed file warns on every parse — once for the listing, once
+      // for the load above (the second listing reads the discovery cache) —
+      // and nothing else warns.
+      const warnings = warn.mock.calls.map(([message]) => String(message))
+      expect(warnings).toHaveLength(2)
+      for (const warning of warnings) {
+        expect(warning).toContain(join(root, 'broken-skill.md'))
+        expect(warning).toContain('"requires"')
+      }
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
   it('drops a malformed blueprint with one warning and still loads the skill', async () => {
     const home = await tempDir('skill-blueprint-malformed')
     const root = join(home, '.dsh/skills')

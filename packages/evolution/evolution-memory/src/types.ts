@@ -26,6 +26,8 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     'evolution/item-not-found': { readonly itemId: string }
     /** No staged write carries that id. */
     'evolution/staged-not-found': { readonly stagedId: string }
+    /** A staged skill proposal lacks the admission evidence approval needs. */
+    'evolution/staged-blocked': { readonly stagedId: string; readonly neededEvidence: readonly string[] }
     /** The rebuild could not produce a document. */
     'evolution/extraction-failed': { readonly scopeId: string }
   }
@@ -148,6 +150,36 @@ export interface StagedWrite {
   originSessionId: string
   createdAt: string
   gist: string
+  /**
+   * Merge identity for candidate dedupe: re-staging the same key while an
+   * entry is pending bumps `recurrence` instead of appending a duplicate, so
+   * a repeatedly proposed candidate is remembered, not silently retried.
+   * Null opts out of dedupe.
+   */
+  mergeKey: string | null
+  /** Times this merge key was staged while pending, starting at 1. */
+  recurrence: number
+  /**
+   * Why approval is currently blocked, or null when it is not. A blocked
+   * entry stays pending; approving again retries the gate.
+   */
+  blockedReason: string | null
+  /** Evidence that would unblock approval, most decisive first. */
+  neededEvidence: readonly string[]
+}
+
+/** Admission evidence a skill proposal must carry before approval. */
+export interface CaptureContract {
+  /** What the skill does, in one line. */
+  capability: string
+  /** Procedural evidence the skill was derived from, e.g. produced paths. */
+  procedureRefs: readonly string[]
+  /** Validation evidence independent of the procedure refs. */
+  validationRefs: readonly string[]
+  /** What the independent validation showed. */
+  validationSummary: string
+  /** Known limits and exceptions of the skill. */
+  limitations: string
 }
 
 /** One decided staged entry, kept so the journey can count approvals and rejections. */
@@ -161,6 +193,10 @@ export interface StagedResolution {
   /** ISO-8601 instant of the decision. */
   at: string
   originSessionId: string
+  /** Merge identity the entry carried, or null when it opted out of dedupe. */
+  mergeKey: string | null
+  /** Times the merge key was staged while pending. */
+  recurrence: number
 }
 
 /** Caller-supplied payload for {@link EvolutionMemoryStore.stageWrite}. */
@@ -172,6 +208,12 @@ export interface StagedWriteInput {
   payload: JsonValue
   originSessionId: string
   gist: string
+  /**
+   * Merge identity for candidate dedupe. When an entry carrying the same key
+   * is still pending in the scope, staging bumps its `recurrence` instead of
+   * appending a duplicate. Omit for no dedupe.
+   */
+  mergeKey?: string
 }
 
 /** Durable per-scope evolution memory document stored in the `evolution_memory` domain. */

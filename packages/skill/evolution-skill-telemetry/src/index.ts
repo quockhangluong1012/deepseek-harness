@@ -52,7 +52,7 @@ export const SKILL_CREATION_OUTPUT_THRESHOLD = 3
 export function skillCreationEvidence(paths: readonly string[]): SkillCreationEvidence {
   const groups = new Map<string, { path: string; count: number }>()
   for (const path of paths) {
-    const key = path.replaceAll('\\', '/').replace(/\/+$/, '').toLowerCase()
+    const key = normalizeOutputPath(path)
     const found = groups.get(key)
     if (found === undefined) groups.set(key, { path, count: 1 })
     else found.count += 1
@@ -79,6 +79,31 @@ declare module '@deepseek-ai/cordis' {
  */
 export function isExcludedSkillSource(source: string): boolean {
   return source === 'bundled' || source.startsWith('hub')
+}
+
+/**
+ * Normalize one produced path the way {@link skillCreationEvidence} groups
+ * it: case-folded, with `\` and `/` treated alike and trailing separators
+ * ignored. One function defines the shape so the evidence counter and the
+ * proposal merge key can never drift apart.
+ * @param path - produced-file path in observation order.
+ * @returns the grouping key.
+ */
+function normalizeOutputPath(path: string): string {
+  return path.replaceAll('\\', '/').replace(/\/+$/, '').toLowerCase()
+}
+
+/**
+ * Build the candidate merge key for one skill proposal from the produced
+ * paths its evidence fired on. The same outputs always produce the same key
+ * regardless of observation order, so re-staging the proposal while it is
+ * pending bumps its recurrence instead of duplicating it.
+ * @param paths - produced-file paths the evidence fired on.
+ * @returns the merge key to stage the proposal under.
+ */
+export function skillProposalMergeKey(paths: readonly string[]): string {
+  if (paths.length === 0) throw new Error('evolution skill telemetry needs at least one path for a proposal merge key')
+  return `skill-create:${[...paths].map(normalizeOutputPath).sort().join('\n')}`
 }
 
 /** Deployment choices for the telemetry store. */

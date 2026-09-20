@@ -136,6 +136,8 @@ interface ParsedSkill extends SkillText {
   fallbackForTools?: readonly string[]
   /** Frontmatter `fallback_for_toolsets`: the skill hides while any named toolset is mounted. */
   fallbackForToolsets?: readonly string[]
+  /** Frontmatter `requires`: prerequisite skill names that must route alongside this one. */
+  requires?: readonly string[]
   /** Frontmatter `blueprint`, dropped when malformed. */
   blueprint?: SkillBlueprint
 }
@@ -287,6 +289,7 @@ export class FileSystemSkillProvider implements SkillProvider {
       path: parsed.path,
       ...parsed.metadata !== undefined ? { metadata: parsed.metadata } : {},
       ...parsed.requiredEnv !== undefined ? { requiredEnv: parsed.requiredEnv } : {},
+      ...parsed.requires !== undefined ? { requires: parsed.requires } : {},
       ...parsed.config !== undefined ? { config: parsed.config } : {},
       blueprint: parsed.blueprint,
       content: parsed.content,
@@ -1035,6 +1038,7 @@ async function discoverRoot(root: SkillRoot, ctx: Context, provider: string, opt
       name: parsed.name,
       description: parsed.description,
       ...parsed.whenToUse !== undefined ? { whenToUse: parsed.whenToUse } : {},
+      ...parsed.requires !== undefined ? { requires: parsed.requires } : {},
       invocation: parsed.invocation,
       provider,
       source: root.source,
@@ -1336,7 +1340,7 @@ function invocationFrontmatterKeys(): Record<string, true> {
 }
 
 /** `ParsedSkill` fields fed by frontmatter keys sharing the non-empty string-array shape. */
-type StringListField = 'requiredEnv' | 'platforms' | 'requiresTools' | 'requiresToolsets' | 'fallbackForTools' | 'fallbackForToolsets'
+type StringListField = 'requiredEnv' | 'platforms' | 'requiresTools' | 'requiresToolsets' | 'fallbackForTools' | 'fallbackForToolsets' | 'requires'
 
 /**
  * Frontmatter key to `ParsedSkill` field for every non-empty string-array
@@ -1350,6 +1354,7 @@ const STRING_LIST_FRONTMATTER_FIELDS = [
   ['requires_toolsets', 'requiresToolsets'],
   ['fallback_for_tools', 'fallbackForTools'],
   ['fallback_for_toolsets', 'fallbackForToolsets'],
+  ['requires', 'requires'],
 ] as const satisfies readonly (readonly [string, StringListField])[]
 
 /** Top-level frontmatter keys this provider consumes; any other key warns once and is ignored. */

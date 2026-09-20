@@ -1,0 +1,288 @@
+/**
+ * Behavior evaluation over skill candidates: the frontmatter contract gate,
+ * positive/negative trigger-query routing through the real selector, and the
+ * baseline-vs-candidate replay comparison with its early stop. Cheap gates
+ * are covered as pure unit cases; the service suite drives replay through
+ * scripted runners over a one-scenario on-disk corpus, so no gate pays for
+ * a fresh process it never needed.
+ */
+
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { cp, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { Context } from '@deepseek-ai/cordis'
+import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
+import TokenMeter from '@deepseek-ai/dsh-token-meter'
+import { captureWorkspaceSnapshot } from '@deepseek-ai/dsh-session-snapshot'
+import type { AgentUnderTest, RunOptions, RunResult } from '@deepseek-ai/dsh-session-snapshot'
+import { buildSkillFile } from '@deepseek-ai/dsh-evolution-skill-manage'
+import EvolutionScorer from '../src/index.ts'
+import { checkBehaviorContract, checkBehaviorRouting, compareBehaviorReplay } from '../src/behavior.ts'
+import type { BehaviorCatalogSkill, ScenarioRunner, SkillScore } from '../src/types.ts'
+
+/** The composition the runners would boot; the scripted runners never read it. */
+const AGENT: AgentUnderTest = { binScript: 'unused-bin', configPath: 'unused-cordis.yml', tsconfigPath: 'unused-tsconfig.json' }
+
+const CANDIDATE = 'polish'
+
+function validBody(): string {
+  return buildSkillFile(CANDIDATE, 'Polishes prose.', 'Do it.')
+}
+
+/** Routing catalog: the candidate among distractors, with revision keys. */
+const CATALOG: BehaviorCatalogSkill[] = [
+  { name: CANDIDATE, text: 'polish prose drafts', revisionKey: 'r2', signal: { trusted: true, useCount: 3, failureCount: 0 } },
+  { name: 'deploy', text: 'ships code to production', revisionKey: 'r1' },
+  { name: 'release', text: 'ship code fast', revisionKey: 'r1' },
+  { name: 'rollback', text: 'ship code safely', revisionKey: 'r1' },
+]
+
+let root = ''
+let corpus = ''
+let runs = 0
+
+function scorer(): EvolutionScorer {
+  const ctx = new Context()
+  new SessionProjectionRegistry(ctx)
+  new TokenMeter(ctx)
+  return new EvolutionScorer(ctx, { corpusDir: corpus, attempts: 1 })
+}
+
+function offlineScorer(): EvolutionScorer {
+  const ctx = new Context()
+  new SessionProjectionRegistry(ctx)
+  new TokenMeter(ctx)
+  return new EvolutionScorer(ctx, { corpusDir: join(root, 'absent'), attempts: 1 })
+}
+
+async function scriptedRun(outcome: 'pass' | 'fail', options: RunOptions): Promise<RunResult> {
+  runs += 1
+  const cwd = await mkdtemp(join(root, 'attempt-'))
+  if (options.workspaceDir !== undefined) await cp(options.workspaceDir, cwd, { recursive: true })
+  if (outcome === 'pass') await writeFile(join(cwd, 'note.txt'), 'expected\n')
+  const captured = await captureWorkspaceSnapshot(cwd)
+  return {
+    rawStdout: '',
+    stderr: '',
+    cwd,
+    cwdAliases: [],
+    initialWorkspace: captured,
+    finalWorkspace: captured,
+    sessionLogs: [],
+  }
+}
+
+const passRunner: ScenarioRunner = (_script, options) => scriptedRun('pass', options)
+const failRunner: ScenarioRunner = (_script, options) => scriptedRun('fail', options)
+
+beforeEach(async () => {
+  runs = 0
+  root = await mkdtemp(join(tmpdir(), 'evolution-behavior-'))
+  corpus = join(root, 'corpus')
+  const files: Record<string, string> = {
+    'input.json': '{ "steps": [] }',
+    'session.jsonl': '',
+    'workspace/note.txt': 'seed\n',
+    'workspace.expected/note.txt': 'expected\n',
+  }
+  for (const [relative, content] of Object.entries(files)) {
+    const target = join(corpus, 'edit', relative)
+    await mkdir(join(target, '..'), { recursive: true })
+    await writeFile(target, content)
+  }
+})
+
+afterEach(async () => {
+  await rm(root, { recursive: true, force: true })
+})
+
+describe('checkBehaviorContract', () => {
+  it('admits a committable body', () => {
+    expect(checkBehaviorContract(CANDIDATE, validBody())).toEqual({ ok: true, issues: [] })
+  })
+
+  it('refuses a body without frontmatter', () => {
+    expect(checkBehaviorContract(CANDIDATE, 'plain text')).toEqual({ ok: false, issues: ['body has no frontmatter'] })
+  })
+
+  it('refuses a body that renames the skill', () => {
+    const verdict = checkBehaviorContract(CANDIDATE, buildSkillFile('other', 'Other skill.', 'Do it.'))
+    expect(verdict).toEqual({ ok: false, issues: [`skill "${CANDIDATE}" frontmatter must keep name "${CANDIDATE}"`] })
+  })
+})
+
+describe('checkBehaviorRouting', () => {
+  it('routes positives inside the window and keeps negatives outside', () => {
+    const gate = checkBehaviorRouting(CANDIDATE, CATALOG, ['polish prose'], ['ship code'], 3)
+    expect(gate.ok).toBe(true)
+    expect(gate.checks).toEqual([
+      { query: 'polish prose', expected: 'route', rank: 1, ok: true },
+      { query: 'ship code', expected: 'avoid', rank: 4, ok: true },
+    ])
+    expect(gate.revisions).toEqual([
+      { name: 'polish', revisionKey: 'r2' },
+      { name: 'deploy', revisionKey: 'r1' },
+      { name: 'release', revisionKey: 'r1' },
+      { name: 'rollback', revisionKey: 'r1' },
+    ])
+  })
+
+  it('fails a positive the candidate misses and a negative it hijacks', () => {
+    const missed = checkBehaviorRouting(CANDIDATE, CATALOG, ['ship code fast'], ['ship code'], 1)
+    expect(missed.ok).toBe(false)
+    expect(missed.checks[0]).toMatchObject({ expected: 'route', rank: 4, ok: false })
+    const hijacked = checkBehaviorRouting(CANDIDATE, CATALOG, ['polish prose'], ['polish'], 3)
+    expect(hijacked.ok).toBe(false)
+    expect(hijacked.checks[1]).toMatchObject({ expected: 'avoid', rank: 1, ok: false })
+  })
+
+  it('refuses a catalog without the candidate and a non-positive window', () => {
+    expect(() => checkBehaviorRouting('absent', CATALOG, ['x'], [], 3)).toThrow("needs the candidate 'absent'")
+    expect(() => checkBehaviorRouting(CANDIDATE, CATALOG, ['x'], [], 0)).toThrow('positive integer')
+    expect(() => checkBehaviorRouting(CANDIDATE, CATALOG, ['x'], [], 1.5)).toThrow('positive integer')
+  })
+
+  it('fails every positive when the candidate requires a skill outside the catalog', () => {
+    const catalog = CATALOG.map(entry =>
+      entry.name === CANDIDATE ? { ...entry, requires: ['missing-base'] as const } : entry)
+    const gate = checkBehaviorRouting(CANDIDATE, catalog, ['polish prose'], ['ship code'], 3)
+    expect(gate.ok).toBe(false)
+    // Zero score sorts after every positive scorer, so the candidate ranks last.
+    expect(gate.checks[0]).toMatchObject({ expected: 'route', rank: 4, ok: false })
+  })
+
+  it('keeps routing when the required skill is in the catalog', () => {
+    const catalog = CATALOG.map(entry =>
+      entry.name === CANDIDATE ? { ...entry, requires: ['deploy'] as const } : entry)
+    const gate = checkBehaviorRouting(CANDIDATE, catalog, ['polish prose'], ['ship code'], 3)
+    expect(gate.ok).toBe(true)
+    expect(gate.checks[0]).toMatchObject({ expected: 'route', rank: 1, ok: true })
+  })
+})
+
+describe('compareBehaviorReplay', () => {
+  function triple(pass: boolean, scenario: string): SkillScore {
+    return {
+      skill: CANDIDATE,
+      pass,
+      tokens: 10,
+      wallTimeMs: 5,
+      scores: [{ scenario, pass, changes: [], tokens: 10, wallTimeMs: 5, samples: [5] }],
+    }
+  }
+
+  it('approves parity on shared failures and improvements alike', () => {
+    const parity = compareBehaviorReplay(triple(false, 's'), triple(false, 's'))
+    expect(parity).toMatchObject({ ok: true, regressions: [], tokenDelta: 0 })
+    const improved = compareBehaviorReplay(triple(false, 's'), triple(true, 's'))
+    expect(improved.ok).toBe(true)
+  })
+
+  it('names scenarios the baseline passed that the candidate failed', () => {
+    const regressed = compareBehaviorReplay(triple(true, 's'), triple(false, 's'))
+    expect(regressed).toMatchObject({ ok: false, regressions: ['s'] })
+  })
+})
+
+describe('EvolutionScorer.evaluateBehavior', () => {
+  it('stops before replay when the contract gate fails', async () => {
+    const evaluation = await offlineScorer().evaluateBehavior({
+      baseline: { skill: CANDIDATE, scenarios: ['edit'], agent: AGENT, run: failRunner },
+      candidate: { skill: CANDIDATE, scenarios: ['edit'], agent: AGENT, run: passRunner },
+      candidateBody: { name: CANDIDATE, body: 'no frontmatter here' },
+      catalog: CATALOG.slice(0, 2),
+      positiveQueries: ['polish prose'],
+      negativeQueries: ['ship code'],
+      routingTopK: 1,
+    })
+    expect(evaluation.status).toBe('gated')
+    if (evaluation.status !== 'gated') throw new Error('expected the evaluation to stop before replay')
+    expect(evaluation.reason).toContain('contract gate failed')
+    expect(evaluation.disagreement)
+      .toEqual({ unanimous: false, approving: ['routing'], dissenting: ['contract'] })
+    expect(runs).toBe(0)
+  })
+
+  it('stops before replay when the routing gate fails', async () => {
+    const evaluation = await offlineScorer().evaluateBehavior({
+      baseline: { skill: CANDIDATE, scenarios: ['edit'], agent: AGENT, run: failRunner },
+      candidate: { skill: CANDIDATE, scenarios: ['edit'], agent: AGENT, run: passRunner },
+      candidateBody: { name: CANDIDATE, body: validBody() },
+      catalog: CATALOG.slice(0, 2),
+      positiveQueries: ['ship code'],
+      negativeQueries: ['ship code fast'],
+      routingTopK: 1,
+    })
+    expect(evaluation.status).toBe('gated')
+    if (evaluation.status !== 'gated') throw new Error('expected the evaluation to stop before replay')
+    expect(evaluation.reason).toBe('routing gate failed')
+    expect(evaluation.disagreement)
+      .toEqual({ unanimous: false, approving: ['contract'], dissenting: ['routing'] })
+    expect(runs).toBe(0)
+  })
+
+  it('skips when a replay composition names no scenarios', async () => {
+    const baselineSkipped = await offlineScorer().evaluateBehavior({
+      baseline: { skill: CANDIDATE, scenarios: [], agent: AGENT, run: failRunner },
+      candidate: { skill: CANDIDATE, scenarios: ['edit'], agent: AGENT, run: passRunner },
+      candidateBody: { name: CANDIDATE, body: validBody() },
+      catalog: CATALOG.slice(0, 2),
+      positiveQueries: ['polish prose'],
+      negativeQueries: ['ship code'],
+      routingTopK: 1,
+    })
+    expect(baselineSkipped.status).toBe('skipped')
+    expect(runs).toBe(0)
+    runs = 0
+    const candidateSkipped = await scorer().evaluateBehavior({
+      baseline: { skill: CANDIDATE, scenarios: ['edit'], agent: AGENT, run: failRunner },
+      candidate: { skill: CANDIDATE, scenarios: [], agent: AGENT, run: passRunner },
+      candidateBody: { name: CANDIDATE, body: validBody() },
+      catalog: CATALOG.slice(0, 2),
+      positiveQueries: ['polish prose'],
+      negativeQueries: ['ship code'],
+      routingTopK: 1,
+    })
+    expect(candidateSkipped.status).toBe('skipped')
+    expect(runs).toBe(1)
+  })
+
+  it('approves a candidate that regresses nothing the baseline proved', async () => {
+    const evaluation = await scorer().evaluateBehavior({
+      baseline: { skill: CANDIDATE, scenarios: ['edit'], agent: AGENT, run: failRunner },
+      candidate: { skill: CANDIDATE, scenarios: ['edit'], agent: AGENT, run: passRunner },
+      candidateBody: { name: CANDIDATE, body: validBody() },
+      catalog: CATALOG,
+      positiveQueries: ['polish prose'],
+      negativeQueries: ['ship code'],
+    })
+    expect(evaluation.status).toBe('evaluated')
+    if (evaluation.status !== 'evaluated') throw new Error('expected a full evaluation')
+    expect(evaluation.approved).toBe(true)
+    expect(evaluation.disagreement)
+      .toEqual({ unanimous: true, approving: ['contract', 'routing', 'replay'], dissenting: [] })
+    expect(evaluation.replay.regressions).toEqual([])
+    expect(evaluation.replay.tokenDelta).toBe(0)
+    expect(runs).toBe(2)
+  })
+
+  it('rejects a candidate that regresses the baseline', async () => {
+    const evaluation = await scorer().evaluateBehavior({
+      baseline: { skill: CANDIDATE, scenarios: ['edit'], agent: AGENT, run: passRunner },
+      candidate: { skill: CANDIDATE, scenarios: ['edit'], agent: AGENT, run: failRunner },
+      candidateBody: { name: CANDIDATE, body: validBody() },
+      catalog: CATALOG,
+      positiveQueries: ['polish prose'],
+      negativeQueries: ['ship code'],
+    })
+    expect(evaluation.status).toBe('evaluated')
+    if (evaluation.status !== 'evaluated') throw new Error('expected a full evaluation')
+    expect(evaluation.approved).toBe(false)
+    expect(evaluation.replay.regressions).toEqual(['edit'])
+    // Routing approved a candidate replay rejects: the split names replay,
+    // the uncertainty signal a future investigation queue would read.
+    expect(evaluation.disagreement)
+      .toEqual({ unanimous: false, approving: ['contract', 'routing'], dissenting: ['replay'] })
+  })
+})
