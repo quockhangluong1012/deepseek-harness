@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-client-ui-evolution` owns the evolution journey page and this package's `evolutionCurator` Remote namespace. The page shows one Scope's recorded evolution over a switchable window (today, 7 days, 30 days, all) with the day buckets the read model proves — instructions, lessons, and profile writes, context attachments, produced files, staged writes, and the staged decisions counted per day — beside the staged writes awaiting a decision, the Scope's current lesson artifacts rendered strongest-first with their confidence, the curator's recorded passes, and the brief's charged bytes against the record's ceiling. Scope verbs live on the Host `ctx.evolutionController` (`evolution` namespace); the curator status face exists here because a browser cannot read a Host Cordis service.
+See one Scope's recorded evolution, and decide the staged writes waiting on you: a switchable window (today, 7 days, 30 days, all) with the day buckets the read model proves — instructions, lessons, and profile writes, context attachments, produced files, staged writes, and per-day decisions — beside the pending staged writes, the Scope's current lessons strongest-first with their confidence, the curator's recorded passes, and the brief's charged bytes against the record's ceiling. Approve or reject a pending write and its row retires in place. Mount it in the Web composition; editing instructions, lessons, and profile stays a CLI job.
 
 ## Table of Contents
 
@@ -70,14 +70,15 @@ The browser half reads two Remote namespaces: the controller's `evolution` (Scop
 <a id="model-experience"></a>
 ## Model Experience
 
-Indirectly, through `@deepseek-ai/dsh-evolution-memory-context`, which renders the scope's brief into the request; this package only displays what those writes recorded.
+None, as the journey page and its curator status face only read recorded evolution state and the curator's counters; nothing this package renders enters a model request.
 
 #### KV Cache effect
 
 Independent of live requests: the package never touches a request prefix, so it cannot invalidate provider cache reuse.
 
-<a id="known-limitations-and-deferred-work"></a>
 ## Known Limitations and Deferred Work
+
+<a id="known-limitations-and-deferred-work"></a>
 
 - **Web only** — the page lives in the web composition; other profiles have no surface.
 - **No journey export or web scenario** — the specification's ZIP export and the `snapshots/web/evolution-journey` scenario are out of scope for this slice; the user waived snapshot work, so the page is verified on the real surface instead.

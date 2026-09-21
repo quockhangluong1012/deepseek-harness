@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Agents can use local skills from the repository, a custom directory, or the user's agent configuration: author a skill as a directory bundle with a `SKILL.md` or a flat `<name>.md` file under any scanned root, and it appears in the session catalog. The provider discovers the project, custom, and user roots, parses each skill's YAML frontmatter, gates each skill on the platform and tools it declares, security-scans project skills before indexing them, and watches the directories, so new, renamed, or deleted skills reach agents without a restart. Choose it when skills live on disk — the registry (`dsh-skill`) accepts any provider, and another provider can supply skills from elsewhere.
+Agents can use local skills from the repository, a custom directory, or the user's agent configuration: author a skill as a directory bundle with a `SKILL.md` or a flat `<name>.md` file under any scanned root, and it appears in the session catalog. Discovery parses each skill's frontmatter, gates it on the platform and tools it declares, security-scans project skills before indexing them, and watches the roots, so added, renamed, or deleted skills reach agents without a restart. Choose it when skills live on disk; project roots index only when listed in `trustedProjectDirs`.
 
 ## Table of Contents
 

@@ -2082,6 +2082,11 @@
       "source": "packages/session/usage-ledger/src/types.ts"
     },
     {
+      "doc": "docs/subsystems/usage-dashboard.md",
+      "symbol": "CacheHitLowEvent",
+      "source": "packages/session/usage-ledger/src/index.ts"
+    },
+    {
       "doc": "docs/subsystems/feedback.md",
       "symbol": "MessageFeedbackListResult",
       "source": "packages/feedback/message-feedback/src/types.ts"

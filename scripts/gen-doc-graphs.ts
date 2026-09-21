@@ -106,6 +106,13 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'Observes the loop and tool waterfalls without owning execution; the session log is its only store, and it composes the sandbox and approval decisions it does not make.',
   },
   {
+    key: 'agentContext',
+    pkg: 'agent-context',
+    title: 'Compiled context provenance',
+    mode: 'core',
+    note: 'Observes the assembly and the kernel view without owning either; it records the placement one model step was compiled from and, in apply mode, removes the compressible sources a ceiling cut.',
+  },
+  {
     key: 'attachments',
     pkg: 'attachment',
     title: 'Durable binary attachment storage',

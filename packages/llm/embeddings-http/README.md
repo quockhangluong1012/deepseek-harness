@@ -88,7 +88,7 @@ A rejected HTTP status reports the status and a bounded slice of the body. A bod
 
 #### What the model sees
 
-One request per batch carrying the resolved model and the texts to embed, as the endpoint's own JSON body. No conversation, prompt section, or tool schema reaches it.
+One `POST` per batch carrying the resolved model and the texts to embed, as the endpoint's own `{ model, input }` JSON body. No conversation, prompt section, or tool schema reaches it.
 
 #### Token effect
 

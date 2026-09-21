@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-The `runtime/` group holds packages that govern what the existing execution substrate does without owning any of it. `agent-kernel` derives one durable task contract per session from the session log, records a proposal and decision for every tool call, composes the deployment's permission document with the technical sandbox and the human approval answerers, and decides completion only when the task's required acceptance criteria pass. It mounts nothing by default and ships in no profile yet, so a deployment opts in per composition.
+The `runtime/` group holds packages that govern what the existing execution substrate does without owning any of it. `agent-kernel` derives one durable task contract per session, records a proposal and decision for every tool call, composes the permission document with the sandbox and the approval answerers, and gates completion on the required acceptance criteria. `agent-context` wraps every assembled prompt contribution and durable task fact in a source envelope, records the placement digest each model step was compiled from, and can drop compressible sources past a token ceiling. Neither mounts by default yet, so a deployment opts in per composition.
 
 ## Table of Contents
 
@@ -22,11 +22,12 @@ The `runtime/` group holds packages that govern what the existing execution subs
 <a id="packages"></a>
 ## Packages
 
-One package covers the control plane. Its README explains when to mount it, how to read the records it writes, and what it deliberately does not own.
+Two packages cover the control plane and the context it compiles. Their READMEs explain when to mount them, how to read the records they write, and what they deliberately do not own.
 
 | Package | What it provides |
 |---|---|
 | [`agent-kernel/`](agent-kernel/README.md) | One durable task contract per session, an action ledger over the tool pipeline, a capability permission engine composed with the sandbox and the approval answerers, and a completion gate |
+| [`agent-context/`](agent-context/README.md) | Source envelopes over the assembled prompt contributions and the durable task facts, a total placement order, conflict reports, token-budget fitting, and a replayable placement digest recorded per model step |
 
 -----
 
@@ -36,6 +37,7 @@ One package covers the control plane. Its README explains when to mount it, how 
 Start with the agent-kernel subsystem reference for the vocabulary and the generated Cordis API, then the seams the kernel observes rather than replaces.
 
 - [Agent kernel subsystem reference](../../docs/subsystems/agent-kernel.md) — task contracts, the action ledger, the permission document, the completion gate, and the durable event families.
+- [Context compiler subsystem reference](../../docs/subsystems/agent-context.md) — the source envelope, the placement record, and the ranking, pricing, and digest contracts.
 - [Tools subsystem reference](../../docs/subsystems/tools.md) — the waterfalls the ledger is built on, and the decisions the kernel returns to them.
 - [Architecture map](../../docs/architecture.md) — the ownership table the kernel is forbidden to duplicate.
 

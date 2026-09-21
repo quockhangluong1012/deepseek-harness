@@ -41,6 +41,9 @@ export type CheckpointId = Branded<'CheckpointId'>
 /** Identity of one recorded failure. */
 export type FailureId = Branded<'FailureId'>
 
+/** Identity of one issued delegation receipt. */
+export type DelegationId = Branded<'DelegationId'>
+
 /**
  * How far content or a decision may be trusted. Untrusted content is data: it
  * never becomes an instruction authority and never widens a grant.
@@ -393,6 +396,12 @@ export interface PolicyContext {
   readonly undeclared: boolean
   /** The implementation's technical boundary for this call. */
   readonly sandbox: SandboxExecutionPolicy
+  /**
+   * The delegation a child agent acts under, absent for a root agent. A child
+   * can never widen it: a capability, resource, or depth the receipt withholds
+   * is refused no matter what the rules or the state say.
+   */
+  readonly parentGrant?: DelegationReceipt
 }
 
 /**
@@ -434,6 +443,12 @@ export interface AuthorizationDecision {
    * a shadow finding, not a grant.
    */
   readonly enforced: boolean
+  /**
+   * The delegation the action ran under, when the acting agent is a child. A
+   * refusal names the receipt that withheld it, so an audit can tell a
+   * delegation refusal from a rule refusal without folding the log again.
+   */
+  readonly delegationId?: DelegationId
   /** Why the authorization came out this way. */
   readonly reasons: readonly string[]
 }
@@ -578,6 +593,46 @@ export interface RecoveryDecision {
   readonly at: number
 }
 
+/**
+ * The authority one parent run delegates to one child run. The kernel writes
+ * the receipt into the child's own log before its first step, so a replay
+ * reconstructs the child's authority without the parent's session.
+ *
+ * A receipt only ever withholds. Child authority is the intersection of this
+ * grant with the child's profile, the deployment rules, and the child's own
+ * sandbox, so a child cannot widen its permissions by choosing another
+ * provider or by emitting a policy-like message.
+ */
+export interface DelegationReceipt {
+  /** Identity of this receipt. */
+  readonly delegationId: DelegationId
+  /** Child run the receipt was issued to. */
+  readonly childRunId: RunId
+  /** Parent run that delegated, when the parent's task was resolvable. */
+  readonly parentRunId?: RunId
+  /** Parent task the child descends from, when the parent's task was resolvable. */
+  readonly parentTaskId?: TaskId
+  /** Durable parent session named by the child session's header. */
+  readonly parentSessionId: SessionId
+  /** Capabilities the child may use. An action needing another one is refused. */
+  readonly allowedCapabilities: readonly Capability[]
+  /** Ceilings the child's task contract starts with, inherited from the parent. */
+  readonly resourceLimits: ResourceBudget
+  /** Directories a mutating capability may target; empty refuses every mutation. */
+  readonly writableScopes: readonly string[]
+  /**
+   * Digest of the permission document the grant was computed under, so a
+   * reader can tell whether the child ran under the rules the parent did.
+   */
+  readonly inheritedPolicyDigest: string
+  /** Delegation depth of the child: its parent's depth plus one. */
+  readonly depth: number
+  /** Deepest depth the parent's budget admits, when it declared one. */
+  readonly maxDepth?: number
+  /** Unix epoch milliseconds the receipt was issued. */
+  readonly at: number
+}
+
 /** What one criterion's verification observed. */
 export interface CriterionResult {
   /** Identity of the criterion this result answers. */
@@ -717,6 +772,8 @@ export interface KernelView {
   readonly plan?: PlanRevision
   /** Latest recorded checkpoint, when the task has one. */
   readonly checkpoint?: Checkpoint
+  /** The delegation this session's agent acts under, when it is a child. */
+  readonly delegation?: DelegationReceipt
 }
 
 /** The kernel's read model over one live agent's durable log. */
@@ -943,5 +1000,18 @@ declare module '@deepseek-ai/dsh-session/types' {
      * Log-only.
      */
     'checkpoint/created': Checkpoint
+    /**
+     * The authority a child agent acts under, written into the CHILD's log
+     * when its agent is created and before its task contract, so a replay
+     * reconstructs the child's authority without the parent's session.
+     * Log-only.
+     */
+    'delegation/received': DelegationReceipt
+    /**
+     * The same delegation, written into the PARENT's log so a parent records
+     * what it handed down. The child's `delegation/received` is the authority.
+     * Log-only.
+     */
+    'delegation/issued': DelegationReceipt
   }
 }

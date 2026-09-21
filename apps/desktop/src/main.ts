@@ -10,6 +10,7 @@ import {
   ipcMain,
   Menu,
   protocol,
+  shell,
   type IpcMainInvokeEvent,
 } from 'electron'
 import { resolveDesktopPaths } from './paths.ts'
@@ -114,9 +115,16 @@ function createWindow(preload: string, show = false): BrowserWindow {
       webSecurity: true,
     },
   })
-  window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+  // The window hosts one document; an outbound link opens in the OS browser.
+  window.webContents.setWindowOpenHandler(({ url }) => {
+    openExternally(url)
+    return { action: 'deny' }
+  })
   window.webContents.on('will-navigate', (event, url) => {
-    if (new URL(url).protocol !== `${SCHEME}:`) event.preventDefault()
+    if (new URL(url).protocol !== `${SCHEME}:`) {
+      event.preventDefault()
+      openExternally(url)
+    }
     const page = emergencyPages.get(window)
     if (page === undefined || page.busy || window.webContents.getURL() !== page.url) return
     const action = new URL(url)
@@ -128,6 +136,27 @@ function createWindow(preload: string, show = false): BrowserWindow {
     }).catch((error: unknown) => { console.error(error) }).finally(() => { page.busy = false })
   })
   return window
+}
+
+/**
+ * Hand an outbound renderer link to the operating system's browser. The
+ * application window hosts one document, so a `_blank` target or a navigation to
+ * an outside page opens externally and the window stays where it is. Only
+ * `http` and `https` reach the shell: a page cannot ask the OS to launch an
+ * arbitrary protocol handler, and a malformed URL is dropped.
+ * @param url - the link the renderer tried to open.
+ */
+function openExternally(url: string): void {
+  let target: URL
+  try {
+    target = new URL(url)
+  } catch {
+    // A link the renderer could not resolve is not a target this shell can
+    // open; dropping it is the whole handling.
+    return
+  }
+  if (target.protocol !== 'https:' && target.protocol !== 'http:') return
+  void shell.openExternal(target.toString())
 }
 
 function assertDesktopSender(event: IpcMainInvokeEvent, hostnames: readonly string[]): void {

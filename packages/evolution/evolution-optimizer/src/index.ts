@@ -313,6 +313,8 @@ export class EvolutionOptimizer extends Service {
   /**
    * Optimize one skill and record the run: trigger-gate, mutate, screen,
    * score, check the holdout, confirm the winner, pick, stage.
+   * @param request - the skill, its scenario list, the scope the winner stages
+   *   into, and the runner and cancellation the run uses.
    * @returns the run report; `staged` carries the staged entry id.
    * @throws when the scenario lists overlap or repeat, a holdout scenario was
    * already used for search for the skill, a required seam

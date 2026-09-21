@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-agent 可以在会话期间发现并加载 skill。在首次请求前，如果存在模型可调用 skill 且 `skill` 工具可见，agent 会收到一份持久目录，列出可用 skill 的名称与有长度上限的描述，并可用 `skill` 工具加载完整指令。用户可以用 `/name` 调用某个用户可调用的 skill，把相同的指令注入该步骤。目录变更会追加一份完整替换，其中空目录会停用旧名称；可配置 `catalogDescriptionMaxLength` 来限制每条描述的长度。加载会先解析该 skill 的运行环境：声明的 `required_env` 名称从宿主环境透传，配置值取自部署的 `skills.config` 映射并覆盖 skill 自身默认值，内联 `${...}` shell 展开只对以 `metadata.shell` 选择加入的 skill 执行。
+agent（智能体）可以在会话期间发现并加载 skill：当存在模型可调用 skill 且 `skill` 工具可见时，agent 在首次请求前收到一份持久目录，列出可用 skill 的名称与有长度上限的描述，并可用该工具加载完整指令。用户可以用 `/name` 调用某个用户可调用的 skill，把相同的指令注入该步骤。目录变更会追加一份完整替换，其中空目录会停用旧名称；`catalogDescriptionMaxLength` 限制每条描述的长度。加载会先解析 `required_env`、覆盖 skill 自身默认值的 `skills.config`，以及以 `metadata.shell` 选择加入的内联展开；声明无法解析时加载失败，而不是带着未解析的声明继续。
 
 ## 目录
 

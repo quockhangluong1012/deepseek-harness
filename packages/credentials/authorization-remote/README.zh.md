@@ -73,9 +73,9 @@ kind: "package-reference"
 <a id="further-exploration"></a>
 ## Further Exploration
 
-- [dsh-authorization](../authorization/README.md) — 本 namespace 所对话的流程注册表。
-- [Credentials subsystem](../../../docs/subsystems/credentials.md) — 记录存储与 `authorization/settled` 事件。
-- [Configure models](../../../docs/user/guide/providers.md) — 本 namespace 所服务的登录界面。
+- [dsh-authorization](../authorization/README.zh.md) — 本 namespace 所对话的流程注册表。
+- [Credentials subsystem](../../../docs/subsystems/credentials.zh.md) — 记录存储与 `authorization/settled` 事件。
+- [Configure models](../../../docs/user/guide/providers.zh.md) — 本 namespace 所服务的登录界面。
 
 -----
 

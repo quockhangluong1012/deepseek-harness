@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Agents can discover and load skills during a session. Before the first request, when model-invocable skills exist and the `skill` tool is visible, they receive a durable catalog of available skill names and capped descriptions, and can use the `skill` tool to load full instructions. Users can invoke a user-invocable skill with `/name`, which injects the same instructions into that step. Catalog changes append a complete replacement, including an empty catalog that retires old names; configure `catalogDescriptionMaxLength` to limit each description. A load resolves the skill's execution environment first: declared `required_env` names are forwarded from the host environment, configuration values come from the deployment's `skills.config` map over the skill's own defaults, and inline `${...}` shell expansion runs only for a skill that opts in with `metadata.shell`.
+Agents can discover and load skills during a session: when model-invocable skills exist and the `skill` tool is visible, the agent receives a durable catalog of names and capped descriptions before its first request, and loads full instructions with the tool. Users can invoke a user-invocable skill with `/name`, which injects the same instructions into that step. Catalog changes append a complete replacement, including an empty catalog that retires old names; `catalogDescriptionMaxLength` caps each description. A load resolves `required_env`, `skills.config` overrides, and opt-in `metadata.shell` expansion first, and fails rather than loading with a declaration unresolved.
 
 ## Table of Contents
 

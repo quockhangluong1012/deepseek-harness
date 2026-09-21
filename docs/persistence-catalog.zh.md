@@ -417,6 +417,24 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 
 来源：[`packages/compaction/compaction/src/types.ts:34`](../packages/compaction/compaction/src/types.ts)
 
+### `context/*`
+
+<a id="contextcompiled--log-only"></a>
+
+#### `context/compiled` — 仅日志
+
+```ts persistence-catalog
+/**
+ * One compiled context, written once per model-step assembly that names an
+ * agent. It holds the placement digest, the placed and omitted source ids,
+ * and any retained conflict; the prompt text itself stays on the
+ * `system/message` surface. Log-only: it never enters model context.
+ */
+'context/compiled': ContextCompilationRecord
+```
+
+来源：[`packages/runtime/agent-context/src/types.ts:156`](../packages/runtime/agent-context/src/types.ts)
+
 ### `deliverables/*`
 
 <a id="deliverablespresented--log-only"></a>

@@ -62,11 +62,11 @@ The corpus root is required; the attempt count is a validated member changeable 
 | Field | Default | Meaning |
 |---|---|---|
 | `corpusDir` | `required` | Absolute corpus root holding one directory per recorded scenario |
-
-The Web composition carries this row [shut off](../../bundle/web-app/cordis.patch.yml): which corpus a deployment scores against is its own data, and the row without one could only fail at the first evaluation. [`apps/cli/config/examples/evolution-optimize/cordis.yml`](../../../apps/cli/config/examples/evolution-optimize/cordis.yml) enables it together with the optimizer, using a checkout's own corpus and the profile its attempts boot.
 | `attempts` | `3` | Fresh-process attempts per score; the median is taken over their samples |
 | `triggerMinUses` | `20` | Recorded loads required before a failure rate triggers optimization |
 | `triggerFailureRate` | `0.3` | Failure share a skill must exceed to trigger optimization |
+
+The Web composition carries this row [shut off](../../bundle/web-app/cordis.patch.yml): which corpus a deployment scores against is its own data, and the row without one could only fail at the first evaluation. [`apps/cli/config/examples/evolution-optimize/cordis.yml`](../../../apps/cli/config/examples/evolution-optimize/cordis.yml) enables it together with the optimizer, using a checkout's own corpus and the profile its attempts boot.
 
 The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-evolution-scorer) is the exhaustive source for every accepted field.
 

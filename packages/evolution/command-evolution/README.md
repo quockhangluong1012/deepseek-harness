@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-command-evolution` adds the human governance surface for the evolution harness to chat UIs: `/memory` and `/skills` govern staged writes, `/journey [today|7d|30d|all]` shows the scope's recorded activity, `/curator status|run [--dry-run]|staged` shows curation bookkeeping, runs one maintenance pass, and lists the skills staged for review, `/refine` rebuilds the scope's lessons, `/trajectory` exports the session or scope, `/learn` starts a research-and-save turn, and `/suggestions` lists blueprint-backed skills without scheduling them, `/frontier` ranks the scope's capabilities weakest first from measured evidence, and `/dream [light|rem|deep]` consolidates this scope's recorded failures into durable memory. Every command but `/learn` answers directly; `/learn` queues one ordinary turn. Choose them when a human must see and govern what background review proposed before it lands.
+`dsh-command-evolution` gives chat UIs the human governance of the evolution harness: `/memory` and `/skills` approve or reject staged writes, `/journey` shows the scope's recorded activity, `/curator` reports curation bookkeeping, runs one maintenance pass, and lists skills staged for review, `/refine` rebuilds the scope's lessons, `/trajectory` exports the session or scope, `/dream` consolidates recorded failures into memory, `/frontier` ranks capabilities weakest first from measured evidence, and `/suggestions` lists blueprint-backed skills without scheduling them. Every command but `/learn` answers directly; `/learn` queues one ordinary turn. Choose them when a human must govern what background review proposed before it lands.
 
 ## Table of Contents
 

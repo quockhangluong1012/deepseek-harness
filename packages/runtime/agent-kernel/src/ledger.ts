@@ -21,6 +21,7 @@ import type {
   BudgetGovernor,
   BudgetSnapshot,
   Checkpoint,
+  DelegationReceipt,
   FailureId,
   FailureRef,
   KernelStateReader,
@@ -78,6 +79,8 @@ export interface LedgerEntry {
   plan: PlanRevision | undefined
   /** Latest checkpoint. */
   checkpoint: Checkpoint | undefined
+  /** The delegation this session's agent acts under, when it is a child. */
+  delegation: DelegationReceipt | undefined
 }
 
 /** One session's ledger entry in its initial state. */
@@ -98,6 +101,7 @@ function emptyEntry(): LedgerEntry {
     failureAction: new Map(),
     plan: undefined,
     checkpoint: undefined,
+    delegation: undefined,
   }
 }
 
@@ -126,6 +130,7 @@ export class KernelLedger implements KernelStateReader, BudgetGovernor {
       unresolvedFailures: [...entry.failures.values()],
       ...entry.plan === undefined ? {} : { plan: entry.plan },
       ...entry.checkpoint === undefined ? {} : { checkpoint: entry.checkpoint },
+      ...entry.delegation === undefined ? {} : { delegation: entry.delegation },
     }
   }
 
@@ -246,6 +251,9 @@ function fold(entry: LedgerEntry, event: SessionEvent): void {
       return
     case 'checkpoint/created':
       entry.checkpoint = event.data
+      return
+    case 'delegation/received':
+      entry.delegation = event.data
       return
     case 'step/start':
       entry.steps += 1

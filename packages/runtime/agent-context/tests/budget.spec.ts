@@ -2,14 +2,14 @@ import { describe, expect, it } from 'vitest'
 import { fitBudget, priceOf, priceSources } from '../src/budget.ts'
 import type { CompiledSource, ContextSource, ContextSourceKind, RetentionClass } from '../src/types.ts'
 
-/** One envelope fixture. */
-function source(id: string, retention: RetentionClass, content = id, kind: ContextSourceKind = 'tool'): ContextSource {
+/** One envelope fixture of a given kind. */
+function source(id: string, kind: ContextSourceKind = 'tool', content = id, retention: RetentionClass = 'compressible'): ContextSource {
   return { id, kind, content, trust: 'trusted', provenance: { source: 'kernel', locator: id }, retention }
 }
 
 /** One priced fixture at an explicit price. */
 function priced(id: string, retention: RetentionClass, tokens: number): CompiledSource {
-  return { source: source(id, retention), relevance: 0, tokens }
+  return { source: source(id, 'tool', id, retention), relevance: 0, tokens }
 }
 
 describe('token pricing', () => {

@@ -23,6 +23,13 @@ interface SkillProviderObservation {
   readonly candidates: readonly SkillCandidate[]
   /** Whether discovery completed and these candidates may be cached. */
   readonly complete: boolean
+  /**
+   * Skills this provider skipped and quarantined during the observation, such
+   * as project skills that failed a security scan. The registry reports the
+   * summed count on the `skills/change` event; the count never reaches the
+   * model-facing catalog.
+   */
+  readonly quarantinedCount?: number
 }
 ```
 
@@ -115,6 +122,8 @@ interface SkillSummary {
   readonly description: string
   /** Optional extra routing guidance. */
   readonly whenToUse?: string
+  /** Prerequisite skill names that must route alongside this one; absent means none. */
+  readonly requires?: readonly string[]
   /** Resolved model and user invocation controls. */
   readonly invocation: SkillInvocationPolicy
   /** Discovery source that produced this winning skill. */
@@ -171,6 +180,12 @@ interface SkillDefinition extends SkillSummary {
   readonly content: string
   /** Parsed optional metadata object from frontmatter. */
   readonly metadata?: Readonly<Record<string, unknown>>
+  /** Environment variable names the loading consumer must find in the host environment. */
+  readonly requiredEnv?: readonly string[]
+  /** Non-secret configuration the skill declares, its own value serving as the default. */
+  readonly config?: Readonly<Record<string, string>>
+  /** Install-time automation suggestion; dropped when unusable, never part of a summary. */
+  readonly blueprint?: SkillBlueprint | undefined
 }
 ```
 

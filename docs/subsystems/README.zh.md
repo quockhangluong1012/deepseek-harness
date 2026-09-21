@@ -63,5 +63,6 @@
 | [workspace-memory.md](workspace-memory.zh.md) | 每个工作区的持久知识：记忆记录、简报注入、后台推导与工作区页面 |
 | [evolutionary-harness.md](evolutionary-harness.zh.md) | 按作用域自学习记忆：演进记录、经验/画像写入、暂存写入与容量核算 |
 | [agent-kernel.md](agent-kernel.zh.md) | 既有循环与工具接缝之上的控制平面：任务契约、动作账本、权限文档、完成门禁，以及持久的 `task/*`、`action/*`、`policy/*` 与 `checkpoint/*` 事件族 |
+| [agent-context.md](agent-context.zh.md) | 组装出的提示词与 Kernel 视图之上的上下文编译器：来源信封、全序放置顺序、token 预算切分、冲突报告、放置摘要，以及仅入日志的 `context/compiled` 记录 |
 
 > 这些页面上的类型声明及其 JSDoc 与源码等价，并由 `pnpm run verify-type-equiv` 检查漂移（见 [development.md](../development.zh.md#documenting-types-verbatim-ts-type-equiv)）。普通块保留完整声明；`public-api` 块保留去除实现体的公开 class 声明。Cordis 服务与事件使用每页生成的 **Cordis API** 小节。

@@ -55,6 +55,10 @@ const turnBoundaryProjectionSchema: zod.ZodType<TurnBoundaryProjection> = zod.ob
 /** Host projection of agent turn and step boundaries. */
 export { restoreSnapshotSlots, SnapshotInjectionProjection, snapshotSlot } from './snapshot-injections.ts'
 
+/**
+ * Host projection of agent turn and step boundaries, rebuilt from the
+ * `turn/*` and `step/*` events the loop appends.
+ */
 export const turnBoundaryProjectionDefinition = {
   key: 'turnBoundary',
   stateVersion: 2,

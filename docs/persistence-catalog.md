@@ -102,7 +102,7 @@ Sources: [`packages/core/session/src/types.ts:410`](../packages/core/session/src
 'action/authorized': ActionDecisionEvent
 ```
 
-Source: [`packages/runtime/agent-kernel/src/types.ts:896`](../packages/runtime/agent-kernel/src/types.ts)
+Source: [`packages/runtime/agent-kernel/src/types.ts:953`](../packages/runtime/agent-kernel/src/types.ts)
 
 <a id="actioncommitted--log-only"></a>
 
@@ -116,7 +116,7 @@ Source: [`packages/runtime/agent-kernel/src/types.ts:896`](../packages/runtime/a
 'action/committed': ActionReceipt
 ```
 
-Source: [`packages/runtime/agent-kernel/src/types.ts:907`](../packages/runtime/agent-kernel/src/types.ts)
+Source: [`packages/runtime/agent-kernel/src/types.ts:964`](../packages/runtime/agent-kernel/src/types.ts)
 
 <a id="actiondenied--log-only"></a>
 
@@ -131,7 +131,7 @@ Source: [`packages/runtime/agent-kernel/src/types.ts:907`](../packages/runtime/a
 'action/denied': ActionDecisionEvent
 ```
 
-Source: [`packages/runtime/agent-kernel/src/types.ts:902`](../packages/runtime/agent-kernel/src/types.ts)
+Source: [`packages/runtime/agent-kernel/src/types.ts:959`](../packages/runtime/agent-kernel/src/types.ts)
 
 <a id="actionproposed--log-only"></a>
 
@@ -146,7 +146,7 @@ Source: [`packages/runtime/agent-kernel/src/types.ts:902`](../packages/runtime/a
 'action/proposed': ActionProposal
 ```
 
-Source: [`packages/runtime/agent-kernel/src/types.ts:890`](../packages/runtime/agent-kernel/src/types.ts)
+Source: [`packages/runtime/agent-kernel/src/types.ts:947`](../packages/runtime/agent-kernel/src/types.ts)
 
 ### `agent/*`
 
@@ -336,7 +336,7 @@ Source: [`packages/guard/budgets/src/types.ts:37`](../packages/guard/budgets/src
 'capability/grant': CapabilityGrant
 ```
 
-Source: [`packages/runtime/agent-kernel/src/types.ts:921`](../packages/runtime/agent-kernel/src/types.ts)
+Source: [`packages/runtime/agent-kernel/src/types.ts:978`](../packages/runtime/agent-kernel/src/types.ts)
 
 ### `checkpoint/*`
 
@@ -352,7 +352,7 @@ Source: [`packages/runtime/agent-kernel/src/types.ts:921`](../packages/runtime/a
 'checkpoint/created': Checkpoint
 ```
 
-Source: [`packages/runtime/agent-kernel/src/types.ts:945`](../packages/runtime/agent-kernel/src/types.ts)
+Source: [`packages/runtime/agent-kernel/src/types.ts:1002`](../packages/runtime/agent-kernel/src/types.ts)
 
 ### `command/*`
 
@@ -508,6 +508,57 @@ Types: [ContentBlock](subsystems/core.md) · [TokenUsage](subsystems/llm-streami
 
 Source: [`packages/compaction/compaction/src/types.ts:34`](../packages/compaction/compaction/src/types.ts)
 
+### `context/*`
+
+<a id="contextcompiled--log-only"></a>
+
+#### `context/compiled` — log-only
+
+```ts persistence-catalog
+/**
+ * One compiled context, written once per model-step assembly that names an
+ * agent. It holds the placement digest, the placed and omitted source ids,
+ * and any retained conflict; the prompt text itself stays on the
+ * `system/message` surface. Log-only: it never enters model context.
+ */
+'context/compiled': ContextCompilationRecord
+```
+
+Source: [`packages/runtime/agent-context/src/types.ts:156`](../packages/runtime/agent-context/src/types.ts)
+
+### `delegation/*`
+
+<a id="delegationissued--log-only"></a>
+
+#### `delegation/issued` — log-only
+
+```ts persistence-catalog
+/**
+ * The same delegation, written into the PARENT's log so a parent records
+ * what it handed down. The child's `delegation/received` is the authority.
+ * Log-only.
+ */
+'delegation/issued': DelegationReceipt
+```
+
+Source: [`packages/runtime/agent-kernel/src/types.ts:1015`](../packages/runtime/agent-kernel/src/types.ts)
+
+<a id="delegationreceived--log-only"></a>
+
+#### `delegation/received` — log-only
+
+```ts persistence-catalog
+/**
+ * The authority a child agent acts under, written into the CHILD's log
+ * when its agent is created and before its task contract, so a replay
+ * reconstructs the child's authority without the parent's session.
+ * Log-only.
+ */
+'delegation/received': DelegationReceipt
+```
+
+Source: [`packages/runtime/agent-kernel/src/types.ts:1009`](../packages/runtime/agent-kernel/src/types.ts)
+
 ### `deliverables/*`
 
 <a id="deliverablespresented--log-only"></a>
@@ -537,7 +588,7 @@ Source: [`packages/fs/tool-present/src/types.ts:15`](../packages/fs/tool-present
 'failure/recorded': FailureRecord
 ```
 
-Source: [`packages/runtime/agent-kernel/src/types.ts:935`](../packages/runtime/agent-kernel/src/types.ts)
+Source: [`packages/runtime/agent-kernel/src/types.ts:992`](../packages/runtime/agent-kernel/src/types.ts)
 
 ### `feedback/*`
 
@@ -751,7 +802,7 @@ Source: [`packages/plan/plan-mode/src/index.ts:48`](../packages/plan/plan-mode/s
 }
 ```
 
-Source: [`packages/runtime/agent-kernel/src/types.ts:913`](../packages/runtime/agent-kernel/src/types.ts)
+Source: [`packages/runtime/agent-kernel/src/types.ts:970`](../packages/runtime/agent-kernel/src/types.ts)
 
 ### `recovery/*`
 
@@ -767,7 +818,7 @@ Source: [`packages/runtime/agent-kernel/src/types.ts:913`](../packages/runtime/a
 'recovery/decided': RecoveryDecision
 ```
 
-Source: [`packages/runtime/agent-kernel/src/types.ts:940`](../packages/runtime/agent-kernel/src/types.ts)
+Source: [`packages/runtime/agent-kernel/src/types.ts:997`](../packages/runtime/agent-kernel/src/types.ts)
 
 ### `request/*`
 
@@ -1045,7 +1096,7 @@ Source: [`packages/core/session/src/types.ts:316`](../packages/core/session/src/
 'task/created': TaskContract
 ```
 
-Source: [`packages/runtime/agent-kernel/src/types.ts:872`](../packages/runtime/agent-kernel/src/types.ts)
+Source: [`packages/runtime/agent-kernel/src/types.ts:929`](../packages/runtime/agent-kernel/src/types.ts)
 
 <a id="taskplan--log-only"></a>
 
@@ -1059,7 +1110,7 @@ Source: [`packages/runtime/agent-kernel/src/types.ts:872`](../packages/runtime/a
 'task/plan': PlanRevision
 ```
 
-Source: [`packages/runtime/agent-kernel/src/types.ts:884`](../packages/runtime/agent-kernel/src/types.ts)
+Source: [`packages/runtime/agent-kernel/src/types.ts:941`](../packages/runtime/agent-kernel/src/types.ts)
 
 <a id="tasktransitioned--log-only"></a>
 
@@ -1075,7 +1126,7 @@ Source: [`packages/runtime/agent-kernel/src/types.ts:884`](../packages/runtime/a
 'task/transitioned': StateTransition
 ```
 
-Source: [`packages/runtime/agent-kernel/src/types.ts:879`](../packages/runtime/agent-kernel/src/types.ts)
+Source: [`packages/runtime/agent-kernel/src/types.ts:936`](../packages/runtime/agent-kernel/src/types.ts)
 
 ### `team/*`
 
@@ -1374,7 +1425,7 @@ Source: [`packages/core/session/src/types.ts:303`](../packages/core/session/src/
 'verification/requested': VerificationRequest
 ```
 
-Source: [`packages/runtime/agent-kernel/src/types.ts:925`](../packages/runtime/agent-kernel/src/types.ts)
+Source: [`packages/runtime/agent-kernel/src/types.ts:982`](../packages/runtime/agent-kernel/src/types.ts)
 
 <a id="verificationresult--log-only"></a>
 
@@ -1388,7 +1439,7 @@ Source: [`packages/runtime/agent-kernel/src/types.ts:925`](../packages/runtime/a
 'verification/result': VerificationResult
 ```
 
-Source: [`packages/runtime/agent-kernel/src/types.ts:930`](../packages/runtime/agent-kernel/src/types.ts)
+Source: [`packages/runtime/agent-kernel/src/types.ts:987`](../packages/runtime/agent-kernel/src/types.ts)
 
 ### `web/*`
 

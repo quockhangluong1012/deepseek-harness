@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## Summary
 
-`dsh-evolution-optimizer` 运行一次离线技能优化：按技能已记录的失败率设门，向 Host LLM 按可配置的变异算子组合索取改写后的 SKILL.md 正文，先在短场景子集上筛选，再在隔离的 `DSH_HOME` 覆盖层下经评分器重评基线与每个幸存变体，检查私有 holdout 场景，用重复的成对比较确认优胜者，拒绝被已批准晋级支配的优者，保留击败基线的 Pareto 优胜者，并将其分选为技能补丁。凡是产出了候选正文的运行都会写入按作用域划分的实验台账，因此后续运行——或读 `/curator experiments` 的人——都能看到已经试过什么、量到了什么。没有任何一步直接写技能——分选条目在作用域内等待，直到人类用 skill_manage 写技能并以 `/skills approve` 消除条目。
+离线搜索更好的 SKILL.md 正文：传入技能、语料场景与分选身份，这次运行就从你配置的变异算子中取候选，先在短子集上筛选、再在隔离的 `DSH_HOME` 覆盖层下评分，检查私有 holdout，用重复的成对比较确认优胜者，并把击败基线的 Pareto 优胜者分选出来。它按需运行，绝不在每轮路径上，每个选中的算子都要一次模型调用，并需要一份能练到该技能的语料。没有任何东西直接写技能：批准分选条目才算落地。
 
 ## Table of Contents
 
@@ -127,9 +127,7 @@ Web 组合里带有本行与评分器的行，但[默认关闭](../../bundle/web
 <details>
 <summary>Implementation internals — click to expand</summary>
 
-`src/pareto.ts` 是纯选择器：（pass、token、wallTimeMs）上的支配关系、非支配前沿、筛选晋级的幸存者切分，以及必须支配重评基线的优胜者。`src/mutate.ts` 拥有算子组合，并为每个算子组织一次请求（该算子的指令加字节预算，预算只砍证据不砍技能正文），把 JSON 数组作答解析为互异正文。`src/evaluate.ts` 把每个正文分选进全新的 `DSH_HOME` 覆盖层，经 `evolutionScorer.evaluateSkill` 以把覆盖层 home 叠入尝试环境的 runner 评分；评分落定即删除覆盖层。`src/surface.ts` 是失败面：一段证据文本折算成的签名、某作用域的台账行针对它持有的按算子尝试与获胜计数，以及该先验强加给阵容的顺序。`src/experiments.ts` 是台账词汇：持久行模式、保留策略、分页读取、实验键与重复查找，以及重复拒绝时引用的措辞。`src/index.ts` 编排：场景校验、依台账选择策略、重复拒绝、触发门、同一 harness 下的基线重评、筛选、受预算约束的完整评估、Pareto 选中、holdout 检查、确认用的成对比较、一次 `kind: 'skill'`、`op: 'patch'` 的 `stageWrite`，以及台账行。`src/experiments.ts` 拥有域声明、持久行 schema，以及读取路径与保留策略使用的两个纯选择器（`experimentPage`、`staleExperiments`）。
-`src/contamination.ts` 是 holdout 守卫：该技能已记录的搜索场景，holdout 不得重复。
-`src/lineage.ts` 统计变更组成：起始正文与优胜者之间新增与删除的行数，按顺序敏感的方式，因此台账记录每次晋级的改动有多大。
+`src/pareto.ts` 是纯选择器：（pass、token、wallTimeMs）上的支配关系、非支配前沿、筛选晋级的幸存者切分，以及必须支配重评基线的优胜者。`src/mutate.ts` 拥有算子组合，并为每个算子组织一次请求（该算子的指令加字节预算，预算只砍证据不砍技能正文），把 JSON 数组作答解析为互异正文。`src/evaluate.ts` 把每个正文分选进全新的 `DSH_HOME` 覆盖层，经 `evolutionScorer.evaluateSkill` 以把覆盖层 home 叠入尝试环境的 runner 评分；评分落定即删除覆盖层。`src/surface.ts` 是失败面：一段证据文本折算成的签名、某作用域的台账行针对它持有的按算子尝试与获胜计数，以及该先验强加给阵容的顺序。`src/experiments.ts` 是台账词汇：持久行模式、保留策略、分页读取、实验键与重复查找，以及重复拒绝时引用的措辞。`src/index.ts` 编排：场景校验、依台账选择策略、重复拒绝、触发门、同一 harness 下的基线重评、筛选、受预算约束的完整评估、Pareto 选中、holdout 检查、确认用的成对比较、一次 `kind: 'skill'`、`op: 'patch'` 的 `stageWrite`，以及台账行。`src/experiments.ts` 拥有域声明、持久行 schema，以及读取路径与保留策略使用的两个纯选择器（`experimentPage`、`staleExperiments`）。 `src/contamination.ts` 是 holdout 守卫：该技能已记录的搜索场景，holdout 不得重复。 `src/lineage.ts` 统计变更组成：起始正文与优胜者之间新增与删除的行数，按顺序敏感的方式，因此台账记录每次晋级的改动有多大。
 
 不发布不变量配套包：实验域表是这份状态的唯一副本，因此不存在可独立核对的第二种观测。
 
@@ -142,19 +140,30 @@ Web 组合里带有本行与评分器的行，但[默认关闭](../../bundle/web
 
 - 度量三元组与触发器在 [`dsh-evolution-scorer`](../evolution-scorer/README.zh.md)；优化器复用两者，不复制。
 - 分选技能协议（用 skill_manage 写，再 approve）见 [`dsh-command-evolution`](../command-evolution/README.zh.md)。
-- 变异调用的 `purpose: 'evolution-optimize'` 归因声明在 [`dsh-llm`](../../../llm/llm/README.md)。
+- 变异调用的 `purpose: 'evolution-optimize'` 归因声明在 [`dsh-llm`](../../llm/llm/README.zh.md)。
 
 -----
 
 <a id="model-experience"></a>
 ## Model Experience
 
-优化器永不触达模型：它离线运行在已记录的结果之上，只有优胜者正文的分选条目（附基线/优胜三元组作证据）浮到人类面前等待批准。
+### Mutation request
 
------
+#### What the model sees
+
+每个选中的算子各占一条 user 消息，开头是固定表头 `You improve one skill package in a single pass.`、该算子自己的指令行、注明所需正文数量的回复格式行，以及结尾的 `No prose outside the array.`——其后是技能名、完整的当前 `SKILL.md` 正文与失败证据。请求不声明任何工具，回答必须是完整替换正文组成的 JSON 数组。
+
+#### Token effect
+
+有上限：每个拿到候选的算子一次请求——`maxCandidates` 按队列切分，因此运行不会超过这个请求数——每次受 `maxInputBytes` 的框架与 `maxOutputTokens` 的补全约束。评分不增加模型调用：每次尝试都重放已记录的夹具。
+
+#### KV Cache effect
+
+与活跃请求无关：每次变异调用都是带自有前缀的全新单消息交换，因此不会使会话上的 provider 缓存复用失效。同一次运行内的各次调用也彼此独立，因为每次都以各自的算子指令开头。
+
+## Known Limitations and Deferred Work
 
 <a id="known-limitations-and-deferred-work"></a>
-## Known Limitations and Deferred Work
 
 - **Replay 只度量可执行内容**——纯改写提示词的变体可能与基线同分，因为无 key replay 固定了模型脚本，只有工具结果可变。什么都测不出的纯提示词改写会报告 `no-improvement`；这是 harness 在说实话，不是漏掉的优化。
 - **每次运行只动一个 SKILL.md 正文**——覆盖层只提供变体正文；包内兄弟文件（脚本、引用）在其中缺席，因此依赖改写兄弟文件的变体可能误评。等有技能需要时再做兄弟感知覆盖层。

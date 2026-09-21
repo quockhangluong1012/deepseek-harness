@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-evolution-curator` runs the automatic, model-free half of skill lifecycle curation — skills move `active → stale → archived` over skill telemetry from idle age and failure evidence, with a revival path for stale skills whose newest load succeeded, plus dry-run previews, first-run deferral, and idle gating — and the opt-in, model-driven half: consolidation of agent-created skills into umbrellas. Pinned skills, protected names, and bundled or hub sources never move. The plugin is mounted once per host and owns its own schedule: it observes host-wide session activity, runs one start-time due-check, and then ticks. Real passes record what they did — every patched body keeps its preimage — and roll back fail-closed as a whole run or a single entry; manual adoption claims model-authored skills, and TTL purge removes archived skills with their directories; each pass also grades the failures correlated with a skill into that skill's trust standing. Without telemetry, automatic methods degrade to bookkeeping or empty reports.
+Keep skill lifecycles honest without watching them: mount the plugin once per host and it moves skills `active → stale → archived` on idle age and failure evidence, revives a stale skill whose newest load succeeded, and previews each pass with a dry run. Enable `consolidate` to have a model merge agent-created skills into umbrella skills; pinned, protected, bundled, and hub skills never move. It reads skill telemetry and degrades to bookkeeping without it. Real passes write snapshots you can roll back whole or by entry.
 
 Mounting is the whole trigger: `enabled: false` starts no timer and touches no bookkeeping.
 
@@ -143,17 +143,15 @@ No invariant companion is published because the domain table is the only copy of
 <a id="model-experience"></a>
 ## Model Experience
 
-Automatic transitions register nothing model-facing. Only the opt-in consolidation calls a model.
-
 ### Consolidation fork
 
 #### What the model sees
 
-One auxiliary user message carrying the fixed instructions plus the JSON candidate survey, followed by the assistant tool calls and the curator's tool results. The request declares exactly two tools:
+Only the opt-in consolidation calls a model; automatic transitions register nothing model-facing. Each request carries one auxiliary user message with the fixed instructions plus the JSON candidate survey, followed by the assistant tool calls and the curator's tool results. The request declares exactly two tools:
 
 ##### Tool whitelist
 
-```text
+```markdown
 skill_view(name, file?)                 — read one candidate package
 skill_apply(name, action, into?, body?) — record one verdict
 ```

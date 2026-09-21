@@ -75,7 +75,11 @@ export interface SemanticRow {
   persisted: number
 }
 
-/** Encode one vector for storage. */
+/**
+ * Encode one vector for storage.
+ * @param vector - the embedding values in dimension order.
+ * @returns the same values as four-byte float32 storage bytes.
+ */
 export function encodeVector(vector: readonly number[]): Uint8Array {
   return new Uint8Array(Float32Array.from(vector).buffer)
 }

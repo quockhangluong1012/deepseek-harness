@@ -60,9 +60,9 @@ kind: "package-reference"
 <a id="further-exploration"></a>
 ## Further Exploration
 
-- [Models page](../ui-settings-models/README.md) — 声明本伴随界面所填席位的分区。
-- [authorization Remote](../../credentials/authorization-remote/README.md) — 本伴随界面轮询的 Host namespace。
-- [Configure models](../../../docs/user/guide/providers.md) — 从用户视角看登录流程。
+- [Models page](../ui-settings-models/README.zh.md) — 声明本伴随界面所填席位的分区。
+- [authorization Remote](../../credentials/authorization-remote/README.zh.md) — 本伴随界面轮询的 Host namespace。
+- [Configure models](../../../docs/user/guide/providers.zh.md) — 从用户视角看登录流程。
 
 -----
 

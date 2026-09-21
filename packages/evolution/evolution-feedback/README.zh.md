@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-`dsh-evolution-feedback` 把失败的工具结果变成按会话持久化的观测，并汇总为学习回路所读取的自然语言反馈。它按投递原样观察 `session/event`，只记录其工具调用已被看见的失败 `tool/result`，重复出现时累加计数而不是追加第二条，并按会话保留最新的 `maxEntries` 条。此处不调用任何模型。`summary` 按工具与消息合并多个会话，并统计有多少个会话报告过该失败，因此"四个会话各出现一次"的故障排在"单个会话重复四次"之前。`signals` 为同一份汇总分级：自身调用从未被看见的失败只能观察；被 `triggerReviewSessions` 个不同会话报告过的失败触发复审；介于两者之间的只参与排序、不做决定。`reflect` 把同样的失败返回为结构化反思——台账派生的症状、违背的预期、观测到的行为与置信度，加上分析者记录的根因与纠正策略——而 `recordReflection` 负责存储这份分析。
+`dsh-evolution-feedback` 把失败的工具结果变成按会话持久化的观测，并汇总为学习回路所读取的自然语言反馈；此处不调用任何模型。它只记录其工具调用已被看见的失败 `tool/result`，重复出现时累加计数而不追加第二条，并按会话保留最新的 `maxEntries` 条。`summary` 按工具与消息合并多个会话，因此在四个会话各出现一次的故障排在单个会话重复四次之前；`signals` 在 `triggerReviewSessions` 个不同会话报告同一失败时触发复审。`reflect` 与 `recordReflection` 承载分析者给出的根因与纠正策略。
 
 ## 目录
 

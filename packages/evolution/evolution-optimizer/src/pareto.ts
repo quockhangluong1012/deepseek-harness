@@ -11,7 +11,12 @@
 
 import type { EvaluatedVariant } from './types.ts'
 
-/** Whether `a` dominates `b`: at least as good on every axis, strictly better on one. */
+/**
+ * Whether `a` dominates `b`: at least as good on every axis, strictly better on one.
+ * @param a - comparison's left score triple.
+ * @param b - comparison's right score triple.
+ * @returns true when `a` is at least as good on every axis and better on one.
+ */
 export function dominates(
   a: { pass: boolean; tokens: number; wallTimeMs: number },
   b: { pass: boolean; tokens: number; wallTimeMs: number },
@@ -23,7 +28,11 @@ export function dominates(
   )
 }
 
-/** Nondominated members of `candidates`, in input order. */
+/**
+ * Nondominated members of `candidates`, in input order.
+ * @param candidates - variants to filter, each carrying its screen score.
+ * @returns the candidates no other member dominates, in input order.
+ */
 export function paretoFrontier(candidates: readonly EvaluatedVariant[]): EvaluatedVariant[] {
   return candidates.filter(
     candidate => !candidates.some(other => other !== candidate && dominates(other.score, candidate.score)),

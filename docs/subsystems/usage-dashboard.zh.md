@@ -75,6 +75,20 @@ interface UsageSummary {
 }
 ```
 
+```ts type-equiv
+/** Payload of {@link Events['usage/cache-hit-low']}. */
+interface CacheHitLowEvent {
+  /** Calendar day (UTC+7) the rate was computed for. */
+  readonly day: string
+  /** The share that crossed below threshold, in `[0, 1]`. */
+  readonly cacheHitAvg: number
+  /** The configured {@link Config.cacheHitAlertThreshold} that was crossed. */
+  readonly threshold: number
+  /** Today's billed request count at the moment of the crossing. */
+  readonly requests: number
+}
+```
+
 ## 已计费请求与范围
 
 一次已计费请求是 `assistant/message` 或 `assistant/attempt` 事件上一个校验通过的 provider 用量样本。重试会计数，因为每个样本都代表此前请求已花掉的 token；校验失败的样本会被跳过，绝不补零。输入 token 是已计费提示 token（`uncached + cacheRead + cacheWrite`）；平均缓存命中为 `cacheRead / billedInput`。天固定为 UTC+7。有界窗口补零其天数，因此图表永远绘制框架；`all` 只覆盖有数据的天。
@@ -82,6 +96,8 @@ interface UsageSummary {
 ## 折叠与持久化
 
 台账从持久会话日志派生，从不写回。按步桶在 `step/end` 前持有样本，落定 message 到达时把早到的未知路由样本搬移到其路由；从未落定路由的步归因到未知路由。按会话游标加子会话自有事件范围让重启与 fork 不重复计数。整个状态——按天计数、按天按模型计数、游标——以一个原子文档持久化在 `usage_dashboard` 存储域上，每次写都是 fail-soft：丢一次写只意味着下次启动回填更长。计数从台账首次挂载开始。
+
+可选的 `cacheHitAlertThreshold` 在今天滚动缓存命中占比由健康转为不健康时发出 `usage/cache-hit-low`，触发前提是当天已有至少 `cacheHitAlertMinRequests` 次已计费请求落定——这是一个边沿触发的临时信号，不是持久事件。
 
 ## Web 界面
 

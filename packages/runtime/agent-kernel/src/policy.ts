@@ -18,6 +18,7 @@ import { isAbsolute, relative } from 'node:path'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import type { SandboxExecutionPolicy } from '@deepseek-ai/dsh-sandbox'
 import { assertNever } from '@deepseek-ai/dsh-util-values'
+import { delegationRefusal } from './delegation.ts'
 import type {
   ActionProposal,
   AuthorizationDecision,
@@ -149,10 +150,33 @@ export function compilePolicy(document: PolicyDocument): CompiledPolicy {
  * @param target - the capability's resource selector.
  * @returns true when the target is inside the boundary.
  */
-function insideWorkspace(root: string, target: string): boolean {
+export function insideWorkspace(root: string, target: string): boolean {
   if (!isAbsolute(target)) return true
   const path = relative(root, target)
   return path === '' || (!path.startsWith('..') && !isAbsolute(path))
+}
+
+/** Every capability the vocabulary declares, in declaration order. */
+const CAPABILITIES = Object.keys(CAPABILITY_ACTIONS) as Capability[]
+
+/**
+ * Every capability a compiled document admits at all. A capability is admitted
+ * when its action family is not denied outright: either the default effect is
+ * not `deny`, or some rule selecting that family carries a non-deny effect.
+ * This is the boundary a root run hands to its children; a nested delegation
+ * narrows its parent's receipt instead of recomputing one.
+ * @param compiled - the compiled document.
+ * @returns the admitted capabilities, in vocabulary order.
+ */
+export function admittedCapabilities(compiled: CompiledPolicy): Capability[] {
+  const families = new Set<PolicyAction>()
+  if (compiled.defaultEffect !== 'deny') {
+    for (const action of POLICY_ACTIONS) families.add(action)
+  }
+  for (const rule of compiled.rules) {
+    if (rule.effect !== 'deny') families.add(rule.action)
+  }
+  return CAPABILITIES.filter(capability => families.has(CAPABILITY_ACTIONS[capability]))
 }
 
 /**
@@ -236,11 +260,13 @@ function matchingRequest(rule: CompiledRule, requests: readonly CapabilityReques
 }
 
 /**
- * Intersect a rule decision with the implementation's sandbox boundary. Deny
- * from the rules dominates; a mutating capability the boundary refuses is
- * denied rather than asked, because no human answer can widen the technical
- * sandbox. An `ask` stays an `ask`: only the composed answerer chain may
- * resolve it, and it fails closed when no answerer is available.
+ * Intersect a rule decision with the implementation's sandbox boundary and the
+ * delegation the action runs under. Deny from the rules dominates; a mutating
+ * capability the boundary refuses is denied rather than asked, because no human
+ * answer can widen the technical sandbox; and a capability, resource, or depth
+ * the child's receipt withholds is denied for the same reason. An `ask` stays
+ * an `ask`: only the composed answerer chain may resolve it, and it fails
+ * closed when no answerer is available.
  * @param decision - the rule decision to compose.
  * @param proposal - the action the decision answers.
  * @param context - the boundaries the decision composes with.
@@ -255,13 +281,26 @@ export function composeAuthorization(
 ): AuthorizationDecision {
   const reasons = [...decision.reasons]
   const sandbox = context.sandbox
+  const delegationId = context.parentGrant?.delegationId
   const refuse = (reason: string): AuthorizationDecision => {
     reasons.push(reason)
-    return { effect: 'deny', decisionId: decision.decisionId, capabilityGrants: [], sandbox, enforced, reasons }
+    return {
+      effect: 'deny',
+      decisionId: decision.decisionId,
+      capabilityGrants: [],
+      sandbox,
+      enforced,
+      ...delegationId === undefined ? {} : { delegationId },
+      reasons,
+    }
   }
   if (decision.effect === 'deny') return refuse('policy rules denied the action')
   const blocked = sandboxRefusal(sandbox, decision.capabilities)
   if (blocked !== undefined) return refuse(blocked)
+  const withheld = context.parentGrant === undefined
+    ? undefined
+    : delegationRefusal(context.parentGrant, decision.capabilities)
+  if (withheld !== undefined) return refuse(withheld)
   if (decision.effect === 'ask') {
     return {
       effect: 'ask',
@@ -269,6 +308,7 @@ export function composeAuthorization(
       capabilityGrants: [],
       sandbox,
       enforced,
+      ...delegationId === undefined ? {} : { delegationId },
       reasons: [...reasons, `action "${proposal.toolName}" requires a human decision`],
     }
   }
@@ -278,6 +318,7 @@ export function composeAuthorization(
     capabilityGrants: decision.capabilities.map(request => request.capability),
     sandbox,
     enforced,
+    ...delegationId === undefined ? {} : { delegationId },
     reasons,
   }
 }

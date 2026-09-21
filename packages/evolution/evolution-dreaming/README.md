@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-evolution-dreaming` consolidates what a scope keeps failing at into durable memory, in three phases modelled on sleep. **Light** gathers the scope's recorded failures and its episodic notes, deduplicating by statement: one note is one sighting, sightings on distinct days are the independent contexts the deep phase gates on, and a note restating a recorded failure folds into that failure's candidate. **REM** derives the themes they share and writes a narrative. **Deep** is the only phase that writes durable memory: it scores every candidate with the six-signal weighted composite, promotes those clearing all three gates, and drops promotions the decay rule has outlived. Weights are fixed — they are the algorithm; thresholds, cadence, and retention are configuration.
+Turn a scope's recorded failures into durable memory in three sleep-like phases: Light deduplicates the failures and episodic notes it gathers, REM derives the themes they share into a narrative, and Deep scores every candidate with the six-signal composite, promoting only those clearing all three gates. One command or the idle heartbeat runs the cycle, and `/dream <phase>` runs a phase alone for diagnosis. Weights are fixed; thresholds, cadence, and retention are configuration. Promotions are durable but nothing reads them back into model context yet, so choose it to consolidate, not to recall.
 
 ## Table of Contents
 

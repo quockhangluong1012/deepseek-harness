@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-`dsh-evolution-skill-manage` 发布面向模型的 `skill_manage` 工具：`create` 在受管目录新建技能，`patch` 替换一处恰好出现一次的子串，`edit` 在保留 frontmatter 的前提下重写技能正文，`write_file` 与 `remove_file` 维护附属文件，`delete` 删除整个技能。已有技能在目录发现它的位置原地变更。每次变更在遥测挂载时向其报告：`create` 携带模型作者身份，正文写入推进修订链，任何写入都把该技能的信任重置为临时状态，直到出现独立证据或经 `/curator adopt` 认领。置顶阻止删除，但永不阻止补丁。当模型应把持久技能当作文件整理、而不是守着一份冻结集合作答时，选择本包。
+`dsh-evolution-skill-manage` 发布面向模型的 `skill_manage` 工具：`create` 在配置的 `createDir` 新建技能，`patch` 替换一处恰好出现一次的子串，`edit` 在保留 frontmatter 的前提下重写技能正文，`write_file` 与 `remove_file` 维护附属文件，`delete` 删除整个技能。已有技能在目录发现它的位置原地变更；bundled 与 hub 技能只读，置顶阻止删除，但永不阻止补丁。写入立即落盘且无版本记录，回滚由你自己的版本控制负责。当模型应把持久技能当作文件整理、而不是守着一份冻结集合作答时，选择本包。
 
 ## 目录
 

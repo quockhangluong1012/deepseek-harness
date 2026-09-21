@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-evolution-memory-context` renders one durable `user/message` brief from a scope's instructions, lessons, profile, and attached context, and splices it into `agent/pre-step` — replacing the brief when the record digest changes and adding nothing when it does not. The brief declares `supersedes`, so the loop replaces the scope's previous brief on the surface: the model reads the live brief once while the log keeps every brief that was ever injected. It also registers the evolution nudge sections behind the system prompt; capacity usage is reported only in the brief's header, never interpolated into the system prompt, so a memory write cannot invalidate the request's cached prefix. Choose it when every Session in a scope should see that scope's shared knowledge without re-reading storage on every turn.
+`dsh-evolution-memory-context` gives every Session in a scope one durable `user/message` brief built from that scope's instructions, lessons, profile, and attached context, spliced into `agent/pre-step` — replacing the brief when the record changes and adding nothing when it does not. The brief declares `supersedes`, so the model reads the live one while the log keeps every injected brief, and capacity usage stays in the brief header, so a memory write never invalidates the request's cached prefix. Choose it when a scope's Sessions should share knowledge without re-reading storage each turn. `maxBytes` is required and caps the whole brief.
 
 ## Table of Contents
 

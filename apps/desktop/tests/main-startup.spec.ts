@@ -81,6 +81,7 @@ const harness = await vi.hoisted(async () => {
   return {
     windows, hosts, handlers, app, FakeWindow, FakeHost,
     dialog: { showErrorBox: vi.fn(), showMessageBox: vi.fn() },
+    shell: { openExternal: vi.fn(() => Promise.resolve()) },
     applyRelease: vi.fn(() => { preparing.resolve(); return prepared.promise }),
     assertProfileRuntime: vi.fn(),
     canRecoverProfile: vi.fn(() => true),
@@ -109,6 +110,7 @@ vi.mock('electron', () => ({
   },
   Menu: { setApplicationMenu: vi.fn(), buildFromTemplate: vi.fn() },
   protocol: { registerSchemesAsPrivileged: vi.fn(), handle: vi.fn() },
+  shell: harness.shell,
 }))
 vi.mock('../src/paths.ts', () => ({ resolveDesktopPaths: () => ({ profile: 'desktop-test-profile' }) }))
 vi.mock('../src/project-manager.ts', () => ({
@@ -221,6 +223,33 @@ describe('desktop main startup', () => {
     await harness.navigated.promise
     expect(event.preventDefault).toHaveBeenCalled()
     expect(window.urls.at(-1)).toBe('dsh-app://app/index.html')
+  })
+
+  it('opens an outbound link in the system browser', async () => {
+    await import('../src/main.ts')
+    await harness.preparing.promise
+    const window = harness.windows[0]!
+    const opened = window.webContents.setWindowOpenHandler.mock.calls[0]![0] as (details: { url: string }) => unknown
+    expect(opened({ url: 'https://claude.ai/oauth/authorize?client_id=test' }))
+      .toEqual({ action: 'deny' })
+    expect(harness.shell.openExternal).toHaveBeenCalledWith('https://claude.ai/oauth/authorize?client_id=test')
+    const event = { preventDefault: vi.fn() }
+    window.webContents.emit('will-navigate', event, 'https://console.anthropic.com/settings/keys')
+    expect(event.preventDefault).toHaveBeenCalled()
+    expect(harness.shell.openExternal).toHaveBeenCalledWith('https://console.anthropic.com/settings/keys')
+  })
+
+  it('drops an outbound link the system browser must not launch', async () => {
+    await import('../src/main.ts')
+    await harness.preparing.promise
+    const window = harness.windows[0]!
+    const opened = window.webContents.setWindowOpenHandler.mock.calls[0]![0] as (details: { url: string }) => unknown
+    expect(opened({ url: 'custom-scheme://launch' })).toEqual({ action: 'deny' })
+    expect(opened({ url: 'not a url' })).toEqual({ action: 'deny' })
+    const event = { preventDefault: vi.fn() }
+    window.webContents.emit('will-navigate', event, 'file:///etc/passwd')
+    expect(event.preventDefault).toHaveBeenCalled()
+    expect(harness.shell.openExternal).not.toHaveBeenCalled()
   })
 
   it('allows a full profile reset for an unclassified startup failure', async () => {

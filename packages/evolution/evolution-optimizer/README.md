@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-evolution-optimizer` runs one offline skill optimization: it gates on the skill's recorded failure rate, asks the host LLM for rewritten SKILL.md bodies from a configurable portfolio of mutation operators, screens them on a short scenario subset, re-scores the baseline and every survivor through the scorer under isolated `DSH_HOME` overlays, checks the private holdout scenarios, confirms the winner on repeated paired comparisons, refuses one an already-approved promotion dominates, keeps the Pareto winner that beats the baseline, and stages it as a skill patch. Every run that produced candidate bodies is written to a per-scope experiment ledger, so a later run — or a human reading `/curator experiments` — sees what was already tried and what it measured. Nothing writes a skill directly: the staged entry waits in the scope until a human writes the skill with skill_manage and `/skills approve` drops the entry.
+Search for a better SKILL.md body offline: pass a skill, its corpus scenarios, and a staging identity, and the run draws candidates from the mutation operators you configure, screens and scores them under isolated `DSH_HOME` overlays, checks the private holdout, confirms the winner on repeated paired comparisons, and stages the Pareto winner that beats the baseline. It runs on demand, never per turn, costs one model call per selected operator, and needs a corpus that exercises the skill. Nothing writes a skill directly: approve the staged entry to land it.
 
 ## Table of Contents
 
@@ -127,9 +127,7 @@ Both scenario lists are validated before any model call: a name repeated inside 
 <details>
 <summary>Implementation internals — click to expand</summary>
 
-`src/pareto.ts` is the pure selector: dominance on (pass, tokens, wallTimeMs), the nondominated frontier, the survivor cut a screen promotes, and the winner that must dominate the re-scored baseline. `src/mutate.ts` owns the operator portfolio and frames one request per operator (the operator's instruction plus a byte budget that halves the evidence, never the skill body) and parses the JSON-array answer into distinct bodies. `src/evaluate.ts` stages each body into a fresh `DSH_HOME` overlay and scores it through `evolutionScorer.evaluateSkill` with a runner that layers the overlay home into the attempt environment; the overlay is removed when scoring settles. `src/surface.ts` is the failure surface: the signature one evidence text folds to, the per-operator try and win counts one scope's rows hold for it, and the ordering that prior imposes on a lineup. `src/experiments.ts` is the ledger vocabulary: the durable row schema, retention, paged reads, the experiment key and the repeat lookup, and the prose a repeat refusal quotes. `src/index.ts` orchestrates: scenario validation, strategy selection from the ledger, repeat refusal, trigger gate, baseline re-score under the same harness, the screen, the budgeted full evaluations, the Pareto pick, the holdout check, the confirmation pairs, one `stageWrite` with `kind: 'skill'`, `op: 'patch'`, and the ledger row. `src/experiments.ts` owns the domain declaration, the durable row schema, and the two pure selectors (`experimentPage`, `staleExperiments`) the read path and retention use.
-`src/contamination.ts` is the holdout guard: the recorded search scenarios one skill's holdout must not repeat.
-`src/lineage.ts` counts the changed components: added and removed lines between the starting body and the winner, order-sensitively, so the ledger records how big each promotion's edit was.
+`src/pareto.ts` is the pure selector: dominance on (pass, tokens, wallTimeMs), the nondominated frontier, the survivor cut a screen promotes, and the winner that must dominate the re-scored baseline. `src/mutate.ts` owns the operator portfolio and frames one request per operator (the operator's instruction plus a byte budget that halves the evidence, never the skill body) and parses the JSON-array answer into distinct bodies. `src/evaluate.ts` stages each body into a fresh `DSH_HOME` overlay and scores it through `evolutionScorer.evaluateSkill` with a runner that layers the overlay home into the attempt environment; the overlay is removed when scoring settles. `src/surface.ts` is the failure surface: the signature one evidence text folds to, the per-operator try and win counts one scope's rows hold for it, and the ordering that prior imposes on a lineup. `src/experiments.ts` is the ledger vocabulary: the durable row schema, retention, paged reads, the experiment key and the repeat lookup, and the prose a repeat refusal quotes. `src/index.ts` orchestrates: scenario validation, strategy selection from the ledger, repeat refusal, trigger gate, baseline re-score under the same harness, the screen, the budgeted full evaluations, the Pareto pick, the holdout check, the confirmation pairs, one `stageWrite` with `kind: 'skill'`, `op: 'patch'`, and the ledger row. `src/experiments.ts` owns the domain declaration, the durable row schema, and the two pure selectors (`experimentPage`, `staleExperiments`) the read path and retention use. `src/contamination.ts` is the holdout guard: the recorded search scenarios one skill's holdout must not repeat. `src/lineage.ts` counts the changed components: added and removed lines between the starting body and the winner, order-sensitively, so the ledger records how big each promotion's edit was.
 
 No invariant companion is published because the experiments domain table is the only copy of this state, so there is no second independent observation to check it against.
 
@@ -142,19 +140,30 @@ No invariant companion is published because the experiments domain table is the 
 
 - The metric triple and the trigger live in [`dsh-evolution-scorer`](../evolution-scorer/README.md); the optimizer reuses both without copying.
 - The staged skill protocol (write with skill_manage, then approve) is documented in [`dsh-command-evolution`](../command-evolution/README.md).
-- The mutation call's `purpose: 'evolution-optimize'` attribution is declared in [`dsh-llm`](../../../llm/llm/README.md).
+- The mutation call's `purpose: 'evolution-optimize'` attribution is declared in [`dsh-llm`](../../llm/llm/README.md).
 
 -----
 
 <a id="model-experience"></a>
 ## Model Experience
 
-The optimizer never reaches the model: it runs offline over recorded outcomes, and only the winning body's staged entry (with its baseline/winner triples as evidence) surfaces to a human for approval.
+### Mutation request
 
------
+#### What the model sees
+
+One user message per selected operator, opening with the fixed header `You improve one skill package in a single pass.`, that operator's instruction line, the reply-format line naming the requested body count, and the closing `No prose outside the array.` — followed by the skill name, the complete current `SKILL.md` body, and the failure evidence. The request declares no tools, and the answer must be a JSON array of complete replacement bodies.
+
+#### Token effect
+
+Capped: one request per operator that received candidates — `maxCandidates` split across the lineup, so the run never exceeds that many requests — each bounded by `maxInputBytes` of framing and `maxOutputTokens` of completion. Scoring adds no model call: every attempt replays recorded fixtures.
+
+#### KV Cache effect
+
+Independent of live requests: each mutation call is a fresh single-message exchange with its own prefix, so it cannot invalidate provider cache reuse on a conversation. The run's calls are independent of each other too, because each opens with its own operator instruction.
+
+## Known Limitations and Deferred Work
 
 <a id="known-limitations-and-deferred-work"></a>
-## Known Limitations and Deferred Work
 
 - **Replay measures executable content** — a variant that only rewords prompts may score identically to the baseline, because keyless replay fixes the model script and only tool results vary. A prompt-only rewrite that changes nothing measurable reports `no-improvement`; that is the harness telling the truth, not a missed optimization.
 - **One SKILL.md body per run** — the overlay serves only the variant body; sibling package files (scripts, references) are absent from it, so a variant that depends on rewritten siblings can mis-score. Sibling-aware overlays wait for a skill that needs them.

@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-`dsh-command-evolution` 向聊天 UI 添加演进 harness 的人类治理面：`/memory` 与 `/skills` 治理暂存写入，`/journey [today|7d|30d|all]` 显示作用域已记录的活动，`/curator status|run [--dry-run]|staged` 显示整理台账、运行一次维护通过，并列出为复核而分选的技能，`/refine` 重建该作用域的经验，`/trajectory` 导出会话或作用域，`/learn` 开启一次调研并保存的回合，`/suggestions` 列出带 blueprint 的技能而不调度它们，`/frontier` 按实测证据把该作用域的能力从最弱到最强排序，`/dream [light|rem|deep]` 把该作用域已记录的失败固化为持久记忆。除 `/learn` 外每个命令都直接作答；`/learn` 排队一个普通回合。当人类必须在后台评审提议落地前看到并治理它们时，选择本包。
+`dsh-command-evolution` 把演进 harness 的人类治理带进聊天 UI：`/memory` 与 `/skills` 批准或拒绝暂存写入，`/journey` 显示该作用域已记录的活动，`/curator` 显示整理台账、运行一次维护通过并列出为复核而暂存的技能，`/refine` 重建该作用域的经验，`/trajectory` 导出会话或作用域，`/dream` 把已记录的失败固化为记忆，`/frontier` 按实测证据把能力从最弱到最强排序，`/suggestions` 列出带 blueprint 的技能而不调度它们。除 `/learn` 外的命令都直接作答；`/learn` 排队一个普通轮次。当人类必须治理后台评审的提议、让它在落地前可见时，选择本包。
 
 ## 目录
 

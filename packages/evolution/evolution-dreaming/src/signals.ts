@@ -115,7 +115,11 @@ export function scoreCandidate(evidence: CandidateEvidence): { score: number; si
   return { score, signals }
 }
 
-/** Distinct whole words in a statement, used for the concept-richness signal. */
+/**
+ * Distinct whole words in a statement, used for the concept-richness signal.
+ * @param statement - the text to tokenize.
+ * @returns how many distinct words of two or more letters or digits it carries.
+ */
 export function countConcepts(statement: string): number {
   const words = statement.toLowerCase().match(/[\p{L}\p{N}_]{2,}/gu)
   return words === null ? 0 : new Set(words).size

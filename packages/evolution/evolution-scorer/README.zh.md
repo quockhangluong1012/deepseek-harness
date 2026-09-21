@@ -62,11 +62,11 @@ if (outcome.status === 'scored') console.log(outcome.score.pass, outcome.score.t
 | 字段 | 默认值 | 含义 |
 |---|---|---|
 | `corpusDir` | `required` | 语料根目录的绝对路径，每个录制场景一个子目录 |
-
-Web 组合里带有本行，但[默认关闭](../../bundle/web-app/cordis.patch.yml)：部署对哪份语料评分是它自己的数据，而没有语料的行只会在首次评估时才失败。[`apps/cli/config/examples/evolution-optimize/cordis.yml`](../../../apps/cli/config/examples/evolution-optimize/cordis.yml) 把它与优化器一起打开，用的是检出自身的语料与尝试所启动的 profile。
 | `attempts` | `3` | 每次评分的全新进程尝试次数；中位数取自这些样本 |
 | `triggerMinUses` | `20` | 失败率据以触发优化前所需的已记录加载次数 |
 | `triggerFailureRate` | `0.3` | 技能触发优化必须超过的失败占比 |
+
+Web 组合里带有本行，但[默认关闭](../../bundle/web-app/cordis.patch.yml)：部署对哪份语料评分是它自己的数据，而没有语料的行只会在首次评估时才失败。[`apps/cli/config/examples/evolution-optimize/cordis.yml`](../../../apps/cli/config/examples/evolution-optimize/cordis.yml) 把它与优化器一起打开，用的是检出自身的语料与尝试所启动的 profile。
 
 生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-evolution-scorer)是每个可接受字段的详尽来源。
 

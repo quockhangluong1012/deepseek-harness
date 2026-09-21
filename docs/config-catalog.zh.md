@@ -79,6 +79,26 @@ export interface Config {
 
 来源：[`packages/context/active-memory-context/src/index.ts:41`](../packages/context/active-memory-context/src/index.ts)
 
+<a id="deepseek-aidsh-agent-context"></a>
+
+## `@deepseek-ai/dsh-agent-context`
+
+```ts config-catalog
+/**
+ * Plugin configuration. A compiler mounted with no configuration records every
+ * placement and changes nothing, so a deployment measures a ceiling against
+ * real traffic before it can drop any of it.
+ */
+export interface Config {
+  /** Whether the cut placement is only recorded (`shadow`) or also applied to the assembly (`apply`). */
+  mode?: 'shadow' | 'apply'
+  /** Token ceiling one compiled placement may price at; unset means unbounded. */
+  maxContextTokens?: number
+}
+```
+
+来源：[`packages/runtime/agent-context/src/index.ts:40`](../packages/runtime/agent-context/src/index.ts)
+
 <a id="deepseek-aidsh-agent-default-model"></a>
 
 ## `@deepseek-ai/dsh-agent-default-model`
@@ -203,7 +223,7 @@ export type PolicyAction =
   | 'policy'
 ```
 
-来源：[`packages/runtime/agent-kernel/src/index.ts:78`](../packages/runtime/agent-kernel/src/index.ts)
+来源：[`packages/runtime/agent-kernel/src/index.ts:80`](../packages/runtime/agent-kernel/src/index.ts)
 
 <a id="deepseek-aidsh-agent-instructions"></a>
 

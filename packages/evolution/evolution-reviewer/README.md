@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-evolution-reviewer` derives evolution lessons from live Sessions without ever blocking a turn: it buffers the current turn's events as they arrive, indexes produced files at `turn/end`, recalls ranked prior work from the scope directory into the brief, and enqueues a gated deterministic extraction that reads the turn against a relevance-bounded slice of the scope's current artifacts and answers with a batch of `confirms` / `contradicts` / `new` decisions — applied directly, or staged for approval when `writeApproval` is on. `rebuild` folds its findings into the scope's artifacts from history through the asynchronous session query seam. Choose it when a scope's lessons should track what its Sessions actually do.
+`dsh-evolution-reviewer` derives evolution lessons from live Sessions without blocking a turn: it buffers the current turn's events, indexes produced files at `turn/end`, recalls ranked prior work from the scope directory into the brief, and enqueues a gated extraction that reads the turn against a relevance-bounded slice of the scope's artifacts and answers `confirms` / `contradicts` / `new` decisions — applied directly, or staged for approval when `writeApproval` is on. `rebuild` folds history into the same artifacts. Choose it when a scope's lessons should track what its Sessions actually do; each gated turn costs one model call.
 
 ## Table of Contents
 

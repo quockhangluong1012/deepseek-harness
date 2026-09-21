@@ -82,6 +82,24 @@ export interface TypeApiEntry {
 /** Every harness `ctx.<key>` service, sorted by key. */
 export const SERVICE_API: readonly ServiceApiEntry[] = [
   {
+    key: 'agentContext',
+    summary: 'The compiler service (`ctx.agentContext`).',
+    description: 'The compiler service (`ctx.agentContext`). It attaches to the prompt assembly waterfall in its constructor, so unloading the plugin unloads the listener with it.',
+    methods: [
+      {
+        signature: 'readonly compiler: ContextCompiler',
+        description: 'The pure compiler a caller can drive over any assembly.',
+        parameters: [],
+      },
+      {
+        signature: 'async compile(agent: Agent, assembly: PromptAssembly): Promise<CompiledContext>',
+        description: 'Compile one assembly for a live agent and record the placement.',
+        parameters: [{ name: 'agent', description: 'the agent the assembly is for.' }, { name: 'assembly', description: 'the assembled prompt contributions.' }],
+        returns: 'the placement, already appended as `context/compiled`.',
+      },
+    ],
+  },
+  {
     key: 'agentDefaultModel',
     summary: 'Owns the default model selection independently of any Host or transport.',
     description: 'Owns the default model selection independently of any Host or transport. The composition entry remains usable without a settings provider; when one is mounted, its user layer is read live.',
@@ -4969,6 +4987,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type CompactionTrigger = \'pressure\' | \'context-overflow\';',
   },
   {
+    name: 'CompiledContext',
+    declaration: 'export interface CompiledContext {\n    readonly included: readonly CompiledSource[];\n    readonly omitted: readonly ContextOmission[];\n    readonly conflicts: readonly ContextConflict[];\n    readonly tokenEstimate: number;\n    readonly digest: string;\n    readonly compilerVersion: string;\n}',
+  },
+  {
+    name: 'CompiledSource',
+    declaration: 'export interface CompiledSource {\n    readonly source: ContextSource;\n    readonly relevance: number;\n    readonly tokens: number;\n}',
+  },
+  {
     name: 'CompletionDecision',
     declaration: 'export interface CompletionDecision {\n    readonly allowed: boolean;\n    readonly reasons: readonly string[];\n}',
   },
@@ -5017,12 +5043,36 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type ContentBlockType = keyof ContentBlockMap;',
   },
   {
+    name: 'ContextCompileInput',
+    declaration: 'export interface ContextCompileInput {\n    readonly assembly: PromptAssembly;\n    readonly sources?: readonly ContextSource[];\n    readonly objective?: string;\n    readonly maxTokens?: number | null;\n}',
+  },
+  {
+    name: 'ContextCompiler',
+    declaration: 'export interface ContextCompiler {\n    compile(input: ContextCompileInput): Promise<CompiledContext>;\n}',
+  },
+  {
+    name: 'ContextConflict',
+    declaration: 'export interface ContextConflict {\n    readonly subject: string;\n    readonly sources: readonly string[];\n}',
+  },
+  {
     name: 'ContextFormed',
     declaration: 'export type ContextFormed = {\n    readonly form?: never;\n} | {\n    readonly form: \'instructions\';\n} | {\n    readonly form: \'catalog\';\n} | {\n    readonly form: \'snapshot\';\n    readonly sections: readonly ContextSnapshotSection[];\n    readonly supersedes?: true;\n} | {\n    readonly form: \'notice\';\n    readonly summary: string;\n} | {\n    readonly form: \'relay\';\n} | {\n    readonly form: \'recall\';\n};',
   },
   {
+    name: 'ContextOmission',
+    declaration: 'export interface ContextOmission {\n    readonly id: string;\n    readonly reason: OmissionReason;\n}',
+  },
+  {
     name: 'ContextSnapshotSection',
     declaration: 'export interface ContextSnapshotSection {\n    readonly name: string;\n    readonly text: string;\n}',
+  },
+  {
+    name: 'ContextSource',
+    declaration: 'export interface ContextSource {\n    readonly id: string;\n    readonly kind: ContextSourceKind;\n    readonly content: string;\n    readonly trust: TrustLabel;\n    readonly provenance: Provenance;\n    readonly retention: RetentionClass;\n    readonly subject?: string;\n}',
+  },
+  {
+    name: 'ContextSourceKind',
+    declaration: 'export type ContextSourceKind = \'policy\' | \'task\' | \'plan\' | \'memory\' | \'evidence\' | \'artifact\' | \'history\' | \'tool\';',
   },
   {
     name: 'ContinuableCreateRequest',
@@ -6113,6 +6163,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type ObjectJsonSchema = JsonSchemaNode & {\n    type: \'object\';\n};',
   },
   {
+    name: 'OmissionReason',
+    declaration: 'export type OmissionReason = \'budget\' | \'duplicate\';',
+  },
+  {
     name: 'OneShotSubagentDescriptorData',
     declaration: 'export interface OneShotSubagentDescriptorData extends SubagentDescriptorBase {\n    readonly mode: \'one-shot\';\n    readonly label?: string;\n}',
   },
@@ -6247,6 +6301,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'PromptSectionOrderName',
     declaration: 'export type PromptSectionOrderName = keyof typeof SECTION_ORDERS;',
+  },
+  {
+    name: 'Provenance',
+    declaration: 'export interface Provenance {\n    readonly source: \'user\' | \'model\' | \'repo\' | \'tool\' | \'web\' | \'mcp\' | \'subagent\' | \'policy\' | \'kernel\';\n    readonly locator?: string;\n    readonly digest?: string;\n}',
   },
   {
     name: 'ProviderRequestId',
@@ -6403,6 +6461,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'ResumeAgentOptions',
     declaration: 'export interface ResumeAgentOptions {\n    readonly resumeSessionId: SessionId;\n    readonly parentAgent?: Agent;\n    readonly agentOptions?: AgentOptions;\n    readonly signal?: AbortSignal;\n    readonly setup?: AgentSetup;\n}',
+  },
+  {
+    name: 'RetentionClass',
+    declaration: 'export type RetentionClass = \'required\' | \'compressible\';',
   },
   {
     name: 'RollbackOptions',

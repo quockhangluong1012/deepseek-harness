@@ -154,6 +154,14 @@ type ContextFormed =
     readonly form: 'snapshot'
     /** The named contributions this snapshot assembled, in order. */
     readonly sections: readonly ContextSnapshotSection[]
+    /**
+     * Declares that this snapshot is the producer's current state rather than
+     * one entry in a timeline: the loop replaces the producer's previous
+     * snapshot on the surface with this one, and the log keeps both. A
+     * producer whose snapshots accumulate — a reading per step, where a later
+     * entry refers to the earlier one — leaves this unset.
+     */
+    readonly supersedes?: true
   }
   | {
     readonly form: 'notice'
@@ -373,6 +381,11 @@ One keep/drop decision covers content and metadata together: a `max-tokens` fini
  * Tolerant of delta-only protocols (no block-start/end); deltas arriving for
  * an index already closed by `block-end` are ignored (malformed stream) so a
  * misbehaving adapter cannot grow memory or corrupt a completed block.
+ *
+ * Tolerance here is layered, not contradictory, with the `llm-invariant`
+ * companion: the companion (when mounted) strictly throws on malformed
+ * streams, while this assembler stays total so compositions running without
+ * it still yield best-effort output instead of crashing.
  */
 declare class BlockAssembler {
   /**
@@ -610,7 +623,7 @@ interface GenerateOptions {
    * map the purpose to model-hidden transport metadata or purpose-specific
    * generation policy. Ordinary conversation requests leave it unset.
    */
-  purpose?: 'compaction' | 'session-title' | 'workspace-memory' | 'evolution-review'
+  purpose?: 'compaction' | 'session-title' | 'workspace-memory' | 'evolution-review' | 'evolution-optimize'
 }
 ```
 

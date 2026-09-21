@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## Summary
 
-`dsh-client-ui-evolution` 拥有演进历程页面以及本包的 `evolutionCurator` Remote 命名空间。页面按可切换的时间窗口（今天、7 天、30 天、全部）展示某个作用域记录到的演进：读模型能证明的每日桶——指令、经验与画像的写入、上下文附件、产出文件、待审写入，以及按日统计的审批决策——并排呈现等待决定的待审写入、该作用域当前的经验工件（按置信度从高到低渲染）、整理器记录到的运行，以及简报相对记录上限的已用字节。作用域动词位于 Host 的 `ctx.evolutionController`（`evolution` 命名空间）；整理器状态面之所以在本包，是因为浏览器无法读取 Host 的 Cordis 服务。
+查看某个作用域记录到的演进，并对等你决定的待审写入作出裁决：按可切换的时间窗口（今天、7 天、30 天、全部）看读模型能证明的每日桶——指令、经验与画像的写入、上下文附件、产出文件、待审写入以及按日统计的决策——并排呈现等待决定的待审写入、该作用域当前的经验（按置信度从高到低渲染）、整理器记录到的运行，以及简报相对记录上限的已用字节。批准或拒绝一条待审写入，它那一行就地退役。把它挂在 web composition 中；编辑指令、经验与画像仍是 CLI 的活。
 
 ## Table of Contents
 
@@ -70,14 +70,15 @@ kind: "package-reference"
 <a id="model-experience"></a>
 ## Model Experience
 
-间接地，通过 `@deepseek-ai/dsh-evolution-memory-context`（它把作用域简报渲染进请求）；本包只展示那些写入所记录的内容。
+无，因为历程页面及其整理器状态面只读取已记录的演进状态与整理器计数；本包渲染的任何内容都不进入模型请求。
 
 #### KV Cache effect
 
 与在线请求无关：本包从不触碰请求前缀，因此不会破坏 provider 的缓存复用。
 
-<a id="known-limitations-and-deferred-work"></a>
 ## Known Limitations and Deferred Work
+
+<a id="known-limitations-and-deferred-work"></a>
 
 - **仅限 Web** —— 该页面存在于 web composition；其他 profile 没有对应界面。
 - **没有历程导出与 web scenario** —— 规范中的 ZIP 导出与 `snapshots/web/evolution-journey` scenario 不在本切片范围内；用户已豁免快照工作，因此改为在真实界面上验证该页面。

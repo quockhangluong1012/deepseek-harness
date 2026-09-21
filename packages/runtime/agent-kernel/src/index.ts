@@ -30,8 +30,9 @@ import type {} from '@deepseek-ai/dsh-sandbox-policy'
 import type { Session } from '@deepseek-ai/dsh-session'
 import type { PreToolDecision, ToolExecution } from '@deepseek-ai/dsh-tools'
 import { ToolCapabilityRegistry } from './capabilities.ts'
+import { delegationReceipt, policyDigest } from './delegation.ts'
 import { actionIdOf, KernelLedger, type LedgerEntry } from './ledger.ts'
-import { composeAuthorization, PermissionPolicyEngine, POLICY_ACTIONS, POLICY_EFFECTS } from './policy.ts'
+import { admittedCapabilities, compilePolicy, composeAuthorization, PermissionPolicyEngine, POLICY_ACTIONS, POLICY_EFFECTS } from './policy.ts'
 import { DefaultRecoveryEngine } from './recovery.ts'
 import { applyTransition, canTransition, isActive } from './state-machine.ts'
 import type {
@@ -40,17 +41,20 @@ import type {
   ActionReceipt,
   ActorKind,
   AuthorizationDecision,
+  Capability,
   CapabilityRegistry,
   Checkpoint,
   CheckpointId,
   CheckpointReason,
   CompletionDecision,
+  DelegationId,
   FailureId,
   FailureKind,
   FailureRecord,
   GovernanceReceipt,
   KernelAttachment,
   KernelView,
+  PolicyContext,
   PolicyDocument,
   PolicyEngine,
   ResourceBudget,
@@ -223,6 +227,10 @@ export class AgentKernelService extends Service {
   /** The read model and budget observer over session logs. */
   readonly state: KernelLedger
   private readonly config: ResolvedConfig
+  /** Capabilities the deployment's document admits at all, handed to a root parent's children. */
+  private readonly admitted: readonly Capability[]
+  /** Digest of the permission document, recorded on every delegation receipt. */
+  private readonly permissionDigest: string
   private readonly attachments = new Set<KernelTaskAttachment>()
 
   /**
@@ -239,7 +247,10 @@ export class AgentKernelService extends Service {
       acceptance: config.acceptance ?? [],
       maxAttemptsPerAction: config.maxAttemptsPerAction ?? 2,
     }
-    this.policy = new PermissionPolicyEngine(config.policy ?? DEFAULT_POLICY_DOCUMENT)
+    const document = config.policy ?? DEFAULT_POLICY_DOCUMENT
+    this.policy = new PermissionPolicyEngine(document)
+    this.admitted = admittedCapabilities(compilePolicy(document))
+    this.permissionDigest = policyDigest(document, this.config.policyProfile)
     this.capabilities = new ToolCapabilityRegistry()
     this.verification = new DefaultVerificationGate({
       requireAcceptanceCriteria: config.requireAcceptanceCriteria ?? false,
@@ -249,6 +260,7 @@ export class AgentKernelService extends Service {
     this.recovery = new DefaultRecoveryEngine({ checkpointBeforeRetry: config.checkpointBeforeRetry ?? true })
     this.state = new KernelLedger()
 
+    ctx.on('agent/created', (payload) => { this.delegate(payload.agent) })
     ctx.on('agent/pre-step', (payload, next) => {
       this.openOrAdvance(payload.agent.session, payload.messages, payload.turn, payload.step)
       return next()
@@ -353,6 +365,39 @@ export class AgentKernelService extends Service {
   }
 
   /**
+   * Issue the delegation receipt one child agent acts under. The receipt is
+   * written into the child's own log before its task contract, so a replay
+   * reconstructs the child's authority without the parent's session; a
+   * resolvable parent records the same receipt as what it handed down.
+   * @param agent - the agent just published to the registry.
+   */
+  private delegate(agent: Agent): void {
+    const session = agent.session
+    const parentSessionId = session.header.parentSession
+    if (parentSessionId === undefined) return
+    // A resumed child already carries its receipt; issuing a second one would
+    // replace the authority its recorded actions already ran under.
+    if (this.state.entryOf(session).delegation !== undefined) return
+    const parentSession = this.ctx.get('sessions')?.get(parentSessionId)
+    const parent = parentSession === undefined ? undefined : this.state.view(parentSession)
+    const receipt = delegationReceipt({
+      delegationId: brandString<DelegationId>(randomUUID()),
+      childRunId: brandString<RunId>(randomUUID()),
+      parentSessionId,
+      ...parent === undefined ? {} : { parent },
+      admitted: this.admitted,
+      sandbox: this.sandboxOf(session),
+      inheritedPolicyDigest: this.permissionDigest,
+      // The parent's remaining allowance is the child's ceiling; a parent whose
+      // task is not resolvable hands down the deployment's own budget.
+      resourceLimits: parent?.budgets.remaining ?? this.config.budgets,
+      at: Date.now(),
+    })
+    session.append('delegation/received', receipt)
+    parentSession?.append('delegation/issued', receipt)
+  }
+
+  /**
    * Open a task contract from the messages that started the work.
    * @param session - the session the contract belongs to.
    * @param messages - the claimed messages the objective is read from.
@@ -360,16 +405,20 @@ export class AgentKernelService extends Service {
    */
   private intake(session: Session, messages: readonly UserMessage[]): TaskContract {
     const cwd = session.header.cwd
+    const delegation = this.state.entryOf(session).delegation
     const created: TaskContract = {
       taskId: brandString<TaskId>(randomUUID()),
-      runId: brandString<RunId>(randomUUID()),
+      // A delegated child keeps the run identity its receipt was issued under,
+      // so the receipt and the contract name the same run.
+      runId: delegation?.childRunId ?? brandString<RunId>(randomUUID()),
       objective: humanObjective(messages),
       constraints: [],
       acceptance: this.config.acceptance,
       ...cwd === undefined ? {} : { workspace: { root: cwd } },
+      ...delegation?.parentTaskId === undefined ? {} : { parentTaskId: delegation.parentTaskId },
       agentProfile: this.config.agentProfile,
       policyProfile: this.config.policyProfile,
-      budget: this.config.budgets,
+      budget: delegation?.resourceLimits ?? this.config.budgets,
       status: 'intake',
       revision: 1,
     }
@@ -427,16 +476,18 @@ export class AgentKernelService extends Service {
     const agent = exec.agent
     if (agent === undefined) return next()
     const session = agent.session
-    const view = this.state.view(session)
-    if (view === undefined) return next()
-    const proposal = proposalOf(exec, agent, view)
+    const entry = this.state.entryOf(session)
+    const task = entry.task
+    if (task === undefined) return next()
+    const proposal = proposalOf(exec, agent, task)
     session.append('action/proposed', proposal)
     const declared = this.capabilities.resolve(exec.name, exec.arguments)
-    const context = {
+    const context: PolicyContext = {
       action: proposal,
       capabilities: declared ?? [],
       undeclared: declared === undefined,
       sandbox: this.sandboxOf(session),
+      ...entry.delegation === undefined ? {} : { parentGrant: entry.delegation },
     }
     const decision = this.policy.evaluate(context)
     session.append('policy/decision', { proposal, decision })
@@ -570,10 +621,10 @@ export class AgentKernelService extends Service {
  * Build the proposal record for one call.
  * @param exec - the pending call.
  * @param agent - the agent on whose behalf it runs.
- * @param view - the current task view.
+ * @param task - the task contract the proposal is made against.
  * @returns the proposal.
  */
-function proposalOf(exec: ToolExecution, agent: Agent, view: KernelView): ActionProposal {
+function proposalOf(exec: ToolExecution, agent: Agent, task: TaskContract): ActionProposal {
   return {
     actionId: actionIdOf(exec.callId),
     agentId: agent.id,
@@ -583,7 +634,7 @@ function proposalOf(exec: ToolExecution, agent: Agent, view: KernelView): Action
     // the pre-execute waterfall runs, so this is the value's own type.
     arguments: exec.arguments as ActionProposal['arguments'],
     source: 'model',
-    taskRevision: view.task.revision,
+    taskRevision: task.revision,
     trust: 'unknown',
   }
 }

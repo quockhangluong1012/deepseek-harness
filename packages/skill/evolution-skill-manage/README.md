@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-evolution-skill-manage` publishes the model-facing `skill_manage` tool: `create` starts a skill in the managed directory, `patch` replaces one uniquely-occurring substring, `edit` rewrites a skill body behind kept frontmatter, `write_file` and `remove_file` maintain supporting files, and `delete` removes a whole skill. Existing skills mutate in place where the catalog found them. Every mutation reports to skill telemetry when it is mounted: a `create` carries model authorship, a body write advances the revision chain, and any write resets the skill's trust to provisional until independent evidence or `/curator adopt` vouches for it. Pins block deletion but never patches. Choose it when the model should curate durable skills as files instead of answering from a frozen set.
+`dsh-evolution-skill-manage` publishes the model-facing `skill_manage` tool: `create` starts a skill in the configured `createDir`, `patch` replaces one uniquely-occurring substring, `edit` rewrites a body behind kept frontmatter, `write_file` and `remove_file` maintain supporting files, and `delete` removes a whole skill. Existing skills mutate in place where the catalog found them; bundled and hub skills are read-only, and a pin blocks deletion but never a patch. Writes land immediately and unversioned, so rollback is your own version control. Choose it when the model should curate durable skills as files instead of answering from a frozen set.
 
 ## Table of Contents
 

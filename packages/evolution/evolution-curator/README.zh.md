@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-`dsh-evolution-curator` 运行技能生命周期整理的自动、无模型一半——技能沿技能遥测的闲置时长与失败证据从 `active` 经 `stale` 到 `archived`，最新一次加载成功的 stale 技能有回 `active` 的路，带试运行预览、首次运行递延与闲置门控——以及可选、由模型驱动的一半：把 agent 创建的技能归并为伞技能。置顶技能、受保护名称、随包与 hub 来源永不移动。本插件每个 host 只挂载一次，并自己拥有计划：它观测 host 范围的会话活动，运行一次启动时到期检查，随后按周期滴答。真实通过记录自己做过什么——每个被补丁的正文都留下前像——并按整轮或单条目失败关闭地回滚；手工认领由模型写出的技能，TTL 清理删除归档技能及其目录；每趟还会把与某技能关联的失败分级为该技能的信任状态。遥测缺席时，自动方法退化为记账或空报告。
+不必亲自盯着技能生命周期：每个 host 挂载一次本插件，它就会按闲置时长与失败证据把技能在 `active → stale → archived` 之间移动，让最新一次加载成功的 stale 技能回到 `active`，并用试运行预览每次通过。开启 `consolidate` 可让模型把 agent 创建的技能归并为伞技能；置顶、受保护、随包与 hub 来源的技能永不移动。它读取技能遥测，缺席时退化为簿记。真实通过会写快照，你可以整轮回滚，也可以按条目回滚。
 
 挂载本身就是全部触发：`enabled: false` 不启动定时器，也不触碰记账。
 
@@ -29,7 +29,7 @@ kind: "package-reference"
 
 Host 启动时挂载本插件一次。此后它自行拥有维护计划：自己观测 host 范围的 `session/event` 活动，运行一次启动时到期检查，并以 `unref()` 过的定时器每 `tickMinutes` 重复一次到期检查，定时器随插件处置。到期检查仅在 `lastRunAt` 起经过 `intervalHours`，且 `minIdleHours` 内没有会话事件到达时才运行一次通过；本进程观测到任何活动之前，host 视为闲置。首次检查只播种 `lastRunAt` 并递延一个周期，因此短命 CLI 运行只贡献其启动时刻，而不运行任何东西。`enabled: false` 不启动定时器，也不触碰记账。
 
-调用 `maybeRun` 可自行运行同一次到期检查（闲置门控可用 `idleMs` 显式覆盖），调用 `run` 做无条件通过，以 `dryRun: true` 预览报告而不写入。一次通过检查每个被跟踪的技能：闲置时长从上次加载起算，从未加载则从播种起算。`active` 在超过 `staleAfterDays` 后进入 `stale`——或更早地因失败证据进入：在没有更新的加载回应它们的情况下，被归因的信任失败数达到 `staleTrustFailureFloor`，或在至少 `stageMinUses` 次加载上加载失败率超过 `staleFailureRate` 且最近一次加载是失败的。最近一次加载成功、仍在 stale 窗口以内、且新于其最近一次被归因失败的 `stale` 技能回到 `active`；超过 `archiveAfterDays` 则照样归档——期限永远优先于复活。报告以理由列出每次移动，并给出置顶、受保护名称与被排除来源的跳过计数；写了快照时还携带通过标识与快照文件名。`lastRunAt` 读取上次通过时刻，供状态界面使用。
+调用 `maybeRun` 可自行运行同一次到期检查（闲置门控可用 `idleMs` 显式覆盖），调用 `run` 做无条件通过，以 `dryRun: true` 预览报告而不写入。一次通过检查每个被跟踪的技能：闲置时长从上次加载起算，从未加载则从播种起算。`active` 在超过 `staleAfterDays` 后进入 `stale`——或更早地因失败证据进入：在没有更新的加载回应它们的情况下，被归因的信任失败数达到 `staleTrustFailureFloor`，或在至少 `stageMinUses` 次加载上加载失败率超过 `stageFailureRate` 且最近一次加载是失败的。最近一次加载成功、仍在 stale 窗口以内、且新于其最近一次被归因失败的 `stale` 技能回到 `active`；超过 `archiveAfterDays` 则照样归档——期限永远优先于复活。报告以理由列出每次移动，并给出置顶、受保护名称与被排除来源的跳过计数；写了快照时还携带通过标识与快照文件名。`lastRunAt` 读取上次通过时刻，供状态界面使用。
 
 `consolidate: true` 时，该通过随后对 agent 创建的技能运行一次 LLM 归并（见[归并](#consolidation)）。
 
@@ -38,6 +38,10 @@ Host 启动时挂载本插件一次。此后它自行拥有维护计划：自己
 每次通过还会分选出那些已记录结果表明不再好用的技能。当遥测记录中至少有 `stageMinUses` 次加载，且失败占比超过 `stageFailureRate` 时分选该技能，其中占比为 `failureCount / (useCount + failureCount)`——正是遥测记录所记录的公式。分选是证据，不是移动：它为每个技能追加一条 `stage` 台账条目，既不写入技能，也不写入遥测，因此置顶技能仍会被分选。置顶保护的是技能不被移动，而不是不被查看；随包附带、hub 与 `protectedNames` 技能留在外面，因为它们本就完全在整理范围之外。
 
 条目里的计数就是去重键，因此在台账上已有计数的技能不会被重复追加——只有该技能再次被使用时台账才会增长。`staged` 读取每个技能的最新条目，失败率最差在前，同率按名称升序；通过报告会列出本次分选了哪些。`backup.enabled` 像管住本包其它每次台账写入一样管住这次写入。
+
+### 回归债
+
+每次通过还会为每个技能的每个决定性失败维护一条未结债务，存放在 `evolution_curator` 域（版本 2）的 `debt` 表中。新合并键的 `trigger_review` 信号会开启一条债务，并开始累计连续通过次数；再次目击会加深它（`passes`、最新消息、最多上报会话数）；修订会关闭旧债务并开启一条新的，因为新正文尚未回应旧失败；某失败不再出现时，即便另一条仍在，它的债务也会关闭。`debt()` 列出每条未结债务——通过次数最多者在前，其次是上报会话数，再次是名称与合并键——通过报告也携带同一份列表。试运行不写入任何内容。债务是循环尚未回应的回归积压：它列出的是失败，而不是裁决，因此归并与未来的基准扩展读到的是该瞄准什么，而不是已经决定了什么。
 
 ### 配置
 
@@ -91,6 +95,7 @@ Host 启动时挂载本插件一次。此后它自行拥有维护计划：自己
 
 存储域 `evolution_curator`（版本 `1`、布局 `per-record`、表 `meta`）中单个键 `state` 下的一行记账。流转经由 `ctx.get` 通过技能遥测应用，因此存储未挂载时整理退化为记账而不是失败；目录中未知的名称记入 `custom` 来源，而不是逃出整理。时钟与闲置观测以 `run`/`maybeRun` 的调用参数到达，而挂载后的插件补上 host 范围的部分：一个保存最新活动时刻的 `session/event` 监听、一次被 await 的启动时到期检查，以及一个经 `ctx.effect` 处置的 `unref()` 定时器。规格用假定时器驱动到期与闲置转换，因此插件不携带任何仅测试用的时钟接缝。
 
+<a id="consolidation"></a>
 ### 归并
 
 `consolidate` 默认关闭，且产生真实模型调用。开启时，真实通过调查处于 `active` 或 `stale` 状态的 agent 创建技能，在 `maxInputBytes` 内框定它们，并在 fork 启动前追加一条 `cost` 台账行 `{inputBytes, maxOutputTokens, provider, model, truncated}`。每个候选都携带加载过它的那些会话里记录的失败——至多 `maxCandidateFailures` 条，在反馈存储已挂载时读取——因此裁决反映的是真正坏在哪里，而不是技能作者的意图。fork 是 `ctx.llm` 之上的有界进程内工具循环，白名单只有两个工具：`skill_view` 读取一个候选包，`skill_apply` 为每个候选记录一条裁决（`keep`、`patch`、`consolidate`、`archive`）。循环至多花 `maxSteps` 次请求，并在首个纯文本回答处结束；请求失败会抛出，运行的截止时间在 `timeoutMs` 处中止它，插件处置时同样中止。
@@ -139,17 +144,15 @@ host 插件无法无头 fork subagent 接缝——进程内 provider 从活跃�
 <a id="model-experience"></a>
 ## 模型体验
 
-自动流转不注册任何面向模型的内容。只有可选的归并会调用模型。
-
 ### 归并 fork
 
 #### 模型看到什么
 
-一条辅助 user 消息，携带固定指令加 JSON 候选调查；随后是 assistant 工具调用与整理器的工具结果。请求恰好声明两个工具：
+只有可选的归并会调用模型；自动流转不注册任何面向模型的内容。每次请求携带一条辅助 user 消息，内含固定指令加 JSON 候选调查；随后是 assistant 工具调用与整理器的工具结果。请求恰好声明两个工具：
 
 ##### 工具白名单
 
-```text
+```markdown
 skill_view(name, file?)                 — read one candidate package
 skill_apply(name, action, into?, body?) — record one verdict
 ```
