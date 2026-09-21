@@ -56,7 +56,8 @@ agent（智能体）可以在会话期间发现并加载 skill：当存在模型
 
 - **会话目录。** 当存在模型可调用 skill 且 `skill` 工具可见时，agent 会在首次请求前收到一条持久的用户角色消息，列出每个 skill 的名称与有长度上限的描述；该消息告诉模型在着手任务前先用工具加载 skill，且绝不能仅凭摘要推断指令。
 - **加载工具。** 模型以精确的 skill 名称调用 `skill`，并收到完整指令正文以及规范的 `<skill_content>` 块中的资源指引；该结果作为普通工具历史保留。在渲染前，加载器会先解析该 skill 的加载期环境——见[加载期环境](#load-time-environment)——再展开正文中的 `${DSH_SKILL_DIR}`（该 skill 自身目录）与 `${DSH_SESSION_ID}`（加载方 agent 的会话 id）；未被 skill 声明为配置的其他任何 `${...}` 序列都保持原样，除非该 skill 选择加入了内联 shell；没有值的变量——无 `path` 的虚拟 skill 的 `${DSH_SKILL_DIR}`，或无 agent 加载时的 `${DSH_SESSION_ID}`——也保持原样。
-- **用户显式调用。** 直接用户输入中的 `/name` token 若指名某个用户可调用 skill，会把该 skill 的指令注入该步骤，而无需模型自行加载。在渲染注入内容前会应用同样的加载期解析与模板展开。
+- **用户显式调用。** 直接用户输入中的 `/name` token 若指名某个用户可调用 skill，会把该 skill 的指令注入该步骤，而无需模型自行加载。在渲染注入内容前会应用同样的加载期解析与模板展开；已声明组合同样随该手势注入，每个成员一次注入；组合无法解析时在宿主日志中警告并在该步骤跳过该 skill。
+- **已声明组合。** 一次加载返回所请求的 skill，外加它声明的每个前置，每个都渲染为紧随其后、按声明顺序排列的独立 `<skill_content>` 块；结果通过 `composed` 携带它们。既无同名目录 skill 也无提供该能力者可供解析的前置会令整次加载失败，报 `Error: skill "<name>" requires "<prerequisite>", which is not available in this session`；成员声明了冲突的集合同样失败，报 `Error: skill "<name>" cannot load: "<a>" and "<b>" declare a conflict`——半套已声明组合永不加载。
 - **实时目录更新。** 后续成员关系、描述或可见性变化会追加完整的替换目录；删除全部 skill 时会追加空目录，停用较早的名称。
 
 <a id="load-time-environment"></a>

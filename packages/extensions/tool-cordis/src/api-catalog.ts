@@ -4816,7 +4816,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'BehaviorCatalogSkill',
-    declaration: 'export interface BehaviorCatalogSkill {\n    readonly name: string;\n    readonly text: string;\n    readonly revisionKey: string;\n    readonly signal?: SkillRankSignal | undefined;\n    readonly requires?: readonly string[] | undefined;\n}',
+    declaration: 'export interface BehaviorCatalogSkill {\n    readonly name: string;\n    readonly text: string;\n    readonly revisionKey: string;\n    readonly signal?: SkillRankSignal | undefined;\n    readonly requires?: readonly string[] | undefined;\n    readonly capabilities?: readonly string[] | undefined;\n    readonly conflictsWith?: readonly string[] | undefined;\n}',
   },
   {
     name: 'BehaviorContractGate',
@@ -7264,7 +7264,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SkillSummary',
-    declaration: 'export interface SkillSummary {\n    readonly path?: string;\n    readonly name: string;\n    readonly description: string;\n    readonly whenToUse?: string;\n    readonly requires?: readonly string[];\n    readonly capabilities?: readonly string[];\n    readonly version?: string;\n    readonly testScenarios?: readonly string[];\n    readonly invocation: SkillInvocationPolicy;\n    readonly source: SkillSource;\n    readonly provider: string;\n    readonly resourceBase?: SkillResourceBase;\n}',
+    declaration: 'export interface SkillSummary {\n    readonly path?: string;\n    readonly name: string;\n    readonly description: string;\n    readonly whenToUse?: string;\n    readonly requires?: readonly string[];\n    readonly conflictsWith?: readonly string[];\n    readonly capabilities?: readonly string[];\n    readonly version?: string;\n    readonly testScenarios?: readonly string[];\n    readonly invocation: SkillInvocationPolicy;\n    readonly source: SkillSource;\n    readonly provider: string;\n    readonly resourceBase?: SkillResourceBase;\n}',
   },
   {
     name: 'SkillTrustFailure',

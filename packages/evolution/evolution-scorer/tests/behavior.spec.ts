@@ -171,7 +171,9 @@ describe('checkBehaviorRouting', () => {
     expect(gate.checks[0]).toMatchObject({ expected: 'route', rank: 1, ok: true })
 
     const withoutProvider = catalog.filter(entry => entry.name !== 'deploy')
-    const orphaned = checkBehaviorRouting(CANDIDATE, withoutProvider, ['polish prose'], [], 3)
+    // A window narrower than the catalog, as the prerequisite case above: an
+    // unroutable candidate ranking last can only fall outside a real window.
+    const orphaned = checkBehaviorRouting(CANDIDATE, withoutProvider, ['polish prose'], [], 2)
     expect(orphaned.ok).toBe(false)
     // The capability is gone, so nothing satisfies the prerequisite and the candidate scores zero.
     expect(orphaned.checks[0]).toMatchObject({ expected: 'route', rank: 3, ok: false })

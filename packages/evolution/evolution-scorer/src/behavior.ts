@@ -52,7 +52,12 @@ export function checkBehaviorContract(name: string, body: string): BehaviorContr
  * among, so the check proves the candidate wins its own triggers without
  * hijacking unrelated ones. Declared prerequisites ride the same selector:
  * a candidate whose `requires` names a skill outside the catalog scores zero
- * and fails every positive, because routing to it could never work.
+ * and fails every positive, because routing to it could never work — unless
+ * another catalog entry provides that name as a capability, in which case
+ * the prerequisite is met and the candidate routes on its own merits. Declared
+ * conflicts ride it too: of a conflicting pair the selector keeps only the
+ * better ranked, so a candidate that loses to a rival in front of it scores
+ * zero and fails every positive.
  * @param candidateName - skill name under test; it must be in the catalog.
  * @param catalog - routing catalog: the candidate among its distractors.
  * @param positiveQueries - trigger queries that must route to the candidate.
@@ -77,13 +82,28 @@ export function checkBehaviorRouting(
   }
   const signals = new Map<string, SkillRankSignal>()
   const requires = new Map<string, readonly string[]>()
+  const capabilities = new Map<string, readonly string[]>()
+  const conflicts = new Map<string, readonly string[]>()
   for (const entry of catalog) {
     if (entry.signal !== undefined) signals.set(entry.name, entry.signal)
     if (entry.requires !== undefined) requires.set(entry.name, entry.requires)
+    if (entry.capabilities !== undefined) capabilities.set(entry.name, entry.capabilities)
+    if (entry.conflictsWith !== undefined) conflicts.set(entry.name, entry.conflictsWith)
   }
   const check = (query: string, expected: 'route' | 'avoid'): BehaviorRoutingGate['checks'][number] => {
-    const ordered = rankSkills(query, catalog, entry => entry.name, entry => entry.text, { signals, vectors, requires })
-    const rank = ordered.findIndex(entry => entry.skill.name === candidateName) + 1
+    const ordered = rankSkills(query, catalog, entry => entry.name, entry => entry.text, {
+      signals,
+      vectors,
+      requires,
+      capabilities,
+      conflicts,
+    })
+    // A candidate the selector scores zero is never picked — an unmet
+    // prerequisite or the losing side of a declared conflict — so it ranks
+    // after every candidate that still can be.
+    const selectable = ordered.filter(entry => entry.score > 0)
+    const index = selectable.findIndex(entry => entry.skill.name === candidateName)
+    const rank = index === -1 ? selectable.length + 1 : index + 1
     const ok = expected === 'route' ? rank <= topK : rank > topK
     return { query, expected, rank, ok }
   }

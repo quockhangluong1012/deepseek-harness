@@ -874,6 +874,213 @@ describe('dsh-tool-skill', () => {
     expect(provider.content[0].text).toContain('<skill_resources>\nResources for this skill are managed by provider "runtime".\nLoad referenced resources only as needed.\n</skill_resources>')
   })
 
+  it('loads a declared composition as one result, prerequisites beside the requested skill', async () => {
+    const home = await tempDir('tool-compose')
+    const ctx = await setup(home)
+    ctx.skills.register({
+      name: 'base-skill', description: 'Base rules', source: 'runtime', content: 'Base instructions.',
+    })
+    ctx.skills.register({
+      name: 'composed-skill', description: 'Composed', source: 'runtime', content: 'Composed instructions.',
+      requires: ['base-skill'],
+    })
+
+    const result = await ctx.tools.execute({
+      signal: testToolSignal, callId: ToolCallId('c10'), name: 'skill', arguments: { name: 'composed-skill' },
+    })
+
+    expect(result.isError).toBe(false)
+    if (result.isError) throw new Error('expected skill success')
+    expect(result.value).toEqual({
+      name: 'composed-skill',
+      provider: 'runtime',
+      content: 'Composed instructions.',
+      composed: [{ name: 'base-skill', provider: 'runtime', content: 'Base instructions.' }],
+    })
+    const block = result.content[0]
+    if (block?.type !== 'text') throw new Error('expected text skill result')
+    expect(block.text.startsWith('<skill_content name="composed-skill">')).toBe(true)
+    expect(block.text).toContain('<skill_content name="base-skill">')
+    expect(block.text.indexOf('Composed instructions.')).toBeLessThan(block.text.indexOf('Base instructions.'))
+  })
+
+  it('meets a declared prerequisite through a capability another skill provides', async () => {
+    const home = await tempDir('tool-compose-capability')
+    const ctx = await setup(home)
+    ctx.skills.register({
+      name: 'review-rules', description: 'Rules provider', source: 'runtime',
+      content: 'Rules instructions.', capabilities: ['code-review-rules'],
+    })
+    ctx.skills.register({
+      name: 'composed-skill', description: 'Composed', source: 'runtime', content: 'Composed instructions.',
+      requires: ['code-review-rules'],
+    })
+
+    const result = await ctx.tools.execute({
+      signal: testToolSignal, callId: ToolCallId('c11'), name: 'skill', arguments: { name: 'composed-skill' },
+    })
+
+    expect(result.isError).toBe(false)
+    if (result.isError) throw new Error('expected skill success')
+    expect(result.value).toMatchObject({
+      composed: [{ name: 'review-rules', provider: 'runtime', content: 'Rules instructions.' }],
+    })
+  })
+
+  it('refuses a declared composition whose prerequisite is unavailable', async () => {
+    const home = await tempDir('tool-compose-missing')
+    const ctx = await setup(home)
+    ctx.skills.register({
+      name: 'composed-skill', description: 'Composed', source: 'runtime', content: 'Composed instructions.',
+      requires: ['absent-skill'],
+    })
+
+    const result = await ctx.tools.execute({
+      signal: testToolSignal, callId: ToolCallId('c12'), name: 'skill', arguments: { name: 'composed-skill' },
+    })
+
+    expect(result.isError).toBe(true)
+    expect(result.content[0]?.type === 'text' ? result.content[0].text : '')
+      .toContain('skill "composed-skill" requires "absent-skill", which is not available in this session')
+  })
+
+  it('loads a self-named or repeated prerequisite once', async () => {
+    const home = await tempDir('tool-compose-repeat')
+    const ctx = await setup(home)
+    ctx.skills.register({
+      name: 'base-skill', description: 'Base rules', source: 'runtime', content: 'Base instructions.',
+    })
+    ctx.skills.register({
+      name: 'loop-skill', description: 'Looped', source: 'runtime', content: 'Looped instructions.',
+      requires: ['loop-skill', 'base-skill', 'base-skill'],
+    })
+
+    const result = await ctx.tools.execute({
+      signal: testToolSignal, callId: ToolCallId('c14'), name: 'skill', arguments: { name: 'loop-skill' },
+    })
+
+    expect(result.isError).toBe(false)
+    if (result.isError) throw new Error('expected skill success')
+    expect(result.value).toMatchObject({
+      composed: [{ name: 'base-skill', provider: 'runtime', content: 'Base instructions.' }],
+    })
+  })
+
+  it('refuses a composition whose prerequisite cannot resolve, naming both skills', async () => {
+    const home = await tempDir('tool-compose-prereq-error')
+    const writeDeclared = async (name: string, lines: readonly string[], body: string): Promise<void> => {
+      const dir = join(home, '.dsh/skills', name)
+      await mkdir(dir, { recursive: true })
+      await writeFile(join(dir, 'SKILL.md'), `---\nname: ${name}\ndescription: ${name}\n${lines.join('\n')}\n---\n\n${body}\n`)
+    }
+    await writeDeclared('needs-env', ['required_env:', '  - DSH_TOOL_SKILL_ABSENT'], 'Needs env.')
+    await writeDeclared('composed-skill', ['requires: [needs-env]'], 'Composed instructions.')
+    const ctx = await setup(home)
+
+    const result = await ctx.tools.execute({
+      signal: testToolSignal, callId: ToolCallId('c15'), name: 'skill', arguments: { name: 'composed-skill' },
+    })
+
+    expect(result.isError).toBe(true)
+    expect(result.content[0]?.type === 'text' ? result.content[0].text : '').toContain(
+      'skill "composed-skill" requires "needs-env": skill "needs-env" requires environment variable "DSH_TOOL_SKILL_ABSENT"',
+    )
+  })
+
+  it('refuses a composition whose prerequisite stops being model-invocable', async () => {
+    const home = await tempDir('tool-compose-race')
+    const ctx = await setup(home)
+    ctx.skills.registerProvider(() => ({
+      name: 'race-probe',
+      async list() {
+        return [
+          {
+            name: 'composed-skill',
+            description: 'Composed',
+            invocation: { modelInvocable: true, userInvocable: true },
+            provider: 'race-probe',
+            source: 'test',
+            rank: 1,
+            locator: 'composed-skill',
+            requires: ['race-prereq'],
+            capabilities: [],
+          },
+          {
+            name: 'race-prereq',
+            description: 'Race prerequisite',
+            invocation: { modelInvocable: true, userInvocable: true },
+            provider: 'race-probe',
+            source: 'test',
+            rank: 1,
+            locator: 'race-prereq',
+            capabilities: [],
+          },
+        ]
+      },
+      async get(candidate) {
+        return {
+          ...candidate,
+          invocation: { modelInvocable: candidate.name !== 'race-prereq', userInvocable: true },
+          content: 'Body.',
+        }
+      },
+    }))
+
+    const result = await ctx.tools.execute({
+      signal: testToolSignal, callId: ToolCallId('c16'), name: 'skill', arguments: { name: 'composed-skill' },
+    })
+
+    expect(result.isError).toBe(true)
+    expect(result.content[0]?.type === 'text' ? result.content[0].text : '').toContain(
+      'skill "composed-skill" requires "race-prereq", which is no longer available for model invocation',
+    )
+  })
+
+  it('loads a declared composition whose conflicts name nobody in the set', async () => {
+    const home = await tempDir('tool-compose-foreign-conflict')
+    const ctx = await setup(home)
+    ctx.skills.register({
+      name: 'base-skill', description: 'Base rules', source: 'runtime', content: 'Base instructions.',
+      conflictsWith: ['absent-rival'],
+    })
+    ctx.skills.register({
+      name: 'composed-skill', description: 'Composed', source: 'runtime', content: 'Composed instructions.',
+      requires: ['base-skill'],
+      conflictsWith: ['composed-skill'],
+    })
+
+    const result = await ctx.tools.execute({
+      signal: testToolSignal, callId: ToolCallId('c17'), name: 'skill', arguments: { name: 'composed-skill' },
+    })
+
+    expect(result.isError).toBe(false)
+    if (result.isError) throw new Error('expected skill success')
+    expect(result.value).toMatchObject({
+      composed: [{ name: 'base-skill', provider: 'runtime', content: 'Base instructions.' }],
+    })
+  })
+
+  it('refuses a composition whose members declare a conflict', async () => {
+    const home = await tempDir('tool-compose-conflict')
+    const ctx = await setup(home)
+    ctx.skills.register({
+      name: 'rival-skill', description: 'Rival', source: 'runtime', content: 'Rival instructions.',
+      conflictsWith: ['composed-skill'],
+    })
+    ctx.skills.register({
+      name: 'composed-skill', description: 'Composed', source: 'runtime', content: 'Composed instructions.',
+      requires: ['rival-skill'],
+    })
+
+    const result = await ctx.tools.execute({
+      signal: testToolSignal, callId: ToolCallId('c13'), name: 'skill', arguments: { name: 'composed-skill' },
+    })
+
+    expect(result.isError).toBe(true)
+    expect(result.content[0]?.type === 'text' ? result.content[0].text : '')
+      .toContain('skill "composed-skill" cannot load: "rival-skill" and "composed-skill" declare a conflict')
+  })
+
   it('rejects an unknown resource-base kind at the canonical output boundary', async () => {
     const home = await tempDir('tool-resource-assert-never')
     const ctx = await setup(home)
@@ -1040,6 +1247,42 @@ describe('user-explicit invocation injection', () => {
     expect(decision.messages.some(message =>
       (message.source as { kind?: string; name?: string }).kind === 'skill-invocation'
       && (message.source as { name?: string }).name === 'shared-skill')).toBe(true)
+  })
+
+  it('injects a declared prerequisite after the user-invoked skill', async () => {
+    const home = await tempDir('invoke-compose')
+    const skillsRoot = join(home, '.agents', 'skills')
+    await writePolicySkill(skillsRoot, 'base-skill', 'Base rules', '', 'Base instructions.')
+    await writePolicySkill(skillsRoot, 'composed-skill', 'Composed', 'requires: [base-skill]', 'Composed instructions.')
+    const ctx = await setup(home)
+    const agent = agentForCwd(home)
+
+    const decision = await proposeStep(ctx, agent, [gesture('/composed-skill go')])
+    if (decision.kind !== 'enter') throw new Error('expected enter')
+    const injected = decision.messages
+      .map(message => (message.source as { kind?: string; name?: string }))
+      .filter(source => source.kind === 'skill-invocation')
+      .map(source => source.name)
+    expect(injected).toEqual(['composed-skill', 'base-skill'])
+  })
+
+  it('warns and skips a user-invoked skill whose declared composition cannot resolve', async () => {
+    const home = await tempDir('invoke-compose-error')
+    const skillsRoot = join(home, '.agents', 'skills')
+    await writePolicySkill(skillsRoot, 'composed-skill', 'Composed', 'requires: [absent-skill]', 'Composed instructions.')
+    const ctx = await setup(home)
+    const agent = agentForCwd(home)
+    const warn = vi.spyOn(ctx.logger, 'warn')
+    try {
+      const decision = await proposeStep(ctx, agent, [gesture('/composed-skill go')])
+      if (decision.kind !== 'enter') throw new Error('expected enter')
+      expect(decision.messages.filter(message => message.source.kind === 'skill-invocation')).toEqual([])
+      expect(warn.mock.calls.map(([message]) => String(message))).toContain(
+        'skill "composed-skill" skipped: skill "composed-skill" requires "absent-skill", which is not available in this session',
+      )
+    } finally {
+      warn.mockRestore()
+    }
   })
 
   it('recognizes a mid-sentence gesture but not paths, fractions, or broken boundaries', async () => {

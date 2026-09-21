@@ -181,6 +181,30 @@ describe('rankSkills', () => {
     expect(ordered.find(entry => entry.skill.name === 'sibling')?.score).toBeGreaterThan(0)
   })
 
+  it('excludes every rival a winner declares, not just the first', () => {
+    const skills = [
+      skill('alpha-review', 'reviews alpha changes'),
+      skill('beta-review', 'reviews beta changes'),
+      skill('gamma-review', 'reviews gamma changes'),
+    ]
+    const conflicts = new Map([['alpha-review', ['beta-review', 'gamma-review']]])
+    const ordered = rank('alpha review beta gamma', skills, { conflicts })
+    expect(ordered[0]?.skill.name).toBe('alpha-review')
+    expect(ordered[0]?.score).toBeGreaterThan(0)
+    for (const name of ['beta-review', 'gamma-review']) {
+      expect(ordered.find(entry => entry.skill.name === name)?.score).toBe(0)
+    }
+  })
+
+  it('drops a self-declared conflict instead of excluding its own skill', () => {
+    const skills = [
+      skill('alpha-review', 'reviews alpha changes'),
+      skill('beta-review', 'reviews beta changes'),
+    ]
+    const conflicts = new Map([['alpha-review', ['alpha-review']]])
+    expect(rank('alpha review beta', skills, { conflicts })).toEqual(rank('alpha review beta', skills))
+  })
+
   it('leaves scores untouched when no relation is declared', () => {
     const skills = [
       skill('alpha-review', 'reviews alpha changes'),

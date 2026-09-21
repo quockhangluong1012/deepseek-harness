@@ -21,6 +21,7 @@ import {
   type SkillDefinition,
   type SkillInvocationSource,
   type SkillSummary,
+  type SkillViewOptions,
 } from '@deepseek-ai/dsh-skill'
 import { DEFAULT_SHELL_TIMEOUT_MS, MAX_SHELL_OUTPUT_CHARS, resolveSkillLoad, renderSkillBody, type SkillConfigMap } from './load.ts'
 import { skillDirForSkillPath } from './template.ts'
@@ -252,6 +253,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     if (names.length === 0) return decision
     signal.throwIfAborted()
     const lookup = { cwd: agent.session.header.cwd, signal, scope: agent }
+    const catalog = await ctx.skills.list(lookup)
     const injections: UserMessage[] = []
     for (const name of names) {
       const skill = await ctx.skills.get(name, lookup)
@@ -261,16 +263,35 @@ export function apply(ctx: Context, config: Config = {}): void {
       // on the loaded definition — the single lookup that produces what is
       // actually injected.
       if (skill === undefined || !isUserInvocable(skill)) continue
-      const body = await loadSkillBody(ctx, config, skill, { sessionId: agent.session.id, signal })
+      const vars = { sessionId: agent.session.id, signal }
+      const body = await loadSkillBody(ctx, config, skill, vars)
       if (!body.ok) {
         ctx.logger.warn(`skill "${name}" skipped: ${body.error}`)
         continue
       }
-      const source: SkillInvocationSource = { kind: 'skill-invocation', name, form: 'instructions' }
-      injections.push(createUserMessage({
-        content: [{ type: 'text', text: renderSkillContent({ ...skill, content: body.content }) }],
-        source,
-      }))
+      // A declared composition rides the gesture as its own injections, so
+      // the user-invoked skill arrives with the prerequisites it declares.
+      const composed = await composePrerequisites({ ctx, config, skill, catalog, lookup, vars })
+      if (!composed.ok) {
+        ctx.logger.warn(`skill "${name}" skipped: ${composed.error}`)
+        continue
+      }
+      const loaded: LoadedSkillView[] = [
+        {
+          name: skill.name,
+          provider: skill.provider,
+          ...skill.resourceBase !== undefined ? { resourceBase: { ...skill.resourceBase } } : {},
+          content: body.content,
+        },
+        ...composed.composed,
+      ]
+      for (const member of loaded) {
+        const source: SkillInvocationSource = { kind: 'skill-invocation', name: member.name, form: 'instructions' }
+        injections.push(createUserMessage({
+          content: [{ type: 'text', text: renderSkillContent(member) }],
+          source,
+        }))
+      }
     }
     if (injections.length === 0) return decision
     return { ...decision, messages: [...decision.messages, ...injections] }
@@ -364,6 +385,87 @@ async function loadSkillBody(
       warn: (message) => { ctx.logger.warn(message) },
     }),
   }
+}
+
+/**
+ * Declared conflicts inside one load set, or undefined when none is declared.
+ * The relation is symmetric, so a declaration by either side excludes the pair.
+ * @param requested - the skill the caller asked for.
+ * @param members - the prerequisites loaded beside it.
+ * @returns the refusal text, or undefined when the set is consistent.
+ */
+function compositionConflict(
+  requested: Pick<SkillDefinition, 'name'> & Pick<SkillSummary, 'conflictsWith'>,
+  members: readonly SkillSummary[],
+): string | undefined {
+  const loaded = [requested, ...members]
+  for (const owner of loaded) {
+    for (const rival of owner.conflictsWith ?? []) {
+      if (rival === owner.name) continue
+      if (!loaded.some(entry => entry.name === rival)) continue
+      return `skill "${requested.name}" cannot load: "${owner.name}" and "${rival}" declare a conflict`
+    }
+  }
+  return undefined
+}
+
+/**
+ * Resolve the declared composition of one skill: every prerequisite this
+ * session can route, loaded beside the requested skill so one call delivers
+ * the set the author declared. A prerequisite is met by a skill carrying that
+ * name or by one that provides it as a capability — the same rule the
+ * selector gates on. The whole set resolves or the load fails: half a
+ * declared composition is a misconfiguration, and the caller decides how that
+ * surfaces (the tool throws, the user-explicit injection warns and skips).
+ * @param options - host context, deployment config, the requested skill, the
+ * session catalog, the registry view, and the loading step's session and signal.
+ * @returns the composed prerequisite bodies, or the refusal naming what stopped it.
+ */
+async function composePrerequisites(options: {
+  readonly ctx: Context
+  readonly config: Config
+  readonly skill: SkillDefinition
+  readonly catalog: readonly SkillSummary[]
+  readonly lookup: SkillViewOptions
+  readonly vars: { readonly sessionId: string | undefined; readonly signal: AbortSignal | undefined }
+}): Promise<{ readonly ok: true; readonly composed: LoadedSkillView[] } | { readonly ok: false; readonly error: string }> {
+  const invocable = options.catalog.filter(isModelInvocable)
+  const members: SkillSummary[] = []
+  for (const prerequisite of options.skill.requires ?? []) {
+    if (prerequisite === options.skill.name) continue
+    if (members.some(member => member.name === prerequisite)) continue
+    const found = invocable.find(candidate => candidate.name === prerequisite)
+      ?? invocable.find(candidate => candidate.capabilities?.includes(prerequisite) === true)
+    if (found === undefined) {
+      return {
+        ok: false,
+        error: `skill "${options.skill.name}" requires "${prerequisite}", which is not available in this session`,
+      }
+    }
+    members.push(found)
+  }
+  if (members.length === 0) return { ok: true, composed: [] }
+  const conflict = compositionConflict(options.skill, members)
+  if (conflict !== undefined) return { ok: false, error: conflict }
+  const composed: LoadedSkillView[] = []
+  for (const member of members) {
+    const definition = await options.ctx.skills.get(member.name, options.lookup)
+    if (definition === undefined || !isModelInvocable(definition)) {
+      return {
+        ok: false,
+        error: `skill "${options.skill.name}" requires "${member.name}", which is no longer available for model invocation`,
+      }
+    }
+    const body = await loadSkillBody(options.ctx, options.config, definition, options.vars)
+    if (!body.ok) return { ok: false, error: `skill "${options.skill.name}" requires "${member.name}": ${body.error}` }
+    composed.push({
+      name: definition.name,
+      provider: definition.provider,
+      ...definition.resourceBase !== undefined ? { resourceBase: { ...definition.resourceBase } } : {},
+      content: body.content,
+    })
+  }
+  return { ok: true, composed }
 }
 
 function renderCatalogMessage(entries: SkillCatalogSource['entries']): UserMessage {

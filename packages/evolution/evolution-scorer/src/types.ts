@@ -159,6 +159,20 @@ export interface BehaviorCatalogSkill {
   readonly signal?: SkillRankSignal | undefined
   /** Prerequisite skill names from frontmatter `requires`; omission declares none. */
   readonly requires?: readonly string[] | undefined
+  /**
+   * Capability names this skill provides, from frontmatter `capabilities`.
+   * They feed the selector's prerequisite gate: a prerequisite named by
+   * `requires` is met when any catalog entry provides it as a capability, so
+   * a candidate can route on a capability rather than a sibling skill name.
+   */
+  readonly capabilities?: readonly string[] | undefined
+  /**
+   * Rival skill names this skill must not be selected alongside, from
+   * frontmatter `conflicts_with`. They feed the selector's conflict gate:
+   * of a conflicting pair only the better ranked keeps its score, so the
+   * other never passes a positive query.
+   */
+  readonly conflictsWith?: readonly string[] | undefined
 }
 
 /** Behavior evaluation request: two replay compositions plus routing queries. */
@@ -187,7 +201,10 @@ export interface BehaviorRoutingCheck {
   readonly query: string
   /** Whether the query must route to the candidate or avoid it. */
   readonly expected: 'route' | 'avoid'
-  /** 1-based rank of the candidate. */
+  /**
+   * 1-based rank of the candidate among the candidates the selector scores
+   * at all; a candidate it scores zero is not selectable and ranks after them.
+   */
   readonly rank: number
   /** Whether the rank satisfies the expectation. */
   readonly ok: boolean

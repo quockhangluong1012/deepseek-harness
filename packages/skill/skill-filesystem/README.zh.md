@@ -33,7 +33,7 @@ agent（智能体）可以使用来自仓库、自定义目录或用户 agent �
 
 ### skill 格式
 
-skill 可以是被扫描根目录顶层的目录 bundle `<name>/SKILL.md`，也可以是平铺文件 `<name>.md`；刻意不支持发现嵌套的 `**/SKILL.md`。文件以 YAML frontmatter 开头：必填 `name` 与 `description`，另有可选 `whenToUse`、`metadata`、`disable-model-invocation`、`user-invocable`、`required_env`（该 skill 所需的环境变量名列表，需为非空数组）、`requires`（必须与之共同路由的前置 skill 名称列表，需为非空数组）、`config`（映射，其标量值以字符串形式保存）以及下文的[门控键](#platform-and-tool-gating)。其他任何顶层键都会被忽略，并针对该文件与该键各警告一次；已识别键的值畸形——空的 `required_env`、非字符串条目、不是映射的 `config`、值不是标量的 `config`、本应非空却为空的列表，或缺少 schedule、deliver 模式或 prompt 的 `blueprint`——会被丢弃并各警告一次（指明文件与键），而 skill 仍然加载。
+skill 可以是被扫描根目录顶层的目录 bundle `<name>/SKILL.md`，也可以是平铺文件 `<name>.md`；刻意不支持发现嵌套的 `**/SKILL.md`。文件以 YAML frontmatter 开头：必填 `name` 与 `description`，另有可选 `whenToUse`、`metadata`、`disable-model-invocation`、`user-invocable`、`required_env`（该 skill 所需的环境变量名列表，需为非空数组）、`requires`（必须与之共同路由的前置 skill 名称列表，需为非空数组）、`conflicts_with`（不得与之同被选中的 skill 名称列表，需为非空数组；任一方声明即排除该对）、`capabilities`（可满足其他 skill `requires` 的能力名称列表，需为非空数组）、`config`（映射，其标量值以字符串形式保存）以及下文的[门控键](#platform-and-tool-gating)。其他任何顶层键都会被忽略，并针对该文件与该键各警告一次；已识别键的值畸形——空的 `required_env`、非字符串条目、不是映射的 `config`、值不是标量的 `config`、本应非空却为空的列表，或缺少 schedule、deliver 模式或 prompt 的 `blueprint`——会被丢弃并各警告一次（指明文件与键），而 skill 仍然加载。
 
 `disable-model-invocation: true` 会把 skill 从面向模型的目录和 loader 中排除；`user-invocable: false` 会把它从面向用户的命令中排除，省略的字段默认允许对应接口调用。这两个键接受 YAML 布尔值，以及不区分大小写的 `true`/`false`、`yes`/`no`、`on`/`off` 和 `1`/`0` 形式；被拒绝的拼写或非布尔值会让整个 skill 随警告一起被丢弃，而不会静默允许某个接口。
 
@@ -58,7 +58,7 @@ skill 可以是被扫描根目录顶层的目录 bundle `<name>/SKILL.md`，也�
 
 平台匹配接受 `process.platform` 拼写及其 agentskills.io 别名（`darwin`/`macos`、`win32`/`windows`），不区分大小写。工具集按其工具共有的名称前缀寻址，因此只要挂载了任一 `web_*` 工具，`requires_toolsets: [web]` 即被满足。`fallback_for_*` 这一对是 skill 表达"当我所替代的工具缺席时改用我"的方式：主 `requires_*` skill 与该 fallback 会随该工具的出现与消失互换位置。未挂载 `ctx.tools` 注册表的组合会隐藏所有 `requires_*` skill，并提供所有 `fallback_for_*` skill。畸形值会被丢弃并各警告一次，skill 仍然加载；被门控排除的 skill 则静默跳过。
 
-`requires` 只解析、从不门控：声明了前置 skill 的 skill 照常提供、加载与列出，前置名称随其摘要与定义一起携带。强制执行属于选择器——离线排序器在候选集中缺失其前置时给该 skill 打零分——因为只有选择器才知道那次调用中哪些兄弟真正可路由。
+`requires` 与 `conflicts_with` 只解析、从不门控：声明了任一关系的 skill 照常提供、加载与列出，名称随其摘要与定义一起携带。前置既可由同名候选项满足，也可由以能力提供该名称的候选项满足。强制执行属于选择环节——离线排序器在候选集中缺失其前置时给该 skill 打零分，并把冲突对中排名较低的一方清零，加载器则拒绝含已声明冲突的加载集合——因为只有选择器才知道那次调用中哪些兄弟真正可路由。
 
 ### 根目录与优先级
 
