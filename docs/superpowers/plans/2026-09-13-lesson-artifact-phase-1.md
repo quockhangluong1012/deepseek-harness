@@ -113,8 +113,7 @@ describe('lesson artifacts', () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `pnpm exec vitest run packages/evolution/evolution-memory/tests/lesson-artifact.spec.ts`
-Expected: FAIL — `Failed to resolve import "../src/lesson-artifact.ts"`
+Run: `pnpm exec vitest run packages/evolution/evolution-memory/tests/lesson-artifact.spec.ts` Expected: FAIL — `Failed to resolve import "../src/lesson-artifact.ts"`
 
 - [ ] **Step 3: Write minimal implementation**
 
@@ -256,8 +255,7 @@ export function wrapLegacyLessons(text: string, now: string): LessonArtifact[] {
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `pnpm exec vitest run packages/evolution/evolution-memory/tests/lesson-artifact.spec.ts`
-Expected: PASS
+Run: `pnpm exec vitest run packages/evolution/evolution-memory/tests/lesson-artifact.spec.ts` Expected: PASS
 
 - [ ] **Step 5: Commit**
 
@@ -326,8 +324,7 @@ Add to `packages/evolution/evolution-memory/tests/store.spec.ts` (replace the ex
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `pnpm exec vitest run packages/evolution/evolution-memory/tests/store.spec.ts -t 'legacy lessons string'`
-Expected: FAIL — `expected '## Purpose\nOld work' to have length 1` (the schema still yields a string)
+Run: `pnpm exec vitest run packages/evolution/evolution-memory/tests/store.spec.ts -t 'legacy lessons string'` Expected: FAIL — `expected '## Purpose\nOld work' to have length 1` (the schema still yields a string)
 
 - [ ] **Step 3: Write minimal implementation**
 
@@ -399,8 +396,7 @@ In `index.ts`, change `freshRecord`'s `agentLessons: ''` to `agentLessons: []`.
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `pnpm exec vitest run packages/evolution/evolution-memory/tests/store.spec.ts`
-Expected: PASS for the two new cases; **other cases in this file will still fail** — every `expect(...agentLessons).toBe('...')` assertion now compares an array. Those are repaired by Task 3, which replaces the ops they exercise; do not patch them ad hoc here.
+Run: `pnpm exec vitest run packages/evolution/evolution-memory/tests/store.spec.ts` Expected: PASS for the two new cases; **other cases in this file will still fail** — every `expect(...agentLessons).toBe('...')` assertion now compares an array. Those are repaired by Task 3, which replaces the ops they exercise; do not patch them ad hoc here.
 
 - [ ] **Step 5: Commit**
 
@@ -477,8 +473,7 @@ Delete `tests/store.spec.ts:754-773` (the missing/ambiguous substring case) — 
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `pnpm exec vitest run packages/evolution/evolution-memory/tests/store.spec.ts -t 'artifact add, update, and remove'`
-Expected: FAIL — `unknown staged memory op 'addArtifact'`
+Run: `pnpm exec vitest run packages/evolution/evolution-memory/tests/store.spec.ts -t 'artifact add, update, and remove'` Expected: FAIL — `unknown staged memory op 'addArtifact'`
 
 - [ ] **Step 3: Write minimal implementation**
 
@@ -690,8 +685,7 @@ Replace the four service methods (613-676) with:
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `pnpm exec vitest run packages/evolution/evolution-memory/tests/store.spec.ts`
-Expected: PASS
+Run: `pnpm exec vitest run packages/evolution/evolution-memory/tests/store.spec.ts` Expected: PASS
 
 - [ ] **Step 5: Commit**
 
@@ -768,8 +762,7 @@ describe('lesson artifact merge', () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `pnpm exec vitest run packages/evolution/evolution-memory/tests/merge.spec.ts`
-Expected: FAIL — `Failed to resolve import "../src/merge.ts"`
+Run: `pnpm exec vitest run packages/evolution/evolution-memory/tests/merge.spec.ts` Expected: FAIL — `Failed to resolve import "../src/merge.ts"`
 
 - [ ] **Step 3: Write minimal implementation**
 
@@ -922,8 +915,7 @@ Delete `replaceArtifact` (Task 3's placeholder) once this lands, since `mergeArt
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `pnpm exec vitest run packages/evolution/evolution-memory/tests/merge.spec.ts packages/evolution/evolution-memory/tests/store.spec.ts`
-Expected: PASS
+Run: `pnpm exec vitest run packages/evolution/evolution-memory/tests/merge.spec.ts packages/evolution/evolution-memory/tests/store.spec.ts` Expected: PASS
 
 - [ ] **Step 5: Commit**
 
@@ -989,8 +981,7 @@ describe('artifact decay', () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `pnpm exec vitest run packages/evolution/evolution-memory/tests/maintenance.spec.ts`
-Expected: FAIL — `Failed to resolve import "../src/maintenance.ts"`
+Run: `pnpm exec vitest run packages/evolution/evolution-memory/tests/maintenance.spec.ts` Expected: FAIL — `Failed to resolve import "../src/maintenance.ts"`
 
 - [ ] **Step 3: Write minimal implementation**
 
@@ -1073,8 +1064,7 @@ Register the task in `[Service.init]`, immediately after the table handle is pub
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `pnpm exec vitest run packages/evolution/evolution-memory/tests/maintenance.spec.ts packages/evolution/evolution-memory/tests/store.spec.ts`
-Expected: PASS
+Run: `pnpm exec vitest run packages/evolution/evolution-memory/tests/maintenance.spec.ts packages/evolution/evolution-memory/tests/store.spec.ts` Expected: PASS
 
 - [ ] **Step 5: Commit**
 
@@ -1121,8 +1111,7 @@ it('renders lessons strongest first and drops the weakest under pressure', () =>
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `pnpm exec vitest run packages/context/evolution-memory-context/tests/render.spec.ts -t 'strongest first'`
-Expected: FAIL — `renderLessonLines is not a function`
+Run: `pnpm exec vitest run packages/context/evolution-memory-context/tests/render.spec.ts -t 'strongest first'` Expected: FAIL — `renderLessonLines is not a function`
 
 - [ ] **Step 3: Write minimal implementation**
 
@@ -1155,8 +1144,7 @@ Change `renderEvolutionBrief`'s lessons input to `readonly LessonArtifact[]`, re
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `pnpm exec vitest run packages/context/evolution-memory-context`
-Expected: PASS
+Run: `pnpm exec vitest run packages/context/evolution-memory-context` Expected: PASS
 
 - [ ] **Step 5: Commit**
 
@@ -1196,8 +1184,7 @@ it('scores relevance against the scope artifacts, not a stringified record', asy
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `pnpm exec vitest run packages/evolution/evolution-dreaming`
-Expected: FAIL to compile — `[memory.instructions, memory.agentLessons, memory.userProfile].join('\n')` cannot join an array.
+Run: `pnpm exec vitest run packages/evolution/evolution-dreaming` Expected: FAIL to compile — `[memory.instructions, memory.agentLessons, memory.userProfile].join('\n')` cannot join an array.
 
 - [ ] **Step 3: Write minimal implementation**
 
@@ -1220,8 +1207,7 @@ In `packages/client/ui-evolution/src/types.ts:71`, change `readonly lessons: str
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `pnpm exec vitest run packages/evolution/evolution-dreaming packages/evolution/evolution-controller packages/client/ui-evolution`
-Expected: PASS
+Run: `pnpm exec vitest run packages/evolution/evolution-dreaming packages/evolution/evolution-controller packages/client/ui-evolution` Expected: PASS
 
 - [ ] **Step 5: Commit**
 
@@ -1251,8 +1237,7 @@ Rewrite the config table to add `mergeSimilarityFloor` (`0.87`), `maintenanceInt
 
 - [ ] **Step 2: Mirror both READMEs into Chinese**
 
-Run: `pnpm run verify-translation-pairing --write packages/evolution/evolution-memory/README.md packages/evolution/evolution-controller/README.md`
-Expected: the pairs are recorded; both `.zh.md` files carry the same table rows and prose.
+Run: `pnpm run verify-translation-pairing --write packages/evolution/evolution-memory/README.md packages/evolution/evolution-controller/README.md` Expected: the pairs are recorded; both `.zh.md` files carry the same table rows and prose.
 
 - [ ] **Step 3: Write the Agent Note**
 
@@ -1260,10 +1245,7 @@ Cover: why the artifact model is bounded to `agentLessons`; why the bump needs `
 
 - [ ] **Step 4: Regenerate and verify documentation gates**
 
-Run: `pnpm run gen-config-catalog && pnpm run gen-doc-graphs && pnpm run gen-cordis-catalog`
-Then mirror the Chinese sides of any regenerated `.zh.md` (the established pattern: translate `Requires:` → `需要：` and `Source:` → `来源：`, localize `.md` links to `.zh.md`) and run:
-Run: `pnpm run verify-config-catalog && pnpm run verify-doc-graphs && pnpm run verify-cordis-catalog && pnpm run verify-translation-pairing`
-Expected: all pass with no new issues.
+Run: `pnpm run gen-config-catalog && pnpm run gen-doc-graphs && pnpm run gen-cordis-catalog` Then mirror the Chinese sides of any regenerated `.zh.md` (the established pattern: translate `Requires:` → `需要：` and `Source:` → `来源：`, localize `.md` links to `.zh.md`) and run: Run: `pnpm run verify-config-catalog && pnpm run verify-doc-graphs && pnpm run verify-cordis-catalog && pnpm run verify-translation-pairing` Expected: all pass with no new issues.
 
 - [ ] **Step 5: Commit**
 

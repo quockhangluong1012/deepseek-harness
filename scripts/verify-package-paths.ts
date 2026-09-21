@@ -16,7 +16,7 @@ import {
 
 const root = resolve(import.meta.dirname, '..')
 
-/** Markdown + repo-authored TypeScript that may cite package paths. */
+/** Markdown + repo-authored TypeScript that may cite package paths. Planning scratch is excluded but still parsed for links. */
 const PATTERNS = [
   'README.md',
   '.agents/notes/**/*.md',
@@ -28,9 +28,15 @@ const PATTERNS = [
   'packages/**/*.ts',
 ]
 
-/** Paths excluded from the scan: built output and vendored upstream source. */
+/** Internal planning scratch whose package citations are plan-time claims, not curated cross-links. */
+const SCRATCH_PREFIXES = [
+  'docs/superpowers/',
+]
+
+/** Paths excluded from the scan: built output, vendored upstream source, and internal planning scratch. */
 const isExcluded = (p: string): boolean =>
   isArchivedAgentNotePath(p) || p.includes('/lib/') || p.endsWith('.d.ts') || p.startsWith('vendor/')
+  || SCRATCH_PREFIXES.some(prefix => p.startsWith(prefix))
 
 /**
  * Directory names of every real package, `packages/<group>/<pkg>`. A broken

@@ -52,7 +52,7 @@ The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-a
 | `/memory reject <id>` | Drop one entry without applying it and report `Rejected staged write '<id>'.`. |
 | `/memory <anything-else>` | `Usage: /memory pending \| approve <id> \| reject <id>` — the grammar is fixed. |
 | `/skills`, `/skills pending` | List the scope's staged skill entries, or the empty state naming where proposals come from. Bare `/skills` reports the same list. |
-| `/skills approve <id>` | Drop a staged skill entry whose skill write already landed and report the approval with that reminder; an id that is not a staged skill reports `No staged skill '<id>'.`. A proposal without a valid capture contract stays staged and reports the missing evidence. |
+| `/skills approve <id>` | Drop a staged skill entry whose skill write already landed and report the approval with that reminder; an id that is not a staged skill reports `No staged skill '<id>'.`. A creation proposal without a valid capture contract stays staged and reports the missing evidence; a patch is admitted on its approval alone. |
 | `/skills <anything-else>` | `Usage: /skills pending \| approve <id>`. |
 | `/journey [today\|7d\|30d\|all]` | Render the scope timeline: the window header, one line per active day, capacity and digest, and the staged count. Bare `/journey` reports `7d`. |
 | `/journey <anything-else>` | `Usage: /journey [today \| 7d \| 30d \| all]`. |
@@ -93,7 +93,7 @@ The commands turn each expected failure into a stable message you can show direc
 | Session outside any workspace (scoped commands) | `This session is outside any workspace scope.` |
 | Approving a skill-kind entry through `/memory` | `Staged skill '<id>' (<op>) is decided by '/skills approve <id>': write the skill with skill_manage first, then approve there to drop the entry.` — the entry stays staged. |
 | A cap or substring rejection on approve | `Cannot approve '<id>' (<code>): <detail>. The entry stays staged.` |
-| A skill proposal without admission evidence on approve | `Cannot approve '<id>' (evolution/staged-blocked): staged evolution write '<id>' is blocked: <needed evidence>. The entry stays staged.` |
+| A creation proposal without admission evidence on approve | `Cannot approve '<id>' (evolution/staged-blocked): staged evolution write '<id>' is blocked: <needed evidence>. The entry stays staged.` |
 | Approving or rejecting an unknown id | `No staged write '<id>'.` |
 | `/skills approve` for an id that is not a staged skill | `No staged skill '<id>'.` |
 | `/refine` without the reviewer mounted | `The evolution reviewer is not mounted.` |

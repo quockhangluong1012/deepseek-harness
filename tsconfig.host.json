@@ -368,6 +368,7 @@
     { "path": "./packages/guard/repeat-tool-reminder" },
     { "path": "./packages/guard/budgets" },
     { "path": "./packages/runtime/agent-kernel" },
+    { "path": "./packages/runtime/agent-kernel-builtins" },
     { "path": "./packages/runtime/agent-context" },
     { "path": "./packages/extensions/cordis-host-runner" },
     { "path": "./packages/extensions/tool-cordis" },

@@ -423,8 +423,10 @@ function stagedBlocked(stagedId: string, neededEvidence: readonly string[]): Rem
 }
 
 /**
- * Name the admission evidence a skill-kind staged payload is missing. A
- * payload that is not an object cannot carry a contract at all.
+ * Name the admission evidence a creation proposal is missing. A payload that
+ * is not an object cannot carry a contract at all. Only `create` proposals
+ * are gated: a patch revises an already-admitted capability and carries the
+ * measurement that justifies it.
  * @param payload - the staged entry's JSON payload.
  * @returns the missing evidence, empty when the contract admits the skill.
  */
@@ -1221,18 +1223,21 @@ export class EvolutionMemoryStore extends Service {
    * cap or substring rejection keeps the entry staged and propagates; the
    * entry drops only after the op lands. Skill-kind entries only drop: the
    * approver reads the payload from the scope record and performs the skill
-   * write before approving — but only when the payload carries a valid
-   * capture contract, otherwise the entry stays staged with its
-   * `blockedReason` and `neededEvidence` set and the block propagates, like a
-   * cap rejection. Either decision is recorded in the scope's resolution log,
-   * newest first.
+   * write before approving. A `create` proposal is additionally admitted on
+   * its capture contract — a capability claim needs independent validation
+   * evidence — so without one the entry stays staged with its `blockedReason`
+   * and `neededEvidence` set and the block propagates, like a cap rejection.
+   * A `patch` revises a capability that was already admitted: its evidence is
+   * the baseline-versus-candidate measurement its proposer recorded, which
+   * this store has no way to read, so it drops on the human's approval.
+   * Either decision is recorded in the scope's resolution log, newest first.
    * @param id - staged entry identity.
    * @returns resolution after durability.
    */
   async approveStaged(id: string): Promise<void> {
     const located = this.findStaged(id)
     if (located === undefined) throw stagedNotFound(id)
-    if (located.entry.kind === 'skill') {
+    if (located.entry.kind === 'skill' && located.entry.op === 'create') {
       const issues = skillContractIssues(located.entry.payload)
       if (issues.length > 0) {
         await this.requireTable().update(located.scope, (record) => {

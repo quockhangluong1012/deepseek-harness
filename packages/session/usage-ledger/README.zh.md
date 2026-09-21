@@ -56,7 +56,19 @@ kind: "package-reference"
 
 同一套 UTC+7 日历从包根导出——`dayKeyUTC7`、`dayStartUTC7`、`daysOfRange`、`isUsageRange` 与 `windowStartOfRange`——因此报告按天历史的面（即演进时间线）按仪表盘的天分桶，而不是自行重新推导时区偏移。
 
------
+### 缓存命中告警（可选开启）
+
+`cacheHitAlertThreshold`（默认未设置）会在今日滚动缓存命中占比低于给定分数（`0`–`1`）、且今日已计费请求数至少达到 `cacheHitAlertMinRequests`（默认 `20`）时，打开一个实时 `usage/cache-hit-low` 事件；后者是一道门槛，避免稀疏的清晨样本误触发。事件是边沿触发：只在从健康到不健康的穿越时刻触发一次，当天保持不健康期间静默，恢复后再度下穿时可再次触发。它是瞬时的（`ctx.emit`，不写入任何会话）——由实时监听器观察，或调用方随时用 `summary()` 重新算出同样的比率。
+
+```yaml
+- name: '@deepseek-ai/dsh-usage-ledger'
+  config:
+    retentionDays: 90
+    writeEveryEvents: 100
+    writeIntervalMs: 60000
+    cacheHitAlertThreshold: 0.7
+    cacheHitAlertMinRequests: 20
+```
 
 <a id="understand-the-implementation"></a>
 ## 理解实现

@@ -20,7 +20,7 @@ import { ToolListChangedNotificationSchema } from '@modelcontextprotocol/sdk/typ
 import type { Context } from '@deepseek-ai/cordis'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import { createTransport } from './transport.ts'
-import { syncTools } from './tools.ts'
+import { endpointOriginForConfig, syncTools } from './tools.ts'
 import type { ToolBridgeOptions, ToolDisposers } from './tools.ts'
 import type { Config } from './index.ts'
 
@@ -122,10 +122,15 @@ export interface ConnectionHandle {
  */
 export function startConnection(ctx: Context, config: Config, policy: ResolvedReconnectPolicy): ConnectionHandle {
   const label = `mcp-client(${config.serverName})`
+  // Provenance half of the bridge options: transport plus endpoint hash
+  // resolved once from config (secrets never feed the hash). The server
+  // version joins per generation inside enqueueSync — it is only known after
+  // the MCP initialize handshake.
   const opts: ToolBridgeOptions = {
     registrationFailure: 'contain',
     serverName: config.serverName,
     toolCallTimeoutMs: config.toolCallTimeoutMs,
+    ...endpointOriginForConfig(config),
   }
   // The initial sync uses 'throw' when failOnStartupError is configured, so
   // a registration conflict propagates to the startup-await path. Re-syncs
@@ -162,7 +167,15 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
   function enqueueSync(generation: Client, syncOpts: ToolBridgeOptions = opts): Promise<void> {
     const run = syncChain.then(async () => {
       if (!isCurrent(generation)) return
-      disposers = await syncTools(generation, ctx, syncOpts, disposers)
+      // The reported server version (when any) versions the generation
+      // digest; an absent version still yields a digest over the tool names.
+      const serverVersion = generation.getServerVersion()?.version
+      disposers = await syncTools(
+        generation,
+        ctx,
+        serverVersion === undefined ? syncOpts : { ...syncOpts, serverVersion },
+        disposers,
+      )
     })
     // The chain tail must survive a failed sync; the enqueuing caller owns reporting.
     syncChain = run.catch(() => {})

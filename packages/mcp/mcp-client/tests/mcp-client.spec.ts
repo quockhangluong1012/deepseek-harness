@@ -11,7 +11,7 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import type { PostToolDecision } from '@deepseek-ai/dsh-tools'
-import { publicToolName, syncTools, type ToolBridgeOptions } from '@deepseek-ai/dsh-mcp-client/src/tools.ts'
+import { endpointHashForStdio, publicToolName, syncTools, type ToolBridgeOptions } from '@deepseek-ai/dsh-mcp-client/src/tools.ts'
 import { createTransport } from '@deepseek-ai/dsh-mcp-client/src/transport.ts'
 import type { Config } from '@deepseek-ai/dsh-mcp-client'
 
@@ -148,6 +148,8 @@ const defaultOpts: ToolBridgeOptions = {
   registrationFailure: 'contain',
   serverName: 'srv',
   toolCallTimeoutMs: 60_000,
+  transport: 'stdio',
+  endpointHash: endpointHashForStdio('node', ['server.js']),
 }
 
 // ---- Tests ----

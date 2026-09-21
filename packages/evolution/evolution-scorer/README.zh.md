@@ -50,7 +50,7 @@ if (outcome.status === 'scored') console.log(outcome.score.pass, outcome.score.t
 
 ### 行为评估
 
-`evaluateBehavior({ baseline, candidate, candidateBody, catalog, positiveQueries, negativeQueries, routingTopK?, vectors? })` 用三道门（按从廉价到昂贵的顺序）评判一个技能修订。契约门（`checkBehaviorContract`）拒绝会破坏技能 frontmatter 的正文，复用技能管理器在编辑时强制执行的同一不变式。路由门（`checkBehaviorRouting`）把肯定与否定触发查询送入真实的选择器：每个肯定查询必须把候选排进 `routingTopK`（默认 3），每个否定查询必须把它挡在外面；所用的目录为每个条目携带修订键，因此一份报告永不混入不同修订。目录条目还可携带 frontmatter `requires`：前置在目录之外缺席的候选在同一选择器中得零分、挂掉每个肯定查询，因为路由到它根本不可能工作。廉价门一旦失败，评估即以 `status: 'gated'` 停止，不再启动任何全新进程。否则两个回放组合在相同场景上运行，回放门（`compareBehaviorReplay`）仅当候选没有退化基线已证明的任何场景时才批准——双方都失败的场景上的持平不是退化，因为门只判断「没有更差」，而「更好」由选择来判断。只有三道门全过，`approved` 才为真：唯有回放证据才能批准。
+`evaluateBehavior({ baseline, candidate, candidateBody, catalog, positiveQueries, negativeQueries, routingTopK?, vectors? })` 用三道门（按从廉价到昂贵的顺序）评判一个技能修订。契约门（`checkBehaviorContract`）拒绝会破坏技能 frontmatter 的正文，复用技能管理器在编辑时强制执行的同一不变式。路由门（`checkBehaviorRouting`）把肯定与否定触发查询送入真实的选择器：每个肯定查询必须把候选排进 `routingTopK`（默认 3），每个否定查询必须把它挡在外面；所用的目录为每个条目携带修订键，因此一份报告永不混入不同修订。目录条目还可携带 frontmatter `requires`：前置在目录之外缺席的候选在同一选择器中得零分、挂掉每个肯定查询，因为路由到它根本不可能工作。廉价门一旦失败，评估即以 `status: 'gated'` 停止，不再启动任何全新进程。否则两个回放组合在相同场景上运行，回放门（`compareBehaviorReplay`）仅当候选没有退化基线已证明的任何场景时才批准——双方都失败的场景上的持平不是退化，因为门只判断「没有更差」，而「更好」由选择来判断。只有三道门全过，`approved` 才为真：唯有回放证据才能批准。每份判断还携带 `disagreement`：各通道被归约为按从廉价到昂贵的标准顺序排列的批准与反对两份名单，并以 `unanimous` 表示它们是否口径一致——一致拒绝也算一致，因此只有分歧才是 uncertainty 信号。在 `gated` 路径上，归约只覆盖两道廉价门，因为回放从未运行；一道通过的门伴随一道失败的门仍记为分歧，绝不记为批准。`evaluatorDisagreement` 是纯函数，调用者无需启动任何东西即可归约自己的通道裁决。
 
 ```yaml
 - name: '@deepseek-ai/dsh-evolution-scorer'
@@ -106,6 +106,7 @@ Web 组合里带有本行，但[默认关闭](../../bundle/web-app/cordis.patch.
 | [`src/statistics.ts`](src/statistics.ts) | 对每次尝试的样本取中位数 |
 | [`src/runner.ts`](src/runner.ts) | 组合传入的进程级运行器 |
 | [`src/behavior.ts`](src/behavior.ts) | 行为门：契约检查、触发查询路由与回放比较 |
+| [`src/disagreement.ts`](src/disagreement.ts) | 纯通道裁决归约：批准/反对名单与是否一致 |
 | [`src/types.ts`](src/types.ts) | 公共请求、计划、尝试与记录类型 |
 
 不发布 invariant 伴生包：评分器不持有持久状态，不存在第二个可供核对的独立观测。

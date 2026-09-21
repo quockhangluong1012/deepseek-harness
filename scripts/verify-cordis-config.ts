@@ -8,6 +8,12 @@
  * silently changes composition. Shipped and test-only dsh overlays resolve
  * named plugins from the CLI application's owning manifest; package-owned
  * Loader fixtures resolve from their package manifest.
+ *
+ * The gate also validates the optional plugin capability manifest: a plugin
+ * package may declare the capabilities it contributes as `dsh.capabilities`,
+ * an array of dotted capability names (for example `dsh.skill.catalog`). The
+ * field is opt-in — absence passes — and nothing at runtime reads it; this
+ * slice is validation only, with no catalog emission and no second registry.
  */
 
 import { globSync, readFileSync } from 'node:fs'
@@ -22,7 +28,7 @@ export interface PackageManifest {
   dependencies?: Record<string, string>
   devDependencies?: Record<string, string>
   optionalDependencies?: Record<string, string>
-  dsh?: { bundle?: { patch?: string } }
+  dsh?: { bundle?: { patch?: string }; capabilities?: unknown }
 }
 
 export interface PluginReference {
@@ -57,6 +63,13 @@ const CHOOSER_BACKEND_PACKAGES = [
 const errors: string[] = []
 const pluginReferences: PluginReference[] = []
 
+/**
+ * Dotted capability-name grammar for the plugin capability manifest:
+ * lowercase segments joined by dots, with at least one dot, so every
+ * capability names its owning family (for example `dsh.skill.catalog`).
+ */
+export const CAPABILITY_NAME_PATTERN = /^[a-z][a-z0-9-]*(\.[a-z][a-z0-9-]*)+$/
+
 if (import.meta.main) {
   const files = cordisConfigFiles(root)
 
@@ -73,6 +86,7 @@ if (import.meta.main) {
 
   errors.push(...validateAppResolution())
   errors.push(...validatePackageTestResolution())
+  errors.push(...validateCapabilityManifests())
   errors.push(...packageTestFixtureDependencyErrors())
   errors.push(...validateSourcePlaneResolution())
   errors.push(...validatePresetPlaneSeparation())
@@ -282,6 +296,86 @@ function validatePackageTestResolution(): string[] {
   }
   return [...referencesByManifest].flatMap(([manifestPath, references]) =>
     packageTestPluginDependencyErrors(manifestPath, readManifest(manifestPath), references))
+}
+
+/**
+ * Plugin capability manifest contract (validation only — no runtime
+ * consumption, no catalog emission, no second registry).
+ *
+ * A plugin package declares the capabilities it contributes as
+ * `dsh.capabilities`: an optional array of non-empty dotted capability names,
+ * each matching {@link CAPABILITY_NAME_PATTERN}, with no duplicates. The
+ * field is opt-in, so absence passes; a present field with any other shape
+ * fails loud with the package path and the offending value, and a
+ * package.json that does not parse fails loud per misconfiguration-fails-loud.
+ * @param manifestPath - repository-relative manifest path, used in diagnostics.
+ * @param manifestText - raw package.json text.
+ * @returns one diagnostic per malformed manifest or contract violation.
+ */
+export function capabilityManifestErrors(manifestPath: string, manifestText: string): string[] {
+  let manifest: unknown
+  try {
+    manifest = JSON.parse(manifestText) as unknown
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error)
+    return [`${manifestPath}: package.json does not parse: ${detail}`]
+  }
+  if (!isRecord(manifest)) {
+    return [`${manifestPath}: package.json must be a JSON object`]
+  }
+  const dsh = manifest.dsh
+  if (dsh === undefined) return []
+  if (!isRecord(dsh)) {
+    return [`${manifestPath}: dsh must be an object, found ${JSON.stringify(dsh)}`]
+  }
+  const capabilities = dsh.capabilities
+  if (capabilities === undefined) return []
+  if (!Array.isArray(capabilities)) {
+    return [`${manifestPath}: dsh.capabilities must be an array of capability names, found ${JSON.stringify(capabilities)}`]
+  }
+  const problems: string[] = []
+  const seen = new Set<string>()
+  for (const capability of capabilities) {
+    if (typeof capability !== 'string' || !CAPABILITY_NAME_PATTERN.test(capability)) {
+      problems.push(`${manifestPath}: invalid capability ${JSON.stringify(capability)}: each capability must match ${CAPABILITY_NAME_PATTERN.source}`)
+      continue
+    }
+    if (seen.has(capability)) {
+      problems.push(`${manifestPath}: duplicate capability ${JSON.stringify(capability)}`)
+      continue
+    }
+    seen.add(capability)
+  }
+  return problems
+}
+
+/**
+ * Validate `dsh.capabilities` for every local plugin package named in the
+ * composed configs. Each distinct package is checked once; packages that
+ * declare nothing pass (opt-in). An unreadable or unparsable manifest fails
+ * loud at this earliest resolvable point.
+ * @returns one diagnostic per unreadable manifest or contract violation.
+ */
+function validateCapabilityManifests(): string[] {
+  const localPackages = localPackageDirectories()
+  const manifestPaths = new Set<string>()
+  for (const reference of pluginReferences) {
+    const packageName = packageNameFromSpecifier(reference.name)
+    if (packageName === undefined) continue
+    const directory = localPackages.get(packageName)
+    if (directory === undefined) continue
+    manifestPaths.add(`${relative(root, directory).replaceAll('\\', '/')}/package.json`)
+  }
+  return [...manifestPaths].sort().flatMap((manifestPath) => {
+    let manifestText: string
+    try {
+      manifestText = readFileSync(resolve(root, manifestPath), 'utf8')
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error)
+      return [`${manifestPath}: cannot read package.json: ${detail}`]
+    }
+    return capabilityManifestErrors(manifestPath, manifestText)
+  })
 }
 
 /**

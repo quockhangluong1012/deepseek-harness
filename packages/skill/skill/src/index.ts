@@ -65,6 +65,17 @@ export interface SkillSummary {
   readonly whenToUse?: string
   /** Prerequisite skill names that must route alongside this one; absent means none. */
   readonly requires?: readonly string[]
+  /**
+   * Skill names this skill must not be selected alongside; absent means none.
+   * The relation is symmetric — one side declaring it excludes the pair.
+   */
+  readonly conflictsWith?: readonly string[]
+  /** Capability names the skill needs; routing-relevant like `requires`, never a grant by itself. */
+  readonly capabilities?: readonly string[]
+  /** Free-form version label; absent means unversioned. */
+  readonly version?: string
+  /** Scenario names usable by the scorer/optimizer; absent means none declared. */
+  readonly testScenarios?: readonly string[]
   /** Resolved model and user invocation controls. */
   readonly invocation: SkillInvocationPolicy
   /** Discovery source that produced this winning skill. */
@@ -737,6 +748,10 @@ function runtimeCandidate(skill: SkillDefinition): SkillCandidate {
     description: skill.description,
     ...skill.whenToUse !== undefined ? { whenToUse: skill.whenToUse } : {},
     ...skill.requires !== undefined ? { requires: skill.requires } : {},
+    ...skill.conflictsWith !== undefined ? { conflictsWith: skill.conflictsWith } : {},
+    ...skill.capabilities !== undefined ? { capabilities: skill.capabilities } : {},
+    ...skill.version !== undefined ? { version: skill.version } : {},
+    ...skill.testScenarios !== undefined ? { testScenarios: skill.testScenarios } : {},
     invocation: skill.invocation,
     source: skill.source,
     provider: skill.provider,
@@ -781,6 +796,10 @@ function validateCandidate(candidate: SkillCandidate, providerName: string): voi
     throw new TypeError(`skill provider "${providerName}" returned skill "${candidate.name}" with a non-string path`)
   }
   validateStringArray(candidate.requires, `skill provider "${providerName}" returned skill "${candidate.name}" requires`)
+  validateStringArray(candidate.conflictsWith, `skill provider "${providerName}" returned skill "${candidate.name}" conflictsWith`)
+  validateStringArray(candidate.capabilities, `skill provider "${providerName}" returned skill "${candidate.name}" capabilities`)
+  validateVersion(candidate.version, `skill provider "${providerName}" returned skill "${candidate.name}" version`)
+  validateStringArray(candidate.testScenarios, `skill provider "${providerName}" returned skill "${candidate.name}" testScenarios`)
 }
 
 function validateRuntimeSkill(skill: SkillRegistration): void {
@@ -788,6 +807,10 @@ function validateRuntimeSkill(skill: SkillRegistration): void {
   if (skill.description.length === 0) throw new Error(`skill "${skill.name}" requires a description`)
   validateInvocation(skill.invocation, `runtime skill "${skill.name}"`)
   validateStringArray(skill.requires, `runtime skill "${skill.name}" requires`)
+  validateStringArray(skill.conflictsWith, `runtime skill "${skill.name}" conflictsWith`)
+  validateStringArray(skill.capabilities, `runtime skill "${skill.name}" capabilities`)
+  validateVersion(skill.version, `runtime skill "${skill.name}" version`)
+  validateStringArray(skill.testScenarios, `runtime skill "${skill.name}" testScenarios`)
 }
 
 /** Validate a definition loaded from a provider-controlled parser or remote source. */
@@ -807,6 +830,10 @@ function validateDefinition(skill: SkillDefinition): void {
   validateInvocation(invocation, `loaded skill "${name}"`)
   if (whenToUse !== undefined && typeof whenToUse !== 'string') throw new TypeError(`loaded skill "${name}" whenToUse must be a string`)
   validateStringArray(skill.requires, `loaded skill "${name}" requires`)
+  validateStringArray(skill.conflictsWith, `loaded skill "${name}" conflictsWith`)
+  validateStringArray(skill.capabilities, `loaded skill "${name}" capabilities`)
+  validateVersion(skill.version, `loaded skill "${name}" version`)
+  validateStringArray(skill.testScenarios, `loaded skill "${name}" testScenarios`)
   if (typeof source !== 'string') throw new TypeError(`loaded skill "${name}" source must be a string`)
   if (typeof provider !== 'string') throw new TypeError(`loaded skill "${name}" provider must be a string`)
   if (typeof content !== 'string') throw new TypeError(`loaded skill "${name}" content must be a string`)
@@ -847,6 +874,14 @@ function validateStringArray(value: unknown, subject: string): void {
   }
 }
 
+/** Validate an optional free-form version label: a non-empty string when present. */
+function validateVersion(value: unknown, subject: string): void {
+  if (value === undefined) return
+  if (typeof value !== 'string' || value.length === 0) {
+    throw new TypeError(`${subject} must be a non-empty string`)
+  }
+}
+
 /** Validate an optional provider-supplied string record. */
 function validateStringRecord(value: unknown, subject: string): void {
   if (value === undefined) return
@@ -866,6 +901,10 @@ function toSummary(skill: SkillDefinition | SkillCandidate): SkillSummary {
     description,
     ...whenToUse !== undefined ? { whenToUse } : {},
     ...skill.requires !== undefined ? { requires: skill.requires } : {},
+    ...skill.conflictsWith !== undefined ? { conflictsWith: skill.conflictsWith } : {},
+    ...skill.capabilities !== undefined ? { capabilities: skill.capabilities } : {},
+    ...skill.version !== undefined ? { version: skill.version } : {},
+    ...skill.testScenarios !== undefined ? { testScenarios: skill.testScenarios } : {},
     invocation,
     source,
     provider,

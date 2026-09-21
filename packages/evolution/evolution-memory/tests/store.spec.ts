@@ -856,6 +856,21 @@ describe('evolution-memory store', () => {
     await fiber.dispose()
   })
 
+  it('approves a skill patch without a capture contract', async () => {
+    const { fiber, store } = await harness()
+    const id = scope()
+    const staged = await store.stageWrite({
+      scopeId: id, kind: 'skill', op: 'patch',
+      payload: { skill: 'writer', body: '# writer v2', baseline: { tokens: 10 }, winner: { tokens: 3 } },
+      originSessionId: 's1', gist: 'optimizer patch for writer', mergeKey: 'patch',
+    })
+    await store.approveStaged(staged.id)
+    const record = store.read(id)
+    expect(record?.staged).toEqual([])
+    expect(record?.resolutions[0]).toMatchObject({ mergeKey: 'patch', decision: 'approved' })
+    await fiber.dispose()
+  })
+
   it('supplyStagedContract lifts the block and approval follows', async () => {
     const { fiber, store } = await harness()
     const id = scope()

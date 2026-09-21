@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-21-skill-patch-approval-blocked.md
+2026-09-21-skill-patch-approval-blocked.md: b12886f3b262a4530568431e099e3358820e5c3f
+2026-09-21-skill-patch-approval-blocked.zh.md: bfbb19297e51337b0ce4432d2af219e0d33a231a

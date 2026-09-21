@@ -11,6 +11,7 @@ import { describe, expect, it } from 'vitest'
 import {
   bundleManifestPaths,
   bundlePluginDependencyErrors,
+  capabilityManifestErrors,
   metadataExpressionErrors,
   packageTestFixtureDependencyErrors,
   packageTestPluginDependencyErrors,
@@ -86,6 +87,61 @@ describe('workspace Bundle discovery and product dependency closures', () => {
     ])).toEqual([
       `${file}: @deepseek-ai/dsh-missing-plugin must be declared in ${manifestPath} dependencies`,
     ])
+  })
+})
+
+describe('plugin capability manifest gate', () => {
+  const manifestPath = 'packages/skill/skill/package.json'
+  const manifestText = (dsh: unknown): string => JSON.stringify(
+    dsh === undefined
+      ? { name: '@deepseek-ai/dsh-example' }
+      : { name: '@deepseek-ai/dsh-example', dsh },
+  )
+
+  it('passes a valid manifest', () => {
+    expect(capabilityManifestErrors(
+      manifestPath,
+      manifestText({ capabilities: ['dsh.skill.catalog', 'dsh.skill.load'] }),
+    )).toEqual([])
+  })
+
+  it('passes when the field is absent (opt-in)', () => {
+    expect(capabilityManifestErrors(manifestPath, manifestText(undefined))).toEqual([])
+    expect(capabilityManifestErrors(manifestPath, manifestText({}))).toEqual([])
+    expect(capabilityManifestErrors(
+      manifestPath,
+      manifestText({ bundle: { patch: './cordis.patch.yml' } }),
+    )).toEqual([])
+  })
+
+  it('rejects a non-array declaration with the package path', () => {
+    const problems = capabilityManifestErrors(
+      manifestPath,
+      manifestText({ capabilities: 'dsh.skill.catalog' }),
+    )
+    expect(problems).toHaveLength(1)
+    expect(problems[0]).toContain(manifestPath)
+    expect(problems[0]).toContain('"dsh.skill.catalog"')
+  })
+
+  it('rejects duplicate, non-string, and non-dotted entries with the package path and offending value', () => {
+    const problems = capabilityManifestErrors(
+      manifestPath,
+      manifestText({ capabilities: ['dsh.skill.catalog', 'dsh.skill.catalog', 42, 'skill', ''] }),
+    )
+    expect(problems).toHaveLength(4)
+    for (const problem of problems) expect(problem).toContain(manifestPath)
+    expect(problems[0]).toContain('"dsh.skill.catalog"')
+    expect(problems[1]).toContain('42')
+    expect(problems[2]).toContain('"skill"')
+    expect(problems[3]).toContain('""')
+  })
+
+  it('fails loud on a malformed package.json', () => {
+    const problems = capabilityManifestErrors(manifestPath, '{not json')
+    expect(problems).toHaveLength(1)
+    expect(problems[0]).toContain(manifestPath)
+    expect(problems[0]).toContain('does not parse')
   })
 })
 

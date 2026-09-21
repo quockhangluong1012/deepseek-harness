@@ -16,13 +16,23 @@ A task is a projection of `task/*` events, never an in-memory singleton. `TaskId
 
 Each tool call produces a proposal, a rule decision, a composed authorization, an optional capability grant, and a receipt.
 
-`ActionProposal` names the action, the agent, the tool call, the registered tool, the frozen parsed arguments, the proposal source (`model`, `workflow`, `subagent`, or `user`), the task revision, and a `TrustLabel`. `PolicyContext` adds the tool's declared `CapabilityRequest` list, whether the tool declared nothing, and the resolved technical boundary.
+`ActionProposal` names the action, the agent, the tool call, the registered tool, the frozen parsed arguments, the proposal source (`model`, `workflow`, `subagent`, or `user`), the task revision, and a `TrustLabel`. `PolicyContext` adds the tool's declared `CapabilityRequest` list, whether the tool declared nothing, the delegation receipt when the acting agent is a child, and the resolved technical boundary.
 
-`PolicyDecision` is what the permission document decided: the `effect`, the index of the winning rule or `null` for the default, the capability requests the winning rule matched, and the reasons in evaluation order. `AuthorizationDecision` is the composed runtime answer: the intersected `effect`, the decision it composes, the granted `Capability` list, the `SandboxExecutionPolicy` the action executes under, whether the kernel acted on the decision (`enforced`), and the composed reasons. `ActionReceipt` settles the action with `succeeded`, `failed`, or `denied` and an optional `GovernanceReceipt` linking the policy decision, the sandbox mode and workspace root, the human outcome when one was recorded, and who resolved it (`user`, `policy`, or `none`).
+`PolicyDecision` is what the permission document decided: the `effect`, the index of the winning rule or `null` for the default, the capability requests the winning rule matched, and the reasons in evaluation order. `AuthorizationDecision` is the composed runtime answer: the intersected `effect`, the decision it composes, the granted `Capability` list, the `SandboxExecutionPolicy` the action executes under, whether the kernel acted on the decision (`enforced`), the delegation the action ran under when the agent is a child, and the composed reasons. `ActionReceipt` settles the action with `succeeded`, `failed`, or `denied` and an optional `GovernanceReceipt` linking the policy decision, the sandbox mode and workspace root, the human outcome when one was recorded, and who resolved it (`user`, `policy`, or `none`).
 
 ## Permission document
 
 `PolicyDocument` is a default `effect` plus an ordered `PolicyRule` list; each rule selects a `PolicyAction` family and a resource glob and decides `allow`, `ask`, or `deny`. `POLICY_ACTIONS` and `POLICY_EFFECTS` in [`src/policy.ts`](../../packages/runtime/agent-kernel/src/policy.ts) are the accepted vocabularies, and `compilePolicy()` rejects an unknown action, an unknown effect, or an empty resource before any action is evaluated. `Capability` is the grant vocabulary — `fs.read`, `fs.write`, `fs.edit`, `process.exec`, `terminal.interactive`, `network.read`, `network.write`, `mcp.call`, `memory.read`, `memory.write`, `subagent.spawn`, `workflow.start`, `approval.request`, and `policy.propose` — and `CapabilityDeclaration` maps one registered tool to the capabilities each invocation needs plus a pure projection from its arguments to the resource they apply to.
+
+## Delegation
+
+`DelegationReceipt` is the authority one parent run hands to one child run: the receipt identity, the child run, the parent run and task when the parent session resolved, the durable parent session, the allowed capabilities, the inherited resource limits, the writable scopes, the digest of the permission document the grant was computed under, the depth, the deepest admitted depth, and the timestamp. The kernel writes it into the child's own log at `agent/created`, before either side has a task, with an audit copy as `delegation/issued` on the parent log; a resumed child keeps the receipt already in its log instead of receiving a second one.
+
+Child authority is the intersection of the receipt with the child's profile, the deployment rules, and the child's own sandbox: [`src/delegation.ts`](../../packages/runtime/agent-kernel/src/delegation.ts) refuses a capability the receipt withholds, a filesystem mutation outside its writable scopes narrowed against the child's boundary, and every action past the parent's depth cap. The child task contract keeps the receipt's run identity, names the parent task, and starts from the parent's remaining budget.
+
+## Built-in declarations
+
+The kernel registry starts empty and fails closed. [`@deepseek-ai/dsh-agent-kernel-builtins`](../../packages/runtime/agent-kernel-builtins/README.md) is the opt-in plugin that declares every shipped product tool — the capabilities one invocation needs and a total, never-empty projection from its arguments to the resource they apply to — registering them once the injected `agentKernel` service exists, in any mount order. A spec re-derives the tool inventory from the generated [tool catalog](../tool-catalog.md) and fails when a shipped name has no declaration, so a new tool cannot arrive undeclared.
 
 ## Verification, failure, and recovery
 
@@ -32,7 +42,7 @@ Each tool call produces a proposal, a rule decision, a composed authorization, a
 
 ## Checkpoints and read model
 
-`Checkpoint` indexes one task at one session sequence: the task and run identities, the session, the `sessionSeq`, the status and revision, the `BudgetSnapshot`, the open action ids, the unresolved failures, the `CheckpointReason`, and the timestamp. `KernelView` is what a reader gets back from `ctx.agentKernel.state.view(session)`: the current contract, the budget observation, the open actions, the unresolved failures, and the latest plan and checkpoint when either exists.
+`Checkpoint` indexes one task at one session sequence: the task and run identities, the session, the `sessionSeq`, the status and revision, the `BudgetSnapshot`, the open action ids, the unresolved failures, the `CheckpointReason`, and the timestamp. `KernelView` is what a reader gets back from `ctx.agentKernel.state.view(session)`: the current contract, the budget observation, the open actions, the unresolved failures, the latest plan and checkpoint when either exists, and the delegation receipt when the agent is a child.
 
 ## Durable event families
 
@@ -51,6 +61,8 @@ The kernel declaration-merges these into `SessionEventMap`; all are log-only and
 | `verification/requested`, `verification/result` | The request and the aggregated result |
 | `failure/recorded`, `recovery/decided` | The failure and the chosen recovery |
 | `checkpoint/created` | One `Checkpoint` |
+| `delegation/received` | The `DelegationReceipt` the child acts under, in the child's own log |
+| `delegation/issued` | The same receipt as an audit copy on the parent log |
 
 The generated [persistence catalog](../persistence-catalog.md) records each declaration site, and the [Session page](session.md) owns the event-map contract they extend.
 

@@ -20,9 +20,7 @@ The second half — caching repeated identical searches — was genuinely missin
 
 The engine already tracks a monotonic generation per corpus (`_globalGeneration` for the whole-corpus `searchSessions` scope, `target.generation` for one session's `searchEvents` scope) so that pagination cursors can detect a corpus change and fail with `SESSION_QUERY_STALE_CURSOR` rather than silently returning an offset into a different corpus.
 
-The result cache reuses the same generation as part of its key:
-`` `sessions|${fingerprint}|${generation}|${offset}|${limit}` `` and
-`` `events|${fingerprint}|${target.generation}|${offset}|${limit}` ``. A corpus change increments the generation, which changes every affected key, so a stale page is structurally impossible to serve — there is no invalidation step that could be forgotten or race against a concurrent write.
+The result cache reuses the same generation as part of its key: `` `sessions|${fingerprint}|${generation}|${offset}|${limit}` `` and `` `events|${fingerprint}|${target.generation}|${offset}|${limit}` ``. A corpus change increments the generation, which changes every affected key, so a stale page is structurally impossible to serve — there is no invalidation step that could be forgotten or race against a concurrent write.
 
 ### Bounds
 
@@ -49,14 +47,6 @@ The result cache reuses the same generation as part of its key:
 
 ## Verification
 
-- `tests/result-cache.spec.ts`: pure unit tests for `SessionResultCache`
-  (miss, TTL expiry, LRU eviction, overwrite, clear); engine-level tests
-  proving a repeated identical search does not re-run the underlying SQLite
-  query (`vi.spyOn` on the private `_querySessions`/`_queryEvents` methods —
-  TypeScript's `private` is compile-time only, so this is a legitimate way to
-  observe internal call counts without a production test hook) and that a
-  corpus change is reflected immediately rather than serving a page that
-  predates it.
-- `tests/sqlite.spec.ts`: extended the existing Cordis `Config` validation
-  test with the two new fields' defaults, configured values, and bounds.
+- `tests/result-cache.spec.ts`: pure unit tests for `SessionResultCache` (miss, TTL expiry, LRU eviction, overwrite, clear); engine-level tests proving a repeated identical search does not re-run the underlying SQLite query (`vi.spyOn` on the private `_querySessions`/`_queryEvents` methods — TypeScript's `private` is compile-time only, so this is a legitimate way to observe internal call counts without a production test hook) and that a corpus change is reflected immediately rather than serving a page that predates it.
+- `tests/sqlite.spec.ts`: extended the existing Cordis `Config` validation test with the two new fields' defaults, configured values, and bounds.
 - 100% statement/branch/function/line coverage on the whole package.

@@ -37,17 +37,13 @@ git ls-files "packages/*.js" "packages/*/*.js" "packages/*/*/src/*.js" "packages
 
 Expected: count `>= 145`, every path matches `packages/<group>/<pkg>/src/**/*.js`.
 
-> Triage note (verified 2026-09-13): the broad patterns also catch 8 legitimate
-> non-`src` files — `packages/experimental/webworker-packer/bin.js` (a declared
-> `bin` entry) and 7 plain-JS Cordis plugins under `tests/fixtures/plugins/`.
-> These must NOT be deleted. Derive the deletion list with:
+> Triage note (verified 2026-09-13): the broad patterns also catch 8 legitimate non-`src` files — `packages/experimental/webworker-packer/bin.js` (a declared `bin` entry) and 7 plain-JS Cordis plugins under `tests/fixtures/plugins/`. These must NOT be deleted. Derive the deletion list with:
 >
 > ```powershell
 > Get-Content "$env:TEMP\src-js-list.txt" | Where-Object { $_ -match "/src/.+\.js$" } | Tee-Object -FilePath "$env:TEMP\src-js-src-only.txt" | Measure-Object | Select-Object -ExpandProperty Count
 > ```
 >
-> Expected: exactly `145`. All deletion steps below consume
-> `$env:TEMP\src-js-src-only.txt`, never the broad list.
+> Expected: exactly `145`. All deletion steps below consume `$env:TEMP\src-js-src-only.txt`, never the broad list.
 
 - [ ] **Step 2: Prove every `.js` has a same-named `.ts` sibling (mirror check)**
 
@@ -187,10 +183,7 @@ Expected: `verify-no-src-js: no tracked src/**/*.js residue.` and `EXIT:0`.
 
 - [ ] **Step 9: Prove the gate catches reintroduced residue**
 
-The gate reads `git ls-files`, which only sees tracked files — so the probe
-must be staged to be visible. The new `.gitignore` rule ignores it, so
-force-add with `-f` (this mirrors the real threat: residue tracked before the
-rule existed stays tracked). Stage it, expect failure, then unstage and delete:
+The gate reads `git ls-files`, which only sees tracked files — so the probe must be staged to be visible. The new `.gitignore` rule ignores it, so force-add with `-f` (this mirrors the real threat: residue tracked before the rule existed stays tracked). Stage it, expect failure, then unstage and delete:
 
 ```powershell
 Copy-Item "$env:TEMP\gate-probe\web-probe.js" "packages/util/time/src/gate-probe.tmp.js"; git add -f "packages/util/time/src/gate-probe.tmp.js"; node --import tsx/esm scripts/verify-no-src-js.ts; Write-Output "EXIT:$LASTEXITCODE"; git rm --cached --quiet "packages/util/time/src/gate-probe.tmp.js"; Remove-Item "packages/util/time/src/gate-probe.tmp.js"; Test-Path "packages/util/time/src/gate-probe.tmp.js"
@@ -214,12 +207,7 @@ Expected: gate prints the probe path and `EXIT:1` while staged, final `Test-Path
 pnpm run duplication 2>&1 | Select-Object -Last 12
 ```
 
-Expected: the gate exits 0 on the clean tree. Record the new clone numbers and
-verify no remaining clone pair references a deleted `.js` path (the `.jscpd.json`
-corpus covers `typescript`/`tsx` only, so the count may stay near the 22/817
-baseline — the deletion proof is the gate, not the delta; `jscpd` still exits 1
-while any `.ts` clones remain, which is pre-existing and out of scope for this
-batch). Then run the test suites of three representative touched packages:
+Expected: the gate exits 0 on the clean tree. Record the new clone numbers and verify no remaining clone pair references a deleted `.js` path (the `.jscpd.json` corpus covers `typescript`/`tsx` only, so the count may stay near the 22/817 baseline — the deletion proof is the gate, not the delta; `jscpd` still exits 1 while any `.ts` clones remain, which is pre-existing and out of scope for this batch). Then run the test suites of three representative touched packages:
 
 ```powershell
 pnpm vitest run packages/llm/llm packages/attachment/attachment packages/shell/shell 2>&1 | Select-Object -Last 8
@@ -239,8 +227,7 @@ Create `.agents/notes/implemented/simplification/2026-09-13-remove-src-js-residu
 
 - [ ] **Step 12: Commit exactly this batch**
 
-The `git rm` in Step 5 already staged the deletions; now stage only the exact
-remaining batch paths (never `-A` on this dirty tree):
+The `git rm` in Step 5 already staged the deletions; now stage only the exact remaining batch paths (never `-A` on this dirty tree):
 
 ```powershell
 git add .gitignore scripts/verify-no-src-js.ts package.json scripts/run-gates.ts .agents/notes/implemented/simplification/2026-09-13-remove-src-js-residue.md; git status --porcelain | Select-Object -First 12; git commit -m "chore: remove tracked src build residue and forbid it by gate"

@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-The `runtime/` group holds packages that govern what the existing execution substrate does without owning any of it. `agent-kernel` derives one durable task contract per session, records a proposal and decision for every tool call, composes the permission document with the sandbox and the approval answerers, and gates completion on the required acceptance criteria. `agent-context` wraps every assembled prompt contribution and durable task fact in a source envelope, records the placement digest each model step was compiled from, and can drop compressible sources past a token ceiling. Neither mounts by default yet, so a deployment opts in per composition.
+The `runtime/` group holds packages that govern what the existing execution substrate does without owning any of it. `agent-kernel` derives one durable task contract per session, records a proposal and decision for every tool call, composes the permission document with the sandbox and the approval answerers, and gates completion on the required acceptance criteria. `agent-context` wraps every assembled prompt contribution and durable task fact in a source envelope, records the placement digest each model step was compiled from, and can drop compressible sources past a token ceiling. None mounts by default yet, so a deployment opts in per composition.
 
 ## Table of Contents
 
@@ -22,11 +22,12 @@ The `runtime/` group holds packages that govern what the existing execution subs
 <a id="packages"></a>
 ## Packages
 
-Two packages cover the control plane and the context it compiles. Their READMEs explain when to mount them, how to read the records they write, and what they deliberately do not own.
+Three packages cover the control plane, the context it compiles, and the tools it governs. Their READMEs explain when to mount them, how to read the records they write, and what they deliberately do not own.
 
 | Package | What it provides |
 |---|---|
-| [`agent-kernel/`](agent-kernel/README.md) | One durable task contract per session, an action ledger over the tool pipeline, a capability permission engine composed with the sandbox and the approval answerers, and a completion gate |
+| [`agent-kernel/`](agent-kernel/README.md) | One durable task contract per session, an action ledger over the tool pipeline, a capability permission engine composed with the sandbox and the approval answerers, delegation receipts intersected into every child action, and a completion gate |
+| [`agent-kernel-builtins/`](agent-kernel-builtins/README.md) | One capability declaration per shipped product tool, registered with the kernel in any mount order so enforce mode governs real traffic |
 | [`agent-context/`](agent-context/README.md) | Source envelopes over the assembled prompt contributions and the durable task facts, a total placement order, conflict reports, token-budget fitting, and a replayable placement digest recorded per model step |
 
 -----

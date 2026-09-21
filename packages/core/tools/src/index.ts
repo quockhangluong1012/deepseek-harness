@@ -210,6 +210,28 @@ export interface ToolOutputDefinition {
   presentationMeta?(args: unknown, value: JsonValue): JsonValue
 }
 
+/** Transport carrying one tool definition to the registry. */
+export type ToolTransport = 'stdio' | 'http'
+
+/**
+ * Provenance metadata carried by one tool definition: which server contributed
+ * it and through which transport, keyed by a hash of the endpoint rather than
+ * the secret-bearing endpoint itself. Policy slices key default-ask,
+ * install/invoke separation, and taint decisions on this seam; the registry
+ * never sends it to the model.
+ */
+export interface ToolOrigin {
+  /** Stable local namespace of the contributing server. */
+  readonly serverName: string
+  /** Transport the server was reached through. */
+  readonly transport: ToolTransport
+  /**
+   * Short SHA-256 hash of the endpoint (stdio command plus arguments, or HTTP
+   * URL) — never the raw endpoint, which may carry credentials.
+   */
+  readonly endpointHash: string
+}
+
 /** A registered tool: its schema plus the execution function. */
 export interface ToolDefinition extends ToolSchema {
   /** Mandatory canonical output declaration. */
@@ -272,6 +294,24 @@ export interface ToolDefinition extends ToolSchema {
    * @returns The overlap scope key, or an empty string for no scope.
    */
   parallelScopeKey?(args: unknown): string
+  /**
+   * Provenance of this definition: which server contributed it and through
+   * which transport. Omitted by first-party tools. Never model-visible:
+   * `schemas()` projects only `ToolSchema` fields.
+   */
+  readonly origin?: ToolOrigin
+  /**
+   * Digest of the contributing server's advertised surface (tool list plus
+   * server version when reported), so later slices can detect a changed
+   * server behind a stable namespace. Omitted by first-party tools.
+   */
+  readonly serverDigest?: string
+  /**
+   * Capability names the contributing server declares for this tool. Reserved
+   * seam for later policy slices; servers declare none yet, so bridges leave
+   * it undefined rather than inventing an empty grant.
+   */
+  readonly capabilities?: readonly string[]
   /**
    * Optional: how to present the PENDING state of one call in a UI, derived from
    * the call's `args` (parsed arguments, `unknown` — the tool validates/narrows

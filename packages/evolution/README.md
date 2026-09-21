@@ -28,12 +28,13 @@ The evolution family adds a closed learning loop on top of the harness without p
 | [`evolution-reviewer`](evolution-reviewer/README.md) | Buffers turns, indexes produced files, extracts lessons on a gate, and rebuilds on demand | `ctx.evolutionReviewer` |
 | [`evolution-curator`](evolution-curator/README.md) | Host-wide interval and idle maintenance: automatic skill lifecycle transitions, opt-in LLM consolidation under the full-package rule, backups, ledger, and rollback | `ctx.evolutionCurator` |
 | [`evolution-heartbeat`](evolution-heartbeat/README.md) | Host-wide idle-triggered task registry: one timer running autonomous maintenance tasks on their own cadence, with durable per-task bookkeeping | `ctx.evolutionHeartbeat` |
-| [`evolution-feedback`](evolution-feedback/README.md) | Per-session failure observations: failing tool results recorded, deduplicated, and aggregated into natural-language feedback for the learning loop | `ctx.evolutionFeedback` |
+| [`evolution-feedback`](evolution-feedback/README.md) | Per-session failure observations: failing tool results recorded, deduplicated, graded into decision signals, and aggregated into natural-language feedback for the learning loop | `ctx.evolutionFeedback` |
 | [`evolution-graph`](evolution-graph/README.md) | Per-scope knowledge graph: entities and directed relations with bounded traversal, plus one deterministic extraction that turns text into triples | `ctx.evolutionGraph` |
 | [`evolution-controller`](evolution-controller/README.md) | Host Remote face over the memory record: scoped read and write verbs, staged-write decisions, the journey timeline, and a scope-filtered change stream | `ctx.evolutionController` |
 | [`evolution-trajectory`](evolution-trajectory/README.md) | ShareGPT trajectory export for one Session or every Session of a scope, written on the Host path | `ctx.evolutionTrajectory` |
 | [`evolution-scorer`](evolution-scorer/README.md) | Scores a recorded corpus run: workspace-diff pass, metered tokens, and median-of-N wall time | `ctx.evolutionScorer` |
-| [`command-evolution`](command-evolution/README.md) | Human governance commands: staged memory and skill writes, the scope journey, curation status, on-demand rebuilds, trajectory export, learning turns, and blueprint suggestions | registers on `ctx.commands` |
+| [`evolution-dreaming`](evolution-dreaming/README.md) | Three-phase dreaming consolidation over recorded failures: light observation, REM reflection, and deep durable narratives on the heartbeat's schedule | `ctx.evolutionDreaming` |
+| [`evolution-optimizer`](evolution-optimizer/README.md) | Offline skill optimization: trigger-gated mutation over the host LLM, scorer evaluation under isolated overlays, Pareto pick, and staged skill patch | `ctx.evolutionOptimizer` |
 
 -----
 

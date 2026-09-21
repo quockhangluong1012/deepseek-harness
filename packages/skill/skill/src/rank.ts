@@ -67,12 +67,27 @@ export interface RankSkillsOptions {
   /** Embedding vectors; omission ranks on lexical fit and utility alone. */
   readonly vectors?: SkillRankVectors | undefined
   /**
-   * Prerequisite skill names by skill name, from frontmatter `requires`;
-   * skills without an entry declare none. A skill with at least one
-   * prerequisite missing from the candidate set scores zero: routing to a
-   * skill that cannot work without an absent sibling is never the right call.
+   * Prerequisite skill or capability names by skill name, from frontmatter
+   * `requires`; skills without an entry declare none. A prerequisite is
+   * satisfied by a candidate with that name or by a candidate that provides
+   * it as a capability (see {@link RankSkillsOptions.capabilities}). A skill
+   * with at least one unmet prerequisite scores zero: routing to a skill that
+   * cannot work without an absent sibling is never the right call.
    */
   readonly requires?: ReadonlyMap<string, readonly string[]> | undefined
+  /**
+   * Capability names each skill provides, from frontmatter `capabilities`.
+   * The candidate set provides a name when any candidate declares it.
+   */
+  readonly capabilities?: ReadonlyMap<string, readonly string[]> | undefined
+  /**
+   * Skill names each skill must not be selected alongside, from frontmatter
+   * `conflicts_with`; the relation is symmetric, so one side declaring it
+   * excludes the pair. Of two conflicting candidates the better ranked keeps
+   * its score and the other scores zero, which is the only selection policy
+   * the ranked order can settle deterministically.
+   */
+  readonly conflicts?: ReadonlyMap<string, readonly string[]> | undefined
 }
 
 /** One ranked skill. */
@@ -121,13 +136,88 @@ function cosineSupport(left: readonly number[], right: readonly number[]): numbe
 }
 
 /**
+ * One candidate with its scores and whether it is routable at all. Routability
+ * is tracked beside the score rather than inferred from it: a routable skill
+ * can legitimately score zero on every signal.
+ */
+interface ScoredSkill<T> {
+  readonly skill: T
+  readonly roughScore: number
+  readonly routable: boolean
+  readonly score: number
+}
+
+/**
+ * Symmetric conflict index: a declaration by either side excludes the pair, so
+ * one `conflicts_with` entry needs no matching entry on the other skill. A
+ * self-declaration is dropped — it names no rival to exclude.
+ * @param skills - candidates in any order.
+ * @param nameOf - skill name.
+ * @param conflicts - declared rivals by skill name.
+ * @returns rivals by skill name, both directions present.
+ */
+function conflictIndex<T>(
+  skills: readonly T[],
+  nameOf: (skill: T) => string,
+  conflicts: ReadonlyMap<string, readonly string[]> | undefined,
+): ReadonlyMap<string, ReadonlySet<string>> {
+  const index = new Map<string, Set<string>>()
+  if (conflicts === undefined) return index
+  const link = (from: string, to: string): void => {
+    if (from === to) return
+    const rivals = index.get(from)
+    if (rivals === undefined) index.set(from, new Set([to]))
+    else rivals.add(to)
+  }
+  for (const skill of skills) {
+    const name = nameOf(skill)
+    for (const rival of conflicts.get(name) ?? []) {
+      link(name, rival)
+      link(rival, name)
+    }
+  }
+  return index
+}
+
+/**
+ * Names excluded by a declared conflict with a better ranked candidate.
+ * Candidates are visited in ranked order, so the winner of a conflicting pair
+ * is the one the query ranks higher; a full tie is already settled by name.
+ * An unroutable candidate never excludes a sibling: it cannot be selected
+ * itself, so excluding on its behalf would only remove a usable skill.
+ * @param scored - candidates with scores, best first.
+ * @param nameOf - skill name.
+ * @param conflicts - symmetric rivals by skill name.
+ * @returns the excluded names.
+ */
+function excludedByConflict<T>(
+  scored: readonly ScoredSkill<T>[],
+  nameOf: (skill: T) => string,
+  conflicts: ReadonlyMap<string, ReadonlySet<string>>,
+): ReadonlySet<string> {
+  const kept = new Set<string>()
+  const excluded = new Set<string>()
+  for (const entry of scored) {
+    if (!entry.routable) continue
+    const name = nameOf(entry.skill)
+    const rivals = conflicts.get(name)
+    if (rivals !== undefined && [...rivals].some(rival => kept.has(rival))) {
+      excluded.add(name)
+      continue
+    }
+    kept.add(name)
+  }
+  return excluded
+}
+
+/**
  * Rank skills for one query: BM25 rough rank over routing text, re-ranked
  * by embedding similarity and downstream utility.
  * @param query - the routing query, e.g. a task statement or trigger phrase.
  * @param skills - candidates in any order.
  * @param nameOf - skill name for signal and vector lookup.
  * @param textOf - routing text (name, description, `whenToUse`) of one skill.
- * @param options - utility signals and embedding vectors.
+ * @param options - utility signals, embedding vectors, and declared relations.
  * @returns the skills, best first, each with its rough and final scores.
  */
 export function rankSkills<T>(
@@ -158,8 +248,16 @@ export function rankSkills<T>(
   const signals = options.signals
   const names = new Set(skills.map(skill => nameOf(skill)))
   const requires = options.requires
-  return skills
-    .map((skill, index): RankedSkill<T> => {
+  const capabilities = options.capabilities
+  const provided = new Set<string>()
+  if (capabilities !== undefined) {
+    for (const skill of skills) {
+      for (const capability of capabilities.get(nameOf(skill)) ?? []) provided.add(capability)
+    }
+  }
+  const conflicts = conflictIndex(skills, nameOf, options.conflicts)
+  const scored = skills
+    .map((skill, index): ScoredSkill<T> => {
       const roughScore = rough[index] as number
       const lexical = bestRough === 0 ? 0 : roughScore / bestRough
       const name = nameOf(skill)
@@ -170,10 +268,11 @@ export function rankSkills<T>(
         ? 0.75
         : (signal.trusted ? 1 : 0.5) * (1 - signal.failureCount / Math.max(1, signal.useCount + signal.failureCount))
       const prerequisites = requires?.get(name) ?? []
-      const routable = prerequisites.every(prerequisite => names.has(prerequisite))
+      const routable = prerequisites.every(prerequisite => names.has(prerequisite) || provided.has(prerequisite))
       return {
         skill,
         roughScore,
+        routable,
         score: routable ? LEXICAL_WEIGHT * lexical + SEMANTIC_WEIGHT * semantic + UTILITY_WEIGHT * utility : 0,
       }
     })
@@ -184,4 +283,10 @@ export function rankSkills<T>(
       if (leftName === rightName) return 0
       return leftName < rightName ? -1 : 1
     })
+  const excluded = excludedByConflict(scored, nameOf, conflicts)
+  return scored.map(entry => ({
+    skill: entry.skill,
+    roughScore: entry.roughScore,
+    score: entry.routable && !excluded.has(nameOf(entry.skill)) ? entry.score : 0,
+  }))
 }

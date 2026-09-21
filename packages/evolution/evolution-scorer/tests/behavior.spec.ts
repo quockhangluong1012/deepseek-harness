@@ -159,6 +159,38 @@ describe('checkBehaviorRouting', () => {
     expect(gate.ok).toBe(true)
     expect(gate.checks[0]).toMatchObject({ expected: 'route', rank: 1, ok: true })
   })
+
+  it('meets a prerequisite through a capability another catalog entry provides', () => {
+    const catalog = CATALOG.map(entry => {
+      if (entry.name === CANDIDATE) return { ...entry, requires: ['prose-tooling'] as const }
+      if (entry.name === 'deploy') return { ...entry, capabilities: ['prose-tooling'] as const }
+      return entry
+    })
+    const gate = checkBehaviorRouting(CANDIDATE, catalog, ['polish prose'], ['ship code'], 3)
+    expect(gate.ok).toBe(true)
+    expect(gate.checks[0]).toMatchObject({ expected: 'route', rank: 1, ok: true })
+
+    const withoutProvider = catalog.filter(entry => entry.name !== 'deploy')
+    const orphaned = checkBehaviorRouting(CANDIDATE, withoutProvider, ['polish prose'], [], 3)
+    expect(orphaned.ok).toBe(false)
+    // The capability is gone, so nothing satisfies the prerequisite and the candidate scores zero.
+    expect(orphaned.checks[0]).toMatchObject({ expected: 'route', rank: 3, ok: false })
+  })
+
+  it('fails every positive when a better ranked catalog entry declares the conflict', () => {
+    const catalog = CATALOG.map(entry =>
+      entry.name === 'release' ? { ...entry, text: 'polish prose' } : entry)
+    const clean = checkBehaviorRouting(CANDIDATE, catalog, ['polish prose', 'ship code'], [], 3)
+    expect(clean.ok).toBe(true)
+    expect(clean.checks[0]).toMatchObject({ expected: 'route', rank: 2, ok: true })
+
+    const rival = catalog.map(entry =>
+      entry.name === CANDIDATE ? { ...entry, conflictsWith: ['release'] as const } : entry)
+    const gate = checkBehaviorRouting(CANDIDATE, rival, ['polish prose', 'ship code'], [], 3)
+    expect(gate.ok).toBe(false)
+    // The rival outranks the candidate, so the candidate is the excluded side and never routes.
+    expect(gate.checks[0]).toMatchObject({ expected: 'route', rank: 4, ok: false })
+  })
 })
 
 describe('compareBehaviorReplay', () => {

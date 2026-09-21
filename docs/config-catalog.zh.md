@@ -60,6 +60,13 @@ export interface Config {
   /** Turns between active-memory searches. Defaults to 1 (every turn). */
   turnInterval?: number
   /**
+   * Which lanes run on an eligible turn. `both` runs the vector and graph
+   * legs every turn; `graph-first` runs the local graph leg first and spends
+   * the vector leg's embedding call only when the graph leg returns nothing.
+   * Defaults to `both`, which preserves the historical behavior.
+   */
+  escalation?: EscalationMode
+  /**
    * Scope-identity namespace the graph leg reads, which must match the profile
    * the scope's graph was extracted under — a mismatch reads an empty graph and
    * silently degrades to the vector leg. Defaults to 'default'.
@@ -75,9 +82,12 @@ export interface Config {
    */
   graphLimit?: number
 }
+
+/** Which retrieval lanes run before the vector leg spends an embedding call. */
+export type EscalationMode = typeof ESCALATION_MODES[number]
 ```
 
-来源：[`packages/context/active-memory-context/src/index.ts:41`](../packages/context/active-memory-context/src/index.ts)
+来源：[`packages/context/active-memory-context/src/index.ts:47`](../packages/context/active-memory-context/src/index.ts)
 
 <a id="deepseek-aidsh-agent-context"></a>
 
@@ -114,6 +124,48 @@ export interface Config {
 ```
 
 来源：[`packages/core/agent-default-model/src/index.ts:41`](../packages/core/agent-default-model/src/index.ts)
+
+<a id="deepseek-aidsh-agent-instructions"></a>
+
+## `@deepseek-ai/dsh-agent-instructions`
+
+需要：`sessionProjections`
+
+```ts config-catalog
+/** User-facing workspace instruction loader configuration. */
+export interface Config {
+  /** Harness home containing the fixed user-global `AGENTS.md`; defaults to `$DSH_HOME` or `~/.dsh`. */
+  dshHome?: string
+  /** Directory entries that identify the project root while walking upward from the session cwd. */
+  projectRootMarkers?: string[]
+  /** UTF-8 byte cap for one rendered baseline or dynamic batch; non-positive or non-finite disables loading. */
+  maxBytes: number
+  /** Maximum UTF-8 bytes read from one instruction file; larger files are ignored. */
+  maxSourceBytes?: number
+  /**
+   * Maximum UTF-8 bytes read across one baseline load or reconciliation batch;
+   * files past the remaining budget are skipped once the earlier files exhaust
+   * it. Eight per-file caps cover the user-global file plus a typical project
+   * ancestor chain while keeping a pathological checkout's total read bounded.
+   */
+  maxTotalSourceBytes?: number
+  /**
+   * Ordered same-directory project candidates; every existing file loads, except
+   * a `CLAUDE*` fallback skipped when its `AGENTS*` sibling exists, with
+   * per-directory trimmed-content duplicates collapsed to the earliest candidate.
+   */
+  instructionFileCandidates?: string[]
+  /**
+   * Ordered same-directory local-overlay candidates loaded after the base files
+   * under the same per-directory trimmed-content dedup; empty disables the overlay.
+   */
+  localInstructionFileCandidates?: string[]
+}
+```
+
+来源：[`packages/context/agent-instructions/src/config.ts:19`](../packages/context/agent-instructions/src/config.ts)
+
+<a id="deepseek-aidsh-agent-loop"></a>
 
 <a id="deepseek-aidsh-agent-kernel"></a>
 
@@ -224,48 +276,6 @@ export type PolicyAction =
 ```
 
 来源：[`packages/runtime/agent-kernel/src/index.ts:80`](../packages/runtime/agent-kernel/src/index.ts)
-
-<a id="deepseek-aidsh-agent-instructions"></a>
-
-## `@deepseek-ai/dsh-agent-instructions`
-
-需要：`sessionProjections`
-
-```ts config-catalog
-/** User-facing workspace instruction loader configuration. */
-export interface Config {
-  /** Harness home containing the fixed user-global `AGENTS.md`; defaults to `$DSH_HOME` or `~/.dsh`. */
-  dshHome?: string
-  /** Directory entries that identify the project root while walking upward from the session cwd. */
-  projectRootMarkers?: string[]
-  /** UTF-8 byte cap for one rendered baseline or dynamic batch; non-positive or non-finite disables loading. */
-  maxBytes: number
-  /** Maximum UTF-8 bytes read from one instruction file; larger files are ignored. */
-  maxSourceBytes?: number
-  /**
-   * Maximum UTF-8 bytes read across one baseline load or reconciliation batch;
-   * files past the remaining budget are skipped once the earlier files exhaust
-   * it. Eight per-file caps cover the user-global file plus a typical project
-   * ancestor chain while keeping a pathological checkout's total read bounded.
-   */
-  maxTotalSourceBytes?: number
-  /**
-   * Ordered same-directory project candidates; every existing file loads, except
-   * a `CLAUDE*` fallback skipped when its `AGENTS*` sibling exists, with
-   * per-directory trimmed-content duplicates collapsed to the earliest candidate.
-   */
-  instructionFileCandidates?: string[]
-  /**
-   * Ordered same-directory local-overlay candidates loaded after the base files
-   * under the same per-directory trimmed-content dedup; empty disables the overlay.
-   */
-  localInstructionFileCandidates?: string[]
-}
-```
-
-来源：[`packages/context/agent-instructions/src/config.ts:19`](../packages/context/agent-instructions/src/config.ts)
-
-<a id="deepseek-aidsh-agent-loop"></a>
 
 ## `@deepseek-ai/dsh-agent-loop`
 

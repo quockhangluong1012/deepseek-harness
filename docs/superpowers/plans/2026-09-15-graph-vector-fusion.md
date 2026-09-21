@@ -81,8 +81,7 @@ describe('heartbeat extraction', () => {
 
 - [ ] **Step 2: Run it, watch it fail**
 
-Run: `pnpm exec vitest run packages/evolution/evolution-graph --reporter=dot 2>&1 | tail -n 5`
-Expected: FAIL (`tasks` is empty — no registration exists).
+Run: `pnpm exec vitest run packages/evolution/evolution-graph --reporter=dot 2>&1 | tail -n 5` Expected: FAIL (`tasks` is empty — no registration exists).
 
 - [ ] **Step 3: Implement Config + inject + registration (no run body yet)**
 
@@ -105,8 +104,7 @@ Add the stub `private async extractPending(_signal: AbortSignal): Promise<void> 
 
 - [ ] **Step 4: Run the registration test, watch it pass**
 
-Run: `pnpm exec vitest run packages/evolution/evolution-graph --reporter=dot 2>&1 | tail -n 5`
-Expected: PASS (1 passed; other suites untouched).
+Run: `pnpm exec vitest run packages/evolution/evolution-graph --reporter=dot 2>&1 | tail -n 5` Expected: PASS (1 passed; other suites untouched).
 
 - [ ] **Step 5: Write the failing buffer + extraction tests**
 
@@ -142,8 +140,7 @@ State: `private readonly pending = new Map<string, { scope: EvolutionScopeId; se
 
 - [ ] **Step 7: Run tests + coverage for the package**
 
-Run: `pnpm exec vitest run packages/evolution/evolution-graph --reporter=dot 2>&1 | tail -n 5` — Expected: all PASS.
-Coverage recipe: `pnpm exec vitest run packages/evolution/evolution-graph --coverage --coverage.include='packages/evolution/evolution-graph/src/**' --coverage.reporter=json --coverage.reportsDirectory=/tmp/covgraph` then parse `coverage-final.json` for zero-coverage statements/branches (recipe used before — every touched line must be hit).
+Run: `pnpm exec vitest run packages/evolution/evolution-graph --reporter=dot 2>&1 | tail -n 5` — Expected: all PASS. Coverage recipe: `pnpm exec vitest run packages/evolution/evolution-graph --coverage --coverage.include='packages/evolution/evolution-graph/src/**' --coverage.reporter=json --coverage.reportsDirectory=/tmp/covgraph` then parse `coverage-final.json` for zero-coverage statements/branches (recipe used before — every touched line must be hit).
 
 - [ ] **Step 8: Commit**
 
@@ -178,8 +175,7 @@ it('renders fused hits that carry no vector score', () => {
 
 - [ ] **Step 2: Run it, watch it fail**
 
-Run: `pnpm exec vitest run packages/context/active-memory-context --reporter=dot 2>&1 | tail -n 5`
-Expected: FAIL (renderer requires `score`; `.toFixed` on undefined throws).
+Run: `pnpm exec vitest run packages/context/active-memory-context --reporter=dot 2>&1 | tail -n 5` Expected: FAIL (renderer requires `score`; `.toFixed` on undefined throws).
 
 - [ ] **Step 3: Widen the renderer**
 

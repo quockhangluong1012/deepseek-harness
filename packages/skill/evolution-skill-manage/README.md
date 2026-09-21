@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-evolution-skill-manage` publishes the model-facing `skill_manage` tool: `create` starts a skill in the configured `createDir`, `patch` replaces one uniquely-occurring substring, `edit` rewrites a body behind kept frontmatter, `write_file` and `remove_file` maintain supporting files, and `delete` removes a whole skill. Existing skills mutate in place where the catalog found them; bundled and hub skills are read-only, and a pin blocks deletion but never a patch. Writes land immediately and unversioned, so rollback is your own version control. Choose it when the model should curate durable skills as files instead of answering from a frozen set.
+`dsh-evolution-skill-manage` publishes the model-facing `skill_manage` tool: `create` starts a skill in the configured `createDir`, `patch` replaces one uniquely-occurring substring, `edit` rewrites a body behind kept frontmatter, `write_file` and `remove_file` maintain supporting files, and `delete` removes a whole skill. Existing skills mutate in place where the catalog found them; bundled and hub skills are read-only, and a pin blocks deletion but never a patch. Every `create` carries model authorship (`createdBy: 'agent'`), vouched for later with `/curator adopt <name>`; `create`, `patch`, and `edit` record a revision of the body written, hashed by the telemetry store. Choose it when the model should curate durable skills as files instead of answering from a frozen set.
 
 ## Table of Contents
 
@@ -25,7 +25,7 @@ English | [中文](README.zh.md)
 <a id="use-this-package"></a>
 ## Use this package
 
-Mount the plugin when the model should create or revise skills. Skill names are lowercase kebab-case. `create` needs a routing `description` and an instruction `content`, and refuses an existing name. `patch` needs an `old_text` substring occurring exactly once plus its `new_text`; unknown, ambiguous, and empty substrings reject loudly. `edit` needs a complete replacement `content` and keeps the stored frontmatter name and description. `write_file` and `remove_file` take a skill-relative `path`: absolute paths, traversals escaping the skill directory, and empty paths reject, and `SKILL.md` stays reserved for the content operations. `delete` removes the skill directory unless telemetry reports the skill pinned. Bundled and hub skills reject every mutation; skills without a local directory are unknown for management purposes.
+Mount the plugin when the model should create or revise skills. Skill names are lowercase kebab-case. `create` needs a routing `description` and an instruction `content`, and refuses an existing name. `patch` needs an `old_text` substring occurring exactly once plus its `new_text`; unknown, ambiguous, and empty substrings reject loudly. `edit` needs a complete replacement `content` and keeps the stored frontmatter name and description. Every `create` records model authorship through telemetry `markAgentCreated`, later vouched for with `/curator adopt <name>`; `create`, `patch`, and `edit` also record a revision of the exact body written, hashed by the store rather than re-read from disk. `write_file` and `remove_file` take a skill-relative `path`: absolute paths, traversals escaping the skill directory, and empty paths reject, and `SKILL.md` stays reserved for the content operations. `delete` removes the skill directory unless telemetry reports the skill pinned. Bundled and hub skills reject every mutation; skills without a local directory are unknown for management purposes.
 
 ### Configuration
 
@@ -111,7 +111,7 @@ One short result line per call enters the transcript; the tool changes no prompt
 These limits define when the tool is a poor fit. They are current package constraints.
 
 - **Machine-local only** — skills live under managed directories or catalog paths on this machine, never as shared records.
-- **Writes are immediate and unversioned** — a mutation lands on disk at once; rollback is the caller's version control, not the tool.
+- **Writes land immediately** — a mutation is on disk at once; the SKILL.md body carries a store-hashed revision chain, curator patches keep a preimage blob, and `/curator rollback --id` restores patched bodies.
 - **Bundled and hub skills are read-only here** — the tool refuses them; their owners curate them elsewhere.
 - **Creates never land in place** — new skills go to `createDir` even when a same-named catalog skill exists elsewhere; only `create` uses the configured directory.
 

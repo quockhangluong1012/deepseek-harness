@@ -83,7 +83,7 @@ kind: "package-reference"
 
 暂存条目同时也是被记住的候选：它携带可空的 `mergeKey`、从 1 开始的 `recurrence` 计数、可空的 `blockedReason`，以及 `neededEvidence` 列表。`stageWrite` 接受可选的 `mergeKey`；在同一 scope 内，若已有待定条目携带相同的键，再次暂存会把该条目的 `recurrence` 加一，而不是追加重复条目，因此被反复提出的候选会被记住，而不是被悄悄重试。`blockStaged` 给待定条目标记原因与可将其解禁的证据，条目保持待定；审批或拒绝会通过移除条目来清除阻塞标记。
 
-技能提案在审批前还需要一份捕获契约（capture contract）：`capability`、`procedureRefs`、`validationRefs`、`validationSummary` 与 `limitations`，且验证引用必须独立于程序引用——二者不相交。没有有效契约的技能条目调用 `approveStaged` 时，条目会留在暂存，其 `blockedReason` 为 `'capture-contract'`、`neededEvidence` 列出缺失的证据，并以 `evolution/staged-blocked` 拒绝。`supplyStagedContract` 给待定的技能提案附加一份完全有效的契约并解除阻塞；条目仍需一次显式审批。评审器用产出路径派生的合并键暂存技能提案，因此在准入证据尚未补齐时，重复提案只会推高重复计数。
+`create` 提案在审批前还需要一份捕获契约（capture contract）：`capability`、`procedureRefs`、`validationRefs`、`validationSummary` 与 `limitations`，且验证引用必须独立于程序引用——二者不相交。对缺少有效契约的**新建**提案调用 `approveStaged` 时，条目会留在暂存，其 `blockedReason` 为 `'capture-contract'`、`neededEvidence` 列出缺失的证据，并以 `evolution/staged-blocked` 拒绝。`patch` 不受此门约束：它修订的是目录已经准入的能力，而支持它的度量——基线与候选的对比——留在提案方手中，本存储读不到。`supplyStagedContract` 给待定的新建提案附加一份完全有效的契约并解除阻塞；条目仍需一次显式审批。评审器用产出路径派生的合并键暂存技能提案，因此在准入证据尚未补齐时，重复提案只会推高重复计数。
 
 两种决策都会把一条决策记录——条目 id、kind、op、gist、决策、来源会话、时刻、合并键与重复计数——追加到记录的 `resolutions` 日志（最新优先，受 `maxResolutions` 限制）。决策记录既不计入容量，也不进入摘要，因此决定一次写入永不重新注入简报。
 

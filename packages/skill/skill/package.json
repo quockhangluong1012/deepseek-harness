@@ -26,6 +26,12 @@
     "lib/types/**/*.d.ts"
   ],
   "license": "MIT",
+  "dsh": {
+    "capabilities": [
+      "dsh.skill.catalog",
+      "dsh.skill.load"
+    ]
+  },
   "peerDependencies": {
     "@deepseek-ai/cordis": "workspace:^",
     "@deepseek-ai/dsh-llm": "workspace:^",

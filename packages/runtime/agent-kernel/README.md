@@ -96,9 +96,9 @@ A rule never names a tool. The package that owns a tool declares what one invoca
 
 ### What you get
 
-Each admitted step opens a task contract: `task/created` carries the objective, constraints, acceptance criteria, workspace, profiles, and budget at `status: 'intake'`, `revision: 1`, and `task/transitioned` records each later move. Each tool call is recorded as `action/proposed`, `policy/decision`, `action/authorized` or `action/denied`, an optional `capability/grant`, and `action/committed` — the last carrying a governance receipt that names the sandbox mode, workspace root, and the human outcome when one was asked for. Each turn that ends on a task with a required criterion records `verification/requested`, `verification/result`, and, when the gate refuses completion, `failure/recorded` and `recovery/decided`.
+Each admitted step opens a task contract: `task/created` carries the objective, constraints, acceptance criteria, workspace, profiles, and budget at `status: 'intake'`, `revision: 1`, and `task/transitioned` records each later move. Each tool call is recorded as `action/proposed`, `policy/decision`, `action/authorized` or `action/denied`, an optional `capability/grant`, and `action/committed` — the last carrying a governance receipt that names the sandbox mode, workspace root, and the human outcome when one was asked for. Each turn that ends on a task with a required criterion records `verification/requested`, `verification/result`, and, when the gate refuses completion, `failure/recorded` and `recovery/decided`. Each child agent carries a `delegation/received` receipt written into its own log at creation: the capabilities, writable scopes, budget, and depth its parent handed down, with an audit copy as `delegation/issued` on the parent log.
 
-Three decisions are separate on purpose. The rules decide `allow`, `ask`, or `deny`; the implementation's sandbox may still refuse a mutating capability outside its boundary; and an `ask` is decided by the composed approval answerers, where a missing answerer fails closed. A refusal is recorded as `outcome: 'denied'`, never as an execution failure.
+Four decisions are separate on purpose. The rules decide `allow`, `ask`, or `deny`; the implementation's sandbox may still refuse a mutating capability outside its boundary; a child agent's delegation receipt may still withhold a capability, resource, or depth its parent never granted; and an `ask` is decided by the composed approval answerers, where a missing answerer fails closed. A refusal is recorded as `outcome: 'denied'`, never as an execution failure.
 
 ### Reading a task
 
@@ -106,14 +106,14 @@ The public surface is `ctx.agentKernel`:
 
 | Member | What it answers |
 |---|---|
-| `state.view(session)` | The current task contract, budget observation, open actions, unresolved failures, latest plan, and latest checkpoint |
+| `state.view(session)` | The current task contract, budget observation, open actions, unresolved failures, latest plan, latest checkpoint, and the delegation receipt when the agent is a child |
 | `attach(agent)` | A handle whose `snapshot()` reads the live view and whose `dispose()` releases the kernel's reference |
 | `capabilities.register(declaration)` | Declares one tool's capabilities and returns the disposer |
 | `verifiers.register(verifier)` | Supplies criterion results to the completion gate and returns the disposer |
 | `verify(agent, changedScopes)` | Records a verification request and result and returns the completion decision |
 | `checkpoint(agent, reason)` | Records an index of the current kernel state at the current session sequence |
 
-The kernel keeps no state outside the session log. Its ledger folds `task/*`, `action/*`, `capability/grant`, `failure/recorded`, `verification/result`, `checkpoint/created`, `step/start`, and `tool/call` events behind a per-session cursor, so a replayed log reproduces the same view.
+The kernel keeps no state outside the session log. Its ledger folds `task/*`, `action/*`, `capability/grant`, `failure/recorded`, `verification/result`, `checkpoint/created`, `delegation/received`, `step/start`, and `tool/call` events behind a per-session cursor, so a replayed log reproduces the same view.
 
 -----
 
@@ -129,7 +129,7 @@ This section explains how the kernel learns what happened and where it intervene
 
 The kernel is built on four commitments:
 
-- **Observe existing seams; own no execution.** Every integration point is a waterfall or event the loop already publishes: `agent/pre-step`, `agent/turn-stopping`, `tools/pre-execute`, and `tools/post-execute`. No new loop, no second agent identity, no parallel dispatcher.
+- **Observe existing seams; own no execution.** Every integration point is a waterfall or event the loop already publishes: `agent/created`, `agent/pre-step`, `agent/turn-stopping`, `tools/pre-execute`, and `tools/post-execute`. No new loop, no second agent identity, no parallel dispatcher.
 - **The session log is the only source of truth.** Every decision is appended before it is acted on, and every read is a fold over those events. A task contract, a decision, and a receipt all reconstruct from the log alone.
 - **Shadow before enforce.** The default mode records what the kernel would decide and lets execution proceed, so a deployment measures a permission document against real traffic before it can stop any of it.
 - **A refusal is not a failure.** Policy denial, sandbox refusal, and approval rejection are distinct failure vocabulary from a tool that ran and errored, and a denied action is never disguised as a tool failure.
@@ -139,8 +139,9 @@ The kernel is built on four commitments:
 | Concern | Seam | Kernel action |
 |---|---|---|
 | Open or advance a task | `agent/pre-step` | Creates the contract on the first admitted step, then moves it to `executing` |
+| Issue a delegation | `agent/created` | Writes the child's receipt into its own log and the audit copy into the parent log, before either has a task |
 | Propose an action | `tools/pre-execute` | Appends `action/proposed` before any evaluation, so a crash still records what was asked |
-| Decide an action | `tools/pre-execute` | Evaluates the document, composes the sandbox, appends `policy/decision` and the authorization |
+| Decide an action | `tools/pre-execute` | Evaluates the document, composes the sandbox and the delegation receipt, appends `policy/decision` and the authorization |
 | Enforce an action | `tools/pre-execute` return | `deny` blocks the call, `ask` routes through the composed answerers; shadow mode always delegates |
 | Observe an action | `tools/post-execute` | Appends `action/committed` with its governance receipt |
 | Close a turn | `agent/turn-stopping` | Records the observation edge, then runs the completion gate over a required criterion |
@@ -157,7 +158,8 @@ The kernel is built on four commitments:
 | [`src/index.ts`](src/index.ts) | Plugin entry: `Config`, the service, and the waterfall and event listeners |
 | [`src/types.ts`](src/types.ts) | Every kernel contract and the `SessionEventMap` merge for the durable event families |
 | [`src/state-machine.ts`](src/state-machine.ts) | Legal task edges, the edge assertion, and the compare-and-set projection |
-| [`src/policy.ts`](src/policy.ts) | Glob compilation, rule evaluation, and sandbox composition |
+| [`src/policy.ts`](src/policy.ts) | Glob compilation, rule evaluation, admitted-capability computation, and sandbox and delegation composition |
+| [`src/delegation.ts`](src/delegation.ts) | Delegation receipts, the writable-scope narrowing, and the intersection refusal |
 | [`src/capabilities.ts`](src/capabilities.ts) | The tool capability registry |
 | [`src/verification.ts`](src/verification.ts) | The completion gate and the local criterion-verifier registry |
 | [`src/recovery.ts`](src/recovery.ts) | The failure-kind to recovery-action table and its retry bound |
@@ -205,14 +207,15 @@ Independent: the kernel registers no prompt section and no schema, so it never c
 
 These limits define when the kernel is a poor fit. They are current package constraints, not a task backlog.
 
-- **No built-in tool declarations ship here** — `ctx.agentKernel.capabilities.register()` is the seam, but no in-repo package calls it yet, so every built-in tool is undeclared and therefore denied under `mode: enforce`. Declaring capabilities in `dsh-tool-fs`, `dsh-tool-bash`, `dsh-tool-pwsh`, `dsh-tool-web`, `dsh-tool-subagent`, and `dsh-tool-workflow` is the prerequisite for enforcing mode on a real deployment.
-- **Enforcing mode denies everything undeclared, by design** — a deployment that turns on `enforce` before declaring its tools stops every tool call. Mount in `shadow` first and read the `action/denied` records.
+- **Built-in tools are declared by a separate opt-in plugin** — mount `@deepseek-ai/dsh-agent-kernel-builtins` beside the kernel so `mode: 'enforce'` governs real traffic. The declarations live outside the tool packages because only the policy plane may extend the capability vocabulary. A deployment that renames a tool, mints `mcp__*` or `structured_output` names, or ships its own tools declares those itself; an undeclared tool stays denied.
+- **Enforcing mode denies everything undeclared, by design** — a deployment that turns on `enforce` without the builtins plugin stops every tool call. Mount in `shadow` first and read the `action/denied` records.
 - **No shipped criterion verifier** — `verifiers.register()` is the seam, and a task that declares a required criterion with no verifier registered records an `unknown` verification and never completes. Commands, builds, and diffs are not run by this package.
 - **Token and cost ceilings are reported, not measured** — `budget.maxTokens` and `budget.maxCostUsd` appear unbounded in every budget snapshot because the token meter owns that measurement; `guard/budgets` remains their enforcement listener.
 - **Retry attempts count proposals, not executions** — `maxAttemptsPerAction` compares against the number of `action/proposed` events under one action id, so a provider-level retry that never re-proposes does not advance the count.
 - **Crash recovery is not implemented** — the kernel records `checkpoint/created` and re-reads the log on resume, but no boot scanner classifies persisted sessions as resumable, repairable, or blocked.
 - **The state machine has no planner** — `understanding`, `retrieving`, and `planning` are legal but nothing drives them, so a kernel task moves `intake → ready → executing → observing` and back.
-- **Delegation receipts are not attached** — a child agent's kernel starts its own task contract; the parent's grant is not intersected into it, so a subagent's authority is bounded only by its own sandbox and approval policy.
+- **A delegation receipt is only as strict as the document it was issued under** — the receipt intersects capabilities, writable scopes, budget, and depth, but per-resource exactness still comes from the child's own rule evaluation against the same document. A child whose deployment document changed since the receipt was issued runs under the new rules while the receipt still names the old digest; `inheritedPolicyDigest` is how a reader tells.
+- **A cold child falls back to the deployment ceilings** — when the parent session does not resolve, the receipt records no parent run or task and the child contract starts from the deployment budgets. A resumed child keeps the receipt already in its log instead of receiving a second one.
 
 <a id="dev-note"></a>
 ### Dev Note

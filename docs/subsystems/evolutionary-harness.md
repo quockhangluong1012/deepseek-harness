@@ -698,11 +698,14 @@ async stageWrite(input: StagedWriteInput): Promise<StagedWrite>
  * cap or substring rejection keeps the entry staged and propagates; the
  * entry drops only after the op lands. Skill-kind entries only drop: the
  * approver reads the payload from the scope record and performs the skill
- * write before approving — but only when the payload carries a valid
- * capture contract, otherwise the entry stays staged with its
- * `blockedReason` and `neededEvidence` set and the block propagates, like a
- * cap rejection. Either decision is recorded in the scope's resolution log,
- * newest first.
+ * write before approving. A `create` proposal is additionally admitted on
+ * its capture contract — a capability claim needs independent validation
+ * evidence — so without one the entry stays staged with its `blockedReason`
+ * and `neededEvidence` set and the block propagates, like a cap rejection.
+ * A `patch` revises a capability that was already admitted: its evidence is
+ * the baseline-versus-candidate measurement its proposer recorded, which
+ * this store has no way to read, so it drops on the human's approval.
+ * Either decision is recorded in the scope's resolution log, newest first.
  * @param id - staged entry identity.
  * @returns resolution after durability.
  */

@@ -138,6 +138,18 @@ interface ParsedSkill extends SkillText {
   fallbackForToolsets?: readonly string[]
   /** Frontmatter `requires`: prerequisite skill names that must route alongside this one. */
   requires?: readonly string[]
+  /**
+   * Frontmatter `conflicts_with`: skill names this skill must not be selected
+   * alongside. The relation is symmetric — one side declaring it excludes the
+   * pair — and carried like `requires`, never gating discovery.
+   */
+  conflictsWith?: readonly string[]
+  /** Frontmatter `capabilities`: capability names the skill needs; carried like `requires`, never gating. */
+  capabilities?: readonly string[]
+  /** Frontmatter `version`: free-form version label, dropped when malformed. */
+  version?: string
+  /** Frontmatter `testScenarios`: scenario names usable by the scorer/optimizer; carried like `requires`. */
+  testScenarios?: readonly string[]
   /** Frontmatter `blueprint`, dropped when malformed. */
   blueprint?: SkillBlueprint
 }
@@ -290,6 +302,10 @@ export class FileSystemSkillProvider implements SkillProvider {
       ...parsed.metadata !== undefined ? { metadata: parsed.metadata } : {},
       ...parsed.requiredEnv !== undefined ? { requiredEnv: parsed.requiredEnv } : {},
       ...parsed.requires !== undefined ? { requires: parsed.requires } : {},
+      ...parsed.conflictsWith !== undefined ? { conflictsWith: parsed.conflictsWith } : {},
+      ...parsed.capabilities !== undefined ? { capabilities: parsed.capabilities } : {},
+      ...parsed.version !== undefined ? { version: parsed.version } : {},
+      ...parsed.testScenarios !== undefined ? { testScenarios: parsed.testScenarios } : {},
       ...parsed.config !== undefined ? { config: parsed.config } : {},
       blueprint: parsed.blueprint,
       content: parsed.content,
@@ -1039,6 +1055,10 @@ async function discoverRoot(root: SkillRoot, ctx: Context, provider: string, opt
       description: parsed.description,
       ...parsed.whenToUse !== undefined ? { whenToUse: parsed.whenToUse } : {},
       ...parsed.requires !== undefined ? { requires: parsed.requires } : {},
+      ...parsed.conflictsWith !== undefined ? { conflictsWith: parsed.conflictsWith } : {},
+      ...parsed.capabilities !== undefined ? { capabilities: parsed.capabilities } : {},
+      ...parsed.version !== undefined ? { version: parsed.version } : {},
+      ...parsed.testScenarios !== undefined ? { testScenarios: parsed.testScenarios } : {},
       invocation: parsed.invocation,
       provider,
       source: root.source,
@@ -1129,6 +1149,7 @@ function parseSkillText(raw: SkillText, ctx: Context): ParsedSkill | undefined {
   }
   const config = optionalConfig(parsed.data, path, ctx)
   const blueprint = optionalBlueprint(parsed.data, path, ctx)
+  const version = optionalVersion(parsed.data, path, ctx)
   warnUnknownFrontmatterKeys(parsed.data, path, ctx)
   return {
     name,
@@ -1139,6 +1160,7 @@ function parseSkillText(raw: SkillText, ctx: Context): ParsedSkill | undefined {
     ...stringListFields(parsed.data, path, ctx),
     ...config,
     ...blueprint,
+    ...version,
     path,
     content: parsed.body.trim(),
   }
@@ -1340,7 +1362,7 @@ function invocationFrontmatterKeys(): Record<string, true> {
 }
 
 /** `ParsedSkill` fields fed by frontmatter keys sharing the non-empty string-array shape. */
-type StringListField = 'requiredEnv' | 'platforms' | 'requiresTools' | 'requiresToolsets' | 'fallbackForTools' | 'fallbackForToolsets' | 'requires'
+type StringListField = 'requiredEnv' | 'platforms' | 'requiresTools' | 'requiresToolsets' | 'fallbackForTools' | 'fallbackForToolsets' | 'requires' | 'conflictsWith' | 'capabilities' | 'testScenarios'
 
 /**
  * Frontmatter key to `ParsedSkill` field for every non-empty string-array
@@ -1355,6 +1377,9 @@ const STRING_LIST_FRONTMATTER_FIELDS = [
   ['fallback_for_tools', 'fallbackForTools'],
   ['fallback_for_toolsets', 'fallbackForToolsets'],
   ['requires', 'requires'],
+  ['conflicts_with', 'conflictsWith'],
+  ['capabilities', 'capabilities'],
+  ['testScenarios', 'testScenarios'],
 ] as const satisfies readonly (readonly [string, StringListField])[]
 
 /** Top-level frontmatter keys this provider consumes; any other key warns once and is ignored. */
@@ -1365,6 +1390,7 @@ const RECOGNIZED_FRONTMATTER_KEYS: Readonly<Record<string, true>> = {
   metadata: true,
   config: true,
   blueprint: true,
+  version: true,
   ...Object.fromEntries(STRING_LIST_FRONTMATTER_FIELDS.map(([key]) => [key, true])) as Record<string, true>,
   ...invocationFrontmatterKeys(),
 }
@@ -1455,6 +1481,16 @@ function optionalConfig(
   const config = scalarStringRecord(data.config)
   if (config !== undefined) return { config }
   ctx.logger.warn(`skill file ${path}: frontmatter field "config" ignored: expected a mapping of scalar values`)
+  return {}
+}
+
+function optionalVersion(
+  data: Record<string, unknown>, path: string, ctx: Context,
+): { version?: string } {
+  if (!Object.hasOwn(data, 'version')) return {}
+  const value = data.version
+  if (typeof value === 'string' && value.length > 0) return { version: value }
+  ctx.logger.warn(`skill file ${path}: frontmatter field "version" ignored: expected a non-empty string`)
   return {}
 }
 

@@ -20,17 +20,12 @@ Status: implemented
 
 引擎已经为每个语料维护一个单调递增的世代（整个语料 `searchSessions` 作用域用 `_globalGeneration`，单个会话的 `searchEvents` 作用域用 `target.generation`），以便分页游标能检测到语料变化并以 `SESSION_QUERY_STALE_CURSOR` 失败，而不是悄悄返回指向另一个语料的偏移量。
 
-结果缓存把同一个世代当作其键的一部分复用：
-`` `sessions|${fingerprint}|${generation}|${offset}|${limit}` `` 与
-`` `events|${fingerprint}|${target.generation}|${offset}|${limit}` ``。
-语料变化会递增世代，从而改变每一个受影响的键，因此在结构上不可能提供陈旧的页——不存在可能被遗忘、或与并发写入产生竞态的失效步骤。
+结果缓存把同一个世代当作其键的一部分复用： `` `sessions|${fingerprint}|${generation}|${offset}|${limit}` `` 与 `` `events|${fingerprint}|${target.generation}|${offset}|${limit}` ``。 语料变化会递增世代，从而改变每一个受影响的键，因此在结构上不可能提供陈旧的页——不存在可能被遗忘、或与并发写入产生竞态的失效步骤。
 
 ### 边界
 
-- `maxEntries`（LRU）：一旦 map 超出该边界，最久未被触碰的条目被淘汰。默认 1000，
-  对应规范参考实现 `TTLCache(maxsize=1000)`。
-- `ttlMs`：条目只在写入后的这么多毫秒内可以作答，无论世代是否变化。默认 3,600,000
-  （一小时），对应规范参考实现 `ttl=3600`。
+- `maxEntries`（LRU）：一旦 map 超出该边界，最久未被触碰的条目被淘汰。默认 1000， 对应规范参考实现 `TTLCache(maxsize=1000)`。
+- `ttlMs`：条目只在写入后的这么多毫秒内可以作答，无论世代是否变化。默认 3,600,000 （一小时），对应规范参考实现 `ttl=3600`。
 - `close()` 时缓存与它现在遮蔽的 SQLite 句柄一起被清空。
 
 ## 考虑过的替代方案
@@ -52,11 +47,6 @@ Status: implemented
 
 ## 验证
 
-- `tests/result-cache.spec.ts`：`SessionResultCache` 的纯单元测试（未命中、TTL 过期、
-  LRU 淘汰、覆写、clear）；引擎级测试证明重复的相同搜索不会重新运行底层 SQLite 查询
-  （用 `vi.spyOn` 监视私有的 `_querySessions`/`_queryEvents` 方法——TypeScript 的
-  `private` 只在编译期起作用，因此这是在不引入生产测试钩子的前提下观察内部调用次数的
-  合理方式），以及语料变化会立即体现，而不是提供一个早于该变化的页。
-- `tests/sqlite.spec.ts`：在既有的 Cordis `Config` 校验测试中扩展了两个新字段的默认值、
-  配置值与边界。
+- `tests/result-cache.spec.ts`：`SessionResultCache` 的纯单元测试（未命中、TTL 过期、 LRU 淘汰、覆写、clear）；引擎级测试证明重复的相同搜索不会重新运行底层 SQLite 查询 （用 `vi.spyOn` 监视私有的 `_querySessions`/`_queryEvents` 方法——TypeScript 的 `private` 只在编译期起作用，因此这是在不引入生产测试钩子的前提下观察内部调用次数的 合理方式），以及语料变化会立即体现，而不是提供一个早于该变化的页。
+- `tests/sqlite.spec.ts`：在既有的 Cordis `Config` 校验测试中扩展了两个新字段的默认值、 配置值与边界。
 - 全包语句/分支/函数/行覆盖率 100%。

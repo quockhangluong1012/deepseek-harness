@@ -309,6 +309,7 @@ flowchart TD
   subgraph group_runtime["packages/runtime"]
     pkg_agent_context["agent-context"]
     pkg_agent_kernel["agent-kernel"]
+    pkg_agent_kernel_builtins["agent-kernel-builtins"]
   end
   subgraph group_runtime_diagnostics["packages/runtime-diagnostics"]
     pkg_invariants["invariants"]
@@ -1063,6 +1064,7 @@ flowchart TD
   pkg_agent_context --> pkg_session
   pkg_agent_context --> pkg_system_prompt
   pkg_agent_context --> pkg_token_meter
+  pkg_agent_kernel_builtins --> pkg_agent_kernel
   pkg_session_telemetry_otel --> pkg_anonymous_user_id
   pkg_session_telemetry_otel --> pkg_command_feedback
   pkg_session_telemetry_otel --> pkg_llm
@@ -1641,6 +1643,7 @@ flowchart TD
 | [`budgets`](../packages/guard/budgets) | `guard` | [`agent`](../packages/core/agent), [`session`](../packages/core/session), [`token-meter`](../packages/llm/token-meter) |
 | [`host-plugin-inventory`](../packages/host/plugin-inventory) | `host` | [`agent-presets`](../packages/preset/agent-presets), [`brand`](../packages/util/brand), [`typert-protocol`](../packages/typert/protocol) |
 | [`agent-context`](../packages/runtime/agent-context) | `runtime` | [`agent`](../packages/core/agent), [`agent-kernel`](../packages/runtime/agent-kernel), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`system-prompt`](../packages/core/system-prompt), [`token-meter`](../packages/llm/token-meter) |
+| [`agent-kernel-builtins`](../packages/runtime/agent-kernel-builtins) | `runtime` | [`agent-kernel`](../packages/runtime/agent-kernel) |
 | [`session-telemetry-otel`](../packages/session/session-telemetry-otel) | `session` | [`anonymous-user-id`](../packages/identity/anonymous-user-id), [`command-feedback`](../packages/feedback/command-feedback), [`llm`](../packages/llm/llm), [`message-feedback`](../packages/feedback/message-feedback), [`session`](../packages/core/session), [`session-telemetry`](../packages/session/session-telemetry) |
 | [`tool-bash`](../packages/shell/tool-bash) | `shell` | [`agent`](../packages/core/agent), [`jobs`](../packages/jobs/jobs), [`llm`](../packages/llm/llm), [`sandbox`](../packages/sandbox/sandbox), [`sandbox-policy`](../packages/sandbox/sandbox-policy), [`shell`](../packages/shell/shell), [`shell-env`](../packages/shell/shell-env), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools), [`user-approval`](../packages/interaction/user-approval) |
 | [`tool-pwsh`](../packages/shell/tool-pwsh) | `shell` | [`agent`](../packages/core/agent), [`jobs`](../packages/jobs/jobs), [`llm`](../packages/llm/llm), [`sandbox`](../packages/sandbox/sandbox), [`sandbox-policy`](../packages/sandbox/sandbox-policy), [`shell`](../packages/shell/shell), [`shell-env`](../packages/shell/shell-env), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools), [`user-approval`](../packages/interaction/user-approval) |

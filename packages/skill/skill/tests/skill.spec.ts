@@ -239,6 +239,12 @@ describe('SkillRegistry registry', () => {
       { patch: { rank: '1' as unknown as number }, expected: 'invalid rank' },
       { patch: { provider: { value: 'provider' } as unknown as string }, expected: 'non-string provider' },
       { patch: { path: 1 as unknown as string }, expected: 'non-string path' },
+      { patch: { capabilities: 'fs.read' as unknown as readonly string[] }, expected: 'capabilities must be an array of strings' },
+      { patch: { capabilities: ['fs.read', 1] as unknown as readonly string[] }, expected: 'capabilities must be an array of strings' },
+      { patch: { version: 2 as unknown as string }, expected: 'version must be a non-empty string' },
+      { patch: { version: '' }, expected: 'version must be a non-empty string' },
+      { patch: { testScenarios: 'happy-path' as unknown as readonly string[] }, expected: 'testScenarios must be an array of strings' },
+      { patch: { testScenarios: ['happy-path', 1] as unknown as readonly string[] }, expected: 'testScenarios must be an array of strings' },
     ]
     for (const [index, { patch, expected }] of cases.entries()) {
       const ctx = new Context()
@@ -477,6 +483,7 @@ describe('SkillRegistry registry', () => {
       description: 'Runtime',
       whenToUse: 'When runtime data is needed.',
       requires: ['base-skill'],
+      conflictsWith: ['rival-skill'],
       invocation,
       source: 'runtime',
       resourceBase,
@@ -495,7 +502,9 @@ describe('SkillRegistry registry', () => {
     expect(listed[0]?.resourceBase).toBe(resourceBase)
     expect(listed[0]?.invocation).toBe(invocation)
     expect(listed[0]?.requires).toEqual(['base-skill'])
+    expect(listed[0]?.conflictsWith).toEqual(['rival-skill'])
     expect(listed[1]).not.toHaveProperty('requires')
+    expect(listed[1]).not.toHaveProperty('conflictsWith')
     expect(loaded?.resourceBase).toBe(resourceBase)
     expect(loaded?.metadata).toBe(metadata)
     expect(loaded?.provider).toBe('runtime')
@@ -533,6 +542,14 @@ describe('SkillRegistry registry', () => {
       { patch: { requiredEnv: ['DSH_TOKEN', 1] as unknown as readonly string[] }, expected: 'requiredEnv must be an array of strings' },
       { patch: { requires: 'base-skill' as unknown as readonly string[] }, expected: 'requires must be an array of strings' },
       { patch: { requires: ['base-skill', 1] as unknown as readonly string[] }, expected: 'requires must be an array of strings' },
+      { patch: { conflictsWith: 'rival-skill' as unknown as readonly string[] }, expected: 'conflictsWith must be an array of strings' },
+      { patch: { conflictsWith: ['rival-skill', 1] as unknown as readonly string[] }, expected: 'conflictsWith must be an array of strings' },
+      { patch: { capabilities: 'fs.read' as unknown as readonly string[] }, expected: 'capabilities must be an array of strings' },
+      { patch: { capabilities: ['fs.read', 1] as unknown as readonly string[] }, expected: 'capabilities must be an array of strings' },
+      { patch: { version: 2 as unknown as string }, expected: 'version must be a non-empty string' },
+      { patch: { version: '' }, expected: 'version must be a non-empty string' },
+      { patch: { testScenarios: 'happy-path' as unknown as readonly string[] }, expected: 'testScenarios must be an array of strings' },
+      { patch: { testScenarios: ['happy-path', 1] as unknown as readonly string[] }, expected: 'testScenarios must be an array of strings' },
       { patch: { config: 'region' as unknown as Record<string, string> }, expected: 'config must be an object of strings' },
       { patch: { config: ['region'] as unknown as Record<string, string> }, expected: 'config must be an object of strings' },
       { patch: { config: { region: 1 } as unknown as Record<string, string> }, expected: 'config must be an object of strings' },
@@ -613,7 +630,7 @@ describe('SkillRegistry registry', () => {
     expect(Object.hasOwn(summaries[0] as object, 'blueprint')).toBe(false)
   })
 
-  it('carries declared prerequisites on the definition and the summary', async () => {
+  it('carries declared prerequisites and conflicts on the definition and the summary', async () => {
     const ctx = new Context()
     await ctx.plugin(SkillRegistry)
     registerProvider(ctx, {
@@ -622,6 +639,7 @@ describe('SkillRegistry registry', () => {
         name: 'composed-skill',
         description: 'Candidate',
         requires: ['base-skill'],
+        conflictsWith: ['rival-skill'],
         invocation: { modelInvocable: true, userInvocable: true },
         provider: 'composed-provider',
         source: 'test',
@@ -636,21 +654,105 @@ describe('SkillRegistry registry', () => {
         source: 'test',
         content: 'Definition body.',
         requires: ['base-skill'],
+        conflictsWith: ['rival-skill'],
       }),
     })
 
-    // Prerequisites are routing-relevant, unlike load-time declarations, so
+    // Both relations are routing-relevant, unlike load-time declarations, so
     // the summary carries them for selectors while the blueprint stays out.
-    expect(await ctx.skills.get('composed-skill')).toMatchObject({ requires: ['base-skill'] })
+    expect(await ctx.skills.get('composed-skill')).toMatchObject({
+      requires: ['base-skill'],
+      conflictsWith: ['rival-skill'],
+    })
     const listed = await ctx.skills.list()
     expect(listed).toEqual([{
       name: 'composed-skill',
       description: 'Candidate',
       requires: ['base-skill'],
+      conflictsWith: ['rival-skill'],
       invocation: { modelInvocable: true, userInvocable: true },
       source: 'test',
       provider: 'composed-provider',
     }])
+  })
+
+  it('carries governed admission metadata on the definition, the summary, and runtime candidates', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SkillRegistry)
+    registerProvider(ctx, {
+      name: 'governed-provider',
+      list: () => Promise.resolve([
+        {
+          name: 'governed-skill',
+          description: 'Candidate',
+          capabilities: ['fs.read'],
+          version: '1.2.0',
+          testScenarios: ['happy-path'],
+          invocation: { modelInvocable: true, userInvocable: true },
+          provider: 'governed-provider',
+          source: 'test',
+          rank: 1,
+          locator: 'definition',
+        },
+        {
+          name: 'plain-skill',
+          description: 'Candidate',
+          invocation: { modelInvocable: true, userInvocable: true },
+          provider: 'governed-provider',
+          source: 'test',
+          rank: 1,
+          locator: 'definition',
+        },
+      ]),
+      get: (candidate) => Promise.resolve({
+        name: candidate.name,
+        description: 'Definition',
+        invocation: { modelInvocable: true, userInvocable: true },
+        provider: 'governed-provider',
+        source: 'test',
+        content: 'Definition body.',
+        ...candidate.capabilities !== undefined ? { capabilities: candidate.capabilities } : {},
+        ...candidate.version !== undefined ? { version: candidate.version } : {},
+        ...candidate.testScenarios !== undefined ? { testScenarios: candidate.testScenarios } : {},
+      }),
+    })
+
+    // Governed metadata is parsed-validated-carried with no behavior change:
+    // it rides the summary for selectors, and nothing gates on it.
+    expect(await ctx.skills.get('governed-skill')).toMatchObject({
+      capabilities: ['fs.read'],
+      version: '1.2.0',
+      testScenarios: ['happy-path'],
+    })
+    const listed = await ctx.skills.list()
+    expect(listed.find(skill => skill.name === 'governed-skill')).toEqual({
+      name: 'governed-skill',
+      description: 'Candidate',
+      capabilities: ['fs.read'],
+      version: '1.2.0',
+      testScenarios: ['happy-path'],
+      invocation: { modelInvocable: true, userInvocable: true },
+      source: 'test',
+      provider: 'governed-provider',
+    })
+    expect(listed.find(skill => skill.name === 'plain-skill')).not.toHaveProperty('capabilities')
+    expect(listed.find(skill => skill.name === 'plain-skill')).not.toHaveProperty('version')
+    expect(listed.find(skill => skill.name === 'plain-skill')).not.toHaveProperty('testScenarios')
+    expect(await ctx.skills.get('plain-skill')).not.toHaveProperty('capabilities')
+
+    ctx.skills.register({
+      name: 'runtime-governed',
+      description: 'Runtime governed',
+      capabilities: ['fs.read'],
+      version: '0.1.0',
+      testScenarios: ['smoke'],
+      source: 'runtime',
+      content: 'Runtime body.',
+    })
+    expect(await ctx.skills.list().then(skills => skills.find(skill => skill.name === 'runtime-governed')))
+      .toMatchObject({ capabilities: ['fs.read'], version: '0.1.0', testScenarios: ['smoke'] })
+    expect(await ctx.skills.get('runtime-governed'))
+      .toMatchObject({ capabilities: ['fs.read'], version: '0.1.0', testScenarios: ['smoke'] })
   })
 
   it('drops an install blueprint a provider supplies in the wrong shape', async () => {
@@ -1200,6 +1302,27 @@ describe('SkillRegistry registry', () => {
       invocation: [] as never,
       content: 'bad',
     })).toThrow('non-object invocation policy')
+    expect(() => ctx.skills.register({
+      name: 'bad-capabilities',
+      description: 'Bad capabilities',
+      source: 'runtime',
+      capabilities: ['fs.read', 1] as unknown as readonly string[],
+      content: 'bad',
+    })).toThrow('capabilities must be an array of strings')
+    expect(() => ctx.skills.register({
+      name: 'bad-version',
+      description: 'Bad version',
+      source: 'runtime',
+      version: '',
+      content: 'bad',
+    })).toThrow('version must be a non-empty string')
+    expect(() => ctx.skills.register({
+      name: 'bad-scenarios',
+      description: 'Bad scenarios',
+      source: 'runtime',
+      testScenarios: 'happy-path' as unknown as readonly string[],
+      content: 'bad',
+    })).toThrow('testScenarios must be an array of strings')
     expect(await ctx.skills.get('missing-skill')).toBeUndefined()
     expect(await ctx.skills.get('Bad_Name')).toBeUndefined()
 

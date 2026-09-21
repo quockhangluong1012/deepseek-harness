@@ -1145,6 +1145,33 @@ describe('/skills human command', () => {
     }
   })
 
+  it('approves a staged patch, whose evidence is the measurement it carries', async () => {
+    const test = await harness()
+    try {
+      const session = sessionIn(test.ctx, test.dir, 'skills-approve-patch')
+      const id = test.scope('ws-1')
+      test.workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: test.dir, sessionIds: [session.id] })
+      const staged = await test.ctx.evolutionMemory.stageWrite({
+        scopeId: id, kind: 'skill', op: 'patch',
+        payload: {
+          skill: 'writer',
+          body: '---\nname: writer\ndescription: writer.\n---\n# writer v2',
+          operator: 'rewrite',
+          baseline: { pass: true, tokens: 10, wallTimeMs: 5 },
+          winner: { pass: true, tokens: 3, wallTimeMs: 5 },
+        },
+        originSessionId: 's1', gist: "optimizer patch for 'writer' by rewrite: pass true, 3 tokens",
+      })
+      expect((await run(test, session, `/skills approve ${staged.id}`)).result).toEqual({
+        kind: 'success',
+        text: "Approved staged skill patch (optimizer patch for 'writer' by rewrite: pass true, 3 tokens). The skill file itself is written by skill_manage; approve only after that write landed.",
+      })
+      expect(test.ctx.evolutionMemory.read(id)?.staged).toEqual([])
+    } finally {
+      await shutdown(test)
+    }
+  })
+
   it('reports what evidence a blocked skill proposal is missing', async () => {
     const test = await harness()
     try {

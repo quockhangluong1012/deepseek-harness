@@ -13,6 +13,7 @@ import { Context, Service } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { processScenarioRunner, shouldOptimize } from '@deepseek-ai/dsh-evolution-scorer'
 import type { SkillScore } from '@deepseek-ai/dsh-evolution-scorer'
+import { checkBehaviorContract } from '@deepseek-ai/dsh-evolution-scorer/src/behavior.ts'
 import type {} from '@deepseek-ai/dsh-evolution-memory'
 import type { EvolutionScopeId } from '@deepseek-ai/dsh-evolution-memory'
 import type {} from '@deepseek-ai/dsh-evolution-skill-telemetry'
@@ -280,11 +281,11 @@ export function resolveConfig(config: Config): ResolvedConfig {
 
 /**
  * Offline skill optimizer. One run gates on the recorded failure rate,
- * mutates, screens and re-scores the variants under the same overlay harness,
- * checks the private holdout scenarios, and stages the Pareto winner. Every
- * dependency resolves at call time and fails loud: optimizing without a
- * scorer, telemetry, memory, skill catalog, or LLM route is a configuration
- * error, not a skip.
+ * mutates, refuses every body that could not be landed, screens and re-scores
+ * the variants under the same overlay harness, checks the private holdout
+ * scenarios, and stages the Pareto winner. Every dependency resolves at call
+ * time and fails loud: optimizing without a scorer, telemetry, memory, skill
+ * catalog, or LLM route is a configuration error, not a skip.
  */
 export class EvolutionOptimizer extends Service {
   static inject = ['storageDomain']
@@ -576,6 +577,7 @@ export class EvolutionOptimizer extends Service {
       }
     }
     const mutated: { body: string; operator: string; novelty: number }[] = []
+    let unusable = 0
     const seen = new Set<string>([body])
     for (const allocation of distributeCandidates(this.resolved.maxCandidates, strategy.portfolio)) {
       const framed = frameMutationInput(
@@ -601,6 +603,12 @@ export class EvolutionOptimizer extends Service {
       // Two operators can land on the same body; it is one candidate, first operator wins.
       for (const candidate of produced) {
         if (seen.has(candidate)) continue
+        // A body that would break the skill cannot be landed, so it is not a
+        // candidate: the cheapest gate runs before any scoring run is paid for.
+        if (!checkBehaviorContract(request.skill, candidate).ok) {
+          unusable += 1
+          continue
+        }
         seen.add(candidate)
         // Novelty is a property of the text, measured once here against the
         // body the run started from, so the draft, the screen, and the report
@@ -609,7 +617,12 @@ export class EvolutionOptimizer extends Service {
       }
     }
     if (mutated.length === 0) {
-      return { report: report('no-improvement', { reason: `mutation produced no usable bodies for '${request.skill}'` }) }
+      const detail = unusable === 0 ? '' : `; ${unusable} refused for breaking the skill frontmatter`
+      return {
+        report: report('no-improvement', {
+          reason: `mutation produced no usable bodies for '${request.skill}'${detail}`,
+        }),
+      }
     }
     let samples = 0
     const draft = (winner: EvaluatedVariant | null): ExperimentDraft => ({

@@ -13,7 +13,7 @@ import type { Config } from '@deepseek-ai/dsh-mcp-client'
 
 // vi.mock factories are hoisted above every import/const, so the mock fns and
 // class must be created inside vi.hoisted to exist when the factories run.
-const { mockConnect, mockClose, mockListTools, mockCallTool, mockSetNotificationHandler, MockClient } = vi.hoisted(() => {
+const { mockConnect, mockClose, mockListTools, mockCallTool, mockSetNotificationHandler, mockGetServerVersion, MockClient } = vi.hoisted(() => {
   const mockConnect = vi.fn<() => Promise<void>>()
   const mockClose = vi.fn<() => Promise<void>>()
   const mockListTools = vi.fn<(_params?: Record<string, unknown>) => Promise<unknown>>()
@@ -21,6 +21,7 @@ const { mockConnect, mockClose, mockListTools, mockCallTool, mockSetNotification
     _params?: Record<string, unknown>, _compatibilitySchema?: unknown, _options?: unknown,
   ) => Promise<unknown>>()
   const mockSetNotificationHandler = vi.fn()
+  const mockGetServerVersion = vi.fn<() => { name: string; version: string } | undefined>()
   const mockRequest = vi.fn(async (
     request: { method: string; params?: Record<string, unknown> },
     _schema: unknown,
@@ -37,8 +38,9 @@ const { mockConnect, mockClose, mockListTools, mockCallTool, mockSetNotification
     callTool = mockCallTool
     request = mockRequest
     setNotificationHandler = mockSetNotificationHandler
+    getServerVersion = mockGetServerVersion
   }
-  return { mockConnect, mockClose, mockListTools, mockCallTool, mockSetNotificationHandler, MockClient }
+  return { mockConnect, mockClose, mockListTools, mockCallTool, mockSetNotificationHandler, mockGetServerVersion, MockClient }
 })
 
 vi.mock('@modelcontextprotocol/sdk/client/index.js', () => ({
@@ -56,6 +58,7 @@ vi.mock('@modelcontextprotocol/sdk/client/streamableHttp.js', () => ({
 // vi.mock is hoisted above static imports, so the module under test sees the
 // mocked SDK even through a static import.
 import { apply, name, inject, Config as ConfigSchema } from '@deepseek-ai/dsh-mcp-client/src/index.ts'
+import { computeServerDigest, endpointHashForStdio } from '@deepseek-ai/dsh-mcp-client/src/tools.ts'
 
 // ---- Helpers ----
 
@@ -169,6 +172,7 @@ describe('apply (plugin lifecycle)', () => {
       nextCursor: undefined,
     })
     mockCallTool.mockResolvedValue({ content: [{ type: 'text', text: 'ok' }] })
+    mockGetServerVersion.mockReturnValue(undefined)
     ctx = await mountRegistry()
   })
 
@@ -180,6 +184,34 @@ describe('apply (plugin lifecycle)', () => {
     expect(mockSetNotificationHandler).toHaveBeenCalled()
     expect(ctx.tools.get('mcp__srv__remote')).toBeDefined()
     expect(ctx.tools.get('remote')).toBeUndefined()
+  })
+
+  it('tags synced tools with origin metadata and a versioned server digest', async () => {
+    mockGetServerVersion.mockReturnValue({ name: 'remote-untrusted', version: '9.9' })
+
+    await apply(ctx, stdioConfig)
+
+    const tool = ctx.tools.get('mcp__srv__remote')
+    expect(tool?.origin).toEqual({
+      serverName: 'srv',
+      transport: 'stdio',
+      endpointHash: endpointHashForStdio('echo', []),
+    })
+    expect(tool?.serverDigest).toBe(computeServerDigest(['remote'], '9.9'))
+    expect(tool?.capabilities).toBeUndefined()
+  })
+
+  it('still yields a digest when the server reports no version', async () => {
+    await apply(ctx, stdioConfig)
+
+    const tool = ctx.tools.get('mcp__srv__remote')
+    expect(tool?.origin).toEqual({
+      serverName: 'srv',
+      transport: 'stdio',
+      endpointHash: endpointHashForStdio('echo', []),
+    })
+    expect(tool?.serverDigest).toBe(computeServerDigest(['remote']))
+    expect(tool?.serverDigest).toMatch(/^[0-9a-f]{64}$/)
   })
 
   it('keeps the Cordis plugin loading until initial discovery publishes its tools', async () => {

@@ -54,18 +54,11 @@ Expected: no paths printed.
 
 - [ ] **Step 2: Remove the stale emitted-tree entry from ui-usage-dashboard**
 
-The manifest publishes `lib/types/**/*.js` but no export defaults into `./lib/types/`
-(`usesEmittedTreeDefaults` is false), so the entry is stale. Delete exactly the
-line `"lib/types/**/*.js",` from its `files` array. Do NOT touch the `./remote`
-export: `hasTypertRemoteNavigation()` already expects the remote-client pair.
+The manifest publishes `lib/types/**/*.js` but no export defaults into `./lib/types/` (`usesEmittedTreeDefaults` is false), so the entry is stale. Delete exactly the line `"lib/types/**/*.js",` from its `files` array. Do NOT touch the `./remote` export: `hasTypertRemoteNavigation()` already expects the remote-client pair.
 
 - [ ] **Step 3: Cover hmr's emitted watch artifacts via `packageFileExtras`**
 
-The build provably emits `lib/watch.js` + hashed `lib/bundle-watch-*.js`
-(`packages/client/hmr/lib/` listing + `./watch` export), so this is a gate gap,
-not a manifest bug. Add to `packageFileExtras` in
-`scripts/check-workspace-constraints.ts`, after the
-`dsh-experimental-webworker-packer` entry:
+The build provably emits `lib/watch.js` + hashed `lib/bundle-watch-*.js` (`packages/client/hmr/lib/` listing + `./watch` export), so this is a gate gap, not a manifest bug. Add to `packageFileExtras` in `scripts/check-workspace-constraints.ts`, after the `dsh-experimental-webworker-packer` entry:
 
 ```typescript
   // The HMR driver ships its watch runtime beside the lib entry; the hashed
@@ -73,9 +66,7 @@ not a manifest bug. Add to `packageFileExtras` in
   '@deepseek-ai/dsh-client-hmr': ['lib/watch.js', 'lib/bundle-watch-*.js'],
 ```
 
-Order check: extras render between `lib/invariant.js` and `lib/client.js`,
-matching the manifest's existing `files` order exactly
-(`index, invariant, watch, bundle-watch-*, client, types`) — no manifest edit.
+Order check: extras render between `lib/invariant.js` and `lib/client.js`, matching the manifest's existing `files` order exactly (`index, invariant, watch, bundle-watch-*, client, types`) — no manifest edit.
 
 ### Task 3: Remove the textpreview residue + verify webworker-packer needs nothing
 
@@ -93,23 +84,17 @@ matching the manifest's existing `files` order exactly
 git ls-files packages/client/ui-sidebar-textpreview | Measure-Object | Select-Object -ExpandProperty Count
 ```
 
-Expected: `0` (nothing tracked; `lib/` is gitignored build output of a deleted
-package, `node_modules/` likewise). Only then:
+Expected: `0` (nothing tracked; `lib/` is gitignored build output of a deleted package, `node_modules/` likewise). Only then:
 
 ```powershell
 Remove-Item -Recurse -Force packages/client/ui-sidebar-textpreview; Test-Path packages/client/ui-sidebar-textpreview
 ```
 
-Expected: `False`. (`scripts/clean.ts:113` deliberately refuses manifest-less
-dirs, so manual removal is the fix; teaching `clean` to delete them is
-deferred — recorded in the Agent Note.)
+Expected: `False`. (`scripts/clean.ts:113` deliberately refuses manifest-less dirs, so manual removal is the fix; teaching `clean` to delete them is deferred — recorded in the Agent Note.)
 
 - [ ] **Step 5: Confirm webworker-packer is already classified (no change)**
 
-`scripts/verify-application-entrypoints.ts:26-46` already lists
-`webworker-packer` bin/src entries as "private build-only" and the
-`application entrypoints` gate PASSED in the review baseline. No edit; this
-step only records the finding as already-handled.
+`scripts/verify-application-entrypoints.ts:26-46` already lists `webworker-packer` bin/src entries as "private build-only" and the `application entrypoints` gate PASSED in the review baseline. No edit; this step only records the finding as already-handled.
 
 ### Task 4: Verify, note, commit
 
@@ -123,19 +108,11 @@ step only records the finding as already-handled.
 pnpm run constraints 2>&1 | Select-Object -Last 6
 ```
 
-Expected: exit clean (no `version must match`, no `files must be`, no
-`expected a package here`). If a NEW violation type appears (unrelated to the
-5 fixed classes), STOP and triage before committing.
+Expected: exit clean (no `version must match`, no `files must be`, no `expected a package here`). If a NEW violation type appears (unrelated to the 5 fixed classes), STOP and triage before committing.
 
 - [ ] **Step 7: Write the Agent Note**
 
-Create `.agents/notes/implemented/process/2026-09-13-manifest-conformance-batch-2.md`
-recording: the 7 bumps, the dashboard `files` removal (why the entry was
-stale), the hmr extras entry (why gate-side, with build-emission evidence),
-the textpreview deletion (untracked proof + `clean` deferral), the
-webworker-packer already-handled verdict, and the constraints result.
-Supersession check: no older note covers manifest versions (verified by grep
-for `alpha.1`/version-bump notes — record the negative result).
+Create `.agents/notes/implemented/process/2026-09-13-manifest-conformance-batch-2.md` recording: the 7 bumps, the dashboard `files` removal (why the entry was stale), the hmr extras entry (why gate-side, with build-emission evidence), the textpreview deletion (untracked proof + `clean` deferral), the webworker-packer already-handled verdict, and the constraints result. Supersession check: no older note covers manifest versions (verified by grep for `alpha.1`/version-bump notes — record the negative result).
 
 - [ ] **Step 8: Commit exactly this batch**
 
@@ -143,11 +120,8 @@ for `alpha.1`/version-bump notes — record the negative result).
 git add packages/client/ui-progress/package.json packages/client/ui-usage-dashboard/package.json packages/client/ui-workspace-memory/package.json packages/context/workspace-memory-context/package.json packages/session/usage-ledger/package.json packages/workspace/workspace-memory/package.json packages/workspace/workspace-memory-llm/package.json scripts/check-workspace-constraints.ts .agents/notes/implemented/process/2026-09-13-manifest-conformance-batch-2.md; git diff --cached --name-only; git commit -m "fix: manifest conformance (versions, files, residue)"
 ```
 
-Expected: staged set is exactly the 9 paths above (the textpreview deletion is
-disk-only, untracked — nothing to commit).
+Expected: staged set is exactly the 9 paths above (the textpreview deletion is disk-only, untracked — nothing to commit).
 
 - [ ] **Step 9: Write the 5-line batch checkpoint**
 
-Reply with exactly: versions bumped, files fixed (2), residue deleted,
-already-handled (1), verification (constraints output), note path, commit SHA.
-Then proceed to write the Batch 3 plan.
+Reply with exactly: versions bumped, files fixed (2), residue deleted, already-handled (1), verification (constraints output), note path, commit SHA. Then proceed to write the Batch 3 plan.

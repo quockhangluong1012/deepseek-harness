@@ -1478,7 +1478,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'async approveStaged(id: string): Promise<void>',
-        description: 'Approve one staged write. Memory-kind entries apply their op first, so a cap or substring rejection keeps the entry staged and propagates; the entry drops only after the op lands. Skill-kind entries only drop: the approver reads the payload from the scope record and performs the skill write before approving — but only when the payload carries a valid capture contract, otherwise the entry stays staged with its `blockedReason` and `neededEvidence` set and the block propagates, like a cap rejection. Either decision is recorded in the scope\'s resolution log, newest first.',
+        description: 'Approve one staged write. Memory-kind entries apply their op first, so a cap or substring rejection keeps the entry staged and propagates; the entry drops only after the op lands. Skill-kind entries only drop: the approver reads the payload from the scope record and performs the skill write before approving. A `create` proposal is additionally admitted on its capture contract — a capability claim needs independent validation evidence — so without one the entry stays staged with its `blockedReason` and `neededEvidence` set and the block propagates, like a cap rejection. A `patch` revises a capability that was already admitted: its evidence is the baseline-versus-candidate measurement its proposer recorded, which this store has no way to read, so it drops on the human\'s approval. Either decision is recorded in the scope\'s resolution log, newest first.',
         parameters: [{ name: 'id', description: 'staged entry identity.' }],
         returns: 'resolution after durability.',
       },
@@ -5263,6 +5263,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export class DefaultRecoveryEngine implements RecoveryEngine {\n    constructor(config: RecoveryConfig);\n    classify(input: RecoveryInput): RecoveryDecision;\n}',
   },
   {
+    name: 'DelegationId',
+    declaration: 'export type DelegationId = Branded<\'DelegationId\'>;',
+  },
+  {
+    name: 'DelegationReceipt',
+    declaration: 'export interface DelegationReceipt {\n    readonly delegationId: DelegationId;\n    readonly childRunId: RunId;\n    readonly parentRunId?: RunId;\n    readonly parentTaskId?: TaskId;\n    readonly parentSessionId: SessionId;\n    readonly allowedCapabilities: readonly Capability[];\n    readonly resourceLimits: ResourceBudget;\n    readonly writableScopes: readonly string[];\n    readonly inheritedPolicyDigest: string;\n    readonly depth: number;\n    readonly maxDepth?: number;\n    readonly at: number;\n}',
+  },
+  {
     name: 'DiffCallView',
     declaration: 'export interface DiffCallView {\n    card: \'diff\';\n    title: string;\n    diffs: FileDiff[];\n    locations?: FileLocation[];\n}',
   },
@@ -5880,7 +5888,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'KernelView',
-    declaration: 'export interface KernelView {\n    readonly task: TaskContract;\n    readonly sessionId: SessionId;\n    readonly budgets: BudgetSnapshot;\n    readonly openActionIds: readonly ActionId[];\n    readonly unresolvedFailures: readonly FailureRef[];\n    readonly plan?: PlanRevision;\n    readonly checkpoint?: Checkpoint;\n}',
+    declaration: 'export interface KernelView {\n    readonly task: TaskContract;\n    readonly sessionId: SessionId;\n    readonly budgets: BudgetSnapshot;\n    readonly openActionIds: readonly ActionId[];\n    readonly unresolvedFailures: readonly FailureRef[];\n    readonly plan?: PlanRevision;\n    readonly checkpoint?: Checkpoint;\n    readonly delegation?: DelegationReceipt;\n}',
   },
   {
     name: 'KnobState',
@@ -6192,7 +6200,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'PolicyContext',
-    declaration: 'export interface PolicyContext {\n    readonly action: ActionProposal;\n    readonly capabilities: readonly CapabilityRequest[];\n    readonly undeclared: boolean;\n    readonly sandbox: SandboxExecutionPolicy;\n}',
+    declaration: 'export interface PolicyContext {\n    readonly action: ActionProposal;\n    readonly capabilities: readonly CapabilityRequest[];\n    readonly undeclared: boolean;\n    readonly sandbox: SandboxExecutionPolicy;\n    readonly parentGrant?: DelegationReceipt;\n}',
   },
   {
     name: 'PolicyDecision',
@@ -7256,7 +7264,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SkillSummary',
-    declaration: 'export interface SkillSummary {\n    readonly path?: string;\n    readonly name: string;\n    readonly description: string;\n    readonly whenToUse?: string;\n    readonly requires?: readonly string[];\n    readonly invocation: SkillInvocationPolicy;\n    readonly source: SkillSource;\n    readonly provider: string;\n    readonly resourceBase?: SkillResourceBase;\n}',
+    declaration: 'export interface SkillSummary {\n    readonly path?: string;\n    readonly name: string;\n    readonly description: string;\n    readonly whenToUse?: string;\n    readonly requires?: readonly string[];\n    readonly capabilities?: readonly string[];\n    readonly version?: string;\n    readonly testScenarios?: readonly string[];\n    readonly invocation: SkillInvocationPolicy;\n    readonly source: SkillSource;\n    readonly provider: string;\n    readonly resourceBase?: SkillResourceBase;\n}',
   },
   {
     name: 'SkillTrustFailure',
@@ -7680,7 +7688,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ToolDefinition',
-    declaration: 'export interface ToolDefinition extends ToolSchema {\n    readonly output: ToolOutputDefinition;\n    execute(args: unknown, exec: ToolRunContext): Promise<unknown>;\n    finalizeContent?(exec: Readonly<ToolExecution>, result: Readonly<ToolExecutionResult>): ContentBlock[] | undefined;\n    timeoutMs?: number;\n    isConcurrencySafe?(args: unknown): boolean;\n    parallelScopeKey?(args: unknown): string;\n    presentCall?(args: unknown): ToolCallView | undefined;\n    presentResult?(args: unknown, result: ToolResult): ToolResultView | undefined;\n}',
+    declaration: 'export interface ToolDefinition extends ToolSchema {\n    readonly output: ToolOutputDefinition;\n    execute(args: unknown, exec: ToolRunContext): Promise<unknown>;\n    finalizeContent?(exec: Readonly<ToolExecution>, result: Readonly<ToolExecutionResult>): ContentBlock[] | undefined;\n    timeoutMs?: number;\n    isConcurrencySafe?(args: unknown): boolean;\n    parallelScopeKey?(args: unknown): string;\n    readonly origin?: ToolOrigin;\n    readonly serverDigest?: string;\n    readonly capabilities?: readonly string[];\n    presentCall?(args: unknown): ToolCallView | undefined;\n    presentResult?(args: unknown, result: ToolResult): ToolResultView | undefined;\n}',
   },
   {
     name: 'ToolDispatchExecution',
@@ -7731,6 +7739,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface ToolMessageSource {\n    kind: \'tool\';\n    callId: ToolCallId;\n}',
   },
   {
+    name: 'ToolOrigin',
+    declaration: 'export interface ToolOrigin {\n    readonly serverName: string;\n    readonly transport: ToolTransport;\n    readonly endpointHash: string;\n}',
+  },
+  {
     name: 'ToolOutputDefinition',
     declaration: 'export interface ToolOutputDefinition {\n    readonly schema: JsonSchemaNode;\n    render(args: unknown, value: JsonValue): ContentBlock[];\n    presentationMeta?(args: unknown, value: JsonValue): JsonValue;\n}',
   },
@@ -7777,6 +7789,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'ToolSchema',
     declaration: 'export interface ToolSchema {\n    name: string;\n    description: string;\n    parameters: Record<string, unknown>;\n}',
+  },
+  {
+    name: 'ToolTransport',
+    declaration: 'export type ToolTransport = \'stdio\' | \'http\';',
   },
   {
     name: 'TrajectoryExportOptions',

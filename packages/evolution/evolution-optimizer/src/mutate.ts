@@ -23,6 +23,7 @@ export function mutationInstructions(count: number, instruction: string): string
     instruction,
     `Reply with a JSON array of exactly ${count} strings, each a complete replacement SKILL.md body.`,
     'Every body must differ from the current one; keep what works, fix what the evidence implicates.',
+    'Every body must start with --- frontmatter naming the same skill and a one-line routing description.',
     'No prose outside the array.',
   ].join('\n')
 }

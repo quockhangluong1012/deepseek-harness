@@ -628,7 +628,7 @@ describe('FileSystemSkillProvider', () => {
       'description: Carries unrecognized keys',
       'toolsets:',
       '  - read',
-      'version: 1.0.0',
+      'release: 1.0.0',
       '---',
       '',
       'Body.',
@@ -640,7 +640,7 @@ describe('FileSystemSkillProvider', () => {
       expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(['extra-keys'])
       const warnings = warn.mock.calls.map(([message]) => String(message))
       expect(warnings).toHaveLength(2)
-      for (const key of ['toolsets', 'version']) {
+      for (const key of ['toolsets', 'release']) {
         const matching = warnings.filter(message => message.includes(`unknown frontmatter field "${key}"`))
         expect(matching).toHaveLength(1)
         expect(matching[0]).toContain(path)
@@ -1239,6 +1239,89 @@ describe('FileSystemSkillProvider', () => {
       for (const warning of warnings) {
         expect(warning).toContain(join(root, 'broken-skill.md'))
         expect(warning).toContain('"requires"')
+      }
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
+  it('parses skill conflicts without warning and drops a malformed list', async () => {
+    const home = await tempDir('skill-conflicts-parse')
+    const root = join(home, '.dsh/skills')
+    await writeFrontmatterSkill(root, 'exclusive-skill', ['conflicts_with: [rival-skill]'])
+    await writeFrontmatterSkill(root, 'rival-skill', [])
+    await writeFrontmatterSkill(root, 'broken-skill', ['conflicts_with: rival-skill'])
+
+    const ctx = await setupLocal(home)
+    const warn = vi.spyOn(ctx.logger, 'warn')
+    try {
+      expect((await ctx.skills.list()).map(skill => skill.name).sort())
+        .toEqual(['broken-skill', 'exclusive-skill', 'rival-skill'])
+      const summaries = await ctx.skills.list()
+      expect(summaries.find(skill => skill.name === 'exclusive-skill')).toMatchObject({ conflictsWith: ['rival-skill'] })
+      expect(summaries.find(skill => skill.name === 'rival-skill')).not.toHaveProperty('conflictsWith')
+      expect(await ctx.skills.get('exclusive-skill')).toMatchObject({ conflictsWith: ['rival-skill'] })
+      expect(await ctx.skills.get('broken-skill')).not.toHaveProperty('conflictsWith')
+      // The malformed file warns on every parse — once for the listing, once
+      // for the load above (the second listing reads the discovery cache) —
+      // and nothing else warns.
+      const warnings = warn.mock.calls.map(([message]) => String(message))
+      expect(warnings).toHaveLength(2)
+      for (const warning of warnings) {
+        expect(warning).toContain(join(root, 'broken-skill.md'))
+        expect(warning).toContain('"conflicts_with"')
+      }
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
+  it('parses governed admission metadata without warning and drops malformed values', async () => {
+    const home = await tempDir('skill-governed-parse')
+    const root = join(home, '.dsh/skills')
+    await writeFrontmatterSkill(root, 'governed-skill', [
+      'capabilities: [fs.read]',
+      'version: "1.2.0"',
+      'testScenarios: [happy-path]',
+    ])
+    await writeFrontmatterSkill(root, 'plain-skill', [])
+    await writeFrontmatterSkill(root, 'broken-capabilities', ['capabilities: fs.read'])
+    await writeFrontmatterSkill(root, 'broken-version', ['version: 42'])
+    await writeFrontmatterSkill(root, 'broken-scenarios', ['testScenarios: [happy-path, 42]'])
+
+    const ctx = await setupLocal(home)
+    const warn = vi.spyOn(ctx.logger, 'warn')
+    try {
+      const summaries = await ctx.skills.list()
+      expect(summaries.map(skill => skill.name).sort())
+        .toEqual(['broken-capabilities', 'broken-scenarios', 'broken-version', 'governed-skill', 'plain-skill'])
+      expect(summaries.find(skill => skill.name === 'governed-skill')).toMatchObject({
+        capabilities: ['fs.read'],
+        version: '1.2.0',
+        testScenarios: ['happy-path'],
+      })
+      expect(summaries.find(skill => skill.name === 'plain-skill')).not.toHaveProperty('capabilities')
+      expect(summaries.find(skill => skill.name === 'plain-skill')).not.toHaveProperty('version')
+      expect(summaries.find(skill => skill.name === 'plain-skill')).not.toHaveProperty('testScenarios')
+      expect(await ctx.skills.get('governed-skill')).toMatchObject({
+        capabilities: ['fs.read'],
+        version: '1.2.0',
+        testScenarios: ['happy-path'],
+      })
+      expect(await ctx.skills.get('broken-capabilities')).not.toHaveProperty('capabilities')
+      expect(await ctx.skills.get('broken-version')).not.toHaveProperty('version')
+      expect(await ctx.skills.get('broken-scenarios')).not.toHaveProperty('testScenarios')
+      // Each malformed file warns on every parse — once for the listing, once
+      // for its load above (the second listing reads the discovery cache).
+      const warnings = warn.mock.calls.map(([message]) => String(message))
+      expect(warnings).toHaveLength(6)
+      for (const [file, key] of [
+        ['broken-capabilities.md', '"capabilities"'],
+        ['broken-version.md', '"version"'],
+        ['broken-scenarios.md', '"testScenarios"'],
+      ] as const) {
+        const matching = warnings.filter(message => message.includes(join(root, file)) && message.includes(key))
+        expect(matching).toHaveLength(2)
       }
     } finally {
       warn.mockRestore()

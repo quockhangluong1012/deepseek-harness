@@ -26,6 +26,11 @@
     "lib/types/**/*.d.ts"
   ],
   "license": "MIT",
+  "dsh": {
+    "capabilities": [
+      "dsh.skill.invoke"
+    ]
+  },
   "peerDependencies": {
     "@deepseek-ai/dsh-agent": "workspace:^",
     "@deepseek-ai/dsh-llm": "workspace:^",

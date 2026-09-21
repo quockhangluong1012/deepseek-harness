@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-`dsh-evolution-skill-manage` 发布面向模型的 `skill_manage` 工具：`create` 在配置的 `createDir` 新建技能，`patch` 替换一处恰好出现一次的子串，`edit` 在保留 frontmatter 的前提下重写技能正文，`write_file` 与 `remove_file` 维护附属文件，`delete` 删除整个技能。已有技能在目录发现它的位置原地变更；bundled 与 hub 技能只读，置顶阻止删除，但永不阻止补丁。写入立即落盘且无版本记录，回滚由你自己的版本控制负责。当模型应把持久技能当作文件整理、而不是守着一份冻结集合作答时，选择本包。
+`dsh-evolution-skill-manage` 发布面向模型的 `skill_manage` 工具：`create` 在配置的 `createDir` 新建技能，`patch` 替换一处恰好出现一次的子串，`edit` 在保留 frontmatter 的前提下重写技能正文，`write_file` 与 `remove_file` 维护附属文件，`delete` 删除整个技能。已有技能在目录发现它的位置原地变更；bundled 与 hub 技能只读，置顶阻止删除，但永不阻止补丁。每次 `create` 都带有模型作者身份（`createdBy: 'agent'`），之后以 `/curator adopt <name>` 为其背书；`create`、`patch` 与 `edit` 还会为写出的正文记录一版修订，由遥测存储求哈希。当模型应把持久技能当作文件整理、而不是守着一份冻结集合作答时，选择本包。
 
 ## 目录
 
@@ -25,7 +25,7 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用本包
 
-当模型应创建或修订技能时挂载本插件。技能名为小写短横线形式。`create` 需要路由 `description` 与指令 `content`，重名时拒绝。`patch` 需要恰好出现一次的 `old_text` 子串与其 `new_text`；未知、歧义与空子串都会大声拒绝。`edit` 需要完整的替换 `content`，并保留已存 frontmatter 的名称与描述。`write_file` 与 `remove_file` 接受技能相对 `path`：绝对路径、逃出技能目录的穿越与空路径均被拒绝，`SKILL.md` 保留给正文操作。`delete` 删除技能目录，除非遥测报告该技能已被置顶。随包附带与 hub 技能拒绝一切变更；没有本地目录的技能对管理操作而言视为未知。
+当模型应创建或修订技能时挂载本插件。技能名为小写短横线形式。`create` 需要路由 `description` 与指令 `content`，重名时拒绝。`patch` 需要恰好出现一次的 `old_text` 子串与其 `new_text`；未知、歧义与空子串都会大声拒绝。`edit` 需要完整的替换 `content`，并保留已存 frontmatter 的名称与描述。每次 `create` 都经由遥测 `markAgentCreated` 记录模型作者身份，之后以 `/curator adopt <name>` 为其背书；`create`、`patch` 与 `edit` 还会为写出的确切正文记录一版修订，由存储自己求哈希，而不是再从磁盘读回。`write_file` 与 `remove_file` 接受技能相对 `path`：绝对路径、逃出技能目录的穿越与空路径均被拒绝，`SKILL.md` 保留给正文操作。`delete` 删除技能目录，除非遥测报告该技能已被置顶。随包附带与 hub 技能拒绝一切变更；没有本地目录的技能对管理操作而言视为未知。
 
 ### 配置
 
@@ -111,7 +111,7 @@ skill_manage patch polish: /skills/polish/SKILL.md
 这些限制界定了本工具不适用的场景。它们是当前包约束。
 
 - **仅限本机**——技能位于本机的受管目录或目录路径之下，永不作为共享记录存在。
-- **写入即时且无版本**——变更一次性落盘；回滚靠调用方的版本控制，不是本工具。
+- **写入即时落盘**——变更一次性写到磁盘；SKILL.md 正文带有存储求哈希的修订链，整理器补丁保留前像 blob，`/curator rollback --id` 可恢复被补丁过的正文。
 - **随包与 hub 技能在此只读**——本工具拒绝它们；由其所有者在别处整理。
 - **新建永不就地落子**——新技能一律进入 `createDir`，即使别处存在同名目录技能；只有 `create` 使用配置的目录。
 

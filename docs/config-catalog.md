@@ -270,7 +270,7 @@ export type PolicyAction =
   | 'policy'
 ```
 
-Source: [`packages/runtime/agent-kernel/src/index.ts:80`](../packages/runtime/agent-kernel/src/index.ts)
+Source: [`packages/runtime/agent-kernel/src/index.ts:84`](../packages/runtime/agent-kernel/src/index.ts)
 
 <a id="deepseek-aidsh-agent-loop"></a>
 
@@ -314,7 +314,7 @@ export interface Config {
 
 Depends on: [`AgentOptions`](subsystems/core.md) · [`SessionId`](subsystems/core.md)
 
-Source: [`packages/core/agent-loop/src/index.ts:344`](../packages/core/agent-loop/src/index.ts)
+Source: [`packages/core/agent-loop/src/index.ts:348`](../packages/core/agent-loop/src/index.ts)
 
 <a id="deepseek-aidsh-agent-presets"></a>
 
@@ -3025,7 +3025,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/skill/skill/src/index.ts:309`](../packages/skill/skill/src/index.ts)
+Source: [`packages/skill/skill/src/index.ts:315`](../packages/skill/skill/src/index.ts)
 
 <a id="deepseek-aidsh-skill-filesystem"></a>
 
@@ -4102,7 +4102,7 @@ export interface Config {
 export type ToolPresentationMode = 'native' | 'ptc' | 'both'
 ```
 
-Source: [`packages/core/tools/src/index.ts:707`](../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:747`](../packages/core/tools/src/index.ts)
 
 <a id="deepseek-aidsh-typert-loader"></a>
 
@@ -4470,6 +4470,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 
 - `@deepseek-ai/dsh-acp-app` — requires `cmdlineArgs` ([`packages/bundle/acp-app/src/index.ts`](../packages/bundle/acp-app/src/index.ts))
 - `@deepseek-ai/dsh-agent` ([`packages/core/agent/src/index.ts`](../packages/core/agent/src/index.ts))
+- `@deepseek-ai/dsh-agent-kernel-builtins` — requires `agentKernel` ([`packages/runtime/agent-kernel-builtins/src/index.ts`](../packages/runtime/agent-kernel-builtins/src/index.ts))
 - `@deepseek-ai/dsh-api-remotes` — requires `typertGateway` ([`packages/api/remotes/src/index.ts`](../packages/api/remotes/src/index.ts))
 - `@deepseek-ai/dsh-api-workspace-controller` — requires `typert` · `workspaceRegistry` ([`packages/api/workspace-controller/src/index.ts`](../packages/api/workspace-controller/src/index.ts))
 - `@deepseek-ai/dsh-authorization` — requires `credentials` ([`packages/credentials/authorization/src/index.ts`](../packages/credentials/authorization/src/index.ts))

@@ -8,7 +8,7 @@
 
 **Tech Stack:** TypeScript (strict, ESM), Cordis services (`ctx.effect`, optional `ctx.get('embeddings')`), `@deepseek-ai/dsh-llm` streaming `GenerateOptions`, `zod` for the decision protocol and the staged payload, `@deepseek-ai/schemastery` for `Config`, Vitest.
 
-**Spec:** [docs/superpowers/specs/2026-09-13-lesson-artifact-memory-design.md](../../specs/2026-09-13-lesson-artifact-memory-design.md) (Phase 2 section, lines 116–131)
+**Spec:** [docs/superpowers/specs/2026-09-13-lesson-artifact-memory-design.md](../specs/2026-09-13-lesson-artifact-memory-design.md) (Phase 2 section, lines 116–131)
 
 ## Design decisions carried from planning (binding, not open)
 

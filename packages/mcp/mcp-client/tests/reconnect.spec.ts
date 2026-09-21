@@ -38,6 +38,7 @@ const { mockConnect, mockClose, mockListTools, mockCallTool, mockSetNotification
     close = mockClose
     request = mockRequest
     setNotificationHandler = mockSetNotificationHandler
+    getServerVersion = vi.fn((): { name: string; version: string } | undefined => undefined)
     constructor() { instances.push(this) }
   }
   const instances: MockClient[] = []

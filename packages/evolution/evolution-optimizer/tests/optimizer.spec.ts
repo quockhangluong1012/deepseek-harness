@@ -32,6 +32,18 @@ function usage(useCount: number, failureCount?: number) {
     state: 'active', pinned: false, createdBy: null, absorbedInto: null, archivedAt: null,
   }
 }
+
+/** A SKILL.md file: the frontmatter the candidate admission gate requires. */
+function skillBody(name: string, content: string): string {
+  return `---\nname: ${name}\ndescription: ${name}.\n---\n${content}`
+}
+
+const BASE = skillBody('writer', '# writer')
+const V2 = skillBody('writer', '# writer v2')
+const V3 = skillBody('writer', '# writer v3')
+const V4 = skillBody('writer', '# writer v4')
+const V5 = skillBody('writer', '# writer v5')
+
 interface BenchSeams {
   record?: { name: string; usage: ReturnType<typeof usage> } | undefined
   body?: string | undefined
@@ -188,7 +200,7 @@ describe('EvolutionOptimizer', () => {
   it('throws when a required seam is missing', async () => {
     const { optimizer } = await bench({
       record: { name: 'writer', usage: usage(12, 10) },
-      body: '# writer',
+      body: BASE,
       llm: false,
     })
     await expect(optimizer.optimize(request)).rejects.toThrow('requires the scorer, telemetry, memory, skills, and llm seams')
@@ -196,7 +208,7 @@ describe('EvolutionOptimizer', () => {
   it('reports no-improvement when mutation produces no usable bodies', async () => {
     const { optimizer } = await bench({
       record: { name: 'writer', usage: usage(12, 10) },
-      body: '# writer',
+      body: BASE,
       mutations: [],
     })
     const report = await optimizer.optimize(request)
@@ -208,7 +220,7 @@ describe('EvolutionOptimizer', () => {
   it('throws when the provider/model route is missing', async () => {
     const { optimizer } = await bench({
       record: { name: 'writer', usage: usage(12, 10) },
-      body: '# writer',
+      body: BASE,
       route: false,
     })
     await expect(optimizer.optimize(request)).rejects.toThrow('requires a provider/model route')
@@ -217,8 +229,8 @@ describe('EvolutionOptimizer', () => {
   it('propagates a baseline skip without staging', async () => {
     const { optimizer, staged } = await bench({
       record: { name: 'writer', usage: usage(12, 10) },
-      body: '# writer',
-      mutations: ['# writer v2'],
+      body: BASE,
+      mutations: [V2],
       skipEvaluation: 'scenario gone',
     })
     const report = await optimizer.optimize(request)
@@ -230,8 +242,8 @@ describe('EvolutionOptimizer', () => {
   it('propagates a variant skip with the baseline attached', async () => {
     const { optimizer, staged } = await bench({
       record: { name: 'writer', usage: usage(12, 10) },
-      body: '# writer',
-      mutations: ['# writer v2'],
+      body: BASE,
+      mutations: [V2],
       skipEvaluation: 'scenario gone',
       skipOnCall: 1,
     })
@@ -246,8 +258,8 @@ describe('EvolutionOptimizer', () => {
   it('falls back to the request agent and the process runner', async () => {
     const { optimizer } = await bench({
       record: { name: 'writer', usage: usage(12, 10) },
-      body: '# writer',
-      mutations: ['# writer v2'],
+      body: BASE,
+      mutations: [V2],
     })
     const report = await optimizer.optimize({
       skill: 'writer',
@@ -263,8 +275,8 @@ describe('EvolutionOptimizer', () => {
   it('stages nothing when no variant beats the baseline', async () => {
     const { optimizer, staged } = await bench({
       record: { name: 'writer', usage: usage(12, 10) },
-      body: '# writer',
-      mutations: ['# writer v2'],
+      body: BASE,
+      mutations: [V2],
       scores: { writer: { pass: true, tokens: 5, wallTimeMs: 5 } },
     })
     const report = await optimizer.optimize(request)
@@ -277,8 +289,8 @@ describe('EvolutionOptimizer', () => {
   it('stages the winning variant as a skill patch', async () => {
     const { optimizer, staged } = await bench({
       record: { name: 'writer', usage: usage(12, 10) },
-      body: '# writer',
-      mutations: ['# writer v2'],
+      body: BASE,
+      mutations: [V2],
       // Baseline scores costly, the variant scores cheap.
       scoresFor: (_scenarios, call) => ({ pass: true, tokens: call === 0 ? 9 : call === 1 ? 3 : 10, wallTimeMs: 5 }),
     })
@@ -289,15 +301,43 @@ describe('EvolutionOptimizer', () => {
     expect(report.candidates[0]?.score.tokens).toBe(3)
     expect(staged).toHaveLength(1)
     expect(staged[0]).toMatchObject({ kind: 'skill', op: 'patch' })
-    expect(staged[0]?.payload).toMatchObject({ skill: 'writer', body: '# writer v2', operator: 'rewrite' })
+    expect(staged[0]?.payload).toMatchObject({ skill: 'writer', body: V2, operator: 'rewrite' })
+  })
+
+  it('refuses a candidate body that would break the skill before scoring it', async () => {
+    const { optimizer, scoreCalls, staged } = await bench({
+      record: { name: 'writer', usage: usage(12, 10) },
+      body: BASE,
+      config: { maxCandidates: 2, operators: ['rewrite', 'compress'] },
+      llmBodies: [['# writer without frontmatter'], [V2]],
+      scoresFor: (_scenarios, call) => ({ pass: true, tokens: call === 0 ? 9 : 3, wallTimeMs: 5 }),
+    })
+    const report = await optimizer.optimize(request)
+    expect(report.status).toBe('staged')
+    expect(staged[0]?.payload).toMatchObject({ body: V2, operator: 'compress' })
+    // One baseline plus one survivor: the broken body never bought a scoring run.
+    expect(scoreCalls).toHaveLength(2)
+  })
+
+  it('reports the refusals when no candidate body could be landed', async () => {
+    const { optimizer, scoreCalls } = await bench({
+      record: { name: 'writer', usage: usage(12, 10) },
+      body: BASE,
+      mutations: ['# writer without frontmatter', skillBody('other', '# renamed')],
+    })
+    const report = await optimizer.optimize(request)
+    expect(report.status).toBe('no-improvement')
+    expect(report.reason).toContain('no usable bodies')
+    expect(report.reason).toContain('2 refused for breaking the skill frontmatter')
+    expect(scoreCalls).toHaveLength(0)
   })
 
   it('draws candidates from every configured operator and tags each one', async () => {
     const { optimizer, staged } = await bench({
       record: { name: 'writer', usage: usage(12, 10) },
-      body: '# writer',
+      body: BASE,
       config: { maxCandidates: 2, operators: ['rewrite', 'compress'] },
-      llmBodies: [['# writer v2'], ['# writer v3']],
+      llmBodies: [[V2], [V3]],
       scoresFor: (_scenarios, call) => ({ pass: true, tokens: call === 1 ? 9 : call === 2 ? 3 : 10, wallTimeMs: 5 }),
     })
     const report = await optimizer.optimize(request)
@@ -309,9 +349,9 @@ describe('EvolutionOptimizer', () => {
   it('keeps one candidate when two operators return the same body', async () => {
     const { optimizer } = await bench({
       record: { name: 'writer', usage: usage(12, 10) },
-      body: '# writer',
+      body: BASE,
       config: { maxCandidates: 2, operators: ['rewrite', 'compress'] },
-      llmBodies: [['# writer v2'], ['# writer v2']],
+      llmBodies: [[V2], [V2]],
     })
     const report = await optimizer.optimize(request)
     expect(report.candidates.map(candidate => candidate.operator)).toEqual(['rewrite'])
@@ -324,8 +364,8 @@ describe('EvolutionOptimizer', () => {
   it('refuses a winner an approved promotion already dominates', async () => {
     const { optimizer } = await bench({
       record: { name: 'writer', usage: usage(12, 10) },
-      body: '# writer',
-      mutations: ['# writer v2'],
+      body: BASE,
+      mutations: [V2],
       // The first run stages a winner at 4 tokens; the second offers 6.
       scoresFor: (_scenarios, call) => ({ pass: true, tokens: call < 2 ? (call === 1 ? 4 : 10) : (call === 3 ? 6 : 10), wallTimeMs: 5 }),
       resolutions: [{ id: 'staged-0', kind: 'skill', decision: 'approved' }],
@@ -344,8 +384,8 @@ describe('EvolutionOptimizer', () => {
   it('ignores a rejected promotion and a floor measured on other scenarios', async () => {
     const { optimizer } = await bench({
       record: { name: 'writer', usage: usage(12, 10) },
-      body: '# writer',
-      mutations: ['# writer v2'],
+      body: BASE,
+      mutations: [V2],
       scoresFor: (_scenarios, call) => ({ pass: true, tokens: call === 1 || call === 3 ? 4 : 10, wallTimeMs: 5 }),
       resolutions: [{ id: 'staged-0', kind: 'skill', decision: 'rejected' }],
     })
@@ -353,8 +393,8 @@ describe('EvolutionOptimizer', () => {
     // The same approved floor on a different scenario set is not comparable.
     const elsewhere = await bench({
       record: { name: 'writer', usage: usage(12, 10) },
-      body: '# writer',
-      mutations: ['# writer v2'],
+      body: BASE,
+      mutations: [V2],
       scoresFor: (_scenarios, call) => ({ pass: true, tokens: call === 1 ? 4 : call === 3 ? 6 : 10, wallTimeMs: 5 }),
       resolutions: [{ id: 'staged-0', kind: 'skill', decision: 'approved' }],
     })
@@ -365,8 +405,8 @@ describe('EvolutionOptimizer', () => {
   it('ignores an approved floor measured with a different attempt count', async () => {
     const { optimizer } = await bench({
       record: { name: 'writer', usage: usage(12, 10) },
-      body: '# writer',
-      mutations: ['# writer v2'],
+      body: BASE,
+      mutations: [V2],
       sampleCount: 3,
       scoresFor: (_scenarios, call) => ({ pass: true, tokens: call === 1 ? 4 : call === 3 ? 6 : 10, wallTimeMs: 5 }),
       resolutions: [{ id: 'staged-0', kind: 'skill', decision: 'approved' }],
@@ -376,8 +416,8 @@ describe('EvolutionOptimizer', () => {
 
     const single = await bench({
       record: { name: 'writer', usage: usage(12, 10) },
-      body: '# writer',
-      mutations: ['# writer v2'],
+      body: BASE,
+      mutations: [V2],
       sampleCount: 1,
       scoresFor: (_scenarios, call) => ({ pass: true, tokens: call === 1 ? 4 : call === 3 ? 6 : 10, wallTimeMs: 5 }),
     })
@@ -387,8 +427,8 @@ describe('EvolutionOptimizer', () => {
   it('scans past a row that promoted nothing', async () => {
     const { optimizer } = await bench({
       record: { name: 'writer', usage: usage(12, 10) },
-      body: '# writer',
-      mutations: ['# writer v2'],
+      body: BASE,
+      mutations: [V2],
       // Run 1 wins at 4 tokens, run 2 offers 6 and is refused, run 3 offers 5.
       scoresFor: (_scenarios, call) => ({ pass: true, tokens: call % 2 === 1 ? (call === 1 ? 4 : call === 3 ? 6 : 5) : 10, wallTimeMs: 5 }),
       resolutions: [{ id: 'staged-0', kind: 'skill', decision: 'approved' }],
@@ -403,8 +443,8 @@ describe('EvolutionOptimizer', () => {
   it('ignores an approved floor measured under an older scorer version', async () => {
     const { optimizer, scorer } = await bench({
       record: { name: 'writer', usage: usage(12, 10) },
-      body: '# writer',
-      mutations: ['# writer v2'],
+      body: BASE,
+      mutations: [V2],
       // Run 1 stages a winner at 4 tokens; run 2 offers 6, which the run-1
       // floor would dominate had the scorer version not changed.
       scoresFor: (_scenarios, call) => ({ pass: true, tokens: call < 2 ? (call === 1 ? 4 : 10) : (call === 3 ? 6 : 10), wallTimeMs: 5 }),
@@ -421,8 +461,8 @@ describe('EvolutionOptimizer', () => {
   it('stages a candidate that still beats the approved floor', async () => {
     const { optimizer } = await bench({
       record: { name: 'writer', usage: usage(12, 10) },
-      body: '# writer',
-      mutations: ['# writer v2'],
+      body: BASE,
+      mutations: [V2],
       scoresFor: (_scenarios, call) => ({ pass: true, tokens: call === 1 ? 4 : call === 3 ? 2 : 10, wallTimeMs: 5 }),
       resolutions: [{ id: 'staged-0', kind: 'skill', decision: 'approved' }],
     })
@@ -480,8 +520,8 @@ describe('EvolutionOptimizer', () => {
   it('screens every candidate on the short subset before scoring survivors in full', async () => {
     const { optimizer, scoreCalls } = await bench({
       record: { name: 'writer', usage: usage(12, 10) },
-      body: '# writer',
-      mutations: ['# writer v2', '# writer v3', '# writer v4'],
+      body: BASE,
+      mutations: [V2, V3, V4],
       config: { screenScenarioCount: 1 },
       scoresFor: (scenarios, call) => (scenarios.length === 1
         // The screen scores the three candidates in mutation order; the third
@@ -503,8 +543,8 @@ describe('EvolutionOptimizer', () => {
   it('stops scoring candidates once the token budget is spent', async () => {
     const { optimizer } = await bench({
       record: { name: 'writer', usage: usage(12, 10) },
-      body: '# writer',
-      mutations: ['# writer v2', '# writer v3'],
+      body: BASE,
+      mutations: [V2, V3],
       config: { budgetTokens: 15 },
       scoresFor: () => ({ pass: true, tokens: 10, wallTimeMs: 5 }),
     })
@@ -517,8 +557,8 @@ describe('EvolutionOptimizer', () => {
   it('stops scoring candidates once the wall-time budget is spent', async () => {
     const { optimizer } = await bench({
       record: { name: 'writer', usage: usage(12, 10) },
-      body: '# writer',
-      mutations: ['# writer v2', '# writer v3'],
+      body: BASE,
+      mutations: [V2, V3],
       config: { budgetWallTimeMs: 15 },
       scoresFor: (_scenarios, call) => ({ pass: true, tokens: 1, wallTimeMs: call === 0 ? 5 : 20 }),
     })
@@ -530,8 +570,8 @@ describe('EvolutionOptimizer', () => {
   it('skips when the budget is spent before any candidate is scored', async () => {
     const { optimizer, staged } = await bench({
       record: { name: 'writer', usage: usage(12, 10) },
-      body: '# writer',
-      mutations: ['# writer v2'],
+      body: BASE,
+      mutations: [V2],
       config: { budgetTokens: 5 },
     })
     const report = await optimizer.optimize(request)
@@ -544,8 +584,8 @@ describe('EvolutionOptimizer', () => {
   it('stages a winner the holdout scenarios support', async () => {
     const { optimizer, staged } = await bench({
       record: { name: 'writer', usage: usage(12, 10) },
-      body: '# writer',
-      mutations: ['# writer v2'],
+      body: BASE,
+      mutations: [V2],
       config: { holdoutScenarios: ['h1'] },
       // Call 0 scores the baseline over the search set, 1 the candidate, then
       // 2 and 3 repeat that order over the holdout set.
@@ -561,8 +601,8 @@ describe('EvolutionOptimizer', () => {
   it('refuses a winner the baseline dominates on the holdout', async () => {
     const { optimizer, staged } = await bench({
       record: { name: 'writer', usage: usage(12, 10) },
-      body: '# writer',
-      mutations: ['# writer v2'],
+      body: BASE,
+      mutations: [V2],
       config: { holdoutScenarios: ['h1'] },
       // The candidate wins the search set (call 1) and loses the holdout (3).
       scoresFor: (_scenarios, call) => ({ pass: true, tokens: call === 1 || call === 2 ? 4 : 10, wallTimeMs: 5 }),
@@ -577,8 +617,8 @@ describe('EvolutionOptimizer', () => {
   it('scores every candidate in full when the screen would cover the whole search set', async () => {
     const { optimizer, scoreCalls } = await bench({
       record: { name: 'writer', usage: usage(12, 10) },
-      body: '# writer',
-      mutations: ['# writer v2', '# writer v3'],
+      body: BASE,
+      mutations: [V2, V3],
       config: { screenScenarioCount: 5 },
       scoresFor: (_scenarios, call) => ({ pass: true, tokens: call === 0 ? 10 : 4, wallTimeMs: 5 }),
     })
@@ -590,8 +630,8 @@ describe('EvolutionOptimizer', () => {
   it('propagates a screen skip without scoring survivors', async () => {
     const { optimizer, staged, scoreCalls } = await bench({
       record: { name: 'writer', usage: usage(12, 10) },
-      body: '# writer',
-      mutations: ['# writer v2', '# writer v3'],
+      body: BASE,
+      mutations: [V2, V3],
       config: { screenScenarioCount: 1 },
       skipEvaluation: 'screen scenario gone',
       skipOnCall: 1,
@@ -606,8 +646,8 @@ describe('EvolutionOptimizer', () => {
   it('propagates a winner holdout skip without staging', async () => {
     const { optimizer, staged } = await bench({
       record: { name: 'writer', usage: usage(12, 10) },
-      body: '# writer',
-      mutations: ['# writer v2'],
+      body: BASE,
+      mutations: [V2],
       config: { holdoutScenarios: ['h1'] },
       scoresFor: (_scenarios, call) => ({ pass: true, tokens: call === 1 ? 4 : 10, wallTimeMs: 5 }),
       skipEvaluation: 'winner holdout unavailable',
@@ -622,8 +662,8 @@ describe('EvolutionOptimizer', () => {
   it('records what a promotion measured', async () => {
     const { optimizer } = await bench({
       record: { name: 'writer', usage: usage(12, 10) },
-      body: '# writer',
-      mutations: ['# writer v2'],
+      body: BASE,
+      mutations: [V2],
       config: { holdoutScenarios: ['h1'] },
       scoresFor: (_scenarios, call) => ({ pass: true, tokens: call === 1 || call === 3 ? 4 : 10, wallTimeMs: 5 }),
     })
@@ -652,8 +692,8 @@ describe('EvolutionOptimizer', () => {
   it('records a rejected run and skips a run that never mutated', async () => {
     const { optimizer } = await bench({
       record: { name: 'writer', usage: usage(12, 10) },
-      body: '# writer',
-      mutations: ['# writer v2'],
+      body: BASE,
+      mutations: [V2],
       scores: { writer: { pass: true, tokens: 5, wallTimeMs: 5 } },
     })
     expect((await optimizer.optimize(request)).status).toBe('no-improvement')
@@ -670,8 +710,8 @@ describe('EvolutionOptimizer', () => {
   it('refuses to pay for an experiment the ledger already decided', async () => {
     const { optimizer, llmCalls } = await bench({
       record: { name: 'writer', usage: usage(12, 10) },
-      body: '# writer',
-      mutations: ['# writer v2'],
+      body: BASE,
+      mutations: [V2],
       scores: { writer: { pass: true, tokens: 5, wallTimeMs: 5 } },
     })
     expect((await optimizer.optimize(request)).status).toBe('no-improvement')
@@ -686,8 +726,8 @@ describe('EvolutionOptimizer', () => {
   it('re-runs a recorded experiment after the scorer version changes', async () => {
     const { optimizer, scorer, llmCalls } = await bench({
       record: { name: 'writer', usage: usage(12, 10) },
-      body: '# writer',
-      mutations: ['# writer v2'],
+      body: BASE,
+      mutations: [V2],
       scores: { writer: { pass: true, tokens: 5, wallTimeMs: 5 } },
     })
     expect((await optimizer.optimize(request)).status).toBe('no-improvement')
@@ -702,8 +742,8 @@ describe('EvolutionOptimizer', () => {
   it('re-runs a recorded experiment when the guard is off or the evidence changed', async () => {
     const off = await bench({
       record: { name: 'writer', usage: usage(12, 10) },
-      body: '# writer',
-      mutations: ['# writer v2'],
+      body: BASE,
+      mutations: [V2],
       scores: { writer: { pass: true, tokens: 5, wallTimeMs: 5 } },
       config: { skipRepeatedExperiments: false },
     })
@@ -712,8 +752,8 @@ describe('EvolutionOptimizer', () => {
 
     const { optimizer } = await bench({
       record: { name: 'writer', usage: usage(12, 10) },
-      body: '# writer',
-      mutations: ['# writer v2'],
+      body: BASE,
+      mutations: [V2],
       scores: { writer: { pass: true, tokens: 5, wallTimeMs: 5 } },
     })
     await optimizer.optimize(request)
@@ -723,11 +763,11 @@ describe('EvolutionOptimizer', () => {
   it('switches to the operator that produced nothing once a skill stagnates', async () => {
     const { optimizer } = await bench({
       record: { name: 'writer', usage: usage(12, 10) },
-      body: '# writer',
+      body: BASE,
       config: { maxCandidates: 2, operators: ['rewrite', 'compress'], stagnationWindow: 1 },
       // The first run's rewrite yields a candidate and compress yields none;
       // the stagnant run draws from compress alone.
-      llmBodies: [['# writer v2'], [], ['# writer v3']],
+      llmBodies: [[V2], [], [V3]],
       scores: { writer: { pass: true, tokens: 5, wallTimeMs: 5 } },
     })
     const first = await optimizer.optimize(request)
@@ -742,9 +782,9 @@ describe('EvolutionOptimizer', () => {
   it('keeps the configured lineup when the window already tried every operator', async () => {
     const { optimizer } = await bench({
       record: { name: 'writer', usage: usage(12, 10) },
-      body: '# writer',
+      body: BASE,
       config: { maxCandidates: 2, operators: ['rewrite', 'compress'], stagnationWindow: 1 },
-      llmBodies: [['# writer v2'], ['# writer v3'], ['# writer v4'], ['# writer v5']],
+      llmBodies: [[V2], [V3], [V4], [V5]],
       scores: { writer: { pass: true, tokens: 5, wallTimeMs: 5 } },
     })
     await optimizer.optimize(request)
@@ -756,8 +796,8 @@ describe('EvolutionOptimizer', () => {
   it('neither remembers nor stagnates on a run that never evaluated', async () => {
     const { optimizer } = await bench({
       record: { name: 'writer', usage: usage(12, 10) },
-      body: '# writer',
-      mutations: ['# writer v2'],
+      body: BASE,
+      mutations: [V2],
       config: { stagnationWindow: 1 },
       skipEvaluation: 'the harness refused to run',
       skipOnCall: 0,
@@ -771,8 +811,8 @@ describe('EvolutionOptimizer', () => {
   it('records zero attempts for a run that measured no scenario', async () => {
     const { optimizer } = await bench({
       record: { name: 'writer', usage: usage(12, 10) },
-      body: '# writer',
-      mutations: ['# writer v2'],
+      body: BASE,
+      mutations: [V2],
       scores: { writer: { pass: true, tokens: 5, wallTimeMs: 5 } },
     })
     expect((await optimizer.optimize({ ...request, scenarios: [] })).status).toBe('no-improvement')
@@ -787,7 +827,7 @@ describe('EvolutionOptimizer', () => {
     ctx.provide('evolutionScorer', { evaluateSkill: async () => ({}) } as never)
     ctx.provide('evolutionSkillTelemetry', { entries: () => [{ name: 'writer', usage: usage(12, 10) }] } as never)
     ctx.provide('evolutionMemory', { read: () => undefined, stageWrite: async () => ({ id: 'staged-0' }) } as never)
-    ctx.provide('skills', { get: async () => ({ content: '# writer' }) } as never)
+    ctx.provide('skills', { get: async () => ({ content: BASE }) } as never)
     ctx.provide('llm', { stream: () => textTurn('[]') } as never)
     const optimizer = new EvolutionOptimizer(ctx, {
       provider: 'deepseek',
@@ -800,14 +840,14 @@ describe('EvolutionOptimizer', () => {
   it('orders the lineup by what repaired this failure before', async () => {
     const { optimizer } = await bench({
       record: { name: 'writer', usage: usage(12, 10) },
-      body: '# writer',
+      body: BASE,
       config: {
         maxCandidates: 2,
         operators: ['rewrite', 'compress'],
         priorMinTries: 1,
         skipRepeatedExperiments: false,
       },
-      llmBodies: [['# rewrite a'], ['# compress a'], ['# compress b'], ['# rewrite b']],
+      llmBodies: [[skillBody('writer', '# rewrite a')], [skillBody('writer', '# compress a')], [skillBody('writer', '# compress b')], [skillBody('writer', '# rewrite b')]],
       // Run 1: rewrite's candidate loses to compress's; run 2 measures nothing new.
       scoresFor: (_scenarios, call) => ({
         pass: true,
@@ -828,14 +868,14 @@ describe('EvolutionOptimizer', () => {
   it('leaves the lineup in configuration order below the prior threshold', async () => {
     const { optimizer } = await bench({
       record: { name: 'writer', usage: usage(12, 10) },
-      body: '# writer',
+      body: BASE,
       config: {
         maxCandidates: 2,
         operators: ['rewrite', 'compress'],
         priorMinTries: 5,
         skipRepeatedExperiments: false,
       },
-      llmBodies: [['# rewrite a'], ['# compress a'], ['# rewrite b'], ['# compress b']],
+      llmBodies: [[skillBody('writer', '# rewrite a')], [skillBody('writer', '# compress a')], [skillBody('writer', '# rewrite b')], [skillBody('writer', '# compress b')]],
       scoresFor: (_scenarios, call) => ({
         pass: true,
         tokens: call === 1 ? 8 : call === 2 ? 3 : 10,
@@ -850,14 +890,14 @@ describe('EvolutionOptimizer', () => {
   it('counts a failure mode by the shape of its evidence, not its counters', async () => {
     const { optimizer } = await bench({
       record: { name: 'writer', usage: usage(12, 10) },
-      body: '# writer',
+      body: BASE,
       config: {
         maxCandidates: 2,
         operators: ['rewrite', 'compress'],
         priorMinTries: 1,
         skipRepeatedExperiments: false,
       },
-      llmBodies: [['# rewrite a'], ['# compress a'], ['# compress b'], ['# rewrite b']],
+      llmBodies: [[skillBody('writer', '# rewrite a')], [skillBody('writer', '# compress a')], [skillBody('writer', '# compress b')], [skillBody('writer', '# rewrite b')]],
       scoresFor: (_scenarios, call) => ({
         pass: true,
         tokens: call === 1 ? 8 : call === 2 ? 3 : 10,
@@ -874,7 +914,7 @@ describe('EvolutionOptimizer', () => {
   it('records which operators said something new and orders the next lineup by it', async () => {
     const { optimizer } = await bench({
       record: { name: 'writer', usage: usage(12, 10) },
-      body: '# writer\nDo the thing.',
+      body: skillBody('writer', '# writer\nDo the thing.'),
       config: {
         maxCandidates: 2,
         operators: ['rewrite', 'compress'],
@@ -884,12 +924,12 @@ describe('EvolutionOptimizer', () => {
       },
       // Run 1: rewrite restates the body, compress adds a rule it lacks.
       llmBodies: [
-        ['# writer\nDO   THE thing.'],
-        ['# writer\nDo the thing.\nRefuse unsafe paths.'],
+        [skillBody('writer', '# writer\nDO   THE thing.')],
+        [skillBody('writer', '# writer\nDo the thing.\nRefuse unsafe paths.')],
         // Run 2's candidates reformat the body instead of adding to it: not a
         // duplicate of it byte-for-byte, and not novel in its lines either.
-        ['# writer\nDO  the thing.'],
-        ['# writer\nDo  THE thing.'],
+        [skillBody('writer', '# writer\nDO  the thing.')],
+        [skillBody('writer', '# writer\nDo  THE thing.')],
       ],
       scoresFor: (_scenarios, call) => ({
         pass: true,
@@ -914,8 +954,8 @@ describe('EvolutionOptimizer', () => {
   it('filters the ledger by skill and honours the page size', async () => {
     const { optimizer } = await bench({
       record: { name: 'writer', usage: usage(12, 10) },
-      body: '# writer',
-      mutations: ['# writer v2'],
+      body: BASE,
+      mutations: [V2],
       scores: { writer: { pass: true, tokens: 5, wallTimeMs: 5 } },
       config: { screenScenarioCount: 0 },
     })
@@ -931,8 +971,8 @@ describe('EvolutionOptimizer', () => {
   it('drops the oldest experiments beyond the retention cap', async () => {
     const { optimizer } = await bench({
       record: { name: 'writer', usage: usage(12, 10) },
-      body: '# writer',
-      mutations: ['# writer v2'],
+      body: BASE,
+      mutations: [V2],
       scores: { writer: { pass: true, tokens: 5, wallTimeMs: 5 } },
       config: { maxExperiments: 1 },
     })
@@ -946,8 +986,8 @@ describe('EvolutionOptimizer', () => {
   it('stages only a winner that repeats on every paired comparison', async () => {
     const { optimizer, staged, scoreCalls } = await bench({
       record: { name: 'writer', usage: usage(12, 10) },
-      body: '# writer',
-      mutations: ['# writer v2'],
+      body: BASE,
+      mutations: [V2],
       config: { confirmationRuns: 2 },
       scoresFor: (_scenarios, call) => ({ pass: true, tokens: call % 2 === 1 ? 4 : 10, wallTimeMs: 5 }),
     })
@@ -961,8 +1001,8 @@ describe('EvolutionOptimizer', () => {
   it('refuses a winner that fails a confirmation comparison', async () => {
     const { optimizer, staged } = await bench({
       record: { name: 'writer', usage: usage(12, 10) },
-      body: '# writer',
-      mutations: ['# writer v2'],
+      body: BASE,
+      mutations: [V2],
       config: { confirmationRuns: 2 },
       // The search comparison favours the variant; the repeat favours the baseline.
       scoresFor: (_scenarios, call) => ({ pass: true, tokens: call === 2 ? 1 : call === 1 ? 4 : 10, wallTimeMs: 5 }),
@@ -982,8 +1022,8 @@ describe('EvolutionOptimizer', () => {
   it('stops when the budget is spent during confirmation', async () => {
     const { optimizer, staged } = await bench({
       record: { name: 'writer', usage: usage(12, 10) },
-      body: '# writer',
-      mutations: ['# writer v2'],
+      body: BASE,
+      mutations: [V2],
       config: { confirmationRuns: 2, budgetTokens: 14 },
       scoresFor: (_scenarios, call) => ({ pass: true, tokens: call === 1 ? 4 : 10, wallTimeMs: 5 }),
     })
@@ -997,8 +1037,8 @@ describe('EvolutionOptimizer', () => {
   it('propagates a confirmation skip without staging', async () => {
     const { optimizer, staged } = await bench({
       record: { name: 'writer', usage: usage(12, 10) },
-      body: '# writer',
-      mutations: ['# writer v2'],
+      body: BASE,
+      mutations: [V2],
       config: { confirmationRuns: 2 },
       scoresFor: (_scenarios, call) => ({ pass: true, tokens: call === 1 ? 4 : 10, wallTimeMs: 5 }),
       skipEvaluation: 'confirmation scenario gone',
@@ -1013,8 +1053,8 @@ describe('EvolutionOptimizer', () => {
   it('propagates a winner confirmation skip without staging', async () => {
     const { optimizer } = await bench({
       record: { name: 'writer', usage: usage(12, 10) },
-      body: '# writer',
-      mutations: ['# writer v2'],
+      body: BASE,
+      mutations: [V2],
       config: { confirmationRuns: 2 },
       scoresFor: (_scenarios, call) => ({ pass: true, tokens: call === 1 ? 4 : 10, wallTimeMs: 5 }),
       skipEvaluation: 'winner confirmation unavailable',
@@ -1028,8 +1068,8 @@ describe('EvolutionOptimizer', () => {
   it('reports a broken ledger instead of failing the promotion', async () => {
     const { optimizer, staged } = await bench({
       record: { name: 'writer', usage: usage(12, 10) },
-      body: '# writer',
-      mutations: ['# writer v2'],
+      body: BASE,
+      mutations: [V2],
       brokenLedger: true,
       scoresFor: (_scenarios, call) => ({ pass: true, tokens: call === 1 ? 4 : 10, wallTimeMs: 5 }),
     })
@@ -1041,8 +1081,8 @@ describe('EvolutionOptimizer', () => {
   it('propagates a holdout skip without staging', async () => {
     const { optimizer, staged } = await bench({
       record: { name: 'writer', usage: usage(12, 10) },
-      body: '# writer',
-      mutations: ['# writer v2'],
+      body: BASE,
+      mutations: [V2],
       config: { holdoutScenarios: ['h1'] },
       scoresFor: (_scenarios, call) => ({ pass: true, tokens: call === 1 ? 4 : 10, wallTimeMs: 5 }),
       skipEvaluation: 'holdout scenario gone',

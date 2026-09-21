@@ -26,6 +26,11 @@
     "lib/types/**/*.d.ts"
   ],
   "license": "MIT",
+  "dsh": {
+    "capabilities": [
+      "dsh.mcp.call"
+    ]
+  },
   "peerDependencies": {
     "@deepseek-ai/dsh-attachment": "workspace:^",
     "@deepseek-ai/dsh-llm": "workspace:^",

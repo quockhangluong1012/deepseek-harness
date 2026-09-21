@@ -140,4 +140,52 @@ describe('rankSkills', () => {
     const plain = rank('code review', skills)
     expect(gated).toEqual(plain)
   })
+
+  it('satisfies a prerequisite through a capability another candidate provides', () => {
+    const skills = [
+      skill('composed', 'reviews code with base rules'),
+      skill('consultant', 'supplies review expertise on request'),
+    ]
+    const requires = new Map([['composed', ['base-rules']]])
+    expect(rank('code review', skills, { requires }).find(entry => entry.skill.name === 'composed')?.score).toBe(0)
+    const gated = rank('code review', skills, {
+      requires,
+      capabilities: new Map([['consultant', ['base-rules']]]),
+    })
+    expect(gated.find(entry => entry.skill.name === 'composed')?.score).toBeGreaterThan(0)
+  })
+
+  it('routes at most one of a conflicting pair, whichever side declares it', () => {
+    const skills = [
+      skill('alpha-review', 'reviews alpha changes'),
+      skill('beta-review', 'reviews beta changes'),
+    ]
+    const conflicts = new Map([['beta-review', ['alpha-review']]])
+    const ordered = rank('alpha review', skills, { conflicts })
+    const alpha = ordered.find(entry => entry.skill.name === 'alpha-review')
+    const beta = ordered.find(entry => entry.skill.name === 'beta-review')
+    expect(alpha?.score).toBeGreaterThan(0)
+    expect(beta?.score).toBe(0)
+    expect(beta?.roughScore).toBeGreaterThan(0)
+    expect(ordered[0]?.skill.name).toBe('alpha-review')
+  })
+
+  it('keeps a candidate whose unroutable rival declares the conflict', () => {
+    const skills = [
+      skill('rival', 'reviews alpha changes'),
+      skill('sibling', 'reviews alpha changes too'),
+    ]
+    const conflicts = new Map([['rival', ['sibling']]])
+    const requires = new Map([['rival', ['absent-base']]])
+    const ordered = rank('alpha review', skills, { conflicts, requires })
+    expect(ordered.find(entry => entry.skill.name === 'sibling')?.score).toBeGreaterThan(0)
+  })
+
+  it('leaves scores untouched when no relation is declared', () => {
+    const skills = [
+      skill('alpha-review', 'reviews alpha changes'),
+      skill('beta-review', 'reviews beta changes'),
+    ]
+    expect(rank('alpha review', skills, { capabilities: new Map(), conflicts: new Map() })).toEqual(rank('alpha review', skills))
+  })
 })

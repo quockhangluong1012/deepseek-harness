@@ -61,6 +61,51 @@ function catalogSourceEntries(
   }))
 }
 
+/**
+ * Result properties of one loaded skill. The `skill` tool returns the
+ * requested skill in these properties and every composed prerequisite in
+ * `composed`, so both are declared from this one place.
+ */
+const SKILL_VIEW_PROPERTIES = {
+  name: { type: 'string', required: true },
+  provider: { type: 'string', required: true },
+  resourceBase: {
+    oneOf: [
+      {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          kind: { type: 'string', required: true, const: 'directory' },
+          path: { type: 'string', required: true },
+        },
+      },
+      {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          kind: { type: 'string', required: true, const: 'url' },
+          url: { type: 'string', required: true },
+        },
+      },
+      {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          kind: { type: 'string', required: true, const: 'opaque' },
+          description: { type: 'string', required: true },
+        },
+      },
+    ],
+  },
+  content: { type: 'string', required: true },
+} as const
+
+/**
+ * One loaded skill as the tool result carries it: exactly the fields the
+ * result schema declares and {@link renderSkillContent} renders.
+ */
+type LoadedSkillView = Pick<SkillDefinition, 'name' | 'provider' | 'resourceBase' | 'content'>
+
 /** Model-facing skill catalog configuration. */
 export interface Config {
   /** Maximum normalized description length rendered in the session catalog; minimum 3. */
@@ -124,40 +169,21 @@ export function apply(ctx: Context, config: Config = {}): void {
         type: 'object',
         additionalProperties: false,
         properties: {
-          name: { type: 'string', required: true },
-          provider: { type: 'string', required: true },
-          resourceBase: {
-            oneOf: [
-              {
-                type: 'object',
-                additionalProperties: false,
-                properties: {
-                  kind: { type: 'string', required: true, const: 'directory' },
-                  path: { type: 'string', required: true },
-                },
-              },
-              {
-                type: 'object',
-                additionalProperties: false,
-                properties: {
-                  kind: { type: 'string', required: true, const: 'url' },
-                  url: { type: 'string', required: true },
-                },
-              },
-              {
-                type: 'object',
-                additionalProperties: false,
-                properties: {
-                  kind: { type: 'string', required: true, const: 'opaque' },
-                  description: { type: 'string', required: true },
-                },
-              },
-            ],
+          ...SKILL_VIEW_PROPERTIES,
+          composed: {
+            type: 'array',
+            items: {
+              type: 'object',
+              additionalProperties: false,
+              properties: SKILL_VIEW_PROPERTIES,
+            },
           },
-          content: { type: 'string', required: true },
         },
       },
-      render: (_args, value) => [{ type: 'text', text: renderSkillContent(value) }],
+      render: (_args, value) => [{
+        type: 'text',
+        text: [value, ...value.composed ?? []].map(skill => renderSkillContent(skill)).join('\n\n'),
+      }],
     },
     async execute(args, exec) {
       if (!isSkillName(args.name)) {
@@ -166,7 +192,8 @@ export function apply(ctx: Context, config: Config = {}): void {
       // The agent is its own scope key, so the lookup resolves the layered
       // registry exactly as this agent's composition sees it.
       const lookup = { cwd: exec.agent?.session.header.cwd, signal: exec.signal, scope: exec.agent }
-      const summary = (await ctx.skills.list(lookup)).find(skill => skill.name === args.name)
+      const catalog = await ctx.skills.list(lookup)
+      const summary = catalog.find(skill => skill.name === args.name)
       if (!summary) {
         throw new Error(`skill "${args.name}" is unknown or no longer available`)
       }
@@ -180,11 +207,11 @@ export function apply(ctx: Context, config: Config = {}): void {
       if (!isModelInvocable(skill)) {
         throw new Error(`skill "${args.name}" is not available for model invocation`)
       }
-      const body = await loadSkillBody(ctx, config, skill, {
-        sessionId: exec.agent?.session.id,
-        signal: exec.signal,
-      })
+      const vars = { sessionId: exec.agent?.session.id, signal: exec.signal }
+      const body = await loadSkillBody(ctx, config, skill, vars)
       if (!body.ok) throw new Error(body.error)
+      const composed = await composePrerequisites({ ctx, config, skill, catalog, lookup, vars })
+      if (!composed.ok) throw new Error(composed.error)
       return {
         name: skill.name,
         provider: skill.provider,
@@ -192,6 +219,7 @@ export function apply(ctx: Context, config: Config = {}): void {
           resourceBase: { ...skill.resourceBase },
         } : {},
         content: body.content,
+        ...composed.composed.length > 0 ? { composed: composed.composed } : {},
       }
     },
     presentCall(args) {

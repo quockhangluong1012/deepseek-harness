@@ -21,7 +21,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { isImageAdmissionError } from '@deepseek-ai/dsh-attachment'
 import type { AttachmentStore, ImageAttachmentRef, ImageMediaType, SaveImageAttachment } from '@deepseek-ai/dsh-attachment'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
-import type { ToolDefinition, ToolExecution, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
+import type { ToolDefinition, ToolExecution, ToolExecutionResult, ToolOrigin } from '@deepseek-ai/dsh-tools'
 import { assertSupportedJsonSchema, JsonSchemaError, ToolArgsError, validateJsonSchemaValue } from '@deepseek-ai/dsh-tools'
 import type { JsonSchemaNode } from '@deepseek-ai/dsh-tools'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
@@ -32,6 +32,96 @@ export interface ToolBridgeOptions {
   registrationFailure: 'contain' | 'throw'
   serverName: string
   toolCallTimeoutMs: number
+  /**
+   * Transport the server was reached through (`streamable-http` config maps to
+   * `'http'`). Feeds every synced definition's `origin.transport`.
+   */
+  transport: ToolOrigin['transport']
+  /**
+   * Short endpoint hash from {@link endpointOriginForConfig} — never the raw
+   * secret-bearing endpoint. Feeds every synced definition's
+   * `origin.endpointHash`.
+   */
+  endpointHash: string
+  /**
+   * Server version from the MCP `initialize` result (`getServerVersion()`),
+   * when the server reported one. Feeds {@link computeServerDigest}; absent
+   * still yields a digest over the tool-name list alone.
+   */
+  serverVersion?: string
+}
+
+/**
+ * Endpoint half of a plugin `Config`, without secrets: only the fields that
+ * feed {@link endpointOriginForConfig}. `env`, `headers`, and `cwd` are
+ * deliberately absent — they may carry credentials and never enter a hash.
+ */
+export type McpEndpointConfig =
+  | { readonly transport: 'stdio'; readonly command: string; readonly args: readonly string[] }
+  | { readonly transport: 'streamable-http'; readonly url: string }
+
+/** Transport plus endpoint hash resolved for one plugin `Config`. */
+export interface McpEndpointOrigin {
+  /** Transport the server is reached through. */
+  readonly transport: ToolOrigin['transport']
+  /** Short endpoint hash from {@link endpointOriginForConfig}. */
+  readonly endpointHash: string
+}
+
+/**
+ * Hash one stdio endpoint without retaining it: SHA-256 over
+ * `mcp-stdio-endpoint\0<command>\0<arg1>\0...`, hex-encoded and truncated to
+ * 12 characters. Environment and working directory never feed the hash — they
+ * may carry credentials.
+ * @param command - the server executable from plugin config.
+ * @param args - the server arguments from plugin config.
+ * @returns the 12-hex-char endpoint hash for `origin.endpointHash`.
+ */
+export function endpointHashForStdio(command: string, args: readonly string[]): string {
+  return createHash('sha256').update(`mcp-stdio-endpoint\0${command}\0${args.join('\0')}`).digest('hex').slice(0, HASH_LENGTH)
+}
+
+/**
+ * Hash one Streamable HTTP endpoint without retaining it: SHA-256 over
+ * `mcp-http-endpoint\0<url>`, hex-encoded and truncated to 12 characters.
+ * Request headers never feed the hash — they may carry credentials.
+ * @param url - the MCP endpoint URL from plugin config.
+ * @returns the 12-hex-char endpoint hash for `origin.endpointHash`.
+ */
+export function endpointHashForHttp(url: string): string {
+  return createHash('sha256').update(`mcp-http-endpoint\0${url}`).digest('hex').slice(0, HASH_LENGTH)
+}
+
+/**
+ * Resolve the transport plus endpoint hash for one plugin config. The
+ * `streamable-http` config transport maps to the `'http'` origin transport;
+ * secrets (`env`, `headers`) never feed the hash.
+ * @param config - the endpoint half of the resolved plugin `Config`.
+ * @returns the transport and endpoint hash for `ToolBridgeOptions`.
+ */
+export function endpointOriginForConfig(config: McpEndpointConfig): McpEndpointOrigin {
+  switch (config.transport) {
+    case 'stdio':
+      return { transport: 'stdio', endpointHash: endpointHashForStdio(config.command, config.args) }
+    case 'streamable-http':
+      return { transport: 'http', endpointHash: endpointHashForHttp(config.url) }
+  }
+}
+
+/**
+ * Digest one synced tool generation: SHA-256 (full 64-hex-char digest) over
+ * the sorted raw MCP tool names joined with `\0`, followed by
+ * `\0server-version:` plus the server version when the server reported one
+ * (otherwise the empty string). The remote `serverInfo.name` never feeds the
+ * digest — it is untrusted and may rename tools silently. An absent version
+ * still yields a stable digest over the tool-name list alone.
+ * @param rawToolNames - the generation's raw MCP tool names, in any order.
+ * @param serverVersion - the `getServerVersion()` version, when reported.
+ * @returns the full-hex server digest for `serverDigest`.
+ */
+export function computeServerDigest(rawToolNames: readonly string[], serverVersion?: string): string {
+  const sorted = [...rawToolNames].sort()
+  return createHash('sha256').update(`${sorted.join('\0')}\0server-version:${serverVersion ?? ''}`).digest('hex')
 }
 
 /** State for one sync generation: the current set of disposers keyed by public name. */
@@ -148,29 +238,31 @@ export async function syncTools(
   previous: ToolDisposers,
 ): Promise<ToolDisposers> {
   // Phase 1: fetch and build the next generation without touching the registry.
-  const definitions = new Map<string, ToolDefinition>()
+  const pending = new Map<string, {
+    rawName: string
+    description: string
+    parameters: Record<string, unknown>
+    structuredSchema: JsonSchemaNode | undefined
+    taskRequired: boolean
+  }>()
   const seenCursors = new Set<string>()
   let cursor: string | undefined
   do {
     const response = await listToolsUncached(client, cursor)
     for (const tool of response.tools) {
       const publicName = publicToolName(opts.serverName, tool.name)
-      if (definitions.has(publicName)) {
+      if (pending.has(publicName)) {
         throw new Error(
           `mcp-client(${opts.serverName}): server listed tool "${tool.name}" more than once — invalid tool list`,
         )
       }
-      definitions.set(publicName, createDefinition(
-        client,
-        ctx,
-        publicName,
-        tool.name,
-        tool.description ?? '',
-        tool.inputSchema,
-        supportedOutputSchema(tool.outputSchema),
-        tool.execution?.taskSupport === 'required',
-        opts,
-      ))
+      pending.set(publicName, {
+        rawName: tool.name,
+        description: tool.description ?? '',
+        parameters: tool.inputSchema,
+        structuredSchema: supportedOutputSchema(tool.outputSchema),
+        taskRequired: tool.execution?.taskSupport === 'required',
+      })
     }
     cursor = response.nextCursor
     if (cursor) {
@@ -182,6 +274,35 @@ export async function syncTools(
       seenCursors.add(cursor)
     }
   } while (cursor)
+
+  // One digest per generation: sorted raw names plus the reported server
+  // version (when any), so a changed server behind a stable namespace is
+  // detectable without trusting the remote server name.
+  const serverDigest = computeServerDigest(
+    [...pending.values()].map(entry => entry.rawName),
+    opts.serverVersion,
+  )
+  const origin: ToolOrigin = {
+    serverName: opts.serverName,
+    transport: opts.transport,
+    endpointHash: opts.endpointHash,
+  }
+  const definitions = new Map<string, ToolDefinition>()
+  for (const [publicName, entry] of pending) {
+    definitions.set(publicName, createDefinition(
+      client,
+      ctx,
+      publicName,
+      entry.rawName,
+      entry.description,
+      entry.parameters,
+      entry.structuredSchema,
+      entry.taskRequired,
+      opts,
+      origin,
+      serverDigest,
+    ))
+  }
 
   // Phase 2: swap generations.
   for (const dispose of previous.values()) dispose()
@@ -249,6 +370,8 @@ function supportedOutputSchema(candidate: unknown): JsonSchemaNode | undefined {
  * @param structuredSchema - supported structured-output schema, when advertised.
  * @param taskRequired - whether this MCP tool requires unsupported task execution.
  * @param opts - bridge timeout and namespace options.
+ * @param origin - provenance metadata shared by the whole synced generation.
+ * @param serverDigest - generation digest from {@link computeServerDigest}.
  * @returns a complete ToolRuntime definition.
  */
 function createDefinition(
@@ -261,12 +384,19 @@ function createDefinition(
   structuredSchema: JsonSchemaNode | undefined,
   taskRequired: boolean,
   opts: ToolBridgeOptions,
+  origin: ToolOrigin,
+  serverDigest: string,
 ): ToolDefinition {
   const projections = new WeakMap<ToolExecution, PreparedProjection>()
   return {
     name: publicName,
     description,
     parameters,
+    origin,
+    serverDigest,
+    // Servers declare no capabilities yet; the field stays undefined (not an
+    // empty grant) until a later slice defines the declaration vocabulary.
+    capabilities: [],
     output: createOutput(rawName, structuredSchema),
     execute: createExecutor(client, ctx, rawName, parameters, taskRequired, opts, projections),
     finalizeContent(exec: Readonly<ToolExecution>, result: Readonly<ToolExecutionResult>) {
