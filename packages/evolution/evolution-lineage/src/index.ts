@@ -24,10 +24,26 @@ export type * from './types.ts'
 export { changedDependencies, comparable, attributeImprovement, DEPENDENCY_KEYS } from './lineage.ts'
 export { lineageDomainSpec, experimentEnvelopeRow } from './spec.ts'
 
-/** Validated configuration of the lineage store. */
-export interface LineageConfig {
+/** Deployment choices of the lineage store; an omitted field takes its default. */
+export interface Config {
+  /** Dependency keys two envelopes must agree on to compare; defaults to the skill, evaluator, retriever, and model. */
+  comparedKeys?: DependencyKey[]
+}
+
+/** Validated deployment choices, every default applied. */
+export interface ResolvedConfig {
   /** Dependency keys two envelopes must agree on to compare. */
   comparedKeys: DependencyKey[]
+}
+
+/**
+ * Resolve defaults for the optional fields.
+ * @param config - user-facing plugin configuration.
+ * @returns normalized runtime configuration.
+ */
+export function resolveConfig(config: Config): ResolvedConfig {
+  const { comparedKeys = ['skill', 'evaluator', 'retriever', 'model'] } = config
+  return { comparedKeys }
 }
 
 declare module '@deepseek-ai/cordis' {
@@ -50,8 +66,7 @@ export class EvolutionLineage extends Service {
     comparedKeys: z.array(z.enum(DEPENDENCY_KEYS)).min(1).default(['skill', 'evaluator', 'retriever', 'model']),
   })
 
-  /** Deployment choices of the lineage store. */
-  readonly config: LineageConfig
+  private readonly resolved: ResolvedConfig
 
   private experimentTable?: KvTable<string, ExperimentEnvelope>
 
@@ -59,9 +74,9 @@ export class EvolutionLineage extends Service {
    * @param ctx - host context carrying the storage domain.
    * @param config - validated store choices.
    */
-  constructor(ctx: Context, config: LineageConfig) {
+  constructor(ctx: Context, config: Config = {}) {
     super(ctx, 'evolutionLineage')
-    this.config = config
+    this.resolved = resolveConfig(config)
   }
 
   /** Open the domain and publish the table handle. */
@@ -135,7 +150,7 @@ export class EvolutionLineage extends Service {
     const a = table.get(idA)
     const b = table.get(idB)
     if (a === undefined || b === undefined) return undefined
-    const changed = changedDependencies(a.dependencies, b.dependencies, this.config.comparedKeys)
+    const changed = changedDependencies(a.dependencies, b.dependencies, this.resolved.comparedKeys)
     return { comparable: changed.length === 0, changed }
   }
 

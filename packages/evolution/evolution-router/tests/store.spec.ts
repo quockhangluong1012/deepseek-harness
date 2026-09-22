@@ -4,7 +4,7 @@ import Storage from '@deepseek-ai/dsh-storage'
 import { DomainFacility } from '@deepseek-ai/dsh-storage-domain'
 import { MemoryMediaPool, MemoryStorageBackend } from '../../../storage/storage-domain/tests/helpers/memory-backend.ts'
 import EvolutionRouter from '../src/index.ts'
-import type { RouteOutcome } from '../src/index.ts'
+import type { RouteOutcomeInput } from '../src/index.ts'
 
 async function boot(backend = new MemoryStorageBackend(new MemoryMediaPool()), config?: Record<string, unknown>) {
   const ctx = new Context()
@@ -17,7 +17,7 @@ async function boot(backend = new MemoryStorageBackend(new MemoryMediaPool()), c
   return { ctx, fiber, store: ctx.evolutionRouter }
 }
 
-const outcome = (overrides: Partial<RouteOutcome> = {}): RouteOutcome => ({
+const outcome = (overrides: Partial<RouteOutcomeInput> = {}): RouteOutcomeInput => ({
   taskClass: 'writer',
   role: 'evaluation',
   provider: 'deepseek',

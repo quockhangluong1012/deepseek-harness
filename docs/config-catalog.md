@@ -693,7 +693,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/evolution/command-evolution/src/index.ts:81`](../packages/evolution/command-evolution/src/index.ts)
+Source: [`packages/evolution/command-evolution/src/index.ts:96`](../packages/evolution/command-evolution/src/index.ts)
 
 <a id="deepseek-aidsh-compaction-basic"></a>
 
@@ -871,10 +871,10 @@ Source: [`packages/llm/embeddings-http/src/index.ts:35`](../packages/llm/embeddi
 Requires: `storageDomain`
 
 ```ts config-catalog
-/** Validated configuration of the adversary store. */
-export interface AdversaryConfig {
-  /** Probes per category and skill before the category counts as covered. */
-  minProbesPerCategory: number
+/** Deployment choices of the adversary store; every field defaults when omitted. */
+export interface Config {
+  /** Probes per category and skill before the category counts as covered; defaults to 1. */
+  minProbesPerCategory?: number
 }
 ```
 
@@ -895,6 +895,24 @@ export interface Config {
 ```
 
 Source: [`packages/evolution/evolution-benchmark/src/index.ts:34`](../packages/evolution/evolution-benchmark/src/index.ts)
+
+<a id="deepseek-aidsh-evolution-budget"></a>
+
+## `@deepseek-ai/dsh-evolution-budget`
+
+Requires: `storageDomain`
+
+```ts config-catalog
+/** Deployment choices of the evolution-budget store; an omitted field takes its default. */
+export interface Config {
+  /** Base token ceiling of one standard batch; defaults to 20000. */
+  baseMaxTokens?: number
+  /** Base wall-time ceiling of one standard batch, in milliseconds; defaults to 600000. */
+  baseMaxWallTimeMs?: number
+}
+```
+
+Source: [`packages/evolution/evolution-budget/src/index.ts:27`](../packages/evolution/evolution-budget/src/index.ts)
 
 <a id="deepseek-aidsh-evolution-controller"></a>
 
@@ -1037,6 +1055,25 @@ export interface Config {
 
 Source: [`packages/evolution/evolution-evaluator-health/src/index.ts:31`](../packages/evolution/evolution-evaluator-health/src/index.ts)
 
+<a id="deepseek-aidsh-evolution-evaluator-strategy"></a>
+
+## `@deepseek-ai/dsh-evolution-evaluator-strategy`
+
+Requires: `storageDomain`
+
+```ts config-catalog
+/**
+ * Deployment choices of the evaluator-strategy store; an omitted field takes
+ * its default.
+ */
+export interface Config {
+  /** Independent samples an evaluator needs before it may be recommended; defaults to 3. */
+  minimumSamples?: number
+}
+```
+
+Source: [`packages/evolution/evolution-evaluator-strategy/src/index.ts:27`](../packages/evolution/evolution-evaluator-strategy/src/index.ts)
+
 <a id="deepseek-aidsh-evolution-feedback"></a>
 
 ## `@deepseek-ai/dsh-evolution-feedback`
@@ -1124,10 +1161,10 @@ Source: [`packages/evolution/evolution-heartbeat/src/index.ts:50`](../packages/e
 Requires: `storageDomain`
 
 ```ts config-catalog
-/** Validated configuration of the island store. */
-export interface IslandsConfig {
-  /** Scheduled-migration cadence, in milliseconds. */
-  migrationCadence: number
+/** Deployment choices of the island schedule; an omitted field takes its default. */
+export interface Config {
+  /** Scheduled-migration cadence, in milliseconds; default one day. */
+  migrationCadence?: number
 }
 ```
 
@@ -1140,10 +1177,10 @@ Source: [`packages/evolution/evolution-islands/src/index.ts:30`](../packages/evo
 Requires: `storageDomain`
 
 ```ts config-catalog
-/** Validated configuration of the lineage store. */
-export interface LineageConfig {
-  /** Dependency keys two envelopes must agree on to compare. */
-  comparedKeys: DependencyKey[]
+/** Deployment choices of the lineage store; an omitted field takes its default. */
+export interface Config {
+  /** Dependency keys two envelopes must agree on to compare; defaults to the skill, evaluator, retriever, and model. */
+  comparedKeys?: DependencyKey[]
 }
 
 /** One named dependency whose version an experiment envelope records. */
@@ -1223,6 +1260,58 @@ export interface Config {
 ```
 
 Source: [`packages/context/evolution-memory-context/src/index.ts:89`](../packages/context/evolution-memory-context/src/index.ts)
+
+<a id="deepseek-aidsh-evolution-meta"></a>
+
+## `@deepseek-ai/dsh-evolution-meta`
+
+Requires: `storageDomain`
+
+```ts config-catalog
+/**
+ * Deployment choices of the meta-evolution store; an omitted field takes its
+ * default.
+ */
+export interface Config {
+  /** Runs a configuration needs before it may be recommended; default 3. */
+  minimumSamples?: number
+  /**
+   * Engine configuration used when a recorded run names no choice; default the
+   * v1 choices of {@link DEFAULT_ENGINE_CONFIG}.
+   */
+  defaultConfig?: EngineConfig
+}
+
+/** One choice per engine component, e.g. an operator portfolio key. */
+export interface EngineConfig {
+  /** The mutation-operator choice. */
+  operators: string
+  /** The evaluator choice, e.g. a scorer version. */
+  evaluator: string
+  /** The budget-choice identity. */
+  budget: string
+  /** The routing choice. */
+  routing: string
+}
+```
+
+Source: [`packages/evolution/evolution-meta/src/index.ts:27`](../packages/evolution/evolution-meta/src/index.ts)
+
+<a id="deepseek-aidsh-evolution-operators"></a>
+
+## `@deepseek-ai/dsh-evolution-operators`
+
+Requires: `storageDomain`
+
+```ts config-catalog
+/** Deployment choices for the mutation-operator store; an omitted field takes its default. */
+export interface Config {
+  /** Exploration bonus weight of the ranking (0 to 1), 0.2 by default. */
+  exploration?: number
+}
+```
+
+Source: [`packages/evolution/evolution-operators/src/index.ts:24`](../packages/evolution/evolution-operators/src/index.ts)
 
 <a id="deepseek-aidsh-evolution-optimizer"></a>
 
@@ -1317,7 +1406,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/evolution/evolution-optimizer/src/index.ts:105`](../packages/evolution/evolution-optimizer/src/index.ts)
+Source: [`packages/evolution/evolution-optimizer/src/index.ts:110`](../packages/evolution/evolution-optimizer/src/index.ts)
 
 <a id="deepseek-aidsh-evolution-reviewer"></a>
 
@@ -1372,6 +1461,25 @@ export interface Config {
 
 Source: [`packages/evolution/evolution-reviewer/src/index.ts:46`](../packages/evolution/evolution-reviewer/src/index.ts)
 
+<a id="deepseek-aidsh-evolution-router"></a>
+
+## `@deepseek-ai/dsh-evolution-router`
+
+Requires: `storageDomain`
+
+```ts config-catalog
+/**
+ * Validated configuration of the routing self-optimization store; an omitted
+ * field takes its default.
+ */
+export interface Config {
+  /** Outcomes a route needs before it may be recommended; defaults to 3. */
+  minimumSamples?: number
+}
+```
+
+Source: [`packages/evolution/evolution-router/src/index.ts:28`](../packages/evolution/evolution-router/src/index.ts)
+
 <a id="deepseek-aidsh-evolution-scorer"></a>
 
 ## `@deepseek-ai/dsh-evolution-scorer`
@@ -1404,12 +1512,12 @@ Source: [`packages/evolution/evolution-scorer/src/index.ts:86`](../packages/evol
 Requires: `storageDomain`
 
 ```ts config-catalog
-/** Validated configuration of the self-model store. */
-export interface SelfModelConfig {
-  /** Observations that earn a capability entry full confidence. */
-  maxObservations: number
-  /** Newest failure notes kept per capability entry. */
-  maxFailures: number
+/** Deployment choices of the self-model store; omitted fields take their defaults. */
+export interface Config {
+  /** Observations that earn a capability entry full confidence; defaults to 10. */
+  maxObservations?: number
+  /** Newest failure notes kept per capability entry; defaults to 10. */
+  maxFailures?: number
 }
 ```
 
@@ -1456,16 +1564,19 @@ Source: [`packages/skill/evolution-skill-telemetry/src/index.ts:112`](../package
 Requires: `storageDomain`
 
 ```ts config-catalog
-/** Validated configuration of the sleep-time store. */
-export interface SleeptimeConfig {
-  /** Estimated offline tokens of one precompute, used when the caller names none. */
-  defaultEstimatedCostTokens: number
-  /** Total offline token budget of one plan, used when the caller names none. */
-  maxOfflineTokens: number
+/**
+ * Deployment choices of the sleep-time store; an omitted field takes its
+ * schema default.
+ */
+export interface Config {
+  /** Estimated offline tokens of one precompute, used when the caller names none; defaults to 2000. */
+  defaultEstimatedCostTokens?: number
+  /** Total offline token budget of one plan, used when the caller names none; defaults to 50000. */
+  maxOfflineTokens?: number
 }
 ```
 
-Source: [`packages/evolution/evolution-sleeptime/src/index.ts:33`](../packages/evolution/evolution-sleeptime/src/index.ts)
+Source: [`packages/evolution/evolution-sleeptime/src/index.ts:36`](../packages/evolution/evolution-sleeptime/src/index.ts)
 
 <a id="deepseek-aidsh-evolution-stagnation"></a>
 
@@ -1524,12 +1635,12 @@ Source: [`packages/evolution/evolution-trajectory/src/index.ts:51`](../packages/
 Requires: `storageDomain`
 
 ```ts config-catalog
-/** Validated configuration of the uncertainty queue. */
-export interface UncertaintyConfig {
-  /** Maximum tasks `queue` returns when the caller passes no limit. */
-  queueLimit: number
-  /** Priority added per distinct signal kind past the first in one task. */
-  corroborationBonus: number
+/** Deployment choices of the uncertainty queue; an omitted field takes its default. */
+export interface Config {
+  /** Maximum tasks `queue` returns when the caller passes no limit; default 50. */
+  queueLimit?: number
+  /** Priority added per distinct signal kind past the first in one task; default 0.15. */
+  corroborationBonus?: number
 }
 ```
 

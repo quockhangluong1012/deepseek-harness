@@ -40,6 +40,11 @@
     { "path": "../evolution-uncertainty" },
     { "path": "../evolution-adversary" },
     { "path": "../evolution-lineage" },
-    { "path": "../evolution-sleeptime" }
+    { "path": "../evolution-sleeptime" },
+    { "path": "../evolution-budget" },
+    { "path": "../evolution-evaluator-strategy" },
+    { "path": "../evolution-meta" },
+    { "path": "../evolution-operators" },
+    { "path": "../evolution-router" }
   ]
 }

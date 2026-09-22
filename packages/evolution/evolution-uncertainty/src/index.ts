@@ -22,12 +22,30 @@ export type * from './types.ts'
 export { UNCERTAINTY_KINDS, priorityOf, queueFor } from './uncertainty.ts'
 export { uncertaintyDomainSpec, uncertaintySignalRow } from './spec.ts'
 
-/** Validated configuration of the uncertainty queue. */
-export interface UncertaintyConfig {
+/** Deployment choices of the uncertainty queue; an omitted field takes its default. */
+export interface Config {
+  /** Maximum tasks `queue` returns when the caller passes no limit; default 50. */
+  queueLimit?: number
+  /** Priority added per distinct signal kind past the first in one task; default 0.15. */
+  corroborationBonus?: number
+}
+
+/** Normalized configuration used by the store. */
+export interface ResolvedConfig {
   /** Maximum tasks `queue` returns when the caller passes no limit. */
   queueLimit: number
   /** Priority added per distinct signal kind past the first in one task. */
   corroborationBonus: number
+}
+
+/**
+ * Resolve defaults for the optional fields.
+ * @param config - user-facing plugin configuration.
+ * @returns normalized runtime configuration.
+ */
+export function resolveConfig(config: Config): ResolvedConfig {
+  const { queueLimit = 50, corroborationBonus = 0.15 } = config
+  return { queueLimit, corroborationBonus }
 }
 
 declare module '@deepseek-ai/cordis' {
@@ -51,7 +69,7 @@ export class EvolutionUncertainty extends Service {
   })
 
   /** Deployment choices of the uncertainty queue. */
-  readonly config: UncertaintyConfig
+  private readonly resolved: ResolvedConfig
 
   private signalTable?: KvTable<string, UncertaintySignal>
 
@@ -59,9 +77,9 @@ export class EvolutionUncertainty extends Service {
    * @param ctx - host context carrying the storage domain.
    * @param config - validated queue choices.
    */
-  constructor(ctx: Context, config: UncertaintyConfig) {
+  constructor(ctx: Context, config: Config = {}) {
     super(ctx, 'evolutionUncertainty')
-    this.config = config
+    this.resolved = resolveConfig(config)
   }
 
   /** Open the domain and publish the table handle. */
@@ -113,7 +131,7 @@ export class EvolutionUncertainty extends Service {
    * @returns the top evaluation tasks, highest priority first.
    */
   queue(skill?: string, limit?: number): readonly EvaluationTask[] {
-    return queueFor(this.signals(skill), this.config.corroborationBonus).slice(0, limit ?? this.config.queueLimit)
+    return queueFor(this.signals(skill), this.resolved.corroborationBonus).slice(0, limit ?? this.resolved.queueLimit)
   }
 
   /**

@@ -144,6 +144,58 @@ async transition(id: string, to: BenchmarkState): Promise<BenchmarkTask>
 
 Source: [`packages/evolution/evolution-benchmark/src/index.ts`](../../packages/evolution/evolution-benchmark/src/index.ts)
 
+<a id="ctxevolutionbudget--evolutionbudget"></a>
+
+### `ctx.evolutionBudget` — `EvolutionBudget`
+
+Evolution-budget store over durable allocations and spends. Opens the `evolution_budget` domain at init and closes it through `ctx.effect`.
+
+```ts cordis-catalog
+/**
+ * Record a budget allocation for one batch, pricing its candidate class
+ * against the base ceilings and upserting by batch identity. The stored
+ * instant is now.
+ * @param input - the batch, its task class, and its candidate class.
+ * @returns the stored allocation.
+ */
+async allocate(input: AllocationInput): Promise<BudgetAllocation>
+
+/**
+ * Record one spend of a batch and settle it against the allocation across
+ * every recorded spend of the batch. The allocation must exist: a spend
+ * without a priced batch is a surprise, not budget use.
+ * @param batchId - the batch spending.
+ * @param input - the spend to record.
+ * @returns the cumulative settlement of the batch.
+ */
+async spend(batchId: string, input: SpendInput): Promise<BudgetSettlement>
+
+/**
+ * List recorded allocations, optionally filtered by task class, in
+ * batch-id order.
+ * @param taskClass - optional task-class filter.
+ * @returns the allocations, detached from the store.
+ */
+batches(taskClass?: BudgetTaskClass): readonly BudgetAllocation[]
+
+/**
+ * List spend records, optionally filtered by batch, newest first with
+ * record-key ascending tie-break.
+ * @param batchId - optional batch filter.
+ * @returns the spend records, detached from the store.
+ */
+spends(batchId?: string): readonly SpendRecord[]
+
+/**
+ * Whether a batch's cumulative recorded spend stays inside its allocation.
+ * @param batchId - the batch to check.
+ * @returns true when both ceilings hold.
+ */
+withinBudget(batchId: string): boolean
+```
+
+Source: [`packages/evolution/evolution-budget/src/index.ts`](../../packages/evolution/evolution-budget/src/index.ts)
+
 <a id="ctxevolutioncanary--evolutioncanary"></a>
 
 ### `ctx.evolutionCanary` — `EvolutionCanary`
@@ -546,6 +598,48 @@ summary(): EvaluatorHealthSummary
 ```
 
 Source: [`packages/evolution/evolution-evaluator-health/src/index.ts`](../../packages/evolution/evolution-evaluator-health/src/index.ts)
+
+<a id="ctxevolutionevaluatorstrategy--evolutionevaluatorstrategy"></a>
+
+### `ctx.evolutionEvaluatorStrategy` — `EvolutionEvaluatorStrategy`
+
+Evaluator-strategy store over durable statistics rows. Opens the `evolution_evaluator_strategy` domain at init and closes it through `ctx.effect`.
+
+```ts cordis-catalog
+/**
+ * Record one verdict/ground-truth pair, upserting the evaluator's
+ * statistics for its task class. The stored instant is now.
+ * @param outcome - the verdict and the ground truth it is judged against.
+ * @returns the updated statistics.
+ */
+async observe(outcome: EvaluatorOutcome): Promise<EvaluatorStrategy>
+
+/**
+ * List every recorded statistics row, optionally filtered by task class, in
+ * evaluator order then task-class order.
+ * @param taskClass - optional task-class filter.
+ * @returns the rows, detached from the store.
+ */
+strategies(taskClass?: TaskClass): readonly EvaluatorStrategy[]
+
+/**
+ * Rank one task class's evaluators by their smoothed corroboration weight.
+ * @param taskClass - the task class to rank evaluators for.
+ * @returns the ranked evaluators, most trustworthy first.
+ */
+ranking(taskClass: TaskClass): readonly StrategyRanking[]
+
+/**
+ * The evaluator to trust for one task class: the best-ranked evaluator with
+ * at least `minimumSamples` independent samples, or undefined while no
+ * evaluator has that much independent evidence.
+ * @param taskClass - the task class to recommend for.
+ * @returns the recommended evaluator, or undefined.
+ */
+recommend(taskClass: TaskClass): StrategyRanking | undefined
+```
+
+Source: [`packages/evolution/evolution-evaluator-strategy/src/index.ts`](../../packages/evolution/evolution-evaluator-strategy/src/index.ts)
 
 <a id="ctxevolutionfeedback--evolutionfeedback"></a>
 
@@ -1085,6 +1179,49 @@ async recordOutputs(id: EvolutionScopeId, entries: readonly EvolutionOutput[]): 
 
 Source: [`packages/evolution/evolution-memory/src/index.ts`](../../packages/evolution/evolution-memory/src/index.ts)
 
+<a id="ctxevolutionmeta--evolutionmeta"></a>
+
+### `ctx.evolutionMeta` — `EvolutionMeta`
+
+Meta-evolution store over durable engine runs. Opens the `evolution_meta` domain at init and closes it through `ctx.effect`.
+
+```ts cordis-catalog
+/**
+ * Record one engine run, completing its configuration with the default
+ * choices where the caller named none. The stored instant is now.
+ * @param input - the run and its (possibly partial) configuration.
+ * @returns the stored run.
+ */
+async record(input: EngineRunInput): Promise<EngineRun>
+
+/**
+ * List recorded engine runs, optionally filtered by task class, newest
+ * first with run-id ascending tie-break.
+ * @param taskClass - optional task-class filter.
+ * @returns the runs, detached from the store.
+ */
+runs(taskClass?: MetaTaskClass): readonly EngineRun[]
+
+/**
+ * The derived per-configuration summaries, optionally filtered by task
+ * class, grouped by task class and best configuration first.
+ * @param taskClass - optional task-class filter.
+ * @returns the summaries, detached from the store.
+ */
+summaries(taskClass?: MetaTaskClass): readonly ConfigSummary[]
+
+/**
+ * The engine configuration to run next on one task class: the best-scored
+ * configuration with at least `minimumSamples` runs, or undefined while no
+ * configuration has that much evidence.
+ * @param taskClass - the task class to recommend for.
+ * @returns the recommended configuration, or undefined.
+ */
+recommend(taskClass: MetaTaskClass): ConfigRecommendation | undefined
+```
+
+Source: [`packages/evolution/evolution-meta/src/index.ts`](../../packages/evolution/evolution-meta/src/index.ts)
+
 <a id="ctxevolutionmodelroutes--evolutionmodelroutes"></a>
 
 ### `ctx.evolutionModelRoutes` — `EvolutionModelRoutes`
@@ -1176,6 +1313,49 @@ mean(skill: string): number
 
 Source: [`packages/evolution/evolution-novelty-search/src/index.ts`](../../packages/evolution/evolution-novelty-search/src/index.ts)
 
+<a id="ctxevolutionoperators--evolutionoperators"></a>
+
+### `ctx.evolutionOperators` — `EvolutionOperators`
+
+Mutation-operator store over durable statistics rows. Opens the `evolution_operators` domain at init and closes it through `ctx.effect`.
+
+```ts cordis-catalog
+/**
+ * Record one measured outcome of an operator, upserting the operator's
+ * statistics for its artifact class. The stored instant is now.
+ * @param outcome - the operator used and its accepted/delta outcome.
+ * @returns the updated statistics.
+ */
+async record(outcome: OperatorOutcome): Promise<OperatorStats>
+
+/**
+ * List every recorded statistics row, optionally filtered by artifact
+ * class, in canonical operator order then artifact-class order.
+ * @param artifactClass - optional artifact-class filter.
+ * @returns the rows, detached from the store.
+ */
+stats(artifactClass?: ArtifactClass): readonly OperatorStats[]
+
+/**
+ * Rank every canonical operator for one artifact class by the
+ * exploration-adjusted score. Untried operators enter with their prior
+ * score, so the ranking always names a next operator to try.
+ * @param artifactClass - the artifact class to rank operators for.
+ * @returns the ranked operators, best first.
+ */
+ranking(artifactClass: ArtifactClass): readonly OperatorRanking[]
+
+/**
+ * The best operator to try next on one artifact class: the ranking's top,
+ * the canonical first operator when nothing is recorded for the class.
+ * @param artifactClass - the artifact class to recommend for.
+ * @returns the recommended operator.
+ */
+recommend(artifactClass: ArtifactClass): OperatorRanking | undefined
+```
+
+Source: [`packages/evolution/evolution-operators/src/index.ts`](../../packages/evolution/evolution-operators/src/index.ts)
+
 <a id="ctxevolutionpopulation--evolutionpopulation"></a>
 
 ### `ctx.evolutionPopulation` — `EvolutionPopulation`
@@ -1265,6 +1445,53 @@ async rebuild(scopeId: EvolutionScopeId, signal: AbortSignal): Promise<void>
 ```
 
 Source: [`packages/evolution/evolution-reviewer/src/index.ts`](../../packages/evolution/evolution-reviewer/src/index.ts)
+
+<a id="ctxevolutionrouter--evolutionrouter"></a>
+
+### `ctx.evolutionRouter` — `EvolutionRouter`
+
+Routing self-optimization store over durable outcomes. Opens the `evolution_router` domain at init and closes it through `ctx.effect`.
+
+```ts cordis-catalog
+/**
+ * Record one measured outcome of a route serving one role on one task class.
+ * The stored instant is now.
+ * @param outcome - the route, role, task class, and measured triple.
+ * @returns the stored outcome.
+ */
+async observe(outcome: RouteOutcomeInput): Promise<RouteOutcome>
+
+/**
+ * List measured outcomes, optionally filtered by task class and role,
+ * newest first with record-key ascending tie-break.
+ * @param taskClass - optional task-class filter.
+ * @param role - optional role filter.
+ * @returns the outcomes, detached from the store.
+ */
+outcomes(taskClass?: RouterTaskClass, role?: RoutingRole): readonly RouteOutcome[]
+
+/**
+ * The derived effectiveness of every route, optionally filtered by task
+ * class and role, in task-class then role-topology then provider/model
+ * order.
+ * @param taskClass - optional task-class filter.
+ * @param role - optional role filter.
+ * @returns the effectiveness rows, detached from the store.
+ */
+effectiveness(taskClass?: RouterTaskClass, role?: RoutingRole): readonly RouteEffectiveness[]
+
+/**
+ * The route to use for one task class and role: the best-ranked route with
+ * at least `minimumSamples` measured outcomes, or undefined while no route
+ * has that much evidence.
+ * @param taskClass - the task class to recommend for.
+ * @param role - the role to recommend for.
+ * @returns the recommended route, or undefined.
+ */
+recommend(taskClass: RouterTaskClass, role: RoutingRole): RouteRankingEntry | undefined
+```
+
+Source: [`packages/evolution/evolution-router/src/index.ts`](../../packages/evolution/evolution-router/src/index.ts)
 
 <a id="ctxevolutionscorer--evolutionscorer"></a>
 

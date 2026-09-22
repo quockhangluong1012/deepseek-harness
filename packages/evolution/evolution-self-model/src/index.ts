@@ -30,12 +30,30 @@ export type * from './types.ts'
 export { frontierGaps, mergeModel, nextToLearn, observeCapability } from './selfmodel.ts'
 export { capabilityEntryRow, selfModelDomainSpec, selfModelRow } from './spec.ts'
 
-/** Validated configuration of the self-model store. */
-export interface SelfModelConfig {
+/** Deployment choices of the self-model store; omitted fields take their defaults. */
+export interface Config {
+  /** Observations that earn a capability entry full confidence; defaults to 10. */
+  maxObservations?: number
+  /** Newest failure notes kept per capability entry; defaults to 10. */
+  maxFailures?: number
+}
+
+/** Normalized configuration used by the self-model store. */
+export interface ResolvedConfig {
   /** Observations that earn a capability entry full confidence. */
   maxObservations: number
   /** Newest failure notes kept per capability entry. */
   maxFailures: number
+}
+
+/**
+ * Resolve defaults for the optional fields.
+ * @param config - user-facing plugin configuration.
+ * @returns normalized runtime configuration.
+ */
+export function resolveConfig(config: Config): ResolvedConfig {
+  const { maxObservations = 10, maxFailures = 10 } = config
+  return { maxObservations, maxFailures }
 }
 
 declare module '@deepseek-ai/cordis' {
@@ -59,19 +77,19 @@ export class EvolutionSelfModel extends Service {
     maxFailures: z.number().int().min(1).default(10),
   })
 
-  /** Deployment choices of the self-model store. */
-  readonly config: SelfModelConfig
+  /** Normalized deployment choices of the self-model store. */
+  private readonly resolved: ResolvedConfig
 
   private modelTable?: KvTable<string, SelfModel>
   private capabilityTable?: KvTable<string, CapabilityEntry>
 
   /**
    * @param ctx - host context carrying the storage domain.
-   * @param config - validated store choices.
+   * @param config - user-facing plugin configuration.
    */
-  constructor(ctx: Context, config: SelfModelConfig) {
+  constructor(ctx: Context, config: Config = {}) {
     super(ctx, 'evolutionSelfModel')
-    this.config = config
+    this.resolved = resolveConfig(config)
   }
 
   /** Open the domain and publish the table handles. */
@@ -125,7 +143,7 @@ export class EvolutionSelfModel extends Service {
   async observe(obs: CapabilityObservation): Promise<CapabilityEntry> {
     const table = this.requireCapabilities()
     const prev = table.get(obs.capability) ?? null
-    const entry = observeCapability(prev, obs, new Date().toISOString(), this.config.maxObservations, this.config.maxFailures)
+    const entry = observeCapability(prev, obs, new Date().toISOString(), this.resolved.maxObservations, this.resolved.maxFailures)
     await table.put(entry.capability, entry)
     return structuredClone(entry)
   }

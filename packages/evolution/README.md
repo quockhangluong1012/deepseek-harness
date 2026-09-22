@@ -50,6 +50,11 @@ The evolution family adds a closed learning loop on top of the harness without p
 | [`evolution-scorer`](evolution-scorer/README.md) | Scores a recorded corpus run: workspace-diff pass, metered tokens, and median-of-N wall time | `ctx.evolutionScorer` |
 | [`evolution-dreaming`](evolution-dreaming/README.md) | Three-phase dreaming consolidation over recorded failures: light observation, REM reflection, and deep durable narratives on the heartbeat's schedule | `ctx.evolutionDreaming` |
 | [`evolution-optimizer`](evolution-optimizer/README.md) | Offline skill optimization: trigger-gated mutation over the host LLM, scorer evaluation under isolated overlays, Pareto pick, and staged skill patch | `ctx.evolutionOptimizer` |
+| [`evolution-operators`](evolution-operators/README.md) | Mutation-operator evolution: attempts, acceptance, mean delta, and regression rate per operator and artifact class, with the exploration-adjusted ranking of which operator to try next | `ctx.evolutionOperators` |
+| [`evolution-evaluator-strategy`](evolution-evaluator-strategy/README.md) | Evaluator-strategy evolution: trust per evaluator and task class, earned from verdicts later judged against an independent ground truth | `ctx.evolutionEvaluatorStrategy` |
+| [`evolution-budget`](evolution-budget/README.md) | Evolution budget: per-batch allocations priced by candidate class, the spends settled against them with exact margins, and the successive-halving screening schedule | `ctx.evolutionBudget` |
+| [`evolution-router`](evolution-router/README.md) | Routing self-optimization: route outcomes measured per task class and role, with derived effectiveness and the ranked route recommendation | `ctx.evolutionRouter` |
+| [`evolution-meta`](evolution-meta/README.md) | Meta-evolution: engine runs under their configurations with derived pass rates, and the configuration recommended for a task class | `ctx.evolutionMeta` |
 
 -----
 

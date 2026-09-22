@@ -26,6 +26,11 @@ import type { ModelRoute, RouteEvidence, RouteRow, RouteSummary } from '@deepsee
 import type { DeploymentRecord, DeploymentState } from '@deepseek-ai/dsh-evolution-canary'
 import type { NoveltyArchiveEntry } from '@deepseek-ai/dsh-evolution-novelty-search'
 import type { StagnationRun, StagnationStatus } from '@deepseek-ai/dsh-evolution-stagnation'
+import type { BudgetAllocation, SpendRecord } from '@deepseek-ai/dsh-evolution-budget'
+import type { ConfigRecommendation, ConfigSummary, EngineRun } from '@deepseek-ai/dsh-evolution-meta'
+import type { OperatorRanking, OperatorStats } from '@deepseek-ai/dsh-evolution-operators'
+import type { RouteEffectiveness, RouteRankingEntry, RoutingRole } from '@deepseek-ai/dsh-evolution-router'
+import type { EvaluatorStrategy, StrategyRanking } from '@deepseek-ai/dsh-evolution-evaluator-strategy'
 import type { IslandInput, IslandSchedule, Migration, MigrationInput } from '@deepseek-ai/dsh-evolution-islands'
 import { dayKeyUTC7 } from '@deepseek-ai/dsh-usage-ledger'
 import { unzipSync, strFromU8 } from 'fflate'
@@ -267,6 +272,48 @@ interface SleeptimeStub {
   plan: unknown[]
 }
 
+/** Budget state the `/budget` command reads, when provided. */
+interface BudgetStub {
+  /** Allocations `batches` lists. */
+  batches: BudgetAllocation[]
+  /** Spends `spends` lists. */
+  spends: SpendRecord[]
+}
+
+/** Meta state the `/meta` command reads, when provided. */
+interface MetaStub {
+  /** Runs `runs` lists. */
+  runs: EngineRun[]
+  /** Summaries `summaries` lists. */
+  summaries: ConfigSummary[]
+  /** Recommendations `recommend` reports per task class. */
+  recommendations: Record<string, ConfigRecommendation>
+}
+
+/** Operator state the `/operators` command reads, when provided. */
+interface OperatorsStub {
+  /** Statistics `stats` lists. */
+  stats: OperatorStats[]
+  /** Rankings `ranking` reports per artifact class. */
+  rankings: Record<string, OperatorRanking[]>
+}
+
+/** Router state the `/router` command reads, when provided. */
+interface RouterStub {
+  /** Effectiveness rows `effectiveness` lists. */
+  effectiveness: RouteEffectiveness[]
+  /** Recommendations `recommend` reports by `<taskClass>/<role>`. */
+  recommendations: Record<string, RouteRankingEntry>
+}
+
+/** Evaluator-strategy state the `/evaluator-strategy` command reads, when provided. */
+interface EvaluatorStrategyStub {
+  /** Strategy rows `strategies` lists. */
+  strategies: EvaluatorStrategy[]
+  /** Rankings `ranking` reports per task class. */
+  rankings: Record<string, StrategyRanking[]>
+}
+
 /** Skill-catalog state the `/suggestions` command reads, when provided. */
 interface SkillsStub {
   /** Summaries `list` reports, in order. */
@@ -308,6 +355,11 @@ interface Harness {
   adversary: AdversaryStub
   lineage: LineageStub
   sleeptime: SleeptimeStub
+  budget: BudgetStub
+  meta: MetaStub
+  operators: OperatorsStub
+  router: RouterStub
+  evaluatorStrategy: EvaluatorStrategyStub
   skills: SkillsStub
   dream: DreamingStub
   /** Ordinary turns the invoking agent queued. */
@@ -318,7 +370,7 @@ interface Harness {
 async function harness(
   withReviewer = true,
   governance?: GovernanceStubs,
-  extra: { trajectory?: boolean; skills?: boolean; graph?: boolean; dream?: boolean; trace?: boolean; curriculum?: boolean; benchmark?: boolean; evaluatorHealth?: boolean; population?: boolean; routes?: boolean; canary?: boolean; novelty?: boolean; stagnation?: boolean; islands?: boolean; selfModel?: boolean; uncertainty?: boolean; adversary?: boolean; lineage?: boolean; sleeptime?: boolean } = {},
+  extra: { trajectory?: boolean; skills?: boolean; graph?: boolean; dream?: boolean; trace?: boolean; curriculum?: boolean; benchmark?: boolean; evaluatorHealth?: boolean; population?: boolean; routes?: boolean; canary?: boolean; novelty?: boolean; stagnation?: boolean; islands?: boolean; selfModel?: boolean; uncertainty?: boolean; adversary?: boolean; lineage?: boolean; sleeptime?: boolean; budget?: boolean; meta?: boolean; operators?: boolean; router?: boolean; evaluatorStrategy?: boolean } = {},
 ): Promise<Harness> {
   const dir = await realpath(await mkdtemp(join(tmpdir(), 'evc-')))
   const ctx = new Context()
@@ -646,6 +698,50 @@ async function harness(
       plan: () => sleeptime.plan,
     } as never)
   }
+  const budget: BudgetStub = { batches: [], spends: [] }
+  if (extra.budget === true) {
+    ctx.provide('evolutionBudget', {
+      batches: (taskClass?: string) => budget.batches.filter(row =>
+        (taskClass === undefined || row.taskClass === taskClass)),
+      spends: (batchId?: string) => budget.spends.filter(row =>
+        (batchId === undefined || row.batchId === batchId)),
+    } as never)
+  }
+  const meta: MetaStub = { runs: [], summaries: [], recommendations: {} }
+  if (extra.meta === true) {
+    ctx.provide('evolutionMeta', {
+      runs: (taskClass?: string) => meta.runs.filter(row =>
+        (taskClass === undefined || row.taskClass === taskClass)),
+      summaries: (taskClass?: string) => meta.summaries.filter(row =>
+        (taskClass === undefined || row.taskClass === taskClass)),
+      recommend: (taskClass: string) => meta.recommendations[taskClass],
+    } as never)
+  }
+  const operators: OperatorsStub = { stats: [], rankings: {} }
+  if (extra.operators === true) {
+    ctx.provide('evolutionOperators', {
+      stats: (artifactClass?: string) => operators.stats.filter(row =>
+        (artifactClass === undefined || row.artifactClass === artifactClass)),
+      ranking: (artifactClass: string) => operators.rankings[artifactClass] ?? [],
+    } as never)
+  }
+  const router: RouterStub = { effectiveness: [], recommendations: {} }
+  if (extra.router === true) {
+    ctx.provide('evolutionRouter', {
+      effectiveness: (taskClass?: string, role?: RoutingRole) => router.effectiveness.filter(row =>
+        (taskClass === undefined || row.taskClass === taskClass)
+        && (role === undefined || row.role === role)),
+      recommend: (taskClass: string, role: RoutingRole) => router.recommendations[`${taskClass}/${role}`],
+    } as never)
+  }
+  const evaluatorStrategy: EvaluatorStrategyStub = { strategies: [], rankings: {} }
+  if (extra.evaluatorStrategy === true) {
+    ctx.provide('evolutionEvaluatorStrategy', {
+      strategies: (taskClass?: string) => evaluatorStrategy.strategies.filter(row =>
+        (taskClass === undefined || row.taskClass === taskClass)),
+      ranking: (taskClass: string) => evaluatorStrategy.rankings[taskClass] ?? [],
+    } as never)
+  }
   const dream: DreamingStub = { runs: [], cycles: [] }
   if (extra.dream === true) {
     ctx.provide('evolutionDreaming', {
@@ -701,6 +797,11 @@ async function harness(
     adversary,
     lineage,
     sleeptime,
+    budget,
+    meta,
+    operators,
+    router,
+    evaluatorStrategy,
     dream,
     skills,
     followups: [],
@@ -949,6 +1050,36 @@ describe('@deepseek-ai/dsh-command-evolution registration', () => {
         description: 'List evolution islands with their migration schedule, register a lane, record a candidate migration, or read the migration log',
         input: { hint: '[list [<skill>] | register <island> <name> <objective> <skill> | migrate <from> <to> <candidate> [<reason>] | migrations [<skill>]]' },
       })
+      expect(test.ctx.commands.list(agent)).toContainEqual({
+        definitionId: '@deepseek-ai/dsh-command-evolution/budget',
+        name: 'budget',
+        description: 'Report the evolution budget: one allocation per candidate batch with its class, ceilings, and exact settlement, or the recorded spends',
+        input: { hint: '[spends [<batchId>]]' },
+      })
+      expect(test.ctx.commands.list(agent)).toContainEqual({
+        definitionId: '@deepseek-ai/dsh-command-evolution/meta',
+        name: 'meta',
+        description: 'Report engine runs under their configurations, the derived pass rates, or the configuration recommended for a task class',
+        input: { hint: '[summaries [<taskClass>] | runs [<taskClass>] | recommend <taskClass>]' },
+      })
+      expect(test.ctx.commands.list(agent)).toContainEqual({
+        definitionId: '@deepseek-ai/dsh-command-evolution/operators',
+        name: 'operators',
+        description: 'Rank the mutation operators recorded for one artifact class by acceptance, mean delta, and regression rate',
+        input: { hint: '<artifactClass>' },
+      })
+      expect(test.ctx.commands.list(agent)).toContainEqual({
+        definitionId: '@deepseek-ai/dsh-command-evolution/router',
+        name: 'router',
+        description: 'Report measured route effectiveness per task class and evolutionary role, or the route the store recommends',
+        input: { hint: '[effectiveness [<taskClass>] [<role>] | recommend <taskClass> <role>]' },
+      })
+      expect(test.ctx.commands.list(agent)).toContainEqual({
+        definitionId: '@deepseek-ai/dsh-command-evolution/evaluator-strategy',
+        name: 'evaluator-strategy',
+        description: 'Report evaluator trust earned from verdicts later judged against independent ground truth, or rank the evaluators of one task class',
+        input: { hint: '[strategies [<taskClass>] | rank <taskClass>]' },
+      })
 
       await test.plugin.dispose()
       expect(test.ctx.commands.find(agent, 'memory')).toBeUndefined()
@@ -969,6 +1100,11 @@ describe('@deepseek-ai/dsh-command-evolution registration', () => {
       expect(test.ctx.commands.find(agent, 'novelty')).toBeUndefined()
       expect(test.ctx.commands.find(agent, 'stagnation')).toBeUndefined()
       expect(test.ctx.commands.find(agent, 'islands')).toBeUndefined()
+      expect(test.ctx.commands.find(agent, 'budget')).toBeUndefined()
+      expect(test.ctx.commands.find(agent, 'meta')).toBeUndefined()
+      expect(test.ctx.commands.find(agent, 'operators')).toBeUndefined()
+      expect(test.ctx.commands.find(agent, 'router')).toBeUndefined()
+      expect(test.ctx.commands.find(agent, 'evaluator-strategy')).toBeUndefined()
     } finally {
       await rm(test.dir, { recursive: true, force: true })
     }
@@ -4768,6 +4904,455 @@ describe('command-evolution disposal', () => {
       expect(disposed).toBe(true)
     } finally {
       await rm(test.dir, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('/budget human command', () => {
+  it('reports usage for malformed invocations and a missing store', async () => {
+    const test = await harness()
+    try {
+      const session = sessionIn(test.ctx, test.dir, 'budget-unmounted')
+      expect((await run(test, session, '/budget')).result).toEqual({
+        kind: 'error',
+        text: 'The evolution budget store is not mounted.',
+      })
+    } finally {
+      await shutdown(test)
+    }
+    const mounted = await harness(true, undefined, { budget: true })
+    try {
+      const session = sessionIn(mounted.ctx, mounted.dir, 'budget-grammar')
+      const usage = 'Usage: /budget [spends [<batchId>]]'
+      expect((await run(mounted, session, '/budget bogus')).result).toEqual({ kind: 'error', text: usage })
+      expect((await run(mounted, session, '/budget spends a b')).result).toEqual({ kind: 'error', text: usage })
+    } finally {
+      await shutdown(mounted)
+    }
+  })
+
+  it('settles each batch against its allocation and lists spends', async () => {
+    const test = await harness(true, undefined, { budget: true })
+    try {
+      test.budget.batches = [
+        {
+          batchId: 'b1',
+          taskClass: 'writer',
+          candidateClass: 'high-potential',
+          maxTokens: 200,
+          maxWallTimeMs: 100,
+          reason: 'high-potential ×2',
+          at: '2026-09-12T00:00:00.000Z',
+        },
+        {
+          batchId: 'b2',
+          taskClass: 'writer',
+          candidateClass: 'low-potential',
+          maxTokens: 50,
+          maxWallTimeMs: 100,
+          reason: 'low-potential ×0.5',
+          at: '2026-09-12T00:00:00.000Z',
+        },
+      ]
+      test.budget.spends = [
+        { batchId: 'b1', tokens: 100, wallTimeMs: 50, rollouts: 2, at: '2026-09-12T00:00:00.000Z' },
+        { batchId: 'b2', tokens: 80, wallTimeMs: 10, rollouts: 1, at: '2026-09-12T00:00:00.000Z' },
+      ]
+      const session = sessionIn(test.ctx, test.dir, 'budget-settle')
+      expect((await run(test, session, '/budget')).result).toEqual({
+        kind: 'success',
+        text: [
+          'Budget (2 batches):',
+          '- b1 (high-potential, writer): 100/200 tokens, 50/100ms — 100 tokens, 50ms left',
+          '- b2 (low-potential, writer): 80/50 tokens, 10/100ms — EXCEEDED by 30 tokens, 0ms',
+        ].join('\n'),
+      })
+      expect((await run(test, session, '/budget spends b1')).result).toEqual({
+        kind: 'success',
+        text: [
+          '1 spend:',
+          '- b1: 100 tokens, 50ms, 2 rollouts at 2026-09-12T00:00:00.000Z',
+        ].join('\n'),
+      })
+    } finally {
+      await shutdown(test)
+    }
+  })
+
+  it('reports the empty state before the optimizer has recorded a batch', async () => {
+    const test = await harness(true, undefined, { budget: true })
+    try {
+      const session = sessionIn(test.ctx, test.dir, 'budget-empty')
+      expect((await run(test, session, '/budget')).result).toEqual({
+        kind: 'success',
+        text: 'No recorded budget allocations. The optimizer records one allocation per candidate batch.',
+      })
+      expect((await run(test, session, '/budget spends')).result).toEqual({
+        kind: 'success',
+        text: 'No recorded budget spends.',
+      })
+    } finally {
+      await shutdown(test)
+    }
+  })
+})
+
+describe('/meta human command', () => {
+  const config = { operators: 'portfolio-v1', evaluator: 'scorer-v1', budget: 'balanced-v1', routing: 'evidence-v1' }
+
+  it('reports usage for malformed invocations and a missing store', async () => {
+    const test = await harness()
+    try {
+      const session = sessionIn(test.ctx, test.dir, 'meta-unmounted')
+      expect((await run(test, session, '/meta')).result).toEqual({
+        kind: 'error',
+        text: 'The evolution meta store is not mounted.',
+      })
+    } finally {
+      await shutdown(test)
+    }
+    const mounted = await harness(true, undefined, { meta: true })
+    try {
+      const session = sessionIn(mounted.ctx, mounted.dir, 'meta-grammar')
+      const usage = 'Usage: /meta [summaries [<taskClass>] | runs [<taskClass>] | recommend <taskClass>]'
+      expect((await run(mounted, session, '/meta bogus')).result).toEqual({ kind: 'error', text: usage })
+      expect((await run(mounted, session, '/meta recommend')).result).toEqual({ kind: 'error', text: usage })
+      expect((await run(mounted, session, '/meta runs a b')).result).toEqual({ kind: 'error', text: usage })
+    } finally {
+      await shutdown(mounted)
+    }
+  })
+
+  it('summarizes configurations, lists runs, and names the recommendation', async () => {
+    const test = await harness(true, undefined, { meta: true })
+    try {
+      test.meta.runs = [
+        {
+          runId: 'run-1',
+          taskClass: 'writer',
+          config,
+          pass: true,
+          tokens: 5000,
+          wallTimeMs: 60000,
+          at: '2026-09-12T00:00:00.000Z',
+        },
+      ]
+      test.meta.summaries = [
+        {
+          configId: 'portfolio-v1|scorer-v1|balanced-v1|evidence-v1',
+          config,
+          taskClass: 'writer',
+          samples: 3,
+          passes: 2,
+          passRate: 2 / 3,
+          meanTokens: 5000,
+          score: 0.5,
+          lastAt: '2026-09-12T00:00:00.000Z',
+        },
+      ]
+      test.meta.recommendations['writer'] = {
+        config,
+        configId: 'portfolio-v1|scorer-v1|balanced-v1|evidence-v1',
+        taskClass: 'writer',
+        score: 0.5,
+        samples: 3,
+        passRate: 2 / 3,
+        reason: '2 of 3 runs passed; samples 3 ≥ minimum 3',
+      }
+      const session = sessionIn(test.ctx, test.dir, 'meta-read')
+      expect((await run(test, session, '/meta summaries writer')).result).toEqual({
+        kind: 'success',
+        text: [
+          "Engine configurations for 'writer' (best score first): 1",
+          '- portfolio-v1|scorer-v1|balanced-v1|evidence-v1 (writer): 67% pass over 3 runs, 5000 mean tokens, score 0.500',
+        ].join('\n'),
+      })
+      expect((await run(test, session, '/meta runs')).result).toEqual({
+        kind: 'success',
+        text: [
+          '1 engine run:',
+          '- run-1 (writer) pass, 5000 tokens, 60000ms at 2026-09-12T00:00:00.000Z',
+        ].join('\n'),
+      })
+      expect((await run(test, session, '/meta recommend writer')).result).toEqual({
+        kind: 'success',
+        text: [
+          "Recommended engine configuration for 'writer': portfolio-v1|scorer-v1|balanced-v1|evidence-v1",
+          'operators portfolio-v1, evaluator scorer-v1, budget balanced-v1, routing evidence-v1',
+          '2 of 3 runs passed; samples 3 ≥ minimum 3',
+        ].join('\n'),
+      })
+    } finally {
+      await shutdown(test)
+    }
+  })
+
+  it('reports the empty state and an under-sampled recommendation', async () => {
+    const test = await harness(true, undefined, { meta: true })
+    try {
+      const session = sessionIn(test.ctx, test.dir, 'meta-empty')
+      expect((await run(test, session, '/meta summaries')).result).toEqual({
+        kind: 'success',
+        text: 'No engine-configuration summaries. The optimizer records one run per staged write.',
+      })
+      expect((await run(test, session, '/meta runs')).result).toEqual({
+        kind: 'success',
+        text: 'No recorded engine runs.',
+      })
+      expect((await run(test, session, '/meta recommend writer')).result).toEqual({
+        kind: 'success',
+        text: "No configuration has enough recorded runs on 'writer' to recommend yet.",
+      })
+    } finally {
+      await shutdown(test)
+    }
+  })
+})
+
+describe('/operators human command', () => {
+  it('reports usage for malformed invocations and a missing store', async () => {
+    const test = await harness()
+    try {
+      const session = sessionIn(test.ctx, test.dir, 'operators-unmounted')
+      expect((await run(test, session, '/operators')).result).toEqual({
+        kind: 'error',
+        text: 'The evolution operators store is not mounted.',
+      })
+    } finally {
+      await shutdown(test)
+    }
+    const mounted = await harness(true, undefined, { operators: true })
+    try {
+      const session = sessionIn(mounted.ctx, mounted.dir, 'operators-grammar')
+      expect((await run(mounted, session, '/operators writer extra')).result).toEqual({
+        kind: 'error',
+        text: 'Usage: /operators <artifactClass>',
+      })
+    } finally {
+      await shutdown(mounted)
+    }
+  })
+
+  it('ranks one artifact class and joins the regression rate from its statistics', async () => {
+    const test = await harness(true, undefined, { operators: true })
+    try {
+      test.operators.stats = [
+        {
+          operator: 'rewrite',
+          artifactClass: 'writer',
+          attempts: 3,
+          accepted: 2,
+          meanDelta: 2 / 3,
+          regressionRate: 1 / 3,
+          lastAt: '2026-09-12T00:00:00.000Z',
+        },
+      ]
+      test.operators.rankings['writer'] = [
+        { operator: 'rewrite', attempts: 3, acceptanceRate: 2 / 3, meanDelta: 2 / 3, score: 0.75, reason: 'observed' },
+      ]
+      const session = sessionIn(test.ctx, test.dir, 'operators-rank')
+      expect((await run(test, session, '/operators writer')).result).toEqual({
+        kind: 'success',
+        text: [
+          "Operator ranking for 'writer' (best first):",
+          '- rewrite: 3 attempts, 67% accepted, mean delta 0.67, 33% regressions, score 0.750',
+        ].join('\n'),
+      })
+      expect((await run(test, session, '/operators')).result).toEqual({
+        kind: 'success',
+        text: [
+          'Operator statistics span 1 artifact class: writer.',
+          'Name one class to rank its operators.',
+        ].join('\n'),
+      })
+    } finally {
+      await shutdown(test)
+    }
+  })
+
+  it('reports the empty states', async () => {
+    const test = await harness(true, undefined, { operators: true })
+    try {
+      const session = sessionIn(test.ctx, test.dir, 'operators-empty')
+      expect((await run(test, session, '/operators')).result).toEqual({
+        kind: 'success',
+        text: "No recorded operator statistics. The optimizer records every staged write's operator and outcome.",
+      })
+      expect((await run(test, session, '/operators writer')).result).toEqual({
+        kind: 'success',
+        text: "No operator statistics recorded for 'writer'.",
+      })
+    } finally {
+      await shutdown(test)
+    }
+  })
+})
+
+describe('/router human command', () => {
+  it('reports usage for malformed invocations and a missing store', async () => {
+    const test = await harness()
+    try {
+      const session = sessionIn(test.ctx, test.dir, 'router-unmounted')
+      expect((await run(test, session, '/router')).result).toEqual({
+        kind: 'error',
+        text: 'The evolution router store is not mounted.',
+      })
+    } finally {
+      await shutdown(test)
+    }
+    const mounted = await harness(true, undefined, { router: true })
+    try {
+      const session = sessionIn(mounted.ctx, mounted.dir, 'router-grammar')
+      const usage = 'Usage: /router [effectiveness [<taskClass>] [<role>] | recommend <taskClass> <role>]'
+      expect((await run(mounted, session, '/router bogus')).result).toEqual({ kind: 'error', text: usage })
+      expect((await run(mounted, session, '/router recommend writer')).result).toEqual({ kind: 'error', text: usage })
+      expect((await run(mounted, session, '/router recommend writer bogus')).result).toEqual({ kind: 'error', text: usage })
+      expect((await run(mounted, session, '/router effectiveness writer bogus')).result).toEqual({ kind: 'error', text: usage })
+    } finally {
+      await shutdown(mounted)
+    }
+  })
+
+  it('lists measured effectiveness and names the recommended route', async () => {
+    const test = await harness(true, undefined, { router: true })
+    try {
+      test.router.effectiveness = [
+        {
+          taskClass: 'writer',
+          role: 'evaluation',
+          provider: 'deepseek',
+          model: 'chat',
+          samples: 5,
+          passes: 4,
+          passRate: 0.8,
+          meanTokens: 1000,
+          meanWallTimeMs: 2000,
+          lastAt: '2026-09-12T00:00:00.000Z',
+        },
+      ]
+      test.router.recommendations['writer/evaluation'] = {
+        provider: 'deepseek',
+        model: 'chat',
+        samples: 5,
+        passRate: 0.8,
+        meanTokens: 1000,
+        meanWallTimeMs: 2000,
+        score: 0.75,
+        reason: '4 of 5 outcomes passed; samples 5 ≥ minimum 3',
+      }
+      const session = sessionIn(test.ctx, test.dir, 'router-read')
+      expect((await run(test, session, '/router effectiveness')).result).toEqual({
+        kind: 'success',
+        text: [
+          '1 route row:',
+          '- deepseek/chat (evaluation, writer): 80% pass over 5, 1000 mean tokens, 2000ms mean',
+        ].join('\n'),
+      })
+      expect((await run(test, session, '/router recommend writer evaluation')).result).toEqual({
+        kind: 'success',
+        text: [
+          "Recommended route for evaluation on 'writer': deepseek/chat",
+          '4 of 5 outcomes passed; samples 5 ≥ minimum 3',
+        ].join('\n'),
+      })
+    } finally {
+      await shutdown(test)
+    }
+  })
+
+  it('reports the empty state and an under-sampled recommendation', async () => {
+    const test = await harness(true, undefined, { router: true })
+    try {
+      const session = sessionIn(test.ctx, test.dir, 'router-empty')
+      expect((await run(test, session, '/router')).result).toEqual({
+        kind: 'success',
+        text: 'No recorded route outcomes. The optimizer records the evaluation route of every staged write.',
+      })
+      expect((await run(test, session, '/router recommend writer evaluation')).result).toEqual({
+        kind: 'success',
+        text: "No route has enough recorded outcomes on 'writer' for evaluation to recommend yet.",
+      })
+    } finally {
+      await shutdown(test)
+    }
+  })
+})
+
+describe('/evaluator-strategy human command', () => {
+  it('reports usage for malformed invocations and a missing store', async () => {
+    const test = await harness()
+    try {
+      const session = sessionIn(test.ctx, test.dir, 'evaluator-strategy-unmounted')
+      expect((await run(test, session, '/evaluator-strategy')).result).toEqual({
+        kind: 'error',
+        text: 'The evolution evaluator-strategy store is not mounted.',
+      })
+    } finally {
+      await shutdown(test)
+    }
+    const mounted = await harness(true, undefined, { evaluatorStrategy: true })
+    try {
+      const session = sessionIn(mounted.ctx, mounted.dir, 'evaluator-strategy-grammar')
+      const usage = 'Usage: /evaluator-strategy [strategies [<taskClass>] | rank <taskClass>]'
+      expect((await run(mounted, session, '/evaluator-strategy bogus')).result).toEqual({ kind: 'error', text: usage })
+      expect((await run(mounted, session, '/evaluator-strategy rank')).result).toEqual({ kind: 'error', text: usage })
+      expect((await run(mounted, session, '/evaluator-strategy strategies a b')).result).toEqual({ kind: 'error', text: usage })
+    } finally {
+      await shutdown(mounted)
+    }
+  })
+
+  it('lists recorded trust and ranks one task class', async () => {
+    const test = await harness(true, undefined, { evaluatorStrategy: true })
+    try {
+      test.evaluatorStrategy.strategies = [
+        {
+          evaluator: 'scorer-v1',
+          taskClass: 'writer',
+          samples: 4,
+          independentSamples: 3,
+          corroborations: 2,
+          weight: 0.7,
+          lastAt: '2026-09-12T00:00:00.000Z',
+        },
+      ]
+      test.evaluatorStrategy.rankings['writer'] = [
+        { evaluator: 'scorer-v1', samples: 4, independentSamples: 3, corroborations: 2, weight: 0.7, reason: 'observed' },
+      ]
+      const session = sessionIn(test.ctx, test.dir, 'evaluator-strategy-read')
+      expect((await run(test, session, '/evaluator-strategy strategies writer')).result).toEqual({
+        kind: 'success',
+        text: [
+          '1 evaluator strategy row:',
+          '- scorer-v1 (writer): 2/3 independent corroborations over 4 verdicts, weight 0.700 at 2026-09-12T00:00:00.000Z',
+        ].join('\n'),
+      })
+      expect((await run(test, session, '/evaluator-strategy rank writer')).result).toEqual({
+        kind: 'success',
+        text: [
+          "Evaluator ranking for 'writer' (most trusted first):",
+          '- scorer-v1: 2/3 independent corroborations over 4 verdicts, weight 0.700',
+        ].join('\n'),
+      })
+    } finally {
+      await shutdown(test)
+    }
+  })
+
+  it('reports the empty states', async () => {
+    const test = await harness(true, undefined, { evaluatorStrategy: true })
+    try {
+      const session = sessionIn(test.ctx, test.dir, 'evaluator-strategy-empty')
+      expect((await run(test, session, '/evaluator-strategy')).result).toEqual({
+        kind: 'success',
+        text: 'No evaluator strategy recorded. The optimizer pairs each verdict with its holdout ground truth.',
+      })
+      expect((await run(test, session, '/evaluator-strategy rank writer')).result).toEqual({
+        kind: 'success',
+        text: "No evaluator strategy recorded for 'writer'.",
+      })
+    } finally {
+      await shutdown(test)
     }
   })
 })

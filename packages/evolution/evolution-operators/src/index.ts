@@ -20,10 +20,26 @@ export type * from './types.ts'
 export { MUTATION_OPERATORS, rankOperators, recommendOperator, scoreOf, statsKey, updatedStats } from './operators.ts'
 export { operatorStatsRow, operatorsDomainSpec } from './spec.ts'
 
-/** Validated configuration of the mutation-operator store. */
-export interface OperatorsConfig {
+/** Deployment choices for the mutation-operator store; an omitted field takes its default. */
+export interface Config {
+  /** Exploration bonus weight of the ranking (0 to 1), 0.2 by default. */
+  exploration?: number
+}
+
+/** Validated deployment choices with every default applied. */
+export interface ResolvedConfig {
   /** Exploration bonus weight of the ranking (0 to 1). */
   exploration: number
+}
+
+/**
+ * Resolve defaults for the optional store fields.
+ * @param config - user-facing plugin configuration.
+ * @returns normalized runtime configuration.
+ */
+export function resolveConfig(config: Config): ResolvedConfig {
+  const { exploration = 0.2 } = config
+  return { exploration }
 }
 
 declare module '@deepseek-ai/cordis' {
@@ -45,8 +61,7 @@ export class EvolutionOperators extends Service {
     exploration: z.number().min(0).max(1).default(0.2),
   })
 
-  /** Deployment choice of the mutation-operator store. */
-  readonly config: OperatorsConfig
+  private readonly resolved: ResolvedConfig
 
   private statsTable?: KvTable<string, OperatorStats>
 
@@ -54,9 +69,9 @@ export class EvolutionOperators extends Service {
    * @param ctx - host context carrying the storage domain.
    * @param config - validated operator-ranking choices.
    */
-  constructor(ctx: Context, config: OperatorsConfig) {
+  constructor(ctx: Context, config: Config = {}) {
     super(ctx, 'evolutionOperators')
-    this.config = config
+    this.resolved = resolveConfig(config)
   }
 
   /** Open the domain and publish the table handle. */
@@ -106,7 +121,7 @@ export class EvolutionOperators extends Service {
     const rows = [...this.requireStats().entries()]
       .map(([, row]) => structuredClone(row))
       .filter(row => row.artifactClass === artifactClass)
-    return rankOperators(rows, artifactClass, this.config.exploration)
+    return rankOperators(rows, artifactClass, this.resolved.exploration)
   }
 
   /**

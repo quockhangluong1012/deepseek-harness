@@ -23,12 +23,28 @@ export type * from './types.ts'
 export { buildAllocation, CANDIDATE_CLASSES, halvingRounds, multiplierFor, settle, withinAllocation } from './budget.ts'
 export { budgetAllocationRow, budgetDomainSpec, spendRecordRow } from './spec.ts'
 
-/** Validated configuration of the evolution-budget store. */
-export interface BudgetConfig {
-  /** Base token ceiling of one standard batch. */
+/** Deployment choices of the evolution-budget store; an omitted field takes its default. */
+export interface Config {
+  /** Base token ceiling of one standard batch; defaults to 20000. */
+  baseMaxTokens?: number
+  /** Base wall-time ceiling of one standard batch, in milliseconds; defaults to 600000. */
+  baseMaxWallTimeMs?: number
+}
+
+/** Normalized configuration used by the store. */
+export interface ResolvedConfig {
   baseMaxTokens: number
-  /** Base wall-time ceiling of one standard batch, in milliseconds. */
   baseMaxWallTimeMs: number
+}
+
+/**
+ * Resolve defaults for the optional ceilings.
+ * @param config - user-facing plugin configuration.
+ * @returns normalized runtime configuration.
+ */
+export function resolveConfig(config: Config): ResolvedConfig {
+  const { baseMaxTokens = 20000, baseMaxWallTimeMs = 600000 } = config
+  return { baseMaxTokens, baseMaxWallTimeMs }
 }
 
 declare module '@deepseek-ai/cordis' {
@@ -51,19 +67,18 @@ export class EvolutionBudget extends Service {
     baseMaxWallTimeMs: z.number().int().min(0).default(600000),
   })
 
-  /** Deployment choices of the evolution-budget store. */
-  readonly config: BudgetConfig
+  private readonly resolved: ResolvedConfig
 
   private allocationTable?: KvTable<string, BudgetAllocation>
   private spendTable?: KvTable<string, SpendRecord>
 
   /**
    * @param ctx - host context carrying the storage domain.
-   * @param config - validated base ceilings.
+   * @param config - base ceilings of one standard batch.
    */
-  constructor(ctx: Context, config: BudgetConfig) {
+  constructor(ctx: Context, config: Config = {}) {
     super(ctx, 'evolutionBudget')
-    this.config = config
+    this.resolved = resolveConfig(config)
   }
 
   /** Open the domain and publish the table handles. */
@@ -82,7 +97,7 @@ export class EvolutionBudget extends Service {
    * @returns the stored allocation.
    */
   async allocate(input: AllocationInput): Promise<BudgetAllocation> {
-    const allocation = buildAllocation(input, this.config.baseMaxTokens, this.config.baseMaxWallTimeMs, new Date().toISOString())
+    const allocation = buildAllocation(input, this.resolved.baseMaxTokens, this.resolved.baseMaxWallTimeMs, new Date().toISOString())
     await this.requireAllocations().put(allocation.batchId, allocation)
     return structuredClone(allocation)
   }

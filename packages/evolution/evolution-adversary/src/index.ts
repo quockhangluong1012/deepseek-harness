@@ -26,10 +26,26 @@ export { ADVERSARIAL_CATEGORIES, categoryCoverage, defenseGaps, GAMING_DEFENSES,
 export { adversarialProbeRow, adversaryDomainSpec, defenseRow } from './spec.ts'
 export type { AdversarialProbeRow, DefenseRow } from './spec.ts'
 
-/** Validated configuration of the adversary store. */
-export interface AdversaryConfig {
+/** Deployment choices of the adversary store; every field defaults when omitted. */
+export interface Config {
+  /** Probes per category and skill before the category counts as covered; defaults to 1. */
+  minProbesPerCategory?: number
+}
+
+/** Normalized configuration used by the store. */
+export interface ResolvedConfig {
   /** Probes per category and skill before the category counts as covered. */
   minProbesPerCategory: number
+}
+
+/**
+ * Resolve defaults for the optional fields.
+ * @param config - user-facing plugin configuration.
+ * @returns normalized runtime configuration.
+ */
+export function resolveConfig(config: Config): ResolvedConfig {
+  const { minProbesPerCategory = 1 } = config
+  return { minProbesPerCategory }
 }
 
 declare module '@deepseek-ai/cordis' {
@@ -51,19 +67,17 @@ export class EvolutionAdversary extends Service {
     minProbesPerCategory: z.number().int().min(1).default(1),
   })
 
-  /** Deployment choices of the adversary store. */
-  readonly config: AdversaryConfig
-
   private probeTable?: KvTable<string, AdversarialProbe>
   private defenseTable?: KvTable<string, DefenseRow>
+  private readonly resolved: ResolvedConfig
 
   /**
    * @param ctx - host context carrying the storage domain.
-   * @param config - validated adversary choices.
+   * @param config - user-facing adversary configuration.
    */
-  constructor(ctx: Context, config: AdversaryConfig) {
+  constructor(ctx: Context, config: Config = {}) {
     super(ctx, 'evolutionAdversary')
-    this.config = config
+    this.resolved = resolveConfig(config)
   }
 
   /** Open the domain and publish the table handles. */
@@ -134,7 +148,7 @@ export class EvolutionAdversary extends Service {
    */
   challenge(skill: string): Challenge {
     const rows = [...this.requireProbes().entries()].map(([, probe]) => structuredClone(probe))
-    return nextChallenge(rows, skill, this.config.minProbesPerCategory)
+    return nextChallenge(rows, skill, this.resolved.minProbesPerCategory)
   }
 
   /**

@@ -50,6 +50,11 @@ evolution 家族在 harness 之上叠加闭环学习，且不触碰任何特权�
 | [`evolution-scorer`](evolution-scorer/README.zh.md) | 为已录制语料的运行打分：工作区差异判定通过、计费 token 与 N 次中位墙钟时间 | `ctx.evolutionScorer` |
 | [`evolution-dreaming`](evolution-dreaming/README.zh.md) | 对已记录失败的三阶段梦境归并：轻量观测、REM 反思，以及按心跳节奏沉淀的持久叙事 | `ctx.evolutionDreaming` |
 | [`evolution-optimizer`](evolution-optimizer/README.zh.md) | 离线技能优化：经触发门控、以宿主 LLM 变异、隔离覆盖下的打分评估、Pareto 挑选并暂存技能补丁 | `ctx.evolutionOptimizer` |
+| [`evolution-operators`](evolution-operators/README.zh.md) | 变异算子演化：按算子与产物类别记录尝试次数、接受率、平均增量与回归率，并给出探索校正后的算子优先次序 | `ctx.evolutionOperators` |
+| [`evolution-evaluator-strategy`](evolution-evaluator-strategy/README.zh.md) | 评估器策略演化：按评估器与任务类别，从后续经独立真值校验的判定中积累的信任度 | `ctx.evolutionEvaluatorStrategy` |
+| [`evolution-budget`](evolution-budget/README.zh.md) | 演化预算：按候选类别定价的逐批次配额、以精确余量结算的实际开销，以及逐次减半的筛选日程 | `ctx.evolutionBudget` |
+| [`evolution-router`](evolution-router/README.zh.md) | 路由自优化：按任务类别与角色测量路由结果，得出实际有效性与排序后的路由推荐 | `ctx.evolutionRouter` |
+| [`evolution-meta`](evolution-meta/README.zh.md) | 元演化：记录各配置下的引擎运行及其通过率，并推荐某任务类别应采用的引擎配置 | `ctx.evolutionMeta` |
 
 -----
 

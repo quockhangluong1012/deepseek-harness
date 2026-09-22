@@ -13,18 +13,37 @@ import { randomUUID } from 'node:crypto'
 import { Context, Service } from '@deepseek-ai/cordis'
 import type { KvTable } from '@deepseek-ai/dsh-storage-domain'
 import z from 'zod'
-import { rankRoutes, recommendRoute, ROUTING_ROLES, routeKey, updatedEffectiveness, scoreOf } from './router.ts'
+import { rankRoutes, recommendRoute, ROUTING_ROLES, routeKey, updatedEffectiveness } from './router.ts'
 import { routerDomainSpec } from './spec.ts'
-import type { RouteEffectiveness, RouteOutcome, RouteRankingEntry, RouterTaskClass, RoutingRole } from './types.ts'
+import type { RouteEffectiveness, RouteOutcome, RouteOutcomeInput, RouteRankingEntry, RouterTaskClass, RoutingRole } from './types.ts'
 
 export type * from './types.ts'
 export { rankRoutes, recommendRoute, ROUTING_ROLES, routeKey, scoreOf, updatedEffectiveness } from './router.ts'
 export { routeOutcomeRow, routerDomainSpec } from './spec.ts'
 
-/** Validated configuration of the routing self-optimization store. */
-export interface RouterConfig {
+/**
+ * Validated configuration of the routing self-optimization store; an omitted
+ * field takes its default.
+ */
+export interface Config {
+  /** Outcomes a route needs before it may be recommended; defaults to 3. */
+  minimumSamples?: number
+}
+
+/** Normalized configuration used by the store. */
+export interface ResolvedConfig {
   /** Outcomes a route needs before it may be recommended. */
   minimumSamples: number
+}
+
+/**
+ * Resolve defaults for the optional fields.
+ * @param config - user-facing plugin configuration.
+ * @returns normalized runtime configuration.
+ */
+export function resolveConfig(config: Config): ResolvedConfig {
+  const { minimumSamples = 3 } = config
+  return { minimumSamples }
 }
 
 declare module '@deepseek-ai/cordis' {
@@ -46,18 +65,17 @@ export class EvolutionRouter extends Service {
     minimumSamples: z.number().int().min(0).default(3),
   })
 
-  /** Deployment choice of the routing store. */
-  readonly config: RouterConfig
+  private readonly resolved: ResolvedConfig
 
   private outcomeTable?: KvTable<string, RouteOutcome>
 
   /**
    * @param ctx - host context carrying the storage domain.
-   * @param config - validated recommendation choices.
+   * @param config - recommendation minimum-outcome choice.
    */
-  constructor(ctx: Context, config: RouterConfig) {
+  constructor(ctx: Context, config: Config = {}) {
     super(ctx, 'evolutionRouter')
-    this.config = config
+    this.resolved = resolveConfig(config)
   }
 
   /** Open the domain and publish the table handle. */
@@ -73,7 +91,7 @@ export class EvolutionRouter extends Service {
    * @param outcome - the route, role, task class, and measured triple.
    * @returns the stored outcome.
    */
-  async observe(outcome: RouteOutcome): Promise<RouteOutcome> {
+  async observe(outcome: RouteOutcomeInput): Promise<RouteOutcome> {
     const stored: RouteOutcome = {
       ...outcome,
       at: new Date().toISOString(),
@@ -116,7 +134,7 @@ export class EvolutionRouter extends Service {
       grouped.set(key, updatedEffectiveness(grouped.get(key), row))
     }
     const rows = [...grouped.values()]
-    const roleOrder = Object.fromEntries(ROUTING_ROLES.map((entry, index) => [entry, index]))
+    const roleOrder: Record<RoutingRole, number> = Object.fromEntries(ROUTING_ROLES.map((entry, index) => [entry, index]))
     rows.sort((left, right) =>
       left.taskClass.localeCompare(right.taskClass)
       || roleOrder[left.role] - roleOrder[right.role]
@@ -135,7 +153,7 @@ export class EvolutionRouter extends Service {
    */
   recommend(taskClass: RouterTaskClass, role: RoutingRole): RouteRankingEntry | undefined {
     const rows = this.effectiveness(taskClass, role)
-    return recommendRoute(rankRoutes(rows, taskClass, role, this.config.minimumSamples), this.config.minimumSamples)
+    return recommendRoute(rankRoutes(rows, taskClass, role, this.resolved.minimumSamples), this.resolved.minimumSamples)
   }
 
   private requireOutcomes(): KvTable<string, RouteOutcome> {

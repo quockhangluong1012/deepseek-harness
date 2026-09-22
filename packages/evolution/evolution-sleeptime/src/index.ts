@@ -29,12 +29,33 @@ export type * from './types.ts'
 export { PRECOMPUTE_KINDS, decideWorth, expectedNet, planFor, savingsOf } from './sleeptime.ts'
 export { anticipatedTaskRow, precomputeArtifactRow, sleeptimeDomainSpec } from './spec.ts'
 
-/** Validated configuration of the sleep-time store. */
-export interface SleeptimeConfig {
+/**
+ * Deployment choices of the sleep-time store; an omitted field takes its
+ * schema default.
+ */
+export interface Config {
+  /** Estimated offline tokens of one precompute, used when the caller names none; defaults to 2000. */
+  defaultEstimatedCostTokens?: number
+  /** Total offline token budget of one plan, used when the caller names none; defaults to 50000. */
+  maxOfflineTokens?: number
+}
+
+/** Normalized configuration used by the store. */
+export interface ResolvedConfig {
   /** Estimated offline tokens of one precompute, used when the caller names none. */
   defaultEstimatedCostTokens: number
   /** Total offline token budget of one plan, used when the caller names none. */
   maxOfflineTokens: number
+}
+
+/**
+ * Resolve defaults for the optional fields.
+ * @param config - user-facing plugin configuration.
+ * @returns normalized runtime configuration.
+ */
+export function resolveConfig(config: Config): ResolvedConfig {
+  const { defaultEstimatedCostTokens = 2000, maxOfflineTokens = 50000 } = config
+  return { defaultEstimatedCostTokens, maxOfflineTokens }
 }
 
 declare module '@deepseek-ai/cordis' {
@@ -58,8 +79,7 @@ export class EvolutionSleeptime extends Service {
     maxOfflineTokens: z.number().int().min(0).default(50000),
   })
 
-  /** Deployment choices of the sleep-time store. */
-  readonly config: SleeptimeConfig
+  private readonly resolved: ResolvedConfig
 
   private taskTable?: KvTable<string, AnticipatedTask>
   private artifactTable?: KvTable<string, PrecomputeArtifact>
@@ -68,9 +88,9 @@ export class EvolutionSleeptime extends Service {
    * @param ctx - host context carrying the storage domain.
    * @param config - validated sleep-time choices.
    */
-  constructor(ctx: Context, config: SleeptimeConfig) {
+  constructor(ctx: Context, config: Config = {}) {
     super(ctx, 'evolutionSleeptime')
-    this.config = config
+    this.resolved = resolveConfig(config)
   }
 
   /** Open the domain and publish the table handles. */
@@ -185,8 +205,8 @@ export class EvolutionSleeptime extends Service {
    * @returns the planned decisions, best net first.
    */
   plan(estimatedCostTokens?: number, budgetTokens?: number): readonly SleeptimeDecision[] {
-    const cost = estimatedCostTokens ?? this.config.defaultEstimatedCostTokens
-    const budget = budgetTokens ?? this.config.maxOfflineTokens
+    const cost = estimatedCostTokens ?? this.resolved.defaultEstimatedCostTokens
+    const budget = budgetTokens ?? this.resolved.maxOfflineTokens
     const cached = new Set([...this.requireArtifacts().entries()].map(([, artifact]) => artifact.taskId))
     const open = [...this.requireTasks().entries()]
       .map(([, task]) => structuredClone(task))

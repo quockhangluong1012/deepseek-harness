@@ -20,12 +20,36 @@ export type * from './types.ts'
 export { configIdOf, ENGINE_COMPONENTS, recommendConfig, scoreOf, summarize, updatedSummary } from './meta.ts'
 export { engineConfigRow, engineRunRow, metaDomainSpec } from './spec.ts'
 
-/** Validated configuration of the meta-evolution store. */
-export interface MetaConfig {
+/**
+ * Deployment choices of the meta-evolution store; an omitted field takes its
+ * default.
+ */
+export interface Config {
+  /** Runs a configuration needs before it may be recommended; default 3. */
+  minimumSamples?: number
+  /**
+   * Engine configuration used when a recorded run names no choice; default the
+   * v1 choices of {@link DEFAULT_ENGINE_CONFIG}.
+   */
+  defaultConfig?: EngineConfig
+}
+
+/** Normalized configuration used by the store. */
+export interface ResolvedConfig {
   /** Runs a configuration needs before it may be recommended. */
   minimumSamples: number
   /** Engine configuration used when a recorded run names no choice. */
   defaultConfig: EngineConfig
+}
+
+/**
+ * Resolve defaults for the optional fields.
+ * @param config - user-facing plugin configuration.
+ * @returns normalized runtime configuration.
+ */
+export function resolveConfig(config: Config): ResolvedConfig {
+  const { minimumSamples = 3, defaultConfig = DEFAULT_ENGINE_CONFIG } = config
+  return { minimumSamples, defaultConfig: { ...defaultConfig } }
 }
 
 declare module '@deepseek-ai/cordis' {
@@ -61,18 +85,17 @@ export class EvolutionMeta extends Service {
     }).default(DEFAULT_ENGINE_CONFIG),
   })
 
-  /** Deployment choices of the meta-evolution store. */
-  readonly config: MetaConfig
+  private readonly resolved: ResolvedConfig
 
   private runTable?: KvTable<string, EngineRun>
 
   /**
    * @param ctx - host context carrying the storage domain.
-   * @param config - validated recommendation and default choices.
+   * @param config - recommendation and default choices; omitted fields take defaults.
    */
-  constructor(ctx: Context, config: MetaConfig) {
+  constructor(ctx: Context, config: Config = {}) {
     super(ctx, 'evolutionMeta')
-    this.config = config
+    this.resolved = resolveConfig(config)
   }
 
   /** Open the domain and publish the table handle. */
@@ -93,10 +116,10 @@ export class EvolutionMeta extends Service {
       runId: input.runId,
       taskClass: input.taskClass,
       config: {
-        operators: input.config.operators ?? this.config.defaultConfig.operators,
-        evaluator: input.config.evaluator ?? this.config.defaultConfig.evaluator,
-        budget: input.config.budget ?? this.config.defaultConfig.budget,
-        routing: input.config.routing ?? this.config.defaultConfig.routing,
+        operators: input.config.operators ?? this.resolved.defaultConfig.operators,
+        evaluator: input.config.evaluator ?? this.resolved.defaultConfig.evaluator,
+        budget: input.config.budget ?? this.resolved.defaultConfig.budget,
+        routing: input.config.routing ?? this.resolved.defaultConfig.routing,
       },
       pass: input.pass,
       tokens: input.tokens,
@@ -131,7 +154,7 @@ export class EvolutionMeta extends Service {
     const rows = taskClass === undefined
       ? this.runs()
       : this.runs(taskClass)
-    return summarize([...rows], this.config.minimumSamples)
+    return summarize([...rows], this.resolved.minimumSamples)
   }
 
   /**
@@ -142,7 +165,7 @@ export class EvolutionMeta extends Service {
    * @returns the recommended configuration, or undefined.
    */
   recommend(taskClass: MetaTaskClass): ConfigRecommendation | undefined {
-    return recommendConfig([...this.summaries(taskClass)], taskClass, this.config.minimumSamples)
+    return recommendConfig([...this.summaries(taskClass)], taskClass, this.resolved.minimumSamples)
   }
 
   private requireRuns(): KvTable<string, EngineRun> {

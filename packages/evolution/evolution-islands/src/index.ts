@@ -26,10 +26,26 @@ export { islandRow, islandsDomainSpec, migrationRow } from './spec.ts'
 /** The five §7 island objectives, in canonical order. */
 export const ISLAND_OBJECTIVES: readonly IslandObjective[] = ['conservative', 'performance', 'cost', 'novelty', 'adversarial']
 
-/** Validated configuration of the island store. */
-export interface IslandsConfig {
+/** Deployment choices of the island schedule; an omitted field takes its default. */
+export interface Config {
+  /** Scheduled-migration cadence, in milliseconds; default one day. */
+  migrationCadence?: number
+}
+
+/** Normalized configuration used by the store. */
+export interface ResolvedConfig {
   /** Scheduled-migration cadence, in milliseconds. */
   migrationCadence: number
+}
+
+/**
+ * Resolve defaults for the optional fields.
+ * @param config - user-facing plugin configuration.
+ * @returns normalized runtime configuration.
+ */
+export function resolveConfig(config: Config): ResolvedConfig {
+  const { migrationCadence = 86_400_000 } = config
+  return { migrationCadence }
 }
 
 declare module '@deepseek-ai/cordis' {
@@ -51,19 +67,17 @@ export class EvolutionIslands extends Service {
     migrationCadence: z.number().int().min(1).default(86_400_000),
   })
 
-  /** Deployment choices of the island schedule. */
-  readonly config: IslandsConfig
-
   private islandTable?: KvTable<string, Island>
   private migrationTable?: KvTable<string, Migration>
+  private readonly resolved: ResolvedConfig
 
   /**
    * @param ctx - host context carrying the storage domain.
-   * @param config - validated island choices.
+   * @param config - the island schedule's migration cadence.
    */
-  constructor(ctx: Context, config: IslandsConfig) {
+  constructor(ctx: Context, config: Config = {}) {
     super(ctx, 'evolutionIslands')
-    this.config = config
+    this.resolved = resolveConfig(config)
   }
 
   /** Open the domain and publish the table handles. */
@@ -149,7 +163,7 @@ export class EvolutionIslands extends Service {
       reason: input.reason,
       at: new Date().toISOString(),
     }
-    await this.migrationTable.put(migration.migrationId, migration)
+    await this.requireMigrations().put(migration.migrationId, migration)
     return structuredClone(migration)
   }
 
@@ -201,7 +215,7 @@ export class EvolutionIslands extends Service {
         return {
           island,
           lastMigrationAt,
-          due: migrationDue(lastMigrationAt, island.at, now, this.config.migrationCadence),
+          due: migrationDue(lastMigrationAt, island.at, now, this.resolved.migrationCadence),
         }
       })
   }

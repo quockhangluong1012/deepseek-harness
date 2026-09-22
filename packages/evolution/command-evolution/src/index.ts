@@ -1,12 +1,20 @@
 /**
- * Human-facing evolution commands over the memory store, the reviewer, the
- * curator, the trajectory exporter, and skill telemetry: staged-write
+ * Human-facing evolution commands over the evolution seams: staged-write
  * governance (`/memory`, `/skills`), on-demand lessons rebuilds (`/refine`),
  * the scope's recorded activity (`/journey`), curation status (`/curator`),
- * session export (`/trajectory`), a research-and-save turn (`/learn`), and
- * blueprint-backed skill suggestions (`/suggestions`). Every command but
- * `/learn` answers directly from the seams it reads; `/learn` builds a prompt
- * and queues it as one ordinary turn.
+ * session export (`/trajectory`), a research-and-save turn (`/learn`),
+ * blueprint-backed skill suggestions (`/suggestions`), and the reporting
+ * commands that read what the engine measured — traces (`/trace`),
+ * benchmarks (`/benchmark`), curricula (`/curriculum`), evaluator health
+ * (`/evaluators`), populations (`/population`), routes (`/routes`), rollouts
+ * (`/canary`), novelty (`/novelty`), stagnation (`/stagnation`), islands
+ * (`/islands`), self-models (`/selfmodel`), uncertainty (`/uncertainty`),
+ * adversarial probes (`/adversary`), lineage (`/lineage`), sleep-time plans
+ * (`/sleeptime`), budgets (`/budget`), engine configurations (`/meta`),
+ * operators (`/operators`), routing evidence (`/router`), and evaluator
+ * strategy (`/evaluator-strategy`). Every command but `/learn` answers
+ * directly from the seams it reads; `/learn` builds a prompt and queues it as
+ * one ordinary turn.
  * @module @deepseek-ai/dsh-command-evolution
  */
 
@@ -68,6 +76,13 @@ import { EVOLUTION_ROLES } from '@deepseek-ai/dsh-evolution-model-routes'
 import type { EvolutionRole, ModelRoute, RouteEvidence, RouteRow, RouteSummary } from '@deepseek-ai/dsh-evolution-model-routes'
 import { nextStage } from '@deepseek-ai/dsh-evolution-canary'
 import type { DeploymentRecord, DeploymentState } from '@deepseek-ai/dsh-evolution-canary'
+import { settle } from '@deepseek-ai/dsh-evolution-budget'
+import type { BudgetAllocation, SpendRecord } from '@deepseek-ai/dsh-evolution-budget'
+import type { ConfigRecommendation, ConfigSummary, EngineRun } from '@deepseek-ai/dsh-evolution-meta'
+import type { OperatorRanking, OperatorStats } from '@deepseek-ai/dsh-evolution-operators'
+import type { RouteEffectiveness, RouteRankingEntry, RoutingRole } from '@deepseek-ai/dsh-evolution-router'
+import { ROUTING_ROLES } from '@deepseek-ai/dsh-evolution-router'
+import type { EvaluatorStrategy, StrategyRanking } from '@deepseek-ai/dsh-evolution-evaluator-strategy'
 
 export * from './journey.ts'
 
@@ -184,6 +199,21 @@ const LINEAGE_USAGE = 'Usage: /lineage [list [<skill>] | compare <idA> <idB> | r
 
 /** Argument grammar for `/sleeptime`; anything else reports usage. */
 const SLEEPTIME_USAGE = 'Usage: /sleeptime [tasks [<domain>] | artifacts [<taskId>] | plan]'
+
+/** Argument grammar for `/budget`; anything else reports usage. */
+const BUDGET_USAGE = 'Usage: /budget [spends [<batchId>]]'
+
+/** Argument grammar for `/meta`; anything else reports usage. */
+const META_USAGE = 'Usage: /meta [summaries [<taskClass>] | runs [<taskClass>] | recommend <taskClass>]'
+
+/** Argument grammar for `/operators`; anything else reports usage. */
+const OPERATORS_USAGE = 'Usage: /operators <artifactClass>'
+
+/** Argument grammar for `/router`; anything else reports usage. */
+const ROUTER_USAGE = 'Usage: /router [effectiveness [<taskClass>] [<role>] | recommend <taskClass> <role>]'
+
+/** Argument grammar for `/evaluator-strategy`; anything else reports usage. */
+const EVALUATOR_STRATEGY_USAGE = 'Usage: /evaluator-strategy [strategies [<taskClass>] | rank <taskClass>]'
 
 /** Argument grammar for `/learn`; a bare call reports usage. */
 const LEARN_USAGE = 'Usage: /learn <anything>'
@@ -965,8 +995,10 @@ async function executeRoutes(ctx: Context, invocation: CommandInvocation): Promi
       return { kind: 'success', text: `Pinned '${pinned.role}' to ${pinned.provider}/${pinned.model}.` }
     }
     if (verb === 'evidence') {
-      if (rest.length > 1 || (rest.length === 1 && !isRole(rest[0]))) return { kind: 'error', text: ROUTES_USAGE }
-      const rows = store.evidence(rest[0]).slice(0, 10)
+      if (rest.length > 1) return { kind: 'error', text: ROUTES_USAGE }
+      const role = rest[0]
+      if (role !== undefined && !isRole(role)) return { kind: 'error', text: ROUTES_USAGE }
+      const rows = store.evidence(role).slice(0, 10)
       if (rows.length === 0) return { kind: 'success', text: 'No recorded route evidence.' }
       const lines = rows.map(row =>
         `- ${row.id.slice(0, 8)} ${row.role}: ${row.provider}/${row.model}`
@@ -2294,6 +2326,286 @@ async function executeDream(
 }
 
 /**
+ * Whether one argument names a §28 routing role.
+ * @param candidate - the argument to test.
+ * @returns true when the argument is a routing role.
+ */
+function isRoutingRole(candidate: string | undefined): candidate is RoutingRole {
+  return candidate !== undefined && (ROUTING_ROLES as readonly string[]).includes(candidate)
+}
+
+/**
+ * Report the budget allocations the optimizer recorded, one batch at a time
+ * with its candidate class, ceilings, and exact settlement, or the recorded
+ * spends of one batch. The settlement arithmetic comes from the budget
+ * package's own `settle`, so the margins here are the ones the engine spent
+ * against.
+ * @param ctx - plugin context carrying the budget seam.
+ * @param invocation - raw command input.
+ * @returns the command result.
+ */
+function executeBudget(ctx: Context, invocation: CommandInvocation): CommandResult {
+  const store = ctx.get('evolutionBudget') as {
+    batches(taskClass?: string): readonly BudgetAllocation[]
+    spends(batchId?: string): readonly SpendRecord[]
+  } | undefined
+  if (store === undefined) return { kind: 'error', text: 'The evolution budget store is not mounted.' }
+  const [verb, ...rest] = splitArgs(invocation.rawInput)
+  try {
+    if (verb === 'spends') {
+      if (rest.length > 1) return { kind: 'error', text: BUDGET_USAGE }
+      const rows = store.spends(rest[0]).slice(0, 20)
+      if (rows.length === 0) return { kind: 'success', text: 'No recorded budget spends.' }
+      return {
+        kind: 'success',
+        text: [
+          `${rows.length} spend${rows.length === 1 ? '' : 's'}:`,
+          ...rows.map(row => `- ${row.batchId}: ${row.tokens} tokens, ${row.wallTimeMs}ms, ${row.rollouts} rollout${row.rollouts === 1 ? '' : 's'} at ${row.at}`),
+        ].join('\n'),
+      }
+    }
+    if (verb !== undefined) return { kind: 'error', text: BUDGET_USAGE }
+    const allocations = store.batches()
+    if (allocations.length === 0) {
+      return { kind: 'success', text: 'No recorded budget allocations. The optimizer records one allocation per candidate batch.' }
+    }
+    const lines = allocations.map((allocation) => {
+      const settlement = settle(allocation, store.spends(allocation.batchId))
+      const over = settlement.exceededTokens > 0 || settlement.exceededWallTimeMs > 0
+      return `- ${allocation.batchId} (${allocation.candidateClass}, ${allocation.taskClass}):`
+        + ` ${settlement.tokens}/${allocation.maxTokens} tokens, ${settlement.wallTimeMs}/${allocation.maxWallTimeMs}ms`
+        + (over
+          ? ` — EXCEEDED by ${settlement.exceededTokens} tokens, ${settlement.exceededWallTimeMs}ms`
+          : ` — ${settlement.remainingTokens} tokens, ${settlement.remainingWallTimeMs}ms left`)
+    })
+    return { kind: 'success', text: [`Budget (${allocations.length} batch${allocations.length === 1 ? '' : 'es'}):`, ...lines].join('\n') }
+  } catch (error) {
+    return { kind: 'error', text: error instanceof Error ? error.message : String(error) }
+  }
+}
+
+/**
+ * Report the engine runs recorded under their configurations, the derived
+ * per-configuration summaries, or the configuration the store recommends for
+ * one task class. The recommendation is a record, not a policy: nothing here
+ * changes what the optimizer runs next.
+ * @param ctx - plugin context carrying the meta seam.
+ * @param invocation - raw command input.
+ * @returns the command result.
+ */
+function executeMeta(ctx: Context, invocation: CommandInvocation): CommandResult {
+  const store = ctx.get('evolutionMeta') as {
+    runs(taskClass?: string): readonly EngineRun[]
+    summaries(taskClass?: string): readonly ConfigSummary[]
+    recommend(taskClass: string): ConfigRecommendation | undefined
+  } | undefined
+  if (store === undefined) return { kind: 'error', text: 'The evolution meta store is not mounted.' }
+  const [verb, ...rest] = splitArgs(invocation.rawInput)
+  try {
+    if (verb === 'recommend') {
+      if (rest.length !== 1) return { kind: 'error', text: META_USAGE }
+      const taskClass = rest[0] as string
+      const recommendation = store.recommend(taskClass)
+      if (recommendation === undefined) {
+        return { kind: 'success', text: `No configuration has enough recorded runs on '${taskClass}' to recommend yet.` }
+      }
+      return {
+        kind: 'success',
+        text: [
+          `Recommended engine configuration for '${taskClass}': ${recommendation.configId}`,
+          `operators ${recommendation.config.operators}, evaluator ${recommendation.config.evaluator},`
+          + ` budget ${recommendation.config.budget}, routing ${recommendation.config.routing}`,
+          `${recommendation.reason}`,
+        ].join('\n'),
+      }
+    }
+    if (verb === 'runs') {
+      if (rest.length > 1) return { kind: 'error', text: META_USAGE }
+      const rows = store.runs(rest[0]).slice(0, 10)
+      if (rows.length === 0) return { kind: 'success', text: 'No recorded engine runs.' }
+      return {
+        kind: 'success',
+        text: [
+          `${rows.length} engine run${rows.length === 1 ? '' : 's'}:`,
+          ...rows.map(row => `- ${row.runId} (${row.taskClass}) ${row.pass ? 'pass' : 'fail'},`
+            + ` ${row.tokens} tokens, ${row.wallTimeMs}ms at ${row.at}`),
+        ].join('\n'),
+      }
+    }
+    if (verb !== undefined && verb !== 'summaries') return { kind: 'error', text: META_USAGE }
+    if (verb === 'summaries' && rest.length > 1) return { kind: 'error', text: META_USAGE }
+    const rows = store.summaries(rest[0])
+    if (rows.length === 0) {
+      return { kind: 'success', text: 'No engine-configuration summaries. The optimizer records one run per staged write.' }
+    }
+    return {
+      kind: 'success',
+      text: [
+        `Engine configurations${rest[0] === undefined ? '' : ` for '${rest[0]}'`} (best score first): ${rows.length}`,
+        ...rows.map(row => `- ${row.configId} (${row.taskClass}): ${Math.round(row.passRate * 100)}% pass over ${row.samples}`
+          + ` run${row.samples === 1 ? '' : 's'}, ${Math.round(row.meanTokens)} mean tokens, score ${row.score.toFixed(3)}`),
+      ].join('\n'),
+    }
+  } catch (error) {
+    return { kind: 'error', text: error instanceof Error ? error.message : String(error) }
+  }
+}
+
+/**
+ * Report the mutation-operator statistics recorded for one artifact class and
+ * the exploration-adjusted ranking that says which operator to try next.
+ * @param ctx - plugin context carrying the operators seam.
+ * @param invocation - raw command input.
+ * @returns the command result.
+ */
+function executeOperators(ctx: Context, invocation: CommandInvocation): CommandResult {
+  const store = ctx.get('evolutionOperators') as {
+    stats(artifactClass?: string): readonly OperatorStats[]
+    ranking(artifactClass: string): readonly OperatorRanking[]
+  } | undefined
+  if (store === undefined) return { kind: 'error', text: 'The evolution operators store is not mounted.' }
+  const [artifactClass, ...rest] = splitArgs(invocation.rawInput)
+  try {
+    if (artifactClass === undefined) {
+      const rows = store.stats()
+      if (rows.length === 0) {
+        return { kind: 'success', text: 'No recorded operator statistics. The optimizer records every staged write\'s operator and outcome.' }
+      }
+      const classes = [...new Set(rows.map(row => row.artifactClass))].sort()
+      return {
+        kind: 'success',
+        text: [
+          `Operator statistics span ${classes.length} artifact class${classes.length === 1 ? '' : 'es'}: ${classes.join(', ')}.`,
+          'Name one class to rank its operators.',
+        ].join('\n'),
+      }
+    }
+    if (rest.length > 0) return { kind: 'error', text: OPERATORS_USAGE }
+    const ranking = store.ranking(artifactClass)
+    if (ranking.length === 0) return { kind: 'success', text: `No operator statistics recorded for '${artifactClass}'.` }
+    // The ranking carries the exploration-adjusted score and the acceptance
+    // numbers; the regression rate stays on the statistics rows, so join them
+    // rather than recomputing either.
+    const regressionsByOperator = new Map(store.stats(artifactClass).map(row => [row.operator, row.regressionRate]))
+    return {
+      kind: 'success',
+      text: [
+        `Operator ranking for '${artifactClass}' (best first):`,
+        ...ranking.map(row => `- ${row.operator}: ${row.attempts} attempt${row.attempts === 1 ? '' : 's'},`
+          + ` ${Math.round(row.acceptanceRate * 100)}% accepted, mean delta ${row.meanDelta.toFixed(2)},`
+          + ` ${Math.round((regressionsByOperator.get(row.operator) ?? 0) * 100)}% regressions,`
+          + ` score ${row.score.toFixed(3)}`),
+      ].join('\n'),
+    }
+  } catch (error) {
+    return { kind: 'error', text: error instanceof Error ? error.message : String(error) }
+  }
+}
+
+/**
+ * Report the measured route effectiveness for the task classes and roles the
+ * optimizer recorded, or the route the store recommends for one pair.
+ * @param ctx - plugin context carrying the router seam.
+ * @param invocation - raw command input.
+ * @returns the command result.
+ */
+function executeRouter(ctx: Context, invocation: CommandInvocation): CommandResult {
+  const store = ctx.get('evolutionRouter') as {
+    effectiveness(taskClass?: string, role?: string): readonly RouteEffectiveness[]
+    recommend(taskClass: string, role: string): RouteRankingEntry | undefined
+  } | undefined
+  if (store === undefined) return { kind: 'error', text: 'The evolution router store is not mounted.' }
+  const [verb, ...rest] = splitArgs(invocation.rawInput)
+  try {
+    if (verb === 'recommend') {
+      if (rest.length !== 2 || !isRoutingRole(rest[1])) return { kind: 'error', text: ROUTER_USAGE }
+      const taskClass = rest[0] as string
+      const role = rest[1]
+      const recommendation = store.recommend(taskClass, role)
+      if (recommendation === undefined) {
+        return { kind: 'success', text: `No route has enough recorded outcomes on '${taskClass}' for ${role} to recommend yet.` }
+      }
+      return {
+        kind: 'success',
+        text: [
+          `Recommended route for ${role} on '${taskClass}': ${recommendation.provider}/${recommendation.model}`,
+          recommendation.reason,
+        ].join('\n'),
+      }
+    }
+    if (verb !== undefined && verb !== 'effectiveness') return { kind: 'error', text: ROUTER_USAGE }
+    if (verb === 'effectiveness' && (rest.length > 2 || (rest.length === 2 && !isRoutingRole(rest[1])))) {
+      return { kind: 'error', text: ROUTER_USAGE }
+    }
+    const rows = store.effectiveness(rest[0], rest[1])
+    if (rows.length === 0) {
+      return { kind: 'success', text: 'No recorded route outcomes. The optimizer records the evaluation route of every staged write.' }
+    }
+    return {
+      kind: 'success',
+      text: [
+        `${rows.length} route row${rows.length === 1 ? '' : 's'}:`,
+        ...rows.map(row => `- ${row.provider}/${row.model} (${row.role}, ${row.taskClass}):`
+          + ` ${Math.round(row.passRate * 100)}% pass over ${row.samples},`
+          + ` ${Math.round(row.meanTokens)} mean tokens, ${Math.round(row.meanWallTimeMs)}ms mean`),
+      ].join('\n'),
+    }
+  } catch (error) {
+    return { kind: 'error', text: error instanceof Error ? error.message : String(error) }
+  }
+}
+
+/**
+ * Report the trust statistics recorded for each evaluator on one task class,
+ * or the ranking that says which evaluator to trust. Trust comes from verdicts
+ * later judged against an independent ground truth, not from how often the
+ * evaluator ran.
+ * @param ctx - plugin context carrying the evaluator-strategy seam.
+ * @param invocation - raw command input.
+ * @returns the command result.
+ */
+function executeEvaluatorStrategy(ctx: Context, invocation: CommandInvocation): CommandResult {
+  const store = ctx.get('evolutionEvaluatorStrategy') as {
+    strategies(taskClass?: string): readonly EvaluatorStrategy[]
+    ranking(taskClass: string): readonly StrategyRanking[]
+  } | undefined
+  if (store === undefined) return { kind: 'error', text: 'The evolution evaluator-strategy store is not mounted.' }
+  const [verb, ...rest] = splitArgs(invocation.rawInput)
+  try {
+    if (verb === 'rank') {
+      if (rest.length !== 1) return { kind: 'error', text: EVALUATOR_STRATEGY_USAGE }
+      const taskClass = rest[0] as string
+      const ranking = store.ranking(taskClass)
+      if (ranking.length === 0) return { kind: 'success', text: `No evaluator strategy recorded for '${taskClass}'.` }
+      return {
+        kind: 'success',
+        text: [
+          `Evaluator ranking for '${taskClass}' (most trusted first):`,
+          ...ranking.map(row => `- ${row.evaluator}: ${row.corroborations}/${row.independentSamples} independent corroborations`
+            + ` over ${row.samples} verdict${row.samples === 1 ? '' : 's'}, weight ${row.weight.toFixed(3)}`),
+        ].join('\n'),
+      }
+    }
+    if (verb !== undefined && verb !== 'strategies') return { kind: 'error', text: EVALUATOR_STRATEGY_USAGE }
+    if (verb === 'strategies' && rest.length > 1) return { kind: 'error', text: EVALUATOR_STRATEGY_USAGE }
+    const rows = store.strategies(rest[0])
+    if (rows.length === 0) {
+      return { kind: 'success', text: 'No evaluator strategy recorded. The optimizer pairs each verdict with its holdout ground truth.' }
+    }
+    return {
+      kind: 'success',
+      text: [
+        `${rows.length} evaluator strategy row${rows.length === 1 ? '' : 's'}:`,
+        ...rows.map(row => `- ${row.evaluator} (${row.taskClass}): ${row.corroborations}/${row.independentSamples} independent`
+          + ` corroborations over ${row.samples} verdict${row.samples === 1 ? '' : 's'}, weight ${row.weight.toFixed(3)} at ${row.lastAt}`),
+      ].join('\n'),
+    }
+  } catch (error) {
+    return { kind: 'error', text: error instanceof Error ? error.message : String(error) }
+  }
+}
+
+/**
  * Resolve the invocation's scope and run one scoped evolution command.
  * @param ctx - plugin context carrying the registry and the store.
  * @param profile - configured scope namespace.
@@ -2304,7 +2616,7 @@ async function executeDream(
 async function handleCommand(
   ctx: Context,
   profile: string,
-  kind: 'memory' | 'refine' | 'journey' | 'skills' | 'graph' | 'trajectory' | 'dream' | 'frontier' | 'trace' | 'curriculum' | 'benchmark' | 'evaluators' | 'population' | 'routes' | 'canary' | 'novelty' | 'stagnation' | 'islands' | 'selfmodel' | 'uncertainty' | 'adversary' | 'lineage' | 'sleeptime',
+  kind: 'memory' | 'refine' | 'journey' | 'skills' | 'graph' | 'trajectory' | 'dream' | 'frontier' | 'trace' | 'curriculum' | 'benchmark' | 'evaluators' | 'population' | 'routes' | 'canary' | 'novelty' | 'stagnation' | 'islands' | 'selfmodel' | 'uncertainty' | 'adversary' | 'lineage' | 'sleeptime' | 'budget' | 'meta' | 'operators' | 'router' | 'evaluator-strategy',
   invocation: CommandInvocation,
 ): Promise<CommandResult> {
   // Exporting the invoking session needs no workspace, so `/trajectory`
@@ -2326,6 +2638,11 @@ async function handleCommand(
   if (kind === 'adversary') return executeAdversary(ctx, invocation)
   if (kind === 'lineage') return executeLineage(ctx, invocation)
   if (kind === 'sleeptime') return executeSleeptime(ctx, invocation)
+  if (kind === 'budget') return executeBudget(ctx, invocation)
+  if (kind === 'meta') return executeMeta(ctx, invocation)
+  if (kind === 'operators') return executeOperators(ctx, invocation)
+  if (kind === 'router') return executeRouter(ctx, invocation)
+  if (kind === 'evaluator-strategy') return executeEvaluatorStrategy(ctx, invocation)
   const membership = await resolveMembership(ctx, invocation.agent.session)
   if (membership === undefined) return { kind: 'error', text: 'This session is outside any workspace scope.' }
   const scope = EvolutionScopeId(profile, String(membership.id))
@@ -2532,6 +2849,41 @@ export function apply(ctx: Context, config: Config): void {
       description: 'List anticipated future tasks, precomputed reasoning artifacts, or the offline-cost plan for sleep-time compute',
       input: { hint: '[tasks [<domain>] | artifacts [<taskId>] | plan]' },
       handler: (invocation: CommandInvocation) => track(handleCommand(ctx, profile, 'sleeptime', invocation)),
+    })
+    yield ctx.commands.register({
+      definitionId: CommandDefinitionId('@deepseek-ai/dsh-command-evolution/budget'),
+      name: 'budget',
+      description: 'Report the evolution budget: one allocation per candidate batch with its class, ceilings, and exact settlement, or the recorded spends',
+      input: { hint: '[spends [<batchId>]]' },
+      handler: (invocation: CommandInvocation) => track(handleCommand(ctx, profile, 'budget', invocation)),
+    })
+    yield ctx.commands.register({
+      definitionId: CommandDefinitionId('@deepseek-ai/dsh-command-evolution/meta'),
+      name: 'meta',
+      description: 'Report engine runs under their configurations, the derived pass rates, or the configuration recommended for a task class',
+      input: { hint: '[summaries [<taskClass>] | runs [<taskClass>] | recommend <taskClass>]' },
+      handler: (invocation: CommandInvocation) => track(handleCommand(ctx, profile, 'meta', invocation)),
+    })
+    yield ctx.commands.register({
+      definitionId: CommandDefinitionId('@deepseek-ai/dsh-command-evolution/operators'),
+      name: 'operators',
+      description: 'Rank the mutation operators recorded for one artifact class by acceptance, mean delta, and regression rate',
+      input: { hint: '<artifactClass>' },
+      handler: (invocation: CommandInvocation) => track(handleCommand(ctx, profile, 'operators', invocation)),
+    })
+    yield ctx.commands.register({
+      definitionId: CommandDefinitionId('@deepseek-ai/dsh-command-evolution/router'),
+      name: 'router',
+      description: 'Report measured route effectiveness per task class and evolutionary role, or the route the store recommends',
+      input: { hint: '[effectiveness [<taskClass>] [<role>] | recommend <taskClass> <role>]' },
+      handler: (invocation: CommandInvocation) => track(handleCommand(ctx, profile, 'router', invocation)),
+    })
+    yield ctx.commands.register({
+      definitionId: CommandDefinitionId('@deepseek-ai/dsh-command-evolution/evaluator-strategy'),
+      name: 'evaluator-strategy',
+      description: 'Report evaluator trust earned from verdicts later judged against independent ground truth, or rank the evaluators of one task class',
+      input: { hint: '[strategies [<taskClass>] | rank <taskClass>]' },
+      handler: (invocation: CommandInvocation) => track(handleCommand(ctx, profile, 'evaluator-strategy', invocation)),
     })
     yield ctx.commands.register({
       definitionId: CommandDefinitionId('@deepseek-ai/dsh-command-evolution/learn'),

@@ -178,6 +178,32 @@
     - id: evolution-curator
       name: '@deepseek-ai/dsh-evolution-curator'
 
+    # Meta-evolution (§26, §51 29–33): the five stores that let the engine learn
+    # its own configuration. `evolution-operators` ranks mutation operators per
+    # artifact class, `evolution-evaluator-strategy` ranks evaluators per task
+    # class, `evolution-budget` prices a batch by candidate class, `evolution-
+    # router` ranks routes per task class and role, and `evolution-meta` folds
+    # the four recorded choices into one engine configuration, deriving which
+    # configuration to run next. Every one is mounted before the optimizer that
+    # records into them, and every one is a record rather than a policy: nothing
+    # here changes what the engine runs, and each reads empty until the optional
+    # optimizer below is enabled. `/operators`, `/evaluator-strategy`,
+    # `/budget`, `/router`, and `/meta` read them.
+    - id: evolution-operators
+      name: '@deepseek-ai/dsh-evolution-operators'
+
+    - id: evolution-evaluator-strategy
+      name: '@deepseek-ai/dsh-evolution-evaluator-strategy'
+
+    - id: evolution-budget
+      name: '@deepseek-ai/dsh-evolution-budget'
+
+    - id: evolution-router
+      name: '@deepseek-ai/dsh-evolution-router'
+
+    - id: evolution-meta
+      name: '@deepseek-ai/dsh-evolution-meta'
+
     # Measurement and offline optimization: `evolution-scorer` turns one
     # recorded corpus scenario into the metric triple the optimizer selects on,
     # and `evolution-optimizer` rewrites a SKILL.md through the mutation route

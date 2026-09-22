@@ -32,6 +32,9 @@ export interface RouteOutcome {
   at: string
 }
 
+/** One route outcome offered for recording: the outcome minus its stamp. */
+export type RouteOutcomeInput = Omit<RouteOutcome, 'at'>
+
 /** Derived effectiveness of one route on one task class and role. */
 export interface RouteEffectiveness {
   /** The task class the route was measured on. */

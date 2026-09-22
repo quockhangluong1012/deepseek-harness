@@ -81,6 +81,23 @@ The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-a
 | `/suggestions <anything>` | `Usage: /suggestions (no arguments)`. |
 | `/frontier` | Rank this scope's skills weakest first from measured evidence, as `- <name>: <score> [<wins>/<runs>] [· <n> failures [(top: '<message>')]] · <loads> loads in <sessions> sessions[: <description>]`, ending with the ranking rule. |
 | `/frontier <anything>` | `Usage: /frontier (no arguments)`. |
+| `/budget` | Settle every recorded batch against its allocation, as `- <batchId> (<candidateClass>, <taskClass>): <spent>/<maxTokens> tokens, <spentMs>/<maxWallTimeMs>ms` with the exact margin left, or `EXCEEDED by <tokens> tokens, <ms>ms` past it. Bare `/budget` lists every batch. |
+| `/budget spends [<batchId>]` | List the recorded spends, as `- <batchId>: <tokens> tokens, <wallTimeMs>ms, <n> rollouts at <instant>`. |
+| `/budget <anything-else>` | `Usage: /budget [spends [<batchId>]]`. |
+| `/meta` | List the engine configurations recorded on any task class, best score first, as `- <configId> (<taskClass>): <pct>% pass over <n> runs, <tokens> mean tokens, score <score>`. |
+| `/meta runs [<taskClass>]` | List the recorded engine runs, as `- <runId> (<taskClass>) pass\|fail, <tokens> tokens, <wallTimeMs>ms at <instant>`. |
+| `/meta recommend <taskClass>` | Name the configuration the store recommends for one task class with its operator, evaluator, budget, and routing choices and the numbers behind the rank; a class without enough evidence reports so instead. |
+| `/meta <anything-else>` | `Usage: /meta [summaries [<taskClass>] \| runs [<taskClass>] \| recommend <taskClass>]`. |
+| `/operators <artifactClass>` | Rank that artifact class's mutation operators, best first, as `- <operator>: <n> attempts, <pct>% accepted, mean delta <delta>, <pct>% regressions, score <score>`. The acceptance and score come from the ranking; the regression rate is joined from the class's statistics rows. |
+| `/operators` | Count the artifact classes with recorded statistics and name them, without ranking. |
+| `/operators <anything-else>` | `Usage: /operators <artifactClass>`. |
+| `/router` | List the measured route rows, as `- <provider>/<model> (<role>, <taskClass>): <pct>% pass over <n>, <tokens> mean tokens, <ms>ms mean`. |
+| `/router effectiveness [<taskClass>] [<role>]` | The same list narrowed to the given task class and §28 role; an unusable role reports usage. |
+| `/router recommend <taskClass> <role>` | Name the route the store recommends for that pair with the numbers behind the rank, or report that no route has enough outcomes yet. |
+| `/router <anything-else>` | `Usage: /router [effectiveness [<taskClass>] [<role>] \| recommend <taskClass> <role>]`. |
+| `/evaluator-strategy` | List the recorded evaluator trust rows, as `- <evaluator> (<taskClass>): <n>/<m> independent corroborations over <n> verdicts, weight <weight> at <instant>`. |
+| `/evaluator-strategy rank <taskClass>` | Rank that class's evaluators most trusted first, with the corroboration counts and weight behind each rank. |
+| `/evaluator-strategy <anything-else>` | `Usage: /evaluator-strategy [strategies [<taskClass>] \| rank <taskClass>]`. |
 
 An `applyDecisions` entry names its batch in the gist — the counts of confirms, contradicts, and new — and continues under that line with one indented line per decision: `new '<statement>'`, `confirms '<current statement>'` or `contradicts '<current statement>'`, and `contradicts '<current statement>' → '<replacement>'` when the contradiction carried a corrected statement. A `confirms` or `contradicts` target renders as the statement the record currently holds for it, and as the artifact's id when the record no longer holds it — that id is the normalized statement the artifact was created from, so it still reads as text. Every other op prints its gist line alone, and so does an `applyDecisions` entry whose payload the renderer cannot read: an unreadable staged payload renders no detail lines instead of failing the list.
 

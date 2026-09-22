@@ -20,10 +20,29 @@ export type * from './types.ts'
 export { rankStrategies, recommendStrategy, strategyKey, updatedStrategy, weightOf } from './strategy.ts'
 export { evaluatorStrategyDomainSpec, evaluatorStrategyRow } from './spec.ts'
 
-/** Validated configuration of the evaluator-strategy store. */
-export interface EvaluatorStrategyConfig {
+/**
+ * Deployment choices of the evaluator-strategy store; an omitted field takes
+ * its default.
+ */
+export interface Config {
+  /** Independent samples an evaluator needs before it may be recommended; defaults to 3. */
+  minimumSamples?: number
+}
+
+/** Normalized configuration used by the store. */
+export interface ResolvedConfig {
   /** Independent samples an evaluator needs before it may be recommended. */
   minimumSamples: number
+}
+
+/**
+ * Resolve defaults for the optional fields.
+ * @param config - user-facing plugin configuration.
+ * @returns normalized runtime configuration.
+ */
+export function resolveConfig(config: Config): ResolvedConfig {
+  const { minimumSamples = 3 } = config
+  return { minimumSamples }
 }
 
 declare module '@deepseek-ai/cordis' {
@@ -46,8 +65,7 @@ export class EvolutionEvaluatorStrategy extends Service {
     minimumSamples: z.number().int().min(0).default(3),
   })
 
-  /** Deployment choice of the evaluator-strategy store. */
-  readonly config: EvaluatorStrategyConfig
+  private readonly resolved: ResolvedConfig
 
   private strategyTable?: KvTable<string, EvaluatorStrategy>
 
@@ -55,9 +73,9 @@ export class EvolutionEvaluatorStrategy extends Service {
    * @param ctx - host context carrying the storage domain.
    * @param config - validated recommendation choices.
    */
-  constructor(ctx: Context, config: EvaluatorStrategyConfig) {
+  constructor(ctx: Context, config: Config = {}) {
     super(ctx, 'evolutionEvaluatorStrategy')
-    this.config = config
+    this.resolved = resolveConfig(config)
   }
 
   /** Open the domain and publish the table handle. */
@@ -115,7 +133,7 @@ export class EvolutionEvaluatorStrategy extends Service {
    * @returns the recommended evaluator, or undefined.
    */
   recommend(taskClass: TaskClass): StrategyRanking | undefined {
-    return recommendStrategy([...this.ranking(taskClass)], this.config.minimumSamples)
+    return recommendStrategy([...this.ranking(taskClass)], this.resolved.minimumSamples)
   }
 
   private requireStrategies(): KvTable<string, EvaluatorStrategy> {

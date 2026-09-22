@@ -81,6 +81,23 @@ kind: "package-reference"
 | `/suggestions <anything>` | `Usage: /suggestions (no arguments)`。 |
 | `/frontier` | 按实测证据把该作用域的技能从最弱到最强排序，格式为 `- <name>: <score> [<wins>/<runs>] [· <n> failures [(top: '<message>')]] · <loads> loads in <sessions> sessions[: <description>]`，末尾附排序规则。 |
 | `/frontier <anything>` | `Usage: /frontier (no arguments)`。 |
+| `/budget` | 按各自的配额结算每一条已记录的批次，格式为 `- <batchId> (<candidateClass>, <taskClass>): <spent>/<maxTokens> tokens, <spentMs>/<maxWallTimeMs>ms`，并给出精确的剩余余量；超出时改为 `EXCEEDED by <tokens> tokens, <ms>ms`。裸 `/budget` 列出全部批次。 |
+| `/budget spends [<batchId>]` | 列出已记录的开销，格式为 `- <batchId>: <tokens> tokens, <wallTimeMs>ms, <n> rollouts at <instant>`。 |
+| `/budget <anything-else>` | `Usage: /budget [spends [<batchId>]]`。 |
+| `/meta` | 列出在任意任务类别上记录的引擎配置，按得分从高到低，格式为 `- <configId> (<taskClass>): <pct>% pass over <n> runs, <tokens> mean tokens, score <score>`。 |
+| `/meta runs [<taskClass>]` | 列出已记录的引擎运行，格式为 `- <runId> (<taskClass>) pass\|fail, <tokens> tokens, <wallTimeMs>ms at <instant>`。 |
+| `/meta recommend <taskClass>` | 给出该任务类别下存储推荐的配置，连同其算子、评估器、预算与路由选择以及排名依据的数字；证据不足的类别则如实说明。 |
+| `/meta <anything-else>` | `Usage: /meta [summaries [<taskClass>] \| runs [<taskClass>] \| recommend <taskClass>]`。 |
+| `/operators <artifactClass>` | 将该产物类别的变异算子从优到劣排序，格式为 `- <operator>: <n> attempts, <pct>% accepted, mean delta <delta>, <pct>% regressions, score <score>`。接受率与得分来自排名，回归率则从该类别的统计行合并。 |
+| `/operators` | 统计并列出有记录的产物类别，不做排序。 |
+| `/operators <anything-else>` | `Usage: /operators <artifactClass>`。 |
+| `/router` | 列出实测的路由行，格式为 `- <provider>/<model> (<role>, <taskClass>): <pct>% pass over <n>, <tokens> mean tokens, <ms>ms mean`。 |
+| `/router effectiveness [<taskClass>] [<role>]` | 同样的列表，收窄到给定任务类别与 §28 角色；不可用的角色会报告用法。 |
+| `/router recommend <taskClass> <role>` | 给出该组合下存储推荐的路由及排名依据的数字，或说明尚无路由积累到足够结果。 |
+| `/router <anything-else>` | `Usage: /router [effectiveness [<taskClass>] [<role>] \| recommend <taskClass> <role>]`。 |
+| `/evaluator-strategy` | 列出已记录的评估器信任行，格式为 `- <evaluator> (<taskClass>): <n>/<m> independent corroborations over <n> verdicts, weight <weight> at <instant>`。 |
+| `/evaluator-strategy rank <taskClass>` | 将该类别的评估器按可信度从高到低排序，并附每个排名背后的印证次数与权重。 |
+| `/evaluator-strategy <anything-else>` | `Usage: /evaluator-strategy [strategies [<taskClass>] \| rank <taskClass>]`。 |
 
 `applyDecisions` 条目在 gist 里给出一批决策的计数——confirms、contradicts 与 new 各多少条——并在该行之下为每个决策各列一行缩进明细：`new '<statement>'`、`confirms '<current statement>'` 或 `contradicts '<current statement>'`，而当该条反驳携带了更正后的 statement 时则是 `contradicts '<current statement>' → '<replacement>'`。`confirms` 或 `contradicts` 的目标渲染为记录当前为该工件持有的 statement；记录已不再持有时则渲染为该工件的 id——该 id 正是工件创建时所用的规范化 statement，因此读起来仍是文本。其他操作只打印自己的 gist 行；渲染器读不懂其载荷的 `applyDecisions` 条目同样如此：读不懂的暂存载荷不渲染任何明细行，而不是让整张列表失败。
 

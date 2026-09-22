@@ -1069,11 +1069,6 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     description: 'Adversary store over durable probes and defense rows. Opens the `evolution_adversary` domain at init and closes it through `ctx.effect`.',
     methods: [
       {
-        signature: 'readonly config: AdversaryConfig',
-        description: 'Deployment choices of the adversary store.',
-        parameters: [],
-      },
-      {
         signature: 'async probe(input: ProbeInput): Promise<AdversarialProbe>',
         description: 'Record one adversarial probe, unrepaired: repair is a separate explicit step so a recorded weakness is never silently marked fixed.',
         parameters: [{ name: 'input', description: 'the probe to record.' }],
@@ -1139,6 +1134,43 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Move one task to another state. Learning advances one step per call (fresh → search → validation → holdout), any learnable state may derail to `contaminated` or `retired`, a same-state call resolves without writing, and terminal states never leave. Unknown ids and illegal transitions reject loudly.',
         parameters: [{ name: 'id', description: 'task identity.' }, { name: 'to', description: 'requested state.' }],
         returns: 'the stored task after the transition.',
+      },
+    ],
+  },
+  {
+    key: 'evolutionBudget',
+    summary: 'Evolution-budget store over durable allocations and spends.',
+    description: 'Evolution-budget store over durable allocations and spends. Opens the `evolution_budget` domain at init and closes it through `ctx.effect`.',
+    methods: [
+      {
+        signature: 'async allocate(input: AllocationInput): Promise<BudgetAllocation>',
+        description: 'Record a budget allocation for one batch, pricing its candidate class against the base ceilings and upserting by batch identity. The stored instant is now.',
+        parameters: [{ name: 'input', description: 'the batch, its task class, and its candidate class.' }],
+        returns: 'the stored allocation.',
+      },
+      {
+        signature: 'async spend(batchId: string, input: SpendInput): Promise<BudgetSettlement>',
+        description: 'Record one spend of a batch and settle it against the allocation across every recorded spend of the batch. The allocation must exist: a spend without a priced batch is a surprise, not budget use.',
+        parameters: [{ name: 'batchId', description: 'the batch spending.' }, { name: 'input', description: 'the spend to record.' }],
+        returns: 'the cumulative settlement of the batch.',
+      },
+      {
+        signature: 'batches(taskClass?: BudgetTaskClass): readonly BudgetAllocation[]',
+        description: 'List recorded allocations, optionally filtered by task class, in batch-id order.',
+        parameters: [{ name: 'taskClass', description: 'optional task-class filter.' }],
+        returns: 'the allocations, detached from the store.',
+      },
+      {
+        signature: 'spends(batchId?: string): readonly SpendRecord[]',
+        description: 'List spend records, optionally filtered by batch, newest first with record-key ascending tie-break.',
+        parameters: [{ name: 'batchId', description: 'optional batch filter.' }],
+        returns: 'the spend records, detached from the store.',
+      },
+      {
+        signature: 'withinBudget(batchId: string): boolean',
+        description: 'Whether a batch\'s cumulative recorded spend stays inside its allocation.',
+        parameters: [{ name: 'batchId', description: 'the batch to check.' }],
+        returns: 'true when both ceilings hold.',
       },
     ],
   },
@@ -1431,6 +1463,37 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'evolutionEvaluatorStrategy',
+    summary: 'Evaluator-strategy store over durable statistics rows.',
+    description: 'Evaluator-strategy store over durable statistics rows. Opens the `evolution_evaluator_strategy` domain at init and closes it through `ctx.effect`.',
+    methods: [
+      {
+        signature: 'async observe(outcome: EvaluatorOutcome): Promise<EvaluatorStrategy>',
+        description: 'Record one verdict/ground-truth pair, upserting the evaluator\'s statistics for its task class. The stored instant is now.',
+        parameters: [{ name: 'outcome', description: 'the verdict and the ground truth it is judged against.' }],
+        returns: 'the updated statistics.',
+      },
+      {
+        signature: 'strategies(taskClass?: TaskClass): readonly EvaluatorStrategy[]',
+        description: 'List every recorded statistics row, optionally filtered by task class, in evaluator order then task-class order.',
+        parameters: [{ name: 'taskClass', description: 'optional task-class filter.' }],
+        returns: 'the rows, detached from the store.',
+      },
+      {
+        signature: 'ranking(taskClass: TaskClass): readonly StrategyRanking[]',
+        description: 'Rank one task class\'s evaluators by their smoothed corroboration weight.',
+        parameters: [{ name: 'taskClass', description: 'the task class to rank evaluators for.' }],
+        returns: 'the ranked evaluators, most trustworthy first.',
+      },
+      {
+        signature: 'recommend(taskClass: TaskClass): StrategyRanking | undefined',
+        description: 'The evaluator to trust for one task class: the best-ranked evaluator with at least `minimumSamples` independent samples, or undefined while no evaluator has that much independent evidence.',
+        parameters: [{ name: 'taskClass', description: 'the task class to recommend for.' }],
+        returns: 'the recommended evaluator, or undefined.',
+      },
+    ],
+  },
+  {
     key: 'evolutionFeedback',
     summary: 'Per-session failure-observation store.',
     description: 'Per-session failure-observation store. Opens the `evolution_feedback` domain at init and closes it through `ctx.effect`.',
@@ -1559,11 +1622,6 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     description: 'Island store over durable islands and migrations. Opens the `evolution_islands` domain at init and closes it through `ctx.effect`.',
     methods: [
       {
-        signature: 'readonly config: IslandsConfig',
-        description: 'Deployment choices of the island schedule.',
-        parameters: [],
-      },
-      {
         signature: 'async register(input: IslandInput): Promise<Island>',
         description: 'Register one island for a skill\'s evolution job. A duplicate island id rejects loudly: an island is a durable lane, not a replaceable row.',
         parameters: [{ name: 'input', description: 'the island to register.' }],
@@ -1606,11 +1664,6 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     summary: 'Dependency-aware lineage store over durable experiment envelopes.',
     description: 'Dependency-aware lineage store over durable experiment envelopes. Opens the `evolution_lineage` domain at init and closes it through `ctx.effect`.',
     methods: [
-      {
-        signature: 'readonly config: LineageConfig',
-        description: 'Deployment choices of the lineage store.',
-        parameters: [],
-      },
       {
         signature: 'async record(input: ExperimentInput): Promise<ExperimentEnvelope>',
         description: 'Record one experiment envelope, stamping its recording instant.',
@@ -1763,6 +1816,37 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'evolutionMeta',
+    summary: 'Meta-evolution store over durable engine runs.',
+    description: 'Meta-evolution store over durable engine runs. Opens the `evolution_meta` domain at init and closes it through `ctx.effect`.',
+    methods: [
+      {
+        signature: 'async record(input: EngineRunInput): Promise<EngineRun>',
+        description: 'Record one engine run, completing its configuration with the default choices where the caller named none. The stored instant is now.',
+        parameters: [{ name: 'input', description: 'the run and its (possibly partial) configuration.' }],
+        returns: 'the stored run.',
+      },
+      {
+        signature: 'runs(taskClass?: MetaTaskClass): readonly EngineRun[]',
+        description: 'List recorded engine runs, optionally filtered by task class, newest first with run-id ascending tie-break.',
+        parameters: [{ name: 'taskClass', description: 'optional task-class filter.' }],
+        returns: 'the runs, detached from the store.',
+      },
+      {
+        signature: 'summaries(taskClass?: MetaTaskClass): readonly ConfigSummary[]',
+        description: 'The derived per-configuration summaries, optionally filtered by task class, grouped by task class and best configuration first.',
+        parameters: [{ name: 'taskClass', description: 'optional task-class filter.' }],
+        returns: 'the summaries, detached from the store.',
+      },
+      {
+        signature: 'recommend(taskClass: MetaTaskClass): ConfigRecommendation | undefined',
+        description: 'The engine configuration to run next on one task class: the best-scored configuration with at least `minimumSamples` runs, or undefined while no configuration has that much evidence.',
+        parameters: [{ name: 'taskClass', description: 'the task class to recommend for.' }],
+        returns: 'the recommended configuration, or undefined.',
+      },
+    ],
+  },
+  {
     key: 'evolutionModelRoutes',
     summary: 'Adaptive model-routing store over durable assignments and evidence.',
     description: 'Adaptive model-routing store over durable assignments and evidence. Opens the `evolution_model_routes` domain at init and closes it through `ctx.effect`.',
@@ -1825,6 +1909,37 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'evolutionOperators',
+    summary: 'Mutation-operator store over durable statistics rows.',
+    description: 'Mutation-operator store over durable statistics rows. Opens the `evolution_operators` domain at init and closes it through `ctx.effect`.',
+    methods: [
+      {
+        signature: 'async record(outcome: OperatorOutcome): Promise<OperatorStats>',
+        description: 'Record one measured outcome of an operator, upserting the operator\'s statistics for its artifact class. The stored instant is now.',
+        parameters: [{ name: 'outcome', description: 'the operator used and its accepted/delta outcome.' }],
+        returns: 'the updated statistics.',
+      },
+      {
+        signature: 'stats(artifactClass?: ArtifactClass): readonly OperatorStats[]',
+        description: 'List every recorded statistics row, optionally filtered by artifact class, in canonical operator order then artifact-class order.',
+        parameters: [{ name: 'artifactClass', description: 'optional artifact-class filter.' }],
+        returns: 'the rows, detached from the store.',
+      },
+      {
+        signature: 'ranking(artifactClass: ArtifactClass): readonly OperatorRanking[]',
+        description: 'Rank every canonical operator for one artifact class by the exploration-adjusted score. Untried operators enter with their prior score, so the ranking always names a next operator to try.',
+        parameters: [{ name: 'artifactClass', description: 'the artifact class to rank operators for.' }],
+        returns: 'the ranked operators, best first.',
+      },
+      {
+        signature: 'recommend(artifactClass: ArtifactClass): OperatorRanking | undefined',
+        description: 'The best operator to try next on one artifact class: the ranking\'s top, the canonical first operator when nothing is recorded for the class.',
+        parameters: [{ name: 'artifactClass', description: 'the artifact class to recommend for.' }],
+        returns: 'the recommended operator.',
+      },
+    ],
+  },
+  {
     key: 'evolutionPopulation',
     summary: 'Population store over durable candidates.',
     description: 'Population store over durable candidates. Opens the `evolution_population` domain at init and closes it through `ctx.effect`.',
@@ -1881,6 +1996,37 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'evolutionRouter',
+    summary: 'Routing self-optimization store over durable outcomes.',
+    description: 'Routing self-optimization store over durable outcomes. Opens the `evolution_router` domain at init and closes it through `ctx.effect`.',
+    methods: [
+      {
+        signature: 'async observe(outcome: RouteOutcomeInput): Promise<RouteOutcome>',
+        description: 'Record one measured outcome of a route serving one role on one task class. The stored instant is now.',
+        parameters: [{ name: 'outcome', description: 'the route, role, task class, and measured triple.' }],
+        returns: 'the stored outcome.',
+      },
+      {
+        signature: 'outcomes(taskClass?: RouterTaskClass, role?: RoutingRole): readonly RouteOutcome[]',
+        description: 'List measured outcomes, optionally filtered by task class and role, newest first with record-key ascending tie-break.',
+        parameters: [{ name: 'taskClass', description: 'optional task-class filter.' }, { name: 'role', description: 'optional role filter.' }],
+        returns: 'the outcomes, detached from the store.',
+      },
+      {
+        signature: 'effectiveness(taskClass?: RouterTaskClass, role?: RoutingRole): readonly RouteEffectiveness[]',
+        description: 'The derived effectiveness of every route, optionally filtered by task class and role, in task-class then role-topology then provider/model order.',
+        parameters: [{ name: 'taskClass', description: 'optional task-class filter.' }, { name: 'role', description: 'optional role filter.' }],
+        returns: 'the effectiveness rows, detached from the store.',
+      },
+      {
+        signature: 'recommend(taskClass: RouterTaskClass, role: RoutingRole): RouteRankingEntry | undefined',
+        description: 'The route to use for one task class and role: the best-ranked route with at least `minimumSamples` measured outcomes, or undefined while no route has that much evidence.',
+        parameters: [{ name: 'taskClass', description: 'the task class to recommend for.' }, { name: 'role', description: 'the role to recommend for.' }],
+        returns: 'the recommended route, or undefined.',
+      },
+    ],
+  },
+  {
     key: 'evolutionScorer',
     summary: 'Recorded-session scorer.',
     description: 'Recorded-session scorer. One score runs the scenario in `attempts` fresh processes, measures each attempt\'s harvested sessions through `ctx.tokenMeter`, and reduces the attempts to the metric triple. Nothing is written: the runner\'s replay fixtures and the expected workspace are read-only inputs.',
@@ -1916,11 +2062,6 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     summary: 'Self-model store over durable assessments and capability entries.',
     description: 'Self-model store over durable assessments and capability entries. Opens the `evolution_selfmodel` domain at init and closes it through `ctx.effect`.',
     methods: [
-      {
-        signature: 'readonly config: SelfModelConfig',
-        description: 'Deployment choices of the self-model store.',
-        parameters: [],
-      },
       {
         signature: 'async record(input: SelfModelInput): Promise<SelfModel>',
         description: 'Record one skill\'s self-assessment, replacing its previous whole self-view and ticking the revision one past it (1 for the first).',
@@ -2079,11 +2220,6 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     description: 'Sleep-time store over durable anticipated tasks and precomputed artifacts. Opens the `evolution_sleeptime` domain at init and closes it through `ctx.effect`.',
     methods: [
       {
-        signature: 'readonly config: SleeptimeConfig',
-        description: 'Deployment choices of the sleep-time store.',
-        parameters: [],
-      },
-      {
         signature: 'async anticipate(input: AnticipationInput): Promise<AnticipatedTask>',
         description: 'Anticipate one future task, upserting by task identity so a re-anticipated task refreshes its likelihood and expectations. The stored instant is now.',
         parameters: [{ name: 'input', description: 'the task to anticipate.' }],
@@ -2208,11 +2344,6 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     summary: 'Uncertainty-signal store over durable signals.',
     description: 'Uncertainty-signal store over durable signals. Opens the `evolution_uncertainty` domain at init and closes it through `ctx.effect`.',
     methods: [
-      {
-        signature: 'readonly config: UncertaintyConfig',
-        description: 'Deployment choices of the uncertainty queue.',
-        parameters: [],
-      },
       {
         signature: 'async record(input: UncertaintySignalInput): Promise<UncertaintySignal>',
         description: 'Record one uncertainty signal, stamping it with the current instant.',
@@ -5121,10 +5252,6 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface AdversarialProbe {\n    probeId: string;\n    skill: string;\n    category: AdversarialCategory;\n    probe: string;\n    foundWeakness: boolean;\n    repaired: boolean;\n    at: string;\n}',
   },
   {
-    name: 'AdversaryConfig',
-    declaration: 'export interface AdversaryConfig {\n    minProbesPerCategory: number;\n}',
-  },
-  {
     name: 'Agent',
     declaration: 'export interface Agent {\n    readonly id: SessionId;\n}',
   },
@@ -5193,6 +5320,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface AgentUnderTest {\n    binScript: string;\n    libBinScript?: string | undefined;\n    configPath: string;\n    profile?: string;\n    tsconfigPath: string;\n}',
   },
   {
+    name: 'AllocationInput',
+    declaration: 'export interface AllocationInput {\n    batchId: string;\n    taskClass: BudgetTaskClass;\n    candidateClass: CandidateClass;\n}',
+  },
+  {
     name: 'AnticipatedTask',
     declaration: 'export interface AnticipatedTask {\n    taskId: string;\n    domain: string;\n    scope?: string | undefined;\n    likelihood: number;\n    expectedQueries: number;\n    expectedSavingTokens: number;\n    at: string;\n}',
   },
@@ -5227,6 +5358,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'ApprovalRequestEvent',
     declaration: 'export interface ApprovalRequestEvent {\n    readonly agent: Agent;\n    readonly toolName: string;\n    readonly callId?: ToolCallId;\n    readonly reason?: string;\n    readonly signal?: AbortSignal;\n}',
+  },
+  {
+    name: 'ArtifactClass',
+    declaration: 'export type ArtifactClass = string;',
   },
   {
     name: 'AskUserQuestionAnswer',
@@ -5453,16 +5588,32 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type BrandedNumber<B extends string> = number & {\n    readonly [BRAND]: B;\n};',
   },
   {
+    name: 'BudgetAllocation',
+    declaration: 'export interface BudgetAllocation {\n    batchId: string;\n    taskClass: BudgetTaskClass;\n    candidateClass: CandidateClass;\n    maxTokens: number;\n    maxWallTimeMs: number;\n    reason: string;\n    at: string;\n}',
+  },
+  {
     name: 'BudgetGovernor',
     declaration: 'export interface BudgetGovernor {\n    measure(task: TaskContract, session: Session): BudgetSnapshot;\n}',
+  },
+  {
+    name: 'BudgetSettlement',
+    declaration: 'export interface BudgetSettlement {\n    batchId: string;\n    allocation: BudgetAllocation;\n    tokens: number;\n    wallTimeMs: number;\n    remainingTokens: number;\n    remainingWallTimeMs: number;\n    exceededTokens: number;\n    exceededWallTimeMs: number;\n}',
   },
   {
     name: 'BudgetSnapshot',
     declaration: 'export interface BudgetSnapshot {\n    readonly steps: number;\n    readonly toolCalls: number;\n    readonly wallMs: number;\n    readonly remaining: ResourceBudget;\n}',
   },
   {
+    name: 'BudgetTaskClass',
+    declaration: 'export type BudgetTaskClass = string;',
+  },
+  {
     name: 'CacheHitLowEvent',
     declaration: 'export interface CacheHitLowEvent {\n    readonly day: string;\n    readonly cacheHitAvg: number;\n    readonly threshold: number;\n    readonly requests: number;\n}',
+  },
+  {
+    name: 'CandidateClass',
+    declaration: 'export type CandidateClass = \'high-potential\' | \'standard\' | \'novel\' | \'low-potential\';',
   },
   {
     name: 'Capability',
@@ -5615,6 +5766,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'CompositionRowEnablement',
     declaration: 'export type CompositionRowEnablement = boolean | \'conditional\';',
+  },
+  {
+    name: 'ConfigRecommendation',
+    declaration: 'export interface ConfigRecommendation {\n    config: EngineConfig;\n    configId: string;\n    taskClass: MetaTaskClass;\n    score: number;\n    samples: number;\n    passRate: number;\n    reason: string;\n}',
+  },
+  {
+    name: 'ConfigSummary',
+    declaration: 'export interface ConfigSummary {\n    configId: string;\n    config: EngineConfig;\n    taskClass: MetaTaskClass;\n    samples: number;\n    passes: number;\n    passRate: number;\n    meanTokens: number;\n    score: number;\n    lastAt: string;\n}',
   },
   {
     name: 'ConfinedArgv',
@@ -6101,6 +6260,18 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface EncodedImageAttachment {\n    mediaType: ImageMediaType;\n    data: string;\n    name?: string;\n}',
   },
   {
+    name: 'EngineConfig',
+    declaration: 'export interface EngineConfig {\n    operators: string;\n    evaluator: string;\n    budget: string;\n    routing: string;\n}',
+  },
+  {
+    name: 'EngineRun',
+    declaration: 'export interface EngineRun extends Omit<EngineRunInput, \'config\'> {\n    config: EngineConfig;\n    at: string;\n}',
+  },
+  {
+    name: 'EngineRunInput',
+    declaration: 'export interface EngineRunInput {\n    runId: string;\n    taskClass: MetaTaskClass;\n    config: Partial<EngineConfig>;\n    pass: boolean;\n    tokens: number;\n    wallTimeMs: number;\n}',
+  },
+  {
     name: 'EpisodicEntry',
     declaration: 'export interface EpisodicEntry {\n    day: string;\n    text: string;\n    addedAt: string;\n}',
   },
@@ -6117,12 +6288,20 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface EvaluationTask {\n    skill: string;\n    taskId: string | null;\n    kinds: UncertaintyKind[];\n    topScore: number;\n    priority: number;\n    signals: number;\n}',
   },
   {
+    name: 'Evaluator',
+    declaration: 'export type Evaluator = string;',
+  },
+  {
     name: 'EvaluatorDisagreement',
     declaration: 'export interface EvaluatorDisagreement {\n    readonly unanimous: boolean;\n    readonly approving: readonly DisagreementChannel[];\n    readonly dissenting: readonly DisagreementChannel[];\n}',
   },
   {
     name: 'EvaluatorHealthSummary',
     declaration: 'export interface EvaluatorHealthSummary {\n    runs: number;\n    unanimousRate: number;\n    approvalRate: number;\n    recentApprovalRate: number;\n    drift: number;\n    falsePositiveRate: number;\n    channels: readonly ChannelHealthRow[];\n}',
+  },
+  {
+    name: 'EvaluatorOutcome',
+    declaration: 'export interface EvaluatorOutcome {\n    evaluator: Evaluator;\n    taskClass: TaskClass;\n    verdict: boolean;\n    groundTruth: boolean;\n    independent: boolean;\n}',
   },
   {
     name: 'EvaluatorRun',
@@ -6135,6 +6314,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'EvaluatorRunStatus',
     declaration: 'export type EvaluatorRunStatus = \'gated\' | \'evaluated\';',
+  },
+  {
+    name: 'EvaluatorStrategy',
+    declaration: 'export interface EvaluatorStrategy {\n    evaluator: Evaluator;\n    taskClass: TaskClass;\n    samples: number;\n    independentSamples: number;\n    corroborations: number;\n    weight: number;\n    lastAt: string;\n}',
   },
   {
     name: 'EvolutionAddContextItemRequest',
@@ -6537,10 +6720,6 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface IslandSchedule {\n    island: Island;\n    lastMigrationAt: string | null;\n    due: boolean;\n}',
   },
   {
-    name: 'IslandsConfig',
-    declaration: 'export interface IslandsConfig {\n    migrationCadence: number;\n}',
-  },
-  {
     name: 'JobDoneListener',
     declaration: 'export type JobDoneListener = (snapshot: JobSnapshot, owner: Agent | undefined) => void | PromiseLike<void>;',
   },
@@ -6655,10 +6834,6 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'LessonMergeStrategy',
     declaration: 'export type LessonMergeStrategy = \'overwrite\' | \'merge\' | \'keep_both\';',
-  },
-  {
-    name: 'LineageConfig',
-    declaration: 'export interface LineageConfig {\n    comparedKeys: DependencyKey[];\n}',
   },
   {
     name: 'LlmAdapter',
@@ -6865,6 +7040,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface MessageSourceMap {\n    user: {\n        kind: \'user\';\n    };\n    plugin: {\n        kind: \'plugin\';\n        plugin: string;\n    } & ContextFormed;\n    model: ModelMessageSource;\n    tool: ToolMessageSource;\n}',
   },
   {
+    name: 'MetaTaskClass',
+    declaration: 'export type MetaTaskClass = string;',
+  },
+  {
     name: 'Migration',
     declaration: 'export interface Migration {\n    migrationId: string;\n    fromIslandId: string;\n    toIslandId: string;\n    candidateId: string;\n    skill: string;\n    reason: MigrationReason;\n    at: string;\n}',
   },
@@ -6935,6 +7114,18 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'OneShotSubagentDescriptorData',
     declaration: 'export interface OneShotSubagentDescriptorData extends SubagentDescriptorBase {\n    readonly mode: \'one-shot\';\n    readonly label?: string;\n}',
+  },
+  {
+    name: 'OperatorOutcome',
+    declaration: 'export interface OperatorOutcome {\n    operator: MutationOperator;\n    artifactClass: ArtifactClass;\n    accepted: boolean;\n    delta: number;\n}',
+  },
+  {
+    name: 'OperatorRanking',
+    declaration: 'export interface OperatorRanking {\n    operator: MutationOperator;\n    attempts: number;\n    acceptanceRate: number;\n    meanDelta: number;\n    score: number;\n    reason: string;\n}',
+  },
+  {
+    name: 'OperatorStats',
+    declaration: 'export interface OperatorStats {\n    operator: MutationOperator;\n    artifactClass: ArtifactClass;\n    attempts: number;\n    accepted: number;\n    meanDelta: number;\n    regressionRate: number;\n    lastAt: string;\n}',
   },
   {
     name: 'OptionalSessionSeq',
@@ -7277,6 +7468,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface RollbackRestored {\n    name: string;\n    from: SkillLifecycleState;\n    to: SkillLifecycleState;\n}',
   },
   {
+    name: 'RouteEffectiveness',
+    declaration: 'export interface RouteEffectiveness {\n    taskClass: RouterTaskClass;\n    role: RoutingRole;\n    provider: string;\n    model: string;\n    samples: number;\n    passes: number;\n    passRate: number;\n    meanTokens: number;\n    meanWallTimeMs: number;\n    lastAt: string;\n}',
+  },
+  {
     name: 'RouteEvidence',
     declaration: 'export interface RouteEvidence {\n    id: string;\n    role: EvolutionRole;\n    provider: string;\n    model: string;\n    pass: boolean;\n    tokens: number;\n    wallTimeMs: number;\n    at: string;\n}',
   },
@@ -7289,12 +7484,32 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type RouteOrigin = \'observed\' | \'pinned\';',
   },
   {
+    name: 'RouteOutcome',
+    declaration: 'export interface RouteOutcome {\n    taskClass: RouterTaskClass;\n    role: RoutingRole;\n    provider: string;\n    model: string;\n    pass: boolean;\n    tokens: number;\n    wallTimeMs: number;\n    at: string;\n}',
+  },
+  {
+    name: 'RouteOutcomeInput',
+    declaration: 'export type RouteOutcomeInput = Omit<RouteOutcome, \'at\'>;',
+  },
+  {
+    name: 'RouteRankingEntry',
+    declaration: 'export interface RouteRankingEntry {\n    provider: string;\n    model: string;\n    samples: number;\n    passRate: number;\n    meanTokens: number;\n    meanWallTimeMs: number;\n    score: number;\n    reason: string;\n}',
+  },
+  {
     name: 'RouteRow',
     declaration: 'export interface RouteRow {\n    role: EvolutionRole;\n    provider: string;\n    model: string;\n    origin: RouteOrigin;\n    at: string;\n}',
   },
   {
+    name: 'RouterTaskClass',
+    declaration: 'export type RouterTaskClass = string;',
+  },
+  {
     name: 'RouteSummary',
     declaration: 'export interface RouteSummary {\n    role: EvolutionRole;\n    provider: string;\n    model: string;\n    origin: RouteOrigin;\n    runs: number;\n    passRate: number;\n    meanTokens: number;\n    lastAt: string | null;\n}',
+  },
+  {
+    name: 'RoutingRole',
+    declaration: 'export type RoutingRole = \'task-execution\' | \'reflection\' | \'candidate-generation\' | \'evaluation\' | \'promotion-review\';',
   },
   {
     name: 'RunId',
@@ -7399,10 +7614,6 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SelfModel',
     declaration: 'export interface SelfModel {\n    skill: string;\n    strengths: string[];\n    weaknesses: string[];\n    uncertainAreas: string[];\n    failureModes: string[];\n    preferredTools: string[];\n    evaluatorBlindspots: string[];\n    confidence: number;\n    revision: number;\n    at: string;\n}',
-  },
-  {
-    name: 'SelfModelConfig',
-    declaration: 'export interface SelfModelConfig {\n    maxObservations: number;\n    maxFailures: number;\n}',
   },
   {
     name: 'SelfModelInput',
@@ -8113,10 +8324,6 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface SkillViewOptions extends SkillLookupOptions {\n    readonly scope?: ScopeKey | undefined;\n}',
   },
   {
-    name: 'SleeptimeConfig',
-    declaration: 'export interface SleeptimeConfig {\n    defaultEstimatedCostTokens: number;\n    maxOfflineTokens: number;\n}',
-  },
-  {
     name: 'SleeptimeDecision',
     declaration: 'export interface SleeptimeDecision {\n    taskId: string;\n    domain: string;\n    worthIt: boolean;\n    expectedNet: number;\n    reason: string;\n}',
   },
@@ -8127,6 +8334,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SpawnTeammateResult',
     declaration: 'export interface SpawnTeammateResult {\n    readonly member: TeamMemberView;\n}',
+  },
+  {
+    name: 'SpendInput',
+    declaration: 'export interface SpendInput {\n    tokens: number;\n    wallTimeMs: number;\n    rollouts: number;\n}',
+  },
+  {
+    name: 'SpendRecord',
+    declaration: 'export interface SpendRecord extends SpendInput {\n    batchId: string;\n    at: string;\n}',
   },
   {
     name: 'SpillLocator',
@@ -8191,6 +8406,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'StoredImageAttachment',
     declaration: 'export interface StoredImageAttachment {\n    ref: ImageAttachmentRef;\n    data: Uint8Array;\n}',
+  },
+  {
+    name: 'StrategyRanking',
+    declaration: 'export interface StrategyRanking {\n    evaluator: Evaluator;\n    samples: number;\n    independentSamples: number;\n    corroborations: number;\n    weight: number;\n    reason: string;\n}',
   },
   {
     name: 'StreamChunk',
@@ -8383,6 +8602,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'TableValueOf',
     declaration: 'export type TableValueOf<S extends DomainSpec, N extends keyof S[\'tables\']> = S[\'tables\'][N] extends DomainTableSpec<string, infer V> ? V : never;',
+  },
+  {
+    name: 'TaskClass',
+    declaration: 'export type TaskClass = string;',
   },
   {
     name: 'TaskContract',
@@ -8799,10 +9022,6 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'TypertTypeModel',
     declaration: 'export interface TypertTypeModel {\n    readonly name: string;\n    readonly declaration: string;\n}',
-  },
-  {
-    name: 'UncertaintyConfig',
-    declaration: 'export interface UncertaintyConfig {\n    queueLimit: number;\n    corroborationBonus: number;\n}',
   },
   {
     name: 'UncertaintyKind',
