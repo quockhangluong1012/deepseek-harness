@@ -33,7 +33,7 @@ Two surfaces exist beside the counters. `skillCreationEvidence(paths)` counts pr
 
 Trust is `provisional` or `trusted`, derived from independent observations rather than elapsed time. A record starts `trusted` because no evidence exists against it; only an artifact the model wrote (`markAgentCreated`) or that was just edited (`markPatched`, `markRevised`) drops it to `provisional`, which also clears the counted sessions and re-anchors the record at the newest session seen so far. `trustPromotionSessions` newer sessions then promote it back. `trustFailures` counts evidence-driven demotions, and `lastTrustFailure` carries the `mergeKey`/`message`/`at` of the failure that caused the latest one.
 
-The revision chain is linear and keyed by skill name: `revision` starts at 0, `contentSha` is the sha256-hex of the current SKILL.md body, and `parentRevisionSha` is the hash the current revision replaced.
+The revision chain is linear and keyed by skill name: `revision` starts at 0, `contentSha` is the sha256-hex of the current SKILL.md body, and `parentRevisionSha` is the hash the current revision replaced. Every body change through `markRevised` also commits one row to the durable version registry, and `versions(name)` lists the committed revisions oldest first — revision number, the body hash it committed, the parent hash it replaced, and the recording instant — so lineage is queryable without re-reading files. The same bytes again is a no-op for both the record and the registry; a `drop` clears the history with the record; and excluded sources keep no rows.
 
 ### Session correlation
 

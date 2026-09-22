@@ -1064,6 +1064,116 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'evolutionAdversary',
+    summary: 'Adversary store over durable probes and defense rows.',
+    description: 'Adversary store over durable probes and defense rows. Opens the `evolution_adversary` domain at init and closes it through `ctx.effect`.',
+    methods: [
+      {
+        signature: 'readonly config: AdversaryConfig',
+        description: 'Deployment choices of the adversary store.',
+        parameters: [],
+      },
+      {
+        signature: 'async probe(input: ProbeInput): Promise<AdversarialProbe>',
+        description: 'Record one adversarial probe, unrepaired: repair is a separate explicit step so a recorded weakness is never silently marked fixed.',
+        parameters: [{ name: 'input', description: 'the probe to record.' }],
+        returns: 'the stored probe.',
+      },
+      {
+        signature: 'async setRepaired(probeId: string, repaired: boolean = true): Promise<AdversarialProbe>',
+        description: 'Mark one probe repaired — or unrepaired again when a fix regresses.',
+        parameters: [{ name: 'probeId', description: 'the probe to update.' }, { name: 'repaired', description: 'the repaired flag to set.' }],
+        returns: 'the updated probe.',
+      },
+      {
+        signature: 'probes(skill?: string): readonly AdversarialProbe[]',
+        description: 'List every probe, optionally filtered by skill, newest first.',
+        parameters: [{ name: 'skill', description: 'optional skill filter.' }],
+        returns: 'the probes, detached from the store.',
+      },
+      {
+        signature: 'challenge(skill: string): Challenge',
+        description: 'The next probing challenge of one skill under the configured probe minimum: the first uncovered category, or the least-probed category once every category is covered.',
+        parameters: [{ name: 'skill', description: 'the skill to challenge.' }],
+        returns: 'the challenge naming the next category.',
+      },
+      {
+        signature: 'async setDefense(defense: GamingDefense, satisfied: boolean): Promise<DefenseStatus>',
+        description: 'Set one gaming defense on the checklist.',
+        parameters: [{ name: 'defense', description: 'the defense to set.' }, { name: 'satisfied', description: 'whether the defense is satisfied.' }],
+        returns: 'the checklist status.',
+      },
+      {
+        signature: 'defenses(): readonly DefenseStatus[]',
+        description: 'The full defense checklist in canonical order; a defense never set reads unsatisfied with a null instant.',
+        parameters: [],
+        returns: 'the checklist, detached from the store.',
+      },
+      {
+        signature: 'defenseGaps(): GamingDefense[]',
+        description: 'The defenses still open, in canonical order.',
+        parameters: [],
+        returns: 'the open defenses.',
+      },
+    ],
+  },
+  {
+    key: 'evolutionBenchmark',
+    summary: 'Benchmark store over durable tasks.',
+    description: 'Benchmark store over durable tasks. Opens the `evolution_benchmark` domain at init and closes it through `ctx.effect`.',
+    methods: [
+      {
+        signature: 'async admit(inputs: readonly BenchmarkInput[]): Promise<{ admitted: readonly BenchmarkTask[]; duplicates: string[] }>',
+        description: 'Admit candidate tasks, deduplicating against every still-learnable task. Contaminated and retired tasks do not block re-admission. The admission pass stages at most `maxAdmit` new tasks.',
+        parameters: [{ name: 'inputs', description: 'candidate tasks, in caller order.' }],
+        returns: 'the admitted tasks and the duplicate texts.',
+      },
+      {
+        signature: 'tasks(state?: BenchmarkState): readonly BenchmarkTask[]',
+        description: 'List every task, optionally filtered by state, learnable states first in pipeline order then newest first.',
+        parameters: [{ name: 'state', description: 'optional state filter.' }],
+        returns: 'the tasks, detached from the store.',
+      },
+      {
+        signature: 'async transition(id: string, to: BenchmarkState): Promise<BenchmarkTask>',
+        description: 'Move one task to another state. Learning advances one step per call (fresh → search → validation → holdout), any learnable state may derail to `contaminated` or `retired`, a same-state call resolves without writing, and terminal states never leave. Unknown ids and illegal transitions reject loudly.',
+        parameters: [{ name: 'id', description: 'task identity.' }, { name: 'to', description: 'requested state.' }],
+        returns: 'the stored task after the transition.',
+      },
+    ],
+  },
+  {
+    key: 'evolutionCanary',
+    summary: 'Canary deployment store over durable rollout records.',
+    description: 'Canary deployment store over durable rollout records. Opens the `evolution_canary` domain at init and closes it through `ctx.effect`.',
+    methods: [
+      {
+        signature: 'async enter(input: DeploymentInput): Promise<DeploymentRecord>',
+        description: 'Record one deployment entering shadow. Each staged write starts exactly one deployment, so an existing id rejects loudly instead of silently re-entering shadow.',
+        parameters: [{ name: 'input', description: 'the deployment to record.' }],
+        returns: 'the stored record.',
+      },
+      {
+        signature: 'async advance(id: string, to: DeploymentState): Promise<DeploymentRecord>',
+        description: 'Move one deployment to another state. The ladder advances one step per call, each staged rollout may exit to its terminal state, a same-state call resolves without writing, and terminal states never leave. Unknown ids and illegal transitions reject loudly.',
+        parameters: [{ name: 'id', description: 'deployment identity.' }, { name: 'to', description: 'requested state.' }],
+        returns: 'the stored record after the transition.',
+      },
+      {
+        signature: 'deployments(state?: DeploymentState, skill?: string): readonly DeploymentRecord[]',
+        description: 'List every deployment, optionally filtered by state and skill, newest first in the ladder order then by `at`.',
+        parameters: [{ name: 'state', description: 'optional state filter.' }, { name: 'skill', description: 'optional skill filter.' }],
+        returns: 'the records, detached from the store.',
+      },
+      {
+        signature: 'summary(skill?: string): DeploymentSummary',
+        description: 'Summarize deployments, optionally for one skill: the total and per-state counts with every state present, so absent states read as zero.',
+        parameters: [{ name: 'skill', description: 'optional skill filter; omitted summarizes the whole store.' }],
+        returns: 'the summary.',
+      },
+    ],
+  },
+  {
     key: 'evolutionController',
     summary: 'Host Remote service over the durable evolution record.',
     description: 'Host Remote service over the durable evolution record. The stream is owned by the feed; reconnect generations belong to the client transport (`RemoteStream`), which opens a fresh `follow` call per generation, so this service never buffers across a transport loss.',
@@ -1235,6 +1345,37 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'evolutionCurriculum',
+    summary: 'Automatic curriculum over durable proposals.',
+    description: 'Automatic curriculum over durable proposals. Opens the `evolution_curriculum` domain at init and closes it through `ctx.effect`.',
+    methods: [
+      {
+        signature: 'async gaps(): Promise<readonly CurriculumGap[]>',
+        description: 'Measure current capability gaps from the mounted seams: for every tracked skill with sessions, the distinct failure gists of its compressed trace rows. Without either seam nothing is measured.',
+        parameters: [],
+        returns: 'the measured gaps, in caller order.',
+      },
+      {
+        signature: 'async propose(gaps: readonly CurriculumGap[]): Promise<readonly CurriculumProposal[]>',
+        description: 'Stage one task per gap that clears the evidence floor, skipping any already-open proposal for the same capability and task. A capability with no proposed task contributes nothing.',
+        parameters: [{ name: 'gaps', description: 'measured capability gaps, in caller order.' }],
+        returns: 'the staged proposals.',
+      },
+      {
+        signature: 'proposals(): readonly CurriculumProposal[]',
+        description: 'List every staged proposal, open first then retired, each group newest first.',
+        parameters: [],
+        returns: 'the proposals, detached from the store.',
+      },
+      {
+        signature: 'async retire(id: string): Promise<CurriculumProposal>',
+        description: 'Retire one proposal; an absent id rejects loudly, and an already-retired proposal resolves without writing.',
+        parameters: [{ name: 'id', description: 'proposal identity.' }],
+        returns: 'the stored proposal after retirement.',
+      },
+    ],
+  },
+  {
     key: 'evolutionDreaming',
     summary: 'Durable per-scope dreaming.',
     description: 'Durable per-scope dreaming. Opens the `evolution_dreams` domain at init, registers the automatic cycle with the heartbeat when one is mounted, and closes the domain through `ctx.effect`.',
@@ -1261,6 +1402,31 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         signature: 'async dreamAll(signal?: AbortSignal): Promise<void>',
         description: 'Dream every workspace the registry knows. A missing registry makes this a no-op rather than a failure: the automatic cycle is optional infrastructure, while an explicit `run` or `dream` call always works.',
         parameters: [{ name: 'signal', description: 'aborts between workspaces at plugin teardown.' }],
+      },
+    ],
+  },
+  {
+    key: 'evolutionEvaluatorHealth',
+    summary: 'Evaluator ensemble health over durable verdicts.',
+    description: 'Evaluator ensemble health over durable verdicts. Opens the `evolution_evaluator_health` domain at init and closes it through `ctx.effect`.',
+    methods: [
+      {
+        signature: 'async observe(input: EvaluatorRunInput): Promise<EvaluatorRun>',
+        description: 'Record one behavior-evaluation verdict. A skipped evaluation has no judgment and rejects loudly.',
+        parameters: [{ name: 'input', description: 'the verdict to record.' }],
+        returns: 'the stored run.',
+      },
+      {
+        signature: 'runs(skill?: string): readonly EvaluatorRun[]',
+        description: 'List recorded verdicts, newest first, optionally for one skill.',
+        parameters: [{ name: 'skill', description: 'optional skill filter.' }],
+        returns: 'the runs, detached from the store.',
+      },
+      {
+        signature: 'summary(): EvaluatorHealthSummary',
+        description: 'Summarize evaluator health over every recorded verdict.',
+        parameters: [],
+        returns: 'the aggregated health facts.',
       },
     ],
   },
@@ -1388,6 +1554,96 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'evolutionIslands',
+    summary: 'Island store over durable islands and migrations.',
+    description: 'Island store over durable islands and migrations. Opens the `evolution_islands` domain at init and closes it through `ctx.effect`.',
+    methods: [
+      {
+        signature: 'readonly config: IslandsConfig',
+        description: 'Deployment choices of the island schedule.',
+        parameters: [],
+      },
+      {
+        signature: 'async register(input: IslandInput): Promise<Island>',
+        description: 'Register one island for a skill\'s evolution job. A duplicate island id rejects loudly: an island is a durable lane, not a replaceable row.',
+        parameters: [{ name: 'input', description: 'the island to register.' }],
+        returns: 'the stored island.',
+      },
+      {
+        signature: 'async advance(skill: string): Promise<Island | undefined>',
+        description: 'Record one generation tick for a skill\'s evolution job: the head island of the skill — the newest registered — advances its generation and last-activity instant. Returns `undefined` when the skill has no island yet, so the optimizer seam stays a no-op until an operator registers one.',
+        parameters: [{ name: 'skill', description: 'the skill whose job advances.' }],
+        returns: 'the advanced island, or undefined without one.',
+      },
+      {
+        signature: 'async migrate(input: MigrationInput): Promise<Migration>',
+        description: 'Record one migration between two islands. Both islands must exist, and they must serve the same skill — a candidate migrating across jobs is meaningless. The migration is keyed by a fresh identity, so a candidate may migrate repeatedly and every move stays on record.',
+        parameters: [{ name: 'input', description: 'the migration to record.' }],
+        returns: 'the stored migration.',
+      },
+      {
+        signature: 'islands(skill?: string): readonly Island[]',
+        description: 'List every island, optionally filtered by skill, newest registration first.',
+        parameters: [{ name: 'skill', description: 'optional skill filter.' }],
+        returns: 'the islands, detached from the store.',
+      },
+      {
+        signature: 'migrations(skill?: string): readonly Migration[]',
+        description: 'List every migration, optionally filtered by skill, newest first.',
+        parameters: [{ name: 'skill', description: 'optional skill filter.' }],
+        returns: 'the migrations, detached from the store.',
+      },
+      {
+        signature: 'schedule(skill?: string): readonly IslandSchedule[]',
+        description: 'The schedule view of every island (optionally per skill): each island with its last migration instant and whether a scheduled migration is due under the configured cadence, ordered by island id for a stable render.',
+        parameters: [{ name: 'skill', description: 'optional skill filter.' }],
+        returns: 'the schedule rows, detached from the store.',
+      },
+    ],
+  },
+  {
+    key: 'evolutionLineage',
+    summary: 'Dependency-aware lineage store over durable experiment envelopes.',
+    description: 'Dependency-aware lineage store over durable experiment envelopes. Opens the `evolution_lineage` domain at init and closes it through `ctx.effect`.',
+    methods: [
+      {
+        signature: 'readonly config: LineageConfig',
+        description: 'Deployment choices of the lineage store.',
+        parameters: [],
+      },
+      {
+        signature: 'async record(input: ExperimentInput): Promise<ExperimentEnvelope>',
+        description: 'Record one experiment envelope, stamping its recording instant.',
+        parameters: [{ name: 'input', description: 'the experiment to record.' }],
+        returns: 'the stored envelope.',
+      },
+      {
+        signature: 'experiments(skill?: string): readonly ExperimentEnvelope[]',
+        description: 'List every envelope, optionally filtered by skill, newest first.',
+        parameters: [{ name: 'skill', description: 'optional skill filter.' }],
+        returns: 'the envelopes, detached from the store.',
+      },
+      {
+        signature: 'envelope(id: string): ExperimentEnvelope | undefined',
+        description: 'Read one envelope by identity, detached from the store.',
+        parameters: [{ name: 'id', description: 'the experiment identity.' }],
+        returns: 'the envelope, or undefined when unknown.',
+      },
+      {
+        signature: 'compare(idA: string, idB: string): ExperimentComparison | undefined',
+        description: 'Compare two envelopes over the configured compared keys: comparable exactly when none of those keys changed versions between them.',
+        parameters: [{ name: 'idA', description: 'the first experiment identity.' }, { name: 'idB', description: 'the second experiment identity.' }],
+        returns: 'the comparability verdict, or undefined when either id is unknown.',
+      },
+      {
+        signature: 'replay(id: string): ExperimentEnvelope | undefined',
+        description: 'Replay one experiment from its record: the envelope carries the seeds it ran, so the run is reproducible from what this returns (§48).',
+        parameters: [{ name: 'id', description: 'the experiment identity.' }],
+        returns: 'the envelope, detached, or undefined when unknown.',
+      },
+    ],
+  },
+  {
     key: 'evolutionMemory',
     summary: 'Durable per-scope evolution memory store.',
     description: 'Durable per-scope evolution memory store. Opens the `evolution_memory` domain at init and closes it through `ctx.effect`.',
@@ -1507,6 +1763,111 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'evolutionModelRoutes',
+    summary: 'Adaptive model-routing store over durable assignments and evidence.',
+    description: 'Adaptive model-routing store over durable assignments and evidence. Opens the `evolution_model_routes` domain at init and closes it through `ctx.effect`.',
+    methods: [
+      {
+        signature: 'async observe(input: RouteEvidenceInput): Promise<RouteEvidence>',
+        description: 'Record one measured outcome of a route used in a role, upserting the route as `observed` unless it is already pinned (a pin outlives its evidence).',
+        parameters: [{ name: 'input', description: 'the role, route, and measured triple.' }],
+        returns: 'the stored evidence row.',
+      },
+      {
+        signature: 'async pin(role: EvolutionRole, provider: string, model: string): Promise<RouteRow>',
+        description: 'Pin one route for one role: the operator\'s explicit assignment outranks every observed route in `recommend`. Pinning an existing route flips its origin; pinning a fresh route creates the row.',
+        parameters: [{ name: 'role', description: 'the role to assign.' }, { name: 'provider', description: 'provider half of the route.' }, { name: 'model', description: 'model half of the route.' }],
+        returns: 'the stored assignment.',
+      },
+      {
+        signature: 'routes(role?: EvolutionRole): readonly RouteSummary[]',
+        description: 'List route assignments merged with their evidence as per-route summaries, optionally for one role, in role-topology order then provider/model order.',
+        parameters: [{ name: 'role', description: 'optional role filter.' }],
+        returns: 'the summaries, detached from the store.',
+      },
+      {
+        signature: 'evidence(role?: EvolutionRole, route?: ModelRoute): readonly RouteEvidence[]',
+        description: 'List recorded evidence, newest first, optionally filtered by role and route.',
+        parameters: [{ name: 'role', description: 'optional role filter.' }, { name: 'route', description: 'optional route filter.' }],
+        returns: 'the evidence rows, detached from the store.',
+      },
+      {
+        signature: 'recommend(role: EvolutionRole): ModelRoute | undefined',
+        description: 'Recommend the route for one role: the pinned assignment when one exists, otherwise the route with the strongest recorded evidence. Yields undefined when the role has neither.',
+        parameters: [{ name: 'role', description: 'the role to recommend for.' }],
+        returns: 'the recommended route, or undefined.',
+      },
+    ],
+  },
+  {
+    key: 'evolutionNovelty',
+    summary: 'Novelty-search store over the durable archive.',
+    description: 'Novelty-search store over the durable archive. Opens the `evolution_novelty` domain at init and closes it through `ctx.effect`.',
+    methods: [
+      {
+        signature: 'async record(input: NoveltyArchiveInput): Promise<NoveltyArchiveEntry>',
+        description: 'Record one descriptor, measuring its novelty against the skill\'s archive excluding the descriptor itself, so re-recording a candidate keeps its original novelty instead of degrading to zero. One entry per staged write: the archive is keyed by candidate identity.',
+        parameters: [{ name: 'input', description: 'the descriptor to archive.' }],
+        returns: 'the stored entry with its measured novelty.',
+      },
+      {
+        signature: 'entries(skill?: string): readonly NoveltyArchiveEntry[]',
+        description: 'List every archive entry, optionally filtered by skill, newest first.',
+        parameters: [{ name: 'skill', description: 'optional skill filter.' }],
+        returns: 'the entries, detached from the store.',
+      },
+      {
+        signature: 'mean(skill: string): number',
+        description: 'Mean archive novelty of one skill, in 0..1, or zero when the skill has no entries. A falling mean is the frontier-stagnation signal the command plane renders.',
+        parameters: [{ name: 'skill', description: 'the skill to summarize.' }],
+        returns: 'the skill\'s mean archive novelty.',
+      },
+    ],
+  },
+  {
+    key: 'evolutionPopulation',
+    summary: 'Population store over durable candidates.',
+    description: 'Population store over durable candidates. Opens the `evolution_population` domain at init and closes it through `ctx.effect`.',
+    methods: [
+      {
+        signature: 'async record(input: PopulationRecordInput): Promise<PopulationCandidate>',
+        description: 'Record one candidate, auto-wiring lineage: the previous head of the same skill becomes this candidate\'s parent, and the generation is one past the skill\'s current highest. The head is the candidate with the highest generation, newest tie first.',
+        parameters: [{ name: 'input', description: 'the candidate to record.' }],
+        returns: 'the stored candidate.',
+      },
+      {
+        signature: 'candidates(skill?: string): readonly PopulationCandidate[]',
+        description: 'List every candidate, optionally filtered by skill, newest first.',
+        parameters: [{ name: 'skill', description: 'optional skill filter.' }],
+        returns: 'the candidates, detached from the store.',
+      },
+      {
+        signature: 'generation(skill: string): number',
+        description: 'The current generation of a skill: the highest generation present, or 0 when the skill has no candidates yet.',
+        parameters: [{ name: 'skill', description: 'the skill to inspect.' }],
+        returns: 'the skill\'s current generation.',
+      },
+      {
+        signature: 'lineage(skill: string, candidateId: string): readonly PopulationCandidate[]',
+        description: 'The lineage of one candidate within a skill, oldest ancestor first. The chain walks stored parent links; unknown ids yield an empty chain.',
+        parameters: [{ name: 'skill', description: 'the skill the candidate belongs to.' }, { name: 'candidateId', description: 'the candidate to start from.' }],
+        returns: 'the candidate and its ancestors, oldest first, detached.',
+      },
+      {
+        signature: 'elite(skill: string): readonly PopulationCandidate[]',
+        description: 'The current elite of a skill: approved candidates ranked by pass, then fewer tokens, then faster wall time. Unmeasured candidates rank below every measured one.',
+        parameters: [{ name: 'skill', description: 'the skill to rank.' }],
+        returns: 'the approved candidates in elite order, detached.',
+      },
+      {
+        signature: 'async updateStatus(candidateId: string, status: PopulationStatus): Promise<PopulationCandidate>',
+        description: 'Move one candidate to another status. A staged candidate may be approved or rejected; approved and rejected are terminal. A same-status call resolves without writing, and unknown ids or illegal transitions reject loudly.',
+        parameters: [{ name: 'candidateId', description: 'candidate identity.' }, { name: 'status', description: 'requested status.' }],
+        returns: 'the stored candidate after the transition.',
+      },
+    ],
+  },
+  {
     key: 'evolutionReviewer',
     summary: 'Background reviewer.',
     description: 'Background reviewer. One scope never runs two extractions at once; a turn is never blocked by one.',
@@ -1547,6 +1908,66 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Evaluate one skill revision through the three behavior gates: the frontmatter contract check, positive/negative trigger-query routing through the real selector, and a baseline-vs-candidate replay over the same scenarios. The cheap gates run first, so a candidate that cannot be committed or routes where it must not never spends fresh processes; only replay evidence approves. A skipped replay composition skips the whole evaluation with its reason attached.',
         parameters: [{ name: 'request', description: 'baseline and candidate replay compositions, the candidate body, the routing catalog and queries, and the routing window.' }],
         returns: 'the gate verdicts with channel disagreement and approval, the gating reason, or the skip.',
+      },
+    ],
+  },
+  {
+    key: 'evolutionSelfModel',
+    summary: 'Self-model store over durable assessments and capability entries.',
+    description: 'Self-model store over durable assessments and capability entries. Opens the `evolution_selfmodel` domain at init and closes it through `ctx.effect`.',
+    methods: [
+      {
+        signature: 'readonly config: SelfModelConfig',
+        description: 'Deployment choices of the self-model store.',
+        parameters: [],
+      },
+      {
+        signature: 'async record(input: SelfModelInput): Promise<SelfModel>',
+        description: 'Record one skill\'s self-assessment, replacing its previous whole self-view and ticking the revision one past it (1 for the first).',
+        parameters: [{ name: 'input', description: 'the assessment to record.' }],
+        returns: 'the stored assessment.',
+      },
+      {
+        signature: 'assessment(skill: string): SelfModel | undefined',
+        description: 'Read one skill\'s assessment, detached from the store.',
+        parameters: [{ name: 'skill', description: 'the skill to inspect.' }],
+        returns: 'the assessment, or undefined without one.',
+      },
+      {
+        signature: 'assessments(): readonly SelfModel[]',
+        description: 'List every assessment by skill name, detached from the store.',
+        parameters: [],
+        returns: 'the assessments, skill ascending.',
+      },
+      {
+        signature: 'async observe(obs: CapabilityObservation): Promise<CapabilityEntry>',
+        description: 'Fold one capability observation into the capability\'s entry, creating the entry on the first observation of its capability.',
+        parameters: [{ name: 'obs', description: 'the observation to record.' }],
+        returns: 'the stored entry.',
+      },
+      {
+        signature: 'capability(name: string): CapabilityEntry | undefined',
+        description: 'Read one capability\'s entry, detached from the store.',
+        parameters: [{ name: 'name', description: 'the capability to inspect.' }],
+        returns: 'the entry, or undefined without one.',
+      },
+      {
+        signature: 'capabilities(): readonly CapabilityEntry[]',
+        description: 'List every capability entry by capability name, detached from the store.',
+        parameters: [],
+        returns: 'the entries, capability ascending.',
+      },
+      {
+        signature: 'gaps(): readonly FrontierGap[]',
+        description: 'Rank every capability weakest first: lower pass rate, then thinner evidence, then fewer covering skills, then the capability name.',
+        parameters: [],
+        returns: 'the frontier gaps, weakest first.',
+      },
+      {
+        signature: 'nextToLearn(): FrontierGap | null',
+        description: 'The capability to learn next: the weakest gap, or null with no entries.',
+        parameters: [],
+        returns: 'the weakest gap, or null when empty.',
       },
     ],
   },
@@ -1616,8 +2037,14 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the stored record, or undefined for excluded sources.',
       },
       {
+        signature: 'versions(name: string): readonly SkillVersion[]',
+        description: 'List one skill\'s committed body revisions, oldest first: the durable artifact registry answering lineage without re-reading files. Excluded sources have no rows, and an absent record reads as an empty list.',
+        parameters: [{ name: 'name', description: 'skill name.' }],
+        returns: 'the detached revision history, oldest first.',
+      },
+      {
         signature: 'async drop(name: string): Promise<boolean>',
-        description: 'Forget one skill\'s record entirely. Purge calls this after removing the skill directory; absent names resolve without writing.',
+        description: 'Forget one skill\'s record and its version history entirely. Purge calls this after removing the skill directory; absent names resolve without writing.',
         parameters: [{ name: 'name', description: 'skill name.' }],
         returns: 'whether a record was removed.',
       },
@@ -1647,6 +2074,109 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'evolutionSleeptime',
+    summary: 'Sleep-time store over durable anticipated tasks and precomputed artifacts.',
+    description: 'Sleep-time store over durable anticipated tasks and precomputed artifacts. Opens the `evolution_sleeptime` domain at init and closes it through `ctx.effect`.',
+    methods: [
+      {
+        signature: 'readonly config: SleeptimeConfig',
+        description: 'Deployment choices of the sleep-time store.',
+        parameters: [],
+      },
+      {
+        signature: 'async anticipate(input: AnticipationInput): Promise<AnticipatedTask>',
+        description: 'Anticipate one future task, upserting by task identity so a re-anticipated task refreshes its likelihood and expectations. The stored instant is now.',
+        parameters: [{ name: 'input', description: 'the task to anticipate.' }],
+        returns: 'the stored task.',
+      },
+      {
+        signature: 'tasks(domain?: string): readonly AnticipatedTask[]',
+        description: 'List every anticipated task, optionally filtered by domain, likeliest first with task-id ascending tie-break.',
+        parameters: [{ name: 'domain', description: 'optional domain filter.' }],
+        returns: 'the tasks, detached from the store.',
+      },
+      {
+        signature: 'async precompute(input: PrecomputeInput): Promise<PrecomputeArtifact>',
+        description: 'Precompute one reasoning artifact for an anticipated task. The task must exist: an artifact for a task nobody anticipated is a surprise, not idle work. A fresh artifact has served nothing yet.',
+        parameters: [{ name: 'input', description: 'the artifact to cache.' }],
+        returns: 'the stored artifact.',
+      },
+      {
+        signature: 'artifacts(taskId?: string): readonly PrecomputeArtifact[]',
+        description: 'List every cached artifact, optionally filtered by task, newest first with artifact-id ascending tie-break.',
+        parameters: [{ name: 'taskId', description: 'optional task filter.' }],
+        returns: 'the artifacts, detached from the store.',
+      },
+      {
+        signature: 'async hit(artifactId: string, savedTokens: number): Promise<PrecomputeArtifact>',
+        description: 'Record one future query served by a cached artifact, adding the query\'s saved tokens to the artifact\'s running total.',
+        parameters: [{ name: 'artifactId', description: 'the artifact that served the query.' }, { name: 'savedTokens', description: 'tokens the served query saved.' }],
+        returns: 'the updated artifact.',
+      },
+      {
+        signature: 'plan(estimatedCostTokens?: number, budgetTokens?: number): readonly SleeptimeDecision[]',
+        description: 'The greedy budgeted plan over anticipated tasks that have no cached artifact yet: worth-it decisions, best net first, fitted into the offline budget at the estimated cost each.',
+        parameters: [{ name: 'estimatedCostTokens', description: 'estimated offline cost of one precompute.' }, { name: 'budgetTokens', description: 'total offline budget available.' }],
+        returns: 'the planned decisions, best net first.',
+      },
+    ],
+  },
+  {
+    key: 'evolutionStagnation',
+    summary: 'Stagnation-detection store over durable runs.',
+    description: 'Stagnation-detection store over durable runs. Opens the `evolution_stagnation` domain at init and closes it through `ctx.effect`.',
+    methods: [
+      {
+        signature: 'readonly config: StagnationConfig',
+        description: 'Deployment choices of the stagnation detector.',
+        parameters: [],
+      },
+      {
+        signature: 'async recordRun(input: StagnationRunInput): Promise<StagnationRun>',
+        description: 'Record one run, numbering its generation tick one past the skill\'s run count and flagging whether it meaningfully improved the skill\'s best score so far.',
+        parameters: [{ name: 'input', description: 'the run to record.' }],
+        returns: 'the stored run.',
+      },
+      {
+        signature: 'runs(skill?: string): readonly StagnationRun[]',
+        description: 'List every run, optionally filtered by skill, newest first.',
+        parameters: [{ name: 'skill', description: 'optional skill filter.' }],
+        returns: 'the runs, detached from the store.',
+      },
+      {
+        signature: 'status(skill: string): StagnationStatus',
+        description: 'The derived stagnation status of one skill: best score, runs since the last meaningful improvement, the stagnant flag against the configured threshold, and the strategy the skill should follow now. A skill with no runs reports zero runs and normal exploitation.',
+        parameters: [{ name: 'skill', description: 'the skill to inspect.' }],
+        returns: 'the stagnation status.',
+      },
+      {
+        signature: 'async reset(skill: string): Promise<number>',
+        description: 'Drop every recorded run of one skill, returning the count removed. Used when a task regime changes and the skill\'s history no longer applies.',
+        parameters: [{ name: 'skill', description: 'the skill to reset.' }],
+        returns: 'the number of runs removed.',
+      },
+    ],
+  },
+  {
+    key: 'evolutionTrace',
+    summary: 'Immutable session trace projection.',
+    description: 'Immutable session trace projection. Opens no domain: the session log is the authoritative raw trace, and every read derives the structured form from it.',
+    methods: [
+      {
+        signature: 'async trace(sessionId: string): Promise<TraceRecord | undefined>',
+        description: 'Project one session\'s committed log into its structured learning trace.',
+        parameters: [{ name: 'sessionId', description: 'session identity.' }],
+        returns: 'the structured trace, or undefined when storage holds no such session.',
+      },
+      {
+        signature: 'async summary(sessionIds: readonly string[], limit: number): Promise<LearningTraceRow[]>',
+        description: 'Compress the given sessions into learning-trace rows, most decisive first: most failures, then retries, then billed tokens, then newest. Absent sessions contribute nothing.',
+        parameters: [{ name: 'sessionIds', description: 'sessions to compress, in caller order.' }, { name: 'limit', description: 'maximum rows returned.' }],
+        returns: 'the compressed rows, decisive first.',
+      },
+    ],
+  },
+  {
     key: 'evolutionTrajectory',
     summary: 'Host-side ShareGPT exporter over session persistence and the Workspace roster.',
     description: 'Host-side ShareGPT exporter over session persistence and the Workspace roster.',
@@ -1670,6 +2200,42 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         parameters: [{ name: 'scopeId', description: 'opaque scope identity naming the Workspace.' }, { name: 'options', description: 'destination directory override.' }],
         returns: 'the written directory, the summed conversation count, and the summed UTF-8 byte size.',
         throws: ['RemoteError with `workspace/not-found` when the scope names no registered Workspace.'],
+      },
+    ],
+  },
+  {
+    key: 'evolutionUncertainty',
+    summary: 'Uncertainty-signal store over durable signals.',
+    description: 'Uncertainty-signal store over durable signals. Opens the `evolution_uncertainty` domain at init and closes it through `ctx.effect`.',
+    methods: [
+      {
+        signature: 'readonly config: UncertaintyConfig',
+        description: 'Deployment choices of the uncertainty queue.',
+        parameters: [],
+      },
+      {
+        signature: 'async record(input: UncertaintySignalInput): Promise<UncertaintySignal>',
+        description: 'Record one uncertainty signal, stamping it with the current instant.',
+        parameters: [{ name: 'input', description: 'the signal to record.' }],
+        returns: 'the stored signal.',
+      },
+      {
+        signature: 'signals(skill?: string): readonly UncertaintySignal[]',
+        description: 'List every signal, optionally filtered by skill, newest first with signal identity breaking same-instant ties for determinism.',
+        parameters: [{ name: 'skill', description: 'optional skill filter.' }],
+        returns: 'the signals, detached from the store.',
+      },
+      {
+        signature: 'queue(skill?: string, limit?: number): readonly EvaluationTask[]',
+        description: 'The prioritized evaluation-task queue over the filtered signals, capped at the caller\'s limit or the configured queue limit.',
+        parameters: [{ name: 'skill', description: 'optional skill filter.' }, { name: 'limit', description: 'optional task cap, defaulting to the configured queue limit.' }],
+        returns: 'the top evaluation tasks, highest priority first.',
+      },
+      {
+        signature: 'async resolve(skill: string, taskId?: string): Promise<number>',
+        description: 'Drop the signals behind one evaluation task — without a task identity only the skill-wide (null-task) signals of the skill — returning the count removed. The queue re-derives from the signals that remain.',
+        parameters: [{ name: 'skill', description: 'the skill whose signals to drop.' }, { name: 'taskId', description: 'optional task identity to drop; undefined drops only skill-wide signals.' }],
+        returns: 'the number of signals removed.',
       },
     ],
   },
@@ -4547,6 +5113,18 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type AdmittedPromptContentPart = {\n    readonly type: \'text\';\n    readonly text: string;\n} | {\n    readonly type: \'image\';\n    readonly attachment: ImageAttachmentRef;\n} | {\n    readonly type: \'file\';\n    readonly attachment: FileAttachmentRef;\n};',
   },
   {
+    name: 'AdversarialCategory',
+    declaration: 'export type AdversarialCategory = \'edge-case\' | \'prompt-injection\' | \'stale-memory\' | \'retrieval-trap\' | \'contradictory-evidence\' | \'tool-failure\' | \'ambiguous-instruction\' | \'evaluator-gaming\';',
+  },
+  {
+    name: 'AdversarialProbe',
+    declaration: 'export interface AdversarialProbe {\n    probeId: string;\n    skill: string;\n    category: AdversarialCategory;\n    probe: string;\n    foundWeakness: boolean;\n    repaired: boolean;\n    at: string;\n}',
+  },
+  {
+    name: 'AdversaryConfig',
+    declaration: 'export interface AdversaryConfig {\n    minProbesPerCategory: number;\n}',
+  },
+  {
     name: 'Agent',
     declaration: 'export interface Agent {\n    readonly id: SessionId;\n}',
   },
@@ -4613,6 +5191,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'AgentUnderTest',
     declaration: 'export interface AgentUnderTest {\n    binScript: string;\n    libBinScript?: string | undefined;\n    configPath: string;\n    profile?: string;\n    tsconfigPath: string;\n}',
+  },
+  {
+    name: 'AnticipatedTask',
+    declaration: 'export interface AnticipatedTask {\n    taskId: string;\n    domain: string;\n    scope?: string | undefined;\n    likelihood: number;\n    expectedQueries: number;\n    expectedSavingTokens: number;\n    at: string;\n}',
+  },
+  {
+    name: 'AnticipationInput',
+    declaration: 'export interface AnticipationInput {\n    taskId: string;\n    domain: string;\n    scope?: string | undefined;\n    likelihood: number;\n    expectedQueries: number;\n    expectedSavingTokens: number;\n}',
   },
   {
     name: 'ApiKeyRecord',
@@ -4847,6 +5433,18 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface BehaviorRoutingGate {\n    readonly ok: boolean;\n    readonly checks: readonly BehaviorRoutingCheck[];\n    readonly revisions: readonly {\n        readonly name: string;\n        readonly revisionKey: string;\n    }[];\n}',
   },
   {
+    name: 'BenchmarkInput',
+    declaration: 'export interface BenchmarkInput {\n    capability: string;\n    task: string;\n    gists: readonly string[];\n    sourceSessions: readonly string[];\n}',
+  },
+  {
+    name: 'BenchmarkState',
+    declaration: 'export type BenchmarkState = \'fresh\' | \'search\' | \'validation\' | \'holdout\' | \'contaminated\' | \'retired\';',
+  },
+  {
+    name: 'BenchmarkTask',
+    declaration: 'export interface BenchmarkTask {\n    id: string;\n    hash: string;\n    capability: string;\n    task: string;\n    gists: readonly string[];\n    sourceSessions: readonly string[];\n    at: string;\n    state: BenchmarkState;\n}',
+  },
+  {
     name: 'Branded',
     declaration: 'export type Branded<B extends string> = string & {\n    readonly [BRAND]: B;\n};',
   },
@@ -4875,12 +5473,28 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface CapabilityDeclaration {\n    readonly tool: string;\n    readonly capabilities: readonly Capability[];\n    resources(args: unknown): string;\n}',
   },
   {
+    name: 'CapabilityEntry',
+    declaration: 'export interface CapabilityEntry {\n    capability: string;\n    score: number;\n    confidence: number;\n    failures: string[];\n    coveringSkills: string[];\n    observations: number;\n    at: string;\n}',
+  },
+  {
+    name: 'CapabilityObservation',
+    declaration: 'export interface CapabilityObservation {\n    capability: string;\n    skill: string;\n    pass: boolean;\n    failure?: string;\n}',
+  },
+  {
     name: 'CapabilityRegistry',
     declaration: 'export interface CapabilityRegistry {\n    register(declaration: CapabilityDeclaration): () => void;\n    resolve(toolName: string, args: unknown): readonly CapabilityRequest[] | undefined;\n    has(toolName: string): boolean;\n    readonly size: number;\n}',
   },
   {
     name: 'CapabilityRequest',
     declaration: 'export interface CapabilityRequest {\n    readonly capability: Capability;\n    readonly resource: string;\n}',
+  },
+  {
+    name: 'Challenge',
+    declaration: 'export interface Challenge {\n    skill: string;\n    category: AdversarialCategory;\n    probed: number;\n    reason: string;\n}',
+  },
+  {
+    name: 'ChannelHealthRow',
+    declaration: 'export interface ChannelHealthRow {\n    channel: string;\n    runs: number;\n    approved: number;\n    approvalRate: number;\n}',
   },
   {
     name: 'Checkpoint',
@@ -5243,6 +5857,18 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface CuratorTransition {\n    name: string;\n    from: SkillLifecycleState;\n    to: SkillLifecycleState;\n    reason: string;\n}',
   },
   {
+    name: 'CurriculumGap',
+    declaration: 'export interface CurriculumGap {\n    capability: string;\n    sourceSessions: readonly string[];\n    failureGists: readonly string[];\n}',
+  },
+  {
+    name: 'CurriculumProposal',
+    declaration: 'export interface CurriculumProposal {\n    id: string;\n    capability: string;\n    task: string;\n    sourceSessions: readonly string[];\n    gists: readonly string[];\n    at: string;\n    state: CurriculumTaskState;\n}',
+  },
+  {
+    name: 'CurriculumTaskState',
+    declaration: 'export type CurriculumTaskState = \'open\' | \'retired\';',
+  },
+  {
     name: 'DeepSeekLlmApiExtensionMap',
     declaration: 'export interface DeepSeekLlmApiExtensionMap {\n}',
   },
@@ -5263,12 +5889,44 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export class DefaultRecoveryEngine implements RecoveryEngine {\n    constructor(config: RecoveryConfig);\n    classify(input: RecoveryInput): RecoveryDecision;\n}',
   },
   {
+    name: 'DefenseStatus',
+    declaration: 'export interface DefenseStatus {\n    defense: GamingDefense;\n    satisfied: boolean;\n    at: string | null;\n}',
+  },
+  {
     name: 'DelegationId',
     declaration: 'export type DelegationId = Branded<\'DelegationId\'>;',
   },
   {
     name: 'DelegationReceipt',
     declaration: 'export interface DelegationReceipt {\n    readonly delegationId: DelegationId;\n    readonly childRunId: RunId;\n    readonly parentRunId?: RunId;\n    readonly parentTaskId?: TaskId;\n    readonly parentSessionId: SessionId;\n    readonly allowedCapabilities: readonly Capability[];\n    readonly resourceLimits: ResourceBudget;\n    readonly writableScopes: readonly string[];\n    readonly inheritedPolicyDigest: string;\n    readonly depth: number;\n    readonly maxDepth?: number;\n    readonly at: number;\n}',
+  },
+  {
+    name: 'DependencyKey',
+    declaration: 'export type DependencyKey = \'prompt\' | \'skill\' | \'retriever\' | \'evaluator\' | \'model\' | \'tool\' | \'env\';',
+  },
+  {
+    name: 'DependencyVersions',
+    declaration: 'export interface DependencyVersions {\n    prompt?: string | undefined;\n    skill?: string | undefined;\n    retriever?: string | undefined;\n    evaluator?: string | undefined;\n    model?: string | undefined;\n    tool?: string | undefined;\n    env?: string | undefined;\n}',
+  },
+  {
+    name: 'DeploymentInput',
+    declaration: 'export interface DeploymentInput {\n    id: string;\n    skill: string;\n    triple: DeploymentTriple | null;\n}',
+  },
+  {
+    name: 'DeploymentRecord',
+    declaration: 'export interface DeploymentRecord {\n    id: string;\n    skill: string;\n    state: DeploymentState;\n    triple: DeploymentTriple | null;\n    at: string;\n    enteredAt: string;\n    decidedAt: string | null;\n}',
+  },
+  {
+    name: 'DeploymentState',
+    declaration: 'export type DeploymentState = \'shadow\' | \'canary\' | \'promoted\' | \'rolled-back\' | \'rejected\';',
+  },
+  {
+    name: 'DeploymentSummary',
+    declaration: 'export interface DeploymentSummary {\n    total: number;\n    byState: Record<DeploymentState, number>;\n}',
+  },
+  {
+    name: 'DeploymentTriple',
+    declaration: 'export interface DeploymentTriple {\n    pass: boolean;\n    tokens: number;\n    wallTimeMs: number;\n}',
   },
   {
     name: 'DiffCallView',
@@ -5455,8 +6113,28 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface EvaluateSkillRequest {\n    skill: string;\n    scenarios: readonly string[];\n    agent: AgentUnderTest;\n    run: ScenarioRunner;\n}',
   },
   {
+    name: 'EvaluationTask',
+    declaration: 'export interface EvaluationTask {\n    skill: string;\n    taskId: string | null;\n    kinds: UncertaintyKind[];\n    topScore: number;\n    priority: number;\n    signals: number;\n}',
+  },
+  {
     name: 'EvaluatorDisagreement',
     declaration: 'export interface EvaluatorDisagreement {\n    readonly unanimous: boolean;\n    readonly approving: readonly DisagreementChannel[];\n    readonly dissenting: readonly DisagreementChannel[];\n}',
+  },
+  {
+    name: 'EvaluatorHealthSummary',
+    declaration: 'export interface EvaluatorHealthSummary {\n    runs: number;\n    unanimousRate: number;\n    approvalRate: number;\n    recentApprovalRate: number;\n    drift: number;\n    falsePositiveRate: number;\n    channels: readonly ChannelHealthRow[];\n}',
+  },
+  {
+    name: 'EvaluatorRun',
+    declaration: 'export interface EvaluatorRun {\n    id: string;\n    skill: string;\n    unanimous: boolean;\n    status: EvaluatorRunStatus;\n    approved: boolean;\n    approving: readonly string[];\n    dissenting: readonly string[];\n    at: string;\n}',
+  },
+  {
+    name: 'EvaluatorRunInput',
+    declaration: 'export interface EvaluatorRunInput {\n    skill: string;\n    unanimous: boolean;\n    status: EvaluatorRunStatus | \'skipped\';\n    approved: boolean;\n    approving: readonly string[];\n    dissenting: readonly string[];\n}',
+  },
+  {
+    name: 'EvaluatorRunStatus',
+    declaration: 'export type EvaluatorRunStatus = \'gated\' | \'evaluated\';',
   },
   {
     name: 'EvolutionAddContextItemRequest',
@@ -5487,6 +6165,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface EvolutionRemoveContextItemRequest extends EvolutionScopeRequest {\n    readonly itemId: string;\n}',
   },
   {
+    name: 'EvolutionRole',
+    declaration: 'export type EvolutionRole = \'task-execution\' | \'reflection\' | \'candidate-generation\' | \'evaluation\' | \'promotion-review\';',
+  },
+  {
     name: 'EvolutionSetInstructionsRequest',
     declaration: 'export interface EvolutionSetInstructionsRequest extends EvolutionScopeRequest {\n    readonly instructions: string;\n}',
   },
@@ -5501,6 +6183,22 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'EvolutionStagedValue',
     declaration: 'export interface EvolutionStagedValue {\n    readonly staged: readonly StagedWrite[];\n}',
+  },
+  {
+    name: 'ExperimentComparison',
+    declaration: 'export interface ExperimentComparison {\n    comparable: boolean;\n    changed: DependencyKey[];\n}',
+  },
+  {
+    name: 'ExperimentEnvelope',
+    declaration: 'export interface ExperimentEnvelope {\n    experimentId: string;\n    skill: string;\n    hypothesis?: string | undefined;\n    candidate: string;\n    operator?: string | undefined;\n    tasks: string[];\n    metrics: {\n        pass: boolean;\n        tokens: number;\n        wallTimeMs: number;\n    };\n    outcome: ExperimentOutcome;\n    regressions: string[];\n    rejectedReason?: string | undefined;\n    lessons?: string | undefined;\n    dependencies: DependencyVersions;\n    seeds: number[];\n    at: string;\n}',
+  },
+  {
+    name: 'ExperimentInput',
+    declaration: 'export type ExperimentInput = Omit<ExperimentEnvelope, \'at\'>;',
+  },
+  {
+    name: 'ExperimentOutcome',
+    declaration: 'export type ExperimentOutcome = \'improved\' | \'regressed\' | \'inconclusive\';',
   },
   {
     name: 'FailureId',
@@ -5583,6 +6281,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface FinishReasonMap {\n    \'stop\': {\n        kind: \'stop\';\n    };\n    \'tool-calls\': {\n        kind: \'tool-calls\';\n    };\n    \'max-tokens\': {\n        kind: \'max-tokens\';\n    };\n    \'aborted\': {\n        kind: \'aborted\';\n        failure: LlmFailure;\n    };\n    \'error\': {\n        kind: \'error\';\n        failure: LlmFailure;\n    };\n}',
   },
   {
+    name: 'FrontierGap',
+    declaration: 'export interface FrontierGap {\n    capability: string;\n    score: number;\n    confidence: number;\n    coveringSkills: string[];\n    observations: number;\n}',
+  },
+  {
     name: 'FsDirEntry',
     declaration: 'export interface FsDirEntry {\n    name: string;\n    type: \'file\' | \'directory\' | \'other\';\n    target: FsTarget;\n    version?: FsVersion;\n    size?: number;\n}',
   },
@@ -5625,6 +6327,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'FsWriteOutcome',
     declaration: 'export interface FsWriteOutcome {\n    operation: \'create\' | \'update\';\n    version: FsVersion;\n    before: string | null;\n    after: string;\n}',
+  },
+  {
+    name: 'GamingDefense',
+    declaration: 'export type GamingDefense = \'multiple-evaluators\' | \'hidden-holdout\' | \'behavioral-metrics\' | \'adversarial-tests\' | \'randomized-tests\' | \'evaluator-rotation\';',
   },
   {
     name: 'GenerateOptions',
@@ -5815,6 +6521,26 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface InvokeRemoteRequest {\n    readonly namespace: string;\n    readonly method: string;\n    readonly args: Readonly<Record<string, unknown>>;\n    readonly signal?: AbortSignal;\n}',
   },
   {
+    name: 'Island',
+    declaration: 'export interface Island {\n    islandId: string;\n    name: string;\n    objective: IslandObjective;\n    skill: string;\n    generation: number;\n    lastActivityAt: string | null;\n    at: string;\n}',
+  },
+  {
+    name: 'IslandInput',
+    declaration: 'export interface IslandInput {\n    islandId: string;\n    name: string;\n    objective: IslandObjective;\n    skill: string;\n}',
+  },
+  {
+    name: 'IslandObjective',
+    declaration: 'export type IslandObjective = \'conservative\' | \'performance\' | \'cost\' | \'novelty\' | \'adversarial\';',
+  },
+  {
+    name: 'IslandSchedule',
+    declaration: 'export interface IslandSchedule {\n    island: Island;\n    lastMigrationAt: string | null;\n    due: boolean;\n}',
+  },
+  {
+    name: 'IslandsConfig',
+    declaration: 'export interface IslandsConfig {\n    migrationCadence: number;\n}',
+  },
+  {
     name: 'JobDoneListener',
     declaration: 'export type JobDoneListener = (snapshot: JobSnapshot, owner: Agent | undefined) => void | PromiseLike<void>;',
   },
@@ -5911,6 +6637,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface KvUnitDescriptor {\n    readonly name: string;\n    readonly version: number;\n    readonly tables: readonly string[];\n    readonly hasGlobal: boolean;\n    readonly layout?: \'single\' | \'per-record\';\n    readonly compatibleVersions?: readonly number[];\n}',
   },
   {
+    name: 'LearningTraceRow',
+    declaration: 'export interface LearningTraceRow {\n    sessionId: string;\n    turns: number;\n    calls: number;\n    failures: number;\n    retries: number;\n    tokens: number;\n    latencyMs: number;\n    failureGists: readonly string[];\n    updatedAt: string | null;\n}',
+  },
+  {
     name: 'LessonArtifactInput',
     declaration: 'export type LessonArtifactInput = Omit<LessonArtifact, \'id\' | \'validationCount\' | \'refutationCount\' | \'createdAt\' | \'updatedAt\'>;',
   },
@@ -5925,6 +6655,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'LessonMergeStrategy',
     declaration: 'export type LessonMergeStrategy = \'overwrite\' | \'merge\' | \'keep_both\';',
+  },
+  {
+    name: 'LineageConfig',
+    declaration: 'export interface LineageConfig {\n    comparedKeys: DependencyKey[];\n}',
   },
   {
     name: 'LlmAdapter',
@@ -6131,6 +6865,18 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface MessageSourceMap {\n    user: {\n        kind: \'user\';\n    };\n    plugin: {\n        kind: \'plugin\';\n        plugin: string;\n    } & ContextFormed;\n    model: ModelMessageSource;\n    tool: ToolMessageSource;\n}',
   },
   {
+    name: 'Migration',
+    declaration: 'export interface Migration {\n    migrationId: string;\n    fromIslandId: string;\n    toIslandId: string;\n    candidateId: string;\n    skill: string;\n    reason: MigrationReason;\n    at: string;\n}',
+  },
+  {
+    name: 'MigrationInput',
+    declaration: 'export interface MigrationInput {\n    fromIslandId: string;\n    toIslandId: string;\n    candidateId: string;\n    reason: MigrationReason;\n}',
+  },
+  {
+    name: 'MigrationReason',
+    declaration: 'export type MigrationReason = \'schedule\' | \'elite\' | \'diversity\';',
+  },
+  {
     name: 'ModelCatalog',
     declaration: 'export interface ModelCatalog {\n    readonly default: ModelSelection;\n    readonly routableProviders: readonly string[];\n    readonly groups: readonly ModelProviderGroup[];\n    readonly failures: readonly ModelCatalogFailure[];\n}',
   },
@@ -6165,6 +6911,18 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'ModelReasoningEffort',
     declaration: 'export interface ModelReasoningEffort {\n    readonly id: string;\n    readonly name: string;\n    readonly description?: string;\n}',
+  },
+  {
+    name: 'ModelRoute',
+    declaration: 'export interface ModelRoute {\n    provider: string;\n    model: string;\n}',
+  },
+  {
+    name: 'NoveltyArchiveEntry',
+    declaration: 'export interface NoveltyArchiveEntry {\n    candidateId: string;\n    skill: string;\n    features: readonly string[];\n    novelty: number;\n    at: string;\n}',
+  },
+  {
+    name: 'NoveltyArchiveInput',
+    declaration: 'export interface NoveltyArchiveInput {\n    candidateId: string;\n    skill: string;\n    features: readonly string[];\n}',
   },
   {
     name: 'ObjectJsonSchema',
@@ -6219,8 +6977,36 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface PolicyEngine {\n    evaluate(context: PolicyContext): PolicyDecision;\n}',
   },
   {
+    name: 'PopulationCandidate',
+    declaration: 'export interface PopulationCandidate {\n    candidateId: string;\n    skill: string;\n    parentCandidateId: string | null;\n    operator: string;\n    generation: number;\n    novelty: number;\n    triple: PopulationTriple | null;\n    status: PopulationStatus;\n    at: string;\n}',
+  },
+  {
+    name: 'PopulationRecordInput',
+    declaration: 'export interface PopulationRecordInput {\n    skill: string;\n    candidateId: string;\n    operator: string;\n    novelty: number;\n    triple: PopulationTriple | null;\n    status: PopulationStatus;\n}',
+  },
+  {
+    name: 'PopulationStatus',
+    declaration: 'export type PopulationStatus = \'staged\' | \'approved\' | \'rejected\';',
+  },
+  {
+    name: 'PopulationTriple',
+    declaration: 'export interface PopulationTriple {\n    pass: boolean;\n    tokens: number;\n    wallTimeMs: number;\n}',
+  },
+  {
     name: 'PostToolDecision',
     declaration: 'export type PostToolDecision = {\n    kind: \'accept\';\n    content?: ContentBlock[];\n    value?: never;\n    additionalContexts?: UserMessage[];\n} | {\n    kind: \'accept\';\n    value: JsonValue;\n    content?: never;\n    additionalContexts?: UserMessage[];\n} | {\n    kind: \'block\';\n    feedback: ContentBlock[];\n    additionalContexts?: UserMessage[];\n};',
+  },
+  {
+    name: 'PrecomputeArtifact',
+    declaration: 'export interface PrecomputeArtifact {\n    artifactId: string;\n    taskId: string;\n    kind: PrecomputeKind;\n    summary: string;\n    offlineCostTokens: number;\n    hits: number;\n    savedTokens: number;\n    at: string;\n}',
+  },
+  {
+    name: 'PrecomputeInput',
+    declaration: 'export interface PrecomputeInput {\n    artifactId: string;\n    taskId: string;\n    kind: PrecomputeKind;\n    summary: string;\n    offlineCostTokens: number;\n}',
+  },
+  {
+    name: 'PrecomputeKind',
+    declaration: 'export type PrecomputeKind = \'summary\' | \'retrieval-index\' | \'candidate-plan\';',
   },
   {
     name: 'PreparedAdapterCall',
@@ -6265,6 +7051,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'PreToolDecision',
     declaration: 'export type PreToolDecision = {\n    kind: \'allow\';\n} | {\n    kind: \'deny\';\n    reason: string;\n} | {\n    kind: \'ask\';\n    reason?: string;\n};',
+  },
+  {
+    name: 'ProbeInput',
+    declaration: 'export interface ProbeInput {\n    probeId: string;\n    skill: string;\n    category: AdversarialCategory;\n    probe: string;\n    foundWeakness: boolean;\n}',
   },
   {
     name: 'ProjectionChangeListener',
@@ -6487,12 +7277,36 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface RollbackRestored {\n    name: string;\n    from: SkillLifecycleState;\n    to: SkillLifecycleState;\n}',
   },
   {
+    name: 'RouteEvidence',
+    declaration: 'export interface RouteEvidence {\n    id: string;\n    role: EvolutionRole;\n    provider: string;\n    model: string;\n    pass: boolean;\n    tokens: number;\n    wallTimeMs: number;\n    at: string;\n}',
+  },
+  {
+    name: 'RouteEvidenceInput',
+    declaration: 'export interface RouteEvidenceInput {\n    role: EvolutionRole;\n    route: ModelRoute;\n    triple: {\n        pass: boolean;\n        tokens: number;\n        wallTimeMs: number;\n    };\n}',
+  },
+  {
+    name: 'RouteOrigin',
+    declaration: 'export type RouteOrigin = \'observed\' | \'pinned\';',
+  },
+  {
+    name: 'RouteRow',
+    declaration: 'export interface RouteRow {\n    role: EvolutionRole;\n    provider: string;\n    model: string;\n    origin: RouteOrigin;\n    at: string;\n}',
+  },
+  {
+    name: 'RouteSummary',
+    declaration: 'export interface RouteSummary {\n    role: EvolutionRole;\n    provider: string;\n    model: string;\n    origin: RouteOrigin;\n    runs: number;\n    passRate: number;\n    meanTokens: number;\n    lastAt: string | null;\n}',
+  },
+  {
     name: 'RunId',
     declaration: 'export type RunId = Branded<\'RunId\'>;',
   },
   {
     name: 'RunnerFailureRule',
     declaration: 'export interface RunnerFailureRule {\n    allowedExitCodes?: readonly number[];\n    fatalSignatures: readonly string[];\n    informationalLines?: readonly string[];\n}',
+  },
+  {
+    name: 'RunScore',
+    declaration: 'export interface RunScore {\n    pass: boolean;\n    tokens: number;\n    wallTimeMs: number;\n}',
   },
   {
     name: 'SandboxEnforcement',
@@ -6581,6 +7395,18 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SearchResultView',
     declaration: 'export type SearchResultView = SearchMatchesResultView | SearchPathsResultView;',
+  },
+  {
+    name: 'SelfModel',
+    declaration: 'export interface SelfModel {\n    skill: string;\n    strengths: string[];\n    weaknesses: string[];\n    uncertainAreas: string[];\n    failureModes: string[];\n    preferredTools: string[];\n    evaluatorBlindspots: string[];\n    confidence: number;\n    revision: number;\n    at: string;\n}',
+  },
+  {
+    name: 'SelfModelConfig',
+    declaration: 'export interface SelfModelConfig {\n    maxObservations: number;\n    maxFailures: number;\n}',
+  },
+  {
+    name: 'SelfModelInput',
+    declaration: 'export interface SelfModelInput {\n    skill: string;\n    strengths: string[];\n    weaknesses: string[];\n    uncertainAreas: string[];\n    failureModes: string[];\n    preferredTools: string[];\n    evaluatorBlindspots: string[];\n    confidence: number;\n}',
   },
   {
     name: 'SemanticSessionSearchHit',
@@ -7279,8 +8105,20 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface SkillUsageRecord {\n    useCount: number;\n    viewCount: number;\n    patchCount: number;\n    lastUsedAt: string | null;\n    failureCount?: number;\n    lastOutcome?: \'ok\' | \'failed\';\n    sessionIds: readonly string[];\n    lastViewedAt: string | null;\n    lastPatchedAt: string | null;\n    createdAt: string;\n    state: SkillLifecycleState;\n    pinned: boolean;\n    createdBy: SkillCreatedBy;\n    absorbedInto: string | null;\n    archivedAt: string | null;\n    trust: SkillTrustState;\n    trustFailures: number;\n    trustObservedSessions: readonly string[];\n    trustAnchorSessionId: string | null;\n    lastTrustFailure: SkillTrustFailure | null;\n    revision: number;\n    contentSha: string | null;\n    parentRevisionSha: string | null;\n}',
   },
   {
+    name: 'SkillVersion',
+    declaration: 'export interface SkillVersion {\n    name: string;\n    revision: number;\n    contentSha: string;\n    parentRevisionSha: string | null;\n    at: string;\n}',
+  },
+  {
     name: 'SkillViewOptions',
     declaration: 'export interface SkillViewOptions extends SkillLookupOptions {\n    readonly scope?: ScopeKey | undefined;\n}',
+  },
+  {
+    name: 'SleeptimeConfig',
+    declaration: 'export interface SleeptimeConfig {\n    defaultEstimatedCostTokens: number;\n    maxOfflineTokens: number;\n}',
+  },
+  {
+    name: 'SleeptimeDecision',
+    declaration: 'export interface SleeptimeDecision {\n    taskId: string;\n    domain: string;\n    worthIt: boolean;\n    expectedNet: number;\n    reason: string;\n}',
   },
   {
     name: 'SpawnTeammateRequest',
@@ -7321,6 +8159,26 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'StagedWriteKind',
     declaration: 'export type StagedWriteKind = \'memory\' | \'skill\';',
+  },
+  {
+    name: 'StagnationConfig',
+    declaration: 'export interface StagnationConfig {\n    threshold: number;\n    relativeImprovement: number;\n}',
+  },
+  {
+    name: 'StagnationRun',
+    declaration: 'export interface StagnationRun {\n    runId: string;\n    skill: string;\n    generation: number;\n    score: RunScore;\n    improved: boolean;\n    at: string;\n}',
+  },
+  {
+    name: 'StagnationRunInput',
+    declaration: 'export interface StagnationRunInput {\n    runId: string;\n    skill: string;\n    score: RunScore;\n}',
+  },
+  {
+    name: 'StagnationStatus',
+    declaration: 'export interface StagnationStatus {\n    skill: string;\n    runs: number;\n    bestScore: RunScore | null;\n    generationsSinceImprovement: number;\n    stagnant: boolean;\n    threshold: number;\n    strategy: StagnationStrategy;\n}',
+  },
+  {
+    name: 'StagnationStrategy',
+    declaration: 'export type StagnationStrategy = \'exploitation\' | \'diversity\' | \'newOperators\' | \'newTasks\' | \'newEvaluators\' | \'newModel\';',
   },
   {
     name: 'StorageBackend',
@@ -7795,6 +8653,34 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type ToolTransport = \'stdio\' | \'http\';',
   },
   {
+    name: 'TraceCause',
+    declaration: 'export interface TraceCause {\n    kind: TraceCauseKind;\n    turn: number;\n    step: number | null;\n    tool: string | null;\n    reason: string;\n}',
+  },
+  {
+    name: 'TraceCauseKind',
+    declaration: 'export type TraceCauseKind = \'tool\' | \'retrieval\' | \'request\';',
+  },
+  {
+    name: 'TraceFailure',
+    declaration: 'export interface TraceFailure {\n    callId: string;\n    tool: string;\n    message: string;\n    at: string;\n    causes: readonly TraceCause[];\n}',
+  },
+  {
+    name: 'TraceRecord',
+    declaration: 'export interface TraceRecord {\n    sessionId: string;\n    updatedAt: string | null;\n    turnCount: number;\n    turns: readonly TraceTurn[];\n    usage: TokenUsage | null;\n}',
+  },
+  {
+    name: 'TraceStep',
+    declaration: 'export interface TraceStep {\n    turn: number;\n    step: number;\n    startedAt: string;\n    finishedAt: string | null;\n    interrupted: boolean;\n    retries: number;\n    usage: TokenUsage | null;\n    calls: readonly TraceToolCall[];\n    failures: number;\n}',
+  },
+  {
+    name: 'TraceToolCall',
+    declaration: 'export interface TraceToolCall {\n    callId: string;\n    name: string;\n    ok: boolean;\n    errorName: string | null;\n    errorCode: string | null;\n    message: string | null;\n    at: string;\n}',
+  },
+  {
+    name: 'TraceTurn',
+    declaration: 'export interface TraceTurn {\n    turn: number;\n    startedAt: string;\n    endedAt: string | null;\n    endReason: string | null;\n    latencyMs: number | null;\n    request: string | null;\n    steps: readonly TraceStep[];\n    failures: readonly TraceFailure[];\n}',
+  },
+  {
     name: 'TrajectoryExportOptions',
     declaration: 'export interface TrajectoryExportOptions {\n    readonly out?: string;\n}',
   },
@@ -7913,6 +8799,22 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'TypertTypeModel',
     declaration: 'export interface TypertTypeModel {\n    readonly name: string;\n    readonly declaration: string;\n}',
+  },
+  {
+    name: 'UncertaintyConfig',
+    declaration: 'export interface UncertaintyConfig {\n    queueLimit: number;\n    corroborationBonus: number;\n}',
+  },
+  {
+    name: 'UncertaintyKind',
+    declaration: 'export type UncertaintyKind = \'disagreement\' | \'low-confidence\' | \'instability\' | \'retrieval-ambiguity\' | \'conflicting-evidence\';',
+  },
+  {
+    name: 'UncertaintySignal',
+    declaration: 'export interface UncertaintySignal {\n    signalId: string;\n    skill: string;\n    taskId: string | null;\n    kind: UncertaintyKind;\n    score: number;\n    detail: string;\n    at: string;\n}',
+  },
+  {
+    name: 'UncertaintySignalInput',
+    declaration: 'export interface UncertaintySignalInput {\n    signalId: string;\n    skill: string;\n    taskId: string | null;\n    kind: UncertaintyKind;\n    score: number;\n    detail: string;\n}',
   },
   {
     name: 'UpdateTeamTaskRequest',

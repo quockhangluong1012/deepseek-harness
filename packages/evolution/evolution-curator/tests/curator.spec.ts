@@ -319,7 +319,7 @@ describe('evolution curator', () => {
         sessions: 2,
         revision: 0,
       }])
-      expect(await h.curator.debt()).toEqual(first.regressionDebt)
+      expect(h.curator.debt()).toEqual(first.regressionDebt)
       const second = await h.curator.run({ now: T0 + DAY })
       expect(second.regressionDebt).toMatchObject([{ passes: 2, lastSeenAt: at(T0 + DAY) }])
       // A revision closes the old debt and opens a fresh one: the new body
@@ -333,7 +333,7 @@ describe('evolution curator', () => {
       signals.splice(0)
       const fourth = await h.curator.run({ now: T0 + 3 * DAY })
       expect(fourth.regressionDebt).toEqual([])
-      expect(await h.curator.debt()).toEqual([])
+      expect(h.curator.debt()).toEqual([])
     } finally {
       await h.fiber.dispose()
     }
@@ -371,6 +371,33 @@ describe('evolution curator', () => {
     }
   })
 
+  it('breaks a debt-order tie by merge key when name, passes, and sessions match', async () => {
+    const h = await harness({
+      sources: { writer: 'user-dsh' },
+      feedSignals: [
+        {
+          tool: 'bash', message: 'slow', count: 1, sessions: 3, firstAt: 't0', lastAt: 't1',
+          actionability: 'trigger_review', evidenceStatus: 'complete', mergeKey: 'bash\0slow',
+        },
+        {
+          tool: 'bash', message: 'stuck', count: 1, sessions: 3, firstAt: 't0', lastAt: 't1',
+          actionability: 'trigger_review', evidenceStatus: 'complete', mergeKey: 'bash\0stuck',
+        },
+      ],
+    })
+    try {
+      await h.telemetry?.markAgentCreated('writer')
+      await h.telemetry?.markUsed('writer', undefined, 'session-1')
+      const report = await h.curator.run({ now: T0 })
+      expect(report.regressionDebt.map(entry => [entry.name, entry.mergeKey, entry.passes, entry.sessions])).toEqual([
+        ['writer', 'bash\0slow', 1, 3],
+        ['writer', 'bash\0stuck', 1, 3],
+      ])
+    } finally {
+      await h.fiber.dispose()
+    }
+  })
+
   it('writes no debt on a dry run', async () => {
     const h = await harness({ sources: { writer: 'user-dsh' }, feedFailures: true })
     try {
@@ -379,7 +406,7 @@ describe('evolution curator', () => {
       await h.telemetry?.markUsed('writer', undefined, 'session-2')
       const preview = await h.curator.run({ now: T0, dryRun: true })
       expect(preview.regressionDebt).toEqual([])
-      expect(await h.curator.debt()).toEqual([])
+      expect(h.curator.debt()).toEqual([])
     } finally {
       await h.fiber.dispose()
     }
@@ -401,7 +428,7 @@ describe('evolution curator', () => {
         const report = await h.curator.run({ now: T0 })
         expect(report.scanned).toBe(1)
         expect(report.regressionDebt).toEqual([])
-        expect(await h.curator.debt()).toEqual([])
+        expect(h.curator.debt()).toEqual([])
         expect(h.telemetry?.read('writer')).toMatchObject({ trustFailures: 0 })
         expect(warn).toHaveBeenCalledWith(expect.stringContaining("could not read failures for 'writer'"))
       } finally {

@@ -31,8 +31,10 @@
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "workspace:^",
+    "@deepseek-ai/dsh-evolution-evaluator-health": "workspace:^",
     "@deepseek-ai/dsh-evolution-skill-manage": "workspace:^",
     "@deepseek-ai/dsh-evolution-skill-telemetry": "workspace:^",
+    "@deepseek-ai/dsh-evolution-uncertainty": "workspace:^",
     "@deepseek-ai/dsh-llm-replay": "workspace:^",
     "@deepseek-ai/dsh-session": "workspace:^",
     "@deepseek-ai/dsh-session-snapshot": "workspace:^",
@@ -41,8 +43,10 @@
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "workspace:^",
+    "@deepseek-ai/dsh-evolution-evaluator-health": "workspace:^",
     "@deepseek-ai/dsh-evolution-skill-manage": "workspace:^",
     "@deepseek-ai/dsh-evolution-skill-telemetry": "workspace:^",
+    "@deepseek-ai/dsh-evolution-uncertainty": "workspace:^",
     "@deepseek-ai/dsh-llm-replay": "workspace:^",
     "@deepseek-ai/dsh-session": "workspace:^",
     "@deepseek-ai/dsh-session-projection": "workspace:^",

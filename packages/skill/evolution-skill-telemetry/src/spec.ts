@@ -7,7 +7,7 @@
 
 import { z } from 'zod'
 import { defineDomain, domainTable } from '@deepseek-ai/dsh-storage-domain'
-import type { SkillUsageRecord } from './types.ts'
+import type { SkillUsageRecord, SkillVersion } from './types.ts'
 
 /**
  * Durable shape of one skill-usage record. Compatible reshapes add an
@@ -41,20 +41,43 @@ export const skillUsageRecord = z.object({
 export type SkillUsageRecordRow = z.infer<typeof skillUsageRecord>
 
 /**
+ * Durable shape of one committed body revision. The `versions` table is the
+ * skill-artifact registry: every body change through the store commits one
+ * row, so lineage is queryable without re-reading files.
+ */
+export const skillVersionRow = z.object({
+  name: z.string(),
+  revision: z.number().int().nonnegative(),
+  contentSha: z.string(),
+  parentRevisionSha: z.string().nullable(),
+  at: z.string(),
+})
+
+/** One stored history row, inferred from {@link skillVersionRow}. */
+export type SkillVersionRow = z.infer<typeof skillVersionRow>
+
+/**
  * The evolution-skill-telemetry domain spec: one `records` table keyed by
- * skill name. `per-record` because skills are independent. Invalid records
- * fail the domain open loudly: counters back curation decisions, not
+ * skill name, one `versions` table keyed by `name\0revision` holding the
+ * committed body history. `per-record` because skills are independent. Invalid
+ * records fail the domain open loudly: counters back curation decisions, not
  * disposable derived data. No global slot, no migration facility.
  */
 export const skillUsageDomainSpec = defineDomain({
   name: 'evolution_skill_usage',
-  version: 1,
+  version: 2,
+  // Version 1 stored only per-skill records; the versions table arrives empty
+  // on first write, so records written before it existed open unchanged.
+  compatibleVersions: [1],
   layout: 'per-record',
   tables: {
     records: domainTable<string, SkillUsageRecord>(
       skillUsageRecord as unknown as z.ZodType<SkillUsageRecord>,
     ),
+    versions: domainTable<string, SkillVersion>(skillVersionRow),
   },
 })
+
+export type { SkillVersion }
 
 export type { SkillUsageRecord }

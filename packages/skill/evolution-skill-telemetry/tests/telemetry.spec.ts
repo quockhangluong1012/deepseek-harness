@@ -502,4 +502,73 @@ describe('consolidation cost row', () => {
     expect(store.readConsolidationCost()).toMatchObject({ inputBytes: 4_096, truncated: true, provider: 'openrouter' })
     await fiber.dispose()
   })
+
+  it('records one version row per committed body revision, oldest first', async () => {
+    const { fiber, store } = await harness({ writer: 'user-dsh' })
+    try {
+      expect(store.versions('writer')).toEqual([])
+      const sha1 = createHash('sha256').update('body-1').digest('hex')
+      const sha2 = createHash('sha256').update('body-2').digest('hex')
+      await store.markRevised('writer', 'body-1')
+      await store.markRevised('writer', 'body-2')
+      const rows = store.versions('writer')
+      expect(rows.map(row => ({ ...row, at: '' }))).toEqual([
+        { name: 'writer', revision: 1, contentSha: sha1, parentRevisionSha: null, at: '' },
+        { name: 'writer', revision: 2, contentSha: sha2, parentRevisionSha: sha1, at: '' },
+      ])
+      expect(rows[0]?.at).toEqual(expect.any(String))
+      expect(store.read('writer')).toMatchObject({ revision: 2, contentSha: sha2, parentRevisionSha: sha1 })
+    } finally {
+      await fiber.dispose()
+    }
+  })
+
+  it('does not record a version when the body is unchanged', async () => {
+    const { fiber, store } = await harness({ writer: 'user-dsh' })
+    try {
+      await store.markRevised('writer', 'body-1')
+      await store.markRevised('writer', 'body-1')
+      expect(store.versions('writer')).toHaveLength(1)
+      expect(store.read('writer')).toMatchObject({ revision: 1 })
+    } finally {
+      await fiber.dispose()
+    }
+  })
+
+  it('returns detached version rows', async () => {
+    const { fiber, store } = await harness({ writer: 'user-dsh' })
+    try {
+      await store.markRevised('writer', 'body-1')
+      const rows = store.versions('writer')
+      ;(rows[0] as { name: string }).name = 'mutated'
+      expect(store.versions('writer')[0]?.name).toBe('writer')
+    } finally {
+      await fiber.dispose()
+    }
+  })
+
+  it('keeps version history out of excluded sources and clears it on drop', async () => {
+    const { fiber, store } = await harness({ builtin: 'bundled', writer: 'user-dsh', other: 'user-dsh' })
+    try {
+      expect(await store.markRevised('builtin', 'body')).toBeUndefined()
+      expect(store.versions('builtin')).toEqual([])
+      await store.markRevised('writer', 'body-1')
+      await store.markRevised('writer', 'body-2')
+      await store.markRevised('other', 'body-x')
+      expect(store.versions('writer')).toHaveLength(2)
+      expect(await store.drop('writer')).toBe(true)
+      expect(store.read('writer')).toBeUndefined()
+      expect(store.versions('writer')).toEqual([])
+      // A sibling skill's history survives the drop's prefix sweep.
+      expect(store.versions('other')).toHaveLength(1)
+    } finally {
+      await fiber.dispose()
+    }
+  })
+
+  it('reads throw before the store starts', () => {
+    const ctx = new Context()
+    const store = new EvolutionSkillTelemetry(ctx, {})
+    expect(() => store.versions('writer')).toThrow('not started yet')
+  })
 })

@@ -33,7 +33,7 @@ kind: "package-reference"
 
 信任取 `provisional` 或 `trusted`，由相互独立的观测而非流逝的时间推出。记录初始为 `trusted`，因为此时尚无对其不利的证据；只有模型写出的产物（`markAgentCreated`）或刚被编辑的产物（`markPatched`、`markRevised`）才把它降为 `provisional`，同时清空已计入的会话，并以当时见过的最新会话重新锚定。此后若有 `trustPromotionSessions` 个更新的会话，便重新升为 `trusted`。`trustFailures` 统计由证据导致的降级次数，`lastTrustFailure` 保存最近一次失败的 `mergeKey`/`message`/`at`。
 
-修订链是线性的，以技能名为键：`revision` 从 0 起，`contentSha` 是当前 SKILL.md 正文的 sha256 十六进制值，`parentRevisionSha` 是其被替换掉的那一版的哈希。
+修订链是线性的，以技能名为键：`revision` 从 0 起，`contentSha` 是当前 SKILL.md 正文的 sha256 十六进制值，`parentRevisionSha` 是其被替换掉的那一版的哈希。每一次经由 `markRevised` 的正文变更还会在持久化版本注册表中提交一行，`versions(name)` 按从旧到新列出已提交的修订——修订号、该修订提交的正文哈希、其替换的父哈希，以及记录时刻——因此无需重读文件即可查询谱系。同样的字节再来一次，对记录与注册表都是空操作；`drop` 连同记录一起清除历史；被排除的来源不保留任何行。
 
 ### 会话关联
 

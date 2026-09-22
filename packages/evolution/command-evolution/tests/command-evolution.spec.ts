@@ -16,7 +16,17 @@ import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import EvolutionGraph from '@deepseek-ai/dsh-evolution-graph'
 import type {} from '@deepseek-ai/dsh-evolution-reviewer'
 import type { PassSummary, PurgeReport, RollbackReport, StagedCandidate, StagedSkill } from '@deepseek-ai/dsh-evolution-curator'
-import type { SkillUsageRecord } from '@deepseek-ai/dsh-evolution-skill-telemetry'
+import type { SkillUsageRecord, SkillVersion } from '@deepseek-ai/dsh-evolution-skill-telemetry'
+import type { TraceRecord } from '@deepseek-ai/dsh-evolution-trace'
+import type { CurriculumProposal } from '@deepseek-ai/dsh-evolution-curriculum'
+import type { BenchmarkInput, BenchmarkState, BenchmarkTask } from '@deepseek-ai/dsh-evolution-benchmark'
+import type { EvaluatorHealthSummary, EvaluatorRun } from '@deepseek-ai/dsh-evolution-evaluator-health'
+import type { PopulationCandidate, PopulationStatus } from '@deepseek-ai/dsh-evolution-population'
+import type { ModelRoute, RouteEvidence, RouteRow, RouteSummary } from '@deepseek-ai/dsh-evolution-model-routes'
+import type { DeploymentRecord, DeploymentState } from '@deepseek-ai/dsh-evolution-canary'
+import type { NoveltyArchiveEntry } from '@deepseek-ai/dsh-evolution-novelty-search'
+import type { StagnationRun, StagnationStatus } from '@deepseek-ai/dsh-evolution-stagnation'
+import type { IslandInput, IslandSchedule, Migration, MigrationInput } from '@deepseek-ai/dsh-evolution-islands'
 import { dayKeyUTC7 } from '@deepseek-ai/dsh-usage-ledger'
 import { unzipSync, strFromU8 } from 'fflate'
 import { WorkspaceId } from '@deepseek-ai/dsh-workspace'
@@ -65,6 +75,8 @@ interface GovernanceStubs {
   setPinnedCalls?: { name: string; pinned: boolean }[]
   /** Error `setPinned` throws. */
   setPinnedError?: Error
+  /** Version history `versions` reports for any name. */
+  versionsResult?: SkillVersion[]
 }
 
 /** Trajectory-export state the `/trajectory` command reads, when provided. */
@@ -77,6 +89,182 @@ interface TrajectoryStub {
   result?: { path: string; conversations: number; bytes: number }
   /** When set, both verbs reject with this value. */
   failure?: unknown
+}
+
+/** Trace-projection state the `/trace` command reads, when provided. */
+interface TraceStub {
+  /** Session ids asked about, in call order. */
+  asked: string[]
+  /** Record reported for any session; undefined reports a missing session. */
+  record?: TraceRecord
+  /** When set, `trace` rejects with this value. */
+  failure?: unknown
+}
+
+/** Curriculum state the `/curriculum` command reads, when provided. */
+interface CurriculumStub {
+  /** How many times `gaps` was called. */
+  gapsCalls: number
+  /** Proposals `propose` returns as newly staged. */
+  staged: CurriculumProposal[]
+  /** Proposals `proposals` lists. */
+  open: CurriculumProposal[]
+  /** Ids passed to `retire`. */
+  retired: string[]
+  /** When set, `retire` rejects with this value. */
+  retireError?: unknown
+}
+
+/** Evaluator-health state the `/evaluators` command reads, when provided. */
+interface EvaluatorHealthStub {
+  /** Summary `summary` reports. */
+  summary?: EvaluatorHealthSummary
+  /** Runs `runs` lists. */
+  runs: EvaluatorRun[]
+}
+
+/** Benchmark state the `/benchmark` command reads, when provided. */
+interface BenchmarkStub {
+  /** Inputs passed to `admit`, in call order. */
+  admitted: BenchmarkInput[][]
+  /** New tasks `admit` reports. */
+  admittedCount: number
+  /** Duplicate texts `admit` reports. */
+  duplicates: string[]
+  /** Tasks `tasks` lists. */
+  tasks: BenchmarkTask[]
+  /** (id, to) pairs passed to `transition`, in call order. */
+  transitions: { id: string; to: BenchmarkState }[]
+  /** When set, `transition` rejects with this value. */
+  transitionError?: unknown
+}
+
+/** Population state the `/population` command reads, when provided. */
+interface PopulationStub {
+  /** Candidates `candidates` lists per skill. */
+  candidates: Record<string, PopulationCandidate[]>
+  /** (skill, candidateId) pairs passed to `lineage`, in call order. */
+  lineageCalls: { skill: string; candidateId: string }[]
+  /** Lineage `lineage` reports by (skill, candidateId). */
+  lineages: Record<string, PopulationCandidate[]>
+  /** (candidateId, status) pairs passed to `updateStatus`, in call order. */
+  statusCalls: { candidateId: string; status: PopulationStatus }[]
+  /** When set, `updateStatus` rejects with this value. */
+  statusError?: unknown
+}
+
+/** Model-routes state the `/routes` command reads, when provided. */
+interface RoutesStub {
+  /** Summaries `routes` lists per role. */
+  summaries: RouteSummary[]
+  /** Evidence `evidence` lists. */
+  evidence: RouteEvidence[]
+  /** (role, provider, model) triples passed to `pin`, in call order. */
+  pins: { role: string; provider: string; model: string }[]
+  /** Recommendation `recommend` reports per role. */
+  recommend?: (role: string) => ModelRoute | undefined
+  /** When set, `pin` rejects with this value. */
+  pinError?: unknown
+}
+
+/** Canary state the `/canary` command reads, when provided. */
+interface CanaryStub {
+  /** Records `deployments` lists. */
+  records: DeploymentRecord[]
+  /** (id, to) pairs passed to `advance`, in call order. */
+  advances: { id: string; to: DeploymentState }[]
+  /** When set, `advance` rejects with this value. */
+  advanceError?: unknown
+}
+
+/** Novelty-archive state the `/novelty` command reads, when provided. */
+interface NoveltyStub {
+  /** Entries `entries` lists. */
+  entries: NoveltyArchiveEntry[]
+  /** Means `mean` reports per skill; a missing skill reads zero. */
+  means: Record<string, number>
+}
+
+/** Stagnation state the `/stagnation` command reads, when provided. */
+interface StagnationStub {
+  /** Runs `runs` lists. */
+  runs: StagnationRun[]
+  /** Statuses `status` reports per skill; a missing skill reads an empty status. */
+  statuses: Record<string, StagnationStatus>
+  /** Skills passed to `reset`, in call order. */
+  resets: string[]
+  /** When set, `reset` rejects with this value. */
+  resetError?: unknown
+}
+
+/** Islands state the `/islands` command reads, when provided. */
+interface IslandsStub {
+  /** Schedule rows `schedule` lists. */
+  schedule: IslandSchedule[]
+  /** Migrations `migrations` lists. */
+  migrations: Migration[]
+  /** Register inputs passed to `register`, in call order. */
+  registers: IslandInput[]
+  /** Migrate inputs passed to `migrate`, in call order. */
+  migrateCalls: MigrationInput[]
+  /** When set, `migrate` rejects with this value. */
+  migrateError?: unknown
+  /** When set, `register` rejects with this value. */
+  registerError?: unknown
+}
+
+/** Self-model state the `/selfmodel` command reads, when provided. */
+interface SelfModelStub {
+  /** Assessments `assessment` reports per skill; a missing skill reads undefined. */
+  assessments: Record<string, unknown>
+  /** Capability gaps `gaps` lists. */
+  gaps: unknown[]
+  /** Capability `nextToLearn` names, or null. */
+  next: unknown
+}
+
+/** Uncertainty state the `/uncertainty` command reads, when provided. */
+interface UncertaintyStub {
+  /** Queue rows `queue` reports per skill; a missing skill reads the full queue. */
+  queue: unknown[]
+}
+
+/** Adversary state the `/adversary` command reads, when provided. */
+interface AdversaryStub {
+  /** Probes `probes` lists. */
+  probes: unknown[]
+  /** Probes passed to `probe`, in call order. */
+  probeCalls: Record<string, unknown>[]
+  /** (probeId, repaired) pairs passed to `setRepaired`, in call order. */
+  repairs: string[]
+  /** Challenge `challenge` reports per skill. */
+  challenges: Record<string, unknown>
+  /** Defenses `defenses` lists. */
+  defenses: unknown[]
+  /** (defense, satisfied) pairs passed to `setDefense`, in call order. */
+  defenseSets: { defense: string; satisfied: boolean }[]
+  /** When set, `setRepaired` rejects with this value. */
+  repairError?: unknown
+}
+
+/** Lineage state the `/lineage` command reads, when provided. */
+interface LineageStub {
+  /** Envelopes `experiments` lists. */
+  experiments: unknown[]
+  /** Compare verdicts `compare` reports by `<a>/<b>`. */
+  comparisons: Record<string, unknown>
+  /** Envelope `replay` reports per id; a missing id reads undefined. */
+  replays: Record<string, unknown>
+}
+
+/** Sleeptime state the `/sleeptime` command reads, when provided. */
+interface SleeptimeStub {
+  /** Tasks `tasks` lists. */
+  tasks: unknown[]
+  /** Artifacts `artifacts` lists. */
+  artifacts: unknown[]
+  /** Plan rows `plan` reports. */
+  plan: unknown[]
 }
 
 /** Skill-catalog state the `/suggestions` command reads, when provided. */
@@ -105,6 +293,21 @@ interface Harness {
   dir: string
   reviewer: ReviewerStub
   trajectory: TrajectoryStub
+  trace: TraceStub
+  curriculum: CurriculumStub
+  benchmark: BenchmarkStub
+  evaluatorHealth: EvaluatorHealthStub
+  population: PopulationStub
+  routes: RoutesStub
+  canary: CanaryStub
+  novelty: NoveltyStub
+  stagnation: StagnationStub
+  islands: IslandsStub
+  selfModel: SelfModelStub
+  uncertainty: UncertaintyStub
+  adversary: AdversaryStub
+  lineage: LineageStub
+  sleeptime: SleeptimeStub
   skills: SkillsStub
   dream: DreamingStub
   /** Ordinary turns the invoking agent queued. */
@@ -115,7 +318,7 @@ interface Harness {
 async function harness(
   withReviewer = true,
   governance?: GovernanceStubs,
-  extra: { trajectory?: boolean; skills?: boolean; graph?: boolean; dream?: boolean } = {},
+  extra: { trajectory?: boolean; skills?: boolean; graph?: boolean; dream?: boolean; trace?: boolean; curriculum?: boolean; benchmark?: boolean; evaluatorHealth?: boolean; population?: boolean; routes?: boolean; canary?: boolean; novelty?: boolean; stagnation?: boolean; islands?: boolean; selfModel?: boolean; uncertainty?: boolean; adversary?: boolean; lineage?: boolean; sleeptime?: boolean } = {},
 ): Promise<Harness> {
   const dir = await realpath(await mkdtemp(join(tmpdir(), 'evc-')))
   const ctx = new Context()
@@ -143,9 +346,10 @@ async function harness(
       },
     } as never)
   }
-  if (governance?.entries !== undefined || governance?.setPinnedCalls !== undefined || governance?.setPinnedError !== undefined) {
+  if (governance?.entries !== undefined || governance?.setPinnedCalls !== undefined || governance?.setPinnedError !== undefined || governance?.versionsResult !== undefined) {
     ctx.provide('evolutionSkillTelemetry', {
       entries: () => governance.entries ?? [],
+      versions: (name: string) => (governance.versionsResult ?? []).filter(row => row.name === name),
       setPinned: async (name: string, pinned: boolean) => {
         governance.setPinnedCalls?.push({ name, pinned })
         if (governance.setPinnedError !== undefined) throw governance.setPinnedError
@@ -206,6 +410,242 @@ async function harness(
       },
     } as never)
   }
+  const trace: TraceStub = { asked: [] }
+  if (extra.trace === true) {
+    ctx.provide('evolutionTrace', {
+      trace: async (sessionId: string) => {
+        trace.asked.push(sessionId)
+        if (trace.failure !== undefined) throw trace.failure
+        return trace.record
+      },
+    } as never)
+  }
+  const curriculum: CurriculumStub = { gapsCalls: 0, staged: [], open: [], retired: [] }
+  if (extra.curriculum === true) {
+    ctx.provide('evolutionCurriculum', {
+      gaps: async () => {
+        curriculum.gapsCalls += 1
+        return []
+      },
+      propose: async () => curriculum.staged,
+      proposals: () => curriculum.open,
+      retire: async (id: string) => {
+        curriculum.retired.push(id)
+        if (curriculum.retireError !== undefined) throw curriculum.retireError
+        return { id, capability: 'x', task: 't', sourceSessions: [], gists: [], at: '2026-09-12T00:00:00.000Z', state: 'retired' }
+      },
+    } as never)
+  }
+  const benchmark: BenchmarkStub = { admitted: [], admittedCount: 0, duplicates: [], tasks: [], transitions: [] }
+  if (extra.benchmark === true) {
+    ctx.provide('evolutionBenchmark', {
+      admit: async (inputs: BenchmarkInput[]) => {
+        benchmark.admitted.push([...inputs])
+        return {
+          admitted: Array.from({ length: benchmark.admittedCount }, (_, i) => `t${i}`) as unknown as BenchmarkTask[],
+          duplicates: benchmark.duplicates,
+        }
+      },
+      tasks: () => benchmark.tasks,
+      transition: async (id: string, to: BenchmarkState) => {
+        benchmark.transitions.push({ id, to })
+        if (benchmark.transitionError !== undefined) throw benchmark.transitionError
+        return { id, hash: 'h', capability: 'x', task: 't', gists: [], sourceSessions: [], at: 't', state: to } as BenchmarkTask
+      },
+    } as never)
+  }
+  const evaluatorHealth: EvaluatorHealthStub = { runs: [] }
+  if (extra.evaluatorHealth === true) {
+    ctx.provide('evolutionEvaluatorHealth', {
+      summary: () => evaluatorHealth.summary ?? {
+        runs: 0,
+        unanimousRate: 0,
+        approvalRate: 0,
+        recentApprovalRate: 0,
+        drift: 0,
+        falsePositiveRate: 0,
+        channels: [
+          { channel: 'contract', runs: 0, approved: 0, approvalRate: 0 },
+          { channel: 'routing', runs: 0, approved: 0, approvalRate: 0 },
+          { channel: 'replay', runs: 0, approved: 0, approvalRate: 0 },
+        ],
+      },
+      runs: (skill?: string) => evaluatorHealth.runs.filter(run => skill === undefined || run.skill === skill),
+    } as never)
+  }
+  const population: PopulationStub = { candidates: {}, lineageCalls: [], lineages: {}, statusCalls: [] }
+  if (extra.population === true) {
+    ctx.provide('evolutionPopulation', {
+      candidates: (skill?: string) => skill === undefined
+        ? Object.values(population.candidates).flat()
+        : population.candidates[skill] ?? [],
+      lineage: (skill: string, candidateId: string) => {
+        population.lineageCalls.push({ skill, candidateId })
+        return population.lineages[`${skill}/${candidateId}`] ?? []
+      },
+      elite: (skill: string) => (population.candidates[skill] ?? [])
+        .filter(candidate => candidate.status === 'approved'),
+      updateStatus: async (candidateId: string, status: PopulationStatus) => {
+        population.statusCalls.push({ candidateId, status })
+        if (population.statusError !== undefined) throw population.statusError
+        return { candidateId, skill: 'writer', parentCandidateId: null, operator: 'rewrite', generation: 1, novelty: 0.5, triple: { pass: true, tokens: 3, wallTimeMs: 5 }, status, at: '2026-09-12T00:00:00.000Z' }
+      },
+    } as never)
+  }
+  const routes: RoutesStub = { summaries: [], evidence: [], pins: [] }
+  if (extra.routes === true) {
+    ctx.provide('evolutionModelRoutes', {
+      routes: (role?: string) => role === undefined
+        ? routes.summaries
+        : routes.summaries.filter(summary => summary.role === role),
+      evidence: (role?: string, route?: ModelRoute) => routes.evidence.filter(row =>
+        (role === undefined || row.role === role)
+        && (route === undefined || (row.provider === route.provider && row.model === route.model))),
+      pin: async (role: string, provider: string, model: string) => {
+        routes.pins.push({ role, provider, model })
+        if (routes.pinError !== undefined) throw routes.pinError
+        return { role: role as RouteRow['role'], provider, model, origin: 'pinned', at: '2026-09-12T00:00:00.000Z' }
+      },
+      recommend: (role: string) => routes.recommend?.(role),
+    } as never)
+  }
+  const canary: CanaryStub = { records: [], advances: [] }
+  if (extra.canary === true) {
+    ctx.provide('evolutionCanary', {
+      deployments: (state?: string, skill?: string) => canary.records.filter(record =>
+        (state === undefined || record.state === state)
+        && (skill === undefined || record.skill === skill)),
+      advance: async (id: string, to: DeploymentState) => {
+        canary.advances.push({ id, to })
+        if (canary.advanceError !== undefined) throw canary.advanceError
+        return {
+          id,
+          skill: 'writer',
+          state: to,
+          triple: null,
+          at: '2026-09-12T00:00:00.000Z',
+          enteredAt: '2026-09-12T00:00:00.000Z',
+          decidedAt: null,
+        }
+      },
+    } as never)
+  }
+  const novelty: NoveltyStub = { entries: [], means: {} }
+  if (extra.novelty === true) {
+    ctx.provide('evolutionNovelty', {
+      entries: (skill?: string) => novelty.entries.filter(entry => skill === undefined || entry.skill === skill),
+      mean: (skill: string) => novelty.means[skill] ?? 0,
+    } as never)
+  }
+  const stagnation: StagnationStub = { runs: [], statuses: {}, resets: [] }
+  if (extra.stagnation === true) {
+    ctx.provide('evolutionStagnation', {
+      runs: (skill?: string) => stagnation.runs.filter(run => skill === undefined || run.skill === skill),
+      status: (skill: string) => stagnation.statuses[skill] ?? {
+        skill,
+        runs: 0,
+        bestScore: null,
+        generationsSinceImprovement: 0,
+        stagnant: false,
+        threshold: 5,
+        strategy: 'exploitation',
+      },
+      reset: async (skill: string) => {
+        stagnation.resets.push(skill)
+        if (stagnation.resetError !== undefined) throw stagnation.resetError
+        return 2
+      },
+    } as never)
+  }
+  const islands: IslandsStub = { schedule: [], migrations: [], registers: [], migrateCalls: [] }
+  if (extra.islands === true) {
+    ctx.provide('evolutionIslands', {
+      register: async (input: IslandInput) => {
+        islands.registers.push(input)
+        if (islands.registerError !== undefined) throw islands.registerError
+        return {
+          islandId: input.islandId,
+          name: input.name,
+          objective: input.objective,
+          skill: input.skill,
+          generation: 0,
+          lastActivityAt: null,
+          at: '2026-09-12T00:00:00.000Z',
+        }
+      },
+      migrate: async (input: MigrationInput) => {
+        islands.migrateCalls.push(input)
+        if (islands.migrateError !== undefined) throw islands.migrateError
+        return {
+          migrationId: 'mig-1',
+          fromIslandId: input.fromIslandId,
+          toIslandId: input.toIslandId,
+          candidateId: input.candidateId,
+          skill: 'writer',
+          reason: input.reason,
+          at: '2026-09-12T00:00:00.000Z',
+        }
+      },
+      migrations: (skill?: string) => islands.migrations.filter(migration => skill === undefined || migration.skill === skill),
+      schedule: (skill?: string) => islands.schedule.filter(row => skill === undefined || row.island.skill === skill),
+    } as never)
+  }
+  const selfModel: SelfModelStub = { assessments: {}, gaps: [], next: null }
+  if (extra.selfModel === true) {
+    ctx.provide('evolutionSelfModel', {
+      assessment: (skill: string) => selfModel.assessments[skill],
+      gaps: () => selfModel.gaps,
+      nextToLearn: () => selfModel.next,
+    } as never)
+  }
+  const uncertainty: UncertaintyStub = { queue: [] }
+  if (extra.uncertainty === true) {
+    ctx.provide('evolutionUncertainty', {
+      queue: (skill?: string) => uncertainty.queue.filter(row =>
+        (skill === undefined || (row as { skill: string }).skill === skill)),
+    } as never)
+  }
+  const adversary: AdversaryStub = { probes: [], probeCalls: [], repairs: [], challenges: {}, defenses: [], defenseSets: [] }
+  if (extra.adversary === true) {
+    ctx.provide('evolutionAdversary', {
+      probes: (skill?: string) => adversary.probes.filter(probe =>
+        (skill === undefined || (probe as { skill: string }).skill === skill)),
+      probe: async (input: Record<string, unknown>) => {
+        adversary.probeCalls.push(input)
+        return { ...input, repaired: false, at: '2026-09-12T00:00:00.000Z' }
+      },
+      setRepaired: async (probeId: string) => {
+        adversary.repairs.push(probeId)
+        if (adversary.repairError !== undefined) throw adversary.repairError
+        return { probeId, repaired: true }
+      },
+      challenge: (skill: string) => adversary.challenges[skill] ?? { category: 'edge-case', probed: 0, reason: 'no probe recorded yet' },
+      defenses: () => adversary.defenses,
+      setDefense: async (defense: string, satisfied: boolean) => {
+        adversary.defenseSets.push({ defense, satisfied })
+        return { defense, satisfied, at: '2026-09-12T00:00:00.000Z' }
+      },
+    } as never)
+  }
+  const lineage: LineageStub = { experiments: [], comparisons: {}, replays: {} }
+  if (extra.lineage === true) {
+    ctx.provide('evolutionLineage', {
+      experiments: (skill?: string) => lineage.experiments.filter(envelope =>
+        (skill === undefined || (envelope as { skill: string }).skill === skill)),
+      compare: (idA: string, idB: string) => lineage.comparisons[`${idA}/${idB}`],
+      replay: (id: string) => lineage.replays[id],
+    } as never)
+  }
+  const sleeptime: SleeptimeStub = { tasks: [], artifacts: [], plan: [] }
+  if (extra.sleeptime === true) {
+    ctx.provide('evolutionSleeptime', {
+      tasks: (domain?: string) => sleeptime.tasks.filter(task =>
+        (domain === undefined || (task as { domain: string }).domain === domain)),
+      artifacts: (taskId?: string) => sleeptime.artifacts.filter(artifact =>
+        (taskId === undefined || (artifact as { taskId: string }).taskId === taskId)),
+      plan: () => sleeptime.plan,
+    } as never)
+  }
   const dream: DreamingStub = { runs: [], cycles: [] }
   if (extra.dream === true) {
     ctx.provide('evolutionDreaming', {
@@ -246,6 +686,21 @@ async function harness(
     dir,
     reviewer,
     trajectory,
+    trace,
+    curriculum,
+    benchmark,
+    evaluatorHealth,
+    population,
+    routes,
+    canary,
+    novelty,
+    stagnation,
+    islands,
+    selfModel,
+    uncertainty,
+    adversary,
+    lineage,
+    sleeptime,
     dream,
     skills,
     followups: [],
@@ -440,6 +895,60 @@ describe('@deepseek-ai/dsh-command-evolution registration', () => {
         name: 'frontier',
         description: 'Rank this scope\'s capabilities weakest first from measured evidence',
       })
+      expect(test.ctx.commands.list(agent)).toContainEqual({
+        definitionId: '@deepseek-ai/dsh-command-evolution/trace',
+        name: 'trace',
+        description: 'Project one session into its structured learning trace with ranked failure causes',
+        input: { hint: '<sessionId>' },
+      })
+      expect(test.ctx.commands.list(agent)).toContainEqual({
+        definitionId: '@deepseek-ai/dsh-command-evolution/benchmark',
+        name: 'benchmark',
+        description: 'Manage the evaluation-task benchmark: admit curriculum proposals and promote tasks along the learning ladder',
+        input: { hint: '[admit | promote <id> [state] | retire <id>]' },
+      })
+      expect(test.ctx.commands.list(agent)).toContainEqual({
+        definitionId: '@deepseek-ai/dsh-command-evolution/evaluators',
+        name: 'evaluators',
+        description: 'Report evaluator ensemble health: agreement, approval drift, false positives, and per-channel rates',
+        input: { hint: '[runs [<skill>]]' },
+      })
+      expect(test.ctx.commands.list(agent)).toContainEqual({
+        definitionId: '@deepseek-ai/dsh-command-evolution/population',
+        name: 'population',
+        description: 'List a skill\'s candidate population, walk one lineage, or approve and reject staged candidates',
+        input: { hint: '<skill> [lineage <id> | approve <id> | reject <id>]' },
+      })
+      expect(test.ctx.commands.list(agent)).toContainEqual({
+        definitionId: '@deepseek-ai/dsh-command-evolution/routes',
+        name: 'routes',
+        description: 'List or pin adaptive model routes per evolutionary role and read their measured evidence',
+        input: { hint: '[pin <role> <provider> <model> | evidence [<role>]]' },
+      })
+      expect(test.ctx.commands.list(agent)).toContainEqual({
+        definitionId: '@deepseek-ai/dsh-command-evolution/canary',
+        name: 'canary',
+        description: 'Track shadow/canary rollouts of staged skill patches: list states, rollout, promote, reject, or roll back',
+        input: { hint: '[status [<skill>] | rollout <id> | promote <id> | reject <id> | rollback <id>]' },
+      })
+      expect(test.ctx.commands.list(agent)).toContainEqual({
+        definitionId: '@deepseek-ai/dsh-command-evolution/novelty',
+        name: 'novelty',
+        description: 'Summarize the novelty archive or list one skill\'s behavior descriptors with their archive novelty',
+        input: { hint: '[<skill>]' },
+      })
+      expect(test.ctx.commands.list(agent)).toContainEqual({
+        definitionId: '@deepseek-ai/dsh-command-evolution/stagnation',
+        name: 'stagnation',
+        description: 'Report stagnation across skills, one skill\'s standing with its recommended strategy, runs, or reset a skill\'s history',
+        input: { hint: '[status <skill> | runs [<skill>] | reset <skill>]' },
+      })
+      expect(test.ctx.commands.list(agent)).toContainEqual({
+        definitionId: '@deepseek-ai/dsh-command-evolution/islands',
+        name: 'islands',
+        description: 'List evolution islands with their migration schedule, register a lane, record a candidate migration, or read the migration log',
+        input: { hint: '[list [<skill>] | register <island> <name> <objective> <skill> | migrate <from> <to> <candidate> [<reason>] | migrations [<skill>]]' },
+      })
 
       await test.plugin.dispose()
       expect(test.ctx.commands.find(agent, 'memory')).toBeUndefined()
@@ -451,6 +960,15 @@ describe('@deepseek-ai/dsh-command-evolution registration', () => {
       expect(test.ctx.commands.find(agent, 'learn')).toBeUndefined()
       expect(test.ctx.commands.find(agent, 'suggestions')).toBeUndefined()
       expect(test.ctx.commands.find(agent, 'frontier')).toBeUndefined()
+      expect(test.ctx.commands.find(agent, 'trace')).toBeUndefined()
+      expect(test.ctx.commands.find(agent, 'benchmark')).toBeUndefined()
+      expect(test.ctx.commands.find(agent, 'evaluators')).toBeUndefined()
+      expect(test.ctx.commands.find(agent, 'population')).toBeUndefined()
+      expect(test.ctx.commands.find(agent, 'routes')).toBeUndefined()
+      expect(test.ctx.commands.find(agent, 'canary')).toBeUndefined()
+      expect(test.ctx.commands.find(agent, 'novelty')).toBeUndefined()
+      expect(test.ctx.commands.find(agent, 'stagnation')).toBeUndefined()
+      expect(test.ctx.commands.find(agent, 'islands')).toBeUndefined()
     } finally {
       await rm(test.dir, { recursive: true, force: true })
     }
@@ -1229,7 +1747,7 @@ describe('/curator human command', () => {
     const test = await harness()
     try {
       const session = sessionIn(test.ctx, test.dir, 'curator-usage')
-      const usage = { kind: 'error', text: 'Usage: /curator status | run [--dry-run] | staged | adopt <name> | purge [--dry-run] | rollback --id <id> | ledger | pin <name> | unpin <name> | optimize <skill> <scenario...> | experiments [skill]' } as const
+      const usage = { kind: 'error', text: 'Usage: /curator status | run [--dry-run] | staged | adopt <name> | purge [--dry-run] | rollback --id <id> | ledger | pin <name> | unpin <name> | history <name> | optimize <skill> <scenario...> | experiments [skill]' } as const
       expect((await run(test, session, '/curator')).result).toEqual(usage)
       expect((await run(test, session, '/curator status extra')).result).toEqual(usage)
       expect((await run(test, session, '/curator run extra')).result).toEqual(usage)
@@ -1486,7 +2004,7 @@ describe('/curator human command', () => {
     const test = await harness(true, {})
     try {
       const session = sessionIn(test.ctx, test.dir, 'curator-adopt-usage')
-      const usage = { kind: 'error', text: 'Usage: /curator status | run [--dry-run] | staged | adopt <name> | purge [--dry-run] | rollback --id <id> | ledger | pin <name> | unpin <name> | optimize <skill> <scenario...> | experiments [skill]' } as const
+      const usage = { kind: 'error', text: 'Usage: /curator status | run [--dry-run] | staged | adopt <name> | purge [--dry-run] | rollback --id <id> | ledger | pin <name> | unpin <name> | history <name> | optimize <skill> <scenario...> | experiments [skill]' } as const
       expect((await run(test, session, '/curator adopt')).result).toEqual(usage)
       expect((await run(test, session, '/curator adopt a b')).result).toEqual(usage)
     } finally {
@@ -1528,7 +2046,7 @@ describe('/curator human command', () => {
     const test = await harness(true, {})
     try {
       const session = sessionIn(test.ctx, test.dir, 'curator-purge-usage')
-      const usage = { kind: 'error', text: 'Usage: /curator status | run [--dry-run] | staged | adopt <name> | purge [--dry-run] | rollback --id <id> | ledger | pin <name> | unpin <name> | optimize <skill> <scenario...> | experiments [skill]' } as const
+      const usage = { kind: 'error', text: 'Usage: /curator status | run [--dry-run] | staged | adopt <name> | purge [--dry-run] | rollback --id <id> | ledger | pin <name> | unpin <name> | history <name> | optimize <skill> <scenario...> | experiments [skill]' } as const
       expect((await run(test, session, '/curator purge extra')).result).toEqual(usage)
       expect((await run(test, session, '/curator purge --dry-run extra')).result).toEqual(usage)
     } finally {
@@ -1593,7 +2111,7 @@ describe('/curator human command', () => {
     const test = await harness(true, {})
     try {
       const session = sessionIn(test.ctx, test.dir, 'curator-rollback-usage')
-      const usage = { kind: 'error', text: 'Usage: /curator status | run [--dry-run] | staged | adopt <name> | purge [--dry-run] | rollback --id <id> | ledger | pin <name> | unpin <name> | optimize <skill> <scenario...> | experiments [skill]' } as const
+      const usage = { kind: 'error', text: 'Usage: /curator status | run [--dry-run] | staged | adopt <name> | purge [--dry-run] | rollback --id <id> | ledger | pin <name> | unpin <name> | history <name> | optimize <skill> <scenario...> | experiments [skill]' } as const
       expect((await run(test, session, '/curator rollback')).result).toEqual(usage)
       expect((await run(test, session, '/curator rollback --id')).result).toEqual(usage)
       expect((await run(test, session, '/curator rollback --id a b')).result).toEqual(usage)
@@ -1713,7 +2231,7 @@ describe('/curator human command', () => {
     const test = await harness(true, {})
     try {
       const session = sessionIn(test.ctx, test.dir, 'curator-optimize-usage')
-      const usage = { kind: 'error', text: 'Usage: /curator status | run [--dry-run] | staged | adopt <name> | purge [--dry-run] | rollback --id <id> | ledger | pin <name> | unpin <name> | optimize <skill> <scenario...> | experiments [skill]' } as const
+      const usage = { kind: 'error', text: 'Usage: /curator status | run [--dry-run] | staged | adopt <name> | purge [--dry-run] | rollback --id <id> | ledger | pin <name> | unpin <name> | history <name> | optimize <skill> <scenario...> | experiments [skill]' } as const
       expect((await run(test, session, '/curator optimize')).result).toEqual(usage)
       expect((await run(test, session, '/curator optimize writer')).result).toEqual(usage)
     } finally {
@@ -1835,7 +2353,7 @@ describe('/curator human command', () => {
       })
       expect((await run(test, session, '/curator experiments writer extra')).result).toEqual({
         kind: 'error',
-        text: 'Usage: /curator status | run [--dry-run] | staged | adopt <name> | purge [--dry-run] | rollback --id <id> | ledger | pin <name> | unpin <name> | optimize <skill> <scenario...> | experiments [skill]',
+        text: 'Usage: /curator status | run [--dry-run] | staged | adopt <name> | purge [--dry-run] | rollback --id <id> | ledger | pin <name> | unpin <name> | history <name> | optimize <skill> <scenario...> | experiments [skill]',
       })
     } finally {
       await shutdown(test)
@@ -1894,7 +2412,7 @@ describe('/curator human command', () => {
       })
       expect((await run(test, session, '/curator staged now')).result).toEqual({
         kind: 'error',
-        text: 'Usage: /curator status | run [--dry-run] | staged | adopt <name> | purge [--dry-run] | rollback --id <id> | ledger | pin <name> | unpin <name> | optimize <skill> <scenario...> | experiments [skill]',
+        text: 'Usage: /curator status | run [--dry-run] | staged | adopt <name> | purge [--dry-run] | rollback --id <id> | ledger | pin <name> | unpin <name> | history <name> | optimize <skill> <scenario...> | experiments [skill]',
       })
     } finally {
       await shutdown(test)
@@ -1955,7 +2473,7 @@ describe('/curator human command', () => {
     const test = await harness(true, { setPinnedCalls: [] })
     try {
       const session = sessionIn(test.ctx, test.dir, 'curator-pin-usage')
-      const usage = { kind: 'error', text: 'Usage: /curator status | run [--dry-run] | staged | adopt <name> | purge [--dry-run] | rollback --id <id> | ledger | pin <name> | unpin <name> | optimize <skill> <scenario...> | experiments [skill]' } as const
+      const usage = { kind: 'error', text: 'Usage: /curator status | run [--dry-run] | staged | adopt <name> | purge [--dry-run] | rollback --id <id> | ledger | pin <name> | unpin <name> | history <name> | optimize <skill> <scenario...> | experiments [skill]' } as const
       expect((await run(test, session, '/curator pin')).result).toEqual(usage)
       expect((await run(test, session, '/curator pin a b')).result).toEqual(usage)
     } finally {
@@ -1988,6 +2506,49 @@ describe('/curator human command', () => {
         text: `Unpinned 'draft-skill'`,
       })
       expect(setPinnedCalls).toEqual([{ name: 'draft-skill', pinned: false }])
+    } finally {
+      await shutdown(test)
+    }
+  })
+
+  it('lists a skill\'s revision history with its lineage', async () => {
+    const test = await harness(true, {
+      versionsResult: [
+        { name: 'draft', revision: 1, contentSha: 'a'.repeat(64), parentRevisionSha: null, at: '2026-09-01T00:00:00.000Z' },
+        { name: 'draft', revision: 2, contentSha: 'b'.repeat(64), parentRevisionSha: 'a'.repeat(64), at: '2026-09-02T00:00:00.000Z' },
+      ],
+    })
+    try {
+      const session = sessionIn(test.ctx, test.dir, 'curator-history')
+      expect((await run(test, session, '/curator history draft')).result).toEqual({
+        kind: 'success',
+        text: [
+          "2 revisions for 'draft':",
+          '- r1 aaaaaaaa (2026-09-01T00:00:00.000Z)',
+          '- r2 bbbbbbbb ← r1 aaaaaaaa (2026-09-02T00:00:00.000Z)',
+        ].join('\n'),
+      })
+      // Only the named skill's rows render.
+      expect((await run(test, session, '/curator history other')).result).toEqual({
+        kind: 'success',
+        text: "No recorded revisions for 'other'.",
+      })
+    } finally {
+      await shutdown(test)
+    }
+  })
+
+  it('reports usage and a missing store for the history verb', async () => {
+    const test = await harness()
+    try {
+      const session = sessionIn(test.ctx, test.dir, 'curator-history-usage')
+      const usage = 'Usage: /curator status | run [--dry-run] | staged | adopt <name> | purge [--dry-run] | rollback --id <id> | ledger | pin <name> | unpin <name> | history <name> | optimize <skill> <scenario...> | experiments [skill]'
+      expect((await run(test, session, '/curator history')).result).toEqual({ kind: 'error', text: usage })
+      expect((await run(test, session, '/curator history a b')).result).toEqual({ kind: 'error', text: usage })
+      expect((await run(test, session, '/curator history draft')).result).toEqual({
+        kind: 'error',
+        text: 'Skill telemetry is not mounted. Pin, unpin, and history require the telemetry store.',
+      })
     } finally {
       await shutdown(test)
     }
@@ -2098,6 +2659,1652 @@ describe('/trajectory human command', () => {
       })
       test.trajectory.failure = new Error('disk on fire')
       await expect(run(test, session, '/trajectory')).rejects.toThrow('disk on fire')
+    } finally {
+      await shutdown(test)
+    }
+  })
+})
+
+describe('/trace human command', () => {
+  it('reports usage for anything but one session id', async () => {
+    const test = await harness(true, undefined, { trace: true })
+    try {
+      const session = sessionIn(test.ctx, test.dir, 'trace-usage')
+      expect((await run(test, session, '/trace')).result).toEqual({ kind: 'error', text: 'Usage: /trace <sessionId>' })
+      expect((await run(test, session, '/trace a b')).result).toEqual({ kind: 'error', text: 'Usage: /trace <sessionId>' })
+      expect(test.trace.asked).toEqual([])
+    } finally {
+      await shutdown(test)
+    }
+  })
+
+  it('reports the store being unmounted', async () => {
+    const test = await harness()
+    try {
+      const session = sessionIn(test.ctx, test.dir, 'trace-missing')
+      expect((await run(test, session, '/trace s1')).result).toEqual({
+        kind: 'error',
+        text: 'The evolution trace store is not mounted.',
+      })
+    } finally {
+      await shutdown(test)
+    }
+  })
+
+  it('reports a session storage holds no trace for', async () => {
+    const test = await harness(true, undefined, { trace: true })
+    try {
+      const session = sessionIn(test.ctx, test.dir, 'trace-absent')
+      expect((await run(test, session, '/trace s9')).result).toEqual({
+        kind: 'error',
+        text: "No trace for session 's9'.",
+      })
+      expect(test.trace.asked).toEqual(['s9'])
+    } finally {
+      await shutdown(test)
+    }
+  })
+
+  it('renders the structured trace with ranked failure causes', async () => {
+    const test = await harness(true, undefined, { trace: true })
+    try {
+      const at = '2026-06-01T00:00:00.000Z'
+      test.trace.record = {
+        sessionId: 's1',
+        updatedAt: at,
+        turnCount: 1,
+        usage: null,
+        turns: [{
+          turn: 0,
+          startedAt: at,
+          endedAt: '2026-06-01T00:00:02.000Z',
+          endReason: 'completed',
+          latencyMs: 2000,
+          request: 'deploy the app',
+          steps: [{
+            turn: 0,
+            step: 0,
+            startedAt: at,
+            finishedAt: '2026-06-01T00:00:01.000Z',
+            interrupted: false,
+            retries: 1,
+            usage: null,
+            calls: [
+              { callId: 'c1', name: 'bash', ok: true, errorName: null, errorCode: null, message: null, at },
+              { callId: 'c2', name: 'bash', ok: false, errorName: 'bash', errorCode: 'EXIT_1', message: 'boom', at },
+            ],
+            failures: 1,
+          }],
+          failures: [{
+            callId: 'c2',
+            tool: 'bash',
+            message: 'boom',
+            at,
+            causes: [
+              { kind: 'tool', turn: 0, step: 0, tool: 'bash', reason: 'the call itself failed' },
+              { kind: 'tool', turn: 0, step: 0, tool: 'bash', reason: 'an earlier call in the same step may have produced the failing input' },
+            ],
+          }],
+        }],
+      }
+      const session = sessionIn(test.ctx, test.dir, 'trace-render')
+      expect((await run(test, session, '/trace s1')).result).toEqual({
+        kind: 'success',
+        text: [
+          'Trace of s1: 1 turn, updated 2026-06-01T00:00:00.000Z',
+          'Turn 0 [completed (2000ms)]: deploy the app',
+          '  · bash ok',
+          '  · bash failed: boom',
+          '    ← the call itself failed',
+          '    ← an earlier call in the same step may have produced the failing input',
+        ].join('\n'),
+      })
+      expect(test.trace.asked).toEqual(['s1'])
+    } finally {
+      await shutdown(test)
+    }
+  })
+
+  it('maps a service failure onto an error result', async () => {
+    const test = await harness(true, undefined, { trace: true })
+    try {
+      test.trace.failure = new Error('corrupt log')
+      const session = sessionIn(test.ctx, test.dir, 'trace-failure')
+      expect((await run(test, session, '/trace s1')).result).toEqual({ kind: 'error', text: 'corrupt log' })
+    } finally {
+      await shutdown(test)
+    }
+  })
+})
+
+describe('/curriculum human command', () => {
+  it('reports the store being unmounted and rejects extra words', async () => {
+    const test = await harness()
+    try {
+      const session = sessionIn(test.ctx, test.dir, 'curriculum-usage')
+      expect((await run(test, session, '/curriculum')).result).toEqual({
+        kind: 'error',
+        text: 'The evolution curriculum store is not mounted.',
+      })
+    } finally {
+      await shutdown(test)
+    }
+    const mounted = await harness(true, undefined, { curriculum: true })
+    try {
+      const session = sessionIn(mounted.ctx, mounted.dir, 'curriculum-extra')
+      expect((await run(mounted, session, '/curriculum x y')).result).toEqual({
+        kind: 'error',
+        text: 'Usage: /curriculum [retire <id>]',
+      })
+      expect((await run(mounted, session, '/curriculum retire')).result).toEqual({
+        kind: 'error',
+        text: 'Usage: /curriculum [retire <id>]',
+      })
+    } finally {
+      await shutdown(mounted)
+    }
+  })
+
+  it('stages tasks from the measured gaps and lists open proposals', async () => {
+    const test = await harness(true, undefined, { curriculum: true })
+    try {
+      const session = sessionIn(test.ctx, test.dir, 'curriculum-run')
+      test.curriculum.staged = [{
+        id: 'aa-bb-cc',
+        capability: 'writer',
+        task: "Reproduce and recover from the recurring failure: 'boom'",
+        sourceSessions: ['s1'],
+        gists: ['boom'],
+        at: '2026-09-12T00:00:00.000Z',
+        state: 'open',
+      }]
+      test.curriculum.open = test.curriculum.staged
+      expect((await run(test, session, '/curriculum')).result).toEqual({
+        kind: 'success',
+        text: [
+          'Staged 1 new task.',
+          '- aa-bb-cc writer: Reproduce and recover from the recurring failure: \'boom\'',
+        ].join('\n'),
+      })
+      expect(test.curriculum.gapsCalls).toBe(1)
+    } finally {
+      await shutdown(test)
+    }
+  })
+
+  it('reports when no gap staged anything and retires a task by id', async () => {
+    const test = await harness(true, undefined, { curriculum: true })
+    try {
+      const session = sessionIn(test.ctx, test.dir, 'curriculum-empty')
+      expect((await run(test, session, '/curriculum')).result).toEqual({
+        kind: 'success',
+        text: ['No new tasks staged from the measured gaps.', 'No open curriculum tasks.'].join('\n'),
+      })
+      test.curriculum.retireError = new Error("unknown proposal 'ghost'")
+      expect((await run(test, session, '/curriculum retire ghost')).result).toEqual({
+        kind: 'error',
+        text: "unknown proposal 'ghost'",
+      })
+    } finally {
+      await shutdown(test)
+    }
+  })
+
+  it('retires a task by id', async () => {
+    const test = await harness(true, undefined, { curriculum: true })
+    try {
+      const session = sessionIn(test.ctx, test.dir, 'curriculum-retire')
+      expect((await run(test, session, '/curriculum retire aa-bb-cc')).result).toEqual({
+        kind: 'success',
+        text: "Retired curriculum task 'aa-bb-cc' (x).",
+      })
+      expect(test.curriculum.retired).toEqual(['aa-bb-cc'])
+    } finally {
+      await shutdown(test)
+    }
+  })
+})
+
+describe('/benchmark human command', () => {
+  it('reports the store being unmounted and rejects unknown verbs', async () => {
+    const test = await harness()
+    try {
+      const session = sessionIn(test.ctx, test.dir, 'benchmark-usage')
+      expect((await run(test, session, '/benchmark')).result).toEqual({
+        kind: 'error',
+        text: 'The evolution benchmark store is not mounted.',
+      })
+    } finally {
+      await shutdown(test)
+    }
+    const mounted = await harness(true, undefined, { benchmark: true })
+    try {
+      const session = sessionIn(mounted.ctx, mounted.dir, 'benchmark-extra')
+      expect((await run(mounted, session, '/benchmark nope')).result).toEqual({
+        kind: 'error',
+        text: 'Usage: /benchmark [admit | promote <id> [state] | retire <id>]',
+      })
+    } finally {
+      await shutdown(mounted)
+    }
+  })
+
+  it('lists the benchmark by state with fresh tasks', async () => {
+    const test = await harness(true, undefined, { benchmark: true })
+    try {
+      test.benchmark.tasks = [{
+        id: 'aa-bb-cc',
+        hash: 'h1',
+        capability: 'writer',
+        task: 'Recover from boom',
+        gists: ['boom'],
+        sourceSessions: ['s1'],
+        at: '2026-09-12T00:00:00.000Z',
+        state: 'fresh',
+      }, {
+        id: 'dd-ee-ff',
+        hash: 'h2',
+        capability: 'polish',
+        task: 'Recover from stale',
+        gists: ['stale'],
+        sourceSessions: ['s1'],
+        at: '2026-09-12T00:00:00.000Z',
+        state: 'retired',
+      }]
+      const session = sessionIn(test.ctx, test.dir, 'benchmark-list')
+      expect((await run(test, session, '/benchmark')).result).toEqual({
+        kind: 'success',
+        text: [
+          'Benchmark: 1 fresh, 0 search, 0 validation, 0 holdout, 0 contaminated, 1 retired.',
+          '- aa-bb-cc writer: Recover from boom',
+        ].join('\n'),
+      })
+    } finally {
+      await shutdown(test)
+    }
+  })
+
+  it('admits open curriculum proposals as fresh tasks', async () => {
+    const test = await harness(true, undefined, { benchmark: true, curriculum: true })
+    try {
+      test.curriculum.open = [{
+        id: 'p1',
+        capability: 'writer',
+        task: 'Recover from boom',
+        sourceSessions: ['s1'],
+        gists: ['boom'],
+        at: '2026-09-12T00:00:00.000Z',
+        state: 'open',
+      }, {
+        id: 'p2',
+        capability: 'polish',
+        task: 'Recover from stale',
+        sourceSessions: ['s1'],
+        gists: ['stale'],
+        at: '2026-09-12T00:00:00.000Z',
+        state: 'retired',
+      }]
+      test.benchmark.admittedCount = 1
+      test.benchmark.duplicates = ['dup']
+      const session = sessionIn(test.ctx, test.dir, 'benchmark-admit')
+      expect((await run(test, session, '/benchmark admit')).result).toEqual({
+        kind: 'success',
+        text: 'Admitted 1 benchmark task, 1 duplicate skipped.',
+      })
+      // Only the open proposal is offered.
+      expect(test.benchmark.admitted[0]?.map(input => input.capability)).toEqual(['writer'])
+    } finally {
+      await shutdown(test)
+    }
+  })
+
+  it('requires the curriculum store for admit and promotes along the ladder', async () => {
+    const test = await harness(true, undefined, { benchmark: true })
+    try {
+      const session = sessionIn(test.ctx, test.dir, 'benchmark-promote')
+      expect((await run(test, session, '/benchmark admit')).result).toEqual({
+        kind: 'error',
+        text: 'The evolution curriculum store is not mounted; admit needs open proposals.',
+      })
+      test.benchmark.tasks = [{
+        id: 'aa-bb-cc',
+        hash: 'h1',
+        capability: 'writer',
+        task: 'Recover from boom',
+        gists: ['boom'],
+        sourceSessions: ['s1'],
+        at: '2026-09-12T00:00:00.000Z',
+        state: 'fresh',
+      }, {
+        id: 'zz-zz-zz',
+        hash: 'h2',
+        capability: 'polish',
+        task: 'Recover from stale',
+        gists: ['stale'],
+        sourceSessions: ['s1'],
+        at: '2026-09-12T00:00:00.000Z',
+        state: 'holdout',
+      }]
+      // Auto-promote uses the next ladder step.
+      expect((await run(test, session, '/benchmark promote aa-bb-cc')).result).toEqual({
+        kind: 'success',
+        text: "Promoted 'aa-bb-cc' to 'search'.",
+      })
+      expect(test.benchmark.transitions).toEqual([{ id: 'aa-bb-cc', to: 'search' }])
+      // No promotion from the final learnable state.
+      expect((await run(test, session, '/benchmark promote zz-zz-zz')).result).toEqual({
+        kind: 'error',
+        text: "No promotion from 'holdout' for 'zz-zz-zz'",
+      })
+      // Explicit state and unknown id.
+      expect((await run(test, session, '/benchmark promote aa-bb-cc validation')).result).toEqual({
+        kind: 'success',
+        text: "Promoted 'aa-bb-cc' to 'validation'.",
+      })
+      expect((await run(test, session, '/benchmark promote ghost')).result).toEqual({
+        kind: 'error',
+        text: "evolution-benchmark: unknown task 'ghost'",
+      })
+    } finally {
+      await shutdown(test)
+    }
+  })
+
+  it('retires and maps transition failures', async () => {
+    const test = await harness(true, undefined, { benchmark: true })
+    try {
+      const session = sessionIn(test.ctx, test.dir, 'benchmark-retire')
+      expect((await run(test, session, '/benchmark retire aa-bb-cc')).result).toEqual({
+        kind: 'success',
+        text: "Retired 'aa-bb-cc'.",
+      })
+      expect(test.benchmark.transitions).toEqual([{ id: 'aa-bb-cc', to: 'retired' }])
+      test.benchmark.transitionError = new Error('illegal transition')
+      expect((await run(test, session, '/benchmark retire aa-bb-cc')).result).toEqual({
+        kind: 'error',
+        text: 'illegal transition',
+      })
+    } finally {
+      await shutdown(test)
+    }
+  })
+})
+
+describe('/evaluators human command', () => {
+  it('reports the store being unmounted and rejects extra words', async () => {
+    const test = await harness()
+    try {
+      const session = sessionIn(test.ctx, test.dir, 'evaluators-usage')
+      expect((await run(test, session, '/evaluators')).result).toEqual({
+        kind: 'error',
+        text: 'The evaluator-health store is not mounted.',
+      })
+    } finally {
+      await shutdown(test)
+    }
+    const mounted = await harness(true, undefined, { evaluatorHealth: true })
+    try {
+      const session = sessionIn(mounted.ctx, mounted.dir, 'evaluators-extra')
+      expect((await run(mounted, session, '/evaluators runs a b')).result).toEqual({
+        kind: 'error',
+        text: 'Usage: /evaluators [runs [<skill>]]',
+      })
+      expect((await run(mounted, session, '/evaluators nope')).result).toEqual({
+        kind: 'error',
+        text: 'Usage: /evaluators [runs [<skill>]]',
+      })
+    } finally {
+      await shutdown(mounted)
+    }
+  })
+
+  it('summarizes evaluator health with rates, drift, and channels', async () => {
+    const test = await harness(true, undefined, { evaluatorHealth: true })
+    try {
+      test.evaluatorHealth.summary = {
+        runs: 4,
+        unanimousRate: 0.5,
+        approvalRate: 0.25,
+        recentApprovalRate: 0.5,
+        drift: 0.25,
+        falsePositiveRate: 0,
+        channels: [
+          { channel: 'contract', runs: 4, approved: 3, approvalRate: 0.75 },
+          { channel: 'routing', runs: 4, approved: 2, approvalRate: 0.5 },
+          { channel: 'replay', runs: 4, approved: 1, approvalRate: 0.25 },
+        ],
+      }
+      const session = sessionIn(test.ctx, test.dir, 'evaluators-summary')
+      expect((await run(test, session, '/evaluators')).result).toEqual({
+        kind: 'success',
+        text: [
+          'Evaluator health: 4 verdicts, approved 25% (recent 50%, drift +25 points), unanimous 50%, false positives 0% of approvals.',
+          'Channels: contract 75%, routing 50%, replay 25%.',
+        ].join('\n'),
+      })
+    } finally {
+      await shutdown(test)
+    }
+  })
+
+  it('lists recorded verdicts, filtering by skill', async () => {
+    const test = await harness(true, undefined, { evaluatorHealth: true })
+    try {
+      test.evaluatorHealth.runs = [{
+        id: 'aa-bb-cc',
+        skill: 'writer',
+        unanimous: true,
+        status: 'evaluated',
+        approved: true,
+        approving: ['contract', 'routing', 'replay'],
+        dissenting: [],
+        at: '2026-09-12T00:00:00.000Z',
+      }, {
+        id: 'dd-ee-ff',
+        skill: 'polish',
+        unanimous: false,
+        status: 'evaluated',
+        approved: false,
+        approving: ['contract', 'routing'],
+        dissenting: ['replay'],
+        at: '2026-09-11T00:00:00.000Z',
+      }]
+      const session = sessionIn(test.ctx, test.dir, 'evaluators-runs')
+      expect((await run(test, session, '/evaluators runs')).result).toEqual({
+        kind: 'success',
+        text: [
+          '2 verdicts:',
+          '- aa-bb-cc writer: evaluated approved unanimous at 2026-09-12T00:00:00.000Z',
+          '- dd-ee-ff polish: evaluated (split: replay) at 2026-09-11T00:00:00.000Z',
+        ].join('\n'),
+      })
+      // Filter by skill; unknown skill has no verdicts.
+      expect((await run(test, session, '/evaluators runs writer')).result).toEqual({
+        kind: 'success',
+        text: [
+          '1 verdict:',
+          '- aa-bb-cc writer: evaluated approved unanimous at 2026-09-12T00:00:00.000Z',
+        ].join('\n'),
+      })
+      expect((await run(test, session, '/evaluators runs absent')).result).toEqual({
+        kind: 'success',
+        text: 'No recorded evaluator verdicts.',
+      })
+    } finally {
+      await shutdown(test)
+    }
+  })
+})
+
+describe('/population human command', () => {
+  const candidate = (overrides: Partial<PopulationCandidate> & { candidateId: string }): PopulationCandidate => ({
+    skill: 'writer',
+    parentCandidateId: null,
+    operator: 'rewrite',
+    generation: 1,
+    novelty: 0.5,
+    triple: { pass: true, tokens: 3, wallTimeMs: 5 },
+    status: 'staged',
+    at: '2026-09-12T00:00:00.000Z',
+    ...overrides,
+  })
+
+  it('reports usage for malformed invocations and a missing store', async () => {
+    const test = await harness()
+    try {
+      const session = sessionIn(test.ctx, test.dir, 'population-usage')
+      expect((await run(test, session, '/population')).result).toEqual({
+        kind: 'error',
+        text: 'The evolution population store is not mounted.',
+      })
+      expect((await run(test, session, '/population writer')).result).toEqual({
+        kind: 'error',
+        text: 'The evolution population store is not mounted.',
+      })
+    } finally {
+      await shutdown(test)
+    }
+    const mounted = await harness(true, undefined, { population: true })
+    try {
+      const session = sessionIn(mounted.ctx, mounted.dir, 'population-grammar')
+      expect((await run(mounted, session, '/population')).result).toEqual({
+        kind: 'error',
+        text: 'Usage: /population <skill> [lineage <id> | approve <id> | reject <id>]',
+      })
+      expect((await run(mounted, session, '/population writer approve')).result).toEqual({
+        kind: 'error',
+        text: 'Usage: /population <skill> [lineage <id> | approve <id> | reject <id>]',
+      })
+      expect((await run(mounted, session, '/population writer bogus staged-0')).result).toEqual({
+        kind: 'error',
+        text: 'Usage: /population <skill> [lineage <id> | approve <id> | reject <id>]',
+      })
+    } finally {
+      await shutdown(mounted)
+    }
+  })
+
+  it('lists a skill\'s population with generations, standings, and elite', async () => {
+    const test = await harness(true, undefined, { population: true })
+    try {
+      test.population.candidates = {
+        writer: [
+          candidate({ candidateId: 'staged-2', generation: 3, parentCandidateId: 'staged-1', triple: null }),
+          candidate({ candidateId: 'staged-1', generation: 2, parentCandidateId: 'staged-0', operator: 'compress', triple: { pass: true, tokens: 7, wallTimeMs: 9 }, status: 'approved' }),
+          candidate({ candidateId: 'staged-0', generation: 1 }),
+        ],
+      }
+      const session = sessionIn(test.ctx, test.dir, 'population-list')
+      expect((await run(test, session, '/population writer')).result).toEqual({
+        kind: 'success',
+        text: [
+          "Population 'writer': generation 3, 3 candidates.",
+          '- g3 staged-2 [staged] rewrite: unmeasured ← staged-1',
+          '- g2 staged-1 [approved] compress: true pass, 7 tokens, 9ms ← staged-0',
+          '- g1 staged-0 [staged] rewrite: true pass, 3 tokens, 5ms · root',
+          'Elite: staged-1 (g2).',
+        ].join('\n'),
+      })
+      // A skill with no candidates says so.
+      expect((await run(test, session, '/population absent')).result).toEqual({
+        kind: 'success',
+        text: "No candidates recorded for 'absent'.",
+      })
+    } finally {
+      await shutdown(test)
+    }
+  })
+
+  it('walks one candidate\'s lineage oldest first', async () => {
+    const test = await harness(true, undefined, { population: true })
+    try {
+      test.population.lineages['writer/staged-2'] = [
+        candidate({ candidateId: 'staged-0', generation: 1 }),
+        candidate({ candidateId: 'staged-1', generation: 2, parentCandidateId: 'staged-0' }),
+        candidate({ candidateId: 'staged-2', generation: 3, parentCandidateId: 'staged-1', triple: null }),
+      ]
+      const session = sessionIn(test.ctx, test.dir, 'population-lineage')
+      expect((await run(test, session, '/population writer lineage staged-2')).result).toEqual({
+        kind: 'success',
+        text: [
+          "Lineage of 'staged-2' in 'writer':",
+          '- g1 staged-0 [staged] rewrite',
+          '- g2 staged-1 [staged] rewrite',
+          '- g3 staged-2 [staged] rewrite ← newest',
+        ].join('\n'),
+      })
+      expect(test.population.lineageCalls).toEqual([{ skill: 'writer', candidateId: 'staged-2' }])
+      expect((await run(test, session, '/population writer lineage ghost')).result).toEqual({
+        kind: 'error',
+        text: "No candidate 'ghost' for skill 'writer'.",
+      })
+    } finally {
+      await shutdown(test)
+    }
+  })
+
+  it('approves and rejects staged candidates, propagating store errors', async () => {
+    const test = await harness(true, undefined, { population: true })
+    try {
+      const session = sessionIn(test.ctx, test.dir, 'population-status')
+      expect((await run(test, session, '/population writer approve staged-1')).result).toEqual({
+        kind: 'success',
+        text: "Marked candidate 'staged-1' (g1 writer) as 'approved'.",
+      })
+      expect((await run(test, session, '/population writer reject staged-0')).result).toEqual({
+        kind: 'success',
+        text: "Marked candidate 'staged-0' (g1 writer) as 'rejected'.",
+      })
+      expect(test.population.statusCalls).toEqual([
+        { candidateId: 'staged-1', status: 'approved' },
+        { candidateId: 'staged-0', status: 'rejected' },
+      ])
+      test.population.statusError = new Error("evolution-population: unknown candidate 'ghost'")
+      expect((await run(test, session, '/population writer approve ghost')).result).toEqual({
+        kind: 'error',
+        text: "evolution-population: unknown candidate 'ghost'",
+      })
+    } finally {
+      await shutdown(test)
+    }
+  })
+})
+
+describe('/routes human command', () => {
+  it('reports usage for malformed invocations and a missing store', async () => {
+    const test = await harness()
+    try {
+      const session = sessionIn(test.ctx, test.dir, 'routes-unmounted')
+      expect((await run(test, session, '/routes')).result).toEqual({
+        kind: 'error',
+        text: 'The evolution model-routes store is not mounted.',
+      })
+    } finally {
+      await shutdown(test)
+    }
+    const mounted = await harness(true, undefined, { routes: true })
+    try {
+      const session = sessionIn(mounted.ctx, mounted.dir, 'routes-grammar')
+      expect((await run(mounted, session, '/routes pin')).result).toEqual({
+        kind: 'error',
+        text: 'Usage: /routes [pin <role> <provider> <model> | evidence [<role>]]',
+      })
+      expect((await run(mounted, session, '/routes pin bogus deepseek chat')).result).toEqual({
+        kind: 'error',
+        text: 'Usage: /routes [pin <role> <provider> <model> | evidence [<role>]]',
+      })
+      expect((await run(mounted, session, '/routes bogus')).result).toEqual({
+        kind: 'error',
+        text: 'Usage: /routes [pin <role> <provider> <model> | evidence [<role>]]',
+      })
+      expect((await run(mounted, session, '/routes evidence bogus')).result).toEqual({
+        kind: 'error',
+        text: 'Usage: /routes [pin <role> <provider> <model> | evidence [<role>]]',
+      })
+    } finally {
+      await shutdown(mounted)
+    }
+  })
+
+  it('lists per-role assignments with evidence and the recommended route', async () => {
+    const test = await harness(true, undefined, { routes: true })
+    try {
+      test.routes.summaries = [
+        { role: 'candidate-generation', provider: 'deepseek', model: 'deepseek-chat', origin: 'observed', runs: 2, passRate: 1, meanTokens: 3, lastAt: '2026-09-12T00:00:00.000Z' },
+        { role: 'evaluation', provider: 'deepseek', model: 'deepseek-reasoner', origin: 'pinned', runs: 0, passRate: 0, meanTokens: 0, lastAt: null },
+      ]
+      test.routes.recommend = role => role === 'candidate-generation'
+        ? { provider: 'deepseek', model: 'deepseek-chat' }
+        : undefined
+      const session = sessionIn(test.ctx, test.dir, 'routes-list')
+      expect((await run(test, session, '/routes')).result).toEqual({
+        kind: 'success',
+        text: [
+          'Routes:',
+          'candidate-generation: deepseek/deepseek-chat: 2 runs, 100% pass, 3 tokens avg → recommended deepseek/deepseek-chat',
+          'evaluation: deepseek/deepseek-reasoner (pinned): 0 runs, 0% pass, 0 tokens avg',
+        ].join('\n'),
+      })
+    } finally {
+      await shutdown(test)
+    }
+    const empty = await harness(true, undefined, { routes: true })
+    try {
+      const session = sessionIn(empty.ctx, empty.dir, 'routes-empty')
+      expect((await run(empty, session, '/routes')).result).toEqual({
+        kind: 'success',
+        text: 'No route assignments yet. The optimizer records candidate-generation routes; pin the rest.',
+      })
+    } finally {
+      await shutdown(empty)
+    }
+  })
+
+  it('pins a route for a role and propagates store errors', async () => {
+    const test = await harness(true, undefined, { routes: true })
+    try {
+      const session = sessionIn(test.ctx, test.dir, 'routes-pin')
+      expect((await run(test, session, '/routes pin candidate-generation deepseek deepseek-chat')).result).toEqual({
+        kind: 'success',
+        text: "Pinned 'candidate-generation' to deepseek/deepseek-chat.",
+      })
+      expect(test.routes.pins).toEqual([{ role: 'candidate-generation', provider: 'deepseek', model: 'deepseek-chat' }])
+      test.routes.pinError = new Error('routes disk on fire')
+      expect((await run(test, session, '/routes pin evaluation deepseek deepseek-reasoner')).result).toEqual({
+        kind: 'error',
+        text: 'routes disk on fire',
+      })
+    } finally {
+      await shutdown(test)
+    }
+  })
+
+  it('lists recorded evidence, optionally filtered by role', async () => {
+    const test = await harness(true, undefined, { routes: true })
+    try {
+      test.routes.evidence = [{
+        id: 'aa-bb-cc',
+        role: 'candidate-generation',
+        provider: 'deepseek',
+        model: 'deepseek-chat',
+        pass: true,
+        tokens: 10,
+        wallTimeMs: 100,
+        at: '2026-09-12T00:00:00.000Z',
+      }, {
+        id: 'dd-ee-ff',
+        role: 'evaluation',
+        provider: 'deepseek',
+        model: 'deepseek-reasoner',
+        pass: false,
+        tokens: 8,
+        wallTimeMs: 80,
+        at: '2026-09-11T00:00:00.000Z',
+      }]
+      const session = sessionIn(test.ctx, test.dir, 'routes-evidence')
+      expect((await run(test, session, '/routes evidence')).result).toEqual({
+        kind: 'success',
+        text: [
+          '2 evidence rows:',
+          '- aa-bb-cc candidate-generation: deepseek/deepseek-chat true pass, 10 tokens at 2026-09-12T00:00:00.000Z',
+          '- dd-ee-ff evaluation: deepseek/deepseek-reasoner false pass, 8 tokens at 2026-09-11T00:00:00.000Z',
+        ].join('\n'),
+      })
+      expect((await run(test, session, '/routes evidence evaluation')).result).toEqual({
+        kind: 'success',
+        text: [
+          '1 evidence row:',
+          '- dd-ee-ff evaluation: deepseek/deepseek-reasoner false pass, 8 tokens at 2026-09-11T00:00:00.000Z',
+        ].join('\n'),
+      })
+      expect((await run(test, session, '/routes evidence promotion-review')).result).toEqual({
+        kind: 'success',
+        text: 'No recorded route evidence.',
+      })
+    } finally {
+      await shutdown(test)
+    }
+  })
+})
+
+describe('/canary human command', () => {
+  const record = (overrides: Partial<DeploymentRecord> & { id: string }): DeploymentRecord => ({
+    skill: 'writer',
+    state: 'shadow',
+    triple: null,
+    at: '2026-09-12T00:00:00.000Z',
+    enteredAt: '2026-09-12T00:00:00.000Z',
+    decidedAt: null,
+    ...overrides,
+  })
+
+  it('reports usage for malformed invocations and a missing store', async () => {
+    const test = await harness()
+    try {
+      const session = sessionIn(test.ctx, test.dir, 'canary-unmounted')
+      expect((await run(test, session, '/canary')).result).toEqual({
+        kind: 'error',
+        text: 'The evolution canary store is not mounted.',
+      })
+    } finally {
+      await shutdown(test)
+    }
+    const mounted = await harness(true, undefined, { canary: true })
+    try {
+      const session = sessionIn(mounted.ctx, mounted.dir, 'canary-grammar')
+      expect((await run(mounted, session, '/canary rollout')).result).toEqual({
+        kind: 'error',
+        text: 'Usage: /canary [status [<skill>] | rollout <id> | promote <id> | reject <id> | rollback <id>]',
+      })
+      expect((await run(mounted, session, '/canary bogus aa')).result).toEqual({
+        kind: 'error',
+        text: 'Usage: /canary [status [<skill>] | rollout <id> | promote <id> | reject <id> | rollback <id>]',
+      })
+      expect((await run(mounted, session, '/canary status a b')).result).toEqual({
+        kind: 'error',
+        text: 'Usage: /canary [status [<skill>] | rollout <id> | promote <id> | reject <id> | rollback <id>]',
+      })
+    } finally {
+      await shutdown(mounted)
+    }
+  })
+
+  it('lists deployment states with their next ladder step', async () => {
+    const test = await harness(true, undefined, { canary: true })
+    try {
+      test.canary.records = [
+        record({ id: 'aa-bb-cc', skill: 'writer', state: 'shadow', triple: { pass: true, tokens: 3, wallTimeMs: 5 } }),
+        record({ id: 'dd-ee-ff', skill: 'polish', state: 'canary' }),
+        record({ id: 'ee-ff-00', skill: 'writer', state: 'promoted', decidedAt: '2026-09-12T00:00:00.000Z' }),
+        record({ id: '00-11-22', skill: 'writer', state: 'rejected', decidedAt: '2026-09-12T00:00:00.000Z' }),
+      ]
+      const session = sessionIn(test.ctx, test.dir, 'canary-list')
+      expect((await run(test, session, '/canary')).result).toEqual({
+        kind: 'success',
+        text: [
+          'Canary: 1 shadow, 1 canary, 1 promoted, 0 rolled-back, 1 rejected.',
+          '- aa-bb-cc writer: shadow → next canary (true pass, 3 tokens)',
+          '- dd-ee-ff polish: canary → next promoted',
+          '- ee-ff-00 writer: promoted',
+          '- 00-11-22 writer: rejected',
+        ].join('\n'),
+      })
+      // Filtering by skill rescopes both the counts and the rows.
+      expect((await run(test, session, '/canary status writer')).result).toEqual({
+        kind: 'success',
+        text: [
+          'Canary: 1 shadow, 0 canary, 1 promoted, 0 rolled-back, 1 rejected.',
+          '- aa-bb-cc writer: shadow → next canary (true pass, 3 tokens)',
+          '- ee-ff-00 writer: promoted',
+          '- 00-11-22 writer: rejected',
+        ].join('\n'),
+      })
+      expect((await run(test, session, '/canary status absent')).result).toEqual({
+        kind: 'success',
+        text: "No deployments for 'absent'.",
+      })
+    } finally {
+      await shutdown(test)
+    }
+    const empty = await harness(true, undefined, { canary: true })
+    try {
+      const session = sessionIn(empty.ctx, empty.dir, 'canary-empty')
+      expect((await run(empty, session, '/canary')).result).toEqual({
+        kind: 'success',
+        text: 'No deployments yet. The optimizer records staged writes as shadow.',
+      })
+    } finally {
+      await shutdown(empty)
+    }
+  })
+
+  it('rolls a deployment forward or exits it, propagating store errors', async () => {
+    const test = await harness(true, undefined, { canary: true })
+    try {
+      const session = sessionIn(test.ctx, test.dir, 'canary-advance')
+      expect((await run(test, session, '/canary rollout aa-bb-cc')).result).toEqual({
+        kind: 'success',
+        text: "Deployment 'aa-bb-cc' (writer) moved to 'canary'.",
+      })
+      expect((await run(test, session, '/canary promote aa-bb-cc')).result).toEqual({
+        kind: 'success',
+        text: "Deployment 'aa-bb-cc' (writer) moved to 'promoted'.",
+      })
+      expect((await run(test, session, '/canary reject dd-ee-ff')).result).toEqual({
+        kind: 'success',
+        text: "Deployment 'dd-ee-ff' (writer) moved to 'rejected'.",
+      })
+      expect((await run(test, session, '/canary rollback ee-ff-00')).result).toEqual({
+        kind: 'success',
+        text: "Deployment 'ee-ff-00' (writer) moved to 'rolled-back'.",
+      })
+      expect(test.canary.advances).toEqual([
+        { id: 'aa-bb-cc', to: 'canary' },
+        { id: 'aa-bb-cc', to: 'promoted' },
+        { id: 'dd-ee-ff', to: 'rejected' },
+        { id: 'ee-ff-00', to: 'rolled-back' },
+      ])
+      test.canary.advanceError = new Error("evolution-canary: unknown deployment 'ghost'")
+      expect((await run(test, session, '/canary rollout ghost')).result).toEqual({
+        kind: 'error',
+        text: "evolution-canary: unknown deployment 'ghost'",
+      })
+    } finally {
+      await shutdown(test)
+    }
+  })
+})
+
+describe('/novelty human command', () => {
+  it('reports usage for malformed invocations and a missing store', async () => {
+    const test = await harness()
+    try {
+      const session = sessionIn(test.ctx, test.dir, 'novelty-unmounted')
+      expect((await run(test, session, '/novelty')).result).toEqual({
+        kind: 'error',
+        text: 'The evolution novelty-search store is not mounted.',
+      })
+    } finally {
+      await shutdown(test)
+    }
+    const mounted = await harness(true, undefined, { novelty: true })
+    try {
+      const session = sessionIn(mounted.ctx, mounted.dir, 'novelty-grammar')
+      expect((await run(mounted, session, '/novelty writer extra')).result).toEqual({
+        kind: 'error',
+        text: 'Usage: /novelty [<skill>]',
+      })
+    } finally {
+      await shutdown(mounted)
+    }
+  })
+
+  it('summarizes the archive across skills with mean novelty', async () => {
+    const test = await harness(true, undefined, { novelty: true })
+    try {
+      test.novelty.entries = [
+        { candidateId: 'staged-2', skill: 'writer', features: ['a', 'b'], novelty: 0.5, at: '2026-09-12T00:00:00.000Z' },
+        { candidateId: 'staged-1', skill: 'writer', features: ['c'], novelty: 1, at: '2026-09-12T00:00:00.000Z' },
+        { candidateId: 'staged-0', skill: 'reader', features: ['x'], novelty: 1, at: '2026-09-12T00:00:00.000Z' },
+      ]
+      test.novelty.means = { writer: 0.75, reader: 1 }
+      const session = sessionIn(test.ctx, test.dir, 'novelty-summary')
+      expect((await run(test, session, '/novelty')).result).toEqual({
+        kind: 'success',
+        text: [
+          'Novelty archive: 3 entries across 2 skills.',
+          '- reader: 1 entry, mean novelty 1.00',
+          '- writer: 2 entries, mean novelty 0.75',
+        ].join('\n'),
+      })
+    } finally {
+      await shutdown(test)
+    }
+  })
+
+  it('lists one skill\'s archive entries with their novelty', async () => {
+    const test = await harness(true, undefined, { novelty: true })
+    try {
+      test.novelty.entries = [
+        { candidateId: 'staged-2', skill: 'writer', features: ['a', 'b'], novelty: 0.5, at: '2026-09-12T00:00:00.000Z' },
+        { candidateId: 'staged-0', skill: 'reader', features: ['x'], novelty: 1, at: '2026-09-12T00:00:00.000Z' },
+      ]
+      test.novelty.means = { writer: 0.5 }
+      const session = sessionIn(test.ctx, test.dir, 'novelty-skill')
+      expect((await run(test, session, '/novelty writer')).result).toEqual({
+        kind: 'success',
+        text: [
+          "Novelty archive 'writer': 1 entry, mean 0.50.",
+          '- staged-2: 2 features, novelty 0.50 at 2026-09-12T00:00:00.000Z',
+        ].join('\n'),
+      })
+      expect((await run(test, session, '/novelty absent')).result).toEqual({
+        kind: 'success',
+        text: "No recorded novelty archive entries for 'absent'.",
+      })
+    } finally {
+      await shutdown(test)
+    }
+  })
+
+  it('reports an honest empty archive', async () => {
+    const test = await harness(true, undefined, { novelty: true })
+    try {
+      const session = sessionIn(test.ctx, test.dir, 'novelty-empty')
+      expect((await run(test, session, '/novelty')).result).toEqual({
+        kind: 'success',
+        text: 'No recorded novelty archive entries. The optimizer records staged writes as descriptors.',
+      })
+    } finally {
+      await shutdown(test)
+    }
+  })
+})
+
+describe('/stagnation human command', () => {
+  it('reports usage for malformed invocations and a missing store', async () => {
+    const test = await harness()
+    try {
+      const session = sessionIn(test.ctx, test.dir, 'stagnation-unmounted')
+      expect((await run(test, session, '/stagnation')).result).toEqual({
+        kind: 'error',
+        text: 'The evolution stagnation store is not mounted.',
+      })
+    } finally {
+      await shutdown(test)
+    }
+    const mounted = await harness(true, undefined, { stagnation: true })
+    try {
+      const session = sessionIn(mounted.ctx, mounted.dir, 'stagnation-grammar')
+      expect((await run(mounted, session, '/stagnation bogus')).result).toEqual({
+        kind: 'error',
+        text: 'Usage: /stagnation [status <skill> | runs [<skill>] | reset <skill>]',
+      })
+      expect((await run(mounted, session, '/stagnation status')).result).toEqual({
+        kind: 'error',
+        text: 'Usage: /stagnation [status <skill> | runs [<skill>] | reset <skill>]',
+      })
+      expect((await run(mounted, session, '/stagnation reset a b')).result).toEqual({
+        kind: 'error',
+        text: 'Usage: /stagnation [status <skill> | runs [<skill>] | reset <skill>]',
+      })
+      expect((await run(mounted, session, '/stagnation runs a b')).result).toEqual({
+        kind: 'error',
+        text: 'Usage: /stagnation [status <skill> | runs [<skill>] | reset <skill>]',
+      })
+    } finally {
+      await shutdown(mounted)
+    }
+  })
+
+  it('renders one skill\'s status with its recommended strategy', async () => {
+    const test = await harness(true, undefined, { stagnation: true })
+    try {
+      test.stagnation.statuses.writer = {
+        skill: 'writer',
+        runs: 6,
+        bestScore: { pass: true, tokens: 3, wallTimeMs: 5 },
+        generationsSinceImprovement: 5,
+        stagnant: true,
+        threshold: 5,
+        strategy: 'diversity',
+      }
+      const session = sessionIn(test.ctx, test.dir, 'stagnation-status')
+      expect((await run(test, session, '/stagnation status writer')).result).toEqual({
+        kind: 'success',
+        text: [
+          "Stagnation 'writer': 6 runs, best true pass, 3 tokens, 5ms.",
+          '5 generations since improvement, threshold 5.',
+          'STAGNANT → strategy: diversity',
+        ].join('\n'),
+      })
+      // A skill without runs reports the honest empty standing.
+      expect((await run(test, session, '/stagnation status fresh')).result).toEqual({
+        kind: 'success',
+        text: [
+          "Stagnation 'fresh': 0 runs, best no best yet.",
+          '0 generations since improvement, threshold 5.',
+          'Not stagnant — continue exploitation.',
+        ].join('\n'),
+      })
+    } finally {
+      await shutdown(test)
+    }
+  })
+
+  it('lists runs and summarizes every skill in the bare view', async () => {
+    const test = await harness(true, undefined, { stagnation: true })
+    try {
+      test.stagnation.runs = [
+        { runId: 'staged-2', skill: 'writer', generation: 2, score: { pass: true, tokens: 3, wallTimeMs: 5 }, improved: false, at: '2026-09-12T00:00:00.000Z' },
+        { runId: 'staged-1', skill: 'writer', generation: 1, score: { pass: true, tokens: 3, wallTimeMs: 5 }, improved: true, at: '2026-09-12T00:00:00.000Z' },
+        { runId: 'staged-0', skill: 'reader', generation: 1, score: { pass: false, tokens: 9, wallTimeMs: 9 }, improved: false, at: '2026-09-12T00:00:00.000Z' },
+      ]
+      test.stagnation.statuses.writer = {
+        skill: 'writer',
+        runs: 2,
+        bestScore: { pass: true, tokens: 3, wallTimeMs: 5 },
+        generationsSinceImprovement: 1,
+        stagnant: false,
+        threshold: 5,
+        strategy: 'exploitation',
+      }
+      const session = sessionIn(test.ctx, test.dir, 'stagnation-runs')
+      expect((await run(test, session, '/stagnation runs writer')).result).toEqual({
+        kind: 'success',
+        text: [
+          '2 runs:',
+          '- g2 staged-2 writer: true pass, 3 tokens, 5ms at 2026-09-12T00:00:00.000Z',
+          '- g1 staged-1 writer: true pass, 3 tokens, 5ms improved at 2026-09-12T00:00:00.000Z',
+        ].join('\n'),
+      })
+      expect((await run(test, session, '/stagnation runs absent')).result).toEqual({
+        kind: 'success',
+        text: 'No recorded stagnation runs.',
+      })
+      expect((await run(test, session, '/stagnation')).result).toEqual({
+        kind: 'success',
+        text: [
+          'Stagnation:',
+          '- reader: 0/5 generations since improvement — ok',
+          '- writer: 1/5 generations since improvement — ok',
+        ].join('\n'),
+      })
+    } finally {
+      await shutdown(test)
+    }
+  })
+
+  it('resets a skill\'s history and propagates store errors', async () => {
+    const test = await harness(true, undefined, { stagnation: true })
+    try {
+      const session = sessionIn(test.ctx, test.dir, 'stagnation-reset')
+      expect((await run(test, session, '/stagnation reset writer')).result).toEqual({
+        kind: 'success',
+        text: "Reset stagnation history of 'writer': dropped 2 runs.",
+      })
+      expect(test.stagnation.resets).toEqual(['writer'])
+      test.stagnation.resetError = new Error('evolution-stagnation: reset failed')
+      expect((await run(test, session, '/stagnation reset writer')).result).toEqual({
+        kind: 'error',
+        text: 'evolution-stagnation: reset failed',
+      })
+    } finally {
+      await shutdown(test)
+    }
+  })
+
+  it('reports an honest empty run log', async () => {
+    const test = await harness(true, undefined, { stagnation: true })
+    try {
+      const session = sessionIn(test.ctx, test.dir, 'stagnation-empty')
+      expect((await run(test, session, '/stagnation')).result).toEqual({
+        kind: 'success',
+        text: 'No recorded stagnation runs. The optimizer records staged writes as runs.',
+      })
+    } finally {
+      await shutdown(test)
+    }
+  })
+})
+
+describe('/islands human command', () => {
+  it('reports usage for malformed invocations and a missing store', async () => {
+    const test = await harness()
+    try {
+      const session = sessionIn(test.ctx, test.dir, 'islands-unmounted')
+      expect((await run(test, session, '/islands')).result).toEqual({
+        kind: 'error',
+        text: 'The evolution islands store is not mounted.',
+      })
+    } finally {
+      await shutdown(test)
+    }
+    const mounted = await harness(true, undefined, { islands: true })
+    try {
+      const session = sessionIn(mounted.ctx, mounted.dir, 'islands-grammar')
+      const usage = 'Usage: /islands [list [<skill>] | register <island> <name> <objective> <skill> | migrate <from> <to> <candidate> [<reason>] | migrations [<skill>]]'
+      expect((await run(mounted, session, '/islands bogus')).result).toEqual({ kind: 'error', text: usage })
+      expect((await run(mounted, session, '/islands register a')).result).toEqual({ kind: 'error', text: usage })
+      expect((await run(mounted, session, '/islands register a Lane bogus writer')).result).toEqual({ kind: 'error', text: usage })
+      expect((await run(mounted, session, '/islands migrate a')).result).toEqual({ kind: 'error', text: usage })
+      expect((await run(mounted, session, '/islands migrate a b c bogus')).result).toEqual({ kind: 'error', text: usage })
+      expect((await run(mounted, session, '/islands migrate a b c d e')).result).toEqual({ kind: 'error', text: usage })
+      expect((await run(mounted, session, '/islands migrations a b')).result).toEqual({ kind: 'error', text: usage })
+      expect((await run(mounted, session, '/islands list a b')).result).toEqual({ kind: 'error', text: usage })
+    } finally {
+      await shutdown(mounted)
+    }
+  })
+
+  it('registers an island lane for a skill', async () => {
+    const test = await harness(true, undefined, { islands: true })
+    try {
+      const session = sessionIn(test.ctx, test.dir, 'islands-register')
+      expect((await run(test, session, '/islands register stable Lane conservative writer')).result).toEqual({
+        kind: 'success',
+        text: "Registered island 'stable' 'Lane' [conservative] for 'writer'.",
+      })
+      expect(test.islands.registers).toEqual([{ islandId: 'stable', name: 'Lane', objective: 'conservative', skill: 'writer' }])
+      test.islands.registerError = new Error("evolution-islands: island 'stable' already exists")
+      expect((await run(test, session, '/islands register stable Lane conservative writer')).result).toEqual({
+        kind: 'error',
+        text: "evolution-islands: island 'stable' already exists",
+      })
+    } finally {
+      await shutdown(test)
+    }
+  })
+
+  it('records a candidate migration with a default or explicit reason', async () => {
+    const test = await harness(true, undefined, { islands: true })
+    try {
+      const session = sessionIn(test.ctx, test.dir, 'islands-migrate')
+      expect((await run(test, session, '/islands migrate stable diverse staged-0')).result).toEqual({
+        kind: 'success',
+        text: "Migrated candidate 'staged-0' stable → diverse (schedule).",
+      })
+      expect((await run(test, session, '/islands migrate stable diverse staged-1 elite')).result).toEqual({
+        kind: 'success',
+        text: "Migrated candidate 'staged-1' stable → diverse (elite).",
+      })
+      expect(test.islands.migrateCalls).toEqual([
+        { fromIslandId: 'stable', toIslandId: 'diverse', candidateId: 'staged-0', reason: 'schedule' },
+        { fromIslandId: 'stable', toIslandId: 'diverse', candidateId: 'staged-1', reason: 'elite' },
+      ])
+      test.islands.migrateError = new Error("evolution-islands: unknown island 'ghost'")
+      expect((await run(test, session, '/islands migrate ghost diverse staged-0')).result).toEqual({
+        kind: 'error',
+        text: "evolution-islands: unknown island 'ghost'",
+      })
+    } finally {
+      await shutdown(test)
+    }
+  })
+
+  it('lists islands with their migration schedule and the migration log', async () => {
+    const test = await harness(true, undefined, { islands: true })
+    try {
+      test.islands.schedule = [
+        {
+          island: { islandId: 'stable', name: 'Stable lane', objective: 'conservative', skill: 'writer', generation: 3, lastActivityAt: '2026-09-12T00:00:00.000Z', at: '2026-09-01T00:00:00.000Z' },
+          lastMigrationAt: '2026-09-10T00:00:00.000Z',
+          due: true,
+        },
+        {
+          island: { islandId: 'fresh', name: 'Fresh C', objective: 'cost', skill: 'writer', generation: 0, lastActivityAt: null, at: '2026-09-12T00:00:00.000Z' },
+          lastMigrationAt: null,
+          due: false,
+        },
+      ]
+      test.islands.migrations = [
+        { migrationId: 'mig-2', fromIslandId: 'stable', toIslandId: 'diverse', candidateId: 'staged-1', skill: 'writer', reason: 'elite', at: '2026-09-11T00:00:00.000Z' },
+        { migrationId: 'mig-1', fromIslandId: 'stable', toIslandId: 'diverse', candidateId: 'staged-0', skill: 'writer', reason: 'schedule', at: '2026-09-10T00:00:00.000Z' },
+      ]
+      const session = sessionIn(test.ctx, test.dir, 'islands-list')
+      expect((await run(test, session, '/islands list writer')).result).toEqual({
+        kind: 'success',
+        text: [
+          "Islands 'writer':",
+          "- stable 'Stable lane' [conservative] writer g3 · migration due",
+          "- fresh 'Fresh C' [cost] writer g0",
+        ].join('\n'),
+      })
+      expect((await run(test, session, '/islands migrations')).result).toEqual({
+        kind: 'success',
+        text: [
+          '2 migrations:',
+          '- mig-2 staged-1 stable → diverse (elite) at 2026-09-11T00:00:00.000Z',
+          '- mig-1 staged-0 stable → diverse (schedule) at 2026-09-10T00:00:00.000Z',
+        ].join('\n'),
+      })
+      expect((await run(test, session, '/islands list absent')).result).toEqual({
+        kind: 'success',
+        text: 'No islands registered. Define a skill\'s lanes with `/islands register <island> <name> <objective> <skill>`.',
+      })
+    } finally {
+      await shutdown(test)
+    }
+  })
+})
+
+describe('/selfmodel human command', () => {
+  it('reports usage for malformed invocations and a missing store', async () => {
+    const test = await harness()
+    try {
+      const session = sessionIn(test.ctx, test.dir, 'selfmodel-unmounted')
+      expect((await run(test, session, '/selfmodel')).result).toEqual({
+        kind: 'error',
+        text: 'The evolution self-model store is not mounted.',
+      })
+    } finally {
+      await shutdown(test)
+    }
+    const mounted = await harness(true, undefined, { selfModel: true })
+    try {
+      const session = sessionIn(mounted.ctx, mounted.dir, 'selfmodel-grammar')
+      expect((await run(mounted, session, '/selfmodel a b')).result).toEqual({
+        kind: 'error',
+        text: 'Usage: /selfmodel [<skill>]',
+      })
+    } finally {
+      await shutdown(mounted)
+    }
+  })
+
+  it('renders one skill\'s self-assessment and the capability frontier', async () => {
+    const test = await harness(true, undefined, { selfModel: true })
+    try {
+      test.selfModel.assessments.writer = {
+        strengths: ['prose'], weaknesses: ['shell'], uncertainAreas: ['web'],
+        failureModes: ['stale context'], preferredTools: ['edit'], evaluatorBlindspots: ['routing'],
+        confidence: 0.8, revision: 2, at: '2026-09-12T00:00:00.000Z',
+      }
+      test.selfModel.gaps = [
+        { capability: 'shell', score: 0.2, confidence: 0.5, coveringSkills: ['writer'], observations: 4 },
+        { capability: 'prose', score: 0.9, confidence: 1, coveringSkills: ['writer'], observations: 10 },
+      ]
+      test.selfModel.next = { capability: 'shell' }
+      const session = sessionIn(test.ctx, test.dir, 'selfmodel-render')
+      expect((await run(test, session, '/selfmodel writer')).result).toEqual({
+        kind: 'success',
+        text: [
+          "Self-model 'writer' (revision 2, confidence 0.80):",
+          '- strengths: prose',
+          '- weaknesses: shell',
+          '- uncertain areas: web',
+          '- failure modes: stale context',
+          '- preferred tools: edit',
+          '- evaluator blindspots: routing',
+        ].join('\n'),
+      })
+      expect((await run(test, session, '/selfmodel absent')).result).toEqual({
+        kind: 'success',
+        text: "No self-assessment recorded for 'absent'.",
+      })
+      expect((await run(test, session, '/selfmodel')).result).toEqual({
+        kind: 'success',
+        text: [
+          'Capability frontier (weakest first): 2',
+          '- shell: score 0.20, confidence 0.50, 1 skill, 4 observations',
+          '- prose: score 0.90, confidence 1.00, 1 skill, 10 observations',
+          'Next to learn: shell',
+        ].join('\n'),
+      })
+    } finally {
+      await shutdown(test)
+    }
+  })
+
+  it('reports an honest empty frontier', async () => {
+    const test = await harness(true, undefined, { selfModel: true })
+    try {
+      const session = sessionIn(test.ctx, test.dir, 'selfmodel-empty')
+      expect((await run(test, session, '/selfmodel')).result).toEqual({
+        kind: 'success',
+        text: 'No measured capabilities yet. The optimizer records capability observations as it stages writes.',
+      })
+    } finally {
+      await shutdown(test)
+    }
+  })
+})
+
+describe('/uncertainty human command', () => {
+  it('reports usage for malformed invocations and a missing store', async () => {
+    const test = await harness()
+    try {
+      const session = sessionIn(test.ctx, test.dir, 'uncertainty-unmounted')
+      expect((await run(test, session, '/uncertainty')).result).toEqual({
+        kind: 'error',
+        text: 'The evolution uncertainty store is not mounted.',
+      })
+    } finally {
+      await shutdown(test)
+    }
+    const mounted = await harness(true, undefined, { uncertainty: true })
+    try {
+      const session = sessionIn(mounted.ctx, mounted.dir, 'uncertainty-grammar')
+      expect((await run(mounted, session, '/uncertainty a b')).result).toEqual({
+        kind: 'error',
+        text: 'Usage: /uncertainty [<skill>]',
+      })
+    } finally {
+      await shutdown(mounted)
+    }
+  })
+
+  it('renders the prioritized evaluation queue, optionally per skill', async () => {
+    const test = await harness(true, undefined, { uncertainty: true })
+    try {
+      test.uncertainty.queue = [
+        { skill: 'writer', taskId: null, kinds: ['disagreement', 'instability'], priority: 0.9, signals: 4 },
+        { skill: 'reader', taskId: 't1', kinds: ['low-confidence'], priority: 0.6, signals: 1 },
+      ]
+      const session = sessionIn(test.ctx, test.dir, 'uncertainty-queue')
+      expect((await run(test, session, '/uncertainty')).result).toEqual({
+        kind: 'success',
+        text: [
+          'Evaluation queue: 2',
+          '- writer (skill-wide): priority 0.90, [disagreement, instability], 4 signals',
+          '- reader task t1: priority 0.60, [low-confidence], 1 signals',
+        ].join('\n'),
+      })
+      expect((await run(test, session, '/uncertainty writer')).result).toEqual({
+        kind: 'success',
+        text: [
+          "Evaluation queue 'writer': 1",
+          '- writer (skill-wide): priority 0.90, [disagreement, instability], 4 signals',
+        ].join('\n'),
+      })
+      expect((await run(test, session, '/uncertainty absent')).result).toEqual({
+        kind: 'success',
+        text: 'No uncertainty signals. The scorer records evaluator disagreement as signals.',
+      })
+    } finally {
+      await shutdown(test)
+    }
+  })
+})
+
+describe('/adversary human command', () => {
+  it('reports usage for malformed invocations and a missing store', async () => {
+    const test = await harness()
+    try {
+      const session = sessionIn(test.ctx, test.dir, 'adversary-unmounted')
+      expect((await run(test, session, '/adversary')).result).toEqual({
+        kind: 'error',
+        text: 'The evolution adversary store is not mounted.',
+      })
+    } finally {
+      await shutdown(test)
+    }
+    const mounted = await harness(true, undefined, { adversary: true })
+    try {
+      const session = sessionIn(mounted.ctx, mounted.dir, 'adversary-grammar')
+      const usage = 'Usage: /adversary [list [<skill>] | probe <skill> <category> <probe> | repair <probeId> | challenge <skill> | defenses | defense <name> <satisfied>]'
+      expect((await run(mounted, session, '/adversary bogus')).result).toEqual({ kind: 'error', text: usage })
+      expect((await run(mounted, session, '/adversary probe')).result).toEqual({ kind: 'error', text: usage })
+      expect((await run(mounted, session, '/adversary probe writer')).result).toEqual({ kind: 'error', text: usage })
+      expect((await run(mounted, session, '/adversary probe writer bogus p')).result).toEqual({ kind: 'error', text: usage })
+      expect((await run(mounted, session, '/adversary repair')).result).toEqual({ kind: 'error', text: usage })
+      expect((await run(mounted, session, '/adversary challenge')).result).toEqual({ kind: 'error', text: usage })
+      expect((await run(mounted, session, '/adversary defenses extra')).result).toEqual({ kind: 'error', text: usage })
+      expect((await run(mounted, session, '/adversary defense')).result).toEqual({ kind: 'error', text: usage })
+      expect((await run(mounted, session, '/adversary defense bogus true')).result).toEqual({ kind: 'error', text: usage })
+      expect((await run(mounted, session, '/adversary defense multiple-evaluators maybe')).result).toEqual({ kind: 'error', text: usage })
+      expect((await run(mounted, session, '/adversary list a b')).result).toEqual({ kind: 'error', text: usage })
+    } finally {
+      await shutdown(mounted)
+    }
+  })
+
+  it('records and repairs probes and reads the next challenge', async () => {
+    const test = await harness(true, undefined, { adversary: true })
+    try {
+      const session = sessionIn(test.ctx, test.dir, 'adversary-probe')
+      expect((await run(test, session, '/adversary probe writer prompt-injection drop the prefix')).result).toEqual({
+        kind: 'success',
+        text: "Recorded a 'prompt-injection' probe for 'writer'. Mark it repaired with /adversary repair <id> once the weakness is fixed.",
+      })
+      expect(test.adversary.probeCalls[0]).toMatchObject({
+        skill: 'writer',
+        category: 'prompt-injection',
+        probe: 'drop the prefix',
+        foundWeakness: false,
+      })
+      expect(() => {
+        const id = (test.adversary.probeCalls[0] as { probeId: string }).probeId
+        expect(id).toMatch(/^[0-9a-f-]{36}$/)
+      }).not.toThrow()
+      test.adversary.challenges.writer = { category: 'retrieval-trap', probed: 1, reason: 'retrieval-trap has 1 probes, below the 1 minimum' }
+      expect((await run(test, session, '/adversary challenge writer')).result).toEqual({
+        kind: 'success',
+        text: "Next adversarial probe for 'retrieval-trap' (1 recorded): retrieval-trap has 1 probes, below the 1 minimum",
+      })
+      expect((await run(test, session, '/adversary repair staged-9')).result).toEqual({
+        kind: 'success',
+        text: "Marked probe 'staged-9' repaired.",
+      })
+      expect(test.adversary.repairs).toEqual(['staged-9'])
+      test.adversary.repairError = new Error("evolution-adversary: unknown probe 'ghost'")
+      expect((await run(test, session, '/adversary repair ghost')).result).toEqual({
+        kind: 'error',
+        text: "evolution-adversary: unknown probe 'ghost'",
+      })
+    } finally {
+      await shutdown(test)
+    }
+  })
+
+  it('lists probes and tracks the defense checklist', async () => {
+    const test = await harness(true, undefined, { adversary: true })
+    try {
+      test.adversary.probes = [
+        { probeId: 'probe-2', skill: 'writer', category: 'edge-case', probe: 'empty input', foundWeakness: true, repaired: true },
+        { probeId: 'probe-1', skill: 'writer', category: 'prompt-injection', probe: 'ignore instructions', foundWeakness: false, repaired: false },
+      ]
+      test.adversary.defenses = [
+        { defense: 'multiple-evaluators', satisfied: true },
+        { defense: 'hidden-holdout', satisfied: false },
+      ]
+      const session = sessionIn(test.ctx, test.dir, 'adversary-list')
+      expect((await run(test, session, '/adversary list writer')).result).toEqual({
+        kind: 'success',
+        text: [
+          "Adversarial probes 'writer': 2",
+          "- probe-2 [edge-case] writer: weakness found · repaired",
+          "- probe-1 [prompt-injection] writer: no weakness",
+        ].join('\n'),
+      })
+      expect((await run(test, session, '/adversary defenses')).result).toEqual({
+        kind: 'success',
+        text: [
+          'Evaluator-gaming defenses:',
+          '- multiple-evaluators: satisfied',
+          '- hidden-holdout: open',
+        ].join('\n'),
+      })
+      expect((await run(test, session, '/adversary defense multiple-evaluators false')).result).toEqual({
+        kind: 'success',
+        text: "Set defense 'multiple-evaluators' to open.",
+      })
+      expect(test.adversary.defenseSets).toEqual([{ defense: 'multiple-evaluators', satisfied: false }])
+      expect((await run(test, session, '/adversary list absent')).result).toEqual({
+        kind: 'success',
+        text: 'No adversarial probes recorded. Record one with /adversary probe <skill> <category> <probe>.',
+      })
+    } finally {
+      await shutdown(test)
+    }
+  })
+})
+
+describe('/lineage human command', () => {
+  it('reports usage for malformed invocations and a missing store', async () => {
+    const test = await harness()
+    try {
+      const session = sessionIn(test.ctx, test.dir, 'lineage-unmounted')
+      expect((await run(test, session, '/lineage')).result).toEqual({
+        kind: 'error',
+        text: 'The evolution lineage store is not mounted.',
+      })
+    } finally {
+      await shutdown(test)
+    }
+    const mounted = await harness(true, undefined, { lineage: true })
+    try {
+      const session = sessionIn(mounted.ctx, mounted.dir, 'lineage-grammar')
+      const usage = 'Usage: /lineage [list [<skill>] | compare <idA> <idB> | replay <id>]'
+      expect((await run(mounted, session, '/lineage bogus')).result).toEqual({ kind: 'error', text: usage })
+      expect((await run(mounted, session, '/lineage compare a')).result).toEqual({ kind: 'error', text: usage })
+      expect((await run(mounted, session, '/lineage replay')).result).toEqual({ kind: 'error', text: usage })
+      expect((await run(mounted, session, '/lineage list a b')).result).toEqual({ kind: 'error', text: usage })
+    } finally {
+      await shutdown(mounted)
+    }
+  })
+
+  it('lists experiment envelopes and compares two for comparability', async () => {
+    const test = await harness(true, undefined, { lineage: true })
+    try {
+      test.lineage.experiments = [
+        {
+          experimentId: 'staged-1', skill: 'writer', operator: 'compress', outcome: 'improved',
+          metrics: { pass: true, tokens: 3, wallTimeMs: 5 },
+          dependencies: { evaluator: 'scorer-v1', model: 'deepseek/deepseek-chat' },
+        },
+        {
+          experimentId: 'staged-0', skill: 'writer', operator: 'rewrite', outcome: 'improved',
+          metrics: { pass: true, tokens: 9, wallTimeMs: 8 },
+          dependencies: { evaluator: 'scorer-v1', model: 'deepseek/deepseek-chat' },
+        },
+      ]
+      test.lineage.comparisons['staged-0/staged-1'] = { comparable: true, changed: [] }
+      test.lineage.comparisons['staged-1/staged-0'] = { comparable: false, changed: ['model', 'skill'] }
+      const session = sessionIn(test.ctx, test.dir, 'lineage-list')
+      expect((await run(test, session, '/lineage list writer')).result).toEqual({
+        kind: 'success',
+        text: [
+          "Experiments 'writer' (newest first): 2",
+          '- staged-1 writer improved by compress: pass true, 3 tokens, 5ms',
+          '- staged-0 writer improved by rewrite: pass true, 9 tokens, 8ms',
+        ].join('\n'),
+      })
+      expect((await run(test, session, '/lineage compare staged-0 staged-1')).result).toEqual({
+        kind: 'success',
+        text: "'staged-0' vs 'staged-1': comparable — no compared dependency changed.",
+      })
+      expect((await run(test, session, '/lineage compare staged-1 staged-0')).result).toEqual({
+        kind: 'success',
+        text: "'staged-1' vs 'staged-0': incomparable — changed dependencies: model, skill.",
+      })
+      expect((await run(test, session, '/lineage list absent')).result).toEqual({
+        kind: 'success',
+        text: 'No experiment envelopes recorded. The optimizer records staged writes as envelopes.',
+      })
+    } finally {
+      await shutdown(test)
+    }
+  })
+
+  it('replays one experiment from its record', async () => {
+    const test = await harness(true, undefined, { lineage: true })
+    try {
+      test.lineage.replays['staged-9'] = {
+        experimentId: 'staged-9', skill: 'writer', operator: 'rewrite', outcome: 'improved',
+        metrics: { pass: true, tokens: 3, wallTimeMs: 5 },
+        dependencies: { evaluator: 'scorer-v1' }, seeds: [7, 42],
+      }
+      const session = sessionIn(test.ctx, test.dir, 'lineage-replay')
+      expect((await run(test, session, '/lineage replay staged-9')).result).toEqual({
+        kind: 'success',
+        text: [
+          'Experiment staged-9 (writer, improved by rewrite):',
+          '- pass true, 3 tokens, 5ms',
+          '- dependencies: evaluator=scorer-v1',
+          '- seeds: 7, 42',
+        ].join('\n'),
+      })
+      expect((await run(test, session, '/lineage replay ghost')).result).toEqual({
+        kind: 'error',
+        text: "Unknown experiment 'ghost'.",
+      })
+    } finally {
+      await shutdown(test)
+    }
+  })
+})
+
+describe('/sleeptime human command', () => {
+  it('reports usage for malformed invocations and a missing store', async () => {
+    const test = await harness()
+    try {
+      const session = sessionIn(test.ctx, test.dir, 'sleeptime-unmounted')
+      expect((await run(test, session, '/sleeptime')).result).toEqual({
+        kind: 'error',
+        text: 'The evolution sleeptime store is not mounted.',
+      })
+    } finally {
+      await shutdown(test)
+    }
+    const mounted = await harness(true, undefined, { sleeptime: true })
+    try {
+      const session = sessionIn(mounted.ctx, mounted.dir, 'sleeptime-grammar')
+      const usage = 'Usage: /sleeptime [tasks [<domain>] | artifacts [<taskId>] | plan]'
+      expect((await run(mounted, session, '/sleeptime bogus')).result).toEqual({ kind: 'error', text: usage })
+      expect((await run(mounted, session, '/sleeptime tasks a b')).result).toEqual({ kind: 'error', text: usage })
+      expect((await run(mounted, session, '/sleeptime artifacts a b')).result).toEqual({ kind: 'error', text: usage })
+      expect((await run(mounted, session, '/sleeptime plan extra')).result).toEqual({ kind: 'error', text: usage })
+    } finally {
+      await shutdown(mounted)
+    }
+  })
+
+  it('lists tasks, artifacts, and the offline-cost plan', async () => {
+    const test = await harness(true, undefined, { sleeptime: true })
+    try {
+      test.sleeptime.tasks = [
+        { taskId: 'summarize-log', domain: 'coding', likelihood: 0.8, expectedQueries: 3, expectedSavingTokens: 1000 },
+        { taskId: 'index-retrieval', domain: 'coding', likelihood: 0.4, expectedQueries: 2, expectedSavingTokens: 500 },
+      ]
+      test.sleeptime.artifacts = [
+        { artifactId: 'art-2', taskId: 'summarize-log', kind: 'summary', summary: 'log notes', offlineCostTokens: 2000, hits: 2, savedTokens: 1500 },
+      ]
+      test.sleeptime.plan = [
+        { taskId: 'summarize-log', domain: 'coding', worthIt: true, expectedNet: 400, reason: 'net 400 tokens (likelihood 0.8 × 3 queries × 1000 saved − cost 2000)' },
+      ]
+      const session = sessionIn(test.ctx, test.dir, 'sleeptime-list')
+      expect((await run(test, session, '/sleeptime tasks coding')).result).toEqual({
+        kind: 'success',
+        text: [
+          "Anticipated tasks 'coding' (likelihood first): 2",
+          '- summarize-log (coding): 80%, 3 expected queries, 1000 tokens each',
+          '- index-retrieval (coding): 40%, 2 expected queries, 500 tokens each',
+        ].join('\n'),
+      })
+      expect((await run(test, session, '/sleeptime artifacts summarize-log')).result).toEqual({
+        kind: 'success',
+        text: [
+          "Precomputed artifacts 'summarize-log': 1",
+          '- art-2 [summary] for summarize-log: 2 hits, 1500 tokens saved, cost 2000',
+        ].join('\n'),
+      })
+      expect((await run(test, session, '/sleeptime plan')).result).toEqual({
+        kind: 'success',
+        text: [
+          'Sleep-time plan:',
+          '- summarize-log (coding): net 400 tokens — net 400 tokens (likelihood 0.8 × 3 queries × 1000 saved − cost 2000)',
+        ].join('\n'),
+      })
+      expect((await run(test, session, '/sleeptime tasks absent')).result).toEqual({
+        kind: 'success',
+        text: 'No anticipated tasks. Anticipate likely future tasks to seed sleep-time compute.',
+      })
+      expect((await run(test, session, '/sleeptime artifacts absent')).result).toEqual({
+        kind: 'success',
+        text: 'No precomputed artifacts recorded.',
+      })
     } finally {
       await shutdown(test)
     }

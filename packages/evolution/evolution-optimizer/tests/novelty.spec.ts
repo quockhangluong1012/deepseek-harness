@@ -4,7 +4,7 @@
  * spacing — so reformatting is not novelty and a new rule is.
  */
 import { describe, expect, it } from 'vitest'
-import { noveltyOf } from '../src/novelty.ts'
+import { descriptorOf, noveltyOf } from '../src/novelty.ts'
 
 describe('noveltyOf', () => {
   it('reports zero for the body itself, a reorder, and a reformat', () => {
@@ -38,5 +38,22 @@ describe('noveltyOf', () => {
 
   it('keeps every line when a frontmatter block never closes', () => {
     expect(noveltyOf('---\nname: writer', '')).toBe(1)
+  })
+})
+
+describe('descriptorOf', () => {
+  it('returns the distinct normalized instruction lines, sorted', () => {
+    expect(descriptorOf('# Writer\nDo the thing.\nDo the thing.\n   keep   it  short'))
+      .toEqual(['# writer', 'do the thing.', 'keep it short'])
+  })
+
+  it('drops frontmatter and returns an empty descriptor for a blank body', () => {
+    expect(descriptorOf('---\nname: writer\ndescription: writer.\n---\nDo the thing.'))
+      .toEqual(['do the thing.'])
+    expect(descriptorOf('   \n\n')).toEqual([])
+  })
+
+  it('treats a body without a frontmatter block as all instruction lines', () => {
+    expect(descriptorOf('# a\n---')).toEqual(['# a', '---'])
   })
 })

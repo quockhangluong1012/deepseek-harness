@@ -21,10 +21,25 @@
     { "path": "../../util/values" },
     { "path": "../../workspace/workspace" },
     { "path": "../evolution-curator" },
+    { "path": "../evolution-canary" },
+    { "path": "../evolution-curriculum" },
+    { "path": "../evolution-benchmark" },
+    { "path": "../evolution-evaluator-health" },
     { "path": "../evolution-optimizer" },
+    { "path": "../evolution-population" },
     { "path": "../evolution-graph" },
     { "path": "../evolution-dreaming" },
     { "path": "../evolution-memory" },
-    { "path": "../evolution-reviewer" }
+    { "path": "../evolution-model-routes" },
+    { "path": "../evolution-reviewer" },
+    { "path": "../evolution-trace" },
+    { "path": "../evolution-novelty-search" },
+    { "path": "../evolution-stagnation" },
+    { "path": "../evolution-islands" },
+    { "path": "../evolution-self-model" },
+    { "path": "../evolution-uncertainty" },
+    { "path": "../evolution-adversary" },
+    { "path": "../evolution-lineage" },
+    { "path": "../evolution-sleeptime" }
   ]
 }

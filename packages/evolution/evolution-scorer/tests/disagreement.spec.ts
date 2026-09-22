@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { evaluatorDisagreement } from '../src/disagreement.ts'
+import type { DisagreementChannel } from '../src/types.ts'
 
 describe('evaluatorDisagreement', () => {
   it('reports unanimous approval and unanimous rejection', () => {
@@ -26,5 +27,17 @@ describe('evaluatorDisagreement', () => {
     expect(evaluatorDisagreement([{ channel: 'routing', ok: true }]))
       .toEqual({ unanimous: true, approving: ['routing'], dissenting: [] })
     expect(() => evaluatorDisagreement([])).toThrow('at least one channel verdict')
+  })
+
+  it('sorts an unknown channel after the canonical set', () => {
+    expect(evaluatorDisagreement([
+      { channel: 'bonus' as DisagreementChannel, ok: true },
+      { channel: 'replay', ok: false },
+    ])).toEqual({ unanimous: false, approving: ['bonus'], dissenting: ['replay'] })
+    // Two unknown channels exercise both fallback operands of the sort.
+    expect(evaluatorDisagreement([
+      { channel: 'x' as DisagreementChannel, ok: true },
+      { channel: 'y' as DisagreementChannel, ok: false },
+    ])).toEqual({ unanimous: false, approving: ['x'], dissenting: ['y'] })
   })
 })

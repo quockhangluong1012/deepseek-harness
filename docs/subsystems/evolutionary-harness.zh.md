@@ -42,6 +42,155 @@
 
 Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — the language sides differ only in locale-specific paired document paths. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.zh.md#dispatch-modes), and the framework-inherited `ctx` API lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
 
+<a id="ctxevolutionadversary--evolutionadversary"></a>
+
+### `ctx.evolutionAdversary` — `EvolutionAdversary`
+
+Adversary store over durable probes and defense rows. Opens the `evolution_adversary` domain at init and closes it through `ctx.effect`.
+
+```ts cordis-catalog
+/**
+ * Record one adversarial probe, unrepaired: repair is a separate explicit
+ * step so a recorded weakness is never silently marked fixed.
+ * @param input - the probe to record.
+ * @returns the stored probe.
+ */
+async probe(input: ProbeInput): Promise<AdversarialProbe>
+
+/**
+ * Mark one probe repaired — or unrepaired again when a fix regresses.
+ * @param probeId - the probe to update.
+ * @param repaired - the repaired flag to set.
+ * @returns the updated probe.
+ */
+async setRepaired(probeId: string, repaired: boolean = true): Promise<AdversarialProbe>
+
+/**
+ * List every probe, optionally filtered by skill, newest first.
+ * @param skill - optional skill filter.
+ * @returns the probes, detached from the store.
+ */
+probes(skill?: string): readonly AdversarialProbe[]
+
+/**
+ * The next probing challenge of one skill under the configured probe
+ * minimum: the first uncovered category, or the least-probed category once
+ * every category is covered.
+ * @param skill - the skill to challenge.
+ * @returns the challenge naming the next category.
+ */
+challenge(skill: string): Challenge
+
+/**
+ * Set one gaming defense on the checklist.
+ * @param defense - the defense to set.
+ * @param satisfied - whether the defense is satisfied.
+ * @returns the checklist status.
+ */
+async setDefense(defense: GamingDefense, satisfied: boolean): Promise<DefenseStatus>
+
+/**
+ * The full defense checklist in canonical order; a defense never set reads
+ * unsatisfied with a null instant.
+ * @returns the checklist, detached from the store.
+ */
+defenses(): readonly DefenseStatus[]
+
+/**
+ * The defenses still open, in canonical order.
+ * @returns the open defenses.
+ */
+defenseGaps(): GamingDefense[]
+```
+
+Source: [`packages/evolution/evolution-adversary/src/index.ts`](../../packages/evolution/evolution-adversary/src/index.ts)
+
+<a id="ctxevolutionbenchmark--evolutionbenchmark"></a>
+
+### `ctx.evolutionBenchmark` — `EvolutionBenchmark`
+
+Benchmark store over durable tasks. Opens the `evolution_benchmark` domain at init and closes it through `ctx.effect`.
+
+```ts cordis-catalog
+/**
+ * Admit candidate tasks, deduplicating against every still-learnable task.
+ * Contaminated and retired tasks do not block re-admission. The admission
+ * pass stages at most `maxAdmit` new tasks.
+ * @param inputs - candidate tasks, in caller order.
+ * @returns the admitted tasks and the duplicate texts.
+ */
+async admit(inputs: readonly BenchmarkInput[]): Promise<{ admitted: readonly BenchmarkTask[]; duplicates: string[] }>
+
+/**
+ * List every task, optionally filtered by state, learnable states first in
+ * pipeline order then newest first.
+ * @param state - optional state filter.
+ * @returns the tasks, detached from the store.
+ */
+tasks(state?: BenchmarkState): readonly BenchmarkTask[]
+
+/**
+ * Move one task to another state. Learning advances one step per call
+ * (fresh → search → validation → holdout), any learnable state may derail to
+ * `contaminated` or `retired`, a same-state call resolves without writing,
+ * and terminal states never leave. Unknown ids and illegal transitions
+ * reject loudly.
+ * @param id - task identity.
+ * @param to - requested state.
+ * @returns the stored task after the transition.
+ */
+async transition(id: string, to: BenchmarkState): Promise<BenchmarkTask>
+```
+
+Source: [`packages/evolution/evolution-benchmark/src/index.ts`](../../packages/evolution/evolution-benchmark/src/index.ts)
+
+<a id="ctxevolutioncanary--evolutioncanary"></a>
+
+### `ctx.evolutionCanary` — `EvolutionCanary`
+
+Canary deployment store over durable rollout records. Opens the `evolution_canary` domain at init and closes it through `ctx.effect`.
+
+```ts cordis-catalog
+/**
+ * Record one deployment entering shadow. Each staged write starts exactly
+ * one deployment, so an existing id rejects loudly instead of silently
+ * re-entering shadow.
+ * @param input - the deployment to record.
+ * @returns the stored record.
+ */
+async enter(input: DeploymentInput): Promise<DeploymentRecord>
+
+/**
+ * Move one deployment to another state. The ladder advances one step per
+ * call, each staged rollout may exit to its terminal state, a same-state
+ * call resolves without writing, and terminal states never leave. Unknown
+ * ids and illegal transitions reject loudly.
+ * @param id - deployment identity.
+ * @param to - requested state.
+ * @returns the stored record after the transition.
+ */
+async advance(id: string, to: DeploymentState): Promise<DeploymentRecord>
+
+/**
+ * List every deployment, optionally filtered by state and skill, newest
+ * first in the ladder order then by `at`.
+ * @param state - optional state filter.
+ * @param skill - optional skill filter.
+ * @returns the records, detached from the store.
+ */
+deployments(state?: DeploymentState, skill?: string): readonly DeploymentRecord[]
+
+/**
+ * Summarize deployments, optionally for one skill: the total and per-state
+ * counts with every state present, so absent states read as zero.
+ * @param skill - optional skill filter; omitted summarizes the whole store.
+ * @returns the summary.
+ */
+summary(skill?: string): DeploymentSummary
+```
+
+Source: [`packages/evolution/evolution-canary/src/index.ts`](../../packages/evolution/evolution-canary/src/index.ts)
+
 <a id="ctxevolutioncontroller--evolutioncontroller"></a>
 
 ### `ctx.evolutionController` — `EvolutionController`
@@ -282,6 +431,48 @@ Host Remote face over the mounted curator's ledger summary.
 
 Source: [`packages/client/ui-evolution/src/index.ts`](../../packages/client/ui-evolution/src/index.ts)
 
+<a id="ctxevolutioncurriculum--evolutioncurriculum"></a>
+
+### `ctx.evolutionCurriculum` — `EvolutionCurriculum`
+
+Automatic curriculum over durable proposals. Opens the `evolution_curriculum` domain at init and closes it through `ctx.effect`.
+
+```ts cordis-catalog
+/**
+ * Measure current capability gaps from the mounted seams: for every tracked
+ * skill with sessions, the distinct failure gists of its compressed trace
+ * rows. Without either seam nothing is measured.
+ * @returns the measured gaps, in caller order.
+ */
+async gaps(): Promise<readonly CurriculumGap[]>
+
+/**
+ * Stage one task per gap that clears the evidence floor, skipping any
+ * already-open proposal for the same capability and task. A capability with
+ * no proposed task contributes nothing.
+ * @param gaps - measured capability gaps, in caller order.
+ * @returns the staged proposals.
+ */
+async propose(gaps: readonly CurriculumGap[]): Promise<readonly CurriculumProposal[]>
+
+/**
+ * List every staged proposal, open first then retired, each group newest
+ * first.
+ * @returns the proposals, detached from the store.
+ */
+proposals(): readonly CurriculumProposal[]
+
+/**
+ * Retire one proposal; an absent id rejects loudly, and an already-retired
+ * proposal resolves without writing.
+ * @param id - proposal identity.
+ * @returns the stored proposal after retirement.
+ */
+async retire(id: string): Promise<CurriculumProposal>
+```
+
+Source: [`packages/evolution/evolution-curriculum/src/index.ts`](../../packages/evolution/evolution-curriculum/src/index.ts)
+
 <a id="ctxevolutiondreaming--evolutiondreaming"></a>
 
 ### `ctx.evolutionDreaming` — `EvolutionDreaming`
@@ -324,6 +515,37 @@ async dreamAll(signal?: AbortSignal): Promise<void>
 ```
 
 Source: [`packages/evolution/evolution-dreaming/src/index.ts`](../../packages/evolution/evolution-dreaming/src/index.ts)
+
+<a id="ctxevolutionevaluatorhealth--evolutionevaluatorhealth"></a>
+
+### `ctx.evolutionEvaluatorHealth` — `EvolutionEvaluatorHealth`
+
+Evaluator ensemble health over durable verdicts. Opens the `evolution_evaluator_health` domain at init and closes it through `ctx.effect`.
+
+```ts cordis-catalog
+/**
+ * Record one behavior-evaluation verdict. A skipped evaluation has no
+ * judgment and rejects loudly.
+ * @param input - the verdict to record.
+ * @returns the stored run.
+ */
+async observe(input: EvaluatorRunInput): Promise<EvaluatorRun>
+
+/**
+ * List recorded verdicts, newest first, optionally for one skill.
+ * @param skill - optional skill filter.
+ * @returns the runs, detached from the store.
+ */
+runs(skill?: string): readonly EvaluatorRun[]
+
+/**
+ * Summarize evaluator health over every recorded verdict.
+ * @returns the aggregated health facts.
+ */
+summary(): EvaluatorHealthSummary
+```
+
+Source: [`packages/evolution/evolution-evaluator-health/src/index.ts`](../../packages/evolution/evolution-evaluator-health/src/index.ts)
 
 <a id="ctxevolutionfeedback--evolutionfeedback"></a>
 
@@ -518,6 +740,116 @@ async runTask(name: string, options: HeartbeatRunOptions = {}): Promise<Heartbea
 ```
 
 Source: [`packages/evolution/evolution-heartbeat/src/index.ts`](../../packages/evolution/evolution-heartbeat/src/index.ts)
+
+<a id="ctxevolutionislands--evolutionislands"></a>
+
+### `ctx.evolutionIslands` — `EvolutionIslands`
+
+Island store over durable islands and migrations. Opens the `evolution_islands` domain at init and closes it through `ctx.effect`.
+
+```ts cordis-catalog
+/**
+ * Register one island for a skill's evolution job. A duplicate island id
+ * rejects loudly: an island is a durable lane, not a replaceable row.
+ * @param input - the island to register.
+ * @returns the stored island.
+ */
+async register(input: IslandInput): Promise<Island>
+
+/**
+ * Record one generation tick for a skill's evolution job: the head island
+ * of the skill — the newest registered — advances its generation and
+ * last-activity instant. Returns `undefined` when the skill has no island
+ * yet, so the optimizer seam stays a no-op until an operator registers one.
+ * @param skill - the skill whose job advances.
+ * @returns the advanced island, or undefined without one.
+ */
+async advance(skill: string): Promise<Island | undefined>
+
+/**
+ * Record one migration between two islands. Both islands must exist, and
+ * they must serve the same skill — a candidate migrating across jobs is
+ * meaningless. The migration is keyed by a fresh identity, so a candidate
+ * may migrate repeatedly and every move stays on record.
+ * @param input - the migration to record.
+ * @returns the stored migration.
+ */
+async migrate(input: MigrationInput): Promise<Migration>
+
+/**
+ * List every island, optionally filtered by skill, newest registration
+ * first.
+ * @param skill - optional skill filter.
+ * @returns the islands, detached from the store.
+ */
+islands(skill?: string): readonly Island[]
+
+/**
+ * List every migration, optionally filtered by skill, newest first.
+ * @param skill - optional skill filter.
+ * @returns the migrations, detached from the store.
+ */
+migrations(skill?: string): readonly Migration[]
+
+/**
+ * The schedule view of every island (optionally per skill): each island
+ * with its last migration instant and whether a scheduled migration is due
+ * under the configured cadence, ordered by island id for a stable render.
+ * @param skill - optional skill filter.
+ * @returns the schedule rows, detached from the store.
+ */
+schedule(skill?: string): readonly IslandSchedule[]
+```
+
+Source: [`packages/evolution/evolution-islands/src/index.ts`](../../packages/evolution/evolution-islands/src/index.ts)
+
+<a id="ctxevolutionlineage--evolutionlineage"></a>
+
+### `ctx.evolutionLineage` — `EvolutionLineage`
+
+Dependency-aware lineage store over durable experiment envelopes. Opens the `evolution_lineage` domain at init and closes it through `ctx.effect`.
+
+```ts cordis-catalog
+/**
+ * Record one experiment envelope, stamping its recording instant.
+ * @param input - the experiment to record.
+ * @returns the stored envelope.
+ */
+async record(input: ExperimentInput): Promise<ExperimentEnvelope>
+
+/**
+ * List every envelope, optionally filtered by skill, newest first.
+ * @param skill - optional skill filter.
+ * @returns the envelopes, detached from the store.
+ */
+experiments(skill?: string): readonly ExperimentEnvelope[]
+
+/**
+ * Read one envelope by identity, detached from the store.
+ * @param id - the experiment identity.
+ * @returns the envelope, or undefined when unknown.
+ */
+envelope(id: string): ExperimentEnvelope | undefined
+
+/**
+ * Compare two envelopes over the configured compared keys: comparable
+ * exactly when none of those keys changed versions between them.
+ * @param idA - the first experiment identity.
+ * @param idB - the second experiment identity.
+ * @returns the comparability verdict, or undefined when either id is unknown.
+ */
+compare(idA: string, idB: string): ExperimentComparison | undefined
+
+/**
+ * Replay one experiment from its record: the envelope carries the seeds
+ * it ran, so the run is reproducible from what this returns (§48).
+ * @param id - the experiment identity.
+ * @returns the envelope, detached, or undefined when unknown.
+ */
+replay(id: string): ExperimentEnvelope | undefined
+```
+
+Source: [`packages/evolution/evolution-lineage/src/index.ts`](../../packages/evolution/evolution-lineage/src/index.ts)
 
 <a id="ctxevolutionmemory--evolutionmemorystore"></a>
 
@@ -753,6 +1085,160 @@ async recordOutputs(id: EvolutionScopeId, entries: readonly EvolutionOutput[]): 
 
 Source: [`packages/evolution/evolution-memory/src/index.ts`](../../packages/evolution/evolution-memory/src/index.ts)
 
+<a id="ctxevolutionmodelroutes--evolutionmodelroutes"></a>
+
+### `ctx.evolutionModelRoutes` — `EvolutionModelRoutes`
+
+Adaptive model-routing store over durable assignments and evidence. Opens the `evolution_model_routes` domain at init and closes it through `ctx.effect`.
+
+```ts cordis-catalog
+/**
+ * Record one measured outcome of a route used in a role, upserting the route
+ * as `observed` unless it is already pinned (a pin outlives its evidence).
+ * @param input - the role, route, and measured triple.
+ * @returns the stored evidence row.
+ */
+async observe(input: RouteEvidenceInput): Promise<RouteEvidence>
+
+/**
+ * Pin one route for one role: the operator's explicit assignment outranks
+ * every observed route in `recommend`. Pinning an existing route flips its
+ * origin; pinning a fresh route creates the row.
+ * @param role - the role to assign.
+ * @param provider - provider half of the route.
+ * @param model - model half of the route.
+ * @returns the stored assignment.
+ */
+async pin(role: EvolutionRole, provider: string, model: string): Promise<RouteRow>
+
+/**
+ * List route assignments merged with their evidence as per-route summaries,
+ * optionally for one role, in role-topology order then provider/model order.
+ * @param role - optional role filter.
+ * @returns the summaries, detached from the store.
+ */
+routes(role?: EvolutionRole): readonly RouteSummary[]
+
+/**
+ * List recorded evidence, newest first, optionally filtered by role and
+ * route.
+ * @param role - optional role filter.
+ * @param route - optional route filter.
+ * @returns the evidence rows, detached from the store.
+ */
+evidence(role?: EvolutionRole, route?: ModelRoute): readonly RouteEvidence[]
+
+/**
+ * Recommend the route for one role: the pinned assignment when one exists,
+ * otherwise the route with the strongest recorded evidence. Yields undefined
+ * when the role has neither.
+ * @param role - the role to recommend for.
+ * @returns the recommended route, or undefined.
+ */
+recommend(role: EvolutionRole): ModelRoute | undefined
+```
+
+Source: [`packages/evolution/evolution-model-routes/src/index.ts`](../../packages/evolution/evolution-model-routes/src/index.ts)
+
+<a id="ctxevolutionnovelty--evolutionnovelty"></a>
+
+### `ctx.evolutionNovelty` — `EvolutionNovelty`
+
+Novelty-search store over the durable archive. Opens the `evolution_novelty` domain at init and closes it through `ctx.effect`.
+
+```ts cordis-catalog
+/**
+ * Record one descriptor, measuring its novelty against the skill's archive
+ * excluding the descriptor itself, so re-recording a candidate keeps its
+ * original novelty instead of degrading to zero. One entry per staged write:
+ * the archive is keyed by candidate identity.
+ * @param input - the descriptor to archive.
+ * @returns the stored entry with its measured novelty.
+ */
+async record(input: NoveltyArchiveInput): Promise<NoveltyArchiveEntry>
+
+/**
+ * List every archive entry, optionally filtered by skill, newest first.
+ * @param skill - optional skill filter.
+ * @returns the entries, detached from the store.
+ */
+entries(skill?: string): readonly NoveltyArchiveEntry[]
+
+/**
+ * Mean archive novelty of one skill, in 0..1, or zero when the skill has no
+ * entries. A falling mean is the frontier-stagnation signal the command
+ * plane renders.
+ * @param skill - the skill to summarize.
+ * @returns the skill's mean archive novelty.
+ */
+mean(skill: string): number
+```
+
+Source: [`packages/evolution/evolution-novelty-search/src/index.ts`](../../packages/evolution/evolution-novelty-search/src/index.ts)
+
+<a id="ctxevolutionpopulation--evolutionpopulation"></a>
+
+### `ctx.evolutionPopulation` — `EvolutionPopulation`
+
+Population store over durable candidates. Opens the `evolution_population` domain at init and closes it through `ctx.effect`.
+
+```ts cordis-catalog
+/**
+ * Record one candidate, auto-wiring lineage: the previous head of the same
+ * skill becomes this candidate's parent, and the generation is one past the
+ * skill's current highest. The head is the candidate with the highest
+ * generation, newest tie first.
+ * @param input - the candidate to record.
+ * @returns the stored candidate.
+ */
+async record(input: PopulationRecordInput): Promise<PopulationCandidate>
+
+/**
+ * List every candidate, optionally filtered by skill, newest first.
+ * @param skill - optional skill filter.
+ * @returns the candidates, detached from the store.
+ */
+candidates(skill?: string): readonly PopulationCandidate[]
+
+/**
+ * The current generation of a skill: the highest generation present, or 0
+ * when the skill has no candidates yet.
+ * @param skill - the skill to inspect.
+ * @returns the skill's current generation.
+ */
+generation(skill: string): number
+
+/**
+ * The lineage of one candidate within a skill, oldest ancestor first. The
+ * chain walks stored parent links; unknown ids yield an empty chain.
+ * @param skill - the skill the candidate belongs to.
+ * @param candidateId - the candidate to start from.
+ * @returns the candidate and its ancestors, oldest first, detached.
+ */
+lineage(skill: string, candidateId: string): readonly PopulationCandidate[]
+
+/**
+ * The current elite of a skill: approved candidates ranked by pass, then
+ * fewer tokens, then faster wall time. Unmeasured candidates rank below every
+ * measured one.
+ * @param skill - the skill to rank.
+ * @returns the approved candidates in elite order, detached.
+ */
+elite(skill: string): readonly PopulationCandidate[]
+
+/**
+ * Move one candidate to another status. A staged candidate may be approved or
+ * rejected; approved and rejected are terminal. A same-status call resolves
+ * without writing, and unknown ids or illegal transitions reject loudly.
+ * @param candidateId - candidate identity.
+ * @param status - requested status.
+ * @returns the stored candidate after the transition.
+ */
+async updateStatus(candidateId: string, status: PopulationStatus): Promise<PopulationCandidate>
+```
+
+Source: [`packages/evolution/evolution-population/src/index.ts`](../../packages/evolution/evolution-population/src/index.ts)
+
 <a id="ctxevolutionreviewer--evolutionreviewer"></a>
 
 ### `ctx.evolutionReviewer` — `EvolutionReviewer`
@@ -828,6 +1314,71 @@ async evaluateBehavior(request: BehaviorEvalRequest): Promise<BehaviorEvaluation
 ```
 
 Source: [`packages/evolution/evolution-scorer/src/index.ts`](../../packages/evolution/evolution-scorer/src/index.ts)
+
+<a id="ctxevolutionselfmodel--evolutionselfmodel"></a>
+
+### `ctx.evolutionSelfModel` — `EvolutionSelfModel`
+
+Self-model store over durable assessments and capability entries. Opens the `evolution_selfmodel` domain at init and closes it through `ctx.effect`.
+
+```ts cordis-catalog
+/**
+ * Record one skill's self-assessment, replacing its previous whole
+ * self-view and ticking the revision one past it (1 for the first).
+ * @param input - the assessment to record.
+ * @returns the stored assessment.
+ */
+async record(input: SelfModelInput): Promise<SelfModel>
+
+/**
+ * Read one skill's assessment, detached from the store.
+ * @param skill - the skill to inspect.
+ * @returns the assessment, or undefined without one.
+ */
+assessment(skill: string): SelfModel | undefined
+
+/**
+ * List every assessment by skill name, detached from the store.
+ * @returns the assessments, skill ascending.
+ */
+assessments(): readonly SelfModel[]
+
+/**
+ * Fold one capability observation into the capability's entry, creating
+ * the entry on the first observation of its capability.
+ * @param obs - the observation to record.
+ * @returns the stored entry.
+ */
+async observe(obs: CapabilityObservation): Promise<CapabilityEntry>
+
+/**
+ * Read one capability's entry, detached from the store.
+ * @param name - the capability to inspect.
+ * @returns the entry, or undefined without one.
+ */
+capability(name: string): CapabilityEntry | undefined
+
+/**
+ * List every capability entry by capability name, detached from the store.
+ * @returns the entries, capability ascending.
+ */
+capabilities(): readonly CapabilityEntry[]
+
+/**
+ * Rank every capability weakest first: lower pass rate, then thinner
+ * evidence, then fewer covering skills, then the capability name.
+ * @returns the frontier gaps, weakest first.
+ */
+gaps(): readonly FrontierGap[]
+
+/**
+ * The capability to learn next: the weakest gap, or null with no entries.
+ * @returns the weakest gap, or null when empty.
+ */
+nextToLearn(): FrontierGap | null
+```
+
+Source: [`packages/evolution/evolution-self-model/src/index.ts`](../../packages/evolution/evolution-self-model/src/index.ts)
 
 <a id="ctxevolutionskilltelemetry--evolutionskilltelemetry"></a>
 
@@ -932,8 +1483,18 @@ async recordTrustObservation( name: string, outcome: 'success' | 'failure', sess
 async markRevised(name: string, content: string): Promise<SkillUsageRecord | undefined>
 
 /**
- * Forget one skill's record entirely. Purge calls this after removing the
- * skill directory; absent names resolve without writing.
+ * List one skill's committed body revisions, oldest first: the durable
+ * artifact registry answering lineage without re-reading files. Excluded
+ * sources have no rows, and an absent record reads as an empty list.
+ * @param name - skill name.
+ * @returns the detached revision history, oldest first.
+ */
+versions(name: string): readonly SkillVersion[]
+
+/**
+ * Forget one skill's record and its version history entirely. Purge calls
+ * this after removing the skill directory; absent names resolve without
+ * writing.
  * @param name - skill name.
  * @returns whether a record was removed.
  */
@@ -977,6 +1538,139 @@ async setState(name: string, state: SkillLifecycleState, absorbedInto: string | 
 
 Source: [`packages/skill/evolution-skill-telemetry/src/index.ts`](../../packages/skill/evolution-skill-telemetry/src/index.ts)
 
+<a id="ctxevolutionsleeptime--evolutionsleeptime"></a>
+
+### `ctx.evolutionSleeptime` — `EvolutionSleeptime`
+
+Sleep-time store over durable anticipated tasks and precomputed artifacts. Opens the `evolution_sleeptime` domain at init and closes it through `ctx.effect`.
+
+```ts cordis-catalog
+/**
+ * Anticipate one future task, upserting by task identity so a re-anticipated
+ * task refreshes its likelihood and expectations. The stored instant is now.
+ * @param input - the task to anticipate.
+ * @returns the stored task.
+ */
+async anticipate(input: AnticipationInput): Promise<AnticipatedTask>
+
+/**
+ * List every anticipated task, optionally filtered by domain, likeliest
+ * first with task-id ascending tie-break.
+ * @param domain - optional domain filter.
+ * @returns the tasks, detached from the store.
+ */
+tasks(domain?: string): readonly AnticipatedTask[]
+
+/**
+ * Precompute one reasoning artifact for an anticipated task. The task must
+ * exist: an artifact for a task nobody anticipated is a surprise, not idle
+ * work. A fresh artifact has served nothing yet.
+ * @param input - the artifact to cache.
+ * @returns the stored artifact.
+ */
+async precompute(input: PrecomputeInput): Promise<PrecomputeArtifact>
+
+/**
+ * List every cached artifact, optionally filtered by task, newest first with
+ * artifact-id ascending tie-break.
+ * @param taskId - optional task filter.
+ * @returns the artifacts, detached from the store.
+ */
+artifacts(taskId?: string): readonly PrecomputeArtifact[]
+
+/**
+ * Record one future query served by a cached artifact, adding the query's
+ * saved tokens to the artifact's running total.
+ * @param artifactId - the artifact that served the query.
+ * @param savedTokens - tokens the served query saved.
+ * @returns the updated artifact.
+ */
+async hit(artifactId: string, savedTokens: number): Promise<PrecomputeArtifact>
+
+/**
+ * The greedy budgeted plan over anticipated tasks that have no cached
+ * artifact yet: worth-it decisions, best net first, fitted into the offline
+ * budget at the estimated cost each.
+ * @param estimatedCostTokens - estimated offline cost of one precompute.
+ * @param budgetTokens - total offline budget available.
+ * @returns the planned decisions, best net first.
+ */
+plan(estimatedCostTokens?: number, budgetTokens?: number): readonly SleeptimeDecision[]
+```
+
+Source: [`packages/evolution/evolution-sleeptime/src/index.ts`](../../packages/evolution/evolution-sleeptime/src/index.ts)
+
+<a id="ctxevolutionstagnation--evolutionstagnation"></a>
+
+### `ctx.evolutionStagnation` — `EvolutionStagnation`
+
+Stagnation-detection store over durable runs. Opens the `evolution_stagnation` domain at init and closes it through `ctx.effect`.
+
+```ts cordis-catalog
+/**
+ * Record one run, numbering its generation tick one past the skill's run
+ * count and flagging whether it meaningfully improved the skill's best
+ * score so far.
+ * @param input - the run to record.
+ * @returns the stored run.
+ */
+async recordRun(input: StagnationRunInput): Promise<StagnationRun>
+
+/**
+ * List every run, optionally filtered by skill, newest first.
+ * @param skill - optional skill filter.
+ * @returns the runs, detached from the store.
+ */
+runs(skill?: string): readonly StagnationRun[]
+
+/**
+ * The derived stagnation status of one skill: best score, runs since the
+ * last meaningful improvement, the stagnant flag against the configured
+ * threshold, and the strategy the skill should follow now. A skill with no
+ * runs reports zero runs and normal exploitation.
+ * @param skill - the skill to inspect.
+ * @returns the stagnation status.
+ */
+status(skill: string): StagnationStatus
+
+/**
+ * Drop every recorded run of one skill, returning the count removed. Used
+ * when a task regime changes and the skill's history no longer applies.
+ * @param skill - the skill to reset.
+ * @returns the number of runs removed.
+ */
+async reset(skill: string): Promise<number>
+```
+
+Source: [`packages/evolution/evolution-stagnation/src/index.ts`](../../packages/evolution/evolution-stagnation/src/index.ts)
+
+<a id="ctxevolutiontrace--evolutiontrace"></a>
+
+### `ctx.evolutionTrace` — `EvolutionTrace`
+
+Immutable session trace projection. Opens no domain: the session log is the authoritative raw trace, and every read derives the structured form from it.
+
+```ts cordis-catalog
+/**
+ * Project one session's committed log into its structured learning trace.
+ * @param sessionId - session identity.
+ * @returns the structured trace, or undefined when storage holds no such session.
+ */
+async trace(sessionId: string): Promise<TraceRecord | undefined>
+
+/**
+ * Compress the given sessions into learning-trace rows, most decisive first:
+ * most failures, then retries, then billed tokens, then newest. Absent
+ * sessions contribute nothing.
+ * @param sessionIds - sessions to compress, in caller order.
+ * @param limit - maximum rows returned.
+ * @returns the compressed rows, decisive first.
+ */
+async summary(sessionIds: readonly string[], limit: number): Promise<LearningTraceRow[]>
+```
+
+Source: [`packages/evolution/evolution-trace/src/index.ts`](../../packages/evolution/evolution-trace/src/index.ts)
+
 <a id="ctxevolutiontrajectory--evolutiontrajectoryexporter"></a>
 
 ### `ctx.evolutionTrajectory` — `EvolutionTrajectoryExporter`
@@ -1015,4 +1709,48 @@ toShareGpt(input: ShareGptInput): ShareGptConversation[]
 ```
 
 Source: [`packages/evolution/evolution-trajectory/src/index.ts`](../../packages/evolution/evolution-trajectory/src/index.ts)
+
+<a id="ctxevolutionuncertainty--evolutionuncertainty"></a>
+
+### `ctx.evolutionUncertainty` — `EvolutionUncertainty`
+
+Uncertainty-signal store over durable signals. Opens the `evolution_uncertainty` domain at init and closes it through `ctx.effect`.
+
+```ts cordis-catalog
+/**
+ * Record one uncertainty signal, stamping it with the current instant.
+ * @param input - the signal to record.
+ * @returns the stored signal.
+ */
+async record(input: UncertaintySignalInput): Promise<UncertaintySignal>
+
+/**
+ * List every signal, optionally filtered by skill, newest first with signal
+ * identity breaking same-instant ties for determinism.
+ * @param skill - optional skill filter.
+ * @returns the signals, detached from the store.
+ */
+signals(skill?: string): readonly UncertaintySignal[]
+
+/**
+ * The prioritized evaluation-task queue over the filtered signals, capped at
+ * the caller's limit or the configured queue limit.
+ * @param skill - optional skill filter.
+ * @param limit - optional task cap, defaulting to the configured queue limit.
+ * @returns the top evaluation tasks, highest priority first.
+ */
+queue(skill?: string, limit?: number): readonly EvaluationTask[]
+
+/**
+ * Drop the signals behind one evaluation task — without a task identity only
+ * the skill-wide (null-task) signals of the skill — returning the count
+ * removed. The queue re-derives from the signals that remain.
+ * @param skill - the skill whose signals to drop.
+ * @param taskId - optional task identity to drop; undefined drops only skill-wide signals.
+ * @returns the number of signals removed.
+ */
+async resolve(skill: string, taskId?: string): Promise<number>
+```
+
+Source: [`packages/evolution/evolution-uncertainty/src/index.ts`](../../packages/evolution/evolution-uncertainty/src/index.ts)
 <!-- END GENERATED cordis-surface -->

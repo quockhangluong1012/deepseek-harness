@@ -10,6 +10,8 @@
     { "path": "../../../vendor/schemastery" },
     { "path": "../../core/session" },
     { "path": "../../llm/token-meter" },
+    { "path": "../evolution-evaluator-health" },
+    { "path": "../evolution-uncertainty" },
     { "path": "../../skill/skill" },
     { "path": "../../skill/evolution-skill-manage" },
     { "path": "../../skill/evolution-skill-telemetry" },

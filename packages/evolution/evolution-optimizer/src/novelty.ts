@@ -51,3 +51,15 @@ export function noveltyOf(body: string, reference: string): number {
   }
   return fresh / candidate.size
 }
+
+/**
+ * The normalized behavior descriptor of one skill body: its distinct
+ * instruction lines as a sorted array. This is the feature vocabulary the
+ * novelty-search archive measures Jaccard similarity over, so the descriptor
+ * of a recorded candidate stays comparable with every later one.
+ * @param body - complete SKILL.md body.
+ * @returns the distinct normalized lines, sorted.
+ */
+export function descriptorOf(body: string): string[] {
+  return [...instructionLines(body)].sort()
+}

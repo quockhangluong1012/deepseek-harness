@@ -205,6 +205,108 @@
     - id: evolution-trajectory
       name: '@deepseek-ai/dsh-evolution-trajectory'
 
+    # The trace bus: projects the committed session log into structured
+    # learning traces with ranked failure causes. It writes nothing and reaches
+    # no model prompt; the session log stays the authoritative raw trace, and
+    # the command plane reads it through `/trace`.
+    - id: evolution-trace
+      name: '@deepseek-ai/dsh-evolution-trace'
+
+    # The automatic curriculum: measures capability gaps from telemetry and
+    # the trace store and stages one grounded training task per gap. It writes
+    # only its own proposal domain and reaches no model prompt.
+    - id: evolution-curriculum
+      name: '@deepseek-ai/dsh-evolution-curriculum'
+
+    # The benchmark store: admits curriculum proposals as evaluation tasks
+    # with deduplication and contamination states. It writes only its own task
+    # domain and reaches no model prompt.
+    - id: evolution-benchmark
+      name: '@deepseek-ai/dsh-evolution-benchmark'
+
+    # Evaluator ensemble health: the scorer records every behavior-evaluation
+    # verdict here, and the command plane reports agreement, drift, and false
+    # positives through /evaluators. It writes only its own verdict domain.
+    - id: evolution-evaluator-health
+      name: '@deepseek-ai/dsh-evolution-evaluator-health'
+
+    # Population-based evolution: the optimizer records every staged write as a
+    # candidate here, and the command plane inspects generations, lineages, and
+    # the approved elite through /population. It writes only its own candidate
+    # domain and reaches no model prompt.
+    - id: evolution-population
+      name: '@deepseek-ai/dsh-evolution-population'
+
+    # Adaptive model routing: the optimizer records each candidate-generation
+    # route and outcome here, and the command plane lists, pins, and recommends
+    # routes per evolutionary role through /routes. It writes only its own
+    # route domains and reaches no model prompt.
+    - id: evolution-model-routes
+      name: '@deepseek-ai/dsh-evolution-model-routes'
+
+    # Shadow/canary deployment: the optimizer records every staged write as a
+    # shadow deployment here, and the command plane tracks rollouts through
+    # /canary. It writes only its own deployment domain and reaches no model
+    # prompt; records nothing user-visible.
+    - id: evolution-canary
+      name: '@deepseek-ai/dsh-evolution-canary'
+
+    # Novelty search: the optimizer records the winner's behavior descriptor
+    # here, and the command plane reads archive novelty and its pressure
+    # through /novelty. It writes only its own archive domain and reaches no
+    # model prompt.
+    - id: evolution-novelty-search
+      name: '@deepseek-ai/dsh-evolution-novelty-search'
+
+    # Stagnation detection: the optimizer records each staged write as an
+    # evaluation run here, and the command plane reads the stagnant flag and
+    # the recommended strategy through /stagnation. It writes only its own run
+    # domain and reaches no model prompt.
+    - id: evolution-stagnation
+      name: '@deepseek-ai/dsh-evolution-stagnation'
+
+    # Island evolution: the optimizer advances generation ticks on the skill's
+    # head island here, and the command plane registers lanes, records
+    # migrations, and reads the migration schedule through /islands. It writes
+    # only its own island domains and reaches no model prompt.
+    - id: evolution-islands
+      name: '@deepseek-ai/dsh-evolution-islands'
+
+    # Controlled self-model: the optimizer records each staged winner as one
+    # capability observation here, and the command plane reads the weakest-first
+    # capability frontier and the next-to-learn gap through /selfmodel. It
+    # writes only its own capability domains and reaches no model prompt.
+    - id: evolution-self-model
+      name: '@deepseek-ai/dsh-evolution-self-model'
+
+    # Uncertainty-driven learning: the scorer records evaluator disagreement
+    # signals here, and the command plane reads the prioritized evaluation
+    # queue through /uncertainty. It writes only its own signal domain and
+    # reaches no model prompt.
+    - id: evolution-uncertainty
+      name: '@deepseek-ai/dsh-evolution-uncertainty'
+
+    # Adversarial evolution: the command plane records adversarial probes,
+    # reads the next probing challenge, and tracks the evaluator-gaming
+    # defense checklist through /adversary. It writes only its own probe
+    # domains and reaches no model prompt.
+    - id: evolution-adversary
+      name: '@deepseek-ai/dsh-evolution-adversary'
+
+    # Dependency-aware lineage: the optimizer records each staged write as a
+    # dependency-versioned experiment envelope here, and the command plane
+    # compares and replays envelopes through /lineage. It writes only its own
+    # envelope domain and reaches no model prompt.
+    - id: evolution-lineage
+      name: '@deepseek-ai/dsh-evolution-lineage'
+
+    # Sleep-time compute: the command plane anticipates likely future tasks,
+    # records precomputed reasoning artifacts, and reads the offline-cost plan
+    # through /sleeptime. It writes only its own task and artifact domains and
+    # reaches no model prompt.
+    - id: evolution-sleeptime
+      name: '@deepseek-ai/dsh-evolution-sleeptime'
+
     # Scope verbs and the journey read model over Typert Remote: the page's
     # data source. Its `profile` namespaces the scope key, and it shares the
     # `default` namespace with the reviewer and the brief injector above.

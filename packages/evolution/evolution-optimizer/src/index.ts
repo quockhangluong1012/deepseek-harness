@@ -12,10 +12,24 @@ import { createHash, randomUUID } from 'node:crypto'
 import { Context, Service } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { processScenarioRunner, shouldOptimize } from '@deepseek-ai/dsh-evolution-scorer'
+import { SCORER_VERSION } from '@deepseek-ai/dsh-evolution-scorer'
 import type { SkillScore } from '@deepseek-ai/dsh-evolution-scorer'
 import { checkBehaviorContract } from '@deepseek-ai/dsh-evolution-scorer/src/behavior.ts'
 import type {} from '@deepseek-ai/dsh-evolution-memory'
 import type { EvolutionScopeId } from '@deepseek-ai/dsh-evolution-memory'
+import type {} from '@deepseek-ai/dsh-evolution-population'
+import type {} from '@deepseek-ai/dsh-evolution-model-routes'
+import type {} from '@deepseek-ai/dsh-evolution-canary'
+import type {} from '@deepseek-ai/dsh-evolution-novelty-search'
+import type {} from '@deepseek-ai/dsh-evolution-stagnation'
+import type {} from '@deepseek-ai/dsh-evolution-islands'
+import type {} from '@deepseek-ai/dsh-evolution-self-model'
+import type {} from '@deepseek-ai/dsh-evolution-lineage'
+import type {} from '@deepseek-ai/dsh-evolution-operators'
+import type {} from '@deepseek-ai/dsh-evolution-evaluator-strategy'
+import type {} from '@deepseek-ai/dsh-evolution-budget'
+import type {} from '@deepseek-ai/dsh-evolution-router'
+import type {} from '@deepseek-ai/dsh-evolution-meta'
 import type {} from '@deepseek-ai/dsh-evolution-skill-telemetry'
 import type {} from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-session-snapshot'
@@ -35,7 +49,7 @@ import {
   repeatedExperiment,
   staleExperiments,
 } from './experiments.ts'
-import { noveltyOf } from './novelty.ts'
+import { descriptorOf, noveltyOf } from './novelty.ts'
 import { failureSignature, operatorRecords, orderPortfolio } from './surface.ts'
 import { contaminatedHoldout } from './contamination.ts'
 import { diffLineCounts } from './lineage.ts'
@@ -61,7 +75,7 @@ export {
   repeatedExperiment,
   staleExperiments,
 } from './experiments.ts'
-export { noveltyOf } from './novelty.ts'
+export { descriptorOf, noveltyOf } from './novelty.ts'
 export { failureSignature, operatorRecords, orderPortfolio } from './surface.ts'
 export { contaminatedHoldout } from './contamination.ts'
 export { diffLineCounts } from './lineage.ts'
@@ -843,6 +857,19 @@ export class EvolutionOptimizer extends Service {
       originSessionId: request.originSessionId,
       gist: `optimizer patch for '${request.skill}' by ${winner.operator}: pass ${String(winner.score.pass)}, ${winner.score.tokens} tokens`,
     })
+    await this.recordPopulation(request.skill, staged.id, winner, slim)
+    await this.recordModelRoute(provider, model, winner, slim)
+    await this.recordCanary(request.skill, staged.id, winner, slim)
+    await this.recordNovelty(request.skill, staged.id, winner)
+    await this.recordStagnation(request.skill, staged.id, winner, slim)
+    await this.recordIslands(request.skill)
+    await this.recordSelfModel(request.skill, winner)
+    await this.recordLineage(request.skill, staged.id, winner, slim, provider, model)
+    await this.recordOperators(request.skill, winner, baseline)
+    await this.recordEvaluatorStrategy(request.skill, winner, checked, scorer)
+    await this.recordBudget(request.skill, staged.id, winner, spent, candidates.length)
+    await this.recordRouter(request.skill, provider, model, winner)
+    await this.recordMeta(request.skill, staged.id, strategy.portfolio, scorer, provider, model, winner)
     return {
       report: report('staged', {
         baseline: baseline.score,
@@ -853,6 +880,392 @@ export class EvolutionOptimizer extends Service {
         confirmed: confidence,
       }),
       draft: draft(winner),
+    }
+  }
+
+  /**
+   * Record one staged write as a population candidate when the population
+   * store is mounted. A failing record must not fail the optimization, so it
+   * logs a warning instead.
+   * @param skill - the skill the staged write mutates.
+   * @param candidateId - the staged write identity.
+   * @param winner - the winning variant.
+   * @param slim - projection of a score onto its measured triple.
+   */
+  private async recordPopulation(
+    skill: string,
+    candidateId: string,
+    winner: { body: string; operator: string; novelty: number; score: { pass: boolean; tokens: number; wallTimeMs: number } },
+    slim: (score: { pass: boolean; tokens: number; wallTimeMs: number }) => { pass: boolean; tokens: number; wallTimeMs: number },
+  ): Promise<void> {
+    const population = this.ctx.get('evolutionPopulation')
+    if (population === undefined) return
+    try {
+      await population.record({
+        skill,
+        candidateId,
+        operator: winner.operator,
+        novelty: winner.novelty,
+        triple: slim(winner.score),
+        status: 'staged',
+      })
+    } catch (error) {
+      this.ctx.logger.warn(`evolution optimizer could not record population: ${String(error)}`)
+    }
+  }
+
+  /**
+   * Record the candidate-generation route and the winner's triple as model
+   * routing evidence when the model-routes store is mounted. A failing record
+   * must not fail the optimization, so it logs a warning instead.
+   * @param provider - provider half of the route used for mutation.
+   * @param model - model half of the route used for mutation.
+   * @param winner - the winning variant.
+   * @param slim - projection of a score onto its measured triple.
+   */
+  private async recordModelRoute(
+    provider: string,
+    model: string,
+    winner: { score: { pass: boolean; tokens: number; wallTimeMs: number } },
+    slim: (score: { pass: boolean; tokens: number; wallTimeMs: number }) => { pass: boolean; tokens: number; wallTimeMs: number },
+  ): Promise<void> {
+    const routes = this.ctx.get('evolutionModelRoutes')
+    if (routes === undefined) return
+    try {
+      await routes.observe({
+        role: 'candidate-generation',
+        route: { provider, model },
+        triple: slim(winner.score),
+      })
+    } catch (error) {
+      this.ctx.logger.warn(`evolution optimizer could not record model route: ${String(error)}`)
+    }
+  }
+
+  /**
+   * Record the staged write as a canary deployment in shadow when the canary
+   * store is mounted — recorded, never gated (§58.12). A failing record must
+   * not fail the optimization, so it logs a warning instead.
+   * @param skill - the skill the staged write mutates.
+   * @param stagedId - the staged write identity.
+   * @param winner - the winning variant.
+   * @param slim - projection of a score onto its measured triple.
+   */
+  private async recordCanary(
+    skill: string,
+    stagedId: string,
+    winner: { score: { pass: boolean; tokens: number; wallTimeMs: number } },
+    slim: (score: { pass: boolean; tokens: number; wallTimeMs: number }) => { pass: boolean; tokens: number; wallTimeMs: number },
+  ): Promise<void> {
+    const canary = this.ctx.get('evolutionCanary')
+    if (canary === undefined) return
+    try {
+      await canary.enter({ id: stagedId, skill, triple: slim(winner.score) })
+    } catch (error) {
+      this.ctx.logger.warn(`evolution optimizer could not record canary deployment: ${String(error)}`)
+    }
+  }
+
+  /**
+   * Record the winner's behavior descriptor into the novelty-search archive
+   * when the novelty store is mounted. A failing record must not fail the
+   * optimization, so it logs a warning instead.
+   * @param skill - the skill the staged write mutates.
+   * @param stagedId - the staged write identity.
+   * @param winner - the winning variant.
+   */
+  private async recordNovelty(
+    skill: string,
+    stagedId: string,
+    winner: { body: string },
+  ): Promise<void> {
+    const novelty = this.ctx.get('evolutionNovelty')
+    if (novelty === undefined) return
+    try {
+      await novelty.record({ skill, candidateId: stagedId, features: descriptorOf(winner.body) })
+    } catch (error) {
+      this.ctx.logger.warn(`evolution optimizer could not record novelty archive: ${String(error)}`)
+    }
+  }
+
+  /**
+   * Record the staged write as one stagnation run when the stagnation store
+   * is mounted. A failing record must not fail the optimization, so it logs a
+   * warning instead.
+   * @param skill - the skill the staged write mutates.
+   * @param stagedId - the staged write identity.
+   * @param winner - the winning variant.
+   * @param slim - projection of a score onto its measured triple.
+   */
+  private async recordStagnation(
+    skill: string,
+    stagedId: string,
+    winner: { score: { pass: boolean; tokens: number; wallTimeMs: number } },
+    slim: (score: { pass: boolean; tokens: number; wallTimeMs: number }) => { pass: boolean; tokens: number; wallTimeMs: number },
+  ): Promise<void> {
+    const stagnation = this.ctx.get('evolutionStagnation')
+    if (stagnation === undefined) return
+    try {
+      await stagnation.recordRun({ skill, runId: stagedId, score: slim(winner.score) })
+    } catch (error) {
+      this.ctx.logger.warn(`evolution optimizer could not record stagnation run: ${String(error)}`)
+    }
+  }
+
+  /**
+   * Advance one generation tick on the skill's head island when the islands
+   * store is mounted. A failing record must not fail the optimization, so it
+   * logs a warning instead.
+   * @param skill - the skill the staged write mutates.
+   */
+  private async recordIslands(skill: string): Promise<void> {
+    const islands = this.ctx.get('evolutionIslands')
+    if (islands === undefined) return
+    try {
+      await islands.advance(skill)
+    } catch (error) {
+      this.ctx.logger.warn(`evolution optimizer could not advance evolution islands: ${String(error)}`)
+    }
+  }
+
+  /**
+   * Record the winner as one capability observation of the skill when the
+   * self-model store is mounted, so the capability frontier sees the pass
+   * rate its evaluations produce. A failing record must not fail the
+   * optimization, so it logs a warning instead.
+   * @param skill - the skill the staged write mutates.
+   * @param winner - the winning variant.
+   */
+  private async recordSelfModel(
+    skill: string,
+    winner: { score: { pass: boolean } },
+  ): Promise<void> {
+    const selfModel = this.ctx.get('evolutionSelfModel')
+    if (selfModel === undefined) return
+    try {
+      await selfModel.observe({
+        capability: skill,
+        skill,
+        pass: winner.score.pass,
+        failure: winner.score.pass ? undefined : `optimizer winner for '${skill}' did not pass`,
+      })
+    } catch (error) {
+      this.ctx.logger.warn(`evolution optimizer could not record self model: ${String(error)}`)
+    }
+  }
+
+  /**
+   * Record the staged write as one dependency-versioned experiment envelope
+   * when the lineage store is mounted, so later comparisons can prove the
+   * evaluator, model, and skill contexts are unchanged. A failing record must
+   * not fail the optimization, so it logs a warning instead.
+   * @param skill - the skill the staged write mutates.
+   * @param stagedId - the staged write identity.
+   * @param winner - the winning variant.
+   * @param slim - projection of a score onto its measured triple.
+   * @param provider - provider half of the route used for evaluation.
+   * @param model - model half of the route used for evaluation.
+   */
+  private async recordLineage(
+    skill: string,
+    stagedId: string,
+    winner: { body: string; operator: string; score: { pass: boolean; tokens: number; wallTimeMs: number } },
+    slim: (score: { pass: boolean; tokens: number; wallTimeMs: number }) => { pass: boolean; tokens: number; wallTimeMs: number },
+    provider: string,
+    model: string,
+  ): Promise<void> {
+    const lineage = this.ctx.get('evolutionLineage')
+    if (lineage === undefined) return
+    try {
+      await lineage.record({
+        experimentId: stagedId,
+        skill,
+        hypothesis: `optimizer patch for '${skill}' by ${winner.operator}`,
+        candidate: digestOf(winner.body),
+        operator: winner.operator,
+        tasks: [],
+        metrics: slim(winner.score),
+        outcome: 'improved',
+        regressions: [],
+        dependencies: {
+          skill: digestOf(winner.body),
+          evaluator: `scorer-v${SCORER_VERSION}`,
+          model: `${provider}/${model}`,
+        },
+        seeds: [],
+      })
+    } catch (error) {
+      this.ctx.logger.warn(`evolution optimizer could not record lineage envelope: ${String(error)}`)
+    }
+  }
+
+  /**
+   * Record the staged write's operator as one accepted mutation outcome when
+   * the operators store is mounted, so per-artifact-class operator learning
+   * sees the pass delta this run produced. A failing record must not fail the
+   * optimization, so it logs a warning instead.
+   * @param skill - the skill the staged write mutates.
+   * @param winner - the winning variant with its operator and pass.
+   * @param baseline - the baseline score the winner beat.
+   */
+  private async recordOperators(
+    skill: string,
+    winner: { operator: string; score: { pass: boolean } },
+    baseline: { score: { pass: boolean } },
+  ): Promise<void> {
+    const operators = this.ctx.get('evolutionOperators')
+    if (operators === undefined) return
+    try {
+      await operators.record({
+        operator: winner.operator,
+        artifactClass: skill,
+        accepted: true,
+        delta: (winner.score.pass ? 1 : 0) - (baseline.score.pass ? 1 : 0),
+      })
+    } catch (error) {
+      this.ctx.logger.warn(`evolution optimizer could not record operator outcome: ${String(error)}`)
+    }
+  }
+
+  /**
+   * Record the staged write's scorer verdict paired with its holdout ground
+   * truth when the evaluator-strategy store is mounted, so per-task-class
+   * evaluator learning sees whether the verdict held on independent
+   * scenarios. A failing record must not fail the optimization, so it logs a
+   * warning instead.
+   * @param skill - the skill the staged write mutates.
+   * @param winner - the winning variant with its pass verdict.
+   * @param checked - the holdout comparison, whose winner pass is the independent ground truth.
+   * @param scorer - the scorer whose version names the evaluator.
+   */
+  private async recordEvaluatorStrategy(
+    skill: string,
+    winner: { score: { pass: boolean } },
+    checked: HoldoutCheck | null,
+    scorer: { version: number },
+  ): Promise<void> {
+    const evaluatorStrategy = this.ctx.get('evolutionEvaluatorStrategy')
+    if (evaluatorStrategy === undefined) return
+    try {
+      await evaluatorStrategy.observe({
+        evaluator: `scorer-v${scorer.version}`,
+        taskClass: skill,
+        verdict: winner.score.pass,
+        groundTruth: checked === null ? winner.score.pass : checked.winner.pass,
+        independent: checked !== null,
+      })
+    } catch (error) {
+      this.ctx.logger.warn(`evolution optimizer could not record evaluator strategy: ${String(error)}`)
+    }
+  }
+
+  /**
+   * Record the staged write's run as one budget allocation and spend when the
+   * budget store is mounted, so the allocation policy sees what the run cost.
+   * A failing record must not fail the optimization, so it logs a warning
+   * instead.
+   * @param skill - the skill the staged write mutates.
+   * @param batchId - the batch identity of the run.
+   * @param winner - the winning variant, whose pass names the candidate class.
+   * @param spent - the run's cumulative token and wall-time spend.
+   * @param rollouts - candidates evaluated by the run.
+   */
+  private async recordBudget(
+    skill: string,
+    batchId: string,
+    winner: { score: { pass: boolean } },
+    spent: { tokens: number; wallTimeMs: number },
+    rollouts: number,
+  ): Promise<void> {
+    const budget = this.ctx.get('evolutionBudget')
+    if (budget === undefined) return
+    try {
+      await budget.allocate({
+        batchId,
+        taskClass: skill,
+        candidateClass: winner.score.pass ? 'high-potential' : 'low-potential',
+      })
+      await budget.spend(batchId, { ...spent, rollouts })
+    } catch (error) {
+      this.ctx.logger.warn(`evolution optimizer could not record budget spend: ${String(error)}`)
+    }
+  }
+
+  /**
+   * Record the staged write's evaluation route and outcome when the router
+   * store is mounted, so per-task-class route learning sees how the route
+   * performed on this skill. A failing record must not fail the optimization,
+   * so it logs a warning instead.
+   * @param skill - the skill the staged write mutates.
+   * @param provider - provider half of the evaluation route.
+   * @param model - model half of the evaluation route.
+   * @param winner - the winning variant with its measured triple.
+   */
+  private async recordRouter(
+    skill: string,
+    provider: string,
+    model: string,
+    winner: { score: { pass: boolean; tokens: number; wallTimeMs: number } },
+  ): Promise<void> {
+    const router = this.ctx.get('evolutionRouter')
+    if (router === undefined) return
+    try {
+      await router.observe({
+        taskClass: skill,
+        role: 'evaluation',
+        provider,
+        model,
+        pass: winner.score.pass,
+        tokens: winner.score.tokens,
+        wallTimeMs: winner.score.wallTimeMs,
+      })
+    } catch (error) {
+      this.ctx.logger.warn(`evolution optimizer could not record route outcome: ${String(error)}`)
+    }
+  }
+
+  /**
+   * Record the staged write's run as one engine run under the configuration
+   * it actually used when the meta store is mounted, so the engine learns
+   * which configuration this task class should run next. A failing record
+   * must not fail the optimization, so it logs a warning instead.
+   * @param skill - the skill the staged write mutates.
+   * @param runId - the run identity of the staged write.
+   * @param portfolio - the mutation portfolio the run drew candidates from.
+   * @param scorer - the scorer whose version names the evaluator choice.
+   * @param provider - provider half of the route used for evaluation.
+   * @param model - model half of the route used for evaluation.
+   * @param winner - the winning variant with its measured triple.
+   */
+  private async recordMeta(
+    skill: string,
+    runId: string,
+    portfolio: readonly { id: string }[],
+    scorer: { version: number },
+    provider: string,
+    model: string,
+    winner: { score: { pass: boolean; tokens: number; wallTimeMs: number } },
+  ): Promise<void> {
+    const meta = this.ctx.get('evolutionMeta')
+    if (meta === undefined) return
+    try {
+      await meta.record({
+        runId,
+        taskClass: skill,
+        config: {
+          operators: [...new Set(portfolio.map(operator => operator.id))].sort().join('+'),
+          evaluator: `scorer-v${scorer.version}`,
+          budget: this.resolved.budgetTokens === 0 && this.resolved.budgetWallTimeMs === 0
+            ? 'unbounded'
+            : `${this.resolved.budgetTokens}t-${this.resolved.budgetWallTimeMs}ms`,
+          routing: `${provider}/${model}`,
+        },
+        pass: winner.score.pass,
+        tokens: winner.score.tokens,
+        wallTimeMs: winner.score.wallTimeMs,
+      })
+    } catch (error) {
+      this.ctx.logger.warn(`evolution optimizer could not record engine run: ${String(error)}`)
     }
   }
 }

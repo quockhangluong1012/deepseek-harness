@@ -23,6 +23,20 @@ export interface SkillTrustFailure {
   at: string
 }
 
+/** One committed body revision in a skill's version registry. */
+export interface SkillVersion {
+  /** Skill name the revision belongs to. */
+  name: string
+  /** Revision number this row records, starting at 1. */
+  revision: number
+  /** sha256-hex of the body this revision committed. */
+  contentSha: string
+  /** Body hash this revision replaced, or null for the first revision. */
+  parentRevisionSha: string | null
+  /** ISO-8601 instant the revision was recorded. */
+  at: string
+}
+
 /** Durable per-skill usage record stored in the `evolution_skill_usage` domain. */
 export interface SkillUsageRecord {
   /** Successful model loads through the skill tool. */

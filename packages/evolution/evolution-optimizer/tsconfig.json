@@ -8,8 +8,13 @@
   "references": [
     { "path": "../../../vendor/cordis" },
     { "path": "../../../vendor/schemastery" },
+    { "path": "../evolution-canary" },
     { "path": "../evolution-memory" },
+    { "path": "../evolution-model-routes" },
+    { "path": "../evolution-population" },
     { "path": "../evolution-scorer" },
+    { "path": "../evolution-lineage" },
+    { "path": "../evolution-self-model" },
     { "path": "../../llm/llm" },
     { "path": "../../skill/evolution-skill-telemetry" },
     { "path": "../../skill/skill" },

@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-21-population-based-evolution.md
+2026-09-21-population-based-evolution.md: 0cb2acbeb37531be3b2179773bf7ac4319ecb863
+2026-09-21-population-based-evolution.zh.md: ecc0c720749fa7fa16a5dec37b0d3c52902f7fef

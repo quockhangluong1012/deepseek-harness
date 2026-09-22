@@ -10,6 +10,7 @@
  * @module @deepseek-ai/dsh-command-evolution
  */
 
+import { randomUUID } from 'node:crypto'
 import { mkdir, realpath, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
@@ -34,13 +35,39 @@ import type { EvolutionOptimizer, ExperimentRecord, OptimizeReport } from '@deep
 import { rankFrontier } from './frontier.ts'
 import type { FrontierInput } from './frontier.ts'
 import type {} from '@deepseek-ai/dsh-evolution-skill-telemetry'
-import type { SkillUsageRecord } from '@deepseek-ai/dsh-evolution-skill-telemetry'
+import type { SkillUsageRecord, SkillVersion } from '@deepseek-ai/dsh-evolution-skill-telemetry'
 import type { SkillBlueprint } from '@deepseek-ai/dsh-skill'
 import { isUsageRange, type UsageRange } from '@deepseek-ai/dsh-usage-ledger'
 import { assertNever, type JsonValue } from '@deepseek-ai/dsh-util-values'
 import z from '@deepseek-ai/schemastery'
 import { strToU8, zipSync } from 'fflate'
 import { renderTimeline, scopeTimeline } from './journey.ts'
+import type { TraceRecord } from '@deepseek-ai/dsh-evolution-trace'
+import type { CurriculumGap, CurriculumProposal } from '@deepseek-ai/dsh-evolution-curriculum'
+import { nextLadder } from '@deepseek-ai/dsh-evolution-benchmark'
+import type { BenchmarkInput, BenchmarkState, BenchmarkTask } from '@deepseek-ai/dsh-evolution-benchmark'
+import type { EvaluatorHealthSummary, EvaluatorRun } from '@deepseek-ai/dsh-evolution-evaluator-health'
+import type { PopulationCandidate, PopulationStatus } from '@deepseek-ai/dsh-evolution-population'
+import type { NoveltyArchiveEntry } from '@deepseek-ai/dsh-evolution-novelty-search'
+import type { StagnationRun, StagnationStatus } from '@deepseek-ai/dsh-evolution-stagnation'
+import { ISLAND_OBJECTIVES } from '@deepseek-ai/dsh-evolution-islands'
+import type {} from '@deepseek-ai/dsh-evolution-self-model'
+import type {} from '@deepseek-ai/dsh-evolution-uncertainty'
+import { ADVERSARIAL_CATEGORIES, GAMING_DEFENSES } from '@deepseek-ai/dsh-evolution-adversary'
+import type {} from '@deepseek-ai/dsh-evolution-lineage'
+import type {
+  Island,
+  IslandInput,
+  IslandObjective,
+  IslandSchedule,
+  Migration,
+  MigrationInput,
+  MigrationReason,
+} from '@deepseek-ai/dsh-evolution-islands'
+import { EVOLUTION_ROLES } from '@deepseek-ai/dsh-evolution-model-routes'
+import type { EvolutionRole, ModelRoute, RouteEvidence, RouteRow, RouteSummary } from '@deepseek-ai/dsh-evolution-model-routes'
+import { nextStage } from '@deepseek-ai/dsh-evolution-canary'
+import type { DeploymentRecord, DeploymentState } from '@deepseek-ai/dsh-evolution-canary'
 
 export * from './journey.ts'
 
@@ -108,10 +135,55 @@ function graphArgs(raw: string): string[] {
 }
 
 /** Argument grammar for `/curator`; anything else reports usage. */
-const CURATOR_USAGE = 'Usage: /curator status | run [--dry-run] | staged | adopt <name> | purge [--dry-run] | rollback --id <id> | ledger | pin <name> | unpin <name> | optimize <skill> <scenario...> | experiments [skill]'
+const CURATOR_USAGE = 'Usage: /curator status | run [--dry-run] | staged | adopt <name> | purge [--dry-run] | rollback --id <id> | ledger | pin <name> | unpin <name> | history <name> | optimize <skill> <scenario...> | experiments [skill]'
 
 /** Argument grammar for `/trajectory`; anything else reports usage. */
 const TRAJECTORY_USAGE = 'Usage: /trajectory [--out <path>] [--all]'
+
+/** Argument grammar for `/trace`; anything else reports usage. */
+const TRACE_USAGE = 'Usage: /trace <sessionId>'
+
+/** Argument grammar for `/curriculum`; anything else reports usage. */
+const CURRICULUM_USAGE = 'Usage: /curriculum [retire <id>]'
+
+/** Argument grammar for `/benchmark`; anything else reports usage. */
+const BENCHMARK_USAGE = 'Usage: /benchmark [admit | promote <id> [state] | retire <id>]'
+
+/** Argument grammar for `/evaluators`; anything else reports usage. */
+const EVALUATORS_USAGE = 'Usage: /evaluators [runs [<skill>]]'
+
+/** Argument grammar for `/population`; anything else reports usage. */
+const POPULATION_USAGE = 'Usage: /population <skill> [lineage <id> | approve <id> | reject <id>]'
+
+/** Argument grammar for `/routes`; anything else reports usage. */
+const ROUTES_USAGE = 'Usage: /routes [pin <role> <provider> <model> | evidence [<role>]]'
+
+/** Argument grammar for `/canary`; anything else reports usage. */
+const CANARY_USAGE = 'Usage: /canary [status [<skill>] | rollout <id> | promote <id> | reject <id> | rollback <id>]'
+
+/** Argument grammar for `/novelty`; anything else reports usage. */
+const NOVELTY_USAGE = 'Usage: /novelty [<skill>]'
+
+/** Argument grammar for `/stagnation`; anything else reports usage. */
+const STAGNATION_USAGE = 'Usage: /stagnation [status <skill> | runs [<skill>] | reset <skill>]'
+
+/** Argument grammar for `/islands`; anything else reports usage. */
+const ISLANDS_USAGE = 'Usage: /islands [list [<skill>] | register <island> <name> <objective> <skill> | migrate <from> <to> <candidate> [<reason>] | migrations [<skill>]]'
+
+/** Argument grammar for `/selfmodel`; anything else reports usage. */
+const SELF_MODEL_USAGE = 'Usage: /selfmodel [<skill>]'
+
+/** Argument grammar for `/uncertainty`; anything else reports usage. */
+const UNCERTAINTY_USAGE = 'Usage: /uncertainty [<skill>]'
+
+/** Argument grammar for `/adversary`; anything else reports usage. */
+const ADVERSARY_USAGE = 'Usage: /adversary [list [<skill>] | probe <skill> <category> <probe> | repair <probeId> | challenge <skill> | defenses | defense <name> <satisfied>]'
+
+/** Argument grammar for `/lineage`; anything else reports usage. */
+const LINEAGE_USAGE = 'Usage: /lineage [list [<skill>] | compare <idA> <idB> | replay <id>]'
+
+/** Argument grammar for `/sleeptime`; anything else reports usage. */
+const SLEEPTIME_USAGE = 'Usage: /sleeptime [tasks [<domain>] | artifacts [<taskId>] | plan]'
 
 /** Argument grammar for `/learn`; a bare call reports usage. */
 const LEARN_USAGE = 'Usage: /learn <anything>'
@@ -125,6 +197,107 @@ const FRONTIER_USAGE = 'Usage: /frontier (no arguments)'
 /** The feedback surface `/frontier` reads, resolved dynamically at call time. */
 interface FrontierFeedback {
   signals(sessionIds: readonly string[], limit: number): readonly { message: string }[]
+}
+
+/** Self-model assessment shape `/selfmodel` reads when the store is mounted. */
+interface SelfModelAssessment {
+  strengths: readonly string[]
+  weaknesses: readonly string[]
+  uncertainAreas: readonly string[]
+  failureModes: readonly string[]
+  preferredTools: readonly string[]
+  evaluatorBlindspots: readonly string[]
+  confidence: number
+  revision: number
+  at: string
+}
+
+/** Capability frontier row `/selfmodel` renders. */
+interface SelfModelGap {
+  capability: string
+  score: number
+  confidence: number
+  coveringSkills: readonly string[]
+  observations: number
+}
+
+/** Prioritized evaluation task `/uncertainty` renders. */
+interface UncertaintyQueueRow {
+  skill: string
+  taskId: string | null
+  kinds: readonly string[]
+  priority: number
+  signals: number
+}
+
+/** Adversarial probe row `/adversary` renders. */
+interface AdversaryProbeRow {
+  probeId: string
+  skill: string
+  category: string
+  probe: string
+  foundWeakness: boolean
+  repaired: boolean
+}
+
+/** Adversary challenge `/adversary` renders. */
+interface AdversaryChallengeRow {
+  category: string
+  probed: number
+  reason: string
+}
+
+/** Defense checklist row `/adversary` renders. */
+interface AdversaryDefenseRow {
+  defense: string
+  satisfied: boolean
+}
+
+/** Measured triple one lineage envelope reports. */
+interface LineageMetrics {
+  pass: boolean
+  tokens: number
+  wallTimeMs: number
+}
+
+/** Lineage envelope rows `/lineage` reads and renders. */
+interface LineageEnvelopeRow {
+  experimentId: string
+  skill: string
+  operator?: string
+  outcome: string
+  metrics: LineageMetrics
+  dependencies: Record<string, string>
+  seeds: readonly number[]
+}
+
+/** Anticipated sleep-time task `/sleeptime` renders. */
+interface SleeptimeTaskRow {
+  taskId: string
+  domain: string
+  likelihood: number
+  expectedQueries: number
+  expectedSavingTokens: number
+}
+
+/** Precomputed sleep-time artifact `/sleeptime` renders. */
+interface SleeptimeArtifactRow {
+  artifactId: string
+  taskId: string
+  kind: string
+  summary: string
+  offlineCostTokens: number
+  hits: number
+  savedTokens: number
+}
+
+/** Sleep-time plan row `/sleeptime` renders. */
+interface SleeptimePlanRow {
+  taskId: string
+  domain: string
+  worthIt: boolean
+  expectedNet: number
+  reason: string
 }
 
 /** The honest empty state while background review cannot propose skills yet. */
@@ -663,6 +836,868 @@ async function executeTrajectory(
 }
 
 /**
+ * Execute `/evaluators [runs [<skill>]]`: summarize evaluator ensemble health
+ * — approval rates with drift, unanimity, false positives, per-channel rows —
+ * or list the recorded verdicts, optionally for one skill.
+ * @param ctx - plugin context carrying the optional evaluator-health store.
+ * @param invocation - raw command input plus the invoking agent.
+ * @returns the command result.
+ */
+function executeEvaluators(ctx: Context, invocation: CommandInvocation): CommandResult {
+  const store = ctx.get('evolutionEvaluatorHealth') as {
+    summary(): EvaluatorHealthSummary
+    runs(skill?: string): readonly EvaluatorRun[]
+  } | undefined
+  if (store === undefined) return { kind: 'error', text: 'The evaluator-health store is not mounted.' }
+  const args = splitArgs(invocation.rawInput)
+  const verb = args[0]
+  if (verb === 'runs') {
+    if (args.length > 2) return { kind: 'error', text: EVALUATORS_USAGE }
+    const rows = store.runs(args[1]).slice(0, 10)
+    if (rows.length === 0) return { kind: 'success', text: 'No recorded evaluator verdicts.' }
+    const lines = rows.map(run =>
+      `- ${run.id.slice(0, 8)} ${run.skill}: ${run.status}${run.approved ? ' approved' : ''}`
+      + `${run.unanimous ? ' unanimous' : ` (split: ${run.dissenting.join(', ')})`} at ${run.at}`)
+    return { kind: 'success', text: [`${rows.length} verdict${rows.length === 1 ? '' : 's'}:`, ...lines].join('\n') }
+  }
+  if (verb !== undefined) return { kind: 'error', text: EVALUATORS_USAGE }
+  const summary = store.summary()
+  const channel = summary.channels.map(row => `${row.channel} ${Math.round(row.approvalRate * 100)}%`).join(', ')
+  return {
+    kind: 'success',
+    text: [
+      `Evaluator health: ${summary.runs} verdict${summary.runs === 1 ? '' : 's'},`
+      + ` approved ${Math.round(summary.approvalRate * 100)}%`
+      + ` (recent ${Math.round(summary.recentApprovalRate * 100)}%, drift ${summary.drift >= 0 ? '+' : ''}${Math.round(summary.drift * 100)} points),`
+      + ` unanimous ${Math.round(summary.unanimousRate * 100)}%,`
+      + ` false positives ${Math.round(summary.falsePositiveRate * 100)}% of approvals.`,
+      `Channels: ${channel}.`,
+    ].join('\n'),
+  }
+}
+
+/**
+ * Execute `/population <skill> [lineage <id> | approve <id> | reject <id>]`:
+ * list one skill's candidate population with generations and standings, walk
+ * one candidate's lineage oldest first, or move a staged candidate to
+ * approved or rejected. Candidate ids are the optimizer's staged write ids.
+ * @param ctx - plugin context carrying the optional population store.
+ * @param invocation - raw command input plus the invoking agent.
+ * @returns the command result.
+ */
+async function executePopulation(ctx: Context, invocation: CommandInvocation): Promise<CommandResult> {
+  const store = ctx.get('evolutionPopulation') as {
+    candidates(skill?: string): readonly PopulationCandidate[]
+    lineage(skill: string, candidateId: string): readonly PopulationCandidate[]
+    elite(skill: string): readonly PopulationCandidate[]
+    updateStatus(candidateId: string, status: PopulationStatus): Promise<PopulationCandidate>
+  } | undefined
+  if (store === undefined) return { kind: 'error', text: 'The evolution population store is not mounted.' }
+  const [skill, verb, id, ...rest] = splitArgs(invocation.rawInput)
+  if (skill === undefined || rest.length > 0) return { kind: 'error', text: POPULATION_USAGE }
+  if (verb !== undefined && (id === undefined || (verb !== 'lineage' && verb !== 'approve' && verb !== 'reject'))) {
+    return { kind: 'error', text: POPULATION_USAGE }
+  }
+  try {
+    if (verb === 'lineage') {
+      const chain = store.lineage(skill, id as string)
+      if (chain.length === 0) return { kind: 'error', text: `No candidate '${id}' for skill '${skill}'.` }
+      const lines = chain.map((candidate, index) =>
+        `- g${candidate.generation} ${candidate.candidateId.slice(0, 8)} [${candidate.status}] ${candidate.operator}`
+        + (index === chain.length - 1 ? ' ← newest' : ''))
+      return { kind: 'success', text: [`Lineage of '${id}' in '${skill}':`, ...lines].join('\n') }
+    }
+    if (verb === 'approve' || verb === 'reject') {
+      const status: PopulationStatus = verb === 'approve' ? 'approved' : 'rejected'
+      const moved = await store.updateStatus(id as string, status)
+      return { kind: 'success', text: `Marked candidate '${moved.candidateId.slice(0, 8)}' (g${moved.generation} ${moved.skill}) as '${moved.status}'.` }
+    }
+    const rows = store.candidates(skill)
+    if (rows.length === 0) return { kind: 'success', text: `No candidates recorded for '${skill}'.` }
+    const generation = rows.reduce((max, candidate) => Math.max(max, candidate.generation), 0)
+    const lines = rows.map((candidate) => {
+      const measure = candidate.triple === null
+        ? 'unmeasured'
+        : `${String(candidate.triple.pass)} pass, ${candidate.triple.tokens} tokens, ${candidate.triple.wallTimeMs}ms`
+      const parent = candidate.parentCandidateId === null ? ' · root' : ` ← ${candidate.parentCandidateId.slice(0, 8)}`
+      return `- g${candidate.generation} ${candidate.candidateId.slice(0, 8)} [${candidate.status}] ${candidate.operator}: ${measure}${parent}`
+    })
+    const elite = store.elite(skill).slice(0, 3)
+      .map(candidate => `${candidate.candidateId.slice(0, 8)} (g${candidate.generation})`).join(', ')
+    return {
+      kind: 'success',
+      text: [
+        `Population '${skill}': generation ${generation}, ${rows.length} candidate${rows.length === 1 ? '' : 's'}.`,
+        ...lines,
+        elite.length === 0 ? 'Elite: none approved yet.' : `Elite: ${elite}.`,
+      ].join('\n'),
+    }
+  } catch (error) {
+    return { kind: 'error', text: error instanceof Error ? error.message : String(error) }
+  }
+}
+
+/**
+ * Execute `/routes [pin <role> <provider> <model> | evidence [<role>]]`: list
+ * the per-role route assignments with their measured evidence and the role's
+ * recommended route, pin one route for a role, or list the newest evidence.
+ * @param ctx - plugin context carrying the optional model-routes store.
+ * @param invocation - raw command input plus the invoking agent.
+ * @returns the command result.
+ */
+async function executeRoutes(ctx: Context, invocation: CommandInvocation): Promise<CommandResult> {
+  const store = ctx.get('evolutionModelRoutes') as {
+    routes(role?: EvolutionRole): readonly RouteSummary[]
+    evidence(role?: EvolutionRole, route?: ModelRoute): readonly RouteEvidence[]
+    pin(role: EvolutionRole, provider: string, model: string): Promise<RouteRow>
+    recommend(role: EvolutionRole): ModelRoute | undefined
+  } | undefined
+  if (store === undefined) return { kind: 'error', text: 'The evolution model-routes store is not mounted.' }
+  const [verb, ...rest] = splitArgs(invocation.rawInput)
+  const isRole = (candidate: string | undefined): candidate is EvolutionRole =>
+    candidate !== undefined && (EVOLUTION_ROLES as readonly string[]).includes(candidate)
+  try {
+    if (verb === 'pin') {
+      if (rest.length !== 3 || !isRole(rest[0]) || (rest[1] as string).length === 0 || (rest[2] as string).length === 0) {
+        return { kind: 'error', text: ROUTES_USAGE }
+      }
+      const pinned = await store.pin(rest[0], rest[1] as string, rest[2] as string)
+      return { kind: 'success', text: `Pinned '${pinned.role}' to ${pinned.provider}/${pinned.model}.` }
+    }
+    if (verb === 'evidence') {
+      if (rest.length > 1 || (rest.length === 1 && !isRole(rest[0]))) return { kind: 'error', text: ROUTES_USAGE }
+      const rows = store.evidence(rest[0]).slice(0, 10)
+      if (rows.length === 0) return { kind: 'success', text: 'No recorded route evidence.' }
+      const lines = rows.map(row =>
+        `- ${row.id.slice(0, 8)} ${row.role}: ${row.provider}/${row.model}`
+        + ` ${String(row.pass)} pass, ${row.tokens} tokens at ${row.at}`)
+      return { kind: 'success', text: [`${rows.length} evidence row${rows.length === 1 ? '' : 's'}:`, ...lines].join('\n') }
+    }
+    if (verb !== undefined) return { kind: 'error', text: ROUTES_USAGE }
+    const summaries = store.routes()
+    if (summaries.length === 0) {
+      return { kind: 'success', text: 'No route assignments yet. The optimizer records candidate-generation routes; pin the rest.' }
+    }
+    const lines: string[] = []
+    for (const role of EVOLUTION_ROLES) {
+      const mine = summaries.filter(summary => summary.role === role)
+      if (mine.length === 0) continue
+      const recommended = store.recommend(role)
+      const recommendedText = recommended === undefined
+        ? ''
+        : ` → recommended ${recommended.provider}/${recommended.model}`
+      const per = mine.map(summary =>
+        `${summary.provider}/${summary.model}${summary.origin === 'pinned' ? ' (pinned)' : ''}`
+        + `: ${summary.runs} run${summary.runs === 1 ? '' : 's'},`
+        + ` ${Math.round(summary.passRate * 100)}% pass,`
+        + ` ${Math.round(summary.meanTokens)} tokens avg`).join(' · ')
+      lines.push(`${role}: ${per}${recommendedText}`)
+    }
+    return { kind: 'success', text: ['Routes:', ...lines].join('\n') }
+  } catch (error) {
+    return { kind: 'error', text: error instanceof Error ? error.message : String(error) }
+  }
+}
+
+/**
+ * Execute `/canary [status [<skill>] | rollout <id> | promote <id> | reject
+ * <id> | rollback <id>]`: list deployment states (optionally per skill), move
+ * a shadow deployment to canary, promote a canary to promoted, or exit a
+ * staged rollout to rejected or rolled-back. Deployment entry itself is
+ * automatic: the optimizer records every staged write as shadow.
+ * @param ctx - plugin context carrying the optional canary store.
+ * @param invocation - raw command input plus the invoking agent.
+ * @returns the command result.
+ */
+async function executeCanary(ctx: Context, invocation: CommandInvocation): Promise<CommandResult> {
+  const store = ctx.get('evolutionCanary') as {
+    deployments(state?: DeploymentState, skill?: string): readonly DeploymentRecord[]
+    advance(id: string, to: DeploymentState): Promise<DeploymentRecord>
+  } | undefined
+  if (store === undefined) return { kind: 'error', text: 'The evolution canary store is not mounted.' }
+  const [verb, ...rest] = splitArgs(invocation.rawInput)
+  try {
+    if (verb === 'rollout' || verb === 'promote' || verb === 'reject' || verb === 'rollback') {
+      if (rest.length !== 1) return { kind: 'error', text: CANARY_USAGE }
+      const id = rest[0] as string
+      const to: DeploymentState = verb === 'rollout'
+        ? 'canary'
+        : verb === 'promote'
+          ? 'promoted'
+          : verb === 'reject'
+            ? 'rejected'
+            : 'rolled-back'
+      const moved = await store.advance(id, to)
+      return { kind: 'success', text: `Deployment '${moved.id.slice(0, 8)}' (${moved.skill}) moved to '${moved.state}'.` }
+    }
+    if (verb !== undefined && verb !== 'status') return { kind: 'error', text: CANARY_USAGE }
+    if (verb === 'status' && rest.length > 1) return { kind: 'error', text: CANARY_USAGE }
+    const skill = rest[0]
+    const rows = store.deployments(undefined, skill)
+    if (rows.length === 0) {
+      const text = skill === undefined
+        ? 'No deployments yet. The optimizer records staged writes as shadow.'
+        : `No deployments for '${skill}'.`
+      return { kind: 'success', text }
+    }
+    const summarize = (state: DeploymentState): number => rows.filter(row => row.state === state).length
+    const lines = rows.slice(0, 10).map((row) => {
+      const stage = nextStage(row.state)
+      const next = stage === null ? '' : ` → next ${stage}`
+      const measure = row.triple === null ? '' : ` (${String(row.triple.pass)} pass, ${row.triple.tokens} tokens)`
+      return `- ${row.id.slice(0, 8)} ${row.skill}: ${row.state}${next}${measure}`
+    })
+    return {
+      kind: 'success',
+      text: [
+        `Canary: ${summarize('shadow')} shadow, ${summarize('canary')} canary,`
+        + ` ${summarize('promoted')} promoted, ${summarize('rolled-back')} rolled-back, ${summarize('rejected')} rejected.`,
+        ...lines,
+      ].join('\n'),
+    }
+  } catch (error) {
+    return { kind: 'error', text: error instanceof Error ? error.message : String(error) }
+  }
+}
+
+/**
+ * Execute `/novelty [<skill>]`: summarize the novelty archive (optionally per
+ * skill), or list one skill's recorded behavior descriptors with their
+ * measured archive novelty. Entries arrive automatically from the optimizer's
+ * staged writes.
+ * @param ctx - plugin context carrying the optional novelty-search store.
+ * @param invocation - raw command input plus the invoking agent.
+ * @returns the command result.
+ */
+function executeNovelty(ctx: Context, invocation: CommandInvocation): CommandResult {
+  const store = ctx.get('evolutionNovelty') as {
+    entries(skill?: string): readonly NoveltyArchiveEntry[]
+    mean(skill: string): number
+  } | undefined
+  if (store === undefined) return { kind: 'error', text: 'The evolution novelty-search store is not mounted.' }
+  const [skill, ...rest] = splitArgs(invocation.rawInput)
+  if (skill === undefined) {
+    if (rest.length > 0) return { kind: 'error', text: NOVELTY_USAGE }
+    const entries = store.entries()
+    if (entries.length === 0) {
+      return { kind: 'success', text: 'No recorded novelty archive entries. The optimizer records staged writes as descriptors.' }
+    }
+    const skills = [...new Set(entries.map(entry => entry.skill))].sort()
+    const lines = skills.map((name) => {
+      const mine = entries.filter(entry => entry.skill === name)
+      return `- ${name}: ${mine.length} entr${mine.length === 1 ? 'y' : 'ies'}, mean novelty ${store.mean(name).toFixed(2)}`
+    })
+    return {
+      kind: 'success',
+      text: [
+        `Novelty archive: ${entries.length} entr${entries.length === 1 ? 'y' : 'ies'} across ${skills.length} skill${skills.length === 1 ? '' : 's'}.`,
+        ...lines,
+      ].join('\n'),
+    }
+  }
+  if (rest.length > 0) return { kind: 'error', text: NOVELTY_USAGE }
+  const rows = store.entries(skill)
+  if (rows.length === 0) return { kind: 'success', text: `No recorded novelty archive entries for '${skill}'.` }
+  const lines = rows.slice(0, 10).map(entry =>
+    `- ${entry.candidateId.slice(0, 8)}: ${entry.features.length} features, novelty ${entry.novelty.toFixed(2)} at ${entry.at}`)
+  return {
+    kind: 'success',
+    text: [
+      `Novelty archive '${skill}': ${rows.length} entr${rows.length === 1 ? 'y' : 'ies'}, mean ${store.mean(skill).toFixed(2)}.`,
+      ...lines,
+    ].join('\n'),
+  }
+}
+
+/**
+ * Execute `/stagnation [status <skill> | runs [<skill>] | reset <skill>]`:
+ * summarize every skill's stagnation standing, render one skill's status with
+ * the recommended strategy, list evaluation runs, or drop one skill's history
+ * when its task regime changed. Runs arrive automatically from the optimizer's
+ * staged writes.
+ * @param ctx - plugin context carrying the optional stagnation store.
+ * @param invocation - raw command input plus the invoking agent.
+ * @returns the command result.
+ */
+async function executeStagnation(ctx: Context, invocation: CommandInvocation): Promise<CommandResult> {
+  const store = ctx.get('evolutionStagnation') as {
+    runs(skill?: string): readonly StagnationRun[]
+    status(skill: string): StagnationStatus
+    reset(skill: string): Promise<number>
+  } | undefined
+  if (store === undefined) return { kind: 'error', text: 'The evolution stagnation store is not mounted.' }
+  const [verb, ...rest] = splitArgs(invocation.rawInput)
+  try {
+    if (verb === 'status') {
+      if (rest.length !== 1) return { kind: 'error', text: STAGNATION_USAGE }
+      const status = store.status(rest[0] as string)
+      const measure = status.bestScore === null
+        ? 'no best yet'
+        : `${String(status.bestScore.pass)} pass, ${status.bestScore.tokens} tokens, ${status.bestScore.wallTimeMs}ms`
+      return {
+        kind: 'success',
+        text: [
+          `Stagnation '${status.skill}': ${status.runs} run${status.runs === 1 ? '' : 's'}, best ${measure}.`,
+          `${status.generationsSinceImprovement} generation${status.generationsSinceImprovement === 1 ? '' : 's'} since improvement, threshold ${status.threshold}.`,
+          status.stagnant ? `STAGNANT → strategy: ${status.strategy}` : `Not stagnant — continue ${status.strategy}.`,
+        ].join('\n'),
+      }
+    }
+    if (verb === 'runs') {
+      if (rest.length > 1) return { kind: 'error', text: STAGNATION_USAGE }
+      const rows = store.runs(rest[0]).slice(0, 10)
+      if (rows.length === 0) return { kind: 'success', text: 'No recorded stagnation runs.' }
+      const lines = rows.map(run =>
+        `- g${run.generation} ${run.runId.slice(0, 8)} ${run.skill}: ${String(run.score.pass)} pass, ${run.score.tokens} tokens,`
+        + ` ${run.score.wallTimeMs}ms${run.improved ? ' improved' : ''} at ${run.at}`)
+      return { kind: 'success', text: [`${rows.length} run${rows.length === 1 ? '' : 's'}:`, ...lines].join('\n') }
+    }
+    if (verb === 'reset') {
+      if (rest.length !== 1) return { kind: 'error', text: STAGNATION_USAGE }
+      const skill = rest[0] as string
+      const removed = await store.reset(skill)
+      return { kind: 'success', text: `Reset stagnation history of '${skill}': dropped ${removed} run${removed === 1 ? '' : 's'}.` }
+    }
+    if (verb !== undefined) return { kind: 'error', text: STAGNATION_USAGE }
+    const rows = store.runs()
+    const skills = [...new Set(rows.map(run => run.skill))].sort()
+    if (skills.length === 0) {
+      return { kind: 'success', text: 'No recorded stagnation runs. The optimizer records staged writes as runs.' }
+    }
+    const lines = skills.map((skill) => {
+      const status = store.status(skill)
+      return `- ${skill}: ${status.generationsSinceImprovement}/${status.threshold} generations since improvement`
+        + (status.stagnant ? ` — STAGNANT → ${status.strategy}` : ' — ok')
+    })
+    return { kind: 'success', text: ['Stagnation:', ...lines].join('\n') }
+  } catch (error) {
+    return { kind: 'error', text: error instanceof Error ? error.message : String(error) }
+  }
+}
+
+/**
+ * Execute `/islands [list [<skill>] | register <island> <name> <objective>
+ * <skill> | migrate <from> <to> <candidate> [<reason>] | migrations [<skill>]]`:
+ * list islands with their migration schedule, register a lane of a skill's
+ * evolution job, record a candidate migration between two islands, or list
+ * the migration log. Generation ticks arrive automatically from the
+ * optimizer's staged writes.
+ * @param ctx - plugin context carrying the optional islands store.
+ * @param invocation - raw command input plus the invoking agent.
+ * @returns the command result.
+ */
+async function executeIslands(ctx: Context, invocation: CommandInvocation): Promise<CommandResult> {
+  const store = ctx.get('evolutionIslands') as {
+    register(input: IslandInput): Promise<Island>
+    migrate(input: MigrationInput): Promise<Migration>
+    migrations(skill?: string): readonly Migration[]
+    schedule(skill?: string): readonly IslandSchedule[]
+  } | undefined
+  if (store === undefined) return { kind: 'error', text: 'The evolution islands store is not mounted.' }
+  const [verb, ...rest] = splitArgs(invocation.rawInput)
+  try {
+    if (verb === 'register') {
+      if (rest.length !== 4) return { kind: 'error', text: ISLANDS_USAGE }
+      const [islandId, name, objective, skill] = rest as [string, string, string, string]
+      if (!(ISLAND_OBJECTIVES as readonly string[]).includes(objective)) return { kind: 'error', text: ISLANDS_USAGE }
+      const stored = await store.register({ islandId, name, objective: objective as IslandObjective, skill })
+      return {
+        kind: 'success',
+        text: `Registered island '${stored.islandId}' '${stored.name}' [${stored.objective}] for '${stored.skill}'.`,
+      }
+    }
+    if (verb === 'migrate') {
+      if (rest.length < 3 || rest.length > 4) return { kind: 'error', text: ISLANDS_USAGE }
+      const [fromIslandId, toIslandId, candidateId, reasonArg] = rest as [string, string, string, string | undefined]
+      if (reasonArg !== undefined && reasonArg !== 'schedule' && reasonArg !== 'elite' && reasonArg !== 'diversity') {
+        return { kind: 'error', text: ISLANDS_USAGE }
+      }
+      const reason: MigrationReason = reasonArg ?? 'schedule'
+      const migrated = await store.migrate({ fromIslandId, toIslandId, candidateId, reason })
+      return {
+        kind: 'success',
+        text: `Migrated candidate '${migrated.candidateId.slice(0, 8)}' ${migrated.fromIslandId} → ${migrated.toIslandId} (${migrated.reason}).`,
+      }
+    }
+    if (verb === 'migrations') {
+      if (rest.length > 1) return { kind: 'error', text: ISLANDS_USAGE }
+      const rows = store.migrations(rest[0]).slice(0, 10)
+      if (rows.length === 0) return { kind: 'success', text: 'No recorded island migrations.' }
+      const lines = rows.map(migration =>
+        `- ${migration.migrationId.slice(0, 8)} ${migration.candidateId.slice(0, 8)} ${migration.fromIslandId} → ${migration.toIslandId}`
+        + ` (${migration.reason}) at ${migration.at}`)
+      return { kind: 'success', text: [`${rows.length} migration${rows.length === 1 ? '' : 's'}:`, ...lines].join('\n') }
+    }
+    if (verb !== undefined && verb !== 'list') return { kind: 'error', text: ISLANDS_USAGE }
+    if (verb === 'list' && rest.length > 1) return { kind: 'error', text: ISLANDS_USAGE }
+    const schedule = store.schedule(rest[0])
+    if (schedule.length === 0) {
+      return { kind: 'success', text: 'No islands registered. Define a skill\'s lanes with `/islands register <island> <name> <objective> <skill>`.' }
+    }
+    const lines = schedule.map(row =>
+      `- ${row.island.islandId} '${row.island.name}' [${row.island.objective}] ${row.island.skill} g${row.island.generation}`
+      + (row.due ? ' · migration due' : ''))
+    return { kind: 'success', text: [`Islands${rest[0] === undefined ? '' : ` '${rest[0]}'`}:`, ...lines].join('\n') }
+  } catch (error) {
+    return { kind: 'error', text: error instanceof Error ? error.message : String(error) }
+  }
+}
+
+/**
+ * Execute `/selfmodel [<skill>]`: render one skill's self-assessment or the
+ * whole weakest-first capability frontier with the capability to learn next.
+ * @param ctx - plugin context carrying the optional self-model store.
+ * @param invocation - raw command input plus the invoking agent.
+ * @returns the command result.
+ */
+function executeSelfModel(ctx: Context, invocation: CommandInvocation): CommandResult {
+  const store = ctx.get('evolutionSelfModel') as {
+    assessment(skill: string): SelfModelAssessment | undefined
+    gaps(): readonly SelfModelGap[]
+    nextToLearn(): { capability: string } | null
+  } | undefined
+  if (store === undefined) return { kind: 'error', text: 'The evolution self-model store is not mounted.' }
+  const args = splitArgs(invocation.rawInput)
+  try {
+    if (args.length > 1) return { kind: 'error', text: SELF_MODEL_USAGE }
+    if (args.length === 1) {
+      const model = store.assessment(args[0] as string)
+      if (model === undefined) return { kind: 'success', text: `No self-assessment recorded for '${args[0]}'.` }
+      return { kind: 'success', text: renderSelfModel(args[0] as string, model) }
+    }
+    const gaps = store.gaps()
+    if (gaps.length === 0) return { kind: 'success', text: 'No measured capabilities yet. The optimizer records capability observations as it stages writes.' }
+    const next = store.nextToLearn()
+    return {
+      kind: 'success',
+      text: [
+        `Capability frontier (weakest first): ${gaps.length}`,
+        ...gaps.map(gap => `- ${gap.capability}: score ${gap.score.toFixed(2)}, confidence ${gap.confidence.toFixed(2)}, ${gap.coveringSkills.length} skill${gap.coveringSkills.length === 1 ? '' : 's'}, ${gap.observations} observations`),
+        next === null ? '' : `Next to learn: ${next.capability}`,
+      ].filter(line => line.length > 0).join('\n'),
+    }
+  } catch (error) {
+    return { kind: 'error', text: error instanceof Error ? error.message : String(error) }
+  }
+}
+
+/**
+ * Execute `/uncertainty [<skill>]`: render the prioritized queue of high-value
+ * evaluation tasks, optionally for one skill.
+ * @param ctx - plugin context carrying the optional uncertainty store.
+ * @param invocation - raw command input plus the invoking agent.
+ * @returns the command result.
+ */
+function executeUncertainty(ctx: Context, invocation: CommandInvocation): CommandResult {
+  const store = ctx.get('evolutionUncertainty') as {
+    queue(skill?: string): readonly UncertaintyQueueRow[]
+  } | undefined
+  if (store === undefined) return { kind: 'error', text: 'The evolution uncertainty store is not mounted.' }
+  const args = splitArgs(invocation.rawInput)
+  try {
+    if (args.length > 1) return { kind: 'error', text: UNCERTAINTY_USAGE }
+    const queue = store.queue(args[0])
+    if (queue.length === 0) return { kind: 'success', text: 'No uncertainty signals. The scorer records evaluator disagreement as signals.' }
+    return {
+      kind: 'success',
+      text: [
+        `Evaluation queue${args[0] === undefined ? '' : ` '${args[0]}'`}: ${queue.length}`,
+        ...queue.map(row => `- ${row.skill}${row.taskId === null ? ' (skill-wide)' : ` task ${row.taskId}`}: priority ${row.priority.toFixed(2)}, [${row.kinds.join(', ')}], ${row.signals} signals`),
+      ].join('\n'),
+    }
+  } catch (error) {
+    return { kind: 'error', text: error instanceof Error ? error.message : String(error) }
+  }
+}
+
+/**
+ * Execute `/adversary [...]`: list probes, record one, mark it repaired, read
+ * the next probing challenge, or track the evaluator-gaming defense checklist.
+ * @param ctx - plugin context carrying the optional adversary store.
+ * @param invocation - raw command input plus the invoking agent.
+ * @returns the command result.
+ */
+async function executeAdversary(ctx: Context, invocation: CommandInvocation): Promise<CommandResult> {
+  const store = ctx.get('evolutionAdversary') as {
+    probes(skill?: string): readonly AdversaryProbeRow[]
+    probe(input: { probeId: string; skill: string; category: string; probe: string; foundWeakness: boolean }): Promise<unknown>
+    setRepaired(probeId: string): Promise<unknown>
+    challenge(skill: string): AdversaryChallengeRow
+    defenses(): readonly AdversaryDefenseRow[]
+    setDefense(defense: string, satisfied: boolean): Promise<unknown>
+  } | undefined
+  if (store === undefined) return { kind: 'error', text: 'The evolution adversary store is not mounted.' }
+  const args = splitArgs(invocation.rawInput)
+  const verb = args[0]
+  try {
+    if (verb === 'probe') {
+      if (args.length < 4) return { kind: 'error', text: ADVERSARY_USAGE }
+      const category = args[2] as string
+      if (!(ADVERSARIAL_CATEGORIES as readonly string[]).includes(category)) return { kind: 'error', text: ADVERSARY_USAGE }
+      // The probe phrase may contain spaces; everything after the category is the probe text.
+      const probeText = args.slice(3).join(' ')
+      if (probeText.length === 0) return { kind: 'error', text: ADVERSARY_USAGE }
+      const recorded = await store.probe({
+        probeId: randomUUID(),
+        skill: args[1] as string,
+        category,
+        probe: probeText,
+        foundWeakness: false,
+      })
+      void recorded
+      return { kind: 'success', text: `Recorded a '${category}' probe for '${args[1]}'. Mark it repaired with /adversary repair <id> once the weakness is fixed.` }
+    }
+    if (verb === 'repair') {
+      if (args.length !== 2) return { kind: 'error', text: ADVERSARY_USAGE }
+      await store.setRepaired(args[1] as string)
+      return { kind: 'success', text: `Marked probe '${(args[1] as string).slice(0, 8)}' repaired.` }
+    }
+    if (verb === 'challenge') {
+      if (args.length !== 2) return { kind: 'error', text: ADVERSARY_USAGE }
+      const challenge = store.challenge(args[1] as string)
+      return { kind: 'success', text: `Next adversarial probe for '${challenge.category}' (${challenge.probed} recorded): ${challenge.reason}` }
+    }
+    if (verb === 'defenses') {
+      if (args.length !== 1) return { kind: 'error', text: ADVERSARY_USAGE }
+      const rows = store.defenses()
+      if (rows.length === 0) return { kind: 'success', text: 'No evaluator-gaming defenses recorded.' }
+      return {
+        kind: 'success',
+        text: ['Evaluator-gaming defenses:', ...rows.map(row => `- ${row.defense}: ${row.satisfied ? 'satisfied' : 'open'}`)].join('\n'),
+      }
+    }
+    if (verb === 'defense') {
+      if (args.length !== 3 || !(GAMING_DEFENSES as readonly string[]).includes(args[1] as string)) return { kind: 'error', text: ADVERSARY_USAGE }
+      if (args[2] !== 'true' && args[2] !== 'false') return { kind: 'error', text: ADVERSARY_USAGE }
+      await store.setDefense(args[1] as string, args[2] === 'true')
+      return { kind: 'success', text: `Set defense '${args[1]}' to ${args[2] === 'true' ? 'satisfied' : 'open'}.` }
+    }
+    if (verb !== undefined && verb !== 'list') return { kind: 'error', text: ADVERSARY_USAGE }
+    if (verb === 'list' && args.length > 2) return { kind: 'error', text: ADVERSARY_USAGE }
+    const rows = store.probes(args[1])
+    if (rows.length === 0) return { kind: 'success', text: 'No adversarial probes recorded. Record one with /adversary probe <skill> <category> <probe>.' }
+    return {
+      kind: 'success',
+      text: [
+        `Adversarial probes${args[1] === undefined ? '' : ` '${args[1]}'`}: ${rows.length}`,
+        ...rows.map(row => `- ${row.probeId.slice(0, 8)} [${row.category}] ${row.skill}: ${row.foundWeakness ? 'weakness found' : 'no weakness'}${row.repaired ? ' · repaired' : ''}`),
+      ].join('\n'),
+    }
+  } catch (error) {
+    return { kind: 'error', text: error instanceof Error ? error.message : String(error) }
+  }
+}
+
+/**
+ * Execute `/lineage [list [<skill>] | compare <idA> <idB> | replay <id>]`:
+ * list dependency-versioned experiment envelopes, prove two envelopes were
+ * measured comparably, or replay one from its record.
+ * @param ctx - plugin context carrying the optional lineage store.
+ * @param invocation - raw command input plus the invoking agent.
+ * @returns the command result.
+ */
+function executeLineage(ctx: Context, invocation: CommandInvocation): CommandResult {
+  const store = ctx.get('evolutionLineage') as {
+    experiments(skill?: string): readonly Omit<LineageEnvelopeRow, 'seeds'>[]
+    compare(idA: string, idB: string): { comparable: boolean; changed: readonly string[] } | undefined
+    replay(id: string): LineageEnvelopeRow | undefined
+  } | undefined
+  if (store === undefined) return { kind: 'error', text: 'The evolution lineage store is not mounted.' }
+  const args = splitArgs(invocation.rawInput)
+  const verb = args[0]
+  try {
+    if (verb === 'compare') {
+      if (args.length !== 3) return { kind: 'error', text: LINEAGE_USAGE }
+      const verdict = store.compare(args[1] as string, args[2] as string)
+      if (verdict === undefined) return { kind: 'error', text: 'Unknown experiment id in /lineage compare.' }
+      if (verdict.comparable) return { kind: 'success', text: `'${(args[1] as string).slice(0, 8)}' vs '${(args[2] as string).slice(0, 8)}': comparable — no compared dependency changed.` }
+      return { kind: 'success', text: `'${(args[1] as string).slice(0, 8)}' vs '${(args[2] as string).slice(0, 8)}': incomparable — changed dependencies: ${verdict.changed.join(', ')}.` }
+    }
+    if (verb === 'replay') {
+      if (args.length !== 2) return { kind: 'error', text: LINEAGE_USAGE }
+      const envelope = store.replay(args[1] as string)
+      if (envelope === undefined) return { kind: 'error', text: `Unknown experiment '${(args[1] as string).slice(0, 8)}'.` }
+      return { kind: 'success', text: renderLineageEnvelope(envelope) }
+    }
+    if (verb !== undefined && verb !== 'list') return { kind: 'error', text: LINEAGE_USAGE }
+    if (verb === 'list' && args.length > 2) return { kind: 'error', text: LINEAGE_USAGE }
+    const rows = store.experiments(args[1])
+    if (rows.length === 0) return { kind: 'success', text: 'No experiment envelopes recorded. The optimizer records staged writes as envelopes.' }
+    return {
+      kind: 'success',
+      text: [
+        `Experiments${args[1] === undefined ? '' : ` '${args[1]}'`} (newest first): ${rows.length}`,
+        ...rows.map(row => `- ${row.experimentId.slice(0, 8)} ${row.skill} ${row.outcome} by ${row.operator ?? '?'}: pass ${String(row.metrics.pass)}, ${row.metrics.tokens} tokens, ${row.metrics.wallTimeMs}ms`),
+      ].join('\n'),
+    }
+  } catch (error) {
+    return { kind: 'error', text: error instanceof Error ? error.message : String(error) }
+  }
+}
+
+/**
+ * Execute `/sleeptime [tasks [<domain>] | artifacts [<taskId>] | plan]`: list
+ * anticipated future tasks, list precomputed reasoning artifacts, or show the
+ * offline-cost plan choosing which artifacts to build.
+ * @param ctx - plugin context carrying the optional sleeptime store.
+ * @param invocation - raw command input plus the invoking agent.
+ * @returns the command result.
+ */
+function executeSleeptime(ctx: Context, invocation: CommandInvocation): CommandResult {
+  const store = ctx.get('evolutionSleeptime') as {
+    tasks(domain?: string): readonly SleeptimeTaskRow[]
+    artifacts(taskId?: string): readonly SleeptimeArtifactRow[]
+    plan(): readonly SleeptimePlanRow[]
+  } | undefined
+  if (store === undefined) return { kind: 'error', text: 'The evolution sleeptime store is not mounted.' }
+  const args = splitArgs(invocation.rawInput)
+  const verb = args[0]
+  try {
+    if (verb === 'plan') {
+      if (args.length !== 1) return { kind: 'error', text: SLEEPTIME_USAGE }
+      const plan = store.plan()
+      if (plan.length === 0) return { kind: 'success', text: 'Nothing worth precomputing now. Anticipate tasks to seed the plan.' }
+      return {
+        kind: 'success',
+        text: [
+          'Sleep-time plan:',
+          ...plan.map(row => `- ${row.taskId} (${row.domain}): net ${row.expectedNet} tokens — ${row.reason}`),
+        ].join('\n'),
+      }
+    }
+    if (verb === 'artifacts') {
+      if (args.length > 2) return { kind: 'error', text: SLEEPTIME_USAGE }
+      const rows = store.artifacts(args[1])
+      if (rows.length === 0) return { kind: 'success', text: 'No precomputed artifacts recorded.' }
+      return {
+        kind: 'success',
+        text: [
+          `Precomputed artifacts${args[1] === undefined ? '' : ` '${args[1]}'`}: ${rows.length}`,
+          ...rows.map(row => `- ${row.artifactId.slice(0, 8)} [${row.kind}] for ${row.taskId}: ${row.hits} hits, ${row.savedTokens} tokens saved, cost ${row.offlineCostTokens}`),
+        ].join('\n'),
+      }
+    }
+    if (verb !== undefined && verb !== 'tasks') return { kind: 'error', text: SLEEPTIME_USAGE }
+    if (verb === 'tasks' && args.length > 2) return { kind: 'error', text: SLEEPTIME_USAGE }
+    const rows = store.tasks(args[1])
+    if (rows.length === 0) return { kind: 'success', text: 'No anticipated tasks. Anticipate likely future tasks to seed sleep-time compute.' }
+    return {
+      kind: 'success',
+      text: [
+        `Anticipated tasks${args[1] === undefined ? '' : ` '${args[1]}'`} (likelihood first): ${rows.length}`,
+        ...rows.map(row => `- ${row.taskId} (${row.domain}): ${Math.round(row.likelihood * 100)}%, ${row.expectedQueries} expected queries, ${row.expectedSavingTokens} tokens each`),
+      ].join('\n'),
+    }
+  } catch (error) {
+    return { kind: 'error', text: error instanceof Error ? error.message : String(error) }
+  }
+}
+
+/**
+ * Render one self-assessment for `/selfmodel <skill>`.
+ * @param skill - the skill the assessment describes.
+ * @param model - the recorded assessment.
+ * @returns the rendered block, one fact per line.
+ */
+function renderSelfModel(skill: string, model: SelfModelAssessment): string {
+  return [
+    `Self-model '${skill}' (revision ${model.revision}, confidence ${model.confidence.toFixed(2)}):`,
+    ...renderList('strengths', model.strengths),
+    ...renderList('weaknesses', model.weaknesses),
+    ...renderList('uncertain areas', model.uncertainAreas),
+    ...renderList('failure modes', model.failureModes),
+    ...renderList('preferred tools', model.preferredTools),
+    ...renderList('evaluator blindspots', model.evaluatorBlindspots),
+  ].join('\n')
+}
+
+/**
+ * Render one lineage envelope for `/lineage replay <id>`.
+ * @param envelope - the envelope to render.
+ * @returns the rendered block, one fact per line.
+ */
+function renderLineageEnvelope(envelope: LineageEnvelopeRow): string {
+  return [
+    `Experiment ${envelope.experimentId} (${envelope.skill}, ${envelope.outcome} by ${envelope.operator ?? '?'}):`,
+    `- pass ${String(envelope.metrics.pass)}, ${envelope.metrics.tokens} tokens, ${envelope.metrics.wallTimeMs}ms`,
+    `- dependencies: ${Object.entries(envelope.dependencies).map(([key, value]) => `${key}=${value}`).join(', ') || 'none'}`,
+    `- seeds: ${envelope.seeds.length === 0 ? 'not recorded' : envelope.seeds.join(', ')}`,
+  ].join('\n')
+}
+
+/**
+ * Render a labelled list as `- label: item` lines, omitting empty lists.
+ * @param label - the list's label.
+ * @param items - the items to render.
+ * @returns the rendered lines.
+ */
+function renderList(label: string, items: readonly string[]): string[] {
+  return items.length === 0 ? [] : [`- ${label}: ${items.join(', ')}`]
+}
+
+/**
+ * Execute `/benchmark [admit | promote <id> [state] | retire <id>]`: list the
+ * benchmark store by state, admit the open curriculum proposals as fresh
+ * tasks, promote a task up the learning ladder (or to a named state), or
+ * retire one.
+ * @param ctx - plugin context carrying the optional benchmark and curriculum stores.
+ * @param invocation - raw command input plus the invoking agent.
+ * @returns the command result.
+ */
+async function executeBenchmark(ctx: Context, invocation: CommandInvocation): Promise<CommandResult> {
+  const store = ctx.get('evolutionBenchmark') as {
+    admit(inputs: readonly BenchmarkInput[]): Promise<{ admitted: readonly BenchmarkTask[]; duplicates: string[] }>
+    tasks(state?: BenchmarkState): readonly BenchmarkTask[]
+    transition(id: string, to: BenchmarkState): Promise<BenchmarkTask>
+  } | undefined
+  if (store === undefined) return { kind: 'error', text: 'The evolution benchmark store is not mounted.' }
+  const args = splitArgs(invocation.rawInput)
+  const verb = args[0]
+  try {
+    if (verb === 'admit') {
+      if (args.length !== 1) return { kind: 'error', text: BENCHMARK_USAGE }
+      const curriculum = ctx.get('evolutionCurriculum') as { proposals(): readonly CurriculumProposal[] } | undefined
+      if (curriculum === undefined) return { kind: 'error', text: 'The evolution curriculum store is not mounted; admit needs open proposals.' }
+      const inputs: BenchmarkInput[] = curriculum.proposals()
+        .filter(proposal => proposal.state === 'open')
+        .map(proposal => ({
+          capability: proposal.capability,
+          task: proposal.task,
+          gists: [...proposal.gists],
+          sourceSessions: [...proposal.sourceSessions],
+        }))
+      const { admitted, duplicates } = await store.admit(inputs)
+      return {
+        kind: 'success',
+        text: `Admitted ${admitted.length} benchmark task${admitted.length === 1 ? '' : 's'}`
+        + `, ${duplicates.length} duplicate${duplicates.length === 1 ? '' : 's'} skipped.`,
+      }
+    }
+    if (verb === 'promote') {
+      if (args.length < 2 || args.length > 3) return { kind: 'error', text: BENCHMARK_USAGE }
+      const id = args[1] as string
+      const current = store.tasks().find(task => task.id === id)
+      if (current === undefined) return { kind: 'error', text: `evolution-benchmark: unknown task '${id}'` }
+      const target = args[2] === undefined ? nextLadder(current.state) : args[2] as BenchmarkState | undefined
+      if (target === undefined) return { kind: 'error', text: `No promotion from '${current.state}' for '${id}'` }
+      const moved = await store.transition(id, target)
+      return { kind: 'success', text: `Promoted '${id.slice(0, 8)}' to '${moved.state}'.` }
+    }
+    if (verb === 'retire') {
+      if (args.length !== 2) return { kind: 'error', text: BENCHMARK_USAGE }
+      await store.transition(args[1] as string, 'retired')
+      return { kind: 'success', text: `Retired '${(args[1] as string).slice(0, 8)}'.` }
+    }
+    if (verb !== undefined) return { kind: 'error', text: BENCHMARK_USAGE }
+    const rows = store.tasks()
+    const count = (state: BenchmarkState): number => rows.filter(task => task.state === state).length
+    const fresh = rows.filter(task => task.state === 'fresh').slice(0, 10)
+    const lines = [
+      `Benchmark: ${count('fresh')} fresh, ${count('search')} search, ${count('validation')} validation,`
+      + ` ${count('holdout')} holdout, ${count('contaminated')} contaminated, ${count('retired')} retired.`,
+      ...fresh.map(task => `- ${task.id.slice(0, 8)} ${task.capability}: ${task.task}`),
+    ]
+    return { kind: 'success', text: lines.join('\n') }
+  } catch (error) {
+    return { kind: 'error', text: error instanceof Error ? error.message : String(error) }
+  }
+}
+
+/**
+ * Execute `/curriculum [retire <id>]`: measure current capability gaps from
+ * the mounted telemetry and trace seams, stage one grounded task per gap, and
+ * list every open proposal — or retire one by id.
+ * @param ctx - plugin context carrying the optional curriculum store.
+ * @param invocation - raw command input plus the invoking agent.
+ * @returns the command result.
+ */
+async function executeCurriculum(ctx: Context, invocation: CommandInvocation): Promise<CommandResult> {
+  const store = ctx.get('evolutionCurriculum') as {
+    gaps(): Promise<readonly CurriculumGap[]>
+    propose(gaps: readonly CurriculumGap[]): Promise<readonly CurriculumProposal[]>
+    proposals(): readonly CurriculumProposal[]
+    retire(id: string): Promise<CurriculumProposal>
+  } | undefined
+  if (store === undefined) return { kind: 'error', text: 'The evolution curriculum store is not mounted.' }
+  const args = splitArgs(invocation.rawInput)
+  if (args[0] === 'retire') {
+    if (args.length !== 2) return { kind: 'error', text: CURRICULUM_USAGE }
+    try {
+      const retired = await store.retire(args[1] as string)
+      return { kind: 'success', text: `Retired curriculum task '${retired.id.slice(0, 8)}' (${retired.capability}).` }
+    } catch (error) {
+      return { kind: 'error', text: error instanceof Error ? error.message : String(error) }
+    }
+  }
+  if (args.length !== 0) return { kind: 'error', text: CURRICULUM_USAGE }
+  try {
+    const staged = await store.propose(await store.gaps())
+    const open = store.proposals().filter(proposal => proposal.state === 'open')
+    const lines = staged.length === 0
+      ? ['No new tasks staged from the measured gaps.']
+      : [`Staged ${staged.length} new task${staged.length === 1 ? '' : 's'}.`]
+    if (open.length === 0) lines.push('No open curriculum tasks.')
+    for (const proposal of open) {
+      lines.push(`- ${proposal.id.slice(0, 8)} ${proposal.capability}: ${proposal.task}`)
+    }
+    return { kind: 'success', text: lines.join('\n') }
+  } catch (error) {
+    return { kind: 'error', text: error instanceof Error ? error.message : String(error) }
+  }
+}
+
+/**
+ * Execute `/trace <sessionId>`: project one session's committed log into its
+ * structured learning trace and render the ranked failure causes.
+ * @param ctx - plugin context carrying the optional trace store.
+ * @param invocation - raw command input plus the invoking agent.
+ * @returns the command result.
+ */
+async function executeTrace(ctx: Context, invocation: CommandInvocation): Promise<CommandResult> {
+  const args = splitArgs(invocation.rawInput)
+  if (args.length !== 1) return { kind: 'error', text: TRACE_USAGE }
+  const sessionId = args[0] as string
+  const store = ctx.get('evolutionTrace') as { trace(sessionId: string): Promise<TraceRecord | undefined> } | undefined
+  if (store === undefined) return { kind: 'error', text: 'The evolution trace store is not mounted.' }
+  try {
+    const record = await store.trace(sessionId)
+    if (record === undefined) return { kind: 'error', text: `No trace for session '${sessionId}'.` }
+    return { kind: 'success', text: renderTrace(record) }
+  } catch (error) {
+    return { kind: 'error', text: error instanceof Error ? error.message : String(error) }
+  }
+}
+
+/**
+ * Render one structured trace as operator-facing text: the session header, one
+ * line per turn with its request and outcome, one line per tool call, and the
+ * ranked root-cause candidates under each failure.
+ * @param record - the structured trace to render.
+ * @returns the rendered text.
+ */
+function renderTrace(record: TraceRecord): string {
+  const lines: string[] = [
+    `Trace of ${record.sessionId}: ${record.turnCount} turn${record.turnCount === 1 ? '' : 's'}`
+    + (record.updatedAt === null ? ' (no events)' : `, updated ${record.updatedAt}`),
+  ]
+  for (const turn of record.turns) {
+    const outcome = turn.endedAt === null
+      ? 'open'
+      : `${turn.endReason ?? 'ended'} (${turn.latencyMs ?? 0}ms)`
+    lines.push(`Turn ${turn.turn} [${outcome}]${turn.request === null ? '' : `: ${turn.request}`}`)
+    for (const step of turn.steps) {
+      for (const call of step.calls) {
+        lines.push(call.ok ? `  · ${call.name} ok` : `  · ${call.name} failed: ${call.message}`)
+      }
+    }
+    for (const failure of turn.failures) {
+      for (const cause of failure.causes) lines.push(`    ← ${cause.reason}`)
+    }
+  }
+  return lines.join('\n')
+}
+
+/**
  * Build the research-and-save prompt behind `/learn`.
  * @param topic - everything the human typed after the command name.
  * @returns the prompt delivered as one ordinary turn.
@@ -862,12 +1897,15 @@ async function executeCurator(ctx: Context, profile: string, invocation: Command
   const rest = args.slice(1)
   if (verb === undefined) return { kind: 'error', text: CURATOR_USAGE }
 
-  // Pin/unpin only need telemetry, not the curator.
-  if (verb === 'pin' || verb === 'unpin') {
+  // Pin/unpin and the version registry read only telemetry, not the curator.
+  if (verb === 'pin' || verb === 'unpin' || verb === 'history') {
     if (rest.length !== 1) return { kind: 'error', text: CURATOR_USAGE }
     const telemetry = ctx.get('evolutionSkillTelemetry')
-    if (telemetry === undefined) return { kind: 'error', text: 'Skill telemetry is not mounted. Pin/unpin requires the telemetry store.' }
-    return verb === 'pin' ? executeCuratorPin(telemetry, rest[0]!) : executeCuratorUnpin(telemetry, rest[0]!)
+    if (telemetry === undefined) return { kind: 'error', text: 'Skill telemetry is not mounted. Pin, unpin, and history require the telemetry store.' }
+    const name = rest[0] as string
+    if (verb === 'pin') return executeCuratorPin(telemetry, name)
+    if (verb === 'unpin') return executeCuratorUnpin(telemetry, name)
+    return executeCuratorHistory(telemetry, name)
   }
   // Optimize needs the optimizer and a scope, not the curator.
   if (verb === 'experiments') {
@@ -896,9 +1934,9 @@ async function executeCurator(ctx: Context, profile: string, invocation: Command
   switch (verb) {
     case 'status': return executeCuratorStatus(ctx, curator, invocation.signal)
     case 'run': return runCuratorPass(curator, rest[0] === '--dry-run')
-    case 'adopt': return executeCuratorAdopt(curator, rest[0]!)
+    case 'adopt': return executeCuratorAdopt(curator, rest[0] as string)
     case 'purge': return executeCuratorPurge(curator, rest[0] === '--dry-run')
-    case 'rollback': return executeCuratorRollback(curator, rest[1]!)
+    case 'rollback': return executeCuratorRollback(curator, rest[1] as string)
     case 'ledger': return executeCuratorLedger(curator)
     case 'staged': return executeCuratorStaged(curator)
     default: return { kind: 'error', text: CURATOR_USAGE }
@@ -1151,12 +2189,37 @@ async function executeCuratorStaged(curator: EvolutionCurator): Promise<CommandR
 }
 
 /**
+ * Execute `/curator history <name>`: list one skill's committed body
+ * revisions, oldest first, with the lineage each row records.
+ * @param telemetry - the mounted telemetry service.
+ * @param name - skill name.
+ * @returns the command result.
+ */
+function executeCuratorHistory(
+  telemetry: { versions(name: string): readonly SkillVersion[] },
+  name: string,
+): CommandResult {
+  const rows = telemetry.versions(name)
+  if (rows.length === 0) return { kind: 'success', text: `No recorded revisions for '${name}'.` }
+  const lines = rows.map((row) => {
+    const parent = row.parentRevisionSha === null
+      ? ''
+      : ` ← r${row.revision - 1} ${row.parentRevisionSha.slice(0, 8)}`
+    return `- r${row.revision} ${row.contentSha.slice(0, 8)}${parent} (${row.at})`
+  })
+  return { kind: 'success', text: [`${rows.length} revision${rows.length === 1 ? '' : 's'} for '${name}':`, ...lines].join('\n') }
+}
+
+/**
  * Execute `/curator pin <name>`: pin a tracked skill.
  * @param telemetry - the mounted telemetry service.
  * @param rest - argument words after the verb.
  * @returns the command result.
  */
-async function executeCuratorPin(telemetry: { setPinned(name: string, pinned: boolean): Promise<SkillUsageRecord> }, name: string): Promise<CommandResult> {
+async function executeCuratorPin(
+  telemetry: { setPinned(name: string, pinned: boolean): Promise<SkillUsageRecord> },
+  name: string,
+): Promise<CommandResult> {
   try {
     await telemetry.setPinned(name, true)
     return { kind: 'success', text: `Pinned '${name}'` }
@@ -1171,7 +2234,10 @@ async function executeCuratorPin(telemetry: { setPinned(name: string, pinned: bo
  * @param rest - argument words after the verb.
  * @returns the command result.
  */
-async function executeCuratorUnpin(telemetry: { setPinned(name: string, pinned: boolean): Promise<SkillUsageRecord> }, name: string): Promise<CommandResult> {
+async function executeCuratorUnpin(
+  telemetry: { setPinned(name: string, pinned: boolean): Promise<SkillUsageRecord> },
+  name: string,
+): Promise<CommandResult> {
   try {
     await telemetry.setPinned(name, false)
     return { kind: 'success', text: `Unpinned '${name}'` }
@@ -1238,12 +2304,28 @@ async function executeDream(
 async function handleCommand(
   ctx: Context,
   profile: string,
-  kind: 'memory' | 'refine' | 'journey' | 'skills' | 'graph' | 'trajectory' | 'dream' | 'frontier',
+  kind: 'memory' | 'refine' | 'journey' | 'skills' | 'graph' | 'trajectory' | 'dream' | 'frontier' | 'trace' | 'curriculum' | 'benchmark' | 'evaluators' | 'population' | 'routes' | 'canary' | 'novelty' | 'stagnation' | 'islands' | 'selfmodel' | 'uncertainty' | 'adversary' | 'lineage' | 'sleeptime',
   invocation: CommandInvocation,
 ): Promise<CommandResult> {
   // Exporting the invoking session needs no workspace, so `/trajectory`
-  // decides for itself whether it must resolve one.
+  // decides for itself whether it must resolve one; `/trace` names a session
+  // and `/curriculum` is host-wide, so neither needs a workspace.
   if (kind === 'trajectory') return executeTrajectory(ctx, profile, invocation)
+  if (kind === 'trace') return executeTrace(ctx, invocation)
+  if (kind === 'curriculum') return executeCurriculum(ctx, invocation)
+  if (kind === 'benchmark') return executeBenchmark(ctx, invocation)
+  if (kind === 'evaluators') return executeEvaluators(ctx, invocation)
+  if (kind === 'population') return executePopulation(ctx, invocation)
+  if (kind === 'routes') return executeRoutes(ctx, invocation)
+  if (kind === 'canary') return executeCanary(ctx, invocation)
+  if (kind === 'novelty') return executeNovelty(ctx, invocation)
+  if (kind === 'stagnation') return executeStagnation(ctx, invocation)
+  if (kind === 'islands') return executeIslands(ctx, invocation)
+  if (kind === 'selfmodel') return executeSelfModel(ctx, invocation)
+  if (kind === 'uncertainty') return executeUncertainty(ctx, invocation)
+  if (kind === 'adversary') return executeAdversary(ctx, invocation)
+  if (kind === 'lineage') return executeLineage(ctx, invocation)
+  if (kind === 'sleeptime') return executeSleeptime(ctx, invocation)
   const membership = await resolveMembership(ctx, invocation.agent.session)
   if (membership === undefined) return { kind: 'error', text: 'This session is outside any workspace scope.' }
   const scope = EvolutionScopeId(profile, String(membership.id))
@@ -1345,6 +2427,111 @@ export function apply(ctx: Context, config: Config): void {
       description: 'Export this session or this scope as share-ready conversations',
       input: { hint: '[--out <path>] [--all]' },
       handler: (invocation: CommandInvocation) => track(handleCommand(ctx, profile, 'trajectory', invocation)),
+    })
+    yield ctx.commands.register({
+      definitionId: CommandDefinitionId('@deepseek-ai/dsh-command-evolution/trace'),
+      name: 'trace',
+      description: 'Project one session into its structured learning trace with ranked failure causes',
+      input: { hint: '<sessionId>' },
+      handler: (invocation: CommandInvocation) => track(handleCommand(ctx, profile, 'trace', invocation)),
+    })
+    yield ctx.commands.register({
+      definitionId: CommandDefinitionId('@deepseek-ai/dsh-command-evolution/curriculum'),
+      name: 'curriculum',
+      description: 'Stage training and evaluation tasks from measured capability gaps',
+      input: { hint: '[retire <id>]' },
+      handler: (invocation: CommandInvocation) => track(handleCommand(ctx, profile, 'curriculum', invocation)),
+    })
+    yield ctx.commands.register({
+      definitionId: CommandDefinitionId('@deepseek-ai/dsh-command-evolution/benchmark'),
+      name: 'benchmark',
+      description: 'Manage the evaluation-task benchmark: admit curriculum proposals and promote tasks along the learning ladder',
+      input: { hint: '[admit | promote <id> [state] | retire <id>]' },
+      handler: (invocation: CommandInvocation) => track(handleCommand(ctx, profile, 'benchmark', invocation)),
+    })
+    yield ctx.commands.register({
+      definitionId: CommandDefinitionId('@deepseek-ai/dsh-command-evolution/evaluators'),
+      name: 'evaluators',
+      description: 'Report evaluator ensemble health: agreement, approval drift, false positives, and per-channel rates',
+      input: { hint: '[runs [<skill>]]' },
+      handler: (invocation: CommandInvocation) => track(handleCommand(ctx, profile, 'evaluators', invocation)),
+    })
+    yield ctx.commands.register({
+      definitionId: CommandDefinitionId('@deepseek-ai/dsh-command-evolution/population'),
+      name: 'population',
+      description: 'List a skill\'s candidate population, walk one lineage, or approve and reject staged candidates',
+      input: { hint: '<skill> [lineage <id> | approve <id> | reject <id>]' },
+      handler: (invocation: CommandInvocation) => track(handleCommand(ctx, profile, 'population', invocation)),
+    })
+    yield ctx.commands.register({
+      definitionId: CommandDefinitionId('@deepseek-ai/dsh-command-evolution/routes'),
+      name: 'routes',
+      description: 'List or pin adaptive model routes per evolutionary role and read their measured evidence',
+      input: { hint: '[pin <role> <provider> <model> | evidence [<role>]]' },
+      handler: (invocation: CommandInvocation) => track(handleCommand(ctx, profile, 'routes', invocation)),
+    })
+    yield ctx.commands.register({
+      definitionId: CommandDefinitionId('@deepseek-ai/dsh-command-evolution/canary'),
+      name: 'canary',
+      description: 'Track shadow/canary rollouts of staged skill patches: list states, rollout, promote, reject, or roll back',
+      input: { hint: '[status [<skill>] | rollout <id> | promote <id> | reject <id> | rollback <id>]' },
+      handler: (invocation: CommandInvocation) => track(handleCommand(ctx, profile, 'canary', invocation)),
+    })
+    yield ctx.commands.register({
+      definitionId: CommandDefinitionId('@deepseek-ai/dsh-command-evolution/novelty'),
+      name: 'novelty',
+      description: 'Summarize the novelty archive or list one skill\'s behavior descriptors with their archive novelty',
+      input: { hint: '[<skill>]' },
+      handler: (invocation: CommandInvocation) => track(handleCommand(ctx, profile, 'novelty', invocation)),
+    })
+    yield ctx.commands.register({
+      definitionId: CommandDefinitionId('@deepseek-ai/dsh-command-evolution/stagnation'),
+      name: 'stagnation',
+      description: 'Report stagnation across skills, one skill\'s standing with its recommended strategy, runs, or reset a skill\'s history',
+      input: { hint: '[status <skill> | runs [<skill>] | reset <skill>]' },
+      handler: (invocation: CommandInvocation) => track(handleCommand(ctx, profile, 'stagnation', invocation)),
+    })
+    yield ctx.commands.register({
+      definitionId: CommandDefinitionId('@deepseek-ai/dsh-command-evolution/islands'),
+      name: 'islands',
+      description: 'List evolution islands with their migration schedule, register a lane, record a candidate migration, or read the migration log',
+      input: { hint: '[list [<skill>] | register <island> <name> <objective> <skill> | migrate <from> <to> <candidate> [<reason>] | migrations [<skill>]]' },
+      handler: (invocation: CommandInvocation) => track(handleCommand(ctx, profile, 'islands', invocation)),
+    })
+    yield ctx.commands.register({
+      definitionId: CommandDefinitionId('@deepseek-ai/dsh-command-evolution/selfmodel'),
+      name: 'selfmodel',
+      description: 'Show one skill\'s controlled self-assessment or the weakest-first capability frontier with the next capability to learn',
+      input: { hint: '[<skill>]' },
+      handler: (invocation: CommandInvocation) => track(handleCommand(ctx, profile, 'selfmodel', invocation)),
+    })
+    yield ctx.commands.register({
+      definitionId: CommandDefinitionId('@deepseek-ai/dsh-command-evolution/uncertainty'),
+      name: 'uncertainty',
+      description: 'Show the prioritized queue of high-value evaluation tasks derived from recorded uncertainty signals',
+      input: { hint: '[<skill>]' },
+      handler: (invocation: CommandInvocation) => track(handleCommand(ctx, profile, 'uncertainty', invocation)),
+    })
+    yield ctx.commands.register({
+      definitionId: CommandDefinitionId('@deepseek-ai/dsh-command-evolution/adversary'),
+      name: 'adversary',
+      description: 'Record adversarial probes, mark them repaired, read the next probing challenge, or track the evaluator-gaming defense checklist',
+      input: { hint: '[list [<skill>] | probe <skill> <category> <probe> | repair <probeId> | challenge <skill> | defenses | defense <name> <satisfied>]' },
+      handler: (invocation: CommandInvocation) => track(handleCommand(ctx, profile, 'adversary', invocation)),
+    })
+    yield ctx.commands.register({
+      definitionId: CommandDefinitionId('@deepseek-ai/dsh-command-evolution/lineage'),
+      name: 'lineage',
+      description: 'List dependency-versioned experiment envelopes, prove two experiments comparable, or replay one from its record',
+      input: { hint: '[list [<skill>] | compare <idA> <idB> | replay <id>]' },
+      handler: (invocation: CommandInvocation) => track(handleCommand(ctx, profile, 'lineage', invocation)),
+    })
+    yield ctx.commands.register({
+      definitionId: CommandDefinitionId('@deepseek-ai/dsh-command-evolution/sleeptime'),
+      name: 'sleeptime',
+      description: 'List anticipated future tasks, precomputed reasoning artifacts, or the offline-cost plan for sleep-time compute',
+      input: { hint: '[tasks [<domain>] | artifacts [<taskId>] | plan]' },
+      handler: (invocation: CommandInvocation) => track(handleCommand(ctx, profile, 'sleeptime', invocation)),
     })
     yield ctx.commands.register({
       definitionId: CommandDefinitionId('@deepseek-ai/dsh-command-evolution/learn'),

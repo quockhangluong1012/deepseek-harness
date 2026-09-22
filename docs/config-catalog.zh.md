@@ -867,6 +867,38 @@ export interface Config {
 
 来源：[`packages/llm/embeddings-http/src/index.ts:35`](../packages/llm/embeddings-http/src/index.ts)
 
+<a id="deepseek-aidsh-evolution-adversary"></a>
+
+## `@deepseek-ai/dsh-evolution-adversary`
+
+需要：`storageDomain`
+
+```ts config-catalog
+/** Validated configuration of the adversary store. */
+export interface AdversaryConfig {
+  /** Probes per category and skill before the category counts as covered. */
+  minProbesPerCategory: number
+}
+```
+
+来源：[`packages/evolution/evolution-adversary/src/index.ts:30`](../packages/evolution/evolution-adversary/src/index.ts)
+
+<a id="deepseek-aidsh-evolution-benchmark"></a>
+
+## `@deepseek-ai/dsh-evolution-benchmark`
+
+需要：`storageDomain`
+
+```ts config-catalog
+/** Deployment choices for benchmark staging. */
+export interface Config {
+  /** Learnable tasks one admission pass may stage. */
+  maxAdmit?: number
+}
+```
+
+来源：[`packages/evolution/evolution-benchmark/src/index.ts:34`](../packages/evolution/evolution-benchmark/src/index.ts)
+
 <a id="deepseek-aidsh-evolution-controller"></a>
 
 ## `@deepseek-ai/dsh-evolution-controller`
@@ -944,6 +976,22 @@ export interface Config {
 
 来源：[`packages/evolution/evolution-curator/src/index.ts:117`](../packages/evolution/evolution-curator/src/index.ts)
 
+<a id="deepseek-aidsh-evolution-curriculum"></a>
+
+## `@deepseek-ai/dsh-evolution-curriculum`
+
+需要：`storageDomain`
+
+```ts config-catalog
+/** Deployment choices for curriculum staging. */
+export interface Config {
+  /** Distinct failure gists a capability needs before a task is proposed. */
+  minGists?: number
+}
+```
+
+来源：[`packages/evolution/evolution-curriculum/src/index.ts:32`](../packages/evolution/evolution-curriculum/src/index.ts)
+
 <a id="deepseek-aidsh-evolution-dreaming"></a>
 
 ## `@deepseek-ai/dsh-evolution-dreaming`
@@ -974,6 +1022,22 @@ export interface Config {
 ```
 
 来源：[`packages/evolution/evolution-dreaming/src/index.ts:54`](../packages/evolution/evolution-dreaming/src/index.ts)
+
+<a id="deepseek-aidsh-evolution-evaluator-health"></a>
+
+## `@deepseek-ai/dsh-evolution-evaluator-health`
+
+需要：`storageDomain`
+
+```ts config-catalog
+/** Deployment choices for health aggregation. */
+export interface Config {
+  /** Verdicts the recent-drift window covers. */
+  driftWindow?: number
+}
+```
+
+来源：[`packages/evolution/evolution-evaluator-health/src/index.ts:31`](../packages/evolution/evolution-evaluator-health/src/index.ts)
 
 <a id="deepseek-aidsh-evolution-feedback"></a>
 
@@ -1054,6 +1118,41 @@ export interface Config {
 ```
 
 来源：[`packages/evolution/evolution-heartbeat/src/index.ts:50`](../packages/evolution/evolution-heartbeat/src/index.ts)
+
+<a id="deepseek-aidsh-evolution-islands"></a>
+
+## `@deepseek-ai/dsh-evolution-islands`
+
+需要：`storageDomain`
+
+```ts config-catalog
+/** Validated configuration of the island store. */
+export interface IslandsConfig {
+  /** Scheduled-migration cadence, in milliseconds. */
+  migrationCadence: number
+}
+```
+
+来源：[`packages/evolution/evolution-islands/src/index.ts:30`](../packages/evolution/evolution-islands/src/index.ts)
+
+<a id="deepseek-aidsh-evolution-lineage"></a>
+
+## `@deepseek-ai/dsh-evolution-lineage`
+
+需要：`storageDomain`
+
+```ts config-catalog
+/** Validated configuration of the lineage store. */
+export interface LineageConfig {
+  /** Dependency keys two envelopes must agree on to compare. */
+  comparedKeys: DependencyKey[]
+}
+
+/** One named dependency whose version an experiment envelope records. */
+export type DependencyKey = 'prompt' | 'skill' | 'retriever' | 'evaluator' | 'model' | 'tool' | 'env'
+```
+
+来源：[`packages/evolution/evolution-lineage/src/index.ts:28`](../packages/evolution/evolution-lineage/src/index.ts)
 
 <a id="deepseek-aidsh-evolution-memory"></a>
 
@@ -1300,6 +1399,24 @@ export interface Config {
 
 来源：[`packages/evolution/evolution-scorer/src/index.ts:59`](../packages/evolution/evolution-scorer/src/index.ts)
 
+<a id="deepseek-aidsh-evolution-self-model"></a>
+
+## `@deepseek-ai/dsh-evolution-self-model`
+
+需要：`storageDomain`
+
+```ts config-catalog
+/** Validated configuration of the self-model store. */
+export interface SelfModelConfig {
+  /** Observations that earn a capability entry full confidence. */
+  maxObservations: number
+  /** Newest failure notes kept per capability entry. */
+  maxFailures: number
+}
+```
+
+来源：[`packages/evolution/evolution-self-model/src/index.ts:34`](../packages/evolution/evolution-self-model/src/index.ts)
+
 <a id="deepseek-aidsh-evolution-skill-manage"></a>
 
 ## `@deepseek-ai/dsh-evolution-skill-manage`
@@ -1334,6 +1451,58 @@ export interface Config {
 
 来源：[`packages/skill/evolution-skill-telemetry/src/index.ts:85`](../packages/skill/evolution-skill-telemetry/src/index.ts)
 
+<a id="deepseek-aidsh-evolution-sleeptime"></a>
+
+## `@deepseek-ai/dsh-evolution-sleeptime`
+
+需要：`storageDomain`
+
+```ts config-catalog
+/** Validated configuration of the sleep-time store. */
+export interface SleeptimeConfig {
+  /** Estimated offline tokens of one precompute, used when the caller names none. */
+  defaultEstimatedCostTokens: number
+  /** Total offline token budget of one plan, used when the caller names none. */
+  maxOfflineTokens: number
+}
+```
+
+来源：[`packages/evolution/evolution-sleeptime/src/index.ts:33`](../packages/evolution/evolution-sleeptime/src/index.ts)
+
+<a id="deepseek-aidsh-evolution-stagnation"></a>
+
+## `@deepseek-ai/dsh-evolution-stagnation`
+
+需要：`storageDomain`
+
+```ts config-catalog
+/** Validated configuration of the stagnation detector. */
+export interface StagnationConfig {
+  /** Runs without meaningful improvement before the skill is stagnant. */
+  threshold: number
+  /** Minimum relative token or wall-time gain that counts as meaningful. */
+  relativeImprovement: number
+}
+```
+
+来源：[`packages/evolution/evolution-stagnation/src/index.ts:27`](../packages/evolution/evolution-stagnation/src/index.ts)
+
+<a id="deepseek-aidsh-evolution-trace"></a>
+
+## `@deepseek-ai/dsh-evolution-trace`
+
+需要：`sessionPersistence`
+
+```ts config-catalog
+/** Deployment choices for trace projection. */
+export interface Config {
+  /** Character budget for one failure or request gist. */
+  maxChars?: number
+}
+```
+
+来源：[`packages/evolution/evolution-trace/src/index.ts:36`](../packages/evolution/evolution-trace/src/index.ts)
+
 <a id="deepseek-aidsh-evolution-trajectory"></a>
 
 ## `@deepseek-ai/dsh-evolution-trajectory`
@@ -1349,6 +1518,24 @@ export interface Config {
 ```
 
 来源：[`packages/evolution/evolution-trajectory/src/index.ts:51`](../packages/evolution/evolution-trajectory/src/index.ts)
+
+<a id="deepseek-aidsh-evolution-uncertainty"></a>
+
+## `@deepseek-ai/dsh-evolution-uncertainty`
+
+需要：`storageDomain`
+
+```ts config-catalog
+/** Validated configuration of the uncertainty queue. */
+export interface UncertaintyConfig {
+  /** Maximum tasks `queue` returns when the caller passes no limit. */
+  queueLimit: number
+  /** Priority added per distinct signal kind past the first in one task. */
+  corroborationBonus: number
+}
+```
+
+来源：[`packages/evolution/evolution-uncertainty/src/index.ts:26`](../packages/evolution/evolution-uncertainty/src/index.ts)
 
 <a id="deepseek-aidsh-experimental-agent-team"></a>
 
@@ -4472,6 +4659,7 @@ export interface Config {
 
 - `@deepseek-ai/dsh-acp-app` — 需要 `cmdlineArgs`（[`packages/bundle/acp-app/src/index.ts`](../packages/bundle/acp-app/src/index.ts)）
 - `@deepseek-ai/dsh-agent`（[`packages/core/agent/src/index.ts`](../packages/core/agent/src/index.ts)）
+- `@deepseek-ai/dsh-agent-kernel-builtins` — 需要 `agentKernel`（[`packages/runtime/agent-kernel-builtins/src/index.ts`](../packages/runtime/agent-kernel-builtins/src/index.ts)）
 - `@deepseek-ai/dsh-api-remotes` — 需要 `typertGateway`（[`packages/api/remotes/src/index.ts`](../packages/api/remotes/src/index.ts)）
 - `@deepseek-ai/dsh-api-workspace-controller` — 需要 `typert` · `workspaceRegistry`（[`packages/api/workspace-controller/src/index.ts`](../packages/api/workspace-controller/src/index.ts)）
 - `@deepseek-ai/dsh-authorization` — 需要 `credentials`（[`packages/credentials/authorization/src/index.ts`](../packages/credentials/authorization/src/index.ts)）
@@ -4532,6 +4720,10 @@ export interface Config {
 - `@deepseek-ai/dsh-commands`（[`packages/interaction/commands/src/index.ts`](../packages/interaction/commands/src/index.ts)）
 - `@deepseek-ai/dsh-cordis-client-runner`（[`packages/extensions/cordis-client-runner/src/index.ts`](../packages/extensions/cordis-client-runner/src/index.ts)）
 - `@deepseek-ai/dsh-deepseek-llm-api-extensions`（[`packages/llm/deepseek-llm-api-extensions/src/index.ts`](../packages/llm/deepseek-llm-api-extensions/src/index.ts)）
+- `@deepseek-ai/dsh-evolution-canary` — 需要 `storageDomain`（[`packages/evolution/evolution-canary/src/index.ts`](../packages/evolution/evolution-canary/src/index.ts)）
+- `@deepseek-ai/dsh-evolution-model-routes` — 需要 `storageDomain`（[`packages/evolution/evolution-model-routes/src/index.ts`](../packages/evolution/evolution-model-routes/src/index.ts)）
+- `@deepseek-ai/dsh-evolution-novelty-search` — 需要 `storageDomain`（[`packages/evolution/evolution-novelty-search/src/index.ts`](../packages/evolution/evolution-novelty-search/src/index.ts)）
+- `@deepseek-ai/dsh-evolution-population` — 需要 `storageDomain`（[`packages/evolution/evolution-population/src/index.ts`](../packages/evolution/evolution-population/src/index.ts)）
 - `@deepseek-ai/dsh-experimental-client-ui-agent-team`（[`packages/experimental/client-ui-agent-team/src/index.ts`](../packages/experimental/client-ui-agent-team/src/index.ts)）
 - `@deepseek-ai/dsh-fs-e2b` — 需要 `e2b`（[`packages/e2b/fs-e2b/src/index.ts`](../packages/e2b/fs-e2b/src/index.ts)）
 - `@deepseek-ai/dsh-fs-observation-policy`（[`packages/fs/fs-observation-policy/src/index.ts`](../packages/fs/fs-observation-policy/src/index.ts)）

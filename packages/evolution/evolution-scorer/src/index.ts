@@ -14,8 +14,11 @@
 
 import { Context, Service } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
+import { randomUUID } from 'node:crypto'
 import { captureExpectedWorkspaceSnapshot } from '@deepseek-ai/dsh-session-snapshot'
 import type { RunOptions } from '@deepseek-ai/dsh-session-snapshot'
+import type {} from '@deepseek-ai/dsh-evolution-evaluator-health'
+import type {} from '@deepseek-ai/dsh-evolution-uncertainty'
 import { measureRunTokens } from './sessions.ts'
 import { loadScenarioPlan } from './scenario.ts'
 import { scoreRun } from './score.ts'
@@ -263,7 +266,7 @@ export class EvolutionScorer extends Service {
       request.vectors,
     )
     if (!contract.ok || !routing.ok) {
-      return {
+      const behavior: BehaviorEvaluation = {
         status: 'gated',
         skill,
         contract,
@@ -274,13 +277,16 @@ export class EvolutionScorer extends Service {
         ]),
         reason: !contract.ok ? `contract gate failed: ${contract.issues.join('; ')}` : 'routing gate failed',
       }
+      await this.recordHealth(behavior)
+      await this.recordUncertainty(behavior)
+      return behavior
     }
     const baseline = await this.evaluateSkill(request.baseline)
     if (baseline.status === 'skipped') return { status: 'skipped', skill, reason: baseline.reason }
     const candidate = await this.evaluateSkill(request.candidate)
     if (candidate.status === 'skipped') return { status: 'skipped', skill, reason: candidate.reason }
     const replay = compareBehaviorReplay(baseline.score, candidate.score)
-    return {
+    const behavior: BehaviorEvaluation = {
       status: 'evaluated',
       skill,
       contract,
@@ -292,6 +298,58 @@ export class EvolutionScorer extends Service {
         { channel: 'replay', ok: replay.ok },
       ]),
       approved: replay.ok,
+    }
+    await this.recordHealth(behavior)
+    await this.recordUncertainty(behavior)
+    return behavior
+  }
+
+  /**
+   * Record one judging verdict into the evaluator-health store when it is
+   * mounted. A failing record must not fail the evaluation, so it logs a
+   * warning instead.
+   * @param behavior - the verdict just computed.
+   */
+  private async recordHealth(behavior: Extract<BehaviorEvaluation, { status: 'gated' | 'evaluated' }>): Promise<void> {
+    const health = this.ctx.get('evolutionEvaluatorHealth')
+    if (health === undefined) return
+    try {
+      await health.observe({
+        skill: behavior.skill,
+        unanimous: behavior.disagreement.unanimous,
+        status: behavior.status,
+        approved: behavior.status === 'evaluated' ? behavior.approved : false,
+        approving: [...behavior.disagreement.approving],
+        dissenting: [...behavior.disagreement.dissenting],
+      })
+    } catch (error) {
+      this.ctx.logger.warn(`evolution scorer could not record evaluator health: ${String(error)}`)
+    }
+  }
+
+  /**
+   * Record one disagreement signal into the uncertainty store when mounted:
+   * a split verdict is evidence the evaluation deserves another look (§44).
+   * Unanimous verdicts and skipped evaluations produce no signal. A failing
+   * record must not fail the evaluation, so it logs a warning instead.
+   * @param behavior - the verdict just computed.
+   */
+  private async recordUncertainty(behavior: Extract<BehaviorEvaluation, { status: 'gated' | 'evaluated' }>): Promise<void> {
+    if (behavior.disagreement.unanimous) return
+    const uncertainty = this.ctx.get('evolutionUncertainty')
+    if (uncertainty === undefined) return
+    const total = behavior.disagreement.approving.length + behavior.disagreement.dissenting.length
+    try {
+      await uncertainty.record({
+        signalId: randomUUID(),
+        skill: behavior.skill,
+        taskId: null,
+        kind: 'disagreement',
+        score: total === 0 ? 0 : behavior.disagreement.dissenting.length / total,
+        detail: `evaluators disagree on '${behavior.skill}': ${behavior.disagreement.dissenting.join(', ')} dissenting`,
+      })
+    } catch (error) {
+      this.ctx.logger.warn(`evolution scorer could not record uncertainty signal: ${String(error)}`)
     }
   }
 }

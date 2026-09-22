@@ -7,7 +7,7 @@
  * a fresh process it never needed.
  */
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cp, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -161,7 +161,7 @@ describe('checkBehaviorRouting', () => {
   })
 
   it('meets a prerequisite through a capability another catalog entry provides', () => {
-    const catalog = CATALOG.map(entry => {
+    const catalog = CATALOG.map((entry) => {
       if (entry.name === CANDIDATE) return { ...entry, requires: ['prose-tooling'] as const }
       if (entry.name === 'deploy') return { ...entry, capabilities: ['prose-tooling'] as const }
       return entry
@@ -318,5 +318,166 @@ describe('EvolutionScorer.evaluateBehavior', () => {
     // the uncertainty signal a future investigation queue would read.
     expect(evaluation.disagreement)
       .toEqual({ unanimous: false, approving: ['contract', 'routing'], dissenting: ['replay'] })
+  })
+
+  it('records gated and evaluated verdicts into the mounted health store', async () => {
+    const health: { runs: Record<string, unknown>[]; error?: Error } = { runs: [] }
+    const ctx = new Context()
+    new SessionProjectionRegistry(ctx)
+    new TokenMeter(ctx)
+    ctx.provide('evolutionEvaluatorHealth', {
+      observe: async (input: Record<string, unknown>) => {
+        if (health.error !== undefined) throw health.error
+        health.runs.push(input)
+        return { id: 'r', ...input }
+      },
+    } as never)
+    const mounted = new EvolutionScorer(ctx, { corpusDir: corpus, attempts: 1 })
+
+    const gated = await mounted.evaluateBehavior({
+      baseline: { skill: CANDIDATE, scenarios: ['edit'], agent: AGENT, run: failRunner },
+      candidate: { skill: CANDIDATE, scenarios: ['edit'], agent: AGENT, run: passRunner },
+      candidateBody: { name: CANDIDATE, body: 'no frontmatter here' },
+      catalog: CATALOG.slice(0, 2),
+      positiveQueries: ['polish prose'],
+      negativeQueries: ['ship code'],
+      routingTopK: 1,
+    })
+    expect(gated.status).toBe('gated')
+    expect(health.runs[0]).toMatchObject({
+      skill: CANDIDATE,
+      status: 'gated',
+      approved: false,
+      unanimous: false,
+      approving: ['routing'],
+      dissenting: ['contract'],
+    })
+
+    const evaluated = await mounted.evaluateBehavior({
+      baseline: { skill: CANDIDATE, scenarios: ['edit'], agent: AGENT, run: failRunner },
+      candidate: { skill: CANDIDATE, scenarios: ['edit'], agent: AGENT, run: passRunner },
+      candidateBody: { name: CANDIDATE, body: validBody() },
+      catalog: CATALOG,
+      positiveQueries: ['polish prose'],
+      negativeQueries: ['ship code'],
+    })
+    expect(evaluated.status).toBe('evaluated')
+    expect(health.runs[1]).toMatchObject({
+      skill: CANDIDATE,
+      status: 'evaluated',
+      approved: true,
+      unanimous: true,
+      approving: ['contract', 'routing', 'replay'],
+      dissenting: [],
+    })
+    expect(runs).toBe(2)
+  })
+
+  it('survives a failing health store with a warning', async () => {
+    const health: { runs: Record<string, unknown>[]; error?: Error } = { runs: [] }
+    const ctx = new Context()
+    new SessionProjectionRegistry(ctx)
+    new TokenMeter(ctx)
+    ctx.provide('evolutionEvaluatorHealth', {
+      observe: async (input: Record<string, unknown>) => {
+        if (health.error !== undefined) throw health.error
+        health.runs.push(input)
+        return { id: 'r', ...input }
+      },
+    } as never)
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
+    const mounted = new EvolutionScorer(ctx, { corpusDir: corpus, attempts: 1 })
+    health.error = new Error('health disk on fire')
+    try {
+      const evaluation = await mounted.evaluateBehavior({
+        baseline: { skill: CANDIDATE, scenarios: ['edit'], agent: AGENT, run: failRunner },
+        candidate: { skill: CANDIDATE, scenarios: ['edit'], agent: AGENT, run: passRunner },
+        candidateBody: { name: CANDIDATE, body: validBody() },
+        catalog: CATALOG,
+        positiveQueries: ['polish prose'],
+        negativeQueries: ['ship code'],
+      })
+      expect(evaluation.status).toBe('evaluated')
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('could not record evaluator health'))
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
+  it('records a disagreement signal into the mounted uncertainty store', async () => {
+    const signals: Record<string, unknown>[] = []
+    const ctx = new Context()
+    new SessionProjectionRegistry(ctx)
+    new TokenMeter(ctx)
+    ctx.provide('evolutionUncertainty', {
+      record: async (input: Record<string, unknown>) => {
+        signals.push(input)
+        return { signalId: input.signalId as string, ...input, at: '' }
+      },
+    } as never)
+    const mounted = new EvolutionScorer(ctx, { corpusDir: corpus, attempts: 1 })
+
+    // A split verdict names the dissenting channel as a disagreement signal.
+    const gated = await mounted.evaluateBehavior({
+      baseline: { skill: CANDIDATE, scenarios: ['edit'], agent: AGENT, run: failRunner },
+      candidate: { skill: CANDIDATE, scenarios: ['edit'], agent: AGENT, run: passRunner },
+      candidateBody: { name: CANDIDATE, body: 'no frontmatter here' },
+      catalog: CATALOG.slice(0, 2),
+      positiveQueries: ['polish prose'],
+      negativeQueries: ['ship code'],
+      routingTopK: 1,
+    })
+    expect(gated.status).toBe('gated')
+    expect(signals[0]).toMatchObject({
+      skill: CANDIDATE,
+      taskId: null,
+      kind: 'disagreement',
+      score: 0.5,
+    })
+    expect(String(signals[0]?.detail)).toContain('contract dissenting')
+
+    // A unanimous verdict produces no signal.
+    const evaluated = await mounted.evaluateBehavior({
+      baseline: { skill: CANDIDATE, scenarios: ['edit'], agent: AGENT, run: failRunner },
+      candidate: { skill: CANDIDATE, scenarios: ['edit'], agent: AGENT, run: passRunner },
+      candidateBody: { name: CANDIDATE, body: validBody() },
+      catalog: CATALOG,
+      positiveQueries: ['polish prose'],
+      negativeQueries: ['ship code'],
+    })
+    expect(evaluated.status).toBe('evaluated')
+    expect(signals).toHaveLength(1)
+    expect(runs).toBe(2)
+  })
+
+  it('survives a failing uncertainty store with a warning', async () => {
+    const uncertainty: { error?: Error } = {}
+    const ctx = new Context()
+    new SessionProjectionRegistry(ctx)
+    new TokenMeter(ctx)
+    ctx.provide('evolutionUncertainty', {
+      record: async () => {
+        if (uncertainty.error !== undefined) throw uncertainty.error
+        return { signalId: 's', at: '' }
+      },
+    } as never)
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
+    const mounted = new EvolutionScorer(ctx, { corpusDir: corpus, attempts: 1 })
+    uncertainty.error = new Error('uncertainty disk on fire')
+    try {
+      const evaluation = await mounted.evaluateBehavior({
+        baseline: { skill: CANDIDATE, scenarios: ['edit'], agent: AGENT, run: failRunner },
+        candidate: { skill: CANDIDATE, scenarios: ['edit'], agent: AGENT, run: passRunner },
+        candidateBody: { name: CANDIDATE, body: 'no frontmatter here' },
+        catalog: CATALOG.slice(0, 2),
+        positiveQueries: ['polish prose'],
+        negativeQueries: ['ship code'],
+        routingTopK: 1,
+      })
+      expect(evaluation.status).toBe('gated')
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('could not record uncertainty signal'))
+    } finally {
+      warn.mockRestore()
+    }
   })
 })

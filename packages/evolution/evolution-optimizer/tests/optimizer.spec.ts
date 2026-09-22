@@ -3,7 +3,7 @@
  * a missing seam throws loudly, an unbeaten baseline stages nothing, and a
  * winning variant stages exactly one skill patch.
  */
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import Storage from '@deepseek-ai/dsh-storage'
 import { DomainFacility } from '@deepseek-ai/dsh-storage-domain'
@@ -68,6 +68,22 @@ interface BenchSeams {
   scoresFor?: ((scenarios: readonly string[], call: number) => { pass: boolean; tokens: number; wallTimeMs: number }) | undefined
   /** Scoring-semantics version the fake scorer reports; the ledger stamps it. */
   scorerVersion?: number | undefined
+  /** Mount a fake population store; `error` fails every record write. */
+  population?: { error?: Error } | undefined
+  /** Mount a fake model-routes store; `error` fails every observe write. */
+  routes?: { error?: Error } | undefined
+  /** Mount a fake canary store; `error` fails every enter write. */
+  canary?: { error?: Error } | undefined
+  /** Mount a fake novelty-search store; `error` fails every record write. */
+  novelty?: { error?: Error } | undefined
+  /** Mount a fake stagnation store; `error` fails every recordRun write. */
+  stagnation?: { error?: Error } | undefined
+  /** Mount a fake islands store; `error` fails every advance write. */
+  islands?: { error?: Error } | undefined
+  /** Mount a fake self-model store; `error` fails every observe write. */
+  selfModel?: { error?: Error } | undefined
+  /** Mount a fake lineage store; `error` fails every record write. */
+  lineage?: { error?: Error } | undefined
 }
 
 /** A storage domain whose only table refuses every write. */
@@ -159,13 +175,97 @@ async function bench(seams: BenchSeams = {}) {
       return entry
     },
   } as never)
+  const populationRows: Record<string, unknown>[] = []
+  if (seams.population !== undefined) {
+    ctx.provide('evolutionPopulation', {
+      record: async (input: Record<string, unknown>) => {
+        if (seams.population?.error !== undefined) throw seams.population.error
+        populationRows.push(input)
+        return { candidateId: input.candidateId as string, ...input }
+      },
+    } as never)
+  }
+  const routeRows: Record<string, unknown>[] = []
+  if (seams.routes !== undefined) {
+    ctx.provide('evolutionModelRoutes', {
+      observe: async (input: Record<string, unknown>) => {
+        if (seams.routes?.error !== undefined) throw seams.routes.error
+        routeRows.push(input)
+        return { id: 'r1', ...input }
+      },
+    } as never)
+  }
+  const canaryRows: Record<string, unknown>[] = []
+  if (seams.canary !== undefined) {
+    ctx.provide('evolutionCanary', {
+      enter: async (input: Record<string, unknown>) => {
+        if (seams.canary?.error !== undefined) throw seams.canary.error
+        canaryRows.push(input)
+        return { state: 'shadow', ...input }
+      },
+    } as never)
+  }
+  const noveltyRows: Record<string, unknown>[] = []
+  if (seams.novelty !== undefined) {
+    ctx.provide('evolutionNovelty', {
+      record: async (input: Record<string, unknown>) => {
+        if (seams.novelty?.error !== undefined) throw seams.novelty.error
+        noveltyRows.push(input)
+        return { candidateId: input.candidateId as string, ...input, novelty: 1, at: '' }
+      },
+    } as never)
+  }
+  const stagnationRows: Record<string, unknown>[] = []
+  if (seams.stagnation !== undefined) {
+    ctx.provide('evolutionStagnation', {
+      recordRun: async (input: Record<string, unknown>) => {
+        if (seams.stagnation?.error !== undefined) throw seams.stagnation.error
+        stagnationRows.push(input)
+        return { runId: input.runId as string, ...input, generation: 1, improved: true, at: '' }
+      },
+    } as never)
+  }
+  const islandTicks: string[] = []
+  if (seams.islands !== undefined) {
+    ctx.provide('evolutionIslands', {
+      advance: async (skill: string) => {
+        if (seams.islands?.error !== undefined) throw seams.islands.error
+        islandTicks.push(skill)
+        return { islandId: 'a', skill, generation: 1 }
+      },
+    } as never)
+  }
+  const selfModelObservations: Record<string, unknown>[] = []
+  if (seams.selfModel !== undefined) {
+    ctx.provide('evolutionSelfModel', {
+      observe: async (input: Record<string, unknown>) => {
+        if (seams.selfModel?.error !== undefined) throw seams.selfModel.error
+        selfModelObservations.push(input)
+        return { capability: input.capability as string, ...input, score: 1, confidence: 1, failures: [], coveringSkills: [], observations: 1, at: '' }
+      },
+    } as never)
+  }
+  const lineageEnvelopes: Record<string, unknown>[] = []
+  if (seams.lineage !== undefined) {
+    ctx.provide('evolutionLineage', {
+      record: async (input: Record<string, unknown>) => {
+        if (seams.lineage?.error !== undefined) throw seams.lineage.error
+        lineageEnvelopes.push(input)
+        return { experimentId: input.experimentId as string, ...input, at: '' }
+      },
+    } as never)
+  }
   await ctx.plugin(EvolutionOptimizer, {
     ...(seams.route === false ? {} : { provider: 'deepseek', model: 'deepseek-chat' }),
     agent: { binScript: 'bin', configPath: 'cfg', tsconfigPath: 'tsconfig' },
     ...seams.config,
   })
   const optimizer = ctx.get('evolutionOptimizer') as EvolutionOptimizer
-  return { ctx, optimizer, staged, scoreCalls, scorer: fakeScorer, llmCalls: () => llmCalls }
+  return {
+    ctx, optimizer, staged, populationRows, routeRows, canaryRows, noveltyRows,
+    stagnationRows, islandTicks, selfModelObservations, lineageEnvelopes,
+    scoreCalls, scorer: fakeScorer, llmCalls: () => llmCalls,
+  }
 }
 const request = {
   skill: 'writer',
@@ -302,6 +402,397 @@ describe('EvolutionOptimizer', () => {
     expect(staged).toHaveLength(1)
     expect(staged[0]).toMatchObject({ kind: 'skill', op: 'patch' })
     expect(staged[0]?.payload).toMatchObject({ skill: 'writer', body: V2, operator: 'rewrite' })
+  })
+
+  it('keeps staging when the population store is not mounted', async () => {
+    const { optimizer, staged } = await bench({
+      record: { name: 'writer', usage: usage(12, 10) },
+      body: BASE,
+      mutations: [V2],
+      scoresFor: (_scenarios, call) => ({ pass: true, tokens: call === 0 ? 9 : 3, wallTimeMs: 5 }),
+    })
+    const report = await optimizer.optimize(request)
+    expect(report.status).toBe('staged')
+    expect(staged).toHaveLength(1)
+  })
+
+  it('records the staged winner into a mounted population store', async () => {
+    const { optimizer, populationRows } = await bench({
+      record: { name: 'writer', usage: usage(12, 10) },
+      body: BASE,
+      mutations: [V2],
+      population: {},
+      scoresFor: (_scenarios, call) => ({ pass: true, tokens: call === 0 ? 9 : 3, wallTimeMs: 5 }),
+    })
+    const report = await optimizer.optimize(request)
+    expect(report.status).toBe('staged')
+    expect(populationRows).toHaveLength(1)
+    expect(populationRows[0]).toMatchObject({
+      skill: 'writer',
+      candidateId: 'staged-0',
+      operator: 'rewrite',
+      status: 'staged',
+      triple: { pass: true, tokens: 3, wallTimeMs: 5 },
+    })
+    expect(populationRows[0]?.novelty).toBeGreaterThan(0)
+  })
+
+  it('survives a failing population store with a warning', async () => {
+    const { ctx, optimizer, staged } = await bench({
+      record: { name: 'writer', usage: usage(12, 10) },
+      body: BASE,
+      mutations: [V2],
+      population: { error: new Error('population disk on fire') },
+      scoresFor: (_scenarios, call) => ({ pass: true, tokens: call === 0 ? 9 : 3, wallTimeMs: 5 }),
+    })
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
+    try {
+      const report = await optimizer.optimize(request)
+      expect(report.status).toBe('staged')
+      expect(staged).toHaveLength(1)
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('could not record population'))
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
+  it('keeps staging when the model-routes store is not mounted', async () => {
+    const { optimizer, staged } = await bench({
+      record: { name: 'writer', usage: usage(12, 10) },
+      body: BASE,
+      mutations: [V2],
+      scoresFor: (_scenarios, call) => ({ pass: true, tokens: call === 0 ? 9 : 3, wallTimeMs: 5 }),
+    })
+    const report = await optimizer.optimize(request)
+    expect(report.status).toBe('staged')
+    expect(staged).toHaveLength(1)
+  })
+
+  it('records the candidate-generation route into a mounted model-routes store', async () => {
+    const { optimizer, routeRows } = await bench({
+      record: { name: 'writer', usage: usage(12, 10) },
+      body: BASE,
+      mutations: [V2],
+      routes: {},
+      scoresFor: (_scenarios, call) => ({ pass: true, tokens: call === 0 ? 9 : 3, wallTimeMs: 5 }),
+    })
+    const report = await optimizer.optimize(request)
+    expect(report.status).toBe('staged')
+    expect(routeRows).toHaveLength(1)
+    expect(routeRows[0]).toEqual({
+      role: 'candidate-generation',
+      route: { provider: 'deepseek', model: 'deepseek-chat' },
+      triple: { pass: true, tokens: 3, wallTimeMs: 5 },
+    })
+  })
+
+  it('survives a failing model-routes store with a warning', async () => {
+    const { ctx, optimizer, staged } = await bench({
+      record: { name: 'writer', usage: usage(12, 10) },
+      body: BASE,
+      mutations: [V2],
+      routes: { error: new Error('routes disk on fire') },
+      scoresFor: (_scenarios, call) => ({ pass: true, tokens: call === 0 ? 9 : 3, wallTimeMs: 5 }),
+    })
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
+    try {
+      const report = await optimizer.optimize(request)
+      expect(report.status).toBe('staged')
+      expect(staged).toHaveLength(1)
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('could not record model route'))
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
+  it('keeps staging when the canary store is not mounted', async () => {
+    const { optimizer, staged } = await bench({
+      record: { name: 'writer', usage: usage(12, 10) },
+      body: BASE,
+      mutations: [V2],
+      scoresFor: (_scenarios, call) => ({ pass: true, tokens: call === 0 ? 9 : 3, wallTimeMs: 5 }),
+    })
+    const report = await optimizer.optimize(request)
+    expect(report.status).toBe('staged')
+    expect(staged).toHaveLength(1)
+  })
+
+  it('enters the staged write into a mounted canary store as shadow', async () => {
+    const { optimizer, canaryRows } = await bench({
+      record: { name: 'writer', usage: usage(12, 10) },
+      body: BASE,
+      mutations: [V2],
+      canary: {},
+      scoresFor: (_scenarios, call) => ({ pass: true, tokens: call === 0 ? 9 : 3, wallTimeMs: 5 }),
+    })
+    const report = await optimizer.optimize(request)
+    expect(report.status).toBe('staged')
+    expect(canaryRows).toHaveLength(1)
+    expect(canaryRows[0]).toEqual({
+      id: 'staged-0',
+      skill: 'writer',
+      triple: { pass: true, tokens: 3, wallTimeMs: 5 },
+    })
+  })
+
+  it('survives a failing canary store with a warning', async () => {
+    const { ctx, optimizer, staged } = await bench({
+      record: { name: 'writer', usage: usage(12, 10) },
+      body: BASE,
+      mutations: [V2],
+      canary: { error: new Error('canary disk on fire') },
+      scoresFor: (_scenarios, call) => ({ pass: true, tokens: call === 0 ? 9 : 3, wallTimeMs: 5 }),
+    })
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
+    try {
+      const report = await optimizer.optimize(request)
+      expect(report.status).toBe('staged')
+      expect(staged).toHaveLength(1)
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('could not record canary deployment'))
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
+  it('keeps staging when the novelty-search store is not mounted', async () => {
+    const { optimizer, staged } = await bench({
+      record: { name: 'writer', usage: usage(12, 10) },
+      body: BASE,
+      mutations: [V2],
+      scoresFor: (_scenarios, call) => ({ pass: true, tokens: call === 0 ? 9 : 3, wallTimeMs: 5 }),
+    })
+    const report = await optimizer.optimize(request)
+    expect(report.status).toBe('staged')
+    expect(staged).toHaveLength(1)
+  })
+
+  it('records the staged winner into a mounted novelty-search archive', async () => {
+    const { optimizer, noveltyRows } = await bench({
+      record: { name: 'writer', usage: usage(12, 10) },
+      body: BASE,
+      mutations: [V2],
+      novelty: {},
+      scoresFor: (_scenarios, call) => ({ pass: true, tokens: call === 0 ? 9 : 3, wallTimeMs: 5 }),
+    })
+    const report = await optimizer.optimize(request)
+    expect(report.status).toBe('staged')
+    expect(noveltyRows).toHaveLength(1)
+    expect(noveltyRows[0]).toMatchObject({
+      skill: 'writer',
+      candidateId: 'staged-0',
+    })
+    expect(noveltyRows[0]?.features).toEqual(expect.any(Array))
+  })
+
+  it('survives a failing novelty-search store with a warning', async () => {
+    const { ctx, optimizer, staged } = await bench({
+      record: { name: 'writer', usage: usage(12, 10) },
+      body: BASE,
+      mutations: [V2],
+      novelty: { error: new Error('archive disk on fire') },
+      scoresFor: (_scenarios, call) => ({ pass: true, tokens: call === 0 ? 9 : 3, wallTimeMs: 5 }),
+    })
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
+    try {
+      const report = await optimizer.optimize(request)
+      expect(report.status).toBe('staged')
+      expect(staged).toHaveLength(1)
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('could not record novelty archive'))
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
+  it('keeps staging when the stagnation store is not mounted', async () => {
+    const { optimizer, staged } = await bench({
+      record: { name: 'writer', usage: usage(12, 10) },
+      body: BASE,
+      mutations: [V2],
+      scoresFor: (_scenarios, call) => ({ pass: true, tokens: call === 0 ? 9 : 3, wallTimeMs: 5 }),
+    })
+    const report = await optimizer.optimize(request)
+    expect(report.status).toBe('staged')
+    expect(staged).toHaveLength(1)
+  })
+
+  it('records the staged winner into a mounted stagnation store as a run', async () => {
+    const { optimizer, stagnationRows } = await bench({
+      record: { name: 'writer', usage: usage(12, 10) },
+      body: BASE,
+      mutations: [V2],
+      stagnation: {},
+      scoresFor: (_scenarios, call) => ({ pass: true, tokens: call === 0 ? 9 : 3, wallTimeMs: 5 }),
+    })
+    const report = await optimizer.optimize(request)
+    expect(report.status).toBe('staged')
+    expect(stagnationRows).toHaveLength(1)
+    expect(stagnationRows[0]).toEqual({
+      skill: 'writer',
+      runId: 'staged-0',
+      score: { pass: true, tokens: 3, wallTimeMs: 5 },
+    })
+  })
+
+  it('survives a failing stagnation store with a warning', async () => {
+    const { ctx, optimizer, staged } = await bench({
+      record: { name: 'writer', usage: usage(12, 10) },
+      body: BASE,
+      mutations: [V2],
+      stagnation: { error: new Error('stagnation disk on fire') },
+      scoresFor: (_scenarios, call) => ({ pass: true, tokens: call === 0 ? 9 : 3, wallTimeMs: 5 }),
+    })
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
+    try {
+      const report = await optimizer.optimize(request)
+      expect(report.status).toBe('staged')
+      expect(staged).toHaveLength(1)
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('could not record stagnation run'))
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
+  it('keeps staging when the islands store is not mounted', async () => {
+    const { optimizer, staged } = await bench({
+      record: { name: 'writer', usage: usage(12, 10) },
+      body: BASE,
+      mutations: [V2],
+      scoresFor: (_scenarios, call) => ({ pass: true, tokens: call === 0 ? 9 : 3, wallTimeMs: 5 }),
+    })
+    const report = await optimizer.optimize(request)
+    expect(report.status).toBe('staged')
+    expect(staged).toHaveLength(1)
+  })
+
+  it('advances the skill head island in a mounted islands store', async () => {
+    const { optimizer, islandTicks } = await bench({
+      record: { name: 'writer', usage: usage(12, 10) },
+      body: BASE,
+      mutations: [V2],
+      islands: {},
+      scoresFor: (_scenarios, call) => ({ pass: true, tokens: call === 0 ? 9 : 3, wallTimeMs: 5 }),
+    })
+    const report = await optimizer.optimize(request)
+    expect(report.status).toBe('staged')
+    expect(islandTicks).toEqual(['writer'])
+  })
+
+  it('survives a failing islands store with a warning', async () => {
+    const { ctx, optimizer, staged } = await bench({
+      record: { name: 'writer', usage: usage(12, 10) },
+      body: BASE,
+      mutations: [V2],
+      islands: { error: new Error('islands disk on fire') },
+      scoresFor: (_scenarios, call) => ({ pass: true, tokens: call === 0 ? 9 : 3, wallTimeMs: 5 }),
+    })
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
+    try {
+      const report = await optimizer.optimize(request)
+      expect(report.status).toBe('staged')
+      expect(staged).toHaveLength(1)
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('could not advance evolution islands'))
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
+  it('keeps staging when the self-model store is not mounted', async () => {
+    const { optimizer, staged } = await bench({
+      record: { name: 'writer', usage: usage(12, 10) },
+      body: BASE,
+      mutations: [V2],
+      scoresFor: (_scenarios, call) => ({ pass: true, tokens: call === 0 ? 9 : 3, wallTimeMs: 5 }),
+    })
+    const report = await optimizer.optimize(request)
+    expect(report.status).toBe('staged')
+    expect(staged).toHaveLength(1)
+  })
+
+  it('records a self-model capability observation in a mounted store', async () => {
+    const { optimizer, selfModelObservations } = await bench({
+      record: { name: 'writer', usage: usage(12, 10) },
+      body: BASE,
+      mutations: [V2],
+      selfModel: {},
+      scoresFor: (_scenarios, call) => ({ pass: true, tokens: call === 0 ? 9 : 3, wallTimeMs: 5 }),
+    })
+    const report = await optimizer.optimize(request)
+    expect(report.status).toBe('staged')
+    expect(selfModelObservations).toEqual([
+      { capability: 'writer', skill: 'writer', pass: true, failure: undefined },
+    ])
+  })
+
+  it('survives a failing self-model store with a warning', async () => {
+    const { ctx, optimizer, staged } = await bench({
+      record: { name: 'writer', usage: usage(12, 10) },
+      body: BASE,
+      mutations: [V2],
+      selfModel: { error: new Error('self-model disk on fire') },
+      scoresFor: (_scenarios, call) => ({ pass: true, tokens: call === 0 ? 9 : 3, wallTimeMs: 5 }),
+    })
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
+    try {
+      const report = await optimizer.optimize(request)
+      expect(report.status).toBe('staged')
+      expect(staged).toHaveLength(1)
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('could not record self model'))
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
+  it('keeps staging when the lineage store is not mounted', async () => {
+    const { optimizer, staged } = await bench({
+      record: { name: 'writer', usage: usage(12, 10) },
+      body: BASE,
+      mutations: [V2],
+      scoresFor: (_scenarios, call) => ({ pass: true, tokens: call === 0 ? 9 : 3, wallTimeMs: 5 }),
+    })
+    const report = await optimizer.optimize(request)
+    expect(report.status).toBe('staged')
+    expect(staged).toHaveLength(1)
+  })
+
+  it('records a lineage envelope in a mounted store', async () => {
+    const { optimizer, lineageEnvelopes } = await bench({
+      record: { name: 'writer', usage: usage(12, 10) },
+      body: BASE,
+      mutations: [V2],
+      lineage: {},
+      scoresFor: (_scenarios, call) => ({ pass: true, tokens: call === 0 ? 9 : 3, wallTimeMs: 5 }),
+    })
+    const report = await optimizer.optimize(request)
+    expect(report.status).toBe('staged')
+    expect(lineageEnvelopes).toHaveLength(1)
+    const envelope = lineageEnvelopes[0] as Record<string, unknown>
+    expect(envelope.experimentId).toBe('staged-0')
+    expect(envelope.skill).toBe('writer')
+    expect(envelope.outcome).toBe('improved')
+    expect(envelope.dependencies).toMatchObject({
+      evaluator: 'scorer-v1',
+      model: 'deepseek/deepseek-chat',
+    })
+    expect(typeof (envelope.dependencies as Record<string, unknown>).skill).toBe('string')
+  })
+
+  it('survives a failing lineage store with a warning', async () => {
+    const { ctx, optimizer, staged } = await bench({
+      record: { name: 'writer', usage: usage(12, 10) },
+      body: BASE,
+      mutations: [V2],
+      lineage: { error: new Error('lineage disk on fire') },
+      scoresFor: (_scenarios, call) => ({ pass: true, tokens: call === 0 ? 9 : 3, wallTimeMs: 5 }),
+    })
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
+    try {
+      const report = await optimizer.optimize(request)
+      expect(report.status).toBe('staged')
+      expect(staged).toHaveLength(1)
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('could not record lineage envelope'))
+    } finally {
+      warn.mockRestore()
+    }
   })
 
   it('refuses a candidate body that would break the skill before scoring it', async () => {

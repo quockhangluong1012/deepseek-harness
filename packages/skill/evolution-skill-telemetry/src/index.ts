@@ -23,6 +23,7 @@ import type {
   SkillLifecycleState,
   SkillTrustFailure,
   SkillUsageRecord,
+  SkillVersion,
 } from './types.ts'
 
 export type {
@@ -33,8 +34,9 @@ export type {
   SkillTrustFailure,
   SkillTrustState,
   SkillUsageRecord,
+  SkillVersion,
 } from './types.ts'
-export { skillUsageDomainSpec } from './spec.ts'
+export { skillUsageDomainSpec, skillVersionRow } from './spec.ts'
 
 /** Produced outputs of one path needed before skill creation counts as warranted. */
 export const SKILL_CREATION_OUTPUT_THRESHOLD = 3
@@ -162,6 +164,9 @@ function freshRecord(): SkillUsageRecord {
   }
 }
 
+/** Version-table key separator: one NUL, so no skill-name prefix collides. */
+const VERSION_KEY_SEPARATOR = String.fromCharCode(0)
+
 /**
  * Invalidate the trust evidence of a record whose artifact changed. The skill
  * returns to provisional until independent observations re-earn it, and only
@@ -189,6 +194,7 @@ export class EvolutionSkillTelemetry extends Service {
   static inject = ['storageDomain', 'skills']
 
   private table?: KvTable<string, SkillUsageRecord>
+  private versionTable?: KvTable<string, SkillVersion>
   private readonly resolved: ResolvedConfig
   private consolidationCostRow?: ConsolidationCostRow
 
@@ -220,11 +226,12 @@ export class EvolutionSkillTelemetry extends Service {
     })
   }
 
-  /** Open the domain and publish the table handle. */
+  /** Open the domain and publish the table handles. */
   protected async [Service.init](): Promise<void> {
     const domain = await this.ctx.storageDomain.open(skillUsageDomainSpec)
     this.ctx.effect(() => () => domain.close(), 'evolution-skill-telemetry.domainClose')
     this.table = domain.table('records')
+    this.versionTable = domain.table('versions')
   }
 
   /**
@@ -394,12 +401,45 @@ export class EvolutionSkillTelemetry extends Service {
     const contentSha = createHash('sha256').update(content).digest('hex')
     const current = this.requireTable().get(name)
     if (current !== undefined && current.contentSha === contentSha) return structuredClone(current)
-    return this.write(name, record => ({
+    const next = await this.write(name, record => ({
       ...resetTrust(record),
       revision: record.revision + 1,
       parentRevisionSha: record.contentSha,
       contentSha,
     }))
+    await this.appendVersion(name, next.revision, contentSha, next.parentRevisionSha)
+    return next
+  }
+
+  /**
+   * List one skill's committed body revisions, oldest first: the durable
+   * artifact registry answering lineage without re-reading files. Excluded
+   * sources have no rows, and an absent record reads as an empty list.
+   * @param name - skill name.
+   * @returns the detached revision history, oldest first.
+   */
+  versions(name: string): readonly SkillVersion[] {
+    const prefix = `${name}${VERSION_KEY_SEPARATOR}`
+    return [...this.requireVersionTable().entries()]
+      .filter(([key]) => key.startsWith(prefix))
+      .map(([, row]) => structuredClone(row))
+      .sort((left, right) => left.revision - right.revision)
+  }
+
+  /**
+   * Forget one skill's record and its version history entirely. Purge calls
+   * this after removing the skill directory; absent names resolve without
+   * writing.
+   * @param name - skill name.
+   * @returns whether a record was removed.
+   */
+  async drop(name: string): Promise<boolean> {
+    const table = this.requireVersionTable()
+    const prefix = `${name}${VERSION_KEY_SEPARATOR}`
+    for (const key of [...table.keys()]) {
+      if (key.startsWith(prefix)) await table.delete(key)
+    }
+    return this.requireTable().delete(name)
   }
 
   /**
@@ -422,16 +462,6 @@ export class EvolutionSkillTelemetry extends Service {
       trustObservedSessions: trusted,
       trust: trusted.length >= this.resolved.trustPromotionSessions ? 'trusted' : record.trust,
     }
-  }
-
-  /**
-   * Forget one skill's record entirely. Purge calls this after removing the
-   * skill directory; absent names resolve without writing.
-   * @param name - skill name.
-   * @returns whether a record was removed.
-   */
-  async drop(name: string): Promise<boolean> {
-    return this.requireTable().delete(name)
   }
 
   /**
@@ -512,6 +542,33 @@ export class EvolutionSkillTelemetry extends Service {
   private requireTable(): KvTable<string, SkillUsageRecord> {
     if (this.table === undefined) throw new Error('evolution skill telemetry is not started yet')
     return this.table
+  }
+
+  private requireVersionTable(): KvTable<string, SkillVersion> {
+    if (this.versionTable === undefined) throw new Error('evolution skill telemetry is not started yet')
+    return this.versionTable
+  }
+
+  /**
+   * Append one committed version row to a skill's history.
+   * @param name - skill name.
+   * @param revision - revision number the row records.
+   * @param contentSha - body hash the revision committed.
+   * @param parentRevisionSha - body hash the revision replaced, or null.
+   */
+  private appendVersion(
+    name: string,
+    revision: number,
+    contentSha: string,
+    parentRevisionSha: string | null,
+  ): Promise<void> {
+    return this.requireVersionTable().put(`${name}${VERSION_KEY_SEPARATOR}${revision}`, {
+      name,
+      revision,
+      contentSha,
+      parentRevisionSha,
+      at: new Date().toISOString(),
+    })
   }
 }
 
