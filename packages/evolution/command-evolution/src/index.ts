@@ -5,14 +5,17 @@
  * session export (`/trajectory`), a research-and-save turn (`/learn`),
  * blueprint-backed skill suggestions (`/suggestions`), and the reporting
  * commands that read what the engine measured — traces (`/trace`),
+ * the scope graph (`/graph`) and its claims (`/claims`), stored failure
+ * reflections (`/reflection`),
  * benchmarks (`/benchmark`), curricula (`/curriculum`), evaluator health
  * (`/evaluators`), populations (`/population`), routes (`/routes`), rollouts
  * (`/canary`), novelty (`/novelty`), stagnation (`/stagnation`), islands
  * (`/islands`), self-models (`/selfmodel`), uncertainty (`/uncertainty`),
  * adversarial probes (`/adversary`), lineage (`/lineage`), sleep-time plans
  * (`/sleeptime`), budgets (`/budget`), engine configurations (`/meta`),
- * operators (`/operators`), routing evidence (`/router`), and evaluator
- * strategy (`/evaluator-strategy`). Every command but `/learn` answers
+ * operators (`/operators`), routing evidence (`/router`), evaluator
+ * strategy (`/evaluator-strategy`), and the capability-per-compute metrics
+ * (`/metrics`). Every command but `/learn` answers
  * directly from the seams it reads; `/learn` builds a prompt and queues it as
  * one ordinary turn.
  * @module @deepseek-ai/dsh-command-evolution
@@ -43,7 +46,7 @@ import type { EvolutionOptimizer, ExperimentRecord, OptimizeReport } from '@deep
 import { rankFrontier } from './frontier.ts'
 import type { FrontierInput } from './frontier.ts'
 import type {} from '@deepseek-ai/dsh-evolution-skill-telemetry'
-import type { SkillUsageRecord, SkillVersion } from '@deepseek-ai/dsh-evolution-skill-telemetry'
+import type { SkillLifecycleState, SkillUsageRecord, SkillVersion } from '@deepseek-ai/dsh-evolution-skill-telemetry'
 import type { SkillBlueprint } from '@deepseek-ai/dsh-skill'
 import { isUsageRange, type UsageRange } from '@deepseek-ai/dsh-usage-ledger'
 import { assertNever, type JsonValue } from '@deepseek-ai/dsh-util-values'
@@ -77,8 +80,9 @@ import type { EvolutionRole, ModelRoute, RouteEvidence, RouteRow, RouteSummary }
 import { nextStage } from '@deepseek-ai/dsh-evolution-canary'
 import type { DeploymentRecord, DeploymentState } from '@deepseek-ai/dsh-evolution-canary'
 import { settle } from '@deepseek-ai/dsh-evolution-budget'
-import type { BudgetAllocation, SpendRecord } from '@deepseek-ai/dsh-evolution-budget'
+import type { BudgetAllocation, BudgetSettlement, SpendRecord } from '@deepseek-ai/dsh-evolution-budget'
 import type { ConfigRecommendation, ConfigSummary, EngineRun } from '@deepseek-ai/dsh-evolution-meta'
+import type { MetricUnit, MetricValue } from '@deepseek-ai/dsh-evolution-metrics'
 import type { OperatorRanking, OperatorStats } from '@deepseek-ai/dsh-evolution-operators'
 import type { RouteEffectiveness, RouteRankingEntry, RoutingRole } from '@deepseek-ai/dsh-evolution-router'
 import { ROUTING_ROLES } from '@deepseek-ai/dsh-evolution-router'
@@ -130,6 +134,15 @@ const SKILLS_USAGE = 'Usage: /skills pending | approve <id>'
 
 /** Argument grammar for `/graph`; anything else reports usage. */
 const GRAPH_USAGE = 'Usage: /graph <entity> [relation]'
+
+/** Argument grammar for `/claims`; anything else reports usage. */
+const CLAIMS_USAGE = 'Usage: /claims [query]'
+
+/** Argument grammar for `/reflection`; anything else reports usage. */
+const REFLECTION_USAGE = 'Usage: /reflection [limit]'
+
+/** How many reflections `/reflection` lists when the caller names no limit. */
+const DEFAULT_REFLECTION_LIMIT = 5
 
 /** Usage line shown when `/dream` is given arguments it does not accept. */
 const DREAM_USAGE = 'Usage: /dream [light|rem|deep]'
@@ -203,6 +216,9 @@ const SLEEPTIME_USAGE = 'Usage: /sleeptime [tasks [<domain>] | artifacts [<taskI
 /** Argument grammar for `/budget`; anything else reports usage. */
 const BUDGET_USAGE = 'Usage: /budget [spends [<batchId>]]'
 
+/** Argument grammar for `/metrics`; anything else reports usage. */
+const METRICS_USAGE = 'Usage: /metrics [<taskClass>]'
+
 /** Argument grammar for `/meta`; anything else reports usage. */
 const META_USAGE = 'Usage: /meta [summaries [<taskClass>] | runs [<taskClass>] | recommend <taskClass>]'
 
@@ -227,6 +243,23 @@ const FRONTIER_USAGE = 'Usage: /frontier (no arguments)'
 /** The feedback surface `/frontier` reads, resolved dynamically at call time. */
 interface FrontierFeedback {
   signals(sessionIds: readonly string[], limit: number): readonly { message: string }[]
+}
+
+/** The feedback surface `/reflection` reads, resolved dynamically at call time. */
+interface ReflectionFeedback {
+  reflections(sessionIds: readonly string[], limit: number): Promise<readonly ReflectionRow[]>
+}
+
+/** One stored reflection as `/reflection` renders it. */
+interface ReflectionRow {
+  symptom: string
+  violatedExpectation: string
+  rootCause: string | null
+  correctedStrategy: string | null
+  antiPattern: string | null
+  reusableWhen: string | null
+  candidateTest: string | null
+  confidence: number
 }
 
 /** Self-model assessment shape `/selfmodel` reads when the store is mounted. */
@@ -739,6 +772,104 @@ function executeGraph(
       ...neighbours.map(reach => `- ${reach.path.join(' → ')} → ${reach.node.label}`),
     ].join('\n'),
   }
+}
+
+/**
+ * Execute `/claims [query]`: the scope's active claims, most believed first,
+ * each with the decomposed confidence and the evidence standing behind it. A
+ * retired claim is absent — `/graph` still reaches its subject, but only a
+ * standing claim answers here.
+ * @param ctx - plugin context carrying the optional knowledge graph.
+ * @param scope - scope identity resolved from the invoking session.
+ * @param invocation - raw command input.
+ * @returns the command result.
+ */
+function executeClaims(
+  ctx: Context,
+  scope: EvolutionScopeIdBrand,
+  invocation: CommandInvocation,
+): CommandResult {
+  const [query, ...rest] = graphArgs(invocation.rawInput)
+  if (rest.length > 0) return { kind: 'error', text: CLAIMS_USAGE }
+  const graph = ctx.get('evolutionGraph')
+  if (graph === undefined) return { kind: 'error', text: 'The knowledge graph is not mounted.' }
+  const claims = graph.claims(scope, query ?? '')
+  if (claims.length === 0) {
+    return { kind: 'success', text: `No active claim matching '${query ?? ''}' in this scope.` }
+  }
+  return {
+    kind: 'success',
+    text: [
+      `${claims.length} active claim${claims.length === 1 ? '' : 's'}:`,
+      ...claims.map(claim => `- ${claim.statement}`
+        + ` [confidence ${claim.confidence.toFixed(2)}`
+        + `, ${claim.independentSupport} supporting / ${claim.contradictionCount} contradicting source(s)`
+        + `, evidence ${claim.evidenceQuality.toFixed(2)}`
+        + `, source ${claim.sourceReliability.toFixed(2)}`
+        + `, newest ${claim.recency}]`),
+    ].join('\n'),
+  }
+}
+
+/**
+ * Execute `/reflection [limit]`: the structured reflections stored for this
+ * scope's sessions — the failure-to-heuristic association the learning loop
+ * keeps — newest first, with the anti-pattern to avoid and the check that would
+ * have caught the failure.
+ * @param ctx - plugin context carrying the optional feedback store.
+ * @param membership - the workspace the invoking session belongs to.
+ * @param invocation - raw command input.
+ * @returns the command result.
+ */
+async function executeReflection(
+  ctx: Context,
+  membership: ScopeMembership,
+  invocation: CommandInvocation,
+): Promise<CommandResult> {
+  const [rawLimit, ...rest] = splitArgs(invocation.rawInput)
+  const limit = rawLimit === undefined ? DEFAULT_REFLECTION_LIMIT : Number(rawLimit)
+  if (rest.length > 0 || !Number.isInteger(limit) || limit < 1) {
+    return { kind: 'error', text: REFLECTION_USAGE }
+  }
+  const feedback = ctx.get('evolutionFeedback') as ReflectionFeedback | undefined
+  if (feedback === undefined) return { kind: 'error', text: 'The evolution feedback store is not mounted.' }
+  // The reflections belong to the sessions this workspace owns; a workspace
+  // with none has nothing to report rather than an error.
+  const sessionIds = (ctx.workspaceRegistry.get(membership.id)?.sessionIds ?? []).map(id => String(id))
+  try {
+    const stored = await feedback.reflections(sessionIds, limit)
+    if (stored.length === 0) return { kind: 'success', text: 'No reflections stored for this scope.' }
+    return {
+      kind: 'success',
+      text: [
+        `${stored.length} reflection${stored.length === 1 ? '' : 's'} (newest first):`,
+        ...stored.map(renderReflection),
+      ].join('\n'),
+    }
+  } catch (error) {
+    return { kind: 'error', text: error instanceof Error ? error.message : String(error) }
+  }
+}
+
+/**
+ * Render one stored reflection as operator-facing text: what happened, what was
+ * expected instead, and the heuristic the loop will reuse.
+ * @param reflection - the stored reflection to render.
+ * @returns the rendered block.
+ */
+function renderReflection(reflection: ReflectionRow): string {
+  const lines = [
+    `- ${reflection.symptom} (confidence ${reflection.confidence.toFixed(2)})`,
+    `  expected: ${reflection.violatedExpectation}`,
+  ]
+  if (reflection.rootCause !== null) lines.push(`  cause: ${reflection.rootCause}`)
+  if (reflection.antiPattern !== null) {
+    lines.push(`  avoid: ${reflection.antiPattern}`
+      + (reflection.reusableWhen === null ? '' : ` (${reflection.reusableWhen})`))
+  }
+  if (reflection.correctedStrategy !== null) lines.push(`  instead: ${reflection.correctedStrategy}`)
+  if (reflection.candidateTest !== null) lines.push(`  check: ${reflection.candidateTest}`)
+  return lines.join('\n')
 }
 
 /**
@@ -2081,7 +2212,7 @@ async function executeCuratorExperiments(
 async function executeCuratorStatus(ctx: Context, curator: EvolutionCurator, signal: AbortSignal): Promise<CommandResult> {
   const telemetry = ctx.get('evolutionSkillTelemetry')
   const entries = telemetry?.entries() ?? []
-  const state = (lifecycle: 'active' | 'stale' | 'archived'): number =>
+  const state = (lifecycle: SkillLifecycleState): number =>
     entries.filter(entry => entry.usage.state === lifecycle).length
   const loads = entries.reduce((sum, entry) => sum + entry.usage.useCount + (entry.usage.failureCount ?? 0), 0)
   const failures = entries.reduce((sum, entry) => sum + (entry.usage.failureCount ?? 0), 0)
@@ -2095,7 +2226,7 @@ async function executeCuratorStatus(ctx: Context, curator: EvolutionCurator, sig
     `Curator: last pass ${curator.lastRunAt() ?? 'never'}`,
     telemetry === undefined
       ? 'Tracked skills: unavailable (skill telemetry is not mounted).'
-      : `Tracked skills: ${entries.length} (active ${state('active')}, stale ${state('stale')}, archived ${state('archived')}, pinned ${entries.filter(entry => entry.usage.pinned).length}) · trust: ${entries.filter(entry => entry.usage.trust === 'provisional').length} provisional, ${entries.filter(entry => entry.usage.trust === 'trusted').length} trusted`,
+      : `Tracked skills: ${entries.length} (active ${state('active')}, suspect ${state('suspect')}, stale ${state('stale')}, archived ${state('archived')}, pinned ${entries.filter(entry => entry.usage.pinned).length}) · trust: ${entries.filter(entry => entry.usage.trust === 'provisional').length} provisional, ${entries.filter(entry => entry.usage.trust === 'trusted').length} trusted`,
     today === undefined
       ? 'Cache hit (today): unavailable (usage ledger is not mounted).'
       : `Cache hit (today): ${Math.round(today.totals.cacheHitAvg * 100)}% (${today.totals.requests} requests)`,
@@ -2377,11 +2508,40 @@ function executeBudget(ctx: Context, invocation: CommandInvocation): CommandResu
         + (over
           ? ` — EXCEEDED by ${settlement.exceededTokens} tokens, ${settlement.exceededWallTimeMs}ms`
           : ` — ${settlement.remainingTokens} tokens, ${settlement.remainingWallTimeMs}ms left`)
+        // §37's later dimensions are only rendered when the allocation priced
+        // them, so a batch written before them reads exactly as it did.
+        + renderBudgetMargins(settlement)
     })
     return { kind: 'success', text: [`Budget (${allocations.length} batch${allocations.length === 1 ? '' : 'es'}):`, ...lines].join('\n') }
   } catch (error) {
     return { kind: 'error', text: error instanceof Error ? error.message : String(error) }
   }
+}
+
+/**
+ * Render the §37 dimensions a settlement priced beyond tokens and wall time:
+ * cost, deadline, and concurrency. A dimension the allocation did not price,
+ * or one nothing recorded, is named rather than shown as a zero it cannot
+ * prove.
+ * @param settlement - the settlement to render.
+ * @returns the rendered suffix, empty when the allocation priced none of them.
+ */
+function renderBudgetMargins(settlement: BudgetSettlement): string {
+  const parts: string[] = []
+  for (const [label, unit, margin] of [
+    ['cost', '', settlement.cost],
+    ['time', 'ms', settlement.time],
+    ['parallelism', '', settlement.parallelism],
+  ] as const) {
+    if (margin.budgeted === null) continue
+    parts.push(margin.spent === null
+      ? `${label} unmeasured (ceiling ${margin.budgeted}${unit})`
+      : `${label} ${margin.spent}/${margin.budgeted}${unit}`
+        + (margin.exceeded !== null && margin.exceeded > 0
+          ? ` — EXCEEDED by ${margin.exceeded}${unit}`
+          : ` — ${margin.remaining ?? 0}${unit} left`))
+  }
+  return parts.length === 0 ? '' : ` · ${parts.join(', ')}`
 }
 
 /**
@@ -2415,7 +2575,10 @@ function executeMeta(ctx: Context, invocation: CommandInvocation): CommandResult
           `Recommended engine configuration for '${taskClass}': ${recommendation.configId}`,
           `operators ${recommendation.config.operators}, evaluator ${recommendation.config.evaluator},`
           + ` budget ${recommendation.config.budget}, routing ${recommendation.config.routing}`,
-          `${recommendation.reason}`,
+          recommendation.workflow.length === 0
+            ? 'workflow: unrecorded'
+            : `workflow: ${recommendation.workflow.map(step => `${step.component}=${step.choice}`).join('>')}`,
+          recommendation.reason,
         ].join('\n'),
       }
     }
@@ -2606,6 +2769,73 @@ function executeEvaluatorStrategy(ctx: Context, invocation: CommandInvocation): 
 }
 
 /**
+ * Render one metric's number or the record it is missing. A measured value
+ * carries the store it was read from; an unmeasured one carries the gap, so
+ * the report never shows a zero where nothing was recorded.
+ * @param entry - the metric to render.
+ * @returns the report lines for this metric.
+ */
+function renderMetric(entry: MetricValue): string[] {
+  if (entry.value === null) return [`- ${entry.id}: not measured — ${entry.unavailableReason ?? 'no reason recorded'}`]
+  const line = `- ${entry.id}: ${formatMetricValue(entry.value, entry.unit)}`
+    + (entry.caveat === null ? '' : ` — ${entry.caveat}`)
+  return [line, `  from ${entry.inputs.join('; ')}`]
+}
+
+/**
+ * Render one measured number in the unit the metric is read in.
+ * @param value - the measurement.
+ * @param unit - how the metric is read.
+ * @returns the number as displayed.
+ */
+function formatMetricValue(value: number, unit: MetricUnit): string {
+  if (unit === 'share') return `${(value * 100).toFixed(1)}%`
+  if (unit === 'count') return String(value)
+  if (unit === 'ratio') return `${value.toFixed(2)}x`
+  return String(Number(value.toPrecision(4)))
+}
+
+/**
+ * Report the north-star metric — capability gain per unit of compute — and
+ * the supporting metrics over the recorded engine runs, optionally for one
+ * task class. The metric layer owns every number: this command only renders
+ * what it measured and, for each metric it could not measure, the record that
+ * is missing.
+ * @param ctx - plugin context carrying the metric layer.
+ * @param invocation - raw command input.
+ * @returns the command result.
+ */
+function executeMetrics(ctx: Context, invocation: CommandInvocation): CommandResult {
+  const store = ctx.get('evolutionMetrics')
+  if (store === undefined) return { kind: 'error', text: 'The evolution metric layer is not mounted.' }
+  const [taskClass, ...rest] = splitArgs(invocation.rawInput)
+  if (rest.length > 0) return { kind: 'error', text: METRICS_USAGE }
+  try {
+    const report = store.report(taskClass === undefined ? {} : { taskClass })
+    const { window } = report
+    const scope = window.taskClass === null ? '' : ` for '${window.taskClass}'`
+    const capability = window.baselinePassRate === null || window.treatmentPassRate === null
+      ? `Capability: not measured — the window holds ${window.baselineRuns} older and ${window.treatmentRuns} newer runs`
+      : `Capability: ${formatMetricValue(window.baselinePassRate, 'share')} → ${formatMetricValue(window.treatmentPassRate, 'share')}`
+        + ` over ${window.baselineRuns} older and ${window.treatmentRuns} newer runs`
+    return {
+      kind: 'success',
+      text: [
+        `Metric window${scope}: ${window.runs} run${window.runs === 1 ? '' : 's'}`
+        + (window.from === null ? '' : ` from ${window.from} to ${window.to}`),
+        capability,
+        'North star:',
+        ...report.northStar.flatMap(renderMetric),
+        'Supporting:',
+        ...report.supporting.flatMap(renderMetric),
+      ].join('\n'),
+    }
+  } catch (error) {
+    return { kind: 'error', text: error instanceof Error ? error.message : String(error) }
+  }
+}
+
+/**
  * Resolve the invocation's scope and run one scoped evolution command.
  * @param ctx - plugin context carrying the registry and the store.
  * @param profile - configured scope namespace.
@@ -2616,7 +2846,7 @@ function executeEvaluatorStrategy(ctx: Context, invocation: CommandInvocation): 
 async function handleCommand(
   ctx: Context,
   profile: string,
-  kind: 'memory' | 'refine' | 'journey' | 'skills' | 'graph' | 'trajectory' | 'dream' | 'frontier' | 'trace' | 'curriculum' | 'benchmark' | 'evaluators' | 'population' | 'routes' | 'canary' | 'novelty' | 'stagnation' | 'islands' | 'selfmodel' | 'uncertainty' | 'adversary' | 'lineage' | 'sleeptime' | 'budget' | 'meta' | 'operators' | 'router' | 'evaluator-strategy',
+  kind: 'memory' | 'refine' | 'journey' | 'skills' | 'graph' | 'claims' | 'reflection' | 'trajectory' | 'dream' | 'frontier' | 'trace' | 'curriculum' | 'benchmark' | 'evaluators' | 'population' | 'routes' | 'canary' | 'novelty' | 'stagnation' | 'islands' | 'selfmodel' | 'uncertainty' | 'adversary' | 'lineage' | 'sleeptime' | 'budget' | 'meta' | 'operators' | 'router' | 'evaluator-strategy' | 'metrics',
   invocation: CommandInvocation,
 ): Promise<CommandResult> {
   // Exporting the invoking session needs no workspace, so `/trajectory`
@@ -2643,6 +2873,7 @@ async function handleCommand(
   if (kind === 'operators') return executeOperators(ctx, invocation)
   if (kind === 'router') return executeRouter(ctx, invocation)
   if (kind === 'evaluator-strategy') return executeEvaluatorStrategy(ctx, invocation)
+  if (kind === 'metrics') return executeMetrics(ctx, invocation)
   const membership = await resolveMembership(ctx, invocation.agent.session)
   if (membership === undefined) return { kind: 'error', text: 'This session is outside any workspace scope.' }
   const scope = EvolutionScopeId(profile, String(membership.id))
@@ -2657,6 +2888,10 @@ async function handleCommand(
       return executeSkills(ctx, scope, invocation)
     case 'graph':
       return executeGraph(ctx, scope, invocation)
+    case 'claims':
+      return executeClaims(ctx, scope, invocation)
+    case 'reflection':
+      return executeReflection(ctx, membership, invocation)
     case 'dream':
       return executeDream(ctx, scope, membership, invocation)
     case 'frontier':
@@ -2723,6 +2958,20 @@ export function apply(ctx: Context, config: Config): void {
       description: 'Query the scope knowledge graph',
       input: { hint: '<entity> [relation]' },
       handler: (invocation: CommandInvocation) => track(handleCommand(ctx, profile, 'graph', invocation)),
+    })
+    yield ctx.commands.register({
+      definitionId: CommandDefinitionId('@deepseek-ai/dsh-command-evolution/claims'),
+      name: 'claims',
+      description: 'List the scope\'s active claims, most believed first',
+      input: { hint: '[query]' },
+      handler: (invocation: CommandInvocation) => track(handleCommand(ctx, profile, 'claims', invocation)),
+    })
+    yield ctx.commands.register({
+      definitionId: CommandDefinitionId('@deepseek-ai/dsh-command-evolution/reflection'),
+      name: 'reflection',
+      description: 'Show the stored failure reflections for this scope',
+      input: { hint: '[limit]' },
+      handler: (invocation: CommandInvocation) => track(handleCommand(ctx, profile, 'reflection', invocation)),
     })
     yield ctx.commands.register({
       definitionId: CommandDefinitionId('@deepseek-ai/dsh-command-evolution/curator'),
@@ -2884,6 +3133,13 @@ export function apply(ctx: Context, config: Config): void {
       description: 'Report evaluator trust earned from verdicts later judged against independent ground truth, or rank the evaluators of one task class',
       input: { hint: '[strategies [<taskClass>] | rank <taskClass>]' },
       handler: (invocation: CommandInvocation) => track(handleCommand(ctx, profile, 'evaluator-strategy', invocation)),
+    })
+    yield ctx.commands.register({
+      definitionId: CommandDefinitionId('@deepseek-ai/dsh-command-evolution/metrics'),
+      name: 'metrics',
+      description: 'Report capability gain per unit of compute and the supporting metrics, each measured or naming the record it is missing',
+      input: { hint: '[<taskClass>]' },
+      handler: (invocation: CommandInvocation) => track(handleCommand(ctx, profile, 'metrics', invocation)),
     })
     yield ctx.commands.register({
       definitionId: CommandDefinitionId('@deepseek-ai/dsh-command-evolution/learn'),

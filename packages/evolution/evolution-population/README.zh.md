@@ -7,7 +7,7 @@ kind: "package-reference"
 
 [English](README.md) | 中文
 
-## 摘要
+## 概述
 
 `dsh-evolution-population` 把优化器的暂存写入保存为跨运行的、按技能组织的种群：每个候选记录其代数、父代候选、产生它的变异算子、新颖度与测得的指标三元组，并带有一种身份——`staged`，之后进入 `approved` 或 `rejected`。精英排名（通过、然后更少 token、然后更快的墙钟时间）决定技能保留什么。优化器通过可选存储缝记录每一次暂存写入，宿主命令 `command-evolution` 通过 `/population` 检查种群。此处不调用任何模型。
 
@@ -18,7 +18,7 @@ kind: "package-reference"
 - [进一步探索](#further-exploration)
 - [模型体验](#model-experience)
 - [已知限制与暂缓工作](#known-limitations-and-deferred-work)
-- [开发者注记](#dev-note)
+- [开发备注](#dev-note)
 
 -----
 
@@ -98,7 +98,7 @@ const elite = ctx.evolutionPopulation.elite('writer')
 - **宿主全局，不按作用域键控** —— 候选是全局的；按作用域的种群需要给域加作用域键。
 
 <a id="dev-note"></a>
-### 开发者注记
+### 开发备注
 
 <details>
 <summary>维护者工作上下文 — 点击展开</summary>

@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-13-dreaming-and-reranker-decision.md
-2026-09-13-dreaming-and-reranker-decision.md: 2ea38f2bc04731600331bc458d6e36453d76d0d2
-2026-09-13-dreaming-and-reranker-decision.zh.md: c2c118863f9b79d9af6f7a68497e2f5107e7d81c
+2026-09-13-dreaming-and-reranker-decision.md: c4fc900a8f94a153b860dadfdf6a63b1750b4fb7
+2026-09-13-dreaming-and-reranker-decision.zh.md: 4b0a50c78c5f23bbfea3839c801624f16f3c4ea6

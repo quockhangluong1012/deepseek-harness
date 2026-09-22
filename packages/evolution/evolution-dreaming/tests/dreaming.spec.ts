@@ -127,7 +127,16 @@ describe('dreaming configuration', () => {
       maxNarratives: 20,
       maxPromotions: 200,
       maxCandidates: 500,
+      mergeOverlap: 0.6,
+      supersedeOverlap: 0.3,
+      maxRestatements: 5,
+      maxLedgerEntries: 10,
     })
+  })
+
+  it('rejects a supersede threshold above the merge threshold', () => {
+    expect(() => resolveConfig({ mergeOverlap: 0.2, supersedeOverlap: 0.5 }))
+      .toThrow(/supersedeOverlap/)
   })
 })
 
@@ -183,25 +192,39 @@ describe('dreaming cycle', () => {
     await ctx.fiber.dispose()
   })
 
-  it('promotes a note repeated across days without any recorded failure', async () => {
+  it('refuses a note-only candidate by provenance and admits it once a failure restates it', async () => {
+    const rows: SummaryRow[] = []
     const { ctx, dreaming } = await harness({ minScore: 0 }, {
+      feedback: fakeFeedback(rows),
       memory: fakeMemory({
         agentLessons: KNOWN,
         episodic: [
           { day: '2026-09-10', text: 'disk is full while writing the cache', addedAt: '2026-09-10T00:00:00.000Z' },
           { day: '2026-09-12', text: 'DISK IS FULL while writing the cache', addedAt: '2026-09-09T00:00:00.000Z' },
           { day: '2026-09-11', text: 'disk is full while writing the cache', addedAt: '2026-09-11T00:00:00.000Z' },
+          { day: '2026-09-11', text: 'the deploy key expired before the release', addedAt: '2026-09-11T00:00:00.000Z' },
         ],
       }),
     })
     await dreaming.run('light', scope, ['s1'])
-    const deep = await dreaming.run('deep', scope, ['s1'])
+    const refused = await dreaming.run('deep', scope, ['s1'], NOW)
+    // The notes carry no sighting the harness observed, so no gate can vouch
+    // for them and nothing is written.
+    expect(refused.promoted).toBe(0)
+    expect(refused.refused).toEqual([{ reason: 'unattributed-provenance', count: 2 }])
+    expect(dreaming.read(scope)).toBeUndefined()
+
+    // The same text recorded as a failing tool result is attributed, and the
+    // note sightings it absorbs only add to its evidence.
+    rows.push(strong({ tool: 'bash', message: 'DISK IS FULL while writing the cache' }))
+    await dreaming.run('light', scope, ['s1'])
+    const deep = await dreaming.run('deep', scope, ['s1'], NOW)
     expect(deep.promoted).toBe(1)
-    const promoted = dreaming.read(scope)?.promotions[0]
-    // Three sightings on two days clear the recall and diversity gates, and
-    // the statement is the earliest sighting's text.
-    expect(promoted?.statement).toBe('DISK IS FULL while writing the cache')
-    expect(promoted?.tool).toBeNull()
+    // The second note, which no failure restates, is still unattributable.
+    expect(deep.refused).toEqual([{ reason: 'unattributed-provenance', count: 1 }])
+    const promoted = dreaming.promotions(scope)[0]
+    expect(promoted?.tool).toBe('bash')
+    expect(promoted?.evidence).toEqual({ provenance: 'attributed', count: 12, sessions: 4 })
     await ctx.fiber.dispose()
   })
 
@@ -480,6 +503,137 @@ describe('dreaming cycle', () => {
   it('does nothing when the registry is absent', async () => {
     const { ctx, dreaming } = await harness({}, { feedback: fakeFeedback([strong()]) })
     await expect(dreaming.dreamAll()).resolves.toBeUndefined()
+    await ctx.fiber.dispose()
+  })
+})
+
+describe('dreaming promotion path', () => {
+  it('counts every gate that refused a candidate, by named reason', async () => {
+    const { ctx, dreaming } = await harness({ minScore: 0 }, {
+      feedback: fakeFeedback([
+        strong({ count: 2, message: 'disk is full while writing the first cache' }),
+        strong({ count: 2, message: 'disk is full while writing the second cache' }),
+        strong({ sessions: 1, message: 'disk is full while writing the third cache' }),
+      ]),
+      memory: fakeMemory({ agentLessons: KNOWN }),
+    })
+    await dreaming.run('light', scope, ['s1'])
+    const deep = await dreaming.run('deep', scope, ['s1'], NOW)
+    expect(deep.promoted).toBe(0)
+    expect(deep.refused).toEqual([
+      { reason: 'below-diversity', count: 1 },
+      { reason: 'below-recall', count: 2 },
+    ])
+    await ctx.fiber.dispose()
+  })
+
+  it('folds a restatement into the narrative it restates instead of promoting a near-duplicate', async () => {
+    const { ctx, dreaming } = await harness({ minScore: 0 }, {
+      feedback: fakeFeedback([
+        strong(),
+        strong({ count: 5, sessions: 3, message: 'disk is full while writing the cache again' }),
+      ]),
+      memory: fakeMemory({ agentLessons: KNOWN }),
+    })
+    await dreaming.run('light', scope, ['s1'])
+    const deep = await dreaming.run('deep', scope, ['s1'], NOW)
+    expect(deep).toMatchObject({ promoted: 1, merged: 1, superseded: 0 })
+    const answering = dreaming.promotions(scope)
+    expect(answering).toHaveLength(1)
+    expect(answering[0]?.statement).toBe('disk is full while writing the cache')
+    expect(answering[0]?.restatements).toEqual(['disk is full while writing the cache again'])
+    await ctx.fiber.dispose()
+  })
+
+  it('retires the predecessor a correction replaces, which stops answering', async () => {
+    const rows: SummaryRow[] = [strong()]
+    const { ctx, dreaming } = await harness({ minScore: 0 }, {
+      feedback: fakeFeedback(rows),
+      memory: fakeMemory({ agentLessons: KNOWN }),
+    })
+    await dreaming.run('light', scope, ['s1'])
+    await dreaming.run('deep', scope, ['s1'], NOW)
+    const predecessor = dreaming.promotions(scope)[0]
+    expect(predecessor?.statement).toBe('disk is full while writing the cache')
+
+    rows.splice(0, rows.length, strong({ message: 'disk full while writing the local drive' }))
+    await dreaming.run('light', scope, ['s1'])
+    const deep = await dreaming.run('deep', scope, ['s1'], NOW)
+    expect(deep).toMatchObject({ promoted: 1, merged: 0, superseded: 1 })
+    const answering = dreaming.promotions(scope)
+    expect(answering.map(promotion => promotion.statement)).toEqual(['disk full while writing the local drive'])
+    // The retired narrative keeps its place and its evidence in the record.
+    const record = dreaming.read(scope)
+    expect(record?.promotions).toHaveLength(2)
+    expect(record?.promotions[1]).toMatchObject({
+      id: predecessor?.id,
+      supersededBy: answering[0]?.id,
+      supersededAt: NOW,
+    })
+    await ctx.fiber.dispose()
+  })
+
+  it('restores exactly the promotions a pass replaced, and stays reversible', async () => {
+    const rows: SummaryRow[] = [strong()]
+    const { ctx, dreaming } = await harness({ minScore: 0 }, {
+      feedback: fakeFeedback(rows),
+      memory: fakeMemory({ agentLessons: KNOWN }),
+    })
+    expect(dreaming.promotions(scope)).toEqual([])
+    expect(dreaming.ledger(scope)).toEqual([])
+    await dreaming.run('light', scope, ['s1'])
+    await dreaming.run('deep', scope, ['s1'], NOW)
+    const preimage = structuredClone(dreaming.read(scope)?.promotions)
+
+    rows.splice(0, rows.length, strong({ message: 'disk full while writing the local drive' }))
+    await dreaming.run('light', scope, ['s1'])
+    await dreaming.run('deep', scope, ['s1'], NOW)
+    const entries = dreaming.ledger(scope)
+    expect(entries).toHaveLength(2)
+    const correction = entries[0]
+    if (correction === undefined) throw new Error('the correction was not ledgered')
+
+    const report = await dreaming.rollback(scope, correction.id, NOW)
+    expect(report.label).toBe(`pass '${correction.id}'`)
+    expect(report.restored).toEqual(preimage?.map(promotion => ({
+      id: promotion.id,
+      statement: promotion.statement,
+    })))
+    expect(dreaming.read(scope)?.promotions).toEqual(preimage)
+    expect(dreaming.promotions(scope)).toEqual(preimage)
+
+    // The rollback ledgered its own preimage, so it is as reversible as the
+    // pass it undid.
+    expect(dreaming.ledger(scope)[0]?.id).toBe(report.preRollback)
+    const reversed = await dreaming.rollback(scope, report.preRollback, NOW)
+    expect(reversed.restored).toEqual([{
+      id: correction.after[0]?.id,
+      statement: correction.after[0]?.statement,
+    }])
+    expect(dreaming.read(scope)?.promotions).toEqual(correction.after)
+    await ctx.fiber.dispose()
+  })
+
+  it('fails a rollback of an unknown entry before writing anything', async () => {
+    const { ctx, dreaming } = await harness({}, { feedback: fakeFeedback([strong()]) })
+    await expect(dreaming.rollback(scope, 'missing')).rejects.toThrow(/unknown ledger entry 'missing'/)
+    expect(dreaming.read(scope)).toBeUndefined()
+    await ctx.fiber.dispose()
+  })
+
+  it('bounds the ledger to the newest passes', async () => {
+    const rows: SummaryRow[] = [strong()]
+    const { ctx, dreaming } = await harness({ minScore: 0, maxLedgerEntries: 1 }, {
+      feedback: fakeFeedback(rows),
+      memory: fakeMemory({ agentLessons: KNOWN }),
+    })
+    await dreaming.dream(scope, ['s1'], NOW)
+    rows.splice(0, rows.length, strong({ message: 'disk full while writing the local drive' }))
+    await dreaming.dream(scope, ['s1'], NOW)
+    const entries = dreaming.ledger(scope)
+    expect(entries).toHaveLength(1)
+    expect(entries[0]?.at).toBe(NOW)
+    expect(entries[0]?.evidence).toMatchObject({ promoted: 1, superseded: 1, rollbackOf: null })
     await ctx.fiber.dispose()
   })
 })

@@ -2,6 +2,8 @@
 
 Status: implemented
 
+> The cadence fields, their validation, and the process-local turn counting remain current. The trigger half — `isNudgeTurn`'s modulo and the fixed advice text it gated — is superseded by [condition-based evolution nudges](../architecture/2026-09-22-condition-based-nudges.md), which keeps both intervals as the cadence ceiling over recorded conditions.
+
 English | [中文](2026-09-12-evolution-nudge-cadence.zh.md)
 
 ## Problem

@@ -23,8 +23,32 @@ export interface EvaluatorRun {
   approving: readonly string[]
   /** Channels that dissented, in canonical order. */
   dissenting: readonly string[]
+  /**
+   * The later ground-truth judgment of this verdict, or null while unjudged;
+   * absent on verdicts recorded before judgments were possible, which reads as
+   * unjudged.
+   */
+  judgment?: RunJudgment | null | undefined
   /** ISO-8601 instant the verdict was recorded. */
   at: string
+}
+
+/** A ground truth that judged one recorded verdict after the fact (§13). */
+export interface RunJudgment {
+  /** Whether the ground truth agreed with the evaluator's verdict. */
+  agrees: boolean
+  /** Whether the ground truth was measured independently of the evaluator. */
+  independent: boolean
+  /** ISO-8601 instant the judgment was recorded. */
+  at: string
+}
+
+/** One later judgment offered for recording. */
+export interface RunJudgmentInput {
+  /** Whether the ground truth agreed with the evaluator's verdict. */
+  agrees: boolean
+  /** Whether the ground truth was measured independently of the evaluator. */
+  independent: boolean
 }
 
 /** One verdict offered for recording; skipped evaluations carry no judgment and are rejected. */
@@ -71,4 +95,19 @@ export interface EvaluatorHealthSummary {
   falsePositiveRate: number
   /** Per-channel rows. */
   channels: readonly ChannelHealthRow[]
+}
+
+/**
+ * The calibration face of evaluator health (§13): the negative half of the
+ * contradiction reading, and how the evaluator correlates with the ground
+ * truths that later judged it. `falsePositiveRate` on the summary is the
+ * positive half of the same reading.
+ */
+export interface JudgeCalibration {
+  /** Rejected verdicts later contradicted by a newer same-skill approval, as a share of rejections. */
+  falseNegativeRate: number
+  /** Verdicts a later independent ground truth judged. */
+  independentlyJudged: number
+  /** Share of those judgments that agreed with the verdict, in 0..1; 0 with none. */
+  agreementRate: number
 }

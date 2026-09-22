@@ -139,13 +139,55 @@ export function buildSkillFile(name: string, description: string, body: string):
   return `---\n${stringifyYaml({ name, description })}---\n${body}`
 }
 
+/** One skill file whose head already passed the kept-frontmatter invariant. */
+export interface ValidatedSkillFile {
+  /** Frontmatter text without its fences, byte for byte as written. */
+  head: string
+  /** The head parsed, after the invariant checked it. */
+  fields: Record<string, unknown>
+  /** Markdown body after the closing fence. */
+  body: string
+}
+
 /**
- * Validate kept frontmatter on edit: it must parse and still name this
- * skill with a routing description.
+ * Split one complete skill file and validate its head against the invariant
+ * every content operation enforces: the fences must match, the head must
+ * parse, and it must name this skill with a routing description. One
+ * implementation, so a rewritten body and a synthesized file cannot disagree
+ * about what a valid head is.
+ * @param text - complete file text.
+ * @param name - skill the head must name.
+ * @returns the validated head text, its parsed fields, and the body.
+ */
+export function splitSkillFile(text: string, name: string): ValidatedSkillFile {
+  const split = splitFrontmatter(text)
+  if (split === undefined) throw new Error(`skill "${name}" has malformed frontmatter`)
+  return { ...split, fields: validateSkillHead(split.head, name) }
+}
+
+/**
+ * Rebuild one synthesized skill file from the caller's text: the head goes
+ * through the same invariant `edit` enforces, then its lineage is replaced
+ * with the sources actually composed, so a derived skill cannot claim parents
+ * it was not built from.
+ * @param text - complete file text the caller supplied.
+ * @param name - skill the head must name.
+ * @param sources - source skill names, in declaration order.
+ * @returns the file text to write.
+ */
+export function buildDerivedSkillFile(text: string, name: string, sources: readonly string[]): string {
+  const { fields, body } = splitSkillFile(text, name)
+  return `---\n${stringifyYaml({ ...fields, derived_from: [...sources] })}---\n${body}`
+}
+
+/**
+ * Validate kept frontmatter on edit or synthesis: it must parse and still name
+ * this skill with a routing description.
  * @param head - frontmatter text without fences.
  * @param name - skill under edit.
+ * @returns the parsed frontmatter fields.
  */
-export function validateSkillHead(head: string, name: string): void {
+export function validateSkillHead(head: string, name: string): Record<string, unknown> {
   let parsed: unknown
   try {
     parsed = parseYaml(head)
@@ -157,6 +199,7 @@ export function validateSkillHead(head: string, name: string): void {
   if (typeof record['description'] !== 'string' || record['description'].length === 0) {
     throw new Error(`skill "${name}" frontmatter must keep a description`)
   }
+  return record
 }
 
 /**

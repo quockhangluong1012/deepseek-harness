@@ -156,6 +156,6 @@ These limits define when the guard is a poor fit. They are current package const
 
 This Dev Note is working context for maintainers: open questions and directions that are not decided. It is explicitly non-authoritative — shipped behavior, limits, and accepted rationale live in the sections above, the package code, and the linked Agent Notes.
 
-The field names differ from the [evolutionary-harness specification](../../../specs/evolutionary-harness.spec.md) table, which lists `maxInputTokens` and `maxCostUsd`: the shipped field is `maxTotalTokens` because `ctx.tokenMeter` measures total request pressure rather than input tokens alone, and cost is priced by the deployment's `usdPerMillionTokens` instead of a harness pricing source, which does not exist.
+The field names differ from the `maxInputTokens` and `maxCostUsd` the evolutionary-harness specification proposed: the shipped field is `maxTotalTokens` because `ctx.tokenMeter` measures total request pressure rather than input tokens alone, and cost is priced by the deployment's `usdPerMillionTokens` instead of a harness pricing source, which does not exist. The family's reference contract is the [Evolutionary Harness subsystem](../../../docs/subsystems/evolutionary-harness.md).
 
 </details>

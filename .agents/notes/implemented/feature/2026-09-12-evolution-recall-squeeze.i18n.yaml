@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-12-evolution-recall-squeeze.md
-2026-09-12-evolution-recall-squeeze.md: ada22052cc3c2705e7d3d94ba4b6bd0f756956e0
-2026-09-12-evolution-recall-squeeze.zh.md: 89605e31019d1902ba695c06fe8248fc8df08548
+2026-09-12-evolution-recall-squeeze.md: fd91bb876389c7018f1998e746bea66ad5300f46
+2026-09-12-evolution-recall-squeeze.zh.md: 7129eca3bc034bf237741926a478eb9018ab6ba1

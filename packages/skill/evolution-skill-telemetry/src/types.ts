@@ -4,8 +4,22 @@
  * @module @deepseek-ai/dsh-evolution-skill-telemetry/src/types
  */
 
-/** Lifecycle state of one skill under curation. */
-export type SkillLifecycleState = 'active' | 'stale' | 'archived'
+/**
+ * Lifecycle state of one skill under curation, in drift order. `suspect` is
+ * the evidence rung §22 inserts between `active` and `stale`: recorded
+ * evidence — a failure spike, conflicting newer evidence, low measured
+ * utility, or a changed dependency version — questions the skill before
+ * elapsed idleness retires it.
+ */
+export type SkillLifecycleState = 'active' | 'suspect' | 'stale' | 'archived'
+
+/** One session's observed outcome for a skill, as the curator's trust pass graded it. */
+export interface SkillSessionOutcome {
+  /** The session that loaded the skill. */
+  readonly sessionId: string
+  /** Whether the session's evidence was clean (`ok`) or attributable (`failed`). */
+  readonly outcome: 'ok' | 'failed'
+}
 
 /** Provenance of a skill's creation: background review or user-directed. */
 export type SkillCreatedBy = 'agent' | 'foreground' | null
@@ -64,6 +78,15 @@ export interface SkillUsageRecord {
    * contribute.
    */
   sessionIds: readonly string[]
+  /**
+   * Per-session outcome evidence, newest first and deduplicated by session
+   * (the newest observation of a session replaces its earlier one), capped by
+   * the store's `maxSessionIds`. This is the arm §40's utility reading needs:
+   * `assisted_tasks` and `successful_tasks` count these entries, so a session
+   * that loaded the skill without a graded outcome is not counted at all.
+   * Cleared with the trust evidence when the body changes.
+   */
+  sessionOutcomes: readonly SkillSessionOutcome[]
   /** ISO-8601 instant of the last view, or null when never viewed. */
   lastViewedAt: string | null
   /** ISO-8601 instant of the last mutation, or null when never mutated. */
@@ -80,6 +103,12 @@ export interface SkillUsageRecord {
   absorbedInto: string | null
   /** ISO-8601 instant the skill entered `archived`, or null otherwise. */
   archivedAt: string | null
+  /**
+   * ISO-8601 instant the skill entered `suspect`, or null while it is not
+   * suspect. A load newer than this instant answers the evidence that raised
+   * the question; an older clean load cannot.
+   */
+  suspectAt: string | null
   /** Trust standing derived from independent observations, not elapsed time. */
   trust: SkillTrustState
   /** Times evidence demoted this skill; an edit is not a demotion. */

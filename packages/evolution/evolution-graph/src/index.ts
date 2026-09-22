@@ -9,6 +9,14 @@
  * whose output is validated before it is merged, and every traversal is
  * bounded by configured limits.
  *
+ * Beside the relations, one scope's record holds a claim layer: an asserted
+ * fact with the evidence for and against it, its lineage, and a belief
+ * derived from independent sources. `recordClaims` is its write face and
+ * `claims`/`claim` its read face; the shipped producer is
+ * `ctx.evolutionMemory`, whose decision batches this plugin folds into claims
+ * as they land, so the graph carries the model's confirmed, contradicted, and
+ * newly extracted facts as evidence rather than only as relation counts.
+ *
  * A registered heartbeat task keeps the graph filling on its own: session
  * text is buffered per scope as it is published, and each run extracts one
  * buffered scope at a time and clears what it consumed. An idle scope costs
@@ -24,9 +32,20 @@ import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import type { KvTable } from '@deepseek-ai/dsh-storage-domain'
 import { deadline } from '@deepseek-ai/dsh-timeout'
 import type {} from '@deepseek-ai/dsh-llm'
-import { EvolutionScopeId, storageKey, truncateUtf8, utf8Bytes } from '@deepseek-ai/dsh-evolution-memory'
+import {
+  EvolutionScopeId,
+  normalizeStatement,
+  storageKey,
+  truncateUtf8,
+  utf8Bytes,
+  type EvolutionDecisionsApplied,
+} from '@deepseek-ai/dsh-evolution-memory'
+import { applyClaimAssertions, assertionsFromDecisions } from './claims.ts'
 import { graphDomainSpec } from './spec.ts'
 import type {
+  Claim,
+  ClaimAssertion,
+  ClaimObserveResult,
   GraphAnswer,
   GraphNode,
   GraphReach,
@@ -35,7 +54,8 @@ import type {
 } from './types.ts'
 
 export type * from './types.ts'
-export { graphEdge, graphNode, graphDomainSpec, graphRecordSchema } from './spec.ts'
+export { claim, claimEvidence, graphDomainSpec, graphEdge, graphNode, graphRecordSchema } from './spec.ts'
+export { applyClaimAssertions, assertionsFromDecisions, deriveBelief } from './claims.ts'
 
 /** Timeout reason code for one extraction run. */
 export const EVOLUTION_GRAPH_TIMEOUT = 'EVOLUTION_GRAPH_TIMEOUT'
@@ -56,6 +76,8 @@ export interface Config {
   maxNodes?: number
   /** Relations retained per scope; further distinct relations are refused. */
   maxEdges?: number
+  /** Claims retained per scope; further distinct statements are refused. */
+  maxClaims?: number
   /** Results one answer, expansion, or lookup may return. */
   maxQueryLimit?: number
   /** Text budget for one extraction call in UTF-8 bytes. */
@@ -82,6 +104,7 @@ export interface Config {
 export const Config: z<Config> = z.object({
   maxNodes: z.number().step(1).min(1).default(500),
   maxEdges: z.number().step(1).min(1).default(2000),
+  maxClaims: z.number().step(1).min(1).default(500),
   maxQueryLimit: z.number().step(1).min(1).default(20),
   maxInputBytes: z.number().step(1).min(1).default(131072),
   maxOutputTokens: z.number().step(1).min(1).default(1024),
@@ -99,6 +122,7 @@ export const Config: z<Config> = z.object({
 export interface ResolvedConfig {
   maxNodes: number
   maxEdges: number
+  maxClaims: number
   maxQueryLimit: number
   maxInputBytes: number
   maxOutputTokens: number
@@ -121,6 +145,7 @@ export function resolveConfig(config: Config): ResolvedConfig {
   const {
     maxNodes = 500,
     maxEdges = 2000,
+    maxClaims = 500,
     maxQueryLimit = 20,
     maxInputBytes = 131072,
     maxOutputTokens = 1024,
@@ -142,6 +167,7 @@ export function resolveConfig(config: Config): ResolvedConfig {
   return {
     maxNodes,
     maxEdges,
+    maxClaims,
     maxQueryLimit,
     maxInputBytes,
     maxOutputTokens,
@@ -344,6 +370,9 @@ export class EvolutionGraph extends Service {
     this.ctx.on('session/event', (session, event) => {
       this.bufferEvent(session.id, event)
     })
+    this.ctx.on('evolution/decisions-applied', (batch) => {
+      this.absorbDecisions(batch)
+    })
     this.ctx.effect(() => () => {
       this.pending.clear()
     }, 'evolution-graph.pendingText')
@@ -387,7 +416,7 @@ export class EvolutionGraph extends Service {
   ): Promise<GraphObserveResult> {
     const current = this.requireTable().get(storageKey(scopeId))
     const record: GraphRecord = current === undefined
-      ? { nodes: [], edges: [], updatedAt: now }
+      ? { nodes: [], edges: [], claims: [], updatedAt: now }
       : structuredClone(current)
     const nodes = new Map(record.nodes.map(node => [node.id, node] as const))
     const edges = new Map(record.edges.map(edge => [edgeKey(edge.from, edge.relation, edge.to), edge] as const))
@@ -421,8 +450,93 @@ export class EvolutionGraph extends Service {
       edges.set(key, { ...existing, count: existing.count + 1, lastAt: now })
       result.reinforcedEdges += 1
     }
-    await this.write(scopeId, { nodes: [...nodes.values()], edges: [...edges.values()], updatedAt: now })
+    await this.write(scopeId, { nodes: [...nodes.values()], edges: [...edges.values()], claims: record.claims, updatedAt: now })
     return result
+  }
+
+  /**
+   * Record assertions about the scope's claims. Each assertion creates the
+   * claim the scope does not hold yet or merges into the one it does, adding
+   * evidence, lineage edges, and observed traces; a `supersedes` marks the
+   * claims it names `retired` so they stop answering {@link claims}.
+   *
+   * An assertion whose statement is blank once normalized is dropped and
+   * counted, and so is a new claim once the scope holds `maxClaims` of them:
+   * a saturated scope keeps answering from the claims it has instead of
+   * failing its caller.
+   * @param scopeId - scope identity.
+   * @param assertions - claims to record, in input order.
+   * @param now - ISO-8601 instant to stamp, defaulting to the wall clock.
+   * @returns what the batch added, updated, retired, and dropped.
+   */
+  async recordClaims(
+    scopeId: EvolutionScopeId,
+    assertions: readonly ClaimAssertion[],
+    now: string = new Date().toISOString(),
+  ): Promise<ClaimObserveResult> {
+    const current = this.requireTable().get(storageKey(scopeId))
+    const record: GraphRecord = current === undefined
+      ? { nodes: [], edges: [], claims: [], updatedAt: now }
+      : structuredClone(current)
+    const { claims, result } = applyClaimAssertions(record.claims, assertions, this.resolved.maxClaims, now)
+    if (result.added === 0 && result.updated === 0 && result.retired === 0) return result
+    await this.write(scopeId, { ...record, claims, updatedAt: now })
+    return result
+  }
+
+  /**
+   * Answer one claim query: the active claims whose statement contains the
+   * query, most believed first. A retired claim is never among them — it no
+   * longer answers anything — and is reachable only by identity through
+   * {@link claim}, which reports what retired it.
+   * @param scopeId - scope identity.
+   * @param query - case-insensitive statement substring; empty matches every active claim.
+   * @param limit - maximum claims returned, capped by `maxQueryLimit`.
+   * @returns the matching claims, best-supported first.
+   */
+  claims(
+    scopeId: EvolutionScopeId,
+    query: string = '',
+    limit: number = this.resolved.maxQueryLimit,
+  ): Claim[] {
+    const record = this.requireTable().get(storageKey(scopeId))
+    if (record === undefined) return []
+    const needle = query.trim().toLowerCase()
+    return record.claims
+      .filter(claim => claim.status === 'active' && (needle === '' || claim.statement.toLowerCase().includes(needle)))
+      .sort((left, right) => right.confidence - left.confidence || left.id.localeCompare(right.id))
+      .slice(0, Math.min(limit, this.resolved.maxQueryLimit))
+  }
+
+  /**
+   * Read one claim by identity, retired or active, so a caller can tell a
+   * claim that still stands from one a later claim replaced.
+   * @param scopeId - scope identity.
+   * @param statement - the claim's statement or its normalized identity.
+   * @returns the claim, or undefined when the scope holds none under that identity.
+   */
+  claim(scopeId: EvolutionScopeId, statement: string): Claim | undefined {
+    const record = this.requireTable().get(storageKey(scopeId))
+    if (record === undefined) return undefined
+    const id = normalizeStatement(statement)
+    return record.claims.find(claim => claim.id === id)
+  }
+
+  /**
+   * Fold one extraction pass's decision batch into the scope's claims, so the
+   * reviewer that already writes lessons populates the graph as it goes.
+   *
+   * The memory write that published the batch is durable before this runs, so
+   * a graph failure is logged rather than thrown: the emitter's call site
+   * must not fail over a second store's problem.
+   * @param batch - the applied batch, its source session, and the artifacts it addressed.
+   */
+  private absorbDecisions(batch: EvolutionDecisionsApplied): void {
+    const assertions = assertionsFromDecisions(batch.decisions, batch.artifacts, batch.sessionId)
+    if (assertions.length === 0) return
+    this.recordClaims(batch.scopeId, assertions).catch((error: unknown) => {
+      this.ctx.logger.warn(`evolution-graph: claim write for '${String(batch.scopeId)}' failed: ${String(error)}`)
+    })
   }
 
   /**

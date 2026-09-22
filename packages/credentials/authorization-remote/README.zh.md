@@ -7,17 +7,18 @@ kind: "package-reference"
 
 [English](README.md) | 中文
 
-## Summary
+## 概述
 
 `@deepseek-ai/dsh-authorization-remote` 是 `authorization` Remote namespace 的 Host owner：浏览器界面驱动 `ctx.authorization` 对话的一半。登录流程是一段对话——Host 展示一个页面，人回答一个问题——而一次 Remote 调用是一个请求产生一个结果。本服务用 attempt 桥接两者：`begin` 打开一个 attempt 并在后台运行流程，`frames` 按 cursor 轮询对话，`answer`/`decline` 结算一个待答提示。Models 页的登录伴随界面渲染这些 frames；seam 自身的流程（例如 `llm-pi-ai` 的提供方登录）保持不动。
 
-## Table of Contents
+## 目录
 
 - [Use this package](#use-this-package)
 - [Understand the implementation](#understand-the-implementation)
 - [Further Exploration](#further-exploration)
 - [Model Experience](#model-experience)
 - [Known Limitations and Deferred Work](#known-limitations-and-deferred-work)
+- [Dev Note](#dev-note)
 
 -----
 
@@ -98,3 +99,13 @@ kind: "package-reference"
 - **不撤销**——`signOut` 只忘记本地记录而不通知发行方，与 seam 自身的登出语义一致。
 
 **Runtime invariant:** 不发布 companion。attempt 注册表是本服务的内部状态：frames 派生自 seam 自身的生命周期，不存在可分歧的第二观察。
+
+<a id="dev-note"></a>
+### 开发备注
+
+<details>
+<summary>维护者工作背景——点击展开</summary>
+
+`status` 与 `signOut` 从不询问 seam：它们经 `ctx.credentials`（`describeRecord`、`deleteRecord`）读取与删除，因为授权记录归记录存储所有，而 `ctx.authorization` 只拥有流程生命周期——这也是为什么由任何其它路径写入的授权仍然是 `status` 报告的内容。提示 id 是逐 attempt 的计数器（`p1`、`p2`……），单独出现毫无意义，因此每个后续调用都要先带 attempt id；把它们做成全局唯一既换不来什么，又要为每个问题多付一个 UUID。被人类结算的提示会从 `attempt.pending` 中删除，而被流程撤回的提示会留在其中并标记为 `active: false`，因此两种迟到的拒绝不可互换：`unknown-prompt` 表示该 id 下从未有待答提示，`inactive-prompt` 表示流程把自己的问题收了回去。`frames` 以数组下标寻址这段对话——`next` 就是 `frames.length`——而每帧的 `seq` 是给渲染键用的，不参与 cursor 运算。
+
+</details>

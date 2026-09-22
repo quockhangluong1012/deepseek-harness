@@ -43,7 +43,8 @@ describe('evolution evaluator health', () => {
       expect(all).toHaveLength(3)
       // Every recorded id is present, newest first when timestamps differ.
       expect(new Set(all.map(run => run.id))).toEqual(new Set([first.id, rejected.id, polish.id]))
-      expect(all[0]?.at >= all[2]?.at).toBe(true)
+      const times = all.map(run => run.at)
+      expect(times).toEqual([...times].sort((left, right) => right.localeCompare(left)))
       expect(store.runs('polish')).toHaveLength(1)
       // Detached copies.
       const rows = store.runs('polish')
@@ -72,9 +73,28 @@ describe('evolution evaluator health', () => {
     }
   })
 
+  it('attaches the later ground truth of a verdict and rejects an unknown one', async () => {
+    const { fiber, store } = await boot()
+    try {
+      const approved = await store.observe(input())
+      const rejected = await store.observe(input({ skill: 'polish', approved: false, unanimous: false, approving: [], dissenting: ['replay'] }))
+      await expect(store.judge('ghost', { agrees: true, independent: true })).rejects.toThrow("unknown verdict 'ghost'")
+      const judged = await store.judge(rejected.id, { agrees: false, independent: true })
+      expect(judged.judgment).toMatchObject({ agrees: false, independent: true })
+      expect(judged.judgment?.at).toMatch(/^\d{4}-\d{2}-\d{2}T/)
+      await store.judge(approved.id, { agrees: true, independent: true })
+      // A verdict that was never judged stays unjudged.
+      expect((await store.observe(input({ skill: 'reader' }))).judgment).toBeUndefined()
+      expect(store.calibration()).toEqual({ falseNegativeRate: 0, independentlyJudged: 2, agreementRate: 0.5 })
+    } finally {
+      await fiber.dispose()
+    }
+  })
+
   it('reads throw before the store starts', () => {
     const ctx = new Context()
     const store = new EvolutionEvaluatorHealth(ctx, {})
     expect(() => store.runs()).toThrow('not started yet')
+    expect(() => store.calibration()).toThrow('not started yet')
   })
 })

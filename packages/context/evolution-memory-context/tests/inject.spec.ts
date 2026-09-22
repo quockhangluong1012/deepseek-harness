@@ -103,10 +103,12 @@ describe('evolution-memory-context injector', () => {
     expect(await loadMessage('ok')).toBe('loaded')
   })
 
-  it('rejects a non-positive nudge interval at load', async () => {
+  it('rejects out-of-range nudge configuration at load', async () => {
     const loadMessage = async (config: {
       memoryNudgeInterval?: number
       skillNudgeInterval?: number
+      stagedWriteWaitMinutes?: number
+      failureSignalScanLimit?: number
       capacityWarnPct?: number
     }): Promise<string> => {
       const ctx = new Context()
@@ -123,6 +125,10 @@ describe('evolution-memory-context injector', () => {
     expect(await loadMessage({ skillNudgeInterval: 0 })).toMatch(/skillNudgeInterval expected number >= 1/)
     expect(await loadMessage({ memoryNudgeInterval: -4 })).toMatch(/memoryNudgeInterval expected number >= 1/)
     expect(await loadMessage({ memoryNudgeInterval: 1, skillNudgeInterval: 10 })).toBe('loaded')
+    expect(await loadMessage({ failureSignalScanLimit: 0 })).toMatch(/failureSignalScanLimit expected number >= 1/)
+    expect(await loadMessage({ failureSignalScanLimit: 2.5 })).toMatch(/failureSignalScanLimit/)
+    expect(await loadMessage({ stagedWriteWaitMinutes: -1 })).toMatch(/stagedWriteWaitMinutes/)
+    expect(await loadMessage({ stagedWriteWaitMinutes: 0, failureSignalScanLimit: 5 })).toBe('loaded')
     expect(await loadMessage({ capacityWarnPct: 1.5 })).toMatch(/capacityWarnPct/)
     expect(await loadMessage({ capacityWarnPct: -0.1 })).toMatch(/capacityWarnPct/)
     expect(await loadMessage({ capacityWarnPct: 0.5 })).toBe('loaded')

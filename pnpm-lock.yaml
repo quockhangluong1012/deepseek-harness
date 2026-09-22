@@ -2143,6 +2143,9 @@ importers:
       '@deepseek-ai/dsh-embeddings-http':
         specifier: workspace:^
         version: link:../../llm/embeddings-http
+      '@deepseek-ai/dsh-evolution-actuator':
+        specifier: workspace:^
+        version: link:../../evolution/evolution-actuator
       '@deepseek-ai/dsh-evolution-adversary':
         specifier: workspace:^
         version: link:../../evolution/evolution-adversary
@@ -2197,6 +2200,9 @@ importers:
       '@deepseek-ai/dsh-evolution-meta':
         specifier: workspace:^
         version: link:../../evolution/evolution-meta
+      '@deepseek-ai/dsh-evolution-metrics':
+        specifier: workspace:^
+        version: link:../../evolution/evolution-metrics
       '@deepseek-ai/dsh-evolution-model-routes':
         specifier: workspace:^
         version: link:../../evolution/evolution-model-routes
@@ -2212,6 +2218,9 @@ importers:
       '@deepseek-ai/dsh-evolution-population':
         specifier: workspace:^
         version: link:../../evolution/evolution-population
+      '@deepseek-ai/dsh-evolution-retrieval':
+        specifier: workspace:^
+        version: link:../../evolution/evolution-retrieval
       '@deepseek-ai/dsh-evolution-reviewer':
         specifier: workspace:^
         version: link:../../evolution/evolution-reviewer
@@ -2245,6 +2254,9 @@ importers:
       '@deepseek-ai/dsh-evolution-uncertainty':
         specifier: workspace:^
         version: link:../../evolution/evolution-uncertainty
+      '@deepseek-ai/dsh-evolution-verifiers':
+        specifier: workspace:^
+        version: link:../../evolution/evolution-verifiers
       '@deepseek-ai/dsh-file-reference':
         specifier: workspace:^
         version: link:../../context/file-reference
@@ -6317,6 +6329,9 @@ importers:
       '@deepseek-ai/dsh-evolution-meta':
         specifier: workspace:^
         version: link:../evolution-meta
+      '@deepseek-ai/dsh-evolution-metrics':
+        specifier: workspace:^
+        version: link:../evolution-metrics
       '@deepseek-ai/dsh-evolution-model-routes':
         specifier: workspace:^
         version: link:../evolution-model-routes
@@ -6387,6 +6402,64 @@ importers:
         specifier: workspace:^
         version: link:../../workspace/workspace
 
+  packages/evolution/evolution-actuator:
+    dependencies:
+      '@deepseek-ai/schemastery':
+        specifier: link:../../../vendor/schemastery
+        version: link:../../../vendor/schemastery
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:^
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-evolution-adversary':
+        specifier: workspace:^
+        version: link:../evolution-adversary
+      '@deepseek-ai/dsh-evolution-benchmark':
+        specifier: workspace:^
+        version: link:../evolution-benchmark
+      '@deepseek-ai/dsh-evolution-budget':
+        specifier: workspace:^
+        version: link:../evolution-budget
+      '@deepseek-ai/dsh-evolution-canary':
+        specifier: workspace:^
+        version: link:../evolution-canary
+      '@deepseek-ai/dsh-evolution-curator':
+        specifier: workspace:^
+        version: link:../evolution-curator
+      '@deepseek-ai/dsh-evolution-curriculum':
+        specifier: workspace:^
+        version: link:../evolution-curriculum
+      '@deepseek-ai/dsh-evolution-feedback':
+        specifier: workspace:^
+        version: link:../evolution-feedback
+      '@deepseek-ai/dsh-evolution-heartbeat':
+        specifier: workspace:^
+        version: link:../evolution-heartbeat
+      '@deepseek-ai/dsh-evolution-islands':
+        specifier: workspace:^
+        version: link:../evolution-islands
+      '@deepseek-ai/dsh-evolution-operators':
+        specifier: workspace:^
+        version: link:../evolution-operators
+      '@deepseek-ai/dsh-evolution-population':
+        specifier: workspace:^
+        version: link:../evolution-population
+      '@deepseek-ai/dsh-evolution-skill-telemetry':
+        specifier: workspace:^
+        version: link:../../skill/evolution-skill-telemetry
+      '@deepseek-ai/dsh-evolution-stagnation':
+        specifier: workspace:^
+        version: link:../evolution-stagnation
+      '@deepseek-ai/dsh-evolution-uncertainty':
+        specifier: workspace:^
+        version: link:../evolution-uncertainty
+      '@deepseek-ai/dsh-storage':
+        specifier: workspace:^
+        version: link:../../storage/storage
+      '@deepseek-ai/dsh-storage-domain':
+        specifier: workspace:^
+        version: link:../../storage/storage-domain
+
   packages/evolution/evolution-adversary:
     dependencies:
       '@deepseek-ai/schemastery':
@@ -6399,6 +6472,15 @@ importers:
       '@deepseek-ai/cordis':
         specifier: workspace:^
         version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-evolution-benchmark':
+        specifier: workspace:^
+        version: link:../evolution-benchmark
+      '@deepseek-ai/dsh-evolution-evaluator-strategy':
+        specifier: workspace:^
+        version: link:../evolution-evaluator-strategy
+      '@deepseek-ai/dsh-evolution-router':
+        specifier: workspace:^
+        version: link:../evolution-router
       '@deepseek-ai/dsh-storage-domain':
         specifier: workspace:^
         version: link:../../storage/storage-domain
@@ -6515,6 +6597,9 @@ importers:
       '@deepseek-ai/dsh-evolution-skill-telemetry':
         specifier: workspace:^
         version: link:../../skill/evolution-skill-telemetry
+      '@deepseek-ai/dsh-evolution-verifiers':
+        specifier: workspace:^
+        version: link:../evolution-verifiers
       '@deepseek-ai/dsh-llm':
         specifier: workspace:^
         version: link:../../llm/llm
@@ -6618,6 +6703,9 @@ importers:
       '@deepseek-ai/cordis':
         specifier: workspace:^
         version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-evolution-model-routes':
+        specifier: workspace:^
+        version: link:../evolution-model-routes
       '@deepseek-ai/dsh-storage-domain':
         specifier: workspace:^
         version: link:../../storage/storage-domain
@@ -6776,6 +6864,43 @@ importers:
         specifier: workspace:^
         version: link:../../storage/storage-domain
 
+  packages/evolution/evolution-metrics:
+    dependencies:
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:^
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-evolution-budget':
+        specifier: workspace:^
+        version: link:../evolution-budget
+      '@deepseek-ai/dsh-evolution-canary':
+        specifier: workspace:^
+        version: link:../evolution-canary
+      '@deepseek-ai/dsh-evolution-curator':
+        specifier: workspace:^
+        version: link:../evolution-curator
+      '@deepseek-ai/dsh-evolution-evaluator-health':
+        specifier: workspace:^
+        version: link:../evolution-evaluator-health
+      '@deepseek-ai/dsh-evolution-feedback':
+        specifier: workspace:^
+        version: link:../evolution-feedback
+      '@deepseek-ai/dsh-evolution-lineage':
+        specifier: workspace:^
+        version: link:../evolution-lineage
+      '@deepseek-ai/dsh-evolution-memory':
+        specifier: workspace:^
+        version: link:../evolution-memory
+      '@deepseek-ai/dsh-evolution-meta':
+        specifier: workspace:^
+        version: link:../evolution-meta
+      '@deepseek-ai/dsh-evolution-skill-telemetry':
+        specifier: workspace:^
+        version: link:../../skill/evolution-skill-telemetry
+
   packages/evolution/evolution-model-routes:
     dependencies:
       '@deepseek-ai/schemastery':
@@ -6886,6 +7011,22 @@ importers:
         specifier: workspace:^
         version: link:../../storage/storage-domain
 
+  packages/evolution/evolution-retrieval:
+    dependencies:
+      '@deepseek-ai/schemastery':
+        specifier: link:../../../vendor/schemastery
+        version: link:../../../vendor/schemastery
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:^
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-storage-domain':
+        specifier: workspace:^
+        version: link:../../storage/storage-domain
+
   packages/evolution/evolution-reviewer:
     dependencies:
       '@deepseek-ai/schemastery':
@@ -6941,6 +7082,9 @@ importers:
       '@deepseek-ai/cordis':
         specifier: workspace:^
         version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-evolution-uncertainty':
+        specifier: workspace:^
+        version: link:../evolution-uncertainty
       '@deepseek-ai/dsh-storage-domain':
         specifier: workspace:^
         version: link:../../storage/storage-domain
@@ -7013,6 +7157,18 @@ importers:
       '@deepseek-ai/cordis':
         specifier: workspace:^
         version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-evolution-heartbeat':
+        specifier: workspace:^
+        version: link:../evolution-heartbeat
+      '@deepseek-ai/dsh-evolution-router':
+        specifier: workspace:^
+        version: link:../evolution-router
+      '@deepseek-ai/dsh-evolution-skill-telemetry':
+        specifier: workspace:^
+        version: link:../../skill/evolution-skill-telemetry
+      '@deepseek-ai/dsh-evolution-trace':
+        specifier: workspace:^
+        version: link:../evolution-trace
       '@deepseek-ai/dsh-storage-domain':
         specifier: workspace:^
         version: link:../../storage/storage-domain
@@ -7042,6 +7198,15 @@ importers:
       '@deepseek-ai/cordis':
         specifier: workspace:^
         version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-agent-context':
+        specifier: workspace:^
+        version: link:../../runtime/agent-context
+      '@deepseek-ai/dsh-agent-kernel':
+        specifier: workspace:^
+        version: link:../../runtime/agent-kernel
+      '@deepseek-ai/dsh-command-feedback':
+        specifier: workspace:^
+        version: link:../../feedback/command-feedback
       '@deepseek-ai/dsh-evolution-memory':
         specifier: workspace:^
         version: link:../evolution-memory
@@ -7054,6 +7219,9 @@ importers:
       '@deepseek-ai/dsh-session-persistence':
         specifier: workspace:^
         version: link:../../session/session-persistence
+      '@deepseek-ai/dsh-tool-todo':
+        specifier: workspace:^
+        version: link:../../todo/tool-todo
 
   packages/evolution/evolution-trajectory:
     dependencies:
@@ -7098,6 +7266,15 @@ importers:
       '@deepseek-ai/dsh-storage-domain':
         specifier: workspace:^
         version: link:../../storage/storage-domain
+
+  packages/evolution/evolution-verifiers:
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:^
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-evolution-skill-manage':
+        specifier: workspace:^
+        version: link:../../skill/evolution-skill-manage
 
   packages/experimental/agent-team:
     dependencies:

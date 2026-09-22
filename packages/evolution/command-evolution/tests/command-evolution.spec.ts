@@ -28,6 +28,7 @@ import type { NoveltyArchiveEntry } from '@deepseek-ai/dsh-evolution-novelty-sea
 import type { StagnationRun, StagnationStatus } from '@deepseek-ai/dsh-evolution-stagnation'
 import type { BudgetAllocation, SpendRecord } from '@deepseek-ai/dsh-evolution-budget'
 import type { ConfigRecommendation, ConfigSummary, EngineRun } from '@deepseek-ai/dsh-evolution-meta'
+import EvolutionMetrics from '@deepseek-ai/dsh-evolution-metrics'
 import type { OperatorRanking, OperatorStats } from '@deepseek-ai/dsh-evolution-operators'
 import type { RouteEffectiveness, RouteRankingEntry, RoutingRole } from '@deepseek-ai/dsh-evolution-router'
 import type { EvaluatorStrategy, StrategyRanking } from '@deepseek-ai/dsh-evolution-evaluator-strategy'
@@ -84,6 +85,36 @@ interface GovernanceStubs {
   versionsResult?: SkillVersion[]
 }
 
+/** Which optional stores and stubs the harness mounts for one spec. */
+interface HarnessExtras {
+  trajectory?: boolean
+  skills?: boolean
+  graph?: boolean
+  dream?: boolean
+  trace?: boolean
+  curriculum?: boolean
+  benchmark?: boolean
+  evaluatorHealth?: boolean
+  population?: boolean
+  routes?: boolean
+  canary?: boolean
+  novelty?: boolean
+  stagnation?: boolean
+  islands?: boolean
+  selfModel?: boolean
+  uncertainty?: boolean
+  adversary?: boolean
+  lineage?: boolean
+  sleeptime?: boolean
+  budget?: boolean
+  meta?: boolean
+  operators?: boolean
+  router?: boolean
+  evaluatorStrategy?: boolean
+  metrics?: boolean
+  reflection?: boolean
+}
+
 /** Trajectory-export state the `/trajectory` command reads, when provided. */
 interface TrajectoryStub {
   /** Session exports in call order. */
@@ -126,6 +157,21 @@ interface EvaluatorHealthStub {
   summary?: EvaluatorHealthSummary
   /** Runs `runs` lists. */
   runs: EvaluatorRun[]
+}
+
+/** Reflection state the `/reflection` command reads, when provided. */
+interface ReflectionStub {
+  /** Rows `reflections` returns. */
+  rows?: readonly {
+    symptom: string
+    violatedExpectation: string
+    rootCause: string | null
+    correctedStrategy: string | null
+    antiPattern: string | null
+    reusableWhen: string | null
+    candidateTest: string | null
+    confidence: number
+  }[]
 }
 
 /** Benchmark state the `/benchmark` command reads, when provided. */
@@ -344,6 +390,8 @@ interface Harness {
   curriculum: CurriculumStub
   benchmark: BenchmarkStub
   evaluatorHealth: EvaluatorHealthStub
+  /** Stored reflections `/reflection` reads. */
+  reflection: ReflectionStub
   population: PopulationStub
   routes: RoutesStub
   canary: CanaryStub
@@ -370,7 +418,7 @@ interface Harness {
 async function harness(
   withReviewer = true,
   governance?: GovernanceStubs,
-  extra: { trajectory?: boolean; skills?: boolean; graph?: boolean; dream?: boolean; trace?: boolean; curriculum?: boolean; benchmark?: boolean; evaluatorHealth?: boolean; population?: boolean; routes?: boolean; canary?: boolean; novelty?: boolean; stagnation?: boolean; islands?: boolean; selfModel?: boolean; uncertainty?: boolean; adversary?: boolean; lineage?: boolean; sleeptime?: boolean; budget?: boolean; meta?: boolean; operators?: boolean; router?: boolean; evaluatorStrategy?: boolean } = {},
+  extra: HarnessExtras = {},
 ): Promise<Harness> {
   const dir = await realpath(await mkdtemp(join(tmpdir(), 'evc-')))
   const ctx = new Context()
@@ -398,7 +446,12 @@ async function harness(
       },
     } as never)
   }
-  if (governance?.entries !== undefined || governance?.setPinnedCalls !== undefined || governance?.setPinnedError !== undefined || governance?.versionsResult !== undefined) {
+  if (
+    governance?.entries !== undefined
+    || governance?.setPinnedCalls !== undefined
+    || governance?.setPinnedError !== undefined
+    || governance?.versionsResult !== undefined
+  ) {
     ctx.provide('evolutionSkillTelemetry', {
       entries: () => governance.entries ?? [],
       versions: (name: string) => (governance.versionsResult ?? []).filter(row => row.name === name),
@@ -408,8 +461,6 @@ async function harness(
         return usageRecord({ pinned })
       },
     } as never)
-  } else if (governance?.entries !== undefined) {
-    ctx.provide('evolutionSkillTelemetry', { entries: () => governance.entries } as never)
   }
   if (governance !== undefined) {
     ctx.provide('evolutionCurator', {
@@ -434,16 +485,16 @@ async function harness(
       adopt: async (name: string) => {
         governance.adoptCalls?.push(name)
         if (governance.adoptResult instanceof Error) throw governance.adoptResult
-        return governance.adoptResult ?? { name, useCount: 0, viewCount: 0, patchCount: 0, lastUsedAt: null, sessionIds: [], lastViewedAt: null, lastPatchedAt: null, createdAt: '2026-01-01T00:00:00.000Z', state: 'active', pinned: false, createdBy: 'agent', absorbedInto: null, archivedAt: null, trust: 'provisional', trustFailures: 0, trustObservedSessions: [], trustAnchorSessionId: null, lastTrustFailure: null, revision: 1, contentSha: 'sha', parentRevisionSha: null } as SkillUsageRecord
+        return governance.adoptResult ?? { useCount: 0, viewCount: 0, patchCount: 0, lastUsedAt: null, sessionIds: [], sessionOutcomes: [], lastViewedAt: null, lastPatchedAt: null, createdAt: '2026-01-01T00:00:00.000Z', state: 'active', pinned: false, createdBy: 'agent', absorbedInto: null, archivedAt: null, suspectAt: null, trust: 'provisional', trustFailures: 0, trustObservedSessions: [], trustAnchorSessionId: null, lastTrustFailure: null, revision: 1, contentSha: 'sha', parentRevisionSha: null } satisfies SkillUsageRecord
       },
       purge: async (options: { dryRun?: boolean } = {}) => {
         governance.purgeCalls?.push(options.dryRun === true)
-        return governance.purgeResult ?? { at: '2026-09-12T01:00:00.000Z', dryRun: options.dryRun === true, purged: [], skippedPinned: 0 } as PurgeReport
+        return governance.purgeResult ?? { at: '2026-09-12T01:00:00.000Z', dryRun: options.dryRun === true, purged: [], skippedPinned: 0 }
       },
       rollbackPass: async (passId: string) => {
         governance.rollbackCalls?.push(passId)
         if (governance.rollbackResult instanceof Error) throw governance.rollbackResult
-        return governance.rollbackResult ?? { at: '2026-09-12T01:00:00.000Z', label: `pass '${passId}'`, restored: [], preRollback: 'sha', restoredDirs: [], restoredFiles: [] } as RollbackReport
+        return governance.rollbackResult ?? { at: '2026-09-12T01:00:00.000Z', label: `pass '${passId}'`, restored: [], preRollback: 'sha', restoredDirs: [], restoredFiles: [] }
       },
     } as never)
   }
@@ -774,6 +825,20 @@ async function harness(
   if (extra.graph === true) {
     await ctx.plugin(EvolutionGraph, {})
   }
+  // The feedback store's reflection read is a seam like any other here: the
+  // command renders what the store returns, so a stub names the rows.
+  const reflection: ReflectionStub = { rows: [] }
+  if (extra.reflection === true) {
+    ctx.provide('evolutionFeedback', {
+      reflections: async () => reflection.rows ?? [],
+    } as never)
+  }
+  // The metric layer is mounted as itself: it holds no state, so a test that
+  // wants a measured number provides the store it reads, like every other
+  // optional seam here.
+  if (extra.metrics === true) {
+    await ctx.plugin(EvolutionMetrics, {})
+  }
   const plugin = await ctx.plugin(commandEvolution, { profile: 'test' })
   return {
     ctx,
@@ -786,6 +851,7 @@ async function harness(
     curriculum,
     benchmark,
     evaluatorHealth,
+    reflection,
     population,
     routes,
     canary,
@@ -902,6 +968,7 @@ function usageRecord(overrides: Partial<SkillUsageRecord> = {}): SkillUsageRecor
     patchCount: 0,
     lastUsedAt: null,
     sessionIds: [],
+    sessionOutcomes: [],
     lastViewedAt: null,
     lastPatchedAt: null,
     createdAt: '2026-09-01T00:00:00.000Z',
@@ -910,6 +977,7 @@ function usageRecord(overrides: Partial<SkillUsageRecord> = {}): SkillUsageRecor
     createdBy: null,
     absorbedInto: null,
     archivedAt: null,
+    suspectAt: null,
     trust: 'trusted',
     trustFailures: 0,
     trustObservedSessions: [],
@@ -1595,6 +1663,125 @@ describe('/graph human command', () => {
 
 })
 
+describe('/claims human command', () => {
+  it('says so when the graph is not mounted', async () => {
+    const test = await harness()
+    try {
+      const session = sessionIn(test.ctx, test.dir, 'claims-unmounted')
+      test.workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: test.dir, sessionIds: [session.id] })
+      expect((await run(test, session, '/claims')).result).toEqual({
+        kind: 'error',
+        text: 'The knowledge graph is not mounted.',
+      })
+    } finally {
+      await shutdown(test)
+    }
+  })
+
+  it('lists active claims most believed first and drops a retired one', async () => {
+    const test = await harness(true, undefined, { graph: true })
+    try {
+      const session = sessionIn(test.ctx, test.dir, 'claims')
+      test.workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: test.dir, sessionIds: [session.id] })
+      const scope = test.scope('ws-1')
+      await test.ctx.evolutionGraph.recordClaims(scope, [
+        { statement: 'The build is green', supportedBy: [{ source: 's1', quality: 0.9, reliability: 0.9 }] },
+        { statement: 'The build is green', supportedBy: [{ source: 's2', quality: 0.9, reliability: 0.9 }] },
+        { statement: 'The build is red', supportedBy: [{ source: 's3', quality: 0.2, reliability: 0.2 }] },
+      ])
+      const listed = await run(test, session, '/claims build')
+      if (listed.result.kind !== 'success' || listed.result.text === undefined) {
+        throw new Error(`expected a successful claim listing, got ${JSON.stringify(listed.result)}`)
+      }
+      const text = listed.result.text
+      // Two independent sources beat one weak source, so the supported claim
+      // is listed first with its support counted.
+      expect(text.indexOf('The build is green')).toBeLessThan(text.indexOf('The build is red'))
+      expect(text).toContain('2 supporting / 0 contradicting source(s)')
+      // A retired claim stops answering, and the query says so rather than
+      // reporting an empty scope.
+      await test.ctx.evolutionGraph.recordClaims(scope, [
+        {
+          statement: 'The build is red today',
+          supportedBy: [{ source: 's4', quality: 0.5, reliability: 0.5 }],
+          supersedes: ['The build is green'],
+        },
+      ])
+      expect((await run(test, session, '/claims green')).result).toEqual({
+        kind: 'success',
+        text: "No active claim matching 'green' in this scope.",
+      })
+    } finally {
+      await shutdown(test)
+    }
+  })
+})
+
+describe('/reflection human command', () => {
+  it('reports usage for a non-positive or non-numeric limit', async () => {
+    const test = await harness()
+    try {
+      const session = sessionIn(test.ctx, test.dir, 'reflection-usage')
+      test.workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: test.dir, sessionIds: [session.id] })
+      const usage = { kind: 'error', text: 'Usage: /reflection [limit]' } as const
+      expect((await run(test, session, '/reflection 0')).result).toEqual(usage)
+      expect((await run(test, session, '/reflection many')).result).toEqual(usage)
+      expect((await run(test, session, '/reflection 3 extra')).result).toEqual(usage)
+    } finally {
+      await shutdown(test)
+    }
+  })
+
+  it('says so when the feedback store is not mounted', async () => {
+    const test = await harness()
+    try {
+      const session = sessionIn(test.ctx, test.dir, 'reflection-unmounted')
+      test.workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: test.dir, sessionIds: [session.id] })
+      expect((await run(test, session, '/reflection')).result).toEqual({
+        kind: 'error',
+        text: 'The evolution feedback store is not mounted.',
+      })
+    } finally {
+      await shutdown(test)
+    }
+  })
+
+  it('renders the stored reflections with the heuristic the loop reuses', async () => {
+    const test = await harness(true, undefined, { reflection: true })
+    try {
+      const session = sessionIn(test.ctx, test.dir, 'reflection')
+      test.workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: test.dir, sessionIds: [session.id] })
+      expect((await run(test, session, '/reflection')).result).toEqual({
+        kind: 'success',
+        text: 'No reflections stored for this scope.',
+      })
+      test.reflection.rows = [{
+        symptom: 'ripgrep: no such file',
+        violatedExpectation: 'the call succeeds',
+        rootCause: null,
+        correctedStrategy: 'change the call before repeating it',
+        antiPattern: 'do not repeat a call whose result was ripgrep: no such file',
+        reusableWhen: 'when the call is about to be repeated',
+        candidateTest: 'replaying the run no longer repeats the call',
+        confidence: 0.875,
+      }]
+      expect((await run(test, session, '/reflection 1')).result).toEqual({
+        kind: 'success',
+        text: [
+          '1 reflection (newest first):',
+          '- ripgrep: no such file (confidence 0.88)',
+          '  expected: the call succeeds',
+          '  avoid: do not repeat a call whose result was ripgrep: no such file (when the call is about to be repeated)',
+          '  instead: change the call before repeating it',
+          '  check: replaying the run no longer repeats the call',
+        ].join('\n'),
+      })
+    } finally {
+      await shutdown(test)
+    }
+  })
+})
+
 describe('/journey human command', () => {
   it('reports usage for an unknown range and trailing arguments', async () => {
     const test = await harness()
@@ -1699,7 +1886,7 @@ describe('/journey human command', () => {
       const archive = unzipSync(new Uint8Array(await readFile(outPath)))
       expect(Object.keys(archive).sort()).toEqual(['session-log.jsonl', 'timeline.json'])
 
-      const timeline = JSON.parse(strFromU8(archive['timeline.json']!))
+      const timeline = JSON.parse(strFromU8(archive['timeline.json']!)) as unknown
       expect(timeline).toHaveProperty('days')
       expect(timeline).toHaveProperty('cumulative')
       expect(timeline).toHaveProperty('pending')
@@ -1707,7 +1894,7 @@ describe('/journey human command', () => {
       const sessionLog = strFromU8(archive['session-log.jsonl']!)
       const lines = sessionLog.trim().split('\n')
       expect(lines.length).toBeGreaterThan(0)
-      const header = JSON.parse(lines[0]!)
+      const header = JSON.parse(lines[0]!) as { type: string; id: string }
       expect(header.type).toBe('session')
       expect(header.id).toBe('journey-export')
     } finally {
@@ -1926,7 +2113,7 @@ describe('/curator human command', () => {
         kind: 'success',
         text: [
           'Curator: last pass 2026-09-12T00:00:00.000Z',
-          'Tracked skills: 4 (active 2, stale 1, archived 1, pinned 1) · trust: 0 provisional, 4 trusted',
+          'Tracked skills: 4 (active 2, suspect 0, stale 1, archived 1, pinned 1) · trust: 0 provisional, 4 trusted',
           'Cache hit (today): unavailable (usage ledger is not mounted).',
           'Skill failure rate: no recorded loads.',
           'Staged for review: 0',
@@ -2027,7 +2214,7 @@ describe('/curator human command', () => {
       const text = execution.result.kind === 'success' ? execution.result.text ?? '' : ''
       expect(text.split('\n')).toEqual([
         'Curator: last pass 2026-09-12T00:00:00.000Z',
-        'Tracked skills: 0 (active 0, stale 0, archived 0, pinned 0) · trust: 0 provisional, 0 trusted',
+        'Tracked skills: 0 (active 0, suspect 0, stale 0, archived 0, pinned 0) · trust: 0 provisional, 0 trusted',
         'Cache hit (today): unavailable (usage ledger is not mounted).',
         'Skill failure rate: no recorded loads.',
         'Staged for review: 0',
@@ -2076,7 +2263,7 @@ describe('/curator human command', () => {
         kind: 'success',
         text: [
           'Curator: last pass never',
-          'Tracked skills: 2 (active 2, stale 0, archived 0, pinned 0) · trust: 0 provisional, 2 trusted',
+          'Tracked skills: 2 (active 2, suspect 0, stale 0, archived 0, pinned 0) · trust: 0 provisional, 2 trusted',
           'Cache hit (today): 73% (142 requests)',
           'Skill failure rate: 13% across 2 skills (16 loads)',
           'Staged for review: 0',
@@ -2104,7 +2291,7 @@ describe('/curator human command', () => {
       expect(result.kind).toBe('success')
       const text = result.kind === 'success' ? result.text ?? '' : ''
       expect(text.split('\n')[1])
-        .toBe('Tracked skills: 3 (active 3, stale 0, archived 0, pinned 0) · trust: 2 provisional, 1 trusted')
+        .toBe('Tracked skills: 3 (active 3, suspect 0, stale 0, archived 0, pinned 0) · trust: 2 provisional, 1 trusted')
     } finally {
       await shutdown(test)
     }
@@ -2155,7 +2342,7 @@ describe('/curator human command', () => {
       const session = sessionIn(test.ctx, test.dir, 'curator-adopt')
       expect((await run(test, session, '/curator adopt draft-skill')).result).toEqual({
         kind: 'success',
-        text: `Adopted 'draft-skill' (state: active)`,
+        text: 'Adopted \'draft-skill\' (state: active)',
       })
       expect(adoptCalls).toEqual(['draft-skill'])
     } finally {
@@ -2411,12 +2598,12 @@ describe('/curator human command', () => {
       test.workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: test.dir, sessionIds: [session.id] })
       expect((await run(test, session, '/curator optimize writer s1')).result).toEqual({
         kind: 'success',
-        text: `Optimized 'writer': below trigger.`,
+        text: 'Optimized \'writer\': below trigger.',
       })
       report = { status: 'staged', stagedId: 'staged-9', holdout: null }
       expect((await run(test, session, '/curator optimize writer s1')).result).toEqual({
         kind: 'success',
-        text: `Optimized 'writer': staged skill patch staged-9. Write the skill with skill_manage, then '/skills approve staged-9' to drop the entry.`,
+        text: 'Optimized \'writer\': staged skill patch staged-9. Write the skill with skill_manage, then \'/skills approve staged-9\' to drop the entry.',
       })
       report = {
         status: 'staged',
@@ -2425,12 +2612,12 @@ describe('/curator human command', () => {
       }
       expect((await run(test, session, '/curator optimize writer s1')).result).toEqual({
         kind: 'success',
-        text: `Optimized 'writer': staged skill patch staged-9. Holdout: true pass at 4 tokens vs baseline true pass at 10 tokens. Write the skill with skill_manage, then '/skills approve staged-9' to drop the entry.`,
+        text: 'Optimized \'writer\': staged skill patch staged-9. Holdout: true pass at 4 tokens vs baseline true pass at 10 tokens. Write the skill with skill_manage, then \'/skills approve staged-9\' to drop the entry.',
       })
       report = { status: 'no-improvement', reason: 'no variant beats' }
       expect((await run(test, session, '/curator optimize writer s1')).result).toEqual({
         kind: 'success',
-        text: `Optimized 'writer': no variant beats.`,
+        text: 'Optimized \'writer\': no variant beats.',
       })
       report = { status: 'no-improvement', reason: 'no variant beats', stagnant: true }
       expect((await run(test, session, '/curator optimize writer s1')).result).toEqual({
@@ -2455,7 +2642,7 @@ describe('/curator human command', () => {
       })
       expect((await run(test, session, '/curator experiments writer')).result).toEqual({
         kind: 'success',
-        text: `No optimizations recorded for 'writer'.`,
+        text: 'No optimizations recorded for \'writer\'.',
       })
       rows = [{
         at: '2026-09-15T10:00:00.000Z',
@@ -2597,7 +2784,7 @@ describe('/curator human command', () => {
       const session = sessionIn(test.ctx, test.dir, 'curator-pin')
       expect((await run(test, session, '/curator pin draft-skill')).result).toEqual({
         kind: 'success',
-        text: `Pinned 'draft-skill'`,
+        text: 'Pinned \'draft-skill\'',
       })
       expect(setPinnedCalls).toEqual([{ name: 'draft-skill', pinned: true }])
     } finally {
@@ -2639,7 +2826,7 @@ describe('/curator human command', () => {
       const session = sessionIn(test.ctx, test.dir, 'curator-unpin')
       expect((await run(test, session, '/curator unpin draft-skill')).result).toEqual({
         kind: 'success',
-        text: `Unpinned 'draft-skill'`,
+        text: 'Unpinned \'draft-skill\'',
       })
       expect(setPinnedCalls).toEqual([{ name: 'draft-skill', pinned: false }])
     } finally {
@@ -2850,6 +3037,8 @@ describe('/trace human command', () => {
         updatedAt: at,
         turnCount: 1,
         usage: null,
+        evaluations: [],
+        feedback: [],
         turns: [{
           turn: 0,
           startedAt: at,
@@ -2857,6 +3046,9 @@ describe('/trace human command', () => {
           endReason: 'completed',
           latencyMs: 2000,
           request: 'deploy the app',
+          subgoals: null,
+          retrievals: [],
+          finalAnswer: null,
           steps: [{
             turn: 0,
             step: 0,
@@ -2865,9 +3057,10 @@ describe('/trace human command', () => {
             interrupted: false,
             retries: 1,
             usage: null,
+            context: null,
             calls: [
-              { callId: 'c1', name: 'bash', ok: true, errorName: null, errorCode: null, message: null, at },
-              { callId: 'c2', name: 'bash', ok: false, errorName: 'bash', errorCode: 'EXIT_1', message: 'boom', at },
+              { callId: 'c1', name: 'bash', ok: true, errorName: null, errorCode: null, message: null, snapshot: null, at },
+              { callId: 'c2', name: 'bash', ok: false, errorName: 'bash', errorCode: 'EXIT_1', message: 'boom', snapshot: null, at },
             ],
             failures: 1,
           }],
@@ -4249,8 +4442,8 @@ describe('/adversary human command', () => {
         kind: 'success',
         text: [
           "Adversarial probes 'writer': 2",
-          "- probe-2 [edge-case] writer: weakness found · repaired",
-          "- probe-1 [prompt-injection] writer: no weakness",
+          '- probe-2 [edge-case] writer: weakness found · repaired',
+          '- probe-1 [prompt-injection] writer: no weakness',
         ].join('\n'),
       })
       expect((await run(test, session, '/adversary defenses')).result).toEqual({
@@ -4473,7 +4666,7 @@ describe('/learn human command', () => {
         role: 'user',
         source: { kind: 'plugin', plugin: 'command-evolution' },
         content: [{ type: 'text', text: buildLearnPrompt('Rust async traits') }],
-        id: expect.any(String),
+        id: expect.any(String) as unknown,
       }])
       const queued = test.followups[0] as { content: { text: string }[] }
       // The prompt names the topic, the gathering tools, and the gated save.
@@ -4542,7 +4735,7 @@ describe('/suggestions human command', () => {
         ].join('\n'),
       })
       expectLifecycle(test, session, 'suggestions', '', execution.result)
-      expect(test.skills.lists).toEqual([{ cwd: test.dir, signal: expect.any(AbortSignal) }])
+      expect(test.skills.lists).toEqual([{ cwd: test.dir, signal: expect.any(AbortSignal) as unknown }])
       expect(test.skills.gets).toEqual(['plain', 'polish', 'bad-schedule', 'bad-prompt', 'bad-deliver', 'legacy', 'vanished'])
     } finally {
       await shutdown(test)
@@ -4590,7 +4783,7 @@ describe('/suggestions human command', () => {
         polish: { name: 'polish', blueprint: { schedule: '0 3 * * *', deliver: 'session', prompt: 'Refresh' } },
       }
       await run(test, session, '/suggestions')
-      expect(test.skills.lists).toEqual([{ signal: expect.any(AbortSignal) }])
+      expect(test.skills.lists).toEqual([{ signal: expect.any(AbortSignal) as unknown }])
     } finally {
       await shutdown(test)
     }
@@ -4979,6 +5172,55 @@ describe('/budget human command', () => {
     }
   })
 
+  it('renders the cost, deadline, and concurrency margins an allocation priced', async () => {
+    const test = await harness(true, undefined, { budget: true })
+    try {
+      test.budget.batches = [
+        {
+          batchId: 'b1',
+          taskClass: 'writer',
+          candidateClass: 'high-potential',
+          maxTokens: 200,
+          maxWallTimeMs: 100,
+          maxCost: 8,
+          timeLimitMs: 60,
+          parallelism: 4,
+          reason: 'high-potential ×2',
+          at: '2026-09-12T00:00:00.000Z',
+        },
+        {
+          batchId: 'b2',
+          taskClass: 'writer',
+          candidateClass: 'standard',
+          maxTokens: 200,
+          maxWallTimeMs: 100,
+          maxCost: 8,
+          reason: 'standard',
+          at: '2026-09-12T00:00:00.000Z',
+        },
+      ]
+      test.budget.spends = [
+        { batchId: 'b1', tokens: 100, wallTimeMs: 50, rollouts: 2, cost: 3, parallelism: 2, at: '2026-09-12T00:00:00.000Z' },
+        { batchId: 'b2', tokens: 10, wallTimeMs: 5, rollouts: 1, at: '2026-09-12T00:00:00.000Z' },
+      ]
+      const session = sessionIn(test.ctx, test.dir, 'budget-margins')
+      expect((await run(test, session, '/budget')).result).toEqual({
+        kind: 'success',
+        text: [
+          'Budget (2 batches):',
+          '- b1 (high-potential, writer): 100/200 tokens, 50/100ms — 100 tokens, 50ms left'
+          + ' · cost 3/8 — 5 left, time 0/60ms — 60ms left, parallelism 2/4 — 2 left',
+          // A priced dimension nothing recorded is named, not shown as a zero
+          // the settlement cannot prove; an unpriced one is not rendered.
+          '- b2 (standard, writer): 10/200 tokens, 5/100ms — 190 tokens, 95ms left'
+          + ' · cost unmeasured (ceiling 8)',
+        ].join('\n'),
+      })
+    } finally {
+      await shutdown(test)
+    }
+  })
+
   it('reports the empty state before the optimizer has recorded a batch', async () => {
     const test = await harness(true, undefined, { budget: true })
     try {
@@ -5031,6 +5273,7 @@ describe('/meta human command', () => {
           runId: 'run-1',
           taskClass: 'writer',
           config,
+          workflow: [],
           pass: true,
           tokens: 5000,
           wallTimeMs: 60000,
@@ -5042,6 +5285,8 @@ describe('/meta human command', () => {
           configId: 'portfolio-v1|scorer-v1|balanced-v1|evidence-v1',
           config,
           taskClass: 'writer',
+          workflow: [],
+          workflowId: '',
           samples: 3,
           passes: 2,
           passRate: 2 / 3,
@@ -5054,6 +5299,8 @@ describe('/meta human command', () => {
         config,
         configId: 'portfolio-v1|scorer-v1|balanced-v1|evidence-v1',
         taskClass: 'writer',
+        workflow: [],
+        workflowId: '',
         score: 0.5,
         samples: 3,
         passRate: 2 / 3,
@@ -5079,7 +5326,40 @@ describe('/meta human command', () => {
         text: [
           "Recommended engine configuration for 'writer': portfolio-v1|scorer-v1|balanced-v1|evidence-v1",
           'operators portfolio-v1, evaluator scorer-v1, budget balanced-v1, routing evidence-v1',
+          'workflow: unrecorded',
           '2 of 3 runs passed; samples 3 ≥ minimum 3',
+        ].join('\n'),
+      })
+    } finally {
+      await shutdown(test)
+    }
+  })
+
+  it('names the recommended workflow when the store recorded one', async () => {
+    const test = await harness(true, undefined, { meta: true })
+    try {
+      test.meta.recommendations['writer'] = {
+        config,
+        configId: 'portfolio-v1|scorer-v1|balanced-v1|evidence-v1',
+        taskClass: 'writer',
+        workflow: [
+          { component: 'operators', choice: 'portfolio-v1' },
+          { component: 'evaluator', choice: 'scorer-v1' },
+        ],
+        workflowId: 'workflow operators=portfolio-v1>evaluator=scorer-v1',
+        score: 0.5,
+        samples: 3,
+        passRate: 2 / 3,
+        reason: '2 of 3 runs passed',
+      }
+      const session = sessionIn(test.ctx, test.dir, 'meta-workflow')
+      expect((await run(test, session, '/meta recommend writer')).result).toEqual({
+        kind: 'success',
+        text: [
+          "Recommended engine configuration for 'writer': portfolio-v1|scorer-v1|balanced-v1|evidence-v1",
+          'operators portfolio-v1, evaluator scorer-v1, budget balanced-v1, routing evidence-v1',
+          'workflow: operators=portfolio-v1>evaluator=scorer-v1',
+          '2 of 3 runs passed',
         ].join('\n'),
       })
     } finally {
@@ -5148,7 +5428,7 @@ describe('/operators human command', () => {
         },
       ]
       test.operators.rankings['writer'] = [
-        { operator: 'rewrite', attempts: 3, acceptanceRate: 2 / 3, meanDelta: 2 / 3, score: 0.75, reason: 'observed' },
+        { operator: 'rewrite', attempts: 3, acceptanceRate: 2 / 3, meanDelta: 2 / 3, instructionAdjustment: 0, score: 0.75, reason: 'observed' },
       ]
       const session = sessionIn(test.ctx, test.dir, 'operators-rank')
       expect((await run(test, session, '/operators writer')).result).toEqual({
@@ -5351,6 +5631,101 @@ describe('/evaluator-strategy human command', () => {
         kind: 'success',
         text: "No evaluator strategy recorded for 'writer'.",
       })
+    } finally {
+      await shutdown(test)
+    }
+  })
+})
+
+describe('/metrics human command', () => {
+  /** One recorded engine run, newest first as the store returns them. */
+  const engineRun = (runId: string, hour: number, pass: boolean): EngineRun => ({
+    runId,
+    taskClass: 'writer',
+    config: { operators: 'portfolio-v1', evaluator: 'scorer-v1', budget: 'balanced-v1', routing: 'evidence-v1' },
+    workflow: [],
+    pass,
+    tokens: 100,
+    wallTimeMs: 1000,
+    at: new Date(Date.parse('2026-01-01T00:00:00.000Z') + hour * 3_600_000).toISOString(),
+  })
+
+  it('reports usage for extra arguments and a missing layer', async () => {
+    const test = await harness()
+    try {
+      const session = sessionIn(test.ctx, test.dir, 'metrics-unmounted')
+      expect((await run(test, session, '/metrics')).result).toEqual({
+        kind: 'error',
+        text: 'The evolution metric layer is not mounted.',
+      })
+    } finally {
+      await shutdown(test)
+    }
+    const mounted = await harness(true, undefined, { metrics: true })
+    try {
+      const session = sessionIn(mounted.ctx, mounted.dir, 'metrics-grammar')
+      expect((await run(mounted, session, '/metrics writer extra')).result).toEqual({
+        kind: 'error',
+        text: 'Usage: /metrics [<taskClass>]',
+      })
+    } finally {
+      await shutdown(mounted)
+    }
+  })
+
+  it('measures the north star over the engine runs and names what it cannot measure', async () => {
+    const test = await harness(true, undefined, { metrics: true, meta: true })
+    try {
+      // Newest first, as `runs()` returns them: the older half passes once, the
+      // newer half always, so the gain is half a pass rate.
+      test.meta.runs = [engineRun('r4', 3, true), engineRun('r3', 2, true), engineRun('r2', 1, true), engineRun('r1', 0, false)]
+      const session = sessionIn(test.ctx, test.dir, 'metrics-read')
+      const result = (await run(test, session, '/metrics')).result
+      expect(result.kind).toBe('success')
+      const text = result.kind === 'success' ? result.text ?? '' : ''
+      expect(text.split('\n')[0]).toBe(
+        'Metric window: 4 runs from 2026-01-01T00:00:00.000Z to 2026-01-01T03:00:00.000Z',
+      )
+      expect(text).toContain('Capability: 50.0% → 100.0% over 2 older and 2 newer runs')
+      // gain 0.5 over 400 tokens, 4000ms of compute, and 0.125 of a day.
+      expect(text).toContain('- capability-gain-per-million-tokens: 1250')
+      expect(text).toContain('- capability-gain-per-compute-hour: 450')
+      expect(text).toContain('- learning-velocity: 4')
+      // A store left unmounted is a reason, not an absent entry.
+      expect(text).toContain('- rollback-rate: not measured — the evolution canary store is not mounted')
+      // A metric no store can answer names the missing record instead.
+      expect(text).toContain('- benchmark-robustness: not measured — no record scores a benchmark task')
+    } finally {
+      await shutdown(test)
+    }
+  })
+
+  it('narrows the window to one task class and reads a supporting metric from its own store', async () => {
+    const test = await harness(true, undefined, { metrics: true, meta: true, evaluatorHealth: true })
+    try {
+      test.meta.runs = [engineRun('r2', 1, true), engineRun('r1', 0, false)]
+      test.evaluatorHealth.summary = {
+        runs: 10,
+        unanimousRate: 0.8,
+        approvalRate: 0.9,
+        recentApprovalRate: 0.9,
+        drift: 0,
+        falsePositiveRate: 0.25,
+        channels: [],
+      }
+      const session = sessionIn(test.ctx, test.dir, 'metrics-class')
+      const scoped = (await run(test, session, '/metrics writer')).result
+      expect(scoped.kind === 'success' ? scoped.text : '').toContain("Metric window for 'writer': 2 runs")
+      expect(scoped.kind === 'success' ? scoped.text : '').toContain('- evaluator-reliability: 75.0%')
+
+      const empty = (await run(test, session, '/metrics alpha')).result
+      const emptyText = empty.kind === 'success' ? empty.text : ''
+      expect(emptyText).toContain("Metric window for 'alpha': 0 runs")
+      expect(emptyText).toContain('Capability: not measured — the window holds 0 older and 0 newer runs')
+      expect(emptyText).toContain('- capability-gain-per-million-tokens: not measured'
+        + ' — the window holds 0 older and 0 newer runs; 2 runs are needed on each side of the split')
+      // The supporting metrics are host-wide, so they still answer for a class with no runs.
+      expect(emptyText).toContain('- evaluator-reliability: 75.0%')
     } finally {
       await shutdown(test)
     }

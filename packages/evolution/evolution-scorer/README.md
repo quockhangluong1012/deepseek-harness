@@ -118,7 +118,7 @@ No invariant companion is published: the scorer owns no durable state, so there 
 <a id="further-exploration"></a>
 ## Further Exploration
 
-- [Evolutionary Harness specification](../../../specs/evolutionary-harness.spec.md) — the behaviour contract this package implements.
+- [Evolutionary Harness subsystem](../../../docs/subsystems/evolutionary-harness.md) — the behaviour contract this package implements.
 - [Evolution package map](../README.md) — the group's packages and their repository position.
 - [Snapshot harness](../../test-support/session-snapshot/README.md) — the corpus plan, workspace capture, and ACP runner this package scores.
 - [Keyless LLM replay](../../test-support/llm-replay/README.md) — the fixture reader and replay adapter behind every attempt.

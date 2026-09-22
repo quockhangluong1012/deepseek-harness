@@ -62,6 +62,47 @@ export interface EvolutionOutput {
   at: string
 }
 
+/**
+ * One recall the scope served: which memory the shipped recall path retrieved
+ * into the scope's context, the item it landed as, and the recorded evidence
+ * that landed afterwards. §23's loop is these links, one recalled memory at a
+ * time; links no record can supply are absent rather than guessed.
+ */
+export interface MemoryRecall {
+  /** Recalled memory's identity: the id its `Recall: ` label carried. */
+  id: string
+  /** Context item the recall landed as. */
+  itemId: string
+  /** ISO-8601 instant the recall landed in the scope's context. */
+  at: string
+  /**
+   * Session of the decision batch that landed on the scope after this recall,
+   * or null while none has. The batch is the recorded decision the recalled
+   * material was in play for; which session read the item is not recorded.
+   */
+  decidedInSessionId: string | null
+  /** ISO-8601 instant that batch landed, or null while none has. */
+  decidedAt: string | null
+  /**
+   * Graded outcome of the session that decision batch was extracted from, as
+   * a grader reading the feedback store recorded it: `ok` when that session's
+   * recorded evidence was clean, `failed` when a decisive failure was
+   * attributed to it. Null while none was recorded.
+   */
+  outcome: RecallOutcome
+  /** ISO-8601 instant the outcome was recorded, or null while none has. */
+  outcomeAt: string | null
+}
+
+/** What a graded recall's outcome says: clean evidence, attributed failure, or nothing recorded yet. */
+export type RecallOutcome = 'ok' | 'failed' | null
+
+/** One recorded recall, with the scope whose context it landed in. */
+export interface RecordedRecall extends MemoryRecall {
+  /** Scope whose context the recall landed in. */
+  scopeId: EvolutionScopeId
+}
+
 /** Where a model-written memory document came from. */
 export type EvolutionExtractionOrigin = 'foreground' | 'background_review' | 'user-edit' | 'rebuild'
 
@@ -138,6 +179,25 @@ export interface MemoryStagedReplaceArtifactsPayload {
 export interface MemoryStagedApplyDecisionsPayload {
   decisions: LessonDecision[]
   extraction?: EvolutionExtraction
+}
+
+/**
+ * One decision batch that landed on a scope's record, as
+ * `evolution/decisions-applied` publishes it. Consumers that derive knowledge
+ * from extraction — the claim graph is the shipped one — read the artifacts
+ * as they read *before* the write: a `contradicts` decision keeps the
+ * artifact's identity while replacing its statement, so the pre-write
+ * statement is the only one that names what a correction corrects.
+ */
+export interface EvolutionDecisionsApplied {
+  /** Scope the batch was written to. */
+  scopeId: EvolutionScopeId
+  /** Session the batch was extracted from: the evidence source of every decision it carries. */
+  sessionId: string
+  /** The batch, in the order it was applied. */
+  decisions: readonly LessonDecision[]
+  /** The scope's artifacts as they read before the write, which the decisions were resolved against. */
+  artifacts: readonly LessonArtifact[]
 }
 
 /** One staged write awaiting approval. Staged entries never count toward capacity. */
@@ -241,6 +301,11 @@ export interface EvolutionMemoryRecord {
   contextItems: readonly EvolutionContextItem[]
   /** Produced-file index, newest first. */
   outputs: readonly EvolutionOutput[]
+  /**
+   * Recalls the scope served, newest first, capped by `maxRecalls`. This is
+   * §23's loop as far as the profile records it, and §24's utility evidence.
+   */
+  recalls: readonly MemoryRecall[]
   /** Episodic tier: raw session notes in append order, pruned by retention. */
   episodic: readonly EpisodicEntry[]
   /** Provenance of the last model-written lessons or profile, or null. */

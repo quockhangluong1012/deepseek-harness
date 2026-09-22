@@ -1,5 +1,5 @@
 ---
-description: "Idle-triggered skill lifecycle curation: automatic active/stale/archived transitions with dry-run previews (ctx.evolutionCurator), for hosts curating skills during use."
+description: "Idle-triggered skill lifecycle curation: automatic active/suspect/stale/archived transitions on idleness and recorded evidence, with dry-run previews (ctx.evolutionCurator), for hosts curating skills during use."
 kind: "package-reference"
 ---
 
@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-不必亲自盯着技能生命周期：每个 host 挂载一次本插件，它就会按闲置时长与失败证据把技能在 `active → stale → archived` 之间移动，让最新一次加载成功的 stale 技能回到 `active`，并用试运行预览每次通过。开启 `consolidate` 可让模型把 agent 创建的技能归并为伞技能；置顶、受保护、随包与 hub 来源的技能永不移动。它读取技能遥测，缺席时退化为簿记。真实通过会写快照，你可以整轮回滚，也可以按条目回滚。
+不必亲自盯着技能生命周期：每个 host 挂载一次本插件，它就会按闲置时长与证据把技能在 `active → suspect → stale → archived` 之间移动，让最新一次加载回应了对其不利证据的 suspect 或 stale 技能回到 `active`，并用试运行预览每次通过。`consolidate` 让模型把 agent 创建的技能归并为伞技能；置顶、受保护、随包与 hub 来源的技能永不移动。它读取技能遥测，缺席时退化为簿记。真实通过会写快照，可整轮或按条目回滚。
 
 挂载本身就是全部触发：`enabled: false` 不启动定时器，也不触碰记账。
 
@@ -29,7 +29,17 @@ kind: "package-reference"
 
 Host 启动时挂载本插件一次。此后它自行拥有维护计划：自己观测 host 范围的 `session/event` 活动，运行一次启动时到期检查，并以 `unref()` 过的定时器每 `tickMinutes` 重复一次到期检查，定时器随插件处置。到期检查仅在 `lastRunAt` 起经过 `intervalHours`，且 `minIdleHours` 内没有会话事件到达时才运行一次通过；本进程观测到任何活动之前，host 视为闲置。首次检查只播种 `lastRunAt` 并递延一个周期，因此短命 CLI 运行只贡献其启动时刻，而不运行任何东西。`enabled: false` 不启动定时器，也不触碰记账。
 
-调用 `maybeRun` 可自行运行同一次到期检查（闲置门控可用 `idleMs` 显式覆盖），调用 `run` 做无条件通过，以 `dryRun: true` 预览报告而不写入。一次通过检查每个被跟踪的技能：闲置时长从上次加载起算，从未加载则从播种起算。`active` 在超过 `staleAfterDays` 后进入 `stale`——或更早地因失败证据进入：在没有更新的加载回应它们的情况下，被归因的信任失败数达到 `staleTrustFailureFloor`，或在至少 `stageMinUses` 次加载上加载失败率超过 `stageFailureRate` 且最近一次加载是失败的。最近一次加载成功、仍在 stale 窗口以内、且新于其最近一次被归因失败的 `stale` 技能回到 `active`；超过 `archiveAfterDays` 则照样归档——期限永远优先于复活。报告以理由列出每次移动，并给出置顶、受保护名称与被排除来源的跳过计数；写了快照时还携带通过标识与快照文件名。`lastRunAt` 读取上次通过时刻，供状态界面使用。
+调用 `maybeRun` 可自行运行同一次到期检查（闲置门控可用 `idleMs` 显式覆盖），调用 `run` 做无条件通过，以 `dryRun: true` 预览报告而不写入。一次通过检查每个被跟踪的技能：闲置时长从上次加载起算，从未加载则从播种起算。`active` 在超过 `staleAfterDays` 后进入 `stale`。证据驱动的移动比闲置驱动慢一档：每一次由证据触发的移动都落在 `suspect` 上，而 `suspect` 再按 `active` 所用的同一闲置阈值老化进入 `stale`。
+
+### 漂移信号
+
+一次通过会从档案本就持有的记录中读取 §22 的四个信号，其中任意一个都会把 `active` 技能移入 `suspect`。每个信号都以 `drift: <名称>` 的形式计入流转原因。`failureSpike` 是一次决定性分级——属于该技能某个会话的 `trigger_review` 失败信号——由该技能最近一次信任观察归因给它、没有任何更新的加载回应它，且发生在 `driftWindowDays` 之内。`conflictingEvidence` 是在该技能最近一次加载或修补之后为它记录的 `conflicting-evidence` 不确定性信号。`lowUtility` 是该技能已记录的干净结果占比减去同侪的占比，且不大于 `lowUtilityFloor`。`versionChange` 是一条已记录的谱系信封，其 `tool`、`model`、`prompt`、`retriever`、`evaluator` 或 `env` 版本与上一条信封不同，且记录于该技能最近一次使用或修补之后——技能自身的版本被跳过，因为发生变更的工件并不是它被验证时所处的环境。
+
+在没有更新的加载回应它们的情况下，被归因的信任失败数达到 `staleTrustFailureFloor`，或在至少 `stageMinUses` 次加载上加载失败率超过 `stageFailureRate` 且最近一次加载是失败的，也会把 `active` 技能移入 `suspect`。最近一次加载成功、且新于其进入 `suspect` 那一刻的 `suspect` 技能回到 `active`，这就是"一次加载悄悄回应了证据"的方式；最近一次加载成功、仍在 stale 窗口以内、且新于其最近一次被归因失败的 `stale` 技能同样回到 `active`；超过 `archiveAfterDays` 时两者都改为归档——期限永远优先于复活。报告以理由列出每次移动，并给出置顶、受保护名称与被排除来源的跳过计数；写了快照时还携带通过标识与快照文件名。`lastRunAt` 读取上次通过时刻，供状态界面使用。
+
+#### §22 点名但没有任何记录可达的信号
+
+规范列出的两个来源在本档案中都不是按技能的，因此没有任何通过会读取它们。知识图中被否证的声明与记忆存储的 `refutationCount` 都按作用域、按工件计数，而没有任何存储字段把某个工件或声明连接到某个技能；它们只能经上面那些按技能的 `conflicting-evidence` 不确定性信号抵达阶梯。任务分布漂移需要技能使用上的任务类别轴，而这样的轴并不存在：技能使用记录的是加载它的会话，从来不是这些会话提出的任务；而 `evolution-meta` 的 `taskClass` 是被测优化器技能，而不是任务类别。
 
 `consolidate: true` 时，该通过随后对 agent 创建的技能运行一次 LLM 归并（见[归并](#consolidation)）。
 
@@ -64,7 +74,9 @@ Host 启动时挂载本插件一次。此后它自行拥有维护计划：自己
 | `tickMinutes` | `15` | host 范围到期检查之间的小时数 |
 | `staleAfterDays` | `30` | `active` 进入 `stale` 的闲置天数 |
 | `archiveAfterDays` | `90` | `stale` 进入 `archived` 的闲置天数 |
-| `staleTrustFailureFloor` | `3` | 在没有更新的加载回应的情况下，使 `active` 进入 `stale` 的被归因信任失败数 |
+| `staleTrustFailureFloor` | `3` | 在没有更新的加载回应的情况下，使 `active` 进入 `suspect` 的被归因信任失败数 |
+| `driftWindowDays` | `14` | 决定性分级失败在多长时间内仍算新鲜，供 §22 的失败尖峰信号使用（单位：天） |
+| `lowUtilityFloor` | `0` | 实测效用差值不大于该值时 §22 认定效用偏低；零即同侪合并基线 |
 | `protectedNames` | `[]` | 豁免自动流转的技能名，如计划引用 |
 | `pruneBuiltins` | `true` | 从通过中剪除随包内置技能；hub 来源始终豁免 |
 | `backup.enabled` | `true` | 快照与台账写入的总开关 |
@@ -100,7 +112,7 @@ Host 启动时挂载本插件一次。此后它自行拥有维护计划：自己
 
 `consolidate` 默认关闭，且产生真实模型调用。开启时，真实通过调查处于 `active` 或 `stale` 状态的 agent 创建技能，在 `maxInputBytes` 内框定它们，并在 fork 启动前追加一条 `cost` 台账行 `{inputBytes, maxOutputTokens, provider, model, truncated}`。每个候选都携带加载过它的那些会话里记录的失败——至多 `maxCandidateFailures` 条，在反馈存储已挂载时读取——因此裁决反映的是真正坏在哪里，而不是技能作者的意图。fork 是 `ctx.llm` 之上的有界进程内工具循环，白名单只有两个工具：`skill_view` 读取一个候选包，`skill_apply` 为每个候选记录一条裁决（`keep`、`patch`、`consolidate`、`archive`）。循环至多花 `maxSteps` 次请求，并在首个纯文本回答处结束；请求失败会抛出，运行的截止时间在 `timeoutMs` 处中止它，插件处置时同样中止。
 
-所有写入都由整理器执行，因此无论模型要求什么，整包规则都成立。`patch` 在确认正文保留合法且指名的 frontmatter 之后就地在 `SKILL.md` 重写；会破坏技能的正文像其他不适用裁决一样被跳过，被替换的原文本先按内容寻址存为 blob。`consolidate` 裁决把候选的整个目录搬到伞技能之下（`<umbrella>/<name>/`），把被搬移树中每一处 `${DSH_SKILL_DIR}` 引用改写为新的相对根，并向伞技能的 `SKILL.md` 追加一条引用——随包携带 `references/`、`templates/`、`scripts/` 或 `assets/` 的包绝不会被压平成只剩 `SKILL.md`。`archive` 裁决把整个目录搬入技能旁边的 `.archive/`。伞技能缺失、不可写，或已占用同名目录时，包原地不动，该裁决计入跳过。归并记一条携带两端点的 `move` 台账条目；生命周期移动与自动通过走同一套快照、`pass` 与 `transition` 机制；`rollbackPass` 把每个被搬移的包搬回并恢复生命周期状态。
+所有写入都由整理器执行，因此无论模型要求什么，整包规则都成立。`patch` 正文在提交前先通过验证器优先的阶梯（见 [`dsh-evolution-verifiers`](../evolution-verifiers/README.zh.md)）：第 0、1 级确定性地判定 `skill_manage edit` 强制的 frontmatter 不变式，以及名称与指令不变式；在任何一级失败的正文被跳过，其拒绝层级与理由记入 `refusals`；通过确定性层级的正文通过就地重写 `SKILL.md` 被提交——阶梯的更高层级在 host 挂载其接缝时才会被咨询，而本路径不挂载任何接缝。被替换的原文本先按内容寻址存为 blob。`consolidate` 裁决把候选的整个目录搬到伞技能之下（`<umbrella>/<name>/`），把被搬移树中每一处 `${DSH_SKILL_DIR}` 引用改写为新的相对根，并向伞技能的 `SKILL.md` 追加一条引用——随包携带 `references/`、`templates/`、`scripts/` 或 `assets/` 的包绝不会被压平成只剩 `SKILL.md`。`archive` 裁决把整个目录搬入技能旁边的 `.archive/`。伞技能缺失、不可写，或已占用同名目录时，包原地不动，该裁决计入跳过。归并记一条携带两端点的 `move` 台账条目；生命周期移动与自动通过走同一套快照、`pass` 与 `transition` 机制；`rollbackPass` 把每个被搬移的包搬回并恢复生命周期状态。
 
 host 插件无法无头 fork subagent 接缝——进程内 provider 从活跃的父会话继承路由，而整理器没有会话——因此循环在进程内运行。
 
@@ -117,7 +129,8 @@ host 插件无法无头 fork subagent 接缝——进程内 provider 从活跃�
 | 文件 | 职责 |
 |---|---|
 | [`src/index.ts`](src/index.ts) | 插件入口：`EvolutionCurator` 服务、通过逻辑、host 范围触发、回滚与记账 |
-| [`src/consolidate.ts`](src/consolidate.ts) | 归并 fork：调查框定、有界工具循环与整包规则应用器 |
+| [`src/drift.ts`](src/drift.ts) | 纯 §22 漂移信号：失败尖峰、更新的冲突证据、实测效用偏低、依赖版本变化 |
+| [`src/consolidate.ts`](src/consolidate.ts) | 归并 fork：调查框定、有界工具循环、经验证器把关的补丁准入与整包规则应用器 |
 | [`src/safety.ts`](src/safety.ts) | 快照、台账、blob、修剪、包搬移与回滚读取路径 |
 | [`src/spec.ts`](src/spec.ts) | 域声明：记账模式与 `defineDomain` 规范 |
 | [`src/types.ts`](src/types.ts) | 公共运行选项、流转、报告、回滚与通过类型 |
@@ -135,8 +148,9 @@ host 插件无法无头 fork subagent 接缝——进程内 provider 从活跃�
 <a id="further-exploration"></a>
 ## 进一步探索
 
-- [演进式 Harness 规范](../../../specs/evolutionary-harness.spec.md)——本包实现的行为契约。
+- [演进式 Harness 子系统](../../../docs/subsystems/evolutionary-harness.zh.md)——本包实现的行为契约。
 - [evolution 包导览](../README.zh.md)——本分组的软件包及其仓库位置。
+- [`dsh-evolution-verifiers`](../evolution-verifiers/README.zh.md)——本包归并补丁准入所运行的验证器优先阶梯。
 - [生成的配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-evolution-curator)——每个可接受的配置字段。
 
 -----
@@ -176,6 +190,7 @@ skill_apply(name, action, into?, body?) — record one verdict
 - **归并在进程内运行**——host 插件无法无头 fork subagent 接缝，因此工具循环跑在 `ctx.llm` 上而非子 agent 上。
 - **归并改写目录引用，不改写计划条目**——归并改写被搬移包内的 `${DSH_SKILL_DIR}` 路径；目前没有任何计划条目引用技能，因此 `protectedNames` 仍是计划引用的护栏。
 - **认领单向**——被认领的技能保持用户主导来源；没有任何操作能将其送回 agent 创建。
+- **§22 的两个来源并非按技能**——知识图中被否证的声明与记忆存储按工件计数的 `refutationCount`，只能以 `conflicting-evidence` 不确定性信号的形式抵达阶梯，因为没有任何存储字段把工件或声明连接到技能；技能使用上同样没有任务类别轴，因此任务分布漂移根本不会被推导。
 - **清理默认关闭**——`archiveTtlDays` 默认为零，因此归档技能会一直累积，直到选定 TTL。
 - **受保护名称是显式的**——计划引用经由 `protectedNames` 进入，直到出现计划到技能的接缝将其自动接线。
 - **仅限本机**——记账位于 `$DSH_HOME` 之下，永不写入项目目录内。

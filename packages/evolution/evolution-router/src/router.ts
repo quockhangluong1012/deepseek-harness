@@ -17,7 +17,14 @@ export const ROUTING_ROLES: readonly RoutingRole[] = [
   'promotion-review',
 ]
 
-/** The grouping key of one route: task class, role, and route joined. */
+/**
+ * The grouping key of one route: task class, role, and route joined.
+ * @param taskClass - the task class the route was measured on.
+ * @param role - the evolutionary role the route filled.
+ * @param provider - the route provider.
+ * @param model - the route model.
+ * @returns the grouping key.
+ */
 export function routeKey(taskClass: RouterTaskClass, role: RoutingRole, provider: string, model: string): string {
   return `${taskClass}\0${role}\0${provider}\0${model}`
 }
@@ -87,7 +94,7 @@ export function rankRoutes(
 ): RouteRankingEntry[] {
   return rows
     .filter(row => row.taskClass === taskClass && row.role === role)
-    .map(row => {
+    .map((row) => {
       const score = scoreOf(row.passes, row.samples, minimumSamples)
       return {
         provider: row.provider,

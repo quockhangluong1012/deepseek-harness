@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   DREAM_WEIGHTS,
   FREQUENCY_HALF_POINT,
+  conceptOverlap,
   countConcepts,
   scoreCandidate,
 } from '../src/signals.ts'
@@ -80,5 +81,15 @@ describe('dreaming signals', () => {
     expect(countConcepts('the disk is full, the disk is full')).toBe(4)
     expect(countConcepts('a b c')).toBe(0)
     expect(countConcepts('')).toBe(0)
+  })
+
+  it('measures overlap as the shared share of two texts concepts', () => {
+    expect(conceptOverlap('disk full cache', 'disk full')).toBeCloseTo(2 / 3, 10)
+  })
+
+  it('reads no overlap when either text carries no comparable concept', () => {
+    expect(conceptOverlap('x y z', 'disk full')).toBe(0)
+    expect(conceptOverlap('disk full', 'x y z')).toBe(0)
+    expect(conceptOverlap('', '')).toBe(0)
   })
 })

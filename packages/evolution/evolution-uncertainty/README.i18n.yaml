@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/evolution/evolution-uncertainty/README.md
 README.md: 5ed4683f4cc7c53ba2867211de6856e652b6decf
-README.zh.md: 82196e4be6bec4f84962523cff87085636f31b5b
+README.zh.md: 511b4cfee67e71a3a51aa1adf71b56011b7be8f8

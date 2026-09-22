@@ -148,7 +148,8 @@
         maxBytes: 16384
         profile: default
 
-    # Evolution family (`specs/evolutionary-harness.spec.md`): per-scope memory,
+    # Evolution family (`specs/evolutionary-harness-v11-deep-research.md` and
+    # `docs/subsystems/evolutionary-harness.md`): per-scope memory,
     # the background reviewer, the brief injector, skill telemetry and
     # management, the curator pass, and the governance commands. The reviewer
     # and the injector share one `profile` namespace, so they read and write the
@@ -174,6 +175,15 @@
 
     - id: evolution-skill-manage
       name: '@deepseek-ai/dsh-evolution-skill-manage'
+
+    # The verifier-first ladder (§12): the admission gate every candidate body
+    # passes before a commit. Level 0 (schema) and level 1 (invariants) decide
+    # in-process; levels 2-4 delegate to mounted seams and abstain when a seam
+    # is absent, so a host without a simulator or evaluator still gets the
+    # deterministic rungs and never a fabricated pass. Mounted before the
+    # curator, whose patch admission runs through it.
+    - id: evolution-verifiers
+      name: '@deepseek-ai/dsh-evolution-verifiers'
 
     - id: evolution-curator
       name: '@deepseek-ai/dsh-evolution-curator'
@@ -223,6 +233,15 @@
       name: '@deepseek-ai/dsh-evolution-optimizer'
       disabled: true
 
+    # The metric layer (§55): the north-star metric — capability gain per unit
+    # of compute — and the supporting set, read from the stores mounted above
+    # and below. It opens no domain and writes nothing: each reading resolves
+    # its source stores when `/metrics` runs, so a store left unmounted makes
+    # its metrics report the missing record rather than disappear. Mounted
+    # before the command plane that reads it.
+    - id: evolution-metrics
+      name: '@deepseek-ai/dsh-evolution-metrics'
+
     - id: command-evolution
       name: '@deepseek-ai/dsh-command-evolution'
       config:
@@ -255,6 +274,14 @@
     # positives through /evaluators. It writes only its own verdict domain.
     - id: evolution-evaluator-health
       name: '@deepseek-ai/dsh-evolution-evaluator-health'
+
+    # Retrieval-aware evolution (§39): the store that judges a retrieval
+    # configuration by the downstream task success of the sessions that ran
+    # under it, never by retrieval precision alone. The producer is the
+    # active-memory hook above, which records the configuration in force; the
+    # store writes only its own domain and reaches no model prompt.
+    - id: evolution-retrieval
+      name: '@deepseek-ai/dsh-evolution-retrieval'
 
     # Population-based evolution: the optimizer records every staged write as a
     # candidate here, and the command plane inspects generations, lineages, and
@@ -332,6 +359,20 @@
     # reaches no model prompt.
     - id: evolution-sleeptime
       name: '@deepseek-ai/dsh-evolution-sleeptime'
+
+    # Actuation: the loops that act on what the stores above recorded —
+    # ending a live rollout on its measured evidence, migrating an island whose
+    # schedule is due, following a stagnant skill's ladder rung, draining the
+    # uncertainty queue into benchmark tasks, admitting open curriculum
+    # proposals and freshly generated adversarial probes as benchmark tasks,
+    # and growing the benchmark from recorded failures. This is the first
+    # evolution row that changes what the engine runs rather than recording
+    # what it did, so it is mounted last, after every store it reads. Each task
+    # writes only to those stores, on the heartbeat's cadence and idle gate,
+    # under the class's recorded budget allocation, and reaches no model
+    # prompt; nothing here gates a skill's visibility to a model.
+    - id: evolution-actuator
+      name: '@deepseek-ai/dsh-evolution-actuator'
 
     # Scope verbs and the journey read model over Typert Remote: the page's
     # data source. Its `profile` namespaces the scope key, and it shares the

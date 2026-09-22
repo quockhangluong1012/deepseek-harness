@@ -7,11 +7,11 @@ kind: "package-reference"
 
 [English](README.md) | 中文
 
-## Summary
+## 概述
 
 查看某个作用域记录到的演进，并对等你决定的待审写入作出裁决：按可切换的时间窗口（今天、7 天、30 天、全部）看读模型能证明的每日桶——指令、经验与画像的写入、上下文附件、产出文件、待审写入以及按日统计的决策——并排呈现等待决定的待审写入、该作用域当前的经验（按置信度从高到低渲染）、整理器记录到的运行，以及简报相对记录上限的已用字节。批准或拒绝一条待审写入，它那一行就地退役。把它挂在 web composition 中；编辑指令、经验与画像仍是 CLI 的活。
 
-## Table of Contents
+## 目录
 
 - [Use this package](#use-this-package)
 - [Understand the implementation](#understand-the-implementation)
@@ -62,8 +62,8 @@ kind: "package-reference"
 <a id="further-exploration"></a>
 ## Further Exploration
 
-- [演进 harness 规范](../../../specs/evolutionary-harness.spec.md) — Host 侧实现的行为契约。
-- [改进规范](../../../specs/improvement.spec.md) — 历程读模型与页面的验收标准。
+- [演进 harness 子系统](../../../docs/subsystems/evolutionary-harness.zh.md) — Host 侧实现的行为契约。
+- [演进式 Harness 子系统](../../../docs/subsystems/evolutionary-harness.zh.md) — 本家族的行为与本页面背后的历程读模型在此描述。
 
 -----
 
@@ -86,7 +86,7 @@ kind: "package-reference"
 - **简报只读** —— 页面展示已用字节与摘要；指令、经验与画像的编辑在页面长出这些编辑器之前仍由 CLI 负责。
 
 <a id="dev-note"></a>
-### Dev Note
+### 开发备注
 
 <details>
 <summary>Working context for maintainers — click to expand</summary>

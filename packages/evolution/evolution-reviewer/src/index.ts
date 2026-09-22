@@ -7,6 +7,13 @@
  * relevance-bounded slice of the scope's current artifacts it was shown, and
  * a failure logs a warning and leaves the stored artifacts as they were.
  *
+ * The same call closes §5's refinement loop for a turn that failed: the
+ * recorded draft is the turn's transcript plus one row per failing tool
+ * result, the model's `critique` names the violated expectation, the failure,
+ * and the correction, and the reviewer records both halves of the revision —
+ * the critique as a scope context item, and the corrected strategy as a
+ * lesson artifact. A critique that cannot name all three is discarded.
+ *
  * The reviewer never scans session history synchronously. It buffers the
  * current turn's events as they arrive on `session/event` and flushes the
  * buffer at `turn/end`; rebuilds select their material through the
@@ -32,7 +39,7 @@ import type { EvolutionExtraction, EvolutionOutput, LessonDecision } from '@deep
 import { EvolutionScopeId, RECALL_LABEL_PREFIX, utf8Bytes } from '@deepseek-ai/dsh-evolution-memory'
 import { skillCreationEvidence, skillProposalMergeKey } from '@deepseek-ai/dsh-evolution-skill-telemetry'
 import { extractionSystemPrompt, frameExtractionRequest, parseExtractionDecisions } from './protocol.ts'
-import type { ExtractionDecision, IndexedArtifact } from './protocol.ts'
+import type { CritiqueDecision, ExtractionDecision, IndexedArtifact } from './protocol.ts'
 import { selectRelevantArtifacts } from './relevance.ts'
 
 declare module '@deepseek-ai/cordis' {
@@ -171,6 +178,54 @@ export function resolveConfig(config: Config = {}): ResolvedConfig {
 /** Timeout reason code for review calls. */
 export const EVOLUTION_REVIEW_TIMEOUT = 'EVOLUTION_REVIEW_TIMEOUT'
 
+/**
+ * Context-item label prefix marking a recorded critique (§5's critique half).
+ * The stored label is `Critique: <sessionId>`, and the item's text names the
+ * violated expectation, the failure, and the correction.
+ */
+export const CRITIQUE_LABEL_PREFIX = 'Critique: '
+
+/**
+ * The `ctx.sessionQuery` readers this service calls. Every reader is optional
+ * because the seam is host-provided: a composition may mount the query service
+ * with only some of them, and each caller then checks the readers it needs and
+ * falls back to the exact scan rather than failing the pass.
+ */
+interface SessionQuerySeam {
+  searchSessions?: SessionQueryEngine['searchSessions']
+  searchEvents?: SessionQueryEngine['searchEvents']
+  readEvent?: SessionQueryEngine['readEvent']
+}
+
+/**
+ * Whether a mounted query seam carries every reader the ranked recall path
+ * needs. A composition may mount the query service with only the surface
+ * reader, which is why the seam's members are optional here.
+ * @param seam - the value read from `ctx.get('sessionQuery')`.
+ * @returns whether the three ranked readers are all callable.
+ */
+function offersRankedRecall(seam: SessionQuerySeam | undefined): seam is Required<SessionQuerySeam> {
+  return seam?.searchSessions !== undefined
+    && seam.searchEvents !== undefined
+    && seam.readEvent !== undefined
+}
+
+/**
+ * Whether a mounted query seam carries the two readers the per-turn recall
+ * needs; the ranked path additionally searches within-session events.
+ * @param seam - the value read from `ctx.get('sessionQuery')`.
+ * @returns whether the recall search and the single-event read are both callable.
+ */
+function offersRecall(
+  seam: SessionQuerySeam | undefined,
+): seam is Required<Pick<SessionQuerySeam, 'searchSessions' | 'readEvent'>> {
+  return seam?.searchSessions !== undefined && seam.readEvent !== undefined
+}
+
+/**
+ * One transcript row: a human or assistant message, or the `tool` row that
+ * stands for one failing tool result of the turn.
+ */
 interface TranscriptRow {
   role: string
   text: string
@@ -286,17 +341,49 @@ function admittedRow(event: SessionEvent): TranscriptRow | undefined {
 }
 
 /**
- * Decode one tool result into its call linkage and failure flag.
+ * Decode one tool result into its call linkage, failure flag, and — for a
+ * failure — the text it recorded, falling back to the error code when the
+ * result carries no readable text.
  * @param data - the result event data.
  * @returns the linked call outcome, or undefined when unlinked.
  */
 function parseToolOutcome(
-  data: { callId?: string; message: { content: readonly { toolCallId?: string; isError?: boolean }[] } },
-): { callId: string; failed: boolean } | undefined {
+  data: {
+    callId?: string
+    error?: { code?: string }
+    message: {
+      content: readonly {
+        toolCallId?: string
+        isError?: boolean
+        content?: readonly { type: string; text?: string }[]
+      }[]
+    }
+  },
+): { callId: string; failed: boolean; detail: string } | undefined {
   const block = data.message.content[0]
   const callId = data.callId ?? block?.toolCallId
   if (callId === undefined) return undefined
-  return { callId, failed: block?.isError === true }
+  if (block?.isError !== true) return { callId, failed: false, detail: '' }
+  return { callId, failed: true, detail: textOfContent(block.content ?? []) || data.error?.code || '' }
+}
+
+/**
+ * Render one failing tool result as the transcript row the critique is written
+ * against: the tool's name when the turn's own call was observed, and the
+ * recorded text, or a plain statement of the failure when the result carried
+ * none.
+ * @param outcome - the decoded failing result.
+ * @param calls - the turn's buffered calls, for the failing call's name.
+ * @returns the transcript row.
+ */
+function failureRow(
+  outcome: { callId: string; detail: string },
+  calls: readonly BufferedCall[],
+): TranscriptRow {
+  const name = calls.find(call => call.callId === outcome.callId)?.name
+  const label = name ?? 'tool call'
+  const detail = outcome.detail.trim()
+  return { role: 'tool', text: detail.length === 0 ? `${label} failed` : `${label}: ${detail}` }
 }
 
 /**
@@ -565,10 +652,8 @@ export class EvolutionReviewer extends Service {
     directory: string,
     sessionIds: readonly SessionId[],
   ): Promise<TranscriptRow[] | undefined> {
-    const sessionQuery = this.ctx.get('sessionQuery')
-    if (sessionQuery?.searchSessions === undefined
-      || sessionQuery.searchEvents === undefined
-      || sessionQuery.readEvent === undefined) return undefined
+    const sessionQuery: SessionQuerySeam | undefined = this.ctx.get('sessionQuery')
+    if (!offersRankedRecall(sessionQuery)) return undefined
     const query = this.lastHumanText.get(scopeKey)
     if (query === undefined) return undefined
     try {
@@ -644,7 +729,12 @@ export class EvolutionReviewer extends Service {
       buffered.calls.push({ callId: data.callId, name: data.name, args: data.arguments })
     } else if (event.type === 'tool/result') {
       const outcome = parseToolOutcome(event.data)
-      if (outcome !== undefined) buffered.outcomes.set(outcome.callId, outcome.failed)
+      if (outcome !== undefined) {
+        buffered.outcomes.set(outcome.callId, outcome.failed)
+        // A failing result is part of the draft the critique is written
+        // against, so it joins the transcript; a successful one stays out.
+        if (outcome.failed) buffered.rows.push(failureRow(outcome, buffered.calls))
+      }
     }
   }
 
@@ -711,8 +801,8 @@ export class EvolutionReviewer extends Service {
     query: string | undefined,
   ): Promise<void> {
     if (query === undefined) return
-    const sessionQuery = this.ctx.get('sessionQuery')
-    if (sessionQuery?.searchSessions === undefined || sessionQuery.readEvent === undefined) return
+    const sessionQuery: SessionQuerySeam | undefined = this.ctx.get('sessionQuery')
+    if (!offersRecall(sessionQuery)) return
     try {
       const sessions = await sessionQuery.searchSessions({
         query,
@@ -974,6 +1064,11 @@ export class EvolutionReviewer extends Service {
    * model the relevance-bounded indexed slice beside that transcript, then
    * resolve every decision back to a real artifact id and apply the batch as
    * one write — staged for approval when background approval is configured.
+   *
+   * A turn whose transcript records a failing tool result may also answer with
+   * §5's critique: the admitted critiques are recorded first, as scope context
+   * items, and the revision each licenses travels inside the same batch as an
+   * ordinary `new` candidate. One model call covers both halves.
    * @param scope - scope identity.
    * @param route - resolved model route.
    * @param rows - transcript rows, already byte-capped.
@@ -991,7 +1086,13 @@ export class EvolutionReviewer extends Service {
   ): Promise<void> {
     const relevant = await this.indexedArtifacts(scope, rows)
     const response = await this.callModel(route, rows, relevant, signal, sessionId)
-    const decisions = this.resolveDecisions(parseExtractionDecisions(response.text), relevant, String(sessionId))
+    const { decisions, critiques } = this.resolveDecisions(
+      parseExtractionDecisions(response.text),
+      relevant,
+      String(sessionId),
+      rows.some(row => row.role === 'tool'),
+    )
+    await this.recordCritiques(scope, critiques, sessionId)
     await this.applyExtraction(scope, decisions, {
       at: meta.at,
       sessionId: String(sessionId),
@@ -1027,18 +1128,51 @@ export class EvolutionReviewer extends Service {
    *
    * A `new` candidate takes its `source` from this extraction's session, which
    * only the caller knows: the model's decision carries no provenance field.
+   *
+   * A critique is admitted only when the transcript this call sent records a
+   * failure for it to be written against and names all three of §4.2's fields;
+   * otherwise it is dropped with a warning, and every decision beside it still
+   * applies. An admitted critique additionally yields the revision it licenses
+   * as one `new` candidate: the correction as the statement, the failure as
+   * its trigger condition, and the model's own confidence and scope.
    * @param decisions - the decisions the model reported.
    * @param relevant - the indexed artifacts this call was shown.
    * @param source - session id stamped on every new candidate.
-   * @returns the resolvable decisions, in reported order.
+   * @param hasFailure - whether the transcript this call sent records a failing tool result.
+   * @returns the resolvable decisions, in reported order, and the admitted critiques.
    */
   private resolveDecisions(
     decisions: readonly ExtractionDecision[],
     relevant: readonly IndexedArtifact[],
     source: string,
-  ): LessonDecision[] {
+    hasFailure: boolean,
+  ): { decisions: LessonDecision[]; critiques: CritiqueDecision[] } {
     const resolved: LessonDecision[] = []
+    const critiques: CritiqueDecision[] = []
     for (const decision of decisions) {
+      if (decision.action === 'critique') {
+        if (!hasFailure) {
+          this.ctx.logger.warn('evolution review dropped a critique: this turn recorded no failing tool result')
+          continue
+        }
+        if ([decision.expectation, decision.failure, decision.correction].some(value => value.trim().length === 0)) {
+          this.ctx.logger.warn('evolution review dropped a critique naming no expectation, no failure, or no correction')
+          continue
+        }
+        critiques.push(decision)
+        resolved.push({
+          kind: 'new',
+          candidate: {
+            statement: decision.correction,
+            source,
+            conditions: decision.failure,
+            evidence: 'inference',
+            confidence: decision.confidence,
+            scope: decision.scope,
+          },
+        })
+        continue
+      }
       if (decision.action === 'new') {
         resolved.push({
           kind: 'new',
@@ -1071,7 +1205,39 @@ export class EvolutionReviewer extends Service {
           ...decision.confidence === undefined ? {} : { confidence: decision.confidence },
         })
     }
-    return resolved
+    return { decisions: resolved, critiques }
+  }
+
+  /**
+   * Record the admitted critiques of one call as scope context items, one per
+   * failing tool result. The stored text names §4.2's three fields, so the
+   * critique reaches the scope's next brief and the store's digest makes its
+   * injection reconstructable from the session log.
+   *
+   * A critique is written directly even when background approval stages the
+   * decisions beside it: like a recall item, it is the reviewer's own reading
+   * of a recorded turn rather than a proposed change to the stored artifacts.
+   * A store rejection warns and keeps the batch: the revision still applies.
+   * @param scope - scope identity.
+   * @param critiques - the admitted critiques, in reported order.
+   * @param sessionId - the extracting session, named in the label.
+   */
+  private async recordCritiques(
+    scope: EvolutionScopeId,
+    critiques: readonly CritiqueDecision[],
+    sessionId: SessionId,
+  ): Promise<void> {
+    for (const critique of critiques) {
+      try {
+        await this.ctx.evolutionMemory.addContextItem(scope, {
+          kind: 'text',
+          label: `${CRITIQUE_LABEL_PREFIX}${String(sessionId)}`,
+          text: `expected: ${critique.expectation}\nobserved: ${critique.failure}\ncorrection: ${critique.correction}`,
+        })
+      } catch (error) {
+        this.ctx.logger.warn(`evolution review could not record a critique for '${String(scope)}': ${String(error)}`)
+      }
+    }
   }
 
   /**

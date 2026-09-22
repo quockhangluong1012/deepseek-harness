@@ -1,8 +1,10 @@
 /**
- * Immutable session trace (`ctx.evolutionTrace`): the structured learning
- * trace of a session, derived from the committed session log — the
+ * Immutable session trace projection (`ctx.evolutionTrace`): the structured
+ * learning trace of a session, derived from the committed session log — the
  * authoritative raw trace — with ranked root-cause attribution per failed tool
- * call and compressed learning-trace rows for reflection and evolution.
+ * call, the §3.1 trajectory items the log records, counterfactual replay over
+ * a recorded trace, and compressed learning-trace rows for reflection and
+ * evolution.
  *
  * Nothing here calls a model or writes a new domain: the session log already
  * is the immutable raw trace (§3.3 form one), so the store projects it on
@@ -18,11 +20,13 @@ import type { SessionHandle } from '@deepseek-ai/dsh-session-persistence'
 import { SessionPersistenceNotFoundError } from '@deepseek-ai/dsh-session-persistence'
 import type {} from '@deepseek-ai/dsh-evolution-memory'
 import { project } from './project.ts'
+import { replayTrace } from './replay.ts'
 import { summarize } from './summarize.ts'
-import type { LearningTraceRow, TraceRecord } from './types.ts'
+import type { LearningTraceRow, ReplayArtifact, ReplayReport, TraceRecord } from './types.ts'
 
 export type * from './types.ts'
 export { project, sumUsage } from './project.ts'
+export { replayTrace } from './replay.ts'
 export { summarize } from './summarize.ts'
 
 declare module '@deepseek-ai/cordis' {
@@ -141,6 +145,23 @@ export class EvolutionTrace extends Service {
         || (right.updatedAt ?? '').localeCompare(left.updatedAt ?? '')
         || left.sessionId.localeCompare(right.sessionId))
       .slice(0, limit)
+  }
+
+  /**
+   * Replay one stored trace: reconstruct the context each step ran under,
+   * restore the artifact the retrievals named, and compare a baseline artifact
+   * against a candidate over the same trace (§16, §17). The recorded tool
+   * results are the substrate, so the replay is keyless and re-invokes no
+   * tool; steps whose recorded output is missing come back unreplayable.
+   * @param sessionId - session whose committed trace to replay.
+   * @param baseline - artifact revision the recorded run used.
+   * @param candidate - artifact revision under consideration.
+   * @returns the per-step comparison, or undefined when storage holds no such session.
+   */
+  async replay(sessionId: string, baseline: ReplayArtifact, candidate: ReplayArtifact): Promise<ReplayReport | undefined> {
+    const record = await this.trace(sessionId)
+    if (record === undefined) return undefined
+    return replayTrace({ trace: record, baseline, candidate })
   }
 }
 

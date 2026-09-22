@@ -10,7 +10,7 @@ Status: implemented
 
 ## 决定
 
-按 [`specs/workspace-memory.md`](../../../../specs/workspace-memory.md) 发布四个包，按依赖策略与编译面切分：
+按 [Workspace Memory 子系统](../../../../docs/subsystems/workspace-memory.zh.md) 发布四个包，按依赖策略与编译面切分：
 
 - `@deepseek-ai/dsh-workspace-memory`（workspace 组）拥有 `workspace_memory` 域上的持久记录（`per-record`，版本 1，记录损坏时明确失败）：描述、指令、带 `memoryUpdatedAt` 的记忆、最新在后的上下文条目、受 `maxOutputs` 上限约束的最新在前的产出，以及 `lastExtraction` 来源记录。读取是同步的；`capacityBytes` 为必填；其余每个上限都是经过校验的 `Config` 字段。容量计入指令、记忆与条目大小；摘要只覆盖这三者，因此描述与产出的写入永远不会重新注入。
 - `@deepseek-ai/dsh-workspace-memory-llm`（workspace 组）在 `ctx.workspaceMemoryExtractor` 背后拥有派生：从 `turn/end` 工具调用进行始终开启的产出索引、按 Workspace 的 promise 链上的门控按轮次提取，以及通过 `sessionQuery.filterEvents` 对最新会话按需 `rebuild`。调用是确定性的（`temperature: 0`、`purpose: 'workspace-memory'` 并关闭推理），并且失败时降级为一条警告。

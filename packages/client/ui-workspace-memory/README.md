@@ -62,7 +62,7 @@ Host service `ctx.workspaceMemoryController` owns the `workspaceMemory` namespac
 <a id="further-exploration"></a>
 ## Further Exploration
 
-- [Workspace Memory specification](../../../specs/workspace-memory.md) — the behaviour contract this package implements.
+- [Workspace Memory subsystem](../../../docs/subsystems/workspace-memory.md) — the behaviour contract this package implements.
 
 -----
 

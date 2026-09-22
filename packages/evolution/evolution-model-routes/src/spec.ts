@@ -1,14 +1,14 @@
 /**
  * The evolution-model-routes domain declaration: durable per-role route
- * assignments and their measured evidence. Zod validates the shipped format at
- * the durability boundary.
+ * assignments, their measured evidence, and the identity that filled each role
+ * of a run. Zod validates the shipped format at the durability boundary.
  * @module @deepseek-ai/dsh-evolution-model-routes/src/spec
  */
 
 import { z } from 'zod'
 import { defineDomain, domainTable } from '@deepseek-ai/dsh-storage-domain'
 import { EVOLUTION_ROLES, ROUTE_ORIGINS } from './routes.ts'
-import type { RouteEvidence, RouteRow } from './types.ts'
+import type { DutyRecord, RouteEvidence, RouteRow } from './types.ts'
 
 /** Durable shape of one route assignment. */
 export const routeRow = z.object({
@@ -37,11 +37,20 @@ export type RouteRowRow = z.infer<typeof routeRow>
 /** One stored outcome, inferred from {@link routeEvidenceRow}. */
 export type RouteEvidenceRow = z.infer<typeof routeEvidenceRow>
 
+/** Durable shape of one role fill. */
+export const dutyRow = z.object({
+  runId: z.string(),
+  role: z.enum(EVOLUTION_ROLES),
+  identity: z.string(),
+  at: z.string(),
+})
+
 /**
- * The evolution-model-routes domain spec: one `routes` table keyed by
- * role+route and one `evidence` table keyed by evidence identity.
- * `per-record` because assignments and outcomes are independent. Invalid rows
- * fail the domain open loudly: routes back model selection, not disposable
+ * The evolution-model-routes domain spec: a `routes` table keyed by
+ * role+route, an `evidence` table keyed by evidence identity, and a `duties`
+ * table keyed by run+role. `per-record` because assignments, outcomes, and role
+ * fills are independent. Invalid rows fail the domain open loudly: routes and
+ * duties back model selection and its separation of duties, not disposable
  * derived data.
  */
 export const modelRoutesDomainSpec = defineDomain({
@@ -51,5 +60,6 @@ export const modelRoutesDomainSpec = defineDomain({
   tables: {
     routes: domainTable<string, RouteRow>(routeRow),
     evidence: domainTable<string, RouteEvidence>(routeEvidenceRow),
+    duties: domainTable<string, DutyRecord>(dutyRow),
   },
 })

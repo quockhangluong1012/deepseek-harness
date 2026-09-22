@@ -1,5 +1,5 @@
 ---
-description: "Evolution memory brief injector with scope nudges (agent pre-step), for hosts composing the self-learning harness."
+description: "Evolution memory brief injector with condition-driven nudges (agent pre-step), for hosts composing the self-learning harness."
 kind: "package-reference"
 ---
 
@@ -29,7 +29,7 @@ Mount the plugin with the memory store and a workspace registry. Scopes resolve 
 
 ### Configuration
 
-`maxBytes` and `profile` are required: the deployment must choose what a brief may cost and which scope namespace it serves. The two nudge intervals are optional and default to the shipped cadence.
+`maxBytes` and `profile` are required: the deployment must choose what a brief may cost and which scope namespace it serves. The nudge cadence and the two condition thresholds are optional and default to the shipped values.
 
 ```yaml
 - name: '@deepseek-ai/dsh-evolution-memory-context'
@@ -42,9 +42,13 @@ Mount the plugin with the memory store and a workspace registry. Scopes resolve 
 |---|---|---|
 | `maxBytes` | required | Cap on the complete emitted text including the frame |
 | `profile` | required | Scope-identity namespace placed before the workspace key |
-| `memoryNudgeInterval` | `1` | Turns between scope-narrowing nudges |
-| `skillNudgeInterval` | `10` | Turns between lessons-to-skills nudges |
+| `memoryNudgeInterval` | `1` | Ceiling on memory-condition nudges: a condition that fired stays quiet this many turns |
+| `skillNudgeInterval` | `10` | Ceiling on skill-condition nudges: a condition that fired stays quiet this many turns |
+| `stagedWriteWaitMinutes` | `1440` | Minutes a staged write may wait before the memory nudge names it |
+| `failureSignalScanLimit` | `20` | Failure signals one nudge evaluation grades |
 | `capacityWarnPct` | `0.8` | Usage ratio at or above which the brief header warns to consolidate |
+
+`memoryNudgeInterval` and `skillNudgeInterval` used to be the trigger — a nudge rendered on every turn that was a multiple of them. They are now the cadence ceiling over the recorded conditions (`conditions.ts`), which is the §53 upgrade: a nudge fires when evidence holds and stays silent while none does, and the interval only limits how often a standing condition repeats. A host that sets them keeps its numbers and gets the new meaning.
 
 The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-evolution-memory-context) is the exhaustive source for every accepted field.
 
@@ -63,19 +67,20 @@ Recalled context material — items labelled with the store's `RECALL_LABEL_PREF
 
 ### Design concept
 
-The injector compares the record digest against the newest visible `evolution-memory` brief: an in-memory per-session mark first, then the claimed batch, then the logged surface through the asynchronous session query seam. Membership resolves the same way and is cached per session id, invalidated on `session/disposed`. A per-session counter of observed `turn/start` events gates the nudge cadence and clears with the same lifecycle. Nothing scans session history synchronously, so resumed sessions contribute their observed suffix and restarts re-resolve through the query seam instead of duplicating the brief.
+The injector compares the record digest against the newest visible `evolution-memory` brief: an in-memory per-session mark first, then the claimed batch, then the logged surface through the asynchronous session query seam. Membership resolves the same way and is cached per session id, invalidated on `session/disposed`. A per-session counter of observed `turn/start` events supplies the turn number the nudge cadence measures, and the turn each condition last fired on is remembered per session and condition; both clear with the same lifecycle. Nothing scans session history synchronously, so resumed sessions contribute their observed suffix and restarts re-resolve through the query seam instead of duplicating the brief.
 
 ### Source map
 
 | File | Role |
 |---|---|
-| [`src/index.ts`](src/index.ts) | Plugin entry: pre-step injector, membership cache, file materialization, section wiring |
+| [`src/index.ts`](src/index.ts) | Plugin entry: pre-step injector, membership cache, file materialization, store reads and section wiring |
 | [`src/render.ts`](src/render.ts) | Pure brief rendering within the byte budget |
-| [`src/sections.ts`](src/sections.ts) | Nudge section texts (static — no interpolated value), skill-tool visibility, turn-interval predicate |
+| [`src/sections.ts`](src/sections.ts) | Nudge section registrations, the skill-tool gate, and the cadence predicate |
+| [`src/conditions.ts`](src/conditions.ts) | The recorded conditions, their store-backed evaluators, and their line builders |
 
 ### Failure and recovery
 
-Missing or unreadable files degrade to a one-line `Context "<label>" is unavailable (<path>).` notice and the step proceeds. A failing surface read degrades to injecting rather than blocking the turn. Malformed `profile` values and non-positive or fractional nudge intervals fail plugin load loudly. The listener observes the final claimed batch and spreads the downstream decision, preserving `startsRequestSeries`.
+Missing or unreadable files degrade to a one-line `Context "<label>" is unavailable (<path>).` notice and the step proceeds. A failing surface read degrades to injecting rather than blocking the turn. Malformed `profile` values, non-positive or fractional nudge intervals, a fractional or zero `failureSignalScanLimit`, and a negative `stagedWriteWaitMinutes` fail plugin load loudly. An unmounted evolution store leaves its own condition unevaluable rather than silently satisfied or silently absent, and the line it renders names the store. The listener observes the final claimed batch and spreads the downstream decision, preserving `startsRequestSeries`.
 
 No invariant companion is published because the injector owns no durable state of its own: the brief is derived from the store record at each pre-step, and the domain table behind the store is the only durable copy.
 
@@ -86,11 +91,23 @@ No invariant companion is published because the injector owns no durable state o
 <a id="further-exploration"></a>
 ## Further Exploration
 
-- [Evolutionary Harness specification](../../../specs/evolutionary-harness-spec-v10-complete.md) — the behaviour contract this package implements.
+- [Evolutionary Harness subsystem](../../../docs/subsystems/evolutionary-harness.md) — the behaviour contract this package implements.
 - [Context group map](../README.md) — sibling request-context packages; the package lives in the `context/` group beside its workspace counterpart.
 - [Generated configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-evolution-memory-context) — every accepted config field.
 
 -----
+
+### Recorded conditions
+
+| Condition | Evidence it reads | Line when it holds |
+|---|---|---|
+| `staged-writes` | `ctx.evolutionMemory.read(scope).staged` — the scope's pending writes, oldest first | a pending write older than `stagedWriteWaitMinutes`; `run /memory pending` |
+| `contradicted-claims` | `ctx.evolutionGraph.claims(scope)` — active claims, best-supported first | active claims carrying contradicting evidence; `run /claims` |
+| `skill-trust` | `ctx.evolutionSkillTelemetry.entries()` — one record per tracked skill | skills standing at provisional trust after a recorded demotion; `run /curator status` |
+| `failure-signals` | `ctx.evolutionFeedback.signals(workspace session ids, failureSignalScanLimit)` | signals the store itself graded `trigger_review`; record the durable lesson with `skill_manage` |
+| `holdout-gaps` | `ctx.evolutionBenchmark.tasks()` — every task with its state | capabilities under evaluation with no holdout task; `run /benchmark` |
+
+`memoryNudgeInterval` and `skillNudgeInterval` are the cadence ceiling, not the trigger: a condition that fired stays quiet until that many further turns have been observed, and the turn a condition fired on is remembered per session and condition, so assemblies within one turn agree. A condition whose store is not mounted is unevaluable rather than satisfied or silently absent, and its line names the store (`<subject> cannot be checked: the <store> store is not mounted.`). A session outside every workspace has no scope, so the two scope-bound conditions stay quiet there while the global ones still render.
 
 <a id="model-experience"></a>
 ## Model Experience
@@ -119,7 +136,7 @@ Prefix-stable while the record is unchanged: the brief is appended after the cla
 
 #### What the model sees
 
-Three nudge sections: `evolution-lessons-skills`, `evolution-memory-scope`, `evolution-session-search` — all fixed text, no interpolated value. The skills nudge renders only beside a visible `skill_manage` tool and only on turns that are a multiple of `skillNudgeInterval`; the scope nudge renders only on turns that are a multiple of `memoryNudgeInterval`; the session-search hint always renders. A session with no observed turn yet counts as its first turn, so the interval-`1` scope nudge renders before it while wider intervals wait for their multiple.
+Three nudge sections: `evolution-memory-scope`, `evolution-lessons-skills`, `evolution-session-search`. The first two carry §53's recorded conditions instead of fixed advice: each line names the condition that fired, its count, and the surface that acts on it, and a section renders nothing while none of its conditions holds. The skill section renders only beside a visible `skill_manage` tool, because one of its lines tells the model to record a lesson with that tool.
 
 ##### Verbatim text for this field, when needed
 
@@ -129,11 +146,11 @@ To recall earlier work in this scope, search past sessions before asking the use
 
 #### Token effect
 
-Bounded by cadence: the session-search hint on every assembly, the scope nudge every `memoryNudgeInterval` turns, the skills nudge every `skillNudgeInterval` turns while `skill_manage` is visible.
+Bounded by the cadence ceiling: at most one line per condition per `memoryNudgeInterval` / `skillNudgeInterval` turns, plus the session-search hint on every assembly. Each line is one sentence naming a count, the condition, and the surface that acts on it — the fired conditions are listed in the table above and none of them quotes memory text.
 
 #### KV Cache effect
 
-Prefix-stable regardless of memory content: section text is fixed and carries no per-scope value, so the nudge set changes only on an interval turn, never on a memory write. Capacity usage is reported exclusively in the brief's header (see above), which already rides its own digest-gated replacement — a memory write cannot invalidate this tier's cached prefix.
+Stable while the conditions' status does not change: the lines carry counts, instants, and store identities, so a memory write alone leaves this tier byte-identical, and a condition that neither starts nor stops holding leaves it byte-identical too. A condition starting or ceasing to hold changes the tier from that point on, which is the intended cost of a nudge that says something. Capacity usage is reported exclusively in the brief's header (see above), which already rides its own digest-gated replacement.
 
 ## Known Limitations and Deferred Work
 
@@ -145,7 +162,11 @@ These limits define when the injector is a poor fit. They are current package co
 - **File context re-read per refresh** — the budget bounds model bytes, not disk reads.
 - **File capacity snapshot** — the recorded size is not refreshed when the file changes on disk.
 - **No per-session file reader** — file items resolve against the process filesystem, not a workspace-scoped reader.
-- **Nudge cadence counts process-observed turns** — the interval counters start at plugin load and clear on session disposal, so turns before load or before a host restart are not replayed and a resumed session begins again from its first observed `turn/start`.
+- **Nudges say nothing while the stores report nothing** — the always-on lessons-to-skills advice is gone by design: with no failure signal, no demoted skill, and no holdout gap, the skill section stays empty, and the memory section stays empty while no staged write has waited and no claim is contradicted. A deployment that wants the old standing advice back must keep that text in its own section.
+- **An unmounted store costs a prompt line** — the notice naming the missing store repeats on the cadence ceiling until the store is mounted, so a deployment that reads `evolution-memory` alone sees four such lines per interval in place of the conditions it cannot evaluate.
+- **Scope-bound conditions need a workspace** — a session in no registered workspace has no scope, so staged writes and contradicted claims are never reported to it even when the scope holds them.
+- **Nudge cadence counts process-observed turns** — the turn counters start at plugin load and clear on session disposal, so turns before load or before a host restart are not replayed, a resumed session begins again from its first observed `turn/start`, and the first turn after a restart can repeat a condition the previous process already reported.
+- **Condition evidence is read at assembly time** — a store write between two assemblies of one turn can change the section text for the second, and every read is synchronous: a store that only answers asynchronously (none of the five today) could not be a condition.
 
 <a id="dev-note"></a>
 ### Dev Note

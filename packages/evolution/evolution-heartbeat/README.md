@@ -97,7 +97,7 @@ No invariant companion is published because the domain table is the only copy of
 <a id="further-exploration"></a>
 ## Further Exploration
 
-- [Evolutionary Harness specification](../../../specs/evolutionary-harness.spec.md) — the behaviour contract behind the self-learning family.
+- [Evolutionary Harness subsystem](../../../docs/subsystems/evolutionary-harness.md) — the behaviour contract behind the self-learning family.
 - [Evolution package map](../README.md) — the group's packages and their repository position.
 - [`dsh-evolution-curator`](../evolution-curator/README.md) — the skill-lifecycle maintenance pass this engine's idle gating mirrors.
 - [Generated configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-evolution-heartbeat) — every accepted config field.

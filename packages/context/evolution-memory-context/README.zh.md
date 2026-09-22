@@ -1,5 +1,5 @@
 ---
-description: "Evolution memory brief injector with scope nudges (agent pre-step), for hosts composing the self-learning harness."
+description: "Evolution memory brief injector with condition-driven nudges (agent pre-step), for hosts composing the self-learning harness."
 kind: "package-reference"
 ---
 
@@ -29,7 +29,7 @@ kind: "package-reference"
 
 ### 配置
 
-两个字段都必填：部署方必须选定简报可承担的成本，以及它服务的作用域命名空间。两个提示节奏区间可选，默认采用随附节奏。
+`maxBytes` 与 `profile` 必填：部署方必须选定简报可承担的成本，以及它服务的作用域命名空间。提示节奏与两个条件阈值可选，默认采用随附取值。
 
 ```yaml
 - name: '@deepseek-ai/dsh-evolution-memory-context'
@@ -42,9 +42,13 @@ kind: "package-reference"
 |---|---|---|
 | `maxBytes` | 必填 | 完整输出文本（含框架）的上限 |
 | `profile` | 必填 | 作用域标识命名空间，置于 workspace 键之前 |
-| `memoryNudgeInterval` | `1` | 作用域收窄提示之间的回合数 |
-| `skillNudgeInterval` | `10` | 经验转技能提示之间的回合数 |
+| `memoryNudgeInterval` | `1` | 记忆域提示的节奏上限：某条件触发后，在这么多回合内保持沉默 |
+| `skillNudgeInterval` | `10` | 技能域提示的节奏上限：某条件触发后，在这么多回合内保持沉默 |
+| `stagedWriteWaitMinutes` | `1440` | 暂存写入等待多久后，记忆提示才会点名它 |
+| `failureSignalScanLimit` | `20` | 单次提示评估所评级的失败信号条数 |
 | `capacityWarnPct` | `0.8` | 用量达到或超过该比例时简报头警告进行合并 |
+
+`memoryNudgeInterval` 与 `skillNudgeInterval` 曾是触发器——在每个整数倍回合渲染提示。现在它们是记录条件（`conditions.ts`）之上的节奏上限，这正是 §53 的升级：证据成立时提示触发、无证据时保持沉默，区间只限制一个持续成立的条件重复的频率。已设置这两个字段的宿主保留原数值，并获得新语义。
 
 生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-evolution-memory-context)是每个可接受字段的详尽来源。
 
@@ -63,19 +67,20 @@ kind: "package-reference"
 
 ### 设计概念
 
-注入器把记录摘要与最新可见的 `evolution-memory` 简报比较：先查按会话的内存标记，再查已认领批次，再经由异步会话查询面查已记录表层。归属同样解析并按会话 id 缓存，在 `session/disposed` 时失效。按会话统计已观测 `turn/start` 事件的计数器门控提示节奏，并随同一生命周期清除。没有任何逻辑同步扫描会话历史，因此恢复后的会话贡献其被观测到的后缀，重启后经由查询面重新解析而不是重复简报。
+注入器把记录摘要与最新可见的 `evolution-memory` 简报比较：先查按会话的内存标记，再查已认领批次，再经由异步会话查询面查已记录表层。归属同样解析并按会话 id 缓存，在 `session/disposed` 时失效。按会话统计已观测 `turn/start` 事件的计数器提供提示节奏所测量的回合数，而每个条件最后一次触发的回合按会话与条件分别记录；两者随同一生命周期清除。没有任何逻辑同步扫描会话历史，因此恢复后的会话贡献其被观测到的后缀，重启后经由查询面重新解析而不是重复简报。
 
 ### 源码导览
 
 | 文件 | 职责 |
 |---|---|
-| [`src/index.ts`](src/index.ts) | 插件入口：pre-step 注入、归属缓存、文件物化、分节接线 |
+| [`src/index.ts`](src/index.ts) | 插件入口：pre-step 注入、归属缓存、文件物化、存储读取与分节接线 |
 | [`src/render.ts`](src/render.ts) | 字节预算内的纯简报渲染 |
-| [`src/sections.ts`](src/sections.ts) | 提示分节文本（静态——无插值）、技能工具可见性、回合间隔判定 |
+| [`src/sections.ts`](src/sections.ts) | 提示分节注册、技能工具门控与节奏判定 |
+| [`src/conditions.ts`](src/conditions.ts) | 记录条件、其后端为存储的评估器，以及各条件的行渲染 |
 
 ### 失败与恢复
 
-缺失或不可读的文件退化为一行 `Context "<label>" is unavailable (<path>).` 提示，步骤继续。表层读取失败退化为注入而不阻塞回合。畸形 `profile` 与非正数或非整数的提示间隔在插件加载时大声失败。监听器观察最终认领批次并展开下游决策，保留 `startsRequestSeries`。
+缺失或不可读的文件退化为一行 `Context "<label>" is unavailable (<path>).` 提示，步骤继续。表层读取失败退化为注入而不阻塞回合。畸形 `profile`、非正数或非整数的提示间隔、非整数或为零的 `failureSignalScanLimit`、以及负数 `stagedWriteWaitMinutes` 在插件加载时大声失败。未挂载的演化存储会让它自己的条件变为不可评估，而不是静默判定为成立或静默缺席，其渲染的行会点名该存储。监听器观察最终认领批次并展开下游决策，保留 `startsRequestSeries`。
 
 不发布 invariant 伴生包，因为注入器不拥有自己的持久状态：简报在每次 pre-step 从存储记录派生，存储背后的域表是唯一的持久副本。
 
@@ -86,13 +91,25 @@ kind: "package-reference"
 <a id="further-exploration"></a>
 ## 进一步探索
 
-- [演进式 Harness 规范](../../../specs/evolutionary-harness-spec-v10-complete.md)——本包实现的行为契约。
+- [演进式 Harness 子系统](../../../docs/subsystems/evolutionary-harness.zh.md)——本包实现的行为契约。
 - [context 组地图](../README.zh.md)——相邻的请求上下文包；本包位于 `context/` 分组，与 workspace 对应物并列。
 - [生成的配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-evolution-memory-context)——每个可接受的配置字段。
 
 -----
 
 <a id="model-experience"></a>
+### 记录条件
+
+| 条件 | 所读证据 | 成立时的行 |
+|---|---|---|
+| `staged-writes` | `ctx.evolutionMemory.read(scope).staged`——该作用域待决的暂存写入，最旧在前 | 存在早于 `stagedWriteWaitMinutes` 的待决写入；`run /memory pending` |
+| `contradicted-claims` | `ctx.evolutionGraph.claims(scope)`——活跃主张，证据最强在前 | 带有相反证据的活跃主张；`run /claims` |
+| `skill-trust` | `ctx.evolutionSkillTelemetry.entries()`——每个受跟踪技能一条记录 | 在记录到一次降级后仍停留在 provisional 信任的技能；`run /curator status` |
+| `failure-signals` | `ctx.evolutionFeedback.signals(workspace 会话 id, failureSignalScanLimit)` | 由存储自身评为 `trigger_review` 的信号；用 `skill_manage` 记录可持久经验 |
+| `holdout-gaps` | `ctx.evolutionBenchmark.tasks()`——每个任务及其状态 | 处于评估中却没有 holdout 任务的能力；`run /benchmark` |
+
+`memoryNudgeInterval` 与 `skillNudgeInterval` 是节奏上限而非触发器：已触发的条件在观测到这么多后续回合之前保持沉默，而条件触发的回合按会话与条件分别记录，因此同一回合内的多次组装结果一致。存储未挂载的条件属于不可评估，而非成立或静默缺席，其行会点名该存储（`<subject> cannot be checked: the <store> store is not mounted.`）。不属于任何 workspace 的会话没有作用域，因此两个作用域绑定的条件在此保持沉默，而全局条件仍然渲染。
+
 ## 模型体验
 
 ### 请求上下文与条件
@@ -119,7 +136,7 @@ kind: "package-reference"
 
 #### 模型所见
 
-三个提示分节：`evolution-lessons-skills`、`evolution-memory-scope`、`evolution-session-search`——全部为固定文本，无插值。技能提示仅在可见的 `skill_manage` 工具旁、且回合数恰为 `skillNudgeInterval` 的整数倍时渲染；作用域提示仅在回合数为 `memoryNudgeInterval` 整数倍时渲染；会话搜索提示始终渲染。尚无已观测回合的会话按其第一回合计，因此间隔为 `1` 的作用域提示会在它之前渲染，而更宽的间隔要等到自己的倍数。
+三个提示分节：`evolution-memory-scope`、`evolution-lessons-skills`、`evolution-session-search`。前两者承载 §53 的记录条件而非固定文本：每行点名触发的条件、其计数，以及可据以行动的界面；当分节没有任何条件成立时，它什么也不渲染。技能分节仅在可见的 `skill_manage` 工具旁渲染，因为其中一行要求模型用该工具记录经验。
 
 ##### 本字段原文（如需）
 
@@ -129,11 +146,11 @@ To recall earlier work in this scope, search past sessions before asking the use
 
 #### Token 影响
 
-按节奏有界：每次组装一条会话搜索提示、每 `memoryNudgeInterval` 回合一条作用域提示、在 `skill_manage` 可见时每 `skillNudgeInterval` 回合一条技能提示。
+受节奏上限约束：每个条件在每 `memoryNudgeInterval` / `skillNudgeInterval` 回合内至多一行，外加每次组装一条会话搜索提示。每行是一句话，点名计数、条件，以及可据以行动的界面——触发的条件列于上表，且都不引用记忆文本。
 
 #### KV Cache effect
 
-与记忆内容无关地保持前缀稳定：分节文本固定且不带任何按作用域的值，因此提示集合只在间隔回合变化，永不因一次记忆写入而变化。容量用量只在简报头部报告（见上），而它本就经由自身的摘要门控替换——一次记忆写入无法使本层级的缓存前缀失效。
+在条件状态不变时保持稳定：各行只携带计数、时刻与存储标识，因此单独一次记忆写入不会改变本层级，条件既未开始也未停止成立时同样不变。条件开始或停止成立会从该点起改变本层级，这正是“一则言之有物的提示”应付出的代价。容量用量只在简报头部报告（见上），而它本就经由自身的摘要门控替换。
 
 ## 已知限制与延期工作
 
@@ -141,11 +158,15 @@ To recall earlier work in this scope, search past sessions before asking the use
 
 这些限制界定了注入器不适用的场景。它们是当前包约束。
 
-- **提示节奏只计进程已观测的回合**——区间计数器从插件加载时起算、随会话释放清除，因此加载前或宿主重启前的回合不会被重放，恢复后的会话从其第一个已观测 `turn/start` 重新开始。
+- **提示节奏只计进程已观测的回合**——回合计数器从插件加载时起算、随会话释放清除，因此加载前或宿主重启前的回合不会被重放，恢复后的会话从其第一个已观测 `turn/start` 重新开始，且重启后的第一个回合可能重复上一个进程已经报告过的条件。
 - **表层一条简报，日志保留每一条**——记录变化会提交完整替换，循环在表层取代该作用域此前的简报，而被取代者作为可持久日志记录保留，transcript 与重放仍能看到。在简报声明 `supersedes` 之前已经累积了重复简报的会话，会一直保留到压缩将其遮蔽；新回合不会再增加。
 - **文件上下文每次刷新重读**——预算约束模型字节，不约束磁盘读取。
 - **文件容量快照**——磁盘文件变化时，不刷新记录的大小。
 - **无按会话文件读取器**——文件条目相对进程文件系统解析，而非 workspace 作用域读取器。
+- **没有报告就没有提示**——始终生效的“经验转技能”提示已按设计移除：没有失败信号、没有降级技能、没有 holdout 缺口时，技能分节保持为空；没有等待超期的暂存写入、没有主张被反驳时，记忆分节同样为空。想要旧有常驻提示的部署需要把该文本放进自己的分节。
+- **未挂载的存储会占用一行提示**——点名缺失存储的提示会按节奏上限重复，直到该存储被挂载；只读取 `evolution-memory` 的部署每个区间会看到四行这样的提示，代替它无法评估的那些条件。
+- **作用域绑定的条件需要 workspace**——不属于任何已注册 workspace 的会话没有作用域，因此即便该作用域中确实存在暂存写入与被反驳的主张，也不会向它报告。
+- **条件证据在组装时读取**——同一回合两次组装之间的一次存储写入可以改变第二次的分节文本，且所有读取都是同步的：只提供异步答案的存储（目前这五个都不属于此列）无法作为条件。
 
 <a id="dev-note"></a>
 ### 开发备注

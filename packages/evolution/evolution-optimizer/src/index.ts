@@ -1043,12 +1043,9 @@ export class EvolutionOptimizer extends Service {
     const selfModel = this.ctx.get('evolutionSelfModel')
     if (selfModel === undefined) return
     try {
-      await selfModel.observe({
-        capability: skill,
-        skill,
-        pass: winner.score.pass,
-        failure: winner.score.pass ? undefined : `optimizer winner for '${skill}' did not pass`,
-      })
+      await selfModel.observe(winner.score.pass
+        ? { capability: skill, skill, pass: true }
+        : { capability: skill, skill, pass: false, failure: `optimizer winner for '${skill}' did not pass` })
     } catch (error) {
       this.ctx.logger.warn(`evolution optimizer could not record self model: ${String(error)}`)
     }
@@ -1150,6 +1147,13 @@ export class EvolutionOptimizer extends Service {
       await evaluatorStrategy.observe({
         evaluator: `scorer-v${scorer.version}`,
         taskClass: skill,
+        // The mutation route wrote the candidate, so it is the candidate's
+        // model — empty when the host configured none, which the outcome
+        // record reads as unrecorded. The scorer judges deterministically, so
+        // no judge model is recorded and independence rests on the holdout
+        // measurement.
+        candidateModel: this.resolved.model ?? '',
+        judgeModel: '',
         verdict: winner.score.pass,
         groundTruth: checked === null ? winner.score.pass : checked.winner.pass,
         independent: checked !== null,

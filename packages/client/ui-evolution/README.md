@@ -62,8 +62,8 @@ The browser half reads two Remote namespaces: the controller's `evolution` (Scop
 <a id="further-exploration"></a>
 ## Further Exploration
 
-- [Evolutionary harness specification](../../../specs/evolutionary-harness.spec.md) — the behaviour contract the Host half implements.
-- [Improvement specification](../../../specs/improvement.spec.md) — the journey read model and the page's acceptance.
+- [Evolutionary Harness subsystem](../../../docs/subsystems/evolutionary-harness.md) — the behaviour contract the Host half implements.
+- [Evolutionary Harness subsystem](../../../docs/subsystems/evolutionary-harness.md) — where the family's behaviour and the journey read model behind this page are described.
 
 -----
 

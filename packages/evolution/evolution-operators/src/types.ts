@@ -57,8 +57,58 @@ export interface OperatorRanking {
   acceptanceRate: number
   /** Mean outcome delta over the attempts (0 with no attempts yet). */
   meanDelta: number
+  /** The nudge the operator's recorded instruction verdicts contribute. */
+  instructionAdjustment: number
   /** The exploration-adjusted score that ranks the operator. */
   score: number
   /** Why the operator ranks here, naming the numbers. */
+  reason: string
+}
+
+/** One proposed mutation instruction and the evidence for and against it (§9). */
+export interface OperatorInstruction {
+  /** The operator the instruction belongs to. */
+  operator: MutationOperator
+  /** The artifact class the instruction mutates. */
+  artifactClass: ArtifactClass
+  /** The instruction line the operator would send to a mutation request. */
+  instruction: string
+  /** Why the instruction was proposed, naming the evidence that motivated it. */
+  reason: string
+  /** Proposals recorded for this operator and class, including replaced ones. */
+  proposals: number
+  /** Verdicts accepting the current instruction. */
+  accepted: number
+  /** Verdicts rejecting the current instruction. */
+  rejected: number
+  /** Why the latest verdict landed as it did, null while none was recorded. */
+  lastVerdict: string | null
+  /** ISO-8601 instant the current instruction was proposed. */
+  at: string
+  /** ISO-8601 instant of the latest verdict, null while none was recorded. */
+  decidedAt: string | null
+}
+
+/** One proposed mutation instruction offered for recording. */
+export interface InstructionInput {
+  /** The operator the instruction belongs to. */
+  operator: MutationOperator
+  /** The artifact class the instruction mutates. */
+  artifactClass: ArtifactClass
+  /** The instruction line to propose. */
+  instruction: string
+  /** Why this instruction, naming the evidence that motivates it. */
+  reason: string
+}
+
+/** One verdict on the instruction its operator and artifact class holds. */
+export interface InstructionVerdict {
+  /** The operator whose instruction was judged. */
+  operator: MutationOperator
+  /** The artifact class whose instruction was judged. */
+  artifactClass: ArtifactClass
+  /** Whether the proposal was accepted. */
+  accepted: boolean
+  /** Why the verdict landed this way, naming the evidence behind it. */
   reason: string
 }

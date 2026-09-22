@@ -13,11 +13,11 @@ import { Context, Service } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type { KvTable } from '@deepseek-ai/dsh-storage-domain'
 import { evaluatorHealthDomainSpec } from './spec.ts'
-import { summarizeHealth } from './stats.ts'
-import type { EvaluatorHealthSummary, EvaluatorRun, EvaluatorRunInput } from './types.ts'
+import { judgeCalibration, summarizeHealth } from './stats.ts'
+import type { EvaluatorHealthSummary, EvaluatorRun, EvaluatorRunInput, JudgeCalibration, RunJudgmentInput } from './types.ts'
 
 export type * from './types.ts'
-export { channelHealth, summarizeHealth } from './stats.ts'
+export { channelHealth, judgeCalibration, summarizeHealth } from './stats.ts'
 export { evaluatorHealthDomainSpec, evaluatorRunRow } from './spec.ts'
 
 declare module '@deepseek-ai/cordis' {
@@ -123,6 +123,39 @@ export class EvolutionEvaluatorHealth extends Service {
    */
   summary(): EvaluatorHealthSummary {
     return summarizeHealth(this.runs(), this.resolved.driftWindow)
+  }
+
+  /**
+   * Record the later ground truth that judged one verdict (§13): whether it
+   * agreed with the evaluator, and whether it was measured independently. An
+   * unknown verdict identity rejects loudly, so a ground truth is never
+   * attached to a verdict that does not exist.
+   * @param runId - the recorded verdict being judged.
+   * @param judgment - the ground truth's reading.
+   * @returns the updated verdict.
+   */
+  async judge(runId: string, judgment: RunJudgmentInput): Promise<EvaluatorRun> {
+    const table = this.requireTable()
+    const current = table.get(runId)
+    if (current === undefined) {
+      throw new Error(`evolution-evaluator-health: unknown verdict '${runId}'`)
+    }
+    const next: EvaluatorRun = {
+      ...current,
+      judgment: { agrees: judgment.agrees, independent: judgment.independent, at: new Date().toISOString() },
+    }
+    await table.put(runId, next)
+    return structuredClone(next)
+  }
+
+  /**
+   * The calibration facts of the recorded verdicts (§13): the false-negative
+   * rate beside the summary's false-positive rate, and how the evaluator
+   * correlates with the independent ground truths that later judged it.
+   * @returns the calibration facts.
+   */
+  calibration(): JudgeCalibration {
+    return judgeCalibration(this.runs())
   }
 
   private requireTable(): KvTable<string, EvaluatorRun> {

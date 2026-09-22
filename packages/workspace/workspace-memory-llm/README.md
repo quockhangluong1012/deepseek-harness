@@ -75,7 +75,7 @@ One backward scan of the live Session's events to the most recent `turn/start` f
 <a id="further-exploration"></a>
 ## Further Exploration
 
-- [Workspace Memory specification](../../../specs/workspace-memory.md) — the behaviour contract this package implements.
+- [Workspace Memory subsystem](../../../docs/subsystems/workspace-memory.md) — the behaviour contract this package implements.
 - [Workspace package map](../README.md) — the group's packages and their repository position.
 
 -----

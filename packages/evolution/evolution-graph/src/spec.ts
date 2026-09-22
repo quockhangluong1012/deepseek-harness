@@ -25,10 +25,48 @@ export const graphEdge = z.object({
   count: z.number().int().nonnegative(),
 })
 
-/** Durable per-scope knowledge graph at the durable boundary. */
+/** One source's evidence about one claim at the durable boundary. */
+export const claimEvidence = z.object({
+  source: z.string(),
+  quality: z.number().min(0).max(1),
+  reliability: z.number().min(0).max(1),
+  firstAt: z.string(),
+  lastAt: z.string(),
+  count: z.number().int().min(1),
+})
+
+/** One claim with its evidence, lineage, and belief at the durable boundary. */
+export const claim = z.object({
+  id: z.string().min(1),
+  statement: z.string().min(1),
+  status: z.enum(['active', 'retired']),
+  retiredBy: z.string().nullable(),
+  confidence: z.number().min(0).max(1),
+  evidenceQuality: z.number().min(0).max(1),
+  sourceReliability: z.number().min(0).max(1),
+  independentSupport: z.number().int().min(0),
+  contradictionCount: z.number().int().min(0),
+  recency: z.string(),
+  supportedBy: z.array(claimEvidence),
+  contradictedBy: z.array(claimEvidence),
+  observedIn: z.array(z.string()),
+  supersedes: z.array(z.string()),
+  derivedFrom: z.array(z.string()),
+  usedBy: z.array(z.string()),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+})
+
+/**
+ * Durable per-scope knowledge graph at the durable boundary. `claims` is
+ * defaulted because the claim layer landed after records were already
+ * written: a graph stored as nodes and edges alone opens unchanged instead of
+ * failing its schema.
+ */
 export const graphRecordSchema = z.object({
   nodes: z.array(graphNode),
   edges: z.array(graphEdge),
+  claims: z.array(claim).default([]),
   updatedAt: z.string(),
 })
 

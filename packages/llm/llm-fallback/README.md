@@ -81,7 +81,7 @@ No invariant companion is published: the `llm/fallback` event validation (open t
 <a id="further-exploration"></a>
 ## Further Exploration
 
-- [Evolutionary Harness specification](../../../specs/evolutionary-harness.spec.md) — the behaviour contract this package implements.
+- [Evolutionary Harness subsystem](../../../docs/subsystems/evolutionary-harness.md) — the behaviour contract this package implements.
 - [LLM package map](../README.md) — the group's packages and their repository position.
 - [Generated configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-llm-fallback) — every accepted config field.
 

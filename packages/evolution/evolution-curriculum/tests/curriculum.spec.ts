@@ -1,12 +1,24 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
+import { ToolCallId, createToolResultMessage } from '@deepseek-ai/dsh-llm'
+import SessionStore, { Session, SessionId } from '@deepseek-ai/dsh-session'
 import Storage from '@deepseek-ai/dsh-storage'
 import { DomainFacility } from '@deepseek-ai/dsh-storage-domain'
+import EvolutionFeedback from '@deepseek-ai/dsh-evolution-feedback'
 import { MemoryMediaPool, MemoryStorageBackend } from '../../../storage/storage-domain/tests/helpers/memory-backend.ts'
 import EvolutionCurriculum, { resolveConfig } from '../src/index.ts'
 import type { CurriculumGap, CurriculumProposal } from '../src/index.ts'
 import type { SkillUsageRecord } from '@deepseek-ai/dsh-evolution-skill-telemetry'
 import type { LearningTraceRow } from '@deepseek-ai/dsh-evolution-trace'
+
+const dirs: string[] = []
+
+afterEach(async () => {
+  for (const dir of dirs.splice(0)) await rm(dir, { recursive: true, force: true })
+})
 
 async function boot(config: Record<string, unknown> = {}, seams: {
   telemetry?: { entries(): { name: string; usage: SkillUsageRecord }[] }
@@ -32,6 +44,7 @@ function usageRecord(sessionIds: string[]): SkillUsageRecord {
     patchCount: 0,
     lastUsedAt: null,
     sessionIds,
+    sessionOutcomes: [],
     lastViewedAt: null,
     lastPatchedAt: null,
     createdAt: 't0',
@@ -40,6 +53,7 @@ function usageRecord(sessionIds: string[]): SkillUsageRecord {
     createdBy: null,
     absorbedInto: null,
     archivedAt: null,
+    suspectAt: null,
     trust: 'trusted',
     trustFailures: 0,
     trustObservedSessions: [],
@@ -71,6 +85,56 @@ const gap = (capability: string, gists: readonly string[], sessions = 2): Curric
   sourceSessions: sessions === 0 ? [] : Array.from({ length: sessions }, (_, i) => `s${i}`),
   failureGists: gists,
 })
+
+/**
+ * Boot the curriculum over a real failure-memory store and two real sessions,
+ * so a gap is matched against the reflections that store actually authored.
+ */
+async function bootWithFailures() {
+  const dir = await mkdtemp(join(tmpdir(), 'curriculum-feedback-'))
+  dirs.push(dir)
+  const ctx = new Context()
+  await ctx.plugin(Storage)
+  ctx.storage.backend.register('memory', new MemoryStorageBackend(new MemoryMediaPool()))
+  const facility = new DomainFacility(ctx, { backend: 'memory', routes: {} })
+  ctx.storage.mount('domain', facility)
+  ctx.provide('storageDomain', facility)
+  await ctx.plugin(SessionStore)
+  const memory = await ctx.plugin(EvolutionFeedback, {})
+  const fiber = await ctx.plugin(EvolutionCurriculum, {})
+  const first = ctx.sessions.create(SessionId('s1'), { meta: { cwd: dir } })
+  const second = ctx.sessions.create(SessionId('s2'), { meta: { cwd: dir } })
+  return {
+    ctx,
+    fibers: [fiber, memory],
+    store: ctx.evolutionCurriculum,
+    feedback: ctx.evolutionFeedback,
+    first,
+    second,
+  }
+}
+
+/** Append one turn holding a single failing tool call and its result. */
+function appendFailure(session: Session, turn: number, name: string, text: string): void {
+  const id = ToolCallId(`call-${turn}`)
+  session.append('turn/start', { turn })
+  session.append('tool/call', { turn, step: 1, callId: id, name, arguments: '{}' })
+  session.append(
+    'tool/result',
+    {
+      turn,
+      step: 1,
+      message: createToolResultMessage({ callId: id, content: [{ type: 'text', text }], isError: true }),
+    },
+    { surfaceOp: 'append' },
+  )
+  session.append('turn/end', { turn, reason: { kind: 'completed' } })
+}
+
+/** Wait for both fibers of one {@link bootWithFailures} host to dispose. */
+async function dispose(fibers: readonly { dispose(): Promise<void> }[]): Promise<void> {
+  for (const fiber of fibers) await fiber.dispose()
+}
 
 describe('evolution curriculum', () => {
   it('resolves the evidence floor', () => {
@@ -197,8 +261,59 @@ describe('evolution curriculum', () => {
       expect(staged).toHaveLength(1)
       expect(staged[0]?.capability).toBe('writer')
       expect((staged[0] as CurriculumProposal).gists).toEqual(['boom'])
+      // Without the failure-memory seam there is nothing to match a gap to, so
+      // the proposal carries the evidence alone.
+      expect(staged[0]).toMatchObject({ antiPattern: null, candidateTest: null })
     } finally {
       await fiber.dispose()
+    }
+  })
+})
+
+describe('evolution curriculum corrective heuristics', () => {
+  it('carries the reflection matched to a gap and nothing for an unmatched gap', async () => {
+    const h = await bootWithFailures()
+    try {
+      appendFailure(h.first, 1, 'bash', 'command not found')
+      appendFailure(h.second, 1, 'bash', 'command not found')
+      const written = await h.feedback.reflectSignals(10, '2026-09-22T00:00:00.000Z')
+      expect(written).toHaveLength(1)
+      const staged = await h.store.propose([
+        { capability: 'writer', sourceSessions: ['s1', 's2'], failureGists: ['command not found'] },
+        // The trace gist is the same failing text clipped at the trace's own
+        // budget, so a shorter gist still identifies the failure.
+        { capability: 'polish', sourceSessions: ['s1', 's2'], failureGists: ['command'] },
+        { capability: 'reader', sourceSessions: ['s1', 's2'], failureGists: ['unrelated skid'] },
+      ])
+      expect(staged.map(proposal => proposal.capability)).toEqual(['writer', 'polish', 'reader'])
+      const heuristic = {
+        antiPattern: 'do not repeat a call whose result was \'command not found\' without changing it (2 observations in 2 sessions)',
+        candidateTest: 'replaying a run whose tool result is \'command not found\' no longer repeats that call unchanged',
+      }
+      expect(staged[0]).toMatchObject(heuristic)
+      expect(staged[1]).toMatchObject(heuristic)
+      expect(staged[2]).toMatchObject({ antiPattern: null, candidateTest: null })
+      // The heuristic is durable with the proposal, not only the staging result.
+      expect(h.store.proposals()).toHaveLength(3)
+      expect(h.store.proposals().find(proposal => proposal.capability === 'writer')).toMatchObject(heuristic)
+    } finally {
+      await dispose(h.fibers)
+    }
+  })
+
+  it('matches a gap whose sessions never reported the reflected failure to nothing', async () => {
+    const h = await bootWithFailures()
+    try {
+      appendFailure(h.first, 1, 'bash', 'command not found')
+      appendFailure(h.second, 1, 'bash', 'command not found')
+      await h.feedback.reflectSignals(10, '2026-09-22T00:00:00.000Z')
+      const staged = await h.store.propose([
+        { capability: 'writer', sourceSessions: ['s3', 's4'], failureGists: ['command not found'] },
+      ])
+      expect(staged).toHaveLength(1)
+      expect(staged[0]).toMatchObject({ antiPattern: null, candidateTest: null })
+    } finally {
+      await dispose(h.fibers)
     }
   })
 })

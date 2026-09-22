@@ -25,11 +25,12 @@ const INDEXED: readonly IndexedArtifact[] = [
 ]
 
 describe('extraction protocol prompt', () => {
-  it('names all three actions verbatim', () => {
+  it('names all four actions verbatim', () => {
     const prompt = extractionSystemPrompt()
     expect(prompt).toContain('confirms')
     expect(prompt).toContain('contradicts')
     expect(prompt).toContain('new')
+    expect(prompt).toContain('critique')
   })
 
   it('numbers the relevant artifacts from one and lists every statement', () => {
@@ -59,6 +60,14 @@ describe('parseExtractionDecisions', () => {
         scope: 'user',
         ttlDays: 30,
       },
+      {
+        action: 'critique',
+        expectation: 'the suite passes',
+        failure: 'pnpm test exited 1',
+        correction: 'run pnpm install first',
+        confidence: 0.7,
+        scope: 'project',
+      },
     ])
     expect(parseExtractionDecisions(raw)).toEqual([
       { action: 'confirms', index: 2 },
@@ -72,7 +81,53 @@ describe('parseExtractionDecisions', () => {
         scope: 'user',
         ttlDays: 30,
       },
+      {
+        action: 'critique',
+        expectation: 'the suite passes',
+        failure: 'pnpm test exited 1',
+        correction: 'run pnpm install first',
+        confidence: 0.7,
+        scope: 'project',
+      },
     ])
+  })
+
+  it('parses a critique that names none of its fields, so the reviewer can drop it alone', () => {
+    const raw = JSON.stringify([
+      {
+        action: 'critique',
+        expectation: '',
+        failure: '  ',
+        correction: '',
+        confidence: 0.5,
+        scope: 'user',
+      },
+      { action: 'confirms', index: 1 },
+    ])
+    expect(parseExtractionDecisions(raw)).toEqual([
+      {
+        action: 'critique',
+        expectation: '',
+        failure: '  ',
+        correction: '',
+        confidence: 0.5,
+        scope: 'user',
+      },
+      { action: 'confirms', index: 1 },
+    ])
+  })
+
+  it('rejects a critique missing its confidence or scope', () => {
+    const missingConfidence = JSON.stringify([
+      { action: 'critique', expectation: 'a', failure: 'b', correction: 'c', scope: 'user' },
+    ])
+    expect(() => parseExtractionDecisions(missingConfidence))
+      .toThrow('evolution-reviewer: extraction returned an invalid decision list')
+    const missingScope = JSON.stringify([
+      { action: 'critique', expectation: 'a', failure: 'b', correction: 'c', confidence: 0.5 },
+    ])
+    expect(() => parseExtractionDecisions(missingScope))
+      .toThrow('evolution-reviewer: extraction returned an invalid decision list')
   })
 
   it('reads an empty or whitespace-only answer as no decisions', () => {
@@ -82,7 +137,7 @@ describe('parseExtractionDecisions', () => {
     expect(parseExtractionDecisions('[]')).toEqual([])
   })
 
-  it('rejects an action outside the three', () => {
+  it('rejects an action outside the four', () => {
     expect(() => parseExtractionDecisions('[{"action":"ignores","index":1}]'))
       .toThrow('evolution-reviewer: extraction returned an invalid decision list')
   })

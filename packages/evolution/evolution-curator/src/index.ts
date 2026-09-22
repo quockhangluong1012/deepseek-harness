@@ -29,6 +29,8 @@ import { deadline } from '@deepseek-ai/dsh-timeout'
 import type { SkillLifecycleState, SkillUsageRecord } from '@deepseek-ai/dsh-evolution-skill-telemetry'
 import type { EvolutionSkillTelemetry } from '@deepseek-ai/dsh-evolution-skill-telemetry'
 import { curatorDomainSpec } from './spec.ts'
+import { driftReason, driftSignals } from './drift.ts'
+import type { DriftFloors, DriftSignals, RecordedExperiment } from './drift.ts'
 import {
   appendLedger,
   curatorHome,
@@ -71,6 +73,7 @@ import type {
 
 export type {
   ConsolidationCost,
+  ConsolidationRefusal,
   ConsolidationReport,
   ConsolidationSurvey,
   ConsolidationVerdict,
@@ -146,6 +149,15 @@ export interface Config {
   archiveAfterDays?: number
   /** Attributed trust failures moving `active` to `stale`, regardless of idleness. */
   staleTrustFailureFloor?: number
+  /** Days a graded failure stays recent for the §22 failure-spike signal. */
+  driftWindowDays?: number
+  /**
+   * Utility excess at or below which §22 counts a skill's measured utility as
+   * low, where the excess is the skill's clean-outcome share minus its
+   * peers'. Zero is the pooled baseline; a deployment that wants more slack
+   * raises it.
+   */
+  lowUtilityFloor?: number
   /** Skill names exempt from automatic transitions, such as schedule references. */
   protectedNames?: string[]
   /** Whether bundled built-in skills are pruned from passes; hub sources are always exempt. */
@@ -190,6 +202,8 @@ export const Config: z<Config> = z.object({
   staleAfterDays: z.number().step(1).min(1).default(30),
   archiveAfterDays: z.number().step(1).min(1).default(90),
   staleTrustFailureFloor: z.number().step(1).min(1).default(3),
+  driftWindowDays: z.number().step(1).min(1).default(14),
+  lowUtilityFloor: z.number().min(-1).max(1).default(0),
   protectedNames: z.array(z.string()).default([]),
   pruneBuiltins: z.boolean().default(true),
   backup: z.object({
@@ -218,6 +232,8 @@ export interface ResolvedConfig {
   staleAfterDays: number
   archiveAfterDays: number
   staleTrustFailureFloor: number
+  driftWindowDays: number
+  lowUtilityFloor: number
   protectedNames: string[]
   pruneBuiltins: boolean
   backup: {
@@ -254,6 +270,8 @@ export function resolveConfig(config: Config): ResolvedConfig {
     staleAfterDays = 30,
     archiveAfterDays = 90,
     staleTrustFailureFloor = 3,
+    driftWindowDays = 14,
+    lowUtilityFloor = 0,
     protectedNames = [],
     pruneBuiltins = true,
     backup: { enabled: backupEnabled = true, keep: backupKeep = 5 } = {},
@@ -286,6 +304,8 @@ export function resolveConfig(config: Config): ResolvedConfig {
     staleAfterDays,
     archiveAfterDays,
     staleTrustFailureFloor,
+    driftWindowDays,
+    lowUtilityFloor,
     protectedNames,
     pruneBuiltins,
     backup: { enabled: backupEnabled, keep: backupKeep },
@@ -320,6 +340,13 @@ interface StalenessEvidence {
   lastOutcome: 'ok' | 'failed' | undefined
   /** Whether the most recent load is newer than the last attributed failure. */
   usedAfterFailure: boolean
+  /**
+   * Whether the most recent load succeeded and is newer than the instant the
+   * skill entered `suspect`: the load that answers the evidence behind it.
+   */
+  usedAfterSuspect: boolean
+  /** The §22 drift signals the pass read from this skill's records. */
+  drift: DriftSignals
 }
 
 /** Floors behind the failure-driven movements. */
@@ -333,20 +360,25 @@ interface StalenessFloors {
 }
 
 /**
- * Decide one skill's automatic movement from its idle age and its failure
- * evidence. Idleness still moves skills down on its own; attributed trust
- * failures and a bad load rate move an `active` skill down even while it is
- * used — but only while the evidence is unanswered, so a later successful
- * load quiets the rule instead of oscillating against the revival below.
- * A `stale` skill whose most recent load succeeded — recently enough to
- * still be inside the stale window, and newer than its last attributed
- * failure — returns to `active`; past the archive horizon it archives
- * instead, so no successful load resurrects the long dead.
+ * Decide one skill's automatic movement from its idle age and its evidence.
+ * Idleness still moves skills down on its own; every evidence-driven movement
+ * lands on `suspect`, the §22 rung between `active` and `stale`, because a
+ * single pass of evidence questions a skill rather than retiring it: drift
+ * signals §22 names, attributed trust failures, and a bad load rate each move
+ * an `active` skill to `suspect` even while it is used — but only while the
+ * evidence is unanswered, so a later successful load quiets the rule instead
+ * of oscillating against the revivals below. `suspect` ages into `stale` on
+ * the same idle threshold `active` does, and a `suspect` skill whose most
+ * recent load succeeded while still inside the stale window answers its drift
+ * and returns to `active`. A `stale` skill whose most recent load succeeded —
+ * recently enough to still be inside the stale window, and newer than its
+ * last attributed failure — also returns to `active`; past the archive
+ * horizon it archives instead, so no successful load resurrects the long dead.
  * @param state - current lifecycle state.
  * @param idleMs - milliseconds since last use, or seeding when never used.
  * @param staleMs - idle threshold leaving `active`.
  * @param archiveMs - idle threshold leaving `stale`.
- * @param evidence - failure evidence off the telemetry record.
+ * @param evidence - failure and drift evidence off the skill's records.
  * @param floors - floors behind the failure-driven movements.
  * @returns the next state with its reason, or undefined when the skill stays put.
  */
@@ -362,14 +394,25 @@ function decideTransition(
     if (idleMs > staleMs) {
       return { state: 'stale', reason: `idle ${Math.floor(idleMs / 86400000)}d exceeds ${Math.floor(staleMs / 86400000)}d` }
     }
+    const drift = driftReason(evidence.drift)
+    if (drift !== undefined) return { state: 'suspect', reason: drift }
     if (evidence.trustFailures >= floors.trustFailureFloor && evidence.failureUnanswered) {
-      return { state: 'stale', reason: `trust failures ${evidence.trustFailures} reach ${floors.trustFailureFloor}` }
+      return { state: 'suspect', reason: `trust failures ${evidence.trustFailures} reach ${floors.trustFailureFloor}` }
     }
     if (evidence.lastOutcome === 'failed' && evidence.loads >= floors.minUses && evidence.failureCount / evidence.loads > floors.failureRate) {
       return {
-        state: 'stale',
+        state: 'suspect',
         reason: `failures ${evidence.failureCount}/${evidence.loads} exceed ${Math.round(floors.failureRate * 100)}%`,
       }
+    }
+    return undefined
+  }
+  if (state === 'suspect') {
+    if (idleMs > staleMs) {
+      return { state: 'stale', reason: `idle ${Math.floor(idleMs / 86400000)}d exceeds ${Math.floor(staleMs / 86400000)}d` }
+    }
+    if (evidence.usedAfterSuspect) {
+      return { state: 'active', reason: `last load ok ${Math.floor(idleMs / 86400000)}d ago` }
     }
     return undefined
   }
@@ -383,6 +426,57 @@ function decideTransition(
     return undefined
   }
   return undefined
+}
+
+/**
+ * The slice of `ctx.evolutionUncertainty` the drift rules read. Declared
+ * structurally rather than imported so the curator keeps no dependency on the
+ * uncertainty package: the store is an optional source, and a host without it
+ * still runs the other three signals.
+ */
+interface UncertaintySeam {
+  /**
+   * @param skill - skill to read signals for.
+   * @returns the recorded signals of that skill.
+   */
+  signals(skill?: string): readonly { kind: string; at: string }[]
+}
+
+/**
+ * Whether a context value offers the uncertainty reads the drift rules call.
+ * Absent and foreign values answer false instead of throwing.
+ * @param value - the value read from `ctx.get('evolutionUncertainty')`.
+ * @returns whether the value can report signals.
+ */
+function isUncertaintySeam(value: unknown): value is UncertaintySeam {
+  return typeof Reflect.get(Object(value), 'signals') === 'function'
+}
+
+/**
+ * The slice of `ctx.evolutionLineage` the drift rules read. Declared
+ * structurally rather than imported, for the same reason as
+ * {@link UncertaintySeam}: the lineage store is an optional source, and a host
+ * without it reports no version change rather than guessing one.
+ */
+interface LineageSeam {
+  /**
+   * @param skill - optional skill filter.
+   * @returns the recorded experiment envelopes.
+   */
+  experiments(skill?: string): readonly {
+    skill: string
+    at: string
+    dependencies: Readonly<Record<string, string>>
+  }[]
+}
+
+/**
+ * Whether a context value offers the lineage reads the drift rules call.
+ * @param value - the value read from `ctx.get('evolutionLineage')`.
+ * @returns whether the value can report experiment envelopes.
+ */
+function isLineageSeam(value: unknown): value is LineageSeam {
+  return typeof Reflect.get(Object(value), 'experiments') === 'function'
 }
 
 /**
@@ -484,7 +578,18 @@ export class EvolutionCurator extends Service {
     const sourceOf = new Map(summaries.map(skill => [skill.name, skill.source] as const))
     const applied: { transition: CuratorTransition; before: SkillUsageRecord; after: SkillUsageRecord }[] = []
     const thresholds = { minUses: this.resolved.stageMinUses, failureRate: this.resolved.stageFailureRate }
-    for (const { name, usage } of telemetry.entries()) {
+    const entries = telemetry.entries()
+    // The utility reading's baseline arm is every other tracked skill, so the
+    // pass holds all records rather than reading the store again per skill.
+    const usages = entries.map(entry => entry.usage)
+    const experiments = this.experiments()
+    const uncertainty: unknown = this.ctx.get('evolutionUncertainty')
+    const conflicts = isUncertaintySeam(uncertainty) ? uncertainty : undefined
+    const floors: DriftFloors = {
+      windowDays: this.resolved.driftWindowDays,
+      utilityFloor: this.resolved.lowUtilityFloor,
+    }
+    for (const [index, { name, usage }] of entries.entries()) {
       report.scanned += 1
       const source = sourceOf.get(name) ?? 'custom'
       // Hub sources are always outside curation; bundled built-ins follow
@@ -505,20 +610,12 @@ export class EvolutionCurator extends Service {
         report.skippedPinned += 1
         continue
       }
-      if (!dryRun) {
-        let signals: FeedbackSignal[] | undefined
-        try {
-          const feedback = this.ctx.get('evolutionFeedback')
-          signals = feedback === undefined
-            ? []
-            : feedback.signals(usage.sessionIds, this.resolved.maxCandidateFailures)
-        } catch (error) {
-          this.ctx.logger.warn(`evolution curator could not read failures for '${name}': ${String(error)}`)
-        }
-        if (signals !== undefined) {
-          await this.recordTrust(telemetry, name, usage, at, signals)
-          await this.recordRegressionDebt(name, usage, signals, at)
-        }
+      // The trust pass and the §22 failure-spike signal read the same graded
+      // failures, so they are read once before either runs.
+      const signals = this.signalsFor(name, usage)
+      if (!dryRun && signals !== undefined) {
+        await this.recordTrust(telemetry, name, usage, at, signals)
+        await this.recordRegressionDebt(name, usage, signals, at)
       }
       const idleMs = now - Date.parse(usage.lastUsedAt ?? usage.createdAt)
       const failureCount = usage.failureCount ?? 0
@@ -532,6 +629,21 @@ export class EvolutionCurator extends Service {
         failureCount,
         lastOutcome: usage.lastOutcome,
         usedAfterFailure: lastUsedMs !== null && (failureMs === null || lastUsedMs > failureMs),
+        // A suspect record always carries the instant it entered the state;
+        // an unstamped one falls back to its creation instant, so any
+        // successful load since then answers it.
+        usedAfterSuspect: usage.lastOutcome === 'ok'
+          && lastUsedMs !== null
+          && lastUsedMs > Date.parse(usage.suspectAt ?? usage.createdAt),
+        drift: driftSignals(
+          usage,
+          usages.filter((_, other) => other !== index),
+          signals ?? [],
+          conflicts?.signals(name).filter(signal => signal.kind === 'conflicting-evidence').map(signal => signal.at) ?? [],
+          experiments.filter(experiment => experiment.skill === name),
+          now,
+          floors,
+        ),
       }, {
         trustFailureFloor: this.resolved.staleTrustFailureFloor,
         minUses: this.resolved.stageMinUses,
@@ -746,12 +858,51 @@ export class EvolutionCurator extends Service {
       cost,
       verdicts,
       skipped: applied.skipped,
+      refusals: applied.refusals,
       steps,
     }
   }
 
   private async stampLastRun(at: string): Promise<void> {
     await this.requireTable().put(STATE_KEY, { lastRunAt: at })
+  }
+
+  /**
+   * The graded failures recorded for one skill's sessions. Both the drift
+   * signal and the pass's trust pass read them, so they are read once. An
+   * unmounted feedback store is no signals rather than a failure; a store that
+   * throws yields undefined, which keeps the trust pass's own rule — a skill
+   * whose failures could not be read is not credited for them — while the
+   * drift signal reads no signals either.
+   * @param name - skill name.
+   * @param usage - the skill's usage record.
+   * @returns the graded signals, or undefined when the read failed.
+   */
+  private signalsFor(name: string, usage: SkillUsageRecord): readonly FeedbackSignal[] | undefined {
+    try {
+      const feedback = this.ctx.get('evolutionFeedback')
+      return feedback === undefined ? [] : feedback.signals(usage.sessionIds, this.resolved.maxCandidateFailures)
+    } catch (error) {
+      this.ctx.logger.warn(`evolution curator could not read failures for '${name}': ${String(error)}`)
+      return undefined
+    }
+  }
+
+  /**
+   * The recorded experiment envelopes this pass reads, each reduced to the
+   * skill, instant, and dependency versions the §22 version rule compares.
+   * The lineage store is an optional source: unmounted, the rule sees no
+   * envelopes and reports no version change rather than guessing one.
+   * @returns one row per recorded envelope.
+   */
+  private experiments(): readonly RecordedExperiment[] {
+    const lineage: unknown = this.ctx.get('evolutionLineage')
+    if (!isLineageSeam(lineage)) return []
+    return lineage.experiments().map(envelope => ({
+      skill: envelope.skill,
+      at: envelope.at,
+      dependencies: envelope.dependencies,
+    }))
   }
 
   /**

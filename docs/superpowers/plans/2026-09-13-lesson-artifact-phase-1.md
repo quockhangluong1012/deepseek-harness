@@ -8,7 +8,7 @@
 
 **Tech Stack:** TypeScript (strict, ESM), Cordis services + `ctx.effect`, `@deepseek-ai/schemastery` for `Config`, `zod` for durable record schemas, `@deepseek-ai/dsh-storage-domain` for the `evolution_memory` domain, Vitest.
 
-**Spec:** [docs/superpowers/specs/2026-09-13-lesson-artifact-memory-design.md](../../specs/2026-09-13-lesson-artifact-memory-design.md)
+**Design:** [evolution-memory package README](../../../packages/evolution/evolution-memory/README.md) — the store whose lesson artifacts this plan reworks.
 
 ## Global Constraints
 

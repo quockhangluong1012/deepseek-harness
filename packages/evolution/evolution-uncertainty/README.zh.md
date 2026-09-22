@@ -7,7 +7,7 @@ kind: "package-reference"
 
 [English](README.md) | 中文
 
-## 摘要
+## 概述
 
 `dsh-evolution-uncertainty` 维护持久化的不确定性信号日志——评估器分歧、低置信度、跨种子不稳定、检索歧义、证据冲突——并将其聚合成高价值评估任务的优先级队列。共享同一技能与任务的信号相互佐证：首个不同种类之后的每种不同信号种类都会给任务优先级加上配置的加成并封顶于一，因此被多种信号标记的任务会排在更热的单信号任务之前。解决一个任务会丢弃其信号，队列随即由剩余信号重新推导。此包不调用任何模型。
 
@@ -18,7 +18,7 @@ kind: "package-reference"
 - [进一步探索](#further-exploration)
 - [模型体验](#model-experience)
 - [已知限制与延后工作](#known-limitations-and-deferred-work)
-- [开发者注记](#dev-note)
+- [开发备注](#dev-note)
 
 -----
 
@@ -105,7 +105,7 @@ if (next.length > 0) console.log(next[0]?.taskId, next[0]?.priority)
 - **解决会丢弃整个任务分组**——`resolve` 移除一个任务背后的全部信号；作废其中某一种类的单个信号需要在域上加单信号删除。
 
 <a id="dev-note"></a>
-### 开发者注记
+### 开发备注
 
 <details>
 <summary>维护者工作上下文——点击展开</summary>

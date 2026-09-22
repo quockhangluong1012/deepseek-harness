@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { channelHealth, summarizeHealth } from '../src/index.ts'
+import { channelHealth, judgeCalibration, summarizeHealth } from '../src/index.ts'
 import type { EvaluatorRun } from '../src/index.ts'
 
 const run = (overrides: Partial<EvaluatorRun> & { id: string }): EvaluatorRun => ({
@@ -86,5 +86,45 @@ describe('evaluator health stats', () => {
     const rejected = summarizeHealth([run({ id: 'r', approved: false, unanimous: false, approving: [], dissenting: ['contract', 'routing', 'replay'] })], 20)
     expect(rejected.falsePositiveRate).toBe(0)
     expect(rejected.approvalRate).toBe(0)
+  })
+})
+
+describe('judgeCalibration', () => {
+  it('counts a rejection later contradicted by an approval as a false negative', () => {
+    const runs = [
+      run({ id: 'newer', at: '2026-07-01T00:00:00.000Z', approved: true, approving: ['contract', 'routing', 'replay'] }),
+      run({ id: 'older', at: '2026-06-01T00:00:00.000Z', approved: false, unanimous: false, approving: [], dissenting: ['contract', 'routing', 'replay'] }),
+    ]
+    const calibration = judgeCalibration(runs)
+    // The false-positive counter sees no approval contradicted by a rejection.
+    expect(summarizeHealth(runs, 20).falsePositiveRate).toBe(0)
+    expect(calibration.falseNegativeRate).toBe(1)
+    expect(calibration.independentlyJudged).toBe(0)
+    expect(calibration.agreementRate).toBe(0)
+  })
+
+  it('ignores a contradiction from an older verdict and from another skill', () => {
+    const otherSkill = [
+      run({ id: 'a', at: '2026-07-01T00:00:00.000Z', approved: false, skill: 'other' }),
+      run({ id: 'b', at: '2026-06-01T00:00:00.000Z', approved: false, unanimous: false, approving: [], dissenting: ['replay'] }),
+    ]
+    expect(judgeCalibration(otherSkill).falseNegativeRate).toBe(0)
+    expect(judgeCalibration([]).falseNegativeRate).toBe(0)
+    expect(judgeCalibration([run({ id: 'only', approved: false }) ]).falseNegativeRate).toBe(0)
+  })
+
+  it('correlates the verdict with the independent ground truths that judged it', () => {
+    const runs = [
+      run({ id: 'agreed', approved: true, judgment: { agrees: true, independent: true, at: '2026-07-02T00:00:00.000Z' } }),
+      run({ id: 'overruled', approved: true, judgment: { agrees: false, independent: true, at: '2026-07-02T00:00:00.000Z' } }),
+      // A judgment the evaluator itself produced does not correlate with anything.
+      run({ id: 'self', approved: true, judgment: { agrees: true, independent: false, at: '2026-07-02T00:00:00.000Z' } }),
+      run({ id: 'unjudged', approved: true }),
+    ]
+    expect(judgeCalibration(runs)).toEqual({
+      falseNegativeRate: 0,
+      independentlyJudged: 2,
+      agreementRate: 0.5,
+    })
   })
 })

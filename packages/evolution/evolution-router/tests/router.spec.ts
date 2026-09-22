@@ -92,6 +92,12 @@ describe('rankRoutes', () => {
     expect(ranked[0]?.provider).toBe('a')
     expect(ranked[1]?.provider).toBe('b')
     expect(ranked[2]?.provider).toBe('c')
+    // Two equal-scoring routes of one provider break by model ascending.
+    const sameProvider = rankRoutes([
+      effectiveness({ provider: 'a', model: 'chat' }),
+      effectiveness({ provider: 'a', model: 'reasoner' }),
+    ], 'writer', 'evaluation', 3)
+    expect(sameProvider.map(entry => entry.model)).toEqual(['chat', 'reasoner'])
   })
 
   it('ignores other task classes and roles', () => {

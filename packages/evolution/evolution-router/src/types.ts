@@ -12,6 +12,14 @@ export type RoutingRole = 'task-execution' | 'reflection' | 'candidate-generatio
 /** One task class a route is judged on, e.g. a skill name. */
 export type RouterTaskClass = string
 
+/** One provider/model pair, as the recorded evidence spells it. */
+export interface RouteRef {
+  /** Provider half of the route. */
+  provider: string
+  /** Model half of the route. */
+  model: string
+}
+
 /** One measured outcome of a route serving one role on one task class. */
 export interface RouteOutcome {
   /** The task class the outcome was measured on. */

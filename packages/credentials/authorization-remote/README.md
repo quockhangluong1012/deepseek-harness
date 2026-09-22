@@ -18,6 +18,7 @@ English | [中文](README.zh.md)
 - [Further Exploration](#further-exploration)
 - [Model Experience](#model-experience)
 - [Known Limitations and Deferred Work](#known-limitations-and-deferred-work)
+- [Dev Note](#dev-note)
 
 -----
 
@@ -98,3 +99,13 @@ No invalidation; no authorization state enters a request prefix.
 - **Nothing revokes** — `signOut` forgets the local record without telling the issuer, matching the seam's own sign-out semantics.
 
 **Runtime invariant:** No companion is published. The attempt registry is internal to this service: frames derive from the seam's own lifecycle, and no second observation of the same relation exists to diverge.
+
+<a id="dev-note"></a>
+### Dev Note
+
+<details>
+<summary>Working context for maintainers — click to expand</summary>
+
+`status` and `signOut` never ask the seam: they read and delete through `ctx.credentials` (`describeRecord`, `deleteRecord`), because the record store owns the grant and `ctx.authorization` owns only flow lifecycle — which is why a grant written by any other path is still what `status` reports. Prompt ids are per-attempt counters (`p1`, `p2`, …) and mean nothing on their own, so every follow-up call carries the attempt id first; making them globally unique would buy nothing and cost a UUID per question. A prompt a human settled is dropped from `attempt.pending`, while one the flow withdrew stays there with `active: false`, so the two late refusals are not interchangeable: `unknown-prompt` means no prompt was ever pending under that id, `inactive-prompt` means the flow took its question back. `frames` addresses the conversation by array index — `next` is `frames.length` — and per-frame `seq` exists for rendering keys, not for cursor arithmetic.
+
+</details>

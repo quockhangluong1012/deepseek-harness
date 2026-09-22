@@ -78,7 +78,7 @@ Membership resolves from the Workspace records' `sessionIds`, falling back to a 
 <a id="further-exploration"></a>
 ## Further Exploration
 
-- [Workspace Memory specification](../../../specs/workspace-memory.md) — the behaviour contract this package implements.
+- [Workspace Memory subsystem](../../../docs/subsystems/workspace-memory.md) — the behaviour contract this package implements.
 - [Context group map](../README.md) — sibling request-context packages.
 - [Generated configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-workspace-memory-context) — every accepted config field.
 

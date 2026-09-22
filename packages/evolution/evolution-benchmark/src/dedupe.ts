@@ -90,6 +90,44 @@ export function nextLadder(state: BenchmarkState): BenchmarkState | undefined {
   return ladder[state]
 }
 
+/** Exposures a task needs before it is reserved as protected holdout. */
+export const HOLDOUT_AFTER_RUNS = 3
+
+/** What the engine recorded about one capability's candidate exposure (§15). */
+export interface ExposureEvidence {
+  /** Candidate evaluations recorded for the capability. */
+  runs: number
+  /** Recorded evaluations whose candidate passed. */
+  passes: number
+}
+
+/**
+ * The next ladder state one task's recorded exposure earns, or undefined when
+ * it has earned none. Each rung asks for its own evidence (§15): a `fresh` task
+ * needs one recorded candidate evaluation before it joins the set the search
+ * generates against, a `search` task needs one passing candidate so it carries
+ * a known baseline and can discriminate rather than only fail, and a
+ * `validation` task needs {@link HOLDOUT_AFTER_RUNS} evaluations before it is
+ * reserved — at that point the corpus has moved past it, so protecting it costs
+ * the search nothing and keeps a promotion from resting on the tasks the
+ * candidate was generated against. Exposure counts are capability-scoped
+ * because no store binds a candidate evaluation to a benchmark task identity.
+ * Terminal states and `holdout` have no rung left and always report undefined.
+ * @param state - the task's current state.
+ * @param exposure - the exposure recorded for the task's capability.
+ * @returns the state to advance to, or undefined when the evidence earns none.
+ */
+export function ladderAdvance(state: BenchmarkState, exposure: ExposureEvidence): BenchmarkState | undefined {
+  const next = nextLadder(state)
+  if (next === undefined) return undefined
+  const earned = state === 'fresh'
+    ? exposure.runs > 0
+    : state === 'search'
+      ? exposure.passes > 0
+      : exposure.runs >= HOLDOUT_AFTER_RUNS
+  return earned ? next : undefined
+}
+
 /**
  * Block a duplicate while it is learnable.
  * @param state - a task's current state.

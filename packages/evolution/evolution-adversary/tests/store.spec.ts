@@ -129,7 +129,7 @@ describe('evolution adversary', () => {
     try {
       const defaults = store.defenses()
       expect(defaults.map(entry => entry.defense)).toEqual([...GAMING_DEFENSES])
-      expect(defaults.every(entry => entry.satisfied === false && entry.at === null)).toBe(true)
+      expect(defaults.every(entry => ! entry.satisfied && entry.at === null)).toBe(true)
       expect(store.defenseGaps()).toEqual([...GAMING_DEFENSES])
       const set = await store.setDefense('hidden-holdout', true)
       expect(set).toMatchObject({ defense: 'hidden-holdout', satisfied: true })
@@ -166,6 +166,58 @@ describe('evolution adversary', () => {
     }
   })
 
+  it('observes the defenses the mounted stores record and names the rest unobserved', async () => {
+    const bare = await boot()
+    try {
+      expect(bare.store.observedDefenses().map(entry => entry.state)).toEqual([
+        'unobserved',
+        'unobserved',
+        'observed-open',
+        'observed-open',
+        'unobserved',
+        'unobserved',
+      ])
+    } finally {
+      await bare.fiber.dispose()
+    }
+    const { ctx, fiber, store } = await boot()
+    try {
+      ctx.provide('evolutionEvaluatorStrategy', {
+        strategies: () => [
+          { evaluator: 'scorer-v1', independentSamples: 3 },
+          { evaluator: 'ensemble-v2', independentSamples: 1 },
+        ],
+      } as never)
+      ctx.provide('evolutionBenchmark', {
+        tasks: (state: string) => (state === 'holdout' ? [{ capability: 'writer' }, { capability: 'writer' }] : []),
+      } as never)
+      ctx.provide('evolutionRouter', {
+        effectiveness: () => [
+          { taskClass: 'writer', provider: 'deepseek', model: 'chat' },
+          { taskClass: 'writer', provider: 'deepseek', model: 'reasoner' },
+        ],
+      } as never)
+      await store.probe(input({ probeId: 'gaming', category: 'evaluator-gaming' }))
+      for (const category of ['edge-case', 'prompt-injection', 'stale-memory', 'retrieval-trap', 'contradictory-evidence', 'tool-failure', 'ambiguous-instruction'] as const) {
+        await store.probe(input({ probeId: category, category }))
+      }
+      expect(store.observedDefenses()).toEqual([
+        { defense: 'multiple-evaluators', state: 'observed-satisfied', evidence: '2 evaluator(s) carry an independent verdict' },
+        { defense: 'hidden-holdout', state: 'observed-satisfied', evidence: '1 capability(s) hold a protected holdout task' },
+        { defense: 'behavioral-metrics', state: 'observed-satisfied', evidence: '1 probe(s) exercised evaluator-gaming behavior' },
+        { defense: 'adversarial-tests', state: 'observed-satisfied', evidence: '1 probe skill(s) cover every §45 category' },
+        {
+          defense: 'randomized-tests',
+          state: 'unobserved',
+          evidence: 'nothing records which tests were randomized; randomized tests and human spot checks stay operator-side',
+        },
+        { defense: 'evaluator-rotation', state: 'observed-satisfied', evidence: '1 task class(es) recorded two or more evaluation routes' },
+      ])
+    } finally {
+      await fiber.dispose()
+    }
+  })
+
   it('reads throw before the store starts', () => {
     const ctx = new Context()
     const store = new EvolutionAdversary(ctx, { minProbesPerCategory: 1 })
@@ -173,5 +225,6 @@ describe('evolution adversary', () => {
     expect(() => store.challenge('writer')).toThrow('not started yet')
     expect(() => store.defenses()).toThrow('not started yet')
     expect(() => store.defenseGaps()).toThrow('not started yet')
+    expect(() => store.observedDefenses()).toThrow('not started yet')
   })
 })

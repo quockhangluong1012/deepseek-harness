@@ -23,9 +23,10 @@ import { BlockAssembler, createAssistantMessage, createToolResultMessage, create
 import type { ContentBlock, GenerateOptions, Message, StreamChunk, ToolSchema } from '@deepseek-ai/dsh-llm'
 import type { SkillUsageRecord } from '@deepseek-ai/dsh-evolution-skill-telemetry'
 import type { EvolutionSkillTelemetry } from '@deepseek-ai/dsh-evolution-skill-telemetry'
-import { SKILL_FILE, splitFrontmatter, validateSkillHead } from '@deepseek-ai/dsh-evolution-skill-manage'
+import { SKILL_FILE } from '@deepseek-ai/dsh-evolution-skill-manage'
+import { runVerifierLadder } from '@deepseek-ai/dsh-evolution-verifiers'
 import { appendLedger, moveTree, pathExists, textSha, writeTextBlob } from './safety.ts'
-import type { ConsolidationVerdict, SurveyCandidate } from './types.ts'
+import type { ConsolidationRefusal, ConsolidationVerdict, SurveyCandidate } from './types.ts'
 
 /** File extensions whose `${DSH_SKILL_DIR}` references are rewritten on re-home. */
 const TEXT_FILE = /\.(?:md|markdown|txt|ya?ml|json|sh|ps1|ts|js|mjs|cjs|py)$/i
@@ -236,6 +237,8 @@ export interface ConsolidationApplied {
   transitions: { name: string; before: SkillUsageRecord; after: SkillUsageRecord; dir: string }[]
   /** Verdicts skipped as ineligible or unsafe. */
   skipped: number
+  /** Bodies the verifier ladder refused, each naming the level that decided. */
+  refusals: ConsolidationRefusal[]
   /** Bodies committed in place, each with a stored preimage. */
   patched: number
 }
@@ -246,15 +249,21 @@ export interface ConsolidationApplied {
  * `${DSH_SKILL_DIR}` references for the new relative root, archives move the
  * entire directory into `.archive/`, and a merge whose umbrella is missing or
  * unwritable leaves the package exactly where it is.
+ *
+ * A `patch` body is admitted through the verifier ladder: the schema and
+ * invariant rungs decide it deterministically, a failing rung refuses the body
+ * with the level that decided, and the higher rungs — which this path mounts no
+ * seam for — abstain, so the body is committed on the deterministic evidence
+ * alone rather than on a judgment the curator did not make.
  * @param deps - host seams and the surveyed candidate set.
  * @param verdicts - the fork's verdicts, in tool-call order.
- * @returns the lifecycle movements and the skipped-verdict count.
+ * @returns the lifecycle movements, the skipped-verdict count, and the refused bodies.
  */
 export async function applyConsolidation(
   deps: ConsolidationApplyDeps,
   verdicts: readonly ConsolidationVerdict[],
 ): Promise<ConsolidationApplied> {
-  const applied: ConsolidationApplied = { transitions: [], skipped: 0, patched: 0 }
+  const applied: ConsolidationApplied = { transitions: [], skipped: 0, refusals: [], patched: 0 }
   for (const verdict of verdicts) {
     if (verdict.action === 'keep') continue
     if (!deps.candidates.has(verdict.name)) {
@@ -268,8 +277,14 @@ export async function applyConsolidation(
       continue
     }
     if (verdict.action === 'patch') {
-      if (verdict.body === undefined || !isValidSkillBody(verdict.name, verdict.body)) {
+      if (verdict.body === undefined) {
         applied.skipped += 1
+        continue
+      }
+      const admission = await runVerifierLadder({ name: verdict.name, body: verdict.body })
+      if (admission.status === 'failed') {
+        applied.skipped += 1
+        applied.refusals.push({ name: verdict.name, level: admission.decidedBy, reason: admission.reason })
         continue
       }
       const file = join(dir, SKILL_FILE)
@@ -319,28 +334,6 @@ export async function applyConsolidation(
     applied.transitions.push({ name: verdict.name, before, after, dir: destination })
   }
   return applied
-}
-
-/**
- * Validate a replacement body before commit with the invariant
- * `skill_manage edit` already enforces: parseable frontmatter that keeps the
- * skill's own name and a description. A body failing it would break the skill
- * and leave no way back.
- * @param name - skill name the body must keep.
- * @param body - replacement body from the verdict.
- * @returns whether the body may be committed.
- */
-function isValidSkillBody(name: string, body: string): boolean {
-  const split = splitFrontmatter(body)
-  if (split === undefined) return false
-  try {
-    validateSkillHead(split.head, name)
-    return true
-  } catch {
-    // Swallows only frontmatter-validation errors: a body that fails the
-    // check is dropped like any other inapplicable verdict.
-    return false
-  }
 }
 
 /**

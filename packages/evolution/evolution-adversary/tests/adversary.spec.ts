@@ -184,7 +184,7 @@ describe('weaknessRate', () => {
 
 describe('defenseGaps', () => {
   it('names unsatisfied defenses in canonical order', () => {
-    const rows = GAMING_DEFENSES.map((defense) => status({ defense, satisfied: defense === 'multiple-evaluators' }))
+    const rows = GAMING_DEFENSES.map(defense => status({ defense, satisfied: defense === 'multiple-evaluators' }))
     expect(defenseGaps(rows)).toEqual([
       'hidden-holdout',
       'behavioral-metrics',
@@ -201,7 +201,7 @@ describe('defenseGaps', () => {
   })
 
   it('reports no gaps when every defense holds', () => {
-    const rows = GAMING_DEFENSES.map((defense) => status({ defense }))
+    const rows = GAMING_DEFENSES.map(defense => status({ defense }))
     expect(defenseGaps(rows)).toEqual([])
   })
 })

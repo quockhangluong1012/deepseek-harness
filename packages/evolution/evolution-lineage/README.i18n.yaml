@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/evolution/evolution-lineage/README.md
 README.md: 08f57f6685b7fff44d3957710621bc8ff1a674c3
-README.zh.md: 1593e95e77df380930b82b627ba576138c00f1b7
+README.zh.md: 8d2c34667806df5bd535243444e158948c2db5cf

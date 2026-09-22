@@ -66,13 +66,13 @@ function newestVisibleDigest(agent: Agent, claimed: readonly UserMessage[]): str
     const source = message.source as unknown as WorkspaceMemorySource
     if (typeof source.digest === 'string') return source.digest
   }
-  const nodes = agent.session.surface.nodes
-  for (let index = nodes.length - 1; index >= 0; index -= 1) {
-    const event = agent.session.eventAt(nodes[index] as never)
-    if (event?.type !== 'user/message') continue
-    const source = (event.data).source as unknown as { kind?: string; digest?: unknown }
-    if (source.kind !== 'workspace-memory' || typeof source.digest !== 'string') continue
-    return source.digest
+  // The committed transcript is already the maintained surface projection, and
+  // each derived message carries the source its producing event recorded, so
+  // the newest committed brief's digest is reachable without a historical read.
+  for (const message of [...agent.session.deriveMessages()].reverse()) {
+    const source = message.source
+    if (source.kind !== 'workspace-memory') continue
+    if (typeof source.digest === 'string') return source.digest
   }
   return undefined
 }

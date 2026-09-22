@@ -111,6 +111,39 @@ describe('evolution skill telemetry', () => {
     }
   })
 
+  it('keeps the load counters and the state across a reopen', async () => {
+    const pool = new MemoryMediaPool()
+    {
+      const ctx = new Context()
+      await ctx.plugin(Storage)
+      ctx.storage.backend.register('memory', new MemoryStorageBackend(pool))
+      const facility = new DomainFacility(ctx, { backend: 'memory', routes: {} })
+      ctx.storage.mount('domain', facility)
+      ctx.provide('storageDomain', facility)
+      ctx.provide('skills', { list: async () => [{ name: 'catalog', source: 'user-dsh' }] } as never)
+      const fiber = await ctx.plugin(EvolutionSkillTelemetry)
+      await ctx.evolutionSkillTelemetry.markFailed('catalog')
+      await ctx.evolutionSkillTelemetry.markFailed('catalog')
+      await ctx.evolutionSkillTelemetry.markUsed('catalog')
+      await ctx.evolutionSkillTelemetry.setState('catalog', 'suspect')
+      await fiber.dispose()
+    }
+    const ctx = new Context()
+    await ctx.plugin(Storage)
+    ctx.storage.backend.register('memory', new MemoryStorageBackend(pool))
+    const facility = new DomainFacility(ctx, { backend: 'memory', routes: {} })
+    ctx.storage.mount('domain', facility)
+    ctx.provide('storageDomain', facility)
+    ctx.provide('skills', { list: async () => [{ name: 'catalog', source: 'user-dsh' }] } as never)
+    const fiber = await ctx.plugin(EvolutionSkillTelemetry)
+    try {
+      expect(ctx.evolutionSkillTelemetry.read('catalog'))
+        .toMatchObject({ state: 'suspect', failureCount: 2, lastOutcome: 'ok', useCount: 1 })
+    } finally {
+      await fiber.dispose()
+    }
+  })
+
   it('skips outcome writes for excluded sources', async () => {
     const { fiber, store } = await harness({ box: 'bundled' })
     try {
@@ -279,15 +312,26 @@ describe('evolution skill telemetry', () => {
     await fiber.dispose()
   })
 
-  it('moves lifecycle states with archive stamps', async () => {
+  it('moves lifecycle states with archive and suspect stamps', async () => {
     const { fiber, store } = await harness()
-    expect(await store.setState('old', 'active')).toMatchObject({ state: 'active', archivedAt: null })
-    expect(await store.setState('old', 'stale')).toMatchObject({ state: 'stale', archivedAt: null })
+    expect(await store.setState('old', 'active')).toMatchObject({ state: 'active', archivedAt: null, suspectAt: null })
+    expect(await store.setState('old', 'stale')).toMatchObject({ state: 'stale', archivedAt: null, suspectAt: null })
     const archived = await store.setState('old', 'archived', 'umbrella')
     expect(archived).toMatchObject({ state: 'archived', absorbedInto: 'umbrella' })
     expect(typeof archived.archivedAt).toBe('string')
     const revived = await store.setState('old', 'active')
-    expect(revived).toMatchObject({ state: 'active', absorbedInto: null, archivedAt: null })
+    expect(revived).toMatchObject({ state: 'active', absorbedInto: null, archivedAt: null, suspectAt: null })
+
+    // The evidence rung stamps its own instant, keeps it while the state
+    // holds, and clears it on the way out.
+    const suspect = await store.setState('old', 'suspect')
+    expect(typeof suspect.suspectAt).toBe('string')
+    expect(await store.setState('old', 'suspect')).toMatchObject({ suspectAt: suspect.suspectAt })
+    const quiet = await store.setState('old', 'active')
+    expect(quiet).toMatchObject({ state: 'active', suspectAt: null })
+    const archivedFromSuspect = await store.setState('old', 'suspect')
+    expect(typeof archivedFromSuspect.suspectAt).toBe('string')
+    expect(await store.setState('old', 'archived')).toMatchObject({ state: 'archived', suspectAt: null })
     await fiber.dispose()
   })
   it('counts skill-tool loads and ignores foreign tools', async () => {
@@ -468,6 +512,153 @@ describe('skill proposal merge key', () => {
 
   it('refuses an empty path list loudly', () => {
     expect(() => skillProposalMergeKey([])).toThrow('at least one path')
+  })
+})
+
+describe('skill utility', () => {
+  it('counts uses, assisted tasks, and successful tasks from recorded outcomes', async () => {
+    const { fiber, store } = await harness({ writer: 'user-dsh' })
+    try {
+      await store.markUsed('writer', undefined, 'session-1')
+      await store.markUsed('writer', undefined, 'session-1')
+      await store.markUsed('writer', undefined, 'session-2')
+      await store.recordTrustObservation('writer', 'success', 'session-1')
+      await store.recordTrustObservation('writer', 'failure', 'session-2', {
+        mergeKey: 'bash\u0000denied',
+        message: 'denied',
+        at: '2026-09-16T00:00:00.000Z',
+      })
+      // Three loads, two graded sessions, one of them clean: the cost of one
+      // success is the recorded load count, not an estimate.
+      expect(store.utility('writer')).toEqual({
+        uses: 3,
+        assistedTasks: 2,
+        successfulTasks: 1,
+        incrementalGain: null,
+        costOverhead: 3,
+      })
+    } finally {
+      await fiber.dispose()
+    }
+  })
+
+  it('derives the library-relative gain from the peers that carry outcomes', async () => {
+    const { fiber, store } = await harness({ writer: 'user-dsh', rival: 'user-dsh' })
+    try {
+      await store.markUsed('writer', undefined, 'w1')
+      await store.markUsed('writer', undefined, 'w2')
+      await store.recordTrustObservation('writer', 'success', 'w1')
+      await store.recordTrustObservation('writer', 'success', 'w2')
+      await store.markUsed('rival', undefined, 'r1')
+      await store.markUsed('rival', undefined, 'r2')
+      await store.recordTrustObservation('rival', 'success', 'r1')
+      await store.recordTrustObservation('rival', 'failure', 'r2', {
+        mergeKey: 'bash\u0000slow',
+        message: 'slow',
+        at: '2026-09-16T00:00:00.000Z',
+      })
+      // Writer is 2/2 clean while the only peer is 1/2, so the writer's stored
+      // gain is its excess over the peer's pooled share — and the peer's is
+      // negative against the writer's clean record.
+      expect(store.utility('writer')).toMatchObject({ incrementalGain: 1 - 1 / 2 })
+      expect(store.utility('rival')).toMatchObject({ incrementalGain: 1 / 2 - 1 })
+      expect(store.utility('absent')).toBeUndefined()
+      await store.markUsed('rival', undefined, 'r3')
+      await store.recordTrustObservation('rival', 'failure', 'r3', {
+        mergeKey: 'bash\u0000slow',
+        message: 'slow',
+        at: '2026-09-16T00:00:00.000Z',
+      })
+      // A third failed peer session grows the pooled arm to 1 of 3.
+      expect(store.utility('writer')).toMatchObject({ incrementalGain: 1 - 1 / 3 })
+    } finally {
+      await fiber.dispose()
+    }
+  })
+
+  it('leaves both derived numbers unset when no comparison exists', async () => {
+    const { fiber, store } = await harness({ writer: 'user-dsh', peer: 'user-dsh' })
+    try {
+      // Loads without a graded outcome are not assisted tasks, and a skill
+      // with no clean outcome has no success to divide the cost by.
+      await store.markUsed('writer', undefined, 'w1')
+      await store.markUsed('peer', undefined, 'p1')
+      await store.recordTrustObservation('writer', 'failure', 'w1', {
+        mergeKey: 'bash\u0000denied',
+        message: 'denied',
+        at: '2026-09-16T00:00:00.000Z',
+      })
+      expect(store.utility('writer')).toEqual({
+        uses: 1,
+        assistedTasks: 1,
+        successfulTasks: 0,
+        incrementalGain: null,
+        costOverhead: null,
+      })
+      // The peer has no graded outcome at all, so it is not an assisted task.
+      expect(store.utility('peer')).toMatchObject({ assistedTasks: 0, successfulTasks: 0, costOverhead: null })
+    } finally {
+      await fiber.dispose()
+    }
+  })
+
+  it('clears outcome evidence when the body changes', async () => {
+    const { fiber, store } = await harness({ writer: 'user-dsh' })
+    try {
+      await store.markUsed('writer', undefined, 'w1')
+      await store.recordTrustObservation('writer', 'success', 'w1')
+      expect(store.read('writer')?.sessionOutcomes).toEqual([{ sessionId: 'w1', outcome: 'ok' }])
+      // The outcomes describe the body that changed, so the reading restarts.
+      await store.markRevised('writer', 'new body')
+      expect(store.read('writer')?.sessionOutcomes).toEqual([])
+      expect(store.utility('writer')).toMatchObject({ assistedTasks: 0, successfulTasks: 0 })
+    } finally {
+      await fiber.dispose()
+    }
+  })
+
+  it('keeps one outcome per session, newest first and bounded', async () => {
+    const { fiber, store } = await harness({ writer: 'user-dsh' }, { maxSessionIds: 2 })
+    try {
+      await store.markUsed('writer', undefined, 'w1')
+      await store.markUsed('writer', undefined, 'w2')
+      await store.recordTrustObservation('writer', 'success', 'w1')
+      await store.recordTrustObservation('writer', 'success', 'w2')
+      // Re-observing the same outcome rewrites nothing.
+      await store.recordTrustObservation('writer', 'success', 'w2')
+      expect(store.read('writer')?.sessionOutcomes).toEqual([
+        { sessionId: 'w2', outcome: 'ok' },
+        { sessionId: 'w1', outcome: 'ok' },
+      ])
+      // A later demotion of the same session replaces its entry in place.
+      await store.recordTrustObservation('writer', 'failure', 'w2', {
+        mergeKey: 'bash\u0000denied',
+        message: 'denied',
+        at: '2026-09-16T00:00:00.000Z',
+      })
+      expect(store.read('writer')?.sessionOutcomes).toEqual([
+        { sessionId: 'w2', outcome: 'failed' },
+        { sessionId: 'w1', outcome: 'ok' },
+      ])
+      await store.markUsed('writer', undefined, 'w3')
+      await store.recordTrustObservation('writer', 'success', 'w3')
+      expect(store.read('writer')?.sessionOutcomes).toEqual([
+        { sessionId: 'w3', outcome: 'ok' },
+        { sessionId: 'w2', outcome: 'failed' },
+      ])
+    } finally {
+      await fiber.dispose()
+    }
+  })
+
+  it('writes the utility reading only for tracked skills', async () => {
+    const { fiber, store } = await harness({ box: 'bundled' })
+    try {
+      expect(await store.markUsed('box')).toBeUndefined()
+      expect(store.utility('box')).toBeUndefined()
+    } finally {
+      await fiber.dispose()
+    }
   })
 })
 

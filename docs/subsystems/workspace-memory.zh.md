@@ -4,7 +4,7 @@
 
 DeepSeek Harness 中的 Workspace（工作区）是用户所用目录的持久记录：一个建立在规范路径之上的稳定 id、一个显示标题，以及在该处运行过的会话的有序账本（`ctx.workspaceRegistry`、`packages/workspace/workspace`）。Workspace Memory 为每个 Workspace 提供一份持久的知识主体，供该 Workspace 中的每个会话继承，并提供可通过点击侧边栏中的 Workspace 名称到达的 Workspace 页面。
 
-源码：[`specs/workspace-memory.md`](../../specs/workspace-memory.md)
+源码：[`packages/workspace/workspace-memory/README.zh.md`](../../packages/workspace/workspace-memory/README.zh.md)
 
 ## 组成部分
 

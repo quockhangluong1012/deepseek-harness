@@ -1,7 +1,7 @@
 /**
  * The evolution-meta domain declaration: durable engine runs under their
- * engine configurations. Zod validates the shipped format at the durability
- * boundary.
+ * engine configurations and the sequence each performed. Zod validates the
+ * shipped format at the durability boundary.
  * @module @deepseek-ai/dsh-evolution-meta/src/spec
  */
 
@@ -17,11 +17,18 @@ export const engineConfigRow = z.object({
   routing: z.string(),
 })
 
+/** Durable shape of one stage the engine ran. */
+export const workflowStepRow = z.object({
+  component: z.enum(['operators', 'evaluator', 'budget', 'routing']),
+  choice: z.string(),
+})
+
 /** Durable shape of one engine run. */
 export const engineRunRow = z.object({
   runId: z.string(),
   taskClass: z.string(),
   config: engineConfigRow,
+  workflow: z.array(workflowStepRow).default([]),
   pass: z.boolean(),
   tokens: z.number(),
   wallTimeMs: z.number(),
@@ -39,7 +46,11 @@ export type EngineRunRow = z.infer<typeof engineRunRow>
  */
 export const metaDomainSpec = defineDomain({
   name: 'evolution_meta',
-  version: 1,
+  version: 2,
+  // Version 1 stored runs without the sequence they performed; the field
+  // defaults to an empty workflow, which the summary reports as unrecorded, so
+  // vouched-for v1 runs open unchanged.
+  compatibleVersions: [1],
   layout: 'per-record',
   tables: {
     runs: domainTable<string, EngineRun>(engineRunRow),

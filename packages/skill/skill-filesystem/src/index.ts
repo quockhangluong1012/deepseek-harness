@@ -144,8 +144,18 @@ interface ParsedSkill extends SkillText {
    * pair — and carried like `requires`, never gating discovery.
    */
   conflictsWith?: readonly string[]
+  /** Frontmatter `compatible_with`: allowlist of skills this one may load beside. */
+  compatibleWith?: readonly string[]
+  /** Frontmatter `composable_with`: allowlist of skills this one may be synthesized with. */
+  composableWith?: readonly string[]
   /** Frontmatter `capabilities`: capability names the skill needs; carried like `requires`, never gating. */
   capabilities?: readonly string[]
+  /** Frontmatter `inputs`: data names the skill consumes; carried like `requires`, never gating. */
+  inputs?: readonly string[]
+  /** Frontmatter `outputs`: data names the skill produces, satisfying another skill's `requires`. */
+  outputs?: readonly string[]
+  /** Frontmatter `derived_from`: skills this body was synthesized from; carried like `requires`. */
+  derivedFrom?: readonly string[]
   /** Frontmatter `version`: free-form version label, dropped when malformed. */
   version?: string
   /** Frontmatter `testScenarios`: scenario names usable by the scorer/optimizer; carried like `requires`. */
@@ -303,7 +313,12 @@ export class FileSystemSkillProvider implements SkillProvider {
       ...parsed.requiredEnv !== undefined ? { requiredEnv: parsed.requiredEnv } : {},
       ...parsed.requires !== undefined ? { requires: parsed.requires } : {},
       ...parsed.conflictsWith !== undefined ? { conflictsWith: parsed.conflictsWith } : {},
+      ...parsed.compatibleWith !== undefined ? { compatibleWith: parsed.compatibleWith } : {},
+      ...parsed.composableWith !== undefined ? { composableWith: parsed.composableWith } : {},
       ...parsed.capabilities !== undefined ? { capabilities: parsed.capabilities } : {},
+      ...parsed.inputs !== undefined ? { inputs: parsed.inputs } : {},
+      ...parsed.outputs !== undefined ? { outputs: parsed.outputs } : {},
+      ...parsed.derivedFrom !== undefined ? { derivedFrom: parsed.derivedFrom } : {},
       ...parsed.version !== undefined ? { version: parsed.version } : {},
       ...parsed.testScenarios !== undefined ? { testScenarios: parsed.testScenarios } : {},
       ...parsed.config !== undefined ? { config: parsed.config } : {},
@@ -543,7 +558,10 @@ class SkillWatchManager {
 
   private async ensureCurrentWatcher(state: RootWatchState): Promise<void> {
     const watcher = state.watcher
-    if (watcher !== undefined && !state.unhealthy) {
+    // Health is read once for the retained-handle guard and again after the
+    // probe: a watcher error can flip the field while the probe is awaited.
+    const healthy = !state.unhealthy
+    if (watcher !== undefined && healthy) {
       const current = await resolveRootWatchMode(state.root.path, this.config.followSymlinks)
       // A child unlink can publish an empty catalog before root unlinkDir arrives.
       // Discovery therefore revalidates the retained handle independently.
@@ -556,8 +574,9 @@ class SkillWatchManager {
     const previous = state.watcher
     state.watcher = undefined
     if (previous !== undefined) await this.closeWatcher(previous)
+    const tornDown = this.closing || state.owners.size === 0
     /* v8 ignore next -- Teardown can win while an unhealthy watcher is still closing. */
-    if (this.closing || state.owners.size === 0) return
+    if (tornDown) return
     try {
       const watcher = await this.openStableWatcher(state)
       /* v8 ignore next -- The loop returns no handle only when teardown wins between awaited probes. */
@@ -1056,7 +1075,12 @@ async function discoverRoot(root: SkillRoot, ctx: Context, provider: string, opt
       ...parsed.whenToUse !== undefined ? { whenToUse: parsed.whenToUse } : {},
       ...parsed.requires !== undefined ? { requires: parsed.requires } : {},
       ...parsed.conflictsWith !== undefined ? { conflictsWith: parsed.conflictsWith } : {},
+      ...parsed.compatibleWith !== undefined ? { compatibleWith: parsed.compatibleWith } : {},
+      ...parsed.composableWith !== undefined ? { composableWith: parsed.composableWith } : {},
       ...parsed.capabilities !== undefined ? { capabilities: parsed.capabilities } : {},
+      ...parsed.inputs !== undefined ? { inputs: parsed.inputs } : {},
+      ...parsed.outputs !== undefined ? { outputs: parsed.outputs } : {},
+      ...parsed.derivedFrom !== undefined ? { derivedFrom: parsed.derivedFrom } : {},
       ...parsed.version !== undefined ? { version: parsed.version } : {},
       ...parsed.testScenarios !== undefined ? { testScenarios: parsed.testScenarios } : {},
       invocation: parsed.invocation,
@@ -1362,7 +1386,7 @@ function invocationFrontmatterKeys(): Record<string, true> {
 }
 
 /** `ParsedSkill` fields fed by frontmatter keys sharing the non-empty string-array shape. */
-type StringListField = 'requiredEnv' | 'platforms' | 'requiresTools' | 'requiresToolsets' | 'fallbackForTools' | 'fallbackForToolsets' | 'requires' | 'conflictsWith' | 'capabilities' | 'testScenarios'
+type StringListField = 'requiredEnv' | 'platforms' | 'requiresTools' | 'requiresToolsets' | 'fallbackForTools' | 'fallbackForToolsets' | 'requires' | 'conflictsWith' | 'compatibleWith' | 'composableWith' | 'capabilities' | 'inputs' | 'outputs' | 'derivedFrom' | 'testScenarios'
 
 /**
  * Frontmatter key to `ParsedSkill` field for every non-empty string-array
@@ -1378,7 +1402,12 @@ const STRING_LIST_FRONTMATTER_FIELDS = [
   ['fallback_for_toolsets', 'fallbackForToolsets'],
   ['requires', 'requires'],
   ['conflicts_with', 'conflictsWith'],
+  ['compatible_with', 'compatibleWith'],
+  ['composable_with', 'composableWith'],
   ['capabilities', 'capabilities'],
+  ['inputs', 'inputs'],
+  ['outputs', 'outputs'],
+  ['derived_from', 'derivedFrom'],
   ['testScenarios', 'testScenarios'],
 ] as const satisfies readonly (readonly [string, StringListField])[]
 

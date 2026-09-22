@@ -5,8 +5,11 @@
  * `fresh`; a task advances fresh → search → validation → holdout as it is
  * used, and any learnable task can be derailed to `contaminated` or
  * `retired`. A duplicate is never admitted while its twin is still learnable,
- * and contaminated or retired tasks do not block re-admission. Nothing here
- * calls a model.
+ * and contaminated or retired tasks do not block re-admission. The ladder
+ * itself has a recorded-evidence rule (`ladderAdvance`, §15): a rung is earned
+ * by the candidate exposure recorded for the task's capability, so the
+ * holdout partition is not purely a manual decision. Nothing here calls a
+ * model.
  * @module @deepseek-ai/dsh-evolution-benchmark
  */
 
@@ -20,7 +23,8 @@ import { benchmarkDomainSpec } from './spec.ts'
 import type { BenchmarkInput, BenchmarkState, BenchmarkTask } from './types.ts'
 
 export type * from './types.ts'
-export { benchmarkHash, blocksDuplicate, dedupe, nextLadder, transitionState } from './dedupe.ts'
+export { benchmarkHash, blocksDuplicate, dedupe, HOLDOUT_AFTER_RUNS, ladderAdvance, nextLadder, transitionState } from './dedupe.ts'
+export type { ExposureEvidence } from './dedupe.ts'
 export { benchmarkDomainSpec, benchmarkTaskRow } from './spec.ts'
 
 declare module '@deepseek-ai/cordis' {

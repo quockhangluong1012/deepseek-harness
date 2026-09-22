@@ -32,7 +32,7 @@
 
 ## 内置声明
 
-Kernel 注册表初始为空并按失败关闭。[`@deepseek-ai/dsh-agent-kernel-builtins`](../../packages/runtime/agent-kernel-builtins/README.md) 是声明每个已发布产品工具的可选插件——一次调用所需的能力，以及从其参数到这些能力所适用资源的全函数、永不为空的投影——一旦被注入的 `agentKernel` 服务存在便注册，与挂载顺序无关。一份 spec 从生成的[工具目录](../tool-catalog.md)重新推导工具清单，已发布名字没有声明就失败，因此新工具不可能在未声明的情况下到来。
+Kernel 注册表初始为空并按失败关闭。[`@deepseek-ai/dsh-agent-kernel-builtins`](../../packages/runtime/agent-kernel-builtins/README.zh.md) 是声明每个已发布产品工具的可选插件——一次调用所需的能力，以及从其参数到这些能力所适用资源的全函数、永不为空的投影——一旦被注入的 `agentKernel` 服务存在便注册，与挂载顺序无关。一份 spec 从生成的[工具目录](../tool-catalog.zh.md)重新推导工具清单，已发布名字没有声明就失败，因此新工具不可能在未声明的情况下到来。
 
 ## 验证、失败与恢复
 

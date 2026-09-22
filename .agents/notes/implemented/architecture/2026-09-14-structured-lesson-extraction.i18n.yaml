@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-14-structured-lesson-extraction.md
-2026-09-14-structured-lesson-extraction.md: dd6d881ca136b7c8a1b80bf0c7148a5772f412b2
-2026-09-14-structured-lesson-extraction.zh.md: c42af4de021f30c386f674525a9ddc6909fb0f1f
+2026-09-14-structured-lesson-extraction.md: 636e2a013772dac3fdd8c742a38bb8817061d5bc
+2026-09-14-structured-lesson-extraction.zh.md: eb8210716fed1bd11f50be00302785b7b43c437a

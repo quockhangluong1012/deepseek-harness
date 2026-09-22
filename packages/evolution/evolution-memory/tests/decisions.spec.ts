@@ -26,7 +26,7 @@ function record(artifacts: readonly LessonArtifact[] = []): EvolutionMemoryRecor
   return {
     instructions: '', agentLessons: artifacts, userProfile: '',
     instructionsUpdatedAt: null, lessonsUpdatedAt: null, profileUpdatedAt: null, memoryUpdatedAt: null,
-    contextItems: [], outputs: [], episodic: [], lastExtraction: null, staged: [], resolutions: [],
+    contextItems: [], outputs: [], recalls: [], episodic: [], lastExtraction: null, staged: [], resolutions: [],
     updatedAt: '2026-01-01T00:00:00.000Z',
   }
 }

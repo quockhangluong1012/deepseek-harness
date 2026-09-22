@@ -306,6 +306,9 @@ describe('evolution curator consolidation', () => {
       const report = await h.curator.consolidate()
       // The body-less verdict and the body that drops frontmatter are both refused.
       expect(report?.skipped).toBe(2)
+      expect(report?.refusals).toEqual([
+        { name: 'leaf', level: 0, reason: 'schema: body has no frontmatter' },
+      ])
       expect(await readFile(join(h.home, 'skills', 'leaf', 'SKILL.md'), 'utf8')).toBe(rewritten)
       const entries = await readLedger(curatorHome())
       const patches = entries.filter(entry => entry.action === 'patch')
@@ -524,10 +527,17 @@ describe('evolution curator consolidation', () => {
       }, [
         { name: 'leaf', action: 'patch', body: 'no fenced head at all\n' },
         { name: 'leaf', action: 'patch', body: '---\nname: other\ndescription: d\n---\nbody\n' },
+        { name: 'leaf', action: 'patch', body: '---\nname: leaf\ndescription: leaf skill\n---\n   \n' },
         { name: 'leaf', action: 'patch', body: '---\nname: leaf\ndescription: leaf skill\n---\nrewritten\n' },
       ])
-      // Two bodies would break the skill; only the valid one landed.
-      expect(applied.skipped).toBe(2)
+      // Three bodies would break the skill; only the valid one landed, and each
+      // refusal names the rung that decided it.
+      expect(applied.skipped).toBe(3)
+      expect(applied.refusals).toEqual([
+        { name: 'leaf', level: 0, reason: 'schema: body has no frontmatter' },
+        { name: 'leaf', level: 0, reason: 'schema: skill "leaf" frontmatter must keep name "leaf"' },
+        { name: 'leaf', level: 1, reason: 'invariant: body carries no instructions after its frontmatter' },
+      ])
       expect(applied.patched).toBe(1)
       expect(await readFile(join(dir, 'SKILL.md'), 'utf8')).toContain('rewritten')
       const rows = (await readLedger(curatorHome())).filter(entry => entry.action === 'patch')
@@ -714,13 +724,13 @@ describe('evolution curator consolidation', () => {
   })
 
   it('aborts an in-flight consolidation at teardown', async () => {
-    const started = Promise.withResolvers<void>()
+    const started: PromiseWithResolvers<void> = Promise.withResolvers()
     const h = await harness({
       curatorConfig: CONSOLIDATING,
       respond: (request) => {
         started.resolve()
         const pending = Promise.withResolvers<StreamChunk[]>()
-        request.signal?.addEventListener('abort', () => pending.reject(new Error('aborted at teardown')), { once: true })
+        request.signal?.addEventListener('abort', () =>{  pending.reject(new Error('aborted at teardown')) }, { once: true })
         return pending.promise
       },
     })

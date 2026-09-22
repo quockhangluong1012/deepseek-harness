@@ -2,11 +2,13 @@
  * Pure helpers for mutation-operator evolution: the canonical operator
  * catalog, the running statistics update from one measured outcome, and the
  * exploration-adjusted ranking that decides which operator to try next on an
- * artifact class. No I/O, no domain — fully unit-testable.
+ * artifact class, nudged by the verdicts recorded for the instruction that
+ * class holds (§9). No I/O, no domain — fully unit-testable.
  * @module @deepseek-ai/dsh-evolution-operators/src/operators
  */
 
-import type { MutationOperator, OperatorOutcome, OperatorRanking, OperatorStats } from './types.ts'
+import { instructionAdjustment } from './instructions.ts'
+import type { MutationOperator, OperatorInstruction, OperatorOutcome, OperatorRanking, OperatorStats } from './types.ts'
 
 /** The eight §8 mutation operators, in canonical order. */
 export const MUTATION_OPERATORS: readonly MutationOperator[] = [
@@ -20,7 +22,12 @@ export const MUTATION_OPERATORS: readonly MutationOperator[] = [
   'adversarial-patch',
 ]
 
-/** The storage key of one operator's statistics: operator and class joined. */
+/**
+ * The storage key of one operator's statistics: operator and class joined.
+ * @param operator - the mutation operator.
+ * @param artifactClass - the artifact class the statistics cover.
+ * @returns the storage key.
+ */
 export function statsKey(operator: MutationOperator, artifactClass: string): string {
   return `${operator}\0${artifactClass}`
 }
@@ -75,37 +82,55 @@ export function scoreOf(stats: OperatorStats | undefined, exploration: number): 
 }
 
 /**
+ * The instruction evidence that adjusts one class's ranking (§9).
+ */
+export interface RankOptions {
+  /** The instruction rows recorded for the artifact class. */
+  instructions: readonly OperatorInstruction[]
+  /** Weight of the bounded instruction adjustment (0 to 1). */
+  instructionWeight: number
+}
+
+/**
  * Rank every operator for one artifact class by its exploration-adjusted
  * score, score descending with canonical-order and then identity tie-breaks.
  * The eight canonical operators always enter the ranking with their prior
  * score when untried, and any observed non-canonical operator joins the
  * ranking with its real statistics, so the ranking always names a next
  * operator to try and never hides an operator a deployment actually uses.
+ * Recorded instruction verdicts nudge the score by a bounded amount, which is
+ * what lets a mutation strategy move: an operator whose proposed instruction
+ * was rejected yields to one whose proposal held.
  * @param stats - every recorded statistics row for the artifact class.
  * @param artifactClass - the artifact class to rank operators for.
  * @param exploration - the exploration bonus weight.
+ * @param options - the class's recorded instructions and their weight, when a deployment records any.
  * @returns the ranked operators, best first.
  */
 export function rankOperators(
   stats: readonly OperatorStats[],
   artifactClass: string,
   exploration: number,
+  options?: RankOptions,
 ): OperatorRanking[] {
   const byOperator = new Map(stats.map(row => [row.operator, row]))
+  const instructionByOperator = new Map((options?.instructions ?? []).map(row => [row.operator, row]))
   const observed = stats.map(row => row.operator)
   const operators = [...new Set([...MUTATION_OPERATORS, ...observed])]
   return operators
-    .map(operator => {
+    .map((operator) => {
       const row = byOperator.get(operator)
       const attempts = row?.attempts ?? 0
       const accepted = row?.accepted ?? 0
+      const adjustment = instructionAdjustment(instructionByOperator.get(operator), options?.instructionWeight ?? 0)
       return {
         operator,
         attempts,
         acceptanceRate: attempts === 0 ? 0.5 : accepted / attempts,
         meanDelta: row?.meanDelta ?? 0,
-        score: scoreOf(row, exploration),
-        reason: describeRanking(operator, artifactClass, row, exploration),
+        instructionAdjustment: adjustment,
+        score: scoreOf(row, exploration) + adjustment,
+        reason: describeRanking(operator, artifactClass, row, exploration, adjustment),
       }
     })
     .sort((left, right) => {
@@ -136,11 +161,13 @@ export function recommendOperator(rankings: readonly OperatorRanking[]): Operato
 
 /**
  * Render why one operator ranks as it does, naming the numbers: acceptance,
- * mean delta, regressions, and the exploration bonus.
+ * mean delta, regressions, the exploration bonus, and the instruction nudge
+ * when verdicts contributed one.
  * @param operator - the operator being described.
  * @param artifactClass - the artifact class the ranking covers.
  * @param stats - the operator's statistics, or undefined when untried.
  * @param exploration - the exploration bonus weight used in the score.
+ * @param adjustment - the instruction adjustment added to the score.
  * @returns the reason sentence.
  */
 function describeRanking(
@@ -148,11 +175,13 @@ function describeRanking(
   artifactClass: string,
   stats: OperatorStats | undefined,
   exploration: number,
+  adjustment: number,
 ): string {
+  const instruction = adjustment === 0 ? '' : `, instruction ${adjustment > 0 ? '+' : ''}${adjustment.toFixed(3)}`
   if (stats === undefined) {
-    return `untried on '${artifactClass}'; prior score ranks it here`
+    return `untried on '${artifactClass}'; prior score ranks it here${instruction}`
   }
   const regressions = stats.regressionRate * stats.attempts
   const bonus = (exploration * Math.sqrt(1 / (stats.attempts + 1))).toFixed(3)
-  return `accepted ${stats.accepted}/${stats.attempts} (${(stats.accepted / stats.attempts).toFixed(2)}), mean delta ${stats.meanDelta.toFixed(2)}, ${regressions.toFixed(0)} regressions, exploration +${bonus} — ${operator} on '${artifactClass}'`
+  return `accepted ${stats.accepted}/${stats.attempts} (${(stats.accepted / stats.attempts).toFixed(2)}), mean delta ${stats.meanDelta.toFixed(2)}, ${regressions.toFixed(0)} regressions, exploration +${bonus}${instruction} — ${operator} on '${artifactClass}'`
 }

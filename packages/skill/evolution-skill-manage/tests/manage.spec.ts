@@ -17,9 +17,10 @@ interface FakeSkill {
   name: string
   source: string
   path?: string
+  composableWith?: readonly string[]
 }
 
-function summary(name: string, source: string, path?: string) {
+function summary(name: string, source: string, path?: string, composableWith?: readonly string[]) {
   return {
     name,
     description: `${name} skill`,
@@ -27,6 +28,7 @@ function summary(name: string, source: string, path?: string) {
     source,
     provider: 'filesystem',
     ...path === undefined ? {} : { path },
+    ...composableWith === undefined ? {} : { composableWith },
   }
 }
 
@@ -40,7 +42,7 @@ async function harness(options: { telemetry?: boolean; createDir?: string } = {}
   ctx.provide('storageDomain', facility)
   const skills: FakeSkill[] = []
   ctx.provide('skills', {
-    list: async () => skills.map(skill => summary(skill.name, skill.source, skill.path)),
+    list: async () => skills.map(skill => summary(skill.name, skill.source, skill.path, skill.composableWith)),
   } as never)
   if (options.telemetry !== false) {
     const { default: EvolutionSkillTelemetry } = await import('@deepseek-ai/dsh-evolution-skill-telemetry')
@@ -350,6 +352,127 @@ describe('evolution skill_manage', () => {
       await h.fiber.dispose()
     }
   })
+  it('synthesizes a new skill from two primitives and records their lineage', async () => {
+    const h = await harness()
+    dirs.push(h.dir)
+    try {
+      h.skills.push({ name: 'alpha', source: 'user-dsh' })
+      h.skills.push({ name: 'beta', source: 'user-dsh' })
+      const derived = await manage(h.ctx, {
+        op: 'derive',
+        name: 'gamma',
+        sources: ['beta', 'alpha'],
+        content: '---\nname: gamma\ndescription: alpha meets beta\n---\nDo both things.\n',
+      })
+      expect(derived.isError).toBe(false)
+      expect(derived.text).toContain('skill_manage derive gamma')
+      const file = join(h.dir, 'skills', 'gamma', 'SKILL.md')
+      const text = await readFile(file, 'utf8')
+      const head = parseYaml(text.split('---\n')[1] as string) as Record<string, unknown>
+      // The caller's head survives and the lineage names the sources as given.
+      expect(head).toMatchObject({ name: 'gamma', description: 'alpha meets beta', derived_from: ['beta', 'alpha'] })
+      expect(text).toContain('Do both things.')
+      expect(h.ctx.evolutionSkillTelemetry.read('gamma'))
+        .toMatchObject({ createdBy: 'agent', revision: 1, trust: 'provisional' })
+      expect(h.ctx.evolutionSkillTelemetry.read('gamma')?.contentSha)
+        .toBe(createHash('sha256').update(text).digest('hex'))
+    } finally {
+      await h.fiber.dispose()
+    }
+  })
+
+  it('replaces a caller-supplied lineage with the sources actually composed', async () => {
+    const h = await harness()
+    dirs.push(h.dir)
+    try {
+      h.skills.push({ name: 'alpha', source: 'user-dsh' })
+      h.skills.push({ name: 'beta', source: 'user-dsh' })
+      await manage(h.ctx, {
+        op: 'derive',
+        name: 'gamma',
+        sources: ['alpha', 'beta'],
+        content: '---\nname: gamma\ndescription: d\nderived_from: [invented]\n---\nbody\n',
+      })
+      const head = parseYaml(
+        (await readFile(join(h.dir, 'skills', 'gamma', 'SKILL.md'), 'utf8')).split('---\n')[1] as string,
+      ) as Record<string, unknown>
+      expect(head['derived_from']).toEqual(['alpha', 'beta'])
+    } finally {
+      await h.fiber.dispose()
+    }
+  })
+
+  it('refuses a derivation whose sources are missing, self-naming, duplicative, or incompatible', async () => {
+    const h = await harness()
+    dirs.push(h.dir)
+    try {
+      h.skills.push({ name: 'alpha', source: 'user-dsh', composableWith: ['beta'] })
+      h.skills.push({ name: 'beta', source: 'user-dsh' })
+      h.skills.push({ name: 'gamma', source: 'user-dsh' })
+      const derive = (args: Record<string, unknown>) => manage(h.ctx, { op: 'derive', ...args })
+      expect((await derive({ name: 'new', sources: ['alpha'], content: 'b' })).text)
+        .toContain('at least two distinct `sources`')
+      expect((await derive({ name: 'new', sources: ['alpha', 'alpha'], content: 'b' })).text)
+        .toContain('at least two distinct `sources`')
+      expect((await derive({ name: 'new', content: 'b' })).text).toContain('at least two distinct `sources`')
+      expect((await derive({ name: 'new', sources: ['alpha', 'beta'], content: null })).text).toContain('`content`')
+      expect((await derive({ name: 'new', sources: ['alpha', 'beta'] })).text).toContain('`content`')
+      expect((await derive({ name: 'alpha', sources: ['alpha', 'beta'], content: 'b' })).text)
+        .toContain('cannot derive "alpha" from itself')
+      expect((await derive({ name: 'new', sources: ['alpha', 'absent'], content: 'b' })).text)
+        .toContain('source "absent" is unknown')
+      expect((await derive({ name: 'new', sources: ['Bad Name', 'beta'], content: 'b' })).text)
+        .toContain('invalid skill name')
+      // `alpha` names only `beta`, so pairing it with `gamma` is refused by the
+      // same allowlist rule the loader enforces on a load set.
+      const incompatible = await derive({ name: 'new', sources: ['alpha', 'gamma'], content: 'b' })
+      expect(incompatible.text).toContain('not composable with "gamma"')
+      // A refused derivation writes nothing.
+      expect(await readFile(join(h.dir, 'skills', 'new', 'SKILL.md'), 'utf8').catch(() => 'absent')).toBe('absent')
+    } finally {
+      await h.fiber.dispose()
+    }
+  })
+
+  it('refuses a derived body that breaks frontmatter, and an existing name', async () => {
+    const h = await harness()
+    dirs.push(h.dir)
+    try {
+      h.skills.push({ name: 'alpha', source: 'user-dsh' })
+      h.skills.push({ name: 'beta', source: 'user-dsh' })
+      const sources = ['alpha', 'beta']
+      expect((await manage(h.ctx, { op: 'derive', name: 'new', sources, content: 'no fences\n' })).text)
+        .toContain('malformed frontmatter')
+      expect((await manage(h.ctx, {
+        op: 'derive', name: 'new', sources, content: '---\nname: other\ndescription: d\n---\nbody\n',
+      })).text).toContain('must keep name "new"')
+      expect((await manage(h.ctx, {
+        op: 'derive', name: 'new', sources, content: '---\nname: new\n---\nbody\n',
+      })).text).toContain('must keep a description')
+      await manage(h.ctx, {
+        op: 'derive', name: 'new', sources, content: '---\nname: new\ndescription: d\n---\nbody\n',
+      })
+      expect((await manage(h.ctx, {
+        op: 'derive', name: 'new', sources, content: '---\nname: new\ndescription: d\n---\nbody\n',
+      })).text).toContain('already exists')
+    } finally {
+      await h.fiber.dispose()
+    }
+  })
+
+  it('presents the derive operation', async () => {
+    const h = await harness()
+    dirs.push(h.dir)
+    try {
+      const definition = h.ctx.tools.get('skill_manage')
+      expect(definition?.presentCall?.({ op: 'derive', name: 'x', sources: ['a', 'b'], content: 'y' }))
+        .toMatchObject({ title: 'derive skill x from a, b', card: 'diff' })
+      expect(definition?.presentCall?.({ op: 'derive', name: 'x' })).toMatchObject({ title: 'derive skill x from ' })
+    } finally {
+      await h.fiber.dispose()
+    }
+  })
+
   it('works without telemetry mounted', async () => {
     const h = await harness({ telemetry: false })
     dirs.push(h.dir)

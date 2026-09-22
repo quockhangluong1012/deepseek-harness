@@ -18,6 +18,7 @@ Search for a better SKILL.md body offline: pass a skill, its corpus scenarios, a
 - [Further Exploration](#further-exploration)
 - [Model Experience](#model-experience)
 - [Known Limitations and Deferred Work](#known-limitations-and-deferred-work)
+- [Dev Note](#dev-note)
 
 -----
 
@@ -184,3 +185,13 @@ Independent of live requests: each mutation call is a fresh single-message excha
 - **Confirmation repeats the comparison, not the search** — `confirmationRuns` re-scores the same winning body against the same baseline over the same scenarios; it does not resample scenarios, seeds, or model routes, so it rules out a lucky reading of one comparison rather than a lucky corpus.
 - **An attempt's overlay home is the harness's, not the environment's** — a variant is scored inside a temporary `DSH_HOME` holding the staged SKILL.md, and that home reaches the runner as `homeDir`; passing it through the child environment would leave the recorded-replay harness building its own home and scoring the live skills instead.
 - **A truncated run is not a complete search** — with a budget set, `truncated: true` means the winner was chosen among the candidates that fit, not among all of them; raise the budget or lower `maxCandidates` instead of reading the report as a full comparison.
+
+<a id="dev-note"></a>
+### Dev Note
+
+<details>
+<summary>Working context for maintainers — click to expand</summary>
+
+`lineage.ts` counts changed lines by longest common subsequence, so a pure reorder reports added and removed lines, while `novelty.ts` compares order-insensitive, case- and spacing-folded line sets, so that same reorder reports zero — the two numbers answer different questions on purpose, and neither is a stale copy of the other. `instructionLines` drops one leading `---` fenced block and nothing else, because frontmatter is routing metadata every candidate restates; a body with no instruction lines below it reports novelty `0` rather than `1`, since it states nothing to be novel about. A persisted row that fails `experimentRecordSchema` fails the domain open loudly instead of being skipped, because dropping an outcome would hide a promotion the ledger claims happened.
+
+</details>

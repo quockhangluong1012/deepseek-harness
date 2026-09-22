@@ -25,6 +25,9 @@
     "docs/en/": "rejected locale-directory layout that was never built",
     "docs/zh/": "rejected locale-directory layout that was never built"
   },
+  ".agents/notes/implemented/process/2026-09-13-manifest-conformance-batch-2.md": {
+    "packages/client/ui-sidebar-textpreview/": "records the untracked residue of a deleted package that this batch removed"
+  },
   ".agents/notes/implemented/simplification/2026-08-30-jsonl-only-session-persistence.md": {
     "@deepseek-ai/dsh-session-persistence-sqlite": "names the package whose removal this note records"
   },

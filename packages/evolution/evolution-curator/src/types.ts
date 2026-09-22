@@ -5,6 +5,7 @@
  */
 
 import type { FeedbackSignal } from '@deepseek-ai/dsh-evolution-feedback'
+import type { VerifierLevel } from '@deepseek-ai/dsh-evolution-verifiers'
 import type { SkillLifecycleState, SkillTrustFailure, SkillTrustState } from '@deepseek-ai/dsh-evolution-skill-telemetry'
 
 export type { SkillLifecycleState }
@@ -217,6 +218,16 @@ export interface ConsolidationCost {
   truncated: boolean
 }
 
+/** One patch body the verifier ladder refused, with the level that decided. */
+export interface ConsolidationRefusal {
+  /** Skill name the refused body targeted. */
+  name: string
+  /** Verifier rung that refused the body. */
+  level: VerifierLevel
+  /** The rung's name and reason, as the verdict phrased it. */
+  reason: string
+}
+
 /** Outcome of one consolidation run over agent-created skills. */
 export interface ConsolidationReport {
   /** ISO-8601 instant the run started. */
@@ -231,6 +242,8 @@ export interface ConsolidationReport {
   verdicts: ConsolidationVerdict[]
   /** Requested verdicts skipped as ineligible or unsafe. */
   skipped: number
+  /** Patch bodies the verifier ladder refused, each naming the level that decided. */
+  refusals: ConsolidationRefusal[]
   /** Fork requests spent. */
   steps: number
 }

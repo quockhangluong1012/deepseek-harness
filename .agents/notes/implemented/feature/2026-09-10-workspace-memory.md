@@ -10,7 +10,7 @@ Sessions in one directory shared nothing durable: author-written project rules l
 
 ## Decision
 
-Ship four packages per [`specs/workspace-memory.md`](../../../../specs/workspace-memory.md), split on dependency policy and compiler faces:
+Ship four packages per the [Workspace Memory subsystem](../../../../docs/subsystems/workspace-memory.md), split on dependency policy and compiler faces:
 
 - `@deepseek-ai/dsh-workspace-memory` (workspace group) owns the durable record on the `workspace_memory` domain (`per-record`, version 1, fail-loud on corrupt records): description, instructions, memory with `memoryUpdatedAt`, newest-last context items, newest-first outputs capped by `maxOutputs`, and `lastExtraction` provenance. Reads are synchronous; `capacityBytes` is required; every other cap is a validated `Config` field. Capacity charges instructions plus memory plus item sizes; the digest covers only those three, so description and output writes never re-inject.
 - `@deepseek-ai/dsh-workspace-memory-llm` (workspace group) owns derivation behind `ctx.workspaceMemoryExtractor`: always-on output indexing from `turn/end` tool calls, gated per-turn extraction on a per-Workspace promise chain, and on-demand `rebuild` over the newest sessions via `sessionQuery.filterEvents`. Calls are deterministic (`temperature: 0`, `purpose: 'workspace-memory'` with reasoning disabled) and fail-soft into a warning.

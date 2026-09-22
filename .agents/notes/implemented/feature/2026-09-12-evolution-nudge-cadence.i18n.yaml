@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-12-evolution-nudge-cadence.md
-2026-09-12-evolution-nudge-cadence.md: 3ae4c5010e0090ce2cf3f769069ce92426bdf793
-2026-09-12-evolution-nudge-cadence.zh.md: 44d2fa830584fda6a6b7a54238f2f2c6b7f47d24
+2026-09-12-evolution-nudge-cadence.md: 2e361d3fb8d176ab0c5622c187d253f2888b2358
+2026-09-12-evolution-nudge-cadence.zh.md: 5ea57bfba1414ed2c940192d3f8d3923a2570494

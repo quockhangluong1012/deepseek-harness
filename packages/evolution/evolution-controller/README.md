@@ -120,11 +120,11 @@ A `file` context item is resolved before it is stored: a relative path is resolv
 
 Read these pages when the package-level contract is not enough.
 
-- [Evolutionary Harness specification](../../../specs/evolutionary-harness.spec.md) — the behaviour contract behind the Remote namespace.
+- [Evolutionary Harness subsystem](../../../docs/subsystems/evolutionary-harness.md) — the behaviour contract behind the Remote namespace.
 - [Evolution package map](../README.md) — the group's packages and their repository position.
 - [Evolution memory store](../evolution-memory/README.md) — the durable record every verb reads and writes.
 - [Evolution commands](../command-evolution/README.md) — the CLI governance surface and the shared `/journey` read model.
-- [Improvement roadmap](../../../specs/improvement.spec.md) — the Phase 6 controller slice this package lands.
+- [Evolutionary Harness subsystem](../../../docs/subsystems/evolutionary-harness.md) — where the family's behaviour, including the controller slice this package lands, is described.
 
 -----
 

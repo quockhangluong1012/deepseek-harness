@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-The evolution family adds a closed learning loop on top of the harness without patching a privileged core: durable per-scope memory records with staged writes, background turn review, scheduled skill curation, and long-horizon safety rails. Every learned write is capped, logged, and rollback-capable; removing the rows restores byte-identical legacy behaviour. Choose this family when Sessions should get better the longer they are used. The behaviour contract lives in [the Evolutionary Harness specification](../../specs/evolutionary-harness.spec.md) until the dedicated subsystem reference lands.
+The evolution family adds a closed learning loop on top of the harness without patching a privileged core: durable per-scope memory records with staged writes, background turn review, scheduled skill curation, and long-horizon safety rails. Every learned write is capped, logged, and rollback-capable; removing the rows restores byte-identical legacy behaviour. Choose this family when Sessions should get better the longer they are used. The reference vocabulary and behaviour contract live in [the Evolutionary Harness subsystem](../../docs/subsystems/evolutionary-harness.md); the mechanism families this family implements come from [the v11 deep research](../../specs/evolutionary-harness-v11-deep-research.md).
 
 ## Table of Contents
 
@@ -35,34 +35,39 @@ The evolution family adds a closed learning loop on top of the harness without p
 | [`evolution-trace`](evolution-trace/README.md) | Immutable session trace projection: structured learning traces with ranked root-cause attribution and compressed summaries over the committed session log | `ctx.evolutionTrace` |
 | [`evolution-curriculum`](evolution-curriculum/README.md) | Automatic curriculum: measures capability gaps from telemetry and the trace store and stages one grounded training task per gap | `ctx.evolutionCurriculum` |
 | [`evolution-benchmark`](evolution-benchmark/README.md) | Benchmark growth from production failures: a durable evaluation-task store with content deduplication and contamination states | `ctx.evolutionBenchmark` |
-| [`evolution-evaluator-health`](evolution-evaluator-health/README.md) | Evaluator ensemble health: recorded behavior-evaluation verdicts with agreement, approval drift, and false-positive tracking | `ctx.evolutionEvaluatorHealth` |
+| [`evolution-evaluator-health`](evolution-evaluator-health/README.md) | Evaluator ensemble health: recorded behavior-evaluation verdicts with agreement, approval drift, false-positive and false-negative tracking, and the independent-ground-truth calibration behind them | `ctx.evolutionEvaluatorHealth` |
 | [`evolution-population`](evolution-population/README.md) | Population-based evolution: every staged optimizer write as a per-skill candidate with generation numbering, parent lineage, and the stage → approve/reject lifecycle | `ctx.evolutionPopulation` |
-| [`evolution-model-routes`](evolution-model-routes/README.md) | Adaptive model routing: per-role route assignments with measured evidence and recommendation over the evolutionary role topology | `ctx.evolutionModelRoutes` |
+| [`evolution-model-routes`](evolution-model-routes/README.md) | Adaptive model routing: per-role route assignments with measured evidence, the recommendation over the evolutionary role topology, and the producing/judging role conflicts it refuses | `ctx.evolutionModelRoutes` |
 | [`evolution-canary`](evolution-canary/README.md) | Shadow/canary deployment tracking: rollout states of staged skill patches with measured shadow evidence | `ctx.evolutionCanary` |
 | [`evolution-novelty-search`](evolution-novelty-search/README.md) | Novelty search: a durable per-skill behavior-descriptor archive whose Jaccard-based archive novelty rewards meaningfully different candidates | `ctx.evolutionNovelty` |
 | [`evolution-stagnation`](evolution-stagnation/README.md) | Stagnation detection: counts evaluation runs without meaningful improvement and names the next diversity strategy when the frontier stalls | `ctx.evolutionStagnation` |
 | [`evolution-islands`](evolution-islands/README.md) | Island evolution: per-skill evolution lanes with an objective each, migration records between islands, and schedule-based migration due checks | `ctx.evolutionIslands` |
 | [`evolution-self-model`](evolution-self-model/README.md) | Controlled self-model: a durable per-skill capability record and the weakest-first capability frontier that says what to learn next | `ctx.evolutionSelfModel` |
 | [`evolution-uncertainty`](evolution-uncertainty/README.md) | Uncertainty-driven learning: durable uncertainty signals aggregated into a prioritized queue of high-value evaluation tasks | `ctx.evolutionUncertainty` |
-| [`evolution-adversary`](evolution-adversary/README.md) | Adversarial evolution: durable adversarial probes across eight weakness categories plus the evaluator-gaming defense checklist | `ctx.evolutionAdversary` |
+| [`evolution-adversary`](evolution-adversary/README.md) | Adversarial evolution: durable adversarial probes across eight weakness categories, the evaluator-gaming defense checklist, and the defense states observed from the sibling stores | `ctx.evolutionAdversary` |
 | [`evolution-lineage`](evolution-lineage/README.md) | Dependency-aware evolution: dependency-versioned experiment envelopes with comparability checks and ablation attribution | `ctx.evolutionLineage` |
-| [`evolution-sleeptime`](evolution-sleeptime/README.md) | Sleep-time compute: anticipated future tasks with precomputed reasoning artifacts under an offline-cost economic policy | `ctx.evolutionSleeptime` |
+| [`evolution-sleeptime`](evolution-sleeptime/README.md) | Sleep-time compute: evidence-driven idle anticipation of recurring tasks with precomputed reasoning artifacts under an offline-cost economic policy | `ctx.evolutionSleeptime` |
 | [`evolution-scorer`](evolution-scorer/README.md) | Scores a recorded corpus run: workspace-diff pass, metered tokens, and median-of-N wall time | `ctx.evolutionScorer` |
 | [`evolution-dreaming`](evolution-dreaming/README.md) | Three-phase dreaming consolidation over recorded failures: light observation, REM reflection, and deep durable narratives on the heartbeat's schedule | `ctx.evolutionDreaming` |
 | [`evolution-optimizer`](evolution-optimizer/README.md) | Offline skill optimization: trigger-gated mutation over the host LLM, scorer evaluation under isolated overlays, Pareto pick, and staged skill patch | `ctx.evolutionOptimizer` |
 | [`evolution-operators`](evolution-operators/README.md) | Mutation-operator evolution: attempts, acceptance, mean delta, and regression rate per operator and artifact class, with the exploration-adjusted ranking of which operator to try next | `ctx.evolutionOperators` |
-| [`evolution-evaluator-strategy`](evolution-evaluator-strategy/README.md) | Evaluator-strategy evolution: trust per evaluator and task class, earned from verdicts later judged against an independent ground truth | `ctx.evolutionEvaluatorStrategy` |
-| [`evolution-budget`](evolution-budget/README.md) | Evolution budget: per-batch allocations priced by candidate class, the spends settled against them with exact margins, and the successive-halving screening schedule | `ctx.evolutionBudget` |
-| [`evolution-router`](evolution-router/README.md) | Routing self-optimization: route outcomes measured per task class and role, with derived effectiveness and the ranked route recommendation | `ctx.evolutionRouter` |
-| [`evolution-meta`](evolution-meta/README.md) | Meta-evolution: engine runs under their configurations with derived pass rates, and the configuration recommended for a task class | `ctx.evolutionMeta` |
+| [`evolution-evaluator-strategy`](evolution-evaluator-strategy/README.md) | Evaluator-strategy evolution: trust per evaluator and task class, earned from verdicts later judged against an independent ground truth, with self-judged verdicts excluded and the promotion-review verifier named | `ctx.evolutionEvaluatorStrategy` |
+| [`evolution-budget`](evolution-budget/README.md) | Evolution budget: per-batch allocations priced by candidate class (including cost, deadline, and parallelism ceilings), the spends settled against them with exact margins, the allocation policy, and the successive-halving screening schedule | `ctx.evolutionBudget` |
+| [`evolution-router`](evolution-router/README.md) | Routing self-optimization: route outcomes measured per task class and role, with derived effectiveness, the ranked route recommendation, and the disagreement signal a route split raises | `ctx.evolutionRouter` |
+| [`evolution-meta`](evolution-meta/README.md) | Meta-evolution: engine runs under their configurations and workflows with derived pass rates, and the workflow configuration recommended for a task class | `ctx.evolutionMeta` |
+| [`evolution-metrics`](evolution-metrics/README.md) | Evolution metrics: capability gain per unit of compute with the supporting failure, debt, promotion, rollback, and reliability readings, each measured or naming the record it is missing | `ctx.evolutionMetrics` |
+| [`evolution-verifiers`](evolution-verifiers/README.md) | Verifier-first candidate admission: the cheapest-first ladder of schema, invariant, simulation, evaluator, and human rungs, stopping at the first rung that decides | `ctx.evolutionVerifiers` |
+| [`evolution-retrieval`](evolution-retrieval/README.md) | Retrieval-aware evolution: recorded retrieval configurations per session judged by downstream task success, with the configuration recommendation per task class | `ctx.evolutionRetrieval` |
+| [`evolution-actuator`](evolution-actuator/README.md) | Evolution actuation: the heartbeat tasks that read a recorded verdict and perform the step it asks for — rollout decisions, scheduled island migration, stagnation recovery, uncertainty drain, curriculum admission, benchmark growth, and adversarial probe generation | — |
+| [`command-evolution`](command-evolution/README.md) | Human governance of the family over the command registry: the staged-write, curation, export, and reporting verbs that read what the engine recorded | — |
 
 -----
 
 <a id="related-documentation"></a>
 ## Related documentation
 
-- [Evolutionary Harness specification](../../specs/evolutionary-harness.spec.md) — the behaviour contract this family implements.
-- [Evolutionary Harness subsystem](../../docs/subsystems/evolutionary-harness.md) — the reference vocabulary and generated API for this family.
+- [Evolutionary Harness subsystem](../../docs/subsystems/evolutionary-harness.md) — the reference vocabulary and behaviour contract this family implements.
+- [Evolutionary Harness v11 deep research](../../specs/evolutionary-harness-v11-deep-research.md) — the mechanism families the family implements.
 - [Workspace subsystem](../../docs/subsystems/workspace.md) — the neighbouring per-directory memory design this family mirrors.
 
 -----

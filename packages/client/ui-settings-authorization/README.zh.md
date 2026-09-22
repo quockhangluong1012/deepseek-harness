@@ -7,17 +7,18 @@ kind: "package-reference"
 
 [English](README.md) | 中文
 
-## Summary
+## 概述
 
 `@deepseek-ai/dsh-client-ui-settings-authorization` 通过 `settings.models.provider-card` 席位，在 Models 页每张 `llm-pi-ai` 卡片内渲染登录伴随界面。页面本身拥有 API 密钥；本伴随界面拥有路由授权流程提供的其余登录方式——订阅的 OAuth、交互式密钥输入、账号选择——因此 Claude Pro/Max 订阅走 pi-ai 自带的流程登录，而不是用订阅从未签发的密钥。它通过 `authorization` Remote namespace 轮询自己打开的 attempt，呈现通知、提示与终态。
 
-## Table of Contents
+## 目录
 
 - [Use this package](#use-this-package)
 - [Understand the implementation](#understand-the-implementation)
 - [Further Exploration](#further-exploration)
 - [Model Experience](#model-experience)
 - [Known Limitations and Deferred Work](#known-limitations-and-deferred-work)
+- [Dev Note](#dev-note)
 
 -----
 
@@ -84,3 +85,13 @@ kind: "package-reference"
 - **API 密钥方式留在页面**——伴随界面过滤掉它们，只提供密钥的流程在这里不渲染任何内容。
 
 **Runtime invariant:** 不发布 companion。卡片经 Remote namespace 从 Host attempt 注册表推导一切；不存在可分歧的第二观察。
+
+<a id="dev-note"></a>
+### 开发备注
+
+<details>
+<summary>维护者工作背景——点击展开</summary>
+
+`actionablePrompt` 推导出当前待答问题，而不是接收它，因为 wire 上没有「当前提示」这种东西：对话框取的是既未被撤回、也不在自己那份 `answered` 集合中的最新一条提示帧，这也是 `answer` 成功后必须把该 id 记在本地的原因，尽管 Host 已经结算了它。轮询 cursor 用 `useRef` 而不是 state：空答案不改变任何帧，所以轮询链必须在 Host 作答所用的那个 cursor 上重新挂起，而不是从某次重渲染保留下来的 cursor 重新开始。`api-key` 方式在这里而非在 Host 过滤，因此流程视图对其它界面保持完整，而本伴随界面永不提供页面自己的密钥编辑器已经覆盖的登录入口。
+
+</details>

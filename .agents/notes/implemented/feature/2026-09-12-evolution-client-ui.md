@@ -6,7 +6,7 @@ English | [中文](2026-09-12-evolution-client-ui.zh.md)
 
 ## Problem
 
-Phase 6 of [`specs/improvement.spec.md`](../../../../specs/improvement.spec.md) shipped the `evolutionController` Remote service, the `/journey` read model, and the governance commands, but the Web half was still planned: nothing in the browser could show a Scope's recorded evolution, decide a staged write, or read the curator's recorded passes. The browser also cannot reach a Host Cordis service, so a curator card built on `ctx.evolutionCurator` could not be honest — it would have had to claim a state it never read.
+The Phase 6 slice — whose behaviour the [Evolutionary Harness subsystem](../../../../docs/subsystems/evolutionary-harness.md) describes — shipped the `evolutionController` Remote service, the `/journey` read model, and the governance commands, but the Web half was still planned: nothing in the browser could show a Scope's recorded evolution, decide a staged write, or read the curator's recorded passes. The browser also cannot reach a Host Cordis service, so a curator card built on `ctx.evolutionCurator` could not be honest — it would have had to claim a state it never read.
 
 ## Decision
 

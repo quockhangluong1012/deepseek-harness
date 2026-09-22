@@ -28,7 +28,7 @@ import { EvolutionScopeId, artifactKey } from '@deepseek-ai/dsh-evolution-memory
 import type { EvolutionMemoryRecord } from '@deepseek-ai/dsh-evolution-memory'
 import { WorkspaceId } from '@deepseek-ai/dsh-workspace'
 import { MemoryMediaPool, MemoryStorageBackend } from '../../../storage/storage-domain/tests/helpers/memory-backend.ts'
-import EvolutionReviewer from '../src/index.ts'
+import EvolutionReviewer, { CRITIQUE_LABEL_PREFIX } from '../src/index.ts'
 import type { Config as ReviewerConfig } from '../src/index.ts'
 
 interface FakeWorkspace {
@@ -157,6 +157,25 @@ function newDecision(statement: string, extra: Record<string, unknown> = {}): Re
 }
 
 /**
+ * One critique in the shape the extraction protocol asks the model for: §4.2's
+ * expectation, failure, and correction, plus the revision's confidence and
+ * scope.
+ * @param extra - critique fields to override or add.
+ * @returns the decision object.
+ */
+function critiqueDecision(extra: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    action: 'critique',
+    expectation: 'the suite passes',
+    failure: 'pnpm test exited 1',
+    correction: 'run pnpm install before the suite',
+    confidence: 0.6,
+    scope: 'project',
+    ...extra,
+  }
+}
+
+/**
  * One decision referencing a listed artifact by its 1-based index.
  * @param action - the decision kind.
  * @param index - the ordinal the prompt showed the artifact under.
@@ -195,6 +214,22 @@ function lessonsOf(scope: EvolutionMemoryRecord | undefined): string {
   return (scope?.agentLessons ?? []).map(artifact => artifact.statement).join('\n')
 }
 
+/**
+ * The scope's recorded critiques, in stored order: the context items carrying
+ * the reviewer's own label prefix, as label and text.
+ * @param scope - the projected scope record.
+ * @returns the recorded critiques.
+ */
+function critiquesOf(scope: EvolutionMemoryRecord | undefined): { label: string; text: string }[] {
+  const found: { label: string; text: string }[] = []
+  for (const item of scope?.contextItems ?? []) {
+    if (item.kind === 'text' && item.label.startsWith(CRITIQUE_LABEL_PREFIX)) {
+      found.push({ label: item.label, text: item.text })
+    }
+  }
+  return found
+}
+
 function sessionIn(ctx: Context, dir: string, name: string): Session {
   return ctx.sessions.create(SessionId(name), { meta: { cwd: dir } })
 }
@@ -206,7 +241,13 @@ function appendTurn(
     user?: string
     injected?: string
     assistant?: string
-    calls?: { name: string; args: string; ok?: boolean }[]
+    calls?: {
+      name: string
+      args: string
+      ok?: boolean
+      message?: string
+      error?: { name: string; code: string }
+    }[]
     extraCalls?: { name: string; args: string }[]
   },
 ): void {
@@ -250,9 +291,10 @@ function appendTurn(
         step: 1,
         message: createToolResultMessage({
           callId,
-          content: [{ type: 'text', text: 'done' }],
+          content: [{ type: 'text', text: call.message ?? 'done' }],
           isError: call.ok === false,
         }),
+        ...call.error === undefined ? {} : { error: call.error },
       },
       { surfaceOp: 'append' },
     )
@@ -1639,9 +1681,9 @@ describe('evolution reviewer', () => {
     const requests: SessionSearchRequest[] = []
     let snippet = 'prior parser fix'
     const h = await harness(
-      { provider: 'p', model: 'm' },
+      { provider: 'p', model: 'm', enabled: true },
       undefined,
-      { ...IMMEDIATE_TURNS, enabled: true },
+      IMMEDIATE_TURNS,
       {
         searchSessions: async (request) => {
           requests.push(request)
@@ -1694,9 +1736,9 @@ describe('evolution reviewer', () => {
 
   it('never recalls a candidate that is injected context', async () => {
     const h = await harness(
-      { provider: 'p', model: 'm' },
+      { provider: 'p', model: 'm', enabled: true },
       undefined,
-      { ...IMMEDIATE_TURNS, enabled: true },
+      IMMEDIATE_TURNS,
       {
         searchSessions: async () => ({ items: [recallHit('s2', 7, 'brief text')] }),
         readEvent: async () => ({
@@ -1722,13 +1764,13 @@ describe('evolution reviewer', () => {
 
   it('recalls nothing without a search seam or a human request', async () => {
     const exact = await harness(
-      { provider: 'p', model: 'm' },
+      { provider: 'p', model: 'm', enabled: true },
       undefined,
-      { ...IMMEDIATE_TURNS, enabled: true },
+      IMMEDIATE_TURNS,
       { searchSessions: async () => ({ items: [] }) },
     )
     dirs.push(exact.dir)
-    const bare = await harness({ provider: 'p', model: 'm' }, undefined, { ...IMMEDIATE_TURNS, enabled: true })
+    const bare = await harness({ provider: 'p', model: 'm', enabled: true })
     dirs.push(bare.dir)
     try {
       const stream = immediate(answer(newDecision('R')))
@@ -1768,16 +1810,16 @@ describe('evolution reviewer', () => {
 
   it('recalls nothing for a blank request or a hit inside the asking session', async () => {
     const onlySelf = await harness(
-      { provider: 'p', model: 'm' },
+      { provider: 'p', model: 'm', enabled: true },
       undefined,
-      { ...IMMEDIATE_TURNS, enabled: true },
+      IMMEDIATE_TURNS,
       {
         searchSessions: async () => ({ items: [recallHit('s1', 4, 'own material')] }),
         readEvent: async () => ({ target: userEvent('own material') }) as SessionEventWindow,
       },
     )
     dirs.push(onlySelf.dir)
-    const blank = await harness({ provider: 'p', model: 'm' }, undefined, { ...IMMEDIATE_TURNS, enabled: true })
+    const blank = await harness({ provider: 'p', model: 'm', enabled: true })
     dirs.push(blank.dir)
     try {
       const stream = immediate(answer(newDecision('R')))
@@ -1816,9 +1858,9 @@ describe('evolution reviewer', () => {
 
   it('warns instead of rejecting when the recall search fails', async () => {
     const h = await harness(
-      { provider: 'p', model: 'm' },
+      { provider: 'p', model: 'm', enabled: true },
       undefined,
-      { ...IMMEDIATE_TURNS, enabled: true },
+      IMMEDIATE_TURNS,
       {
         searchSessions: async () => { throw new Error('index offline') },
         readEvent: async () => ({ target: userEvent('older work') }) as SessionEventWindow,
@@ -1847,7 +1889,7 @@ describe('evolution reviewer', () => {
     const h = await harness(
       { provider: 'p', model: 'm', enabled: false },
       undefined,
-      { ...IMMEDIATE_TURNS, enabled: false },
+      IMMEDIATE_TURNS,
       {
         searchSessions: async (request) => {
           requests.push(request)
@@ -1908,7 +1950,7 @@ describe('evolution reviewer', () => {
     const partial = await harness(
       { provider: 'p', model: 'm', enabled: false },
       async () => ({ events: [userEvent('surface material')] }),
-      { ...IMMEDIATE_TURNS, enabled: false },
+      IMMEDIATE_TURNS,
       {
         searchSessions: counted('partial', async () => ({ items: [] })),
         searchEvents: async () => ({ session: {} as never, items: [] }),
@@ -1918,7 +1960,7 @@ describe('evolution reviewer', () => {
     const empty = await harness(
       { provider: 'p', model: 'm', enabled: false },
       async () => ({ events: [userEvent('surface material')] }),
-      { ...IMMEDIATE_TURNS, enabled: false },
+      IMMEDIATE_TURNS,
       {
         searchSessions: counted('empty', async () => ({ items: [] })),
         searchEvents: async () => ({ session: {} as never, items: [] }),
@@ -1929,7 +1971,7 @@ describe('evolution reviewer', () => {
     const failing = await harness(
       { provider: 'p', model: 'm', enabled: false },
       async () => ({ events: [userEvent('surface material')] }),
-      { ...IMMEDIATE_TURNS, enabled: false },
+      IMMEDIATE_TURNS,
       {
         searchSessions: counted('failing', async () => { throw new Error('index offline') }),
         searchEvents: async () => ({ session: {} as never, items: [] }),
@@ -1940,7 +1982,7 @@ describe('evolution reviewer', () => {
     const unseen = await harness(
       { provider: 'p', model: 'm', enabled: false },
       async () => ({ events: [userEvent('surface material')] }),
-      { ...IMMEDIATE_TURNS, enabled: false },
+      IMMEDIATE_TURNS,
       {
         searchSessions: counted('unseen', async () => ({ items: [] })),
         searchEvents: async () => ({ session: {} as never, items: [] }),
@@ -2009,7 +2051,7 @@ describe('evolution reviewer', () => {
         if (record === undefined) return record
         return { ...record, outputs: [
           output(first), output(first), output(first), output(second), output(second), output(second),
-        ]}
+        ] }
       })
       const staged = vi.spyOn(h.ctx.evolutionMemory, 'stageWrite').mockRejectedValue(new Error('staging offline'))
       const produced = join(h.dir, 'out.ts')
@@ -2085,7 +2127,7 @@ describe('evolution reviewer', () => {
           { path: repeated, tool: 'write', sessionId: 's0', at: now },
           { path: repeated, tool: 'write', sessionId: 's0', at: now },
           { path: repeated, tool: 'write', sessionId: 's0', at: now },
-        ]}
+        ] }
       })
       const produced = join(h.dir, 'out.ts')
       await writeFile(produced, 'export const x = 1\n')
@@ -2152,6 +2194,179 @@ describe('evolution reviewer', () => {
       expect(h.ctx.evolutionMemory.read(id)?.lastExtraction).toMatchObject({ truncated: true })
     } finally {
       warn.mockRestore()
+      await h.fiber.dispose()
+    }
+  })
+
+  it('records a critique and the revision it licenses for a turn that recorded a failure', async () => {
+    const h = await harness({ provider: 'p', model: 'm' })
+    dirs.push(h.dir)
+    try {
+      const session = sessionIn(h.ctx, h.dir, 's1')
+      const id = h.scope('ws-1')
+      h.workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: h.dir, sessionIds: [session.id] })
+      h.streamImpl = immediate(answer(critiqueDecision()))
+      appendTurn(session, 1, {
+        user: 'run the suite',
+        assistant: 'running it',
+        calls: [{ name: 'bash', args: JSON.stringify({ command: 'pnpm test' }), ok: false, message: 'pnpm test exited 1' }],
+      })
+      await vi.waitFor(() => {
+        expect(critiquesOf(h.ctx.evolutionMemory.read(id))).toHaveLength(1)
+      })
+      // The draft the critique was written against is the turn plus its
+      // recorded failing result.
+      expect(framedRows(h.calls[0])).toEqual([
+        { role: 'user', text: 'run the suite' },
+        { role: 'assistant', text: 'running it' },
+        { role: 'tool', text: 'bash: pnpm test exited 1' },
+      ])
+      expect(h.calls).toHaveLength(1)
+      expect(critiquesOf(h.ctx.evolutionMemory.read(id))[0]).toEqual({
+        label: `${CRITIQUE_LABEL_PREFIX}s1`,
+        text: 'expected: the suite passes\nobserved: pnpm test exited 1\ncorrection: run pnpm install before the suite',
+      })
+      // The revision is durable guidance, not only the critique text.
+      expect(h.ctx.evolutionMemory.read(id)?.agentLessons).toHaveLength(1)
+      expect(h.ctx.evolutionMemory.read(id)?.agentLessons[0]).toMatchObject({
+        statement: 'run pnpm install before the suite',
+        conditions: 'pnpm test exited 1',
+        evidence: 'inference',
+        confidence: 0.6,
+        scope: 'project',
+        source: 's1',
+      })
+    } finally {
+      await h.fiber.dispose()
+    }
+  })
+
+  it('drops a critique for a turn that recorded no failure and applies the batch beside it', async () => {
+    const h = await harness({ provider: 'p', model: 'm' })
+    dirs.push(h.dir)
+    try {
+      const session = sessionIn(h.ctx, h.dir, 's1')
+      const id = h.scope('ws-1')
+      h.workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: h.dir, sessionIds: [session.id] })
+      h.streamImpl = immediate(answer(newDecision('Work'), critiqueDecision()))
+      appendTurn(session, 1, { user: 'remember the sky is blue', assistant: 'noted' })
+      await vi.waitFor(() => {
+        expect(lessonsOf(h.ctx.evolutionMemory.read(id))).toContain('Work')
+      })
+      // Ungrounded, so nothing is recorded for it; the decisions beside it
+      // still apply and the turn costs its usual single gated call.
+      expect(critiquesOf(h.ctx.evolutionMemory.read(id))).toHaveLength(0)
+      expect(framedRows(h.calls[0])).toEqual([
+        { role: 'user', text: 'remember the sky is blue' },
+        { role: 'assistant', text: 'noted' },
+      ])
+      expect(h.calls).toHaveLength(1)
+    } finally {
+      await h.fiber.dispose()
+    }
+  })
+
+  it('records nothing for a critique that cannot name all three fields', async () => {
+    for (const [index, unnamed] of [
+      { expectation: '   ' },
+      { failure: '' },
+      { correction: '\n ' },
+    ].entries()) {
+      const h = await harness({ provider: 'p', model: 'm' })
+      dirs.push(h.dir)
+      try {
+        const session = sessionIn(h.ctx, h.dir, 's1')
+        const id = h.scope('ws-1')
+        h.workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: h.dir, sessionIds: [session.id] })
+        h.streamImpl = immediate(answer(critiqueDecision(unnamed)))
+        appendTurn(session, 1, {
+          user: `run the suite ${index}`,
+          calls: [{ name: 'bash', args: '{}', ok: false, message: 'boom' }],
+        })
+        await vi.waitFor(() => {
+          expect(h.ctx.evolutionMemory.read(id)?.lastExtraction).toBeDefined()
+        })
+        expect(critiquesOf(h.ctx.evolutionMemory.read(id))).toHaveLength(0)
+        expect(h.ctx.evolutionMemory.read(id)?.agentLessons ?? []).toHaveLength(0)
+      } finally {
+        await h.fiber.dispose()
+      }
+    }
+  })
+
+  it('names a failure row from the recorded result alone when its call or text is missing', async () => {
+    const h = await harness({ provider: 'p', model: 'm' })
+    dirs.push(h.dir)
+    try {
+      const session = sessionIn(h.ctx, h.dir, 's1')
+      const id = h.scope('ws-1')
+      h.workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: h.dir, sessionIds: [session.id] })
+      h.streamImpl = immediate(answer(newDecision('Work')))
+      session.append('turn/start', { turn: 1 })
+      session.append(
+        'user/message',
+        createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }),
+        { surfaceOp: 'append' },
+      )
+      // A failure whose text is empty falls back to its error code, and one
+      // whose call was never observed has no tool name to carry.
+      const seen = ToolCallId('call-1')
+      session.append('tool/call', { turn: 1, step: 1, callId: seen, name: 'bash', arguments: '{}' })
+      session.append(
+        'tool/result',
+        {
+          turn: 1,
+          step: 1,
+          message: createToolResultMessage({ callId: seen, content: [], isError: true }),
+          error: { name: 'BashError', code: 'E_TIMEOUT' },
+        },
+        { surfaceOp: 'append' },
+      )
+      const ghost = ToolCallId('ghost')
+      session.append(
+        'tool/result',
+        {
+          turn: 1,
+          step: 1,
+          message: { content: [{ type: 'tool-result', toolCallId: ghost, isError: true }] },
+        } as never,
+        { surfaceOp: 'append' },
+      )
+      session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+      await vi.waitFor(() => {
+        expect(lessonsOf(h.ctx.evolutionMemory.read(id))).toContain('Work')
+      })
+      expect(framedRows(h.calls[0])).toEqual([
+        { role: 'user', text: 'go' },
+        { role: 'tool', text: 'bash: E_TIMEOUT' },
+        { role: 'tool', text: 'tool call failed' },
+      ])
+    } finally {
+      await h.fiber.dispose()
+    }
+  })
+
+  it('keeps the revision when the store rejects the critique item', async () => {
+    const h = await harness({ provider: 'p', model: 'm' })
+    dirs.push(h.dir)
+    try {
+      const session = sessionIn(h.ctx, h.dir, 's1')
+      const id = h.scope('ws-1')
+      h.workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: h.dir, sessionIds: [session.id] })
+      // The store's context-item roster is full, so the critique cannot land.
+      for (let index = 0; index < 50; index += 1) {
+        await h.ctx.evolutionMemory.addContextItem(id, { kind: 'text', label: `filler-${index}`, text: 'f' })
+      }
+      h.streamImpl = immediate(answer(critiqueDecision()))
+      appendTurn(session, 1, {
+        user: 'run the suite',
+        calls: [{ name: 'bash', args: '{}', ok: false, message: 'boom' }],
+      })
+      await vi.waitFor(() => {
+        expect(lessonsOf(h.ctx.evolutionMemory.read(id))).toContain('run pnpm install before the suite')
+      })
+      expect(critiquesOf(h.ctx.evolutionMemory.read(id))).toHaveLength(0)
+    } finally {
       await h.fiber.dispose()
     }
   })

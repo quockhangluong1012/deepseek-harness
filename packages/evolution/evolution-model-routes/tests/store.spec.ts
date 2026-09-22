@@ -129,6 +129,7 @@ describe('evolution model routes', () => {
     try {
       await first.store.observe({ role: 'evaluation', route: route(), triple: { pass: true, tokens: 5, wallTimeMs: 5 } })
       await first.store.pin('evaluation', 'deepseek', 'deepseek-reasoner')
+      await first.store.recordDuty({ runId: 'run-1', role: 'candidate-generation', identity: 'agent-a' })
     } finally {
       await first.fiber.dispose()
     }
@@ -136,8 +137,84 @@ describe('evolution model routes', () => {
     try {
       expect(second.store.routes('evaluation')).toHaveLength(2)
       expect(second.store.recommend('evaluation')).toEqual({ provider: 'deepseek', model: 'deepseek-reasoner' })
+      const [duty] = second.store.duties('run-1')
+      expect(duty).toMatchObject({ runId: 'run-1', role: 'candidate-generation', identity: 'agent-a' })
+      expect(duty?.at).toMatch(/^\d{4}-\d{2}-\d{2}T/)
     } finally {
       await second.fiber.dispose()
+    }
+  })
+
+  it('records one identity per role of one run and replaces a re-recorded role', async () => {
+    const { fiber, store } = await boot()
+    try {
+      await store.recordDuty({ runId: 'run-1', role: 'promotion-review', identity: 'agent-b' })
+      const recorded = await store.recordDuty({ runId: 'run-1', role: 'candidate-generation', identity: 'agent-a' })
+      expect(recorded).toMatchObject({ runId: 'run-1', role: 'candidate-generation', identity: 'agent-a' })
+      expect(recorded.at).toMatch(/^\d{4}-\d{2}-\d{2}T/)
+      await store.recordDuty({ runId: 'run-2', role: 'candidate-generation', identity: 'agent-c' })
+      expect(store.duties('run-1').map(duty => [duty.role, duty.identity]))
+        .toEqual([['candidate-generation', 'agent-a'], ['promotion-review', 'agent-b']])
+      expect(store.duties('run-3')).toEqual([])
+      // Re-filling a role in the same run replaces the identity rather than adding a row.
+      await store.recordDuty({ runId: 'run-1', role: 'promotion-review', identity: 'agent-a' })
+      const replaced = store.duties('run-1')
+      expect(replaced).toHaveLength(2)
+      expect(replaced.map(duty => duty.identity)).toEqual(['agent-a', 'agent-a'])
+    } finally {
+      await fiber.dispose()
+    }
+  })
+
+  it('refuses a promotion whose reviewer is the identity that generated the candidate', async () => {
+    const { fiber, store } = await boot()
+    try {
+      await store.recordDuty({ runId: 'run-1', role: 'candidate-generation', identity: 'agent-a' })
+      // The reviewer has not been recorded yet: unknown, never assumed distinct.
+      expect(store.checkDuties('run-1', 'promotion')).toEqual({
+        allowed: false,
+        refusal: 'unknown-identity',
+        reason: "run 'run-1' records no promotion-review identity, so candidate-generation and promotion-review cannot be shown to be separate identities",
+      })
+      await store.recordDuty({ runId: 'run-1', role: 'promotion-review', identity: 'agent-a' })
+      expect(store.checkDuties('run-1', 'promotion')).toEqual({
+        allowed: false,
+        refusal: 'same-identity',
+        reason: "identity 'agent-a' filled both candidate-generation and promotion-review for run 'run-1'",
+      })
+      await store.recordDuty({ runId: 'run-1', role: 'promotion-review', identity: 'agent-b' })
+      expect(store.checkDuties('run-1', 'promotion')).toEqual({ allowed: true })
+      // The verdict separation reads the evaluation identity, not the reviewer's.
+      await store.recordDuty({ runId: 'run-1', role: 'evaluation', identity: 'agent-a' })
+      expect(store.checkDuties('run-1', 'verdict')).toMatchObject({ refusal: 'same-identity' })
+      expect(store.checkDuties('run-2', 'verdict')).toMatchObject({ refusal: 'unknown-identity' })
+    } finally {
+      await fiber.dispose()
+    }
+  })
+
+  it('reports the §28 topology conflict between a producing and a judging role', async () => {
+    const shared = await boot()
+    try {
+      await shared.store.pin('evaluation', 'deepseek', 'deepseek-chat')
+      await shared.store.observe({ role: 'candidate-generation', route: route(), triple: { pass: true, tokens: 5, wallTimeMs: 5 } })
+      expect(shared.store.conflicts()).toEqual([{
+        route: { provider: 'deepseek', model: 'deepseek-chat' },
+        producing: ['candidate-generation'],
+        judging: ['evaluation'],
+        pinned: true,
+        detail: "route 'deepseek/deepseek-chat' serves candidate-generation and also judges evaluation",
+      }])
+    } finally {
+      await shared.fiber.dispose()
+    }
+    const split = await boot()
+    try {
+      await split.store.pin('evaluation', 'deepseek', 'deepseek-reasoner')
+      await split.store.observe({ role: 'candidate-generation', route: route(), triple: { pass: true, tokens: 5, wallTimeMs: 5 } })
+      expect(split.store.conflicts()).toEqual([])
+    } finally {
+      await split.fiber.dispose()
     }
   })
 
@@ -146,5 +223,8 @@ describe('evolution model routes', () => {
     const store = new EvolutionModelRoutes(ctx)
     expect(() => store.routes()).toThrow('not started yet')
     expect(() => store.evidence()).toThrow('not started yet')
+    expect(() => store.conflicts()).toThrow('not started yet')
+    expect(() => store.duties('run-1')).toThrow('not started yet')
+    expect(() => store.checkDuties('run-1', 'promotion')).toThrow('not started yet')
   })
 })

@@ -3,9 +3,12 @@
  * compares the record's digest against the newest visible `user/message`
  * with an `evolution-memory` source and appends exactly one complete fresh
  * brief when they differ. It also owns the evolution nudge sections behind
- * the system prompt; capacity usage is reported only in the brief (which
- * already varies with memory content), never interpolated into the system
- * prompt, so a memory write never invalidates the request's cached prefix.
+ * the system prompt: each section carries the lines of the recorded
+ * conditions that fired (`conditions.ts`) and renders nothing while none
+ * holds, so the prompt gains a nudge only when a mounted store reports
+ * something to act on. Capacity usage is reported only in the brief, never
+ * interpolated into the system prompt, so a memory write never invalidates
+ * the request's cached prefix on its own.
  * @module @deepseek-ai/dsh-evolution-memory-context
  */
 
@@ -15,7 +18,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type { PreStepDecision } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
-import type { Session, SessionEvent, UserMessage } from '@deepseek-ai/dsh-session'
+import type { Session, SessionEvent, SessionId, UserMessage } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-query'
 import type { AssembleContext } from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-fs'
@@ -24,6 +27,10 @@ import type {} from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-workspace'
 import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
 import type {} from '@deepseek-ai/dsh-evolution-memory'
+import type {} from '@deepseek-ai/dsh-evolution-benchmark'
+import type {} from '@deepseek-ai/dsh-evolution-feedback'
+import type {} from '@deepseek-ai/dsh-evolution-graph'
+import type {} from '@deepseek-ai/dsh-evolution-skill-telemetry'
 import { EvolutionScopeId, RECALL_LABEL_PREFIX } from '@deepseek-ai/dsh-evolution-memory'
 import type { EvolutionMemoryRecord } from '@deepseek-ai/dsh-evolution-memory'
 import type { ContextSnapshotSection } from '@deepseek-ai/dsh-llm'
@@ -38,9 +45,15 @@ import {
   MEMORY_SCOPE_SECTION,
   SESSION_SEARCH_SECTION,
   SKILL_MANAGE_TOOL,
-  isNudgeTurn,
-  lessonsSkillsText,
+  nudgeDue,
 } from './sections.ts'
+import {
+  NUDGE_CONDITIONS,
+  NUDGE_EVALUATORS,
+  type NudgeDeps,
+  type NudgeEvidence,
+  type NudgeSection,
+} from './conditions.ts'
 
 export {
   byteLength,
@@ -55,9 +68,26 @@ export {
   MEMORY_SCOPE_SECTION,
   SESSION_SEARCH_SECTION,
   SKILL_MANAGE_TOOL,
-  isNudgeTurn,
-  lessonsSkillsText,
+  nudgeDue,
 } from './sections.ts'
+export {
+  NUDGE_CONDITIONS,
+  NUDGE_EVALUATORS,
+  contradictedClaimLine,
+  failureSignalLine,
+  holdoutGapLine,
+  skillTrustLine,
+  stagedWriteLine,
+  unevaluableLine,
+} from './conditions.ts'
+export type {
+  NudgeCondition,
+  NudgeConditionId,
+  NudgeDeps,
+  NudgeEvidence,
+  NudgeEvaluator,
+  NudgeSection,
+} from './conditions.ts'
 
 /** Cordis plugin name used by loader diagnostics. */
 export const name = 'evolution-memory-context'
@@ -91,10 +121,14 @@ export interface Config {
   maxBytes: number
   /** Scope-identity namespace placed before the workspace key. Required: scopes never share a default namespace. */
   profile: string
-  /** Turns between scope-narrowing nudges. */
+  /** Ceiling on memory-condition nudges: a condition that fired stays quiet for this many further turns. */
   memoryNudgeInterval?: number
-  /** Turns between lessons-to-skills nudges. */
+  /** Ceiling on skill-condition nudges: a condition that fired stays quiet for this many further turns. */
   skillNudgeInterval?: number
+  /** Minutes a staged write may wait before the memory nudge names it. */
+  stagedWriteWaitMinutes?: number
+  /** Failure signals one nudge evaluation grades. */
+  failureSignalScanLimit?: number
   /** Usage ratio at or above which the brief header warns to consolidate. */
   capacityWarnPct?: number
 }
@@ -105,6 +139,8 @@ export const Config: z<Config> = z.object({
   profile: z.string().required(),
   memoryNudgeInterval: z.number().step(1).min(1).default(1),
   skillNudgeInterval: z.number().step(1).min(1).default(10),
+  stagedWriteWaitMinutes: z.number().min(0).default(1440),
+  failureSignalScanLimit: z.number().step(1).min(1).default(20),
   capacityWarnPct: z.number().min(0).max(1).default(0.8),
 })
 
@@ -114,10 +150,14 @@ export interface ResolvedConfig {
   maxBytes: number
   /** Scope-identity namespace placed before the workspace key. */
   profile: string
-  /** Turns between scope-narrowing nudges. */
+  /** Ceiling on memory-condition nudges, in turns. */
   memoryNudgeInterval: number
-  /** Turns between lessons-to-skills nudges. */
+  /** Ceiling on skill-condition nudges, in turns. */
   skillNudgeInterval: number
+  /** Minutes a staged write may wait before the memory nudge names it. */
+  stagedWriteWaitMinutes: number
+  /** Failure signals one nudge evaluation grades. */
+  failureSignalScanLimit: number
   /** Usage ratio at or above which the brief header warns to consolidate. */
   capacityWarnPct: number
 }
@@ -135,6 +175,8 @@ export function resolveConfig(config: Config): ResolvedConfig {
     profile: config.profile,
     memoryNudgeInterval: config.memoryNudgeInterval ?? 1,
     skillNudgeInterval: config.skillNudgeInterval ?? 10,
+    stagedWriteWaitMinutes: config.stagedWriteWaitMinutes ?? 1440,
+    failureSignalScanLimit: config.failureSignalScanLimit ?? 20,
     capacityWarnPct: config.capacityWarnPct ?? 0.8,
   }
 }
@@ -170,6 +212,15 @@ function claimedDigest(claimed: readonly UserMessage[]): string | undefined {
   return digests.at(-1)
 }
 
+/** The registry's view of the workspace a session belongs to. */
+interface Membership {
+  id: WorkspaceId
+  title: string
+  path: string
+  /** Sessions the workspace owns, which scope the failure evidence a nudge reads. */
+  sessionIds: readonly SessionId[]
+}
+
 /**
  * Register the pre-step brief injector plus the nudge sections for the
  * lifetime of `ctx`.
@@ -177,11 +228,20 @@ function claimedDigest(claimed: readonly UserMessage[]): string | undefined {
  * @param config - byte cap on the complete brief and scope namespace.
  */
 export function apply(ctx: Context, config: Config): void {
-  const { maxBytes, profile, memoryNudgeInterval, skillNudgeInterval, capacityWarnPct } = resolveConfig(config)
+  const {
+    maxBytes,
+    profile,
+    memoryNudgeInterval,
+    skillNudgeInterval,
+    stagedWriteWaitMinutes,
+    failureSignalScanLimit,
+    capacityWarnPct,
+  } = resolveConfig(config)
   checkProfile(profile)
   const workspaceBySession = new Map<string, WorkspaceId | null>()
   const injectedDigests = new Map<string, string>()
   const turnsBySession = new Map<string, number>()
+  const nudgeFiredTurns = new Map<string, number>()
   ctx.on('session/event', (session: Session, event: SessionEvent) => {
     if (event.type !== 'turn/start') return
     const key = String(session.id)
@@ -192,31 +252,44 @@ export function apply(ctx: Context, config: Config): void {
     workspaceBySession.delete(key)
     injectedDigests.delete(key)
     turnsBySession.delete(key)
+    for (const nudgeKey of [...nudgeFiredTurns.keys()]) {
+      if (nudgeKey.startsWith(`${key}\u0000`)) nudgeFiredTurns.delete(nudgeKey)
+    }
   })
   ctx.effect(() => () => {
     workspaceBySession.clear()
     injectedDigests.clear()
     turnsBySession.clear()
+    nudgeFiredTurns.clear()
   }, 'evolution-memory-context.cache')
 
   const scopeOf = (workspaceId: WorkspaceId): EvolutionScopeId => EvolutionScopeId(profile, String(workspaceId))
 
-  const memberBySession = (session: Session): { id: WorkspaceId; title: string; path: string } | undefined => {
+  const toMembership = (
+    workspace: { id: WorkspaceId; title: string; path: string; sessionIds: readonly SessionId[] },
+  ): Membership => ({
+    id: workspace.id,
+    title: workspace.title,
+    path: workspace.path,
+    sessionIds: workspace.sessionIds,
+  })
+
+  const memberBySession = (session: Session): Membership | undefined => {
     const key = String(session.id)
     const cached = workspaceBySession.get(key)
     if (cached === null) return undefined
     if (cached !== undefined) {
       const workspace = ctx.workspaceRegistry.get(cached)
-      if (workspace !== undefined) return { id: workspace.id, title: workspace.title, path: workspace.path }
+      if (workspace !== undefined) return toMembership(workspace)
       workspaceBySession.delete(key)
     }
     const found = ctx.workspaceRegistry.list().find(entry => entry.sessionIds.includes(session.id))
     if (found === undefined) return undefined
     workspaceBySession.set(key, found.id)
-    return { id: found.id, title: found.title, path: found.path }
+    return toMembership(found)
   }
 
-  const resolveWorkspace = async (session: Session): Promise<{ id: WorkspaceId; title: string; path: string } | undefined> => {
+  const resolveWorkspace = async (session: Session): Promise<Membership | undefined> => {
     const key = String(session.id)
     const direct = memberBySession(session)
     if (direct !== undefined) return direct
@@ -232,7 +305,7 @@ export function apply(ctx: Context, config: Config): void {
       return undefined
     }
     workspaceBySession.set(key, match.id)
-    return { id: match.id, title: match.title, path: match.path }
+    return toMembership(match)
   }
 
   const newestLoggedDigest = async (session: Session): Promise<string | undefined> => {
@@ -253,27 +326,58 @@ export function apply(ctx: Context, config: Config): void {
     return undefined
   }
 
+  /**
+   * Evaluate one section's recorded conditions for this assembly and join the
+   * lines that fired. Each condition renders at most once per configured
+   * interval — the turn it fired on is remembered — and a store that is not
+   * mounted renders its own notice instead of leaving its condition quietly
+   * absent.
+   */
+  const sectionText = (section: NudgeSection, context: AssembleContext): string => {
+    const session = context.agent?.session
+    if (session === undefined) return ''
+    const member = memberBySession(session)
+    const evidence: NudgeEvidence = {
+      scope: member === undefined ? undefined : scopeOf(member.id),
+      sessionIds: member?.sessionIds.map(String) ?? [],
+      now: Date.now(),
+    }
+    const deps: NudgeDeps = {
+      record: evidence.scope === undefined ? undefined : ctx.evolutionMemory.read(evidence.scope),
+      graph: ctx.get('evolutionGraph'),
+      feedback: ctx.get('evolutionFeedback'),
+      telemetry: ctx.get('evolutionSkillTelemetry'),
+      benchmark: ctx.get('evolutionBenchmark'),
+      stagedWriteWaitMinutes,
+      failureSignalScanLimit,
+    }
+    const sessionKey = String(session.id)
+    const turn = turnsBySession.get(sessionKey) ?? 0
+    const interval = section === 'memory' ? memoryNudgeInterval : skillNudgeInterval
+    const lines: string[] = []
+    for (const condition of NUDGE_CONDITIONS) {
+      if (condition.section !== section) continue
+      const key = `${sessionKey}\u0000${condition.id}`
+      if (!nudgeDue(nudgeFiredTurns.get(key), turn, interval)) continue
+      const line = NUDGE_EVALUATORS[condition.id](condition, evidence, deps)
+      if (line === undefined) continue
+      nudgeFiredTurns.set(key, turn)
+      lines.push(line)
+    }
+    return lines.join(' ')
+  }
+
   const prompt = ctx.get('systemPrompt')
   if (prompt !== undefined) {
     const tools = ctx.get('tools')
-    const turnsOf = (context: AssembleContext): number => {
-      const session = context.agent?.session
-      if (session === undefined) return 0
-      return turnsBySession.get(String(session.id)) ?? 0
-    }
     const sections = [
       {
         def: LESSONS_SKILLS_SECTION,
-        text: (context: AssembleContext) => isNudgeTurn(turnsOf(context), skillNudgeInterval)
-          ? lessonsSkillsText(tools?.get(SKILL_MANAGE_TOOL, context.scope))
-          : '',
+        text: (context: AssembleContext) => tools?.get(SKILL_MANAGE_TOOL, context.scope) === undefined
+          ? ''
+          : sectionText('skills', context),
       },
-      {
-        def: MEMORY_SCOPE_SECTION,
-        text: (context: AssembleContext) => isNudgeTurn(turnsOf(context), memoryNudgeInterval)
-          ? MEMORY_SCOPE_SECTION.text
-          : '',
-      },
+      { def: MEMORY_SCOPE_SECTION, text: (context: AssembleContext) => sectionText('memory', context) },
       { def: SESSION_SEARCH_SECTION, text: () => SESSION_SEARCH_SECTION.text },
     ]
     for (const section of sections) {
@@ -319,11 +423,11 @@ export function apply(ctx: Context, config: Config): void {
   /** Decide whether the admitted batch needs a fresh brief and append it. */
   const injectBrief = async (
     session: Session,
-    membership: { id: WorkspaceId; title: string; path: string },
+    member: Membership,
     decision: Extract<PreStepDecision, { kind: 'enter' }>,
     signal: AbortSignal,
   ): Promise<PreStepDecision> => {
-    const scope = scopeOf(membership.id)
+    const scope = scopeOf(member.id)
     const record = ctx.evolutionMemory.read(scope)
     // An absent record digests as 'empty' and carries no sections, so the
     // content check below subsumes both: nothing to inject either way.
@@ -349,8 +453,8 @@ export function apply(ctx: Context, config: Config): void {
     const materialized = await materializeContext(record, signal)
     const usage = ctx.evolutionMemory.usage(scope)
     const briefInput = {
-      title: membership.title,
-      path: membership.path,
+      title: member.title,
+      path: member.path,
       usage: { usedBytes: usage.usedBytes, capacityBytes: usage.capacityBytes },
       capacityWarnPct,
       instructions: record.instructions,

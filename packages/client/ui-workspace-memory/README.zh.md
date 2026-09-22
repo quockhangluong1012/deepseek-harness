@@ -62,7 +62,7 @@ Host 服务 `ctx.workspaceMemoryController` 拥有 `workspaceMemory` 命名空�
 <a id="further-exploration"></a>
 ## 进一步探索
 
-- [Workspace Memory 规范](../../../specs/workspace-memory.md)——本包实现的行为约定。
+- [Workspace Memory 子系统](../../../docs/subsystems/workspace-memory.zh.md)——本包实现的行为约定。
 
 -----
 

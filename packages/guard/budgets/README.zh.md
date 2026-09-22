@@ -156,6 +156,6 @@ guard 建立在四项承诺之上：
 
 本开发备注是维护者的工作上下文：开放问题与尚未决定的探索方向。它明确不具权威性——已交付的行为、限制与既定理由以上文、包代码和相关 Agent Note 为准。
 
-字段名与[演化 harness 规范](../../../specs/evolutionary-harness.spec.md)表格不同：该表列出 `maxInputTokens` 与 `maxCostUsd`，而实际交付的字段是 `maxTotalTokens`，因为 `ctx.tokenMeter` 测量的是请求总压力而非仅输入 token；成本则由部署配置的 `usdPerMillionTokens` 计价，而非 harness 计价来源——后者并不存在。
+字段名与演化 harness 规范曾提出的 `maxInputTokens` 与 `maxCostUsd` 不同：实际交付的字段是 `maxTotalTokens`，因为 `ctx.tokenMeter` 测量的是请求总压力而非仅输入 token；成本则由部署配置的 `usdPerMillionTokens` 计价，而非 harness 计价来源——后者并不存在。本家族的参考契约见[演进式 Harness 子系统](../../../docs/subsystems/evolutionary-harness.zh.md)。
 
 </details>

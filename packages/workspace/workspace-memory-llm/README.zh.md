@@ -75,7 +75,7 @@ transcript 只接纳人类 `user/message` 与 `assistant/message`。路由优先
 <a id="further-exploration"></a>
 ## 进一步探索
 
-- [Workspace Memory 规范](../../../specs/workspace-memory.md)——本包实现的行为约定。
+- [Workspace Memory 子系统](../../../docs/subsystems/workspace-memory.zh.md)——本包实现的行为约定。
 - [Workspace 包地图](../README.zh.md)——本组的包及其仓库位置。
 
 -----

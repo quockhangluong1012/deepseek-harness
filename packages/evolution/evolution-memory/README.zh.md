@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-`dsh-evolution-memory` 拥有演进记忆背后的持久化按作用域文档：用户编写的指令、模型维护并带来源记录与分族时间戳的经验工件与用户画像文档、附加的文本与文件上下文条目、产出文件索引、等待审批的暂存写入，以及按最新优先排列的已决暂存条目日志。Host 同步读取，并通过带上限的写入进行修改；评审器与注入器包消费它。当同一作用域中的每个会话都应继承可在使用中不断改进的共享知识、且不向项目内写入时，选择本包。
+`dsh-evolution-memory` 拥有演进记忆背后的持久化按作用域文档：用户编写的指令、模型维护并带来源记录与分族时间戳的经验工件与用户画像文档、附加的文本与文件上下文条目、产出文件索引、支撑 §23 相关性反馈回路的召回台账、等待审批的暂存写入，以及按最新优先排列的已决暂存条目日志。Host 同步读取，并通过带上限的写入进行修改；评审器与注入器包消费它。当同一作用域中的每个会话都应继承可在使用中不断改进的共享知识、且不向项目内写入时，选择本包。
 
 ## 目录
 
@@ -46,6 +46,7 @@ kind: "package-reference"
 | `maxContextItems` | `50` | 条目数量上限 |
 | `maxOutputs` | `200` | 产出文件索引规模 |
 | `maxResolutions` | `200` | 每个作用域保留的已决暂存条目数 |
+| `maxRecalls` | `50` | 每个作用域召回台账中保留的召回数，保留最新的 |
 | `mergeSimilarityFloor` | `0.87` | 与既有工件的相似度达到该值才值得合并，而不是另行存储 |
 | `maintenanceIntervalHours` | `24` | 两次维护扫描每个已存作用域之间的小时数 |
 | `refutationFloor` | `3` | 反驳数达到该值后，衰退无论存续时长都会剪除该工件 |
@@ -75,6 +76,8 @@ kind: "package-reference"
 
 决策按提取报告它们的顺序折入，在写入时读到的记录之上，因此每条都作用于此前各条产生的结果。`confirms` 或 `contradicts` 若命名了记录已不再持有的工件，会被跳过而不是拒绝——该目标是在更早一次读取上解析的，其间可能发生一次剪除——批次其余部分照常应用。整批就是一次写入：它盖一次 `lessonsUpdatedAt`，没有任何改动的批次（空批次，或各条决策都被跳过的批次）一个分族时间戳都不盖，而一次什么都没找到的调用的来源仍会记录在 `lastExtraction` 上。
 
+带有来源的批次在写入持久化之后还会被发布为一个 `evolution/decisions-applied` 事件，携带作用域、来源会话、决策，以及该作用域在写入*之前*的工件。派生状态的消费者把它折入自己的状态——图谱的声明层就是随包提供的那一个——而写入前的工件正是使其可行的原因：`contradicts` 决策替换 statement 时保留工件的 `id`，因此"一次更正所更正的那个陈述"只在写入之前可见。该事件把每条决策都归因到报告它的会话，因此没有来源就被应用的批次完全不会被发布：无法归因的证据比没有证据更糟。经暂存的 `applyDecisions` 审批以该条目的 `originSessionId` 发布。监听者既不会拖慢写入、也无法让写入失败：批次此时已经存好，因此抛出异常的监听者只会被记录并隔离，与 `domain/changed` 的观察者完全一致。
+
 ### 暂存写入与决策
 
 `stageWrite` 暂存一条记忆或技能提案而不触碰容量。记忆类暂存载荷指明其操作：`setInstructions`、`setUserProfile` 与 `appendEpisodic` 携带 `{ text }`，`addArtifact` 携带 `{ candidate, strategy }`，`updateArtifact` 携带 `{ id, patch }`，`removeArtifact` 携带 `{ id }`，`replaceArtifacts` 携带 `{ candidates }`，`applyDecisions` 携带 `{ decisions, extraction? }`。`approveStaged` 先应用记忆操作（上限拒绝、或所寻址的工件不存在时保留条目），仅移除技能条目；`rejectStaged` 直接丢弃任一条目。审批一批 `applyDecisions` 会在审批时读到的记录上原子地应用整批，并在那时解析每个 `new` 候选的合并目标——与 `addArtifact` 的暂存路径相同的「先度量、再复核」拆分，而绝非暂存时拍下的快照。
@@ -89,7 +92,15 @@ kind: "package-reference"
 
 每个记忆族各自盖自己的时间戳：`setInstructions` 盖 `instructionsUpdatedAt`，`addArtifact` / `updateArtifact` / `removeArtifact` / `replaceArtifacts` / `applyDecisions` 这一族盖 `lessonsUpdatedAt`，`setUserProfile` 盖 `profileUpdatedAt`。暂存审批只为它改动的族盖章，因此不存储任何内容的经验追加或决策批次一个都不盖。`appendEpisodic` 不盖任何族：情景笔记是未经审批的固化输入，不是已审定的文档。`memoryUpdatedAt` 再保留一个版本，取经验与画像两个时间戳中的较晚者。每次被接受的写入都盖上 `updatedAt`。
 
-被召回的上下文材料——评审器的排序召回——就是普通的上下文条目，其标签以导出的 `RECALL_LABEL_PREFIX` 开头，因此摘要覆盖它，简报也最先丢弃它。
+### 召回台账
+
+被召回的上下文材料——评审器的排序召回——就是普通的上下文条目，其标签以导出的 `RECALL_LABEL_PREFIX` 开头，因此摘要覆盖它，简报也最先丢弃它。同一个标签也是 §23 的 `retrieved` 环节：`addContextItem` 从标签中读出被召回记忆的身份，并向该作用域的召回台账追加一行——`recalls`，最新在前，受 `maxRecalls` 限制——每行携带它落地时对应的条目及其时刻。
+
+另外两个环节由档案本就会写入的内容记录下来。带来源信息落地的决策批次——`applyExtractionDecisions(id, decisions, extraction)`——会把所有仍在等待决策的召回绑定到该批次，记下它的会话与时刻：该批次就是被召回材料在场上时的那次已记录决策。`recordRecallOutcome(id, recalledId, outcome, at?)` 把会话的分级结果记到该记忆最新一条仍在等待结果的召回上，若该记忆没有这样的召回则大声拒绝，因此在某个结果被记录之后再次被召回的记忆，会在它更新的那条召回上再次被分级。
+
+§23 还有两个环节完全没有记录，台账也从不臆测它们：没有任何东西观测被注入的条目是否真的被**使用**，也没有任何东西标记某条被**引用**。`recalls()` 返回全部已记录行及其落地的作用域，`recallUtility()` 据此推导出 §24 的读数：`相关性 × 决策影响 × 结果增益`，其中相关性是该记忆已记录召回上的 `n / (n + 1)`——与知识图信念所用的同一饱和函数，因此没有任何记忆能仅凭检索触顶——决策影响是其中有已记录批次跟随的召回占比，结果增益是被分级为 `ok` 的召回占比。§24 的第四个因子**来源质量**，对于被召回的记忆没有任何记录来源，因此该乘积携带三个因子，而不是编造出来的第四个。
+
+移除上下文条目不会移除召回：召回已经发生，把该条目从简报中丢掉并不等于没有检索过它。
 
 ### 情景笔记
 
@@ -124,6 +135,7 @@ kind: "package-reference"
 | [`src/lesson-artifact.ts`](src/lesson-artifact.ts) | 工件类型与 schema、statement 身份，以及旧经验文档的接纳 |
 | [`src/decisions.ts`](src/decisions.ts) | 决策词汇，以及作用于记录之上的纯 confirm/contradict/new 折入 |
 | [`src/merge.ts`](src/merge.ts) | 余弦相似度、合并策略与合并目标选择 |
+| [`src/recall.ts`](src/recall.ts) | 召回标签读取、台账折叠，以及纯 §24 效用推导 |
 | [`src/maintenance.ts`](src/maintenance.ts) | 衰退判定与单次扫描结果的结构 |
 | [`src/digest.ts`](src/digest.ts) | 摘要、容量、字节长度与裁剪助手 |
 
@@ -140,8 +152,9 @@ kind: "package-reference"
 <a id="further-exploration"></a>
 ## 进一步探索
 
-- [演进式 Harness 规范](../../../specs/evolutionary-harness-spec-v10-complete.md)——本包实现的行为契约。
+- [演进式 Harness 子系统](../../../docs/subsystems/evolutionary-harness.zh.md)——本包实现的行为契约。
 - [evolution 包导览](../README.zh.md)——本分组的软件包及其仓库位置。
+- [`dsh-evolution-graph`](../evolution-graph/README.zh.md)——本包决策批次的声明/证据消费者。
 - [生成的配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-evolution-memory)——每个可接受的配置字段。
 
 -----
@@ -166,7 +179,10 @@ kind: "package-reference"
 - **迁移来的工件保持粗粒度**——旧经验文档打开时是一个覆盖整份文本的工件，目前还没有任何一趟流程拆分它；提取把决策折入它读到的工件，因此迁移来的作用域在简报里保留那一条很长的工件行，而新工件是加在它旁边，不是取代它。
 - **衰退由写入与反驳驱动**——工件在最后一次触达它的写入之后 `defaultTtlDays` 天被剪除，使用工件从不计入，因此一条再无人讨论的事实即使仍然为真也会衰退。决策批次写入的计数正是作用域自身回合所提供的：`confirms` 刷新工件的 `updatedAt`，`contradicts` 计入 `refutationFloor`，而提取的相关性窗口从未向模型展示的工件两者都得不到。迁移来的粗粒度工件完全不携带 ttl，因为接纳时不会赋予该值，因此只有反驳下限可能剪除它。
 - **文件大小是快照**——磁盘文件变化时，不刷新文件条目记录的大小。
+- **召回台账只记录 §23 四个环节中的两个**——检索、以及随后的决策批次都有记录，结果由评分方提供；被注入条目是否被*使用*、是否被*引用*，全仓库都没有写入方，因此它们对记忆效用毫无贡献，而 §24 的第四个因子（来源质量）对被召回的记忆也没有记录来源。因此台账是效用的下限，而不是完整测量。
+- **召回台账有上限，不是累计量**——`maxRecalls` 按作用域给它设限，因此被召回次数超过上限的记忆只保留最新几条召回，其计数是保留下来的召回数；读取方不应把 `recalls` 当作全时段总量。结果由调用方分级：没有任何东西自行判定某条被召回的记忆起了作用。
 - **暂存写入无上限**——暂存条目按设计不计入容量，未评审的积压会一直增长，直到被批准或驳回。
+- **决策批次不携带逐条来源**——整批的每条决策都归因到该批 `extraction` 所命名的那个会话，因此不带来源就应用批次的调用方不会向派生消费者发布任何东西，而同一会话对同一工件的两次确认，与"该会话重复了一次确认"无法区分。独立性的计数属于消费者：声明层按来源归并支持证据，并不允许同一来源为同一条声明作证两次。
 
 <a id="dev-note"></a>
 ### 开发备注

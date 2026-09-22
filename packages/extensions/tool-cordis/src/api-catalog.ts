@@ -1110,6 +1110,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         parameters: [],
         returns: 'the open defenses.',
       },
+      {
+        signature: 'observedDefenses(): readonly DefenseObservation[]',
+        description: 'The §46 checklist as the recorded stores show it, rather than as an operator set it: each defense reads `observed-satisfied`, `observed-open`, or `unobserved` from the evaluator-strategy, benchmark, and router stores plus this store\'s own probes. A defense no store answers from is `unobserved`, never reported open on nobody\'s evidence. Read-only: this neither writes to those stores nor starts a run (§58.12).',
+        parameters: [],
+        returns: 'the observations, in canonical order.',
+      },
     ],
   },
   {
@@ -1139,13 +1145,19 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
   },
   {
     key: 'evolutionBudget',
-    summary: 'Evolution-budget store over durable allocations and spends.',
-    description: 'Evolution-budget store over durable allocations and spends. Opens the `evolution_budget` domain at init and closes it through `ctx.effect`.',
+    summary: 'Evolution-budget store over durable allocations, spends, and candidate pools.',
+    description: 'Evolution-budget store over durable allocations, spends, and candidate pools. Opens the `evolution_budget` domain at init and closes it through `ctx.effect`.',
     methods: [
       {
         signature: 'async allocate(input: AllocationInput): Promise<BudgetAllocation>',
-        description: 'Record a budget allocation for one batch, pricing its candidate class against the base ceilings and upserting by batch identity. The stored instant is now.',
+        description: 'Record a budget allocation for one batch, pricing its candidate class against the base ceilings, including §37\'s cost, deadline, and parallelism dimensions, and upserting by batch identity. The stored instant is now.',
         parameters: [{ name: 'input', description: 'the batch, its task class, and its candidate class.' }],
+        returns: 'the stored allocation.',
+      },
+      {
+        signature: 'async allocateForCandidate(batchId: string, candidateId: string): Promise<BudgetAllocation>',
+        description: 'Record a budget allocation for one candidate a batch\'s pool already holds, pricing the class the §37 policy decides from its recorded evidence and naming that branch in the allocation\'s reason.',
+        parameters: [{ name: 'batchId', description: 'the batch whose pool holds the candidate.' }, { name: 'candidateId', description: 'the pooled candidate to price.' }],
         returns: 'the stored allocation.',
       },
       {
@@ -1153,6 +1165,30 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Record one spend of a batch and settle it against the allocation across every recorded spend of the batch. The allocation must exist: a spend without a priced batch is a surprise, not budget use.',
         parameters: [{ name: 'batchId', description: 'the batch spending.' }, { name: 'input', description: 'the spend to record.' }],
         returns: 'the cumulative settlement of the batch.',
+      },
+      {
+        signature: 'async recordPool(input: PoolInput): Promise<readonly PooledCandidate[]>',
+        description: 'Record the candidates one batch screens, upserting each by candidate identity so a re-recorded candidate replaces its evidence and leaves its siblings alone. The stored instant is now.',
+        parameters: [{ name: 'input', description: 'the batch and the candidates entering its pool.' }],
+        returns: 'the batch\'s pool, in candidate-id order.',
+      },
+      {
+        signature: 'pool(batchId: string): readonly PooledCandidate[]',
+        description: 'List a batch\'s recorded candidate pool in candidate-id order.',
+        parameters: [{ name: 'batchId', description: 'the batch whose pool to list.' }],
+        returns: 'the pool, detached from the store.',
+      },
+      {
+        signature: 'schedule(batchId: string): HalvingSchedule | undefined',
+        description: 'The successive-halving screening schedule the batch\'s recorded pool implies (§38): how many candidates each round evaluates and keeps.',
+        parameters: [{ name: 'batchId', description: 'the batch whose schedule to derive.' }],
+        returns: 'the schedule, or undefined when the batch recorded no pool.',
+      },
+      {
+        signature: 'objectives(batchId: string): readonly ObjectiveReading[]',
+        description: 'Read every §27 resource-aware objective the batch\'s records answer.',
+        parameters: [{ name: 'batchId', description: 'the batch to read.' }],
+        returns: 'the readings, canonical order.',
       },
       {
         signature: 'batches(taskClass?: BudgetTaskClass): readonly BudgetAllocation[]',
@@ -1170,7 +1206,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         signature: 'withinBudget(batchId: string): boolean',
         description: 'Whether a batch\'s cumulative recorded spend stays inside its allocation.',
         parameters: [{ name: 'batchId', description: 'the batch to check.' }],
-        returns: 'true when both ceilings hold.',
+        returns: 'true when every measured ceiling holds.',
       },
     ],
   },
@@ -1211,7 +1247,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     description: 'Host Remote service over the durable evolution record. The stream is owned by the feed; reconnect generations belong to the client transport (`RemoteStream`), which opens a fresh `follow` call per generation, so this service never buffers across a transport loss.',
     methods: [
       {
-        signature: '@Remote(\'read\') async read(request: EvolutionScopeRequest): Promise<EvolutionMemoryValue>',
+        signature: '@Remote(\'read\') read(request: EvolutionScopeRequest): Promise<EvolutionMemoryValue>',
         description: 'Load one scope\'s record.',
         parameters: [{ name: 'request', description: 'scope identity.' }],
         returns: 'the Remote projection.',
@@ -1253,7 +1289,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the updated projection.',
       },
       {
-        signature: '@Remote(\'listStaged\') async listStaged(request: EvolutionListStagedRequest): Promise<EvolutionStagedValue>',
+        signature: '@Remote(\'listStaged\') listStaged(request: EvolutionListStagedRequest): Promise<EvolutionStagedValue>',
         description: 'List the scope\'s pending staged writes.',
         parameters: [{ name: 'request', description: 'scope identity.' }],
         returns: 'the pending entries in record order.',
@@ -1271,7 +1307,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the updated projection.',
       },
       {
-        signature: '@Remote(\'timeline\') async timeline(request: EvolutionTimelineRequest): Promise<JourneyTimeline>',
+        signature: '@Remote(\'timeline\') timeline(request: EvolutionTimelineRequest): Promise<JourneyTimeline>',
         description: 'Render one scope\'s journey over a window from the record it already keeps.',
         parameters: [{ name: 'request', description: 'scope identity and requested window.' }],
         returns: 'the timeline.',
@@ -1419,6 +1455,24 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'a detached copy, or undefined when the scope has never dreamed.',
       },
       {
+        signature: 'promotions(scopeId: EvolutionScopeId): DreamPromotion[]',
+        description: 'The narratives that still answer, newest first. A superseded one keeps its place in the record and its evidence but answers no query, exactly as the claim graph treats a retired claim, so a corrected statement replaces an older one instead of editing it.',
+        parameters: [{ name: 'scopeId', description: 'scope identity.' }],
+        returns: 'detached copies of the active promotions.',
+      },
+      {
+        signature: 'ledger(scopeId: EvolutionScopeId): readonly DreamLedgerEntry[]',
+        description: 'Read one scope\'s promotion ledger, newest first, for audit and as the source of the identities rollback takes.',
+        parameters: [{ name: 'scopeId', description: 'scope identity.' }],
+        returns: 'detached copies of the ledger entries.',
+      },
+      {
+        signature: 'async rollback( scopeId: EvolutionScopeId, entryId: string, now: string = new Date().toISOString(), ): Promise<DreamRollbackReport>',
+        description: 'Restore the promotions one ledger entry replaced. The entry holds its own preimage, so nothing can go missing between the write and the rollback: an unknown identity fails before anything is written, and the rollback appends its own entry, which makes it as reversible as the pass it undoes.',
+        parameters: [{ name: 'scopeId', description: 'scope identity.' }, { name: 'entryId', description: 'ledger entry identity, from {@link ledger}.' }, { name: 'now', description: 'ISO-8601 instant to stamp, defaulting to the wall clock.' }],
+        returns: 'what the rollback restored and the entry that recorded it.',
+      },
+      {
         signature: 'async run( phase: DreamPhase, scopeId: EvolutionScopeId, sessionIds: readonly string[], now: string = new Date().toISOString(), ): Promise<DreamPhaseReport>',
         description: 'Run one phase for one scope.',
         parameters: [{ name: 'phase', description: 'which phase to run.' }, { name: 'scopeId', description: 'scope identity.' }, { name: 'sessionIds', description: 'sessions whose recorded failures the cycle scans.' }, { name: 'now', description: 'ISO-8601 instant to stamp, defaulting to the wall clock.' }],
@@ -1460,6 +1514,18 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         parameters: [],
         returns: 'the aggregated health facts.',
       },
+      {
+        signature: 'async judge(runId: string, judgment: RunJudgmentInput): Promise<EvaluatorRun>',
+        description: 'Record the later ground truth that judged one verdict (§13): whether it agreed with the evaluator, and whether it was measured independently. An unknown verdict identity rejects loudly, so a ground truth is never attached to a verdict that does not exist.',
+        parameters: [{ name: 'runId', description: 'the recorded verdict being judged.' }, { name: 'judgment', description: 'the ground truth\'s reading.' }],
+        returns: 'the updated verdict.',
+      },
+      {
+        signature: 'calibration(): JudgeCalibration',
+        description: 'The calibration facts of the recorded verdicts (§13): the false-negative rate beside the summary\'s false-positive rate, and how the evaluator correlates with the independent ground truths that later judged it.',
+        parameters: [],
+        returns: 'the calibration facts.',
+      },
     ],
   },
   {
@@ -1481,13 +1547,13 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'ranking(taskClass: TaskClass): readonly StrategyRanking[]',
-        description: 'Rank one task class\'s evaluators by their smoothed corroboration weight.',
+        description: 'Rank one task class\'s evaluators by their smoothed corroboration weight, each entry naming the route §28 assigns to the final promotion review — the strongest configured verifier — so the recommendation says which model should re-check what it recommends.',
         parameters: [{ name: 'taskClass', description: 'the task class to rank evaluators for.' }],
         returns: 'the ranked evaluators, most trustworthy first.',
       },
       {
         signature: 'recommend(taskClass: TaskClass): StrategyRanking | undefined',
-        description: 'The evaluator to trust for one task class: the best-ranked evaluator with at least `minimumSamples` independent samples, or undefined while no evaluator has that much independent evidence.',
+        description: 'The evaluator to trust for one task class: the best-ranked evaluator with at least `minimumSamples` independent samples, or undefined while no evaluator has that much independent evidence. The entry names the route §28 puts on the final promotion review, so the caller knows which model should check the verdict before it is acted on. Naming it routes nothing: no run is started from a recommendation (§58.12).',
         parameters: [{ name: 'taskClass', description: 'the task class to recommend for.' }],
         returns: 'the recommended evaluator, or undefined.',
       },
@@ -1518,9 +1584,21 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'reflect(sessionIds: readonly string[], limit: number): StructuredReflection[]',
-        description: 'Reflect the given sessions\' failures as structured reflections, most decisive first: the ledger-derived half (symptom, violated expectation, observed behavior, confidence) merged with the analyst-supplied half (root cause, corrected strategy, and friends) when one was recorded. Analytic fields stay null until `recordReflection` states them, so a reader never mistakes missing analysis for measured fact.',
+        description: 'Reflect the given sessions\' failures as structured reflections, most decisive first: the ledger-derived half (symptom, violated expectation, observed behavior, confidence) merged with the analytic half (root cause, corrected strategy, and friends) when one is stored. Analytic fields stay null until something states them, so a reader never mistakes missing analysis for measured fact.',
         parameters: [{ name: 'sessionIds', description: 'sessions to aggregate, in caller order.' }, { name: 'limit', description: 'maximum reflections returned.' }],
         returns: 'the structured reflections, decisive first.',
+      },
+      {
+        signature: 'async reflectSignals(limit: number, now: string): Promise<readonly StructuredReflection[]>',
+        description: 'Author and store one deterministic reflection per graded `trigger_review` signal that has none, sweeping the store\'s own sessions newest-write first. A signal that already has a stored reflection is left alone, so a second pass over unchanged evidence writes nothing. No model is called: every authored field is a template over the observed failure identity and its recurrence, which is why `rootCause` and `whatWorked` stay null.',
+        parameters: [{ name: 'limit', description: 'maximum reflections this pass authors.' }, { name: 'now', description: 'ISO-8601 instant stamped on every reflection this pass writes.' }],
+        returns: 'the reflections written, decisive first.',
+      },
+      {
+        signature: 'async reflections(sessionIds: readonly string[], limit: number): Promise<readonly StructuredReflection[]>',
+        description: 'Stored reflections whose failure was reported by one of `sessionIds`, newest write first: the retrieval half of the failure → explanation → corrective heuristic association (§4.1). A stored reflection whose failure none of the given sessions reported is not one of theirs and stays out.',
+        parameters: [{ name: 'sessionIds', description: 'sessions to read, in caller order.' }, { name: 'limit', description: 'maximum reflections returned.' }],
+        returns: 'the stored reflections, newest first.',
       },
       {
         signature: 'reflection(mergeKey: string): ReflectionRecord | undefined',
@@ -1552,6 +1630,24 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Merge extracted triples into one scope\'s graph. An entity seen again keeps its first label and gains a kind if it had none; a relation seen again raises its count instead of adding a second edge. Triples are dropped, not thrown on, once a cap is reached or a part normalizes to nothing, and the count of dropped triples is reported back.',
         parameters: [{ name: 'scopeId', description: 'scope identity.' }, { name: 'triples', description: 'relations to record.' }, { name: 'now', description: 'ISO-8601 instant to stamp, defaulting to the wall clock.' }],
         returns: 'what the batch added, reinforced, and dropped.',
+      },
+      {
+        signature: 'async recordClaims( scopeId: EvolutionScopeId, assertions: readonly ClaimAssertion[], now: string = new Date().toISOString(), ): Promise<ClaimObserveResult>',
+        description: 'Record assertions about the scope\'s claims. Each assertion creates the claim the scope does not hold yet or merges into the one it does, adding evidence, lineage edges, and observed traces; a `supersedes` marks the claims it names `retired` so they stop answering claims.\n\nAn assertion whose statement is blank once normalized is dropped and counted, and so is a new claim once the scope holds `maxClaims` of them: a saturated scope keeps answering from the claims it has instead of failing its caller.',
+        parameters: [{ name: 'scopeId', description: 'scope identity.' }, { name: 'assertions', description: 'claims to record, in input order.' }, { name: 'now', description: 'ISO-8601 instant to stamp, defaulting to the wall clock.' }],
+        returns: 'what the batch added, updated, retired, and dropped.',
+      },
+      {
+        signature: 'claims( scopeId: EvolutionScopeId, query: string = \'\', limit: number = this.resolved.maxQueryLimit, ): Claim[]',
+        description: 'Answer one claim query: the active claims whose statement contains the query, most believed first. A retired claim is never among them — it no longer answers anything — and is reachable only by identity through claim, which reports what retired it.',
+        parameters: [{ name: 'scopeId', description: 'scope identity.' }, { name: 'query', description: 'case-insensitive statement substring; empty matches every active claim.' }, { name: 'limit', description: 'maximum claims returned, capped by `maxQueryLimit`.' }],
+        returns: 'the matching claims, best-supported first.',
+      },
+      {
+        signature: 'claim(scopeId: EvolutionScopeId, statement: string): Claim | undefined',
+        description: 'Read one claim by identity, retired or active, so a caller can tell a claim that still stands from one a later claim replaced.',
+        parameters: [{ name: 'scopeId', description: 'scope identity.' }, { name: 'statement', description: 'the claim\'s statement or its normalized identity.' }],
+        returns: 'the claim, or undefined when the scope holds none under that identity.',
       },
       {
         signature: 'answer( scopeId: EvolutionScopeId, subject: string, relation: string, limit: number = this.resolved.maxQueryLimit, ): GraphAnswer | undefined',
@@ -1745,7 +1841,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'async applyExtractionDecisions( id: EvolutionScopeId, decisions: readonly LessonDecision[], extraction?: EvolutionExtraction, ): Promise<EvolutionMemoryRecord>',
-        description: 'Apply one extraction pass\'s whole decision batch: a `confirms` bumps the addressed artifact\'s `validationCount`, a `contradicts` bumps its `refutationCount` and replaces the statement and confidence it carries, and a `new` candidate is added through addArtifact\'s merge-by-meaning path — so a candidate the model called new that coincides with an artifact outside the list it was shown folds into that artifact rather than accumulating beside it.\n\nA decision naming an artifact the record no longer holds is skipped, not refused: the target was resolved against an earlier read, and a prune can land in between.\n\nThe batch is one write: it stages or applies as a unit and stamps one lessons family stamp, matching the one-item-per-call shape this path replaces. A batch that changed nothing — an empty one, or one whose only decisions named artifacts the record no longer holds — stamps no family, exactly as addArtifact does when its add stores nothing; the provenance of the call that found nothing is still recorded.',
+        description: 'Apply one extraction pass\'s whole decision batch: a `confirms` bumps the addressed artifact\'s `validationCount`, a `contradicts` bumps its `refutationCount` and replaces the statement and confidence it carries, and a `new` candidate is added through addArtifact\'s merge-by-meaning path — so a candidate the model called new that coincides with an artifact outside the list it was shown folds into that artifact rather than accumulating beside it.\n\nA decision naming an artifact the record no longer holds is skipped, not refused: the target was resolved against an earlier read, and a prune can land in between.\n\nThe batch is one write: it stages or applies as a unit and stamps one lessons family stamp, matching the one-item-per-call shape this path replaces. A batch that changed nothing — an empty one, or one whose only decisions named artifacts the record no longer holds — stamps no family, exactly as addArtifact does when its add stores nothing; the provenance of the call that found nothing is still recorded.\n\nA batch applied with provenance is also published as one `evolution/decisions-applied` event once the write is durable, carrying the artifacts as they read before it. A batch applied without provenance is not published: every decision would carry unattributable evidence.',
         parameters: [{ name: 'id', description: 'scope identity.' }, { name: 'decisions', description: 'the confirmed, contradicted, and new facts, in the order the extraction reported them.' }, { name: 'extraction', description: 'provenance of the call that produced the batch.' }],
         returns: 'the stored record.',
       },
@@ -1769,13 +1865,31 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'async addContextItem(id: EvolutionScopeId, input: EvolutionContextItemInput): Promise<EvolutionMemoryRecord>',
-        description: 'Attach pasted text or a scope file.',
+        description: 'Attach pasted text or a scope file. An item whose label carries the stored `RECALL_LABEL_PREFIX` is a recall of the memory the label names, so the write also appends one row to the scope\'s recall ledger: that is §23\'s `retrieved` link, counted where the shipped recall path already writes.',
         parameters: [{ name: 'id', description: 'scope identity.' }, { name: 'input', description: 'label plus text or path with its observed size.' }],
         returns: 'the stored record.',
       },
       {
+        signature: 'recalls(): readonly RecordedRecall[]',
+        description: 'Every recall the profile\'s scopes recorded, newest first within its scope, each naming the scope it landed in. §23\'s loop is read from here; which session read a recalled item is not among the recorded links.',
+        parameters: [],
+        returns: 'one row per recorded recall.',
+      },
+      {
+        signature: 'async recordRecallOutcome( id: EvolutionScopeId, recalledId: string, outcome: \'ok\' | \'failed\', at: string = new Date().toISOString(), ): Promise<EvolutionMemoryRecord>',
+        description: 'Record the graded outcome of one recall: the §23 loop\'s `helped outcome` link. The grader is whichever pass reads the outcome record — the curator\'s idle pass is the shipped one, which grades the session the recall\'s decision batch was extracted from off the feedback store. The newest recall of that memory still awaiting an outcome is the one graded, so a memory recalled again after an outcome is graded again on its newer recall. A memory with no awaiting recall is refused loudly rather than graded twice.',
+        parameters: [{ name: 'id', description: 'scope identity.' }, { name: 'recalledId', description: 'recalled memory\'s identity, as its label carried it.' }, { name: 'outcome', description: '`ok` when the graded session\'s evidence was clean, else `failed`.' }, { name: 'at', description: 'ISO-8601 instant the outcome was recorded, defaulting to the wall clock.' }],
+        returns: 'the stored record.',
+      },
+      {
+        signature: 'recallUtility(): readonly MemoryUtility[]',
+        description: '§24\'s utility for every memory the recall ledger holds, one reading per recalled memory across the profile\'s scopes. Reads the same rows recalls returns.',
+        parameters: [],
+        returns: 'the derived readings.',
+      },
+      {
         signature: 'async removeContextItem(id: EvolutionScopeId, itemId: string): Promise<EvolutionMemoryRecord>',
-        description: 'Detach one context item.',
+        description: 'Detach one context item. The recall ledger keeps its row: the recall happened, and dropping the item from the brief does not un-retrieve it.',
         parameters: [{ name: 'id', description: 'scope identity.' }, { name: 'itemId', description: 'context item identity.' }],
         returns: 'the stored record.',
       },
@@ -1787,7 +1901,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'async approveStaged(id: string): Promise<void>',
-        description: 'Approve one staged write. Memory-kind entries apply their op first, so a cap or substring rejection keeps the entry staged and propagates; the entry drops only after the op lands. Skill-kind entries only drop: the approver reads the payload from the scope record and performs the skill write before approving. A `create` proposal is additionally admitted on its capture contract — a capability claim needs independent validation evidence — so without one the entry stays staged with its `blockedReason` and `neededEvidence` set and the block propagates, like a cap rejection. A `patch` revises a capability that was already admitted: its evidence is the baseline-versus-candidate measurement its proposer recorded, which this store has no way to read, so it drops on the human\'s approval. Either decision is recorded in the scope\'s resolution log, newest first.',
+        description: 'Approve one staged write. Memory-kind entries apply their op first, so a cap or substring rejection keeps the entry staged and propagates; the entry drops only after the op lands. Skill-kind entries only drop: the approver reads the payload from the scope record and performs the skill write before approving. A `create` proposal is additionally admitted on its capture contract — a capability claim needs independent validation evidence — so without one the entry stays staged with its `blockedReason` and `neededEvidence` set and the block propagates, like a cap rejection. A `patch` revises a capability that was already admitted: its evidence is the baseline-versus-candidate measurement its proposer recorded, which this store has no way to read, so it drops on the human\'s approval. Either decision is recorded in the scope\'s resolution log, newest first. An approved `applyDecisions` batch is published as one `evolution/decisions-applied` event under the entry\'s origin session, on the same terms applyExtractionDecisions states.',
         parameters: [{ name: 'id', description: 'staged entry identity.' }],
         returns: 'resolution after durability.',
       },
@@ -1822,8 +1936,8 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     methods: [
       {
         signature: 'async record(input: EngineRunInput): Promise<EngineRun>',
-        description: 'Record one engine run, completing its configuration with the default choices where the caller named none. The stored instant is now.',
-        parameters: [{ name: 'input', description: 'the run and its (possibly partial) configuration.' }],
+        description: 'Record one engine run, completing its configuration with the default choices where the caller named none and storing the sequence it performed as given. An absent sequence records that the caller observed none — the store never invents the order a run took. The stored instant is now.',
+        parameters: [{ name: 'input', description: 'the run, its (possibly partial) configuration, and its workflow.' }],
         returns: 'the stored run.',
       },
       {
@@ -1847,9 +1961,22 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'evolutionMetrics',
+    summary: 'Metric layer over the evolution stores.',
+    description: 'Metric layer over the evolution stores. It opens no domain and holds no state, so every reading is the current state of the stores it reads; a store that is not mounted makes its metrics unmeasurable rather than absent, so one report always carries the whole §55 set.',
+    methods: [
+      {
+        signature: 'report(query: MetricsQuery = {}): MetricsReport',
+        description: 'Measure the §55 metric set over one window of recorded engine runs. The north star is reported per compute denominator; every supporting metric is either measured from the store that owns it or reported unmeasurable with the missing record named. Reads only.',
+        parameters: [{ name: 'query', description: 'which runs the window covers; omitted fields take defaults.' }],
+        returns: 'the window, the north star per denominator, and the supporting set.',
+      },
+    ],
+  },
+  {
     key: 'evolutionModelRoutes',
-    summary: 'Adaptive model-routing store over durable assignments and evidence.',
-    description: 'Adaptive model-routing store over durable assignments and evidence. Opens the `evolution_model_routes` domain at init and closes it through `ctx.effect`.',
+    summary: 'Adaptive model-routing store over durable assignments, evidence, and the identities that filled a run\'s evolutionary roles.',
+    description: 'Adaptive model-routing store over durable assignments, evidence, and the identities that filled a run\'s evolutionary roles. Opens the `evolution_model_routes` domain at init and closes it through `ctx.effect`.',
     methods: [
       {
         signature: 'async observe(input: RouteEvidenceInput): Promise<RouteEvidence>',
@@ -1881,6 +2008,30 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         parameters: [{ name: 'role', description: 'the role to recommend for.' }],
         returns: 'the recommended route, or undefined.',
       },
+      {
+        signature: 'conflicts(): readonly RoleConflict[]',
+        description: 'The §28 topology conflicts in the current assignment set: routes that both produce work and judge it, which make the judging role\'s verdicts non-independent by construction. Recorded, never enforced — the assignment set still answers `recommend` exactly as recorded.',
+        parameters: [],
+        returns: 'the conflicts, ordered by provider then model.',
+      },
+      {
+        signature: 'async recordDuty(input: DutyInput): Promise<DutyRecord>',
+        description: 'Record the identity that filled one evolutionary role of one run, so §53\'s separation of duties has the pair to compare. Recording a role twice for one run replaces its identity: the newest fill wins.',
+        parameters: [{ name: 'input', description: 'the run, the role, and the identity that filled it.' }],
+        returns: 'the stored duty row.',
+      },
+      {
+        signature: 'duties(runId: string): readonly DutyRecord[]',
+        description: 'List one run\'s recorded role fills, in role-topology order.',
+        parameters: [{ name: 'runId', description: 'the run to list.' }],
+        returns: 'the duty rows, detached from the store.',
+      },
+      {
+        signature: 'checkDuties(runId: string, decision: DutyDecision): DutyVerdict',
+        description: '§53\'s separation of duties for one decision over one run: whether the judging role\'s recorded identity differs from the producing role\'s. The store records what a caller filled each role with and refuses on what it read, so a decision taken without recording both identities is refused as unknown rather than assumed independent.',
+        parameters: [{ name: 'runId', description: 'the run the decision concerns.' }, { name: 'decision', description: 'the decision being taken.' }],
+        returns: 'the verdict, whose refusal names both roles.',
+      },
     ],
   },
   {
@@ -1910,14 +2061,44 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
   },
   {
     key: 'evolutionOperators',
-    summary: 'Mutation-operator store over durable statistics rows.',
-    description: 'Mutation-operator store over durable statistics rows. Opens the `evolution_operators` domain at init and closes it through `ctx.effect`.',
+    summary: 'Mutation-operator store over durable statistics and instruction rows.',
+    description: 'Mutation-operator store over durable statistics and instruction rows. Opens the `evolution_operators` domain at init and closes it through `ctx.effect`.',
     methods: [
       {
         signature: 'async record(outcome: OperatorOutcome): Promise<OperatorStats>',
         description: 'Record one measured outcome of an operator, upserting the operator\'s statistics for its artifact class. The stored instant is now.',
         parameters: [{ name: 'outcome', description: 'the operator used and its accepted/delta outcome.' }],
         returns: 'the updated statistics.',
+      },
+      {
+        signature: 'async recordInstruction(input: InstructionInput): Promise<OperatorInstruction>',
+        description: 'Record the instruction one operator and artifact class should send. The pair holds one instruction at a time: a different text replaces the previous proposal and starts its verdict tally over, while re-proposing the same text keeps the verdicts it earned. The stored instant is now.',
+        parameters: [{ name: 'input', description: 'the operator, the artifact class, and the proposed instruction.' }],
+        returns: 'the stored instruction row.',
+      },
+      {
+        signature: 'async judgeInstruction(verdict: InstructionVerdict): Promise<OperatorInstruction>',
+        description: 'Record one verdict on the instruction its operator and artifact class holds. The pair must hold an instruction: a verdict on nothing would be evidence for a proposal that was never made.',
+        parameters: [{ name: 'verdict', description: 'the verdict and why it landed that way.' }],
+        returns: 'the updated instruction row.',
+      },
+      {
+        signature: 'instruction(operator: MutationOperator, artifactClass: ArtifactClass): OperatorInstruction | undefined',
+        description: 'Read the instruction one operator and artifact class holds.',
+        parameters: [{ name: 'operator', description: 'the operator whose instruction to read.' }, { name: 'artifactClass', description: 'the artifact class whose instruction to read.' }],
+        returns: 'the row, or undefined when the pair holds no proposal.',
+      },
+      {
+        signature: 'instructions(artifactClass?: ArtifactClass): readonly OperatorInstruction[]',
+        description: 'List recorded instruction proposals, optionally filtered by artifact class, in canonical operator order then artifact-class order.',
+        parameters: [{ name: 'artifactClass', description: 'optional artifact-class filter.' }],
+        returns: 'the rows, detached from the store.',
+      },
+      {
+        signature: 'recommendedInstruction(artifactClass: ArtifactClass): OperatorInstruction | undefined',
+        description: 'The instruction to try next on one artifact class: the one the ranking\'s top operator holds, undefined while that operator holds no proposal.',
+        parameters: [{ name: 'artifactClass', description: 'the artifact class to recommend for.' }],
+        returns: 'the recommended instruction.',
       },
       {
         signature: 'stats(artifactClass?: ArtifactClass): readonly OperatorStats[]',
@@ -1927,7 +2108,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'ranking(artifactClass: ArtifactClass): readonly OperatorRanking[]',
-        description: 'Rank every canonical operator for one artifact class by the exploration-adjusted score. Untried operators enter with their prior score, so the ranking always names a next operator to try.',
+        description: 'Rank every canonical operator for one artifact class by the exploration-adjusted score, nudged by the instruction verdicts the class recorded. Untried operators enter with their prior score, so the ranking always names a next operator to try.',
         parameters: [{ name: 'artifactClass', description: 'the artifact class to rank operators for.' }],
         returns: 'the ranked operators, best first.',
       },
@@ -1983,6 +2164,37 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'evolutionRetrieval',
+    summary: 'Retrieve configurations learned from the sessions that ran under them.',
+    description: 'Retrieve configurations learned from the sessions that ran under them. Opens the `evolution_retrieval` domain at init and closes it through `ctx.effect`.',
+    methods: [
+      {
+        signature: 'async record(input: RetrievalAttributionInput): Promise<RetrievalAttribution>',
+        description: 'Record one session under one retrieval configuration. The attribution key is the configuration and the session joined, so recording the same session again — a resumed session, a retried step — upserts the same row and keeps its first instant instead of counting the session twice.',
+        parameters: [{ name: 'input', description: 'the configuration in force and the session it served.' }],
+        returns: 'the stored attribution.',
+      },
+      {
+        signature: 'attributions(configKey?: string): readonly RetrievalAttribution[]',
+        description: 'List recorded attributions, optionally for one configuration, newest first with session-id ascending tie-break.',
+        parameters: [{ name: 'configKey', description: 'optional configuration-key filter.' }],
+        returns: 'the attributions, detached from the store.',
+      },
+      {
+        signature: 'effectiveness(taskClass?: RetrievalTaskClass): readonly RetrievalEffectiveness[]',
+        description: 'The derived effectiveness of every configuration, optionally for one task class, in task-class then configuration-key order.',
+        parameters: [{ name: 'taskClass', description: 'optional task-class filter.' }],
+        returns: 'the effectiveness rows, detached from the store.',
+      },
+      {
+        signature: 'recommend(taskClass: RetrievalTaskClass): RetrievalRankingEntry | undefined',
+        description: 'The configuration to run for one task class: the best-ranked configuration with at least `minimumSessions` graded sessions, or undefined while no configuration has that much evidence.',
+        parameters: [{ name: 'taskClass', description: 'the task class to recommend for.' }],
+        returns: 'the recommended configuration, or undefined.',
+      },
+    ],
+  },
+  {
     key: 'evolutionReviewer',
     summary: 'Background reviewer.',
     description: 'Background reviewer. One scope never runs two extractions at once; a turn is never blocked by one.',
@@ -2002,7 +2214,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     methods: [
       {
         signature: 'async observe(outcome: RouteOutcomeInput): Promise<RouteOutcome>',
-        description: 'Record one measured outcome of a route serving one role on one task class. The stored instant is now.',
+        description: 'Record one measured outcome of a route serving one role on one task class. The stored instant is now. When the outcome leaves the best-measured routes of its task class and role strongly disagreeing, the §44 disagreement is recorded as an uncertainty signal through the optional store seam — this is the one producer of a `disagreement` signal that starts from route outcomes. A failing record must not fail the observation.',
         parameters: [{ name: 'outcome', description: 'the route, role, task class, and measured triple.' }],
         returns: 'the stored outcome.',
       },
@@ -2023,6 +2235,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'The route to use for one task class and role: the best-ranked route with at least `minimumSamples` measured outcomes, or undefined while no route has that much evidence.',
         parameters: [{ name: 'taskClass', description: 'the task class to recommend for.' }, { name: 'role', description: 'the role to recommend for.' }],
         returns: 'the recommended route, or undefined.',
+      },
+      {
+        signature: 'disagreements(taskClass?: RouterTaskClass, role?: RoutingRole): readonly RouteDisagreement[]',
+        description: 'The §44 route disagreements among the recorded outcomes: per task class and role, the two best-measured routes whose pass rates diverge by more than the configured threshold, strongest gap first.',
+        parameters: [{ name: 'taskClass', description: 'optional task-class filter.' }, { name: 'role', description: 'optional role filter.' }],
+        returns: 'the disagreements, strongest first.',
       },
     ],
   },
@@ -2149,7 +2367,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'async markPatched(name: string, source?: string): Promise<SkillUsageRecord | undefined>',
-        description: 'Count one skill-management mutation. Exclusion matches markUsed.',
+        description: 'Count one skill-management mutation. Exclusion matches markUsed. The mutation may have changed the body, so the per-session outcome evidence clears with it: those outcomes describe the artifact that just changed, and the utility reading starts over rather than crediting the new body with the old body\'s results.',
         parameters: [{ name: 'name', description: 'skill name.' }, { name: 'source', description: 'catalog source when the caller already resolved it.' }],
         returns: 'the stored record, or undefined for excluded sources.',
       },
@@ -2167,13 +2385,19 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'async recordTrustObservation( name: string, outcome: \'success\' | \'failure\', sessionId: string, failure?: SkillTrustFailure, ): Promise<SkillUsageRecord | undefined>',
-        description: 'Record one trust observation for a skill. A failure with attribution demotes the skill and restamps the anchor; a success counts only when its session is newer than that anchor and has not been counted yet, so evidence gathered before a fix cannot promote the skill again. Excluded sources resolve to no record, and an observation that changes nothing writes nothing.',
+        description: 'Record one trust observation for a skill. A failure with attribution demotes the skill and restamps the anchor; a success counts only when its session is newer than that anchor and has not been counted yet, so evidence gathered before a fix cannot promote the skill again. Either way the session\'s outcome is recorded for §40\'s utility reading. Excluded sources resolve to no record, and an observation that changes nothing writes nothing.',
         parameters: [{ name: 'name', description: 'skill name.' }, { name: 'outcome', description: 'the observed outcome.' }, { name: 'sessionId', description: 'the session that loaded this skill.' }, { name: 'failure', description: 'attribution evidence, used only for `\'failure\'`.' }],
         returns: 'the stored record, or undefined for excluded sources.',
       },
       {
+        signature: 'utility(name: string): SkillUtility | undefined',
+        description: 'Read one skill\'s utility: uses, assisted and successful tasks, the library-relative gain, and the recorded cost per success. The baseline arm is the other tracked skills\' pooled outcomes, because this harness records no skill-free run; see skillUtility for exactly what the gain does and does not measure.',
+        parameters: [{ name: 'name', description: 'skill name.' }],
+        returns: 'the derived reading, or undefined when the skill has no record.',
+      },
+      {
         signature: 'async markRevised(name: string, content: string): Promise<SkillUsageRecord | undefined>',
-        description: 'Record a new revision of the SKILL.md body. The store hashes the content itself, so one place defines the shape of `contentSha`; the same bytes again is a no-op, and a real change resets trust like any other edit.',
+        description: 'Record a new revision of the SKILL.md body. The store hashes the content itself, so one place defines the shape of `contentSha`; the same bytes again is a no-op, and a real change resets trust and clears the outcome evidence like any other edit.',
         parameters: [{ name: 'name', description: 'skill name.' }, { name: 'content', description: 'the exact bytes just written to SKILL.md.' }],
         returns: 'the stored record, or undefined for excluded sources.',
       },
@@ -2208,7 +2432,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'async setState(name: string, state: SkillLifecycleState, absorbedInto: string | null = null): Promise<SkillUsageRecord>',
-        description: 'Move one skill through its curation lifecycle. Entering `archived` stamps the instant; leaving clears it. The absorption target replaces any previous one, so plain transitions carry none.',
+        description: 'Move one skill through its curation lifecycle. Entering `suspect` or `archived` stamps that state\'s instant and leaving it clears the instant, so a revival is judged against when the question was raised rather than against any older clean load. The absorption target replaces any previous one, so plain transitions carry none.',
         parameters: [{ name: 'name', description: 'skill name.' }, { name: 'state', description: 'new lifecycle state.' }, { name: 'absorbedInto', description: 'consolidation umbrella, or null when standalone.' }],
         returns: 'the stored record.',
       },
@@ -2219,6 +2443,11 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     summary: 'Sleep-time store over durable anticipated tasks and precomputed artifacts.',
     description: 'Sleep-time store over durable anticipated tasks and precomputed artifacts. Opens the `evolution_sleeptime` domain at init and closes it through `ctx.effect`.',
     methods: [
+      {
+        signature: 'async anticipateAll(signal?: AbortSignal): Promise<void>',
+        description: 'Run one anticipation pass over the recurrence the source stores recorded: anticipate each class that recurred often enough inside the window, precompute the artifacts the offline plan justifies for them, and account the recorded turns that consumed an artifact already cached. A class whose recurrence falls outside the window is left to the next pass, and a task the plan rates but no recorded recurrence stands behind is skipped rather than precomputed on the plan\'s word alone. Every phase is bounded by `maxPerPass` and reads only local storage, so the pass observes disposal at the one unbounded wait — reading traces per skill.',
+        parameters: [{ name: 'signal', description: 'aborts between skills at plugin teardown.' }],
+      },
       {
         signature: 'async anticipate(input: AnticipationInput): Promise<AnticipatedTask>',
         description: 'Anticipate one future task, upserting by task identity so a re-anticipated task refreshes its likelihood and expectations. The stored instant is now.',
@@ -2233,7 +2462,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'async precompute(input: PrecomputeInput): Promise<PrecomputeArtifact>',
-        description: 'Precompute one reasoning artifact for an anticipated task. The task must exist: an artifact for a task nobody anticipated is a surprise, not idle work. A fresh artifact has served nothing yet.',
+        description: 'Precompute one reasoning artifact for an anticipated task. The task must exist: an artifact for a task nobody anticipated is a surprise, not idle work. A fresh artifact has served nothing yet, and its hit cursor starts at its own instant, so the turns recorded before it are never counted as its consumers.',
         parameters: [{ name: 'input', description: 'the artifact to cache.' }],
         returns: 'the stored artifact.',
       },
@@ -2244,9 +2473,9 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the artifacts, detached from the store.',
       },
       {
-        signature: 'async hit(artifactId: string, savedTokens: number): Promise<PrecomputeArtifact>',
-        description: 'Record one future query served by a cached artifact, adding the query\'s saved tokens to the artifact\'s running total.',
-        parameters: [{ name: 'artifactId', description: 'the artifact that served the query.' }, { name: 'savedTokens', description: 'tokens the served query saved.' }],
+        signature: 'async hit(artifactId: string, occurrences: readonly TaskOccurrence[]): Promise<PrecomputeArtifact>',
+        description: 'Account the recorded occurrences that consumed a cached artifact: every occurrence of the artifact\'s own class strictly newer than the instant its hits are accounted through, credited with the tokens its store recorded and counted as one hit each. The per-occurrence saving is what the recorded turn spent, so an artifact with no later occurrence keeps its totals unchanged and a second call at the same instant is a no-op — which is what makes a repeating pass safe.',
+        parameters: [{ name: 'artifactId', description: 'the artifact to account.' }, { name: 'occurrences', description: 'every occurrence the source stores recorded.' }],
         returns: 'the updated artifact.',
       },
       {
@@ -2310,6 +2539,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         parameters: [{ name: 'sessionIds', description: 'sessions to compress, in caller order.' }, { name: 'limit', description: 'maximum rows returned.' }],
         returns: 'the compressed rows, decisive first.',
       },
+      {
+        signature: 'async replay(sessionId: string, baseline: ReplayArtifact, candidate: ReplayArtifact): Promise<ReplayReport | undefined>',
+        description: 'Replay one stored trace: reconstruct the context each step ran under, restore the artifact the retrievals named, and compare a baseline artifact against a candidate over the same trace (§16, §17). The recorded tool results are the substrate, so the replay is keyless and re-invokes no tool; steps whose recorded output is missing come back unreplayable.',
+        parameters: [{ name: 'sessionId', description: 'session whose committed trace to replay.' }, { name: 'baseline', description: 'artifact revision the recorded run used.' }, { name: 'candidate', description: 'artifact revision under consideration.' }],
+        returns: 'the per-step comparison, or undefined when storage holds no such session.',
+      },
     ],
   },
   {
@@ -2367,6 +2602,19 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Drop the signals behind one evaluation task — without a task identity only the skill-wide (null-task) signals of the skill — returning the count removed. The queue re-derives from the signals that remain.',
         parameters: [{ name: 'skill', description: 'the skill whose signals to drop.' }, { name: 'taskId', description: 'optional task identity to drop; undefined drops only skill-wide signals.' }],
         returns: 'the number of signals removed.',
+      },
+    ],
+  },
+  {
+    key: 'evolutionVerifiers',
+    summary: 'The ladder, mounted so a host and the packages that admit candidates share one admission rule.',
+    description: 'The ladder, mounted so a host and the packages that admit candidates share one admission rule.',
+    methods: [
+      {
+        signature: 'async verify(request: VerifierRequest): Promise<VerifierVerdict>',
+        description: 'Run the ladder over one candidate.',
+        parameters: [{ name: 'request', description: 'candidate body plus the seams the host mounts for the simulated, evaluator, and human rungs.' }],
+        returns: 'the verdict, naming every consulted rung and the level that decided.',
       },
     ],
   },
@@ -4924,6 +5172,14 @@ export const EVENT_API: readonly EventApiEntry[] = [
     parameters: [{ name: 'change', description: 'domain, table (`\'\'` for global), key (`\'\'` for global), operation discriminant, and on `put` the new snapshot.' }],
   },
   {
+    name: 'evolution/decisions-applied',
+    mode: 'emit',
+    signature: '\'evolution/decisions-applied\'(batch: EvolutionDecisionsApplied): void',
+    summary: 'One extraction pass\'s decision batch landed on a scope\'s record, emitted once per applied batch strictly after the write is durable.',
+    description: 'One extraction pass\'s decision batch landed on a scope\'s record, emitted once per applied batch strictly after the write is durable. Deriving consumers — the knowledge graph\'s claim layer is the shipped one — fold the batch into their own state here; a listener failure is their own to contain, because the batch it reports is already stored.\n\nA batch applied without provenance is not published: every decision is attributed to the session that reported it, and a batch whose session is unknown would carry unattributable evidence.',
+    parameters: [{ name: 'batch', description: 'scope, source session, decisions, and the artifacts they addressed.' }],
+  },
+  {
     name: 'feedback/committed',
     mode: 'parallel',
     signature: '\'feedback/committed\'(inspection: SessionInspection): void',
@@ -5321,7 +5577,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'AllocationInput',
-    declaration: 'export interface AllocationInput {\n    batchId: string;\n    taskClass: BudgetTaskClass;\n    candidateClass: CandidateClass;\n}',
+    declaration: 'export interface AllocationInput {\n    batchId: string;\n    taskClass: BudgetTaskClass;\n    candidateClass: CandidateClass;\n    policyReason?: string;\n}',
   },
   {
     name: 'AnticipatedTask',
@@ -5589,15 +5845,19 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'BudgetAllocation',
-    declaration: 'export interface BudgetAllocation {\n    batchId: string;\n    taskClass: BudgetTaskClass;\n    candidateClass: CandidateClass;\n    maxTokens: number;\n    maxWallTimeMs: number;\n    reason: string;\n    at: string;\n}',
+    declaration: 'export interface BudgetAllocation {\n    batchId: string;\n    taskClass: BudgetTaskClass;\n    candidateClass: CandidateClass;\n    maxTokens: number;\n    maxWallTimeMs: number;\n    maxCost?: number | undefined;\n    timeLimitMs?: number | undefined;\n    parallelism?: number | undefined;\n    reason: string;\n    at: string;\n}',
   },
   {
     name: 'BudgetGovernor',
     declaration: 'export interface BudgetGovernor {\n    measure(task: TaskContract, session: Session): BudgetSnapshot;\n}',
   },
   {
+    name: 'BudgetMargin',
+    declaration: 'export interface BudgetMargin {\n    budgeted: number | null;\n    spent: number | null;\n    remaining: number | null;\n    exceeded: number | null;\n}',
+  },
+  {
     name: 'BudgetSettlement',
-    declaration: 'export interface BudgetSettlement {\n    batchId: string;\n    allocation: BudgetAllocation;\n    tokens: number;\n    wallTimeMs: number;\n    remainingTokens: number;\n    remainingWallTimeMs: number;\n    exceededTokens: number;\n    exceededWallTimeMs: number;\n}',
+    declaration: 'export interface BudgetSettlement {\n    batchId: string;\n    allocation: BudgetAllocation;\n    tokens: number;\n    wallTimeMs: number;\n    remainingTokens: number;\n    remainingWallTimeMs: number;\n    exceededTokens: number;\n    exceededWallTimeMs: number;\n    cost: BudgetMargin;\n    time: BudgetMargin;\n    parallelism: BudgetMargin;\n}',
   },
   {
     name: 'BudgetSnapshot',
@@ -5658,6 +5918,30 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'CheckpointReason',
     declaration: 'export type CheckpointReason = \'turn-boundary\' | \'before-compaction\' | \'before-pause\' | \'verification-failure\' | \'before-suspension\';',
+  },
+  {
+    name: 'Claim',
+    declaration: 'export interface Claim {\n    id: string;\n    statement: string;\n    status: ClaimStatus;\n    retiredBy: string | null;\n    confidence: number;\n    evidenceQuality: number;\n    sourceReliability: number;\n    independentSupport: number;\n    contradictionCount: number;\n    recency: string;\n    supportedBy: readonly ClaimEvidence[];\n    contradictedBy: readonly ClaimEvidence[];\n    observedIn: readonly string[];\n    supersedes: readonly string[];\n    derivedFrom: readonly string[];\n    usedBy: readonly string[];\n    createdAt: string;\n    updatedAt: string;\n}',
+  },
+  {
+    name: 'ClaimAssertion',
+    declaration: 'export interface ClaimAssertion {\n    statement: string;\n    supportedBy?: readonly ClaimEvidenceInput[];\n    contradictedBy?: readonly ClaimEvidenceInput[];\n    observedIn?: readonly string[];\n    supersedes?: readonly string[];\n    derivedFrom?: readonly string[];\n    usedBy?: readonly string[];\n}',
+  },
+  {
+    name: 'ClaimEvidence',
+    declaration: 'export interface ClaimEvidence {\n    source: string;\n    quality: number;\n    reliability: number;\n    firstAt: string;\n    lastAt: string;\n    count: number;\n}',
+  },
+  {
+    name: 'ClaimEvidenceInput',
+    declaration: 'export interface ClaimEvidenceInput {\n    source: string;\n    quality?: number;\n    reliability?: number;\n}',
+  },
+  {
+    name: 'ClaimObserveResult',
+    declaration: 'export interface ClaimObserveResult {\n    added: number;\n    updated: number;\n    retired: number;\n    skipped: number;\n}',
+  },
+  {
+    name: 'ClaimStatus',
+    declaration: 'export type ClaimStatus = \'active\' | \'retired\';',
   },
   {
     name: 'ClientArtifactBaseline',
@@ -5769,11 +6053,11 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ConfigRecommendation',
-    declaration: 'export interface ConfigRecommendation {\n    config: EngineConfig;\n    configId: string;\n    taskClass: MetaTaskClass;\n    score: number;\n    samples: number;\n    passRate: number;\n    reason: string;\n}',
+    declaration: 'export interface ConfigRecommendation {\n    config: EngineConfig;\n    workflow: readonly WorkflowStep[];\n    workflowId: string;\n    configId: string;\n    taskClass: MetaTaskClass;\n    score: number;\n    samples: number;\n    passRate: number;\n    reason: string;\n}',
   },
   {
     name: 'ConfigSummary',
-    declaration: 'export interface ConfigSummary {\n    configId: string;\n    config: EngineConfig;\n    taskClass: MetaTaskClass;\n    samples: number;\n    passes: number;\n    passRate: number;\n    meanTokens: number;\n    score: number;\n    lastAt: string;\n}',
+    declaration: 'export interface ConfigSummary {\n    configId: string;\n    config: EngineConfig;\n    workflow: readonly WorkflowStep[];\n    workflowId: string;\n    taskClass: MetaTaskClass;\n    samples: number;\n    passes: number;\n    passRate: number;\n    meanTokens: number;\n    score: number;\n    lastAt: string;\n}',
   },
   {
     name: 'ConfinedArgv',
@@ -5792,8 +6076,12 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface ConsolidationCostRow {\n    readonly inputBytes: number;\n    readonly maxOutputTokens: number;\n    readonly provider: string;\n    readonly model: string;\n    readonly truncated: boolean;\n}',
   },
   {
+    name: 'ConsolidationRefusal',
+    declaration: 'export interface ConsolidationRefusal {\n    name: string;\n    level: VerifierLevel;\n    reason: string;\n}',
+  },
+  {
     name: 'ConsolidationReport',
-    declaration: 'export interface ConsolidationReport {\n    at: string;\n    passId: string | null;\n    snapshot: string | null;\n    cost: ConsolidationCost;\n    verdicts: ConsolidationVerdict[];\n    skipped: number;\n    steps: number;\n}',
+    declaration: 'export interface ConsolidationReport {\n    at: string;\n    passId: string | null;\n    snapshot: string | null;\n    cost: ConsolidationCost;\n    verdicts: ConsolidationVerdict[];\n    skipped: number;\n    refusals: ConsolidationRefusal[];\n    steps: number;\n}',
   },
   {
     name: 'ConsolidationSurvey',
@@ -5814,6 +6102,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'ContentBlockType',
     declaration: 'export type ContentBlockType = keyof ContentBlockMap;',
+  },
+  {
+    name: 'ContextCompilationEntry',
+    declaration: 'export interface ContextCompilationEntry {\n    readonly id: string;\n    readonly kind: ContextSourceKind;\n    readonly trust: TrustLabel;\n    readonly retention: RetentionClass;\n    readonly tokens: number;\n    readonly relevance: number;\n}',
+  },
+  {
+    name: 'ContextCompilationRecord',
+    declaration: 'export interface ContextCompilationRecord {\n    readonly digest: string;\n    readonly compilerVersion: string;\n    readonly maxTokens: number | null;\n    readonly tokenEstimate: number;\n    readonly included: readonly ContextCompilationEntry[];\n    readonly omitted: readonly ContextOmission[];\n    readonly conflicts: readonly ContextConflict[];\n}',
   },
   {
     name: 'ContextCompileInput',
@@ -6021,7 +6317,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'CurriculumProposal',
-    declaration: 'export interface CurriculumProposal {\n    id: string;\n    capability: string;\n    task: string;\n    sourceSessions: readonly string[];\n    gists: readonly string[];\n    at: string;\n    state: CurriculumTaskState;\n}',
+    declaration: 'export interface CurriculumProposal {\n    id: string;\n    capability: string;\n    task: string;\n    sourceSessions: readonly string[];\n    gists: readonly string[];\n    antiPattern?: string | null;\n    candidateTest?: string | null;\n    at: string;\n    state: CurriculumTaskState;\n}',
   },
   {
     name: 'CurriculumTaskState',
@@ -6046,6 +6342,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'DefaultRecoveryEngine',
     declaration: 'export class DefaultRecoveryEngine implements RecoveryEngine {\n    constructor(config: RecoveryConfig);\n    classify(input: RecoveryInput): RecoveryDecision;\n}',
+  },
+  {
+    name: 'DefenseObservation',
+    declaration: 'export interface DefenseObservation {\n    defense: GamingDefense;\n    state: DefenseState;\n    evidence: string;\n}',
+  },
+  {
+    name: 'DefenseState',
+    declaration: 'export type DefenseState = \'observed-satisfied\' | \'observed-open\' | \'unobserved\';',
   },
   {
     name: 'DefenseStatus',
@@ -6172,6 +6476,22 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface DomainTableSpec<K extends string = string, V = unknown> {\n    readonly valueSchema: ZodType<V>;\n    readonly __key?: K;\n}',
   },
   {
+    name: 'DreamLedgerAction',
+    declaration: 'export type DreamLedgerAction = \'promote\' | \'rollback\';',
+  },
+  {
+    name: 'DreamLedgerActor',
+    declaration: 'export type DreamLedgerActor = \'dreaming\' | \'operator\';',
+  },
+  {
+    name: 'DreamLedgerEntry',
+    declaration: 'export interface DreamLedgerEntry {\n    id: string;\n    at: string;\n    actor: DreamLedgerActor;\n    action: DreamLedgerAction;\n    evidence: DreamLedgerEvidence;\n    before: readonly DreamPromotion[];\n    after: readonly DreamPromotion[];\n}',
+  },
+  {
+    name: 'DreamLedgerEvidence',
+    declaration: 'export interface DreamLedgerEvidence {\n    promoted: number;\n    merged: number;\n    superseded: number;\n    pruned: number;\n    rollbackOf: string | null;\n}',
+  },
+  {
     name: 'DreamNarrative',
     declaration: 'export interface DreamNarrative {\n    at: string;\n    scanned: number;\n    staged: number;\n    themes: readonly DreamTheme[];\n    promoted: number;\n    pruned: number;\n}',
   },
@@ -6181,15 +6501,39 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'DreamPhaseReport',
-    declaration: 'export interface DreamPhaseReport {\n    phase: DreamPhase;\n    scopeId: string;\n    scanned: number;\n    staged: number;\n    promoted: number;\n    pruned: number;\n}',
+    declaration: 'export interface DreamPhaseReport {\n    phase: DreamPhase;\n    scopeId: string;\n    scanned: number;\n    staged: number;\n    promoted: number;\n    merged: number;\n    superseded: number;\n    pruned: number;\n    refused: readonly DreamRefusal[];\n}',
   },
   {
     name: 'DreamPromotion',
-    declaration: 'export interface DreamPromotion {\n    id: string;\n    statement: string;\n    tool: string | null;\n    score: number;\n    signals: DreamSignals;\n    promotedAt: string;\n}',
+    declaration: 'export interface DreamPromotion {\n    id: string;\n    statement: string;\n    tool: string | null;\n    score: number;\n    signals: DreamSignals;\n    promotedAt: string;\n    evidence: DreamPromotionEvidence;\n    restatements: readonly string[];\n    supersededBy: string | null;\n    supersededAt: string | null;\n}',
+  },
+  {
+    name: 'DreamPromotionEvidence',
+    declaration: 'export interface DreamPromotionEvidence {\n    provenance: DreamProvenance;\n    count: number;\n    sessions: number;\n}',
+  },
+  {
+    name: 'DreamProvenance',
+    declaration: 'export type DreamProvenance = \'attributed\' | \'unattributed\';',
+  },
+  {
+    name: 'DreamRefusal',
+    declaration: 'export interface DreamRefusal {\n    reason: DreamRefusalReason;\n    count: number;\n}',
+  },
+  {
+    name: 'DreamRefusalReason',
+    declaration: 'export type DreamRefusalReason = \'unattributed-provenance\' | \'below-score\' | \'below-recall\' | \'below-diversity\';',
   },
   {
     name: 'DreamReport',
     declaration: 'export interface DreamReport extends Omit<DreamPhaseReport, \'phase\'> {\n    phases: readonly DreamPhaseReport[];\n}',
+  },
+  {
+    name: 'DreamRestored',
+    declaration: 'export interface DreamRestored {\n    id: string;\n    statement: string;\n}',
+  },
+  {
+    name: 'DreamRollbackReport',
+    declaration: 'export interface DreamRollbackReport {\n    at: string;\n    label: string;\n    restored: readonly DreamRestored[];\n    preRollback: string;\n}',
   },
   {
     name: 'DreamSignals',
@@ -6197,7 +6541,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'DreamsRecord',
-    declaration: 'export interface DreamsRecord {\n    narratives: readonly DreamNarrative[];\n    promotions: readonly DreamPromotion[];\n    updatedAt: string;\n}',
+    declaration: 'export interface DreamsRecord {\n    narratives: readonly DreamNarrative[];\n    promotions: readonly DreamPromotion[];\n    ledger: readonly DreamLedgerEntry[];\n    updatedAt: string;\n}',
   },
   {
     name: 'DreamTheme',
@@ -6210,6 +6554,26 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'DshEnvironmentKey',
     declaration: 'export type DshEnvironmentKey = `${typeof DSH_ENV_PREFIX}${string}`;',
+  },
+  {
+    name: 'DutyDecision',
+    declaration: 'export type DutyDecision = \'promotion\' | \'verdict\';',
+  },
+  {
+    name: 'DutyInput',
+    declaration: 'export interface DutyInput {\n    runId: string;\n    role: EvolutionRole;\n    identity: string;\n}',
+  },
+  {
+    name: 'DutyRecord',
+    declaration: 'export interface DutyRecord {\n    runId: string;\n    role: EvolutionRole;\n    identity: string;\n    at: string;\n}',
+  },
+  {
+    name: 'DutyRefusal',
+    declaration: 'export type DutyRefusal = \'unknown-identity\' | \'same-identity\';',
+  },
+  {
+    name: 'DutyVerdict',
+    declaration: 'export type DutyVerdict = {\n    allowed: true;\n} | {\n    allowed: false;\n    refusal: DutyRefusal;\n    reason: string;\n};',
   },
   {
     name: 'DynamicCordisPackage',
@@ -6260,16 +6624,20 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface EncodedImageAttachment {\n    mediaType: ImageMediaType;\n    data: string;\n    name?: string;\n}',
   },
   {
+    name: 'EngineComponent',
+    declaration: 'export type EngineComponent = \'operators\' | \'evaluator\' | \'budget\' | \'routing\';',
+  },
+  {
     name: 'EngineConfig',
     declaration: 'export interface EngineConfig {\n    operators: string;\n    evaluator: string;\n    budget: string;\n    routing: string;\n}',
   },
   {
     name: 'EngineRun',
-    declaration: 'export interface EngineRun extends Omit<EngineRunInput, \'config\'> {\n    config: EngineConfig;\n    at: string;\n}',
+    declaration: 'export interface EngineRun extends Omit<EngineRunInput, \'config\' | \'workflow\'> {\n    config: EngineConfig;\n    workflow: readonly WorkflowStep[];\n    at: string;\n}',
   },
   {
     name: 'EngineRunInput',
-    declaration: 'export interface EngineRunInput {\n    runId: string;\n    taskClass: MetaTaskClass;\n    config: Partial<EngineConfig>;\n    pass: boolean;\n    tokens: number;\n    wallTimeMs: number;\n}',
+    declaration: 'export interface EngineRunInput {\n    runId: string;\n    taskClass: MetaTaskClass;\n    config: Partial<EngineConfig>;\n    workflow?: readonly WorkflowStep[] | undefined;\n    pass: boolean;\n    tokens: number;\n    wallTimeMs: number;\n}',
   },
   {
     name: 'EpisodicEntry',
@@ -6301,11 +6669,11 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'EvaluatorOutcome',
-    declaration: 'export interface EvaluatorOutcome {\n    evaluator: Evaluator;\n    taskClass: TaskClass;\n    verdict: boolean;\n    groundTruth: boolean;\n    independent: boolean;\n}',
+    declaration: 'export interface EvaluatorOutcome {\n    evaluator: Evaluator;\n    taskClass: TaskClass;\n    candidateModel: string;\n    judgeModel: string;\n    verdict: boolean;\n    groundTruth: boolean;\n    independent: boolean;\n}',
   },
   {
     name: 'EvaluatorRun',
-    declaration: 'export interface EvaluatorRun {\n    id: string;\n    skill: string;\n    unanimous: boolean;\n    status: EvaluatorRunStatus;\n    approved: boolean;\n    approving: readonly string[];\n    dissenting: readonly string[];\n    at: string;\n}',
+    declaration: 'export interface EvaluatorRun {\n    id: string;\n    skill: string;\n    unanimous: boolean;\n    status: EvaluatorRunStatus;\n    approved: boolean;\n    approving: readonly string[];\n    dissenting: readonly string[];\n    judgment?: RunJudgment | null | undefined;\n    at: string;\n}',
   },
   {
     name: 'EvaluatorRunInput',
@@ -6317,7 +6685,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'EvaluatorStrategy',
-    declaration: 'export interface EvaluatorStrategy {\n    evaluator: Evaluator;\n    taskClass: TaskClass;\n    samples: number;\n    independentSamples: number;\n    corroborations: number;\n    weight: number;\n    lastAt: string;\n}',
+    declaration: 'export interface EvaluatorStrategy {\n    evaluator: Evaluator;\n    taskClass: TaskClass;\n    samples: number;\n    independentSamples: number;\n    corroborations: number;\n    selfJudgedSamples?: number | undefined;\n    weight: number;\n    lastAt: string;\n}',
   },
   {
     name: 'EvolutionAddContextItemRequest',
@@ -6332,12 +6700,20 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface EvolutionCuratorStatus {\n    mounted: boolean;\n    lastRunAt: string | null;\n    passes: readonly CuratorPassSummary[];\n    cacheHitRate: number | null;\n    skillFailureRate: number | null;\n}',
   },
   {
+    name: 'EvolutionDecisionsApplied',
+    declaration: 'export interface EvolutionDecisionsApplied {\n    scopeId: EvolutionScopeId;\n    sessionId: string;\n    decisions: readonly LessonDecision[];\n    artifacts: readonly LessonArtifact[];\n}',
+  },
+  {
     name: 'EvolutionListStagedRequest',
     declaration: 'export type EvolutionListStagedRequest = EvolutionScopeRequest;',
   },
   {
     name: 'EvolutionMemoryRecord',
-    declaration: 'export interface EvolutionMemoryRecord {\n    instructions: string;\n    agentLessons: readonly LessonArtifact[];\n    userProfile: string;\n    instructionsUpdatedAt: string | null;\n    lessonsUpdatedAt: string | null;\n    profileUpdatedAt: string | null;\n    memoryUpdatedAt: string | null;\n    contextItems: readonly EvolutionContextItem[];\n    outputs: readonly EvolutionOutput[];\n    episodic: readonly EpisodicEntry[];\n    lastExtraction: EvolutionExtraction | null;\n    staged: readonly StagedWrite[];\n    resolutions: readonly StagedResolution[];\n    updatedAt: string;\n}',
+    declaration: 'export interface EvolutionMemoryRecord {\n    instructions: string;\n    agentLessons: readonly LessonArtifact[];\n    userProfile: string;\n    instructionsUpdatedAt: string | null;\n    lessonsUpdatedAt: string | null;\n    profileUpdatedAt: string | null;\n    memoryUpdatedAt: string | null;\n    contextItems: readonly EvolutionContextItem[];\n    outputs: readonly EvolutionOutput[];\n    recalls: readonly MemoryRecall[];\n    episodic: readonly EpisodicEntry[];\n    lastExtraction: EvolutionExtraction | null;\n    staged: readonly StagedWrite[];\n    resolutions: readonly StagedResolution[];\n    updatedAt: string;\n}',
+  },
+  {
+    name: 'EvolutionObjective',
+    declaration: 'export type EvolutionObjective = \'quality\' | \'reliability\' | \'latency\' | \'cost\' | \'memory-footprint\' | \'context-usage\' | \'background-compute\';',
   },
   {
     name: 'EvolutionRebuildMemoryRequest',
@@ -6597,11 +6973,19 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'GraphRecord',
-    declaration: 'export interface GraphRecord {\n    nodes: readonly GraphNode[];\n    edges: readonly GraphEdge[];\n    updatedAt: string;\n}',
+    declaration: 'export interface GraphRecord {\n    nodes: readonly GraphNode[];\n    edges: readonly GraphEdge[];\n    claims: readonly Claim[];\n    updatedAt: string;\n}',
   },
   {
     name: 'GraphTriple',
     declaration: 'export interface GraphTriple {\n    from: string;\n    relation: string;\n    to: string;\n    fromKind?: string | null;\n    toKind?: string | null;\n}',
+  },
+  {
+    name: 'HalvingRound',
+    declaration: 'export interface HalvingRound {\n    round: number;\n    evaluateCount: number;\n    keepCount: number;\n}',
+  },
+  {
+    name: 'HalvingSchedule',
+    declaration: 'export interface HalvingSchedule {\n    entered: number;\n    rounds: readonly HalvingRound[];\n    finalists: number;\n}',
   },
   {
     name: 'HeartbeatReport',
@@ -6678,6 +7062,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'InspectorJsonValue',
     declaration: 'export type InspectorJsonValue = InspectorJsonPrimitive | readonly InspectorJsonValue[] | InspectorJsonObject;',
+  },
+  {
+    name: 'InstructionInput',
+    declaration: 'export interface InstructionInput {\n    operator: MutationOperator;\n    artifactClass: ArtifactClass;\n    instruction: string;\n    reason: string;\n}',
+  },
+  {
+    name: 'InstructionVerdict',
+    declaration: 'export interface InstructionVerdict {\n    operator: MutationOperator;\n    artifactClass: ArtifactClass;\n    accepted: boolean;\n    reason: string;\n}',
   },
   {
     name: 'InvariantFailure',
@@ -6778,6 +7170,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'JsonValue',
     declaration: 'export type JsonValue = null | boolean | number | string | JsonValue[] | {\n    [key: string]: JsonValue;\n};',
+  },
+  {
+    name: 'JudgeCalibration',
+    declaration: 'export interface JudgeCalibration {\n    falseNegativeRate: number;\n    independentlyJudged: number;\n    agreementRate: number;\n}',
   },
   {
     name: 'KernelAttachment',
@@ -6948,6 +7344,18 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface ManualCompactAgentContext extends CompactionAgentContext {\n    runMaintenance<T>(task: (signal: AbortSignal) => Promise<T>): Promise<T>;\n}',
   },
   {
+    name: 'MemoryRecall',
+    declaration: 'export interface MemoryRecall {\n    id: string;\n    itemId: string;\n    at: string;\n    decidedInSessionId: string | null;\n    decidedAt: string | null;\n    outcome: RecallOutcome;\n    outcomeAt: string | null;\n}',
+  },
+  {
+    name: 'MemoryScope',
+    declaration: 'export type MemoryScope = \'session\' | \'workspace\' | \'global\';',
+  },
+  {
+    name: 'MemoryUtility',
+    declaration: 'export interface MemoryUtility {\n    readonly id: string;\n    readonly recalls: number;\n    readonly decidedRecalls: number;\n    readonly gradedRecalls: number;\n    readonly okRecalls: number;\n    readonly utility: number;\n}',
+  },
+  {
     name: 'Message',
     declaration: 'export interface Message {\n    readonly id: MessageId;\n    readonly role: \'system\' | \'user\' | \'assistant\';\n    readonly content: ContentBlock[];\n    readonly source: MessageSource;\n}',
   },
@@ -7044,6 +7452,30 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type MetaTaskClass = string;',
   },
   {
+    name: 'MetricId',
+    declaration: 'export type MetricId = \'capability-gain-per-million-tokens\' | \'capability-gain-per-compute-hour\' | \'learning-velocity\' | \'compute-overhead-ratio\' | \'failure-recurrence\' | \'skill-incremental-utility\' | \'memory-utility\' | \'benchmark-robustness\' | \'regression-debt\' | \'promotion-quality\' | \'rollback-rate\' | \'evaluator-reliability\';',
+  },
+  {
+    name: 'MetricsQuery',
+    declaration: 'export interface MetricsQuery {\n    taskClass?: string;\n    since?: string;\n    until?: string;\n    limit?: number;\n}',
+  },
+  {
+    name: 'MetricsReport',
+    declaration: 'export interface MetricsReport {\n    window: MetricsWindow;\n    northStar: readonly MetricValue[];\n    supporting: readonly MetricValue[];\n}',
+  },
+  {
+    name: 'MetricsWindow',
+    declaration: 'export interface MetricsWindow {\n    taskClass: string | null;\n    runs: number;\n    from: string | null;\n    to: string | null;\n    baselineRuns: number;\n    treatmentRuns: number;\n    baselinePassRate: number | null;\n    treatmentPassRate: number | null;\n}',
+  },
+  {
+    name: 'MetricUnit',
+    declaration: 'export type MetricUnit = \'gain-per-million-tokens\' | \'gain-per-compute-hour\' | \'gain-per-day\' | \'share\' | \'ratio\' | \'count\';',
+  },
+  {
+    name: 'MetricValue',
+    declaration: 'export interface MetricValue {\n    id: MetricId;\n    value: number | null;\n    unit: MetricUnit;\n    inputs: readonly string[];\n    unavailableReason: string | null;\n    caveat: string | null;\n}',
+  },
+  {
     name: 'Migration',
     declaration: 'export interface Migration {\n    migrationId: string;\n    fromIslandId: string;\n    toIslandId: string;\n    candidateId: string;\n    skill: string;\n    reason: MigrationReason;\n    at: string;\n}',
   },
@@ -7054,6 +7486,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'MigrationReason',
     declaration: 'export type MigrationReason = \'schedule\' | \'elite\' | \'diversity\';',
+  },
+  {
+    name: 'MmrSetting',
+    declaration: 'export interface MmrSetting {\n    enabled: boolean;\n    lambda: number;\n}',
   },
   {
     name: 'ModelCatalog',
@@ -7104,6 +7540,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface NoveltyArchiveInput {\n    candidateId: string;\n    skill: string;\n    features: readonly string[];\n}',
   },
   {
+    name: 'ObjectiveReading',
+    declaration: 'export interface ObjectiveReading {\n    objective: EvolutionObjective;\n    unit: ObjectiveUnit;\n    value: number | null;\n    source: string;\n}',
+  },
+  {
+    name: 'ObjectiveUnit',
+    declaration: 'export type ObjectiveUnit = \'share\' | \'milliseconds\' | \'tokens\' | \'bytes\';',
+  },
+  {
     name: 'ObjectJsonSchema',
     declaration: 'export type ObjectJsonSchema = JsonSchemaNode & {\n    type: \'object\';\n};',
   },
@@ -7116,12 +7560,16 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface OneShotSubagentDescriptorData extends SubagentDescriptorBase {\n    readonly mode: \'one-shot\';\n    readonly label?: string;\n}',
   },
   {
+    name: 'OperatorInstruction',
+    declaration: 'export interface OperatorInstruction {\n    operator: MutationOperator;\n    artifactClass: ArtifactClass;\n    instruction: string;\n    reason: string;\n    proposals: number;\n    accepted: number;\n    rejected: number;\n    lastVerdict: string | null;\n    at: string;\n    decidedAt: string | null;\n}',
+  },
+  {
     name: 'OperatorOutcome',
     declaration: 'export interface OperatorOutcome {\n    operator: MutationOperator;\n    artifactClass: ArtifactClass;\n    accepted: boolean;\n    delta: number;\n}',
   },
   {
     name: 'OperatorRanking',
-    declaration: 'export interface OperatorRanking {\n    operator: MutationOperator;\n    attempts: number;\n    acceptanceRate: number;\n    meanDelta: number;\n    score: number;\n    reason: string;\n}',
+    declaration: 'export interface OperatorRanking {\n    operator: MutationOperator;\n    attempts: number;\n    acceptanceRate: number;\n    meanDelta: number;\n    instructionAdjustment: number;\n    score: number;\n    reason: string;\n}',
   },
   {
     name: 'OperatorStats',
@@ -7152,20 +7600,20 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface PolicyContext {\n    readonly action: ActionProposal;\n    readonly capabilities: readonly CapabilityRequest[];\n    readonly undeclared: boolean;\n    readonly sandbox: SandboxExecutionPolicy;\n    readonly parentGrant?: DelegationReceipt;\n}',
   },
   {
-    name: 'PolicyDecision',
-    declaration: 'export interface PolicyDecision {\n    readonly decisionId: PolicyDecisionId;\n    readonly actionId: ActionId;\n    readonly effect: PolicyEffect;\n    readonly matchedRuleIndex: number | null;\n    readonly capabilities: readonly CapabilityRequest[];\n    readonly reasons: readonly string[];\n}',
-  },
-  {
-    name: 'PolicyDecisionId',
-    declaration: 'export type PolicyDecisionId = Branded<\'PolicyDecisionId\'>;',
-  },
-  {
-    name: 'PolicyEffect',
-    declaration: 'export type PolicyEffect = \'allow\' | \'ask\' | \'deny\';',
-  },
-  {
     name: 'PolicyEngine',
     declaration: 'export interface PolicyEngine {\n    evaluate(context: PolicyContext): PolicyDecision;\n}',
+  },
+  {
+    name: 'PooledCandidate',
+    declaration: 'export interface PooledCandidate extends PooledCandidateInput {\n    batchId: string;\n    taskClass: BudgetTaskClass;\n    at: string;\n}',
+  },
+  {
+    name: 'PooledCandidateInput',
+    declaration: 'export interface PooledCandidateInput {\n    candidateId: string;\n    runs: number;\n    passes: number;\n    novelty: number;\n}',
+  },
+  {
+    name: 'PoolInput',
+    declaration: 'export interface PoolInput {\n    batchId: string;\n    taskClass: BudgetTaskClass;\n    candidates: readonly PooledCandidateInput[];\n}',
   },
   {
     name: 'PopulationCandidate',
@@ -7189,11 +7637,11 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'PrecomputeArtifact',
-    declaration: 'export interface PrecomputeArtifact {\n    artifactId: string;\n    taskId: string;\n    kind: PrecomputeKind;\n    summary: string;\n    offlineCostTokens: number;\n    hits: number;\n    savedTokens: number;\n    at: string;\n}',
+    declaration: 'export interface PrecomputeArtifact {\n    artifactId: string;\n    taskId: string;\n    kind: PrecomputeKind;\n    summary: string;\n    offlineCostTokens: number;\n    decisionReason: string | null;\n    hits: number;\n    savedTokens: number;\n    servedThroughAt: string | null;\n    at: string;\n}',
   },
   {
     name: 'PrecomputeInput',
-    declaration: 'export interface PrecomputeInput {\n    artifactId: string;\n    taskId: string;\n    kind: PrecomputeKind;\n    summary: string;\n    offlineCostTokens: number;\n}',
+    declaration: 'export interface PrecomputeInput {\n    artifactId: string;\n    taskId: string;\n    kind: PrecomputeKind;\n    summary: string;\n    offlineCostTokens: number;\n    reason?: string | undefined;\n}',
   },
   {
     name: 'PrecomputeKind',
@@ -7320,6 +7768,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface PurgeReport {\n    at: string;\n    dryRun: boolean;\n    purged: PurgedSkill[];\n    skippedPinned: number;\n}',
   },
   {
+    name: 'QueryExpansion',
+    declaration: 'export type QueryExpansion = \'none\' | \'graph-entities\' | \'synonyms\';',
+  },
+  {
     name: 'ReadFileLine',
     declaration: 'export interface ReadFileLine {\n    number: number;\n    text: string;\n}',
   },
@@ -7334,6 +7786,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'ReasoningEffortId',
     declaration: 'export type ReasoningEffortId = Branded<\'ReasoningEffortId\'>;',
+  },
+  {
+    name: 'RecallOutcome',
+    declaration: 'export type RecallOutcome = \'ok\' | \'failed\' | null;',
+  },
+  {
+    name: 'RecordedRecall',
+    declaration: 'export interface RecordedRecall extends MemoryRecall {\n    scopeId: EvolutionScopeId;\n}',
   },
   {
     name: 'RecoveryAction',
@@ -7354,6 +7814,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'RecoveryInput',
     declaration: 'export interface RecoveryInput {\n    readonly failure: FailureRecord;\n    readonly attempts: number;\n    readonly maxAttemptsPerAction: number;\n}',
+  },
+  {
+    name: 'RecurrenceSource',
+    declaration: 'export type RecurrenceSource = \'skill\' | \'route\';',
   },
   {
     name: 'RedactedSecret',
@@ -7392,8 +7856,24 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface RemoteEventHostInfo {\n    readonly home: string;\n}',
   },
   {
+    name: 'ReplayArtifact',
+    declaration: 'export interface ReplayArtifact {\n    id: string;\n    version: string;\n    body: string;\n}',
+  },
+  {
+    name: 'ReplayCallOutcome',
+    declaration: 'export interface ReplayCallOutcome {\n    tool: string;\n    source: \'snapshot\' | \'artifact\' | \'missing\';\n    output: string | null;\n}',
+  },
+  {
     name: 'ReplayEnvelope',
     declaration: 'export interface ReplayEnvelope {\n    response: unknown;\n    blocks?: readonly unknown[];\n}',
+  },
+  {
+    name: 'ReplayReport',
+    declaration: 'export interface ReplayReport {\n    sessionId: string;\n    artifact: string;\n    baseline: string;\n    candidate: string;\n    steps: readonly ReplayStepReport[];\n    snapshotSteps: readonly string[];\n    changedSteps: readonly string[];\n    unreplayableSteps: readonly string[];\n}',
+  },
+  {
+    name: 'ReplayStepReport',
+    declaration: 'export interface ReplayStepReport {\n    turn: number;\n    step: number;\n    context: string | null;\n    status: \'replayed\' | \'unreplayable\';\n    unreplayableTools: readonly string[];\n    baseline: readonly ReplayCallOutcome[];\n    candidate: readonly ReplayCallOutcome[];\n    differs: boolean;\n}',
   },
   {
     name: 'RequestContext',
@@ -7414,6 +7894,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'RequestRunOutcome',
     declaration: 'export type RequestRunOutcome = \'approved\' | \'completed\' | \'rejected\' | \'cancelled\' | \'failed\';',
+  },
+  {
+    name: 'Reranker',
+    declaration: 'export type Reranker = \'none\' | \'cross-encoder\';',
   },
   {
     name: 'ResolvedAlwaysRetryPolicy',
@@ -7456,6 +7940,38 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type RetentionClass = \'required\' | \'compressible\';',
   },
   {
+    name: 'RetrievalAttribution',
+    declaration: 'export interface RetrievalAttribution {\n    configKey: string;\n    configuration: RetrievalConfiguration;\n    sessionId: string;\n    at: string;\n}',
+  },
+  {
+    name: 'RetrievalAttributionInput',
+    declaration: 'export interface RetrievalAttributionInput {\n    configuration: RetrievalConfiguration;\n    sessionId: string;\n}',
+  },
+  {
+    name: 'RetrievalConfiguration',
+    declaration: 'export interface RetrievalConfiguration {\n    source: RetrievalSource;\n    queryExpansion: QueryExpansion;\n    weights: RetrievalWeights;\n    reranker: Reranker;\n    mmr: MmrSetting;\n    memoryScope: MemoryScope;\n    graphDepth: number;\n    threshold: number;\n}',
+  },
+  {
+    name: 'RetrievalEffectiveness',
+    declaration: 'export interface RetrievalEffectiveness {\n    configKey: string;\n    configuration: RetrievalConfiguration;\n    taskClass: RetrievalTaskClass;\n    samples: number;\n    passes: number;\n    successRate: number;\n    lastAt: string;\n}',
+  },
+  {
+    name: 'RetrievalRankingEntry',
+    declaration: 'export interface RetrievalRankingEntry {\n    configKey: string;\n    configuration: RetrievalConfiguration;\n    samples: number;\n    passes: number;\n    successRate: number;\n    score: number;\n    reason: string;\n}',
+  },
+  {
+    name: 'RetrievalTaskClass',
+    declaration: 'export type RetrievalTaskClass = string;',
+  },
+  {
+    name: 'RetrievalWeights',
+    declaration: 'export interface RetrievalWeights {\n    vector: number;\n    graph: number;\n}',
+  },
+  {
+    name: 'RoleConflict',
+    declaration: 'export interface RoleConflict {\n    route: ModelRoute;\n    producing: EvolutionRole[];\n    judging: EvolutionRole[];\n    pinned: boolean;\n    detail: string;\n}',
+  },
+  {
     name: 'RollbackOptions',
     declaration: 'export interface RollbackOptions {\n    now?: number | undefined;\n}',
   },
@@ -7466,6 +7982,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'RollbackRestored',
     declaration: 'export interface RollbackRestored {\n    name: string;\n    from: SkillLifecycleState;\n    to: SkillLifecycleState;\n}',
+  },
+  {
+    name: 'RouteDisagreement',
+    declaration: 'export interface RouteDisagreement {\n    taskClass: RouterTaskClass;\n    role: RoutingRole;\n    leader: RouteRef;\n    trailer: RouteRef;\n    leaderPassRate: number;\n    trailerPassRate: number;\n    gap: number;\n    samples: readonly [\n        number,\n        number\n    ];\n    detail: string;\n}',
   },
   {
     name: 'RouteEffectiveness',
@@ -7496,6 +8016,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface RouteRankingEntry {\n    provider: string;\n    model: string;\n    samples: number;\n    passRate: number;\n    meanTokens: number;\n    meanWallTimeMs: number;\n    score: number;\n    reason: string;\n}',
   },
   {
+    name: 'RouteRef',
+    declaration: 'export interface RouteRef {\n    provider: string;\n    model: string;\n}',
+  },
+  {
     name: 'RouteRow',
     declaration: 'export interface RouteRow {\n    role: EvolutionRole;\n    provider: string;\n    model: string;\n    origin: RouteOrigin;\n    at: string;\n}',
   },
@@ -7514,6 +8038,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'RunId',
     declaration: 'export type RunId = Branded<\'RunId\'>;',
+  },
+  {
+    name: 'RunJudgment',
+    declaration: 'export interface RunJudgment {\n    agrees: boolean;\n    independent: boolean;\n    at: string;\n}',
+  },
+  {
+    name: 'RunJudgmentInput',
+    declaration: 'export interface RunJudgmentInput {\n    agrees: boolean;\n    independent: boolean;\n}',
   },
   {
     name: 'RunnerFailureRule',
@@ -8249,7 +8781,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SkillLifecycleState',
-    declaration: 'export type SkillLifecycleState = \'active\' | \'stale\' | \'archived\';',
+    declaration: 'export type SkillLifecycleState = \'active\' | \'suspect\' | \'stale\' | \'archived\';',
   },
   {
     name: 'SkillListRequest',
@@ -8301,7 +8833,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SkillSummary',
-    declaration: 'export interface SkillSummary {\n    readonly path?: string;\n    readonly name: string;\n    readonly description: string;\n    readonly whenToUse?: string;\n    readonly requires?: readonly string[];\n    readonly conflictsWith?: readonly string[];\n    readonly capabilities?: readonly string[];\n    readonly version?: string;\n    readonly testScenarios?: readonly string[];\n    readonly invocation: SkillInvocationPolicy;\n    readonly source: SkillSource;\n    readonly provider: string;\n    readonly resourceBase?: SkillResourceBase;\n}',
+    declaration: 'export interface SkillSummary {\n    readonly path?: string;\n    readonly name: string;\n    readonly description: string;\n    readonly whenToUse?: string;\n    readonly requires?: readonly string[];\n    readonly conflictsWith?: readonly string[];\n    readonly compatibleWith?: readonly string[];\n    readonly composableWith?: readonly string[];\n    readonly capabilities?: readonly string[];\n    readonly inputs?: readonly string[];\n    readonly outputs?: readonly string[];\n    readonly derivedFrom?: readonly string[];\n    readonly version?: string;\n    readonly testScenarios?: readonly string[];\n    readonly invocation: SkillInvocationPolicy;\n    readonly source: SkillSource;\n    readonly provider: string;\n    readonly resourceBase?: SkillResourceBase;\n}',
   },
   {
     name: 'SkillTrustFailure',
@@ -8313,7 +8845,11 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SkillUsageRecord',
-    declaration: 'export interface SkillUsageRecord {\n    useCount: number;\n    viewCount: number;\n    patchCount: number;\n    lastUsedAt: string | null;\n    failureCount?: number;\n    lastOutcome?: \'ok\' | \'failed\';\n    sessionIds: readonly string[];\n    lastViewedAt: string | null;\n    lastPatchedAt: string | null;\n    createdAt: string;\n    state: SkillLifecycleState;\n    pinned: boolean;\n    createdBy: SkillCreatedBy;\n    absorbedInto: string | null;\n    archivedAt: string | null;\n    trust: SkillTrustState;\n    trustFailures: number;\n    trustObservedSessions: readonly string[];\n    trustAnchorSessionId: string | null;\n    lastTrustFailure: SkillTrustFailure | null;\n    revision: number;\n    contentSha: string | null;\n    parentRevisionSha: string | null;\n}',
+    declaration: 'export interface SkillUsageRecord {\n    useCount: number;\n    viewCount: number;\n    patchCount: number;\n    lastUsedAt: string | null;\n    failureCount?: number;\n    lastOutcome?: \'ok\' | \'failed\';\n    sessionIds: readonly string[];\n    sessionOutcomes: readonly SkillSessionOutcome[];\n    lastViewedAt: string | null;\n    lastPatchedAt: string | null;\n    createdAt: string;\n    state: SkillLifecycleState;\n    pinned: boolean;\n    createdBy: SkillCreatedBy;\n    absorbedInto: string | null;\n    archivedAt: string | null;\n    suspectAt: string | null;\n    trust: SkillTrustState;\n    trustFailures: number;\n    trustObservedSessions: readonly string[];\n    trustAnchorSessionId: string | null;\n    lastTrustFailure: SkillTrustFailure | null;\n    revision: number;\n    contentSha: string | null;\n    parentRevisionSha: string | null;\n}',
+  },
+  {
+    name: 'SkillUtility',
+    declaration: 'export interface SkillUtility {\n    readonly uses: number;\n    readonly assistedTasks: number;\n    readonly successfulTasks: number;\n    readonly incrementalGain: number | null;\n    readonly costOverhead: number | null;\n}',
   },
   {
     name: 'SkillVersion',
@@ -8337,7 +8873,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SpendInput',
-    declaration: 'export interface SpendInput {\n    tokens: number;\n    wallTimeMs: number;\n    rollouts: number;\n}',
+    declaration: 'export interface SpendInput {\n    tokens: number;\n    wallTimeMs: number;\n    rollouts: number;\n    cost?: number | undefined;\n    parallelism?: number | undefined;\n    backgroundTokens?: number | undefined;\n}',
   },
   {
     name: 'SpendRecord',
@@ -8409,7 +8945,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'StrategyRanking',
-    declaration: 'export interface StrategyRanking {\n    evaluator: Evaluator;\n    samples: number;\n    independentSamples: number;\n    corroborations: number;\n    weight: number;\n    reason: string;\n}',
+    declaration: 'export interface StrategyRanking {\n    evaluator: Evaluator;\n    samples: number;\n    independentSamples: number;\n    corroborations: number;\n    selfJudgedSamples?: number | undefined;\n    promotionReview?: {\n        provider: string;\n        model: string;\n    } | null;\n    weight: number;\n    reason: string;\n}',
   },
   {
     name: 'StreamChunk',
@@ -8616,6 +9152,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type TaskId = Branded<\'TaskId\'>;',
   },
   {
+    name: 'TaskOccurrence',
+    declaration: 'export interface TaskOccurrence {\n    source: RecurrenceSource;\n    taskClass: string;\n    tokens: number;\n    at: string;\n}',
+  },
+  {
     name: 'TaskStatus',
     declaration: 'export type TaskStatus = \'intake\' | \'understanding\' | \'retrieving\' | \'planning\' | \'ready\' | \'executing\' | \'observing\' | \'verifying\' | \'recovering\' | \'awaiting-approval\' | \'awaiting-user\' | \'paused\' | \'completed\' | \'failed\' | \'cancelled\';',
   },
@@ -8742,6 +9282,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'TerminalWaitReason',
     declaration: 'export type TerminalWaitReason = \'stdin_read\' | \'inferred_idle\' | \'timeout\' | \'session_exit\';',
+  },
+  {
+    name: 'TodoItem',
+    declaration: 'export interface TodoItem {\n    content: string;\n    status: \'pending\' | \'in_progress\' | \'completed\';\n}',
   },
   {
     name: 'TokenMeasurement',
@@ -8888,20 +9432,32 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface TraceFailure {\n    callId: string;\n    tool: string;\n    message: string;\n    at: string;\n    causes: readonly TraceCause[];\n}',
   },
   {
+    name: 'TraceFeedback',
+    declaration: 'export interface TraceFeedback extends FeedbackRecord {\n    at: string;\n}',
+  },
+  {
     name: 'TraceRecord',
-    declaration: 'export interface TraceRecord {\n    sessionId: string;\n    updatedAt: string | null;\n    turnCount: number;\n    turns: readonly TraceTurn[];\n    usage: TokenUsage | null;\n}',
+    declaration: 'export interface TraceRecord {\n    sessionId: string;\n    updatedAt: string | null;\n    turnCount: number;\n    turns: readonly TraceTurn[];\n    usage: TokenUsage | null;\n    evaluations: readonly VerificationResult[];\n    feedback: readonly TraceFeedback[];\n}',
+  },
+  {
+    name: 'TraceRetrieval',
+    declaration: 'export interface TraceRetrieval {\n    callId: string;\n    tool: string;\n    target: string | null;\n    ok: boolean;\n}',
   },
   {
     name: 'TraceStep',
-    declaration: 'export interface TraceStep {\n    turn: number;\n    step: number;\n    startedAt: string;\n    finishedAt: string | null;\n    interrupted: boolean;\n    retries: number;\n    usage: TokenUsage | null;\n    calls: readonly TraceToolCall[];\n    failures: number;\n}',
+    declaration: 'export interface TraceStep {\n    turn: number;\n    step: number;\n    startedAt: string;\n    finishedAt: string | null;\n    interrupted: boolean;\n    retries: number;\n    usage: TokenUsage | null;\n    context: ContextCompilationRecord | null;\n    calls: readonly TraceToolCall[];\n    failures: number;\n}',
+  },
+  {
+    name: 'TraceSubgoal',
+    declaration: 'export interface TraceSubgoal {\n    content: string;\n    status: TodoItem[\'status\'] | null;\n}',
   },
   {
     name: 'TraceToolCall',
-    declaration: 'export interface TraceToolCall {\n    callId: string;\n    name: string;\n    ok: boolean;\n    errorName: string | null;\n    errorCode: string | null;\n    message: string | null;\n    at: string;\n}',
+    declaration: 'export interface TraceToolCall {\n    callId: string;\n    name: string;\n    ok: boolean;\n    errorName: string | null;\n    errorCode: string | null;\n    message: string | null;\n    snapshot: string | null;\n    at: string;\n}',
   },
   {
     name: 'TraceTurn',
-    declaration: 'export interface TraceTurn {\n    turn: number;\n    startedAt: string;\n    endedAt: string | null;\n    endReason: string | null;\n    latencyMs: number | null;\n    request: string | null;\n    steps: readonly TraceStep[];\n    failures: readonly TraceFailure[];\n}',
+    declaration: 'export interface TraceTurn {\n    turn: number;\n    startedAt: string;\n    endedAt: string | null;\n    endReason: string | null;\n    latencyMs: number | null;\n    request: string | null;\n    subgoals: readonly TraceSubgoal[] | null;\n    retrievals: readonly TraceRetrieval[];\n    finalAnswer: string | null;\n    steps: readonly TraceStep[];\n    failures: readonly TraceFailure[];\n}',
   },
   {
     name: 'TrajectoryExportOptions',
@@ -9080,6 +9636,34 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface VerifiedWebhookDelivery<K extends string = string> {\n    readonly kind: K;\n    readonly source: WebhookSourceId;\n    readonly deliveryId: WebhookDeliveryId;\n    readonly event: WebhookEventOf<K>;\n    readonly receivedAt: number;\n}',
   },
   {
+    name: 'VerifierJudgment',
+    declaration: 'export interface VerifierJudgment {\n    readonly status: VerifierStatus;\n    readonly reason: string;\n}',
+  },
+  {
+    name: 'VerifierLevel',
+    declaration: 'export type VerifierLevel = 0 | 1 | 2 | 3 | 4;',
+  },
+  {
+    name: 'VerifierRequest',
+    declaration: 'export interface VerifierRequest {\n    readonly name: string;\n    readonly body: string;\n    readonly simulation?: VerifierSeam | undefined;\n    readonly evaluator?: VerifierSeam | undefined;\n    readonly review?: VerifierSeam | undefined;\n}',
+  },
+  {
+    name: 'VerifierRungResult',
+    declaration: 'export interface VerifierRungResult extends VerifierJudgment {\n    readonly level: VerifierLevel;\n}',
+  },
+  {
+    name: 'VerifierSeam',
+    declaration: 'export type VerifierSeam = () => Promise<VerifierJudgment>;',
+  },
+  {
+    name: 'VerifierStatus',
+    declaration: 'export type VerifierStatus = \'passed\' | \'failed\' | \'abstained\';',
+  },
+  {
+    name: 'VerifierVerdict',
+    declaration: 'export type VerifierVerdict = {\n    readonly name: string;\n    readonly status: \'passed\' | \'failed\';\n    readonly decidedBy: VerifierLevel;\n    readonly reason: string;\n    readonly rungs: readonly VerifierRungResult[];\n} | {\n    readonly name: string;\n    readonly status: \'abstained\';\n    readonly decidedBy: null;\n    readonly reason: string;\n    readonly rungs: readonly VerifierRungResult[];\n};',
+  },
+  {
     name: 'WebBootBatch',
     declaration: 'export interface WebBootBatch {\n    phase: WebBootBatchPhase;\n    url: string;\n    rev: string;\n    entries: string[];\n}',
   },
@@ -9230,6 +9814,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'WorkflowStartRequest',
     declaration: 'export interface WorkflowStartRequest {\n    script: string;\n    meta: WorkflowMeta;\n    args?: unknown;\n    subagentProvider?: string;\n    maxTotalAgents?: number;\n    parent: Agent;\n    signal?: AbortSignal;\n}',
+  },
+  {
+    name: 'WorkflowStep',
+    declaration: 'export interface WorkflowStep {\n    component: EngineComponent;\n    choice: string;\n}',
   },
   {
     name: 'WorkflowStopReason',

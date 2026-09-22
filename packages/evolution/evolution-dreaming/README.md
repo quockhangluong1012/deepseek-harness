@@ -1,5 +1,5 @@
 ---
-description: "Three-phase dreaming consolidation: scores recorded failures with the six-signal composite and promotes qualified candidates into durable per-scope dreams (ctx.evolutionDreaming)."
+description: "Three-phase dreaming consolidation: scores recorded failures with the six-signal composite and promotes attributed, gated, deduplicated narratives into durable per-scope dreams (ctx.evolutionDreaming)."
 kind: "package-reference"
 ---
 
@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Turn a scope's recorded failures into durable memory in three sleep-like phases: Light deduplicates the failures and episodic notes it gathers, REM derives the themes they share into a narrative, and Deep scores every candidate with the six-signal composite, promoting only those clearing all three gates. One command or the idle heartbeat runs the cycle, and `/dream <phase>` runs a phase alone for diagnosis. Weights are fixed; thresholds, cadence, and retention are configuration. Promotions are durable but nothing reads them back into model context yet, so choose it to consolidate, not to recall.
+Turn a scope's recorded failures into durable memory in three sleep phases: Light deduplicates gathered failures and episodic notes, REM derives shared themes into a narrative, and Deep scores candidates on the six-signal composite, admitting only attributable evidence clearing every threshold. Candidates restating a held narrative fold in; correcting ones retire the predecessor; promotions keep their preimage, so rollback restores it. One command or the idle heartbeat runs it; `/dream <phase>` runs one phase for diagnosis. Weights are fixed; thresholds, cadence, and retention are configurable. Promotions are durable but unread in model context: mount to consolidate, not recall.
 
 ## Table of Contents
 
@@ -39,10 +39,13 @@ Mount it next to the feedback store and, for the automatic cycle, the heartbeat:
 
 ```ts
 await ctx.evolutionDreaming.dream(scope, sessionIds)   // light → REM → deep
-ctx.evolutionDreaming.read(scope)                      // narratives and promotions
+ctx.evolutionDreaming.read(scope)                      // narratives, promotions, ledger
+ctx.evolutionDreaming.promotions(scope)                // only the narratives that still answer
+ctx.evolutionDreaming.ledger(scope)                    // the passes a rollback can name
+await ctx.evolutionDreaming.rollback(scope, entryId)   // restore what one pass replaced
 ```
 
-`run(phase, scope, sessionIds, now?)` runs one phase for diagnosis; `dream(…)` runs the whole cycle; `dreamAll()` walks every workspace the registry knows and is what the heartbeat task calls.
+`run(phase, scope, sessionIds, now?)` runs one phase for diagnosis; `dream(…)` runs the whole cycle; `dreamAll()` walks every workspace the registry knows and is what the heartbeat task calls. `promotions(scope)` answers with the narratives a correction has not retired, and `rollback(scope, entryId)` restores the promotions array the ledger entry `entryId` replaced.
 
 At the prompt, `/dream` runs the cycle for the invoking scope and `/dream <phase>` runs one phase, both over the sessions the workspace owns.
 
@@ -50,7 +53,7 @@ At the prompt, `/dream` runs the cycle for the invoking scope and `/dream <phase
 
 | Field | Default | Meaning |
 |---|---|---|
-| `minScore` | `0.65` | Composite a candidate must reach to be promoted |
+| `minScore` | `0.65` | Composite a candidate must reach to be admitted |
 | `minRecallCount` | `3` | Sightings a candidate must reach |
 | `minUniqueQueries` | `2` | Distinct sessions a candidate must appear in |
 | `staleAfterDays` | `30` | Days a promotion stays durable without being seen again |
@@ -59,6 +62,10 @@ At the prompt, `/dream` runs the cycle for the invoking scope and `/dream <phase
 | `maxNarratives` | `20` | Narratives retained per scope |
 | `maxPromotions` | `200` | Promotions retained per scope |
 | `maxCandidates` | `500` | Candidates one cycle scores |
+| `mergeOverlap` | `0.6` | Concept overlap at or above which a candidate restates a narrative the scope holds |
+| `supersedeOverlap` | `0.3` | Lower overlap at or above which a candidate corrects the narrative it shares a tool with |
+| `maxRestatements` | `5` | Statements one narrative retains as the restatements it absorbed |
+| `maxLedgerEntries` | `10` | Promotion passes retained per scope for rollback |
 
 The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-evolution-dreaming) is the exhaustive source for every accepted field.
 
@@ -83,9 +90,31 @@ Each dimension is normalized to `0..1` before weighting, so no signal can domina
 | Integration | 0.10 | Days between first and last sighting, full at a week |
 | Concept richness | 0.06 | Distinct words, full at twelve |
 
+### Which evidence may promote
+
+A candidate gathers sightings from two sources, and only one of them can vouch for it:
+
+- **Attributed** — the feedback seam's aggregate of failing `tool/result` events. The harness watched the call and its result as they were delivered, so the recorded message carries the tool and the session beside it, and the evidence names where it came from.
+- **Unattributed** — an episodic note from the memory store's daily log. That tier records a note's text, its day, and its instant, and nothing that identifies who wrote it: a model extraction, the user, and a system notice read alike. A candidate resting only on such sightings is refused by name (`unattributed-provenance`) whatever it scores, because no gate can vouch for text whose source the store does not record.
+
+One observed sighting vouches for the candidate it folds into, so an episodic note that restates a recorded failure adds to that failure's evidence without ever being able to promote on its own. The gate's decision is a pure rule with its inputs recorded: each admitted narrative keeps the provenance and the counts the gate judged, and each pass reports the candidates it refused by the named gate that refused them.
+
+### Merge and supersede
+
+A narrative's identity is its normalized statement, and the statement never changes: a corrected statement is a second narrative, not an edit. A candidate that clears the gate is compared against the narratives the scope still answers with, and against no other tool's, because two failures of different tools are two subjects however alike their wording. Concept overlap, the same lexical measure the relevance signal reads, decides what it is:
+
+- at or above `mergeOverlap` it restates that narrative, so it folds into it and the retained wordings are listed on the narrative — the durable record collects no near-duplicates, and the canonical statement, its promotion instant, and its evidence stay put;
+- between `supersedeOverlap` and `mergeOverlap` it corrects it: a new narrative answers, and the predecessor is marked with the identity of the narrative that replaced it and when. The predecessor keeps its place and its evidence and answers no query, which is exactly what a retired claim does in the claim graph.
+
+An identity the record already answers to — the canonical statement itself, or a wording it absorbed — is nothing to write. Every candidate is related against the narratives the same pass has already written, so two restatements arriving together produce one narrative.
+
 ### Phase separation
 
-Only the deep phase writes durable memory. Light and REM may run on their own for inspection without changing what the scope has learned, and the automatic cycle runs all three in order. Episodic notes re-stage while the memory retention window keeps them — the deep phase's promoted set already refuses a second promotion, exactly as it does for failures the feedback seam reports again — so a repeated note is re-scored with decayed recency rather than tracked as consumed. Promotions live in the plugin's own domain, never in the model-owned lessons document, so two writers never contend for one document.
+Only the deep phase writes durable memory. Light and REM may run on their own for inspection without changing what the scope has learned, and the automatic cycle runs all three in order. Episodic notes re-stage while the memory retention window keeps them, so a note is re-scored with decayed recency rather than tracked as consumed. Promotions live in the plugin's own domain, never in the model-owned lessons document, so two writers never contend for one document.
+
+### Ledger and rollback
+
+Every pass that changes the promotions writes one ledger entry, and the entry holds the promotions array the pass replaced as its preimage together with what it installed. The record is its own blob store, so a preimage cannot go missing between the write and the rollback that reads it, and the entry's evidence records what the pass did — added, folded, retired, dropped — for audit. `rollback(scope, entryId)` fails closed on an unknown identity before anything is written, restores the preimage exactly, and ledgers its own entry, which makes the rollback as reversible as the pass it undid. The ledger is bounded by `maxLedgerEntries`, newest kept, so a long-lived scope keeps a rollback window rather than every pass it ever ran.
 
 ### Failure and recovery
 
@@ -100,14 +129,15 @@ Invalid records fail the domain open loudly: a dropped promotion would silently 
 
 - [`dsh-evolution-feedback`](../evolution-feedback/README.md) — the recorded failures this cycle consumes.
 - [`dsh-evolution-heartbeat`](../evolution-heartbeat/README.md) — the idle-triggered scheduler that drives it.
-- [Evolutionary Harness specification](../../../specs/evolutionary-harness.spec.md) — the behaviour contract behind the self-learning family.
+- [`dsh-evolution-curator`](../evolution-curator/README.md) — the ledger and rollback shape this package follows.
+- [Evolutionary Harness subsystem](../../../docs/subsystems/evolutionary-harness.md) — the behaviour contract behind the self-learning family.
 
 -----
 
 <a id="model-experience"></a>
 ## Model Experience
 
-None, as the cycle adds no content: it scores and promotes observations the feedback seam already recorded, and no prompt section, tool schema, or request carries its output yet.
+None, as the cycle adds no content: it scores, gates, folds, retires, and ledgers observations the feedback seam already recorded, and no prompt section, tool schema, or request carries its output yet. No rule on the promotion path calls a model.
 
 #### KV Cache effect
 
@@ -117,8 +147,11 @@ None: the cycle makes no model call, so it cannot invalidate provider cache reus
 
 <a id="known-limitations-and-deferred-work"></a>
 
+- **The read half is deferred** — nothing injects a promoted dream into model context. The one consumer that puts scope memory in front of a model is `dsh-evolution-memory-context`, which builds its brief from the memory store's curated families under its own byte budget and digest contract, and a dream is not one of those families: wiring it in changes another package's prompt surface and needs a logged session event for the injected text. Until that lands, `promotions(scope)` is the answering seam a consumer would call, and the statements it returns restate failures the transcript and the lessons family already carry.
+- **The relation rule is lexical** — restatement and correction are decided by shared words, so a paraphrase without shared vocabulary is a new narrative and a correction phrased with the original's words can fold. An embedding provider or a declared relation from the writer would decide both.
 - **Relevance is lexical** — the signal compares concepts as words. A semantic comparison through an embedding provider would rank candidates whose wording differs more strictly.
-- **Promotions are a dead end until read** — nothing injects a promoted dream into model context; the record is durable but not yet recalled.
+- **A fold keeps the canonical statement, not the better wording** — the first narrative promoted answers for every restatement folded into it, even when a later wording described the failure better.
+- **A fold does not reset the decay clock** — `staleAfterDays` measures from the promotion instant, so a narrative older than the window can absorb a restatement and be dropped by the same pass. A merge after a long silence is better served by the failure being staged again, which promotes a fresh narrative.
 - **Heartbeat cadence is fixed per deployment** — one `intervalHours` applies to every scope.
 - **Machine-local only** — dreams live under `$DSH_HOME`, never inside the project directory.
 

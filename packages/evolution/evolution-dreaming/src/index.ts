@@ -5,8 +5,12 @@
  * Light gathers failure observations and stages what survives deduplication.
  * REM summarizes the staged candidates as themes and writes the narrative.
  * Deep is the only phase that writes durable memory: it scores every candidate
- * with the six-signal composite, promotes those that clear all three gates, and
- * drops promotions the decay rule has outlived.
+ * with the six-signal composite, admits those that clear every gate and whose
+ * evidence it can attribute, folds a restatement into the narrative it
+ * restates, retires the predecessor a correction replaces, and drops
+ * promotions the decay rule has outlived. Every promotion write keeps its
+ * preimage in the scope's ledger, so {@link EvolutionDreaming.rollback}
+ * restores what the pass replaced.
  *
  * The cycle consumes the feedback seam and publishes into its own domain, so a
  * scope's promoted dreams are never a second writer on the model-owned lessons
@@ -14,6 +18,7 @@
  * @module @deepseek-ai/dsh-evolution-dreaming
  */
 
+import { randomUUID } from 'node:crypto'
 import { Context, Service } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type { KvTable } from '@deepseek-ai/dsh-storage-domain'
@@ -23,21 +28,33 @@ import type {} from '@deepseek-ai/dsh-evolution-memory'
 import type {} from '@deepseek-ai/dsh-workspace'
 import type { EvolutionScopeId } from '@deepseek-ai/dsh-evolution-memory'
 import { storageKey } from '@deepseek-ai/dsh-evolution-memory'
-import { countConcepts, scoreCandidate } from './signals.ts'
+import { conceptOverlap, countConcepts, scoreCandidate } from './signals.ts'
+import {
+  decidePromotion,
+  evolveNarratives,
+  mergeProvenance,
+  narrativeId,
+} from './narrative.ts'
+import type { QualifiedCandidate } from './narrative.ts'
 import { dreamsDomainSpec } from './spec.ts'
 import type {
   DreamCandidate,
+  DreamLedgerEntry,
   DreamNarrative,
   DreamPhase,
   DreamPhaseReport,
   DreamPromotion,
+  DreamProvenance,
+  DreamRefusalReason,
   DreamReport,
+  DreamRollbackReport,
   DreamsRecord,
 } from './types.ts'
 
 export type * from './types.ts'
-export { DREAM_WEIGHTS, FREQUENCY_HALF_POINT, countConcepts, scoreCandidate } from './signals.ts'
+export { DREAM_WEIGHTS, FREQUENCY_HALF_POINT, conceptOverlap, countConcepts, scoreCandidate } from './signals.ts'
 export type { CandidateEvidence, DreamSignals } from './signals.ts'
+export { narrativeId } from './narrative.ts'
 export { dreamsDomainSpec, dreamsRecordSchema } from './spec.ts'
 
 /** Heartbeat task name carrying the automatic cycle. */
@@ -70,6 +87,14 @@ export interface Config {
   maxPromotions?: number
   /** Candidates one cycle scores. */
   maxCandidates?: number
+  /** Concept overlap at or above which a candidate restates a narrative the scope holds. */
+  mergeOverlap?: number
+  /** Lower overlap at or above which a candidate corrects the narrative it shares a tool with. */
+  supersedeOverlap?: number
+  /** Statements one narrative retains as the restatements it absorbed. */
+  maxRestatements?: number
+  /** Promotion passes retained per scope for rollback. */
+  maxLedgerEntries?: number
 }
 
 /** Validated deployment choices. */
@@ -83,6 +108,10 @@ export const Config: z<Config> = z.object({
   maxNarratives: z.number().step(1).min(1).default(20),
   maxPromotions: z.number().step(1).min(1).default(200),
   maxCandidates: z.number().step(1).min(1).default(500),
+  mergeOverlap: z.number().min(0).max(1).default(0.6),
+  supersedeOverlap: z.number().min(0).max(1).default(0.3),
+  maxRestatements: z.number().step(1).min(1).default(5),
+  maxLedgerEntries: z.number().step(1).min(1).default(10),
 })
 
 /** Normalized configuration used by the cycle. */
@@ -96,45 +125,55 @@ export interface ResolvedConfig {
   maxNarratives: number
   maxPromotions: number
   maxCandidates: number
+  mergeOverlap: number
+  supersedeOverlap: number
+  maxRestatements: number
+  maxLedgerEntries: number
 }
 
 /**
- * Apply defaults for the optional fields.
+ * Apply defaults for the optional fields. A supersede threshold above the merge
+ * threshold fails loudly: every related candidate would restate its narrative,
+ * and no correction could ever retire one.
  * @param config - user-facing plugin configuration.
  * @returns normalized runtime configuration.
  */
 export function resolveConfig(config: Config): ResolvedConfig {
-  return {
-    minScore: config.minScore ?? 0.65,
-    minRecallCount: config.minRecallCount ?? 3,
-    minUniqueQueries: config.minUniqueQueries ?? 2,
-    staleAfterDays: config.staleAfterDays ?? 30,
-    capacityTriggerRatio: config.capacityTriggerRatio ?? 0.8,
-    intervalHours: config.intervalHours ?? 6,
-    maxNarratives: config.maxNarratives ?? 20,
-    maxPromotions: config.maxPromotions ?? 200,
-    maxCandidates: config.maxCandidates ?? 500,
+  const {
+    minScore = 0.65,
+    minRecallCount = 3,
+    minUniqueQueries = 2,
+    staleAfterDays = 30,
+    capacityTriggerRatio = 0.8,
+    intervalHours = 6,
+    maxNarratives = 20,
+    maxPromotions = 200,
+    maxCandidates = 500,
+    mergeOverlap = 0.6,
+    supersedeOverlap = 0.3,
+    maxRestatements = 5,
+    maxLedgerEntries = 10,
+  } = config
+  if (supersedeOverlap > mergeOverlap) {
+    throw new Error(
+      `evolution-dreaming: supersedeOverlap (${supersedeOverlap}) must not exceed mergeOverlap (${mergeOverlap})`,
+    )
   }
-}
-
-/** Identity and content of one staged candidate. */
-function candidateId(statement: string): string {
-  return statement.trim().replace(/\s+/g, ' ').toLowerCase()
-}
-
-/**
- * Distinct-concept overlap between a statement and the text a scope already
- * holds. This is the relevance signal without an embedding provider; a
- * deployment that mounts one gets the same number from a semantic comparison
- * instead, and the composite is unchanged either way.
- */
-function lexicalRelevance(statement: string, known: string): number {
-  const left = new Set(statement.toLowerCase().match(/[\p{L}\p{N}_]{2,}/gu) ?? [])
-  const right = new Set(known.toLowerCase().match(/[\p{L}\p{N}_]{2,}/gu) ?? [])
-  if (left.size === 0 || right.size === 0) return 0
-  let shared = 0
-  for (const word of left) if (right.has(word)) shared += 1
-  return shared / new Set([...left, ...right]).size
+  return {
+    minScore,
+    minRecallCount,
+    minUniqueQueries,
+    staleAfterDays,
+    capacityTriggerRatio,
+    intervalHours,
+    maxNarratives,
+    maxPromotions,
+    maxCandidates,
+    mergeOverlap,
+    supersedeOverlap,
+    maxRestatements,
+    maxLedgerEntries,
+  }
 }
 
 /**
@@ -184,6 +223,73 @@ export class EvolutionDreaming extends Service {
   }
 
   /**
+   * The narratives that still answer, newest first. A superseded one keeps its
+   * place in the record and its evidence but answers no query, exactly as the
+   * claim graph treats a retired claim, so a corrected statement replaces an
+   * older one instead of editing it.
+   * @param scopeId - scope identity.
+   * @returns detached copies of the active promotions.
+   */
+  promotions(scopeId: EvolutionScopeId): DreamPromotion[] {
+    return this.current(scopeId).promotions
+      .filter(promotion => promotion.supersededBy === null)
+      .map(promotion => structuredClone(promotion))
+  }
+
+  /**
+   * Read one scope's promotion ledger, newest first, for audit and as the
+   * source of the identities {@link rollback} takes.
+   * @param scopeId - scope identity.
+   * @returns detached copies of the ledger entries.
+   */
+  ledger(scopeId: EvolutionScopeId): readonly DreamLedgerEntry[] {
+    return structuredClone(this.current(scopeId).ledger)
+  }
+
+  /**
+   * Restore the promotions one ledger entry replaced. The entry holds its own
+   * preimage, so nothing can go missing between the write and the rollback: an
+   * unknown identity fails before anything is written, and the rollback appends
+   * its own entry, which makes it as reversible as the pass it undoes.
+   * @param scopeId - scope identity.
+   * @param entryId - ledger entry identity, from {@link ledger}.
+   * @param now - ISO-8601 instant to stamp, defaulting to the wall clock.
+   * @returns what the rollback restored and the entry that recorded it.
+   */
+  async rollback(
+    scopeId: EvolutionScopeId,
+    entryId: string,
+    now: string = new Date().toISOString(),
+  ): Promise<DreamRollbackReport> {
+    const record = this.current(scopeId)
+    const entry = record.ledger.find(candidate => candidate.id === entryId)
+    if (entry === undefined) throw new Error(`evolution-dreaming: unknown ledger entry '${entryId}'`)
+    const label = `pass '${entryId}'`
+    const answering = new Set(record.promotions
+      .filter(promotion => promotion.supersededBy === null)
+      .map(promotion => promotion.id))
+    const restored = entry.before
+      .filter(promotion => promotion.supersededBy === null && !answering.has(promotion.id))
+      .map(promotion => ({ id: promotion.id, statement: promotion.statement }))
+    const reversal: DreamLedgerEntry = {
+      id: randomUUID(),
+      at: now,
+      actor: 'operator',
+      action: 'rollback',
+      evidence: { promoted: 0, merged: 0, superseded: 0, pruned: 0, rollbackOf: label },
+      before: structuredClone(record.promotions),
+      after: structuredClone(entry.before),
+    }
+    await this.write(scopeId, {
+      ...record,
+      promotions: structuredClone(entry.before),
+      ledger: [reversal, ...record.ledger].slice(0, this.resolved.maxLedgerEntries),
+      updatedAt: now,
+    })
+    return { at: now, label, restored, preRollback: reversal.id }
+  }
+
+  /**
    * Run one phase for one scope.
    * @param phase - which phase to run.
    * @param scopeId - scope identity.
@@ -199,7 +305,7 @@ export class EvolutionDreaming extends Service {
   ): Promise<DreamPhaseReport> {
     const staged = phase === 'light' ? this.stage(scopeId, sessionIds) : this.lastStaged(scopeId)
     if (phase === 'light') {
-      return { phase, scopeId, scanned: staged.length, staged: staged.length, promoted: 0, pruned: 0 }
+      return this.phaseReport(phase, scopeId, staged, {})
     }
     if (phase === 'rem') return await this.summarize(scopeId, staged, now)
     return await this.promote(scopeId, staged, now)
@@ -225,8 +331,32 @@ export class EvolutionDreaming extends Service {
       scanned: light.scanned,
       staged: light.staged,
       promoted: deep.promoted,
+      merged: deep.merged,
+      superseded: deep.superseded,
       pruned: deep.pruned,
+      refused: deep.refused,
       phases: [light, rem, deep],
+    }
+  }
+
+  /** One phase's report, with the movement counts the phase did not produce left at zero. */
+  private phaseReport(
+    phase: DreamPhase,
+    scopeId: EvolutionScopeId,
+    staged: readonly DreamCandidate[],
+    movement: Partial<Pick<DreamPhaseReport, 'promoted' | 'merged' | 'superseded' | 'pruned' | 'refused'>>,
+  ): DreamPhaseReport {
+    return {
+      phase,
+      scopeId,
+      scanned: staged.length,
+      staged: staged.length,
+      promoted: 0,
+      merged: 0,
+      superseded: 0,
+      pruned: 0,
+      refused: [],
+      ...movement,
     }
   }
 
@@ -265,12 +395,13 @@ export class EvolutionDreaming extends Service {
       sessions: number,
       firstAt: string,
       lastAt: string,
+      provenance: DreamProvenance,
     ): void => {
-      const id = candidateId(statement)
+      const id = narrativeId(statement)
       if (id.length === 0) return
       const existing = byId.get(id)
       if (existing === undefined) {
-        byId.set(id, { id, statement, tool, count, sessions, firstAt, lastAt })
+        byId.set(id, { id, statement, tool, count, sessions, firstAt, lastAt, provenance })
         return
       }
       byId.set(id, {
@@ -279,23 +410,25 @@ export class EvolutionDreaming extends Service {
         sessions: Math.max(existing.sessions, sessions),
         firstAt: existing.firstAt < firstAt ? existing.firstAt : firstAt,
         lastAt: existing.lastAt > lastAt ? existing.lastAt : lastAt,
+        provenance: mergeProvenance(existing.provenance, provenance),
       })
     }
     const feedback = this.ctx.get('evolutionFeedback')
     if (feedback !== undefined) {
       for (const entry of feedback.summary(sessionIds, this.resolved.maxCandidates)) {
-        add(entry.message, entry.tool, entry.count, entry.sessions, entry.firstAt, entry.lastAt)
+        add(entry.message, entry.tool, entry.count, entry.sessions, entry.firstAt, entry.lastAt, 'attributed')
       }
     }
     // Episodic notes re-stage while retention keeps them: the deep phase's
-    // promoted set already refuses a second promotion, exactly as it does for
-    // failures the feedback seam reports again. One note is one sighting;
+    // gate refuses a candidate resting only on notes, exactly as it refuses a
+    // failure the feedback seam reported once. One note is one sighting;
     // sightings on distinct days are the independent contexts the deep phase
-    // gates on, so a note repeated across days can promote while a once-off
-    // note can only reinforce a failure the feedback seam also reported.
+    // gates on, so a note repeated across days can promote only once a recorded
+    // failure restates it, and until then it re-scores with decayed recency
+    // rather than being tracked as consumed.
     const sightings = new Map<string, { statement: string; count: number; days: Set<string>; firstAt: string; lastAt: string }>()
     for (const note of this.ctx.get('evolutionMemory')?.read(scopeId)?.episodic ?? []) {
-      const id = candidateId(note.text)
+      const id = narrativeId(note.text)
       if (id.length === 0) continue
       const held = sightings.get(id)
       if (held === undefined) {
@@ -317,7 +450,7 @@ export class EvolutionDreaming extends Service {
       if (note.addedAt > held.lastAt) held.lastAt = note.addedAt
     }
     for (const seen of sightings.values()) {
-      add(seen.statement, null, seen.count, seen.days.size, seen.firstAt, seen.lastAt)
+      add(seen.statement, null, seen.count, seen.days.size, seen.firstAt, seen.lastAt, 'unattributed')
     }
     const staged = [...byId.values()]
     this.stageCache.set(storageKey(scopeId), staged)
@@ -353,52 +486,74 @@ export class EvolutionDreaming extends Service {
       narratives: [narrative, ...record.narratives].slice(0, this.resolved.maxNarratives),
       updatedAt: now,
     })
-    return { phase: 'rem', scopeId, scanned: staged.length, staged: staged.length, promoted: 0, pruned: 0 }
+    return this.phaseReport('rem', scopeId, staged, {})
   }
 
-  /** Deep phase: score, gate, promote, and decay. */
+  /** Deep phase: score, gate, promote, relate, and decay. */
   private async promote(
     scopeId: EvolutionScopeId,
     staged: readonly DreamCandidate[],
     now: string,
   ): Promise<DreamPhaseReport> {
     const record = this.current(scopeId)
-    const known = new Set(record.promotions.map(promotion => promotion.id))
-    const qualified: DreamPromotion[] = []
+    const refused = new Map<DreamRefusalReason, number>()
+    const qualified: QualifiedCandidate[] = []
     for (const candidate of staged) {
-      if (known.has(candidate.id)) continue
       const { score, signals } = this.score(candidate, scopeId, now)
-      if (score < this.resolved.minScore) continue
-      if (candidate.count < this.resolved.minRecallCount) continue
-      if (candidate.sessions < this.resolved.minUniqueQueries) continue
-      qualified.push({
-        id: candidate.id,
-        statement: candidate.statement,
-        tool: candidate.tool,
+      const decision = decidePromotion({
+        provenance: candidate.provenance,
         score,
-        signals,
-        promotedAt: now,
-      })
+        count: candidate.count,
+        sessions: candidate.sessions,
+      }, this.resolved)
+      if (!decision.promote) {
+        refused.set(decision.reason, (refused.get(decision.reason) ?? 0) + 1)
+        continue
+      }
+      qualified.push({ candidate, score, signals })
     }
-    const merged = [...qualified, ...record.promotions]
+    const outcome = evolveNarratives(record.promotions, qualified, this.resolved, now)
     // The cycle prunes stale promotions on every pass, and the capacity ratio
     // additionally trims the survivors to the hard bound when it is crossed.
     const staleBefore = Date.parse(now) - this.resolved.staleAfterDays * 86_400_000
-    const fresh = merged.filter(promotion => Date.parse(promotion.promotedAt) >= staleBefore)
-    const overCapacity = merged.length > this.resolved.maxPromotions * this.resolved.capacityTriggerRatio
+    const fresh = outcome.promotions.filter(promotion => Date.parse(promotion.promotedAt) >= staleBefore)
+    const overCapacity = outcome.promotions.length > this.resolved.maxPromotions * this.resolved.capacityTriggerRatio
     const kept = overCapacity ? fresh.slice(0, this.resolved.maxPromotions) : fresh
-    const pruned = merged.length - kept.length
-    if (qualified.length > 0 || pruned > 0) {
-      await this.write(scopeId, { ...record, promotions: kept, updatedAt: now })
+    const pruned = outcome.promotions.length - kept.length
+    if (outcome.promoted + outcome.merged + outcome.superseded + pruned > 0) {
+      // The preimage is what this pass replaced, so a rollback restores the
+      // narratives the pass folded, retired, or dropped.
+      const entry: DreamLedgerEntry = {
+        id: randomUUID(),
+        at: now,
+        actor: 'dreaming',
+        action: 'promote',
+        evidence: {
+          promoted: outcome.promoted,
+          merged: outcome.merged,
+          superseded: outcome.superseded,
+          pruned,
+          rollbackOf: null,
+        },
+        before: structuredClone(record.promotions),
+        after: structuredClone(kept),
+      }
+      await this.write(scopeId, {
+        ...record,
+        promotions: kept,
+        ledger: [entry, ...record.ledger].slice(0, this.resolved.maxLedgerEntries),
+        updatedAt: now,
+      })
     }
-    return {
-      phase: 'deep',
-      scopeId,
-      scanned: staged.length,
-      staged: staged.length,
-      promoted: qualified.length,
+    return this.phaseReport('deep', scopeId, staged, {
+      promoted: outcome.promoted,
+      merged: outcome.merged,
+      superseded: outcome.superseded,
       pruned,
-    }
+      refused: [...refused.entries()]
+        .map(([reason, count]) => ({ reason, count }))
+        .sort((left, right) => left.reason.localeCompare(right.reason)),
+    })
   }
 
   /** Score one candidate against the scope's existing memory. */
@@ -414,7 +569,7 @@ export class EvolutionDreaming extends Service {
         memory.userProfile,
       ].join('\n')
     return scoreCandidate({
-      relevance: known.length === 0 ? 0 : lexicalRelevance(candidate.statement, known),
+      relevance: conceptOverlap(candidate.statement, known),
       count: candidate.count,
       sessions: candidate.sessions,
       firstAt: candidate.firstAt,
@@ -432,7 +587,7 @@ export class EvolutionDreaming extends Service {
   /** The scope's record, or an empty one. */
   private current(scopeId: EvolutionScopeId): DreamsRecord {
     return this.requireTable().get(storageKey(scopeId))
-      ?? { narratives: [], promotions: [], updatedAt: new Date(0).toISOString() }
+      ?? { narratives: [], promotions: [], ledger: [], updatedAt: new Date(0).toISOString() }
   }
 
   /** Persist one scope's record, inserting the first one and updating after. */

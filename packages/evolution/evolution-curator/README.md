@@ -1,5 +1,5 @@
 ---
-description: "Idle-triggered skill lifecycle curation: automatic active/stale/archived transitions with dry-run previews (ctx.evolutionCurator), for hosts curating skills during use."
+description: "Idle-triggered skill lifecycle curation: automatic active/suspect/stale/archived transitions on idleness and recorded evidence, with dry-run previews (ctx.evolutionCurator), for hosts curating skills during use."
 kind: "package-reference"
 ---
 
@@ -9,9 +9,9 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Keep skill lifecycles honest without watching them: mount the plugin once per host and it moves skills `active → stale → archived` on idle age and failure evidence, revives a stale skill whose newest load succeeded, and previews each pass with a dry run. Enable `consolidate` to have a model merge agent-created skills into umbrella skills; pinned, protected, bundled, and hub skills never move. It reads skill telemetry and degrades to bookkeeping without it. Real passes write snapshots you can roll back whole or by entry.
+Keep skill lifecycles honest: mount the plugin once per host and it moves skills `active → suspect → stale → archived` on idle age and evidence, revives a suspect or stale skill whose newest load answers the evidence against it, and previews each pass with a dry run. `consolidate` has a model merge agent-created skills into umbrella skills; pinned, protected, bundled, and hub skills never move. It reads skill telemetry and degrades to bookkeeping without it. Real passes write snapshots, reversible whole or by entry.
 
-Mounting is the whole trigger: `enabled: false` starts no timer and touches no bookkeeping.
+Mounting is the whole trigger: `enabled: false` starts no timer and no bookkeeping.
 
 ## Table of Contents
 
@@ -29,7 +29,17 @@ Mounting is the whole trigger: `enabled: false` starts no timer and touches no b
 
 Mount the plugin once per host. It then owns the maintenance schedule: it observes host-wide `session/event` activity itself, runs one start-time due-check, and repeats a due-check every `tickMinutes` on an `unref()`ed timer disposed with the plugin. A due-check runs a pass only when `intervalHours` elapsed since `lastRunAt` and no session event arrived within `minIdleHours`; before this process observes any activity the host counts as idle. The first check only seeds `lastRunAt` and defers one interval, so a short-lived CLI run contributes its start instant without running anything. `enabled: false` starts no timer and leaves the bookkeeping untouched.
 
-Call `maybeRun` to run the same due-check yourself (the idle gate takes an explicit `idleMs` override), or `run` for an unconditional pass, with `dryRun: true` to preview the report without writing. A pass examines every tracked skill: idle age counts from the last load, or from seeding when never loaded. `active` moves to `stale` past `staleAfterDays` — or earlier on failure evidence: attributed trust failures at `staleTrustFailureFloor` with no newer load answering them, or a load failure rate past `stageFailureRate` over at least `stageMinUses` loads ending in a failed load. A `stale` skill whose most recent load succeeded, still inside the stale window and newer than its last attributed failure, returns to `active`; past `archiveAfterDays` it archives instead, so the horizon always wins over revival. The report names every movement with its reason plus skip counts for pins, protected names, and excluded sources, and carries the pass identity and snapshot filename when a snapshot was written. `lastRunAt` reads the last pass instant for status surfaces.
+Call `maybeRun` to run the same due-check yourself (the idle gate takes an explicit `idleMs` override), or `run` for an unconditional pass, with `dryRun: true` to preview the report without writing. A pass examines every tracked skill: idle age counts from the last load, or from seeding when never loaded. `active` moves to `stale` past `staleAfterDays`. Evidence moves a skill one rung more slowly than idleness does: every evidence-driven movement lands on `suspect`, which then ages into `stale` on the same idle threshold `active` does.
+
+### Drift signals
+
+A pass reads four §22 signals from records the profile already holds, and any one of them moves an `active` skill to `suspect`. Every signal contributes to the transition reason as `drift: <names>`. `failureSpike` is a decisive grading — a `trigger_review` failure signal for one of the skill's sessions — attributed to the skill by its last trust observation, unanswered by any newer load, and landed within `driftWindowDays`. `conflictingEvidence` is a `conflicting-evidence` uncertainty signal recorded for the skill after its last load or patch. `lowUtility` is the skill's recorded clean-outcome share minus its peers', at or below `lowUtilityFloor`. `versionChange` is a recorded lineage envelope whose `tool`, `model`, `prompt`, `retriever`, `evaluator`, or `env` version differs from the envelope before it, recorded after the skill was last used or patched — the skill's own version is skipped, because the artifact under change is not the environment it was validated in.
+
+Attributed trust failures at `staleTrustFailureFloor` with no newer load answering them, and a load failure rate past `stageFailureRate` over at least `stageMinUses` loads ending in a failed load, also move an `active` skill to `suspect`. A `suspect` skill whose most recent load succeeded and is newer than the instant it entered `suspect` returns to `active`, which is how a load quietly answers the evidence; a `stale` skill whose most recent load succeeded, still inside the stale window and newer than its last attributed failure, also returns to `active`; past `archiveAfterDays` both archive instead, so the horizon always wins over revival. The report names every movement with its reason plus skip counts for pins, protected names, and excluded sources, and carries the pass identity and snapshot filename when a snapshot was written. `lastRunAt` reads the last pass instant for status surfaces.
+
+#### Signals §22 names that no record reaches
+
+Two sources the specification lists are not per-skill anywhere in the profile, so no pass reads them. The knowledge graph's contradicted claims and the memory store's `refutationCount` count per scope and per artifact, and no stored field links an artifact or a claim to a skill; they reach the ladder only through the per-skill `conflicting-evidence` uncertainty signals above. A task-distribution shift needs a task-class axis on skill usage and none exists: skill usage records the sessions that loaded it, never the tasks they asked for, and `evolution-meta`'s `taskClass` is the optimizer's skill under test rather than a task class.
 
 With `consolidate: true` the pass then runs one LLM consolidation over the agent-created skills (see [Consolidation](#consolidation)).
 
@@ -64,7 +74,9 @@ Intervals, thresholds, retention, and the consolidation route are validated `Con
 | `tickMinutes` | `15` | Minutes between host-wide due-checks |
 | `staleAfterDays` | `30` | Idle days moving `active` to `stale` |
 | `archiveAfterDays` | `90` | Idle days moving `stale` to `archived` |
-| `staleTrustFailureFloor` | `3` | Attributed trust failures moving `active` to `stale` while no newer load answers them |
+| `staleTrustFailureFloor` | `3` | Attributed trust failures moving `active` to `suspect` while no newer load answers them |
+| `driftWindowDays` | `14` | Days a decisive graded failure stays recent for the §22 failure-spike signal |
+| `lowUtilityFloor` | `0` | Utility excess at or below which §22 counts a skill's measured utility as low; zero is the pooled peer baseline |
 | `protectedNames` | `[]` | Skill names exempt from automatic transitions, such as schedule references |
 | `pruneBuiltins` | `true` | Prune bundled built-in skills from passes; hub sources are always exempt |
 | `backup.enabled` | `true` | Master switch for snapshots and ledger writes |
@@ -99,7 +111,7 @@ One bookkeeping row in storage domain `evolution_curator`, version `1`, layout `
 
 `consolidate` is off by default and costs real model calls. When on, a real pass surveys the agent-created skills in `active` or `stale` state, frames them within `maxInputBytes`, and appends one `cost` ledger row `{inputBytes, maxOutputTokens, provider, model, truncated}` before the fork starts. Each candidate carries the failures recorded in the sessions that loaded it — up to `maxCandidateFailures`, read from the feedback store when one is mounted — so a verdict reflects what actually broke rather than what the skill's author intended. The fork is a bounded in-package tool loop over `ctx.llm` with a two-tool whitelist: `skill_view` reads one candidate package, `skill_apply` records one verdict (`keep`, `patch`, `consolidate`, `archive`) per candidate. The loop turns over at most `maxSteps` requests and ends at the first text-only answer; a failed request throws and the run's deadline aborts it at `timeoutMs`, as does plugin teardown.
 
-The curator performs every write, so the full-package rule holds regardless of what the model asks. A `patch` rewrites `SKILL.md` in place after checking the body keeps valid frontmatter naming that skill — a body that would break the skill is skipped like any other inapplicable verdict, and the replaced text is stored as a content-addressed blob first. A `consolidate` verdict re-homes the candidate's whole directory under its umbrella (`<umbrella>/<name>/`), rewrites every `${DSH_SKILL_DIR}` reference in the moved tree to the new relative root, and appends a reference to the umbrella's `SKILL.md` — a package shipping `references/`, `templates/`, `scripts/`, or `assets/` is never flattened to `SKILL.md` alone. An `archive` verdict moves the whole directory into `.archive/` beside the skill. When the umbrella is missing, unwritable, or already owns a directory of that name, the package stays exactly where it is and the verdict counts as skipped. Merges record a `move` ledger entry carrying both endpoints, and lifecycle movements ride the same snapshot, `pass`, and `transition` machinery as an automatic pass; `rollbackPass` moves every relocated package back and restores the lifecycle states.
+The curator performs every write, so the full-package rule holds regardless of what the model asks. A `patch` body passes the verifier-first ladder (see [`dsh-evolution-verifiers`](../evolution-verifiers/README.md)) before it is committed: levels 0 and 1 decide the frontmatter invariant `skill_manage edit` enforces and the name/instruction invariants deterministically, a body failing either is skipped with its refusing level and reason reported in `refusals`, and a body the deterministic levels pass is committed by rewriting `SKILL.md` in place — the higher levels of the ladder are consulted when the host mounts their seams, and this path mounts none. The replaced text is stored as a content-addressed blob first. A `consolidate` verdict re-homes the candidate's whole directory under its umbrella (`<umbrella>/<name>/`), rewrites every `${DSH_SKILL_DIR}` reference in the moved tree to the new relative root, and appends a reference to the umbrella's `SKILL.md` — a package shipping `references/`, `templates/`, `scripts/`, or `assets/` is never flattened to `SKILL.md` alone. An `archive` verdict moves the whole directory into `.archive/` beside the skill. When the umbrella is missing, unwritable, or already owns a directory of that name, the package stays exactly where it is and the verdict counts as skipped. Merges record a `move` ledger entry carrying both endpoints, and lifecycle movements ride the same snapshot, `pass`, and `transition` machinery as an automatic pass; `rollbackPass` moves every relocated package back and restores the lifecycle states.
 
 A host plugin cannot fork the subagent seam headlessly — an in-process provider inherits its route from a live parent session, which the curator has none of — so the loop runs in-process.
 
@@ -116,7 +128,8 @@ A real pass with movements writes one tarball under the curator home (`snapshots
 | File | Role |
 |---|---|
 | [`src/index.ts`](src/index.ts) | Plugin entry: `EvolutionCurator` service, pass logic, host-wide trigger, rollback, and bookkeeping |
-| [`src/consolidate.ts`](src/consolidate.ts) | Consolidation fork: survey framing, the bounded tool loop, and the full-package applier |
+| [`src/drift.ts`](src/drift.ts) | Pure §22 drift signals: failure spike, conflicting newer evidence, low measured utility, dependency version change |
+| [`src/consolidate.ts`](src/consolidate.ts) | Consolidation fork: survey framing, the bounded tool loop, the verifier-gated patch admission, and the full-package applier |
 | [`src/safety.ts`](src/safety.ts) | Snapshots, ledger, blobs, pruning, package moves, and rollback read paths |
 | [`src/spec.ts`](src/spec.ts) | Domain declaration: bookkeeping schema and `defineDomain` spec |
 | [`src/types.ts`](src/types.ts) | Public run options, transition, report, rollback, and pass types |
@@ -134,8 +147,9 @@ No invariant companion is published because the domain table is the only copy of
 <a id="further-exploration"></a>
 ## Further Exploration
 
-- [Evolutionary Harness specification](../../../specs/evolutionary-harness.spec.md) — the behaviour contract this package implements.
+- [Evolutionary Harness subsystem](../../../docs/subsystems/evolutionary-harness.md) — the behaviour contract this package implements.
 - [Evolution package map](../README.md) — the group's packages and their repository position.
+- [`dsh-evolution-verifiers`](../evolution-verifiers/README.md) — the verifier-first ladder this package's consolidation patch admission runs.
 - [Generated configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-evolution-curator) — every accepted config field.
 
 -----
@@ -175,6 +189,7 @@ These limits define when the curator is a poor fit. They are current package con
 - **Consolidation runs in-process** — a host plugin cannot fork the subagent seam headlessly, so the tool loop runs over `ctx.llm` instead of a child agent.
 - **Merges rewrite directory references, not schedule entries** — a merge rewrites `${DSH_SKILL_DIR}` paths inside the moved package; no schedule entry references a skill yet, so `protectedNames` stays the schedule-reference guard.
 - **Adoption is one-way** — adopted skills keep user-directed provenance; no operation returns them to agent-created.
+- **Two §22 sources are not per-skill** — the knowledge graph's contradicted claims and the memory store's per-artifact `refutationCount` reach the ladder only as `conflicting-evidence` uncertainty signals, because no stored field links an artifact or a claim to a skill; there is likewise no task-class axis on skill usage, so a task-distribution shift is not derived at all.
 - **Purge is off unless configured** — `archiveTtlDays` defaults to zero, so archived skills accumulate until a TTL is chosen.
 - **Protected names are explicit** — schedule references enter through `protectedNames` until a schedule-to-skill seam exists to wire them automatically.
 - **Machine-local only** — bookkeeping lives under `$DSH_HOME`, never inside the project directory.

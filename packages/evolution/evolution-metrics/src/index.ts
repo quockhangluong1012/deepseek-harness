@@ -19,6 +19,15 @@
  */
 
 import { Context, Service } from '@deepseek-ai/cordis'
+import type { SpendRecord } from '@deepseek-ai/dsh-evolution-budget'
+import type { DeploymentSummary } from '@deepseek-ai/dsh-evolution-canary'
+import type { RegressionDebt } from '@deepseek-ai/dsh-evolution-curator'
+import type { EvaluatorHealthSummary } from '@deepseek-ai/dsh-evolution-evaluator-health'
+import type { FeedbackSignal } from '@deepseek-ai/dsh-evolution-feedback'
+import type { ExperimentEnvelope } from '@deepseek-ai/dsh-evolution-lineage'
+import type { EngineRun } from '@deepseek-ai/dsh-evolution-meta'
+import type { SkillUsageRecord } from '@deepseek-ai/dsh-evolution-skill-telemetry'
+import type { MemoryUtility } from '@deepseek-ai/dsh-evolution-memory'
 import z from 'zod'
 import {
   elapsedDays,
@@ -148,10 +157,12 @@ export class EvolutionMetrics extends Service {
       ? 'the evolution meta store is not mounted, so no engine run records a pass, a cost, and an instant'
       : `the window holds ${baseline.length} older and ${treatment.length} newer runs;`
         + ` ${this.resolved.minimumRunsPerHalf} runs are needed on each side of the split`
+    const tokens = series.reduce((sum, run) => sum + run.tokens, 0)
+    const wallTimeMs = series.reduce((sum, run) => sum + run.wallTimeMs, 0)
     return {
       window,
-      northStar: this.northStar(series, gain, gap),
-      supporting: this.supporting(window, gain, gap),
+      northStar: this.northStar(gain, gap, tokens, wallTimeMs),
+      supporting: this.supporting(window, gain, gap, tokens),
     }
   }
 
@@ -159,7 +170,7 @@ export class EvolutionMetrics extends Service {
    * The recorded runs of one window, oldest first so the halves split by time.
    * Absent when the meta store is not mounted.
    */
-  private runsIn(query: MetricsQuery) {
+  private runsIn(query: MetricsQuery): readonly EngineRun[] | undefined {
     const meta = this.ctx.get('evolutionMeta')
     if (meta === undefined) return undefined
     const limit = query.limit ?? this.resolved.windowRuns
@@ -178,12 +189,11 @@ export class EvolutionMetrics extends Service {
 
   /** Capability gain per unit of compute, one entry per recorded denominator. */
   private northStar(
-    series: readonly { readonly tokens: number; readonly wallTimeMs: number }[],
     gain: number | undefined,
     gap: string,
+    tokens: number,
+    wallTimeMs: number,
   ): readonly MetricValue[] {
-    const tokens = series.reduce((sum, run) => sum + run.tokens, 0)
-    const wallTimeMs = series.reduce((sum, run) => sum + run.wallTimeMs, 0)
     const tokensUnit = 'gain-per-million-tokens' as const
     const timeUnit = 'gain-per-compute-hour' as const
     if (gain === undefined) {
@@ -219,10 +229,15 @@ export class EvolutionMetrics extends Service {
   }
 
   /** The supporting metrics, each measured from its own store or naming the gap. */
-  private supporting(window: MetricsWindow, gain: number | undefined, gap: string): readonly MetricValue[] {
+  private supporting(
+    window: MetricsWindow,
+    gain: number | undefined,
+    gap: string,
+    tokens: number,
+  ): readonly MetricValue[] {
     return [
       this.learningVelocity(window, gain, gap),
-      this.computeOverhead(window),
+      this.computeOverhead(window, tokens),
       this.failureRecurrence(),
       unavailable(
         'skill-incremental-utility',
@@ -232,13 +247,7 @@ export class EvolutionMetrics extends Service {
         + ' a canary triple measures the winner against nothing, and the optimizer\'s baseline-versus-winner pair'
         + ' is an ablation of the same skill, not a no-skill control',
       ),
-      unavailable(
-        'memory-utility',
-        'share',
-        ['ctx.evolutionMemory.read()'],
-        'no recall-hit counter and no outcome linkage exist: a recall is recorded as a labelled context item,'
-        + ' so nothing ties a recalled memory to what happened afterwards',
-      ),
+      this.memoryUtility(),
       unavailable(
         'benchmark-robustness',
         'share',
@@ -277,7 +286,7 @@ export class EvolutionMetrics extends Service {
    * two stores count different scopes, so this is the one place the layer
    * touches both and it never adds them.
    */
-  private computeOverhead(window: MetricsWindow): MetricValue {
+  private computeOverhead(window: MetricsWindow, tokens: number): MetricValue {
     const id = 'compute-overhead-ratio' as const
     const unit = 'ratio' as const
     const inputs = ['ctx.evolutionBudget.spends(): SpendRecord.tokens', RUN_INPUT]
@@ -285,20 +294,64 @@ export class EvolutionMetrics extends Service {
     if (budget === undefined) {
       return unavailable(id, unit, inputs, 'the evolution budget store is not mounted')
     }
-    if (window.from === null || window.to === null) {
+    const { from, to } = window
+    if (from === null || to === null) {
       return unavailable(id, unit, inputs, 'the window holds no run to compare a spend against')
     }
-    const spent = budget.spends()
-      .filter(row => this.inWindow(row.at, window.from ?? undefined, window.to ?? undefined))
+    const rows: readonly SpendRecord[] = budget.spends()
+    const spent = rows
+      .filter(row => this.inWindow(row.at, from, to))
       .reduce((sum, row) => sum + row.tokens, 0)
+    const overhead = ratio(spent, tokens)
+    return overhead === undefined
+      ? unavailable(id, unit, inputs, 'the runs in the window recorded no tokens to compare the spend against')
+      : metric(
+        id,
+        overhead,
+        unit,
+        inputs,
+        'the two stores describe different scopes and must never be added: a spend row sums every variant the'
+        + ' batch evaluated, while a run row carries the winning candidate\'s own evaluation, so this multiple is'
+        + ' how much compute the search spent to find the winner the runs recorded',
+      )
+  }
+
+  /**
+   * The §24 utility of recalled memory: the mean estimated utility of the
+   * memories the recall ledger holds, each the product of the factors the
+   * profile records — retrieval relevance, decision impact, and outcome gain.
+   * No record accounts for §24's source-quality factor for a recalled memory,
+   * and nothing records whether a recalled item was used or cited, so the
+   * reading is that three-factor product and its caveat says exactly which
+   * links are missing rather than reporting them as zero.
+   */
+  private memoryUtility(): MetricValue {
+    const id = 'memory-utility' as const
+    const unit = 'share' as const
+    const inputs = ['ctx.evolutionMemory.recallUtility(): MemoryUtility.utility']
+    const memory = this.ctx.get('evolutionMemory')
+    if (memory === undefined) return unavailable(id, unit, inputs, 'the evolution memory store is not mounted')
+    const readings: readonly MemoryUtility[] = memory.recallUtility()
+    if (readings.length === 0) {
+      return unavailable(
+        id,
+        unit,
+        inputs,
+        'no recall row is recorded: a recall is counted when the reviewer attaches it through'
+        + ' `addContextItem` with the `Recall: ` label, and no scope has served one yet',
+      )
+    }
+    const mean = readings.reduce((sum, reading) => sum + reading.utility, 0) / readings.length
     return metric(
       id,
-      spent,
+      mean,
       unit,
       inputs,
-      'the numerator is a multiple of the winner tokens the runs recorded:'
-      + ' a spend row sums every variant the batch evaluated, so the two stores describe different scopes'
-      + ' and must never be added',
+      `the mean of ${readings.length} recalled memories, each relevance x decision impact x outcome gain, where`
+      + ' relevance is n/(n+1) over its recorded recalls, decision impact is the share of them a recorded decision'
+      + ' batch followed, and outcome gain is the share of them graded clean. Two §23 links are not recorded and'
+      + ' contribute nothing: whether an injected item was used at all, and whether it was cited. §24\'s fourth'
+      + ' factor, source quality, likewise has no recorded source for a recalled memory',
     )
   }
 
@@ -314,11 +367,12 @@ export class EvolutionMetrics extends Service {
     if (telemetry === undefined) {
       return unavailable(id, unit, inputs, 'the skill telemetry store that names the sessions is not mounted')
     }
-    const sessionIds = [...new Set(telemetry.entries().flatMap(entry => entry.usage.sessionIds))]
+    const entries: readonly { name: string; usage: SkillUsageRecord }[] = telemetry.entries()
+    const sessionIds = [...new Set(entries.flatMap(entry => entry.usage.sessionIds))]
     if (sessionIds.length === 0) {
       return unavailable(id, unit, inputs, 'no skill load recorded a session, so there is no session to aggregate over')
     }
-    const signals = feedback.signals(sessionIds, this.resolved.maxSignals)
+    const signals: readonly FeedbackSignal[] = feedback.signals(sessionIds, this.resolved.maxSignals)
     const recurring = share(signals.filter(signal => signal.sessions > 1).length, signals.length)
     return recurring === undefined
       ? unavailable(id, unit, inputs, 'every recorded session loads with no failing tool result')
@@ -339,9 +393,10 @@ export class EvolutionMetrics extends Service {
     const inputs = ['ctx.evolutionCurator.debt(): RegressionDebt.passes / sessions / firstSeenAt']
     const curator = this.ctx.get('evolutionCurator')
     if (curator === undefined) return unavailable(id, unit, inputs, 'the evolution curator is not mounted')
+    const debt: readonly RegressionDebt[] = curator.debt()
     return metric(
       id,
-      curator.debt().length,
+      debt.length,
       unit,
       inputs,
       'each entry counts consecutive curator passes over a failure signal that is still open,'
@@ -356,7 +411,7 @@ export class EvolutionMetrics extends Service {
     const inputs = ['ctx.evolutionLineage.experiments(): ExperimentEnvelope.outcome']
     const lineage = this.ctx.get('evolutionLineage')
     if (lineage === undefined) return unavailable(id, unit, inputs, 'the evolution lineage store is not mounted')
-    const experiments = lineage.experiments()
+    const experiments: readonly ExperimentEnvelope[] = lineage.experiments()
     const improved = share(experiments.filter(row => row.outcome === 'improved').length, experiments.length)
     return improved === undefined
       ? unavailable(id, unit, inputs, 'no experiment is recorded')
@@ -377,7 +432,8 @@ export class EvolutionMetrics extends Service {
     const inputs = ['ctx.evolutionCanary.summary().byState']
     const canary = this.ctx.get('evolutionCanary')
     if (canary === undefined) return unavailable(id, unit, inputs, 'the evolution canary store is not mounted')
-    const { byState } = canary.summary()
+    const summary: DeploymentSummary = canary.summary()
+    const { byState } = summary
     const live = byState.promoted + byState['rolled-back']
     const rate = share(byState['rolled-back'], live)
     return rate === undefined
@@ -400,7 +456,7 @@ export class EvolutionMetrics extends Service {
       'ctx.evolutionEvaluatorHealth.summary().falsePositiveRate']
     const health = this.ctx.get('evolutionEvaluatorHealth')
     if (health === undefined) return unavailable(id, unit, inputs, 'the evolution evaluator health store is not mounted')
-    const summary = health.summary()
+    const summary: EvaluatorHealthSummary = health.summary()
     return summary.runs === 0
       ? unavailable(id, unit, inputs, 'no evaluator verdict is recorded')
       : metric(

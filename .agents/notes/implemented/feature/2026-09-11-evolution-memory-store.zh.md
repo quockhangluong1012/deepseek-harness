@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-Harness 在回合之间学不到任何东西：用户的纠正在 `turn/end` 即蒸发，后台评审没有地方暂存提案，而演进式 Harness 规范（[`specs/evolutionary-harness.spec.md`](../../../../specs/evolutionary-harness.spec.md))在评审器、注入器、治理器与安全护栏落地之前需要一个持久化地基。复用 workspace-memory 记录是错的：演进作用域横跨 profile 与 workspace，带着双层经验/画像文档与需审批的写入，而 workspace memory 维持每目录一份文档加直接写入。
+Harness 在回合之间学不到任何东西：用户的纠正在 `turn/end` 即蒸发，后台评审没有地方暂存提案，而[演进式 Harness 子系统](../../../../docs/subsystems/evolutionary-harness.zh.md)在评审器、注入器、治理器与安全护栏落地之前需要一个持久化地基。复用 workspace-memory 记录是错的：演进作用域横跨 profile 与 workspace，带着双层经验/画像文档与需审批的写入，而 workspace memory 维持每目录一份文档加直接写入。
 
 ## 决策
 

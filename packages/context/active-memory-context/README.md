@@ -18,6 +18,7 @@ English | [中文](README.zh.md)
 - [Further Exploration](#further-exploration)
 - [Model Experience](#model-experience)
 - [Known Limitations and Deferred Work](#known-limitations-and-deferred-work)
+- [Dev Note](#dev-note)
 
 -----
 
@@ -25,6 +26,18 @@ English | [中文](README.zh.md)
 ## Use this package
 
 Mount the plugin with the workspace registry and a session-query backend whose vector channel is populated (an embeddings service, e.g. `dsh-embeddings-http`, mounted behind `dsh-session-query-sqlite`). Scopes resolve per turn from workspace membership (registry session ids, falling back to a canonical-path `cwd` match); turns outside any workspace, or in a workspace with no other session, add nothing. A mount that also provides `ctx.evolutionGraph` gains the graph leg below; without it the brief holds the vector leg's own hits — one line per session, in fusion order.
+
+### Retrieval-configuration record
+
+When `ctx.evolutionRetrieval` is mounted, the injector records the retrieval configuration it runs under for each session, once, at that session's first step: the §39 dimensions this mount sets (retrieval source, graph depth, and the active-memory threshold) beside the shipped choice for the rest. It is a side record — a structural seam read with `ctx.get`, one unawaited write per session, no model call, no prompt change, so the brief is identical with and without that store and a store that rejects the write only logs a debug line. `dsh-evolution-retrieval` turns those records into a per-task-class recommendation; leaving it unmounted records nothing. It describes this mount, never a recommendation the task-aware policy applied to one turn: that is on the brief itself, below.
+
+### Task-aware retrieval policy
+
+With `taskAwarePolicy: true`, an eligible turn retrieves under the §39 configuration `dsh-evolution-retrieval` recommends for the turn's task class, instead of the configuration this mount's own fields spell. The task class comes from recorded evidence rather than from the turn's text: it is a skill whose usage record lists this session (`ctx.evolutionSkillTelemetry`), which is the same task-class axis that store grades a session on. A session that recorded several skills has several classes; the injector asks the store for each in name order and runs the highest-scoring recommendation of the ones above the store's evidence gate.
+
+The dimensions this injector owns take the recommended value — the retrieval lane (`graph` becomes `graph-first`, `hybrid` becomes `both`), the memory scope when it is `workspace`, the graph depth, and the active-memory threshold. Every dimension it cannot serve is recorded as unapplied, with the reason, rather than silently dropped: `queryExpansion`, `weights`, `reranker`, and `mmr` are the shipped choices here, and a source of `vector` or a scope of `session`/`global` leaves the mount's own lane and scope in place.
+
+The applied policy rides the injected brief's own durable record — the `policy` field of its `active-memory` source — so the session log reconstructs which dimensions produced the brief, and a turn that fell back carries no such field. Everything else is unchanged: off (the default), the brief is byte-identical to a mount that never set the field; the configuration-in-force record above is still written; and an unmounted telemetry store, a store with no recommendation above its evidence gate, and a session no skill recorded all fall back to the mount's own configuration with a debug line saying so. The policy calls no model.
 
 ### Configuration
 
@@ -46,6 +59,7 @@ Mount the plugin with the workspace registry and a session-query backend whose v
 | `profile` | `default` | Scope-identity namespace the graph leg reads; must match the profile the scope's graph was extracted under |
 | `graphDepth` | `1` | Hops the graph leg expands from the entity it matched |
 | `graphLimit` | `5` | Turn-leading words the entity scan tries, entities one `expand` may return, and labels the expansion may seed searches with |
+| `taskAwarePolicy` | `false` | Consult the §39 configuration `ctx.evolutionRetrieval` recommends for the turn's recorded task class and run the dimensions this injector owns; off, every turn runs the configuration this mount's fields spell |
 
 The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-active-memory-context) is the exhaustive source for every accepted field.
 
@@ -75,18 +89,21 @@ At each `agent/pre-step`, the injector reads the text of the proposed step's own
 
 A vector-channel failure (`SESSION_QUERY_SEMANTIC_UNAVAILABLE`, `SESSION_QUERY_SEARCH_DISABLED`) degrades to no injection rather than blocking the turn; any other failure propagates, since it signals a genuine defect rather than an expected deployment state.
 
+With `taskAwarePolicy` on, the turn's recorded task class is looked up before the legs run and the recommendation it names replaces the mount's lane, graph depth, and threshold for that turn alone; the pure `applyRetrievalPolicy` decides which dimensions that is and which ones this injector must report unapplied. Nothing else about the step changes: the same cadence, the same scope, the same fusion, the same rendering, with the applied policy carried on the injected message's source.
+
 When a mount provides `ctx.evolutionGraph`, a second leg searches by connection instead of similarity. The graph matches labels, so a whole turn is not a usable query: the leg scans the turn's own leading words — at most `graphLimit` of them — and takes the first the scope's graph knows, expands it `graphDepth` hops, and searches the same session corpus by text once per reached label, labels capped at `graphLimit`. These hits come back unscored, because their relevance is a connection rather than a distance, and the brief labels them `via graph connections` instead of inventing a similarity. The two legs fuse by reciprocal rank: a session both legs found outranks one only a single leg found, and since fusion keys by session id the brief carries one line per session where two documents of one session both qualified. The graph is reached through `ctx.get('evolutionGraph')`, so an unmounted, older, or failing graph leaves the brief to the vector leg's own hits — the same sessions, one line each, in fusion order. The graph leg resolves its scope from registry membership alone, so a session the vector leg matched only through its canonical-path `cwd` fallback gains no graph leg.
 
 ### Source map
 
 | File | Role |
 |---|---|
-| [`src/index.ts`](src/index.ts) | Plugin entry: pre-step search, workspace membership, turn cadence, relevance filtering, the graph leg, and rank fusion |
+| [`src/index.ts`](src/index.ts) | Plugin entry: pre-step search, workspace membership, turn cadence, relevance filtering, the graph leg, rank fusion, the retrieval-configuration record, and the task-class lookup the policy runs on |
+| [`src/policy.ts`](src/policy.ts) | Pure task-aware policy: which §39 dimensions a recommendation applies and which this injector reports unapplied |
 | [`src/render.ts`](src/render.ts) | Pure brief rendering within the byte budget |
 
 ### Failure and recovery
 
-Missing or unresolvable workspace membership, an empty query, an off-cadence turn, a below-threshold result set, a graph that is unmounted or holds nothing for the scope's profile, and a brief that does not fit `maxBytes` all degrade to no injection — or to the vector leg's hits alone — rather than failing the step. No invariant companion is published because the injector owns no durable state of its own: membership and turn counters are process-local caches rebuilt from `ctx.workspaceRegistry` and observed session events, never the source of truth.
+Missing or unresolvable workspace membership, an empty query, an off-cadence turn, a below-threshold result set, a graph that is unmounted or holds nothing for the scope's profile, and a brief that does not fit `maxBytes` all degrade to no injection — or to the vector leg's hits alone — rather than failing the step. An unmounted `ctx.evolutionRetrieval`, or one that rejects the configuration record, changes neither the search nor the brief: the record is a side write, debug-logged when it fails. The same holds for every way the task-aware policy can find nothing to apply — no telemetry store, a store with no `recommend`, a session no skill recorded, a class with no recommendation above the evidence gate — and each is debug-logged too, because a fallback the operator cannot see is indistinguishable from a policy that never ran. No invariant companion is published because the injector owns no durable state of its own: membership and turn counters are process-local caches rebuilt from `ctx.workspaceRegistry` and observed session events, never the source of truth.
 
 </details>
 
@@ -95,10 +112,11 @@ Missing or unresolvable workspace membership, an empty query, an off-cadence tur
 <a id="further-exploration"></a>
 ## Further Exploration
 
-- [Evolutionary Harness specification](../../../specs/evolutionary-harness-spec-v10-complete.md) §14 — the Active Memory Sub-Agent behavior this package implements.
+- [Evolutionary Harness subsystem](../../../docs/subsystems/evolutionary-harness.md) — the reference vocabulary and behaviour contract of the self-learning harness this package's Active Memory sub-agent belongs to.
 - [dsh-session-query](../../session-query/session-query/README.md) — the search service this package calls; see its vector-channel section for how relevance scores are produced.
 - [dsh-evolution-memory-context](../evolution-memory-context/README.md) — the sibling static per-scope brief injector; read both to see why they are two packages, not one.
 - [dsh-evolution-graph](../../evolution/evolution-graph/README.md) — the knowledge graph whose labels seed the second search leg.
+- [dsh-evolution-retrieval](../../evolution/evolution-retrieval/README.md) — the store the optional retrieval-configuration record feeds, and the recommendation it derives per task class, which the task-aware policy consumes.
 - [Session Query subsystem reference](../../../docs/subsystems/session-query.md) — the full type-level search contract.
 
 -----
@@ -137,3 +155,15 @@ Varies with the turn's own content by design: this is proactive retrieval keyed 
 - **Turn cadence counts process-observed turns** — the interval counter starts at plugin load and clears on session disposal, so a resumed session begins again from its first observed `turn/start`, the same limitation `dsh-evolution-memory-context` documents for its own nudge cadence.
 - **One embedding call per eligible turn** — cost scales with `turnInterval`; there is no cross-turn result cache, since the query differs every turn by design. `escalation: graph-first` skips the call on turns the graph leg already answers, at the cost of similarity-only recall on those turns.
 - **Workspace-scoped only** — a session outside any workspace, or the sole session in one, never receives active memory.
+- **The policy needs a recorded task class** — it runs only for a session some skill's usage record lists, and only on turns a search is due; a session that loaded no skill runs the mount's configuration. A recommendation that varies `queryExpansion`, `weights`, `reranker`, or `mmr` is applied only where this injector has the dimension, and the rest is recorded unapplied instead of approximated.
+- **The attribution keeps this mount's configuration, not the recommendation** — the once-per-session record describes the configuration the mount spells, so a session that also ran a recommended configuration is attributed to the mount's alone. Splitting it needs per-turn attribution across turns that can change task class mid-session, which the store's one-configuration-per-session model does not have; the applied configuration is on each brief instead.
+
+<a id="dev-note"></a>
+### Dev Note
+
+<details>
+<summary>Working context for maintainers — click to expand</summary>
+
+`escapeFrameBody` rewrites a literal `</system-reminder>` found inside a snippet, because past-session text is not repository-controlled and the memory this package injects must never be able to close the frame that delimits it — the same defense `dsh-evolution-memory-context` applies to its own frame. The graph leg skips query tokens shorter than three characters, since `graph.find` is a substring match: seeding on `in` or `is` would spend the whole label budget on the most connected label that happens to contain those letters. The byte budget is met by rebuilding the framed text from the best-first prefix and dropping the weakest trailing hit, never by truncating a single line, and a brief where even one hit does not fit is `undefined`, which the caller reads as no injection rather than as an empty message.
+
+</details>

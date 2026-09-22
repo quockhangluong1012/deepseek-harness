@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/subsystems/agent-kernel.md
 agent-kernel.md: 3fd75bed67be841cab702fdf7ffea1aa288107c4
-agent-kernel.zh.md: 85bf18a716c366d9fea1e23dc07ce354511916ed
+agent-kernel.zh.md: b3165f100edf351b9576ca2a5562ffd0865f6a1d

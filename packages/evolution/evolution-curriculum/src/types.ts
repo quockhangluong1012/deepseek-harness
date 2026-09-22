@@ -30,6 +30,14 @@ export interface CurriculumProposal {
   sourceSessions: readonly string[]
   /** Failure gists the task was derived from, in evidence order. */
   gists: readonly string[]
+  /**
+   * §21 "do not do this" statement matched from the gap's evidence, with its
+   * trigger condition. Staging always states it — null when nothing matched —
+   * so it is optional only on a proposal a caller builds itself.
+   */
+  antiPattern?: string | null
+  /** §21 regression case matched from the gap's evidence, on the same terms as {@link antiPattern}. */
+  candidateTest?: string | null
   /** ISO-8601 instant the proposal was staged. */
   at: string
   /** Whether the proposal is still actionable. */

@@ -85,6 +85,7 @@ function fakeRecord(overrides: Partial<SkillUsageRecord> = {}): SkillUsageRecord
     patchCount: 0,
     lastUsedAt: '2026-01-01T00:00:00.000Z',
     sessionIds: [],
+    sessionOutcomes: [],
     lastViewedAt: null,
     lastPatchedAt: null,
     createdAt: '2026-01-01T00:00:00.000Z',
@@ -101,6 +102,7 @@ function fakeRecord(overrides: Partial<SkillUsageRecord> = {}): SkillUsageRecord
     createdBy: null,
     absorbedInto: null,
     archivedAt: null,
+    suspectAt: null,
     ...overrides,
   }
 }

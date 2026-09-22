@@ -26,7 +26,7 @@ The context group provides plugins that add model-visible context to each reques
 |---|---|---|
 | [`agent-instructions/`](agent-instructions/README.md) | Loads `AGENTS.md`/`CLAUDE.md` workspace instructions into context and refreshes them after file edits | — |
 | [`workspace-memory-context/`](workspace-memory-context/README.md) | Renders the Workspace memory brief into `agent/pre-step` | — |
-| [`evolution-memory-context/`](evolution-memory-context/README.md) | Renders the evolution memory brief with scope nudges into `agent/pre-step` | — |
+| [`evolution-memory-context/`](evolution-memory-context/README.md) | Renders the evolution memory brief into `agent/pre-step`, with condition-driven nudges that name the recorded condition that fired | — |
 | [`session-reference/`](session-reference/README.md) | References other sessions: mention one and its bounded read-only snapshot becomes context | `ctx.sessionReferenceResolver` |
 | [`file-reference/`](file-reference/README.md) | `@file` mention discovery and the shared mention grammar for host-backed UIs | `ctx.fileReferences` |
 | [`file-reference-local/`](file-reference-local/README.md) | Local-workspace completion provider for `@file` mentions | — |

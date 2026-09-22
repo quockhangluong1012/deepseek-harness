@@ -1,11 +1,13 @@
 /**
  * Automated evolution of the evolution engine (`ctx.evolutionMeta`): a durable
  * store of engine runs, each recorded under the engine configuration its
- * choices produced (§9), with the derived per-configuration summaries and the
- * recommendation of which engine configuration to run next on a task class.
- * The optimizer records each staged write's run with the operator portfolio,
- * scorer version, budget identity, and route actually used, and `/meta` reads
- * runs, summaries, and the recommendation. Nothing here calls a model.
+ * choices produced and the sequence of stages it performed (§9, §26 level 2),
+ * with the derived per-configuration summaries and the recommendation of which
+ * configuration and workflow to run next on a task class. The optimizer records
+ * each staged write's run with the operator portfolio, scorer version, budget
+ * identity, and route actually used, and `/meta` reads runs, summaries, and the
+ * recommendation. Nothing here calls a model, and nothing here changes what the
+ * engine runs.
  * @module @deepseek-ai/dsh-evolution-meta
  */
 
@@ -14,11 +16,19 @@ import type { KvTable } from '@deepseek-ai/dsh-storage-domain'
 import z from 'zod'
 import { recommendConfig, summarize } from './meta.ts'
 import { metaDomainSpec } from './spec.ts'
-import type { ConfigRecommendation, ConfigSummary, EngineConfig, EngineRun, EngineRunInput, MetaTaskClass } from './types.ts'
+import type {
+  ConfigRecommendation,
+  ConfigSummary,
+  EngineConfig,
+  EngineRun,
+  EngineRunInput,
+  MetaTaskClass,
+  WorkflowStep,
+} from './types.ts'
 
 export type * from './types.ts'
-export { configIdOf, ENGINE_COMPONENTS, recommendConfig, scoreOf, summarize, updatedSummary } from './meta.ts'
-export { engineConfigRow, engineRunRow, metaDomainSpec } from './spec.ts'
+export { configIdOf, ENGINE_COMPONENTS, recommendConfig, scoreOf, summarize, updatedSummary, workflowIdOf } from './meta.ts'
+export { engineConfigRow, engineRunRow, metaDomainSpec, workflowStepRow } from './spec.ts'
 
 /**
  * Deployment choices of the meta-evolution store; an omitted field takes its
@@ -107,11 +117,14 @@ export class EvolutionMeta extends Service {
 
   /**
    * Record one engine run, completing its configuration with the default
-   * choices where the caller named none. The stored instant is now.
-   * @param input - the run and its (possibly partial) configuration.
+   * choices where the caller named none and storing the sequence it performed
+   * as given. An absent sequence records that the caller observed none — the
+   * store never invents the order a run took. The stored instant is now.
+   * @param input - the run, its (possibly partial) configuration, and its workflow.
    * @returns the stored run.
    */
   async record(input: EngineRunInput): Promise<EngineRun> {
+    const workflow: readonly WorkflowStep[] = (input.workflow ?? []).map(step => ({ ...step }))
     const run: EngineRun = {
       runId: input.runId,
       taskClass: input.taskClass,
@@ -121,6 +134,7 @@ export class EvolutionMeta extends Service {
         budget: input.config.budget ?? this.resolved.defaultConfig.budget,
         routing: input.config.routing ?? this.resolved.defaultConfig.routing,
       },
+      workflow,
       pass: input.pass,
       tokens: input.tokens,
       wallTimeMs: input.wallTimeMs,

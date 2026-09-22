@@ -7,6 +7,7 @@ import { SessionPersistenceNotFoundError } from '@deepseek-ai/dsh-session-persis
 import type { MessageId } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import EvolutionTrace, { resolveConfig } from '../src/index.ts'
+import type { ReplayArtifact } from '../src/index.ts'
 
 const seq = (n: number): SessionSeq => SessionSeq(n)
 const mid = (n: number): MessageId => brandString<MessageId>(`m${n}`)
@@ -45,13 +46,18 @@ function failingTurn(session: string, at: number, message: string): SessionEvent
       },
       surfaceOp: 'append',
     },
-    { type: 'turn/end', seq: seq(at * 10 + 5), time: at + 5, data: { turn: 0, reason: { kind: 'error' } } },
+    { type: 'turn/end', seq: seq(at * 10 + 5), time: at + 5, data: { turn: 0, reason: { kind: 'error', error: { message, code: 'UNKNOWN' } } } },
   ]
 }
 
 interface Harness {
   readonly trace: (sessionId: string) => ReturnType<EvolutionTrace['trace']>
   readonly summary: (sessionIds: readonly string[], limit: number) => ReturnType<EvolutionTrace['summary']>
+  readonly replay: (
+    sessionId: string,
+    baseline: ReplayArtifact,
+    candidate: ReplayArtifact,
+  ) => ReturnType<EvolutionTrace['replay']>
 }
 
 async function boot(options: {
@@ -89,6 +95,8 @@ async function boot(options: {
   return {
     trace: (sessionId: string) => service.trace(sessionId),
     summary: (sessionIds: readonly string[], limit: number) => service.summary(sessionIds, limit),
+    replay: (sessionId: string, baseline: ReplayArtifact, candidate: ReplayArtifact) =>
+      service.replay(sessionId, baseline, candidate),
   }
 }
 
@@ -163,5 +171,24 @@ describe('evolution trace service', () => {
     })
     const tied = await equal.summary(['b', 'a'], 10)
     expect(tied.map(row => row.sessionId)).toEqual(['a', 'b'])
+  })
+
+  it('replays a stored trace against two artifact revisions without re-invoking anything', async () => {
+    const h = await boot({ logs: new Map([['s1', failingTurn('s1', 1000, 'boom')]]) })
+    const baseline: ReplayArtifact = { id: 'release-notes', version: 'r1', body: 'body r1' }
+    const candidate: ReplayArtifact = { id: 'release-notes', version: 'r2', body: 'body r2' }
+    const report = await h.replay('s1', baseline, candidate)
+    expect(report).toMatchObject({ sessionId: 's1', artifact: 'release-notes', baseline: 'r1', candidate: 'r2' })
+    expect(report?.steps.map(step => [step.turn, step.step])).toEqual([[0, 0]])
+    // The recorded bash failure is the substrate; neither revision reaches it,
+    // so the step replays unchanged from its snapshot.
+    expect(report?.snapshotSteps).toEqual(['0.0'])
+    expect(report?.changedSteps).toEqual([])
+  })
+
+  it('reports no replay for a session storage holds nothing for', async () => {
+    const h = await boot({ logs: new Map(), sessions: null })
+    const artifact: ReplayArtifact = { id: 'a', version: 'r1', body: 'b' }
+    expect(await h.replay('absent', artifact, artifact)).toBeUndefined()
   })
 })

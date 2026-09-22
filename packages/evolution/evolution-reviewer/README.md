@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-evolution-reviewer` derives evolution lessons from live Sessions without blocking a turn: it buffers the current turn's events, indexes produced files at `turn/end`, recalls ranked prior work from the scope directory into the brief, and enqueues a gated extraction that reads the turn against a relevance-bounded slice of the scope's artifacts and answers `confirms` / `contradicts` / `new` decisions — applied directly, or staged for approval when `writeApproval` is on. `rebuild` folds history into the same artifacts. Choose it when a scope's lessons should track what its Sessions actually do; each gated turn costs one model call.
+`dsh-evolution-reviewer` derives evolution lessons from live Sessions without blocking a turn: it buffers the turn's events, indexes produced files at `turn/end`, recalls ranked prior scope work into the brief, and enqueues a gated extraction answering `confirms` / `contradicts` / `new` against a relevance-bounded artifact slice, applied directly or staged under `writeApproval`. A failing tool call gets §5's refinement-loop `critique` naming the violated expectation, failure, and correction, and the revision it licenses is recorded. `rebuild` folds history into the same artifacts. Choose it when lessons should track what its Sessions do; each gated turn costs a model call.
 
 ## Table of Contents
 
@@ -67,10 +67,27 @@ One extraction call shows the model the `relevantArtifactLimit` most relevant ar
 | `confirms` | The artifact listed at that index is upheld by this turn — a `validationCount` bump |
 | `contradicts` | The artifact listed at that index is contradicted — a `refutationCount` bump, optionally with a corrected statement and confidence |
 | `new` | A fact no listed artifact covers — the full candidate fields, with `source` taken from the extracting session |
+| `critique` | A critique of this turn — the violated expectation, the failure, and the correction, with the revision's confidence and scope. Allowed only when the transcript records a failed tool call |
 
 An empty array is the model reporting nothing and is a common answer. The model addresses artifacts by the ordinal it was shown and never by id; the reviewer resolves each index back to a real artifact id from the exact list it sent, so no index-based value reaches a staged payload or the store. A decision naming an index outside the list sent is dropped with a warning, and an unreadable answer warns and leaves the stored artifacts as they were.
 
 The turn's whole batch is one write. `applyExtractionDecisions` folds it in decision order against the record read at write time, and the store checks the lessons cap on that one result: a batch past the cap drops its longest `new` statement and retries, then drops the contradictions' replacement statements while keeping their counter bumps, and propagates the rejection once there is nothing left to drop.
+
+### Self-refine critique
+
+A turn whose tool call failed is a draft worth critiquing, so the extraction call carries both halves of §5's `draft → critique → revise` loop:
+
+| Loop stage | What it is |
+|---|---|
+| Draft | The turn's transcript: the human and assistant rows it always carried, plus one `tool` row per failing tool result, `<tool name>: <recorded result text>` |
+| Critique | The model's `critique` decision, recorded as a scope context item labelled `Critique: <sessionId>` and naming the violated expectation, the failure, and the correction |
+| Revise | The correction the critique licenses, recorded as a `new` lesson artifact: the correction as its statement, the failure as its `conditions`, `inference` as its evidence, and the model's own confidence and scope |
+
+Both halves come out of the one call the gated turn already made — no second model call, no second prompt, and no prompt input the session log does not already hold. The critique reaches later turns through the brief like any other context item, and the store's digest covers context items, so the injection is reconstructable from the session log.
+
+The pass reads only what the critique needs, and it widens nothing: the turn's admitted rows and its own recorded failing tool results, the relevance-bounded artifact statements of the scope, and the `sessionQuery` seam the recall and rebuild paths already use. It makes no tool calls, reads no other store, and — because tool results are what it already buffers for output indexing — gained no new seam to do this. Failing calls contribute their name and their recorded result, never their arguments.
+
+Two gates decide whether a critique is recorded: the transcript the call sent must contain a `tool` row, and the critique must name all three of the expectation, the failure, and the correction. A critique failing either gate is dropped with a warning while every decision beside it still applies, so an ungrounded critique costs itself and never the batch. The critique item is written directly even when `writeApproval` stages the decisions beside it: it is the reviewer's own reading of a recorded turn, like a recall item, not a proposed change to the stored artifacts. A store rejection of that item warns and keeps the revision.
 
 ### Writing and approval
 
@@ -116,7 +133,7 @@ The reviewer observes `session/event` and buffers the current turn's admitted ro
 
 ### Failure and recovery
 
-Extraction routes resolve from the configured pair, else the session's last request header; a turn with neither skips with a warning, while a rebuild without a route rejects. `error` and `aborted` finishes throw into the warning path; `max-tokens` is tolerated as `truncated`; tool-call blocks and any other finish reject. Model calls run at `temperature: 0` with `purpose: 'evolution-review'`, so reasoning stays disabled and usage attributes to the review task. Recall failures and a store rejection of a recalled item warn instead of failing the turn, and the previous context survives.
+Extraction routes resolve from the configured pair, else the session's last request header; a turn with neither skips with a warning, while a rebuild without a route rejects. `error` and `aborted` finishes throw into the warning path; `max-tokens` is tolerated as `truncated`; tool-call blocks and any other finish reject. Model calls run at `temperature: 0` with `purpose: 'evolution-review'`, so reasoning stays disabled and usage attributes to the review task. Recall failures, a critique item the store rejects, and a store rejection of a recalled item warn instead of failing the turn, and the previous context survives.
 
 No invariant companion is published because the reviewer owns no durable state of its own: buffers and chains are in-memory scheduling, and the store's domain table is the only durable copy.
 
@@ -127,7 +144,7 @@ No invariant companion is published because the reviewer owns no durable state o
 <a id="further-exploration"></a>
 ## Further Exploration
 
-- [Evolutionary Harness specification](../../../specs/evolutionary-harness.spec.md) — the behaviour contract this package implements.
+- [Evolutionary Harness subsystem](../../../docs/subsystems/evolutionary-harness.md) — the behaviour contract this package implements.
 - [Evolution package map](../README.md) — the group's packages and their repository position.
 - [Generated configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-evolution-reviewer) — every accepted config field.
 
@@ -140,7 +157,7 @@ No invariant companion is published because the reviewer owns no durable state o
 
 #### What the model sees
 
-The extraction call sends one auxiliary user message holding this turn's transcript as JSON plus the numbered list of the relevant artifacts' statements, with a lessons system prompt.
+The extraction call sends one auxiliary user message holding this turn's transcript as JSON plus the numbered list of the relevant artifacts' statements, with a lessons system prompt. A failing tool result appears in that transcript as a `tool` row naming the tool and the result it recorded; the answer may then add one `critique` per recorded failure beside the usual decisions.
 
 ##### Verbatim text for this field, when needed
 
@@ -150,7 +167,7 @@ You distill durable lessons for an agent scope from one turn of conversation.
 
 #### Token effect
 
-Capped: one auxiliary request per gated turn, bounded by `maxInputBytes` of transcript plus the `relevantArtifactLimit` artifact statements, and `maxOutputTokens` of completion. Recall adds one indexed search per observed turn and at most one context item to the scope record; its material reaches the model only through the next brief.
+Capped: one auxiliary request per gated turn, bounded by `maxInputBytes` of transcript — failing tool results included — plus the `relevantArtifactLimit` artifact statements, and `maxOutputTokens` of completion. A critique adds a few tokens to that same answer rather than a request of its own. Recall adds one indexed search per observed turn and at most one context item to the scope record; its material reaches the model only through the next brief, and a recorded critique reaches it the same way, as one more context item.
 
 #### KV Cache effect
 
@@ -172,6 +189,9 @@ These limits define when the reviewer is a poor fit. They are current package co
 - **The window is not the whole store** — an artifact outside the relevance window is invisible to that call, so a still-true fact the window keeps missing decays under `defaultTtlDays` with nothing left to confirm it.
 - **A batch is approved whole** — one staged entry per extraction call means a reviewer cannot accept a `confirms` while rejecting a `contradicts` from the same turn; the choice is the whole batch or none of it.
 - **A contested fact keeps its identity** — a contradiction may replace an artifact's statement, but the artifact keeps the id every caller addresses it by, so the id no longer spells the statement it holds.
+- **Critiques only follow recorded tool failures** — a turn that went wrong without a failing tool result gets no critique, and a failure the transcript byte cap dropped is invisible to the call that would have critiqued it, so its critique is deferred to whatever later turn still carries it.
+- **A failure row is as long as the tool result** — the row carries the recorded result text verbatim, under the tool's own output cap and the transcript byte budget; the reviewer never clips it further, and no arguments of the failing call are read at all.
+- **Every critique holds a context item** — recorded critiques occupy the scope's context roster and its capacity like any attached item, so on a scope filled to `maxContextItems` the revision is recorded while its critique item warns and is dropped.
 
 <a id="dev-note"></a>
 ### Dev Note

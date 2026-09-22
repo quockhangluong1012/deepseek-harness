@@ -7,20 +7,26 @@
  * route and outcome through the optional recorder seam, operators pin
  * assignments through /routes, and `recommend` answers which route a role
  * should use: the pinned assignment when one exists, otherwise the route with
- * the strongest recorded evidence. Nothing here calls a model.
+ * the strongest recorded evidence. The same store records which identity filled
+ * each role of one run and answers §53's separation of duties over that pair,
+ * refusing a promotion or a verdict whose judging identity is the producing
+ * one. Nothing here calls a model.
  * @module @deepseek-ai/dsh-evolution-model-routes
  */
 
 import { randomUUID } from 'node:crypto'
 import { Context, Service } from '@deepseek-ai/cordis'
 import type { KvTable } from '@deepseek-ai/dsh-storage-domain'
-import { bestRoute, EVOLUTION_ROLES, mergeEvidence, routeKey } from './routes.ts'
+import { dutyKey, separationOfDuties } from './duties.ts'
+import { bestRoute, EVOLUTION_ROLES, mergeEvidence, roleConflicts, routeKey } from './routes.ts'
 import { modelRoutesDomainSpec } from './spec.ts'
-import type { EvolutionRole, ModelRoute, RouteEvidence, RouteEvidenceInput, RouteOrigin, RouteRow, RouteSummary } from './types.ts'
+import type { DutyDecision, DutyInput, DutyRecord, DutyVerdict, EvolutionRole, ModelRoute, RoleConflict, RouteEvidence, RouteEvidenceInput, RouteOrigin, RouteRow, RouteSummary } from './types.ts'
 
 export type * from './types.ts'
-export { bestRoute, EVOLUTION_ROLES, mergeEvidence, ROUTE_ORIGINS, routeKey } from './routes.ts'
-export { modelRoutesDomainSpec, routeEvidenceRow, routeRow } from './spec.ts'
+export { dutyKey, SEPARATED_DUTIES, separationOfDuties } from './duties.ts'
+export type { DutySeparation } from './duties.ts'
+export { bestRoute, EVOLUTION_ROLES, JUDGING_ROLES, mergeEvidence, PRODUCING_ROLES, ROUTE_ORIGINS, roleConflicts, routeKey } from './routes.ts'
+export { dutyRow, modelRoutesDomainSpec, routeEvidenceRow, routeRow } from './spec.ts'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -35,8 +41,9 @@ function assignmentKey(role: EvolutionRole, route: ModelRoute): string {
 }
 
 /**
- * Adaptive model-routing store over durable assignments and evidence. Opens
- * the `evolution_model_routes` domain at init and closes it through
+ * Adaptive model-routing store over durable assignments, evidence, and the
+ * identities that filled a run's evolutionary roles. Opens the
+ * `evolution_model_routes` domain at init and closes it through
  * `ctx.effect`.
  */
 export class EvolutionModelRoutes extends Service {
@@ -44,6 +51,7 @@ export class EvolutionModelRoutes extends Service {
 
   private routesTable?: KvTable<string, RouteRow>
   private evidenceTable?: KvTable<string, RouteEvidence>
+  private dutiesTable?: KvTable<string, DutyRecord>
 
   /**
    * @param ctx - host context carrying the storage domain.
@@ -58,6 +66,7 @@ export class EvolutionModelRoutes extends Service {
     this.ctx.effect(() => () => domain.close(), 'evolution-model-routes.domainClose')
     this.routesTable = domain.table('routes')
     this.evidenceTable = domain.table('evidence')
+    this.dutiesTable = domain.table('duties')
   }
 
   /**
@@ -121,10 +130,9 @@ export class EvolutionModelRoutes extends Service {
     const rows = [...this.requireRoutes().entries()].map(([, row]) => structuredClone(row))
     const evidence = [...this.requireEvidence().entries()].map(([, row]) => structuredClone(row))
     const roles = role === undefined ? EVOLUTION_ROLES : [role]
-    const order = Object.fromEntries(EVOLUTION_ROLES.map((entry, index) => [entry, index]))
     return roles.flatMap(r => mergeEvidence(rows, evidence, r))
       .sort((left, right) =>
-        order[left.role] - order[right.role]
+        EVOLUTION_ROLES.indexOf(left.role) - EVOLUTION_ROLES.indexOf(right.role)
         || left.provider.localeCompare(right.provider)
         || left.model.localeCompare(right.model))
   }
@@ -159,6 +167,61 @@ export class EvolutionModelRoutes extends Service {
     return bestRoute(rows, mergeEvidence(rows, evidence, role), role)
   }
 
+  /**
+   * The §28 topology conflicts in the current assignment set: routes that both
+   * produce work and judge it, which make the judging role's verdicts
+   * non-independent by construction. Recorded, never enforced — the assignment
+   * set still answers `recommend` exactly as recorded.
+   * @returns the conflicts, ordered by provider then model.
+   */
+  conflicts(): readonly RoleConflict[] {
+    return roleConflicts([...this.requireRoutes().entries()].map(([, row]) => structuredClone(row)))
+  }
+
+  /**
+   * Record the identity that filled one evolutionary role of one run, so §53's
+   * separation of duties has the pair to compare. Recording a role twice for
+   * one run replaces its identity: the newest fill wins.
+   * @param input - the run, the role, and the identity that filled it.
+   * @returns the stored duty row.
+   */
+  async recordDuty(input: DutyInput): Promise<DutyRecord> {
+    const row: DutyRecord = {
+      runId: input.runId,
+      role: input.role,
+      identity: input.identity,
+      at: new Date().toISOString(),
+    }
+    await this.requireDuties().put(dutyKey(input.runId, input.role), row)
+    return structuredClone(row)
+  }
+
+  /**
+   * List one run's recorded role fills, in role-topology order.
+   * @param runId - the run to list.
+   * @returns the duty rows, detached from the store.
+   */
+  duties(runId: string): readonly DutyRecord[] {
+    return [...this.requireDuties().entries()]
+      .map(([, row]) => structuredClone(row))
+      .filter(row => row.runId === runId)
+      .sort((left, right) => EVOLUTION_ROLES.indexOf(left.role) - EVOLUTION_ROLES.indexOf(right.role))
+  }
+
+  /**
+   * §53's separation of duties for one decision over one run: whether the
+   * judging role's recorded identity differs from the producing role's. The
+   * store records what a caller filled each role with and refuses on what it
+   * read, so a decision taken without recording both identities is refused as
+   * unknown rather than assumed independent.
+   * @param runId - the run the decision concerns.
+   * @param decision - the decision being taken.
+   * @returns the verdict, whose refusal names both roles.
+   */
+  checkDuties(runId: string, decision: DutyDecision): DutyVerdict {
+    return separationOfDuties(this.duties(runId), runId, decision)
+  }
+
   private currentOrigin(role: EvolutionRole, route: ModelRoute): RouteOrigin {
     return this.requireRoutes().get(assignmentKey(role, route))?.origin ?? 'observed'
   }
@@ -171,6 +234,11 @@ export class EvolutionModelRoutes extends Service {
   private requireEvidence(): KvTable<string, RouteEvidence> {
     if (this.evidenceTable === undefined) throw new Error('evolution model routes are not started yet')
     return this.evidenceTable
+  }
+
+  private requireDuties(): KvTable<string, DutyRecord> {
+    if (this.dutiesTable === undefined) throw new Error('evolution model routes are not started yet')
+    return this.dutiesTable
   }
 }
 

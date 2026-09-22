@@ -1,8 +1,13 @@
 /**
  * Pure projection of a committed session log into its structured learning
  * trace. The session log is the authoritative immutable raw trace; this module
- * derives the machine-readable form (§3.3) and attaches ranked root-cause
- * candidates to every failed tool call (§3.2).
+ * derives the machine-readable form (§3.3), attaches ranked root-cause
+ * candidates to every failed tool call (§3.2), and carries the §3.1 items the
+ * log itself records: the compiled-context identity each step ran under, the
+ * plan and subgoals in force, the knowledge surfaces consulted, the answer the
+ * turn ended on, recorded evaluations, recorded human feedback, and — for
+ * every tool call — the clipped result text a replay reconstructs the step
+ * from (§17).
  *
  * Credit assignment here is a deterministic proximity heuristic, never a model
  * judgment: the failing call ranks first, then the calls that produced its
@@ -15,11 +20,16 @@
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { truncateUtf8 } from '@deepseek-ai/dsh-evolution-memory'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
+import type { ContextCompilationRecord } from '@deepseek-ai/dsh-agent-context'
+import type { VerificationResult } from '@deepseek-ai/dsh-agent-kernel'
 import type {
   TraceCause,
   TraceFailure,
+  TraceFeedback,
   TraceRecord,
+  TraceRetrieval,
   TraceStep,
+  TraceSubgoal,
   TraceToolCall,
   TraceTurn,
 } from './types.ts'
@@ -63,6 +73,7 @@ interface BuildStep {
   interrupted: boolean
   retries: number
   usage: TraceStep['usage']
+  context: ContextCompilationRecord | null
   calls: TraceToolCall[]
 }
 
@@ -73,6 +84,9 @@ interface BuildTurn {
   endedAt: string | null
   endReason: string | null
   request: string | null
+  subgoals: readonly TraceSubgoal[] | null
+  retrievals: TraceRetrieval[]
+  finalAnswer: string | null
   steps: Map<number, BuildStep>
   /** Steps in first-open order. */
   stepOrder: number[]
@@ -84,22 +98,56 @@ interface PendingCall {
   name: string
   turn: number
   step: number
+  /** Raw model-produced arguments, read for a retrieval call's target. */
+  arguments: string
 }
+
+/**
+ * The first string value recorded under one of `keys` in a tool call's raw
+ * arguments; undefined when the arguments are not an object carrying one.
+ * @param raw - the recorded arguments JSON.
+ * @param keys - candidate keys, most specific first.
+ * @returns the value, or undefined when none of the keys carries a string.
+ */
+function firstStringArgument(raw: string, keys: readonly string[]): string | undefined {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    return undefined
+  }
+  if (typeof parsed !== 'object' || parsed === null) return undefined
+  for (const key of keys) {
+    const value = (parsed as Record<string, unknown>)[key]
+    if (typeof value === 'string' && value.length > 0) return value
+  }
+  return undefined
+}
+
+/** Argument keys naming what a retrieval call asked for, most specific first. */
+const RETRIEVAL_TARGET_KEYS: readonly string[] = ['name', 'query']
 
 /**
  * Project one session's committed events into its structured learning trace.
  * Events are consumed in sequence order; unpaired calls and results, messages
- * before a turn opens, and trace-irrelevant events are dropped.
+ * before a turn opens, and trace-irrelevant events are dropped. A context
+ * compilation, plan revision, or todo snapshot binds to the turn or step open
+ * when it arrives, and carries forward to the ones that follow.
  * @param sessionId - session identity.
  * @param events - committed events in sequence order.
- * @param maxChars - character budget for one failure or request gist.
+ * @param maxChars - character budget for one failure, request, target, snapshot, or answer gist.
  * @returns the structured trace.
  */
 export function project(sessionId: string, events: readonly SessionEvent[], maxChars: number): TraceRecord {
   const turns = new Map<number, BuildTurn>()
   const turnOrder: number[] = []
   let openTurn: BuildTurn | undefined
+  let openStep: BuildStep | undefined
   const pendingCalls = new Map<string, PendingCall>()
+  const evaluations: VerificationResult[] = []
+  const feedback: TraceFeedback[] = []
+  let currentContext: ContextCompilationRecord | null = null
+  let currentPlan: readonly TraceSubgoal[] | null = null
   let newestTime = -1
 
   const markTime = (time: number): void => {
@@ -125,6 +173,9 @@ export function project(sessionId: string, events: readonly SessionEvent[], maxC
             endedAt: null,
             endReason: null,
             request: null,
+            subgoals: currentPlan,
+            retrievals: [],
+            finalAnswer: null,
             steps: new Map(),
             stepOrder: [],
             failures: [],
@@ -141,6 +192,33 @@ export function project(sessionId: string, events: readonly SessionEvent[], maxC
         openTurn.request = gist.length === 0 ? null : gist
         break
       }
+      case 'context/compiled': {
+        currentContext = event.data
+        if (openStep !== undefined) openStep.context = event.data
+        break
+      }
+      case 'todo/write': {
+        currentPlan = event.data.todos.map(todo => ({ content: todo.content, status: todo.status }))
+        if (openTurn !== undefined) openTurn.subgoals = currentPlan
+        break
+      }
+      case 'task/plan': {
+        currentPlan = event.data.steps.map(step => ({ content: step, status: null }))
+        if (openTurn !== undefined) openTurn.subgoals = currentPlan
+        break
+      }
+      case 'feedback/record': {
+        feedback.push({
+          ...event.data.text === undefined ? {} : { text: event.data.text },
+          ...event.data.category === undefined ? {} : { category: event.data.category },
+          at: new Date(event.time).toISOString(),
+        })
+        break
+      }
+      case 'verification/result': {
+        evaluations.push(event.data)
+        break
+      }
       case 'step/start': {
         const built = stepOf(event.data.turn, event.data.step)
         if (built !== undefined) break
@@ -154,10 +232,19 @@ export function project(sessionId: string, events: readonly SessionEvent[], maxC
           interrupted: false,
           retries: 0,
           usage: null,
+          context: currentContext,
           calls: [],
         }
         turn.steps.set(step.step, step)
         turn.stepOrder.push(step.step)
+        openStep = step
+        break
+      }
+      case 'step/end': {
+        // A compilation, plan, or todo record binds to the step or turn open
+        // when it arrives, so the closer must drop that binding: a later record
+        // belongs to the work that follows, never to the span already closed.
+        if (stepOf(event.data.turn, event.data.step) === openStep) openStep = undefined
         break
       }
       case 'assistant/message': {
@@ -165,6 +252,9 @@ export function project(sessionId: string, events: readonly SessionEvent[], maxC
         if (built === undefined) break
         built.usage = event.data.usage ?? built.usage
         if (event.data.interrupted === true) built.interrupted = true
+        const answer = truncateUtf8(textOf(event.data.message.content).replace(/\s+/gu, ' ').trim(), maxChars)
+        const owner = turns.get(event.data.turn)
+        if (answer.length > 0 && owner !== undefined) owner.finalAnswer = answer
         enhanceTime(built, event.time)
         break
       }
@@ -180,46 +270,55 @@ export function project(sessionId: string, events: readonly SessionEvent[], maxC
           name: event.data.name,
           turn: event.data.turn,
           step: event.data.step,
+          arguments: event.data.arguments,
         })
         break
       }
       case 'tool/result': {
-        const pending = pendingCalls.get(String(event.data.message.source.callId))
-        if (pending !== undefined) {
-          pendingCalls.delete(String(event.data.message.source.callId))
-        }
+        const callId = String(event.data.message.source.callId)
+        const pending = pendingCalls.get(callId)
+        if (pending !== undefined) pendingCalls.delete(callId)
         const built = stepOf(event.data.turn, event.data.step)
         if (pending === undefined || built === undefined) break
         const block = event.data.message.content[0]
         const isError = block.isError === true
-        const message = isError
-          ? truncateUtf8(textOf(block.content).replace(/\s+/gu, ' ').trim(), maxChars) || event.data.error?.code || ''
-          : null
+        const snapshot = truncateUtf8(textOf(block.content).replace(/\s+/gu, ' ').trim(), maxChars)
+        const recorded = snapshot.length === 0 ? null : snapshot
+        const failureText = recorded ?? event.data.error?.code ?? pending.name
+        const message = isError ? failureText : null
         const at = new Date(event.time).toISOString()
         const call: TraceToolCall = {
-          callId: String(event.data.message.source.callId),
+          callId,
           name: pending.name,
           ok: !isError,
           errorName: event.data.error?.name ?? null,
           errorCode: event.data.error?.code ?? null,
           message,
+          snapshot: recorded,
           at,
         }
         const callIndex = built.calls.length
         built.calls.push(call)
-        if (isError) {
-          const turn = turns.get(pending.turn)
-          if (turn !== undefined) {
-            turn.failures.push({
-              callId: call.callId,
-              tool: call.name,
-              message: message || pending.name,
-              at,
-              turn: pending.turn,
-              step: pending.step,
-              callIndex,
-            })
-          }
+        const turn = turns.get(pending.turn)
+        if (turn !== undefined && isError) {
+          turn.failures.push({
+            callId: call.callId,
+            tool: call.name,
+            message: failureText,
+            at,
+            turn: pending.turn,
+            step: pending.step,
+            callIndex,
+          })
+        }
+        if (turn !== undefined && isRetrieval(pending.name)) {
+          const target = firstStringArgument(pending.arguments, RETRIEVAL_TARGET_KEYS)
+          turn.retrievals.push({
+            callId,
+            tool: pending.name,
+            target: target === undefined ? null : truncateUtf8(target.replace(/\s+/gu, ' ').trim(), maxChars),
+            ok: !isError,
+          })
         }
         enhanceTime(built, event.time)
         break
@@ -229,6 +328,10 @@ export function project(sessionId: string, events: readonly SessionEvent[], maxC
         if (built === undefined) break
         built.endedAt = new Date(event.time).toISOString()
         built.endReason = event.data.reason.kind
+        if (built === openTurn) {
+          openTurn = undefined
+          openStep = undefined
+        }
         break
       }
       default:
@@ -244,6 +347,8 @@ export function project(sessionId: string, events: readonly SessionEvent[], maxC
     turnCount: tracedTurns.length,
     turns: tracedTurns,
     usage: sumUsage(tracedTurns.flatMap(turn => turn.steps.map(step => step.usage))),
+    evaluations,
+    feedback,
   }
 }
 
@@ -260,6 +365,7 @@ function toTraceTurn(turn: BuildTurn): TraceTurn {
       interrupted: built.interrupted,
       retries: built.retries,
       usage: built.usage,
+      context: built.context,
       calls: built.calls,
       failures,
     }
@@ -278,6 +384,9 @@ function toTraceTurn(turn: BuildTurn): TraceTurn {
     endReason: turn.endReason,
     latencyMs: turn.endedAt === null ? null : Date.parse(turn.endedAt) - Date.parse(turn.startedAt),
     request: turn.request,
+    subgoals: turn.subgoals,
+    retrievals: turn.retrievals,
+    finalAnswer: turn.finalAnswer,
     steps,
     failures,
   }

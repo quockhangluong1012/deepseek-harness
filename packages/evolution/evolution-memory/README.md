@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-evolution-memory` owns the durable per-scope document behind evolution memory: the user-authored instructions, the model-maintained lesson artifacts and user-profile document with provenance and per-family stamps, attached text and file context items, the produced-file index, staged writes awaiting approval, and the newest-first log of decided staged entries. Hosts read it synchronously and mutate it through capped writes; the reviewer and injector packages consume it. Choose it when every Session in a scope should inherit shared knowledge that improves with use, without writing inside the project.
+`dsh-evolution-memory` owns the durable per-scope document behind evolution memory: the user-authored instructions, the model-maintained lesson artifacts and user-profile document with provenance and per-family stamps, attached text and file context items, the produced-file index, the recall ledger behind §23's relevance feedback loop, staged writes awaiting approval, and the newest-first log of decided staged entries. Hosts read it synchronously and mutate it through capped writes; the reviewer and injector packages consume it. Choose it when every Session in a scope should inherit shared knowledge that improves with use, without writing inside the project.
 
 ## Table of Contents
 
@@ -46,6 +46,7 @@ Mount the plugin when Sessions in a scope should share instructions, lesson arti
 | `maxContextItems` | `50` | Item count cap |
 | `maxOutputs` | `200` | Produced-file index size |
 | `maxResolutions` | `200` | Decided staged entries retained per scope |
+| `maxRecalls` | `50` | Recalls retained per scope in the recall ledger, newest kept |
 | `mergeSimilarityFloor` | `0.87` | Minimum similarity to an existing artifact that justifies merging instead of storing separately |
 | `maintenanceIntervalHours` | `24` | Hours between two maintenance sweeps of every stored scope |
 | `refutationFloor` | `3` | Refutations at or above which decay prunes an artifact regardless of age |
@@ -75,6 +76,8 @@ An artifact's identity is its normalized statement — lowercased, internal whit
 
 Decisions fold in the order the extraction reported them, against the record read at write time, so each addresses what the decisions before it produced. A `confirms` or `contradicts` naming an artifact the record no longer holds is skipped rather than refused — the target was resolved against an earlier read and a prune can land in between — and the rest of the batch still applies. The batch is one write: it stamps `lessonsUpdatedAt` once, a batch that changed nothing (an empty one, or one whose decisions were all skipped) stamps no family at all, and the provenance of the call that found nothing is still recorded on `lastExtraction`.
 
+A batch that lands with provenance is also published, after the write is durable, as one `evolution/decisions-applied` event carrying the scope, the source session, the decisions, and the scope's artifacts as they read *before* the write. Deriving consumers fold it into their own state — the knowledge graph's claim layer is the shipped one — and the pre-write artifacts are what make that possible: a `contradicts` decision keeps the artifact's `id` while replacing its statement, so the statement a correction corrects is only visible before the write. The event attributes every decision to the session that reported it, which is why a batch applied without provenance is not published at all: unattributable evidence is worse than none. A staged `applyDecisions` approval publishes under the entry's `originSessionId`. Listeners do not hold up the write and cannot fail it: the batch is already stored, so a listener that throws is logged and contained, exactly as `domain/changed` observers are.
+
 ### Staged writes and decisions
 
 `stageWrite` parks a memory or skill proposal without touching capacity. A staged memory payload names its operation: `setInstructions`, `setUserProfile`, and `appendEpisodic` carry `{ text }`, `addArtifact` carries `{ candidate, strategy }`, `updateArtifact` carries `{ id, patch }`, `removeArtifact` carries `{ id }`, `replaceArtifacts` carries `{ candidates }`, and `applyDecisions` carries `{ decisions, extraction? }`. `approveStaged` applies a memory op (keeping the entry staged when a cap rejects it, or when the addressed artifact does not exist) and only drops a skill entry, while `rejectStaged` drops either. Approving an `applyDecisions` batch applies the whole batch atomically against the record read at approval time, and resolves each `new` candidate's merge target then — the same measure-then-re-validate split `addArtifact`'s staged path uses, never a snapshot taken when the batch was staged.
@@ -89,7 +92,15 @@ Both decisions append a resolution — entry id, kind, op, gist, decision, origi
 
 Each memory family stamps its own instant: `setInstructions` stamps `instructionsUpdatedAt`, the `addArtifact` / `updateArtifact` / `removeArtifact` / `replaceArtifacts` / `applyDecisions` family stamps `lessonsUpdatedAt`, and `setUserProfile` stamps `profileUpdatedAt`. A staged approval stamps only the family its op changed, so a lesson add, or a decision batch, that changed nothing stamps none. `appendEpisodic` stamps no family: an episodic note is unapproved consolidation input, not a curated document. `memoryUpdatedAt` remains for one release as the later of the lessons and profile stamps. Every accepted write stamps `updatedAt`.
 
-Recalled context material — the reviewer's ranked recall — is an ordinary context item labelled with the exported `RECALL_LABEL_PREFIX`, so the digest covers it and the brief drops it first.
+### The recall ledger
+
+Recalled context material — the reviewer's ranked recall — is an ordinary context item labelled with the exported `RECALL_LABEL_PREFIX`, so the digest covers it and the brief drops it first. The same label is §23's `retrieved` link: `addContextItem` reads the recalled memory's identity out of the label and appends one row to the scope's recall ledger, `recalls` (newest first, capped by `maxRecalls`), each carrying the item it landed as and its instant.
+
+Two more links are recorded from what the profile already writes. A decision batch that lands with provenance — `applyExtractionDecisions(id, decisions, extraction)` — binds every recall still awaiting one to that batch, recording its session and instant: that batch is the recorded decision the recalled material was in play for. `recordRecallOutcome(id, recalledId, outcome, at?)` records the session's graded outcome on the newest recall still awaiting one, refusing loudly when a memory has none, so a memory recalled again after an outcome is graded again on its newer recall.
+
+Two §23 links have no record at all, and the ledger never guesses them: nothing observes whether an injected item was actually **used**, and nothing marks one as **cited**. `recalls()` returns every recorded row with the scope it landed in, and `recallUtility()` derives §24's reading from them: `relevance × decision impact × outcome gain`, where relevance is `n / (n + 1)` over the memory's recorded recalls — the same saturation the knowledge graph's belief uses, so no memory reaches the ceiling on retrieval alone — decision impact is the share of those recalls a recorded batch followed, and outcome gain is the share graded `ok`. §24's fourth factor, **source quality**, has no recorded source for a recalled memory, so the product carries three factors rather than a fabricated fourth.
+
+Removing the context item does not remove the recall: the recall happened, and dropping the item from the brief does not un-retrieve it.
 
 ### Episodic notes
 
@@ -124,6 +135,7 @@ One durable record per scope in storage domain `evolution_memory`, version `2`, 
 | [`src/lesson-artifact.ts`](src/lesson-artifact.ts) | Artifact type and schema, statement identity, and admission of a legacy lessons document |
 | [`src/decisions.ts`](src/decisions.ts) | Decision vocabulary and the pure confirm/contradict/new fold over a record |
 | [`src/merge.ts`](src/merge.ts) | Cosine similarity, the merge strategies, and merge-target selection |
+| [`src/recall.ts`](src/recall.ts) | Recall-label reading, the ledger folds, and the pure §24 utility derivation |
 | [`src/maintenance.ts`](src/maintenance.ts) | The decay predicate and the shape of one sweep's result |
 | [`src/digest.ts`](src/digest.ts) | Digest, capacity, byte-length, and clipping helpers |
 
@@ -140,8 +152,9 @@ No invariant companion is published because the domain table is the only copy of
 <a id="further-exploration"></a>
 ## Further Exploration
 
-- [Evolutionary Harness specification](../../../specs/evolutionary-harness-spec-v10-complete.md) — the behaviour contract this package implements.
+- [Evolutionary Harness subsystem](../../../docs/subsystems/evolutionary-harness.md) — the behaviour contract this package implements.
 - [Evolution package map](../README.md) — the group's packages and their repository position.
+- [`dsh-evolution-graph`](../evolution-graph/README.md) — the claim/evidence consumer of this store's decision batches.
 - [Generated configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-evolution-memory) — every accepted config field.
 
 -----
@@ -166,7 +179,10 @@ These limits define when the store is a poor fit. They are current package const
 - **A migrated artifact stays coarse** — a legacy lessons document opens as one artifact covering the whole text, and no pass splits it yet; the extraction folds decisions into the artifacts it is shown, so a migrated scope keeps that one long artifact line in the brief and gains new artifacts beside it rather than in place of it.
 - **Decay is driven by writes and refutations** — an artifact is pruned `defaultTtlDays` after the last write that reached it, and using an artifact never counts, so a fact nothing discusses again decays even when it is still true. The counters a decision batch writes are what a scope's own turns supply: a `confirms` refreshes an artifact's `updatedAt` and a `contradicts` counts toward `refutationFloor`, while an artifact the extraction's relevance window never shows the model receives neither. A migrated coarse artifact carries no ttl at all, because admission does not assign one, so only the refutation floor could ever drop it.
 - **File size is a snapshot** — a file item's recorded size is not refreshed when the file changes on disk.
+- **The recall ledger records two of §23's four links** — retrieval and the decision batch that followed are recorded, and a grader supplies the outcome; whether the injected item was *used* and whether it was *cited* have no writer anywhere, so they contribute nothing to a memory's utility, and §24's fourth factor (source quality) has no recorded source for a recalled memory. The ledger is therefore a floor on utility, not a full measurement.
+- **The recall ledger is capped, not cumulative** — `maxRecalls` bounds it per scope, so a memory recalled more often than the cap keeps its newest recalls and its count is a count of retained recalls; anything reading it should not treat `recalls` as an all-time total. Outcomes are graded by a caller: nothing decides on its own that a recalled memory helped.
 - **Staged writes are unbounded** — staged entries are excluded from capacity by design, so an unreviewed backlog grows until approved or rejected.
+- **A decision batch carries no per-decision provenance** — every decision in a batch is attributed to the session the batch's `extraction` names, so a caller that applies a batch without provenance publishes nothing to deriving consumers, and two confirmations of one artifact from one session are indistinguishable from a confirmation repeated by that session. Independence is the consumer's to count: the claim layer keys support by source and refuses to let one source attest a claim twice.
 
 <a id="dev-note"></a>
 ### Dev Note

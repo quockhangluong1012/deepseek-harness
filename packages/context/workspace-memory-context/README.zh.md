@@ -78,7 +78,7 @@ brief 是由 `agent/pre-step` 贡献追加的一条持久 `user/message`，因�
 <a id="further-exploration"></a>
 ## 进一步探索
 
-- [Workspace Memory 规范](../../../specs/workspace-memory.md)——本包实现的行为约定。
+- [Workspace Memory 子系统](../../../docs/subsystems/workspace-memory.zh.md)——本包实现的行为约定。
 - [context 组地图](../README.zh.md)——相邻的请求上下文包。
 - [生成的配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-workspace-memory-context)——每个受支持的配置字段。
 

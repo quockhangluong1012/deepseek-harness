@@ -7,7 +7,7 @@ kind: "package-reference"
 
 [English](README.md) | 中文
 
-## 摘要
+## 概述
 
 `dsh-evolution-novelty-search` 维护跨运行的按技能行为描述符档案——每个暂存优化器写入对应一条条目——并测量每个新描述符相对该技能此前全部所见的新奇度。新奇度 = 1 − 与任意档案条目的最大 Jaccard 相似度：复述已知指令的候选不算新奇，携带新材料的候选才算。优化器通过可选存储接缝记录每次暂存写入，宿主命令 `command-evolution` 通过 `/novelty` 检视档案。此包不调用任何模型。
 
@@ -18,7 +18,7 @@ kind: "package-reference"
 - [进一步探索](#further-exploration)
 - [模型体验](#model-experience)
 - [已知限制与延后工作](#known-limitations-and-deferred-work)
-- [开发者注记](#dev-note)
+- [开发备注](#dev-note)
 
 -----
 
@@ -97,7 +97,7 @@ const pressure = ctx.evolutionNovelty.mean('writer')
 - **无档案预算**——档案无上限增长；有界档案需要在域上加保留策略。
 
 <a id="dev-note"></a>
-### 开发者注记
+### 开发备注
 
 <details>
 <summary>维护者工作上下文——点击展开</summary>

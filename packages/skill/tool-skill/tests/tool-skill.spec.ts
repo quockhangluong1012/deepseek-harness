@@ -1081,6 +1081,56 @@ describe('dsh-tool-skill', () => {
       .toContain('skill "composed-skill" cannot load: "rival-skill" and "composed-skill" declare a conflict')
   })
 
+  it('refuses a composition whose member is outside the requested skill compatibility allowlist', async () => {
+    const home = await tempDir('tool-compose-compatibility')
+    const ctx = await setup(home)
+    ctx.skills.register({
+      name: 'rival-skill', description: 'Rival', source: 'runtime', content: 'Rival instructions.',
+    })
+    ctx.skills.register({
+      name: 'composed-skill',
+      description: 'Composed',
+      source: 'runtime',
+      content: 'Composed instructions.',
+      requires: ['rival-skill'],
+      compatibleWith: ['base-skill'],
+    })
+
+    const result = await ctx.tools.execute({
+      signal: testToolSignal, callId: ToolCallId('c18'), name: 'skill', arguments: { name: 'composed-skill' },
+    })
+
+    expect(result.isError).toBe(true)
+    expect(result.content[0]?.type === 'text' ? result.content[0].text : '')
+      .toContain('skill "composed-skill" cannot load: "composed-skill" is not compatible with "rival-skill"')
+  })
+
+  it('loads a declared composition whose prerequisite the allowlist names', async () => {
+    const home = await tempDir('tool-compose-compatible')
+    const ctx = await setup(home)
+    ctx.skills.register({
+      name: 'base-skill', description: 'Base rules', source: 'runtime', content: 'Base instructions.',
+    })
+    ctx.skills.register({
+      name: 'composed-skill',
+      description: 'Composed',
+      source: 'runtime',
+      content: 'Composed instructions.',
+      requires: ['base-skill'],
+      compatibleWith: ['base-skill'],
+    })
+
+    const result = await ctx.tools.execute({
+      signal: testToolSignal, callId: ToolCallId('c19'), name: 'skill', arguments: { name: 'composed-skill' },
+    })
+
+    expect(result.isError).toBe(false)
+    if (result.isError) throw new Error('expected skill success')
+    expect(result.value).toMatchObject({
+      composed: [{ name: 'base-skill', provider: 'runtime', content: 'Base instructions.' }],
+    })
+  })
+
   it('rejects an unknown resource-base kind at the canonical output boundary', async () => {
     const home = await tempDir('tool-resource-assert-never')
     const ctx = await setup(home)

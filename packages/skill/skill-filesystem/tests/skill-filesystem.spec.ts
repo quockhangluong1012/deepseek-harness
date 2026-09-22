@@ -1328,6 +1328,65 @@ describe('FileSystemSkillProvider', () => {
     }
   })
 
+  it('parses compositionality metadata without warning and drops malformed values', async () => {
+    const home = await tempDir('skill-composition-parse')
+    const root = join(home, '.dsh/skills')
+    await writeFrontmatterSkill(root, 'composed-skill', [
+      'compatible_with: [base-skill]',
+      'composable_with: [base-skill, rival-skill]',
+      'inputs: [diff]',
+      'outputs: [review]',
+      'derived_from: [base-skill, rival-skill]',
+    ])
+    await writeFrontmatterSkill(root, 'plain-skill', [])
+    await writeFrontmatterSkill(root, 'broken-compatible', ['compatible_with: base-skill'])
+    await writeFrontmatterSkill(root, 'broken-composable', ['composable_with: [base-skill, 42]'])
+    await writeFrontmatterSkill(root, 'broken-inputs', ['inputs: diff'])
+    await writeFrontmatterSkill(root, 'broken-outputs', ['outputs: [review, 42]'])
+    await writeFrontmatterSkill(root, 'broken-lineage', ['derived_from: base-skill'])
+
+    const ctx = await setupLocal(home)
+    const warn = vi.spyOn(ctx.logger, 'warn')
+    try {
+      const summaries = await ctx.skills.list()
+      expect(summaries.find(skill => skill.name === 'composed-skill')).toMatchObject({
+        compatibleWith: ['base-skill'],
+        composableWith: ['base-skill', 'rival-skill'],
+        inputs: ['diff'],
+        outputs: ['review'],
+        derivedFrom: ['base-skill', 'rival-skill'],
+      })
+      for (const plain of ['plain-skill', 'broken-compatible', 'broken-composable', 'broken-inputs', 'broken-outputs', 'broken-lineage']) {
+        const summary = summaries.find(skill => skill.name === plain)
+        expect(summary).not.toHaveProperty('compatibleWith')
+        expect(summary).not.toHaveProperty('composableWith')
+        expect(summary).not.toHaveProperty('inputs')
+        expect(summary).not.toHaveProperty('outputs')
+        expect(summary).not.toHaveProperty('derivedFrom')
+      }
+      expect(await ctx.skills.get('composed-skill')).toMatchObject({
+        outputs: ['review'],
+        derivedFrom: ['base-skill', 'rival-skill'],
+      })
+      expect(await ctx.skills.get('broken-outputs')).not.toHaveProperty('outputs')
+      // Each malformed file warns once from the listing; the one this test
+      // also loads warns a second time (the second listing reads the cache).
+      const warnings = warn.mock.calls.map(([message]) => String(message))
+      for (const [file, key] of [
+        ['broken-compatible.md', '"compatible_with"'],
+        ['broken-composable.md', '"composable_with"'],
+        ['broken-inputs.md', '"inputs"'],
+        ['broken-outputs.md', '"outputs"'],
+        ['broken-lineage.md', '"derived_from"'],
+      ] as const) {
+        const matching = warnings.filter(message => message.includes(join(root, file)) && message.includes(key))
+        expect(matching).toHaveLength(file === 'broken-outputs.md' ? 2 : 1)
+      }
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
   it('drops a malformed blueprint with one warning and still loads the skill', async () => {
     const home = await tempDir('skill-blueprint-malformed')
     const root = join(home, '.dsh/skills')

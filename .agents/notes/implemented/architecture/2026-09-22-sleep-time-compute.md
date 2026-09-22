@@ -15,7 +15,7 @@ One new package, `dsh-evolution-sleeptime`, holding durable anticipated tasks wi
 1. **Anticipation is an upserted durable fact.** `anticipate(input)` stores one task per identity with its likelihood, expected queries, and per-query savings; re-anticipating refreshes the expectations in place. `tasks(domain?)` lists likeliest first with task-id ascending tie-break.
 2. **Worth is a strict inequality on the expected net.** `expectedNet` weights savings by likelihood and subtracts the estimated offline cost; `decideWorth` needs a strictly positive net, because a zero net spends idle time for nothing. The reason names the numbers, so a `/sleeptime` render never has to explain the arithmetic twice.
 3. **The plan is greedy inside the offline budget.** `planFor` keeps worth-it decisions, sorts net descending with task-id ascending tie-break, and takes them while the cumulative estimated cost fits. `plan(cost?, budget?)` defaults both from validated config (`defaultEstimatedCostTokens` 2000, `maxOfflineTokens` 50000) and covers only tasks with no cached artifact yet.
-4. **Artifacts account for themselves.** `precompute(input)` caches one artifact per caller-chosen id for a known task — unknown tasks reject loudly — starting at zero hits and zero saved tokens. `hit(artifactId, savedTokens)` accumulates both, so `savingsOf` stays negative until the precompute pays back. The `evolution_sleeptime` domain (v1) holds a `tasks` table and an `artifacts` table; heartbeat-driven anticipation stays deferred and operator-driven.
+4. **Artifacts account for themselves.** `precompute(input)` caches one artifact per caller-chosen id for a known task — unknown tasks reject loudly — starting at zero hits and zero saved tokens. `hit(artifactId, occurrences)` accounts the recorded turns that consumed it, so `savingsOf` stays negative until the precompute pays back. The `evolution_sleeptime` domain holds a `tasks` table and an `artifacts` table; [the sleep-time driver note](2026-09-22-sleeptime-driver-and-workflow-axis.md) records the heartbeat pass and the accounting cursor that replaced the operator-driven `hit(artifactId, savedTokens)` entry point.
 
 ## Alternatives considered
 
@@ -27,7 +27,7 @@ One new package, `dsh-evolution-sleeptime`, holding durable anticipated tasks wi
 
 - Idle time is now plannable: `plan()` names exactly which anticipated tasks deserve tonight's offline budget and in which order, so quiet hours stop producing nothing.
 - Every cached artifact carries its payback ledger: hits and saved tokens against offline cost, visible through `artifacts()` without any model call.
-- The heartbeat has a defined future job: its quiet ticks become the trigger for `anticipate`/`precompute` once wired, with stable caller-chosen artifact ids ready for a driver to derive.
+- The heartbeat's quiet ticks are the trigger: [the driver note](2026-09-22-sleeptime-driver-and-workflow-axis.md) registers the anticipation pass, so idle time is automatic rather than merely plannable.
 
 ## Deviations from the plan
 
@@ -39,8 +39,8 @@ The zod task row with `scope: z.string().optional()` did not satisfy `Anticipate
 
 ## Testing
 
-Pure helpers: net math including zero likelihood and zero cost, the worth-it boundary at exactly zero with reason content, plan ordering with drops, tie-break, greedy budget fit and overflow, empty plans, savings sign both ways. Store: anticipate upsert/at with and without scope, task order/filter/detached copies, unknown-task precompute throw, artifact filter/order with a frozen-clock tie-break, hit accumulation with unknown throw, plan skipping cached tasks under default and explicit budgets, restart persistence through the zod spec, reads-before-start. 15 pure tests and 9 store tests pass; the new package is at 100% statements/branches/functions/lines on every file under `src/`.
+Pure helpers: net math including zero likelihood and zero cost, the worth-it boundary at exactly zero with reason content, plan ordering with drops, tie-break, greedy budget fit and overflow, empty plans, savings sign both ways. Store: anticipate upsert/at with and without scope, task order/filter/detached copies, unknown-task precompute throw, artifact filter/order with a frozen-clock tie-break, accounting with unknown-artifact throw, plan skipping cached tasks under default and explicit budgets, restart persistence through the zod spec, reads-before-start. The package's four suites pass and every file under `src/` is at 100% statements, branches, functions, and lines; [the driver note](2026-09-22-sleeptime-driver-and-workflow-axis.md) records the pass and accounting cases added on top.
 
 ## Left alone
 
-Heartbeat wiring is deferred: anticipation and precomputation are operator-driven, and idle time is planned, not yet automatic (documented in the package's Known Limitations). The store is record-only and never generates artifacts itself. One estimated cost prices every precompute; per-kind costs need a measured cost model. Cached artifacts accumulate with no eviction.
+The store is record-only and never generates artifacts itself: what the driver caches is the recurrence its source stores recorded, not composed prose. One estimated cost prices every precompute; per-kind costs need a measured cost model. Cached artifacts accumulate with no eviction.

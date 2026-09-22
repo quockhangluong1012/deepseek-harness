@@ -41,6 +41,14 @@ async function harness(options: {
   feedFailures?: boolean
   feedSignals?: FeedbackSignal[]
   curatorConfig?: Record<string, unknown>
+  /** `conflicting-evidence` signals per skill, as the uncertainty store holds them. */
+  conflicts?: Record<string, string[]>
+  /** Lineage envelopes the version rule compares, newest last. */
+  experiments?: {
+    skill: string
+    at: string
+    dependencies: Record<string, string | undefined>
+  }[]
 } = {}) {
   const home = await mkdtemp(join(tmpdir(), 'curator-home-'))
   homeDirs.push(home)
@@ -81,6 +89,16 @@ async function harness(options: {
         return signals
       },
     } as never)
+  }
+  if (options.conflicts !== undefined) {
+    ctx.provide('evolutionUncertainty', {
+      signals: (skill?: string) => Object.entries(options.conflicts ?? {})
+        .filter(([name]) => skill === undefined || name === skill)
+        .flatMap(([, ats]) => ats.map(at => ({ kind: 'conflicting-evidence', at }))),
+    } as never)
+  }
+  if (options.experiments !== undefined) {
+    ctx.provide('evolutionLineage', { experiments: () => options.experiments ?? [] } as never)
   }
   if (options.telemetry !== false) {
     await ctx.plugin(EvolutionSkillTelemetry)
@@ -701,7 +719,7 @@ describe('evolution curator', () => {
     }
   })
 
-  it('stales an active skill on repeated unattributed failures', async () => {
+  it('suspects an active skill on repeated unattributed failures', async () => {
     const h = await harness({ sources: { rotten: 'user-dsh' } })
     try {
       await h.telemetry?.markUsed('rotten', undefined, 's1')
@@ -713,9 +731,9 @@ describe('evolution curator', () => {
       }
       const report = await h.curator.run({ now: Date.now() + 2 * HOUR })
       expect(report.transitions).toEqual([{
-        name: 'rotten', from: 'active', to: 'stale', reason: 'trust failures 3 reach 3',
+        name: 'rotten', from: 'active', to: 'suspect', reason: 'trust failures 3 reach 3',
       }])
-      expect(h.telemetry?.read('rotten')).toMatchObject({ state: 'stale' })
+      expect(h.telemetry?.read('rotten')).toMatchObject({ state: 'suspect' })
     } finally {
       await h.fiber.dispose()
     }
@@ -741,7 +759,7 @@ describe('evolution curator', () => {
     }
   })
 
-  it('stales a never-loaded skill on attributed failures alone', async () => {
+  it('suspects a never-loaded skill on attributed failures alone', async () => {
     const h = await harness({})
     try {
       const failedAt = new Date(Date.now() + HOUR).toISOString()
@@ -752,14 +770,14 @@ describe('evolution curator', () => {
       }
       const report = await h.curator.run({ now: Date.now() + 2 * HOUR })
       expect(report.transitions).toEqual([{
-        name: 'ghost', from: 'active', to: 'stale', reason: 'trust failures 3 reach 3',
+        name: 'ghost', from: 'active', to: 'suspect', reason: 'trust failures 3 reach 3',
       }])
     } finally {
       await h.fiber.dispose()
     }
   })
 
-  it('stales an active skill on a bad load rate ending in failure', async () => {
+  it('suspects an active skill on a bad load rate ending in failure', async () => {
     const h = await harness({
       sources: { flaky: 'user-dsh' },
       curatorConfig: { stageMinUses: 4, stageFailureRate: 0.5 },
@@ -769,7 +787,7 @@ describe('evolution curator', () => {
       for (let i = 0; i < 3; i += 1) await h.telemetry?.markFailed('flaky')
       const report = await h.curator.run({ now: Date.now(), dryRun: true })
       expect(report.transitions).toEqual([{
-        name: 'flaky', from: 'active', to: 'stale', reason: 'failures 3/4 exceed 50%',
+        name: 'flaky', from: 'active', to: 'suspect', reason: 'failures 3/4 exceed 50%',
       }])
       expect(h.telemetry?.read('flaky')).toMatchObject({ state: 'active' })
     } finally {
@@ -789,6 +807,155 @@ describe('evolution curator', () => {
       const report = await h.curator.run({ now: Date.now() })
       expect(report.transitions).toEqual([])
       expect(h.telemetry?.read('recovering')).toMatchObject({ state: 'active' })
+    } finally {
+      await h.fiber.dispose()
+    }
+  })
+
+  it('suspects a drifted skill while a quiet skill of the same age stays active', async () => {
+    const h = await harness({
+      sources: { noisy: 'user-dsh', quiet: 'user-dsh' },
+      feedSignals: [{
+        tool: 'bash',
+        message: 'command not found',
+        count: 4,
+        sessions: 2,
+        firstAt: 't0',
+        lastAt: 't1',
+        actionability: 'trigger_review',
+        evidenceStatus: 'complete',
+        mergeKey: 'bash\u0000command not found',
+      }],
+    })
+    try {
+      const usedAt = Date.now()
+      await h.telemetry?.markUsed('noisy', undefined, 's-1')
+      await h.telemetry?.markUsed('quiet')
+      // The graded failure landed after the last load, so nothing has answered it.
+      await h.telemetry?.recordTrustObservation('noisy', 'failure', 's-1', {
+        mergeKey: 'bash\u0000broken',
+        message: 'broken',
+        at: new Date(usedAt + 1000).toISOString(),
+      })
+
+      const report = await h.curator.run({ now: usedAt + HOUR })
+
+      expect(report.transitions).toEqual([{
+        name: 'noisy',
+        from: 'active',
+        to: 'suspect',
+        reason: 'drift: failure spike',
+      }])
+      expect(h.telemetry?.read('noisy')).toMatchObject({ state: 'suspect' })
+      // Same age, same graded signals, nothing recorded after its last load.
+      expect(h.telemetry?.read('quiet')).toMatchObject({ state: 'active' })
+    } finally {
+      await h.fiber.dispose()
+    }
+  })
+
+  it('suspects a skill whose recorded evidence conflicts with newer evidence', async () => {
+    const h = await harness({
+      sources: { stale: 'user-dsh' },
+      conflicts: { stale: [new Date(Date.now() + 1000).toISOString()] },
+    })
+    try {
+      await h.telemetry?.markUsed('stale')
+      const report = await h.curator.run({ now: Date.now() + HOUR })
+      expect(report.transitions).toEqual([{
+        name: 'stale',
+        from: 'active',
+        to: 'suspect',
+        reason: 'drift: conflicting evidence',
+      }])
+    } finally {
+      await h.fiber.dispose()
+    }
+  })
+
+  it('suspects a skill whose measured utility trails its peers', async () => {
+    const h = await harness({ sources: { bad: 'user-dsh', good: 'user-dsh' }, curatorConfig: { backup: { enabled: false } } })
+    try {
+      await h.telemetry?.recordTrustObservation('bad', 'failure', 's-b1')
+      await h.telemetry?.recordTrustObservation('bad', 'failure', 's-b2')
+      await h.telemetry?.recordTrustObservation('good', 'success', 's-g1')
+      await h.telemetry?.recordTrustObservation('good', 'success', 's-g2')
+
+      const report = await h.curator.run({ now: Date.now() })
+
+      expect(report.transitions).toEqual([{
+        name: 'bad',
+        from: 'active',
+        to: 'suspect',
+        reason: 'drift: low measured utility',
+      }])
+      expect(h.telemetry?.read('good')).toMatchObject({ state: 'active' })
+    } finally {
+      await h.fiber.dispose()
+    }
+  })
+
+  it('suspects a skill an experiment ran under a changed dependency version', async () => {
+    const usedAt = Date.now()
+    const h = await harness({
+      sources: { shifted: 'user-dsh', steady: 'user-dsh' },
+      experiments: [
+        { skill: 'shifted', at: new Date(usedAt + 1000).toISOString(), dependencies: { tool: '1.0', skill: 'a' } },
+        { skill: 'shifted', at: new Date(usedAt + 2000).toISOString(), dependencies: { tool: '2.0', skill: 'b' } },
+        { skill: 'steady', at: new Date(usedAt + 1000).toISOString(), dependencies: { tool: '1.0' } },
+        { skill: 'steady', at: new Date(usedAt + 2000).toISOString(), dependencies: { tool: '1.0' } },
+      ],
+      curatorConfig: { backup: { enabled: false } },
+    })
+    try {
+      await h.telemetry?.markUsed('shifted')
+      await h.telemetry?.markUsed('steady')
+
+      const report = await h.curator.run({ now: usedAt + HOUR })
+
+      expect(report.transitions).toEqual([{
+        name: 'shifted',
+        from: 'active',
+        to: 'suspect',
+        reason: 'drift: dependency version change',
+      }])
+      // A version that did not change is no evidence, and the skill's own
+      // version is not the environment it was validated in.
+      expect(h.telemetry?.read('steady')).toMatchObject({ state: 'active' })
+    } finally {
+      await h.fiber.dispose()
+    }
+  })
+
+  it('ages a suspect skill into stale only on idleness, and revives it on a fresh clean load', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(T0)
+    const h = await harness({
+      sources: { drifter: 'user-dsh', mended: 'user-dsh' },
+      conflicts: {
+        drifter: [new Date(T0 + 1000).toISOString()],
+        mended: [new Date(T0 + 1000).toISOString()],
+      },
+      curatorConfig: { backup: { enabled: false } },
+    })
+    try {
+      await h.telemetry?.markUsed('drifter')
+      await h.telemetry?.markUsed('mended')
+      vi.setSystemTime(T0 + HOUR)
+      const suspect = await h.curator.run({ now: T0 + HOUR })
+      expect(suspect.transitions.map(transition => transition.to)).toEqual(['suspect', 'suspect'])
+
+      // Evidence alone never archives, and a clean load after the question
+      // was raised answers it.
+      vi.setSystemTime(T0 + 2 * HOUR)
+      await h.telemetry?.markUsed('mended', undefined, 's-clean')
+      const later = await h.curator.run({ now: T0 + 2 * HOUR })
+      expect(later.transitions).toContainEqual(expect.objectContaining({ name: 'mended', to: 'active' }))
+      expect(h.telemetry?.read('drifter')).toMatchObject({ state: 'suspect' })
+
+      vi.setSystemTime(T0 + 46 * DAY)
+      const idle = await h.curator.run({ now: T0 + 46 * DAY })
+      expect(idle.transitions).toContainEqual(expect.objectContaining({ name: 'drifter', from: 'suspect', to: 'stale' }))
     } finally {
       await h.fiber.dispose()
     }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { bestRoute, EVOLUTION_ROLES, mergeEvidence, routeKey } from '../src/routes.ts'
+import { bestRoute, EVOLUTION_ROLES, mergeEvidence, roleConflicts, routeKey } from '../src/routes.ts'
 import type { EvolutionRole, RouteEvidence, RouteRow, RouteSummary } from '../src/types.ts'
 
 const row = (overrides: Partial<RouteRow> & { role: EvolutionRole; provider: string; model: string }): RouteRow => ({
@@ -108,5 +108,52 @@ describe('bestRoute', () => {
 
   it('covers the topology in spec §28 order', () => {
     expect(EVOLUTION_ROLES).toEqual(['task-execution', 'reflection', 'candidate-generation', 'evaluation', 'promotion-review'])
+  })
+})
+
+describe('roleConflicts', () => {
+  it('reports a route that both produces work and judges it, in topology order', () => {
+    const rules = [
+      row({ role: 'evaluation', provider: 'deepseek', model: 'chat' }),
+      row({ role: 'candidate-generation', provider: 'deepseek', model: 'chat', origin: 'pinned' }),
+      row({ role: 'reflection', provider: 'deepseek', model: 'chat' }),
+      row({ role: 'promotion-review', provider: 'deepseek', model: 'reasoner' }),
+    ]
+    expect(roleConflicts(rules)).toEqual([{
+      route: { provider: 'deepseek', model: 'chat' },
+      producing: ['reflection', 'candidate-generation'],
+      judging: ['evaluation'],
+      pinned: true,
+      detail: "route 'deepseek/chat' serves reflection, candidate-generation and also judges evaluation",
+    }])
+  })
+
+  it('reports nothing while every route stays on one side of the topology', () => {
+    const producingOnly = [
+      row({ role: 'task-execution', provider: 'a', model: 'fast' }),
+      row({ role: 'reflection', provider: 'a', model: 'cheap' }),
+    ]
+    const judgingOnly = [
+      row({ role: 'task-execution', provider: 'a', model: 'fast' }),
+      row({ role: 'evaluation', provider: 'b', model: 'judge' }),
+      row({ role: 'promotion-review', provider: 'c', model: 'strongest' }),
+    ]
+    expect(roleConflicts(producingOnly)).toEqual([])
+    expect(roleConflicts(judgingOnly)).toEqual([])
+    expect(roleConflicts([])).toEqual([])
+  })
+
+  it('lists every conflicting route in provider then model order', () => {
+    const rules = [
+      row({ role: 'candidate-generation', provider: 'b', model: 'm' }),
+      row({ role: 'evaluation', provider: 'b', model: 'm' }),
+      row({ role: 'task-execution', provider: 'a', model: 'z' }),
+      row({ role: 'promotion-review', provider: 'a', model: 'z' }),
+      row({ role: 'reflection', provider: 'a', model: 'm' }),
+      row({ role: 'evaluation', provider: 'a', model: 'm' }),
+    ]
+    expect(roleConflicts(rules).map(conflict => `${conflict.route.provider}/${conflict.route.model}`))
+      .toEqual(['a/m', 'a/z', 'b/m'])
+    expect(roleConflicts(rules).map(conflict => conflict.judging)).toEqual([['evaluation'], ['promotion-review'], ['evaluation']])
   })
 })

@@ -6,7 +6,7 @@ Status: implemented
 
 ## Problem
 
-[`specs/improvement.spec.md`](../../../../specs/improvement.spec.md) 的 Phase 6 交付了 `evolutionController` Remote 服务、`/journey` 读模型与治理命令，但 Web 一侧仍在计划中：浏览器无法展示某个作用域记录到的演进、无法决定待审写入，也读不到整理器记录到的运行。浏览器同样无法访问 Host 的 Cordis 服务，因此建立在 `ctx.evolutionCurator` 之上的整理器卡片无法做到诚实——它只能宣称一个从未读取过的状态。
+本家族的 Phase 6 切片——其行为由[演进式 Harness 子系统](../../../../docs/subsystems/evolutionary-harness.zh.md)描述——交付了 `evolutionController` Remote 服务、`/journey` 读模型与治理命令，但 Web 一侧仍在计划中：浏览器无法展示某个作用域记录到的演进、无法决定待审写入，也读不到整理器记录到的运行。浏览器同样无法访问 Host 的 Cordis 服务，因此建立在 `ctx.evolutionCurator` 之上的整理器卡片无法做到诚实——它只能宣称一个从未读取过的状态。
 
 ## Decision
 

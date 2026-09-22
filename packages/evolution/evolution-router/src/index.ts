@@ -12,12 +12,17 @@
 import { randomUUID } from 'node:crypto'
 import { Context, Service } from '@deepseek-ai/cordis'
 import type { KvTable } from '@deepseek-ai/dsh-storage-domain'
+import type {} from '@deepseek-ai/dsh-evolution-uncertainty'
 import z from 'zod'
+import { routeDisagreement, routeDisagreements } from './disagreement.ts'
 import { rankRoutes, recommendRoute, ROUTING_ROLES, routeKey, updatedEffectiveness } from './router.ts'
 import { routerDomainSpec } from './spec.ts'
+import type { RouteDisagreement } from './disagreement.ts'
 import type { RouteEffectiveness, RouteOutcome, RouteOutcomeInput, RouteRankingEntry, RouterTaskClass, RoutingRole } from './types.ts'
 
 export type * from './types.ts'
+export type { RouteDisagreement } from './disagreement.ts'
+export { routeDisagreement, routeDisagreements } from './disagreement.ts'
 export { rankRoutes, recommendRoute, ROUTING_ROLES, routeKey, scoreOf, updatedEffectiveness } from './router.ts'
 export { routeOutcomeRow, routerDomainSpec } from './spec.ts'
 
@@ -28,12 +33,20 @@ export { routeOutcomeRow, routerDomainSpec } from './spec.ts'
 export interface Config {
   /** Outcomes a route needs before it may be recommended; defaults to 3. */
   minimumSamples?: number
+  /** Outcomes a route needs before the disagreement comparison measures it; defaults to 3. */
+  disagreementMinimumRuns?: number
+  /** Pass-rate gap at which two routes disagree strongly; defaults to 0.5. */
+  disagreementThreshold?: number
 }
 
 /** Normalized configuration used by the store. */
 export interface ResolvedConfig {
   /** Outcomes a route needs before it may be recommended. */
   minimumSamples: number
+  /** Outcomes a route needs before the disagreement comparison measures it. */
+  disagreementMinimumRuns: number
+  /** Pass-rate gap at which two routes disagree strongly. */
+  disagreementThreshold: number
 }
 
 /**
@@ -42,8 +55,8 @@ export interface ResolvedConfig {
  * @returns normalized runtime configuration.
  */
 export function resolveConfig(config: Config): ResolvedConfig {
-  const { minimumSamples = 3 } = config
-  return { minimumSamples }
+  const { minimumSamples = 3, disagreementMinimumRuns = 3, disagreementThreshold = 0.5 } = config
+  return { minimumSamples, disagreementMinimumRuns, disagreementThreshold }
 }
 
 declare module '@deepseek-ai/cordis' {
@@ -63,6 +76,8 @@ export class EvolutionRouter extends Service {
   /** Deployment choice of the recommendation's minimum outcomes. */
   static Config = z.object({
     minimumSamples: z.number().int().min(0).default(3),
+    disagreementMinimumRuns: z.number().int().min(0).default(3),
+    disagreementThreshold: z.number().min(0).max(1).default(0.5),
   })
 
   private readonly resolved: ResolvedConfig
@@ -87,7 +102,11 @@ export class EvolutionRouter extends Service {
 
   /**
    * Record one measured outcome of a route serving one role on one task class.
-   * The stored instant is now.
+   * The stored instant is now. When the outcome leaves the best-measured routes
+   * of its task class and role strongly disagreeing, the §44 disagreement is
+   * recorded as an uncertainty signal through the optional store seam — this is
+   * the one producer of a `disagreement` signal that starts from route
+   * outcomes. A failing record must not fail the observation.
    * @param outcome - the route, role, task class, and measured triple.
    * @returns the stored outcome.
    */
@@ -97,6 +116,7 @@ export class EvolutionRouter extends Service {
       at: new Date().toISOString(),
     }
     await this.requireOutcomes().put(randomUUID(), stored)
+    await this.recordDisagreement(outcome.taskClass, outcome.role)
     return structuredClone(stored)
   }
 
@@ -134,10 +154,9 @@ export class EvolutionRouter extends Service {
       grouped.set(key, updatedEffectiveness(grouped.get(key), row))
     }
     const rows = [...grouped.values()]
-    const roleOrder: Record<RoutingRole, number> = Object.fromEntries(ROUTING_ROLES.map((entry, index) => [entry, index]))
     rows.sort((left, right) =>
       left.taskClass.localeCompare(right.taskClass)
-      || roleOrder[left.role] - roleOrder[right.role]
+      || ROUTING_ROLES.indexOf(left.role) - ROUTING_ROLES.indexOf(right.role)
       || left.provider.localeCompare(right.provider)
       || left.model.localeCompare(right.model))
     return rows
@@ -154,6 +173,57 @@ export class EvolutionRouter extends Service {
   recommend(taskClass: RouterTaskClass, role: RoutingRole): RouteRankingEntry | undefined {
     const rows = this.effectiveness(taskClass, role)
     return recommendRoute(rankRoutes(rows, taskClass, role, this.resolved.minimumSamples), this.resolved.minimumSamples)
+  }
+
+  /**
+   * The §44 route disagreements among the recorded outcomes: per task class and
+   * role, the two best-measured routes whose pass rates diverge by more than the
+   * configured threshold, strongest gap first.
+   * @param taskClass - optional task-class filter.
+   * @param role - optional role filter.
+   * @returns the disagreements, strongest first.
+   */
+  disagreements(taskClass?: RouterTaskClass, role?: RoutingRole): readonly RouteDisagreement[] {
+    return routeDisagreements(
+      this.effectiveness(taskClass, role),
+      this.resolved.disagreementMinimumRuns,
+      this.resolved.disagreementThreshold,
+    )
+  }
+
+  /**
+   * Record the §44 disagreement of one task class and role as a `disagreement`
+   * uncertainty signal when the store is mounted. The signal identity is
+   * derived from the task class, role, and the two routes, so re-recording the
+   * same disagreement updates one signal instead of piling up copies — a pass
+   * that drains it and a later pass that re-records it converge.
+   * @param taskClass - the task class to check.
+   * @param role - the role to check.
+   */
+  private async recordDisagreement(taskClass: RouterTaskClass, role: RoutingRole): Promise<void> {
+    const uncertainty = this.ctx.get('evolutionUncertainty')
+    if (uncertainty === undefined) return
+    const disagreement = routeDisagreement(
+      this.effectiveness(taskClass, role),
+      taskClass,
+      role,
+      this.resolved.disagreementMinimumRuns,
+      this.resolved.disagreementThreshold,
+    )
+    if (disagreement === undefined) return
+    try {
+      await uncertainty.record({
+        signalId: `route-disagreement:${taskClass}\0${role}\0${disagreement.leader.provider}/${disagreement.leader.model}`
+          + `|${disagreement.trailer.provider}/${disagreement.trailer.model}`,
+        skill: taskClass,
+        taskId: null,
+        kind: 'disagreement',
+        score: disagreement.gap,
+        detail: disagreement.detail,
+      })
+    } catch (error) {
+      this.ctx.logger.warn(`evolution router could not record route disagreement: ${String(error)}`)
+    }
   }
 
   private requireOutcomes(): KvTable<string, RouteOutcome> {

@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { rankStrategies, recommendStrategy, strategyKey, updatedStrategy, weightOf } from '../src/strategy.ts'
+import { judgeIndependence, rankStrategies, recommendStrategy, strategyKey, updatedStrategy, weightOf } from '../src/strategy.ts'
 import type { EvaluatorOutcome, EvaluatorStrategy } from '../src/types.ts'
 
 const outcome = (overrides: Partial<EvaluatorOutcome> = {}): EvaluatorOutcome => ({
   evaluator: 'scorer-v1',
   taskClass: 'writer',
+  candidateModel: 'deepseek-chat',
+  judgeModel: 'deepseek-reasoner',
   verdict: true,
   groundTruth: true,
   independent: true,
@@ -42,6 +44,18 @@ describe('weightOf', () => {
   })
 })
 
+describe('judgeIndependence', () => {
+  it('calls a judge that produced the candidate non-independent', () => {
+    expect(judgeIndependence('deepseek-chat', 'deepseek-chat')).toBe('same-model')
+    expect(judgeIndependence('deepseek-reasoner', 'deepseek-chat')).toBe('independent')
+  })
+
+  it('cannot call an unrecorded judge or candidate the same model', () => {
+    expect(judgeIndependence('', 'deepseek-chat')).toBe('independent')
+    expect(judgeIndependence('deepseek-chat', '')).toBe('independent')
+  })
+})
+
 describe('updatedStrategy', () => {
   it('creates the first statistics row from one independent pair', () => {
     const row = updatedStrategy(undefined, outcome(), '2026-01-01T00:00:00.000Z')
@@ -64,9 +78,18 @@ describe('updatedStrategy', () => {
   })
 
   it('records a mismatch as an independent sample without corroboration', () => {
-    let row = updatedStrategy(undefined, outcome({ verdict: true, groundTruth: false }), '2026-01-01T00:00:00.000Z')
+    const row = updatedStrategy(undefined, outcome({ verdict: true, groundTruth: false }), '2026-01-01T00:00:00.000Z')
     expect(row).toMatchObject({ independentSamples: 1, corroborations: 0 })
     expect(row.weight).toBeCloseTo(1 / 3, 10)
+  })
+
+  it('counts a verdict from the candidate own model as samples only', () => {
+    let row = updatedStrategy(undefined, outcome({ judgeModel: 'deepseek-chat' }), '2026-01-01T00:00:00.000Z')
+    expect(row).toMatchObject({ samples: 1, independentSamples: 0, corroborations: 0, selfJudgedSamples: 1 })
+    expect(row.weight).toBe(0)
+    // A later independent verdict leaves the self-judged count where it was.
+    row = updatedStrategy(row, outcome(), '2026-01-02T00:00:00.000Z')
+    expect(row).toMatchObject({ samples: 2, independentSamples: 1, corroborations: 1, selfJudgedSamples: 1 })
   })
 })
 
@@ -93,6 +116,22 @@ describe('rankStrategies', () => {
     expect(ranked[0]?.reason).toContain('4 verdicts recorded')
     const zero = rankStrategies([strategy({ independentSamples: 0, weight: 0 })], 'writer')
     expect(zero[0]?.reason).toContain('no independent evidence')
+  })
+
+  it('carries the self-judged count into the entry and the reason', () => {
+    const ranked = rankStrategies([
+      strategy({ evaluator: 'self', selfJudgedSamples: 2 }),
+      strategy({ evaluator: 'clean' }),
+    ], 'writer')
+    // Equal weight and independent samples: the evaluator name breaks the tie.
+    expect(ranked[0]).toMatchObject({ evaluator: 'clean', selfJudgedSamples: 0 })
+    expect(ranked[0]?.reason).not.toContain('candidate')
+    expect(ranked[1]).toMatchObject({ evaluator: 'self', selfJudgedSamples: 2 })
+    expect(ranked[1]?.reason).toContain("2 judged by the candidate's own model")
+    // A row recorded before judge identity was measured reads as zero.
+    expect(rankStrategies([strategy({ selfJudgedSamples: undefined })], 'writer')[0]?.selfJudgedSamples).toBe(0)
+    // Nothing here reads the model-routes store, so no verifier is named.
+    expect(ranked[0]?.promotionReview).toBeUndefined()
   })
 })
 

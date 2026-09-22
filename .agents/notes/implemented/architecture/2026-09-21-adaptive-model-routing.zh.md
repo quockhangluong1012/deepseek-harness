@@ -15,7 +15,7 @@
 1. **角色拓扑即规范的。** `EvolutionRole` 是 §28 列表的有序集合：task-execution、reflection、candidate-generation、evaluation、promotion-review。每个角色各自拥有指派集与证据。
 2. **证据来自真实运行。** 优化器在暂存之后立即通过可选存储缝记录每次候选生成的路由及其胜者三元组（与 population、evaluator-health 记录器相同的可选挂载模式）。记录失败只记一条警告，绝不让优化失败。
 3. **固定指派胜过证据；证据跟随其后。** `pin` 记录运维者的显式指派；`observe` 以 `observed` 身份 upsert 路由，但绝不降级固定指派。`recommend` 在存在固定指派时返回最新的固定指派，否则在已测度路由中挑通过率最高、平均 token 最少者；两者皆无时返回空。
-4. **一个持久域，一个命令面。** `evolution_model_routes` 域（v1）持有 `routes`（以角色+路由为键）与 `evidence`（以结果 id 为键）。`/routes` 列出各角色指派及其推荐路由、固定一条路由，或读取最新证据。本包挂载进 web-app profile（只写自己的域，不触及任何模型提示词）。
+4. **一个持久域，一个命令面。** `evolution_model_routes` 域（v1）持有 `routes`（以角色+路由为键）、`evidence`（以结果 id 为键），以及 §53 的职责分离所读取的 `duties` 表（以运行+角色为键，见 `2026-09-22-separation-of-duties.md`）。`/routes` 列出各角色指派及其推荐路由、固定一条路由，或读取最新证据。本包挂载进 web-app profile（只写自己的域，不触及任何模型提示词）。
 
 ## 备选方案
 

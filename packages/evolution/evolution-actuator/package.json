@@ -1,0 +1,68 @@
+{
+  "name": "@deepseek-ai/dsh-evolution-actuator",
+  "description": "Evolution actuator: the heartbeat tasks that act on a recorded evolution verdict \u2014 rollout decisions, scheduled island migration, stagnation recovery, uncertainty drain, and curriculum admission",
+  "version": "0.1.5-rc.2",
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/deepseek-ai/deepseek-harness.git",
+    "directory": "packages/evolution/evolution-actuator"
+  },
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./src/*": "./src/*",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/index.js",
+    "lib/types/**/*.d.ts"
+  ],
+  "license": "MIT",
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "workspace:^",
+    "@deepseek-ai/dsh-evolution-adversary": "workspace:^",
+    "@deepseek-ai/dsh-evolution-benchmark": "workspace:^",
+    "@deepseek-ai/dsh-evolution-budget": "workspace:^",
+    "@deepseek-ai/dsh-evolution-canary": "workspace:^",
+    "@deepseek-ai/dsh-evolution-curriculum": "workspace:^",
+    "@deepseek-ai/dsh-evolution-curator": "workspace:^",
+    "@deepseek-ai/dsh-evolution-feedback": "workspace:^",
+    "@deepseek-ai/dsh-evolution-heartbeat": "workspace:^",
+    "@deepseek-ai/dsh-evolution-islands": "workspace:^",
+    "@deepseek-ai/dsh-evolution-operators": "workspace:^",
+    "@deepseek-ai/dsh-evolution-population": "workspace:^",
+    "@deepseek-ai/dsh-evolution-skill-telemetry": "workspace:^",
+    "@deepseek-ai/dsh-evolution-stagnation": "workspace:^",
+    "@deepseek-ai/dsh-evolution-uncertainty": "workspace:^"
+  },
+  "dependencies": {
+    "@deepseek-ai/schemastery": "workspace:^"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "workspace:^",
+    "@deepseek-ai/dsh-evolution-adversary": "workspace:^",
+    "@deepseek-ai/dsh-evolution-benchmark": "workspace:^",
+    "@deepseek-ai/dsh-evolution-budget": "workspace:^",
+    "@deepseek-ai/dsh-evolution-canary": "workspace:^",
+    "@deepseek-ai/dsh-evolution-curriculum": "workspace:^",
+    "@deepseek-ai/dsh-evolution-curator": "workspace:^",
+    "@deepseek-ai/dsh-evolution-feedback": "workspace:^",
+    "@deepseek-ai/dsh-evolution-heartbeat": "workspace:^",
+    "@deepseek-ai/dsh-evolution-islands": "workspace:^",
+    "@deepseek-ai/dsh-evolution-operators": "workspace:^",
+    "@deepseek-ai/dsh-evolution-population": "workspace:^",
+    "@deepseek-ai/dsh-evolution-skill-telemetry": "workspace:^",
+    "@deepseek-ai/dsh-evolution-stagnation": "workspace:^",
+    "@deepseek-ai/dsh-evolution-uncertainty": "workspace:^",
+    "@deepseek-ai/dsh-storage": "workspace:^",
+    "@deepseek-ai/dsh-storage-domain": "workspace:^"
+  }
+}

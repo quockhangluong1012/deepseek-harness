@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-22-evolution-verifier-ladder.md
+2026-09-22-evolution-verifier-ladder.md: 73352cf68948259a98c2de9571ba458cf72087a4
+2026-09-22-evolution-verifier-ladder.zh.md: 9a998cb12a0e98505419a7f6226bc93affc4ac23

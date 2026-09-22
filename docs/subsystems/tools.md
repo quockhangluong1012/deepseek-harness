@@ -86,6 +86,24 @@ interface ToolDefinition extends ToolSchema {
    */
   parallelScopeKey?(args: unknown): string
   /**
+   * Provenance of this definition: which server contributed it and through
+   * which transport. Omitted by first-party tools. Never model-visible:
+   * `schemas()` projects only `ToolSchema` fields.
+   */
+  readonly origin?: ToolOrigin
+  /**
+   * Digest of the contributing server's advertised surface (tool list plus
+   * server version when reported), so later slices can detect a changed
+   * server behind a stable namespace. Omitted by first-party tools.
+   */
+  readonly serverDigest?: string
+  /**
+   * Capability names the contributing server declares for this tool. Reserved
+   * seam for later policy slices; servers declare none yet, so bridges leave
+   * it undefined rather than inventing an empty grant.
+   */
+  readonly capabilities?: readonly string[]
+  /**
    * Optional: how to present the PENDING state of one call in a UI, derived from
    * the call's `args` (parsed arguments, `unknown` — the tool validates/narrows
    * its own input). Returns a {@link ToolCallView} (a `card`-tagged render intent),

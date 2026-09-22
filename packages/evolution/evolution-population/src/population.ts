@@ -11,6 +11,9 @@ import type { PopulationCandidate } from './types.ts'
  * highest generation already present for that skill, or 1 when the skill has
  * no candidates yet. Complete rows only; incomplete rows are ignored so
  * partial writes never advance a skill's generation.
+ * @param candidates - the recorded candidates.
+ * @param skill - the skill to number the next candidate for.
+ * @returns the generation a new candidate belongs to.
  */
 export function nextGeneration(
   candidates: readonly PopulationCandidate[],
@@ -30,6 +33,9 @@ export function nextGeneration(
  * ancestor to the candidate itself, oldest-first. Cycles and dangling parents
  * are tolerated — the walk stops when a parent is unknown or already seen —
  * so a malformed chain never loops forever.
+ * @param candidates - the recorded candidates.
+ * @param candidateId - the candidate whose lineage to walk.
+ * @returns the lineage, oldest ancestor first.
  */
 export function lineageChain(
   candidates: readonly PopulationCandidate[],
@@ -54,6 +60,9 @@ export function lineageChain(
  * tie first. Yields `undefined` when the skill has no candidates. The head is
  * the parent of the next recorded candidate, so equal-generation rows resolve
  * deterministically by `at`.
+ * @param candidates - the recorded candidates.
+ * @param skill - the skill to find the head of.
+ * @returns the head candidate, or undefined when the skill has none.
  */
 export function headOf(
   candidates: readonly PopulationCandidate[],
@@ -83,6 +92,9 @@ function eliteRank(a: PopulationCandidate, b: PopulationCandidate): number {
  * Rank the approved candidates of a skill as the current elite: pass first,
  * then fewer tokens, then faster wall time. Candidates without a measure rank
  * below every measured one, preserving a stable, deterministic order.
+ * @param candidates - the recorded candidates.
+ * @param skill - the skill whose elite to rank.
+ * @returns the ranked elite.
  */
 export function rankElite(
   candidates: readonly PopulationCandidate[],

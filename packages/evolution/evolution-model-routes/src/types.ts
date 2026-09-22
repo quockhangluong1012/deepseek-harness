@@ -1,7 +1,8 @@
 /**
  * Public type vocabulary of the adaptive model-routing store: the evolutionary
- * role topology, the route assignment set, and the measured evidence behind
- * each route. Types only — no runtime code.
+ * role topology, the route assignment set, the measured evidence behind each
+ * route, and the identities that filled a run's roles. Types only — no runtime
+ * code.
  * @module @deepseek-ai/dsh-evolution-model-routes/src/types
  */
 
@@ -91,3 +92,67 @@ export interface RouteSummary {
   /** Newest evidence `at`, or null when none are recorded. */
   lastAt: string | null
 }
+
+/**
+ * One §28 topology conflict: a route that both produces work and judges it, so
+ * every verdict from it is the candidate's own model judging itself.
+ */
+export interface RoleConflict {
+  /** The route serving both sides. */
+  route: ModelRoute
+  /** Producing roles the route serves, in topology order. */
+  producing: EvolutionRole[]
+  /** Judging roles the route serves, in topology order. */
+  judging: EvolutionRole[]
+  /** Whether an operator pinned the conflicting assignment. */
+  pinned: boolean
+  /** What was observed, naming the roles. */
+  detail: string
+}
+
+/**
+ * The decision §53's separation of duties guards: who may review a promotion,
+ * and who may evaluate a candidate.
+ */
+export type DutyDecision = 'promotion' | 'verdict'
+
+/**
+ * One identity that filled one evolutionary role for one run. §53's separation
+ * of duties reads two of these per decision: the role that generated the
+ * candidate and the role that judged it.
+ */
+export interface DutyRecord {
+  /** Run the duty belongs to, e.g. the optimizer's staged write identity. */
+  runId: string
+  /** Role the identity filled. */
+  role: EvolutionRole
+  /** The identity that filled the role, e.g. an agent, a session, or an operator. */
+  identity: string
+  /** ISO-8601 instant the duty was recorded. */
+  at: string
+}
+
+/** One role fill offered for recording. */
+export interface DutyInput {
+  /** Run the duty belongs to. */
+  runId: string
+  /** Role the identity filled. */
+  role: EvolutionRole
+  /** The identity that filled the role. */
+  identity: string
+}
+
+/** How §53's separation of duties refused a decision. */
+export type DutyRefusal =
+  /** A role the decision separates carries no recorded identity for the run. */
+  | 'unknown-identity'
+  /** One identity filled both the producing and the judging role. */
+  | 'same-identity'
+
+/**
+ * The separation-of-duties verdict for one decision over one run: allowed, or
+ * refused with the kind of refusal and the reason naming both roles.
+ */
+export type DutyVerdict =
+  | { allowed: true }
+  | { allowed: false; refusal: DutyRefusal; reason: string }

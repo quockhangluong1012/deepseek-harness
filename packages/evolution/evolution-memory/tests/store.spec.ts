@@ -118,6 +118,7 @@ describe('evolution-memory scope ids', () => {
       maxContextItemBytes: 262144,
       maxContextItems: 50,
       maxOutputs: 200,
+      maxRecalls: 50,
       maxResolutions: 200,
       mergeSimilarityFloor: 0.87,
       maintenanceIntervalHours: 24,

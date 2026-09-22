@@ -6,7 +6,7 @@ English | [中文](2026-09-12-evolution-recall-squeeze.zh.md)
 
 ## Problem
 
-Phase 2 of [`specs/improvement.spec.md`](../../../../specs/improvement.spec.md) left three gaps in the evolution family. The store dropped every staged entry on either decision, so the journey could not count approvals or rejections, and one `memoryUpdatedAt` covered instructions, lessons, and profile, so no reader could tell which family a write touched. The reviewer wrote whatever the model returned, headings or not, bounded only by the store's byte cap. And nothing used the session search seam: continuity came from one scope's own document, never from prior work in the same directory.
+The Phase 2 slice — whose behaviour the [Evolutionary Harness subsystem](../../../../docs/subsystems/evolutionary-harness.md) describes — left three gaps in the evolution family. The store dropped every staged entry on either decision, so the journey could not count approvals or rejections, and one `memoryUpdatedAt` covered instructions, lessons, and profile, so no reader could tell which family a write touched. The reviewer wrote whatever the model returned, headings or not, bounded only by the store's byte cap. And nothing used the session search seam: continuity came from one scope's own document, never from prior work in the same directory.
 
 ## Decision
 

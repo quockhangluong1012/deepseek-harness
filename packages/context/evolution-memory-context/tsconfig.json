@@ -16,7 +16,11 @@
     { "path": "../../fs/fs" },
     { "path": "../../llm/llm" },
     { "path": "../../session-query/session-query" },
+    { "path": "../../skill/evolution-skill-telemetry" },
     { "path": "../../workspace/workspace" },
+    { "path": "../../evolution/evolution-benchmark" },
+    { "path": "../../evolution/evolution-feedback" },
+    { "path": "../../evolution/evolution-graph" },
     { "path": "../../evolution/evolution-memory" }
   ]
 }

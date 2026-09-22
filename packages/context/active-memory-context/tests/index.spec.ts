@@ -164,6 +164,65 @@ function briefText(message: UserMessage | undefined): string {
   return block?.type === 'text' ? block.text : ''
 }
 
+/** One §39 configuration, starting from the injected brief's own shipped choice. */
+function recommendedConfiguration(
+  overrides: Partial<activeMemoryContext.RecommendedRetrievalConfiguration> = {},
+): activeMemoryContext.RecommendedRetrievalConfiguration {
+  return {
+    source: 'hybrid',
+    queryExpansion: 'graph-entities',
+    weights: { vector: 1, graph: 1 },
+    reranker: 'none',
+    mmr: { enabled: false, lambda: 1 },
+    memoryScope: 'workspace',
+    graphDepth: 1,
+    threshold: 0.7,
+    ...overrides,
+  }
+}
+
+/**
+ * Retrieval store double: the attribution sink and a recommendation per task
+ * class, so a test names the class it wants a recommendation for and any other
+ * class answers the way a store below its evidence gate does.
+ * @param recommendations - each class's configuration and rank score.
+ * @returns the double plus every attribution it recorded.
+ */
+function fakeRetrievalStore(
+  recommendations: Record<string, { configuration: activeMemoryContext.RecommendedRetrievalConfiguration; score: number }> = {},
+): {
+  recorded: { configuration: unknown; sessionId: string }[]
+  service: {
+    record: (input: { configuration: unknown; sessionId: string }) => Promise<unknown>
+    recommend: (taskClass: string) => unknown
+  }
+} {
+  const recorded: { configuration: unknown; sessionId: string }[] = []
+  return {
+    recorded,
+    service: {
+      record: (input) => {
+        recorded.push(input)
+        return Promise.resolve(input)
+      },
+      recommend: (taskClass) => {
+        const entry = recommendations[taskClass]
+        return entry === undefined ? undefined : { configKey: `key-${taskClass}`, ...entry }
+      },
+    },
+  }
+}
+
+/** Skill-telemetry double: each skill's recorded session ids. */
+function fakeSkillTelemetry(skills: Record<string, readonly string[]>): { entries: () => unknown[] } {
+  return {
+    entries: () => Object.entries(skills).map(([name, sessionIds]) => ({
+      name,
+      usage: { sessionIds: [...sessionIds] },
+    })),
+  }
+}
+
 async function harness(
   config: activeMemoryContext.Config = { maxBytes: 4096 },
   embeddings?: FakeEmbeddingsService,
@@ -992,6 +1051,293 @@ describe('active-memory-context injector', () => {
 
     await expect(preStep(ctx, fakeAgent(session), [textMessage('needle')])).rejects.toThrow('lexical boom')
   })
+
+  it('records the retrieval configuration in force without changing the brief it injects', async () => {
+    const recorded: { configuration: unknown; sessionId: string }[] = []
+    const withLedger = fakeEmbeddings()
+    const mounted = await harness({ maxBytes: 4096, escalation: 'graph-first', graphDepth: 2, relevanceThreshold: 0.5 }, withLedger.service)
+    mounted.ctx.provide('evolutionRetrieval', {
+      record: (input: { configuration: unknown; sessionId: string }) => {
+        recorded.push(input)
+        return Promise.resolve(input)
+      },
+    } as never)
+    const mountedSession = await scopeWith(mounted.ctx, mounted.workspaces, [
+      { id: 'sibling-needle', text: 'needle in the stack' },
+    ])
+    const mountedDecision = await preStep(mounted.ctx, fakeAgent(mountedSession), [textMessage('needle')])
+
+    const withoutLedger = fakeEmbeddings()
+    const plain = await harness({ maxBytes: 4096, escalation: 'graph-first', graphDepth: 2, relevanceThreshold: 0.5 }, withoutLedger.service)
+    const plainSession = await scopeWith(plain.ctx, plain.workspaces, [
+      { id: 'sibling-needle', text: 'needle in the stack' },
+    ])
+    const plainDecision = await preStep(plain.ctx, fakeAgent(plainSession), [textMessage('needle')])
+
+    expect(recorded).toEqual([{
+      configuration: {
+        source: 'graph',
+        queryExpansion: 'graph-entities',
+        weights: { vector: 1, graph: 1 },
+        reranker: 'none',
+        mmr: { enabled: false, lambda: 1 },
+        memoryScope: 'workspace',
+        graphDepth: 2,
+        threshold: 0.5,
+      },
+      sessionId: 'current',
+    }])
+    const briefs = (decision: typeof mountedDecision) => briefsOf(decision.kind === 'enter' ? decision.messages : [])
+    expect(briefs(mountedDecision)).toHaveLength(1)
+    expect(briefText(briefs(mountedDecision)[0])).toBe(briefText(briefs(plainDecision)[0]))
+  })
+
+  it('records one configuration per session across retried steps', async () => {
+    const recorded: { sessionId: string }[] = []
+    const fake = fakeEmbeddings()
+    const { ctx, workspaces } = await harness({ maxBytes: 4096 }, fake.service)
+    ctx.provide('evolutionRetrieval', {
+      record: (input: { sessionId: string }) => {
+        recorded.push(input)
+        return Promise.resolve(input)
+      },
+    } as never)
+    const session = await scopeWith(ctx, workspaces, [{ id: 'sibling-needle', text: 'needle in the stack' }])
+
+    await preStep(ctx, fakeAgent(session), [textMessage('needle')])
+    await preStep(ctx, fakeAgent(session), [textMessage('needle')], { turn: 2 })
+
+    expect(recorded.map(entry => entry.sessionId)).toEqual(['current'])
+  })
+
+  it('keeps serving the turn when the retrieval store rejects the record', async () => {
+    const fake = fakeEmbeddings()
+    const { ctx, workspaces } = await harness({ maxBytes: 4096 }, fake.service)
+    const debugged: string[] = []
+    ctx.provide('evolutionRetrieval', { record: () => Promise.reject(new Error('store offline')) } as never)
+    ctx.logger.debug = ((message: string) => {
+      debugged.push(message)
+    }) as typeof ctx.logger.debug
+    const session = await scopeWith(ctx, workspaces, [{ id: 'sibling-needle', text: 'needle in the stack' }])
+
+    const decision = await preStep(ctx, fakeAgent(session), [textMessage('needle')])
+
+    expect(briefsOf(decision.kind === 'enter' ? decision.messages : [])).toHaveLength(1)
+    // The rejection reaction is queued before the step's own awaits continue, so it has run by now.
+    await Promise.resolve()
+    expect(debugged.some(message => message.includes('retrieval-configuration record degraded'))).toBe(true)
+  })
+})
+
+describe('task-aware retrieval policy', () => {
+  it('leaves the brief byte-identical when the policy is off, recommendation present or not', async () => {
+    const withStores = fakeEmbeddings()
+    const { ctx, workspaces } = await harness({ maxBytes: 4096, relevanceThreshold: 0.5 }, withStores.service)
+    ctx.provide('evolutionRetrieval', fakeRetrievalStore({
+      writer: { configuration: recommendedConfiguration({ threshold: 0.9, graphDepth: 4 }), score: 0.8 },
+    }).service as never)
+    ctx.provide('evolutionSkillTelemetry', fakeSkillTelemetry({ writer: ['current'] }) as never)
+    const session = await scopeWith(ctx, workspaces, [{ id: 'sibling-hay', text: 'hay needle' }])
+    const decision = await preStep(ctx, fakeAgent(session), [textMessage('needle')])
+
+    const plainEmbeddings = fakeEmbeddings()
+    const plain = await harness({ maxBytes: 4096, relevanceThreshold: 0.5 }, plainEmbeddings.service)
+    const plainSession = await scopeWith(plain.ctx, plain.workspaces, [{ id: 'sibling-hay', text: 'hay needle' }])
+    const plainDecision = await preStep(plain.ctx, fakeAgent(plainSession), [textMessage('needle')])
+
+    const briefs = briefsOf(decision.kind === 'enter' ? decision.messages : [])
+    expect(briefs).toHaveLength(1)
+    expect(briefText(briefs[0])).toBe(briefText(briefsOf(plainDecision.kind === 'enter' ? plainDecision.messages : [])[0]))
+    // Nothing that consumes the recommendation leaves a mark on the record.
+    expect(briefs[0]?.source).toEqual({ kind: 'active-memory', form: 'search-result' })
+  })
+
+  it('runs the recommended lane and graph depth and records what it applied', async () => {
+    const fake = fakeEmbeddings()
+    const { ctx, workspaces } = await harness(
+      { maxBytes: 4096, relevanceThreshold: 0.5, graphDepth: 1, taskAwarePolicy: true },
+      fake.service,
+    )
+    ctx.provide('evolutionRetrieval', fakeRetrievalStore({
+      writer: {
+        configuration: recommendedConfiguration({ source: 'graph', graphDepth: 3, threshold: 0.9, memoryScope: 'global' }),
+        score: 0.8,
+      },
+    }).service as never)
+    ctx.provide('evolutionSkillTelemetry', fakeSkillTelemetry({ writer: ['current'] }) as never)
+    const graph = fakeGraph({ labels: ['Needle'], neighbors: ['Haystack'] })
+    ctx.provide('evolutionGraph', graph.service as never)
+    const session = await scopeWith(ctx, workspaces, [{ id: 'sibling-needle', text: 'needle in the stack' }])
+
+    const decision = await preStep(ctx, fakeAgent(session), [textMessage('needle')])
+
+    const briefs = briefsOf(decision.kind === 'enter' ? decision.messages : [])
+    expect(briefs).toHaveLength(1)
+    // The recommended `source: 'graph'` is the graph-first lane, so the graph
+    // leg answers the turn and the vector leg's embedding call never runs.
+    expect(fake.batches).toHaveLength(0)
+    expect(graph.calls.expand[0]?.depth).toBe(3)
+    expect(briefs[0]?.source).toEqual({
+      kind: 'active-memory',
+      form: 'search-result',
+      policy: {
+        taskClass: 'writer',
+        configKey: 'key-writer',
+        applied: [
+          { dimension: 'source', value: 'graph' },
+          { dimension: 'graphDepth', value: '3' },
+          { dimension: 'threshold', value: '0.9' },
+        ],
+        unapplied: [
+          expect.objectContaining({ dimension: 'queryExpansion' }),
+          expect.objectContaining({ dimension: 'weights' }),
+          expect.objectContaining({ dimension: 'reranker' }),
+          expect.objectContaining({ dimension: 'mmr' }),
+          expect.objectContaining({ dimension: 'memoryScope', value: 'global' }),
+        ],
+        effective: { escalation: 'graph-first', graphDepth: 3, threshold: 0.9 },
+      },
+    })
+  })
+
+  it('filters the vector leg at the recommended threshold', async () => {
+    // 'hay needle' scores 0.707 against 'needle': above the mount's 0.5, below
+    // the recommendation's 0.9, so the two configurations retrieve differently.
+    const filtered = fakeEmbeddings()
+    const { ctx, workspaces } = await harness(
+      { maxBytes: 4096, relevanceThreshold: 0.5, taskAwarePolicy: true },
+      filtered.service,
+    )
+    ctx.provide('evolutionRetrieval', fakeRetrievalStore({
+      writer: { configuration: recommendedConfiguration({ threshold: 0.9 }), score: 0.8 },
+    }).service as never)
+    ctx.provide('evolutionSkillTelemetry', fakeSkillTelemetry({ writer: ['current'] }) as never)
+    const session = await scopeWith(ctx, workspaces, [{ id: 'sibling-hay', text: 'hay needle' }])
+    const decision = await preStep(ctx, fakeAgent(session), [textMessage('needle')])
+
+    const kept = fakeEmbeddings()
+    const off = await harness({ maxBytes: 4096, relevanceThreshold: 0.5 }, kept.service)
+    const offSession = await scopeWith(off.ctx, off.workspaces, [{ id: 'sibling-hay', text: 'hay needle' }])
+    const offDecision = await preStep(off.ctx, fakeAgent(offSession), [textMessage('needle')])
+
+    expect(briefsOf(decision.kind === 'enter' ? decision.messages : [])).toHaveLength(0)
+    expect(briefsOf(offDecision.kind === 'enter' ? offDecision.messages : [])).toHaveLength(1)
+  })
+
+  it("consults the strongest recommendation across the session's recorded task classes", async () => {
+    const fake = fakeEmbeddings()
+    const { ctx, workspaces } = await harness(
+      { maxBytes: 4096, relevanceThreshold: 0.5, taskAwarePolicy: true },
+      fake.service,
+    )
+    // The classes are consulted in name order: alpha leads, beta outscores it,
+    // delta stays below it, and gamma records nothing to recommend.
+    ctx.provide('evolutionRetrieval', fakeRetrievalStore({
+      alpha: { configuration: recommendedConfiguration({ graphDepth: 2 }), score: 0.4 },
+      beta: { configuration: recommendedConfiguration({ graphDepth: 5 }), score: 0.9 },
+      delta: { configuration: recommendedConfiguration({ graphDepth: 6 }), score: 0.1 },
+    }).service as never)
+    ctx.provide('evolutionSkillTelemetry', fakeSkillTelemetry({
+      alpha: ['current'],
+      beta: ['current'],
+      delta: ['current'],
+      gamma: ['current'],
+    }) as never)
+    const session = await scopeWith(ctx, workspaces, [{ id: 'sibling-needle', text: 'needle in the stack' }])
+
+    const decision = await preStep(ctx, fakeAgent(session), [textMessage('needle')])
+
+    const brief = briefsOf(decision.kind === 'enter' ? decision.messages : [])[0]
+    expect(brief?.source).toMatchObject({ policy: { taskClass: 'beta', configKey: 'key-beta', effective: { graphDepth: 5 } } })
+  })
+
+  it('runs the mount configuration and says so when no telemetry store records the turn', async () => {
+    const fake = fakeEmbeddings()
+    const { ctx, workspaces } = await harness(
+      { maxBytes: 4096, relevanceThreshold: 0.5, taskAwarePolicy: true },
+      fake.service,
+    )
+    ctx.provide('evolutionRetrieval', fakeRetrievalStore({
+      writer: { configuration: recommendedConfiguration({ threshold: 0.9 }), score: 0.8 },
+    }).service as never)
+    const debugged: string[] = []
+    ctx.logger.debug = ((message: string) => {
+      debugged.push(message)
+    }) as typeof ctx.logger.debug
+    const session = await scopeWith(ctx, workspaces, [{ id: 'sibling-hay', text: 'hay needle' }])
+
+    const decision = await preStep(ctx, fakeAgent(session), [textMessage('needle')])
+
+    const brief = briefsOf(decision.kind === 'enter' ? decision.messages : [])[0]
+    // The mount's own 0.5 threshold kept the 0.707 hit, and the record is bare.
+    expect(briefText(brief)).toContain('sibling-hay')
+    expect(brief?.source).toEqual({ kind: 'active-memory', form: 'search-result' })
+    expect(debugged.some(message => message.includes("running the mount's own configuration"))).toBe(true)
+  })
+
+  it('runs the mount configuration when no skill recorded this session', async () => {
+    const fake = fakeEmbeddings()
+    const { ctx, workspaces } = await harness(
+      { maxBytes: 4096, relevanceThreshold: 0.5, taskAwarePolicy: true },
+      fake.service,
+    )
+    ctx.provide('evolutionRetrieval', fakeRetrievalStore({
+      writer: { configuration: recommendedConfiguration({ threshold: 0.9 }), score: 0.8 },
+    }).service as never)
+    ctx.provide('evolutionSkillTelemetry', fakeSkillTelemetry({ writer: ['another-session'] }) as never)
+    const debugged: string[] = []
+    ctx.logger.debug = ((message: string) => {
+      debugged.push(message)
+    }) as typeof ctx.logger.debug
+    const session = await scopeWith(ctx, workspaces, [{ id: 'sibling-hay', text: 'hay needle' }])
+
+    const decision = await preStep(ctx, fakeAgent(session), [textMessage('needle')])
+
+    expect(briefText(briefsOf(decision.kind === 'enter' ? decision.messages : [])[0])).toContain('sibling-hay')
+    expect(debugged.some(message => message.includes("running the mount's own configuration"))).toBe(true)
+  })
+
+  it('runs the mount configuration when the recorded class has no recommendation', async () => {
+    const fake = fakeEmbeddings()
+    const { ctx, workspaces } = await harness(
+      { maxBytes: 4096, relevanceThreshold: 0.5, taskAwarePolicy: true },
+      fake.service,
+    )
+    ctx.provide('evolutionRetrieval', fakeRetrievalStore().service as never)
+    ctx.provide('evolutionSkillTelemetry', fakeSkillTelemetry({ writer: ['current'] }) as never)
+    const debugged: string[] = []
+    ctx.logger.debug = ((message: string) => {
+      debugged.push(message)
+    }) as typeof ctx.logger.debug
+    const session = await scopeWith(ctx, workspaces, [{ id: 'sibling-hay', text: 'hay needle' }])
+
+    const decision = await preStep(ctx, fakeAgent(session), [textMessage('needle')])
+
+    expect(briefText(briefsOf(decision.kind === 'enter' ? decision.messages : [])[0])).toContain('sibling-hay')
+    expect(debugged.some(message => message.includes("running the mount's own configuration"))).toBe(true)
+  })
+
+  it('runs the mount configuration when the mounted store cannot recommend', async () => {
+    const fake = fakeEmbeddings()
+    const { ctx, workspaces } = await harness(
+      { maxBytes: 4096, relevanceThreshold: 0.5, taskAwarePolicy: true },
+      fake.service,
+    )
+    ctx.provide('evolutionRetrieval', {
+      record: () => Promise.resolve(undefined),
+    } as never)
+    ctx.provide('evolutionSkillTelemetry', fakeSkillTelemetry({ writer: ['current'] }) as never)
+    const debugged: string[] = []
+    ctx.logger.debug = ((message: string) => {
+      debugged.push(message)
+    }) as typeof ctx.logger.debug
+    const session = await scopeWith(ctx, workspaces, [{ id: 'sibling-hay', text: 'hay needle' }])
+
+    const decision = await preStep(ctx, fakeAgent(session), [textMessage('needle')])
+
+    expect(briefText(briefsOf(decision.kind === 'enter' ? decision.messages : [])[0])).toContain('sibling-hay')
+    expect(debugged.some(message => message.includes("running the mount's own configuration"))).toBe(true)
+  })
 })
 
 describe('resolveConfig', () => {
@@ -1005,6 +1351,7 @@ describe('resolveConfig', () => {
       profile: 'default',
       graphDepth: 1,
       graphLimit: 5,
+      taskAwarePolicy: false,
     })
   })
 
@@ -1018,6 +1365,7 @@ describe('resolveConfig', () => {
       profile: 'team',
       graphDepth: 2,
       graphLimit: 7,
+      taskAwarePolicy: true,
     })).toEqual({
       maxBytes: 2048,
       topK: 3,
@@ -1027,6 +1375,7 @@ describe('resolveConfig', () => {
       profile: 'team',
       graphDepth: 2,
       graphLimit: 7,
+      taskAwarePolicy: true,
     })
   })
 })

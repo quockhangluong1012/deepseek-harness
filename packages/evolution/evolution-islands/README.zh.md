@@ -7,7 +7,7 @@ kind: "package-reference"
 
 [English](README.md) | 中文
 
-## 摘要
+## 概述
 
 `dsh-evolution-islands` 维护按技能持久化的进化轨道，每条携带 §7 的一个目标——保守、性能、成本、新奇、对抗——以及岛屿间的迁移记录和按节奏标记迁移到期的调度视图。岛屿保持多样性：没有它们，harness 会收敛到第一个"足够好"的技能并停止发现替代方案。优化器通过可选存储接缝推进岛屿的代际刻度，宿主命令 `command-evolution` 通过 `/islands` 注册岛屿、记录迁移并读取调度。此包不调用任何模型。
 
@@ -18,7 +18,7 @@ kind: "package-reference"
 - [进一步探索](#further-exploration)
 - [模型体验](#model-experience)
 - [已知限制与延后工作](#known-limitations-and-deferred-work)
-- [开发者注记](#dev-note)
+- [开发备注](#dev-note)
 
 -----
 
@@ -107,7 +107,7 @@ const schedule = ctx.evolutionIslands.schedule('writer')
 - **目标只是标签而非策略**——五个 §7 目标是被记录的词汇；目前没有轨道以不同方式引导变异算子、种子或评估器。
 
 <a id="dev-note"></a>
-### 开发者注记
+### 开发备注
 
 <details>
 <summary>维护者工作上下文——点击展开</summary>

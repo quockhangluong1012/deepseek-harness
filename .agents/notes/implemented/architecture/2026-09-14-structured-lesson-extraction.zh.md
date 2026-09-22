@@ -12,7 +12,7 @@ Phase 1 把一个作用域的经验变成了结构化工件，但没有任何东
 
 ## Decision
 
-一次提取调用向模型展示作用域中最相关的那 `relevantArtifactLimit` 个工件，从 1 开始编号，与本回合的笔录并列，并期待一个 JSON 决策数组：`confirms`（该下标的工件被支持——`validationCount` 加一）、`contradicts`（它被反驳——`refutationCount` 加一，可选携带更正后的 statement 与 confidence），以及 `new`（列出的工件都未覆盖的一条事实——完整的候选字段，其 `source` 取自提取会话）。空数组是常见且有效的回答。评审器把每个下标解析回它自己发出的那份列表中的真实工件 id，为每个 `new` 候选合成 `source`，然后调用 `evolution-memory` 的 `applyExtractionDecisions`——后者在写入时读到的记录上按决策顺序折入整批。`rebuild` 对它所选的历史材料运行同一条流水线，而不是对回合缓冲。
+一次提取调用向模型展示作用域中最相关的那 `relevantArtifactLimit` 个工件，从 1 开始编号，与本回合的笔录并列，并期待一个 JSON 决策数组：`confirms`（该下标的工件被支持——`validationCount` 加一）、`contradicts`（它被反驳——`refutationCount` 加一，可选携带更正后的 statement 与 confidence），以及 `new`（列出的工件都未覆盖的一条事实——完整的候选字段，其 `source` 取自提取会话）。空数组是常见且有效的回答。笔录记录了工具调用失败的回合还可以为每个被记录的失败追加一条 `critique`——被违背的期望、失败与更正——这半个回答连同它授权的修订见[自我精炼批评笔记](2026-09-22-self-refine-critique.zh.md)。评审器把每个下标解析回它自己发出的那份列表中的真实工件 id，为每个 `new` 候选合成 `source`，然后调用 `evolution-memory` 的 `applyExtractionDecisions`——后者在写入时读到的记录上按决策顺序折入整批。`rebuild` 对它所选的历史材料运行同一条流水线，而不是对回合缓冲。
 
 ### 相关性让成本有界，也让完整性有所让渡
 

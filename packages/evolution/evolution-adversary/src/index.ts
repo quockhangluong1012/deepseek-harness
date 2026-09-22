@@ -15,13 +15,20 @@
 
 import { Context, Service } from '@deepseek-ai/cordis'
 import type { KvTable } from '@deepseek-ai/dsh-storage-domain'
+import type { EvolutionBenchmark } from '@deepseek-ai/dsh-evolution-benchmark'
+import type { EvolutionEvaluatorStrategy } from '@deepseek-ai/dsh-evolution-evaluator-strategy'
+import type { EvolutionRouter } from '@deepseek-ai/dsh-evolution-router'
 import z from 'zod'
 import { GAMING_DEFENSES, defenseGaps as openGaps, nextChallenge } from './adversary.ts'
+import { observeDefenses } from './defenses.ts'
 import { adversaryDomainSpec } from './spec.ts'
 import type { AdversarialProbe, Challenge, DefenseStatus, GamingDefense, ProbeInput } from './types.ts'
+import type { DefenseFacts, DefenseObservation } from './defenses.ts'
 import type { DefenseRow } from './spec.ts'
 
 export type * from './types.ts'
+export type { DefenseFacts, DefenseObservation, DefenseState } from './defenses.ts'
+export { observeDefenses } from './defenses.ts'
 export { ADVERSARIAL_CATEGORIES, categoryCoverage, defenseGaps, GAMING_DEFENSES, nextChallenge, uncoveredCategories, weaknessRate } from './adversary.ts'
 export { adversarialProbeRow, adversaryDomainSpec, defenseRow } from './spec.ts'
 export type { AdversarialProbeRow, DefenseRow } from './spec.ts'
@@ -183,6 +190,31 @@ export class EvolutionAdversary extends Service {
    */
   defenseGaps(): GamingDefense[] {
     return openGaps(this.defenses())
+  }
+
+  /**
+   * The §46 checklist as the recorded stores show it, rather than as an
+   * operator set it: each defense reads `observed-satisfied`, `observed-open`,
+   * or `unobserved` from the evaluator-strategy, benchmark, and router stores
+   * plus this store's own probes. A defense no store answers from is
+   * `unobserved`, never reported open on nobody's evidence. Read-only: this
+   * neither writes to those stores nor starts a run (§58.12).
+   * @returns the observations, in canonical order.
+   */
+  observedDefenses(): readonly DefenseObservation[] {
+    const strategies: EvolutionEvaluatorStrategy | undefined = this.ctx.get('evolutionEvaluatorStrategy')
+    const benchmark: EvolutionBenchmark | undefined = this.ctx.get('evolutionBenchmark')
+    const router: EvolutionRouter | undefined = this.ctx.get('evolutionRouter')
+    const facts: DefenseFacts = {
+      strategies: strategies === undefined ? null : strategies.strategies(),
+      holdouts: benchmark === undefined
+        ? null
+        : [...new Set(benchmark.tasks('holdout').map(task => task.capability))],
+      evaluationRoutes: router === undefined ? null : router.effectiveness(undefined, 'evaluation'),
+      probes: [...this.requireProbes().entries()].map(([, probe]) => structuredClone(probe)),
+      minProbesPerCategory: this.resolved.minProbesPerCategory,
+    }
+    return observeDefenses(facts)
   }
 
   private requireProbes(): KvTable<string, AdversarialProbe> {

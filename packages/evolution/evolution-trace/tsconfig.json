@@ -9,8 +9,12 @@
     { "path": "../../../vendor/cordis" },
     { "path": "../../../vendor/schemastery" },
     { "path": "../../core/session" },
+    { "path": "../../feedback/command-feedback" },
     { "path": "../../llm/llm" },
+    { "path": "../../runtime/agent-context" },
+    { "path": "../../runtime/agent-kernel" },
     { "path": "../../session/session-persistence" },
+    { "path": "../../todo/tool-todo" },
     { "path": "../evolution-memory" }
   ]
 }

@@ -124,10 +124,38 @@ interface SkillSummary {
   readonly whenToUse?: string
   /** Prerequisite skill names that must route alongside this one; absent means none. */
   readonly requires?: readonly string[]
-  /** Skill names this skill must not be selected alongside; the relation is symmetric. */
+  /**
+   * Skill names this skill must not be selected alongside; absent means none.
+   * The relation is symmetric — one side declaring it excludes the pair.
+   */
   readonly conflictsWith?: readonly string[]
-  /** Capability names this skill provides; they satisfy another skill's `requires`. */
+  /**
+   * Skill names this skill may load beside. Declaring the list makes it an
+   * allowlist: the loader refuses any other member of the same load set. Absent
+   * means undeclared, which constrains nobody.
+   */
+  readonly compatibleWith?: readonly string[]
+  /**
+   * Skill names this skill may be synthesized with by `skill_manage` derivation.
+   * Declaring the list makes it an allowlist over the source set. Absent means
+   * undeclared.
+   */
+  readonly composableWith?: readonly string[]
+  /** Capability names the skill needs; routing-relevant like `requires`, never a grant by itself. */
   readonly capabilities?: readonly string[]
+  /**
+   * Data names the skill consumes. Carried for composition like `capabilities`
+   * — declared, never a gate on its own.
+   */
+  readonly inputs?: readonly string[]
+  /** Data names the skill produces. Carried for composition like `capabilities`, never a gate. */
+  readonly outputs?: readonly string[]
+  /** Skill names this body was derived from, in declaration order; absent means it stands alone. */
+  readonly derivedFrom?: readonly string[]
+  /** Free-form version label; absent means unversioned. */
+  readonly version?: string
+  /** Scenario names usable by the scorer/optimizer; absent means none declared. */
+  readonly testScenarios?: readonly string[]
   /** Resolved model and user invocation controls. */
   readonly invocation: SkillInvocationPolicy
   /** Discovery source that produced this winning skill. */

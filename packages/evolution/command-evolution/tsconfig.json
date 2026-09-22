@@ -44,6 +44,7 @@
     { "path": "../evolution-budget" },
     { "path": "../evolution-evaluator-strategy" },
     { "path": "../evolution-meta" },
+    { "path": "../evolution-metrics" },
     { "path": "../evolution-operators" },
     { "path": "../evolution-router" }
   ]

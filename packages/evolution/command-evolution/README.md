@@ -55,6 +55,7 @@ The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-a
 | `/skills approve <id>` | Drop a staged skill entry whose skill write already landed and report the approval with that reminder; an id that is not a staged skill reports `No staged skill '<id>'.`. A creation proposal without a valid capture contract stays staged and reports the missing evidence; a patch is admitted on its approval alone. |
 | `/skills <anything-else>` | `Usage: /skills pending \| approve <id>`. |
 | `/journey [today\|7d\|30d\|all]` | Render the scope timeline: the window header, one line per active day, capacity and digest, and the staged count. Bare `/journey` reports `7d`. |
+| `/journey export [today\|7d\|30d\|all] [--out <path>]` | Bundle the journey timeline and the current session log into a zip archive and report `Journey exported to <path>`; the path defaults to `$DSH_HOME/exports/journey-<scope>-<range>.zip`. A grammar the parser rejects reports `Usage: /journey export [today \| 7d \| 30d \| all] [--out <path>]`. |
 | `/journey <anything-else>` | `Usage: /journey [today \| 7d \| 30d \| all]`. |
 | `/curator status` | Render the last pass instant, tracked-skill counts by lifecycle state with pins and trust standing, today's cache-hit share from the usage ledger, the aggregate skill failure rate from telemetry, the staged-for-review count with the worst rate, and the newest recorded pass. Either rate names its missing source when unmounted. |
 | `/curator run` | Run one maintenance pass now: report the movements, skip counts, and snapshot id. |
@@ -67,7 +68,8 @@ The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-a
 | `/curator rollback --id <id>` | Roll one recorded pass back: report the restored lifecycle states, then `Restored bodies: <names>` when SKILL.md bodies were restored from their preimages. |
 | `/curator ledger` | List recorded passes newest-first with their transition counts. |
 | `/curator pin <name>` / `/curator unpin <name>` | Pin or unpin one tracked skill and report `Pinned '<name>'` / `Unpinned '<name>'`. |
-| `/curator <anything-else>` | `Usage: /curator status \| run [--dry-run] \| staged \| adopt <name> \| purge [--dry-run] \| rollback --id <id> \| ledger \| pin <name> \| unpin <name> \| optimize <skill> <scenario...> \| experiments [skill]`. |
+| `/curator history <name>` | List one skill's committed body revisions oldest first as `<n> revision(s) for '<name>':` then `- r<n> <sha8>[ ← r<n-1> <parentSha8>] (<instant>)`; nothing recorded reports `No recorded revisions for '<name>'.` Pin, unpin, and history read telemetry only: without it they report `Skill telemetry is not mounted. Pin, unpin, and history require the telemetry store.` |
+| `/curator <anything-else>` | `Usage: /curator status \| run [--dry-run] \| staged \| adopt <name> \| purge [--dry-run] \| rollback --id <id> \| ledger \| pin <name> \| unpin <name> \| history <name> \| optimize <skill> <scenario...> \| experiments [skill]`. |
 | `/refine` | Rebuild the scope's lessons through the reviewer and report `Memory rebuild complete.`. |
 | `/refine <anything>` | `Usage: /refine (no arguments)` — the command takes no arguments. |
 | `/trajectory` | Export the invoking session through the trajectory service and report `Trajectory written to <path> (<n> conversations, <n> bytes).`. |
@@ -81,12 +83,12 @@ The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-a
 | `/suggestions <anything>` | `Usage: /suggestions (no arguments)`. |
 | `/frontier` | Rank this scope's skills weakest first from measured evidence, as `- <name>: <score> [<wins>/<runs>] [· <n> failures [(top: '<message>')]] · <loads> loads in <sessions> sessions[: <description>]`, ending with the ranking rule. |
 | `/frontier <anything>` | `Usage: /frontier (no arguments)`. |
-| `/budget` | Settle every recorded batch against its allocation, as `- <batchId> (<candidateClass>, <taskClass>): <spent>/<maxTokens> tokens, <spentMs>/<maxWallTimeMs>ms` with the exact margin left, or `EXCEEDED by <tokens> tokens, <ms>ms` past it. Bare `/budget` lists every batch. |
+| `/budget` | Settle every recorded batch against its allocation, as `- <batchId> (<candidateClass>, <taskClass>): <spent>/<maxTokens> tokens, <spentMs>/<maxWallTimeMs>ms` with the exact margin left, or `EXCEEDED by <tokens> tokens, <ms>ms` past it. A batch whose allocation priced §37's later dimensions continues with `· cost <spent>/<ceiling> — <left> left, time <spentMs>/<ceiling>ms, parallelism <spent>/<ceiling>`, and a priced dimension nothing recorded reads `unmeasured (ceiling <n>)` rather than a zero it cannot prove; an unpriced dimension is not rendered. Bare `/budget` lists every batch. |
 | `/budget spends [<batchId>]` | List the recorded spends, as `- <batchId>: <tokens> tokens, <wallTimeMs>ms, <n> rollouts at <instant>`. |
 | `/budget <anything-else>` | `Usage: /budget [spends [<batchId>]]`. |
 | `/meta` | List the engine configurations recorded on any task class, best score first, as `- <configId> (<taskClass>): <pct>% pass over <n> runs, <tokens> mean tokens, score <score>`. |
 | `/meta runs [<taskClass>]` | List the recorded engine runs, as `- <runId> (<taskClass>) pass\|fail, <tokens> tokens, <wallTimeMs>ms at <instant>`. |
-| `/meta recommend <taskClass>` | Name the configuration the store recommends for one task class with its operator, evaluator, budget, and routing choices and the numbers behind the rank; a class without enough evidence reports so instead. |
+| `/meta recommend <taskClass>` | Name the configuration the store recommends for one task class with its operator, evaluator, budget, and routing choices, the workflow it ran as `workflow: <component>=<choice>>…` (or `workflow: unrecorded`), and the numbers behind the rank; a class without enough evidence reports so instead. |
 | `/meta <anything-else>` | `Usage: /meta [summaries [<taskClass>] \| runs [<taskClass>] \| recommend <taskClass>]`. |
 | `/operators <artifactClass>` | Rank that artifact class's mutation operators, best first, as `- <operator>: <n> attempts, <pct>% accepted, mean delta <delta>, <pct>% regressions, score <score>`. The acceptance and score come from the ranking; the regression rate is joined from the class's statistics rows. |
 | `/operators` | Count the artifact classes with recorded statistics and name them, without ranking. |
@@ -98,6 +100,79 @@ The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-a
 | `/evaluator-strategy` | List the recorded evaluator trust rows, as `- <evaluator> (<taskClass>): <n>/<m> independent corroborations over <n> verdicts, weight <weight> at <instant>`. |
 | `/evaluator-strategy rank <taskClass>` | Rank that class's evaluators most trusted first, with the corroboration counts and weight behind each rank. |
 | `/evaluator-strategy <anything-else>` | `Usage: /evaluator-strategy [strategies [<taskClass>] \| rank <taskClass>]`. |
+| `/metrics [<taskClass>]` | Report the north-star metric and the supporting set over the recorded engine runs, as `- <id>: <value> — <caveat>` with the store each value came from, or `- <id>: not measured — <reason>` naming the record that is missing. |
+| `/graph <entity>` | List the entity's immediate connections as `<label>:` followed by one `- <path> → <label>` line per neighbour reached in one hop; an entity this scope's graph does not hold reports `No entity matching '<entity>' in this scope's graph.` Without the graph mounted: `The knowledge graph is not mounted.` |
+| `/graph <entity> <relation>` | Traverse one relation outward and render `<subject> —<relation>→ <object>, <object>`; a subject without that relation reports `<subject> has no '<relation>' relation.`, and an unknown entity the same `No entity matching` message. A double-quoted argument keeps its spaces together. |
+| `/graph <anything-else>` | `Usage: /graph <entity> [relation]` |
+| `/claims [query]` | List the scope's active claims most believed first as `<n> active claim(s):` followed by `- <statement> [confidence <x.xx>, <n> supporting / <n> contradicting source(s), evidence <x.xx>, source <x.xx>, newest <instant>]`; a query matching nothing reports `No active claim matching '<query>' in this scope.`, and a retired claim is never listed. |
+| `/claims <anything-else>` | `Usage: /claims [query]` — one query, quoted when it carries spaces. |
+| `/reflection [limit]` | List the newest stored reflections of this scope's sessions as `<n> reflection(s) (newest first):` then one block per row: `- <symptom> (confidence <x.xx>)`, `  expected: <…>`, and `  cause:`, `  avoid:`, `  instead:`, `  check:` when recorded. The limit defaults to 5; nothing stored reports `No reflections stored for this scope.` Without the feedback store mounted: `The evolution feedback store is not mounted.` |
+| `/reflection <anything-else>` | `Usage: /reflection [limit]` — the limit is an integer of at least 1. |
+| `/trace <sessionId>` | Project that session's committed log into its learning trace: `Trace of <id>: <n> turn(s)` plus `, updated <instant>` (or ` (no events)`), then one `Turn <n> [<outcome>]` line per turn with its request, `  · <tool> ok` or `  · <tool> failed: <message>` per tool call, and `    ← <cause>` per ranked root cause. An unknown session reports `No trace for session '<id>'.` Without the trace store mounted: `The evolution trace store is not mounted.` |
+| `/trace <anything-else>` | `Usage: /trace <sessionId>` — exactly one session id. |
+| `/curriculum` | Measure the current capability gaps, stage one grounded task per gap, and list the open proposals: `Staged <n> new task(s).` or `No new tasks staged from the measured gaps.`, then `No open curriculum tasks.` or one `- <id> <capability>: <task>` line each. Without the curriculum store mounted: `The evolution curriculum store is not mounted.` |
+| `/curriculum retire <id>` | Retire one staged proposal and report `Retired curriculum task '<id>' (<capability>).` |
+| `/curriculum <anything-else>` | `Usage: /curriculum [retire <id>]` |
+| `/benchmark` | Summarize the store by state as `Benchmark: <n> fresh, <n> search, <n> validation, <n> holdout, <n> contaminated, <n> retired.` and list up to ten fresh tasks as `- <id> <capability>: <task>`. Without the benchmark store mounted: `The evolution benchmark store is not mounted.` |
+| `/benchmark admit` | Admit the curriculum's open proposals as fresh tasks and report `Admitted <n> benchmark task(s), <n> duplicate(s) skipped.`; without the curriculum store it reports `The evolution curriculum store is not mounted; admit needs open proposals.` |
+| `/benchmark promote <id> [state]` | Move one task one rung up the learning ladder, or to the named state, and report `Promoted '<id>' to '<state>'.`; a task already at the ladder's end reports `No promotion from '<state>' for '<id>'`, an unknown id `evolution-benchmark: unknown task '<id>'`. |
+| `/benchmark retire <id>` | Retire one task and report `Retired '<id>'.` |
+| `/benchmark <anything-else>` | `Usage: /benchmark [admit \| promote <id> [state] \| retire <id>]` |
+| `/evaluators` | Summarize ensemble health as `Evaluator health: <n> verdict(s), approved <pct>% (recent <pct>%, drift ±<n> points), unanimous <pct>%, false positives <pct>% of approvals.` and `Channels: <channel> <pct>%, …`. Without the store mounted: `The evaluator-health store is not mounted.` |
+| `/evaluators runs [<skill>]` | List the ten newest recorded verdicts as `<n> verdict(s):` then `- <id8> <skill>: <status>[ approved][ unanimous\| (split: <evaluators>)] at <instant>`; nothing recorded reports `No recorded evaluator verdicts.` |
+| `/evaluators <anything-else>` | `Usage: /evaluators [runs [<skill>]]` — at most one skill. |
+| `/population <skill>` | List the population as `Population '<skill>': generation <n>, <n> candidate(s).`, then `- g<n> <id8> [<status>] <operator>:` with `<pass> pass, <tokens> tokens, <ms>ms` or `unmeasured` when the triple is absent, closed by ` · root` or ` ← <parent8>`; finally `Elite: <id8> (g<n>), …` or `Elite: none approved yet.` A skill with none reports `No candidates recorded for '<skill>'.` Without the store mounted: `The evolution population store is not mounted.` |
+| `/population <skill> lineage <id>` | Walk one candidate's ancestry oldest first from `Lineage of '<id>' in '<skill>':`, marking the newest `← newest`; an unknown id reports `No candidate '<id>' for skill '<skill>'.` |
+| `/population <skill> approve <id>` / `/population <skill> reject <id>` | Move one staged candidate's standing and report `Marked candidate '<id8>' (g<n> <skill>) as '<approved\|rejected>'.` |
+| `/population <anything-else>` | `Usage: /population <skill> [lineage <id> \| approve <id> \| reject <id>]` |
+| `/routes` | List each role's recorded routes as `Routes:` then `<role>: <provider>/<model>[ (pinned)]: <n> run(s), <pct>% pass, <n> tokens avg · …[ → recommended <provider>/<model>]`; with none recorded: `No route assignments yet. The optimizer records candidate-generation routes; pin the rest.` Without the store mounted: `The evolution model-routes store is not mounted.` |
+| `/routes pin <role> <provider> <model>` | Pin one route for a §28 role and report `Pinned '<role>' to <provider>/<model>.`; an unusable role or an empty provider or model reports the usage line. |
+| `/routes evidence [<role>]` | List the ten newest evidence rows as `<n> evidence row(s):` then `- <id8> <role>: <provider>/<model> <pass> pass, <tokens> tokens at <instant>`; nothing recorded reports `No recorded route evidence.` |
+| `/routes <anything-else>` | `Usage: /routes [pin <role> <provider> <model> \| evidence [<role>]]` |
+| `/canary` | Summarize the deployments as `Canary: <n> shadow, <n> canary, <n> promoted, <n> rolled-back, <n> rejected.` and list up to ten as `- <id8> <skill>: <state>[ → next <stage>][ (<pass>, <tokens> tokens)]`; none yet reports `No deployments yet. The optimizer records staged writes as shadow.` Without the store mounted: `The evolution canary store is not mounted.` |
+| `/canary status [<skill>]` | The same deployment list narrowed to one skill; a skill with none reports `No deployments for '<skill>'.` |
+| `/canary rollout <id>` | Move one shadow deployment to canary and report `Deployment '<id8>' (<skill>) moved to '<state>'.` |
+| `/canary promote <id>` | Move one canary deployment to promoted, with the same report. |
+| `/canary reject <id>` | Exit one staged rollout to rejected, with the same report. |
+| `/canary rollback <id>` | Exit one staged rollout to rolled-back, with the same report. |
+| `/canary <anything-else>` | `Usage: /canary [status [<skill>] \| rollout <id> \| promote <id> \| reject <id> \| rollback <id>]` |
+| `/novelty` | Summarize the archive as `Novelty archive: <n> entry(ies) across <n> skill(s).` then `- <skill>: <n> entry(ies), mean novelty <x.xx>`, sorted by skill; none recorded reports `No recorded novelty archive entries. The optimizer records staged writes as descriptors.` Without the store mounted: `The evolution novelty-search store is not mounted.` |
+| `/novelty <skill>` | List one skill's descriptors as `Novelty archive '<skill>': <n> entry(ies), mean <x.xx>.` then up to ten `- <id8>: <n> features, novelty <x.xx> at <instant>` lines; a skill with none reports `No recorded novelty archive entries for '<skill>'.` |
+| `/novelty <anything-else>` | `Usage: /novelty [<skill>]` |
+| `/stagnation` | Summarize every skill with recorded runs as `Stagnation:` then `- <skill>: <n>/<threshold> generations since improvement` closed by ` — STAGNANT → <strategy>` or ` — ok`; none recorded reports `No recorded stagnation runs. The optimizer records staged writes as runs.` Without the store mounted: `The evolution stagnation store is not mounted.` |
+| `/stagnation status <skill>` | Render one skill in three lines: `Stagnation '<skill>': <n> run(s), best <pass> pass, <tokens> tokens, <ms>ms.` (or `best no best yet.` when nothing is measured), `<n> generation(s) since improvement, threshold <threshold>.`, then `STAGNANT → strategy: <strategy>` or `Not stagnant — continue <strategy>.` |
+| `/stagnation runs [<skill>]` | List the ten newest runs as `<n> run(s):` then `- g<n> <id8> <skill>: <pass> pass, <tokens> tokens, <ms>ms[ improved] at <instant>`; nothing recorded reports `No recorded stagnation runs.` |
+| `/stagnation reset <skill>` | Drop that skill's history and report `Reset stagnation history of '<skill>': dropped <n> run(s).` |
+| `/stagnation <anything-else>` | `Usage: /stagnation [status <skill> \| runs [<skill>] \| reset <skill>]` |
+| `/islands` | List the lanes as `Islands:` then `- <island> '<name>' [<objective>] <skill> g<n>[ · migration due]`; none registered reports `No islands registered.` and points at the `/islands register <island> <name> <objective> <skill>` form. Without the store mounted: `The evolution islands store is not mounted.` |
+| `/islands list [<skill>]` | The same schedule list narrowed to one skill, headed `Islands '<skill>':`. |
+| `/islands register <island> <name> <objective> <skill>` | Register one lane and report `Registered island '<island>' '<name>' [<objective>] for '<skill>'.`; an objective outside the registered set reports the usage line. |
+| `/islands migrate <from> <to> <candidate> [<reason>]` | Record one candidate migration and report `Migrated candidate '<id8>' <from> → <to> (<reason>).`; the reason is `schedule` (the default), `elite`, or `diversity`. |
+| `/islands migrations [<skill>]` | List the ten newest log rows as `<n> migration(s):` then `- <id8> <candidate8> <from> → <to> (<reason>) at <instant>`; nothing recorded reports `No recorded island migrations.` |
+| `/islands <anything-else>` | `Usage: /islands [list [<skill>] \| register <island> <name> <objective> <skill> \| migrate <from> <to> <candidate> [<reason>] \| migrations [<skill>]]` |
+| `/selfmodel` | Render the capability frontier weakest first as `Capability frontier (weakest first): <n>`, then `- <capability>: score <x.xx>, confidence <x.xx>, <n> skill(s), <n> observations`, and `Next to learn: <capability>`; with nothing measured: `No measured capabilities yet. The optimizer records capability observations as it stages writes.` Without the store mounted: `The evolution self-model store is not mounted.` |
+| `/selfmodel <skill>` | Render one recorded self-assessment as `Self-model '<skill>' (revision <n>, confidence <x.xx>):` followed by the non-empty `strengths`, `weaknesses`, `uncertain areas`, `failure modes`, `preferred tools`, and `evaluator blindspots` lists; an unrecorded skill reports `No self-assessment recorded for '<skill>'.` |
+| `/selfmodel <anything-else>` | `Usage: /selfmodel [<skill>]` |
+| `/uncertainty [<skill>]` | Render the queue as `Evaluation queue[ '<skill>']: <n>` then `- <skill> (skill-wide)` or `task <taskId>`: `priority <x.xx>, [<kinds>], <n> signals`; with no signals: `No uncertainty signals. The scorer records evaluator disagreement as signals.` Without the store mounted: `The evolution uncertainty store is not mounted.` |
+| `/uncertainty <anything-else>` | `Usage: /uncertainty [<skill>]` |
+| `/adversary` | List the recorded probes as `Adversarial probes[ '<skill>']: <n>` then `- <id8> [<category>] <skill>: weakness found` or `no weakness`, plus ` · repaired`; none recorded reports `No adversarial probes recorded.` and points at the `/adversary probe <skill> <category> <probe>` form. Without the store mounted: `The evolution adversary store is not mounted.` |
+| `/adversary list [<skill>]` | The same probe list narrowed to one skill. |
+| `/adversary probe <skill> <category> <probe>` | Record one probe, the phrase taking every word after the category, and report `Recorded a '<category>' probe for '<skill>'. Mark it repaired with /adversary repair <id> once the weakness is fixed.`; a category outside the registered set reports the usage line. |
+| `/adversary repair <probeId>` | Mark one probe repaired and report `Marked probe '<id8>' repaired.` |
+| `/adversary challenge <skill>` | Name the next probe to run: `Next adversarial probe for '<category>' (<n> recorded): <reason>` |
+| `/adversary defenses` | List the evaluator-gaming checklist as `Evaluator-gaming defenses:` then `- <defense>: satisfied` or `- <defense>: open`; none recorded reports `No evaluator-gaming defenses recorded.` |
+| `/adversary defense <name> <satisfied>` | Set one checklist entry from `true` or `false` and report `Set defense '<name>' to satisfied.` or `Set defense '<name>' to open.` |
+| `/adversary <anything-else>` | `Usage: /adversary [list [<skill>] \| probe <skill> <category> <probe> \| repair <probeId> \| challenge <skill> \| defenses \| defense <name> <satisfied>]` |
+| `/lineage` | List the envelopes newest first as `Experiments[ '<skill>'] (newest first): <n>` then `- <id8> <skill> <outcome> by <operator>` (`?` when unrecorded)`: <pass> pass, <tokens> tokens, <ms>ms`; none recorded reports `No experiment envelopes recorded. The optimizer records staged writes as envelopes.` Without the store mounted: `The evolution lineage store is not mounted.` |
+| `/lineage list [<skill>]` | The same envelope list narrowed to one skill. |
+| `/lineage compare <idA> <idB>` | Prove two envelopes comparable: `'<a8>' vs '<b8>': comparable — no compared dependency changed.` or `'<a8>' vs '<b8>': incomparable — changed dependencies: <names>.`; an unknown id reports `Unknown experiment id in /lineage compare.` |
+| `/lineage replay <id>` | Render one envelope's record as `Experiment <id> (<skill>, <outcome> by <operator>):`, `- pass <bool>, <tokens> tokens, <ms>ms`, `- dependencies: <key=value, …>` or `- dependencies: none`, and `- seeds: <ids>` or `- seeds: not recorded`; an unknown id reports `Unknown experiment '<id8>'.` |
+| `/lineage <anything-else>` | `Usage: /lineage [list [<skill>] \| compare <idA> <idB> \| replay <id>]` |
+| `/sleeptime` | List the anticipated tasks likelihood-first as `Anticipated tasks[ '<domain>'] (likelihood first): <n>` then `- <taskId> (<domain>): <pct>%, <n> expected queries, <n> tokens each`; none anticipated reports `No anticipated tasks. Anticipate likely future tasks to seed sleep-time compute.` Without the store mounted: `The evolution sleeptime store is not mounted.` |
+| `/sleeptime tasks [<domain>]` | The same task list narrowed to one domain. |
+| `/sleeptime artifacts [<taskId>]` | List the precomputed artifacts as `Precomputed artifacts[ '<taskId>']: <n>` then `- <id8> [<kind>] for <taskId>: <n> hits, <n> tokens saved, cost <n>`; none recorded reports `No precomputed artifacts recorded.` |
+| `/sleeptime plan` | Show the offline-cost plan as `Sleep-time plan:` then `- <taskId> (<domain>): net <n> tokens — <reason>`; nothing worth building reports `Nothing worth precomputing now. Anticipate tasks to seed the plan.` |
+| `/sleeptime <anything-else>` | `Usage: /sleeptime [tasks [<domain>] \| artifacts [<taskId>] \| plan]` |
 
 An `applyDecisions` entry names its batch in the gist — the counts of confirms, contradicts, and new — and continues under that line with one indented line per decision: `new '<statement>'`, `confirms '<current statement>'` or `contradicts '<current statement>'`, and `contradicts '<current statement>' → '<replacement>'` when the contradiction carried a corrected statement. A `confirms` or `contradicts` target renders as the statement the record currently holds for it, and as the artifact's id when the record no longer holds it — that id is the normalized statement the artifact was created from, so it still reads as text. Every other op prints its gist line alone, and so does an `applyDecisions` entry whose payload the renderer cannot read: an unreadable staged payload renders no detail lines instead of failing the list.
 
@@ -190,11 +265,11 @@ Scope resolution copies the injector's membership rule without its cache — com
 
 Read these pages when the package-level contract is not enough; they move from the commands to the store, the reviewer, and the design decisions.
 
-- [Evolutionary Harness specification](../../../specs/evolutionary-harness.spec.md) — the behaviour contract these commands govern.
+- [Evolutionary Harness subsystem](../../../docs/subsystems/evolutionary-harness.md) — the behaviour contract these commands govern.
 - [Evolution package map](../README.md) — the group's packages and their repository position.
 - [Commands package](../../interaction/commands/README.md) — the registry and dispatch contract behind chat commands.
 - [Usage ledger](../../session/usage-ledger/README.md) — the UTC+7 calendar and window helpers the journey buckets with.
-- [Improvement roadmap](../../../specs/improvement.spec.md) — the Phase 6 CLI slice these commands land (`/suggestions` remains planned).
+- [Evolutionary Harness subsystem](../../../docs/subsystems/evolutionary-harness.md) — where the family's behaviour, including the CLI slice these commands land, is described (`/suggestions` remains planned).
 
 -----
 

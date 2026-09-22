@@ -126,7 +126,7 @@ describe('frontierGaps', () => {
     const gaps = frontierGaps(entries)
     // Same score: thinner evidence first; same evidence: fewer skills first;
     // same coverage: the capability name decides.
-    expect(gaps.map((gap) => gap.capability)).toEqual(['amber', 'zeta', 'wide', 'confident', 'strong'])
+    expect(gaps.map(gap => gap.capability)).toEqual(['amber', 'zeta', 'wide', 'confident', 'strong'])
     expect(gaps[0]).toEqual({
       capability: 'amber',
       score: 0.2,

@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-evolution-evaluator-health` keeps the evaluator itself honest: it durably records every behavior-evaluation verdict the scorer produces and aggregates the health facts that tell whether the judging is drifting or being gamed — judge agreement (unanimity), approval-rate drift against the newest window, false positives (an approval later contradicted by a same-skill rejection), and per-channel approval. Nothing here calls a model. The scorer's behavior evaluation records into it, and the host command `command-evolution` reports it through `/evaluators`.
+`dsh-evolution-evaluator-health` keeps the evaluator itself honest: it durably records every behavior-evaluation verdict the scorer produces and aggregates the health facts showing whether judging is drifting or gamed — judge agreement (unanimity), approval-rate drift against the newest window, false positives (an approval later contradicted by a same-skill rejection), and per-channel approval. §13's calibration face, `calibration()`, reports the false-negative rate (a rejection later contradicted by a same-skill approval) and how verdicts correlate with the independent ground truths that later judged them. Nothing here calls a model; the scorer's behavior evaluation records into it, and `command-evolution` reports it through `/evaluators`.
 
 ## Table of Contents
 
@@ -37,10 +37,12 @@ await ctx.evolutionEvaluatorHealth.observe({
   dissenting: ['replay'],
 })
 const health = ctx.evolutionEvaluatorHealth.summary()
+const calibration = ctx.evolutionEvaluatorHealth.calibration()
 console.log(`${health.approvalRate * 100}% approved, drift ${health.drift * 100} points, false positives ${health.falsePositiveRate * 100}%`)
+console.log(`${calibration.falseNegativeRate * 100}% false negatives, ground-truth agreement ${calibration.agreementRate * 100}%`)
 ```
 
-`observe(input)` records one verdict, rejecting skipped evaluations (a skipped run has no judgment). `runs(skill?)` lists recorded verdicts newest first, optionally filtered by skill. `summary()` aggregates: overall and recent approval rates with drift, unanimous agreement, false positives as a share of approvals, and one row per channel. The `/evaluators` command prints the summary or the newest verdicts.
+`observe(input)` records one verdict, rejecting skipped evaluations (a skipped run has no judgment). `runs(skill?)` lists recorded verdicts newest first, optionally filtered by skill. `summary()` aggregates: overall and recent approval rates with drift, unanimous agreement, false positives as a share of approvals, and one row per channel. `judge(runId, judgment)` attaches the later ground truth that judged one verdict — whether it agreed with the evaluator, and whether it was measured independently. `calibration()` aggregates the false-negative rate beside the summary's false-positive rate, the number of independently judged verdicts, and their agreement rate. The `/evaluators` command prints the summary or the newest verdicts.
 
 ### Configuration
 
@@ -68,11 +70,11 @@ The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-a
 
 ### Design concept
 
-Verdicts are durable per-record rows in the `evolution_evaluator_health` domain (v1, one `runs` table keyed by verdict id): `{ id, skill, unanimous, status, approved, approving, dissenting, at }`. The aggregation is pure: `summarizeHealth(runs, window)` consumes verdicts newest first, takes the newest `window` as the recent slice, and computes approval, unanimity, and drift (recent minus overall). A false positive is an approved verdict for which a NEWER same-skill verdict rejected — counted against the approvals, so the rate asks "of the times we approved, how often did the same skill later get rejected?"
+Verdicts are durable per-record rows in the `evolution_evaluator_health` domain (v2, one `runs` table keyed by verdict id): `{ id, skill, unanimous, status, approved, approving, dissenting, judgment, at }`, where `judgment` is the later ground truth (`{ agrees, independent, at }`) or null; version-1 verdicts read as unjudged. The aggregation is pure: `summarizeHealth(runs, window)` consumes verdicts newest first, takes the newest `window` as the recent slice, and computes approval, unanimity, and drift (recent minus overall). A false positive is an approved verdict for which a NEWER same-skill verdict rejected — counted against the approvals, so the rate asks "of the times we approved, how often did the same skill later get rejected?" `judgeCalibration(runs)` mirrors that reading for rejections — a rejected verdict for which a newer same-skill verdict approved, counted against the rejections — and adds the correlation with human outcomes: of the verdicts a later INDEPENDENT ground truth judged, the share it agreed with.
 
 ### Failure and recovery
 
-A skipped evaluation records nothing and rejects loudly if offered. Unknown skills never filter anything: an absent skill reads as an empty list. Reads throw before the store starts.
+A skipped evaluation records nothing and rejects loudly if offered. Unknown skills never filter anything: an absent skill reads as an empty list. `judge` rejects an unknown verdict identity loudly, so a ground truth is never attached to a verdict that does not exist. Reads throw before the store starts.
 
 No invariant companion is published because the domain table is the only copy of this state, so there is no second independent observation to check it against.
 
@@ -106,7 +108,8 @@ Nothing here enters a model request, so provider cache reuse is unaffected. A co
 These limits define when the store is a poor fit. They are current package constraints.
 
 - **Health tracks behavior evaluations only** — verdicts from the scorer's `evaluateBehavior` are the whole source; optimization runs and replay scores outside that path are not recorded.
-- **False positives are an internal proxy** — the store compares verdicts against each other, not against human outcomes; correlation with real-user results is the deferred calibration work.
+- **Both error rates are internal proxies** — the false-positive and false-negative rates compare verdicts against each other, not against ground truth; the ground-truth reading is the separate `calibration().agreementRate`, and it is only as independent as the judgment a caller attaches.
+- **Nothing attaches a ground truth automatically** — `judge` is a seam for whoever holds the later independent measurement (an operator reviewing, a holdout replay); no mounted package calls it today, so `calibration().independentlyJudged` stays zero until one does.
 - **Host-wide, not scope-keyed** — verdicts are global; a per-scope view needs a scope key on the domain.
 
 <a id="dev-note"></a>
@@ -115,6 +118,6 @@ These limits define when the store is a poor fit. They are current package const
 <details>
 <summary>Working context for maintainers — click to expand</summary>
 
-The scorer records through the optional store so a deployment without the health package sees zero behavior change; the failing-store path logs a warning rather than failing an evaluation. Drift is recent-minus-overall approval share, so a positive value means approvals are rising.
+The scorer records through the optional store so a deployment without the health package sees zero behavior change; the failing-store path logs a warning rather than failing an evaluation. Drift is recent-minus-overall approval share, so a positive value means approvals are rising. `calibration()` reads the same `runs()` list as `summary()` and derives from it, so the two never disagree about which verdicts exist; `agreementRate` counts only independent judgments, since a verdict the evaluator judged itself correlates with nothing.
 
 </details>

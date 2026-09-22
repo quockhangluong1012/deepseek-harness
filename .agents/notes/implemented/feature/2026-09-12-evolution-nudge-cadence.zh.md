@@ -2,6 +2,8 @@
 
 Status: implemented
 
+> 节奏字段、其校验与按进程统计回合的做法仍然有效。触发器那一半——`isNudgeTurn` 的取模及其门控的固定建议文本——已被[基于条件的演化提示](../architecture/2026-09-22-condition-based-nudges.zh.md)取代：后者把两个区间保留为记录条件之上的节奏上限。
+
 [English](2026-09-12-evolution-nudge-cadence.md) | 中文
 
 ## Problem

@@ -27,8 +27,10 @@ export const precomputeArtifactRow = z.object({
   kind: z.enum(['summary', 'retrieval-index', 'candidate-plan']),
   summary: z.string(),
   offlineCostTokens: z.number(),
+  decisionReason: z.string().nullable().default(null),
   hits: z.number(),
   savedTokens: z.number(),
+  servedThroughAt: z.string().nullable().default(null),
   at: z.string(),
 })
 
@@ -46,7 +48,12 @@ export type PrecomputeArtifactRow = z.infer<typeof precomputeArtifactRow>
  */
 export const sleeptimeDomainSpec = defineDomain({
   name: 'evolution_sleeptime',
-  version: 1,
+  version: 2,
+  // Version 1 stored artifacts without the decision that justified them or the
+  // instant their hits are accounted through; both default to null, and a null
+  // cursor is accounted from the artifact's own precompute instant, so
+  // vouched-for v1 artifacts open unchanged.
+  compatibleVersions: [1],
   layout: 'per-record',
   tables: {
     tasks: domainTable<string, AnticipatedTask>(anticipatedTaskRow),

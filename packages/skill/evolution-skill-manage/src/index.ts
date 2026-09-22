@@ -11,10 +11,12 @@ import { dirname, join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type {} from '@deepseek-ai/dsh-evolution-skill-telemetry'
+import { composabilityRefusal } from '@deepseek-ai/dsh-skill'
 import type {} from '@deepseek-ai/dsh-skill'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolCallView } from '@deepseek-ai/dsh-tools/presentation'
 import {
+  buildDerivedSkillFile,
   buildSkillFile,
   checkSkillName,
   expandCreateDir,
@@ -22,11 +24,11 @@ import {
   resolveSkillDir,
   resolveSkillPath,
   SKILL_FILE,
-  splitFrontmatter,
-  validateSkillHead,
+  splitSkillFile,
 } from './files.ts'
 
 export {
+  buildDerivedSkillFile,
   buildSkillFile,
   checkSkillName,
   expandCreateDir,
@@ -35,6 +37,7 @@ export {
   resolveSkillPath,
   SKILL_FILE,
   splitFrontmatter,
+  splitSkillFile,
   validateSkillHead,
 } from './files.ts'
 
@@ -56,7 +59,7 @@ export const Config: z<Config> = z.object({
 })
 
 /** One managed mutation. */
-export type SkillManageOp = 'create' | 'patch' | 'edit' | 'write_file' | 'remove_file' | 'delete'
+export type SkillManageOp = 'create' | 'derive' | 'patch' | 'edit' | 'write_file' | 'remove_file' | 'delete'
 
 /**
  * Validated arguments for one skill_manage call. The operation stays a
@@ -68,6 +71,7 @@ export interface ResolvedManageArgs {
   name: string
   description?: string | null
   content?: string | null
+  sources?: readonly string[] | null
   path?: string | null
   old_text?: string | null
   new_text?: string | null
@@ -83,12 +87,12 @@ export function apply(ctx: Context, config: Config = {}): void {
 
   const skillManage = defineTool({
     name: 'skill_manage',
-    description: 'Create and revise agent skills. New skills go to the managed skills directory; existing skills are patched in place where the catalog found them. Prefer patch for surgical changes, edit to rewrite a skill body, write_file/remove_file for supporting files, and delete to remove a whole skill.',
+    description: 'Create and revise agent skills. New skills go to the managed skills directory; existing skills are patched in place where the catalog found them. Prefer patch for surgical changes, edit to rewrite a skill body, write_file/remove_file for supporting files, and delete to remove a whole skill. Use derive to synthesize a new skill from at least two existing skills.',
     parameters: {
       op: {
         type: 'string',
         required: true,
-        description: 'The mutation to run: `create`, `patch`, `edit`, `write_file`, `remove_file`, or `delete`.',
+        description: 'The mutation to run: `create`, `derive`, `patch`, `edit`, `write_file`, `remove_file`, or `delete`.',
       },
       name: {
         type: 'string',
@@ -101,7 +105,12 @@ export function apply(ctx: Context, config: Config = {}): void {
       },
       content: {
         oneOf: [{ type: 'string' }, { type: 'null' }],
-        description: 'Required string parameter of `create` (instruction body), `edit` (complete replacement file), and `write_file` (file content).',
+        description: 'Required string parameter of `create` (instruction body), `edit` (replacement body), `derive` (the complete new SKILL.md, frontmatter included; its `name` must match and its lineage is filled in), and `write_file` (file content).',
+      },
+      sources: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Required string-array parameter of `derive`: at least two existing skill names the new skill is synthesized from. Each must declare the others as composable when it declares `composable_with` at all.',
       },
       path: {
         oneOf: [{ type: 'string' }, { type: 'null' }],
@@ -137,6 +146,8 @@ export function apply(ctx: Context, config: Config = {}): void {
       switch (args.op) {
         case 'create':
           return createSkill(ctx, createDir, args, signal)
+        case 'derive':
+          return deriveSkill(ctx, createDir, args, cwd, signal)
         case 'patch':
           return patchSkill(ctx, args, cwd, signal)
         case 'edit':
@@ -155,6 +166,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       op: string
       name: string
       content?: string | null
+      sources?: readonly string[] | null
       path?: string | null
       old_text?: string | null
       new_text?: string | null
@@ -165,6 +177,15 @@ export function apply(ctx: Context, config: Config = {}): void {
           return {
             card: 'diff',
             title: `create skill ${args.name}`,
+            diffs: [{ path, oldText: null, newText: args.content ?? '' }],
+            locations: [{ path }],
+          }
+        }
+        case 'derive': {
+          const path = join(createDir, args.name, SKILL_FILE)
+          return {
+            card: 'diff',
+            title: `derive skill ${args.name} from ${(args.sources ?? []).join(', ')}`,
             diffs: [{ path, oldText: null, newText: args.content ?? '' }],
             locations: [{ path }],
           }
@@ -224,26 +245,81 @@ async function createSkill(
 ): Promise<{ op: string; name: string; path: string }> {
   const description = requiredArg(args.description ?? undefined, 'description', 'create')
   const body = requiredArg(args.content ?? undefined, 'content', 'create')
-  const dir = join(createDir, args.name)
-  const file = join(dir, SKILL_FILE)
+  const file = join(createDir, args.name, SKILL_FILE)
   const content = buildSkillFile(args.name, description, body)
-  signal.throwIfAborted()
-  await mkdir(dir, { recursive: true })
+  await writeNewSkillFile(file, content, args.name, signal)
+  const telemetry = ctx.get('evolutionSkillTelemetry')
+  await telemetry?.markAgentCreated(args.name)
+  await telemetry?.markRevised(args.name, content)
+  return { op: 'create', name: args.name, path: file }
+}
+
+/**
+ * Synthesize one new skill from existing primitives. The sources are catalog
+ * skills, so the lineage names skills the host can resolve; the caller's file
+ * text goes through the same head invariant `edit` enforces, and its lineage is
+ * replaced with the sources actually composed.
+ * @param ctx - plugin context owning the catalog and telemetry seams.
+ * @param createDir - directory for the synthesized skill.
+ * @param args - the call's arguments: the new name, its file text, and the sources.
+ * @param cwd - workspace selector for the catalog lookup.
+ * @param signal - cancellation for the lookup and the write.
+ * @returns the written location.
+ */
+async function deriveSkill(
+  ctx: Context,
+  createDir: string,
+  args: ResolvedManageArgs,
+  cwd: string | undefined,
+  signal: AbortSignal,
+): Promise<{ op: string; name: string; path: string }> {
+  const content = requiredArg(args.content ?? undefined, 'content', 'derive')
+  const sources = [...new Set(args.sources ?? [])]
+  if (sources.length < 2) throw new Error('skill_manage derive requires at least two distinct `sources`')
+  for (const source of sources) checkSkillName(source)
+  if (sources.includes(args.name)) throw new Error(`skill_manage derive cannot derive "${args.name}" from itself`)
+  const catalog = await ctx.skills.list({ cwd, signal })
+  const missing = sources.find(source => !catalog.some(skill => skill.name === source))
+  if (missing !== undefined) {
+    throw new Error(`skill_manage derive source "${missing}" is unknown or no longer available`)
+  }
+  const refusal = composabilityRefusal(catalog.filter(skill => sources.includes(skill.name)))
+  if (refusal !== undefined) throw new Error(`skill_manage derive sources are not composable: ${refusal}`)
+  const file = buildDerivedSkillFile(content, args.name, sources)
+  const path = join(createDir, args.name, SKILL_FILE)
+  await writeNewSkillFile(path, file, args.name, signal)
+  const telemetry = ctx.get('evolutionSkillTelemetry')
+  await telemetry?.markAgentCreated(args.name)
+  await telemetry?.markRevised(args.name, file)
+  return { op: 'derive', name: args.name, path }
+}
+
+/**
+ * Write one brand-new skill file, refusing an existing name. `create` and
+ * `derive` share it so the collision contract is one implementation.
+ * @param file - absolute SKILL.md path to create.
+ * @param content - complete file text.
+ * @param name - skill name for the collision failure.
+ * @param signal - cancellation for the directory creation and the write.
+ */
+async function writeNewSkillFile(
+  file: string,
+  content: string,
+  name: string,
+  signal: AbortSignal,
+): Promise<void> {
+  await mkdir(dirname(file), { recursive: true })
   signal.throwIfAborted()
   try {
     await writeFile(file, content, { flag: 'wx', signal })
   } catch (error) {
     /* v8 ignore else -- Non-EEXIST creation failures need a platform permission or I/O fault. */
     if ((error as { code?: string }).code === 'EEXIST') {
-      throw new Error(`skill "${args.name}" already exists: ${file}`)
+      throw new Error(`skill "${name}" already exists: ${file}`)
     }
     /* v8 ignore next -- Non-EEXIST creation failures need a platform permission or I/O fault. */
     throw error
   }
-  const telemetry = ctx.get('evolutionSkillTelemetry')
-  await telemetry?.markAgentCreated(args.name)
-  await telemetry?.markRevised(args.name, content)
-  return { op: 'create', name: args.name, path: file }
 }
 
 async function patchSkill(
@@ -285,9 +361,7 @@ async function editSkill(
   )
   signal.throwIfAborted()
   const current = await readFile(resolved.file, 'utf8')
-  const split = splitFrontmatter(current)
-  if (split === undefined) throw new Error(`skill "${args.name}" has malformed frontmatter: ${resolved.file}`)
-  validateSkillHead(split.head, args.name)
+  const split = splitSkillFile(current, args.name)
   signal.throwIfAborted()
   const file = `---\n${split.head}\n---\n${content}`
   await writeFile(resolved.file, file, { signal })

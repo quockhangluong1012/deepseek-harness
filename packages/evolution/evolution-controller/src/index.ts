@@ -258,8 +258,8 @@ export class EvolutionController extends TypertRemoteService {
    * @returns the Remote projection.
    */
   @Remote('read')
-  async read(request: EvolutionScopeRequest): Promise<EvolutionMemoryValue> {
-    return this.projectValue(this.requireWorkspace(request.scopeId).id)
+  read(request: EvolutionScopeRequest): Promise<EvolutionMemoryValue> {
+    return this.settleStep(() => this.projectValue(this.requireWorkspace(request.scopeId).id))
   }
 
   /**
@@ -374,9 +374,11 @@ export class EvolutionController extends TypertRemoteService {
    * @returns the pending entries in record order.
    */
   @Remote('listStaged')
-  async listStaged(request: EvolutionListStagedRequest): Promise<EvolutionStagedValue> {
-    const workspace = this.requireWorkspace(request.scopeId)
-    return { staged: structuredClone([...this.recordOf(workspace.id)?.staged ?? []]) }
+  listStaged(request: EvolutionListStagedRequest): Promise<EvolutionStagedValue> {
+    return this.settleStep(() => {
+      const workspace = this.requireWorkspace(request.scopeId)
+      return { staged: structuredClone([...this.recordOf(workspace.id)?.staged ?? []]) }
+    })
   }
 
   /**
@@ -411,19 +413,21 @@ export class EvolutionController extends TypertRemoteService {
    * @returns the timeline.
    */
   @Remote('timeline')
-  async timeline(request: EvolutionTimelineRequest): Promise<JourneyTimeline> {
-    const workspace = this.requireWorkspace(request.scopeId)
-    if (!isUsageRange(request.range)) {
-      throw new RemoteError('gateway/bad-request', `unknown timeline range ${JSON.stringify(request.range)}`, {})
-    }
-    const usage = this.ctx.evolutionMemory.usage(this.scopeOf(workspace.id))
-    return scopeTimeline({
-      record: this.recordOf(workspace.id),
-      usedBytes: usage.usedBytes,
-      capacityBytes: usage.capacityBytes,
-      digest: this.ctx.evolutionMemory.digest(this.scopeOf(workspace.id)),
-      range: request.range,
-      now: Date.now(),
+  timeline(request: EvolutionTimelineRequest): Promise<JourneyTimeline> {
+    return this.settleStep(() => {
+      const workspace = this.requireWorkspace(request.scopeId)
+      if (!isUsageRange(request.range)) {
+        throw new RemoteError('gateway/bad-request', `unknown timeline range ${JSON.stringify(request.range)}`, {})
+      }
+      const usage = this.ctx.evolutionMemory.usage(this.scopeOf(workspace.id))
+      return scopeTimeline({
+        record: this.recordOf(workspace.id),
+        usedBytes: usage.usedBytes,
+        capacityBytes: usage.capacityBytes,
+        digest: this.ctx.evolutionMemory.digest(this.scopeOf(workspace.id)),
+        range: request.range,
+        now: Date.now(),
+      })
     })
   }
 
@@ -451,6 +455,23 @@ export class EvolutionController extends TypertRemoteService {
 
   private recordOf(workspaceId: WorkspaceId): EvolutionMemoryRecord | undefined {
     return this.ctx.evolutionMemory.read(this.scopeOf(workspaceId))
+  }
+
+  /**
+   * Settle one synchronous projection into the promise a Remote method answers
+   * with. The lookup inside the step throws a RemoteError, which a Remote
+   * caller must observe as a rejection rather than a synchronous throw, so the
+   * outcome always leaves through the returned promise. A non-Error throw is
+   * wrapped, so every rejection still carries an Error.
+   * @param step - the synchronous projection step.
+   * @returns the step's result, or its rejection.
+   */
+  private settleStep<T>(step: () => T): Promise<T> {
+    try {
+      return Promise.resolve(step())
+    } catch (error) {
+      return Promise.reject(error instanceof Error ? error : new Error(String(error), { cause: error }))
+    }
   }
 
   private requireWorkspace(workspaceId: WorkspaceId): Workspace {

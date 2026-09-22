@@ -17,6 +17,8 @@ import type { PostToolDecision, ToolExecution, ToolExecutionResult } from '@deep
 import type { KvTable } from '@deepseek-ai/dsh-storage-domain'
 import type {} from '@deepseek-ai/dsh-skill'
 import { skillUsageDomainSpec } from './spec.ts'
+import { skillUtility } from './utility.ts'
+import type { SkillUtility } from './utility.ts'
 import type {
   ConsolidationCostRow,
   SkillCreationEvidence,
@@ -31,11 +33,14 @@ export type {
   RepeatedOutput,
   SkillCreationEvidence,
   SkillLifecycleState,
+  SkillSessionOutcome,
   SkillTrustFailure,
   SkillTrustState,
   SkillUsageRecord,
   SkillVersion,
 } from './types.ts'
+export { skillUtility } from './utility.ts'
+export type { SkillUtility } from './utility.ts'
 export { skillUsageDomainSpec, skillVersionRow } from './spec.ts'
 
 /** Produced outputs of one path needed before skill creation counts as warranted. */
@@ -145,6 +150,7 @@ function freshRecord(): SkillUsageRecord {
     patchCount: 0,
     lastUsedAt: null,
     sessionIds: [],
+    sessionOutcomes: [],
     lastViewedAt: null,
     lastPatchedAt: null,
     createdAt: new Date().toISOString(),
@@ -153,6 +159,7 @@ function freshRecord(): SkillUsageRecord {
     createdBy: null,
     absorbedInto: null,
     archivedAt: null,
+    suspectAt: null,
     trust: 'trusted',
     trustFailures: 0,
     trustObservedSessions: [],
@@ -307,6 +314,10 @@ export class EvolutionSkillTelemetry extends Service {
 
   /**
    * Count one skill-management mutation. Exclusion matches {@link markUsed}.
+   * The mutation may have changed the body, so the per-session outcome
+   * evidence clears with it: those outcomes describe the artifact that just
+   * changed, and the utility reading starts over rather than crediting the new
+   * body with the old body's results.
    * @param name - skill name.
    * @param source - catalog source when the caller already resolved it.
    * @returns the stored record, or undefined for excluded sources.
@@ -318,6 +329,7 @@ export class EvolutionSkillTelemetry extends Service {
       ...resetTrust(record),
       patchCount: record.patchCount + 1,
       lastPatchedAt: now,
+      sessionOutcomes: [],
     }))
   }
 
@@ -357,7 +369,8 @@ export class EvolutionSkillTelemetry extends Service {
    * Record one trust observation for a skill. A failure with attribution
    * demotes the skill and restamps the anchor; a success counts only when its
    * session is newer than that anchor and has not been counted yet, so
-   * evidence gathered before a fix cannot promote the skill again. Excluded
+   * evidence gathered before a fix cannot promote the skill again. Either way
+   * the session's outcome is recorded for §40's utility reading. Excluded
    * sources resolve to no record, and an observation that changes nothing
    * writes nothing.
    * @param name - skill name.
@@ -374,11 +387,11 @@ export class EvolutionSkillTelemetry extends Service {
   ): Promise<SkillUsageRecord | undefined> {
     if (isExcludedSkillSource(await this.lookupSource(name))) return undefined
     if (outcome === 'failure') {
-      return this.write(name, record => ({
+      return this.write(name, record => this.withOutcome({
         ...resetTrust(record),
         trustFailures: record.trustFailures + 1,
         lastTrustFailure: failure ?? record.lastTrustFailure,
-      }))
+      }, sessionId, 'failed'))
     }
     const current = this.requireTable().get(name)
     if (current !== undefined) {
@@ -389,9 +402,28 @@ export class EvolutionSkillTelemetry extends Service {
   }
 
   /**
+   * Read one skill's utility: uses, assisted and successful tasks, the
+   * library-relative gain, and the recorded cost per success. The baseline arm
+   * is the other tracked skills' pooled outcomes, because this harness records
+   * no skill-free run; see {@link skillUtility} for exactly what the gain does
+   * and does not measure.
+   * @param name - skill name.
+   * @returns the derived reading, or undefined when the skill has no record.
+   */
+  utility(name: string): SkillUtility | undefined {
+    const record = this.requireTable().get(name)
+    if (record === undefined) return undefined
+    const peers = [...this.requireTable().entries()]
+      .filter(([other]) => other !== name)
+      .map(([, peer]) => peer)
+    return skillUtility(record, peers)
+  }
+
+  /**
    * Record a new revision of the SKILL.md body. The store hashes the content
    * itself, so one place defines the shape of `contentSha`; the same bytes
-   * again is a no-op, and a real change resets trust like any other edit.
+   * again is a no-op, and a real change resets trust and clears the outcome
+   * evidence like any other edit.
    * @param name - skill name.
    * @param content - the exact bytes just written to SKILL.md.
    * @returns the stored record, or undefined for excluded sources.
@@ -406,6 +438,7 @@ export class EvolutionSkillTelemetry extends Service {
       revision: record.revision + 1,
       parentRevisionSha: record.contentSha,
       contentSha,
+      sessionOutcomes: [],
     }))
     await this.appendVersion(name, next.revision, contentSha, next.parentRevisionSha)
     return next
@@ -444,23 +477,47 @@ export class EvolutionSkillTelemetry extends Service {
 
   /**
    * Apply one success observation, or return the record unchanged when the
-   * session cannot count toward promotion.
+   * session cannot count toward promotion. The session's outcome is recorded
+   * either way, so a session that cannot promote still counts for utility.
    * @param record - the record being observed.
    * @param sessionId - the session that loaded this skill.
    * @returns the record after the observation.
    */
   private observed(record: SkillUsageRecord, sessionId: string): SkillUsageRecord {
-    const anchorAt = record.trustAnchorSessionId === null
+    const observed = this.withOutcome(record, sessionId, 'ok')
+    const anchorAt = observed.trustAnchorSessionId === null
       ? -1
-      : record.sessionIds.indexOf(record.trustAnchorSessionId)
-    const at = record.sessionIds.indexOf(sessionId)
-    if (anchorAt !== -1 && (at === -1 || at >= anchorAt)) return record
-    if (record.trustObservedSessions.includes(sessionId)) return record
-    const trusted = [sessionId, ...record.trustObservedSessions].slice(0, this.resolved.maxSessionIds)
+      : observed.sessionIds.indexOf(observed.trustAnchorSessionId)
+    const at = observed.sessionIds.indexOf(sessionId)
+    if (anchorAt !== -1 && (at === -1 || at >= anchorAt)) return observed
+    if (observed.trustObservedSessions.includes(sessionId)) return observed
+    const trusted = [sessionId, ...observed.trustObservedSessions].slice(0, this.resolved.maxSessionIds)
+    return {
+      ...observed,
+      trustObservedSessions: trusted,
+      trust: trusted.length >= this.resolved.trustPromotionSessions ? 'trusted' : observed.trust,
+    }
+  }
+
+  /**
+   * Record one session's graded outcome, newest first and deduplicated by
+   * session. Recording the outcome a session already carries is a no-op, so a
+   * repeated pass neither reorders the list nor writes.
+   * @param record - the record being observed.
+   * @param sessionId - the session the outcome belongs to.
+   * @param outcome - the graded outcome.
+   * @returns the record carrying the outcome.
+   */
+  private withOutcome(
+    record: SkillUsageRecord,
+    sessionId: string,
+    outcome: 'ok' | 'failed',
+  ): SkillUsageRecord {
+    if (record.sessionOutcomes.some(entry => entry.sessionId === sessionId && entry.outcome === outcome)) return record
+    const kept = record.sessionOutcomes.filter(entry => entry.sessionId !== sessionId)
     return {
       ...record,
-      trustObservedSessions: trusted,
-      trust: trusted.length >= this.resolved.trustPromotionSessions ? 'trusted' : record.trust,
+      sessionOutcomes: [{ sessionId, outcome }, ...kept].slice(0, this.resolved.maxSessionIds),
     }
   }
 
@@ -497,23 +554,30 @@ export class EvolutionSkillTelemetry extends Service {
   }
 
   /**
-   * Move one skill through its curation lifecycle. Entering `archived`
-   * stamps the instant; leaving clears it. The absorption target replaces
-   * any previous one, so plain transitions carry none.
+   * Move one skill through its curation lifecycle. Entering `suspect` or
+   * `archived` stamps that state's instant and leaving it clears the instant,
+   * so a revival is judged against when the question was raised rather than
+   * against any older clean load. The absorption target replaces any previous
+   * one, so plain transitions carry none.
    * @param name - skill name.
    * @param state - new lifecycle state.
    * @param absorbedInto - consolidation umbrella, or null when standalone.
    * @returns the stored record.
    */
   async setState(name: string, state: SkillLifecycleState, absorbedInto: string | null = null): Promise<SkillUsageRecord> {
+    const now = new Date().toISOString()
     return this.write(name, (record) => {
-      if (state === 'archived' && record.state !== 'archived') {
-        return { ...record, state, absorbedInto, archivedAt: new Date().toISOString() }
+      const entered = state === 'suspect' && record.state !== 'suspect'
+      const left = state !== 'suspect' && record.state === 'suspect'
+      const stamped = {
+        ...record,
+        state,
+        absorbedInto,
+        suspectAt: entered ? now : left ? null : record.suspectAt,
       }
-      if (state !== 'archived' && record.state === 'archived') {
-        return { ...record, state, absorbedInto, archivedAt: null }
-      }
-      return { ...record, state, absorbedInto }
+      if (state === 'archived' && record.state !== 'archived') return { ...stamped, archivedAt: now }
+      if (state !== 'archived' && record.state === 'archived') return { ...stamped, archivedAt: null }
+      return stamped
     })
   }
 

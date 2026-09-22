@@ -1,0 +1,56 @@
+{
+  "name": "@deepseek-ai/dsh-evolution-metrics",
+  "description": "Evolution metrics: capability gain per unit of compute and the supporting set, read from the evolution stores (ctx.evolutionMetrics)",
+  "version": "0.1.5-rc.2",
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/deepseek-ai/deepseek-harness.git",
+    "directory": "packages/evolution/evolution-metrics"
+  },
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./src/*": "./src/*",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/index.js",
+    "lib/types/**/*.d.ts"
+  ],
+  "license": "MIT",
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "workspace:^",
+    "@deepseek-ai/dsh-evolution-budget": "workspace:^",
+    "@deepseek-ai/dsh-evolution-canary": "workspace:^",
+    "@deepseek-ai/dsh-evolution-curator": "workspace:^",
+    "@deepseek-ai/dsh-evolution-evaluator-health": "workspace:^",
+    "@deepseek-ai/dsh-evolution-feedback": "workspace:^",
+    "@deepseek-ai/dsh-evolution-lineage": "workspace:^",
+    "@deepseek-ai/dsh-evolution-memory": "workspace:^",
+    "@deepseek-ai/dsh-evolution-meta": "workspace:^",
+    "@deepseek-ai/dsh-evolution-skill-telemetry": "workspace:^"
+  },
+  "dependencies": {
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "workspace:^",
+    "@deepseek-ai/dsh-evolution-budget": "workspace:^",
+    "@deepseek-ai/dsh-evolution-canary": "workspace:^",
+    "@deepseek-ai/dsh-evolution-curator": "workspace:^",
+    "@deepseek-ai/dsh-evolution-evaluator-health": "workspace:^",
+    "@deepseek-ai/dsh-evolution-feedback": "workspace:^",
+    "@deepseek-ai/dsh-evolution-lineage": "workspace:^",
+    "@deepseek-ai/dsh-evolution-memory": "workspace:^",
+    "@deepseek-ai/dsh-evolution-meta": "workspace:^",
+    "@deepseek-ai/dsh-evolution-skill-telemetry": "workspace:^"
+  }
+}

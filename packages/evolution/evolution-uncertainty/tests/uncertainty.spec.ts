@@ -55,8 +55,8 @@ describe('queueFor', () => {
       signal({ signalId: 's2', taskId: null, detail: 'skill-wide doubt' }),
     ], 0.25)
     expect(tasks).toHaveLength(2)
-    expect(tasks.map((task) => task.taskId).sort()).toEqual([null, 't1'])
-    expect(tasks.find((task) => task.taskId === null)).toMatchObject({ skill: 'writer', signals: 1 })
+    expect(tasks.map(task => task.taskId).sort()).toEqual([null, 't1'])
+    expect(tasks.find(task => task.taskId === null)).toMatchObject({ skill: 'writer', signals: 1 })
   })
 
   it('orders kinds canonically regardless of signal order', () => {
@@ -85,7 +85,7 @@ describe('queueFor', () => {
       signal({ signalId: 's1', taskId: 't1', score: 0.5 }),
       signal({ signalId: 's3', taskId: null, score: 0.5 }),
     ], 0.25)
-    expect(tasks.map((task) => [task.skill, task.taskId])).toEqual([
+    expect(tasks.map(task => [task.skill, task.taskId])).toEqual([
       ['auditor', null],
       ['writer', 't1'],
       ['writer', 't2'],
@@ -100,7 +100,7 @@ describe('queueFor', () => {
       signal({ signalId: 's2', taskId: 't2', score: 0.5 }),
       signal({ signalId: 's4', skill: 'auditor', taskId: null, score: 0.5 }),
     ], 0.25)
-    expect(tasks.map((task) => [task.skill, task.taskId])).toEqual([
+    expect(tasks.map(task => [task.skill, task.taskId])).toEqual([
       ['auditor', null],
       ['writer', 't1'],
       ['writer', 't2'],
@@ -114,7 +114,7 @@ describe('queueFor', () => {
       signal({ signalId: 'warm-a', taskId: 'warm', score: 0.75 }),
       signal({ signalId: 'warm-b', taskId: 'warm', kind: 'low-confidence', score: 0.5, detail: 'judge hedged' }),
     ], 0.25)
-    expect(tasks.map((task) => task.taskId)).toEqual(['warm', 'hot'])
+    expect(tasks.map(task => task.taskId)).toEqual(['warm', 'hot'])
     expect(tasks[0]).toMatchObject({ priority: 1, signals: 2 })
     expect(tasks[1]).toMatchObject({ priority: 0.9, signals: 1 })
   })

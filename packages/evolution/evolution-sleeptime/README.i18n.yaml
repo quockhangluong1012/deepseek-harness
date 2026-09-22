@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/evolution/evolution-sleeptime/README.md
-README.md: a4068d42c83bbd9fe7457737b1b228ec57f5e8bd
-README.zh.md: da592e753cbf83037a9233d151c7f9c1443713ba
+README.md: ad9c90d65af01fe2e0be4a2e45f9e59493899d94
+README.zh.md: 4f350aceeb49d6e39191a217e12fe89c262d430c

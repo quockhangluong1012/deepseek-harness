@@ -81,13 +81,22 @@ export interface Config {
    * Defaults to 5.
    */
   graphLimit?: number
+  /**
+   * Consult the §39 configuration `ctx.evolutionRetrieval` recommends for the
+   * turn's task class and run it, instead of the configuration this mount's own
+   * fields spell. The dimensions the injector owns — lane, scope, graph depth,
+   * threshold — take the recommended value; the rest are recorded unapplied.
+   * Defaults to false: a mount that has not opted in retrieves exactly what it
+   * retrieved before this policy existed.
+   */
+  taskAwarePolicy?: boolean
 }
 
 /** Which retrieval lanes run before the vector leg spends an embedding call. */
 export type EscalationMode = typeof ESCALATION_MODES[number]
 ```
 
-来源：[`packages/context/active-memory-context/src/index.ts:47`](../packages/context/active-memory-context/src/index.ts)
+来源：[`packages/context/active-memory-context/src/index.ts:75`](../packages/context/active-memory-context/src/index.ts)
 
 <a id="deepseek-aidsh-agent-context"></a>
 
@@ -275,7 +284,7 @@ export type PolicyAction =
   | 'policy'
 ```
 
-来源：[`packages/runtime/agent-kernel/src/index.ts:80`](../packages/runtime/agent-kernel/src/index.ts)
+来源：[`packages/runtime/agent-kernel/src/index.ts:84`](../packages/runtime/agent-kernel/src/index.ts)
 
 ## `@deepseek-ai/dsh-agent-loop`
 
@@ -317,7 +326,7 @@ export interface Config {
 
 Depends on: [`AgentOptions`](subsystems/core.zh.md) · [`SessionId`](subsystems/core.zh.md)
 
-来源：[`packages/core/agent-loop/src/index.ts:342`](../packages/core/agent-loop/src/index.ts)
+来源：[`packages/core/agent-loop/src/index.ts:348`](../packages/core/agent-loop/src/index.ts)
 
 <a id="deepseek-aidsh-agent-presets"></a>
 
@@ -696,7 +705,7 @@ export interface Config {
 }
 ```
 
-来源：[`packages/evolution/command-evolution/src/index.ts:54`](../packages/evolution/command-evolution/src/index.ts)
+来源：[`packages/evolution/command-evolution/src/index.ts:100`](../packages/evolution/command-evolution/src/index.ts)
 
 <a id="deepseek-aidsh-compaction-basic"></a>
 
@@ -867,6 +876,61 @@ export interface Config {
 
 来源：[`packages/llm/embeddings-http/src/index.ts:35`](../packages/llm/embeddings-http/src/index.ts)
 
+<a id="deepseek-aidsh-evolution-actuator"></a>
+
+## `@deepseek-ai/dsh-evolution-actuator`
+
+需要：`evolutionHeartbeat`
+
+```ts config-catalog
+/** Deployment choices of the actuator; an omitted field takes its default. */
+export interface Config {
+  /** Loops to drive; default every loop. */
+  loops?: AutomationLoop[]
+  /** Hours between two rollout-monitor passes; default 6. */
+  rolloutIntervalHours?: number
+  /** Cost multiple over the incumbent's triple that fails a rollout; default 1.5. */
+  rolloutCostFactor?: number
+  /** Hours between two scheduled island-migration passes; default 24. */
+  migrationIntervalHours?: number
+  /** Hours between two stagnation-recovery passes; default 24. */
+  recoveryIntervalHours?: number
+  /** Hours between two uncertainty-drain passes; default 12. */
+  drainIntervalHours?: number
+  /** Hours between two curriculum-admission passes; default 24. */
+  admissionIntervalHours?: number
+  /** Hours between two benchmark-growth passes; default 24. */
+  growthIntervalHours?: number
+  /** Hours between two adversarial-generation passes; default 24. */
+  adversaryIntervalHours?: number
+  /** Items one loop acts on per pass, strongest or newest first; default 5. */
+  maxPerPass?: number
+}
+
+/**
+ * One closed loop: the recorded verdict it reads and the step it performs. A
+ * loop whose store is not mounted, or whose verdict has nothing to act on,
+ * changes nothing.
+ */
+export type AutomationLoop =
+  /** A live canary rollout, decided from its recorded triple. */
+  | 'rollout'
+  /** Islands whose scheduled migration is due. */
+  | 'migration'
+  /** Skills whose stagnation ladder rung asks for a change. */
+  | 'recovery'
+  /** The highest-priority uncertain evaluations. */
+  | 'drain'
+  /** Open curriculum proposals awaiting a benchmark task. */
+  | 'admission'
+  /** Recorded failures and recorded exposure, mined into benchmark tasks and ladder steps. */
+  | 'growth'
+  /** Recorded weaknesses turned into adversarial probes and §14 adversarial examples. */
+  | 'adversary'
+```
+
+来源：[`packages/evolution/evolution-actuator/src/index.ts:67`](../packages/evolution/evolution-actuator/src/index.ts)
+
 <a id="deepseek-aidsh-evolution-adversary"></a>
 
 ## `@deepseek-ai/dsh-evolution-adversary`
@@ -874,14 +938,14 @@ export interface Config {
 需要：`storageDomain`
 
 ```ts config-catalog
-/** Validated configuration of the adversary store. */
-export interface AdversaryConfig {
-  /** Probes per category and skill before the category counts as covered. */
-  minProbesPerCategory: number
+/** Deployment choices of the adversary store; every field defaults when omitted. */
+export interface Config {
+  /** Probes per category and skill before the category counts as covered; defaults to 1. */
+  minProbesPerCategory?: number
 }
 ```
 
-来源：[`packages/evolution/evolution-adversary/src/index.ts:30`](../packages/evolution/evolution-adversary/src/index.ts)
+来源：[`packages/evolution/evolution-adversary/src/index.ts:37`](../packages/evolution/evolution-adversary/src/index.ts)
 
 <a id="deepseek-aidsh-evolution-benchmark"></a>
 
@@ -897,7 +961,41 @@ export interface Config {
 }
 ```
 
-来源：[`packages/evolution/evolution-benchmark/src/index.ts:34`](../packages/evolution/evolution-benchmark/src/index.ts)
+来源：[`packages/evolution/evolution-benchmark/src/index.ts:38`](../packages/evolution/evolution-benchmark/src/index.ts)
+
+<a id="deepseek-aidsh-evolution-budget"></a>
+
+## `@deepseek-ai/dsh-evolution-budget`
+
+需要：`storageDomain`
+
+```ts config-catalog
+/** Deployment choices of the evolution-budget store; an omitted field takes its default. */
+export interface Config {
+  /** Base token ceiling of one standard batch; defaults to 20000. */
+  baseMaxTokens?: number
+  /** Base wall-time ceiling of one standard batch, in milliseconds; defaults to 600000. */
+  baseMaxWallTimeMs?: number
+  /** Base cost ceiling of one standard batch, in the deployment's cost units; defaults to 10. */
+  baseMaxCost?: number
+  /** Base deadline of one standard batch, in milliseconds from its allocation; defaults to 86400000. */
+  baseTimeLimitMs?: number
+  /** Base concurrency ceiling of one standard batch; defaults to 4. */
+  baseParallelism?: number
+  /** Share of evaluated candidates each screening round keeps (0 to 1); defaults to 0.5. */
+  keepFraction?: number
+  /** Screening rounds the §38 schedule derives; defaults to 3. */
+  screeningRounds?: number
+  /** Passes that make a recorded candidate proven high-potential; defaults to 1. */
+  provenPasses?: number
+  /** Recorded evaluations a zero-pass candidate needs to count as low-potential; defaults to 1. */
+  lowPotentialRuns?: number
+  /** Novelty that earns an unproven candidate the exploration branch; defaults to 0.5. */
+  noveltyThreshold?: number
+}
+```
+
+来源：[`packages/evolution/evolution-budget/src/index.ts:55`](../packages/evolution/evolution-budget/src/index.ts)
 
 <a id="deepseek-aidsh-evolution-controller"></a>
 
@@ -938,6 +1036,15 @@ export interface Config {
   archiveAfterDays?: number
   /** Attributed trust failures moving `active` to `stale`, regardless of idleness. */
   staleTrustFailureFloor?: number
+  /** Days a graded failure stays recent for the §22 failure-spike signal. */
+  driftWindowDays?: number
+  /**
+   * Utility excess at or below which §22 counts a skill's measured utility as
+   * low, where the excess is the skill's clean-outcome share minus its
+   * peers'. Zero is the pooled baseline; a deployment that wants more slack
+   * raises it.
+   */
+  lowUtilityFloor?: number
   /** Skill names exempt from automatic transitions, such as schedule references. */
   protectedNames?: string[]
   /** Whether bundled built-in skills are pruned from passes; hub sources are always exempt. */
@@ -974,7 +1081,7 @@ export interface Config {
 }
 ```
 
-来源：[`packages/evolution/evolution-curator/src/index.ts:117`](../packages/evolution/evolution-curator/src/index.ts)
+来源：[`packages/evolution/evolution-curator/src/index.ts:137`](../packages/evolution/evolution-curator/src/index.ts)
 
 <a id="deepseek-aidsh-evolution-curriculum"></a>
 
@@ -990,7 +1097,7 @@ export interface Config {
 }
 ```
 
-来源：[`packages/evolution/evolution-curriculum/src/index.ts:32`](../packages/evolution/evolution-curriculum/src/index.ts)
+来源：[`packages/evolution/evolution-curriculum/src/index.ts:33`](../packages/evolution/evolution-curriculum/src/index.ts)
 
 <a id="deepseek-aidsh-evolution-dreaming"></a>
 
@@ -1018,10 +1125,18 @@ export interface Config {
   maxPromotions?: number
   /** Candidates one cycle scores. */
   maxCandidates?: number
+  /** Concept overlap at or above which a candidate restates a narrative the scope holds. */
+  mergeOverlap?: number
+  /** Lower overlap at or above which a candidate corrects the narrative it shares a tool with. */
+  supersedeOverlap?: number
+  /** Statements one narrative retains as the restatements it absorbed. */
+  maxRestatements?: number
+  /** Promotion passes retained per scope for rollback. */
+  maxLedgerEntries?: number
 }
 ```
 
-来源：[`packages/evolution/evolution-dreaming/src/index.ts:54`](../packages/evolution/evolution-dreaming/src/index.ts)
+来源：[`packages/evolution/evolution-dreaming/src/index.ts:71`](../packages/evolution/evolution-dreaming/src/index.ts)
 
 <a id="deepseek-aidsh-evolution-evaluator-health"></a>
 
@@ -1038,6 +1153,25 @@ export interface Config {
 ```
 
 来源：[`packages/evolution/evolution-evaluator-health/src/index.ts:31`](../packages/evolution/evolution-evaluator-health/src/index.ts)
+
+<a id="deepseek-aidsh-evolution-evaluator-strategy"></a>
+
+## `@deepseek-ai/dsh-evolution-evaluator-strategy`
+
+需要：`storageDomain`
+
+```ts config-catalog
+/**
+ * Deployment choices of the evaluator-strategy store; an omitted field takes
+ * its default.
+ */
+export interface Config {
+  /** Independent samples an evaluator needs before it may be recommended; defaults to 3. */
+  minimumSamples?: number
+}
+```
+
+来源：[`packages/evolution/evolution-evaluator-strategy/src/index.ts:28`](../packages/evolution/evolution-evaluator-strategy/src/index.ts)
 
 <a id="deepseek-aidsh-evolution-feedback"></a>
 
@@ -1059,7 +1193,7 @@ export interface Config {
 }
 ```
 
-来源：[`packages/evolution/evolution-feedback/src/index.ts:41`](../packages/evolution/evolution-feedback/src/index.ts)
+来源：[`packages/evolution/evolution-feedback/src/index.ts:50`](../packages/evolution/evolution-feedback/src/index.ts)
 
 <a id="deepseek-aidsh-evolution-graph"></a>
 
@@ -1074,6 +1208,8 @@ export interface Config {
   maxNodes?: number
   /** Relations retained per scope; further distinct relations are refused. */
   maxEdges?: number
+  /** Claims retained per scope; further distinct statements are refused. */
+  maxClaims?: number
   /** Results one answer, expansion, or lookup may return. */
   maxQueryLimit?: number
   /** Text budget for one extraction call in UTF-8 bytes. */
@@ -1097,7 +1233,7 @@ export interface Config {
 }
 ```
 
-来源：[`packages/evolution/evolution-graph/src/index.ts:54`](../packages/evolution/evolution-graph/src/index.ts)
+来源：[`packages/evolution/evolution-graph/src/index.ts:74`](../packages/evolution/evolution-graph/src/index.ts)
 
 <a id="deepseek-aidsh-evolution-heartbeat"></a>
 
@@ -1126,10 +1262,10 @@ export interface Config {
 需要：`storageDomain`
 
 ```ts config-catalog
-/** Validated configuration of the island store. */
-export interface IslandsConfig {
-  /** Scheduled-migration cadence, in milliseconds. */
-  migrationCadence: number
+/** Deployment choices of the island schedule; an omitted field takes its default. */
+export interface Config {
+  /** Scheduled-migration cadence, in milliseconds; default one day. */
+  migrationCadence?: number
 }
 ```
 
@@ -1142,10 +1278,10 @@ export interface IslandsConfig {
 需要：`storageDomain`
 
 ```ts config-catalog
-/** Validated configuration of the lineage store. */
-export interface LineageConfig {
-  /** Dependency keys two envelopes must agree on to compare. */
-  comparedKeys: DependencyKey[]
+/** Deployment choices of the lineage store; an omitted field takes its default. */
+export interface Config {
+  /** Dependency keys two envelopes must agree on to compare; defaults to the skill, evaluator, retriever, and model. */
+  comparedKeys?: DependencyKey[]
 }
 
 /** One named dependency whose version an experiment envelope records. */
@@ -1177,6 +1313,8 @@ export interface Config {
   maxOutputs?: number
   /** Decided staged entries retained per scope. */
   maxResolutions?: number
+  /** Recalls retained per scope in the recall ledger, newest kept. */
+  maxRecalls?: number
   /** Minimum similarity to an existing artifact that justifies merging instead of storing separately. */
   mergeSimilarityFloor?: number
   /** Hours between two maintenance sweeps of every stored scope. */
@@ -1200,7 +1338,7 @@ export interface Config {
 }
 ```
 
-来源：[`packages/evolution/evolution-memory/src/index.ts:161`](../packages/evolution/evolution-memory/src/index.ts)
+来源：[`packages/evolution/evolution-memory/src/index.ts:185`](../packages/evolution/evolution-memory/src/index.ts)
 
 <a id="deepseek-aidsh-evolution-memory-context"></a>
 
@@ -1215,22 +1353,100 @@ export interface Config {
   maxBytes: number
   /** Scope-identity namespace placed before the workspace key. Required: scopes never share a default namespace. */
   profile: string
-  /** Turns between scope-narrowing nudges. */
+  /** Ceiling on memory-condition nudges: a condition that fired stays quiet for this many further turns. */
   memoryNudgeInterval?: number
-  /** Turns between lessons-to-skills nudges. */
+  /** Ceiling on skill-condition nudges: a condition that fired stays quiet for this many further turns. */
   skillNudgeInterval?: number
+  /** Minutes a staged write may wait before the memory nudge names it. */
+  stagedWriteWaitMinutes?: number
+  /** Failure signals one nudge evaluation grades. */
+  failureSignalScanLimit?: number
   /** Usage ratio at or above which the brief header warns to consolidate. */
   capacityWarnPct?: number
 }
 ```
 
-来源：[`packages/context/evolution-memory-context/src/index.ts:86`](../packages/context/evolution-memory-context/src/index.ts)
+来源：[`packages/context/evolution-memory-context/src/index.ts:119`](../packages/context/evolution-memory-context/src/index.ts)
+
+<a id="deepseek-aidsh-evolution-meta"></a>
+
+## `@deepseek-ai/dsh-evolution-meta`
+
+需要：`storageDomain`
+
+```ts config-catalog
+/**
+ * Deployment choices of the meta-evolution store; an omitted field takes its
+ * default.
+ */
+export interface Config {
+  /** Runs a configuration needs before it may be recommended; default 3. */
+  minimumSamples?: number
+  /**
+   * Engine configuration used when a recorded run names no choice; default the
+   * v1 choices of {@link DEFAULT_ENGINE_CONFIG}.
+   */
+  defaultConfig?: EngineConfig
+}
+
+/** One choice per engine component, e.g. an operator portfolio key. */
+export interface EngineConfig {
+  /** The mutation-operator choice. */
+  operators: string
+  /** The evaluator choice, e.g. a scorer version. */
+  evaluator: string
+  /** The budget-choice identity. */
+  budget: string
+  /** The routing choice. */
+  routing: string
+}
+```
+
+来源：[`packages/evolution/evolution-meta/src/index.ts:37`](../packages/evolution/evolution-meta/src/index.ts)
+
+<a id="deepseek-aidsh-evolution-metrics"></a>
+
+## `@deepseek-ai/dsh-evolution-metrics`
+
+```ts config-catalog
+/**
+ * Deployment choices of the metric layer; an omitted field takes its default.
+ */
+export interface Config {
+  /** Newest engine runs one report covers when the query sets no limit; default 200. */
+  windowRuns?: number
+  /** Runs each half of the split needs before a gain is reported; default 2. */
+  minimumRunsPerHalf?: number
+  /** Failure signals one recurrence reading covers; default 50. */
+  maxSignals?: number
+}
+```
+
+来源：[`packages/evolution/evolution-metrics/src/index.ts:66`](../packages/evolution/evolution-metrics/src/index.ts)
+
+<a id="deepseek-aidsh-evolution-operators"></a>
+
+## `@deepseek-ai/dsh-evolution-operators`
+
+需要：`storageDomain`
+
+```ts config-catalog
+/** Deployment choices for the mutation-operator store; an omitted field takes its default. */
+export interface Config {
+  /** Exploration bonus weight of the ranking (0 to 1), 0.2 by default. */
+  exploration?: number
+  /** Weight of the instruction-verdict adjustment (0 to 1), 0.2 by default. */
+  instructionWeight?: number
+}
+```
+
+来源：[`packages/evolution/evolution-operators/src/index.ts:39`](../packages/evolution/evolution-operators/src/index.ts)
 
 <a id="deepseek-aidsh-evolution-optimizer"></a>
 
 ## `@deepseek-ai/dsh-evolution-optimizer`
 
-Requires: `storageDomain`
+需要：`storageDomain`
 
 ```ts config-catalog
 /**
@@ -1319,7 +1535,32 @@ export interface Config {
 }
 ```
 
-来源: [`packages/evolution/evolution-optimizer/src/index.ts:95`](../packages/evolution/evolution-optimizer/src/index.ts)
+来源：[`packages/evolution/evolution-optimizer/src/index.ts:110`](../packages/evolution/evolution-optimizer/src/index.ts)
+
+<a id="deepseek-aidsh-evolution-retrieval"></a>
+
+## `@deepseek-ai/dsh-evolution-retrieval`
+
+需要：`storageDomain`
+
+```ts config-catalog
+/**
+ * Deployment choices for the recommendation's evidence gate: how much graded
+ * evidence one configuration needs on one task class.
+ */
+export interface Config {
+  /**
+   * Graded sessions a configuration needs on a task class before it may be
+   * recommended. Defaults to 5: one binary grade per session is coarse, and at
+   * five the score's confidence factor saturates while its 1-pass/1-fail prior
+   * is under a third of the estimate, so the rank reflects the sessions rather
+   * than the prior or the sample count.
+   */
+  minimumSessions?: number
+}
+```
+
+来源：[`packages/evolution/evolution-retrieval/src/index.ts:55`](../packages/evolution/evolution-retrieval/src/index.ts)
 
 <a id="deepseek-aidsh-evolution-reviewer"></a>
 
@@ -1372,7 +1613,30 @@ export interface Config {
 }
 ```
 
-来源：[`packages/evolution/evolution-reviewer/src/index.ts:46`](../packages/evolution/evolution-reviewer/src/index.ts)
+来源：[`packages/evolution/evolution-reviewer/src/index.ts:53`](../packages/evolution/evolution-reviewer/src/index.ts)
+
+<a id="deepseek-aidsh-evolution-router"></a>
+
+## `@deepseek-ai/dsh-evolution-router`
+
+需要：`storageDomain`
+
+```ts config-catalog
+/**
+ * Validated configuration of the routing self-optimization store; an omitted
+ * field takes its default.
+ */
+export interface Config {
+  /** Outcomes a route needs before it may be recommended; defaults to 3. */
+  minimumSamples?: number
+  /** Outcomes a route needs before the disagreement comparison measures it; defaults to 3. */
+  disagreementMinimumRuns?: number
+  /** Pass-rate gap at which two routes disagree strongly; defaults to 0.5. */
+  disagreementThreshold?: number
+}
+```
+
+来源：[`packages/evolution/evolution-router/src/index.ts:33`](../packages/evolution/evolution-router/src/index.ts)
 
 <a id="deepseek-aidsh-evolution-scorer"></a>
 
@@ -1397,7 +1661,7 @@ export interface Config {
 }
 ```
 
-来源：[`packages/evolution/evolution-scorer/src/index.ts:59`](../packages/evolution/evolution-scorer/src/index.ts)
+来源：[`packages/evolution/evolution-scorer/src/index.ts:86`](../packages/evolution/evolution-scorer/src/index.ts)
 
 <a id="deepseek-aidsh-evolution-self-model"></a>
 
@@ -1406,12 +1670,12 @@ export interface Config {
 需要：`storageDomain`
 
 ```ts config-catalog
-/** Validated configuration of the self-model store. */
-export interface SelfModelConfig {
-  /** Observations that earn a capability entry full confidence. */
-  maxObservations: number
-  /** Newest failure notes kept per capability entry. */
-  maxFailures: number
+/** Deployment choices of the self-model store; omitted fields take their defaults. */
+export interface Config {
+  /** Observations that earn a capability entry full confidence; defaults to 10. */
+  maxObservations?: number
+  /** Newest failure notes kept per capability entry; defaults to 10. */
+  maxFailures?: number
 }
 ```
 
@@ -1431,7 +1695,7 @@ export interface Config {
 }
 ```
 
-来源：[`packages/skill/evolution-skill-manage/src/index.ts:48`](../packages/skill/evolution-skill-manage/src/index.ts)
+来源：[`packages/skill/evolution-skill-manage/src/index.ts:51`](../packages/skill/evolution-skill-manage/src/index.ts)
 
 <a id="deepseek-aidsh-evolution-skill-telemetry"></a>
 
@@ -1449,7 +1713,7 @@ export interface Config {
 }
 ```
 
-来源：[`packages/skill/evolution-skill-telemetry/src/index.ts:85`](../packages/skill/evolution-skill-telemetry/src/index.ts)
+来源：[`packages/skill/evolution-skill-telemetry/src/index.ts:117`](../packages/skill/evolution-skill-telemetry/src/index.ts)
 
 <a id="deepseek-aidsh-evolution-sleeptime"></a>
 
@@ -1458,16 +1722,27 @@ export interface Config {
 需要：`storageDomain`
 
 ```ts config-catalog
-/** Validated configuration of the sleep-time store. */
-export interface SleeptimeConfig {
-  /** Estimated offline tokens of one precompute, used when the caller names none. */
-  defaultEstimatedCostTokens: number
-  /** Total offline token budget of one plan, used when the caller names none. */
-  maxOfflineTokens: number
+/**
+ * Deployment choices of the sleep-time store; an omitted field takes its
+ * schema default.
+ */
+export interface Config {
+  /** Estimated offline tokens of one precompute, used when the caller names none; defaults to 2000. */
+  defaultEstimatedCostTokens?: number
+  /** Total offline token budget of one plan, used when the caller names none; defaults to 50000. */
+  maxOfflineTokens?: number
+  /** Occurrences a class needs inside the window before it counts as recurring; defaults to 3. */
+  minRecurrences?: number
+  /** Hours back a recorded occurrence still counts as recurrence; defaults to 168. */
+  recurrenceWindowHours?: number
+  /** Hours between two automatic anticipation passes; defaults to 6. */
+  intervalHours?: number
+  /** Classes one pass may anticipate and precompute; defaults to 3. */
+  maxPerPass?: number
 }
 ```
 
-来源：[`packages/evolution/evolution-sleeptime/src/index.ts:33`](../packages/evolution/evolution-sleeptime/src/index.ts)
+来源：[`packages/evolution/evolution-sleeptime/src/index.ts:47`](../packages/evolution/evolution-sleeptime/src/index.ts)
 
 <a id="deepseek-aidsh-evolution-stagnation"></a>
 
@@ -1501,7 +1776,7 @@ export interface Config {
 }
 ```
 
-来源：[`packages/evolution/evolution-trace/src/index.ts:36`](../packages/evolution/evolution-trace/src/index.ts)
+来源：[`packages/evolution/evolution-trace/src/index.ts:40`](../packages/evolution/evolution-trace/src/index.ts)
 
 <a id="deepseek-aidsh-evolution-trajectory"></a>
 
@@ -1526,12 +1801,12 @@ export interface Config {
 需要：`storageDomain`
 
 ```ts config-catalog
-/** Validated configuration of the uncertainty queue. */
-export interface UncertaintyConfig {
-  /** Maximum tasks `queue` returns when the caller passes no limit. */
-  queueLimit: number
-  /** Priority added per distinct signal kind past the first in one task. */
-  corroborationBonus: number
+/** Deployment choices of the uncertainty queue; an omitted field takes its default. */
+export interface Config {
+  /** Maximum tasks `queue` returns when the caller passes no limit; default 50. */
+  queueLimit?: number
+  /** Priority added per distinct signal kind past the first in one task; default 0.15. */
+  corroborationBonus?: number
 }
 ```
 
@@ -3214,7 +3489,7 @@ export interface Config {
 }
 ```
 
-来源：[`packages/skill/skill/src/index.ts:307`](../packages/skill/skill/src/index.ts)
+来源：[`packages/skill/skill/src/index.ts:341`](../packages/skill/skill/src/index.ts)
 
 <a id="deepseek-aidsh-skill-filesystem"></a>
 
@@ -4061,7 +4336,7 @@ export interface Config {
 export type SkillConfigMap = Readonly<Record<string, Readonly<Record<string, string>>>>
 ```
 
-来源：[`packages/skill/tool-skill/src/index.ts:65`](../packages/skill/tool-skill/src/index.ts)
+来源：[`packages/skill/tool-skill/src/index.ts:112`](../packages/skill/tool-skill/src/index.ts)
 
 <a id="deepseek-aidsh-tool-str-replace-editor"></a>
 
@@ -4291,7 +4566,7 @@ export interface Config {
 export type ToolPresentationMode = 'native' | 'ptc' | 'both'
 ```
 
-来源：[`packages/core/tools/src/index.ts:707`](../packages/core/tools/src/index.ts)
+来源：[`packages/core/tools/src/index.ts:747`](../packages/core/tools/src/index.ts)
 
 <a id="deepseek-aidsh-typert-loader"></a>
 
@@ -4724,6 +4999,7 @@ export interface Config {
 - `@deepseek-ai/dsh-evolution-model-routes` — 需要 `storageDomain`（[`packages/evolution/evolution-model-routes/src/index.ts`](../packages/evolution/evolution-model-routes/src/index.ts)）
 - `@deepseek-ai/dsh-evolution-novelty-search` — 需要 `storageDomain`（[`packages/evolution/evolution-novelty-search/src/index.ts`](../packages/evolution/evolution-novelty-search/src/index.ts)）
 - `@deepseek-ai/dsh-evolution-population` — 需要 `storageDomain`（[`packages/evolution/evolution-population/src/index.ts`](../packages/evolution/evolution-population/src/index.ts)）
+- `@deepseek-ai/dsh-evolution-verifiers`（[`packages/evolution/evolution-verifiers/src/index.ts`](../packages/evolution/evolution-verifiers/src/index.ts)）
 - `@deepseek-ai/dsh-experimental-client-ui-agent-team`（[`packages/experimental/client-ui-agent-team/src/index.ts`](../packages/experimental/client-ui-agent-team/src/index.ts)）
 - `@deepseek-ai/dsh-fs-e2b` — 需要 `e2b`（[`packages/e2b/fs-e2b/src/index.ts`](../packages/e2b/fs-e2b/src/index.ts)）
 - `@deepseek-ai/dsh-fs-observation-policy`（[`packages/fs/fs-observation-policy/src/index.ts`](../packages/fs/fs-observation-policy/src/index.ts)）

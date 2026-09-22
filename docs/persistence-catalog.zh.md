@@ -1299,77 +1299,6 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 
 来源：[`packages/core/session/src/types.ts:359`](../packages/core/session/src/types.ts)
 
-### `verification/*`
-
-<a id="verificationrequested--log-only"></a>
-
-#### `verification/requested` — log-only
-
-```ts persistence-catalog
-/**
- * A verification was requested for one task revision. Log-only.
- */
-'verification/requested': VerificationRequest
-```
-
-来源：[`packages/runtime/agent-kernel/src/types.ts:982`](../packages/runtime/agent-kernel/src/types.ts)
-
-<a id="verificationresult--log-only"></a>
-
-#### `verification/result` — log-only
-
-```ts persistence-catalog
-/**
- * The outcome of one verification, including the per-criterion results the
- * completion gate reads. Log-only.
- */
-'verification/result': VerificationResult
-```
-
-来源：[`packages/runtime/agent-kernel/src/types.ts:987`](../packages/runtime/agent-kernel/src/types.ts)
-
-### `tool-workflow/*`
-
-#### `tool-workflow/agent-start` — log-only
-
-```ts persistence-catalog
-/**
- * Records one published workflow member.
- * @param data - run identity, member sequence, display identity, and child Session.
- */
-'tool-workflow/agent-start': ToolWorkflowAgentStartData
-```
-
-来源：[`packages/workflow/tool-workflow/src/types.ts:52`](../packages/workflow/tool-workflow/src/types.ts)
-
-<a id="tool-workflowrun-end--log-only"></a>
-
-#### `tool-workflow/run-end` — log-only
-
-```ts persistence-catalog
-/**
- * Closes one workflow record after cleanup.
- * @param data - stable run identity and terminal reason.
- */
-'tool-workflow/run-end': ToolWorkflowRunEndData
-```
-
-来源：[`packages/workflow/tool-workflow/src/types.ts:62`](../packages/workflow/tool-workflow/src/types.ts)
-
-<a id="tool-workflowrun-start--log-only"></a>
-
-#### `tool-workflow/run-start` — log-only
-
-```ts persistence-catalog
-/**
- * Opens one top-level workflow record.
- * @param data - stable run identity and display name.
- */
-'tool-workflow/run-start': ToolWorkflowRunStartData
-```
-
-来源：[`packages/workflow/tool-workflow/src/types.ts:47`](../packages/workflow/tool-workflow/src/types.ts)
-
 ### `tool-workflow/*`
 
 <a id="tool-workflowagent-end--log-only"></a>
@@ -1413,6 +1342,20 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 ```
 
 来源：[`packages/workflow/tool-workflow/src/types.ts:62`](../packages/workflow/tool-workflow/src/types.ts)
+
+<a id="tool-workflowrun-start--log-only"></a>
+
+#### `tool-workflow/run-start` — log-only
+
+```ts persistence-catalog
+/**
+ * Opens one top-level workflow record.
+ * @param data - stable run identity and display name.
+ */
+'tool-workflow/run-start': ToolWorkflowRunStartData
+```
+
+来源：[`packages/workflow/tool-workflow/src/types.ts:47`](../packages/workflow/tool-workflow/src/types.ts)
 
 ### `turn/*`
 
@@ -1470,6 +1413,35 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 ```
 
 来源：[`packages/core/session/src/types.ts:303`](../packages/core/session/src/types.ts)
+
+### `verification/*`
+
+<a id="verificationrequested--log-only"></a>
+
+#### `verification/requested` — log-only
+
+```ts persistence-catalog
+/**
+ * A verification was requested for one task revision. Log-only.
+ */
+'verification/requested': VerificationRequest
+```
+
+来源：[`packages/runtime/agent-kernel/src/types.ts:982`](../packages/runtime/agent-kernel/src/types.ts)
+
+<a id="verificationresult--log-only"></a>
+
+#### `verification/result` — log-only
+
+```ts persistence-catalog
+/**
+ * The outcome of one verification, including the per-criterion results the
+ * completion gate reads. Log-only.
+ */
+'verification/result': VerificationResult
+```
+
+来源：[`packages/runtime/agent-kernel/src/types.ts:987`](../packages/runtime/agent-kernel/src/types.ts)
 
 ### `web/*`
 

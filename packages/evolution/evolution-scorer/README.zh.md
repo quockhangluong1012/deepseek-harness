@@ -118,7 +118,7 @@ Web 组合里带有本行，但[默认关闭](../../bundle/web-app/cordis.patch.
 <a id="further-exploration"></a>
 ## 进一步探索
 
-- [演进式 Harness 规范](../../../specs/evolutionary-harness.spec.md)——本包实现的行为契约。
+- [演进式 Harness 子系统](../../../docs/subsystems/evolutionary-harness.zh.md)——本包实现的行为契约。
 - [evolution 包导览](../README.zh.md)——本分组的软件包及其仓库位置。
 - [快照 harness](../../test-support/session-snapshot/README.zh.md)——本包所要评分的语料计划、工作区捕获与 ACP 运行器。
 - [无密钥 LLM 回放](../../test-support/llm-replay/README.zh.md)——每次尝试背后的夹具读取器与回放适配器。

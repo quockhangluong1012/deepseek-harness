@@ -1,0 +1,21 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "lib/types"
+  },
+  "include": ["src"],
+  "references": [
+    { "path": "../../../vendor/cordis" },
+    { "path": "../../../vendor/schemastery" },
+    { "path": "../../skill/evolution-skill-telemetry" },
+    { "path": "../evolution-budget" },
+    { "path": "../evolution-canary" },
+    { "path": "../evolution-curator" },
+    { "path": "../evolution-evaluator-health" },
+    { "path": "../evolution-feedback" },
+    { "path": "../evolution-lineage" },
+    { "path": "../evolution-memory" },
+    { "path": "../evolution-meta" }
+  ]
+}

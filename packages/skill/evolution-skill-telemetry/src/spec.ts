@@ -18,15 +18,31 @@ export const skillUsageRecord = z.object({
   viewCount: z.number().int().nonnegative(),
   patchCount: z.number().int().nonnegative(),
   lastUsedAt: z.string().nullable(),
+  // Written since the `failureCount`/`lastOutcome` counters landed, and
+  // declared here because the domain re-parses every record it opens: a
+  // schema without them drops both counters on the next start, which is what
+  // the curator's failure-rate rule and §22's failure-spike signal read.
+  failureCount: z.number().int().nonnegative().optional(),
+  lastOutcome: z.enum(['ok', 'failed']).optional(),
   sessionIds: z.array(z.string()).default([]),
+  sessionOutcomes: z.array(z.object({
+    sessionId: z.string(),
+    outcome: z.enum(['ok', 'failed']),
+  })).default([]),
   lastViewedAt: z.string().nullable(),
   lastPatchedAt: z.string().nullable(),
   createdAt: z.string(),
-  state: z.enum(['active', 'stale', 'archived']),
+  // `suspect` arrives with the §22 evidence rung; a committed record carries a
+  // state already, and a record written before the member existed opens as
+  // `active` rather than failing the domain open.
+  state: z.enum(['active', 'suspect', 'stale', 'archived']).default('active'),
   pinned: z.boolean(),
   createdBy: z.enum(['agent', 'foreground']).nullable(),
   absorbedInto: z.string().nullable(),
   archivedAt: z.string().nullable(),
+  // Records written before the evidence rung existed are `active` and carry no
+  // suspect instant, so the default keeps them open unchanged.
+  suspectAt: z.string().nullable().default(null),
   trust: z.enum(['provisional', 'trusted']).default('trusted'),
   trustFailures: z.number().int().nonnegative().default(0),
   trustObservedSessions: z.array(z.string()).default([]),

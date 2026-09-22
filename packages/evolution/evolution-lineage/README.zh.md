@@ -7,7 +7,7 @@ kind: "package-reference"
 
 [English](README.md) | 中文
 
-## 摘要
+## 概述
 
 `dsh-evolution-lineage` 维护带依赖版本的实验信封的持久日志——每个受评候选人对应一个——使指标比较可证明是同口径的。每个信封记录其测量三元组、结论，以及运行时的依赖版本；`compare` 报告两个信封是否在配置的键上一致，并点名变化了什么。`attributeImprovement` 根据消融各臂把收益归于一个变更、两个变更或它们的交互，每个信封携带其种子因此任何运行都可重放。比较是已记录事实而非门控。此包不调用任何模型。
 
@@ -18,7 +18,7 @@ kind: "package-reference"
 - [进一步探索](#further-exploration)
 - [模型体验](#model-experience)
 - [已知限制与延后工作](#known-limitations-and-deferred-work)
-- [开发者注记](#dev-note)
+- [开发备注](#dev-note)
 
 -----
 
@@ -107,7 +107,7 @@ if (verdict?.comparable) console.log('apples-to-apples')
 - **不自动重测**——退役的比较保持不可比，直到操作者在新版本下记录新的信封。
 
 <a id="dev-note"></a>
-### 开发者注记
+### 开发备注
 
 <details>
 <summary>维护者工作上下文——点击展开</summary>

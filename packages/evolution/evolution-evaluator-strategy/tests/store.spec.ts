@@ -20,6 +20,8 @@ async function boot(backend = new MemoryStorageBackend(new MemoryMediaPool()), c
 const outcome = (overrides: Partial<EvaluatorOutcome> = {}): EvaluatorOutcome => ({
   evaluator: 'scorer-v1',
   taskClass: 'writer',
+  candidateModel: 'deepseek-chat',
+  judgeModel: 'deepseek-reasoner',
   verdict: true,
   groundTruth: true,
   independent: true,
@@ -66,6 +68,19 @@ describe('evolution evaluator strategy', () => {
     }
   })
 
+  it('orders rows by evaluator then task class', async () => {
+    const { fiber, store } = await boot()
+    try {
+      await store.observe(outcome({ evaluator: 'scorer-v1', taskClass: 'writer' }))
+      await store.observe(outcome({ evaluator: 'scorer-v1', taskClass: 'reader' }))
+      await store.observe(outcome({ evaluator: 'ensemble-v2', taskClass: 'writer' }))
+      expect(store.strategies().map(row => `${row.evaluator}/${row.taskClass}`))
+        .toEqual(['ensemble-v2/writer', 'scorer-v1/reader', 'scorer-v1/writer'])
+    } finally {
+      await fiber.dispose()
+    }
+  })
+
   it('recommends the most corroborated evaluator once it has minimum samples', async () => {
     const { fiber, store } = await boot(undefined, { minimumSamples: 2 })
     try {
@@ -83,6 +98,48 @@ describe('evolution evaluator strategy', () => {
       await store.observe(outcome({ evaluator: 'ensemble-v2', verdict: false, groundTruth: false, independent: true }))
       await store.observe(outcome({ evaluator: 'ensemble-v2', verdict: true, groundTruth: true, independent: true }))
       expect(store.recommend('writer')?.evaluator).toBe('ensemble-v2')
+    } finally {
+      await fiber.dispose()
+    }
+  })
+
+  it('records a same-model verdict as non-independent evidence', async () => {
+    const { fiber, store } = await boot(undefined, { minimumSamples: 1 })
+    try {
+      await store.observe(outcome({ judgeModel: 'deepseek-chat' }))
+      expect(store.strategies()[0]).toMatchObject({
+        samples: 1,
+        independentSamples: 0,
+        corroborations: 0,
+        selfJudgedSamples: 1,
+      })
+      // The verdict is recorded non-independent, so it cannot be recommended on.
+      expect(store.recommend('writer')).toBeUndefined()
+      expect(store.ranking('writer')[0]?.reason).toContain("judged by the candidate's own model")
+    } finally {
+      await fiber.dispose()
+    }
+  })
+
+  it('names the route §28 puts on the final promotion review', async () => {
+    const { ctx, fiber, store } = await boot(undefined, { minimumSamples: 1 })
+    try {
+      ctx.provide('evolutionModelRoutes', {
+        recommend: (role: string) => (role === 'promotion-review' ? { provider: 'deepseek', model: 'deepseek-max' } : undefined),
+      } as never)
+      await store.observe(outcome())
+      expect(store.recommend('writer')?.promotionReview).toEqual({ provider: 'deepseek', model: 'deepseek-max' })
+      expect(store.ranking('writer')[0]?.promotionReview).toEqual({ provider: 'deepseek', model: 'deepseek-max' })
+    } finally {
+      await fiber.dispose()
+    }
+  })
+
+  it('names no promotion-review route while the model-routes store is unmounted', async () => {
+    const { fiber, store } = await boot(undefined, { minimumSamples: 1 })
+    try {
+      await store.observe(outcome())
+      expect(store.recommend('writer')?.promotionReview).toBeNull()
     } finally {
       await fiber.dispose()
     }

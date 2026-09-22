@@ -18,7 +18,7 @@ kind: "package-reference"
 - [进一步探索](#further-exploration)
 - [模型体验](#model-experience)
 - [已知限制与延期工作](#known-limitations-and-deferred-work)
-- [开发笔记](#dev-note)
+- [开发备注](#dev-note)
 
 -----
 
@@ -190,7 +190,7 @@ collect the assembled contributions
 - **apply 按步骤生效** — `apply` 模式只过滤交给它的那次组装，因此被丢弃的贡献会在下一次能容纳它的组装中回来；编译器不在步骤之间保留记忆。
 
 <a id="dev-note"></a>
-### 开发笔记
+### 开发备注
 
 <details>
 <summary>面向维护者的工作上下文——点击展开</summary>

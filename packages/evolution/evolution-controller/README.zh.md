@@ -120,11 +120,11 @@ kind: "package-reference"
 
 当包级约定不够用时阅读以下页面。
 
-- [演进式 Harness 规范](../../../specs/evolutionary-harness.spec.md)——Remote 命名空间背后的行为契约。
+- [演进式 Harness 子系统](../../../docs/subsystems/evolutionary-harness.zh.md)——Remote 命名空间背后的行为契约。
 - [evolution 组地图](../README.zh.md)——本分组的包及其仓库位置。
 - [演进记忆存储](../evolution-memory/README.zh.md)——每个动词所读写的持久记录。
 - [演进命令](../command-evolution/README.zh.md)——CLI 治理面与共享的 `/journey` 读模型。
-- [改进路线图](../../../specs/improvement.spec.md)——本包落地的 Phase 6 控制器切片。
+- [演进式 Harness 子系统](../../../docs/subsystems/evolutionary-harness.zh.md)——本家族的行为在此描述，包括本包落地的控制器切片。
 
 -----
 

@@ -4,7 +4,7 @@ import Storage from '@deepseek-ai/dsh-storage'
 import { DomainFacility } from '@deepseek-ai/dsh-storage-domain'
 import { MemoryMediaPool, MemoryStorageBackend } from '../../../storage/storage-domain/tests/helpers/memory-backend.ts'
 import EvolutionSleeptime from '../src/index.ts'
-import type { AnticipationInput, PrecomputeInput } from '../src/index.ts'
+import type { AnticipationInput, PrecomputeInput, TaskOccurrence } from '../src/index.ts'
 
 async function boot(backend = new MemoryStorageBackend(new MemoryMediaPool()), config?: Record<string, unknown>) {
   const ctx = new Context()
@@ -32,6 +32,15 @@ const precompute = (overrides: Partial<PrecomputeInput> = {}): PrecomputeInput =
   kind: 'summary',
   summary: 'outline',
   offlineCostTokens: 200,
+  ...overrides,
+})
+
+/** One recorded occurrence, the evidence `hit` accounts. */
+const occurrence = (at: string, tokens = 100, overrides: Partial<TaskOccurrence> = {}): TaskOccurrence => ({
+  source: 'skill',
+  taskClass: 't1',
+  tokens,
+  at,
   ...overrides,
 })
 
@@ -83,15 +92,17 @@ describe('evolution sleeptime', () => {
     try {
       await expect(store.precompute(precompute())).rejects.toThrow("unknown anticipated task 't1'")
       await store.anticipate(anticipate())
-      const artifact = await store.precompute(precompute({ kind: 'candidate-plan' }))
+      const artifact = await store.precompute(precompute({ kind: 'candidate-plan', reason: 'net 300 tokens' }))
       expect(artifact).toMatchObject({
         artifactId: 'a1',
         taskId: 't1',
         kind: 'candidate-plan',
         summary: 'outline',
         offlineCostTokens: 200,
+        decisionReason: 'net 300 tokens',
         hits: 0,
         savedTokens: 0,
+        servedThroughAt: null,
       })
       expect(artifact.at).toMatch(/^\d{4}-\d{2}-\d{2}T/)
     } finally {
@@ -124,16 +135,31 @@ describe('evolution sleeptime', () => {
     }
   })
 
-  it('accumulates hits and saved tokens, rejecting unknown artifacts', async () => {
+  it('accounts the recorded occurrences that consumed an artifact and rejects unknown ones', async () => {
     const { fiber, store } = await boot()
     try {
-      await expect(store.hit('ghost', 10)).rejects.toThrow("unknown artifact 'ghost'")
-      await store.anticipate(anticipate())
-      await store.precompute(precompute())
-      const first = await store.hit('a1', 100)
-      expect(first).toMatchObject({ hits: 1, savedTokens: 100 })
-      const second = await store.hit('a1', 50)
-      expect(second).toMatchObject({ hits: 2, savedTokens: 150 })
+      await expect(store.hit('ghost', [])).rejects.toThrow("unknown artifact 'ghost'")
+      // Accounting matches the anticipation key, which is the class key the
+      // source stores derive their recurrence under.
+      await store.anticipate(anticipate({ taskId: 'skill:t1' }))
+      const artifact = await store.precompute(precompute({ taskId: 'skill:t1' }))
+      const after = (minutes: number): string => new Date(Date.parse(artifact.at) + minutes * 60_000).toISOString()
+      expect((await store.hit('a1', [])).hits).toBe(0)
+      const first = await store.hit('a1', [
+        occurrence(after(60), 100),
+        occurrence(after(120), 50),
+        occurrence(after(120), 30),
+        // Another class and another source of the same name are not this
+        // artifact's consumers.
+        occurrence(after(120), 900, { taskClass: 't2' }),
+        occurrence(after(120), 900, { source: 'route' }),
+      ])
+      expect(first).toMatchObject({ hits: 3, savedTokens: 180, servedThroughAt: after(120) })
+      // The cursor makes the same occurrence a no-op on the next pass.
+      const second = await store.hit('a1', [occurrence(after(120), 100)])
+      expect(second).toMatchObject({ hits: 3, savedTokens: 180 })
+      const third = await store.hit('a1', [occurrence(after(180), 25)])
+      expect(third).toMatchObject({ hits: 4, savedTokens: 205, servedThroughAt: after(180) })
     } finally {
       await fiber.dispose()
     }
@@ -177,18 +203,27 @@ describe('evolution sleeptime', () => {
     const first = await boot(backend)
     try {
       await first.store.anticipate(anticipate({ scope: 'outline' }))
-      await first.store.precompute(precompute())
-      await first.store.hit('a1', 100)
+      await first.store.anticipate(anticipate({ taskId: 'skill:t1', domain: 'skill' }))
+      const artifact = await first.store.precompute(precompute({ taskId: 'skill:t1', reason: 'net 300 tokens' }))
+      await first.store.hit('a1', [
+        occurrence(new Date(Date.parse(artifact.at) + 60_000).toISOString(), 100),
+      ])
     } finally {
       await first.fiber.dispose()
     }
     const second = await boot(backend)
     try {
-      expect(second.store.tasks()).toHaveLength(1)
+      expect(second.store.tasks()).toHaveLength(2)
       expect(second.store.tasks('writer')[0]).toMatchObject({ taskId: 't1', scope: 'outline' })
       expect(second.store.artifacts()).toHaveLength(1)
-      expect(second.store.artifacts('t1')[0]).toMatchObject({ hits: 1, savedTokens: 100 })
-      expect(second.store.plan(200, 10_000)).toEqual([])
+      expect(second.store.artifacts('skill:t1')[0]).toMatchObject({
+        hits: 1,
+        savedTokens: 100,
+        decisionReason: 'net 300 tokens',
+      })
+      // The artifact covers the namespaced key only, so the operator's own
+      // anticipation for `t1` still has no cached artifact.
+      expect(second.store.plan(200, 10_000).map(decision => decision.taskId)).toEqual(['t1'])
     } finally {
       await second.fiber.dispose()
     }

@@ -52,17 +52,22 @@ export interface FeedbackSignal extends FeedbackSummaryEntry {
   mergeKey: string
 }
 
-/** Analytic fields of a reflection, supplied by an analyst rather than derived. */
+/**
+ * Analytic fields of a reflection: stated by an analyst through
+ * `recordReflection`, or authored from the observed failure by
+ * `reflectSignals`. A field a deterministic author cannot know stays null
+ * rather than being guessed.
+ */
 export interface ReflectionAnalysis {
-  /** What actually caused the failure; null until an analyst states it. */
+  /** What actually caused the failure; null when nothing stated it. */
   rootCause: string | null
-  /** What to do instead next time; null until an analyst states it. */
+  /** What to do instead next time; null when nothing stated it. */
   correctedStrategy: string | null
-  /** Condition under which the corrected strategy applies; null until stated. */
+  /** Condition under which the corrected strategy applies; null when nothing stated it. */
   reusableWhen: string | null
-  /** Named misuse to avoid; null until stated. */
+  /** Named misuse to avoid, with its trigger condition; null when nothing stated it. */
   antiPattern: string | null
-  /** Check that would have caught the failure; null until stated. */
+  /** Check that would have caught the failure; null when nothing stated it. */
   candidateTest: string | null
 }
 
@@ -80,9 +85,9 @@ export interface ReflectionFailure {
 
 /**
  * One structured reflection: the ledger-derived half of the schema plus the
- * analyst-supplied half. Derived fields are never null; analytic fields stay
- * null until a `recordReflection` call states them, so a reader can tell
- * measured fact from missing analysis at a glance.
+ * analytic half. Derived fields are never null; analytic fields stay null
+ * until something states them, so a reader can tell measured fact from missing
+ * analysis at a glance.
  */
 export interface StructuredReflection {
   /** Tool-and-message identity this reflection merges under. */
@@ -91,31 +96,33 @@ export interface StructuredReflection {
   symptom: string
   /** What the run expected instead of the symptom. */
   violatedExpectation: string
-  /** What actually caused the failure; null until an analyst states it. */
+  /** What actually caused the failure; null when nothing stated it. */
   rootCause: string | null
   /** Session ids that reported the failure, sorted: the observed contexts. */
   contributingFactors: readonly string[]
-  /** What already works despite the failure; null: derivation cannot see it. */
+  /** What already works despite the failure; null: only an analyst can see it. */
   whatWorked: string | null
   /** How the failure behaved across the reflected sessions. */
   whatFailed: ReflectionFailure
-  /** What to do instead next time; null until an analyst states it. */
+  /** What to do instead next time; null when nothing stated it. */
   correctedStrategy: string | null
   /**
-   * Confidence in [0, 1]: 0.25 when the failing call was never observed,
-   * otherwise 0.5 rising linearly to 1 at `triggerReviewSessions` distinct
-   * sessions.
+   * Confidence in [0, 1] from the evidence behind the failure: 0.25 when the
+   * failing call was never observed, otherwise three quarters the distinct-
+   * session share and one quarter the recurrence share, both measured against
+   * `triggerReviewSessions`, so independent support dominates and repetition
+   * within one session cannot stand in for a second session (§20).
    */
   confidence: number
-  /** Condition under which the corrected strategy applies; null until stated. */
+  /** Condition under which the corrected strategy applies; null when nothing stated it. */
   reusableWhen: string | null
-  /** Named misuse to avoid; null until stated. */
+  /** Named misuse to avoid, with its trigger condition; null when nothing stated it. */
   antiPattern: string | null
-  /** Check that would have caught the failure; null until stated. */
+  /** Check that would have caught the failure; null when nothing stated it. */
   candidateTest: string | null
 }
 
-/** Durable analyst-supplied half of one reflection, keyed by merge key. */
+/** Durable analytic half of one reflection, keyed by merge key. */
 export interface ReflectionRecord extends ReflectionAnalysis {
   /** ISO-8601 instant of the last analysis write. */
   updatedAt: string

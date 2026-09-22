@@ -17,6 +17,12 @@ export const evaluatorRunRow = z.object({
   approved: z.boolean(),
   approving: z.array(z.string()),
   dissenting: z.array(z.string()),
+  // Absent on version-1 verdicts, recorded before ground truths could be attached.
+  judgment: z.object({
+    agrees: z.boolean(),
+    independent: z.boolean(),
+    at: z.string(),
+  }).nullable().optional(),
   at: z.string(),
 })
 
@@ -27,11 +33,13 @@ export type EvaluatorRunRow = z.infer<typeof evaluatorRunRow>
  * The evolution-evaluator-health domain spec: one `runs` table keyed by
  * verdict identity. `per-record` because verdicts are independent. Invalid
  * rows fail the domain open loudly: health facts back evaluator decisions, not
- * disposable derived data.
+ * disposable derived data. Version 2 adds the later ground-truth judgment to a
+ * verdict; version-1 verdicts read as unjudged.
  */
 export const evaluatorHealthDomainSpec = defineDomain({
   name: 'evolution_evaluator_health',
-  version: 1,
+  version: 2,
+  compatibleVersions: [1],
   layout: 'per-record',
   tables: {
     runs: domainTable<string, EvaluatorRun>(evaluatorRunRow),

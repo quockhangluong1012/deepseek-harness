@@ -200,10 +200,26 @@ flowchart LR
   svc_evolutionLineage["ctx.evolutionLineage<br/>Dependency-aware lineage store"]
   pkg_evolution_sleeptime["evolution-sleeptime"]
   svc_evolutionSleeptime["ctx.evolutionSleeptime<br/>Sleep-time compute store"]
+  pkg_evolution_budget["evolution-budget"]
+  svc_evolutionBudget["ctx.evolutionBudget<br/>Evolution budget store"]
+  pkg_evolution_evaluator_strategy["evolution-evaluator-strategy"]
+  svc_evolutionEvaluatorStrategy["ctx.evolutionEvaluatorStrategy<br/>Evaluator-strategy store"]
+  pkg_evolution_meta["evolution-meta"]
+  svc_evolutionMeta["ctx.evolutionMeta<br/>Meta-evolution store"]
+  pkg_evolution_metrics["evolution-metrics"]
+  svc_evolutionMetrics["ctx.evolutionMetrics<br/>Evolution metric layer"]
+  pkg_evolution_operators["evolution-operators"]
+  svc_evolutionOperators["ctx.evolutionOperators<br/>Mutation-operator store"]
+  pkg_evolution_router["evolution-router"]
+  svc_evolutionRouter["ctx.evolutionRouter<br/>Routing self-optimization store"]
   pkg_evolution_trajectory["evolution-trajectory"]
   svc_evolutionTrajectory["ctx.evolutionTrajectory<br/>ShareGPT trajectory export service"]
   pkg_evolution_trace["evolution-trace"]
   svc_evolutionTrace["ctx.evolutionTrace<br/>Immutable session trace projection"]
+  pkg_evolution_retrieval["evolution-retrieval"]
+  svc_evolutionRetrieval["ctx.evolutionRetrieval<br/>Retrieval-configuration store"]
+  pkg_evolution_verifiers["evolution-verifiers"]
+  svc_evolutionVerifiers["ctx.evolutionVerifiers<br/>Verifier-first admission ladder"]
   svc_agents["ctx.agents<br/>Agent service"]
   pkg_acp["acp"]
   pkg_agent_default_model["agent-default-model"]
@@ -348,22 +364,29 @@ flowchart LR
   pkg_embeddings_http --> svc_embeddings
   pkg_evolution_adversary --> svc_evolutionAdversary
   pkg_evolution_benchmark --> svc_evolutionBenchmark
+  pkg_evolution_budget --> svc_evolutionBudget
   pkg_evolution_canary --> svc_evolutionCanary
   pkg_evolution_controller --> svc_evolutionController
   pkg_evolution_curator --> svc_evolutionCurator
   pkg_evolution_curriculum --> svc_evolutionCurriculum
   pkg_evolution_dreaming --> svc_evolutionDreaming
   pkg_evolution_evaluator_health --> svc_evolutionEvaluatorHealth
+  pkg_evolution_evaluator_strategy --> svc_evolutionEvaluatorStrategy
   pkg_evolution_feedback --> svc_evolutionFeedback
   pkg_evolution_graph --> svc_evolutionGraph
   pkg_evolution_heartbeat --> svc_evolutionHeartbeat
   pkg_evolution_islands --> svc_evolutionIslands
   pkg_evolution_lineage --> svc_evolutionLineage
   pkg_evolution_memory --> svc_evolutionMemory
+  pkg_evolution_meta --> svc_evolutionMeta
+  pkg_evolution_metrics --> svc_evolutionMetrics
   pkg_evolution_model_routes --> svc_evolutionModelRoutes
   pkg_evolution_novelty_search --> svc_evolutionNovelty
+  pkg_evolution_operators --> svc_evolutionOperators
   pkg_evolution_population --> svc_evolutionPopulation
+  pkg_evolution_retrieval --> svc_evolutionRetrieval
   pkg_evolution_reviewer --> svc_evolutionReviewer
+  pkg_evolution_router --> svc_evolutionRouter
   pkg_evolution_scorer --> svc_evolutionScorer
   pkg_evolution_self_model --> svc_evolutionSelfModel
   pkg_evolution_skill_telemetry --> svc_evolutionSkillTelemetry
@@ -372,6 +395,7 @@ flowchart LR
   pkg_evolution_trace --> svc_evolutionTrace
   pkg_evolution_trajectory --> svc_evolutionTrajectory
   pkg_evolution_uncertainty --> svc_evolutionUncertainty
+  pkg_evolution_verifiers --> svc_evolutionVerifiers
   pkg_experimental_agent_team --> svc_agentTeams
   pkg_experimental_code_runtime_python --> svc_codeRuntime
   pkg_file_reference --> svc_fileReferences
@@ -492,12 +516,16 @@ flowchart LR
   svc_e2b --> pkg_subprocess_e2b
   svc_evolutionAdversary --> pkg_command_evolution
   svc_evolutionBenchmark --> pkg_command_evolution
+  svc_evolutionBudget --> pkg_command_evolution
+  svc_evolutionBudget --> pkg_evolution_optimizer
   svc_evolutionCanary --> pkg_command_evolution
   svc_evolutionCanary --> pkg_evolution_optimizer
   svc_evolutionCurriculum --> pkg_command_evolution
   svc_evolutionCurriculum --> pkg_evolution_benchmark
   svc_evolutionEvaluatorHealth --> pkg_command_evolution
   svc_evolutionEvaluatorHealth --> pkg_evolution_scorer
+  svc_evolutionEvaluatorStrategy --> pkg_command_evolution
+  svc_evolutionEvaluatorStrategy --> pkg_evolution_optimizer
   svc_evolutionFeedback --> pkg_evolution_curator
   svc_evolutionFeedback --> pkg_evolution_dreaming
   svc_evolutionIslands --> pkg_command_evolution
@@ -507,13 +535,21 @@ flowchart LR
   svc_evolutionMemory --> pkg_command_evolution
   svc_evolutionMemory --> pkg_evolution_memory_context
   svc_evolutionMemory --> pkg_evolution_reviewer
+  svc_evolutionMeta --> pkg_command_evolution
+  svc_evolutionMeta --> pkg_evolution_optimizer
+  svc_evolutionMetrics --> pkg_command_evolution
   svc_evolutionModelRoutes --> pkg_command_evolution
   svc_evolutionModelRoutes --> pkg_evolution_optimizer
   svc_evolutionNovelty --> pkg_command_evolution
   svc_evolutionNovelty --> pkg_evolution_optimizer
+  svc_evolutionOperators --> pkg_command_evolution
+  svc_evolutionOperators --> pkg_evolution_optimizer
   svc_evolutionPopulation --> pkg_command_evolution
   svc_evolutionPopulation --> pkg_evolution_optimizer
+  svc_evolutionRetrieval --> pkg_command_evolution
   svc_evolutionReviewer --> pkg_command_evolution
+  svc_evolutionRouter --> pkg_command_evolution
+  svc_evolutionRouter --> pkg_evolution_optimizer
   svc_evolutionScorer --> pkg_evolution_optimizer
   svc_evolutionSelfModel --> pkg_command_evolution
   svc_evolutionSelfModel --> pkg_evolution_optimizer
@@ -525,6 +561,7 @@ flowchart LR
   svc_evolutionTrace --> pkg_command_evolution
   svc_evolutionUncertainty --> pkg_command_evolution
   svc_evolutionUncertainty --> pkg_evolution_scorer
+  svc_evolutionVerifiers --> pkg_evolution_curator
   svc_fileReferences --> pkg_api_session_controller
   svc_fileUploads --> pkg_api_session_controller
   svc_fs --> pkg_tool_fs
@@ -630,7 +667,7 @@ flowchart LR
   svc_workspaceRegistry --> pkg_api_session_controller
   svc_workspaceRegistry --> pkg_api_workspace_controller
   svc_fs -. event gate .-> pkg_fs_observation_policy
-``````
+```
 | ctx 键 | 角色 | 所属包 | 实现 | 直接消费方 | 配套插件 | 说明 |
 | --- | --- | --- | --- | --- | --- | --- |
 | `ctx.agentKernel` | `core` | [`agent-kernel`](../packages/runtime/agent-kernel) | - | - | - | Observes the loop and tool waterfalls without owning execution; the session log is its only store, and it composes the sandbox and approval decisions it does not make. |
@@ -684,7 +721,7 @@ flowchart LR
 | `ctx.usageLedger` | `core` | [`usage-ledger`](../packages/session/usage-ledger) | - | [`client-ui-usage-dashboard`](../packages/client/ui-usage-dashboard) | - | The usage-ledger plugin folds billed attempts into durable per-day and per-model counters; the usage dashboard host face delegates its summary reads to the service. |
 | `ctx.usageDashboard` | `core` | [`client-ui-usage-dashboard`](../packages/client/ui-usage-dashboard) | - | - | - | The usage dashboard host face provides the usageDashboard Remote namespace over ctx.usageLedger; the generated contribution carries it to the browser half, which reads it over the wire. |
 | `ctx.skills` | `seam` | [`skill`](../packages/skill/skill) | [`skill-badge`](../packages/skill/skill-badge), [`skill-filesystem`](../packages/skill/skill-filesystem) | [`tool-skill`](../packages/skill/tool-skill) | - | Merges provider skill catalogs; tool-skill renders the session-prefix catalog and loads complete skill bodies. |
-| `ctx.evolutionSkillTelemetry` | `core` | [`evolution-skill-telemetry`](../packages/skill/evolution-skill-telemetry) | - | [`evolution-skill-manage`](../packages/skill/evolution-skill-manage), [`evolution-curator`](../packages/evolution/evolution-curator) | - | The telemetry plugin owns durable per-skill counters, provenance, pins, lifecycle state, evidence-backed trust, and the SKILL.md revision chain; evolution-skill-manage reports mutations and reads pins through the optional service, and evolution-curator drives lifecycle transitions and records trust observations over the same store. |
+| `ctx.evolutionSkillTelemetry` | `core` | [`evolution-skill-telemetry`](../packages/skill/evolution-skill-telemetry) | - | [`evolution-skill-manage`](../packages/skill/evolution-skill-manage), [`evolution-curator`](../packages/evolution/evolution-curator) | - | The telemetry plugin owns durable per-skill counters, provenance, pins, lifecycle state, evidence-backed trust, the SKILL.md revision chain with a queryable version registry, and consolidation cost facts; evolution-skill-manage reports mutations and reads pins through the optional service, and evolution-curator drives lifecycle transitions and records trust observations over the same store. |
 | `ctx.evolutionMemory` | `core` | [`evolution-memory`](../packages/evolution/evolution-memory) | - | [`evolution-reviewer`](../packages/evolution/evolution-reviewer), [`evolution-memory-context`](../packages/context/evolution-memory-context), [`command-evolution`](../packages/evolution/command-evolution) | - | The evolution-memory plugin owns the durable per-scope record; evolution-reviewer and evolution-memory-context read and write it, and command-evolution resolves staged approvals against it. |
 | `ctx.evolutionReviewer` | `core` | [`evolution-reviewer`](../packages/evolution/evolution-reviewer) | - | [`command-evolution`](../packages/evolution/command-evolution) | - | The evolution-reviewer plugin derives lessons in the background; command-evolution calls its rebuild for /refine, and no other package reads the service. |
 | `ctx.evolutionCurator` | `core` | [`evolution-curator`](../packages/evolution/evolution-curator) | - | - | - | The evolution-curator plugin owns idle-triggered lifecycle passes over skill telemetry; the composition supplies the idle observation through maybeRun, and no in-repo package consumes the service directly. |
@@ -709,8 +746,16 @@ flowchart LR
 | `ctx.evolutionAdversary` | `core` | [`evolution-adversary`](../packages/evolution/evolution-adversary) | - | [`command-evolution`](../packages/evolution/command-evolution) | - | The evolution-adversary plugin keeps durable adversarial probes across eight weakness categories and the evaluator-gaming defense checklist; command-evolution records probes, reads the next probing challenge, and tracks the defense checklist through /adversary. |
 | `ctx.evolutionLineage` | `core` | [`evolution-lineage`](../packages/evolution/evolution-lineage) | - | [`evolution-optimizer`](../packages/evolution/evolution-optimizer), [`command-evolution`](../packages/evolution/command-evolution) | - | The evolution-lineage plugin keeps dependency-versioned experiment envelopes with comparability checks and ablation attribution; evolution-optimizer records each staged write as an envelope through the optional store, and command-evolution compares and replays envelopes through /lineage. |
 | `ctx.evolutionSleeptime` | `core` | [`evolution-sleeptime`](../packages/evolution/evolution-sleeptime) | - | [`command-evolution`](../packages/evolution/command-evolution) | - | The evolution-sleeptime plugin keeps anticipated future tasks and their precomputed reasoning artifacts under an offline-cost economic policy; command-evolution reads the plan through /sleeptime. |
+| `ctx.evolutionBudget` | `core` | [`evolution-budget`](../packages/evolution/evolution-budget) | - | [`evolution-optimizer`](../packages/evolution/evolution-optimizer), [`command-evolution`](../packages/evolution/command-evolution) | - | The evolution-budget plugin prices each candidate batch by class and settles its recorded spends against the allocation with exact margins, alongside the successive-halving screening schedule; evolution-optimizer records each staged write's allocation and spend through the optional store, and command-evolution reads batches, settlements, and spends through /budget. |
+| `ctx.evolutionEvaluatorStrategy` | `core` | [`evolution-evaluator-strategy`](../packages/evolution/evolution-evaluator-strategy) | - | [`evolution-optimizer`](../packages/evolution/evolution-optimizer), [`command-evolution`](../packages/evolution/command-evolution) | - | The evolution-evaluator-strategy plugin accumulates per-evaluator and per-task-class trust from verdicts later judged against an independent ground truth, and ranks the evaluators of a class by it; evolution-optimizer pairs each staged write's scorer verdict with its holdout ground truth through the optional store, and command-evolution reads the statistics and ranking through /evaluator-strategy. |
+| `ctx.evolutionMeta` | `core` | [`evolution-meta`](../packages/evolution/evolution-meta) | - | [`evolution-optimizer`](../packages/evolution/evolution-optimizer), [`command-evolution`](../packages/evolution/command-evolution) | - | The evolution-meta plugin records each engine run under the configuration its operator, evaluator, budget, and routing choices produced, derives per-configuration pass rates and mean tokens, and recommends the configuration to run next on a task class; evolution-optimizer records each staged write's run through the optional store, and command-evolution reads runs, summaries, and the recommendation through /meta. |
+| `ctx.evolutionMetrics` | `core` | [`evolution-metrics`](../packages/evolution/evolution-metrics) | - | [`command-evolution`](../packages/evolution/command-evolution) | - | The evolution-metrics plugin measures capability gain per unit of compute over the recorded engine runs, with the supporting failure-recurrence, regression-debt, promotion, rollback, and evaluator-reliability readings, reads each of those from the store that already computes it, and reports a metric it cannot measure with the record that is missing rather than a zero; command-evolution renders one report through /metrics. |
+| `ctx.evolutionOperators` | `core` | [`evolution-operators`](../packages/evolution/evolution-operators) | - | [`evolution-optimizer`](../packages/evolution/evolution-optimizer), [`command-evolution`](../packages/evolution/command-evolution) | - | The evolution-operators plugin accumulates per-operator and per-artifact-class attempts, acceptance, mean outcome delta, and regression rate, and ranks the operators by an exploration-adjusted score; evolution-optimizer records every staged write's operator and outcome through the optional store, and command-evolution reads the statistics and ranking through /operators. |
+| `ctx.evolutionRouter` | `core` | [`evolution-router`](../packages/evolution/evolution-router) | - | [`evolution-optimizer`](../packages/evolution/evolution-optimizer), [`command-evolution`](../packages/evolution/command-evolution) | - | The evolution-router plugin measures route outcomes per task class and evolutionary role, derives each route's effectiveness, and ranks the routes a class and role should use; evolution-optimizer records the evaluation route of each staged write through the optional store, and command-evolution reads outcomes, effectiveness, and the recommendation through /router. |
 | `ctx.evolutionTrajectory` | `core` | [`evolution-trajectory`](../packages/evolution/evolution-trajectory) | - | - | - | The evolution-trajectory plugin exports one Session or every Session of a scope as ShareGPT trajectories, written on the Host path. |
 | `ctx.evolutionTrace` | `core` | [`evolution-trace`](../packages/evolution/evolution-trace) | - | [`command-evolution`](../packages/evolution/command-evolution) | - | The evolution-trace plugin projects the committed session log into structured learning traces with ranked root-cause attribution per failed tool call and compressed learning-trace rows; command-evolution reads it through /trace, and nothing here writes a domain or reaches a model request. |
+| `ctx.evolutionRetrieval` | `core` | [`evolution-retrieval`](../packages/evolution/evolution-retrieval) | - | [`command-evolution`](../packages/evolution/command-evolution) | - | The evolution-retrieval plugin records the retrieval configuration in force for a session and grades it by the downstream task success of the sessions that ran under it, recommending the best configuration per task class above an evidence gate; active-memory-context records the configuration in force, and nothing here restructures retrieval or reaches a model request. |
+| `ctx.evolutionVerifiers` | `core` | [`evolution-verifiers`](../packages/evolution/evolution-verifiers) | - | [`evolution-curator`](../packages/evolution/evolution-curator) | - | The evolution-verifiers plugin runs the candidate-body ladder cheapest-first — schema, deterministic invariants, domain simulation, evaluator model, human review — stopping at the first decisive rung and delegating the levels it cannot decide itself to mounted seams; evolution-curator routes its patch admission through it, and an absent seam abstains rather than fabricating a pass. |
 | `ctx.agents` | `core` | [`agent`](../packages/core/agent) | - | [`agent-loop`](../packages/core/agent-loop), [`acp`](../packages/acp/acp), [`subagent-in-process-driver`](../packages/subagent/subagent-in-process-driver) | - | Owns live Agent handles, the create/resume factory seam, and process-local initiator propagation. |
 | `ctx.agentDefaultModel` | `core` | [`agent-default-model`](../packages/core/agent-default-model) | - | [`api-session-controller`](../packages/api/session-controller), [`headless`](../packages/bundle/headless) | - | Layers the default ModelSelection through settings so direct and Host-backed Agent entry points share one state owner. |
 | `ctx.agentLoop` | `bundle` | [`agent-loop`](../packages/core/agent-loop) | - | [`base`](../packages/bundle/base), [`sdk-minimal`](../packages/bundle/sdk-minimal) | - | The one concrete loop plugin; extension packages depend on dsh-agent events and services, not on this package. |

@@ -49,6 +49,17 @@ export const evolutionOutput = z.object({
   at: z.string(),
 })
 
+/** One recall at the durable boundary: what was retrieved and what landed after it. */
+export const memoryRecall = z.object({
+  id: z.string().min(1),
+  itemId: z.string(),
+  at: z.string(),
+  decidedInSessionId: z.string().nullable().default(null),
+  decidedAt: z.string().nullable().default(null),
+  outcome: z.enum(['ok', 'failed']).nullable().default(null),
+  outcomeAt: z.string().nullable().default(null),
+})
+
 /** Extraction provenance at the durable boundary. */
 export const evolutionExtraction = z.object({
   at: z.string(),
@@ -117,6 +128,10 @@ export const evolutionMemoryRecord = z.object({
   memoryUpdatedAt: z.string().nullable(),
   contextItems: z.array(evolutionContextItem),
   outputs: z.array(evolutionOutput),
+  // Records written before the recall ledger existed open with none, and the
+  // ledger is not part of the brief's digest: it records retrieval, never
+  // context the brief renders.
+  recalls: z.array(memoryRecall).default([]),
   episodic: z.array(episodicEntry).default([]),
   lastExtraction: evolutionExtraction.nullable(),
   staged: z.array(stagedWrite),

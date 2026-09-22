@@ -9,7 +9,7 @@ kind: "package-group"
 
 ## 概述
 
-evolution 家族在 harness 之上叠加闭环学习，且不触碰任何特权核心：按作用域持久化的记忆记录与暂存写入、后台回合评审、定时技能整理，以及长程安全护栏。每一次习得性写入都有上限、有日志、可回滚；移除相应配置行即恢复字节一致的旧行为。当会话需要越用越好时，选择本家族。在专用子系统参考文档落地之前，行为契约以[演进式 Harness 规范](../../specs/evolutionary-harness.spec.md)为准。
+evolution 家族在 harness 之上叠加闭环学习，且不触碰任何特权核心：按作用域持久化的记忆记录与暂存写入、后台回合评审、定时技能整理，以及长程安全护栏。每一次习得性写入都有上限、有日志、可回滚；移除相应配置行即恢复字节一致的旧行为。当会话需要越用越好时，选择本家族。参考词汇与行为契约见[演进式 Harness 子系统](../../docs/subsystems/evolutionary-harness.zh.md)；本家族实现的机制族来自 [v11 深度研究](../../specs/evolutionary-harness-v11-deep-research.md)。
 
 ## 目录
 
@@ -35,34 +35,39 @@ evolution 家族在 harness 之上叠加闭环学习，且不触碰任何特权�
 | [`evolution-trace`](evolution-trace/README.zh.md) | 不可变会话轨迹投影：基于已提交的会话日志，产出带排序根因归因的结构化学习轨迹与压缩摘要 | `ctx.evolutionTrace` |
 | [`evolution-curriculum`](evolution-curriculum/README.zh.md) | 自动课程：从 telemetry 与轨迹存储测量能力差距，并为每个差距暂存一条有依据的训练任务 | `ctx.evolutionCurriculum` |
 | [`evolution-benchmark`](evolution-benchmark/README.zh.md) | 基于生产失败的基准增长：带内容去重与污染状态的持久化评估任务存储 | `ctx.evolutionBenchmark` |
-| [`evolution-evaluator-health`](evolution-evaluator-health/README.zh.md) | 评估器集成健康：记录的行为评估裁决，含一致性、通过漂移与误报跟踪 | `ctx.evolutionEvaluatorHealth` |
+| [`evolution-evaluator-health`](evolution-evaluator-health/README.zh.md) | 评估器集成健康：记录的行为评估裁决，含一致性、通过漂移、误报与漏报跟踪，以及其后的独立真值校准 | `ctx.evolutionEvaluatorHealth` |
 | [`evolution-population`](evolution-population/README.zh.md) | 基于种群（population）的进化：每一次暂存的优化器写入都成为按技能组织的候选，含代数编号、父代谱系与 暂存 → 通过/拒绝 生命周期 | `ctx.evolutionPopulation` |
-| [`evolution-model-routes`](evolution-model-routes/README.zh.md) | 自适应模型路由：面向进化角色拓扑、带实测证据与推荐的按角色路由指派 | `ctx.evolutionModelRoutes` |
+| [`evolution-model-routes`](evolution-model-routes/README.zh.md) | 自适应模型路由：面向进化角色拓扑、带实测证据与推荐的按角色路由指派，以及它拒绝的产出/评判角色冲突 | `ctx.evolutionModelRoutes` |
 | [`evolution-canary`](evolution-canary/README.zh.md) | 金丝雀（canary）部署追踪：暂存技能补丁的发布状态，含实测金丝雀证据 | `ctx.evolutionCanary` |
 | [`evolution-novelty-search`](evolution-novelty-search/README.zh.md) | 新奇度搜索：按技能持久化的行为描述符档案，基于 Jaccard 的档案新奇度奖励有意义的差异候选 | `ctx.evolutionNovelty` |
 | [`evolution-stagnation`](evolution-stagnation/README.zh.md) | 停滞检测：统计无有意义改进的评估运行次数，并在前沿停滞时给出下一个多样性策略 | `ctx.evolutionStagnation` |
 | [`evolution-islands`](evolution-islands/README.zh.md) | 岛屿进化：带目标、岛屿间迁移记录与基于调度表的迁移到期检查的按技能进化轨道 | `ctx.evolutionIslands` |
 | [`evolution-self-model`](evolution-self-model/README.zh.md) | 受控自我模型：持久的按技能能力记录，以及说明下一步该学什么的弱优先能力前沿 | `ctx.evolutionSelfModel` |
 | [`evolution-uncertainty`](evolution-uncertainty/README.zh.md) | 不确定性驱动学习：将持久的不确定性信号聚合成高价值评估任务的优先级队列 | `ctx.evolutionUncertainty` |
-| [`evolution-adversary`](evolution-adversary/README.zh.md) | 对抗进化：横跨八类弱点的持久对抗探针，外加评估器博弈防御清单 | `ctx.evolutionAdversary` |
+| [`evolution-adversary`](evolution-adversary/README.zh.md) | 对抗进化：横跨八类弱点的持久对抗探针、评估器博弈防御清单，以及从同级存储观测到的防御状态 | `ctx.evolutionAdversary` |
 | [`evolution-lineage`](evolution-lineage/README.zh.md) | 依赖感知进化：带依赖版本、可比性检查与消融归因的实验信封 | `ctx.evolutionLineage` |
-| [`evolution-sleeptime`](evolution-sleeptime/README.zh.md) | 睡眠时间计算：在离线成本经济策略下，带预计算推理产物的预期未来任务 | `ctx.evolutionSleeptime` |
+| [`evolution-sleeptime`](evolution-sleeptime/README.zh.md) | 睡眠时间计算：由证据驱动的闲置期预测重复任务，并在离线成本经济策略下预计算推理产物 | `ctx.evolutionSleeptime` |
 | [`evolution-scorer`](evolution-scorer/README.zh.md) | 为已录制语料的运行打分：工作区差异判定通过、计费 token 与 N 次中位墙钟时间 | `ctx.evolutionScorer` |
 | [`evolution-dreaming`](evolution-dreaming/README.zh.md) | 对已记录失败的三阶段梦境归并：轻量观测、REM 反思，以及按心跳节奏沉淀的持久叙事 | `ctx.evolutionDreaming` |
 | [`evolution-optimizer`](evolution-optimizer/README.zh.md) | 离线技能优化：经触发门控、以宿主 LLM 变异、隔离覆盖下的打分评估、Pareto 挑选并暂存技能补丁 | `ctx.evolutionOptimizer` |
 | [`evolution-operators`](evolution-operators/README.zh.md) | 变异算子演化：按算子与产物类别记录尝试次数、接受率、平均增量与回归率，并给出探索校正后的算子优先次序 | `ctx.evolutionOperators` |
-| [`evolution-evaluator-strategy`](evolution-evaluator-strategy/README.zh.md) | 评估器策略演化：按评估器与任务类别，从后续经独立真值校验的判定中积累的信任度 | `ctx.evolutionEvaluatorStrategy` |
-| [`evolution-budget`](evolution-budget/README.zh.md) | 演化预算：按候选类别定价的逐批次配额、以精确余量结算的实际开销，以及逐次减半的筛选日程 | `ctx.evolutionBudget` |
-| [`evolution-router`](evolution-router/README.zh.md) | 路由自优化：按任务类别与角色测量路由结果，得出实际有效性与排序后的路由推荐 | `ctx.evolutionRouter` |
-| [`evolution-meta`](evolution-meta/README.zh.md) | 元演化：记录各配置下的引擎运行及其通过率，并推荐某任务类别应采用的引擎配置 | `ctx.evolutionMeta` |
+| [`evolution-evaluator-strategy`](evolution-evaluator-strategy/README.zh.md) | 评估器策略演化：按评估器与任务类别，从后续经独立真值校验的判定中积累的信任度，排除自评判定并点名晋级复核验证器 | `ctx.evolutionEvaluatorStrategy` |
+| [`evolution-budget`](evolution-budget/README.zh.md) | 演化预算：按候选类别定价的逐批次配额（含成本、时限与并行度上限）、以精确余量结算的实际开销、分配策略，以及逐次减半的筛选日程 | `ctx.evolutionBudget` |
+| [`evolution-router`](evolution-router/README.zh.md) | 路由自优化：按任务类别与角色测量路由结果，得出实际有效性、排序后的路由推荐，以及路由分歧所触发的不确定性信号 | `ctx.evolutionRouter` |
+| [`evolution-meta`](evolution-meta/README.zh.md) | 元演化：记录各配置与工作流下的引擎运行及其通过率，并推荐某任务类别应采用的引擎配置 | `ctx.evolutionMeta` |
+| [`evolution-metrics`](evolution-metrics/README.zh.md) | 演化指标：单位算力换来的能力增益，以及失败复发、回归债、晋级、回滚与评估器可靠性的支撑读数；每项要么已测量，要么点名它所缺失的记录 | `ctx.evolutionMetrics` |
+| [`evolution-verifiers`](evolution-verifiers/README.zh.md) | 校验器优先的候选准入：从模式、不变量、仿真、评估器到人工的最廉价优先阶梯，在第一个作出裁决的梯级停止 | `ctx.evolutionVerifiers` |
+| [`evolution-retrieval`](evolution-retrieval/README.zh.md) | 检索感知的演化：按会话记录检索配置并以下游任务成功率评判，给出按任务类别的配置建议 | `ctx.evolutionRetrieval` |
+| [`evolution-actuator`](evolution-actuator/README.zh.md) | 演化驱动：心跳任务读取已记录的裁定并执行该裁定所要求的步骤——发布决策、按计划迁移岛屿、停滞恢复、排空不确定性、准入课程、基准增长与对抗性探针生成 | — |
+| [`command-evolution`](command-evolution/README.zh.md) | 本家族面向人的治理命令：暂存写入、整理、导出与报告动词，读取引擎已记录的内容 | — |
 
 -----
 
 <a id="related-documentation"></a>
 ## 相关文档
 
-- [演进式 Harness 规范](../../specs/evolutionary-harness.spec.md)——本家族实现的行为契约。
-- [演进式 Harness 子系统](../../docs/subsystems/evolutionary-harness.zh.md)——本家族的参考词汇与生成的 API。
+- [演进式 Harness 子系统](../../docs/subsystems/evolutionary-harness.zh.md)——本家族的参考词汇与行为契约。
+- [演进式 Harness v11 深度研究](../../specs/evolutionary-harness-v11-deep-research.md)——本家族实现的机制族。
 - [Workspace 子系统](../../docs/subsystems/workspace.zh.md)——本家族参照的按目录记忆设计。
 
 -----

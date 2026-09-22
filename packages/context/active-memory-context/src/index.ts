@@ -3,6 +3,8 @@
  * in the same workspace for content relevant to what the user just asked,
  * and splices matching snippets into `agent/pre-step` ahead of the model's
  * response — proactive retrieval instead of the user having to ask for it.
+ * With `taskAwarePolicy` on, the turn's recorded task class selects the §39
+ * configuration `ctx.evolutionRetrieval` recommends instead of the mount's own.
  * @module @deepseek-ai/dsh-active-memory-context
  */
 
@@ -18,14 +20,40 @@ import type { SemanticSessionSearchHit, SessionSearchHit } from '@deepseek-ai/ds
 import { fuseSessionRankings, SessionQueryError } from '@deepseek-ai/dsh-session-query'
 import type {} from '@deepseek-ai/dsh-workspace'
 import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
+import {
+  applyRetrievalPolicy,
+  type RetrievalPolicyApplication,
+  type RetrievalRecommendation,
+} from './policy.ts'
 import { renderActiveMemoryBrief } from './render.ts'
 
 export { escapeFrameBody, renderActiveMemoryBrief } from './render.ts'
+export { applyRetrievalPolicy } from './policy.ts'
+export type {
+  AppliedRetrievalDimension,
+  RecommendedRetrievalConfiguration,
+  RetrievalDimension,
+  RetrievalPolicyApplication,
+  RetrievalRecommendation,
+  UnappliedRetrievalDimension,
+} from './policy.ts'
 
-/** Source of one active-memory brief message: a scored search result, never a user-authored message. */
+/**
+ * One eligible turn's retrieval, as the brief records it: the search result
+ * the model saw, and — when the task-aware policy ran — the §39 dimensions the
+ * recommendation put it on. The policy rides this message's own durable log
+ * record, so the log says how the brief was retrieved.
+ */
 export interface ActiveMemorySource {
   kind: 'active-memory'
   form: 'search-result'
+  /**
+   * The applied §39 retrieval policy, present only when the mount enabled
+   * `taskAwarePolicy` and a recommendation was consulted for the turn. Absent
+   * means the turn ran the mount's own configuration, which is also what every
+   * turn ran before this field existed.
+   */
+  policy?: RetrievalPolicyApplication
 }
 
 declare module '@deepseek-ai/dsh-llm' {
@@ -81,6 +109,15 @@ export interface Config {
    * Defaults to 5.
    */
   graphLimit?: number
+  /**
+   * Consult the §39 configuration `ctx.evolutionRetrieval` recommends for the
+   * turn's task class and run it, instead of the configuration this mount's own
+   * fields spell. The dimensions the injector owns — lane, scope, graph depth,
+   * threshold — take the recommended value; the rest are recorded unapplied.
+   * Defaults to false: a mount that has not opted in retrieves exactly what it
+   * retrieved before this policy existed.
+   */
+  taskAwarePolicy?: boolean
 }
 
 /** Schemastery validation for {@link Config}. */
@@ -96,6 +133,7 @@ export const Config: z<Config> = z.object({
   profile: z.string().pattern(/^[^:]+$/).default('default'),
   graphDepth: z.number().step(1).min(1).default(1),
   graphLimit: z.number().step(1).min(1).default(5),
+  taskAwarePolicy: z.boolean().default(false),
 })
 
 /** Plugin configuration with every optional field resolved. */
@@ -108,6 +146,52 @@ export interface ResolvedConfig {
   profile: string
   graphDepth: number
   graphLimit: number
+  taskAwarePolicy: boolean
+}
+
+/** Which retrieval lane this injector serves: graph-first prefers the graph, `both` runs both. */
+export type RetrievalSource = 'graph' | 'hybrid'
+
+/** The §39 retrieval dimensions this injector's resolved mount is running under. */
+export interface RetrievalConfigurationInForce {
+  /** Retrieval source: the graph leg alone is preferred, or both legs run. */
+  source: RetrievalSource
+  /** Query expansion: the graph leg expands the turn's words into entity labels. */
+  queryExpansion: 'graph-entities'
+  /** Lane weights: the reciprocal-rank fusion weighs both legs equally. */
+  weights: { vector: number; graph: number }
+  /** Reranking: fused ranks are the final order. */
+  reranker: 'none'
+  /** MMR: the brief keeps fusion order, undiversified. */
+  mmr: { enabled: boolean; lambda: number }
+  /** Memory scope: the search reads the session's workspace. */
+  memoryScope: 'workspace'
+  /** Graph depth: hops the graph leg expands from the entity it matched. */
+  graphDepth: number
+  /** Active-memory threshold: minimum similarity a hit must clear to be injected. */
+  threshold: number
+}
+
+/**
+ * The retrieval configuration a resolved mount runs under, as the §39
+ * candidate dimensions. The injector states the dimensions it actually sets:
+ * the rest are the shipped choice — unweighted fusion, no reranker, no
+ * diversification — which a deployment cannot vary here and the optimizer
+ * varies by recording a configuration of its own.
+ * @param config - the resolved plugin configuration.
+ * @returns the configuration in force, ready to record.
+ */
+export function inForceConfiguration(config: ResolvedConfig): RetrievalConfigurationInForce {
+  return {
+    source: config.escalation === 'graph-first' ? 'graph' : 'hybrid',
+    queryExpansion: 'graph-entities',
+    weights: { vector: 1, graph: 1 },
+    reranker: 'none',
+    mmr: { enabled: false, lambda: 1 },
+    memoryScope: 'workspace',
+    graphDepth: config.graphDepth,
+    threshold: config.relevanceThreshold,
+  }
 }
 
 /**
@@ -126,6 +210,7 @@ export function resolveConfig(config: Config): ResolvedConfig {
     profile: config.profile ?? 'default',
     graphDepth: config.graphDepth ?? 1,
     graphLimit: config.graphLimit ?? 5,
+    taskAwarePolicy: config.taskAwarePolicy ?? false,
   }
 }
 
@@ -200,6 +285,92 @@ function isGraphSeam(value: unknown): value is GraphSeam {
 }
 
 /**
+ * The slice of `ctx.evolutionRetrieval` this plugin records into. Declared
+ * here rather than imported so active memory keeps no dependency on the
+ * retrieval package: a deployment without one records nothing, exactly as it
+ * already runs without a graph.
+ */
+interface RetrievalLedger {
+  /**
+   * Record the configuration one session ran under.
+   * @param input - the configuration in force and the session it served.
+   * @returns resolution once the attribution is durable.
+   */
+  record(input: { configuration: RetrievalConfigurationInForce; sessionId: string }): Promise<unknown>
+}
+
+/**
+ * Whether a context value offers the one write this plugin makes. Absent and
+ * foreign values answer false instead of throwing.
+ * @param value - the value read from `ctx.get('evolutionRetrieval')`.
+ * @returns whether the value can record an attribution.
+ */
+function isRetrievalLedger(value: unknown): value is RetrievalLedger {
+  return typeof Reflect.get(Object(value), 'record') === 'function'
+}
+
+/**
+ * The slice of `ctx.evolutionRetrieval` the task-aware policy reads: the
+ * configuration the store recommends for one task class. A separate seam from
+ * {@link RetrievalLedger} because it is a separate concern — a store that
+ * records but cannot recommend (or the reverse) still serves whichever half it
+ * has — and because reading it is guarded by its own check.
+ */
+interface RetrievalRecommender {
+  /**
+   * The configuration to run for one task class, above the store's evidence gate.
+   * @param taskClass - the task class to recommend for.
+   * @returns the recommended configuration with the score behind its rank, or
+   *   undefined while no configuration has enough evidence on that class.
+   */
+  recommend(taskClass: string): (RetrievalRecommendation & { score: number }) | undefined
+}
+
+/**
+ * Whether a context value can recommend a retrieval configuration. Absent and
+ * foreign values answer false instead of throwing, so an unmounted — or older —
+ * store falls back to the mount's own configuration rather than failing a turn.
+ * @param value - the value read from `ctx.get('evolutionRetrieval')`.
+ * @returns whether the value can recommend a configuration for a task class.
+ */
+function isRetrievalRecommender(value: unknown): value is RetrievalRecommender {
+  return typeof Reflect.get(Object(value), 'recommend') === 'function'
+}
+
+/**
+ * The slice of `ctx.evolutionSkillTelemetry` the task-aware policy reads: which
+ * skills recorded a session. The skill name is the task class both that store
+ * and `ctx.evolutionRetrieval` grade a session on, so this is the recorded
+ * classification the policy consults rather than a guess from the turn's text.
+ */
+interface SkillTelemetrySeam {
+  /**
+   * List every skill's usage record.
+   * @returns the records, in the store's own order.
+   */
+  entries(): readonly {
+    /** Skill name — the task class its sessions served. */
+    readonly name: string
+    /** The usage record, narrowed to the one read this policy joins on. */
+    readonly usage: {
+      /** Sessions that loaded the skill. */
+      readonly sessionIds: readonly string[]
+    }
+  }[]
+}
+
+/**
+ * Whether a context value can name the skills a session loaded. Absent and
+ * foreign values answer false instead of throwing, so a deployment without the
+ * telemetry store derives no task class and runs the mount's configuration.
+ * @param value - the value read from `ctx.get('evolutionSkillTelemetry')`.
+ * @returns whether the value can list skill usage records.
+ */
+function isSkillTelemetry(value: unknown): value is SkillTelemetrySeam {
+  return typeof Reflect.get(Object(value), 'entries') === 'function'
+}
+
+/**
  * The slice of one `ctx.workspaceRegistry` entry this plugin keys its work by:
  * the id a scope identity is built from and the sessions it owns. Declared here
  * rather than imported so only those two reads are depended on.
@@ -225,13 +396,26 @@ function otherSessionIds(ids: readonly SessionId[], self: SessionId): SessionId[
 /**
  * Register the pre-step active-memory search for the lifetime of `ctx`.
  * @param ctx - plugin context; listeners dispose with it.
- * @param config - byte cap, result bounds, and search cadence.
+ * @param config - byte cap, result bounds, search cadence, and policy switch.
  */
 export function apply(ctx: Context, config: Config): void {
-  const { maxBytes, topK, relevanceThreshold, turnInterval, escalation, profile, graphDepth, graphLimit } = resolveConfig(config)
+  const resolved = resolveConfig(config)
+  const {
+    maxBytes,
+    topK,
+    relevanceThreshold,
+    turnInterval,
+    escalation,
+    profile,
+    graphDepth,
+    graphLimit,
+    taskAwarePolicy,
+  } = resolved
   const workspaceBySession = new Map<string, WorkspaceId | null>()
   const turnsBySession = new Map<string, number>()
   const searchedForTurn = new Map<string, number>()
+  const recordedSessions = new Set<string>()
+  const configurationInForce = inForceConfiguration(resolved)
 
   ctx.on('session/event', (session: Session, event: SessionEvent) => {
     if (event.type !== 'turn/start') return
@@ -243,12 +427,67 @@ export function apply(ctx: Context, config: Config): void {
     workspaceBySession.delete(key)
     turnsBySession.delete(key)
     searchedForTurn.delete(key)
+    recordedSessions.delete(key)
   })
   ctx.effect(() => () => {
     workspaceBySession.clear()
     turnsBySession.clear()
     searchedForTurn.clear()
+    recordedSessions.clear()
   }, 'active-memory-context.cache')
+
+  /**
+   * Record the retrieval configuration this session runs under, once per
+   * session: a side record with no model call and no prompt change, so a store
+   * that is unmounted or failing changes neither the search nor the brief. The
+   * write is not awaited — the step never waits on a recording — and the
+   * session is marked before it returns, since the store's key is the
+   * configuration and the session joined and a repeat would upsert the same
+   * row anyway.
+   */
+  const recordConfiguration = (session: Session): void => {
+    const key = String(session.id)
+    if (recordedSessions.has(key)) return
+    const ledger: unknown = ctx.get('evolutionRetrieval')
+    if (!isRetrievalLedger(ledger)) return
+    recordedSessions.add(key)
+    void ledger.record({ configuration: configurationInForce, sessionId: key }).catch((error: unknown) => {
+      ctx.logger.debug(`active-memory: retrieval-configuration record degraded (${String(error)})`)
+    })
+  }
+
+  /**
+   * The strongest recommendation the session's recorded task classes have. A
+   * session's task classes are the skills whose usage record lists it — the
+   * same axis `dsh-evolution-retrieval` grades a session on — so the class
+   * comes from recorded evidence rather than from the turn's own text. Classes
+   * are consulted in name order and the highest-scoring recommendation wins
+   * outright, so a tie goes to the first name.
+   *
+   * Absent telemetry, an absent or older recommendation store, and a class with
+   * no recommendation above the store's evidence gate all answer undefined:
+   * the turn then runs the mount's own configuration, which is what makes the
+   * policy's fallback the same retrieval the mount would have done anyway.
+   */
+  const recommendationFor = (
+    sessionId: string,
+  ): { taskClass: string; recommendation: RetrievalRecommendation & { score: number } } | undefined => {
+    const store: unknown = ctx.get('evolutionRetrieval')
+    if (!isRetrievalRecommender(store)) return undefined
+    const telemetry: unknown = ctx.get('evolutionSkillTelemetry')
+    if (!isSkillTelemetry(telemetry)) return undefined
+    const classes = telemetry.entries()
+      .filter(entry => entry.usage.sessionIds.includes(sessionId))
+      .map(entry => entry.name)
+      .sort()
+    let best: { taskClass: string; recommendation: RetrievalRecommendation & { score: number } } | undefined
+    for (const taskClass of classes) {
+      const found = store.recommend(taskClass)
+      if (found === undefined) continue
+      if (best === undefined || found.score > best.recommendation.score) best = { taskClass, recommendation: found }
+    }
+    return best
+  }
 
   /**
    * Workspace membership already known from an exact session-id match. The
@@ -293,11 +532,18 @@ export function apply(ctx: Context, config: Config): void {
    * degrading to no results rather than blocking the turn when the vector
    * channel is unavailable or the session has no resolvable scope. Each
    * degradation is debug-logged.
+   * @param session - the session whose workspace scopes the search.
+   * @param query - the turn's own text.
+   * @param signal - cancellation of the step that asked.
+   * @param threshold - minimum similarity a hit must clear: the mount's own
+   *   `relevanceThreshold`, or the recommended configuration's.
+   * @returns the surviving scored hits, best first.
    */
   const search = async (
     session: Session,
     query: string,
     signal: AbortSignal,
+    threshold: number,
   ): Promise<readonly SemanticSessionSearchHit[]> => {
     const scopeIds = await scopeSessionIds(session)
     if (scopeIds === undefined) return []
@@ -316,7 +562,7 @@ export function apply(ctx: Context, config: Config): void {
       }
       throw error
     }
-    return page.items.filter(hit => hit.score >= relevanceThreshold)
+    return page.items.filter(hit => hit.score >= threshold)
   }
 
   /**
@@ -327,10 +573,16 @@ export function apply(ctx: Context, config: Config): void {
    *
    * Fail-soft throughout — an unmounted, older, or failing graph yields no
    * results instead of blocking the turn. Each degradation is debug-logged.
+   * @param session - the session whose workspace scopes the graph and the search.
+   * @param query - the turn's own text.
+   * @param depth - hops to expand: the mount's own `graphDepth`, or the
+   *   recommended configuration's.
+   * @returns the reached sessions, unscored, in label order.
    */
   const searchGraph = async (
     session: Session,
     query: string,
+    depth: number,
   ): Promise<readonly SessionSearchHit[]> => {
     const graph: unknown = ctx.get('evolutionGraph')
     if (!isGraphSeam(graph)) return []
@@ -363,7 +615,7 @@ export function apply(ctx: Context, config: Config): void {
       if (seed === undefined) return []
       // The seam proves `expand` is callable, not that it honors its contract,
       // so reading the reached nodes stays inside the guard as well.
-      const reached = graph.expand(scope, seed.label, graphDepth, graphLimit)
+      const reached = graph.expand(scope, seed.label, depth, graphLimit)
       labels = [...new Set([seed.label, ...reached.map(entry => entry.node.label)])].slice(0, graphLimit)
     } catch (error) {
       ctx.logger.debug(`active-memory: graph leg degraded (${String(error)})`)
@@ -400,6 +652,7 @@ export function apply(ctx: Context, config: Config): void {
   }
 
   ctx.on('agent/pre-step', async (input, next): Promise<PreStepDecision> => {
+    recordConfiguration(input.agent.session)
     const decision = await next()
     if (decision.kind === 'reject' || input.signal.aborted) return decision
     const key = String(input.agent.session.id)
@@ -409,6 +662,26 @@ export function apply(ctx: Context, config: Config): void {
     const query = input.messages.map(textOf).join('\n').trim()
     if (query.length === 0) return decision
     searchedForTurn.set(key, turn)
+    // The task-aware policy replaces the mount's own knobs for this turn only
+    // when the store recommends a configuration for the turn's recorded task
+    // class. Anything less — the policy off, no telemetry, no class, no
+    // recommendation above the store's evidence gate — runs the mount's own
+    // configuration, which is also what every turn ran before the policy.
+    let turnEscalation = escalation
+    let turnGraphDepth = graphDepth
+    let turnThreshold = relevanceThreshold
+    let policy: RetrievalPolicyApplication | undefined
+    if (taskAwarePolicy) {
+      const found = recommendationFor(key)
+      if (found === undefined) {
+        ctx.logger.debug(`active-memory: no retrieval recommendation for session ${key}; running the mount's own configuration`)
+      } else {
+        policy = applyRetrievalPolicy(found.taskClass, found.recommendation, escalation)
+        turnEscalation = policy.effective.escalation
+        turnGraphDepth = policy.effective.graphDepth
+        turnThreshold = policy.effective.threshold
+      }
+    }
     // The graph leg is local lookups plus text searches — no embedding call —
     // so `graph-first` spends it before the vector leg and skips the vector
     // leg when the graph already connected the turn to a session. A missing,
@@ -416,12 +689,14 @@ export function apply(ctx: Context, config: Config): void {
     // exactly as it would have without escalation.
     let vectorHits: readonly SemanticSessionSearchHit[] = []
     let graphHits: readonly SessionSearchHit[] = []
-    if (escalation === 'graph-first') {
-      graphHits = await searchGraph(input.agent.session, query)
-      if (graphHits.length === 0) vectorHits = await search(input.agent.session, query, input.signal)
+    if (turnEscalation === 'graph-first') {
+      graphHits = await searchGraph(input.agent.session, query, turnGraphDepth)
+      if (graphHits.length === 0) {
+        vectorHits = await search(input.agent.session, query, input.signal, turnThreshold)
+      }
     } else {
-      vectorHits = await search(input.agent.session, query, input.signal)
-      graphHits = await searchGraph(input.agent.session, query)
+      vectorHits = await search(input.agent.session, query, input.signal, turnThreshold)
+      graphHits = await searchGraph(input.agent.session, query, turnGraphDepth)
     }
     // Both legs rank the same corpus, so the fusion is what makes a session
     // both channels agree on outrank one only a single channel found.
@@ -431,7 +706,14 @@ export function apply(ctx: Context, config: Config): void {
     if (rendered === undefined) return decision
     const brief = createUserMessage({
       content: [{ type: 'text', text: rendered }],
-      source: { kind: 'active-memory', form: 'search-result' },
+      source: {
+        kind: 'active-memory',
+        form: 'search-result',
+        // The applied policy rides the injected message's own durable record,
+        // so the log reconstructs which dimensions produced this brief. A turn
+        // the policy did not change carries no policy field at all.
+        ...policy === undefined ? {} : { policy },
+      },
     })
     return { ...decision, messages: [...decision.messages, brief] }
   })

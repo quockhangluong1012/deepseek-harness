@@ -4,16 +4,19 @@ import Storage from '@deepseek-ai/dsh-storage'
 import { DomainFacility } from '@deepseek-ai/dsh-storage-domain'
 import { MemoryMediaPool, MemoryStorageBackend } from '../../../storage/storage-domain/tests/helpers/memory-backend.ts'
 import EvolutionStagnation from '../src/index.ts'
-import type { StagnationRunInput } from '../src/index.ts'
+import type { StagnationConfig, StagnationRunInput } from '../src/index.ts'
 
-async function boot(backend = new MemoryStorageBackend(new MemoryMediaPool()), config?: Record<string, unknown>) {
+async function boot(
+  backend = new MemoryStorageBackend(new MemoryMediaPool()),
+  config: StagnationConfig = { threshold: 5, relativeImprovement: 0.05 },
+) {
   const ctx = new Context()
   await ctx.plugin(Storage)
   ctx.storage.backend.register('memory', backend)
   const facility = new DomainFacility(ctx, { backend: 'memory', routes: {} })
   ctx.storage.mount('domain', facility)
   ctx.provide('storageDomain', facility)
-  const fiber = await ctx.plugin(EvolutionStagnation, config ?? {})
+  const fiber = await ctx.plugin(EvolutionStagnation, config)
   return { ctx, fiber, store: ctx.evolutionStagnation }
 }
 

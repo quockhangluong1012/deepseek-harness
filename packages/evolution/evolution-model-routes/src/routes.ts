@@ -4,13 +4,26 @@
  * @module @deepseek-ai/dsh-evolution-model-routes/src/routes
  */
 
-import type { EvolutionRole, ModelRoute, RouteEvidence, RouteOrigin, RouteRow, RouteSummary } from './types.ts'
+import type { EvolutionRole, ModelRoute, RoleConflict, RouteEvidence, RouteOrigin, RouteRow, RouteSummary } from './types.ts'
 
 /** The evolutionary role topology, in spec §28 order. */
 export const EVOLUTION_ROLES = [
   'task-execution',
   'reflection',
   'candidate-generation',
+  'evaluation',
+  'promotion-review',
+] as const satisfies readonly EvolutionRole[]
+
+/** The §28 roles that produce work, whose routes must not also judge it. */
+export const PRODUCING_ROLES = [
+  'task-execution',
+  'reflection',
+  'candidate-generation',
+] as const satisfies readonly EvolutionRole[]
+
+/** The §28 roles that judge work, which must not run on a producing route. */
+export const JUDGING_ROLES = [
   'evaluation',
   'promotion-review',
 ] as const satisfies readonly EvolutionRole[]
@@ -83,6 +96,45 @@ export function mergeEvidence(
   }
   summaries.sort((left, right) => left.provider.localeCompare(right.provider) || left.model.localeCompare(right.model))
   return summaries
+}
+
+/**
+ * The §28 topology conflicts in one assignment set: routes that serve both a
+ * producing role (task execution, reflection, candidate generation) and a
+ * judging role (evaluation, promotion review), so the judge and the judged run
+ * on the same model. Route rows are keyed uniquely per role and route, so each
+ * route contributes each role once. `pinned` records whether an operator chose
+ * the conflicting assignment explicitly.
+ * @param rows - every route assignment.
+ * @returns the conflicts, ordered by provider then model.
+ */
+export function roleConflicts(rows: readonly RouteRow[]): RoleConflict[] {
+  const byRoute = new Map<string, { route: ModelRoute; producing: EvolutionRole[]; judging: EvolutionRole[]; pinned: boolean }>()
+  for (const row of rows) {
+    const key = routeKey(row)
+    const entry = byRoute.get(key)
+      ?? { route: { provider: row.provider, model: row.model }, producing: [], judging: [], pinned: false }
+    if ((PRODUCING_ROLES as readonly EvolutionRole[]).includes(row.role)) entry.producing.push(row.role)
+    else entry.judging.push(row.role)
+    if (row.origin === 'pinned') entry.pinned = true
+    byRoute.set(key, entry)
+  }
+  return [...byRoute.values()]
+    .filter(entry => entry.producing.length > 0 && entry.judging.length > 0)
+    .map((entry) => {
+      const producing = EVOLUTION_ROLES.filter(role => entry.producing.includes(role))
+      const judging = EVOLUTION_ROLES.filter(role => entry.judging.includes(role))
+      return {
+        route: entry.route,
+        producing,
+        judging,
+        pinned: entry.pinned,
+        detail: `route '${entry.route.provider}/${entry.route.model}' serves ${producing.join(', ')} and also judges ${judging.join(', ')}`,
+      }
+    })
+    .sort((left, right) =>
+      left.route.provider.localeCompare(right.route.provider)
+      || left.route.model.localeCompare(right.route.model))
 }
 
 /**

@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-22-condition-based-nudges.md
+2026-09-22-condition-based-nudges.md: f57ee17e911fead460be635f90d9747a7a108384
+2026-09-22-condition-based-nudges.zh.md: a7639d9e7cc484fda533e3d8ac56590b86af1c99

@@ -5,7 +5,9 @@
  * recorded, never gated: nothing changes user-visible behavior. Operators then
  * roll a shadow patch to `canary` and `promoted` through /canary, or exit a
  * staged rollout to `rejected` or `rolled-back`; terminal states never leave.
- * Nothing here calls a model.
+ * The same package carries §49's risk model (`assessRisk`): the pure
+ * class-and-route decision the actuator's rollout monitor consults before it
+ * promotes anything. Nothing here calls a model.
  * @module @deepseek-ai/dsh-evolution-canary
  */
 
@@ -16,7 +18,9 @@ import { DEPLOYMENT_STATES, transitionAllowed } from './stages.ts'
 import type { DeploymentInput, DeploymentRecord, DeploymentState } from './types.ts'
 
 export type * from './types.ts'
+export type * from './risk.ts'
 export { DEPLOYMENT_STATES, nextStage, transitionAllowed } from './stages.ts'
+export { assessRisk } from './risk.ts'
 export { canaryDomainSpec, deploymentRecordRow } from './spec.ts'
 
 declare module '@deepseek-ai/cordis' {
@@ -125,8 +129,9 @@ export class EvolutionCanary extends Service {
       .filter(record =>
         (state === undefined || record.state === state)
         && (skill === undefined || record.skill === skill))
-    const order = Object.fromEntries(DEPLOYMENT_STATES.map((entry, index) => [entry, index]))
-    rows.sort((left, right) => order[left.state] - order[right.state] || right.at.localeCompare(left.at))
+    rows.sort((left, right) =>
+      DEPLOYMENT_STATES.indexOf(left.state) - DEPLOYMENT_STATES.indexOf(right.state)
+      || right.at.localeCompare(left.at))
     return rows
   }
 

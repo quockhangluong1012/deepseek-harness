@@ -18,6 +18,7 @@ English | [中文](README.zh.md)
 - [Further Exploration](#further-exploration)
 - [Model Experience](#model-experience)
 - [Known Limitations and Deferred Work](#known-limitations-and-deferred-work)
+- [Dev Note](#dev-note)
 
 -----
 
@@ -84,3 +85,13 @@ No invalidation; no authorization state enters a request prefix.
 - **API-key methods stay on the page** — the companion filters them out, so a flow offering only a key renders nothing here.
 
 **Runtime invariant:** No companion is published. The card derives everything from the Host attempt registry through the Remote namespace; no independent client observation of the same relation exists to diverge.
+
+<a id="dev-note"></a>
+### Dev Note
+
+<details>
+<summary>Working context for maintainers — click to expand</summary>
+
+`actionablePrompt` derives the open question instead of receiving it, because the wire carries no "current prompt": the dialog takes the newest prompt frame that is neither withdrawn nor in its own `answered` set, which is also why a successful `answer` must record the id locally even though the Host has already settled it. The poll cursor is a `useRef` rather than state: an empty answer changes no frame, so the chain must re-arm on the cursor the Host answered from instead of restarting from the one a re-render kept. The `api-key` method is filtered here rather than on the Host, so the flow view stays complete for other surfaces while this companion never offers a sign-in the page's own key editor already covers.
+
+</details>

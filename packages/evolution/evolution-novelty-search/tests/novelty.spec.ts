@@ -30,7 +30,7 @@ describe('archiveNovelty', () => {
   })
 
   it('reports zero for a descriptor with no features', () => {
-    expect(archiveNovelty([], [entry()])).toBe(0)
+    expect(archiveNovelty([], [entry({})])).toBe(0)
   })
 
   it('measures one minus the maximum similarity to any entry', () => {

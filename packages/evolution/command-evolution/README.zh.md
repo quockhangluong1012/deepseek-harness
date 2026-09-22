@@ -55,6 +55,7 @@ kind: "package-reference"
 | `/skills approve <id>` | 丢弃技能写入已落地的暂存技能条目，并在批准时附带该提醒；不是暂存技能的 id 报告 `No staged skill '<id>'.`。缺少有效捕获契约的**新建**提案保持暂存，并报告缺失的证据；`patch` 仅凭批准即可通过。 |
 | `/skills <anything-else>` | `Usage: /skills pending \| approve <id>`。 |
 | `/journey [today\|7d\|30d\|all]` | 渲染作用域时间线：窗口标题、每个活跃日一行、容量与摘要，以及暂存计数。裸 `/journey` 报告 `7d`。 |
+| `/journey export [today\|7d\|30d\|all] [--out <path>]` | 把时间线加当前会话日志打包为 zip 归档并报告 `Journey exported to <path>`；路径默认为 `$DSH_HOME/exports/journey-<scope>-<range>.zip`。解析器拒绝的文法会报告 `Usage: /journey export [today \| 7d \| 30d \| all] [--out <path>]`。 |
 | `/journey <anything-else>` | `Usage: /journey [today \| 7d \| 30d \| all]`。 |
 | `/curator status` | 渲染上次通过的时刻、按生命周期状态（含置顶）与信任状态统计的被跟踪技能计数、来自用量台账的今日缓存命中率、来自遥测的技能失败率汇总、待复核分选数及最差失败率，以及最新记录的通过。任一比率在其来源未挂载时具名说明。 |
 | `/curator run` | 立即运行一次维护通过：报告移动、跳过计数与快照 id。 |
@@ -67,7 +68,8 @@ kind: "package-reference"
 | `/curator rollback --id <id>` | 回滚一次已记录的通过：先报告被恢复的生命周期状态，若 SKILL.md 正文由其前像恢复，再输出 `Restored bodies: <names>`。 |
 | `/curator ledger` | 按新到旧列出已记录的通过及其流转计数。 |
 | `/curator pin <name>` / `/curator unpin <name>` | 置顶或取消置顶一个被跟踪技能，并报告 `Pinned '<name>'` / `Unpinned '<name>'`。 |
-| `/curator <anything-else>` | `Usage: /curator status \| run [--dry-run] \| staged \| adopt <name> \| purge [--dry-run] \| rollback --id <id> \| ledger \| pin <name> \| unpin <name> \| optimize <skill> <scenario...> \| experiments [skill]`. |
+| `/curator history <name>` | 按由旧到新列出单个技能已提交的正文修订：`<n> revision(s) for '<name>':`，随后 `- r<n> <sha8>[ ← r<n-1> <parentSha8>] (<instant>)`；无记录时报告 `No recorded revisions for '<name>'.` pin、unpin 与 history 只读遥测：未挂载时报告 `Skill telemetry is not mounted. Pin, unpin, and history require the telemetry store.` |
+| `/curator <anything-else>` | `Usage: /curator status \| run [--dry-run] \| staged \| adopt <name> \| purge [--dry-run] \| rollback --id <id> \| ledger \| pin <name> \| unpin <name> \| history <name> \| optimize <skill> <scenario...> \| experiments [skill]`. |
 | `/refine` | 经由评审器重建作用域经验并报告 `Memory rebuild complete.`。 |
 | `/refine <anything>` | `Usage: /refine (no arguments)`——命令不接受参数。 |
 | `/trajectory` | 经轨迹服务导出调用会话并报告 `Trajectory written to <path> (<n> conversations, <n> bytes).`。 |
@@ -81,12 +83,12 @@ kind: "package-reference"
 | `/suggestions <anything>` | `Usage: /suggestions (no arguments)`。 |
 | `/frontier` | 按实测证据把该作用域的技能从最弱到最强排序，格式为 `- <name>: <score> [<wins>/<runs>] [· <n> failures [(top: '<message>')]] · <loads> loads in <sessions> sessions[: <description>]`，末尾附排序规则。 |
 | `/frontier <anything>` | `Usage: /frontier (no arguments)`。 |
-| `/budget` | 按各自的配额结算每一条已记录的批次，格式为 `- <batchId> (<candidateClass>, <taskClass>): <spent>/<maxTokens> tokens, <spentMs>/<maxWallTimeMs>ms`，并给出精确的剩余余量；超出时改为 `EXCEEDED by <tokens> tokens, <ms>ms`。裸 `/budget` 列出全部批次。 |
+| `/budget` | 按各自的配额结算每一条已记录的批次，格式为 `- <batchId> (<candidateClass>, <taskClass>): <spent>/<maxTokens> tokens, <spentMs>/<maxWallTimeMs>ms`，并给出精确的剩余余量；超出时改为 `EXCEEDED by <tokens> tokens, <ms>ms`。若该配额为 §37 的后续维度定价，则续接 `· cost <spent>/<ceiling> — <left> left, time <spentMs>/<ceiling>ms, parallelism <spent>/<ceiling>`；已定价但无记录的维度显示为 `unmeasured (ceiling <n>)`，而不是它无法证明的零；未定价的维度不渲染。裸 `/budget` 列出全部批次。 |
 | `/budget spends [<batchId>]` | 列出已记录的开销，格式为 `- <batchId>: <tokens> tokens, <wallTimeMs>ms, <n> rollouts at <instant>`。 |
 | `/budget <anything-else>` | `Usage: /budget [spends [<batchId>]]`。 |
 | `/meta` | 列出在任意任务类别上记录的引擎配置，按得分从高到低，格式为 `- <configId> (<taskClass>): <pct>% pass over <n> runs, <tokens> mean tokens, score <score>`。 |
 | `/meta runs [<taskClass>]` | 列出已记录的引擎运行，格式为 `- <runId> (<taskClass>) pass\|fail, <tokens> tokens, <wallTimeMs>ms at <instant>`。 |
-| `/meta recommend <taskClass>` | 给出该任务类别下存储推荐的配置，连同其算子、评估器、预算与路由选择以及排名依据的数字；证据不足的类别则如实说明。 |
+| `/meta recommend <taskClass>` | 给出该任务类别下存储推荐的配置，连同其算子、评估器、预算与路由选择、它所执行的工作流（`workflow: <component>=<choice>>…`，或 `workflow: unrecorded`）以及排名依据的数字；证据不足的类别则如实说明。 |
 | `/meta <anything-else>` | `Usage: /meta [summaries [<taskClass>] \| runs [<taskClass>] \| recommend <taskClass>]`。 |
 | `/operators <artifactClass>` | 将该产物类别的变异算子从优到劣排序，格式为 `- <operator>: <n> attempts, <pct>% accepted, mean delta <delta>, <pct>% regressions, score <score>`。接受率与得分来自排名，回归率则从该类别的统计行合并。 |
 | `/operators` | 统计并列出有记录的产物类别，不做排序。 |
@@ -98,6 +100,79 @@ kind: "package-reference"
 | `/evaluator-strategy` | 列出已记录的评估器信任行，格式为 `- <evaluator> (<taskClass>): <n>/<m> independent corroborations over <n> verdicts, weight <weight> at <instant>`。 |
 | `/evaluator-strategy rank <taskClass>` | 将该类别的评估器按可信度从高到低排序，并附每个排名背后的印证次数与权重。 |
 | `/evaluator-strategy <anything-else>` | `Usage: /evaluator-strategy [strategies [<taskClass>] \| rank <taskClass>]`。 |
+| `/metrics [<taskClass>]` | 基于已记录的引擎运行报告北极星指标与支撑指标集，格式为 `- <id>: <value> — <caveat>` 并附每个值的来源存储，或 `- <id>: not measured — <reason>` 并点名所缺失的记录。 |
+| `/graph <entity>` | 列出该实体的直接连接：先给 `<label>:`，再为每一跳可达的邻居各列一行 `- <path> → <label>`；本作用域图谱中不存在的实体会报告 `No entity matching '<entity>' in this scope's graph.`。未挂载图谱时报告 `The knowledge graph is not mounted.` |
+| `/graph <entity> <relation>` | 沿一条关系向外遍历并渲染 `<subject> —<relation>→ <object>, <object>`；主体没有该关系时报告 `<subject> has no '<relation>' relation.`，实体不存在时给同样的 `No entity matching` 消息。双引号参数会保留其中的空格。 |
+| `/graph <anything-else>` | `Usage: /graph <entity> [relation]` |
+| `/claims [query]` | 按可信度从高到低列出作用域的活跃主张：`<n> active claim(s):`，随后每行 `- <statement> [confidence <x.xx>, <n> supporting / <n> contradicting source(s), evidence <x.xx>, source <x.xx>, newest <instant>]`；查询无匹配时报告 `No active claim matching '<query>' in this scope.`，已退役的主张永不出现。 |
+| `/claims <anything-else>` | `Usage: /claims [query]`——只接受一个查询词，含空格时加引号。 |
+| `/reflection [limit]` | 按最新优先列出本作用域会话已存的反思：`<n> reflection(s) (newest first):`，随后每行一块：`- <symptom> (confidence <x.xx>)`、`  expected: <…>`，以及记录在案的 `  cause:`、`  avoid:`、`  instead:`、`  check:`。上限默认为 5；无记录时报告 `No reflections stored for this scope.`。未挂载反馈存储时报告 `The evolution feedback store is not mounted.` |
+| `/reflection <anything-else>` | `Usage: /reflection [limit]`——上限为不小于 1 的整数。 |
+| `/trace <sessionId>` | 把该会话的已提交日志投影为结构化学习轨迹：`Trace of <id>: <n> turn(s)`，随后是 `, updated <instant>`（或 ` (no events)`），再按回合各列一行 `Turn <n> [<outcome>]` 及其请求、按工具调用各列 `  · <tool> ok` 或 `  · <tool> failed: <message>`、按排序后的根因各列 `    ← <cause>`。未知会话报告 `No trace for session '<id>'.`。未挂载轨迹存储时报告 `The evolution trace store is not mounted.` |
+| `/trace <anything-else>` | `Usage: /trace <sessionId>`——恰好一个会话 id。 |
+| `/curriculum` | 度量当前能力缺口，为每个缺口暂存一个落地的任务，并列出开放提案：`Staged <n> new task(s).` 或 `No new tasks staged from the measured gaps.`，随后是 `No open curriculum tasks.` 或每个提案一行 `- <id> <capability>: <task>`。未挂载课程存储时报告 `The evolution curriculum store is not mounted.` |
+| `/curriculum retire <id>` | 退役一条暂存提案并报告 `Retired curriculum task '<id>' (<capability>).` |
+| `/curriculum <anything-else>` | `Usage: /curriculum [retire <id>]` |
+| `/benchmark` | 按状态汇总存储：`Benchmark: <n> fresh, <n> search, <n> validation, <n> holdout, <n> contaminated, <n> retired.`，并至多列出十个 fresh 任务 `- <id> <capability>: <task>`。未挂载基准存储时报告 `The evolution benchmark store is not mounted.` |
+| `/benchmark admit` | 把课程中开放的提案收为 fresh 任务并报告 `Admitted <n> benchmark task(s), <n> duplicate(s) skipped.`；未挂载课程存储时报告 `The evolution curriculum store is not mounted; admit needs open proposals.` |
+| `/benchmark promote <id> [state]` | 把一个任务沿学习阶梯上移一级（或移到具名状态）并报告 `Promoted '<id>' to '<state>'.`；已在阶梯顶端时报告 `No promotion from '<state>' for '<id>'`，未知 id 报告 `evolution-benchmark: unknown task '<id>'`。 |
+| `/benchmark retire <id>` | 退役一个任务并报告 `Retired '<id>'.` |
+| `/benchmark <anything-else>` | `Usage: /benchmark [admit \| promote <id> [state] \| retire <id>]` |
+| `/evaluators` | 汇总评估器集成健康度：`Evaluator health: <n> verdict(s), approved <pct>% (recent <pct>%, drift ±<n> points), unanimous <pct>%, false positives <pct>% of approvals.` 与 `Channels: <channel> <pct>%, …`。未挂载存储时报告 `The evaluator-health store is not mounted.` |
+| `/evaluators runs [<skill>]` | 按最新优先列出十条已记录判定：`<n> verdict(s):`，随后 `- <id8> <skill>: <status>[ approved][ unanimous\| (split: <evaluators>)] at <instant>`；无记录时报告 `No recorded evaluator verdicts.` |
+| `/evaluators <anything-else>` | `Usage: /evaluators [runs [<skill>]]`——至多一个技能。 |
+| `/population <skill>` | 列出候选种群：`Population '<skill>': generation <n>, <n> candidate(s).`，随后每行 `- g<n> <id8> [<status>] <operator>:` 接 `<pass> pass, <tokens> tokens, <ms>ms`，三元组缺失时为 `unmeasured`，并以 ` · root` 或 ` ← <parent8>` 结尾；最后是 `Elite: <id8> (g<n>), …` 或 `Elite: none approved yet.`。该技能无候选时报告 `No candidates recorded for '<skill>'.`。未挂载种群存储时报告 `The evolution population store is not mounted.` |
+| `/population <skill> lineage <id>` | 从 `Lineage of '<id>' in '<skill>':` 起由旧到新走一条候选血缘，最新的标记 `← newest`；未知 id 报告 `No candidate '<id>' for skill '<skill>'.` |
+| `/population <skill> approve <id>` / `/population <skill> reject <id>` | 移动一条暂存候选的地位并报告 `Marked candidate '<id8>' (g<n> <skill>) as '<approved\|rejected>'.` |
+| `/population <anything-else>` | `Usage: /population <skill> [lineage <id> \| approve <id> \| reject <id>]` |
+| `/routes` | 列出每个角色已记录的路由：`Routes:`，随后 `<role>: <provider>/<model>[ (pinned)]: <n> run(s), <pct>% pass, <n> tokens avg · …[ → recommended <provider>/<model>]`；无记录时报告 `No route assignments yet. The optimizer records candidate-generation routes; pin the rest.`。未挂载存储时报告 `The evolution model-routes store is not mounted.` |
+| `/routes pin <role> <provider> <model>` | 为某个 §28 角色固定一条路由并报告 `Pinned '<role>' to <provider>/<model>.`；角色不可用或 provider、model 为空时报用法。 |
+| `/routes evidence [<role>]` | 按最新优先列出十条证据行：`<n> evidence row(s):`，随后 `- <id8> <role>: <provider>/<model> <pass> pass, <tokens> tokens at <instant>`；无记录时报告 `No recorded route evidence.` |
+| `/routes <anything-else>` | `Usage: /routes [pin <role> <provider> <model> \| evidence [<role>]]` |
+| `/canary` | 汇总部署状态：`Canary: <n> shadow, <n> canary, <n> promoted, <n> rolled-back, <n> rejected.`，并至多列出十条 `- <id8> <skill>: <state>[ → next <stage>][ (<pass>, <tokens> tokens)]`；尚无部署时报告 `No deployments yet. The optimizer records staged writes as shadow.`。未挂载存储时报告 `The evolution canary store is not mounted.` |
+| `/canary status [<skill>]` | 同一部署列表收窄到单个技能；该技能无部署时报告 `No deployments for '<skill>'.` |
+| `/canary rollout <id>` | 把一个 shadow 部署移到 canary，并报告 `Deployment '<id8>' (<skill>) moved to '<state>'.` |
+| `/canary promote <id>` | 把一个 canary 部署提升为 promoted，报告同一条消息。 |
+| `/canary reject <id>` | 让一次分阶段发布以 rejected 退出，报告同一条消息。 |
+| `/canary rollback <id>` | 让一次分阶段发布以 rolled-back 退出，报告同一条消息。 |
+| `/canary <anything-else>` | `Usage: /canary [status [<skill>] \| rollout <id> \| promote <id> \| reject <id> \| rollback <id>]` |
+| `/novelty` | 汇总新颖性档案：`Novelty archive: <n> entry(ies) across <n> skill(s).`，随后按技能名排序的 `- <skill>: <n> entry(ies), mean novelty <x.xx>`；无记录时报告 `No recorded novelty archive entries. The optimizer records staged writes as descriptors.`。未挂载存储时报告 `The evolution novelty-search store is not mounted.` |
+| `/novelty <skill>` | 列出单个技能的行为描述符：`Novelty archive '<skill>': <n> entry(ies), mean <x.xx>.`，随后至多十条 `- <id8>: <n> features, novelty <x.xx> at <instant>`；该技能无记录时报告 `No recorded novelty archive entries for '<skill>'.` |
+| `/novelty <anything-else>` | `Usage: /novelty [<skill>]` |
+| `/stagnation` | 汇总每个有记录的技能：`Stagnation:`，随后 `- <skill>: <n>/<threshold> generations since improvement`，再接 ` — STAGNANT → <strategy>` 或 ` — ok`；无记录时报告 `No recorded stagnation runs. The optimizer records staged writes as runs.`。未挂载存储时报告 `The evolution stagnation store is not mounted.` |
+| `/stagnation status <skill>` | 用三行渲染单个技能：`Stagnation '<skill>': <n> run(s), best <pass> pass, <tokens> tokens, <ms>ms.`（尚无最佳值时是 `best no best yet.`）、`<n> generation(s) since improvement, threshold <threshold>.`，以及 `STAGNANT → strategy: <strategy>` 或 `Not stagnant — continue <strategy>.` |
+| `/stagnation runs [<skill>]` | 按最新优先列出十条运行：`<n> run(s):`，随后 `- g<n> <id8> <skill>: <pass> pass, <tokens> tokens, <ms>ms[ improved] at <instant>`；无记录时报告 `No recorded stagnation runs.` |
+| `/stagnation reset <skill>` | 清空该技能的历史并报告 `Reset stagnation history of '<skill>': dropped <n> run(s).` |
+| `/stagnation <anything-else>` | `Usage: /stagnation [status <skill> \| runs [<skill>] \| reset <skill>]` |
+| `/islands` | 列出各泳道：`Islands:`，随后 `- <island> '<name>' [<objective>] <skill> g<n>[ · migration due]`；无注册时报告 `No islands registered.` 并指向 `/islands register <island> <name> <objective> <skill>` 形式。未挂载存储时报告 `The evolution islands store is not mounted.` |
+| `/islands list [<skill>]` | 同一排期列表收窄到单个技能，标题为 `Islands '<skill>':`。 |
+| `/islands register <island> <name> <objective> <skill>` | 注册一条泳道并报告 `Registered island '<island>' '<name>' [<objective>] for '<skill>'.`；目标不在注册集合内时报用法。 |
+| `/islands migrate <from> <to> <candidate> [<reason>]` | 记录一次候选迁移并报告 `Migrated candidate '<id8>' <from> → <to> (<reason>).`；原因取 `schedule`（默认）、`elite` 或 `diversity`。 |
+| `/islands migrations [<skill>]` | 按最新优先列出十条日志：`<n> migration(s):`，随后 `- <id8> <candidate8> <from> → <to> (<reason>) at <instant>`；无记录时报告 `No recorded island migrations.` |
+| `/islands <anything-else>` | `Usage: /islands [list [<skill>] \| register <island> <name> <objective> <skill> \| migrate <from> <to> <candidate> [<reason>] \| migrations [<skill>]]` |
+| `/selfmodel` | 按最弱优先渲染能力前沿：`Capability frontier (weakest first): <n>`，随后 `- <capability>: score <x.xx>, confidence <x.xx>, <n> skill(s), <n> observations` 与 `Next to learn: <capability>`；尚无度量时报告 `No measured capabilities yet. The optimizer records capability observations as it stages writes.`。未挂载存储时报告 `The evolution self-model store is not mounted.` |
+| `/selfmodel <skill>` | 渲染一份已记录的自我评估：`Self-model '<skill>' (revision <n>, confidence <x.xx>):`，随后是非空的 `strengths`、`weaknesses`、`uncertain areas`、`failure modes`、`preferred tools` 与 `evaluator blindspots` 列表；未记录的技能报告 `No self-assessment recorded for '<skill>'.` |
+| `/selfmodel <anything-else>` | `Usage: /selfmodel [<skill>]` |
+| `/uncertainty [<skill>]` | 渲染队列：`Evaluation queue[ '<skill>']: <n>`，随后 `- <skill> (skill-wide)` 或 `task <taskId>`，再接 `: priority <x.xx>, [<kinds>], <n> signals`；无信号时报告 `No uncertainty signals. The scorer records evaluator disagreement as signals.`。未挂载存储时报告 `The evolution uncertainty store is not mounted.` |
+| `/uncertainty <anything-else>` | `Usage: /uncertainty [<skill>]` |
+| `/adversary` | 列出已记录探针：`Adversarial probes[ '<skill>']: <n>`，随后 `- <id8> [<category>] <skill>: weakness found` 或 `no weakness`，另加 ` · repaired`；无记录时报告 `No adversarial probes recorded.` 并指向 `/adversary probe <skill> <category> <probe>` 形式。未挂载存储时报告 `The evolution adversary store is not mounted.` |
+| `/adversary list [<skill>]` | 同一探针列表收窄到单个技能。 |
+| `/adversary probe <skill> <category> <probe>` | 记录一条探针（类别之后的所有词都算作探针文本）并报告 `Recorded a '<category>' probe for '<skill>'. Mark it repaired with /adversary repair <id> once the weakness is fixed.`；类别不在注册集合内时报用法。 |
+| `/adversary repair <probeId>` | 把一条探针标记为已修复并报告 `Marked probe '<id8>' repaired.` |
+| `/adversary challenge <skill>` | 给出下一个应跑的探针：`Next adversarial probe for '<category>' (<n> recorded): <reason>` |
+| `/adversary defenses` | 列出评估器博弈防线清单：`Evaluator-gaming defenses:`，随后 `- <defense>: satisfied` 或 `- <defense>: open`；无记录时报告 `No evaluator-gaming defenses recorded.` |
+| `/adversary defense <name> <satisfied>` | 用 `true` 或 `false` 设置一条防线并报告 `Set defense '<name>' to satisfied.` 或 `Set defense '<name>' to open.` |
+| `/adversary <anything-else>` | `Usage: /adversary [list [<skill>] \| probe <skill> <category> <probe> \| repair <probeId> \| challenge <skill> \| defenses \| defense <name> <satisfied>]` |
+| `/lineage` | 按最新优先列出实验信封：`Experiments[ '<skill>'] (newest first): <n>`，随后 `- <id8> <skill> <outcome> by <operator>`（未记录时为 `?`）：`: <pass> pass, <tokens> tokens, <ms>ms`；无记录时报告 `No experiment envelopes recorded. The optimizer records staged writes as envelopes.`。未挂载存储时报告 `The evolution lineage store is not mounted.` |
+| `/lineage list [<skill>]` | 同一信封列表收窄到单个技能。 |
+| `/lineage compare <idA> <idB>` | 证明两个信封可比：`'<a8>' vs '<b8>': comparable — no compared dependency changed.` 或 `'<a8>' vs '<b8>': incomparable — changed dependencies: <names>.`；未知 id 报告 `Unknown experiment id in /lineage compare.` |
+| `/lineage replay <id>` | 渲染一条信封的记录：`Experiment <id> (<skill>, <outcome> by <operator>):`、`- pass <bool>, <tokens> tokens, <ms>ms`、`- dependencies: <key=value, …>` 或 `- dependencies: none`、`- seeds: <ids>` 或 `- seeds: not recorded`；未知 id 报告 `Unknown experiment '<id8>'.` |
+| `/lineage <anything-else>` | `Usage: /lineage [list [<skill>] \| compare <idA> <idB> \| replay <id>]` |
+| `/sleeptime` | 按可能性从高到低列出预期任务：`Anticipated tasks[ '<domain>'] (likelihood first): <n>`，随后 `- <taskId> (<domain>): <pct>%, <n> expected queries, <n> tokens each`；无预期任务时报告 `No anticipated tasks. Anticipate likely future tasks to seed sleep-time compute.`。未挂载存储时报告 `The evolution sleeptime store is not mounted.` |
+| `/sleeptime tasks [<domain>]` | 同一任务列表收窄到单个领域。 |
+| `/sleeptime artifacts [<taskId>]` | 列出预计算工件：`Precomputed artifacts[ '<taskId>']: <n>`，随后 `- <id8> [<kind>] for <taskId>: <n> hits, <n> tokens saved, cost <n>`；无记录时报告 `No precomputed artifacts recorded.` |
+| `/sleeptime plan` | 展示离线成本计划：`Sleep-time plan:`，随后 `- <taskId> (<domain>): net <n> tokens — <reason>`；没有值得构建的东西时报告 `Nothing worth precomputing now. Anticipate tasks to seed the plan.` |
+| `/sleeptime <anything-else>` | `Usage: /sleeptime [tasks [<domain>] \| artifacts [<taskId>] \| plan]` |
 
 `applyDecisions` 条目在 gist 里给出一批决策的计数——confirms、contradicts 与 new 各多少条——并在该行之下为每个决策各列一行缩进明细：`new '<statement>'`、`confirms '<current statement>'` 或 `contradicts '<current statement>'`，而当该条反驳携带了更正后的 statement 时则是 `contradicts '<current statement>' → '<replacement>'`。`confirms` 或 `contradicts` 的目标渲染为记录当前为该工件持有的 statement；记录已不再持有时则渲染为该工件的 id——该 id 正是工件创建时所用的规范化 statement，因此读起来仍是文本。其他操作只打印自己的 gist 行；渲染器读不懂其载荷的 `applyDecisions` 条目同样如此：读不懂的暂存载荷不渲染任何明细行，而不是让整张列表失败。
 
@@ -190,11 +265,11 @@ kind: "package-reference"
 
 当包级约定不够用时阅读以下页面；它们从命令逐步进入存储、评审器与设计决策。
 
-- [演进式 Harness 规范](../../../specs/evolutionary-harness.spec.md)——这些命令治理的行为契约。
+- [演进式 Harness 子系统](../../../docs/subsystems/evolutionary-harness.zh.md)——这些命令治理的行为契约。
 - [evolution 组地图](../README.zh.md)——本分组的包及其仓库位置。
 - [命令包](../../interaction/commands/README.zh.md)——聊天命令背后的注册表与分发约定。
 - [Usage ledger](../../session/usage-ledger/README.zh.md)——时间线分桶所用的 UTC+7 日历与窗口辅助函数。
-- [改进路线图](../../../specs/improvement.spec.md)——这些命令落地的 Phase 6 CLI 切片（`/suggestions` 仍在计划中）。
+- [演进式 Harness 子系统](../../../docs/subsystems/evolutionary-harness.zh.md)——本家族的行为在此描述，包括这些命令落地的 CLI 切片（`/suggestions` 仍在计划中）。
 
 -----
 

@@ -7,7 +7,7 @@ kind: "package-reference"
 
 [English](README.md) | 中文
 
-## 摘要
+## 概述
 
 `dsh-evolution-self-model` 维护持久化的按技能能力记录——优势、弱点、不确定领域、失败模式、偏好工具、评估器盲点——每次 upsert 递增修订号，外加按能力条目跟踪滚动通过率、来自观测数的置信度、最新优先的失败记录与覆盖技能。前沿将所有能力按最弱优先排序——先低通过率，再薄证据，再少覆盖技能——因此 `nextToLearn` 指明循环下一步该学什么。本存储只记录，不调用任何模型，也不强制学习。
 
@@ -18,7 +18,7 @@ kind: "package-reference"
 - [进一步探索](#further-exploration)
 - [模型体验](#model-experience)
 - [已知限制与延后工作](#known-limitations-and-deferred-work)
-- [开发者注记](#dev-note)
+- [开发备注](#dev-note)
 
 -----
 
@@ -107,7 +107,7 @@ console.log(ctx.evolutionSelfModel.nextToLearn()?.capability)
 - **置信度数观测数而不数难度**——十次简单通过即得完全置信度；加权难题需要在观测上加难度信号。
 
 <a id="dev-note"></a>
-### 开发者注记
+### 开发备注
 
 <details>
 <summary>维护者工作上下文——点击展开</summary>

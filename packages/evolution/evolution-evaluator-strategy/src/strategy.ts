@@ -6,11 +6,30 @@
  * @module @deepseek-ai/dsh-evolution-evaluator-strategy/src/strategy
  */
 
-import type { EvaluatorOutcome, EvaluatorStrategy, StrategyRanking, TaskClass } from './types.ts'
+import type { EvaluatorOutcome, EvaluatorStrategy, JudgeIndependence, StrategyRanking, TaskClass } from './types.ts'
 
-/** The storage key of one evaluator's strategy: evaluator and class joined. */
+/**
+ * The storage key of one evaluator's strategy: evaluator and class joined.
+ * @param evaluator - the evaluator identity.
+ * @param taskClass - the task class the strategy covers.
+ * @returns the storage key.
+ */
 export function strategyKey(evaluator: string, taskClass: TaskClass): string {
   return `${evaluator}\0${taskClass}`
+}
+
+/**
+ * Whether one verdict came from a route independent of the candidate's own
+ * model (§28). Same model, whether pinned or observed, is never independent
+ * evidence: the judge would be grading its own output. An unrecorded candidate
+ * model (an empty string) cannot be shown to be the judge's, so it does not
+ * count as the same model.
+ * @param judgeModel - model that produced the verdict.
+ * @param candidateModel - model that produced the judged candidate.
+ * @returns the independence reading.
+ */
+export function judgeIndependence(judgeModel: string, candidateModel: string): JudgeIndependence {
+  return judgeModel !== '' && judgeModel === candidateModel ? 'same-model' : 'independent'
 }
 
 /**
@@ -28,8 +47,10 @@ export function weightOf(corroborations: number, independentSamples: number): nu
 /**
  * Advance one evaluator's statistics with one verdict/ground-truth pair. Only
  * an independent pair counts toward corroboration: a verdict checked against
- * itself corroborates nothing, so it raises the sample count without moving
- * the weight.
+ * itself corroborates nothing, and neither does a verdict whose judge produced
+ * the candidate (§28), so either raises the sample count without moving the
+ * weight. Same-model verdicts are counted separately so the row shows how much
+ * of its record came from a judge grading its own output.
  * @param current - the statistics to advance, or undefined for the first pair.
  * @param outcome - the verdict and its ground truth.
  * @param at - ISO-8601 instant of the verdict.
@@ -40,16 +61,19 @@ export function updatedStrategy(
   outcome: EvaluatorOutcome,
   at: string,
 ): EvaluatorStrategy {
+  const sameModel = judgeIndependence(outcome.judgeModel, outcome.candidateModel) === 'same-model'
+  const independent = outcome.independent && !sameModel
   const samples = (current?.samples ?? 0) + 1
-  const independentSamples = (current?.independentSamples ?? 0) + (outcome.independent ? 1 : 0)
+  const independentSamples = (current?.independentSamples ?? 0) + (independent ? 1 : 0)
   const corroborations = (current?.corroborations ?? 0)
-    + (outcome.independent && outcome.verdict === outcome.groundTruth ? 1 : 0)
+    + (independent && outcome.verdict === outcome.groundTruth ? 1 : 0)
   return {
     evaluator: outcome.evaluator,
     taskClass: outcome.taskClass,
     samples,
     independentSamples,
     corroborations,
+    selfJudgedSamples: (current?.selfJudgedSamples ?? 0) + (sameModel ? 1 : 0),
     weight: weightOf(corroborations, independentSamples),
     lastAt: at,
   }
@@ -74,6 +98,7 @@ export function rankStrategies(
       samples: row.samples,
       independentSamples: row.independentSamples,
       corroborations: row.corroborations,
+      selfJudgedSamples: row.selfJudgedSamples ?? 0,
       weight: row.weight,
       reason: describeRanking(row),
     }))
@@ -107,5 +132,7 @@ function describeRanking(row: EvaluatorStrategy): string {
   const rate = row.independentSamples === 0
     ? 'no independent evidence'
     : `${row.corroborations}/${row.independentSamples} independent verdicts corroborated`
-  return `${rate} (${row.samples} verdicts recorded), weight ${row.weight.toFixed(3)}`
+  const selfJudged = row.selfJudgedSamples ?? 0
+  const selfJudgedNote = selfJudged === 0 ? '' : `; ${selfJudged} judged by the candidate's own model`
+  return `${rate} (${row.samples} verdicts recorded)${selfJudgedNote}, weight ${row.weight.toFixed(3)}`
 }

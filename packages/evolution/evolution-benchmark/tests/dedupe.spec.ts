@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { benchmarkHash, blocksDuplicate, dedupe, nextLadder, transitionState } from '../src/index.ts'
+import { benchmarkHash, blocksDuplicate, dedupe, HOLDOUT_AFTER_RUNS, ladderAdvance, nextLadder, transitionState } from '../src/index.ts'
 import type { BenchmarkInput } from '../src/index.ts'
 
 const input = (task: string): BenchmarkInput => ({ capability: 'writer', task, gists: [], sourceSessions: [] })
@@ -51,5 +51,22 @@ describe('evolution benchmark dedupe', () => {
     expect(nextLadder('holdout')).toBeUndefined()
     expect(nextLadder('contaminated')).toBeUndefined()
     expect(nextLadder('retired')).toBeUndefined()
+  })
+
+  it('advances a rung on the exposure recorded for the task capability', () => {
+    const exposure = (runs: number, passes: number) => ({ runs, passes })
+    // A fresh task joins the search set once anything was evaluated.
+    expect(ladderAdvance('fresh', exposure(0, 0))).toBeUndefined()
+    expect(ladderAdvance('fresh', exposure(1, 0))).toBe('search')
+    // Validation needs a candidate that passed, so the task carries a baseline.
+    expect(ladderAdvance('search', exposure(9, 0))).toBeUndefined()
+    expect(ladderAdvance('search', exposure(1, 1))).toBe('validation')
+    // Holdout is reserved once the corpus has moved past the task.
+    expect(ladderAdvance('validation', exposure(HOLDOUT_AFTER_RUNS - 1, 9))).toBeUndefined()
+    expect(ladderAdvance('validation', exposure(HOLDOUT_AFTER_RUNS, 9))).toBe('holdout')
+    // The partition ends at the protected state and never leaves a terminal one.
+    expect(ladderAdvance('holdout', exposure(99, 99))).toBeUndefined()
+    expect(ladderAdvance('contaminated', exposure(99, 99))).toBeUndefined()
+    expect(ladderAdvance('retired', exposure(99, 99))).toBeUndefined()
   })
 })

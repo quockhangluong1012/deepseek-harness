@@ -86,7 +86,7 @@ kind: "package-reference"
 <a id="further-exploration"></a>
 ## 进一步探索
 
-- [演进式 Harness 规范](../../../specs/evolutionary-harness.spec.md)——本包实现的行为契约。
+- [演进式 Harness 子系统](../../../docs/subsystems/evolutionary-harness.zh.md)——本包实现的行为契约。
 - [evolution 包导览](../README.zh.md)——本分组的软件包及其仓库位置。
 - [生成的配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-evolution-trajectory)——每个可接受的配置字段。
 

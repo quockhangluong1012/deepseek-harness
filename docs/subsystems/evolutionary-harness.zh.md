@@ -4,7 +4,7 @@
 
 演进式 Harness 中的作用域是 profile 加 workspace（或 profile 全局记录）的持久化记录：用户编写的指令、模型维护的经验与用户画像、附加上下文、产出文件索引，以及等待审批的暂存写入（`ctx.evolutionMemory`，`packages/evolution/evolution-memory`）。Harness 在后台从用户行为中学习，整理有界记忆，并在使用中改进技能；每一次习得性写入都有上限，可按配置暂存，有日志，可回滚。
 
-来源：[`specs/evolutionary-harness-spec-v10-complete.md`](../../specs/evolutionary-harness-spec-v10-complete.md)
+来源：[`specs/evolutionary-harness-v11-deep-research.md`](../../specs/evolutionary-harness-v11-deep-research.md)
 
 ## 组成部分
 
@@ -19,14 +19,7 @@
 
 ## 软件包
 
-| 软件包 | 职责 | ctx key |
-|---|---|---|
-| [`evolution-memory`](../../packages/evolution/evolution-memory/README.zh.md) | 按作用域持久化的记录、经验/画像写入、暂存写入与容量核算 | `ctx.evolutionMemory` |
-| [`evolution-reviewer`](../../packages/evolution/evolution-reviewer/README.zh.md) | 回合缓冲、产出索引、受门控的提取与按需重建 | `ctx.evolutionReviewer` |
-| [`evolution-memory-context`](../../packages/context/evolution-memory-context/README.zh.md) | 渲染简报并拼接入 `agent/pre-step`，另加作用域提示 | — |
-| [`evolution-skill-telemetry`](../../packages/skill/evolution-skill-telemetry/README.zh.md) | 持久化的按技能使用/查看/补丁计数，带来源、置顶与生命周期状态 | `ctx.evolutionSkillTelemetry` |
-| [`evolution-skill-manage`](../../packages/skill/evolution-skill-manage/README.zh.md) | 面向模型的 `skill_manage` 工具，以文件形式创建、补丁、重写、写入、删除技能 | 注册到 `ctx.tools` |
-| [`evolution-curator`](../../packages/evolution/evolution-curator/README.zh.md) | 闲置触发的自动技能生命周期流转，带试运行预览 | `ctx.evolutionCurator` |
+[evolution 组地图](../../packages/evolution/README.zh.md#packages)拥有完整的软件包列表——每个包的职责与 `ctx` key——下方生成的 [Cordis API](#cordis-surface) 拥有它们的服务、事件与 Remote 面。本参考文档不再自带软件包列表，以免两者相互漂移。
 
 作用域标识是以 `EvolutionScopeId` 构造的不透明 `profile:workspaceId`（或 `profile:global`）键。经验是按身份（即规范化后的 statement）寻址的工件，因此一次编辑命名它所改动的工件，而不是拼接一份文档。存储位于本机 `$DSH_HOME` 之下；不向项目目录内写入任何内容。
 
@@ -101,6 +94,17 @@ defenses(): readonly DefenseStatus[]
  * @returns the open defenses.
  */
 defenseGaps(): GamingDefense[]
+
+/**
+ * The §46 checklist as the recorded stores show it, rather than as an
+ * operator set it: each defense reads `observed-satisfied`, `observed-open`,
+ * or `unobserved` from the evaluator-strategy, benchmark, and router stores
+ * plus this store's own probes. A defense no store answers from is
+ * `unobserved`, never reported open on nobody's evidence. Read-only: this
+ * neither writes to those stores nor starts a run (§58.12).
+ * @returns the observations, in canonical order.
+ */
+observedDefenses(): readonly DefenseObservation[]
 ```
 
 Source: [`packages/evolution/evolution-adversary/src/index.ts`](../../packages/evolution/evolution-adversary/src/index.ts)
@@ -148,17 +152,27 @@ Source: [`packages/evolution/evolution-benchmark/src/index.ts`](../../packages/e
 
 ### `ctx.evolutionBudget` — `EvolutionBudget`
 
-Evolution-budget store over durable allocations and spends. Opens the `evolution_budget` domain at init and closes it through `ctx.effect`.
+Evolution-budget store over durable allocations, spends, and candidate pools. Opens the `evolution_budget` domain at init and closes it through `ctx.effect`.
 
 ```ts cordis-catalog
 /**
  * Record a budget allocation for one batch, pricing its candidate class
- * against the base ceilings and upserting by batch identity. The stored
- * instant is now.
+ * against the base ceilings, including §37's cost, deadline, and parallelism
+ * dimensions, and upserting by batch identity. The stored instant is now.
  * @param input - the batch, its task class, and its candidate class.
  * @returns the stored allocation.
  */
 async allocate(input: AllocationInput): Promise<BudgetAllocation>
+
+/**
+ * Record a budget allocation for one candidate a batch's pool already holds,
+ * pricing the class the §37 policy decides from its recorded evidence and
+ * naming that branch in the allocation's reason.
+ * @param batchId - the batch whose pool holds the candidate.
+ * @param candidateId - the pooled candidate to price.
+ * @returns the stored allocation.
+ */
+async allocateForCandidate(batchId: string, candidateId: string): Promise<BudgetAllocation>
 
 /**
  * Record one spend of a batch and settle it against the allocation across
@@ -169,6 +183,37 @@ async allocate(input: AllocationInput): Promise<BudgetAllocation>
  * @returns the cumulative settlement of the batch.
  */
 async spend(batchId: string, input: SpendInput): Promise<BudgetSettlement>
+
+/**
+ * Record the candidates one batch screens, upserting each by candidate
+ * identity so a re-recorded candidate replaces its evidence and leaves its
+ * siblings alone. The stored instant is now.
+ * @param input - the batch and the candidates entering its pool.
+ * @returns the batch's pool, in candidate-id order.
+ */
+async recordPool(input: PoolInput): Promise<readonly PooledCandidate[]>
+
+/**
+ * List a batch's recorded candidate pool in candidate-id order.
+ * @param batchId - the batch whose pool to list.
+ * @returns the pool, detached from the store.
+ */
+pool(batchId: string): readonly PooledCandidate[]
+
+/**
+ * The successive-halving screening schedule the batch's recorded pool
+ * implies (§38): how many candidates each round evaluates and keeps.
+ * @param batchId - the batch whose schedule to derive.
+ * @returns the schedule, or undefined when the batch recorded no pool.
+ */
+schedule(batchId: string): HalvingSchedule | undefined
+
+/**
+ * Read every §27 resource-aware objective the batch's records answer.
+ * @param batchId - the batch to read.
+ * @returns the readings, canonical order.
+ */
+objectives(batchId: string): readonly ObjectiveReading[]
 
 /**
  * List recorded allocations, optionally filtered by task class, in
@@ -189,7 +234,7 @@ spends(batchId?: string): readonly SpendRecord[]
 /**
  * Whether a batch's cumulative recorded spend stays inside its allocation.
  * @param batchId - the batch to check.
- * @returns true when both ceilings hold.
+ * @returns true when every measured ceiling holds.
  */
 withinBudget(batchId: string): boolean
 ```
@@ -255,7 +300,7 @@ Host Remote service over the durable evolution record. The stream is owned by th
  * @param request - scope identity.
  * @returns the Remote projection.
  */
-@Remote('read') async read(request: EvolutionScopeRequest): Promise<EvolutionMemoryValue>
+@Remote('read') read(request: EvolutionScopeRequest): Promise<EvolutionMemoryValue>
 
 /**
  * Replace the instruction text.
@@ -308,7 +353,7 @@ Host Remote service over the durable evolution record. The stream is owned by th
  * @param request - scope identity.
  * @returns the pending entries in record order.
  */
-@Remote('listStaged') async listStaged(request: EvolutionListStagedRequest): Promise<EvolutionStagedValue>
+@Remote('listStaged') listStaged(request: EvolutionListStagedRequest): Promise<EvolutionStagedValue>
 
 /**
  * Apply one staged write and drop it from the pending list.
@@ -329,7 +374,7 @@ Host Remote service over the durable evolution record. The stream is owned by th
  * @param request - scope identity and requested window.
  * @returns the timeline.
  */
-@Remote('timeline') async timeline(request: EvolutionTimelineRequest): Promise<JourneyTimeline>
+@Remote('timeline') timeline(request: EvolutionTimelineRequest): Promise<JourneyTimeline>
 
 /**
  * Stream a complete baseline followed by ordered upserts.
@@ -539,6 +584,36 @@ Durable per-scope dreaming. Opens the `evolution_dreams` domain at init, registe
 read(scopeId: EvolutionScopeId): DreamsRecord | undefined
 
 /**
+ * The narratives that still answer, newest first. A superseded one keeps its
+ * place in the record and its evidence but answers no query, exactly as the
+ * claim graph treats a retired claim, so a corrected statement replaces an
+ * older one instead of editing it.
+ * @param scopeId - scope identity.
+ * @returns detached copies of the active promotions.
+ */
+promotions(scopeId: EvolutionScopeId): DreamPromotion[]
+
+/**
+ * Read one scope's promotion ledger, newest first, for audit and as the
+ * source of the identities {@link rollback} takes.
+ * @param scopeId - scope identity.
+ * @returns detached copies of the ledger entries.
+ */
+ledger(scopeId: EvolutionScopeId): readonly DreamLedgerEntry[]
+
+/**
+ * Restore the promotions one ledger entry replaced. The entry holds its own
+ * preimage, so nothing can go missing between the write and the rollback: an
+ * unknown identity fails before anything is written, and the rollback appends
+ * its own entry, which makes it as reversible as the pass it undoes.
+ * @param scopeId - scope identity.
+ * @param entryId - ledger entry identity, from {@link ledger}.
+ * @param now - ISO-8601 instant to stamp, defaulting to the wall clock.
+ * @returns what the rollback restored and the entry that recorded it.
+ */
+async rollback( scopeId: EvolutionScopeId, entryId: string, now: string = new Date().toISOString(), ): Promise<DreamRollbackReport>
+
+/**
  * Run one phase for one scope.
  * @param phase - which phase to run.
  * @param scopeId - scope identity.
@@ -595,6 +670,25 @@ runs(skill?: string): readonly EvaluatorRun[]
  * @returns the aggregated health facts.
  */
 summary(): EvaluatorHealthSummary
+
+/**
+ * Record the later ground truth that judged one verdict (§13): whether it
+ * agreed with the evaluator, and whether it was measured independently. An
+ * unknown verdict identity rejects loudly, so a ground truth is never
+ * attached to a verdict that does not exist.
+ * @param runId - the recorded verdict being judged.
+ * @param judgment - the ground truth's reading.
+ * @returns the updated verdict.
+ */
+async judge(runId: string, judgment: RunJudgmentInput): Promise<EvaluatorRun>
+
+/**
+ * The calibration facts of the recorded verdicts (§13): the false-negative
+ * rate beside the summary's false-positive rate, and how the evaluator
+ * correlates with the independent ground truths that later judged it.
+ * @returns the calibration facts.
+ */
+calibration(): JudgeCalibration
 ```
 
 Source: [`packages/evolution/evolution-evaluator-health/src/index.ts`](../../packages/evolution/evolution-evaluator-health/src/index.ts)
@@ -623,7 +717,10 @@ async observe(outcome: EvaluatorOutcome): Promise<EvaluatorStrategy>
 strategies(taskClass?: TaskClass): readonly EvaluatorStrategy[]
 
 /**
- * Rank one task class's evaluators by their smoothed corroboration weight.
+ * Rank one task class's evaluators by their smoothed corroboration weight,
+ * each entry naming the route §28 assigns to the final promotion review — the
+ * strongest configured verifier — so the recommendation says which model
+ * should re-check what it recommends.
  * @param taskClass - the task class to rank evaluators for.
  * @returns the ranked evaluators, most trustworthy first.
  */
@@ -632,7 +729,10 @@ ranking(taskClass: TaskClass): readonly StrategyRanking[]
 /**
  * The evaluator to trust for one task class: the best-ranked evaluator with
  * at least `minimumSamples` independent samples, or undefined while no
- * evaluator has that much independent evidence.
+ * evaluator has that much independent evidence. The entry names the route
+ * §28 puts on the final promotion review, so the caller knows which model
+ * should check the verdict before it is acted on. Naming it routes nothing:
+ * no run is started from a recommendation (§58.12).
  * @param taskClass - the task class to recommend for.
  * @returns the recommended evaluator, or undefined.
  */
@@ -682,15 +782,39 @@ signals(sessionIds: readonly string[], limit: number): FeedbackSignal[]
 /**
  * Reflect the given sessions' failures as structured reflections, most
  * decisive first: the ledger-derived half (symptom, violated expectation,
- * observed behavior, confidence) merged with the analyst-supplied half
- * (root cause, corrected strategy, and friends) when one was recorded.
- * Analytic fields stay null until `recordReflection` states them, so a
- * reader never mistakes missing analysis for measured fact.
+ * observed behavior, confidence) merged with the analytic half (root cause,
+ * corrected strategy, and friends) when one is stored. Analytic fields stay
+ * null until something states them, so a reader never mistakes missing
+ * analysis for measured fact.
  * @param sessionIds - sessions to aggregate, in caller order.
  * @param limit - maximum reflections returned.
  * @returns the structured reflections, decisive first.
  */
 reflect(sessionIds: readonly string[], limit: number): StructuredReflection[]
+
+/**
+ * Author and store one deterministic reflection per graded `trigger_review`
+ * signal that has none, sweeping the store's own sessions newest-write first.
+ * A signal that already has a stored reflection is left alone, so a second
+ * pass over unchanged evidence writes nothing. No model is called: every
+ * authored field is a template over the observed failure identity and its
+ * recurrence, which is why `rootCause` and `whatWorked` stay null.
+ * @param limit - maximum reflections this pass authors.
+ * @param now - ISO-8601 instant stamped on every reflection this pass writes.
+ * @returns the reflections written, decisive first.
+ */
+async reflectSignals(limit: number, now: string): Promise<readonly StructuredReflection[]>
+
+/**
+ * Stored reflections whose failure was reported by one of `sessionIds`,
+ * newest write first: the retrieval half of the failure → explanation →
+ * corrective heuristic association (§4.1). A stored reflection whose failure
+ * none of the given sessions reported is not one of theirs and stays out.
+ * @param sessionIds - sessions to read, in caller order.
+ * @param limit - maximum reflections returned.
+ * @returns the stored reflections, newest first.
+ */
+async reflections(sessionIds: readonly string[], limit: number): Promise<readonly StructuredReflection[]>
 
 /**
  * Read one failure's recorded analysis.
@@ -738,6 +862,44 @@ read(scopeId: EvolutionScopeId): GraphRecord | undefined
  * @returns what the batch added, reinforced, and dropped.
  */
 async observe( scopeId: EvolutionScopeId, triples: readonly GraphTriple[], now: string = new Date().toISOString(), ): Promise<GraphObserveResult>
+
+/**
+ * Record assertions about the scope's claims. Each assertion creates the
+ * claim the scope does not hold yet or merges into the one it does, adding
+ * evidence, lineage edges, and observed traces; a `supersedes` marks the
+ * claims it names `retired` so they stop answering {@link claims}.
+ *
+ * An assertion whose statement is blank once normalized is dropped and
+ * counted, and so is a new claim once the scope holds `maxClaims` of them:
+ * a saturated scope keeps answering from the claims it has instead of
+ * failing its caller.
+ * @param scopeId - scope identity.
+ * @param assertions - claims to record, in input order.
+ * @param now - ISO-8601 instant to stamp, defaulting to the wall clock.
+ * @returns what the batch added, updated, retired, and dropped.
+ */
+async recordClaims( scopeId: EvolutionScopeId, assertions: readonly ClaimAssertion[], now: string = new Date().toISOString(), ): Promise<ClaimObserveResult>
+
+/**
+ * Answer one claim query: the active claims whose statement contains the
+ * query, most believed first. A retired claim is never among them — it no
+ * longer answers anything — and is reachable only by identity through
+ * {@link claim}, which reports what retired it.
+ * @param scopeId - scope identity.
+ * @param query - case-insensitive statement substring; empty matches every active claim.
+ * @param limit - maximum claims returned, capped by `maxQueryLimit`.
+ * @returns the matching claims, best-supported first.
+ */
+claims( scopeId: EvolutionScopeId, query: string = '', limit: number = this.resolved.maxQueryLimit, ): Claim[]
+
+/**
+ * Read one claim by identity, retired or active, so a caller can tell a
+ * claim that still stands from one a later claim replaced.
+ * @param scopeId - scope identity.
+ * @param statement - the claim's statement or its normalized identity.
+ * @returns the claim, or undefined when the scope holds none under that identity.
+ */
+claim(scopeId: EvolutionScopeId, statement: string): Claim | undefined
 
 /**
  * Answer one relation query by traversing outward from a subject.
@@ -1037,6 +1199,11 @@ async removeArtifact(id: EvolutionScopeId, artifactId: string): Promise<Evolutio
  * decisions named artifacts the record no longer holds — stamps no family,
  * exactly as {@link addArtifact} does when its add stores nothing; the
  * provenance of the call that found nothing is still recorded.
+ *
+ * A batch applied with provenance is also published as one
+ * `evolution/decisions-applied` event once the write is durable, carrying
+ * the artifacts as they read before it. A batch applied without provenance
+ * is not published: every decision would carry unattributable evidence.
  * @param id - scope identity.
  * @param decisions - the confirmed, contradicted, and new facts, in the
  * order the extraction reported them.
@@ -1089,7 +1256,10 @@ async sweep(scopeId: EvolutionScopeId, now: string = new Date().toISOString()): 
 async setUserProfile(id: EvolutionScopeId, text: string, extraction?: EvolutionExtraction): Promise<EvolutionMemoryRecord>
 
 /**
- * Attach pasted text or a scope file.
+ * Attach pasted text or a scope file. An item whose label carries the stored
+ * `RECALL_LABEL_PREFIX` is a recall of the memory the label names, so the
+ * write also appends one row to the scope's recall ledger: that is §23's
+ * `retrieved` link, counted where the shipped recall path already writes.
  * @param id - scope identity.
  * @param input - label plus text or path with its observed size.
  * @returns the stored record.
@@ -1097,7 +1267,41 @@ async setUserProfile(id: EvolutionScopeId, text: string, extraction?: EvolutionE
 async addContextItem(id: EvolutionScopeId, input: EvolutionContextItemInput): Promise<EvolutionMemoryRecord>
 
 /**
- * Detach one context item.
+ * Every recall the profile's scopes recorded, newest first within its scope,
+ * each naming the scope it landed in. §23's loop is read from here; which
+ * session read a recalled item is not among the recorded links.
+ * @returns one row per recorded recall.
+ */
+recalls(): readonly RecordedRecall[]
+
+/**
+ * Record the graded outcome of one recall: the §23 loop's `helped outcome`
+ * link. The grader is whichever pass reads the outcome record — the
+ * curator's idle pass is the shipped one, which grades the session the
+ * recall's decision batch was extracted from off the feedback store. The
+ * newest recall of that memory still awaiting an outcome is the one graded,
+ * so a memory recalled again after an outcome is graded again on its newer
+ * recall. A memory with no awaiting recall is refused loudly rather than
+ * graded twice.
+ * @param id - scope identity.
+ * @param recalledId - recalled memory's identity, as its label carried it.
+ * @param outcome - `ok` when the graded session's evidence was clean, else `failed`.
+ * @param at - ISO-8601 instant the outcome was recorded, defaulting to the wall clock.
+ * @returns the stored record.
+ */
+async recordRecallOutcome( id: EvolutionScopeId, recalledId: string, outcome: 'ok' | 'failed', at: string = new Date().toISOString(), ): Promise<EvolutionMemoryRecord>
+
+/**
+ * §24's utility for every memory the recall ledger holds, one reading per
+ * recalled memory across the profile's scopes. Reads the same rows
+ * {@link recalls} returns.
+ * @returns the derived readings.
+ */
+recallUtility(): readonly MemoryUtility[]
+
+/**
+ * Detach one context item. The recall ledger keeps its row: the recall
+ * happened, and dropping the item from the brief does not un-retrieve it.
  * @param id - scope identity.
  * @param itemId - context item identity.
  * @returns the stored record.
@@ -1132,6 +1336,9 @@ async stageWrite(input: StagedWriteInput): Promise<StagedWrite>
  * the baseline-versus-candidate measurement its proposer recorded, which
  * this store has no way to read, so it drops on the human's approval.
  * Either decision is recorded in the scope's resolution log, newest first.
+ * An approved `applyDecisions` batch is published as one
+ * `evolution/decisions-applied` event under the entry's origin session, on
+ * the same terms {@link applyExtractionDecisions} states.
  * @param id - staged entry identity.
  * @returns resolution after durability.
  */
@@ -1188,8 +1395,10 @@ Meta-evolution store over durable engine runs. Opens the `evolution_meta` domain
 ```ts cordis-catalog
 /**
  * Record one engine run, completing its configuration with the default
- * choices where the caller named none. The stored instant is now.
- * @param input - the run and its (possibly partial) configuration.
+ * choices where the caller named none and storing the sequence it performed
+ * as given. An absent sequence records that the caller observed none — the
+ * store never invents the order a run took. The stored instant is now.
+ * @param input - the run, its (possibly partial) configuration, and its workflow.
  * @returns the stored run.
  */
 async record(input: EngineRunInput): Promise<EngineRun>
@@ -1222,11 +1431,31 @@ recommend(taskClass: MetaTaskClass): ConfigRecommendation | undefined
 
 Source: [`packages/evolution/evolution-meta/src/index.ts`](../../packages/evolution/evolution-meta/src/index.ts)
 
+<a id="ctxevolutionmetrics--evolutionmetrics"></a>
+
+### `ctx.evolutionMetrics` — `EvolutionMetrics`
+
+Metric layer over the evolution stores. It opens no domain and holds no state, so every reading is the current state of the stores it reads; a store that is not mounted makes its metrics unmeasurable rather than absent, so one report always carries the whole §55 set.
+
+```ts cordis-catalog
+/**
+ * Measure the §55 metric set over one window of recorded engine runs. The
+ * north star is reported per compute denominator; every supporting metric
+ * is either measured from the store that owns it or reported unmeasurable
+ * with the missing record named. Reads only.
+ * @param query - which runs the window covers; omitted fields take defaults.
+ * @returns the window, the north star per denominator, and the supporting set.
+ */
+report(query: MetricsQuery = {}): MetricsReport
+```
+
+Source: [`packages/evolution/evolution-metrics/src/index.ts`](../../packages/evolution/evolution-metrics/src/index.ts)
+
 <a id="ctxevolutionmodelroutes--evolutionmodelroutes"></a>
 
 ### `ctx.evolutionModelRoutes` — `EvolutionModelRoutes`
 
-Adaptive model-routing store over durable assignments and evidence. Opens the `evolution_model_routes` domain at init and closes it through `ctx.effect`.
+Adaptive model-routing store over durable assignments, evidence, and the identities that filled a run's evolutionary roles. Opens the `evolution_model_routes` domain at init and closes it through `ctx.effect`.
 
 ```ts cordis-catalog
 /**
@@ -1273,6 +1502,43 @@ evidence(role?: EvolutionRole, route?: ModelRoute): readonly RouteEvidence[]
  * @returns the recommended route, or undefined.
  */
 recommend(role: EvolutionRole): ModelRoute | undefined
+
+/**
+ * The §28 topology conflicts in the current assignment set: routes that both
+ * produce work and judge it, which make the judging role's verdicts
+ * non-independent by construction. Recorded, never enforced — the assignment
+ * set still answers `recommend` exactly as recorded.
+ * @returns the conflicts, ordered by provider then model.
+ */
+conflicts(): readonly RoleConflict[]
+
+/**
+ * Record the identity that filled one evolutionary role of one run, so §53's
+ * separation of duties has the pair to compare. Recording a role twice for
+ * one run replaces its identity: the newest fill wins.
+ * @param input - the run, the role, and the identity that filled it.
+ * @returns the stored duty row.
+ */
+async recordDuty(input: DutyInput): Promise<DutyRecord>
+
+/**
+ * List one run's recorded role fills, in role-topology order.
+ * @param runId - the run to list.
+ * @returns the duty rows, detached from the store.
+ */
+duties(runId: string): readonly DutyRecord[]
+
+/**
+ * §53's separation of duties for one decision over one run: whether the
+ * judging role's recorded identity differs from the producing role's. The
+ * store records what a caller filled each role with and refuses on what it
+ * read, so a decision taken without recording both identities is refused as
+ * unknown rather than assumed independent.
+ * @param runId - the run the decision concerns.
+ * @param decision - the decision being taken.
+ * @returns the verdict, whose refusal names both roles.
+ */
+checkDuties(runId: string, decision: DutyDecision): DutyVerdict
 ```
 
 Source: [`packages/evolution/evolution-model-routes/src/index.ts`](../../packages/evolution/evolution-model-routes/src/index.ts)
@@ -1317,7 +1583,7 @@ Source: [`packages/evolution/evolution-novelty-search/src/index.ts`](../../packa
 
 ### `ctx.evolutionOperators` — `EvolutionOperators`
 
-Mutation-operator store over durable statistics rows. Opens the `evolution_operators` domain at init and closes it through `ctx.effect`.
+Mutation-operator store over durable statistics and instruction rows. Opens the `evolution_operators` domain at init and closes it through `ctx.effect`.
 
 ```ts cordis-catalog
 /**
@@ -1329,6 +1595,49 @@ Mutation-operator store over durable statistics rows. Opens the `evolution_opera
 async record(outcome: OperatorOutcome): Promise<OperatorStats>
 
 /**
+ * Record the instruction one operator and artifact class should send. The
+ * pair holds one instruction at a time: a different text replaces the
+ * previous proposal and starts its verdict tally over, while re-proposing
+ * the same text keeps the verdicts it earned. The stored instant is now.
+ * @param input - the operator, the artifact class, and the proposed instruction.
+ * @returns the stored instruction row.
+ */
+async recordInstruction(input: InstructionInput): Promise<OperatorInstruction>
+
+/**
+ * Record one verdict on the instruction its operator and artifact class
+ * holds. The pair must hold an instruction: a verdict on nothing would be
+ * evidence for a proposal that was never made.
+ * @param verdict - the verdict and why it landed that way.
+ * @returns the updated instruction row.
+ */
+async judgeInstruction(verdict: InstructionVerdict): Promise<OperatorInstruction>
+
+/**
+ * Read the instruction one operator and artifact class holds.
+ * @param operator - the operator whose instruction to read.
+ * @param artifactClass - the artifact class whose instruction to read.
+ * @returns the row, or undefined when the pair holds no proposal.
+ */
+instruction(operator: MutationOperator, artifactClass: ArtifactClass): OperatorInstruction | undefined
+
+/**
+ * List recorded instruction proposals, optionally filtered by artifact
+ * class, in canonical operator order then artifact-class order.
+ * @param artifactClass - optional artifact-class filter.
+ * @returns the rows, detached from the store.
+ */
+instructions(artifactClass?: ArtifactClass): readonly OperatorInstruction[]
+
+/**
+ * The instruction to try next on one artifact class: the one the ranking's
+ * top operator holds, undefined while that operator holds no proposal.
+ * @param artifactClass - the artifact class to recommend for.
+ * @returns the recommended instruction.
+ */
+recommendedInstruction(artifactClass: ArtifactClass): OperatorInstruction | undefined
+
+/**
  * List every recorded statistics row, optionally filtered by artifact
  * class, in canonical operator order then artifact-class order.
  * @param artifactClass - optional artifact-class filter.
@@ -1338,8 +1647,9 @@ stats(artifactClass?: ArtifactClass): readonly OperatorStats[]
 
 /**
  * Rank every canonical operator for one artifact class by the
- * exploration-adjusted score. Untried operators enter with their prior
- * score, so the ranking always names a next operator to try.
+ * exploration-adjusted score, nudged by the instruction verdicts the class
+ * recorded. Untried operators enter with their prior score, so the ranking
+ * always names a next operator to try.
  * @param artifactClass - the artifact class to rank operators for.
  * @returns the ranked operators, best first.
  */
@@ -1419,6 +1729,51 @@ async updateStatus(candidateId: string, status: PopulationStatus): Promise<Popul
 
 Source: [`packages/evolution/evolution-population/src/index.ts`](../../packages/evolution/evolution-population/src/index.ts)
 
+<a id="ctxevolutionretrieval--evolutionretrieval"></a>
+
+### `ctx.evolutionRetrieval` — `EvolutionRetrieval`
+
+Retrieve configurations learned from the sessions that ran under them. Opens the `evolution_retrieval` domain at init and closes it through `ctx.effect`.
+
+```ts cordis-catalog
+/**
+ * Record one session under one retrieval configuration. The attribution key
+ * is the configuration and the session joined, so recording the same session
+ * again — a resumed session, a retried step — upserts the same row and keeps
+ * its first instant instead of counting the session twice.
+ * @param input - the configuration in force and the session it served.
+ * @returns the stored attribution.
+ */
+async record(input: RetrievalAttributionInput): Promise<RetrievalAttribution>
+
+/**
+ * List recorded attributions, optionally for one configuration, newest first
+ * with session-id ascending tie-break.
+ * @param configKey - optional configuration-key filter.
+ * @returns the attributions, detached from the store.
+ */
+attributions(configKey?: string): readonly RetrievalAttribution[]
+
+/**
+ * The derived effectiveness of every configuration, optionally for one task
+ * class, in task-class then configuration-key order.
+ * @param taskClass - optional task-class filter.
+ * @returns the effectiveness rows, detached from the store.
+ */
+effectiveness(taskClass?: RetrievalTaskClass): readonly RetrievalEffectiveness[]
+
+/**
+ * The configuration to run for one task class: the best-ranked configuration
+ * with at least `minimumSessions` graded sessions, or undefined while no
+ * configuration has that much evidence.
+ * @param taskClass - the task class to recommend for.
+ * @returns the recommended configuration, or undefined.
+ */
+recommend(taskClass: RetrievalTaskClass): RetrievalRankingEntry | undefined
+```
+
+Source: [`packages/evolution/evolution-retrieval/src/index.ts`](../../packages/evolution/evolution-retrieval/src/index.ts)
+
 <a id="ctxevolutionreviewer--evolutionreviewer"></a>
 
 ### `ctx.evolutionReviewer` — `EvolutionReviewer`
@@ -1455,7 +1810,11 @@ Routing self-optimization store over durable outcomes. Opens the `evolution_rout
 ```ts cordis-catalog
 /**
  * Record one measured outcome of a route serving one role on one task class.
- * The stored instant is now.
+ * The stored instant is now. When the outcome leaves the best-measured routes
+ * of its task class and role strongly disagreeing, the §44 disagreement is
+ * recorded as an uncertainty signal through the optional store seam — this is
+ * the one producer of a `disagreement` signal that starts from route
+ * outcomes. A failing record must not fail the observation.
  * @param outcome - the route, role, task class, and measured triple.
  * @returns the stored outcome.
  */
@@ -1489,6 +1848,16 @@ effectiveness(taskClass?: RouterTaskClass, role?: RoutingRole): readonly RouteEf
  * @returns the recommended route, or undefined.
  */
 recommend(taskClass: RouterTaskClass, role: RoutingRole): RouteRankingEntry | undefined
+
+/**
+ * The §44 route disagreements among the recorded outcomes: per task class and
+ * role, the two best-measured routes whose pass rates diverge by more than the
+ * configured threshold, strongest gap first.
+ * @param taskClass - optional task-class filter.
+ * @param role - optional role filter.
+ * @returns the disagreements, strongest first.
+ */
+disagreements(taskClass?: RouterTaskClass, role?: RoutingRole): readonly RouteDisagreement[]
 ```
 
 Source: [`packages/evolution/evolution-router/src/index.ts`](../../packages/evolution/evolution-router/src/index.ts)
@@ -1659,6 +2028,10 @@ async markViewed(name: string, source?: string): Promise<SkillUsageRecord | unde
 
 /**
  * Count one skill-management mutation. Exclusion matches {@link markUsed}.
+ * The mutation may have changed the body, so the per-session outcome
+ * evidence clears with it: those outcomes describe the artifact that just
+ * changed, and the utility reading starts over rather than crediting the new
+ * body with the old body's results.
  * @param name - skill name.
  * @param source - catalog source when the caller already resolved it.
  * @returns the stored record, or undefined for excluded sources.
@@ -1688,7 +2061,8 @@ async markAdopted(name: string): Promise<SkillUsageRecord>
  * Record one trust observation for a skill. A failure with attribution
  * demotes the skill and restamps the anchor; a success counts only when its
  * session is newer than that anchor and has not been counted yet, so
- * evidence gathered before a fix cannot promote the skill again. Excluded
+ * evidence gathered before a fix cannot promote the skill again. Either way
+ * the session's outcome is recorded for §40's utility reading. Excluded
  * sources resolve to no record, and an observation that changes nothing
  * writes nothing.
  * @param name - skill name.
@@ -1700,9 +2074,21 @@ async markAdopted(name: string): Promise<SkillUsageRecord>
 async recordTrustObservation( name: string, outcome: 'success' | 'failure', sessionId: string, failure?: SkillTrustFailure, ): Promise<SkillUsageRecord | undefined>
 
 /**
+ * Read one skill's utility: uses, assisted and successful tasks, the
+ * library-relative gain, and the recorded cost per success. The baseline arm
+ * is the other tracked skills' pooled outcomes, because this harness records
+ * no skill-free run; see {@link skillUtility} for exactly what the gain does
+ * and does not measure.
+ * @param name - skill name.
+ * @returns the derived reading, or undefined when the skill has no record.
+ */
+utility(name: string): SkillUtility | undefined
+
+/**
  * Record a new revision of the SKILL.md body. The store hashes the content
  * itself, so one place defines the shape of `contentSha`; the same bytes
- * again is a no-op, and a real change resets trust like any other edit.
+ * again is a no-op, and a real change resets trust and clears the outcome
+ * evidence like any other edit.
  * @param name - skill name.
  * @param content - the exact bytes just written to SKILL.md.
  * @returns the stored record, or undefined for excluded sources.
@@ -1752,9 +2138,11 @@ readConsolidationCost(): ConsolidationCostRow | undefined
 async setPinned(name: string, pinned: boolean): Promise<SkillUsageRecord>
 
 /**
- * Move one skill through its curation lifecycle. Entering `archived`
- * stamps the instant; leaving clears it. The absorption target replaces
- * any previous one, so plain transitions carry none.
+ * Move one skill through its curation lifecycle. Entering `suspect` or
+ * `archived` stamps that state's instant and leaving it clears the instant,
+ * so a revival is judged against when the question was raised rather than
+ * against any older clean load. The absorption target replaces any previous
+ * one, so plain transitions carry none.
  * @param name - skill name.
  * @param state - new lifecycle state.
  * @param absorbedInto - consolidation umbrella, or null when standalone.
@@ -1772,6 +2160,20 @@ Source: [`packages/skill/evolution-skill-telemetry/src/index.ts`](../../packages
 Sleep-time store over durable anticipated tasks and precomputed artifacts. Opens the `evolution_sleeptime` domain at init and closes it through `ctx.effect`.
 
 ```ts cordis-catalog
+/**
+ * Run one anticipation pass over the recurrence the source stores recorded:
+ * anticipate each class that recurred often enough inside the window,
+ * precompute the artifacts the offline plan justifies for them, and account
+ * the recorded turns that consumed an artifact already cached. A class whose
+ * recurrence falls outside the window is left to the next pass, and a task
+ * the plan rates but no recorded recurrence stands behind is skipped rather
+ * than precomputed on the plan's word alone. Every phase is bounded by
+ * `maxPerPass` and reads only local storage, so the pass observes disposal at
+ * the one unbounded wait — reading traces per skill.
+ * @param signal - aborts between skills at plugin teardown.
+ */
+async anticipateAll(signal?: AbortSignal): Promise<void>
+
 /**
  * Anticipate one future task, upserting by task identity so a re-anticipated
  * task refreshes its likelihood and expectations. The stored instant is now.
@@ -1791,7 +2193,9 @@ tasks(domain?: string): readonly AnticipatedTask[]
 /**
  * Precompute one reasoning artifact for an anticipated task. The task must
  * exist: an artifact for a task nobody anticipated is a surprise, not idle
- * work. A fresh artifact has served nothing yet.
+ * work. A fresh artifact has served nothing yet, and its hit cursor starts at
+ * its own instant, so the turns recorded before it are never counted as its
+ * consumers.
  * @param input - the artifact to cache.
  * @returns the stored artifact.
  */
@@ -1806,13 +2210,18 @@ async precompute(input: PrecomputeInput): Promise<PrecomputeArtifact>
 artifacts(taskId?: string): readonly PrecomputeArtifact[]
 
 /**
- * Record one future query served by a cached artifact, adding the query's
- * saved tokens to the artifact's running total.
- * @param artifactId - the artifact that served the query.
- * @param savedTokens - tokens the served query saved.
+ * Account the recorded occurrences that consumed a cached artifact: every
+ * occurrence of the artifact's own class strictly newer than the instant its
+ * hits are accounted through, credited with the tokens its store recorded and
+ * counted as one hit each. The per-occurrence saving is what the recorded turn
+ * spent, so an artifact with no later occurrence keeps its totals unchanged
+ * and a second call at the same instant is a no-op — which is what makes a
+ * repeating pass safe.
+ * @param artifactId - the artifact to account.
+ * @param occurrences - every occurrence the source stores recorded.
  * @returns the updated artifact.
  */
-async hit(artifactId: string, savedTokens: number): Promise<PrecomputeArtifact>
+async hit(artifactId: string, occurrences: readonly TaskOccurrence[]): Promise<PrecomputeArtifact>
 
 /**
  * The greedy budgeted plan over anticipated tasks that have no cached
@@ -1894,6 +2303,19 @@ async trace(sessionId: string): Promise<TraceRecord | undefined>
  * @returns the compressed rows, decisive first.
  */
 async summary(sessionIds: readonly string[], limit: number): Promise<LearningTraceRow[]>
+
+/**
+ * Replay one stored trace: reconstruct the context each step ran under,
+ * restore the artifact the retrievals named, and compare a baseline artifact
+ * against a candidate over the same trace (§16, §17). The recorded tool
+ * results are the substrate, so the replay is keyless and re-invokes no
+ * tool; steps whose recorded output is missing come back unreplayable.
+ * @param sessionId - session whose committed trace to replay.
+ * @param baseline - artifact revision the recorded run used.
+ * @param candidate - artifact revision under consideration.
+ * @returns the per-step comparison, or undefined when storage holds no such session.
+ */
+async replay(sessionId: string, baseline: ReplayArtifact, candidate: ReplayArtifact): Promise<ReplayReport | undefined>
 ```
 
 Source: [`packages/evolution/evolution-trace/src/index.ts`](../../packages/evolution/evolution-trace/src/index.ts)
@@ -1980,4 +2402,52 @@ async resolve(skill: string, taskId?: string): Promise<number>
 ```
 
 Source: [`packages/evolution/evolution-uncertainty/src/index.ts`](../../packages/evolution/evolution-uncertainty/src/index.ts)
+
+<a id="ctxevolutionverifiers--evolutionverifiers"></a>
+
+### `ctx.evolutionVerifiers` — `EvolutionVerifiers`
+
+The ladder, mounted so a host and the packages that admit candidates share one admission rule.
+
+```ts cordis-catalog
+/**
+ * Run the ladder over one candidate.
+ * @param request - candidate body plus the seams the host mounts for the simulated, evaluator, and human rungs.
+ * @returns the verdict, naming every consulted rung and the level that decided.
+ */
+async verify(request: VerifierRequest): Promise<VerifierVerdict>
+```
+
+Source: [`packages/evolution/evolution-verifiers/src/index.ts`](../../packages/evolution/evolution-verifiers/src/index.ts)
+
+<a id="evolution-events"></a>
+
+### `evolution/*` events
+
+<a id="evolutiondecisions-applied--emit"></a>
+
+#### `evolution/decisions-applied` — emit
+
+One extraction pass's decision batch landed on a scope's record, emitted once per applied batch strictly after the write is durable. Deriving consumers — the knowledge graph's claim layer is the shipped one — fold the batch into their own state here; a listener failure is their own to contain, because the batch it reports is already stored.
+
+A batch applied without provenance is not published: every decision is attributed to the session that reported it, and a batch whose session is unknown would carry unattributable evidence.
+
+```ts cordis-catalog
+/**
+ * One extraction pass's decision batch landed on a scope's record,
+ * emitted once per applied batch strictly after the write is durable.
+ * Deriving consumers — the knowledge graph's claim layer is the shipped
+ * one — fold the batch into their own state here; a listener failure is
+ * their own to contain, because the batch it reports is already stored.
+ *
+ * A batch applied without provenance is not published: every decision is
+ * attributed to the session that reported it, and a batch whose session
+ * is unknown would carry unattributable evidence.
+ * @param batch - scope, source session, decisions, and the artifacts they addressed.
+ * @mode emit
+ */
+'evolution/decisions-applied'(batch: EvolutionDecisionsApplied): void
+```
+
+Source: [`packages/evolution/evolution-memory/src/index.ts`](../../packages/evolution/evolution-memory/src/index.ts)
 <!-- END GENERATED cordis-surface -->

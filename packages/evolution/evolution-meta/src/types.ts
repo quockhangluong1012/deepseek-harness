@@ -1,9 +1,10 @@
 /**
  * Public type vocabulary of the meta-evolution store: the engine components
- * whose choices make an engine configuration, one run of the evolution engine
- * under a configuration, the derived per-configuration summary, and the
- * recommendation of which engine configuration to run next (§9). Types only —
- * no runtime code.
+ * whose choices make an engine configuration, the recorded sequence of stages
+ * an engine run performed (§26 level 2), one run of the evolution engine under
+ * a configuration and that sequence, the derived per-configuration summary,
+ * and the recommendation of which configuration and workflow to run next
+ * (§9). Types only — no runtime code.
  * @module @deepseek-ai/dsh-evolution-meta/src/types
  */
 
@@ -22,6 +23,19 @@ export interface EngineConfig {
   routing: string
 }
 
+/**
+ * One stage of the sequence an engine run performed — which component it
+ * reached for, and in which position. The same configuration run in two orders
+ * is two workflows, so the sequence is recorded rather than inferred from the
+ * configuration (§26 level 2).
+ */
+export interface WorkflowStep {
+  /** The engine component this stage used. */
+  component: EngineComponent
+  /** The choice the stage used for that component, e.g. an operator portfolio key. */
+  choice: string
+}
+
 /** One task class an engine configuration is judged on, e.g. a skill name. */
 export type MetaTaskClass = string
 
@@ -33,6 +47,11 @@ export interface EngineRunInput {
   taskClass: MetaTaskClass
   /** The engine configuration the run used; missing fields take the default. */
   config: Partial<EngineConfig>
+  /**
+   * The sequence the run performed, in order; an absent one records that the
+   * caller observed none, never a default sequence.
+   */
+  workflow?: readonly WorkflowStep[] | undefined
   /** Whether the run's winner passed. */
   pass: boolean
   /** Tokens the run spent. */
@@ -42,19 +61,25 @@ export interface EngineRunInput {
 }
 
 /** One durable engine run. */
-export interface EngineRun extends Omit<EngineRunInput, 'config'> {
+export interface EngineRun extends Omit<EngineRunInput, 'config' | 'workflow'> {
   /** The complete engine configuration the run used. */
   config: EngineConfig
+  /** The recorded sequence the run performed, empty when the caller observed none. */
+  workflow: readonly WorkflowStep[]
   /** ISO-8601 instant the run was recorded. */
   at: string
 }
 
-/** Derived summary of one engine configuration on one task class. */
+/** Derived summary of one configuration-and-workflow on one task class. */
 export interface ConfigSummary {
-  /** Deterministic identity of the configuration. */
+  /** Deterministic identity of the configuration and workflow together. */
   configId: string
   /** The configuration the summary covers. */
   config: EngineConfig
+  /** The sequence the summary covers, empty when no run recorded one. */
+  workflow: readonly WorkflowStep[]
+  /** Readable form of the sequence, e.g. `operators=portfolio-v1>evaluator=scorer-v1`. */
+  workflowId: string
   /** The task class the summary covers. */
   taskClass: MetaTaskClass
   /** Runs recorded under the configuration on the class. */
@@ -71,11 +96,15 @@ export interface ConfigSummary {
   lastAt: string
 }
 
-/** One recommended engine configuration with the numbers behind it. */
+/** One recommended engine configuration and workflow with the numbers behind it. */
 export interface ConfigRecommendation {
   /** The recommended configuration. */
   config: EngineConfig
-  /** Deterministic identity of the configuration. */
+  /** The recommended sequence, empty when the winning runs recorded none. */
+  workflow: readonly WorkflowStep[]
+  /** Readable form of the recommended sequence. */
+  workflowId: string
+  /** Deterministic identity of the configuration and workflow together. */
   configId: string
   /** The task class the recommendation covers. */
   taskClass: MetaTaskClass
@@ -85,6 +114,6 @@ export interface ConfigRecommendation {
   samples: number
   /** Share of runs whose winner passed. */
   passRate: number
-  /** Why the configuration ranks here, naming the numbers. */
+  /** Why the configuration ranks here, naming the numbers and the sequence. */
   reason: string
 }

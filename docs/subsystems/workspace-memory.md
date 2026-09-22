@@ -4,7 +4,7 @@ English | [中文](workspace-memory.zh.md)
 
 A Workspace in DeepSeek Harness is the durable record of a directory the user works in: a stable id over a canonical path, a display title, and the ordered account of Sessions that ran there (`ctx.workspaceRegistry`, `packages/workspace/workspace`). Workspace Memory gives each Workspace a durable body of knowledge that every Session in that Workspace inherits, and a Workspace page reachable by clicking the Workspace name in the sidebar.
 
-Source: [`specs/workspace-memory.md`](../../specs/workspace-memory.md)
+Source: [`packages/workspace/workspace-memory/README.md`](../../packages/workspace/workspace-memory/README.md)
 
 ## Parts
 

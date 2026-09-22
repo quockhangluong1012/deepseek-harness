@@ -6,7 +6,7 @@ English | [中文](2026-09-11-evolution-memory-store.zh.md)
 
 ## Problem
 
-The harness learned nothing between turns: user corrections evaporated at `turn/end`, background review had nowhere to park proposals, and the Evolutionary Harness specification ([`specs/evolutionary-harness.spec.md`](../../../../specs/evolutionary-harness.spec.md)) needed a durable foundation before the reviewer, injector, curator, and safety rails could land. Reusing the workspace-memory record was wrong: evolution scopes cut across profiles and workspaces with a two-tier lessons/profile document and approval-gated writes, while workspace memory stays one document per directory with direct writes.
+The harness learned nothing between turns: user corrections evaporated at `turn/end`, background review had nowhere to park proposals, and the [Evolutionary Harness subsystem](../../../../docs/subsystems/evolutionary-harness.md) needed a durable foundation before the reviewer, injector, curator, and safety rails could land. Reusing the workspace-memory record was wrong: evolution scopes cut across profiles and workspaces with a two-tier lessons/profile document and approval-gated writes, while workspace memory stays one document per directory with direct writes.
 
 ## Decision
 

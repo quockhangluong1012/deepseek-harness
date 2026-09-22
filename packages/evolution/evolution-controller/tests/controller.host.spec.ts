@@ -201,6 +201,7 @@ describe('EvolutionController', () => {
       profileUpdatedAt: '2026-01-03T00:00:00.000Z',
       contextItems: [{ kind: 'text', id: 'i1', label: 'note', text: 'x', sizeBytes: 1, addedAt: '2026-01-01T00:00:00.000Z' }],
       outputs: [{ path: 'a.ts', tool: 'write', sessionId: 's1', at: '2026-01-01T00:00:00.000Z' }],
+      recalls: [],
       episodic: [{ day: '2026-01-01', text: 'note', addedAt: '2026-01-01T00:00:00.000Z' }],
       lastExtraction: null,
       staged: [{ id: 'st1', kind: 'memory', op: 'replaceArtifacts', payload: {}, originSessionId: 's1', createdAt: '2026-01-01T00:00:00.000Z', gist: 'g', mergeKey: null, recurrence: 1, blockedReason: null, neededEvidence: [] }],
@@ -362,7 +363,7 @@ describe('EvolutionController', () => {
     rebuild.mockRejectedValueOnce(new Error('lost model'))
     await expect(controller.rebuildMemory({ scopeId: workspace.id }, signal)).rejects.toMatchObject({
       code: 'evolution/extraction-failed',
-      message: expect.stringContaining('lost model'),
+      message: expect.stringContaining('lost model') as unknown,
     })
     rebuild.mockRejectedValueOnce('string failure')
     const failure = await controller.rebuildMemory({ scopeId: workspace.id }, signal).catch((error: unknown) => error)

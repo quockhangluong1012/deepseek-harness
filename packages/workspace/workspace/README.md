@@ -18,6 +18,7 @@ Use this package to keep an ordered, persistent list of project directories and 
 - [Further Exploration](#further-exploration)
 - [Model Experience](#model-experience)
 - [Known Limitations and Deferred Work](#known-limitations-and-deferred-work)
+- [Dev Note](#dev-note)
 
 -----
 
@@ -162,3 +163,13 @@ These limits define when the project list is a poor fit or needs special operati
 - **External changes are seen late** — if another process deletes or damages a directory, the project reflects it only at the next refresh or restart.
 - **Archiving is one-way** — a hidden session keeps its history and its place, but no unarchive action exists yet; the archive set is a durable display filter.
 - **Re-adding a directory starts fresh** — after removal, adding the same directory again creates a new project with an empty session list; the old sessions do not come back automatically.
+
+<a id="dev-note"></a>
+### Dev Note
+
+<details>
+<summary>Working context for maintainers — click to expand</summary>
+
+`archivedSessionIds` is registry-global and a hidden session keeps its slot in the record's `sessionIds`, because unarchiving has to restore the position the user saw; that is also why the archive set takes no part in one-owner accounting, which reads `sessionIds` alone. On Windows the path predicate rejects `\foo` alongside `C:work`: both resolve against live state — the process cwd and the current drive — instead of naming one fixed location, and `fullyQualifiedWorkspacePath` is the single gate every path passes before `realpath` sees it. The `workspace-invariant` companion watches the `workspaces` table only, since `workspaceIds`, the archive set, and the mutation marker have no second independent observation to check them against.
+
+</details>

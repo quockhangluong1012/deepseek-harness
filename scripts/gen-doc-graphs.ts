@@ -717,6 +717,14 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'The evolution-meta plugin records each engine run under the configuration its operator, evaluator, budget, and routing choices produced, derives per-configuration pass rates and mean tokens, and recommends the configuration to run next on a task class; evolution-optimizer records each staged write\'s run through the optional store, and command-evolution reads runs, summaries, and the recommendation through /meta.',
   },
   {
+    key: 'evolutionMetrics',
+    pkg: 'evolution-metrics',
+    title: 'Evolution metric layer',
+    mode: 'core',
+    consumers: ['command-evolution'],
+    note: 'The evolution-metrics plugin measures capability gain per unit of compute over the recorded engine runs, with the supporting failure-recurrence, regression-debt, promotion, rollback, and evaluator-reliability readings, reads each of those from the store that already computes it, and reports a metric it cannot measure with the record that is missing rather than a zero; command-evolution renders one report through /metrics.',
+  },
+  {
     key: 'evolutionOperators',
     pkg: 'evolution-operators',
     title: 'Mutation-operator store',
@@ -746,6 +754,22 @@ const SERVICE_ROLES: ServiceRole[] = [
     mode: 'core',
     consumers: ['command-evolution'],
     note: 'The evolution-trace plugin projects the committed session log into structured learning traces with ranked root-cause attribution per failed tool call and compressed learning-trace rows; command-evolution reads it through /trace, and nothing here writes a domain or reaches a model request.',
+  },
+  {
+    key: 'evolutionRetrieval',
+    pkg: 'evolution-retrieval',
+    title: 'Retrieval-configuration store',
+    mode: 'core',
+    consumers: ['command-evolution'],
+    note: 'The evolution-retrieval plugin records the retrieval configuration in force for a session and grades it by the downstream task success of the sessions that ran under it, recommending the best configuration per task class above an evidence gate; active-memory-context records the configuration in force, and nothing here restructures retrieval or reaches a model request.',
+  },
+  {
+    key: 'evolutionVerifiers',
+    pkg: 'evolution-verifiers',
+    title: 'Verifier-first admission ladder',
+    mode: 'core',
+    consumers: ['evolution-curator'],
+    note: 'The evolution-verifiers plugin runs the candidate-body ladder cheapest-first — schema, deterministic invariants, domain simulation, evaluator model, human review — stopping at the first decisive rung and delegating the levels it cannot decide itself to mounted seams; evolution-curator routes its patch admission through it, and an absent seam abstains rather than fabricating a pass.',
   },
   {
     key: 'agents',

@@ -7,7 +7,7 @@ kind: "package-reference"
 
 [English](README.md) | 中文
 
-## 摘要
+## 概述
 
 `dsh-evolution-stagnation` 维护跨运行的按技能评估运行日志——每个暂存优化器写入对应一条——并检测技能何时停止改进。每次运行携带测量的三元组和改进标志：它是否击败了该技能的最佳成绩，其中 token 与耗时收益必须先越过下限。一旦技能停滞超过配置的阈值，检测器便会给出下一个策略，并沿 §32 的阶梯攀升——多样性、新算子、新任务、评估器，最终更换模型。优化器通过可选存储接缝记录暂存写入，`command-evolution` 通过 `/stagnation` 读取状态。此包不调用任何模型。
 
@@ -18,7 +18,7 @@ kind: "package-reference"
 - [进一步探索](#further-exploration)
 - [模型体验](#model-experience)
 - [已知限制与延后工作](#known-limitations-and-deferred-work)
-- [开发者注记](#dev-note)
+- [开发备注](#dev-note)
 
 -----
 
@@ -102,7 +102,7 @@ if (status.stagnant) console.log(status.strategy)
 - **重置是粗糙工具**——`reset` 丢弃整个技能历史；窗口化或衰减历史需要在域上加保留逻辑。
 
 <a id="dev-note"></a>
-### 开发者注记
+### 开发备注
 
 <details>
 <summary>维护者工作上下文——点击展开</summary>

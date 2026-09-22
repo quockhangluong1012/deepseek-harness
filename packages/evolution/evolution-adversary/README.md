@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-evolution-adversary` keeps a durable per-skill log of adversarial probes — one prompt or scenario per weakness family — across the eight §45 weakness categories, from edge cases and prompt injection to evaluator gaming. Each probe records whether it exposed a real weakness and whether the weakness was repaired. The challenge names the next category to probe so no family goes untested, rotating the least-probed once all are covered. Alongside sits the §46 evaluator-gaming defense checklist: six automatable defenses whose gaps show what still stands open. Nothing here calls a model.
+`dsh-evolution-adversary` keeps a durable per-skill log of adversarial probes, one prompt or scenario per weakness family across §45's eight categories, from edge cases through prompt injection to evaluator gaming. Each probe records whether it exposed a weakness and whether it was repaired; the challenge names the next category to probe, rotating the least-probed once all are covered. Alongside sits the §46 evaluator-gaming defense checklist: six automatable defenses whose gaps show what stands open. `defenses()` reads them as an operator's assertion; `observedDefenses()` derives each from the stores that recorded it and names unobservable ones unobserved. Nothing here calls a model.
 
 ## Table of Contents
 
@@ -37,9 +37,10 @@ await ctx.evolutionAdversary.probe({
 })
 const challenge = ctx.evolutionAdversary.challenge('writer')
 await ctx.evolutionAdversary.setDefense('hidden-holdout', true)
+const observed = ctx.evolutionAdversary.observedDefenses()
 ```
 
-`probe(input)` records one probe as unrepaired; `setRepaired(probeId, repaired?)` marks it repaired once the weakness is fixed, defaulting to repaired. `probes(skill?)` lists probes newest first; `challenge(skill)` names the next category to probe under the configured minimum. `setDefense(defense, satisfied)` sets one checklist defense; `defenses()` renders the full checklist in canonical order; `defenseGaps()` names the defenses still open.
+`probe(input)` records one probe as unrepaired; `setRepaired(probeId, repaired?)` marks it repaired once the weakness is fixed, defaulting to repaired. `probes(skill?)` lists probes newest first; `challenge(skill)` names the next category to probe under the configured minimum. `setDefense(defense, satisfied)` sets one checklist defense; `defenses()` renders the full checklist in canonical order; `defenseGaps()` names the defenses still open. `observedDefenses()` derives the same six defenses from recorded state instead of the operator's rows, in canonical order.
 
 ### Configuration
 
@@ -63,6 +64,21 @@ Coverage is pure. `categoryCoverage` counts one skill's probes per category, zer
 
 The store is a two-table domain: `evolution_adversary` version 1 with a `probes` table keyed by probe identity, holding `{ probeId, skill, category, probe, foundWeakness, repaired, at }`, and a `defenses` table keyed by defense, holding `{ defense, satisfied, at }`. The challenge derives from the full probe history at read time, so configuration changes re-rank the next category without rewriting recorded probes; a defense never set reads unsatisfied with a null instant, so the checklist renders before anything is set.
 
+### Observing the defenses from recorded state (§46)
+
+The checklist rows are an operator's assertion; `observedDefenses()` reads what the mounted stores actually recorded, and each defense is satisfied, open, or unobserved:
+
+| Defense | Observed from | Satisfied when |
+|---|---|---|
+| `multiple-evaluators` | `evolution-evaluator-strategy.strategies()` | two evaluators carry an independent verdict |
+| `hidden-holdout` | `evolution-benchmark.tasks('holdout')` | at least one capability holds a protected holdout task |
+| `behavioral-metrics` | this store's probes | at least one probe exercised `evaluator-gaming` |
+| `adversarial-tests` | this store's probes | at least one skill probed every §45 category |
+| `randomized-tests` | — | nothing records which tests were randomized |
+| `evaluator-rotation` | `evolution-router.effectiveness(undefined, 'evaluation')` | one task class recorded two or more evaluation routes |
+
+A store that is not mounted makes its defense `unobserved` with the missing store named, never open. Randomized tests and human spot checks stay operator-side: no store records the randomization choice, and human spot checks are not a checklist row at all. The observer only reads the sibling stores — it appends nothing to the benchmark, routes no run, and never starts an evaluation.
+
 ### Failure and recovery
 
 Reads throw before the store starts. Repair is a separate explicit step, so a recorded weakness is never silently marked fixed; `setRepaired` on a missing probe id throws loudly. Defense rows are keyed by defense, so setting one defense never disturbs another.
@@ -79,7 +95,9 @@ No invariant companion is published because the domain tables are the only copy 
 - [Evolutionary Harness specification](../../../specs/evolutionary-harness-v11-deep-research.md) §45 — the adversarial evolution this package implements, and §46 — the evaluator-gaming defense checklist it keeps.
 - [Evolution package map](../README.md) — the group's packages and their repository position.
 - [`dsh-evolution-scorer`](../evolution-scorer/README.md) — `evaluatorDisagreement` is the dissent source worth probing: persistent disagreement across revisions marks the candidates adversarial probes should target first.
-- [`dsh-evolution-evaluator-health`](../evolution-evaluator-health/README.md) — the sibling store whose verdict agreement, approval drift, and false-positive tracking the defense checklist guards.
+- [`dsh-evolution-evaluator-health`](../evolution-evaluator-health/README.md) — the sibling store whose verdict agreement, approval drift, and false-negative and false-positive tracking the defense checklist guards.
+- [`dsh-evolution-evaluator-strategy`](../evolution-evaluator-strategy/README.md) — the store whose per-evaluator independent verdicts the `multiple-evaluators` defense is observed from.
+- [`dsh-evolution-benchmark`](../evolution-benchmark/README.md) — the store whose protected `holdout` partition the `hidden-holdout` defense is observed from.
 
 -----
 
@@ -100,7 +118,9 @@ These limits define when the store is a poor fit. They are current package const
 
 - **Records probes, does not run them** — the store logs adversarial prompts and their repair state (§58.12: trust is recorded, not enforced); executing probes against a skill and judging weakness remains an operator's job.
 - **One minimum for all categories** — `minProbesPerCategory` applies to every weakness family; per-category minimums need configuration on the store.
-- **Checklist covers the automatable defenses** — human spot checks stay operator-side by design; the store tracks only the six defenses it can observe.
+- **Checklist covers the automatable defenses** — human spot checks stay operator-side by design; the store tracks only the six defenses it can observe, and `randomized-tests` reads `unobserved` because nothing records which tests were randomized.
+- **An observation is only as good as its stores** — `observedDefenses()` derives from the stores mounted beside it; with `evolution-benchmark`, `evolution-evaluator-strategy`, or `evolution-router` unmounted the matching defense reads `unobserved` rather than satisfied or open.
+- **Observation and assertion are read separately** — `defenses()` reports what an operator set and `observedDefenses()` what the stores recorded; nothing reconciles the two, so a hand-set row can claim a defense the evidence does not show.
 
 <a id="dev-note"></a>
 ### Dev Note
@@ -108,6 +128,6 @@ These limits define when the store is a poor fit. They are current package const
 <details>
 <summary>Working context for maintainers — click to expand</summary>
 
-The store is record-only: nothing here calls a model, and probing, repair, and defense satisfaction are operator judgments recorded as facts. The challenge derives from history at read time so minimum changes re-rank the next category without rewriting probes, and unset defenses synthesize open rows so the checklist is safe to render from an empty store.
+The store is record-only: nothing here calls a model, and probing, repair, and defense satisfaction are operator judgments recorded as facts. The challenge derives from history at read time so minimum changes re-rank the next category without rewriting probes, and unset defenses synthesize open rows so the checklist is safe to render from an empty store. `observedDefenses()` keeps the two faces apart on purpose — `defenses()` is what an operator asserted, the observation is what the mounted stores recorded — and its per-defense observer table is keyed by the defense union, so a new defense cannot be added without giving it an observer.
 
 </details>

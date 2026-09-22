@@ -87,7 +87,7 @@ kind: "package-reference"
 <a id="further-exploration"></a>
 ## 进一步探索
 
-- [Workspace Memory 规范](../../../specs/workspace-memory.md)——本包实现的行为约定。
+- [Workspace Memory 子系统](../../../docs/subsystems/workspace-memory.zh.md)——本包实现的行为约定。
 - [Workspace 包地图](../README.zh.md)——本组的包及其仓库位置。
 - [生成的配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-workspace-memory)——每个受支持的配置字段。
 

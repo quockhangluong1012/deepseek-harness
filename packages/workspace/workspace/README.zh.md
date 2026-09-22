@@ -18,6 +18,7 @@ kind: "package-reference"
 - [进一步探索](#further-exploration)
 - [模型体验](#model-experience)
 - [已知限制与延期工作](#known-limitations-and-deferred-work)
+- [开发备注](#dev-note)
 
 -----
 
@@ -162,3 +163,13 @@ ctx.workspaceRegistry.list() // shows the project, newest first
 - **外部变更延迟可见**——如果另一进程删除或损坏目录，项目只能在下次刷新或重启后反映出来。
 - **归档是单向的**——被隐藏的会话保留其历史与位置，但目前没有取消归档操作；归档集合是持久的显示过滤器。
 - **重新添加目录从空开始**——移除后再次添加同一目录会创建空会话列表的新项目；旧会话不会自动回来。
+
+<a id="dev-note"></a>
+### 开发备注
+
+<details>
+<summary>维护者工作背景——点击展开</summary>
+
+`archivedSessionIds` 是注册表全局的，被隐藏的会话保留其在记录 `sessionIds` 中的位置，因为取消归档必须恢复用户当时看到的顺序；这也正是归档集合不参与「单一所有者」记账的原因——该记账只读 `sessionIds`。在 Windows 上，路径判定会与 `C:work` 一并拒绝 `\foo`：两者都相对于实时状态——进程 cwd 与当前盘符——解析，而不是命名一个固定位置，而 `fullyQualifiedWorkspacePath` 是每条路径在交给 `realpath` 之前必经的唯一闸门。`workspace-invariant` 伴生插件只监视 `workspaces` 表，因为 `workspaceIds`、归档集合与变更标记都没有第二种独立的观测可供核对。
+
+</details>

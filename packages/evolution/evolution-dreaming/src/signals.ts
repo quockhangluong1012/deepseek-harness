@@ -124,3 +124,22 @@ export function countConcepts(statement: string): number {
   const words = statement.toLowerCase().match(/[\p{L}\p{N}_]{2,}/gu)
   return words === null ? 0 : new Set(words).size
 }
+
+/**
+ * Concept overlap between two texts: the words they share over the words either
+ * one carries. This is the lexical stand-in for a semantic comparison, and both
+ * callers — the relevance signal and the restatement rule — take the number as
+ * it comes, so a deployment that mounts an embedding provider replaces it in
+ * one place.
+ * @param left - first text.
+ * @param right - second text.
+ * @returns the shared share of their distinct words in `0..1`.
+ */
+export function conceptOverlap(left: string, right: string): number {
+  const leftWords = new Set(left.toLowerCase().match(/[\p{L}\p{N}_]{2,}/gu) ?? [])
+  const rightWords = new Set(right.toLowerCase().match(/[\p{L}\p{N}_]{2,}/gu) ?? [])
+  if (leftWords.size === 0 || rightWords.size === 0) return 0
+  let shared = 0
+  for (const word of leftWords) if (rightWords.has(word)) shared += 1
+  return shared / (leftWords.size + rightWords.size - shared)
+}

@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-13-evolution-graph.md
-2026-09-13-evolution-graph.md: a11aaf9186b605e515d52a5609296a53ced0c8e3
-2026-09-13-evolution-graph.zh.md: 7a12696f8c70eb55ba00b9ca2267de9db4f2e623
+2026-09-13-evolution-graph.md: a568562bf632d91ad84baad397499a9c6e5cc84f
+2026-09-13-evolution-graph.zh.md: f0a5bb8eabae513c3975253c1c88af2d42195c13

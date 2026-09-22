@@ -11,13 +11,14 @@
 
 import { Context, Service } from '@deepseek-ai/cordis'
 import type { KvTable } from '@deepseek-ai/dsh-storage-domain'
+import type {} from '@deepseek-ai/dsh-evolution-model-routes'
 import z from 'zod'
 import { evaluatorStrategyDomainSpec } from './spec.ts'
 import { rankStrategies, recommendStrategy, strategyKey, updatedStrategy } from './strategy.ts'
 import type { EvaluatorOutcome, EvaluatorStrategy, StrategyRanking, TaskClass } from './types.ts'
 
 export type * from './types.ts'
-export { rankStrategies, recommendStrategy, strategyKey, updatedStrategy, weightOf } from './strategy.ts'
+export { judgeIndependence, rankStrategies, recommendStrategy, strategyKey, updatedStrategy, weightOf } from './strategy.ts'
 export { evaluatorStrategyDomainSpec, evaluatorStrategyRow } from './spec.ts'
 
 /**
@@ -115,20 +116,27 @@ export class EvolutionEvaluatorStrategy extends Service {
   }
 
   /**
-   * Rank one task class's evaluators by their smoothed corroboration weight.
+   * Rank one task class's evaluators by their smoothed corroboration weight,
+   * each entry naming the route §28 assigns to the final promotion review — the
+   * strongest configured verifier — so the recommendation says which model
+   * should re-check what it recommends.
    * @param taskClass - the task class to rank evaluators for.
    * @returns the ranked evaluators, most trustworthy first.
    */
   ranking(taskClass: TaskClass): readonly StrategyRanking[] {
     const rows = [...this.requireStrategies().entries()]
       .map(([, row]) => structuredClone(row))
-    return rankStrategies(rows, taskClass)
+    const promotionReview = this.ctx.get('evolutionModelRoutes')?.recommend('promotion-review') ?? null
+    return rankStrategies(rows, taskClass).map(entry => ({ ...entry, promotionReview }))
   }
 
   /**
    * The evaluator to trust for one task class: the best-ranked evaluator with
    * at least `minimumSamples` independent samples, or undefined while no
-   * evaluator has that much independent evidence.
+   * evaluator has that much independent evidence. The entry names the route
+   * §28 puts on the final promotion review, so the caller knows which model
+   * should check the verdict before it is acted on. Naming it routes nothing:
+   * no run is started from a recommendation (§58.12).
    * @param taskClass - the task class to recommend for.
    * @returns the recommended evaluator, or undefined.
    */

@@ -87,7 +87,7 @@ No invariant companion is published because the domain table is the only copy of
 <a id="further-exploration"></a>
 ## Further Exploration
 
-- [Workspace Memory specification](../../../specs/workspace-memory.md) — the behaviour contract this package implements.
+- [Workspace Memory subsystem](../../../docs/subsystems/workspace-memory.md) — the behaviour contract this package implements.
 - [Workspace package map](../README.md) — the group's packages and their repository position.
 - [Generated configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-workspace-memory) — every accepted config field.
 

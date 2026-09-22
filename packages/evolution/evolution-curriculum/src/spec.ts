@@ -15,6 +15,8 @@ export const curriculumProposalRow = z.object({
   task: z.string(),
   sourceSessions: z.array(z.string()),
   gists: z.array(z.string()),
+  antiPattern: z.string().nullable().default(null),
+  candidateTest: z.string().nullable().default(null),
   at: z.string(),
   state: z.enum(['open', 'retired']),
 })
@@ -30,7 +32,10 @@ export type CurriculumProposalRow = z.infer<typeof curriculumProposalRow>
  */
 export const curriculumDomainSpec = defineDomain({
   name: 'evolution_curriculum',
-  version: 1,
+  version: 2,
+  // Version 1 stored proposals without the matched corrective heuristic; the
+  // two new fields default to null, so vouched-for v1 proposals open unchanged.
+  compatibleVersions: [1],
   layout: 'per-record',
   tables: {
     proposals: domainTable<string, CurriculumProposal>(curriculumProposalRow),

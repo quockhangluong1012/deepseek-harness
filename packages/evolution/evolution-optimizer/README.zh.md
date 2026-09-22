@@ -7,17 +7,18 @@ kind: "package-reference"
 
 [English](README.md) | 中文
 
-## Summary
+## 概述
 
 离线搜索更好的 SKILL.md 正文：传入技能、语料场景与分选身份，这次运行就从你配置的变异算子中取候选，先在短子集上筛选、再在隔离的 `DSH_HOME` 覆盖层下评分，检查私有 holdout，用重复的成对比较确认优胜者，并把击败基线的 Pareto 优胜者分选出来。它按需运行，绝不在每轮路径上，每个选中的算子都要一次模型调用，并需要一份能练到该技能的语料。没有任何东西直接写技能：批准分选条目才算落地。
 
-## Table of Contents
+## 目录
 
 - [Use this package](#use-this-package)
 - [Understand the implementation](#understand-the-implementation)
 - [Further Exploration](#further-exploration)
 - [Model Experience](#model-experience)
 - [Known Limitations and Deferred Work](#known-limitations-and-deferred-work)
+- [Dev Note](#dev-note)
 
 -----
 
@@ -184,3 +185,13 @@ Web 组合里带有本行与评分器的行，但[默认关闭](../../bundle/web
 - **确认重复的是比较，不是搜索**——`confirmationRuns` 在同一批场景上把同一个优胜正文与同一基线重评；它不重新采样场景、种子或模型路由，因此排除的是「一次比较的幸运读数」，而不是「一份幸运语料」。
 - **尝试的覆盖层 home 来自 harness，而不是环境**——变体在存放已分选 SKILL.md 的临时 `DSH_HOME` 内评分，该 home 以 `homeDir` 传给 runner；若经由子进程环境传递，录制回放 harness 会自行构造 home，从而评的是线上技能本身。
 - **被截断的运行不是完整搜索**——设置了预算时，`truncated: true` 意味着优胜者是在装得下的候选之间选出的，而不是在全部候选之间；要读成完整比较，就提高预算或降低 `maxCandidates`。
+
+<a id="dev-note"></a>
+### 开发备注
+
+<details>
+<summary>维护者工作背景——点击展开</summary>
+
+`lineage.ts` 以最长公共子序列统计改动行数，因此纯粹的重排会记为有增有删；而 `novelty.ts` 比较的是忽略顺序、折叠大小写与空白的行集合，于是同一次重排记为 0——两个数字有意回答不同的问题，彼此都不是对方过时的副本。`instructionLines` 只剔除开头那一处 `---` 围栏块，别的都不动，因为 frontmatter 是每个候选都会照抄的路由元数据；其下没有指令行的正文报告的新颖度是 `0` 而不是 `1`，因为它没有任何可称新颖的内容。不满足 `experimentRecordSchema` 的持久行会让领域打开时大声失败，而不是被跳过，因为丢掉一条结果会掩盖台账声称已经发生的晋级。
+
+</details>

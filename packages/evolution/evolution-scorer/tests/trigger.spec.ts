@@ -21,12 +21,14 @@ function usage(useCount: number, failureCount?: number): SkillUsageRecord {
     trustObservedSessions: [],
     trustAnchorSessionId: null,
     lastTrustFailure: null,
+    sessionOutcomes: [],
     revision: 0,
     contentSha: null,
     parentRevisionSha: null,
     createdBy: null,
     absorbedInto: null,
     archivedAt: null,
+    suspectAt: null,
     ...failureCount === undefined ? {} : { failureCount },
   }
 }

@@ -13,6 +13,7 @@ import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-shell'
 import { SessionSeq, type UserMessage } from '@deepseek-ai/dsh-session'
 import {
+  compositionRefusal,
   escapeText,
   isModelInvocable,
   isSkillName,
@@ -388,28 +389,6 @@ async function loadSkillBody(
 }
 
 /**
- * Declared conflicts inside one load set, or undefined when none is declared.
- * The relation is symmetric, so a declaration by either side excludes the pair.
- * @param requested - the skill the caller asked for.
- * @param members - the prerequisites loaded beside it.
- * @returns the refusal text, or undefined when the set is consistent.
- */
-function compositionConflict(
-  requested: Pick<SkillDefinition, 'name'> & Pick<SkillSummary, 'conflictsWith'>,
-  members: readonly SkillSummary[],
-): string | undefined {
-  const loaded = [requested, ...members]
-  for (const owner of loaded) {
-    for (const rival of owner.conflictsWith ?? []) {
-      if (rival === owner.name) continue
-      if (!loaded.some(entry => entry.name === rival)) continue
-      return `skill "${requested.name}" cannot load: "${owner.name}" and "${rival}" declare a conflict`
-    }
-  }
-  return undefined
-}
-
-/**
  * Resolve the declared composition of one skill: every prerequisite this
  * session can route, loaded beside the requested skill so one call delivers
  * the set the author declared. A prerequisite is met by a skill carrying that
@@ -445,8 +424,8 @@ async function composePrerequisites(options: {
     members.push(found)
   }
   if (members.length === 0) return { ok: true, composed: [] }
-  const conflict = compositionConflict(options.skill, members)
-  if (conflict !== undefined) return { ok: false, error: conflict }
+  const refusal = compositionRefusal(options.skill, members)
+  if (refusal !== undefined) return { ok: false, error: refusal }
   const composed: LoadedSkillView[] = []
   for (const member of members) {
     const definition = await options.ctx.skills.get(member.name, options.lookup)

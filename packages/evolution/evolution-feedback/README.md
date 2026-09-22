@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-evolution-feedback` turns failing tool results into durable per-session observations and aggregates them into the natural-language feedback the learning loop reads; nothing here calls a model. It records only a failing `tool/result` whose tool call it saw, counts a repeat instead of appending it twice, and keeps the newest `maxEntries` per session. `summary` merges sessions by tool and message, so a fault seen in four sessions outranks one repeated four times in one session; `signals` triggers a review once `triggerReviewSessions` distinct sessions report a failure. `reflect` and `recordReflection` carry analyst-supplied root causes and corrected strategies.
+`dsh-evolution-feedback` turns failing tool results into durable per-session observations and the natural-language feedback the learning loop reads; no model is called. It records only a failing `tool/result` whose call it saw, counts repeats without appending twice, and keeps the newest `maxEntries` per session. `summary` merges sessions by tool and message, so a fault across four sessions outranks one repeated four times; `signals` triggers a review once `triggerReviewSessions` distinct sessions report a failure. `reflectSignals` authors each decisive failure's corrective heuristic as a structured reflection, `reflections` reads reflections back per session, and `reflect` merges both halves with `recordReflection` readings.
 
 ## Table of Contents
 
@@ -50,7 +50,15 @@ await ctx.evolutionFeedback.recordReflection(reflections[0]!.failureId, {
 })
 ```
 
-A reflection's analytic fields stay null until `recordReflection` states them, so a reader never mistakes missing analysis for measured fact. A repeated session id in the input counts once, and an unknown one reports nothing.
+```ts
+const written = await ctx.evolutionFeedback.reflectSignals(10, new Date().toISOString())
+const remembered = await ctx.evolutionFeedback.reflections(workspace.sessionIds, 10)
+console.log(`${written.length} authored, ${remembered.length} retrievable: ${remembered[0]?.antiPattern ?? 'nothing stored'}`)
+```
+
+A reflection's analytic fields stay null until something states them, so a reader never mistakes missing analysis for measured fact. A repeated session id in the input counts once, and an unknown one reports nothing.
+
+`reflectSignals` sweeps the store's own sessions, and a signal that already has a stored reflection is left alone, so a second pass over unchanged evidence writes nothing; `reflections` is the retrieval half of §4.1's failure → explanation → corrective heuristic → retrieval association, reporting the stored reflections of the given sessions newest first, whichever pass authored them. Nothing here calls a model: the authored half is a template over the observed failure and its recurrence.
 
 A failing result whose `tool/call` was never observed records a null tool, and one carrying neither text nor a failure code records an empty message — both are real states, not errors. A successful result records nothing. `signals` sorts the graded aggregation, so a decisive signal survives a limit that a merely counted one would fill; `summary` keeps its count ordering.
 
@@ -89,6 +97,12 @@ One durable record per session in storage domain `evolution_feedback`, version `
 
 An observation is keyed by tool and message. A repeat increments `count`, moves the entry to the front, and leaves the earlier copy out, so a session that hits one fault forty times holds one entry carrying forty.
 
+### Reflection authoring
+
+`reflectSignals` authors a decisive failure's analytic half from the ledger alone. The corrected strategy is the observed recurrence — retrying the call unchanged reproduced the same failure — the reusable condition and the anti-pattern state that misuse with its trigger, and the candidate test is the regression case §21 asks for. `rootCause` and `whatWorked` stay null, because a template cannot name a cause or see what already worked; `recordReflection` remains how an analyst states those, merging over the authored half without blanking it.
+
+Confidence scores the evidence behind a failure (§20): 0.25 when the failing call was never observed, otherwise three quarters the share of `triggerReviewSessions` distinct sessions and one quarter the observations per session over the same threshold. Independent support therefore dominates, and repeating one failure many times in one session cannot stand in for a second session.
+
 ### Write ordering
 
 Tool results of one step arrive together, so a naive read-then-write would race with itself and lose observations. Each session therefore owns one write chain: a record is queued behind that session's previous write, so the read-then-write decision inside one observation never overlaps another. The chain drops its map entry once it settles as the tail, so a session that stops failing leaves nothing behind.
@@ -106,7 +120,7 @@ No invariant companion is published because the domain table is the only copy of
 <a id="further-exploration"></a>
 ## Further Exploration
 
-- [Evolutionary Harness specification](../../../specs/evolutionary-harness.spec.md) — the behaviour contract behind the self-learning family.
+- [Evolutionary Harness subsystem](../../../docs/subsystems/evolutionary-harness.md) — the behaviour contract behind the self-learning family.
 - [Evolution package map](../README.md) — the group's packages and their repository position.
 - [`dsh-evolution-reviewer`](../evolution-reviewer/README.md) — the sibling observer that derives lessons from the same turn stream.
 - [Generated configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-evolution-feedback) — every accepted config field.
@@ -133,7 +147,8 @@ These limits define when the store is a poor fit. They are current package const
 - **Observation is not retroactive** — only events delivered while the plugin is mounted are recorded; a session that failed before the mount is invisible.
 - **The tool name is best-effort** — a result whose `tool/call` was not observed, or that arrives after its turn ended, records a null tool.
 - **Messages are clipped, not summarized** — a long failure keeps its first `maxMessageChars` characters, so two different long failures can collide on one entry.
-- **Analytic fields need an author** — `reflect` derives the ledger half, but root cause and corrected strategy stay null until something states them; no loop calls `recordReflection` yet, so the dreaming REM phase and reviewer extraction are the intended authors.
+- **Root cause needs an author** — `reflectSignals` authors the corrective half from evidence, but `rootCause` and `whatWorked` stay null: a template cannot diagnose a cause, so `recordReflection` remains the path for an analyst's reading.
+- **Reflections are retrieved by session** — `reflections` reports a stored reflection only when the caller names a session that reported its failure, and nothing enumerates the store's sessions for a caller; a reflection whose sessions the caller cannot name stays out of reach.
 - **Machine-local only** — records live under `$DSH_HOME`, never inside the project directory.
 
 <a id="dev-note"></a>
@@ -143,5 +158,7 @@ These limits define when the store is a poor fit. They are current package const
 <summary>Working context for maintainers — click to expand</summary>
 
 `summary` is display-only for the curator's survey prompt and dreaming's light phase, and the curator pass is what turns `signals` into a decision: an attributable failure demotes the skill it was correlated with. That consumer sets `triggerReviewSessions`; the default of two keeps a single bad session from demoting a skill on its own.
+
+`reflectSignals` is the one reflection write no analyst drives, so a cadence can call it and a later retrieval reads what it stored; `dsh-evolution-curriculum` is the first production consumer, matching a gap's failure evidence to the stored symptom and carrying the anti-pattern and candidate test of §21 into the staged proposal.
 
 </details>

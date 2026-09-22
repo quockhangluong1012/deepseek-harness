@@ -676,6 +676,79 @@ describe('SkillRegistry registry', () => {
     }])
   })
 
+  it('carries the compositionality declarations through candidates, definitions, and runtime entries', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SkillRegistry)
+    registerProvider(ctx, {
+      name: 'composition-provider',
+      list: () => Promise.resolve([{
+        name: 'composed-skill',
+        description: 'Candidate',
+        compatibleWith: ['base-skill'],
+        composableWith: ['base-skill', 'rival-skill'],
+        inputs: ['diff'],
+        outputs: ['review'],
+        derivedFrom: ['base-skill', 'rival-skill'],
+        invocation: { modelInvocable: true, userInvocable: true },
+        provider: 'composition-provider',
+        source: 'test',
+        rank: 1,
+        locator: 'definition',
+      }]),
+      get: () => Promise.resolve({
+        name: 'composed-skill',
+        description: 'Definition',
+        compatibleWith: ['base-skill'],
+        composableWith: ['base-skill', 'rival-skill'],
+        inputs: ['diff'],
+        outputs: ['review'],
+        derivedFrom: ['base-skill', 'rival-skill'],
+        invocation: { modelInvocable: true, userInvocable: true },
+        provider: 'composition-provider',
+        source: 'test',
+        content: 'Definition body.',
+      }),
+    })
+    ctx.skills.register({
+      name: 'runtime-composed',
+      description: 'Runtime composed',
+      source: 'runtime',
+      content: 'Runtime body.',
+      compatibleWith: ['base-skill'],
+      composableWith: ['base-skill'],
+      inputs: ['diff'],
+      outputs: ['review'],
+      derivedFrom: ['base-skill', 'rival-skill'],
+    })
+
+    // The grader and the synthesis path read these off the summary, so the
+    // catalog carries every one of them beside the body's own declaration.
+    expect(await ctx.skills.get('composed-skill')).toMatchObject({
+      compatibleWith: ['base-skill'],
+      composableWith: ['base-skill', 'rival-skill'],
+      inputs: ['diff'],
+      outputs: ['review'],
+      derivedFrom: ['base-skill', 'rival-skill'],
+    })
+    const listed = await ctx.skills.list()
+    expect(listed.find(skill => skill.name === 'composed-skill')).toEqual({
+      name: 'composed-skill',
+      description: 'Candidate',
+      compatibleWith: ['base-skill'],
+      composableWith: ['base-skill', 'rival-skill'],
+      inputs: ['diff'],
+      outputs: ['review'],
+      derivedFrom: ['base-skill', 'rival-skill'],
+      invocation: { modelInvocable: true, userInvocable: true },
+      source: 'test',
+      provider: 'composition-provider',
+    })
+    expect(listed.find(skill => skill.name === 'runtime-composed')).toMatchObject({
+      inputs: ['diff'],
+      outputs: ['review'],
+    })
+  })
+
   it('carries governed admission metadata on the definition, the summary, and runtime candidates', async () => {
     const ctx = new Context()
     await ctx.plugin(SkillRegistry)
@@ -704,7 +777,7 @@ describe('SkillRegistry registry', () => {
           locator: 'definition',
         },
       ]),
-      get: (candidate) => Promise.resolve({
+      get: candidate => Promise.resolve({
         name: candidate.name,
         description: 'Definition',
         invocation: { modelInvocable: true, userInvocable: true },
@@ -1309,6 +1382,41 @@ describe('SkillRegistry registry', () => {
       capabilities: ['fs.read', 1] as unknown as readonly string[],
       content: 'bad',
     })).toThrow('capabilities must be an array of strings')
+    expect(() => ctx.skills.register({
+      name: 'bad-compatibility',
+      description: 'Bad compatibility',
+      source: 'runtime',
+      compatibleWith: 'base-skill' as unknown as readonly string[],
+      content: 'bad',
+    })).toThrow('compatibleWith must be an array of strings')
+    expect(() => ctx.skills.register({
+      name: 'bad-composability',
+      description: 'Bad composability',
+      source: 'runtime',
+      composableWith: 'base-skill' as unknown as readonly string[],
+      content: 'bad',
+    })).toThrow('composableWith must be an array of strings')
+    expect(() => ctx.skills.register({
+      name: 'bad-inputs',
+      description: 'Bad inputs',
+      source: 'runtime',
+      inputs: ['diff', 1] as unknown as readonly string[],
+      content: 'bad',
+    })).toThrow('inputs must be an array of strings')
+    expect(() => ctx.skills.register({
+      name: 'bad-outputs',
+      description: 'Bad outputs',
+      source: 'runtime',
+      outputs: 'review' as unknown as readonly string[],
+      content: 'bad',
+    })).toThrow('outputs must be an array of strings')
+    expect(() => ctx.skills.register({
+      name: 'bad-lineage',
+      description: 'Bad lineage',
+      source: 'runtime',
+      derivedFrom: ['base-skill', 1] as unknown as readonly string[],
+      content: 'bad',
+    })).toThrow('derivedFrom must be an array of strings')
     expect(() => ctx.skills.register({
       name: 'bad-version',
       description: 'Bad version',

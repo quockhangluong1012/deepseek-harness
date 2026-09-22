@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-21-adaptive-model-routing.md
-2026-09-21-adaptive-model-routing.md: c939171bcb975971d61f7e7cb46c7a7291e89b55
-2026-09-21-adaptive-model-routing.zh.md: 340deac34adab8f0ceaf3face37fa19dc21a05b8
+2026-09-21-adaptive-model-routing.md: 71ab5db7014547a66da0ba71657ed3ac56686c2f
+2026-09-21-adaptive-model-routing.zh.md: 0526ec532ed1cda4fb64fc99608cc63832a202fd

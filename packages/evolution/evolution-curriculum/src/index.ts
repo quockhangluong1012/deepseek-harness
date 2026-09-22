@@ -11,6 +11,7 @@ import { randomUUID } from 'node:crypto'
 import { Context, Service } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type { KvTable } from '@deepseek-ai/dsh-storage-domain'
+import type { StructuredReflection } from '@deepseek-ai/dsh-evolution-feedback'
 import type {} from '@deepseek-ai/dsh-evolution-skill-telemetry'
 import type {} from '@deepseek-ai/dsh-evolution-trace'
 import { deriveTasks } from './derive.ts'
@@ -55,6 +56,12 @@ export function resolveConfig(config: Config = {}): ResolvedConfig {
 }
 
 /**
+ * Evidence rows read per gap: compressed trace rows when measuring, stored
+ * reflections when matching a gap to its corrective heuristic.
+ */
+const EVIDENCE_LIMIT = 10
+
+/**
  * Automatic curriculum over durable proposals. Opens the `evolution_curriculum`
  * domain at init and closes it through `ctx.effect`.
  */
@@ -93,7 +100,7 @@ export class EvolutionCurriculum extends Service {
     const gaps: CurriculumGap[] = []
     for (const { name, usage } of telemetry.entries()) {
       if (usage.sessionIds.length === 0) continue
-      const rows = await trace.summary(usage.sessionIds, 10)
+      const rows = await trace.summary(usage.sessionIds, EVIDENCE_LIMIT)
       const gists = [...new Set(rows.flatMap(row => row.failureGists))]
       if (gists.length === 0) continue
       gaps.push({ capability: name, sourceSessions: [...usage.sessionIds], failureGists: gists })
@@ -111,6 +118,7 @@ export class EvolutionCurriculum extends Service {
   async propose(gaps: readonly CurriculumGap[]): Promise<readonly CurriculumProposal[]> {
     const now = new Date().toISOString()
     const table = this.requireTable()
+    const heuristics = await this.matchedReflections(gaps)
     const existing = new Set(
       [...table.entries()]
         .filter(([, row]) => row.state === 'open')
@@ -120,12 +128,15 @@ export class EvolutionCurriculum extends Service {
     for (const derived of deriveTasks(gaps)) {
       if (derived.gists.length < this.resolved.minGists) continue
       if (existing.has(`${derived.capability}${derived.task}`)) continue
+      const matched = heuristics.get(derived.capability)
       const proposal: CurriculumProposal = {
         id: randomUUID(),
         capability: derived.capability,
         task: derived.task,
         sourceSessions: [...derived.sourceSessions],
         gists: [...derived.gists],
+        antiPattern: matched?.antiPattern ?? null,
+        candidateTest: matched?.candidateTest ?? null,
         at: now,
         state: 'open',
       }
@@ -133,6 +144,30 @@ export class EvolutionCurriculum extends Service {
       staged.push(proposal)
     }
     return staged
+  }
+
+  /**
+   * Match each gap's failure evidence to the reflection stored for it: the
+   * newest stored reflection of the gap's sessions whose symptom is the same
+   * observed failure as one of the gap's gists. Both texts are the whitespace-
+   * normalized failing result clipped at their own budget, so one is a prefix
+   * of the other. A gap without the feedback seam, or without a match, carries
+   * no reflection.
+   * @param gaps - measured capability gaps, in caller order.
+   * @returns each matched gap's reflection, keyed by capability.
+   */
+  private async matchedReflections(gaps: readonly CurriculumGap[]): Promise<Map<string, StructuredReflection>> {
+    const feedback = this.ctx.get('evolutionFeedback')
+    const matched = new Map<string, StructuredReflection>()
+    if (feedback === undefined) return matched
+    for (const gap of gaps) {
+      const reflections = await feedback.reflections(gap.sourceSessions, EVIDENCE_LIMIT)
+      const found = reflections.find(reflection =>
+        gap.failureGists.some(gist =>
+          gist.startsWith(reflection.symptom) || reflection.symptom.startsWith(gist)))
+      if (found !== undefined) matched.set(gap.capability, found)
+    }
+    return matched
   }
 
   /**

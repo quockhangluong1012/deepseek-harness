@@ -36,16 +36,20 @@ import { addArtifactTo, applyLessonDecisions, artifactIdOf, freshArtifact, lesso
 import type { LessonDecision } from './decisions.ts'
 import { pruneEpisodic, prunable } from './maintenance.ts'
 import type { SweepResult } from './maintenance.ts'
+import { appendRecall, bindRecalls, gradeRecall, memoryUtility, recallTarget } from './recall.ts'
+import type { MemoryUtility } from './recall.ts'
 import { evolutionExtraction, evolutionMemoryDomainSpec, stagedWritePayload } from './spec.ts'
 import { contractJson, validateCaptureContract } from './capture-contract.ts'
 import type {
   EvolutionContextItem,
   EvolutionContextItemInput,
+  EvolutionDecisionsApplied,
   EvolutionExtraction,
   EvolutionMemoryRecord,
   EvolutionMemoryUsage,
   EvolutionOutput,
   EvolutionScopeId as EvolutionScopeIdBrand,
+  RecordedRecall,
   StagedResolution,
   StagedWrite,
   StagedWriteInput,
@@ -54,6 +58,7 @@ import type {
 export type {
   EvolutionContextItem,
   EvolutionContextItemInput,
+  EvolutionDecisionsApplied,
   EvolutionExtraction,
   EvolutionMemoryRecord,
   EvolutionMemoryUsage,
@@ -64,6 +69,9 @@ export type {
   MemoryStagedReplaceArtifactsPayload,
   MemoryStagedTextPayload,
   MemoryStagedUpdateArtifactPayload,
+  MemoryRecall,
+  RecallOutcome,
+  RecordedRecall,
   StagedResolution,
   StagedWrite,
   StagedWriteInput,
@@ -75,6 +83,8 @@ export type { CaptureContractVerdict } from './capture-contract.ts'
 export { applyLessonDecisions, lessonDecision } from './decisions.ts'
 export type { LessonDecision } from './decisions.ts'
 export { evolutionMemoryDomainSpec } from './spec.ts'
+export { RECALL_LABEL_PREFIX, memoryUtility, recallTarget } from './recall.ts'
+export type { MemoryUtility } from './recall.ts'
 export { digestOf, usedBytesOf, EMPTY_DIGEST, truncateUtf8, utf8Bytes, artifactBytesOf } from './digest.ts'
 export { artifactKey, lessonArtifact, lessonArtifactInput, normalizeStatement, wrapLegacyLessons } from './lesson-artifact.ts'
 export { cosineSimilarity, mergeArtifact, pickMergeTarget } from './merge.ts'
@@ -88,14 +98,6 @@ export type {
   LessonMergeStrategy,
 } from './lesson-artifact.ts'
 
-/**
- * Label prefix marking context the reviewer recalled from session history
- * rather than the user attaching it. Writers label recalled items with it and
- * consumers order them last, so a recalled item is the first context material
- * a brief drops under its byte budget.
- */
-export const RECALL_LABEL_PREFIX = 'Recall: '
-
 /** Heartbeat task name carrying the automatic maintenance sweep. */
 export const EVOLUTION_MEMORY_MAINTENANCE_TASK = 'evolution-memory-maintenance'
 
@@ -103,6 +105,23 @@ declare module '@deepseek-ai/cordis' {
   interface Context {
     /** Durable per-scope evolution memory record owner. */
     evolutionMemory: EvolutionMemoryStore
+  }
+
+  interface Events {
+    /**
+     * One extraction pass's decision batch landed on a scope's record,
+     * emitted once per applied batch strictly after the write is durable.
+     * Deriving consumers — the knowledge graph's claim layer is the shipped
+     * one — fold the batch into their own state here; a listener failure is
+     * their own to contain, because the batch it reports is already stored.
+     *
+     * A batch applied without provenance is not published: every decision is
+     * attributed to the session that reported it, and a batch whose session
+     * is unknown would carry unattributable evidence.
+     * @param batch - scope, source session, decisions, and the artifacts they addressed.
+     * @mode emit
+     */
+    'evolution/decisions-applied'(batch: EvolutionDecisionsApplied): void
   }
 }
 
@@ -178,6 +197,8 @@ export interface Config {
   maxOutputs?: number
   /** Decided staged entries retained per scope. */
   maxResolutions?: number
+  /** Recalls retained per scope in the recall ledger, newest kept. */
+  maxRecalls?: number
   /** Minimum similarity to an existing artifact that justifies merging instead of storing separately. */
   mergeSimilarityFloor?: number
   /** Hours between two maintenance sweeps of every stored scope. */
@@ -221,6 +242,9 @@ const maxOutputsField = z.number().step(1).min(1).default(200)
 /** Decided staged entries retained per scope. */
 const maxResolutionsField = z.number().step(1).min(1).default(200)
 
+/** Recalls retained per scope in the recall ledger. */
+const maxRecallsField = z.number().step(1).min(1).default(50)
+
 /** Similarity floor for merging a candidate into an existing artifact. */
 const mergeSimilarityFloorField = z.number().min(0).max(1).default(0.87)
 
@@ -248,6 +272,7 @@ export const Config: z<Config> = z.object({
   maxContextItems: maxContextItemsField,
   maxOutputs: maxOutputsField,
   maxResolutions: maxResolutionsField,
+  maxRecalls: maxRecallsField,
   mergeSimilarityFloor: mergeSimilarityFloorField,
   maintenanceIntervalHours: maintenanceIntervalHoursField,
   refutationFloor: refutationFloorField,
@@ -265,6 +290,7 @@ export interface ResolvedConfig {
   maxContextItems: number
   maxOutputs: number
   maxResolutions: number
+  maxRecalls: number
   mergeSimilarityFloor: number
   maintenanceIntervalHours: number
   refutationFloor: number
@@ -287,6 +313,7 @@ export function resolveConfig(config: Config): ResolvedConfig {
     maxContextItems = 50,
     maxOutputs = 200,
     maxResolutions = 200,
+    maxRecalls = 50,
     mergeSimilarityFloor = 0.87,
     maintenanceIntervalHours = 24,
     refutationFloor = 3,
@@ -302,6 +329,7 @@ export function resolveConfig(config: Config): ResolvedConfig {
     maxContextItems,
     maxOutputs,
     maxResolutions,
+    maxRecalls,
     mergeSimilarityFloor,
     maintenanceIntervalHours,
     refutationFloor,
@@ -322,6 +350,7 @@ function freshRecord(): Omit<EvolutionMemoryRecord, 'updatedAt'> & { updatedAt?:
     memoryUpdatedAt: null,
     contextItems: [],
     outputs: [],
+    recalls: [],
     episodic: [],
     lastExtraction: null,
     staged: [],
@@ -1027,6 +1056,11 @@ export class EvolutionMemoryStore extends Service {
    * decisions named artifacts the record no longer holds — stamps no family,
    * exactly as {@link addArtifact} does when its add stores nothing; the
    * provenance of the call that found nothing is still recorded.
+   *
+   * A batch applied with provenance is also published as one
+   * `evolution/decisions-applied` event once the write is durable, carrying
+   * the artifacts as they read before it. A batch applied without provenance
+   * is not published: every decision would carry unattributable evidence.
    * @param id - scope identity.
    * @param decisions - the confirmed, contradicted, and new facts, in the
    * order the extraction reported them.
@@ -1039,16 +1073,33 @@ export class EvolutionMemoryStore extends Service {
     extraction?: EvolutionExtraction,
   ): Promise<EvolutionMemoryRecord> {
     const parsed = decisions.map(decision => lessonDecision.parse(decision))
-    const addTargets = await this.decisionAddTargets(this.read(id)?.agentLessons ?? [], parsed)
+    const artifacts = this.read(id)?.agentLessons ?? []
+    const addTargets = await this.decisionAddTargets(artifacts, parsed)
     const now = new Date().toISOString()
-    return this.write(id, (record) => {
-      const next = applyDecisionsTo(record, parsed, this.resolved, addTargets)
+    const record = await this.write(id, (current) => {
+      const next = applyDecisionsTo(current, parsed, this.resolved, addTargets)
       checkArtifactCaps(next, this.resolved)
       return {
-        ...next === record ? {} : stampFamily(next, 'lessons', now),
-        ...extraction === undefined ? {} : { lastExtraction: structuredClone(extraction) },
+        ...next === current ? {} : stampFamily(next, 'lessons', now),
+        ...extraction === undefined ? {} : {
+          lastExtraction: structuredClone(extraction),
+          // Every recall still awaiting a decision is bound to this batch: the
+          // extraction that landed after it is the recorded decision the
+          // recalled material was in play for, and its session is what a
+          // grader reads an outcome from.
+          recalls: bindRecalls(next.recalls, extraction.sessionId, now),
+        },
       }
     })
+    if (extraction !== undefined) {
+      this.publish({
+        scopeId: id,
+        sessionId: extraction.sessionId,
+        decisions: parsed,
+        artifacts,
+      })
+    }
+    return record
   }
 
   /**
@@ -1134,7 +1185,10 @@ export class EvolutionMemoryStore extends Service {
   }
 
   /**
-   * Attach pasted text or a scope file.
+   * Attach pasted text or a scope file. An item whose label carries the stored
+   * `RECALL_LABEL_PREFIX` is a recall of the memory the label names, so the
+   * write also appends one row to the scope's recall ledger: that is §23's
+   * `retrieved` link, counted where the shipped recall path already writes.
    * @param id - scope identity.
    * @param input - label plus text or path with its observed size.
    * @returns the stored record.
@@ -1151,11 +1205,80 @@ export class EvolutionMemoryStore extends Service {
     const item: EvolutionContextItem = input.kind === 'text'
       ? { id: randomUUID(), kind: 'text', label: input.label, sizeBytes, addedAt: now, text: input.text }
       : { id: randomUUID(), kind: 'file', label: input.label, sizeBytes, addedAt: now, path: input.path }
-    return this.write(id, record => ({ ...record, contextItems: [...record.contextItems, item] }))
+    const recalled = recallTarget(input.label)
+    return this.write(id, record => ({
+      ...record,
+      contextItems: [...record.contextItems, item],
+      ...recalled === undefined ? {} : {
+        recalls: appendRecall(record.recalls, {
+          id: recalled,
+          itemId: item.id,
+          at: now,
+          decidedInSessionId: null,
+          decidedAt: null,
+          outcome: null,
+          outcomeAt: null,
+        }, this.resolved.maxRecalls),
+      },
+    }))
   }
 
   /**
-   * Detach one context item.
+   * Every recall the profile's scopes recorded, newest first within its scope,
+   * each naming the scope it landed in. §23's loop is read from here; which
+   * session read a recalled item is not among the recorded links.
+   * @returns one row per recorded recall.
+   */
+  recalls(): readonly RecordedRecall[] {
+    const rows: RecordedRecall[] = []
+    for (const [key, record] of this.requireTable().entries()) {
+      const scopeId = scopeIdFromStorageKey(key)
+      for (const recall of record.recalls) rows.push({ ...structuredClone(recall), scopeId })
+    }
+    return rows
+  }
+
+  /**
+   * Record the graded outcome of one recall: the §23 loop's `helped outcome`
+   * link. The grader is whichever pass reads the outcome record — the
+   * curator's idle pass is the shipped one, which grades the session the
+   * recall's decision batch was extracted from off the feedback store. The
+   * newest recall of that memory still awaiting an outcome is the one graded,
+   * so a memory recalled again after an outcome is graded again on its newer
+   * recall. A memory with no awaiting recall is refused loudly rather than
+   * graded twice.
+   * @param id - scope identity.
+   * @param recalledId - recalled memory's identity, as its label carried it.
+   * @param outcome - `ok` when the graded session's evidence was clean, else `failed`.
+   * @param at - ISO-8601 instant the outcome was recorded, defaulting to the wall clock.
+   * @returns the stored record.
+   */
+  async recordRecallOutcome(
+    id: EvolutionScopeId,
+    recalledId: string,
+    outcome: 'ok' | 'failed',
+    at: string = new Date().toISOString(),
+  ): Promise<EvolutionMemoryRecord> {
+    const current = this.requireTable().get(storageKey(id) as EvolutionScopeId)
+    if (current === undefined || !current.recalls.some(recall => recall.id === recalledId && recall.outcome === null)) {
+      throw itemNotFound(recalledId)
+    }
+    return this.write(id, record => ({ ...record, recalls: gradeRecall(record.recalls, recalledId, outcome, at) }))
+  }
+
+  /**
+   * §24's utility for every memory the recall ledger holds, one reading per
+   * recalled memory across the profile's scopes. Reads the same rows
+   * {@link recalls} returns.
+   * @returns the derived readings.
+   */
+  recallUtility(): readonly MemoryUtility[] {
+    return memoryUtility(this.recalls())
+  }
+
+  /**
+   * Detach one context item. The recall ledger keeps its row: the recall
+   * happened, and dropping the item from the brief does not un-retrieve it.
    * @param id - scope identity.
    * @param itemId - context item identity.
    * @returns the stored record.
@@ -1231,6 +1354,9 @@ export class EvolutionMemoryStore extends Service {
    * the baseline-versus-candidate measurement its proposer recorded, which
    * this store has no way to read, so it drops on the human's approval.
    * Either decision is recorded in the scope's resolution log, newest first.
+   * An approved `applyDecisions` batch is published as one
+   * `evolution/decisions-applied` event under the entry's origin session, on
+   * the same terms {@link applyExtractionDecisions} states.
    * @param id - staged entry identity.
    * @returns resolution after durability.
    */
@@ -1256,6 +1382,19 @@ export class EvolutionMemoryStore extends Service {
     }
     const resolved = this.resolved
     const addTargets = await this.stagedAddTargets(located.record, located.entry)
+    // A decision batch is the one memory op whose content other stores
+    // derive from, so the batch and the artifacts it addressed are captured
+    // here, before the write chain, and published once the write is durable.
+    const batch: EvolutionDecisionsApplied | undefined = located.entry.kind === 'memory' && located.entry.op === 'applyDecisions'
+      ? {
+        // The located scope is the table key the entry was found under;
+        // consumers read records, so the batch carries the scope identity.
+        scopeId: scopeIdFromStorageKey(located.scope),
+        sessionId: located.entry.originSessionId,
+        decisions: requiredDecisions(stagedFields(located.entry.payload, located.entry.op)),
+        artifacts: located.record.agentLessons,
+      }
+      : undefined
     await this.requireTable().update(located.scope, (record) => {
       const target = record.staged.find(candidate => candidate.id === id)
       if (target === undefined) throw stagedNotFound(id)
@@ -1267,6 +1406,7 @@ export class EvolutionMemoryStore extends Service {
       const stamped = applied.family === null ? applied.record : stampFamily(applied.record, applied.family, now)
       return { ...stamped, staged: remaining, resolutions, updatedAt: now }
     })
+    if (batch !== undefined) this.publish(batch)
   }
 
   /**
@@ -1487,6 +1627,21 @@ export class EvolutionMemoryStore extends Service {
       scores.set(artifact.id, cosineSimilarity(query, vector))
     }
     return scores
+  }
+
+  /**
+   * Publish one landed decision batch to deriving consumers. The write that
+   * published it is already durable, so a listener that throws is logged
+   * rather than propagated: a consumer's failure must not turn a stored batch
+   * into a rejected call and invite the caller to repeat it.
+   * @param batch - the scope, source session, decisions, and artifacts to publish.
+   */
+  private publish(batch: EvolutionDecisionsApplied): void {
+    try {
+      this.ctx.emit('evolution/decisions-applied', batch)
+    } catch (error) {
+      this.ctx.logger.warn(`evolution-memory: decisions-applied listener failed: ${String(error)}`)
+    }
   }
 
   private async write(

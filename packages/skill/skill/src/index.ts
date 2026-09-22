@@ -70,8 +70,29 @@ export interface SkillSummary {
    * The relation is symmetric — one side declaring it excludes the pair.
    */
   readonly conflictsWith?: readonly string[]
+  /**
+   * Skill names this skill may load beside. Declaring the list makes it an
+   * allowlist: the loader refuses any other member of the same load set. Absent
+   * means undeclared, which constrains nobody.
+   */
+  readonly compatibleWith?: readonly string[]
+  /**
+   * Skill names this skill may be synthesized with by `skill_manage` derivation.
+   * Declaring the list makes it an allowlist over the source set. Absent means
+   * undeclared.
+   */
+  readonly composableWith?: readonly string[]
   /** Capability names the skill needs; routing-relevant like `requires`, never a grant by itself. */
   readonly capabilities?: readonly string[]
+  /**
+   * Data names the skill consumes. Carried for composition like `capabilities`
+   * — declared, never a gate on its own.
+   */
+  readonly inputs?: readonly string[]
+  /** Data names the skill produces. Carried for composition like `capabilities`, never a gate. */
+  readonly outputs?: readonly string[]
+  /** Skill names this body was derived from, in declaration order; absent means it stands alone. */
+  readonly derivedFrom?: readonly string[]
   /** Free-form version label; absent means unversioned. */
   readonly version?: string
   /** Scenario names usable by the scorer/optimizer; absent means none declared. */
@@ -747,11 +768,8 @@ function runtimeCandidate(skill: SkillDefinition): SkillCandidate {
     name: skill.name,
     description: skill.description,
     ...skill.whenToUse !== undefined ? { whenToUse: skill.whenToUse } : {},
-    ...skill.requires !== undefined ? { requires: skill.requires } : {},
-    ...skill.conflictsWith !== undefined ? { conflictsWith: skill.conflictsWith } : {},
-    ...skill.capabilities !== undefined ? { capabilities: skill.capabilities } : {},
+    ...carriedStringLists(skill),
     ...skill.version !== undefined ? { version: skill.version } : {},
-    ...skill.testScenarios !== undefined ? { testScenarios: skill.testScenarios } : {},
     invocation: skill.invocation,
     source: skill.source,
     provider: skill.provider,
@@ -795,22 +813,16 @@ function validateCandidate(candidate: SkillCandidate, providerName: string): voi
   if (candidate.path !== undefined && typeof candidate.path !== 'string') {
     throw new TypeError(`skill provider "${providerName}" returned skill "${candidate.name}" with a non-string path`)
   }
-  validateStringArray(candidate.requires, `skill provider "${providerName}" returned skill "${candidate.name}" requires`)
-  validateStringArray(candidate.conflictsWith, `skill provider "${providerName}" returned skill "${candidate.name}" conflictsWith`)
-  validateStringArray(candidate.capabilities, `skill provider "${providerName}" returned skill "${candidate.name}" capabilities`)
+  validateStringLists(candidate, `skill provider "${providerName}" returned skill "${candidate.name}"`)
   validateVersion(candidate.version, `skill provider "${providerName}" returned skill "${candidate.name}" version`)
-  validateStringArray(candidate.testScenarios, `skill provider "${providerName}" returned skill "${candidate.name}" testScenarios`)
 }
 
 function validateRuntimeSkill(skill: SkillRegistration): void {
   if (!SKILL_NAME.test(skill.name)) throw new Error(`invalid skill name "${skill.name}"`)
   if (skill.description.length === 0) throw new Error(`skill "${skill.name}" requires a description`)
   validateInvocation(skill.invocation, `runtime skill "${skill.name}"`)
-  validateStringArray(skill.requires, `runtime skill "${skill.name}" requires`)
-  validateStringArray(skill.conflictsWith, `runtime skill "${skill.name}" conflictsWith`)
-  validateStringArray(skill.capabilities, `runtime skill "${skill.name}" capabilities`)
+  validateStringLists(skill, `runtime skill "${skill.name}"`)
   validateVersion(skill.version, `runtime skill "${skill.name}" version`)
-  validateStringArray(skill.testScenarios, `runtime skill "${skill.name}" testScenarios`)
 }
 
 /** Validate a definition loaded from a provider-controlled parser or remote source. */
@@ -829,11 +841,8 @@ function validateDefinition(skill: SkillDefinition): void {
   if (description.length === 0) throw new Error(`loaded skill "${name}" requires a description`)
   validateInvocation(invocation, `loaded skill "${name}"`)
   if (whenToUse !== undefined && typeof whenToUse !== 'string') throw new TypeError(`loaded skill "${name}" whenToUse must be a string`)
-  validateStringArray(skill.requires, `loaded skill "${name}" requires`)
-  validateStringArray(skill.conflictsWith, `loaded skill "${name}" conflictsWith`)
-  validateStringArray(skill.capabilities, `loaded skill "${name}" capabilities`)
+  validateStringLists(skill, `loaded skill "${name}"`)
   validateVersion(skill.version, `loaded skill "${name}" version`)
-  validateStringArray(skill.testScenarios, `loaded skill "${name}" testScenarios`)
   if (typeof source !== 'string') throw new TypeError(`loaded skill "${name}" source must be a string`)
   if (typeof provider !== 'string') throw new TypeError(`loaded skill "${name}" provider must be a string`)
   if (typeof content !== 'string') throw new TypeError(`loaded skill "${name}" content must be a string`)
@@ -900,16 +909,56 @@ function toSummary(skill: SkillDefinition | SkillCandidate): SkillSummary {
     ...skill.path === undefined ? {} : { path: skill.path },
     description,
     ...whenToUse !== undefined ? { whenToUse } : {},
-    ...skill.requires !== undefined ? { requires: skill.requires } : {},
-    ...skill.conflictsWith !== undefined ? { conflictsWith: skill.conflictsWith } : {},
-    ...skill.capabilities !== undefined ? { capabilities: skill.capabilities } : {},
+    ...carriedStringLists(skill),
     ...skill.version !== undefined ? { version: skill.version } : {},
-    ...skill.testScenarios !== undefined ? { testScenarios: skill.testScenarios } : {},
     invocation,
     source,
     provider,
     ...resourceBase !== undefined ? { resourceBase } : {},
   }
+}
+
+/**
+ * Declared string-list relations the registry carries from a candidate to a
+ * summary unchanged. One table names them, so the projection and the
+ * validation can never disagree about which declarations exist.
+ */
+const CARRIED_STRING_LISTS = [
+  'requires',
+  'conflictsWith',
+  'compatibleWith',
+  'composableWith',
+  'capabilities',
+  'inputs',
+  'outputs',
+  'derivedFrom',
+  'testScenarios',
+] as const
+
+type CarriedStringList = typeof CARRIED_STRING_LISTS[number]
+
+/**
+ * Copy the declared string lists a summary carries, omitting each one the
+ * source does not declare so `undefined` never reaches a spread.
+ * @param source - candidate or definition carrying the declarations.
+ * @returns the declared lists, by field name.
+ */
+function carriedStringLists(source: SkillSummary): { [K in CarriedStringList]?: readonly string[] } {
+  const carried: { [K in CarriedStringList]?: readonly string[] } = {}
+  for (const field of CARRIED_STRING_LISTS) {
+    const value = source[field]
+    if (value !== undefined) carried[field] = value
+  }
+  return carried
+}
+
+/**
+ * Validate every declared string list one skill carries.
+ * @param skill - candidate, registration, or loaded definition under validation.
+ * @param subject - failure prefix naming the source and skill.
+ */
+function validateStringLists(skill: Partial<Record<CarriedStringList, unknown>>, subject: string): void {
+  for (const field of CARRIED_STRING_LISTS) validateStringArray(skill[field], `${subject} ${field}`)
 }
 
 function validateInvocation(invocation: unknown, subject: string): void {
@@ -999,5 +1048,7 @@ function errorMessage(error: unknown): string {
 
 export { rankSkills } from './rank.ts'
 export type { RankedSkill, RankSkillsOptions, SkillRankSignal, SkillRankVectors } from './rank.ts'
+export { composabilityRefusal, compositionRefusal } from './composition.ts'
+export type { CompositionMember } from './composition.ts'
 
 export default SkillRegistry

@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/evolution/evolution-canary/README.md
-README.md: 3139416cb61ae374bb680fdfc325daa605758de4
-README.zh.md: 0e5a0124ea3fcbebdeff1cf137fdb8b47a031c6a
+README.md: 7707dd9b68129a99549c5c832cd35a9b4b533d99
+README.zh.md: 50779bb29645ff5a69a4dfc3a350428ac5b7bd23

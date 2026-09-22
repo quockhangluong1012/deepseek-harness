@@ -39,3 +39,5 @@ A scope can now be asked about structure and answer from a bounded index rather 
 The trade-offs are recorded in the package README: relations are not deduplicated semantically (`worked_on` and `workedOn` are two relations), no relation is ever removed, traversal is undirected so an incoming edge is reported with the relation name rather than its inverse, and the caps refuse rather than evict.
 
 The package ships complete: a definition, a consumer command, the extraction that feeds it, and a producer. Mounted beside `dsh-evolution-heartbeat`, the graph buffers each scope's user and assistant message text and registers the `evolution-graph-extract` task, which extracts whatever accumulated since its last run — the [graph-vector fusion](2026-09-15-graph-vector-fusion.md) note records that design and its staleness bounds.
+
+A relation's count is still frequency and still never removed, and the record now also holds a [claim/evidence layer](2026-09-22-claim-evidence-graph.md) where facts carry their sources, contradictions lower their belief, and a superseding claim retires the one it replaces.

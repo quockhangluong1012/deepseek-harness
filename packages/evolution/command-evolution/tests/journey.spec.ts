@@ -45,6 +45,7 @@ function record(overrides: Partial<EvolutionMemoryRecord> = {}): EvolutionMemory
     profileUpdatedAt: null,
     contextItems: [],
     outputs: [],
+    recalls: [],
     episodic: [],
     lastExtraction: null,
     staged: [],

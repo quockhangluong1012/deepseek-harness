@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/evolution/evolution-stagnation/README.md
 README.md: c3585b0772a5557cb6cc64a0c09404dd2e190a32
-README.zh.md: da2978c3735363c0dffb4e40d63c7aa1a7512c9b
+README.zh.md: b45e5d5c3ec9fdf392b2bf5a458963da5861889e
