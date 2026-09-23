@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import LlmRuntime, { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { ContextFormed, GenerateOptions, UserMessage } from '@deepseek-ai/dsh-llm'
+import { brandString } from '@deepseek-ai/dsh-brand'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
@@ -60,6 +61,7 @@ function send(agent: Agent, text: string): void {
 }
 
 type SnapshotProducer = 'time-context' | 'tmux-context'
+type EvolutionMemorySource = Extract<UserMessage['source'], { kind: 'evolution-memory' }>
 
 function snapshotSource(producer: SnapshotProducer, text: string, supersedes?: true) {
   const common = {
@@ -252,15 +254,21 @@ describe('pre-step snapshot injections', () => {
 })
 
 describe('snapshot slots', () => {
-  it('keys a producer by plugin name or by source kind, and only when it supersedes', () => {
-    expect(snapshotSlot({ kind: 'plugin', plugin: 'time-context' } as never)).toBeUndefined()
-    expect(snapshotSlot({ kind: 'plugin', plugin: 'time-context', form: 'snapshot', sections: [] } as never)).toBeUndefined()
+  it('keys superseding snapshots by their producer kind', () => {
+    expect(snapshotSlot({ kind: 'snapshot-time-test' })).toBeUndefined()
+    expect(snapshotSlot({ kind: 'snapshot-time-test', form: 'snapshot', sections: [] })).toBeUndefined()
     expect(snapshotSlot({
-      kind: 'plugin', plugin: 'time-context', form: 'snapshot', sections: [], supersedes: true,
-    } as never)).toBe('plugin:time-context')
-    expect(snapshotSlot({
-      kind: 'evolution-memory', form: 'snapshot', sections: [], supersedes: true,
-    } as never)).toBe('kind:evolution-memory')
+      kind: 'snapshot-time-test', form: 'snapshot', sections: [], supersedes: true,
+    })).toBe('kind:snapshot-time-test')
+    const memorySource: EvolutionMemorySource = {
+      kind: 'evolution-memory',
+      form: 'snapshot',
+      scopeId: brandString<EvolutionMemorySource['scopeId']>('snapshot-test'),
+      digest: 'test-digest',
+      sections: [],
+      supersedes: true,
+    }
+    expect(snapshotSlot(memorySource)).toBe('kind:evolution-memory')
   })
 
   it('restores the newest live snapshot per producer and skips a shadowed one', async () => {
@@ -288,8 +296,8 @@ describe('snapshot slots', () => {
     })
 
     const slots = restoreSnapshotSlots(session)
-    expect([...slots.keys()].sort()).toEqual(['plugin:time-context'])
-    expect(slots.get('plugin:time-context')).toBe(
+    expect([...slots.keys()].sort()).toEqual(['kind:snapshot-time-test'])
+    expect(slots.get('kind:snapshot-time-test')).toBe(
       session.snapshotEvents().filter(event => event.type === 'user/message'
         && event.data.content[0]?.type === 'text'
         && event.data.content[0].text === 'second brief')[0]?.seq,

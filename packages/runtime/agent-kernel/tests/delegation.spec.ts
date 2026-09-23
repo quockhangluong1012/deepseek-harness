@@ -43,15 +43,14 @@ async function mounted(config: Parameters<typeof rig>[0] = {}): Promise<Awaited<
 let children = 0
 
 /**
- * Register a directly constructed child agent whose session header names its
- * parent. Registration fires `agent/created`, so the kernel issues the receipt
- * before this returns.
+ * Register a directly constructed child whose session header names its parent.
+ * The returned Promise settles after the kernel records its delegation receipt.
  * @param ctx - the owning context.
  * @param parent - the delegating parent agent.
  * @param cwd - absolute workspace directory to record on the child header.
  * @returns the registered child agent.
  */
-function makeChild(ctx: Context, parent: Agent, cwd?: string): Agent {
+async function makeChild(ctx: Context, parent: Agent, cwd?: string): Promise<Agent> {
   children += 1
   const scope = ctx.plugin(() => {})
   const id = SessionId(`agent-child-${String(children)}`)
@@ -73,7 +72,7 @@ function makeChild(ctx: Context, parent: Agent, cwd?: string): Agent {
     runMaintenance: task => task(new AbortController().signal),
     whenIdle: () => Promise.resolve(),
   }
-  ctx.agents.register(agent)
+  await ctx.agents.register(agent)
   return agent
 }
 
@@ -98,7 +97,7 @@ function viewOf(overrides: Partial<KernelView> & Pick<KernelView, 'task' | 'sess
 describe('receipt issuance', () => {
   it('records nothing for a root agent', async () => {
     const { ctx } = await mounted()
-    const agent = makeAgent(ctx)
+    const agent = await makeAgent(ctx)
     await preStep(ctx, agent, [humanMessage('go')])
 
     expect(eventsOf(agent, 'delegation/received')).toEqual([])
@@ -108,10 +107,10 @@ describe('receipt issuance', () => {
 
   it('issues a receipt into the child log and an audit copy into the parent log', async () => {
     const { ctx, kernel } = await mounted({ policy: ALLOW_ALL, budgets: { maxSteps: 5 } })
-    const parent = makeAgent(ctx, 'C:\\ws')
+    const parent = await makeAgent(ctx, 'C:\\ws')
     await preStep(ctx, parent, [humanMessage('delegate')])
 
-    const child = makeChild(ctx, parent, 'C:\\ws\\sub')
+    const child = await makeChild(ctx, parent, 'C:\\ws\\sub')
 
     const received = eventsOf(child, 'delegation/received')
     expect(received).toHaveLength(1)
@@ -130,10 +129,10 @@ describe('receipt issuance', () => {
 
   it('inherits the run identity, parent link, and remaining budget into the child contract', async () => {
     const { ctx, kernel } = await mounted({ policy: ALLOW_ALL, budgets: { maxSteps: 5, maxSubagentDepth: 2 } })
-    const parent = makeAgent(ctx, 'C:\\ws')
+    const parent = await makeAgent(ctx, 'C:\\ws')
     await preStep(ctx, parent, [humanMessage('delegate')])
     parent.session.append('step/start', { turn: 1, step: 1 })
-    const child = makeChild(ctx, parent)
+    const child = await makeChild(ctx, parent)
 
     await preStep(ctx, child, [humanMessage('work')])
 
@@ -149,9 +148,9 @@ describe('receipt issuance', () => {
   it('narrows the writable scopes to the intersection of parent and child sandboxes', async () => {
     const { ctx } = await mounted({ policy: ALLOW_ALL })
     await ctx.plugin(SandboxPolicy, { mode: 'workspace-write' })
-    const parent = makeAgent(ctx, 'C:\\ws')
+    const parent = await makeAgent(ctx, 'C:\\ws')
     await preStep(ctx, parent, [humanMessage('delegate')])
-    const child = makeChild(ctx, parent, 'C:\\ws\\sub')
+    const child = await makeChild(ctx, parent, 'C:\\ws\\sub')
 
     expect(eventsOf(child, 'delegation/received')[0]?.writableScopes).toEqual(['C:\\ws\\sub'])
   })
@@ -176,7 +175,7 @@ describe('receipt issuance', () => {
       runMaintenance: task => task(new AbortController().signal),
       whenIdle: () => Promise.resolve(),
     }
-    ctx.agents.register(orphan)
+    await ctx.agents.register(orphan)
     await preStep(ctx, orphan, [humanMessage('work')])
 
     const received = eventsOf(orphan, 'delegation/received')
@@ -193,7 +192,7 @@ describe('receipt issuance', () => {
 
   it('does not issue a second receipt for a resumed child that already carries one', async () => {
     const { ctx } = await mounted({ policy: ALLOW_ALL })
-    const parent = makeAgent(ctx)
+    const parent = await makeAgent(ctx)
     const scope = ctx.plugin(() => {})
     const id = SessionId('agent-resumed')
     const session = ctx.sessions.create(id, { meta: { parentSession: parent.session.id } })
@@ -222,7 +221,7 @@ describe('receipt issuance', () => {
       runMaintenance: task => task(new AbortController().signal),
       whenIdle: () => Promise.resolve(),
     }
-    ctx.agents.register(resumed)
+    await ctx.agents.register(resumed)
 
     expect(eventsOf(resumed, 'delegation/received')).toHaveLength(1)
     expect(eventsOf(parent, 'delegation/issued')).toEqual([])
@@ -235,7 +234,7 @@ describe('intersection', () => {
     await ctx.plugin(SandboxPolicy, { mode: 'workspace-write' })
     registerTool(ctx, 'probe')
     declareProbe(kernel, 'fs.write')
-    const parent = makeAgent(ctx, 'C:\\ws')
+    const parent = await makeAgent(ctx, 'C:\\ws')
     await preStep(ctx, parent, [humanMessage('delegate')])
     // A receipt recorded before registration stands: the kernel keeps the
     // authority the child already runs under instead of issuing a second one.
@@ -267,7 +266,7 @@ describe('intersection', () => {
       runMaintenance: task => task(new AbortController().signal),
       whenIdle: () => Promise.resolve(),
     }
-    ctx.agents.register(child)
+    await ctx.agents.register(child)
     await preStep(ctx, child, [humanMessage('work')])
 
     const result = await callTool(ctx, 'probe', child)
@@ -284,9 +283,9 @@ describe('intersection', () => {
     await ctx.plugin(SandboxPolicy, { mode: 'workspace-write' })
     registerTool(ctx, 'probe')
     declareProbe(kernel, 'fs.write')
-    const parent = makeAgent(ctx, 'C:\\ws')
+    const parent = await makeAgent(ctx, 'C:\\ws')
     await preStep(ctx, parent, [humanMessage('delegate')])
-    const child = makeChild(ctx, parent, 'C:\\ws')
+    const child = await makeChild(ctx, parent, 'C:\\ws')
     await preStep(ctx, child, [humanMessage('work')])
 
     const result = await callTool(ctx, 'probe', child)
@@ -300,11 +299,11 @@ describe('intersection', () => {
     const { ctx, kernel } = await mounted({ mode: 'enforce', policy: ALLOW_ALL, budgets: { maxSubagentDepth: 1 } })
     registerTool(ctx, 'probe')
     declareProbe(kernel, 'fs.read')
-    const grandparent = makeAgent(ctx)
+    const grandparent = await makeAgent(ctx)
     await preStep(ctx, grandparent, [humanMessage('delegate')])
-    const parent = makeChild(ctx, grandparent)
+    const parent = await makeChild(ctx, grandparent)
     await preStep(ctx, parent, [humanMessage('delegate')])
-    const child = makeChild(ctx, parent)
+    const child = await makeChild(ctx, parent)
     await preStep(ctx, child, [humanMessage('work')])
 
     const receipt = eventsOf(child, 'delegation/received')[0]
@@ -320,9 +319,9 @@ describe('intersection', () => {
     const { ctx, kernel } = await mounted({ mode: 'enforce', policy: ALLOW_ALL, budgets: { maxSubagentDepth: 1 } })
     registerTool(ctx, 'probe')
     declareProbe(kernel, 'fs.read')
-    const parent = makeAgent(ctx)
+    const parent = await makeAgent(ctx)
     await preStep(ctx, parent, [humanMessage('delegate')])
-    const child = makeChild(ctx, parent)
+    const child = await makeChild(ctx, parent)
     await preStep(ctx, child, [humanMessage('work')])
 
     const result = await callTool(ctx, 'probe', child)
@@ -335,9 +334,9 @@ describe('intersection', () => {
     const { ctx, kernel } = await mounted({ mode: 'shadow' })
     registerTool(ctx, 'probe')
     declareProbe(kernel, 'fs.read')
-    const parent = makeAgent(ctx)
+    const parent = await makeAgent(ctx)
     await preStep(ctx, parent, [humanMessage('delegate')])
-    const child = makeChild(ctx, parent)
+    const child = await makeChild(ctx, parent)
     await preStep(ctx, child, [humanMessage('work')])
 
     await callTool(ctx, 'probe', child)

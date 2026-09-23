@@ -523,7 +523,7 @@ describe('evolution-memory-context injector', () => {
       await ctx.evolutionMemory.setInstructions(id, 'rules')
       const current = createUserMessage({
         content: [{ type: 'text', text: 'current brief' }],
-        source: { kind: 'evolution-memory', form: 'snapshot', scopeId: id, digest: ctx.evolutionMemory.digest(id), sections: [] },
+        source: { kind: 'evolution-memory', form: 'snapshot', scopeId: id, digest: ctx.evolutionMemory.digest(id), sections: [], supersedes: true },
       })
       const first = await agentEvents(ctx, fakeAgent(session)).waterfall(
         'agent/pre-step',

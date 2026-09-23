@@ -51,9 +51,9 @@ export async function rig(config: Config = {}): Promise<Rig> {
  * published to `ctx.agents` so scoped dispatch and identity checks resolve it.
  * @param ctx - the owning context.
  * @param cwd - absolute workspace directory to record on the session header.
- * @returns the registered Agent.
+ * @returns the registered Agent after its creation listeners finish.
  */
-export function makeAgent(ctx: Context, cwd?: string): Agent {
+export async function makeAgent(ctx: Context, cwd?: string): Promise<Agent> {
   sequence += 1
   const scope = ctx.plugin(() => {})
   const id = SessionId(`agent-${sequence}`)
@@ -73,7 +73,7 @@ export function makeAgent(ctx: Context, cwd?: string): Agent {
     runMaintenance: task => task(new AbortController().signal),
     whenIdle: () => Promise.resolve(),
   }
-  ctx.agents.register(agent)
+  await ctx.agents.register(agent)
   return agent
 }
 

@@ -533,10 +533,10 @@ describe('evolution reviewer', () => {
       session.append('turn/start', { turn: 1 })
       session.append(
         'user/message',
-        {
-          content: [{ type: 'image', image: { id: 'img-1' } }, { type: 'text' }],
+        createUserMessage({
+          content: [{ type: 'reasoning', text: 'internal only' }],
           source: { kind: 'user' },
-        } as never,
+        }),
         { surfaceOp: 'append' },
       )
       session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
@@ -2328,8 +2328,8 @@ describe('evolution reviewer', () => {
         {
           turn: 1,
           step: 1,
-          message: { content: [{ type: 'tool-result', toolCallId: ghost, isError: true }] },
-        } as never,
+          message: createToolResultMessage({ callId: ghost, content: [], isError: true }),
+        },
         { surfaceOp: 'append' },
       )
       session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })

@@ -107,6 +107,8 @@ export interface EvolutionMemorySource {
   scopeId: EvolutionScopeId
   digest: string
   sections: readonly ContextSnapshotSection[]
+  /** Current briefs set this; older session entries may omit it. */
+  supersedes?: true
 }
 
 declare module '@deepseek-ai/dsh-llm' {

@@ -223,50 +223,35 @@ describe('desktop update coordinator', () => {
   })
 
   it('rejects install without a verified available release', async () => {
-    const updater = {
+    const updater = Object.assign(new EventEmitter(), {
       autoDownload: true,
       autoInstallOnAppQuit: true,
       checkForUpdates: vi.fn(),
       downloadUpdate: vi.fn(),
       quitAndInstall: vi.fn(),
-    } as unknown as AppUpdater
+    }) as unknown as AppUpdater
     const coordinator = new DesktopUpdateCoordinator(state => state, async () => false, updater, () => true)
     await expect(coordinator.install('1.1.0-rc.2')).rejects.toThrow(/confirmed target is not ready/u)
   })
 
-  it('publishes download progress while an install is in flight', async () => {
-    const states: DesktopUpdateState[] = []
-    let progressListener: ((info: { percent?: unknown }) => void) | undefined
-    const releaseDownload = Promise.withResolvers<[]>()
-    const updater = {
-      autoDownload: true,
-      autoInstallOnAppQuit: true,
-      checkForUpdates: vi.fn(async () => ({
-        isUpdateAvailable: true,
-        updateInfo: { version: '2.0.0' },
-      })),
-      downloadUpdate: vi.fn(() => releaseDownload.promise),
-      quitAndInstall: vi.fn(),
-      on: vi.fn((event: string, listener: (info: { percent?: unknown }) => void) => {
-        if (event === 'download-progress') progressListener = listener
-      }),
-    } as unknown as AppUpdater
-    const coordinator = new DesktopUpdateCoordinator(
-      (state) => {
-        states.push(state)
-        return state
-      },
-      async () => false,
-      updater,
-      () => true,
-    )
+  it('publishes download progress before separate installation approval', async () => {
+    const f = fixture()
+    const prepared = Promise.withResolvers<string[]>()
+    f.checkForUpdates.mockResolvedValue({ isUpdateAvailable: true, updateInfo: { version: '2.0.0' } })
+    f.downloadUpdate.mockImplementationOnce(async () => {
+      f.events.emit('download-progress', { percent: 42.7 })
+      f.events.emit('update-downloaded', { version: '2.0.0' })
+      return prepared.promise
+    })
 
-    await expect(coordinator.check()).resolves.toEqual({ phase: 'available', version: '2.0.0' })
-    const installing = coordinator.install('2.0.0')
-    expect(progressListener).toBeDefined()
-    progressListener?.({ percent: 42.7 })
-    releaseDownload.resolve([])
-    await expect(installing).resolves.toEqual({ phase: 'ready', version: '2.0.0' })
-    expect(states).toContainEqual({ phase: 'installing', version: '2.0.0', percent: 42 })
+    await expect(f.coordinator.check()).resolves.toEqual({ phase: 'available', version: '2.0.0' })
+    const downloading = f.coordinator.download('2.0.0')
+    await vi.waitFor(() => { expect(f.states).toContainEqual({ phase: 'downloading', version: '2.0.0', percent: 42.7 }) })
+    prepared.resolve([])
+    await expect(downloading).resolves.toEqual({ phase: 'ready', version: '2.0.0' })
+
+    f.beforeRestart.mockResolvedValueOnce(false)
+    await expect(f.coordinator.install('2.0.0')).resolves.toEqual({ phase: 'ready', version: '2.0.0' })
+    expect(f.states).toContainEqual({ phase: 'installing', version: '2.0.0' })
   })
 })

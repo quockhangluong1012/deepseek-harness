@@ -31,7 +31,7 @@ afterEach(async () => {
 })
 
 /** Register a directly constructed Agent so the kernel has a session to attach to. */
-function agent(ctx: Context): Agent {
+async function agent(ctx: Context): Promise<Agent> {
   const scope = ctx.plugin(() => {})
   const id = SessionId('kernel-loader-agent')
   const value: Agent = {
@@ -49,7 +49,7 @@ function agent(ctx: Context): Agent {
     runMaintenance: task => task(new AbortController().signal),
     whenIdle: () => Promise.resolve(),
   }
-  ctx.agents.register(value)
+  await ctx.agents.register(value)
   return value
 }
 
@@ -108,7 +108,7 @@ const ALLOW_ALL = [
 describe('agent-kernel real Loader composition through cordis.yml', () => {
   it('admits a declared action in enforce mode and records the durable decision', async () => {
     const ctx = await boot(['    mode: enforce', ...ALLOW_ALL])
-    const owner = agent(ctx)
+    const owner = await agent(ctx)
     ctx.tools.register(defineContentToolFixture({
       name: 'probe',
       description: 'probe',
@@ -146,7 +146,7 @@ describe('agent-kernel real Loader composition through cordis.yml', () => {
 
   it('refuses an undeclared tool in enforce mode and leaves its action uncommitted as a failure', async () => {
     const ctx = await boot(['    mode: enforce', ...ALLOW_ALL])
-    const owner = agent(ctx)
+    const owner = await agent(ctx)
     ctx.tools.register(defineContentToolFixture({
       name: 'undeclared',
       description: 'undeclared',
@@ -179,8 +179,8 @@ describe('agent-kernel real Loader composition through cordis.yml', () => {
     expect(events.find(event => event.type === 'action/committed')?.data).toMatchObject({ outcome: 'denied' })
   }, 30_000)
 
-  it('fails loading when the permission document declares an empty resource selector', async () => {
-    await expect(boot([
+  it('fails plugin activation for an empty resource selector', async () => {
+    const ctx = await boot([
       '    policy:',
       '      defaults:',
       '        effect: allow',
@@ -188,6 +188,13 @@ describe('agent-kernel real Loader composition through cordis.yml', () => {
       '        - action: read',
       '          resource: ""',
       '          effect: allow',
-    ])).rejects.toThrow('agent-kernel: policy rule 0 declares an empty resource selector')
+    ])
+    const entry = [...ctx.loader.entries()].find(candidate => candidate.options.name === '@deepseek-ai/dsh-agent-kernel')
+    expect(entry).toBeDefined()
+    const message = await entry?.fiber?.await().then(
+      () => undefined,
+      (error: unknown) => error instanceof Error ? error.message : String(error),
+    )
+    expect(message).toContain('agent-kernel: policy rule 0 declares an empty resource selector')
   }, 30_000)
 })

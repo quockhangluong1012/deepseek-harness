@@ -47,7 +47,7 @@ function declareProbe(
 describe('task intake', () => {
   it('opens a contract from the first admitted step and records the workspace', async () => {
     const { ctx } = await mounted({ agentProfile: 'worker', policyProfile: 'strict', budgets: { maxSteps: 5 } })
-    const agent = makeAgent(ctx, 'C:\\ws')
+    const agent = await makeAgent(ctx, 'C:\\ws')
     await preStep(ctx, agent, [humanMessage('fix the bug')], 1, 1)
 
     const created = eventsOf(agent, 'task/created')[0]
@@ -69,7 +69,7 @@ describe('task intake', () => {
 
   it('opens an objective-less contract when no session cwd is recorded and no human message is claimed', async () => {
     const { ctx } = await mounted()
-    const agent = makeAgent(ctx)
+    const agent = await makeAgent(ctx)
     await preStep(ctx, agent, [pluginMessage('notice')])
 
     const created = eventsOf(agent, 'task/created')[0]
@@ -80,7 +80,7 @@ describe('task intake', () => {
 
   it('advances an existing task without creating a second contract', async () => {
     const { ctx } = await mounted()
-    const agent = makeAgent(ctx)
+    const agent = await makeAgent(ctx)
     await preStep(ctx, agent, [humanMessage('one')])
     await preStep(ctx, agent, [humanMessage('two')], 1, 2)
 
@@ -94,7 +94,7 @@ describe('turn verification', () => {
     const { ctx, kernel } = await mounted({
       acceptance: [{ id: 'build', description: 'build passes', verifier: 'build', required: true }],
     })
-    const agent = makeAgent(ctx)
+    const agent = await makeAgent(ctx)
     kernel.verifiers.register({
       id: 'always-pass',
       supports: () => true,
@@ -117,7 +117,7 @@ describe('turn verification', () => {
     const { ctx, kernel } = await mounted({
       acceptance: [{ id: 'build', description: 'build passes', verifier: 'build', required: true }],
     })
-    const agent = makeAgent(ctx)
+    const agent = await makeAgent(ctx)
     await preStep(ctx, agent, [humanMessage('one')])
     kernel.verifiers.register({
       id: 'reports-unknown',
@@ -137,7 +137,7 @@ describe('turn verification', () => {
 
   it('records no verification when the task declares no required criterion', async () => {
     const { ctx } = await mounted()
-    const agent = makeAgent(ctx)
+    const agent = await makeAgent(ctx)
     await preStep(ctx, agent, [humanMessage('one')])
     await stopTurn(ctx, agent)
 
@@ -147,7 +147,7 @@ describe('turn verification', () => {
 
   it('observes an intake task without transitioning it, because that edge does not exist', async () => {
     const { ctx } = await mounted()
-    const agent = makeAgent(ctx)
+    const agent = await makeAgent(ctx)
     agent.session.append('task/created', {
       taskId: brandString<TaskId>('manual-task'),
       runId: brandString<RunId>('run-manual'),
@@ -168,7 +168,7 @@ describe('turn verification', () => {
     const { ctx, kernel } = await mounted({
       acceptance: [{ id: 'build', description: 'build passes', verifier: 'build', required: true }],
     })
-    const agent = makeAgent(ctx)
+    const agent = await makeAgent(ctx)
     agent.session.append('task/created', {
       taskId: brandString<TaskId>('paused-task'),
       runId: brandString<RunId>('run-paused'),
@@ -195,7 +195,7 @@ describe('turn verification', () => {
 
   it('returns no decision and records nothing for an agent with no task', async () => {
     const { ctx, kernel } = await mounted()
-    const agent = makeAgent(ctx)
+    const agent = await makeAgent(ctx)
     expect(await kernel.verify(agent)).toBeUndefined()
     expect(await kernel.verify(agent, ['src'])).toBeUndefined()
     expect(agent.session.snapshotEvents()).toHaveLength(0)
@@ -208,7 +208,7 @@ describe('turn verification', () => {
     const { ctx, kernel } = await mounted({
       acceptance: [{ id: 'diff', description: 'no stray files', verifier: 'diff', required: true }],
     })
-    const agent = makeAgent(ctx)
+    const agent = await makeAgent(ctx)
     kernel.verifiers.register({
       id: 'diff-guard',
       supports: criterion => criterion.verifier === 'diff',
@@ -233,7 +233,7 @@ describe('turn verification', () => {
 describe('action ledger over the tool pipeline', () => {
   it('records a proposal, decision, authorization, grant, and commit in shadow mode without changing the outcome', async () => {
     const { ctx, kernel } = await mounted({ policy: ALLOW_ALL })
-    const agent = makeAgent(ctx)
+    const agent = await makeAgent(ctx)
     registerTool(ctx, 'probe')
     declareProbe(kernel)
     await preStep(ctx, agent, [humanMessage('go')])
@@ -261,7 +261,7 @@ describe('action ledger over the tool pipeline', () => {
 
   it('records a shadow denial for an undeclared tool but still runs it', async () => {
     const { ctx } = await mounted({ policy: ALLOW_ALL })
-    const agent = makeAgent(ctx)
+    const agent = await makeAgent(ctx)
     registerTool(ctx, 'undeclared')
     await preStep(ctx, agent, [humanMessage('go')])
 
@@ -276,7 +276,7 @@ describe('action ledger over the tool pipeline', () => {
 
   it('refuses an undeclared tool in enforce mode and records the refusal as a denial, not a failure', async () => {
     const { ctx } = await mounted({ mode: 'enforce', policy: ALLOW_ALL })
-    const agent = makeAgent(ctx)
+    const agent = await makeAgent(ctx)
     registerTool(ctx, 'undeclared')
     await preStep(ctx, agent, [humanMessage('go')])
 
@@ -291,7 +291,7 @@ describe('action ledger over the tool pipeline', () => {
       mode: 'enforce',
       policy: { defaults: { effect: 'allow' }, rules: [{ action: 'read', resource: '**', effect: 'ask' }] },
     })
-    const agent = makeAgent(ctx)
+    const agent = await makeAgent(ctx)
     registerTool(ctx, 'probe')
     declareProbe(kernel)
     await preStep(ctx, agent, [humanMessage('go')])
@@ -313,7 +313,7 @@ describe('action ledger over the tool pipeline', () => {
       mode: 'enforce',
       policy: { defaults: { effect: 'allow' }, rules: [{ action: 'read', resource: '**', effect: 'ask' }] },
     })
-    const agent = makeAgent(ctx)
+    const agent = await makeAgent(ctx)
     registerTool(ctx, 'probe')
     declareProbe(kernel)
     await preStep(ctx, agent, [humanMessage('go')])
@@ -333,7 +333,7 @@ describe('action ledger over the tool pipeline', () => {
     const { ctx, kernel } = await mounted({
       policy: { defaults: { effect: 'allow' }, rules: [{ action: 'read', resource: '**', effect: 'ask' }] },
     })
-    const agent = makeAgent(ctx)
+    const agent = await makeAgent(ctx)
     registerTool(ctx, 'probe')
     declareProbe(kernel)
     await preStep(ctx, agent, [humanMessage('go')])
@@ -353,7 +353,7 @@ describe('action ledger over the tool pipeline', () => {
     const agentless = await callTool(ctx, 'probe', undefined, 'call-6')
     expect(agentless.isError).toBe(false)
 
-    const agent = makeAgent(ctx)
+    const agent = await makeAgent(ctx)
     const taskless = await callTool(ctx, 'probe', agent, 'call-7')
     expect(taskless.isError).toBe(false)
     expect(agent.session.snapshotEvents()).toHaveLength(0)
@@ -362,7 +362,7 @@ describe('action ledger over the tool pipeline', () => {
   it('resolves the technical boundary from the mounted sandbox policy and lets an allowed call run enforced', async () => {
     const { ctx, kernel } = await mounted({ mode: 'enforce', policy: ALLOW_ALL })
     await ctx.plugin(SandboxPolicy, { mode: 'workspace-write' })
-    const agent = makeAgent(ctx, 'C:\\ws')
+    const agent = await makeAgent(ctx, 'C:\\ws')
     registerTool(ctx, 'probe')
     declareProbe(kernel, 'fs.write', () => 'C:\\ws\\a.ts')
     await preStep(ctx, agent, [humanMessage('go')])
@@ -380,7 +380,7 @@ describe('action ledger over the tool pipeline', () => {
   it('refuses a mutating capability the mounted sandbox does not admit', async () => {
     const { ctx, kernel } = await mounted({ mode: 'enforce', policy: ALLOW_ALL })
     await ctx.plugin(SandboxPolicy, { mode: 'read-only' })
-    const agent = makeAgent(ctx, 'C:\\ws')
+    const agent = await makeAgent(ctx, 'C:\\ws')
     registerTool(ctx, 'probe')
     declareProbe(kernel, 'fs.write')
     await preStep(ctx, agent, [humanMessage('go')])
@@ -393,7 +393,7 @@ describe('action ledger over the tool pipeline', () => {
 
   it('records the failed outcome of a throwing tool', async () => {
     const { ctx, kernel } = await mounted({ policy: ALLOW_ALL })
-    const agent = makeAgent(ctx)
+    const agent = await makeAgent(ctx)
     registerTool(ctx, 'probe', () => Promise.reject(new Error('boom')))
     declareProbe(kernel)
     await preStep(ctx, agent, [humanMessage('go')])
@@ -407,7 +407,7 @@ describe('action ledger over the tool pipeline', () => {
 describe('attachments and checkpoints', () => {
   it('attaches only after the first admitted step, reads the live view, and releases on dispose', async () => {
     const { ctx, kernel } = await mounted()
-    const agent = makeAgent(ctx)
+    const agent = await makeAgent(ctx)
     expect(() => kernel.attach(agent)).toThrow(
       `agent-kernel: agent "${agent.id}" has no task contract; one is created at its first admitted step`,
     )
@@ -428,7 +428,7 @@ describe('attachments and checkpoints', () => {
 
   it('records a checkpoint of the current kernel state', async () => {
     const { ctx, kernel } = await mounted()
-    const agent = makeAgent(ctx)
+    const agent = await makeAgent(ctx)
     await preStep(ctx, agent, [humanMessage('go')])
 
     const checkpoint = kernel.checkpoint(agent, 'turn-boundary')
@@ -444,7 +444,7 @@ describe('attachments and checkpoints', () => {
 
   it('drains open attachments when the plugin unloads', async () => {
     const { ctx, kernel } = await mounted()
-    const agent = makeAgent(ctx)
+    const agent = await makeAgent(ctx)
     await preStep(ctx, agent, [humanMessage('go')])
     const attachment = kernel.attach(agent)
     await ctx.fiber.dispose()
