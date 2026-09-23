@@ -38,7 +38,7 @@ async function harness(config: Config = {}, mountGuard = true): Promise<Rig> {
   ctx.logger.exporter({
     levels: { default: 2 },
     export: (message) => {
-      const line = message.args[0]
+      const line: unknown = message.args[0]
       if (message.type === 'warn' && typeof line === 'string' && line.startsWith('budgets: ')) warnings.push(line)
     },
   })

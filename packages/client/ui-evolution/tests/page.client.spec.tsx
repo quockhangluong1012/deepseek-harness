@@ -491,7 +491,7 @@ describe('evolution journey page', () => {
     render(<EvolutionPage scopeId={SCOPE} scopeTitle={null} remote={remote} t={t} />)
     fireEvent.click(await screen.findByText('pending.approve'))
     await waitFor(() => {
-      expect((screen.getByText('pending.reject') as HTMLButtonElement).disabled).toBe(true)
+      expect(screen.getByText<HTMLButtonElement>('pending.reject').disabled).toBe(true)
     })
     settle(valueOf({ staged: [] }))
     await waitFor(() => {
@@ -511,7 +511,7 @@ describe('evolution journey page', () => {
     }]
     const remote = remoteOf({
       read: vi.fn(async () => valueOf({ staged })),
-      rejectStaged: vi.fn(() => Promise.reject('wire string')),
+      rejectStaged: vi.fn(async () => { throw 'wire string' }),
     })
     render(<EvolutionPage scopeId={SCOPE} scopeTitle={null} remote={remote} t={t} />)
     fireEvent.click(await screen.findByText('pending.reject'))

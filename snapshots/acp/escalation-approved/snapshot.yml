@@ -3,6 +3,7 @@ scenario: escalation-approved
 profile: acp
 composition: acp-default
 recording: live
+platform: posix
 header:
   class: acp-default
   pin: true

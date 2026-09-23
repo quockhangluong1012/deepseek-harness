@@ -198,6 +198,7 @@ export class UsageLedger extends Service {
    * @param session - the live session to backfill.
    */
   private backfill(session: Session): void {
+    // oxlint-disable-next-line typescript/no-deprecated -- Existing Session history read; migration deferred.
     for (const event of session.ownEvents()) {
       const cursor = this.ledger.cursors[session.id] ?? -1
       if (event.seq <= cursor) continue

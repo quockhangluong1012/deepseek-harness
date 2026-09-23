@@ -106,7 +106,11 @@ export class FsSandboxController {
         signal: exec.signal,
       },
     )
-    return { mode: approvedMode, workspaceRoot: policy.workspaceRoot, ...(policy.sessionId === undefined ? {} : { sessionId: policy.sessionId }) }
+    return {
+      mode: approvedMode,
+      workspaceRoot: policy.workspaceRoot,
+      ...(policy.sessionId === undefined ? {} : { sessionId: policy.sessionId }),
+    }
   }
 
   /**

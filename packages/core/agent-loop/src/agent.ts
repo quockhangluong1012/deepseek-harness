@@ -123,6 +123,7 @@ export class ReactLoopAgent implements Agent {
     // Resume must not reuse attempt ids from a previous lifecycle: derive the
     // starting counter from durable assistant settlements so
     // `${sessionId}:${attempt}` stays unique across reloads.
+    // oxlint-disable-next-line typescript/no-deprecated -- Existing Session history read; migration deferred.
     for (const event of session.snapshotEvents()) {
       if (event.type === 'assistant/message' || event.type === 'assistant/attempt') {
         this.assistantAttemptCounter += 1

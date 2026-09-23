@@ -18,6 +18,13 @@ import { FsSandboxController } from './sandbox.ts'
 /** Cordis plugin name used by loader diagnostics. */
 export const name = 'tool-fs'
 
+/**
+ * The sandbox controller every `tool-fs` tool shares. Exported for a sibling
+ * package that registers its own tool against the same policy; a built
+ * artifact cannot import this package's `src/` subpath.
+ */
+export { FsSandboxController } from './sandbox.ts'
+
 /** Services required by the filesystem tool suite. */
 export const inject = ['tools', 'fs', 'systemPrompt']
 

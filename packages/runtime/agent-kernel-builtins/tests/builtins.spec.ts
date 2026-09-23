@@ -255,7 +255,7 @@ describe('tool catalog inventory', () => {
     const names = new Set<string>()
     for (const line of map.split('\n')) {
       if (!line.startsWith('| `@deepseek-ai/')) continue
-      const cells = line.split('|').map(cell => cell.trim()) as string[]
+      const cells = line.split('|').map(cell => cell.trim())
       for (const cell of [cells[2] ?? '', cells[5] ?? '']) {
         for (const match of cell.matchAll(/`([^`]+)`/g)) names.add(match[1]?.trim() ?? '')
       }

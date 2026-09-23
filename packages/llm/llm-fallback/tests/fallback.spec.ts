@@ -358,7 +358,7 @@ describe('llm-fallback', () => {
       ctx.on = function (this: Context, event: string, ...args: never[]) {
         const disposer = (originalOn as (...call: [string, ...never[]]) => () => void)(event, ...args)
         if (event === 'agent/request-error') {
-          captured = args[0] as unknown as (payload: never, next: () => Promise<RequestErrorAction>) => Promise<RequestErrorAction>
+          captured = args[0]
         }
         return disposer
       } as typeof ctx.on

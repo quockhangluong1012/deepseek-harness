@@ -59,23 +59,23 @@ export interface CuratorRawVerbs {
 /** Throwing verbs the page drives. */
 export interface PageVerbs {
   /** Load one Scope's record. */
-  read(scopeId: WorkspaceId): Promise<EvolutionMemoryValue>
+  read: (scopeId: WorkspaceId) => Promise<EvolutionMemoryValue>
   /** Render one Scope's journey over a window. */
-  timeline(scopeId: WorkspaceId, range: UsageRange): Promise<JourneyTimeline>
+  timeline: (scopeId: WorkspaceId, range: UsageRange) => Promise<JourneyTimeline>
   /** Apply one staged write. */
-  approveStaged(scopeId: WorkspaceId, stagedId: string): Promise<EvolutionMemoryValue>
+  approveStaged: (scopeId: WorkspaceId, stagedId: string) => Promise<EvolutionMemoryValue>
   /** Drop one staged write without applying it. */
-  rejectStaged(scopeId: WorkspaceId, stagedId: string): Promise<EvolutionMemoryValue>
+  rejectStaged: (scopeId: WorkspaceId, stagedId: string) => Promise<EvolutionMemoryValue>
   /** Read the curator's recorded status. */
-  curatorStatus(): Promise<EvolutionCuratorStatus>
+  curatorStatus: () => Promise<EvolutionCuratorStatus>
 }
 
 /** The page Remote: throwing verbs plus the follow-stream transport. */
 export interface PageRemote extends PageVerbs {
   /** Open one physical follow generation. */
-  follow(signal: AbortSignal): AsyncIterable<EvolutionFollowFrame>
+  follow: (signal: AbortSignal) => AsyncIterable<EvolutionFollowFrame>
   /** Open the reconnecting stream over follow generations. */
-  openStream(options: RemoteStreamOptions<EvolutionFollowFrame>): RemoteStream<EvolutionFollowFrame>
+  openStream: (options: RemoteStreamOptions<EvolutionFollowFrame>) => RemoteStream<EvolutionFollowFrame>
 }
 
 /**

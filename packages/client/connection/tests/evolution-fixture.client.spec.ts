@@ -48,7 +48,7 @@ async function openEvolution(rpc: ClientConnectionRpc, signal?: AbortSignal): Pr
 }> {
   const stream = rpc.open?.('/api', 'evolution/follow', { args: {} }, signal ?? new AbortController().signal)
   if (stream === undefined) throw new Error('fixture evolution/follow stream is unavailable')
-  const iterator = (stream as AsyncIterable<unknown>)[Symbol.asyncIterator]()
+  const iterator = stream[Symbol.asyncIterator]()
   const first = await iterator.next()
   return { first: first.value, iterator }
 }

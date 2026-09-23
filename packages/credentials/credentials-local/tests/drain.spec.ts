@@ -107,7 +107,7 @@ describe('write-drain teardown', () => {
     await fiber
     const service = ctx.credentials
 
-    const gate = Promise.withResolvers<void>()
+    const gate: PromiseWithResolvers<void> = Promise.withResolvers()
     await setGate(gate.promise)
     const first = service.set(KEY, 'one')
     await new Promise(resolvePause => setTimeout(resolvePause, 5))

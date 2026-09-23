@@ -247,6 +247,7 @@ export class WorkspaceMemoryExtractor extends Service {
         } else {
           const live = this.ctx.sessions.get(sessionId)
           if (live === undefined) continue
+          // oxlint-disable-next-line typescript/no-deprecated -- Existing Session history read; migration deferred.
           for (const event of live.ownEvents()) {
             if (event.type === 'user/message') {
               const text = textOfContent((event.data as { content: { type: string; text?: string }[] }).content)
@@ -390,6 +391,7 @@ export class WorkspaceMemoryExtractor extends Service {
 
   private turnEvents(session: Session, turn: number): SessionEvent[] {
     const events: SessionEvent[] = []
+    // oxlint-disable-next-line typescript/no-deprecated -- Existing Session history read; migration deferred.
     for (const event of session.ownEvents()) {
       if (event.type === 'turn/start' && (event.data).turn === turn) {
         events.length = 0

@@ -52,7 +52,7 @@ vi.mock('node:fs/promises', async (importOriginal) => {
         throw error
       }
       return actual.open(...args)
-    }) as typeof actual.open,
+    }),
   }
 })
 

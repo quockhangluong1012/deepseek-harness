@@ -13,6 +13,7 @@ import { existsSync } from 'node:fs'
 import { cp, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, delimiter, join } from 'node:path'
+import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import {
@@ -61,8 +62,15 @@ import {
   type SdkPromptContentBlock,
 } from '@deepseek-ai/dsh-sdk-client'
 import { SESSION_FORMAT_VERSION } from '@deepseek-ai/dsh-session'
+import { resolvePwshPath } from '@deepseek-ai/dsh-pwsh-local'
 
 const corpusRoot = fileURLToPath(new URL('../', import.meta.url))
+
+const hasPwsh = spawnSync(
+  resolvePwshPath(),
+  ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', '$true'],
+  { encoding: 'utf8' },
+).status === 0
 
 const MINIMAL_SYSTEM_PROMPT = 'You are the environment-selected minimal software engineer.'
 const MINIMAL_BASH_DESCRIPTION = `Run commands in a bash shell
@@ -812,8 +820,13 @@ async function verifyHeaders(
 
 describe('TypeScript SDK snapshots over the jsonrpc runtime', () => {
   for (const scenario of sdkScenarios) {
+    // Same platform contract as the other recorded-session adapters: a scenario
+    // that needs a posix shell (or `pwsh`) is skipped where the host lacks it.
+    const platformUnavailable = scenario.manifest.platform === 'posix' && process.platform === 'win32'
+      || scenario.manifest.platform === 'pwsh' && !hasPwsh
     const scenarioTest = recording
       && (scenario.manifest.recording === 'authored' || scenario.manifest.sessionFormat !== undefined)
+      || platformUnavailable
       ? it.skip
       : it
     scenarioTest(`${mode}s ${scenario.name} through dsh --profile sdk`, async () => {

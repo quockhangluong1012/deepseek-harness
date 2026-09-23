@@ -61,3 +61,19 @@
               - id: deepseek-v4-pro
     - id: parent-sandbox-override
       name: '../../../packages/test-support/session-snapshot/tests/fixtures/parent-sandbox-override.ts'
+
+    - id: approve-gated-subagent
+      name: '../../../packages/test-support/session-snapshot/tests/fixtures/approve-gated-subagent.ts'
+
+# The lane pins the `never` policy, which rejects every gated ask before the
+# answerer chain runs. This scenario exists to prove that a child inherits the
+# parent's read-only override, so the `subagent` call it starts has to reach the
+# scenario-local answerer above — and a preset is the pair (sandbox, approval),
+# so the composed defaults move to `read-only` together.
+- id: sandbox-policy
+  config:
+    mode: read-only
+
+- id: approval
+  config:
+    policy: ask

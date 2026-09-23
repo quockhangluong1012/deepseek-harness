@@ -442,14 +442,27 @@ function fixtureCandidatesOf(value: unknown): readonly FixtureCandidate[] {
   return value.map((raw) => {
     const candidate = (typeof raw === 'object' && raw !== null ? raw : {}) as Partial<FixtureCandidate>
     return {
-      statement: String(candidate.statement ?? ''),
-      source: String(candidate.source ?? ''),
-      conditions: String(candidate.conditions ?? ''),
+      statement: candidate.statement ?? '',
+      source: candidate.source ?? '',
+      conditions: candidate.conditions ?? '',
       evidence: candidate.evidence === 'fact' || candidate.evidence === 'observation' ? candidate.evidence : 'inference',
       confidence: typeof candidate.confidence === 'number' ? candidate.confidence : 0.5,
       scope: candidate.scope === 'user' || candidate.scope === 'global' ? candidate.scope : 'project',
     }
   })
+}
+
+/**
+ * Read one wire body field as a string. The Host schema-checks the same field
+ * against its request type, so any other shape reads as absent here instead of
+ * being stringified into the stored record.
+ * @param body - the raw request body.
+ * @param key - the field to read.
+ * @returns the field, or the empty string when it is absent or not a string.
+ */
+function fixtureBodyString(body: Readonly<Record<string, unknown>>, key: string): string {
+  const value = body[key]
+  return typeof value === 'string' ? value : ''
 }
 
 /** Fixture-local mirror of one lesson artifact. */
@@ -2614,7 +2627,7 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
     request: { readonly scopeId?: unknown } | undefined,
     patch: (scope: FixtureEvolutionScope, body: Readonly<Record<string, unknown>>) => void,
   ): Promise<ConnectionRpcResult<FixtureEvolutionValue>> => withEvolution(request, (id, scope) => {
-    patch(scope, (request ?? {}) as Readonly<Record<string, unknown>>)
+    patch(scope, request ?? {})
     emitEvolution(id)
     return evolutionValueOf(id)
   })
@@ -4472,7 +4485,7 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
           return withEvolution(evolutionRequest, id => evolutionValueOf(id))
         case 'evolution/setInstructions':
           return evolutionWrite(evolutionRequest, (scope, body) => {
-            scope.instructions = String(body['instructions'] ?? '')
+            scope.instructions = fixtureBodyString(body, 'instructions')
             scope.instructionsUpdatedAt = new Date().toISOString()
           })
         case 'evolution/setLessons':
@@ -4481,18 +4494,18 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
           })
         case 'evolution/setProfile':
           return evolutionWrite(evolutionRequest, (scope, body) => {
-            scope.profile = String(body['profile'] ?? '')
+            scope.profile = fixtureBodyString(body, 'profile')
             scope.profileUpdatedAt = new Date().toISOString()
           })
         case 'evolution/addContextItem':
           return evolutionWrite(evolutionRequest, (scope, body) => {
             const at = new Date().toISOString()
             const id = `fx-ctx-${String(scope.contextItems.length + 1)}`
-            const label = String(body['label'] ?? '')
+            const label = fixtureBodyString(body, 'label')
             if (body['kind'] === 'file') {
-              scope.contextItems.push({ kind: 'file', id, label, path: String(body['path'] ?? ''), sizeBytes: 0, addedAt: at })
+              scope.contextItems.push({ kind: 'file', id, label, path: fixtureBodyString(body, 'path'), sizeBytes: 0, addedAt: at })
             } else {
-              const text = String(body['text'] ?? '')
+              const text = fixtureBodyString(body, 'text')
               scope.contextItems.push({ kind: 'text', id, label, text, sizeBytes: evolutionBytes(text), addedAt: at })
             }
           })
@@ -4517,11 +4530,11 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
           }))
         case 'evolution/approveStaged':
           return evolutionWrite(evolutionRequest, (scope, body) => {
-            evolutionResolve(scope, String(body['stagedId'] ?? ''), 'approved')
+            evolutionResolve(scope, fixtureBodyString(body, 'stagedId'), 'approved')
           })
         case 'evolution/rejectStaged':
           return evolutionWrite(evolutionRequest, (scope, body) => {
-            evolutionResolve(scope, String(body['stagedId'] ?? ''), 'rejected')
+            evolutionResolve(scope, fixtureBodyString(body, 'stagedId'), 'rejected')
           })
         case 'evolution/timeline': {
           const range = (request as { readonly range?: unknown } | undefined)?.range

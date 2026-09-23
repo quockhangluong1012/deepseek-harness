@@ -496,9 +496,9 @@ export interface DefineToolOptions<S extends ParameterSchemaSpec, O extends Valu
     /** Schema enforced against every successful body or policy-replaced value. */
     readonly schema: O
     /** Pure Native/model rendering of one validated canonical value. */
-    render(args: InferArgs<S>, value: InferValue<NoInfer<O>>): ContentBlock[]
+    render: (args: InferArgs<S>, value: InferValue<NoInfer<O>>) => ContentBlock[]
     /** Pure replayable presentation metadata for direct top-level calls. */
-    presentationMeta?(args: InferArgs<S>, value: InferValue<NoInfer<O>>): JsonValue
+    presentationMeta?: (args: InferArgs<S>, value: InferValue<NoInfer<O>>) => JsonValue
   }
   /** Optional positive cooperative timeout budget in milliseconds. */
   readonly timeoutMs?: number
@@ -507,7 +507,7 @@ export interface DefineToolOptions<S extends ParameterSchemaSpec, O extends Valu
    * @param args - typed validated arguments.
    * @returns Whether the call may join a parallel group.
    */
-  isConcurrencySafe?(args: InferArgs<S>): boolean
+  isConcurrencySafe?: (args: InferArgs<S>) => boolean
   /**
    * Pure overlap scope for sibling calls of a concurrency-safe tool. Calls that
    * return the same key never overlap: the scheduler holds each one until the
@@ -517,14 +517,14 @@ export interface DefineToolOptions<S extends ParameterSchemaSpec, O extends Valu
    * @param args - typed validated arguments.
    * @returns The overlap scope key, or an empty string for no scope.
    */
-  parallelScopeKey?(args: InferArgs<S>): string
+  parallelScopeKey?: (args: InferArgs<S>) => string
   /**
    * Execute the tool after argument validation.
    * @param args - typed validated arguments.
    * @param exec - execution identity, caller, cancellation, and nesting data.
    * @returns The canonical value declared by `output.schema`.
    */
-  execute(args: InferArgs<S>, exec: ToolRunContext): Promise<InferValue<NoInfer<O>>>
+  execute: (args: InferArgs<S>, exec: ToolRunContext) => Promise<InferValue<NoInfer<O>>>
   /**
    * Optional last-mile content transform for every normalized outcome. Unlike
    * `execute`, arguments remain `unknown` because invalid-input failures also
@@ -533,20 +533,20 @@ export interface DefineToolOptions<S extends ParameterSchemaSpec, O extends Valu
    * @param result - complete normalized outcome before materialization.
    * @returns replacement content, or `undefined` to preserve it.
    */
-  finalizeContent?(exec: Readonly<ToolExecution>, result: Readonly<ToolExecutionResult>): ContentBlock[] | undefined
+  finalizeContent?: (exec: Readonly<ToolExecution>, result: Readonly<ToolExecutionResult>) => ContentBlock[] | undefined
   /**
    * Pure pending-state presenter.
    * @param args - typed validated arguments.
    * @returns Tool-owned render intent, or `undefined` for the generic card.
    */
-  presentCall?(args: InferArgs<S>): ToolCallView | undefined
+  presentCall?: (args: InferArgs<S>) => ToolCallView | undefined
   /**
    * Pure completed-state presenter.
    * @param args - typed validated arguments.
    * @param result - final model-facing tool result.
    * @returns Tool-owned render intent, or `undefined` for the generic card.
    */
-  presentResult?(args: InferArgs<S>, result: ToolResult): ToolResultView | undefined
+  presentResult?: (args: InferArgs<S>, result: ToolResult) => ToolResultView | undefined
 }
 
 /**

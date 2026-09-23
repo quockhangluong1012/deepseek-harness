@@ -9,6 +9,7 @@
  * substructure renders nothing and the AppFrame keeps its single-row grid.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import type { JSX } from 'react'
 import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import css from './TitleBar.module.css'
 
@@ -52,8 +53,7 @@ export function TitleBar({ useSessions, usePanelInfo, productTitle, t }: TitleBa
 
   useEffect(() => {
     if (!controls) return undefined
-    let mounted = true
-    void controls.isMaximized().then((value) => { if (mounted) setMaximized(value) }).catch(() => {})
+    void controls.isMaximized().then((value) => { setMaximized(value) }).catch(() => {})
     return controls.subscribe(setMaximized)
   }, [controls])
 
@@ -78,7 +78,7 @@ export function TitleBar({ useSessions, usePanelInfo, productTitle, t }: TitleBa
           type="button"
           className={css.control}
           aria-label={t('window.minimize')}
-          onClick={() => controls?.minimize().catch(() => {})}
+          onClick={() => { controls.minimize().catch(() => {}) }}
         >
           <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
             <line x1="0" y1="5" x2="10" y2="5" stroke="currentColor" strokeWidth="1" />
@@ -88,7 +88,7 @@ export function TitleBar({ useSessions, usePanelInfo, productTitle, t }: TitleBa
           type="button"
           className={css.control}
           aria-label={maximized ? t('window.restore') : t('window.maximize')}
-          onClick={() => controls?.toggleMaximize().catch(() => {})}
+          onClick={() => { controls.toggleMaximize().catch(() => {}) }}
         >
           {maximized ? (
             <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
@@ -105,7 +105,7 @@ export function TitleBar({ useSessions, usePanelInfo, productTitle, t }: TitleBa
           type="button"
           className={`${css.control} ${css.close}`}
           aria-label={t('window.close')}
-          onClick={() => controls?.close().catch(() => {})}
+          onClick={() => { controls.close().catch(() => {}) }}
         >
           <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
             <path d="M0.5 0.5 L9.5 9.5 M9.5 0.5 L0.5 9.5" stroke="currentColor" strokeWidth="1" />

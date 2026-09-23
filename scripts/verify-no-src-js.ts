@@ -24,7 +24,7 @@ export function collectSrcJsViolations(root: string = ROOT): string[] {
     cwd: root,
     encoding: 'utf8',
   })
-  return output.split('\n').map((line) => line.trim()).filter((line) => line.length > 0).sort()
+  return output.split('\n').map(line => line.trim()).filter(line => line.length > 0).sort()
 }
 
 if (process.argv[1] !== undefined && import.meta.filename === resolve(process.argv[1])) {

@@ -565,7 +565,7 @@ function resolveFromRequest(pattern: string, corpus: string): string {
 }
 
 /** Replace every `{{fromRequest:<pattern>}}` occurrence in one scripted string. */
-function substituteString(text: string, corpus: string): string {
+function substituteString(text: string, corpus: string, jsonContext = false): string {
   let result = ''
   let cursor = 0
   while (true) {
@@ -579,9 +579,17 @@ function substituteString(text: string, corpus: string): string {
     // so a pattern may end with a brace quantifier like `[0-9a-f]{4}`.
     while (text[close + FROM_REQUEST_CLOSE.length] === '}') close += 1
     const pattern = text.slice(open + FROM_REQUEST_OPEN.length, close)
-    result += text.slice(cursor, open) + resolveFromRequest(pattern, corpus)
+    const resolved = resolveFromRequest(pattern, corpus)
+    // A JSON document carries its replacements inside a string literal, where a
+    // raw backslash (a Windows path) or quote would end the literal early.
+    result += text.slice(cursor, open) + (jsonContext ? escapeJsonStringBody(resolved) : resolved)
     cursor = close + FROM_REQUEST_CLOSE.length
   }
+}
+
+/** Escape one replacement for insertion into an existing JSON string literal. */
+function escapeJsonStringBody(value: string): string {
+  return JSON.stringify(value).slice(1, -1)
 }
 
 /**
@@ -596,9 +604,9 @@ function substituteValue(value: unknown, corpus: string): unknown {
   if (typeof value === 'string') {
     if (!value.includes(FROM_REQUEST_OPEN)) return value
     const decoded = decodedJson(value)
-    return decoded === undefined
-      ? substituteString(value, corpus)
-      : JSON.stringify(substituteValue(decoded, corpus))
+    if (decoded !== undefined) return JSON.stringify(substituteValue(decoded, corpus))
+    const trimmed = value.trim()
+    return substituteString(value, corpus, trimmed.startsWith('{') || trimmed.startsWith('['))
   }
   if (Array.isArray(value)) return value.map(item => substituteValue(item, corpus))
   if (value !== null && typeof value === 'object') {

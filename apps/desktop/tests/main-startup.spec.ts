@@ -359,7 +359,7 @@ describe('desktop main startup', () => {
     const maximize = vi.spyOn(window, 'maximize')
     const minimize = vi.spyOn(window, 'minimize')
     const queryClose = vi.spyOn(window, 'close')
-    await harness.hosts[0]!.ready.resolve()
+    harness.hosts[0]!.ready.resolve()
     invokeFrom('app', DESKTOP_IPC.windowMinimize)
     expect(minimize).toHaveBeenCalledTimes(1)
     expect(invokeFrom('app', DESKTOP_IPC.windowIsMaximized)).toBe(false)

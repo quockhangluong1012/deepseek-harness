@@ -553,6 +553,7 @@ export function startAbortGuardedBackground<Id extends string>(
   // Close the check-then-start race: an abort that landed during registration
   // must not leave an orphan background job. AbortSignal is externally
   // mutable; registration may reenter cancellation.
+  // oxlint-disable-next-line typescript/no-unnecessary-condition -- the signal can abort while `start` registers the job.
   if (signal.aborted) {
     try {
       kill(id)
@@ -1061,6 +1062,7 @@ export class ToolRuntime extends Service {
         yield ctx.systemPrompt.section(this.sdkSection())
       }
     }.bind(this), 'tools.presentAs()')
+    // oxlint-disable-next-line typescript/no-misused-promises -- exact synchronous disposer preserves Cordis effect identity
     return dispose
   }
 
