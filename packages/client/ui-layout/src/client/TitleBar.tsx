@@ -46,8 +46,9 @@ export function TitleBar({ useSessions, usePanelInfo, productTitle, t }: TitleBa
   const controls = useMemo(windowControls, [])
   const showSessionTitle = usePanelInfo(info => info.activePanelId === null)
   const sessionTitle = useSessions((state) => {
-    const current = state.current
-    return !showSessionTitle || current === undefined ? undefined : state.byId[current]?.title
+    if (!showSessionTitle) return undefined
+    return Object.values(state.byId)
+      .find(session => (session.retainedBy.mainView ?? 0) > 0)?.title
   })
   const [maximized, setMaximized] = useState(() => false)
 

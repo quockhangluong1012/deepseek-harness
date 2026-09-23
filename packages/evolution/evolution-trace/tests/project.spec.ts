@@ -89,13 +89,10 @@ function toolResult(turn: number, step: number, id: string, s: number, time: num
       step,
       message: {
         id: mid(s),
-        role: 'user',
-        content: [{
-          type: 'tool-result',
-          toolCallId: call,
-          content: options.text === undefined ? [] : [{ type: 'text', text: options.text }],
-          ...(options.isError === true ? { isError: true } : {}),
-        }],
+        role: 'tool',
+        content: options.text === undefined ? [] : [{ type: 'text', text: options.text }],
+        toolCallId: call,
+        ...(options.isError === true ? { isError: true } : {}),
         source: { kind: 'tool', callId: call },
       },
       ...(options.error === undefined ? {} : { error: options.error }),

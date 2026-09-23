@@ -100,8 +100,7 @@ async function boot() {
     },
   } as unknown as SessionBinding]])
   const list = createSnapshotStore<SessionListState>({
-    ids: [], byId: {}, current: undefined, phase: 'ready',
-    subagentsByParent: {}, jobsBySession: {}, currentAddress: undefined,
+    ids: [], byId: {}, phase: 'ready', projectionsBySession: {},
   })
   const sessions = { list, binding: (id: SessionId) => bindings.get(id) }
   const openTab = vi.fn()
@@ -117,7 +116,11 @@ async function boot() {
     fiber, tabs, registered, dictionaries, openTab, todos, chat, running,
     /** Select one Session, exactly as the list store's own commit would. */
     open: (id: SessionId | undefined) => {
-      list.set({ ...list.getSnapshot(), ids: id === undefined ? [] : [id], current: id })
+      const state = list.getSnapshot()
+      const byId = id === undefined ? {} : {
+        [id]: { id, displayTitle: String(id), running: false, retainedBy: { mainView: 1 }, blank: false, updatedAt: 0 },
+      }
+      list.set({ ...state, ids: id === undefined ? [] : [id], byId })
     },
     /** Report the agent working, exactly as the Session snapshot would. */
     start: () => { running.publish({ running: true }) },

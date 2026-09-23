@@ -27,7 +27,7 @@
     { "path": "../../session/session-projection" },
     { "path": "../../session/session-stats" },
     { "path": "../../session/usage-ledger" },
-    { "path": "../locale" },
+    { "path": "../locale/tsconfig.client.json" },
     { "path": "../resources" },
     { "path": "../store" },
     { "path": "../ui-dockkit" },

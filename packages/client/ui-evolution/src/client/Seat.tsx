@@ -50,7 +50,8 @@ export function EvolutionPanelIcon({ size }: EvolutionPanelIconProps): ReactNode
  * @returns the page, or its no-Scope state while no Workspace is selected.
  */
 export function EvolutionSeat({ remote, useSessions, useWorkspaces, t }: EvolutionSeatProps): ReactNode {
-  const current = useSessions(state => state.current)
+  const current = useSessions(state => Object.values(state.byId)
+    .find(session => (session.retainedBy.mainView ?? 0) > 0)?.id)
   const workspaces = useWorkspaces(state => state.items)
   const workspace = current === undefined
     ? undefined

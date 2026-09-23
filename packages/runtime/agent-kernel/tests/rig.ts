@@ -10,12 +10,18 @@ import { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { mountAgentLoopTestDependencies, unsupportedInbox } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { createUserMessage, ToolCallId } from '@deepseek-ai/dsh-llm'
-import type { ContentBlock } from '@deepseek-ai/dsh-llm'
+import type { ContextFormed, ContentBlock, UserMessage } from '@deepseek-ai/dsh-llm'
 import { SessionId, type SessionEvent, type SessionEventMap } from '@deepseek-ai/dsh-session'
 import { defineContentToolFixture, type ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import AgentKernel from '../src/index.ts'
 import type { AgentKernelService, Config } from '../src/index.ts'
 import type { StateTransition, TaskContract } from '../src/types.ts'
+
+declare module '@deepseek-ai/dsh-llm' {
+  interface MessageSourceMap {
+    'agent-kernel-test': { kind: 'agent-kernel-test' } & ContextFormed
+  }
+}
 
 /** A mounted kernel and the context that owns it. */
 export interface Rig {
@@ -155,12 +161,12 @@ export function humanMessage(text: string): ReturnType<typeof createUserMessage>
 }
 
 /**
- * Build one plugin-sourced message, which carries no objective.
+ * Build one non-human context message for the kernel fixtures.
  * @param text - the message text.
  * @returns the message.
  */
-export function pluginMessage(text: string): ReturnType<typeof createUserMessage> {
-  return createUserMessage({ content: [{ type: 'text', text }], source: { kind: 'plugin', plugin: 'spec' } })
+export function pluginMessage(text: string): UserMessage {
+  return createUserMessage({ content: [{ type: 'text', text }], source: { kind: 'agent-kernel-test' } })
 }
 
 /**

@@ -27,6 +27,7 @@ export function progressDefinition(t: TranslateNS<'sidebarProgress'>): SidebarRi
     priority: 'builtin',
     title: () => t('type.label'),
     guide: [{
+      id: 'progress',
       order: 30,
       title: () => t('guide.title'),
       description: () => t('guide.description'),

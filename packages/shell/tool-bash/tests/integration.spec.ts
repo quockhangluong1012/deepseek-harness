@@ -16,7 +16,7 @@ import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
 import * as ToolBash from '@deepseek-ai/dsh-tool-bash'
 import * as BashEnvPlugin from '@deepseek-ai/dsh-shell-env'
 import { ShellExecutor } from '@deepseek-ai/dsh-shell'
-import type { ShellExecRequest, ShellExecSpec, ShellProcess, ShellRunResult } from '@deepseek-ai/dsh-shell'
+import type { ShellExecution, ShellExecRequest, ShellExecSpec, ShellRunResult } from '@deepseek-ai/dsh-shell'
 import SandboxPolicyService from '@deepseek-ai/dsh-sandbox-policy'
 import ApprovalService from '@deepseek-ai/dsh-user-approval'
 import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
@@ -94,17 +94,18 @@ class ConfinedExecutor extends ShellExecutor {
 
   resolve(request: ShellExecRequest): ShellExecSpec {
     return {
-      command: request.command,
+      ...request,
       workdir: request.workdir ?? process.cwd(),
       stdoutMaxBytes: request.stdoutMaxBytes ?? 64_000,
       timeoutMs: request.timeoutMs ?? 1000,
-      ...request.signal ? { signal: request.signal } : {},
+      onExpiry: request.onExpiry ?? 'kill',
       sandboxPolicy: request.sandboxPolicy ?? { mode: 'read-only', workspaceRoot: process.cwd() },
     }
   }
 
-  run(spec: ShellExecSpec): Promise<ShellRunResult> {
-    return Promise.resolve({
+  execute(spec: ShellExecSpec): Promise<ShellExecution> {
+    const sandbox = { mode: spec.sandboxPolicy?.mode ?? 'read-only', denied: false }
+    const result: ShellRunResult = {
       exitCode: 0,
       signal: null,
       timedOut: false,
@@ -112,20 +113,20 @@ class ConfinedExecutor extends ShellExecutor {
       timeoutMs: spec.timeoutMs,
       stdout: { text: 'ok', truncated: false },
       stderr: { text: '', truncated: false },
-      sandbox: { mode: spec.sandboxPolicy?.mode ?? 'read-only', denied: false },
-    })
-  }
-
-  start(spec: ShellExecSpec): ShellProcess {
-    return {
+      sandbox,
+    }
+    const reader = { readFrom: () => ({ text: '', nextOffset: 0, lossy: false }) }
+    return Promise.resolve({
       status: 'completed',
       exitCode: 0,
       signal: null,
       done: Promise.resolve(),
-      sandbox: { mode: spec.sandboxPolicy?.mode ?? 'read-only', denied: false },
+      sandbox,
       readOutput: () => ({ delta: '', lossy: false }),
+      observed: { stdout: reader, stderr: reader },
       kill: () => false,
-    }
+      result: () => Promise.resolve(result),
+    })
   }
 }
 
@@ -135,7 +136,7 @@ async function approvalHarness(adapter: MockAdapter): Promise<Context> {
   await mountAgentLoopTestDependencies(ctx)
   await ctx.plugin(AgentLoop, { agents: [] })
   await ctx.plugin(LocalJobRegistry)
-  await ctx.plugin(ToolTasks)
+  await ctx.plugin(ToolJobs)
   await ctx.plugin(LocalSubprocessRuntime)
   await ctx.plugin(BashEnvPlugin)
   await ctx.plugin(SandboxPolicyService, {})
@@ -324,7 +325,7 @@ describe('bash tool through the agent loop', () => {
     expect(asked.data.callId).toBe(toolCall.data.callId)
 
     const toolResult = findEvent(log, 'tool/result')
-    expect(toolResult.data.message.content[0].isError).toBe(true)
+    expect(toolResult.data.message.isError).toBe(true)
     expect(findEvent(log, 'turn/end', 'last').data.reason).toEqual({ kind: 'completed' })
   })
 })

@@ -163,7 +163,7 @@ describe('PopupSelectView', () => {
 
   it('Tab stays the browser\'s while the rows are still loading: no pick, no escape', async () => {
     const popup = new PopupSelectController<string>({ consume: () => true, focusComposer: () => {} })
-    render(<PopupSelectView popup={popup} t={t} />)
+    render(<PopupSelectView popup={popup} anchorRef={composerCardRef} t={t} />)
     await act(async () => { popup.open('theme', spec({ options: () => new Promise(() => {}) }), 'ctx-A', SEGMENT) })
     const search = screen.getByRole('textbox', { name: '筛选选项' })
     // Nothing is settleable yet, so the keystroke is not swallowed.
@@ -174,7 +174,7 @@ describe('PopupSelectView', () => {
 
   it('Tab stays the browser\'s on a failed load, so the retry stays reachable', async () => {
     const popup = new PopupSelectController<string>({ consume: () => true, focusComposer: () => {} })
-    render(<PopupSelectView popup={popup} t={t} />)
+    render(<PopupSelectView popup={popup} anchorRef={composerCardRef} t={t} />)
     await act(async () => {
       popup.open('theme', spec({ options: () => Promise.reject(new Error('directory down')) }), 'ctx-A', SEGMENT)
       await Promise.resolve()

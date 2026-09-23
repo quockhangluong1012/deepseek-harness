@@ -136,6 +136,83 @@ export function apply(ctx: Context): void {
   const openSession: WorkspaceBrowserInjected['open'] = (sessionId) => {
     uiWorkspace.openSession(sessionId)
   }
+  // Registry-global sets as Sets, rebuilt only when the Workspace snapshot changes.
+  const pinnedSet = derive(workspaces.list, snapshot => new Set<SessionId>(snapshot.pinnedSessionIds))
+  const archivedSet = derive(workspaces.list, snapshot => new Set<SessionId>(snapshot.archivedSessionIds))
+  const renameRequest = createSnapshotStore<SessionRenameTarget | null>(null)
+  const archiveRequest = createSnapshotStore<SessionArchiveConfirmRequest | null>(null)
+  const requestSessionRename = (sessionId: SessionId, currentTitle: string): void => {
+    renameRequest.set({ sessionId, currentTitle })
+  }
+  const unarchiveSession = (sessionId: SessionId): void => {
+    uiWorkspace.unarchiveSession(sessionId).catch((reason: unknown) => {
+      console.warn('session unarchive rejected:', reason)
+    })
+  }
+  const renameSession: SessionRenameDialogInjected['renameSession'] = async (sessionId, title) => {
+    const result = await sessions.using(
+      sessionId,
+      { source: 'workspaceOperation' },
+      reference => reference.binding.session.rename(title),
+    )
+    if (!result.ok) throw new Error(result.error.message)
+  }
+  const pinInjected = (): PinSessionInjected => ({
+    hooks: { pinned: pinnedSet, archived: archivedSet },
+    pinSession: (sessionId) => {
+      uiWorkspace.pinSession(sessionId).catch(() => { notify({ kind: 'pinFailed' }) })
+    },
+    unpinSession: (sessionId) => {
+      uiWorkspace.unpinSession(sessionId).catch(() => { notify({ kind: 'unpinFailed' }) })
+    },
+  })
+  const archiveInjected = (): ArchiveSessionInjected => ({
+    hooks: { archived: archivedSet },
+    archiveSession: (sessionId) => {
+      uiWorkspace.archiveSession(sessionId).then(() => {
+        notify({ kind: 'archived', sessionId })
+      }).catch((reason: unknown) => {
+        const activity = activeSessionRefusal(reason)
+        if (activity !== undefined) {
+          archiveRequest.set({
+            sessionId,
+            displayTitle: sessions.list.getSnapshot().byId[sessionId]?.displayTitle ?? String(sessionId),
+            activity,
+          })
+          return
+        }
+        console.warn('session archive rejected:', reason)
+      })
+    },
+    unarchiveSession,
+  })
+  const stopAndArchiveSession: SessionArchiveConfirmInjected['stopAndArchiveSession'] = async (sessionId) => {
+    await uiWorkspace.archiveSession(sessionId, { stopActivity: true })
+    notify({ kind: 'stoppedAndArchived', sessionId })
+  }
+  const archiveConfirmInjected = (): SessionArchiveConfirmInjected => ({
+    hooks: { archiveRequest },
+    settleSessionArchive: () => { archiveRequest.set(null) },
+    stopAndArchiveSession,
+  })
+  const forkInjected = (): ForkSessionInjected => ({
+    forkSession: (sessionId) => {
+      uiWorkspace.forkSession(sessionId).catch(() => {})
+    },
+  })
+  const renameInjected = (): RenameSessionInjected => ({ requestSessionRename })
+  const renameDialogInjected = (): SessionRenameDialogInjected => ({
+    hooks: { renameRequest },
+    settleSessionRename: () => { renameRequest.set(null) },
+    renameSession,
+  })
+  const rowToastInjected = (): RowToastInjected => ({
+    hooks: { toast: rowToast },
+    dismissToast: () => { rowToast.set(null) },
+    undoArchive: unarchiveSession,
+    showArchived: () => { viewInstance.actions.setArchivedFilter('show') },
+  })
+
   // Optional page opener owned by the workspace-memory page plugin.
   // Resolved per injection (not once at apply): the page plugin's roster
   // row follows this one, so an apply-time read would always miss it.

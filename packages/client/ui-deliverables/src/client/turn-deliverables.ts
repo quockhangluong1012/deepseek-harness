@@ -35,12 +35,6 @@ export interface DeliverablesTurnData {
   readonly changes?: ChangesTurnData
 }
 
-declare module '@deepseek-ai/dsh-client-ui-conversation/client' {
-  interface ConversationTurnDataMap {
-    /** Successful mutation paths, recorded changed files, and deliveries accumulated in this Turn. */
-    deliverables: DeliverablesTurnData
-  }
-}
 
 interface DeliverablesState extends DeliverablesTurnData {
   readonly turn: number

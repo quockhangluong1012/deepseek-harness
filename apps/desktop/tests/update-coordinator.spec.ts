@@ -230,8 +230,8 @@ describe('desktop update coordinator', () => {
       downloadUpdate: vi.fn(),
       quitAndInstall: vi.fn(),
     } as unknown as AppUpdater
-    const coordinator = new DesktopUpdateCoordinator(state => state, async () => {}, updater, () => true)
-    await expect(coordinator.install()).rejects.toThrow(/no verified update is available/u)
+    const coordinator = new DesktopUpdateCoordinator(state => state, async () => false, updater, () => true)
+    await expect(coordinator.install('1.1.0-rc.2')).rejects.toThrow(/confirmed target is not ready/u)
   })
 
   it('publishes download progress while an install is in flight', async () => {
@@ -256,13 +256,13 @@ describe('desktop update coordinator', () => {
         states.push(state)
         return state
       },
-      async () => {},
+      async () => false,
       updater,
       () => true,
     )
 
     await expect(coordinator.check()).resolves.toEqual({ phase: 'available', version: '2.0.0' })
-    const installing = coordinator.install()
+    const installing = coordinator.install('2.0.0')
     expect(progressListener).toBeDefined()
     progressListener?.({ percent: 42.7 })
     releaseDownload.resolve([])

@@ -124,7 +124,7 @@ function appendTurn(
   if (bodies.injected !== undefined) {
     session.append(
       'user/message',
-      createUserMessage({ content: [{ type: 'text', text: bodies.injected }], source: { kind: 'plugin', plugin: 'other' } }),
+      createUserMessage({ content: [{ type: 'text', text: bodies.injected }], source: { kind: 'workspace-memory-llm' } }),
       { surfaceOp: 'append' },
     )
   }

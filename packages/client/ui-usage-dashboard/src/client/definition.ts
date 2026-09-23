@@ -28,6 +28,7 @@ export function usageDefinition(t: TranslateNS<'sidebarUsage'>): SidebarRightTab
     priority: 'builtin',
     title: () => t('type.label'),
     guide: [{
+      id: 'usage',
       order: 20,
       title: () => t('guide.title'),
       description: () => t('guide.description'),

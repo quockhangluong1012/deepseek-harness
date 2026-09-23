@@ -62,13 +62,15 @@ export function WorkspaceMemorySeat({
   // the tree too — only the selected provisional session stays visible — since
   // the page opens onto the workspace's blank session.
   const archived = new Set(archivedSessionIds)
+  const currentSessionId = Object.values(sessions.byId)
+    .find(session => (session.retainedBy.mainView ?? 0) > 0)?.id
   const seen = new Set<SessionId>()
   const visible = workspace.sessionIds.flatMap((id) => {
     if (seen.has(id)) return []
     seen.add(id)
     const summary = sessions.byId[id]
     if (summary === undefined || archived.has(id)) return []
-    if (summary.blank && summary.id !== sessions.current) return []
+    if (summary.blank && summary.id !== currentSessionId) return []
     return [summary]
   })
   const chats = visible

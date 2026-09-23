@@ -90,9 +90,8 @@ function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
 function loggedUserTexts(agent: Agent): { text: string; kind: unknown }[] {
   return agent.session.ownEvents().flatMap((event) => {
     if (event.type !== 'user/message') return []
-    const data = event.data as { content: { type: string; text?: string }[]; source: unknown }
-    const text = data.content.filter(block => block.type === 'text').map(block => block.text ?? '').join('')
-    return [{ text, kind: (data.source as { kind?: unknown }).kind }]
+    const text = event.data.content.flatMap(block => block.type === 'text' ? [block.text] : []).join('')
+    return [{ text, kind: event.data.source.kind }]
   })
 }
 

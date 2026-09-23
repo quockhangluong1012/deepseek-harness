@@ -314,7 +314,7 @@ describe('hmr watch row', () => {
     const missing = join(dir, 'appears.js')
     writeFileSync(missing, 'seed')
     const clientModuleHost = fakeClientModuleHost(new Map([['pkg-a', missing]]), {
-      baselineOverrides: new Map([['pkg-a', { path: missing, mtimeMs: 0, size: 0 }]]),
+      baselineOverrides: new Map([['pkg-a', { path: missing, mtimeMs: 0, ctimeMs: 0, size: 0 }]]),
     })
     unlinkSync(missing)
     const fiber = await mountWatchRow(clientModuleHost)
@@ -329,7 +329,7 @@ describe('hmr watch row', () => {
     const bundle = join(dir, 'rejected.js')
     writeFileSync(bundle, 'v1')
     const clientModuleHost = fakeClientModuleHost(new Map([['pkg-a', bundle]]), {
-      baselineOverrides: new Map([['pkg-a', { path: '\0rejected', mtimeMs: 1, size: 1 }]]),
+      baselineOverrides: new Map([['pkg-a', { path: '\0rejected', mtimeMs: 1, ctimeMs: 1, size: 1 }]]),
     })
     const fiber = await mountWatchRow(clientModuleHost)
 

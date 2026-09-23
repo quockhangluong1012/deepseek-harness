@@ -741,15 +741,18 @@ describe('UiWorkspaceService', () => {
   it('vacates the centre-track page synchronously on New Session', async () => {
     const blank = summary('blank', { blank: true, cwd: '/w/home' })
     const b = bench({
-      sessions: sessionState([blank], blank.id),
+      sessions: sessionState([blank]),
       workspaces: workspaceState([workspace('home', [blank.id])]),
     })
     const close = vi.fn()
     b.ctx.provide('workspacePage', { close } as never)
+    b.uiWorkspace.openSession(blank.id)
+    close.mockClear()
+    b.sessions.retain.mockClear()
     b.uiWorkspace.startSession()
     expect(close).toHaveBeenCalledOnce()
     await vi.waitFor(() => {
-      expect(b.sessions.open).toHaveBeenCalledWith(blank.id)
+      expect(b.sessions.retain).toHaveBeenCalledWith(blank.id, { source: 'mainView' })
     })
   })
 

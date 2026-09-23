@@ -754,7 +754,7 @@ describe('workspace context instruction discovery', () => {
       fs.entries.set(join(home, 'AGENTS.md'), { type: 'file', content: 'home rule' })
       fs.entries.set(join(root, 'AGENTS.md'), { type: 'file', content: 'root rule' })
       const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
-      await mountWorkspaceContextPlugin(ctx, {
+      await mountAgentInstructionsPlugin(ctx, {
         dshHome: home,
         maxBytes: 65536,
         maxSourceBytes: 65536,

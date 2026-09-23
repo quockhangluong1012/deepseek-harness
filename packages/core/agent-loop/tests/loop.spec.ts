@@ -1444,7 +1444,7 @@ describe('agent loop', () => {
     ctx.on('agent/turn-stopping', ({ agent: subject }) => {
       if (steered) return
       steered = true
-      subject.steer(createUserMessage({ content: [{ type: 'text', text: 'keep going' }], source: { kind: 'plugin', plugin: 'max-steps-test' } }))
+      subject.steer(createUserMessage({ content: [{ type: 'text', text: 'keep going' }], source: { kind: 'test' } }))
     })
     const reasons: TurnEndReason[] = []
     ctx.on('session/event', (_s, event) => { if (event.type === 'turn/end') reasons.push(event.data.reason) })
@@ -1471,7 +1471,7 @@ describe('agent loop', () => {
     ctx.on('session/event', (_s, event) => { if (event.type === 'step/end') steps += 1 })
     ctx.on('agent/turn-stopping', ({ agent: subject }) => {
       if (steps < 2) {
-        subject.steer(createUserMessage({ content: [{ type: 'text', text: 'continue after truncation' }], source: { kind: 'plugin', plugin: 'max-steps-test' } }))
+        subject.steer(createUserMessage({ content: [{ type: 'text', text: 'continue after truncation' }], source: { kind: 'test' } }))
       }
     })
     const reasons: TurnEndReason[] = []

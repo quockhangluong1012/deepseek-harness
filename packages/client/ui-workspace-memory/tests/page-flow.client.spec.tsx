@@ -91,8 +91,17 @@ async function bench() {
     },
     session: {},
   })
+  let mainReference: { release(): void } | undefined
+  const openSession = vi.fn((id: SessionId): void => {
+    mainReference?.release()
+    mainReference = runtime.sessions.retain(id, { source: 'mainView' })
+  })
+  const clearCurrentSession = (): void => {
+    mainReference?.release()
+    mainReference = undefined
+  }
   const connectWorkspace = vi.fn(async () => 's1' as SessionId)
-  runtime.ctx.provide('uiWorkspace', { connectWorkspace })
+  runtime.ctx.provide('uiWorkspace', { connectWorkspace, openSession })
   await runtime.workspaces.update((draft) => {
     draft.items = [{
       workspaceId: 'ws-1' as WorkspaceId, title: 'Project', path: '/work/project',
@@ -102,7 +111,7 @@ async function bench() {
   await runtime.declare({ 'shell.page': { kind: 'single', scope: 'root' } } as never)
   const handle = await runtime.mount({ inject: [...inject], apply })
   const seat = runtime.renderSlot('shell.page', {})
-  return { runtime, handle, seat, calls, connectWorkspace, ns }
+  return { runtime, handle, seat, calls, connectWorkspace, openSession, clearCurrentSession, ns }
 }
 
 describe('assembled workspace-memory page', () => {
@@ -131,7 +140,7 @@ describe('assembled workspace-memory page', () => {
   })
 
   it('opens onto the Workspace Session, saves, and navigates', async () => {
-    const { runtime, handle, seat, calls, connectWorkspace } = await bench()
+    const { runtime, handle, seat, calls, connectWorkspace, openSession } = await bench()
     try {
       expect(seat.container.firstChild).toBeNull()
       await act(async () => {
@@ -141,7 +150,7 @@ describe('assembled workspace-memory page', () => {
 
       // The page selects the Workspace's Session so the conversation route's composer is live.
       expect(connectWorkspace).toHaveBeenCalledWith('ws-1')
-      expect(runtime.sessions.calls.some(call => call.method === 'open' && call.args[0] === 's1')).toBe(true)
+      expect(openSession).toHaveBeenCalledWith('s1' as SessionId)
 
       // Live baseline headers and the session-driven tabs render.
       expect(seat.view.getByText('Project')).toBeDefined()
@@ -157,7 +166,7 @@ describe('assembled workspace-memory page', () => {
 
       // An output tile opens its producing session and closes the page.
       fireEvent.click(seat.view.getByTitle('/work/project/out.ts'))
-      expect(runtime.sessions.calls.some(call => call.method === 'open')).toBe(true)
+      expect(openSession).toHaveBeenCalled()
       expect(seat.container.firstChild).toBeNull()
     } finally {
       await runtime.dispose()
@@ -192,7 +201,7 @@ describe('assembled workspace-memory page', () => {
   })
 
   it('yields when another Session takes the column while connecting', async () => {
-    const { runtime, handle, seat, connectWorkspace } = await bench()
+    const { runtime, handle, seat, connectWorkspace, openSession } = await bench()
     try {
       let resolveConnect!: (id: SessionId) => void
       connectWorkspace.mockImplementationOnce(() => new Promise<SessionId>((resolve) => {
@@ -202,14 +211,14 @@ describe('assembled workspace-memory page', () => {
         id: 's2',
         summary: { displayTitle: 'Second', updatedAt: 2, projectionValues: { turnOutline: [] } },
         session: {},
-      }, { current: false })
+      })
       act(() => {
         runtime.ctx.get('workspacePage')?.open('ws-1')
       })
       // The reader picks another conversation before the connect lands; the
       // connect's own selection is ignored, but this one is not.
       await act(async () => {
-        runtime.ctx.get('sessions')?.open('s2' as SessionId)
+        openSession('s2' as SessionId)
       })
       expect(seat.view.getByTestId('workspace-memory-page')).toBeDefined()
       await act(async () => { resolveConnect('s1' as SessionId) })
@@ -221,7 +230,7 @@ describe('assembled workspace-memory page', () => {
   })
 
   it('does not select a Session for a page closed while connecting', async () => {
-    const { runtime, handle, connectWorkspace } = await bench()
+    const { runtime, handle, connectWorkspace, openSession } = await bench()
     try {
       let resolveConnect!: (id: SessionId) => void
       connectWorkspace.mockImplementationOnce(() => new Promise<SessionId>((resolve) => {
@@ -234,7 +243,7 @@ describe('assembled workspace-memory page', () => {
         runtime.ctx.get('workspacePage')?.close()
       })
       await act(async () => { resolveConnect('s1' as SessionId) })
-      expect(runtime.sessions.calls.some(call => call.method === 'open')).toBe(false)
+      expect(openSession).not.toHaveBeenCalled()
 
       connectWorkspace.mockRejectedValueOnce(new Error('connect down'))
       const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
@@ -258,7 +267,7 @@ describe('assembled workspace-memory page', () => {
   })
 
   it('stands through a cleared selection and an unchanged anchor', async () => {
-    const { runtime, handle, seat, connectWorkspace } = await bench()
+    const { runtime, handle, seat, connectWorkspace, clearCurrentSession } = await bench()
     try {
       // Nothing is open: closing is a no-op, not a stray notification.
       act(() => {
@@ -283,7 +292,7 @@ describe('assembled workspace-memory page', () => {
       // A cleared selection leaves the page standing: the page is also what the
       // no-session view shows.
       await act(async () => {
-        await runtime.sessions.setCurrent(undefined)
+        clearCurrentSession()
       })
       expect(seat.view.getByTestId('workspace-memory-page')).toBeDefined()
     } finally {
@@ -293,7 +302,7 @@ describe('assembled workspace-memory page', () => {
   })
 
   it('yields the center column to a session opened elsewhere', async () => {
-    const { runtime, handle, seat } = await bench()
+    const { runtime, handle, seat, openSession } = await bench()
     try {
       await act(async () => {
         runtime.ctx.get('workspacePage')?.open('ws-1')
@@ -306,9 +315,9 @@ describe('assembled workspace-memory page', () => {
         id: 's2',
         summary: { displayTitle: 'Second', updatedAt: 2, projectionValues: { turnOutline: [] } },
         session: {},
-      }, { current: false })
+      })
       await act(async () => {
-        runtime.ctx.get('sessions')?.open('s2' as SessionId)
+        openSession('s2' as SessionId)
       })
       expect(seat.view.queryByTestId('workspace-memory-page')).toBeNull()
     } finally {

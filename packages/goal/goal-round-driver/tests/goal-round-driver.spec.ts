@@ -265,7 +265,7 @@ describe('same-session goal driving', () => {
     test.ctx.on('agent/turn-stopping', ({ agent }) => {
       if (steered) return
       steered = true
-      agent.steer(createUserMessage({ content: [{ type: 'text', text: 'keep going' }], source: { kind: 'plugin', plugin: 'max-steps-test' } }))
+      agent.steer(createUserMessage({ content: [{ type: 'text', text: 'keep going' }], source: { kind: 'test' } }))
     })
     test.ctx.goals.create(test.agent, { objective: 'stop at the ceiling', maxGoalRounds: 8 })
 

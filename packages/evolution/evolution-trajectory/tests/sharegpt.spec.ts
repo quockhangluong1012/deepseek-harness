@@ -1,11 +1,18 @@
 import { describe, expect, it } from 'vitest'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import { SessionSeq } from '@deepseek-ai/dsh-session'
+import type { ContextFormed } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent, SessionEventMap } from '@deepseek-ai/dsh-session'
 import { toShareGpt } from '../src/sharegpt.ts'
 
+declare module '@deepseek-ai/dsh-llm' {
+  interface MessageSourceMap {
+    'sharegpt-test': { kind: 'sharegpt-test' } & ContextFormed
+  }
+}
+
 type AssistantContent = SessionEventMap['assistant/message']['message']['content']
-type ToolResultContent = SessionEventMap['tool/result']['message']['content'][0]['content']
+type ToolResultContent = SessionEventMap['tool/result']['message']['content']
 type UserContent = SessionEventMap['user/message']['content']
 type MessageId = SessionEventMap['assistant/message']['message']['id']
 type ToolCallId = SessionEventMap['tool/call']['callId']
@@ -29,13 +36,13 @@ function systemMessage(seq: number, content: UserContent): SessionEvent {
     data: {
       turn: 1,
       step: 1,
-      message: { id: messageId(seq), role: 'system', content, source: { kind: 'plugin', plugin: 'test' } },
+      message: { id: messageId(seq), role: 'system', content, source: { kind: 'system-prompt' } },
     },
     surfaceOp: 'append',
   }
 }
 
-function userMessage(seq: number, content: UserContent, kind: 'user' | 'plugin' = 'user'): SessionEvent {
+function userMessage(seq: number, content: UserContent, kind: 'user' | 'sharegpt-test' = 'user'): SessionEvent {
   return {
     type: 'user/message',
     seq: SessionSeq(seq),
@@ -44,7 +51,7 @@ function userMessage(seq: number, content: UserContent, kind: 'user' | 'plugin' 
       id: messageId(seq),
       role: 'user',
       content,
-      source: kind === 'user' ? { kind: 'user' } : { kind: 'plugin', plugin: 'test' },
+      source: kind === 'user' ? { kind: 'user' } : { kind: 'sharegpt-test' },
     },
     surfaceOp: 'append',
   }
@@ -71,6 +78,7 @@ function assistantMessage(seq: number, content: AssistantContent): SessionEvent 
 }
 
 function toolResult(seq: number, content: ToolResultContent, isError = false): SessionEvent {
+  const id = callId(seq)
   return {
     type: 'tool/result',
     seq: SessionSeq(seq),
@@ -80,9 +88,11 @@ function toolResult(seq: number, content: ToolResultContent, isError = false): S
       step: 1,
       message: {
         id: messageId(seq),
-        role: 'user',
-        content: [{ type: 'tool-result', toolCallId: callId(seq), content, ...isError ? { isError: true } : {} }],
-        source: { kind: 'tool', callId: callId(seq) },
+        role: 'tool',
+        content,
+        toolCallId: id,
+        ...(isError ? { isError: true } : {}),
+        source: { kind: 'tool', callId: id },
       },
     },
     surfaceOp: 'append',
@@ -132,7 +142,7 @@ describe('ShareGPT shaping', () => {
     const events = [
       turnStart(1, 0),
       systemMessage(1, []),
-      userMessage(1, [{ type: 'text', text: '<system-reminder>injected</system-reminder>' }], 'plugin'),
+      userMessage(1, [{ type: 'text', text: '<system-reminder>injected</system-reminder>' }], 'sharegpt-test'),
       userMessage(2, []),
       userMessage(3, [image, { type: 'text', text: 'real prompt' }]),
       toolResult(4, []),

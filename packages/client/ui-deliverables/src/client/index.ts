@@ -30,7 +30,15 @@ import { createReviewStore } from './review-store.ts'
 import { en, NS, zh, type DeliverablesKey } from './locales.ts'
 import {
   deliverablesDefinition, presentedForClosing, producedFileMentions, selectProducedFiles,
+  type DeliverablesTurnData,
 } from './turn-deliverables.ts'
+
+declare module '@deepseek-ai/dsh-client-ui-conversation/client' {
+  interface ConversationTurnDataMap {
+    /** Successful mutation paths, recorded changes, and deliveries accumulated in this Turn. */
+    deliverables: DeliverablesTurnData
+  }
+}
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {

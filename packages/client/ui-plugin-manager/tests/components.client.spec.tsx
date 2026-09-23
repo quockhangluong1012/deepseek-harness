@@ -124,6 +124,7 @@ function renderTab(
     useSessionStatus: unusedStandardHook,
     useSessionRetainInfo: unusedStandardHook,
     useResource: unusedStandardHook,
+    pageOccupied: false,
   }
   const props: PluginManagerPageProps = {
     ...standard,

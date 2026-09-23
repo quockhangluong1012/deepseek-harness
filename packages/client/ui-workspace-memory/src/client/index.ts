@@ -112,10 +112,10 @@ export function apply(ctx: Context): void {
     emitOpen()
     syncPageEntry()
   }
-  // In-flight Workspace connects. While one runs, a selection change may be its
-  // own `create` picking the blank Session, which is not "the reader opened a
-  // conversation"; the completion re-checks the selection and closes the page
-  // when somebody else really did move it.
+  /** Session currently retained by the main-view route, when one exists. */
+  const currentSessionId = (): SessionId | undefined =>
+    Object.values(sessions.list.getSnapshot().byId)
+      .find(session => (session.retainedBy.mainView ?? 0) > 0)?.id
   let pendingConnects = 0
   // Resolve the Workspace's reusable blank Session (or a fresh one) and select
   // it: the conversation route's composer drives a real Session from the first
@@ -127,14 +127,14 @@ export function apply(ctx: Context): void {
       (sessionId) => {
         pendingConnects -= 1
         if (openWorkspaceId !== workspaceId) return
-        const current = sessions.list.getSnapshot().current
+        const current = currentSessionId()
         if (current !== undefined && current !== anchorSessionId && current !== sessionId) {
           closePage()
           return
         }
         pageSessionId = sessionId
         anchorSessionId = sessionId
-        sessions.open(sessionId)
+        uiWorkspace.openSession(sessionId)
       },
       (reason: unknown) => {
         pendingConnects -= 1
@@ -146,7 +146,7 @@ export function apply(ctx: Context): void {
   ctx.effect(() => ctx.provide('workspacePage', {
     open: (workspaceId: string) => {
       pageSessionId = undefined
-      anchorSessionId = sessions.list.getSnapshot().current
+      anchorSessionId = currentSessionId()
       openWorkspaceId = workspaceId
       emitOpen()
       syncPageEntry()
@@ -161,11 +161,10 @@ export function apply(ctx: Context): void {
   // streams in the conversation the page routed away from.
   ctx.effect(() => sessions.list.subscribe(() => {
     if (pendingConnects > 0) return
-    const list = sessions.list.getSnapshot()
-    const current = list.current
+    const current = currentSessionId()
     if (current === undefined) return
     if (current === pageSessionId) {
-      if (list.byId[current]?.blank === false) closePage()
+      if (sessions.list.getSnapshot().byId[current]?.blank === false) closePage()
       return
     }
     if (current === anchorSessionId) return
@@ -179,7 +178,7 @@ export function apply(ctx: Context): void {
       openStream: options => ctx.remote.$stream(options),
     },
     openSession: (sessionId: SessionId) => {
-      sessions.open(sessionId)
+      uiWorkspace.openSession(sessionId)
     },
     closePage,
     hooks: { workspacePage: source },

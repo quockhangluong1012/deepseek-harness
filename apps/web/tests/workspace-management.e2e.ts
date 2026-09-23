@@ -776,7 +776,7 @@ describe('web e2e: New Session after an outdated blank cache', () => {
         eventState: 'detached', seed: [], meta: stored.header, inheritedEventCount: SessionLogOffset(0),
       })
       await scaffold.ctx.sessionProjectionCache.write(blank)
-      const workspace = await scaffold.ctx.workspaceRegistry.create(scaffold.workspaceCwd, 'New session regression')
+      const workspace = await scaffold.ctx.workspaceRegistry.create(scaffold.workspaceCwd)
       await workspace.attachSession(id)
       browser = await chromium.launch()
       const page = await newEnglishPage(browser)

@@ -55,7 +55,8 @@ export function apply(ctx: ClientContext): void {
   )), 'ui-progress: progress tab body')
 
   ctx.effect(() => revealOnProgress({
-    current: () => ctx.sessions.list.getSnapshot().current,
+    current: () => Object.values(ctx.sessions.list.getSnapshot().byId)
+      .find(session => (session.retainedBy.mainView ?? 0) > 0)?.id,
     onSelection: listener => ctx.sessions.list.subscribe(listener),
     follow: (sessionId, onChange) => {
       const binding = ctx.sessions.binding(sessionId)

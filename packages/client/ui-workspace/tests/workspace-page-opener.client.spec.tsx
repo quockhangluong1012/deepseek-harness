@@ -45,7 +45,7 @@ async function bench(page: { open(workspaceId: WorkspaceId): void; close(): void
     id: 's1',
     summary: { displayTitle: 'First chat', updatedAt: 1, projectionValues: { turnOutline: [] } },
     session: {},
-  }, { current: false })
+  })
   await runtime.workspaces.update((draft) => {
     draft.items = [{
       workspaceId: 'w1' as WorkspaceId, title: 'Project', path: '/home/u/Documents/project',

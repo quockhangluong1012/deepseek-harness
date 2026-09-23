@@ -7,7 +7,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import LlmRuntime, { createUserMessage } from '@deepseek-ai/dsh-llm'
-import type { GenerateOptions, UserMessage } from '@deepseek-ai/dsh-llm'
+import type { ContextFormed, GenerateOptions, UserMessage } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
@@ -15,6 +15,14 @@ import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 import AgentLoop, { restoreSnapshotSlots, SnapshotInjectionProjection, snapshotSlot } from '@deepseek-ai/dsh-agent-loop'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import { MockAdapter, textResponse } from './mock-adapter.ts'
+
+declare module '@deepseek-ai/dsh-llm' {
+  interface MessageSourceMap {
+    'snapshot-time-test': { kind: 'snapshot-time-test' } & ContextFormed
+    'snapshot-tmux-test': { kind: 'snapshot-tmux-test' } & ContextFormed
+    'plain-context-test': { kind: 'plain-context-test' } & ContextFormed
+  }
+}
 
 const roots: Context[] = []
 
@@ -51,20 +59,27 @@ function send(agent: Agent, text: string): void {
   agent.followup(createUserMessage({ content: [{ type: 'text', text }], source: { kind: 'user' } }))
 }
 
+type SnapshotProducer = 'time-context' | 'tmux-context'
+
+function snapshotSource(producer: SnapshotProducer, text: string, supersedes?: true) {
+  const common = {
+    form: 'snapshot' as const,
+    sections: [{ name: producer, text }],
+    ...(supersedes === undefined ? {} : { supersedes }),
+  }
+  return producer === 'time-context'
+    ? { kind: 'snapshot-time-test' as const, ...common }
+    : { kind: 'snapshot-tmux-test' as const, ...common }
+}
+
 /** One producer's superseding snapshot message. */
-function snapshot(text: string, plugin = 'time-context'): UserMessage {
-  return createUserMessage({
-    content: [{ type: 'text', text }],
-    source: { kind: 'plugin', plugin, form: 'snapshot', sections: [{ name: plugin, text }], supersedes: true },
-  })
+function snapshot(text: string, producer: SnapshotProducer = 'time-context'): UserMessage {
+  return createUserMessage({ content: [{ type: 'text', text }], source: snapshotSource(producer, text, true) })
 }
 
 /** One producer's accumulating snapshot message: a reading per step. */
-function reading(text: string, plugin = 'time-context'): UserMessage {
-  return createUserMessage({
-    content: [{ type: 'text', text }],
-    source: { kind: 'plugin', plugin, form: 'snapshot', sections: [{ name: plugin, text }] },
-  })
+function reading(text: string, producer: SnapshotProducer = 'time-context'): UserMessage {
+  return createUserMessage({ content: [{ type: 'text', text }], source: snapshotSource(producer, text) })
 }
 
 /** Every user-message text a request carried. */
@@ -213,7 +228,7 @@ describe('pre-step snapshot injections', () => {
             ...decision.messages,
             snapshot(clock, 'time-context'),
             snapshot(panes, 'tmux-context'),
-            createUserMessage({ content: [{ type: 'text', text: 'plain context' }], source: { kind: 'plugin', plugin: 'plain' } }),
+            createUserMessage({ content: [{ type: 'text', text: 'plain context' }], source: { kind: 'plain-context-test' } }),
           ],
         }
         : decision)

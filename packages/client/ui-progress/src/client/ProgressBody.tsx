@@ -7,7 +7,7 @@
  */
 import { useMemo } from 'react'
 import type { ReactNode } from 'react'
-import { classifyLinkPath, IconCheckOutlineRegular, LinkIcon } from '@deepseek-ai/dsh-client-ui-primitives'
+import { classifyLinkPath, IconCheckOutlineRegular, LinkIconRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import { fileAddressFor, workspaceTitleOf } from '@deepseek-ai/dsh-util-workspace-path'
 import type {} from '@deepseek-ai/dsh-client-ui-chat/client'
@@ -103,7 +103,7 @@ export function ProgressBody({
                   aria-label={t('open', { name: path })}
                   onClick={() => { tab.actions.openResource(fileAddressFor(sessionId, cwd, path)) }}
                 >
-                  <LinkIcon kind={classifyLinkPath(path)} className={css.fileIcon} />
+                  <LinkIconRegular kind={classifyLinkPath(path)} />
                   <span className={css.label}>{workspaceTitleOf(path) || path}</span>
                 </button>
               </li>

@@ -59,11 +59,9 @@ function textTurn(text: string): StreamChunk[] {
 function toolResults(request: GenerateOptions | undefined): string[] {
   const texts: string[] = []
   for (const message of request?.messages ?? []) {
-    for (const block of message.content) {
-      if (block.type !== 'tool-result') continue
-      const inner = block.content[0]
-      texts.push(inner?.type === 'text' ? inner.text : '')
-    }
+    if (message.role !== 'tool') continue
+    const first = message.content[0]
+    texts.push(first?.type === 'text' ? first.text : '')
   }
   return texts
 }
