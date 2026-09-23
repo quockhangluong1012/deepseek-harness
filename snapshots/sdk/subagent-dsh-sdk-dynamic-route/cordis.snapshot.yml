@@ -1,5 +1,14 @@
 # Keyless replay layer for the DSH SDK dynamic-route snapshot.
 
+# The shipped base composition swaps `tool-bash` and `tool-pwsh` by platform,
+# so a header recorded with one would be unreplayable on the other. Replay pins
+# the posix pair on every host.
+- id: tool-bash
+  disabled: false
+
+- id: tool-pwsh
+  disabled: true
+
 - insert:
     - id: llm-replay
       name: '@deepseek-ai/dsh-llm-replay'

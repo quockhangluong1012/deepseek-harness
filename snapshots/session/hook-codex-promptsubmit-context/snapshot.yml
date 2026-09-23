@@ -3,5 +3,6 @@ scenario: hook-codex-promptsubmit-context
 profile: headless
 composition: default
 recording: live
+platform: posix
 header:
   class: default

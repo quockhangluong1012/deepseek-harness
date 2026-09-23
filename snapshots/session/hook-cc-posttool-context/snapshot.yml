@@ -3,5 +3,6 @@ scenario: hook-cc-posttool-context
 profile: headless
 composition: default
 recording: live
+platform: posix
 header:
   class: default

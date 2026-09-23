@@ -3,6 +3,7 @@ scenario: workspace-edit
 profile: headless
 composition: default
 recording: live
+platform: posix
 header:
   class: default
 workspace:

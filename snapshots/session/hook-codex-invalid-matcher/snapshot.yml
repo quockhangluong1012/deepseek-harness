@@ -3,5 +3,6 @@ scenario: hook-codex-invalid-matcher
 profile: headless
 composition: default
 recording: authored
+platform: posix
 header:
   class: default

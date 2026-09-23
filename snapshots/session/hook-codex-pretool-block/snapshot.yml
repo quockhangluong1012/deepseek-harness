@@ -3,5 +3,6 @@ scenario: hook-codex-pretool-block
 profile: headless
 composition: default
 recording: live
+platform: posix
 header:
   class: default

@@ -197,6 +197,7 @@
     "@deepseek-ai/dsh-subagent-acp": "workspace:^",
     "@deepseek-ai/dsh-subagent-claude-code": "workspace:^",
     "@deepseek-ai/dsh-subagent-codex": "workspace:^",
+    "@deepseek-ai/dsh-subagent-dsh-sdk": "workspace:^",
     "@deepseek-ai/dsh-tool-lsp": "workspace:^",
     "@deepseek-ai/dsh-tool-session-query": "workspace:^",
     "@deepseek-ai/dsh-tool-terminal": "workspace:^",

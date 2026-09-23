@@ -3,6 +3,7 @@ scenario: session-sandbox-root
 profile: headless
 composition: session-sandbox-root
 recording: authored
+platform: posix
 header:
   class: session-sandbox-root
   pin: true

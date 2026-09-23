@@ -3,5 +3,6 @@ scenario: hook-cc-promptsubmit-block
 profile: headless
 composition: default
 recording: authored
+platform: posix
 header:
   class: default

@@ -3,5 +3,6 @@ scenario: hook-cc-pretool-ask
 profile: headless
 composition: default
 recording: live
+platform: posix
 header:
   class: default

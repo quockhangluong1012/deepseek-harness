@@ -1,5 +1,15 @@
 # Keyless session-query snapshot patch: replay plus the filesystem spill
 # settings inherited by this scenario. The ACP row re-pins the recorded flash model.
+# The shipped base composition swaps `tool-bash` and `tool-pwsh` by platform,
+# so a header pinned with one would be unreplayable on the other. Replay pins
+# the posix pair on every host; a scenario that must run a shell is declared
+# `platform: posix` and skipped where no posix shell exists.
+- id: tool-bash
+  disabled: false
+
+- id: tool-pwsh
+  disabled: true
+
 - id: llm-deepseek
   name: '@deepseek-ai/dsh-llm-deepseek'
   disabled: true

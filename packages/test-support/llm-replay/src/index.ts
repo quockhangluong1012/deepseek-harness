@@ -584,16 +584,38 @@ function substituteString(text: string, corpus: string): string {
   }
 }
 
-/** Deep-copy one JSON-compatible value with scripted placeholders resolved. */
+/**
+ * Deep-copy one JSON-compatible value with scripted placeholders resolved.
+ *
+ * A scripted string may itself carry JSON — a tool call's `arguments` is JSON
+ * text — so a replacement is spliced into the decoded value and the result is
+ * re-encoded. Splicing into the raw text would let a replacement that contains
+ * a quote or a backslash (a Windows path) produce invalid JSON downstream.
+ */
 function substituteValue(value: unknown, corpus: string): unknown {
   if (typeof value === 'string') {
-    return value.includes(FROM_REQUEST_OPEN) ? substituteString(value, corpus) : value
+    if (!value.includes(FROM_REQUEST_OPEN)) return value
+    const decoded = decodedJson(value)
+    return decoded === undefined
+      ? substituteString(value, corpus)
+      : JSON.stringify(substituteValue(decoded, corpus))
   }
   if (Array.isArray(value)) return value.map(item => substituteValue(item, corpus))
   if (value !== null && typeof value === 'object') {
     return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, substituteValue(item, corpus)]))
   }
   return value
+}
+
+/** Parse a string that is itself a JSON document, or `undefined` when it is not one. */
+function decodedJson(value: string): unknown {
+  const trimmed = value.trim()
+  if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) return undefined
+  try {
+    return JSON.parse(trimmed) as unknown
+  } catch {
+    return undefined
+  }
 }
 
 /**

@@ -593,6 +593,11 @@ async function runScenario(scenario: CorpusScenario): Promise<{
     DSH_SNAPSHOT: mode,
     DSH_SNAPSHOT_PROVIDER: route.provider,
     DSH_SNAPSHOT_MODEL: route.model,
+    // The SDK runtime exposes no approval surface, so an `ask` policy can only
+    // fail closed: every gated tool (bash, write, subagent, …) would return an
+    // error instead of running. The lane pins the posture its fixtures record,
+    // matching every other SDK-runtime harness in this repository.
+    DSH_PERMISSION_MODE: 'danger-full-access',
     DSH_TELEMETRY_DISABLED: '1',
     DSH_AGENTS_HOME: join(cwd, '.agents'),
     NODE_OPTIONS: [process.env.NODE_OPTIONS, '--disable-warning=ExperimentalWarning'].filter(Boolean).join(' '),
@@ -988,4 +993,22 @@ describe('TypeScript SDK snapshots over the jsonrpc runtime', () => {
       }
     })
   }
+})
+
+describe('SDK replay fixture hydration', () => {
+  // A Windows workspace carries backslashes, so substituting `{{cwd}}` into
+  // the fixture TEXT splices invalid escapes into the JSON string literals
+  // that hold the token. Hydration therefore has to rewrite decoded values.
+  it('materializes every {{cwd}} token into JSONL the replay can parse', () => {
+    const cwd = String.raw`C:\Users\sdk\AppData\Local\Temp\sdk-snapshot-1`
+    const authored = [
+      JSON.stringify({ type: 'session', version: SESSION_FORMAT_VERSION, id: 'root', createdAt: 0, cwd: '{{cwd}}' }),
+      JSON.stringify({ type: 'tool/call', data: { arguments: JSON.stringify({ path: '{{cwd}}/proof.txt' }) } }),
+    ].join('\n') + '\n'
+    const hydrated = hydrateReplayFixture(authored, cwd).split('\n').filter(line => line.trim() !== '')
+    expect(JSON.parse(hydrated[0] as string)).toMatchObject({ cwd })
+    const call = JSON.parse(hydrated[1] as string) as { data: { arguments: string } }
+    expect(call.data.arguments).toContain(`${cwd}/proof.txt`)
+    expect(hydrated.join('\n')).not.toContain('{{cwd}}')
+  })
 })

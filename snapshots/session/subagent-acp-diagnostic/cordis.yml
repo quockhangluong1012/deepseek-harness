@@ -10,7 +10,7 @@
         providerName: acp-diagnostic
         command: !!js process.execPath
         args:
-          - !!js "decodeURIComponent(new URL('../../../packages/subagent/subagent-acp/tests/mock-acp-server.ts', 'file://' + process.env.DSH_SNAPSHOT_FILE).pathname)"
+          - !!js 'process.env.DSH_SNAPSHOT_FILE.replaceAll("\\", "/").split("/").slice(0, -4).join("/") + "/packages/subagent/subagent-acp/tests/mock-acp-server.ts"'
         permission: reject
         env:
           MOCK_PERMISSION: '1'

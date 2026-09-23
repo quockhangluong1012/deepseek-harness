@@ -142,7 +142,7 @@ function publicationClosureViolations(target: PackageTarget, files: readonly Pac
     const bytes = file.data instanceof ArrayBuffer ? new Uint8Array(file.data) : file.data
     const source = typeof bytes === 'string' ? bytes : Buffer.from(bytes).toString('utf8')
     for (const imported of relativeImports(file.name, source)) {
-      if (imported.specifier.endsWith('.css') && EMITTED_CLIENT_MODULE.test(file.name)) continue
+      if (/\.css(?:[?#]|$)/.test(imported.specifier) && EMITTED_CLIENT_MODULE.test(file.name)) continue
       const resolved = posix.normalize(posix.join(posix.dirname(file.name), imported.specifier))
       if (resolutionCandidates(resolved).some(candidate => published.has(candidate))) continue
       violations.push(

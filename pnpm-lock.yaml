@@ -193,6 +193,9 @@ importers:
       '@deepseek-ai/dsh-subagent-codex':
         specifier: workspace:^
         version: link:packages/subagent/subagent-codex
+      '@deepseek-ai/dsh-subagent-dsh-sdk':
+        specifier: workspace:^
+        version: link:packages/subagent/subagent-dsh-sdk
       '@deepseek-ai/dsh-tool-lsp':
         specifier: workspace:^
         version: link:packages/lsp/tool-lsp
