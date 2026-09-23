@@ -178,9 +178,30 @@ importers:
       '@deepseek-ai/dsh-agent':
         specifier: workspace:^
         version: link:packages/core/agent
+      '@deepseek-ai/dsh-lsp':
+        specifier: workspace:^
+        version: link:packages/lsp/lsp
+      '@deepseek-ai/dsh-lsp-stdio':
+        specifier: workspace:^
+        version: link:packages/lsp/lsp-stdio
+      '@deepseek-ai/dsh-subagent-acp':
+        specifier: workspace:^
+        version: link:packages/subagent/subagent-acp
+      '@deepseek-ai/dsh-subagent-claude-code':
+        specifier: workspace:^
+        version: link:packages/subagent/subagent-claude-code
+      '@deepseek-ai/dsh-subagent-codex':
+        specifier: workspace:^
+        version: link:packages/subagent/subagent-codex
+      '@deepseek-ai/dsh-tool-lsp':
+        specifier: workspace:^
+        version: link:packages/lsp/tool-lsp
       '@deepseek-ai/dsh-tool-session-query':
         specifier: workspace:^
         version: link:packages/session-query/tool-session-query
+      '@deepseek-ai/dsh-tool-terminal':
+        specifier: workspace:^
+        version: link:packages/terminal/tool-terminal
       '@deepseek-ai/dsh-web-fetch-http':
         specifier: workspace:^
         version: link:packages/web/web-fetch-http
@@ -3228,12 +3249,6 @@ importers:
       '@deepseek-ai/dsh-typert-protocol':
         specifier: workspace:^
         version: link:../../typert/protocol
-      react:
-        specifier: ^18.2.0
-        version: 18.3.1
-      react-dom:
-        specifier: ^18.2.0
-        version: 18.3.1(react@18.3.1)
       zod:
         specifier: ^4.4.3
         version: 4.4.3
@@ -3295,6 +3310,12 @@ importers:
       '@types/react-dom':
         specifier: ~18.3.0
         version: 18.3.7(@types/react@18.3.31)
+      react:
+        specifier: ^18.2.0
+        version: 18.3.1
+      react-dom:
+        specifier: ^18.2.0
+        version: 18.3.1(react@18.3.1)
 
   packages/client/ui-goal:
     devDependencies:
@@ -3825,13 +3846,6 @@ importers:
         version: 4.3.1
 
   packages/client/ui-progress:
-    dependencies:
-      react:
-        specifier: ^18.2.0
-        version: 18.3.1
-      react-dom:
-        specifier: ^18.2.0
-        version: 18.3.1(react@18.3.1)
     devDependencies:
       '@deepseek-ai/cordis':
         specifier: workspace:^
@@ -3887,6 +3901,12 @@ importers:
       '@types/react-dom':
         specifier: ~18.3.0
         version: 18.3.7(@types/react@18.3.31)
+      react:
+        specifier: ^18.2.0
+        version: 18.3.1
+      react-dom:
+        specifier: ^18.2.0
+        version: 18.3.1(react@18.3.1)
 
   packages/client/ui-reference:
     devDependencies:
@@ -4882,15 +4902,6 @@ importers:
       '@deepseek-ai/dsh-typert-protocol':
         specifier: workspace:^
         version: link:../../typert/protocol
-      clsx:
-        specifier: ^2.0.0
-        version: 2.1.1
-      react:
-        specifier: ^18.2.0
-        version: 18.3.1
-      react-dom:
-        specifier: ^18.2.0
-        version: 18.3.1(react@18.3.1)
       zod:
         specifier: ^4.4.3
         version: 4.4.3
@@ -4970,6 +4981,15 @@ importers:
       '@types/react-dom':
         specifier: ~18.3.0
         version: 18.3.7(@types/react@18.3.31)
+      clsx:
+        specifier: ^2.0.0
+        version: 2.1.1
+      react:
+        specifier: ^18.2.0
+        version: 18.3.1
+      react-dom:
+        specifier: ^18.2.0
+        version: 18.3.1(react@18.3.1)
 
   packages/client/ui-user-questions:
     devDependencies:
@@ -5165,15 +5185,6 @@ importers:
       '@deepseek-ai/dsh-typert-protocol':
         specifier: workspace:^
         version: link:../../typert/protocol
-      clsx:
-        specifier: ^2.0.0
-        version: 2.1.1
-      react:
-        specifier: ^18.2.0
-        version: 18.3.1
-      react-dom:
-        specifier: ^18.2.0
-        version: 18.3.1(react@18.3.1)
       zod:
         specifier: ^4.4.3
         version: 4.4.3
@@ -5250,6 +5261,15 @@ importers:
       '@types/react-dom':
         specifier: ~18.3.0
         version: 18.3.7(@types/react@18.3.31)
+      clsx:
+        specifier: ^2.0.0
+        version: 2.1.1
+      react:
+        specifier: ^18.2.0
+        version: 18.3.1
+      react-dom:
+        specifier: ^18.2.0
+        version: 18.3.1(react@18.3.1)
 
   packages/client/web:
     devDependencies:
@@ -5580,9 +5600,21 @@ importers:
       '@deepseek-ai/dsh-agent-loop-testkit':
         specifier: workspace:^
         version: link:../../test-support/agent-loop-testkit
+      '@deepseek-ai/dsh-evolution-benchmark':
+        specifier: workspace:^
+        version: link:../../evolution/evolution-benchmark
+      '@deepseek-ai/dsh-evolution-feedback':
+        specifier: workspace:^
+        version: link:../../evolution/evolution-feedback
+      '@deepseek-ai/dsh-evolution-graph':
+        specifier: workspace:^
+        version: link:../../evolution/evolution-graph
       '@deepseek-ai/dsh-evolution-memory':
         specifier: workspace:^
         version: link:../../evolution/evolution-memory
+      '@deepseek-ai/dsh-evolution-skill-telemetry':
+        specifier: workspace:^
+        version: link:../../skill/evolution-skill-telemetry
       '@deepseek-ai/dsh-fs':
         specifier: workspace:^
         version: link:../../fs/fs

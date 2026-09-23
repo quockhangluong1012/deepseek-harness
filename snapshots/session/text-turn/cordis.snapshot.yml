@@ -11,6 +11,16 @@
 - id: session-title-llm
   disabled: true
 
+# The shipped base composition swaps `tool-bash` and `tool-pwsh` by platform,
+# so a header recorded with one would be unreplayable on the other. Replay pins
+# the posix pair on every host; a scenario that must run a shell is declared
+# `platform: posix` and skipped where no posix shell exists.
+- id: tool-bash
+  disabled: false
+
+- id: tool-pwsh
+  disabled: true
+
 - id: session-persistence-jsonl
   name: '@deepseek-ai/dsh-session-persistence-jsonl'
   config:

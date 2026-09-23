@@ -337,12 +337,38 @@ async function fixtureFiles(scenario: CorpusScenario): Promise<string[]> {
   }))
 }
 
+/** Replace every `{{cwd}}` token in one decoded fixture value. */
+function replaceCwdTokens(value: unknown, cwd: string): unknown {
+  if (typeof value === 'string') return value.replaceAll('{{cwd}}', cwd)
+  if (Array.isArray(value)) return value.map(item => replaceCwdTokens(item, cwd))
+  if (value !== null && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, replaceCwdTokens(item, cwd)]))
+  }
+  return value
+}
+
+/**
+ * Rewrite one fixture copy with `{{cwd}}` materialized. The token stands inside
+ * JSON strings — including JSON-encoded tool arguments the replay feeds to the
+ * live tools — so it is replaced on decoded values: substituting into the JSON
+ * text would splice a raw path into the encoding, and every Windows path
+ * contains backslashes that then parse as invalid escapes.
+ * @param content - the authored fixture text, tokens intact.
+ * @param cwd - the run's generated workspace.
+ * @returns the same JSONL with every token replaced by `cwd`.
+ */
+function hydrateReplayFixture(content: string, cwd: string): string {
+  return content.split('\n').map(line => line.trim() === ''
+    ? line
+    : JSON.stringify(replaceCwdTokens(JSON.parse(line) as JsonObject, cwd))).join('\n')
+}
+
 async function hydrateReplayFixtures(scenario: CorpusScenario, cwd: string): Promise<string[]> {
   const root = join(cwd, '.replay-fixtures')
   await mkdir(root, { recursive: true })
   return Promise.all((await fixtureFiles(scenario)).map(async (source) => {
     const destination = join(root, basename(source))
-    await writeFile(destination, (await readFile(source, 'utf8')).replaceAll('{{cwd}}', cwd))
+    await writeFile(destination, hydrateReplayFixture(await readFile(source, 'utf8'), cwd))
     return destination
   }))
 }

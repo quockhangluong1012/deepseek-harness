@@ -30,6 +30,7 @@ interface PackageTarget {
 interface PackageManifest {
   name?: string
   files?: unknown
+  exports?: Record<string, unknown>
 }
 
 type PublintResult =
@@ -122,6 +123,16 @@ interface RelativeImport {
   line: number
 }
 
+/**
+ * The tsc-emitted client subtree of a package publishing its emit tree. The
+ * client build compiles each plugin's CSS into `lib/client.js` (lightningcss
+ * inside the bundle, see `packages/client/tsdown.client.ts`), so these modules
+ * are that bundle's inputs; no export subpath reaches them, and no consumer
+ * resolves the sheets they import. Statically linked client libraries are
+ * unaffected: their sheets ship beside the emitted JavaScript.
+ */
+const EMITTED_CLIENT_MODULE = /(?:^|\/)lib\/types\/client\//
+
 /** Return relative imports whose targets are absent from the publication view. */
 function publicationClosureViolations(target: PackageTarget, files: readonly PackFile[]): string[] {
   const published = new Set(files.map(file => file.name))
@@ -131,6 +142,7 @@ function publicationClosureViolations(target: PackageTarget, files: readonly Pac
     const bytes = file.data instanceof ArrayBuffer ? new Uint8Array(file.data) : file.data
     const source = typeof bytes === 'string' ? bytes : Buffer.from(bytes).toString('utf8')
     for (const imported of relativeImports(file.name, source)) {
+      if (imported.specifier.endsWith('.css') && EMITTED_CLIENT_MODULE.test(file.name)) continue
       const resolved = posix.normalize(posix.join(posix.dirname(file.name), imported.specifier))
       if (resolutionCandidates(resolved).some(candidate => published.has(candidate))) continue
       violations.push(
@@ -193,6 +205,25 @@ function isBrowserBundleFormatFalsePositive(message: Message): boolean {
     || /(^|\/)\.\/(client|worker)$/.test(exportKey)
 }
 
+/**
+ * The source-plane export every package declares for workspace resolution:
+ * `exports["./src/*"]` is the identity mapping `./src/*`, while `files`
+ * deliberately ships the built `lib/` tree only. Workspace consumers resolve
+ * the subpath against the real package directory, where `src` exists; the
+ * published tarball has no `src` to match, which is why publint's glob finds
+ * nothing. That verdict is an allowance rather than a defect: a package that
+ * genuinely publishes sources keeps it, because the mapping must be the
+ * identity one and `files` must be what makes the glob match.
+ */
+function isSourcePlaneExportAllowance(message: Message, manifest: PackageManifest): boolean {
+  return message.code === 'EXPORTS_GLOB_NO_MATCHED_FILES'
+    && Array.isArray(message.path)
+    && message.path.length === 2
+    && message.path[0] === 'exports'
+    && message.path[1] === './src/*'
+    && manifest.exports?.['./src/*'] === './src/*'
+}
+
 async function runPublint(target: PackageTarget): Promise<PublintResult> {
   try {
     const files = publicationFiles(target)
@@ -202,7 +233,9 @@ async function runPublint(target: PackageTarget): Promise<PublintResult> {
       pack: { files },
     })
     const manifest = result.pkg as Record<string, unknown>
-    const messages = result.messages.filter(message => !isBrowserBundleFormatFalsePositive(message))
+    const messages = result.messages.filter(message =>
+      !isBrowserBundleFormatFalsePositive(message)
+      && !isSourcePlaneExportAllowance(message, target.manifest))
     return messages.some(message => message.type === 'error') || closureViolations.length > 0
       ? { path: target.path, status: 'failed', messages, closureViolations, manifest }
       : { path: target.path, status: 'passed', messages, closureViolations, manifest }

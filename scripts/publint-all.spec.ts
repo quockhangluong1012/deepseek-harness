@@ -25,6 +25,7 @@ function fixture(options: {
   exportPath?: string
   indexSource?: string
   files?: Record<string, string>
+  exports?: Record<string, unknown>
 } = {}): string {
   const root = mkdtempSync(join(tmpdir(), 'dsh-publint-all-'))
   roots.push(root)
@@ -38,7 +39,7 @@ function fixture(options: {
     engines: { node: '>=22.19' },
     sideEffects: false,
     files: ['lib'],
-    exports: { '.': { default: options.exportPath ?? './lib/index.js' } },
+    exports: { '.': { default: options.exportPath ?? './lib/index.js' }, ...options.exports },
   }, null, 2)}\n`)
   writeFileSync(join(packageDir, 'README.md'), '# Probe\n')
   writeFileSync(join(packageDir, 'lib/index.js'), options.indexSource ?? 'export const probe = true\n')
@@ -163,5 +164,27 @@ describe('publint package runner', () => {
     expect(result.exitCode).toBe(1)
     expect(result.stderr).toContain('imports "./missing.js"')
     expect(result.stderr).toContain('imports "./missing.css"')
+  })
+
+  it('allows the identity source-plane export a package withholds from publication', async ({ signal }) => {
+    const result = await run(fixture({ exports: { './src/*': './src/*' } }), signal)
+    expect(result.exitCode, result.stderr).toBe(0)
+    expect(result.stdout).not.toContain('does not match any files')
+  })
+
+  it('still reports a source-plane glob that maps onto no published path', async ({ signal }) => {
+    const result = await run(fixture({ exports: { './src/*': './lib/src/*' } }), signal)
+    expect(result.exitCode, result.stderr).toBe(0)
+    expect(result.stdout).toContain('does not match any files')
+  })
+
+  it('allows a stylesheet imported by the emitted client subtree', async ({ signal }) => {
+    const result = await run(fixture({
+      files: {
+        'lib/types/client/Page.js': "import css from './Page.module.css'\nexport const page = css\n",
+      },
+    }), signal)
+    expect(result.exitCode, result.stderr).toBe(0)
+    expect(result.stderr).not.toContain('Page.module.css')
   })
 })
