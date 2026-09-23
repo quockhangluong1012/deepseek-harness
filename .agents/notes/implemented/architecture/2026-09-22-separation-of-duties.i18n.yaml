@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-22-separation-of-duties.md
-2026-09-22-separation-of-duties.md: 8026ec6597ff1f925f10cbc9cd0396fb980b8f5b
-2026-09-22-separation-of-duties.zh.md: d327fc4cd1e49ecb6d89d7293d36648e7fd22891
+2026-09-22-separation-of-duties.md: a4412a61e0499bf0a49109f26d1bde81ea6cec2c
+2026-09-22-separation-of-duties.zh.md: b8d0ac425c23c4e43b6ef4267c8fa340eecffc53

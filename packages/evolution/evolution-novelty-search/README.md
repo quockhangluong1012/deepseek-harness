@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-evolution-novelty-search` keeps a cross-run per-skill archive of behavior descriptors — one entry per staged optimizer write — and measures every new descriptor's novelty against everything the skill has seen before. Novelty is one minus the maximum Jaccard similarity to any archived entry: a candidate that restates known instructions is not novel, one carrying new material is. The optimizer records every staged write through the optional store seam, and the host command `command-evolution` inspects the archive through `/novelty`. Nothing here calls a model.
+`dsh-evolution-novelty-search` keeps a cross-run per-skill archive of behavior descriptors — one entry per staged optimizer write — and measures every new descriptor's novelty against everything the skill has seen before. Novelty is one minus the maximum Jaccard similarity to any archived entry: a candidate that restates known instructions is not novel, one carrying new material is. The optimizer records every staged write through the optional store seam and ranks each run's candidates against the archive, and the host command `command-evolution` inspects the archive through `/novelty`. Nothing here calls a model.
 
 ## Table of Contents
 
@@ -25,7 +25,7 @@ English | [中文](README.zh.md)
 <a id="use-this-package"></a>
 ## Use this package
 
-Mount the plugin with the storage domain. Descriptors arrive from the optimizer's staged writes whenever the store is mounted; operators read the archive and its novelty pressure.
+Mount the plugin with the storage domain. Descriptors arrive from the optimizer's staged writes whenever the store is mounted; the optimizer also reads them back — one `entries(skill)` snapshot per run — to rank its candidates by distance from the archive, and operators read the archive and its novelty pressure.
 
 ```ts
 await ctx.evolutionNovelty.record({
@@ -55,7 +55,7 @@ None — the store takes no deployment choices.
 
 Measurement is pure. `similarity` is Jaccard similarity between two feature sets (zero for two empty sets). `archiveNovelty` is one minus the maximum similarity of a descriptor to any archived entry: zero for a descriptor with no features (nothing to be novel about), one for the seed entry of an empty archive. `noveltyMean` averages recorded novelties and reports zero for an empty archive. The store is a per-entry domain: `evolution_novelty` version 1 with one `archive` table keyed by candidate identity, holding `{ candidateId, skill, features, novelty, at }`.
 
-The optimizer keeps its own per-baseline novelty (`noveltyOf`) for generation-time selection and blends novelty into survivor selection already; this package contributes the durable archive-novelty signal — difference against the skill's whole history, not just one reference body.
+The optimizer keeps its own per-baseline novelty (`noveltyOf`) for generation-time comparison and shares the tie-break with this archive: it takes one snapshot of `entries(skill)` per run and measures every candidate's descriptor against it with `archiveNovelty`, so a candidate that only restates archived bodies loses a tie it would otherwise have taken on body novelty or mutation order. This package contributes the durable archive-novelty signal — difference against the skill's whole history, not just one reference body — and owns the measurement; which axes rank a candidate, and in what order, stays the optimizer's decision.
 
 ### Failure and recovery
 
@@ -102,6 +102,6 @@ These limits define when the store is a poor fit. They are current package const
 <details>
 <summary>Working context for maintainers — click to expand</summary>
 
-The optimizer records through the optional store so a deployment without the novelty package sees zero behavior change; the failing-store path logs a warning rather than failing an optimization. Re-recording exclusion keeps the archive idempotent for the same candidate identity.
+The optimizer records through the optional store, and reads it only through that seam, so a run with the store unmounted sees zero behavior change from the archive; a failing write or read logs a warning rather than failing an optimization. Re-recording exclusion keeps the archive idempotent for the same candidate identity.
 
 </details>

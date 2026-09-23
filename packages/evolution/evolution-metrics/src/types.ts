@@ -7,6 +7,7 @@
 
 /** One reported metric: the spec's north star, its supporting set, and the substrate facts. */
 export type MetricId =
+  | 'capability-gain-per-cost-unit'
   | 'capability-gain-per-million-tokens'
   | 'capability-gain-per-compute-hour'
   | 'learning-velocity'
@@ -22,6 +23,7 @@ export type MetricId =
 
 /** How to read a metric's number. */
 export type MetricUnit =
+  | 'gain-per-cost-unit'
   | 'gain-per-million-tokens'
   | 'gain-per-compute-hour'
   | 'gain-per-day'

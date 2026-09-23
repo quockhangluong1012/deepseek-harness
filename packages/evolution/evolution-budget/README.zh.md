@@ -57,6 +57,7 @@ const rounds = halvingRounds(100, 0.5, 3)
 | `baseMaxTokens` | `20000` | 一个标准批次的基准 token 上限。 |
 | `baseMaxWallTimeMs` | `600000` | 一个批次支出加总所对照的墙钟时间基准上限。 |
 | `baseMaxCost` | `10` | 基准成本上限，单位为部署自己的成本单位。 |
+| `pricePerMillionTokens` | *未设置* | 一百万 token 的价格，单位为部署自己的成本单位。设置后，未声明成本的每次花费都按 token 计费；未设置时，成本维度保持未计量。 |
 | `baseTimeLimitMs` | `86400000` | 一个标准批次的基准截止期，自其分配时刻起算。 |
 | `baseParallelism` | `4` | 一个标准批次的基准并发上限。 |
 | `keepFraction` | `0.5` | 每轮筛选保留的被评估候选占比。 |

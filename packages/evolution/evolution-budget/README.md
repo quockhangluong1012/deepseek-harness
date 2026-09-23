@@ -57,6 +57,7 @@ The store's deployed ceilings, policy bars, and screening schedule, validated wi
 | `baseMaxTokens` | `20000` | Base token ceiling of one standard batch. |
 | `baseMaxWallTimeMs` | `600000` | Base ceiling on the wall time a batch's spends sum to. |
 | `baseMaxCost` | `10` | Base cost ceiling, in the deployment's cost units. |
+| `pricePerMillionTokens` | *unset* | Price of one million tokens in the deployment's cost units. Configured, every spend that states no cost is billed from its tokens; unset, the cost dimension stays unmeasured. |
 | `baseTimeLimitMs` | `86400000` | Base deadline of one standard batch, measured from its allocation instant. |
 | `baseParallelism` | `4` | Base concurrency ceiling of one standard batch. |
 | `keepFraction` | `0.5` | Share of evaluated candidates each screening round keeps. |

@@ -15,7 +15,7 @@ Status: implemented
 1. **职责记录在已经拥有角色拓扑的那个存储上，且这些角色不获得任何人设。** `evolution-model-routes` 的域增加第三张表 `duties`，以运行+角色为键，存放 `{ runId, role, identity, at }`；`recordDuty({ runId, role, identity })` 写入一次填充，并替换同一次运行中被重复记录的角色；`duties(runId)` 按 §28 拓扑顺序列出该次运行的全部填充。五个角色就是 `EVOLUTION_ROLES` 已经给出的那些；不定义任何代理人格，也不调用任何模型。
 2. **规则是纯函数，且正是 §53 所述的那条。** `separationOfDuties(duties, runId, decision)`（`src/duties.ts`）解析 `SEPARATED_DUTIES` 指派给该决策的角色对——`promotion` 把候选生成与晋升审查配对，`verdict` 把候选生成与评估配对——读取两个已记录身份，返回 `{ allowed: true }` 或一条拒绝。`same-identity` 携带该身份与两个角色：`identity 'agent-a' filled both candidate-generation and promotion-review for run 'run-1'`。`unknown-identity` 点名没有记录的角色。该规则把职责作为参数，因此 §53 的策略是单元测试的对象而不是宿主夹具。
 3. **未记录的角色失败即关闭。** 缺失的行与空身份都被读作未记录，并以 `unknown-identity` 拒绝，因为该规则回答的问题是「是否已证明两个身份不同」，而缺失什么也证明不了。`judgeIndependence` 把同样的空值读向另一边——空的评判模型不是自我评判的判定——这正是注释一个已记录判定与拒绝一个决定之间的区别。
-4. **拒绝是存储自己的检查，并被明确记录为未强制。** `checkDuties(runId, decision)` 就是该规则作用在存储自己的行上。本仓库没有任何晋升路径查询它：做出晋升决定的两条路径是 `dsh-command-evolution` 的 `/canary promote <id>` 与执行器的发布监视器（`canary.advance(id, 'promoted')`），两者都不记录任一角色的身份。本包不去假装把守一条自己并不拥有的路径，而是在 README 的限制中写明这条拒绝目前没有调用方。
+4. **拒绝是存储自己的检查，且晋升路径已强制它。** `checkDuties(runId, decision)` 就是该规则作用在存储自己的行上。`dsh-command-evolution` 的 `/canary promote <id>` 在推进之前查询它：该命令把发起会话记录为 `promotion-review`，`/curator optimize` 把提出候选的会话按暂存写入的身份记录为 `candidate-generation`，两次填写为同一会话（或提出者未记录）的晋升会被拒绝，并把理由呈现给运维者。执行器的发布监视器（`canary.advance(id, 'promoted')`）仍不记录身份——心跳回路没有可指名的会话——因此那条路径改由 §49 的 `auto-promote` 风险路由管辖。
 5. **职责键是路径安全且单射的。** `dutyKey(runId, role)` 用 `_` 连接两者，而任何角色字面量都不含 `_`，因此没有两组 (run, role) 会碰撞，且该键满足按记录布局的 `[a-zA-Z0-9_-]+` 键规则。既有的 `routeKey` 用 `\0` 连接 provider/model，并不满足它——见「途中发现的修复」。
 6. **域保持版本 1。** 在按记录域的既有单元中，新增的表读作空表，且没有任何版本 1 记录改变形状，因此新增表不需要 `compatibleVersions` 条目。
 7. **此处没有任何东西进入模型提示词，因此没有新的会话事件。** 身份就是调用者记录的内容；存储不观测任何会话、代理或运维者，也不调用任何模型。
@@ -34,7 +34,7 @@ Status: implemented
 
 - `evolution_model_routes` 现在在 `routes` 与 `evidence` 之外持有 `duties` 表；重启会通过同一份 zod 规范把填充读回来，每次填充都是一次持久写入，没有读-改-写窗口。
 - `checkDuties` 返回裁决而不是抛出：做出决定的调用者负责呈现该拒绝，而 `same-identity` 的理由就是为让运维者读到的那个句子而写。
-- 在一条既知道谁提案又知道谁审查的晋升路径调用它之前，这条拒绝只是建议性的。在此之前，§58.12 的「只记录不强制」边界对这套机制同样成立；而从不调用 `recordDuty` 的部署对每一次运行都会得到 `unknown-identity`，而不是被猜测的裁决。
+- 拒绝在运维者晋升路径上已强制执行，在执行器的发布监视器上仍只是建议性的——后者没有可指名为评判身份的会话。因此 §58.12 的「只记录不强制」边界只对那条路径成立；而从不调用 `recordDuty` 的部署对每一次运行都会得到 `unknown-identity`，而不是被猜测的裁决。
 - 职责键的角色一半按构造即路径安全；运行 id 仍需路径安全，按记录的 JSON 布局会在写入时响亮拒绝不安全的 id，而不是丢弃该记录。
 - `verdict` 为 §53 的评估那一半做好了记录与检查，而无需改动 `evolution-evaluator-strategy`——它保留对已记录判定的模型级 `judgeIndependence` 读数。
 

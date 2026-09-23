@@ -14,7 +14,11 @@
  * and the instant of the same run; the router's outcomes hold the same triple
  * for the same write and the budget's spends hold a superset of it, so a
  * report never adds two of the three — the search's extra cost is reported as
- * its own ratio instead.
+ * its own ratio instead. The billed-cost denominator is the window's own runs
+ * again, read from the budget's spend record of the batch each run was
+ * recorded under, so the dollar side covers the same runs as the numerator
+ * and a window whose runs are not all priced reports unmeasurable rather than
+ * a partial bill.
  * @module @deepseek-ai/dsh-evolution-metrics
  */
 
@@ -126,9 +130,10 @@ export class EvolutionMetrics extends Service {
 
   /**
    * Measure the §55 metric set over one window of recorded engine runs. The
-   * north star is reported per compute denominator; every supporting metric
-   * is either measured from the store that owns it or reported unmeasurable
-   * with the missing record named. Reads only.
+   * north star is reported per compute denominator — billed cost, tokens, and
+   * compute hours — and every supporting metric is either measured from the
+   * store that owns it or reported unmeasurable with the missing record named.
+   * Reads only.
    * @param query - which runs the window covers; omitted fields take defaults.
    * @returns the window, the north star per denominator, and the supporting set.
    */
@@ -159,10 +164,13 @@ export class EvolutionMetrics extends Service {
         + ` ${this.resolved.minimumRunsPerHalf} runs are needed on each side of the split`
     const tokens = series.reduce((sum, run) => sum + run.tokens, 0)
     const wallTimeMs = series.reduce((sum, run) => sum + run.wallTimeMs, 0)
+    // One read of the budget's spend table serves both the billed-cost
+    // denominator and the search-overhead ratio.
+    const spends: readonly SpendRecord[] | undefined = this.ctx.get('evolutionBudget')?.spends()
     return {
       window,
-      northStar: this.northStar(gain, gap, tokens, wallTimeMs),
-      supporting: this.supporting(window, gain, gap, tokens),
+      northStar: this.northStar(gain, gap, series, tokens, wallTimeMs, spends),
+      supporting: this.supporting(window, gain, gap, tokens, spends),
     }
   }
 
@@ -187,17 +195,30 @@ export class EvolutionMetrics extends Service {
     return (since === undefined || at >= since) && (until === undefined || at <= until)
   }
 
-  /** Capability gain per unit of compute, one entry per recorded denominator. */
+  /**
+   * Capability gain per unit of compute, one entry per recorded denominator.
+   * @param gain - the window's pass-rate gain, or undefined when it is not evidenced.
+   * @param gap - why the gain is missing, repeated by the token and hour entries.
+   * @param runs - the window's runs, oldest first.
+   * @param tokens - tokens the window's runs recorded.
+   * @param wallTimeMs - wall time the window's runs recorded, in milliseconds.
+   * @param spends - the budget's spend records, or undefined when the store is not mounted.
+   * @returns the per-cost-unit reading first, then the token and compute-hour ones.
+   */
   private northStar(
     gain: number | undefined,
     gap: string,
+    runs: readonly EngineRun[],
     tokens: number,
     wallTimeMs: number,
+    spends: readonly SpendRecord[] | undefined,
   ): readonly MetricValue[] {
     const tokensUnit = 'gain-per-million-tokens' as const
     const timeUnit = 'gain-per-compute-hour' as const
+    const perCost = this.gainPerCostUnit(gain, gap, runs, spends)
     if (gain === undefined) {
       return [
+        perCost,
         unavailable('capability-gain-per-million-tokens', tokensUnit, [RUN_INPUT], gap),
         unavailable('capability-gain-per-compute-hour', timeUnit, [RUN_INPUT], gap),
       ]
@@ -205,6 +226,7 @@ export class EvolutionMetrics extends Service {
     const perTokens = gainPerMillionTokens(gain, tokens)
     const perHour = gainPerComputeHour(gain, wallTimeMs)
     return [
+      perCost,
       perTokens === undefined
         ? unavailable('capability-gain-per-million-tokens', tokensUnit, [RUN_INPUT], 'the window spent no tokens')
         : metric(
@@ -228,32 +250,118 @@ export class EvolutionMetrics extends Service {
     ]
   }
 
+  /**
+   * The north star's billed-cost denominator: the same window's runs divided
+   * by the cost their own batches recorded. A run is recorded under the batch
+   * identity its producer spends against, so the cost of a run is the spend of
+   * that batch. Partial billing is not a measurement, so the reading is
+   * unmeasurable unless every run of the window recorded a spend and every
+   * spend of it carries a cost, naming the run or spend that left the bill
+   * open rather than reporting a denominator that is smaller than the compute
+   * it stands for.
+   * @param gain - the window's pass-rate gain, or undefined when it is not evidenced.
+   * @param gap - why the gain is missing.
+   * @param runs - the window's runs, whose batch identity each spend is matched against.
+   * @param spends - the budget's spend records, or undefined when the store is not mounted.
+   * @returns the gain per cost unit, or the reading naming the bill it cannot read.
+   */
+  private gainPerCostUnit(
+    gain: number | undefined,
+    gap: string,
+    runs: readonly EngineRun[],
+    spends: readonly SpendRecord[] | undefined,
+  ): MetricValue {
+    const id = 'capability-gain-per-cost-unit' as const
+    const unit = 'gain-per-cost-unit' as const
+    const inputs = [
+      'ctx.evolutionMeta.runs(): EngineRun.runId',
+      'ctx.evolutionBudget.spends(): SpendRecord.batchId / cost',
+    ]
+    if (gain === undefined) return unavailable(id, unit, inputs, gap)
+    if (spends === undefined) {
+      return unavailable(id, unit, inputs, 'the evolution budget store that bills a run is not mounted')
+    }
+    const byBatch = new Map<string, SpendRecord[]>()
+    for (const spend of spends) {
+      const rows = byBatch.get(spend.batchId)
+      if (rows === undefined) byBatch.set(spend.batchId, [spend])
+      else rows.push(spend)
+    }
+    let billed = 0
+    for (const run of runs) {
+      const rows = byBatch.get(run.runId)
+      if (rows === undefined) {
+        return unavailable(
+          id,
+          unit,
+          inputs,
+          `the run '${run.runId}' recorded no spend on its own batch, so the cost of the compute that produced`
+          + ' the window\'s gain is not recorded; the engine-run producer records the run, and the batch spend'
+          + ' that bills it is a separate write',
+        )
+      }
+      for (const row of rows) {
+        if (row.cost === undefined) {
+          return unavailable(
+            id,
+            unit,
+            inputs,
+            `the spend of the run '${run.runId}' carries no billed cost: \`evolutionBudget.spend\` takes an optional`
+            + ' `cost` and no caller sets one, so the deployment\'s cost dimension is unrecorded for every run',
+          )
+        }
+        billed += row.cost
+      }
+    }
+    const perCost = ratio(gain, billed)
+    return perCost === undefined
+      ? unavailable(id, unit, inputs, 'the window\'s runs recorded no billed cost')
+      : metric(
+        id,
+        perCost,
+        unit,
+        inputs,
+        'the unit is the deployment\'s own cost unit, not dollars unless it bills in dollars; the numerator is the'
+        + ' run window\'s pass-rate delta, so it carries the promoted-path caveat of the other denominators',
+      )
+  }
+
   /** The supporting metrics, each measured from its own store or naming the gap. */
   private supporting(
     window: MetricsWindow,
     gain: number | undefined,
     gap: string,
     tokens: number,
+    spends: readonly SpendRecord[] | undefined,
   ): readonly MetricValue[] {
     return [
       this.learningVelocity(window, gain, gap),
-      this.computeOverhead(window, tokens),
+      this.computeOverhead(window, tokens, spends),
       this.failureRecurrence(),
       unavailable(
         'skill-incremental-utility',
         'share',
-        ['ctx.evolutionSkillTelemetry.entries()', 'ctx.evolutionCanary.deployments()', 'ctx.evolutionLineage.experiments()'],
+        [
+          'ctx.evolutionSkillTelemetry.entries()',
+          'ctx.evolutionCanary.deployments()',
+          'ctx.evolutionLineage.experiments()',
+          'ctx.evolutionScorer.evaluateBehavior({ baseline, candidate }): SkillScore.scores per scenario',
+        ],
         'no store pairs a skill-using run with a run that used no skill: telemetry counts loads per skill,'
-        + ' a canary triple measures the winner against nothing, and the optimizer\'s baseline-versus-winner pair'
-        + ' is an ablation of the same skill, not a no-skill control',
+        + ' a canary triple measures the winner against nothing, and the scorer\'s baseline-versus-candidate replay'
+        + ' is an ablation of the same skill, not a no-skill control — both arms run the scenario with the skill'
+        + ' loaded, so the incremental reading needs a producer that scores one scenario with the skill absent from'
+        + ' the composition and records it beside the skill-using run of that scenario',
       ),
       this.memoryUtility(),
       unavailable(
         'benchmark-robustness',
         'share',
-        ['ctx.evolutionBenchmark.tasks()'],
-        'no record scores a benchmark task: BenchmarkTask carries a ladder state but no outcome field, and nothing'
-        + ' durable separates a holdout pass from a search pass',
+        ['ctx.evolutionBenchmark.tasks(): BenchmarkTask.state'],
+        'no record scores a benchmark task: the store carries a ladder state but no outcome field, and no caller runs'
+        + ' a task — the growth loop advances the ladder from the capability\'s recorded candidate exposure, which'
+        + ' binds no evaluation to a task identity, and an adversary probe is admitted as a task without being run.'
+        + ' A robustness share needs a producer that executes a task and records whether it passed',
       ),
       this.regressionDebt(),
       this.promotionQuality(),
@@ -285,21 +393,26 @@ export class EvolutionMetrics extends Service {
    * Compute the search spent over the compute the winning runs measured. The
    * two stores count different scopes, so this is the one place the layer
    * touches both and it never adds them.
+   * @param window - the run window the spend is aligned to.
+   * @param tokens - tokens the window's runs recorded.
+   * @param spends - the budget's spend records, or undefined when the store is not mounted.
    */
-  private computeOverhead(window: MetricsWindow, tokens: number): MetricValue {
+  private computeOverhead(
+    window: MetricsWindow,
+    tokens: number,
+    spends: readonly SpendRecord[] | undefined,
+  ): MetricValue {
     const id = 'compute-overhead-ratio' as const
     const unit = 'ratio' as const
     const inputs = ['ctx.evolutionBudget.spends(): SpendRecord.tokens', RUN_INPUT]
-    const budget = this.ctx.get('evolutionBudget')
-    if (budget === undefined) {
+    if (spends === undefined) {
       return unavailable(id, unit, inputs, 'the evolution budget store is not mounted')
     }
     const { from, to } = window
     if (from === null || to === null) {
       return unavailable(id, unit, inputs, 'the window holds no run to compare a spend against')
     }
-    const rows: readonly SpendRecord[] = budget.spends()
-    const spent = rows
+    const spent = spends
       .filter(row => this.inWindow(row.at, from, to))
       .reduce((sum, row) => sum + row.tokens, 0)
     const overhead = ratio(spent, tokens)

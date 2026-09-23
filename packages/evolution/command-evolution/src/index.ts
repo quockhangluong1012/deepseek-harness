@@ -76,7 +76,7 @@ import type {
   MigrationReason,
 } from '@deepseek-ai/dsh-evolution-islands'
 import { EVOLUTION_ROLES } from '@deepseek-ai/dsh-evolution-model-routes'
-import type { EvolutionRole, ModelRoute, RouteEvidence, RouteRow, RouteSummary } from '@deepseek-ai/dsh-evolution-model-routes'
+import type { DutyDecision, DutyInput, DutyRecord, DutyVerdict, EvolutionRole, ModelRoute, RouteEvidence, RouteRow, RouteSummary } from '@deepseek-ai/dsh-evolution-model-routes'
 import { nextStage } from '@deepseek-ai/dsh-evolution-canary'
 import type { DeploymentRecord, DeploymentState } from '@deepseek-ai/dsh-evolution-canary'
 import { settle } from '@deepseek-ai/dsh-evolution-budget'
@@ -1163,11 +1163,69 @@ async function executeRoutes(ctx: Context, invocation: CommandInvocation): Promi
 }
 
 /**
+ * The slice of `ctx.evolutionModelRoutes` §53's separation of duties needs: the
+ * role fills it records and the check it answers them with. Structural, so the
+ * check stays an optional seam: a deployment without the store promotes on the
+ * canary ladder's own rules.
+ */
+interface DutyStore {
+  recordDuty(input: DutyInput): Promise<DutyRecord>
+  checkDuties(runId: string, decision: DutyDecision): DutyVerdict
+}
+
+/**
+ * Record the identity that filled §53's candidate-generation role for one run
+ * — the staged write's proposer, which is the invocation's own session and the
+ * same string the staged entry carries as its `originSessionId`. A failed fill
+ * must not fail an optimization that already staged its patch, so it logs a
+ * warning: the role then reads as unrecorded, and a promotion over it is
+ * refused as unknown rather than judged on an identity that never landed.
+ * @param ctx - plugin context carrying the optional model-routes store.
+ * @param runId - the run the candidate belongs to.
+ * @param identity - the identity that proposed it.
+ */
+async function recordProposerDuty(ctx: Context, runId: string, identity: string): Promise<void> {
+  const store = ctx.get('evolutionModelRoutes') as DutyStore | undefined
+  if (store === undefined) return
+  try {
+    await store.recordDuty({ runId, role: 'candidate-generation', identity })
+  } catch (error) {
+    ctx.logger.warn(`command-evolution could not record the candidate-generation duty for '${runId}': ${String(error)}`)
+  }
+}
+
+/**
+ * §53's separation of duties over one promotion: record the reviewing identity
+ * and answer whether it differs from the identity that proposed the candidate.
+ * A fill that cannot be written refuses the promotion instead of falling
+ * through to an identity an earlier attempt left behind, and an unrecorded
+ * proposing role refuses as unknown — absence is never read as separation.
+ * @param ctx - plugin context carrying the optional model-routes store.
+ * @param id - the deployment being promoted, which is the run the pair belongs to.
+ * @param reviewer - the identity that invoked the promotion.
+ * @returns the refusal, which names the roles and the run, or null to proceed.
+ */
+async function promotionRefusal(ctx: Context, id: string, reviewer: string): Promise<string | null> {
+  const store = ctx.get('evolutionModelRoutes') as DutyStore | undefined
+  if (store === undefined) return null
+  try {
+    await store.recordDuty({ runId: id, role: 'promotion-review', identity: reviewer })
+  } catch (error) {
+    return `Promotion of '${id}' refused: the promotion-review identity could not be recorded (${String(error)})`
+  }
+  const verdict = store.checkDuties(id, 'promotion')
+  return verdict.allowed ? null : `Promotion of '${id}' refused: ${verdict.reason}`
+}
+
+/**
  * Execute `/canary [status [<skill>] | rollout <id> | promote <id> | reject
  * <id> | rollback <id>]`: list deployment states (optionally per skill), move
  * a shadow deployment to canary, promote a canary to promoted, or exit a
  * staged rollout to rejected or rolled-back. Deployment entry itself is
- * automatic: the optimizer records every staged write as shadow.
+ * automatic: the optimizer records every staged write as shadow. A promotion
+ * carries §53's separation of duties: the invocation's session is recorded as
+ * the reviewing identity and the promotion is refused when it is the identity
+ * that proposed the candidate.
  * @param ctx - plugin context carrying the optional canary store.
  * @param invocation - raw command input plus the invoking agent.
  * @returns the command result.
@@ -1190,6 +1248,10 @@ async function executeCanary(ctx: Context, invocation: CommandInvocation): Promi
           : verb === 'reject'
             ? 'rejected'
             : 'rolled-back'
+      if (to === 'promoted') {
+        const refusal = await promotionRefusal(ctx, id, String(invocation.agent.session.id))
+        if (refusal !== null) return { kind: 'error', text: refusal }
+      }
       const moved = await store.advance(id, to)
       return { kind: 'success', text: `Deployment '${moved.id.slice(0, 8)}' (${moved.skill}) moved to '${moved.state}'.` }
     }
@@ -2129,19 +2191,24 @@ async function executeCuratorOptimize(
   const membership = await resolveMembership(ctx, invocation.agent.session)
   if (membership === undefined) return { kind: 'error', text: 'This session is outside any workspace scope.' }
   const scope = EvolutionScopeId(profile, String(membership.id))
+  const proposer = String(invocation.agent.session.id)
   let report: OptimizeReport
   try {
     report = await optimizer.optimize({
       skill,
       scenarios,
       scopeId: scope,
-      originSessionId: String(invocation.agent.session.id),
+      originSessionId: proposer,
       signal: invocation.signal,
     })
   } catch (error) {
     return { kind: 'error', text: error instanceof Error ? error.message : String(error) }
   }
-  if (report.status === 'staged') {
+  if (report.status === 'staged' && report.stagedId !== null) {
+    // The staged patch is a candidate under §53: the session that proposed it
+    // is recorded against the run, so the promotion that reviews it can show
+    // its reviewer to be a different identity.
+    await recordProposerDuty(ctx, report.stagedId, proposer)
     const holdout = report.holdout === null
       ? ''
       : ` Holdout: ${String(report.holdout.winner.pass)} pass at ${report.holdout.winner.tokens} tokens vs baseline ${String(report.holdout.baseline.pass)} pass at ${report.holdout.baseline.tokens} tokens.`

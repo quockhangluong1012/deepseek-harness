@@ -6,12 +6,20 @@ import { describe, expect, it } from 'vitest'
 import { dominates, paretoFrontier, pickWinner, screenSurvivors } from '../src/pareto.ts'
 import type { EvaluatedVariant } from '../src/types.ts'
 
-function variant(index: number, pass: boolean, tokens: number, wallTimeMs: number, novelty = 0): EvaluatedVariant {
+function variant(
+  index: number,
+  pass: boolean,
+  tokens: number,
+  wallTimeMs: number,
+  novelty = 0,
+  archiveNovelty = 1,
+): EvaluatedVariant {
   return {
     index,
     body: `variant ${index}`,
     operator: 'rewrite',
     novelty,
+    archiveNovelty,
     score: { skill: 'writer', pass, tokens, wallTimeMs, scores: [] },
   }
 }
@@ -57,6 +65,15 @@ describe('screenSurvivors', () => {
     expect(screenSurvivors([variant(0, true, 5, 9, 0.4), variant(1, true, 6, 2, 0.9)], 1).map(member => member.index)).toEqual([0])
     expect(screenSurvivors([variant(0, true, 5, 5, 0.4), variant(1, true, 5, 5, 0.4)], 1).map(member => member.index)).toEqual([0])
   })
+
+  it('keeps the candidate further from the archive at equal cost and equal body novelty', () => {
+    const cut = screenSurvivors([variant(0, true, 5, 5, 0.4, 0.1), variant(1, true, 5, 5, 0.4, 0.9)], 1)
+    expect(cut.map(member => member.index)).toEqual([1])
+    // Above wall time, like body novelty: the screen keeps the candidate that
+    // explores new ground over the faster one that repeats the archive.
+    expect(screenSurvivors([variant(0, true, 5, 4, 0.4, 0.1), variant(1, true, 5, 9, 0.4, 0.9)], 1)
+      .map(member => member.index)).toEqual([1])
+  })
 })
 
 describe('pickWinner', () => {
@@ -87,6 +104,27 @@ describe('pickWinner', () => {
     const baseline = { pass: false, tokens: 4, wallTimeMs: 4 }
     const winner = pickWinner(baseline, [variant(0, false, 3, 3), variant(1, true, 9, 9)])
     expect(winner?.index).toBe(1)
+  })
+
+  it('breaks ties by archive novelty above body novelty', () => {
+    const baseline = { pass: true, tokens: 10, wallTimeMs: 10 }
+    // Same cost, opposite distance from the skill's archive: the far candidate
+    // is the one that explores what the skill has not already staged, even
+    // though its body restates more of this run's starting body.
+    expect(pickWinner(baseline, [variant(0, true, 5, 5, 0.5, 0.2), variant(1, true, 5, 5, 0.1, 0.8)])?.index).toBe(1)
+  })
+
+  it('never picks a candidate that does not beat the baseline, however far from the archive', () => {
+    const baseline = { pass: true, tokens: 5, wallTimeMs: 5 }
+    expect(pickWinner(baseline, [variant(0, true, 9, 9, 0.9, 1)])).toBeNull()
+  })
+
+  it('ranks as before when every candidate carries the empty-archive reading', () => {
+    const baseline = { pass: true, tokens: 10, wallTimeMs: 10 }
+    // Both read 1 — the value an empty archive gives every descriptor — so body
+    // novelty and then mutation order decide.
+    expect(pickWinner(baseline, [variant(0, true, 5, 5, 0.2, 1), variant(1, true, 5, 5, 0.2, 1)])?.index).toBe(0)
+    expect(pickWinner(baseline, [variant(0, true, 5, 5, 0.2, 1), variant(1, true, 5, 5, 0.9, 1)])?.index).toBe(1)
   })
 
   it('returns null when nothing dominates the baseline', () => {

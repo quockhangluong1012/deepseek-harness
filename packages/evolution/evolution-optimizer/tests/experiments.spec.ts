@@ -1,10 +1,19 @@
 /**
- * Ledger selection: which rows a scope keeps, which ones a read returns, and
- * how ties and limits resolve. Pure, so specs drive the arithmetic without a
- * storage backend.
+ * Ledger selection — which rows a scope keeps, which ones a read returns, and
+ * how ties and limits resolve — plus the durable row contract itself. Pure, so
+ * specs drive the arithmetic without a storage backend.
  */
 import { describe, expect, it } from 'vitest'
-import { describeOutcome, experimentKey, experimentPage, hasResult, repeatedExperiment, staleExperiments } from '../src/experiments.ts'
+import {
+  describeOutcome,
+  experimentKey,
+  experimentPage,
+  experimentRecordSchema,
+  hasResult,
+  optimizerDomainSpec,
+  repeatedExperiment,
+  staleExperiments,
+} from '../src/experiments.ts'
 import type { ExperimentRecord } from '../src/types.ts'
 
 function row(id: string, at: string, scope = 'profile:ws', skill = 'writer'): ExperimentRecord {
@@ -142,5 +151,19 @@ describe('staleExperiments', () => {
   it('breaks a same-instant tie by id when choosing what to drop', () => {
     const rows = [row('b', '2026-09-15T10:00:00.000Z'), row('a', '2026-09-15T10:00:00.000Z')]
     expect(staleExperiments(rows, 1).map(entry => entry.id)).toEqual(['a'])
+  })
+})
+
+describe('optimizerDomainSpec', () => {
+  it('keeps the ledger open across the version that added the archive-novelty field', () => {
+    expect(optimizerDomainSpec.version).toBe(2)
+    expect(optimizerDomainSpec.compatibleVersions).toEqual([1])
+    // A version-1 row predates the field; it must still parse, reading as never
+    // measured rather than failing the domain open. The fixture omits the field
+    // for that reason.
+    const versionOne = row('a', '2026-09-15T10:00:00.000Z')
+    const parsed = experimentRecordSchema.parse(versionOne)
+    expect(parsed.winnerArchiveNovelty).toBeNull()
+    expect(experimentRecordSchema.safeParse({ ...versionOne, winnerArchiveNovelty: 1.5 }).success).toBe(false)
   })
 })

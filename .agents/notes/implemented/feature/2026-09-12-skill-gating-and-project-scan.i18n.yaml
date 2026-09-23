@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-12-skill-gating-and-project-scan.md
 2026-09-12-skill-gating-and-project-scan.md: b603c57d19d7ae0415fb37cbe634f621622df0f2
-2026-09-12-skill-gating-and-project-scan.zh.md: 6d5c2f2fc28e82047e1ad9755fa53d0daa4a1d09
+2026-09-12-skill-gating-and-project-scan.zh.md: 1a95523b0d7617eec8b7d599ed61d44a0773ba14

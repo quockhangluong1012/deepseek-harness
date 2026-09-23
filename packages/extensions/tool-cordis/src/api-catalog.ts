@@ -1162,7 +1162,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'async spend(batchId: string, input: SpendInput): Promise<BudgetSettlement>',
-        description: 'Record one spend of a batch and settle it against the allocation across every recorded spend of the batch. The allocation must exist: a spend without a priced batch is a surprise, not budget use.',
+        description: 'Record one spend of a batch and settle it against the allocation across every recorded spend of the batch. The allocation must exist: a spend without a priced batch is a surprise, not budget use.\n\nA spend records the `cost` its caller states; with no stated cost and a configured `pricePerMillionTokens`, the spend is billed from its tokens instead. With neither, the batch\'s cost dimension stays unmeasured.',
         parameters: [{ name: 'batchId', description: 'the batch spending.' }, { name: 'input', description: 'the spend to record.' }],
         returns: 'the cumulative settlement of the batch.',
       },
@@ -1967,7 +1967,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     methods: [
       {
         signature: 'report(query: MetricsQuery = {}): MetricsReport',
-        description: 'Measure the §55 metric set over one window of recorded engine runs. The north star is reported per compute denominator; every supporting metric is either measured from the store that owns it or reported unmeasurable with the missing record named. Reads only.',
+        description: 'Measure the §55 metric set over one window of recorded engine runs. The north star is reported per compute denominator — billed cost, tokens, and compute hours — and every supporting metric is either measured from the store that owns it or reported unmeasurable with the missing record named. Reads only.',
         parameters: [{ name: 'query', description: 'which runs the window covers; omitted fields take defaults.' }],
         returns: 'the window, the north star per denominator, and the supporting set.',
       },
@@ -7453,7 +7453,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'MetricId',
-    declaration: 'export type MetricId = \'capability-gain-per-million-tokens\' | \'capability-gain-per-compute-hour\' | \'learning-velocity\' | \'compute-overhead-ratio\' | \'failure-recurrence\' | \'skill-incremental-utility\' | \'memory-utility\' | \'benchmark-robustness\' | \'regression-debt\' | \'promotion-quality\' | \'rollback-rate\' | \'evaluator-reliability\';',
+    declaration: 'export type MetricId = \'capability-gain-per-cost-unit\' | \'capability-gain-per-million-tokens\' | \'capability-gain-per-compute-hour\' | \'learning-velocity\' | \'compute-overhead-ratio\' | \'failure-recurrence\' | \'skill-incremental-utility\' | \'memory-utility\' | \'benchmark-robustness\' | \'regression-debt\' | \'promotion-quality\' | \'rollback-rate\' | \'evaluator-reliability\';',
   },
   {
     name: 'MetricsQuery',
@@ -7469,7 +7469,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'MetricUnit',
-    declaration: 'export type MetricUnit = \'gain-per-million-tokens\' | \'gain-per-compute-hour\' | \'gain-per-day\' | \'share\' | \'ratio\' | \'count\';',
+    declaration: 'export type MetricUnit = \'gain-per-cost-unit\' | \'gain-per-million-tokens\' | \'gain-per-compute-hour\' | \'gain-per-day\' | \'share\' | \'ratio\' | \'count\';',
   },
   {
     name: 'MetricValue',

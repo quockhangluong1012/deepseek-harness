@@ -59,6 +59,13 @@ export interface Config {
   baseMaxWallTimeMs?: number
   /** Base cost ceiling of one standard batch, in the deployment's cost units; defaults to 10. */
   baseMaxCost?: number
+  /**
+   * Price of one million tokens in the deployment's cost units, or absent when
+   * the deployment has no cost meter. Configured, it bills every spend that
+   * carries no explicit `cost`, which is what makes the cost ceiling and the
+   * metrics layer's cost-denominated reading measurable.
+   */
+  pricePerMillionTokens?: number
   /** Base deadline of one standard batch, in milliseconds from its allocation; defaults to 86400000. */
   baseTimeLimitMs?: number
   /** Base concurrency ceiling of one standard batch; defaults to 4. */
@@ -80,6 +87,8 @@ export interface ResolvedConfig {
   baseMaxTokens: number
   baseMaxWallTimeMs: number
   baseMaxCost: number
+  /** Price of one million tokens in cost units, or undefined when unpriced. */
+  pricePerMillionTokens: number | undefined
   baseTimeLimitMs: number
   baseParallelism: number
   keepFraction: number
@@ -99,6 +108,7 @@ export function resolveConfig(config: Config): ResolvedConfig {
     baseMaxTokens = 20000,
     baseMaxWallTimeMs = 600000,
     baseMaxCost = 10,
+    pricePerMillionTokens,
     baseTimeLimitMs = 86400000,
     baseParallelism = 4,
     keepFraction = 0.5,
@@ -111,6 +121,7 @@ export function resolveConfig(config: Config): ResolvedConfig {
     baseMaxTokens,
     baseMaxWallTimeMs,
     baseMaxCost,
+    pricePerMillionTokens,
     baseTimeLimitMs,
     baseParallelism,
     keepFraction,
@@ -141,6 +152,7 @@ export class EvolutionBudget extends Service {
     baseMaxTokens: z.number().int().min(0).default(20000),
     baseMaxWallTimeMs: z.number().int().min(0).default(600000),
     baseMaxCost: z.number().min(0).default(10),
+    pricePerMillionTokens: z.number().min(0).optional(),
     baseTimeLimitMs: z.number().int().min(0).default(86400000),
     baseParallelism: z.number().int().min(1).default(4),
     keepFraction: z.number().min(0).max(1).default(0.5),
@@ -211,6 +223,10 @@ export class EvolutionBudget extends Service {
    * Record one spend of a batch and settle it against the allocation across
    * every recorded spend of the batch. The allocation must exist: a spend
    * without a priced batch is a surprise, not budget use.
+   *
+   * A spend records the `cost` its caller states; with no stated cost and a
+   * configured `pricePerMillionTokens`, the spend is billed from its tokens
+   * instead. With neither, the batch's cost dimension stays unmeasured.
    * @param batchId - the batch spending.
    * @param input - the spend to record.
    * @returns the cumulative settlement of the batch.
@@ -220,7 +236,11 @@ export class EvolutionBudget extends Service {
     if (allocation === undefined) {
       throw new Error(`evolution-budget: unknown batch '${batchId}'`)
     }
-    const record: SpendRecord = { ...input, batchId, at: new Date().toISOString() }
+    const price = this.resolved.pricePerMillionTokens
+    const cost = input.cost ?? (price === undefined ? undefined : (input.tokens * price) / 1_000_000)
+    const record: SpendRecord = cost === undefined
+      ? { ...input, batchId, at: new Date().toISOString() }
+      : { ...input, cost, batchId, at: new Date().toISOString() }
     await this.requireSpends().put(`${record.batchId}\0${randomUUID()}`, record)
     return settle(structuredClone(allocation), this.spends(batchId))
   }

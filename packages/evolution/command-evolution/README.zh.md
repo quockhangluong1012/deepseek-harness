@@ -61,7 +61,7 @@ kind: "package-reference"
 | `/curator run` | 立即运行一次维护通过：报告移动、跳过计数与快照 id。 |
 | `/curator run --dry-run` | 同一通过只预览不写入；快照行显示 `Snapshot: none`。 |
 | `/curator staged` | 列出台账为复核而分选的技能，失败率最差在前，并附选择各项的证据与分选时刻。 |
-| `/curator optimize <skill> <scenario...>` | 在具名语料场景上运行一次离线优化，报告分选技能补丁 id 或未分选的原因。需要优化器已挂载且位于工作区作用域内。 |
+| `/curator optimize <skill> <scenario...>` | 在具名语料场景上运行一次离线优化，报告分选技能补丁 id 或未分选的原因。成功分选的运行还会把调用会话记录为该补丁在 §53 中的 `candidate-generation` 身份，因此之后晋升它需要另一个会话。需要优化器已挂载且位于工作区作用域内。 |
 | `/curator experiments [skill]` | 按最新优先打印该作用域的优化台账——时间、技能、结果、产出候选的算子、分选 id 及其产出算子、晋级行上的 `+added/-removed` 行数、置信度计数与原因——让第二次运行从已试过的东西出发。需要优化器已挂载且会话在某个工作区作用域内。 |
 | `/curator adopt <name>` | 把由模型写出的技能认领为用户主导，并报告 `Adopted '<name>' (state: <state>)`；无模型作者身份一律拒绝。 |
 | `/curator purge [--dry-run]` | 删除超过 TTL 的归档技能，并报告按目录或按记录的删除与因置顶而跳过者；`--dry-run` 只预览名单而不写入。 |
@@ -132,7 +132,7 @@ kind: "package-reference"
 | `/canary` | 汇总部署状态：`Canary: <n> shadow, <n> canary, <n> promoted, <n> rolled-back, <n> rejected.`，并至多列出十条 `- <id8> <skill>: <state>[ → next <stage>][ (<pass>, <tokens> tokens)]`；尚无部署时报告 `No deployments yet. The optimizer records staged writes as shadow.`。未挂载存储时报告 `The evolution canary store is not mounted.` |
 | `/canary status [<skill>]` | 同一部署列表收窄到单个技能；该技能无部署时报告 `No deployments for '<skill>'.` |
 | `/canary rollout <id>` | 把一个 shadow 部署移到 canary，并报告 `Deployment '<id8>' (<skill>) moved to '<state>'.` |
-| `/canary promote <id>` | 把一个 canary 部署提升为 promoted，报告同一条消息。 |
+| `/canary promote <id>` | 把一个 canary 部署提升为 promoted，报告同一条消息。§53 的职责分离把守这次晋升：调用会话被记录为审查身份，若晋升者就是提案该候选的身份——或该候选的提案身份从未被记录——则报告 `Promotion of '<id>' refused: <reason>`，部署留在原处。 |
 | `/canary reject <id>` | 让一次分阶段发布以 rejected 退出，报告同一条消息。 |
 | `/canary rollback <id>` | 让一次分阶段发布以 rolled-back 退出，报告同一条消息。 |
 | `/canary <anything-else>` | `Usage: /canary [status [<skill>] \| rollout <id> \| promote <id> \| reject <id> \| rollback <id>]` |
@@ -199,6 +199,8 @@ kind: "package-reference"
 | 未挂载遥测时 `/frontier` | `Skill telemetry is not mounted. The frontier needs the telemetry store.` |
 | 没有任何技能时 `/frontier` | `No measured capabilities yet.` |
 | 没有任何带 blueprint 的技能时 `/suggestions` | `No blueprint-backed skills. A skill appears here when its frontmatter declares a blueprint; this command never installs the schedule it names.` |
+| 由提案该补丁的身份发起晋升 | `Promotion of '<id>' refused: identity '<identity>' filled both candidate-generation and promotion-review for run '<id>'` —— 部署留在原处。 |
+| 晋升一个提案身份从未被记录的补丁 | `Promotion of '<id>' refused: run '<id>' records no candidate-generation identity, so candidate-generation and promotion-review cannot be shown to be separate identities` —— 部署留在原处。 |
 
 取消 `/refine` 即停止等待：注册表以中止原因结算调用，与 `/compact` 的取消约定一致。除上述预期情形外的失败会以错误形式呈现，而不会被静默转换。
 
@@ -218,7 +220,7 @@ kind: "package-reference"
     profile: default
 ```
 
-没有 `ctx.commands` 的界面无法调用它们；暂存写入转而等待已挂载的命令适配器或控制器。`/curator status` 是宿主级的，能从任何会话工作，包括不在任何 workspace 作用域内的会话；整理器、遥测、轨迹导出器、评审器与技能注册表都是通过 `ctx.get` 读取的可选服务，因此即使部署中没有它们，该命令依然可用，并给出诚实的简短回答。
+没有 `ctx.commands` 的界面无法调用它们；暂存写入转而等待已挂载的命令适配器或控制器。`/curator status` 是宿主级的，能从任何会话工作，包括不在任何 workspace 作用域内的会话；整理器、遥测、轨迹导出器、评审器、技能注册表与模型路由存储都是通过 `ctx.get` 读取的可选服务，因此即使部署中没有它们，该命令依然可用，并给出诚实的简短回答——而没有模型路由存储时，晋升不记录任何职责，§53 的拒绝也就无从施加。
 
 ### 对话会发生什么
 
@@ -303,6 +305,7 @@ kind: "package-reference"
 - **导出需要导出器**——组合中缺少轨迹导出器时 `/trajectory` 报告 `The evolution trajectory exporter is not mounted.`，文件布局由导出本身拥有。
 - **每次调用只治理一个作用域**——作用域命令只治理调用会话所在的作用域；没有跨作用域视图（只有 `/curator status` 与 `/suggestions` 是宿主级的）。
 - **仅限命令适配器**——没有 `ctx.commands` 的界面无法调用它们；暂存写入转而等待已挂载的适配器或 `evolutionController` Remote 命名空间。
+- **晋升需要已记录的提案者**——除非该候选的提案身份已在模型路由的职责表中，否则 `/canary promote` 拒绝执行，而只有 `/curator optimize` 会记录它。宿主直接调用 `ctx.evolutionOptimizer.optimize` 暂存的补丁没有提案填充，因此其晋升会以 `unknown-identity` 被拒绝，直到该身份被记录；模型路由存储也必须已挂载，因为没有它时晋升根本不记录职责。
 
 <a id="dev-note"></a>
 ### 开发备注

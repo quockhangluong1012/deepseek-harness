@@ -22,7 +22,8 @@ import type { CurriculumProposal } from '@deepseek-ai/dsh-evolution-curriculum'
 import type { BenchmarkInput, BenchmarkState, BenchmarkTask } from '@deepseek-ai/dsh-evolution-benchmark'
 import type { EvaluatorHealthSummary, EvaluatorRun } from '@deepseek-ai/dsh-evolution-evaluator-health'
 import type { PopulationCandidate, PopulationStatus } from '@deepseek-ai/dsh-evolution-population'
-import type { ModelRoute, RouteEvidence, RouteRow, RouteSummary } from '@deepseek-ai/dsh-evolution-model-routes'
+import { separationOfDuties } from '@deepseek-ai/dsh-evolution-model-routes'
+import type { DutyDecision, DutyRecord, ModelRoute, RouteEvidence, RouteRow, RouteSummary } from '@deepseek-ai/dsh-evolution-model-routes'
 import type { DeploymentRecord, DeploymentState } from '@deepseek-ai/dsh-evolution-canary'
 import type { NoveltyArchiveEntry } from '@deepseek-ai/dsh-evolution-novelty-search'
 import type { StagnationRun, StagnationStatus } from '@deepseek-ai/dsh-evolution-stagnation'
@@ -216,6 +217,10 @@ interface RoutesStub {
   recommend?: (role: string) => ModelRoute | undefined
   /** When set, `pin` rejects with this value. */
   pinError?: unknown
+  /** §53 role fills recorded through `recordDuty`, newest fill per run and role. */
+  duties: DutyRecord[]
+  /** When set, `recordDuty` rejects with this value. */
+  dutyError?: unknown
 }
 
 /** Canary state the `/canary` command reads, when provided. */
@@ -595,7 +600,7 @@ async function harness(
       },
     } as never)
   }
-  const routes: RoutesStub = { summaries: [], evidence: [], pins: [] }
+  const routes: RoutesStub = { summaries: [], evidence: [], pins: [], duties: [] }
   if (extra.routes === true) {
     ctx.provide('evolutionModelRoutes', {
       routes: (role?: string) => role === undefined
@@ -610,6 +615,17 @@ async function harness(
         return { role: role as RouteRow['role'], provider, model, origin: 'pinned', at: '2026-09-12T00:00:00.000Z' }
       },
       recommend: (role: string) => routes.recommend?.(role),
+      // §53's two calls over the same stub state, with the package's own rule
+      // answering the check so the stub records fills without restating policy.
+      recordDuty: async (input: { runId: string; role: DutyRecord['role']; identity: string }) => {
+        if (routes.dutyError !== undefined) throw routes.dutyError
+        const row: DutyRecord = { ...input, at: '2026-09-12T00:00:00.000Z' }
+        routes.duties = routes.duties.filter(duty => duty.runId !== input.runId || duty.role !== input.role)
+        routes.duties.push(row)
+        return row
+      },
+      checkDuties: (runId: string, decision: DutyDecision) =>
+        separationOfDuties(routes.duties.filter(duty => duty.runId === runId), runId, decision),
     } as never)
   }
   const canary: CanaryStub = { records: [], advances: [] }
@@ -3858,6 +3874,60 @@ describe('/canary human command', () => {
         kind: 'error',
         text: "evolution-canary: unknown deployment 'ghost'",
       })
+    } finally {
+      await shutdown(test)
+    }
+  })
+
+  it('refuses a promotion the proposing identity would also review', async () => {
+    const test = await harness(true, undefined, { canary: true, routes: true })
+    test.ctx.provide('evolutionOptimizer', {
+      optimize: async () => ({ status: 'staged', stagedId: 'aa-bb-cc', holdout: null }),
+    } as never)
+    try {
+      const proposer = sessionIn(test.ctx, test.dir, 'canary-proposer')
+      test.workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: test.dir, sessionIds: [proposer.id] })
+      // The optimization that stages the patch records the identity that
+      // proposed it, against the run the deployment shares its id with.
+      expect((await run(test, proposer, '/curator optimize writer s1')).result).toMatchObject({ kind: 'success' })
+      expect(test.routes.duties).toEqual([
+        { runId: 'aa-bb-cc', role: 'candidate-generation', identity: 'canary-proposer', at: '2026-09-12T00:00:00.000Z' },
+      ])
+      // One identity may not both propose a candidate and review its
+      // promotion: the refusal is the operator-visible sentence, the reviewing
+      // fill is recorded beside it, and the deployment never leaves `canary`.
+      expect((await run(test, proposer, '/canary promote aa-bb-cc')).result).toEqual({
+        kind: 'error',
+        text: "Promotion of 'aa-bb-cc' refused: identity 'canary-proposer' filled both candidate-generation and promotion-review for run 'aa-bb-cc'",
+      })
+      expect(test.canary.advances).toEqual([])
+      expect(test.routes.duties).toContainEqual({
+        runId: 'aa-bb-cc',
+        role: 'promotion-review',
+        identity: 'canary-proposer',
+        at: '2026-09-12T00:00:00.000Z',
+      })
+      // A distinct identity reviewing the same run promotes it.
+      const reviewer = sessionIn(test.ctx, test.dir, 'canary-reviewer')
+      expect((await run(test, reviewer, '/canary promote aa-bb-cc')).result).toEqual({
+        kind: 'success',
+        text: "Deployment 'aa-bb-cc' (writer) moved to 'promoted'.",
+      })
+      expect(test.canary.advances).toEqual([{ id: 'aa-bb-cc', to: 'promoted' }])
+      // A run whose proposing identity was never recorded is refused as
+      // unknown rather than read as separated.
+      expect((await run(test, reviewer, '/canary promote dd-ee-ff')).result).toEqual({
+        kind: 'error',
+        text: "Promotion of 'dd-ee-ff' refused: run 'dd-ee-ff' records no candidate-generation identity, so candidate-generation and promotion-review cannot be shown to be separate identities",
+      })
+      // A reviewing fill that cannot be written refuses too, rather than
+      // leaving the promotion to an identity an earlier attempt recorded.
+      test.routes.dutyError = new Error('duty store is down')
+      expect((await run(test, reviewer, '/canary promote ee-ff-00')).result).toEqual({
+        kind: 'error',
+        text: "Promotion of 'ee-ff-00' refused: the promotion-review identity could not be recorded (Error: duty store is down)",
+      })
+      expect(test.canary.advances).toEqual([{ id: 'aa-bb-cc', to: 'promoted' }])
     } finally {
       await shutdown(test)
     }

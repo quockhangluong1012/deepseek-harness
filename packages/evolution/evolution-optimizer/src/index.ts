@@ -2,9 +2,11 @@
  * Offline skill optimizer (`ctx.evolutionOptimizer`): gate one skill on its
  * recorded failure rate, mutate its SKILL.md body through the host LLM,
  * re-score baseline and variants under isolated DSH_HOME overlays, keep the
- * Pareto winner that beats the baseline, and stage it as a skill patch a
- * human approves. Nothing writes a skill directly: the staged entry waits in
- * the scope until `/skills approve` drops it after the human's own write.
+ * Pareto winner that beats the baseline — ranked by cost and then by distance
+ * from the skill's recorded novelty archive, so a candidate that only repeats
+ * archived bodies does not win a tie — and stage it as a skill patch a human
+ * approves. Nothing writes a skill directly: the staged entry waits in the
+ * scope until `/skills approve` drops it after the human's own write.
  * @module @deepseek-ai/dsh-evolution-optimizer
  */
 
@@ -20,7 +22,7 @@ import type { EvolutionScopeId } from '@deepseek-ai/dsh-evolution-memory'
 import type {} from '@deepseek-ai/dsh-evolution-population'
 import type {} from '@deepseek-ai/dsh-evolution-model-routes'
 import type {} from '@deepseek-ai/dsh-evolution-canary'
-import type {} from '@deepseek-ai/dsh-evolution-novelty-search'
+import { archiveNovelty, type NoveltyArchiveEntry } from '@deepseek-ai/dsh-evolution-novelty-search'
 import type {} from '@deepseek-ai/dsh-evolution-stagnation'
 import type {} from '@deepseek-ai/dsh-evolution-islands'
 import type {} from '@deepseek-ai/dsh-evolution-self-model'
@@ -390,6 +392,7 @@ export class EvolutionOptimizer extends Service {
       ...diffLineCounts(draft.body, draft.winner?.body ?? draft.body),
       winnerSha: draft.winner === null ? null : digestOf(draft.winner.body),
       winnerOperator: draft.winner?.operator ?? null,
+      winnerArchiveNovelty: draft.winnerArchiveNovelty,
     }
     try {
       const table = this.requireTable()
@@ -590,9 +593,17 @@ export class EvolutionOptimizer extends Service {
         }
       }
     }
-    const mutated: { body: string; operator: string; novelty: number }[] = []
+    const mutated: { body: string; operator: string; novelty: number; archiveNovelty: number }[] = []
     let unusable = 0
     const seen = new Set<string>([body])
+    // One snapshot of the skill's archive per run: every candidate is measured
+    // against the same recorded history, so their scores compare with each
+    // other. An empty archive — or none mounted — has nothing to be distant
+    // from, so every candidate reads one and the remaining axes, cost and body
+    // novelty and mutation order, decide the ranking.
+    const archive = this.archiveSnapshot(request.skill)
+    const archiveNoveltyOf = (candidate: string): number =>
+      archive.length === 0 ? 1 : archiveNovelty(descriptorOf(candidate), archive)
     for (const allocation of distributeCandidates(this.resolved.maxCandidates, strategy.portfolio)) {
       const framed = frameMutationInput(
         request.skill,
@@ -624,10 +635,16 @@ export class EvolutionOptimizer extends Service {
           continue
         }
         seen.add(candidate)
-        // Novelty is a property of the text, measured once here against the
-        // body the run started from, so the draft, the screen, and the report
-        // all read the same number.
-        mutated.push({ body: candidate, operator: allocation.operator.id, novelty: noveltyOf(candidate, body) })
+        // Both novelty readings are properties of the text, measured once here
+        // — one against the body the run started from, one against the skill's
+        // archive — so the draft, the screen, and the report read the same
+        // numbers.
+        mutated.push({
+          body: candidate,
+          operator: allocation.operator.id,
+          novelty: noveltyOf(candidate, body),
+          archiveNovelty: archiveNoveltyOf(candidate),
+        })
       }
     }
     if (mutated.length === 0) {
@@ -652,6 +669,7 @@ export class EvolutionOptimizer extends Service {
       scorerVersion: scorer.version,
       body,
       winner,
+      winnerArchiveNovelty: winner?.archiveNovelty ?? null,
       samples,
     })
     const deps = { scorer, skill: request.skill, scenarios: request.scenarios, agent, run }
@@ -670,12 +688,13 @@ export class EvolutionOptimizer extends Service {
     spend(baseline.score)
     samples = samplesOf(baseline.score)
     const screenCount = this.resolved.screenScenarioCount
-    let pool: readonly { index: number; body: string; operator: string; novelty: number }[] =
+    let pool: readonly { index: number; body: string; operator: string; novelty: number; archiveNovelty: number }[] =
       mutated.map((variant, index) => ({
         index,
         body: variant.body,
         operator: variant.operator,
         novelty: variant.novelty,
+        archiveNovelty: variant.archiveNovelty,
       }))
     // The screen runs every candidate on the same short subset, so a shared
     // budget cannot strand half of them on an incomparable scale.
@@ -695,6 +714,7 @@ export class EvolutionOptimizer extends Service {
           body: variant.body,
           operator: variant.operator,
           novelty: variant.novelty,
+          archiveNovelty: variant.archiveNovelty,
           score: scored.score,
         })
       }
@@ -720,6 +740,7 @@ export class EvolutionOptimizer extends Service {
         body: survivor.body,
         operator: survivor.operator,
         novelty: survivor.novelty,
+        archiveNovelty: survivor.archiveNovelty,
         score: evaluated.score,
       })
     }
@@ -963,6 +984,25 @@ export class EvolutionOptimizer extends Service {
       await canary.enter({ id: stagedId, skill, triple: slim(winner.score) })
     } catch (error) {
       this.ctx.logger.warn(`evolution optimizer could not record canary deployment: ${String(error)}`)
+    }
+  }
+
+  /**
+   * One snapshot of the skill's novelty archive at run start, or an empty list
+   * when the store is unmounted or its read fails. Archive novelty is a
+   * selection input, never a precondition: an unreadable archive costs the run
+   * one ranking axis instead of the run.
+   * @param skill - skill whose recorded descriptors are read.
+   * @returns the skill's archive entries, empty when none can be read.
+   */
+  private archiveSnapshot(skill: string): readonly NoveltyArchiveEntry[] {
+    const novelty = this.ctx.get('evolutionNovelty')
+    if (novelty === undefined) return []
+    try {
+      return novelty.entries(skill)
+    } catch (error) {
+      this.ctx.logger.warn(`evolution optimizer could not read the novelty archive: ${String(error)}`)
+      return []
     }
   }
 

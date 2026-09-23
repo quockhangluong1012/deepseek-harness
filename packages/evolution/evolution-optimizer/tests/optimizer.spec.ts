@@ -8,8 +8,9 @@ import { Context } from '@deepseek-ai/cordis'
 import Storage from '@deepseek-ai/dsh-storage'
 import { DomainFacility } from '@deepseek-ai/dsh-storage-domain'
 import { EvolutionScopeId } from '@deepseek-ai/dsh-evolution-memory'
+import type { NoveltyArchiveEntry } from '@deepseek-ai/dsh-evolution-novelty-search'
 import { MemoryMediaPool, MemoryStorageBackend } from '../../../storage/storage-domain/tests/helpers/memory-backend.ts'
-import EvolutionOptimizer from '../src/index.ts'
+import EvolutionOptimizer, { descriptorOf } from '../src/index.ts'
 
 const roots: Context[] = []
 
@@ -44,6 +45,17 @@ const V3 = skillBody('writer', '# writer v3')
 const V4 = skillBody('writer', '# writer v4')
 const V5 = skillBody('writer', '# writer v5')
 
+/** One recorded archive entry for a body the skill has already staged. */
+function archived(candidateId: string, body: string): NoveltyArchiveEntry {
+  return {
+    candidateId,
+    skill: 'writer',
+    features: descriptorOf(body),
+    novelty: 1,
+    at: '2026-01-01T00:00:00.000Z',
+  }
+}
+
 interface BenchSeams {
   record?: { name: string; usage: ReturnType<typeof usage> } | undefined
   body?: string | undefined
@@ -74,8 +86,11 @@ interface BenchSeams {
   routes?: { error?: Error } | undefined
   /** Mount a fake canary store; `error` fails every enter write. */
   canary?: { error?: Error } | undefined
-  /** Mount a fake novelty-search store; `error` fails every record write. */
-  novelty?: { error?: Error } | undefined
+  /**
+   * Mount a fake novelty-search store; `error` fails every record write,
+   * `readError` every entries read, `archive` seeds what entries returns.
+   */
+  novelty?: { error?: Error; readError?: Error; archive?: readonly NoveltyArchiveEntry[] } | undefined
   /** Mount a fake stagnation store; `error` fails every recordRun write. */
   stagnation?: { error?: Error } | undefined
   /** Mount a fake islands store; `error` fails every advance write. */
@@ -208,6 +223,10 @@ async function bench(seams: BenchSeams = {}) {
   const noveltyRows: Record<string, unknown>[] = []
   if (seams.novelty !== undefined) {
     ctx.provide('evolutionNovelty', {
+      entries: (skill?: string) => {
+        if (seams.novelty?.readError !== undefined) throw seams.novelty.readError
+        return (seams.novelty?.archive ?? []).filter(entry => skill === undefined || entry.skill === skill)
+      },
       record: async (input: Record<string, unknown>) => {
         if (seams.novelty?.error !== undefined) throw seams.novelty.error
         noveltyRows.push(input)
@@ -601,6 +620,93 @@ describe('EvolutionOptimizer', () => {
     } finally {
       warn.mockRestore()
     }
+  })
+
+  it('survives a failing novelty-archive read with a warning', async () => {
+    const { ctx, optimizer, staged } = await bench({
+      record: { name: 'writer', usage: usage(12, 10) },
+      body: BASE,
+      mutations: [V2],
+      novelty: { readError: new Error('archive unreadable') },
+      scoresFor: (_scenarios, call) => ({ pass: true, tokens: call === 0 ? 9 : 3, wallTimeMs: 5 }),
+    })
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
+    try {
+      const report = await optimizer.optimize(request)
+      expect(report.status).toBe('staged')
+      expect(staged).toHaveLength(1)
+      // An unreadable archive costs the run the axis, not the run: every
+      // candidate reads the empty-archive value.
+      expect(report.candidates.map(candidate => candidate.archiveNovelty)).toEqual([1])
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('could not read the novelty archive'))
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
+  it('picks the candidate furthest from a populated archive at an equal triple', async () => {
+    const { optimizer, staged } = await bench({
+      record: { name: 'writer', usage: usage(12, 10) },
+      body: BASE,
+      mutations: [V2, V3],
+      // The skill has already staged V2's descriptor, so V2 restates archived
+      // ground and V3 does not. Both state the same share of new lines against
+      // this run's starting body and measure the same triple.
+      novelty: { archive: [archived('staged-0', V2)] },
+      scoresFor: (_scenarios, call) => ({
+        pass: true,
+        tokens: call === 0 ? 10 : 5,
+        wallTimeMs: call === 0 ? 10 : 5,
+      }),
+    })
+    const report = await optimizer.optimize(request)
+    expect(report.status).toBe('staged')
+    expect(report.candidates.map(candidate => candidate.novelty)).toEqual([1, 1])
+    expect(report.candidates.map(candidate => candidate.archiveNovelty)).toEqual([0, 1])
+    expect(staged[0]?.payload).toMatchObject({ body: V3 })
+    // The row says which archive novelty the pick was ranked on.
+    expect(optimizer.experiments(request.scopeId)[0]?.winnerArchiveNovelty).toBe(1)
+  })
+
+  it('never promotes a candidate that does not beat the baseline, however far from the archive', async () => {
+    const { optimizer, staged } = await bench({
+      record: { name: 'writer', usage: usage(12, 10) },
+      body: BASE,
+      mutations: [V2, V3],
+      novelty: { archive: [archived('staged-0', V2)] },
+      // V2 is archived ground but cheaper than the baseline; V3 is maximally
+      // novel and costs more on both axes, so it never beats the baseline.
+      scoresFor: (_scenarios, call) => ({
+        pass: true,
+        tokens: call === 0 ? 10 : call === 1 ? 5 : 12,
+        wallTimeMs: call === 0 ? 10 : call === 1 ? 5 : 12,
+      }),
+    })
+    const report = await optimizer.optimize(request)
+    expect(report.status).toBe('staged')
+    expect(report.candidates.map(candidate => candidate.archiveNovelty)).toEqual([0, 1])
+    expect(staged[0]?.payload).toMatchObject({ body: V2 })
+    expect(optimizer.experiments(request.scopeId)[0]?.winnerArchiveNovelty).toBe(0)
+  })
+
+  it('ranks by the previous axes when the mounted archive is empty', async () => {
+    const { optimizer, staged } = await bench({
+      record: { name: 'writer', usage: usage(12, 10) },
+      body: BASE,
+      mutations: [V2, V3],
+      novelty: {},
+      scoresFor: (_scenarios, call) => ({
+        pass: true,
+        tokens: call === 0 ? 10 : 5,
+        wallTimeMs: call === 0 ? 10 : 5,
+      }),
+    })
+    const report = await optimizer.optimize(request)
+    expect(report.status).toBe('staged')
+    // An empty archive has nothing to be distant from, so both read one and
+    // the earlier mutation takes the tie.
+    expect(report.candidates.map(candidate => candidate.archiveNovelty)).toEqual([1, 1])
+    expect(staged[0]?.payload).toMatchObject({ body: V2 })
   })
 
   it('keeps staging when the stagnation store is not mounted', async () => {

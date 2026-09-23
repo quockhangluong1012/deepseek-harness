@@ -42,6 +42,14 @@ export interface EvaluatedVariant {
    * already contain, in 0..1: how much new material this candidate states.
    */
   novelty: number
+  /**
+   * Archive novelty of the body's descriptor against the skill's recorded
+   * archive, in 0..1: how far this candidate sits from everything the skill
+   * has already staged. One for every candidate when the archive is empty or
+   * the novelty store is unmounted, which leaves the ranking to cost, body
+   * novelty, and mutation order alone.
+   */
+  archiveNovelty: number
   /** Aggregated triple over the request's scenarios. */
   score: SkillScore
 }
@@ -164,6 +172,12 @@ export interface ExperimentRecord {
   winnerSha: string | null
   /** Operator that produced the promoted body, absent when nothing was promoted. */
   winnerOperator: string | null
+  /**
+   * Archive novelty the promoted body measured against the skill's archive
+   * when the run ranked it, in 0..1; null when nothing was promoted and on
+   * rows recorded before this field existed, which read as never measured.
+   */
+  winnerArchiveNovelty?: number | null
 }
 
 /** Query one scope's experiment ledger. */
@@ -209,4 +223,10 @@ export interface ExperimentDraft {
   samples: number
   /** Winning candidate, absent when nothing was promoted. */
   winner: EvaluatedVariant | null
+  /**
+   * Archive novelty the winning candidate was ranked on, absent when nothing
+   * was promoted: how far the promoted body sat from the skill's recorded
+   * history when the pick was made.
+   */
+  winnerArchiveNovelty: number | null
 }

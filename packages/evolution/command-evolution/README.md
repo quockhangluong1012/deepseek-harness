@@ -61,7 +61,7 @@ The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-a
 | `/curator run` | Run one maintenance pass now: report the movements, skip counts, and snapshot id. |
 | `/curator run --dry-run` | The same pass previewed without writing; the snapshot line reads `Snapshot: none`. |
 | `/curator staged` | List the skills the ledger stages for review, worst failure rate first, with the evidence that selected each and when it was staged. |
-| `/curator optimize <skill> <scenario...>` | Run one offline optimization over the named corpus scenarios and report the staged skill patch id, or the reason nothing was staged. Requires the optimizer mounted and a workspace scope. |
+| `/curator optimize <skill> <scenario...>` | Run one offline optimization over the named corpus scenarios and report the staged skill patch id, or the reason nothing was staged. A staged run also records the invoking session as §53's `candidate-generation` identity for that patch, so promoting it later takes a different session. Requires the optimizer mounted and a workspace scope. |
 | `/curator experiments [skill]` | Print the scope's optimization ledger newest first — time, skill, outcome, the operators that produced candidates, the staged id with the operator that produced it, the `+added/-removed` line counts on promoting rows, confidence tally, and reason — so a second run starts from what was already tried. Requires the optimizer mounted and a workspace scope. |
 | `/curator adopt <name>` | Claim model-authored skills into user-directed standing and report `Adopted '<name>' (state: <state>)`; anything without model authorship rejects. |
 | `/curator purge [--dry-run]` | Remove archived skills past their TTL and report the directory-or-record removals and pin skips; `--dry-run` previews the list without writing. |
@@ -132,7 +132,7 @@ The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-a
 | `/canary` | Summarize the deployments as `Canary: <n> shadow, <n> canary, <n> promoted, <n> rolled-back, <n> rejected.` and list up to ten as `- <id8> <skill>: <state>[ → next <stage>][ (<pass>, <tokens> tokens)]`; none yet reports `No deployments yet. The optimizer records staged writes as shadow.` Without the store mounted: `The evolution canary store is not mounted.` |
 | `/canary status [<skill>]` | The same deployment list narrowed to one skill; a skill with none reports `No deployments for '<skill>'.` |
 | `/canary rollout <id>` | Move one shadow deployment to canary and report `Deployment '<id8>' (<skill>) moved to '<state>'.` |
-| `/canary promote <id>` | Move one canary deployment to promoted, with the same report. |
+| `/canary promote <id>` | Move one canary deployment to promoted, with the same report. §53's separation of duties guards the promotion: the invoking session is recorded as the reviewing identity, and a promotion by the identity that proposed the candidate — or one whose proposing identity was never recorded — reports `Promotion of '<id>' refused: <reason>` and leaves the deployment where it is. |
 | `/canary reject <id>` | Exit one staged rollout to rejected, with the same report. |
 | `/canary rollback <id>` | Exit one staged rollout to rolled-back, with the same report. |
 | `/canary <anything-else>` | `Usage: /canary [status [<skill>] \| rollout <id> \| promote <id> \| reject <id> \| rollback <id>]` |
@@ -199,6 +199,8 @@ The commands turn each expected failure into a stable message you can show direc
 | `/frontier` without telemetry mounted | `Skill telemetry is not mounted. The frontier needs the telemetry store.` |
 | `/frontier` with no skills anywhere | `No measured capabilities yet.` |
 | `/suggestions` with no blueprint-backed skill | `No blueprint-backed skills. A skill appears here when its frontmatter declares a blueprint; this command never installs the schedule it names.` |
+| Promoting a patch from the identity that proposed it | `Promotion of '<id>' refused: identity '<identity>' filled both candidate-generation and promotion-review for run '<id>'` — the deployment stays where it is. |
+| Promoting a patch whose proposing identity was never recorded | `Promotion of '<id>' refused: run '<id>' records no candidate-generation identity, so candidate-generation and promotion-review cannot be shown to be separate identities` — the deployment stays where it is. |
 
 Cancelling `/refine` stops the wait: the registry settles the invocation with the abort reason, matching the `/compact` cancellation contract. Failures other than these expected cases surface as errors rather than being silently converted.
 
@@ -218,7 +220,7 @@ Mount the command registry, a workspace registry, and the evolution memory store
     profile: default
 ```
 
-Surfaces without `ctx.commands` cannot invoke them; staged writes then wait for a mounted command adapter or the controller. `/curator status` is host-wide and works from any session, including one outside every workspace scope; the curator, telemetry, trajectory exporter, reviewer, and skill registry are optional services read through `ctx.get`, so a deployment without them still gets the command with an honest short answer.
+Surfaces without `ctx.commands` cannot invoke them; staged writes then wait for a mounted command adapter or the controller. `/curator status` is host-wide and works from any session, including one outside every workspace scope; the curator, telemetry, trajectory exporter, reviewer, skill registry, and model-routes store are optional services read through `ctx.get`, so a deployment without them still gets the command with an honest short answer — and without the model-routes store a promotion records no duty and applies §53's refusal to nothing.
 
 ### What happens to the conversation
 
@@ -303,6 +305,7 @@ These limits define when the commands are a poor fit; they are the current packa
 - **Exports need the exporter** — `/trajectory` reports `The evolution trajectory exporter is not mounted.` when the composition omits it, and the export itself owns the file layout.
 - **One scope per invocation** — the scoped commands govern the invoking session's scope only; there is no cross-scope view (only `/curator status` and `/suggestions` are host-wide).
 - **Command adapters only** — surfaces without `ctx.commands` cannot invoke them; staged writes then wait for a mounted adapter or the `evolutionController` Remote namespace.
+- **A promotion needs a recorded proposer** — `/canary promote` refuses unless the candidate's proposing identity is in the model-routes duties table, and only `/curator optimize` records one. A patch a host staged by calling `ctx.evolutionOptimizer.optimize` directly has no proposing fill, so its promotion is refused as `unknown-identity` until that identity is recorded; the model-routes store must also be mounted, because without it the promotion records no duty at all.
 
 <a id="dev-note"></a>
 ### Dev Note

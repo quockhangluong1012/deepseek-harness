@@ -136,6 +136,13 @@ const GENERIC_SKIPS: readonly GenericSkip[] = [
   { file: 'packages/extensions/ui-cordis/src/client/CordisPanel.tsx', upstream: ['cordis'] },
   { file: 'packages/extensions/ui-cordis/src/client/CordisRunRow.tsx', upstream: ['cordis'] },
   { file: 'packages/extensions/ui-cordis/src/client/locales.ts', upstream: ['cordis'] },
+  // The cordis toolset's default *resource* label — what a policy proposal
+  // names when the call carries no plugin or package id. It is not a package
+  // reference, and the scoped name would misreport the resource.
+  { file: 'packages/runtime/agent-kernel-builtins/src/declarations.ts', upstream: ['cordis'] },
+  // Diagram node ids in the architecture candidate: the same bare token names
+  // the Cordis tree node beside `dshcli`, `agentloop`, and `llmseam`.
+  { file: 'docs/architecture/dsh-architecture.candidate.json', upstream: ['cordis'] },
 ]
 
 /** A string that must appear exactly `count` times once the rescope has run. */
@@ -245,7 +252,7 @@ const EXACT_EDITS: readonly ExactEdit[] = [
     id: 'root-agents-vendored-name-contract',
     file: 'AGENTS.md',
     find: 'vendored packages keep upstream names and are `private: true`. `cordis` is a peerDependency (+ dev) of every harness package.',
-    replace: 'vendored packages are rescoped ([mapping](docs/rescope.md)) and `private: true`. `@deepseek-ai/cordis` is a peerDependency (+ dev) of every harness package.',
+    replace: 'vendored packages are rescoped ([mapping](docs/rescope.md)) and `private: true`. `@deepseek-ai/cordis` is every harness package\'s peerDependency (+ dev).',
     expect: 1,
   },
   {

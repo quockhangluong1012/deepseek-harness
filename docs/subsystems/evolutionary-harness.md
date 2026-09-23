@@ -178,6 +178,10 @@ async allocateForCandidate(batchId: string, candidateId: string): Promise<Budget
  * Record one spend of a batch and settle it against the allocation across
  * every recorded spend of the batch. The allocation must exist: a spend
  * without a priced batch is a surprise, not budget use.
+ *
+ * A spend records the `cost` its caller states; with no stated cost and a
+ * configured `pricePerMillionTokens`, the spend is billed from its tokens
+ * instead. With neither, the batch's cost dimension stays unmeasured.
  * @param batchId - the batch spending.
  * @param input - the spend to record.
  * @returns the cumulative settlement of the batch.
@@ -1440,9 +1444,10 @@ Metric layer over the evolution stores. It opens no domain and holds no state, s
 ```ts cordis-catalog
 /**
  * Measure the §55 metric set over one window of recorded engine runs. The
- * north star is reported per compute denominator; every supporting metric
- * is either measured from the store that owns it or reported unmeasurable
- * with the missing record named. Reads only.
+ * north star is reported per compute denominator — billed cost, tokens, and
+ * compute hours — and every supporting metric is either measured from the
+ * store that owns it or reported unmeasurable with the missing record named.
+ * Reads only.
  * @param query - which runs the window covers; omitted fields take defaults.
  * @returns the window, the north star per denominator, and the supporting set.
  */

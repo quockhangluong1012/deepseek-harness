@@ -47,6 +47,7 @@ export const experimentRecordSchema = z.object({
   removedLines: z.number().int().nonnegative(),
   winnerSha: z.string().nullable(),
   winnerOperator: z.string().nullable(),
+  winnerArchiveNovelty: z.number().min(0).max(1).nullable().default(null),
 })
 
 /** One stored experiment row, inferred from {@link experimentRecordSchema}. */
@@ -59,7 +60,11 @@ export type ExperimentRecordRow = z.infer<typeof experimentRecordSchema>
  */
 export const optimizerDomainSpec = defineDomain({
   name: 'evolution_experiments',
-  version: 1,
+  version: 2,
+  // Version 1 recorded no archive novelty for the promoted body; the field
+  // defaults to null, which reads as never measured, so vouched-for v1 rows
+  // open unchanged.
+  compatibleVersions: [1],
   layout: 'per-record',
   tables: {
     records: domainTable<string, ExperimentRecord>(experimentRecordSchema),

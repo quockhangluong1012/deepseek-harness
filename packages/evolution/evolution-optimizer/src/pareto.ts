@@ -1,10 +1,15 @@
 /**
  * Pareto selection over the scorer's metric triple: pass dominates everything,
- * then fewer billed tokens, then the most novel body, then less wall time.
- * Novelty sits above wall time because it is the axis the run can act on:
- * among candidates that cost the same, the one that states instructions the
- * skill did not already carry is the one that changes what the skill does,
- * while wall time over fresh replayed processes is machine noise. Pure, so
+ * then fewer billed tokens, then the candidate furthest from the skill's
+ * archive, then the most novel body, then less wall time. The two novelty
+ * axes sit above wall time because they are the axes the run can act on:
+ * among candidates that cost the same, the one whose descriptor sits furthest
+ * from everything the skill has already staged is the one that explores
+ * ground the frontier has not walked, and below it the one that states
+ * instructions the starting body did not carry is the one that changes what
+ * the skill does — while wall time over fresh replayed processes is machine
+ * noise. Dominance stays primary: archive novelty orders the candidates that
+ * already beat the baseline, it never promotes one that did not. Pure, so
  * specs drive the arithmetic without spawning anything.
  * @module @deepseek-ai/dsh-evolution-optimizer/pareto
  */
@@ -41,10 +46,10 @@ export function paretoFrontier(candidates: readonly EvaluatedVariant[]): Evaluat
 
 /**
  * Promote the `keep` best-screened variants to a full evaluation: better pass
- * state first, then fewer billed tokens, then the most novel body, then less
- * wall time, ties broken by mutation order. Screening compares candidates on
- * the same short scenario subset, so this ordering — not dominance — decides
- * who survives.
+ * state first, then fewer billed tokens, then the candidate furthest from the
+ * skill's archive, then the most novel body, then less wall time, ties broken
+ * by mutation order. Screening compares candidates on the same short scenario
+ * subset, so this ordering — not dominance — decides who survives.
  * @param screened - variants with the triple their screen scored.
  * @param keep - how many survive; the caller keeps at least one.
  * @returns survivors in mutation order.
@@ -54,6 +59,7 @@ export function screenSurvivors(screened: readonly EvaluatedVariant[], keep: num
     .sort((left, right) =>
       Number(right.score.pass) - Number(left.score.pass) ||
       left.score.tokens - right.score.tokens ||
+      right.archiveNovelty - left.archiveNovelty ||
       right.novelty - left.novelty ||
       left.score.wallTimeMs - right.score.wallTimeMs ||
       left.index - right.index,
@@ -64,8 +70,10 @@ export function screenSurvivors(screened: readonly EvaluatedVariant[], keep: num
 
 /**
  * Pick the winner: the frontier member that dominates the re-scored baseline,
- * breaking ties by fewer tokens, then more novel body, then less wall time,
- * then earlier mutation.
+ * breaking ties by fewer tokens, then furthest from the skill's archive, then
+ * more novel body, then less wall time, then earlier mutation. Dominance is
+ * the only gate, so a candidate that does not beat the baseline is never
+ * chosen on novelty.
  * @param baseline - triple the baseline scored under the same harness.
  * @param candidates - evaluated variants in mutation order.
  * @returns the winning variant, or null when nothing beats the baseline.
@@ -77,6 +85,7 @@ export function pickWinner(
   const beating = paretoFrontier(candidates).filter(variant => dominates(variant.score, baseline))
   beating.sort((left, right) =>
     left.score.tokens - right.score.tokens ||
+    right.archiveNovelty - left.archiveNovelty ||
     right.novelty - left.novelty ||
     left.score.wallTimeMs - right.score.wallTimeMs ||
     left.index - right.index,

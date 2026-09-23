@@ -45,7 +45,7 @@ const separation = ctx.evolutionModelRoutes.checkDuties(stagedId, 'promotion')
 
 `observe(input)` 记录一条实测结果，并把路由以 `observed` 身份 upsert（已固定路由保留其固定身份）。`pin(role, provider, model)` 为某角色固定一条路由；在 `recommend` 中固定指派胜过一切被观测路由。`routes(role?)` 把各角色的路由指派与其证据合并成摘要列出，`evidence(role?, route?)` 按最新在前列出原始结果。`conflicts()` 点名每条同时被指派给产出角色——任务执行、反思、候选生成——与评判角色——评估、晋升审查——的路由，其中 `pinned` 记录该指派是否由运维者显式设定。`/routes` 命令打印各角色指派及其推荐路由、固定一条路由，或读取证据。
 
-`recordDuty({ runId, role, identity })` 记录某一次运行中某个进化角色由哪个身份填充，同一次运行中重复记录同一角色会替换其身份；`duties(runId)` 按角色拓扑顺序列出该次运行的全部填充。`checkDuties(runId, decision)` 回答 §53 的职责分离：`promotion`——候选生成对晋升审查——或 `verdict`——候选生成对评估：两个已记录身份不同时返回 `{ allowed: true }`，否则返回一条拒绝——`same-identity` 点名两个角色以及填充它们的那个身份，`unknown-identity` 点名没有记录身份的角色，因为未记录的角色绝不被假定为不同。
+`recordDuty({ runId, role, identity })` 记录某一次运行中某个进化角色由哪个身份填充，同一次运行中重复记录同一角色会替换其身份；`duties(runId)` 按角色拓扑顺序列出该次运行的全部填充。`checkDuties(runId, decision)` 回答 §53 的职责分离：`promotion`——候选生成对晋升审查——或 `verdict`——候选生成对评估：两个已记录身份不同时返回 `{ allowed: true }`，否则返回一条拒绝——`same-identity` 点名两个角色以及填充它们的那个身份，`unknown-identity` 点名没有记录身份的角色，因为未记录的角色绝不被假定为不同。`dsh-command-evolution` 是晋升这一半的随包调用方：`/curator optimize <skill> <scenario...>` 把暂存该候选的会话记录为 `candidate-generation`，而 `/canary promote <id>` 把发起晋升的会话记录为 `promotion-review`，并在检查拒绝时报告该拒绝，而不是推进部署。
 
 ### 配置
 
@@ -111,7 +111,7 @@ const separation = ctx.evolutionModelRoutes.checkDuties(stagedId, 'promotion')
 - **证据只来自优化器** —— 评估、反思与晋升审查路由在各自消费者开始观测之前没有已记录运行。
 - **宿主全局，不按作用域键控** —— 路由是全局的；按作用域的路由策略需要给域加作用域键。
 - **冲突是警告，不是阻断** —— `conflicts` 点名一条既产出又评判的路由，而没有任何机制拒绝该指派：运维者的固定指派按设计优先于拓扑，因此该读数的意义是让冲突可见，而不是覆盖它。
-- **职责分离检查目前没有调用方** —— `checkDuties` 拒绝审查身份即产出身份的晋升或裁决，而目前没有任何调用方。本仓库运行的晋升路径是 `dsh-command-evolution` 的 `/canary promote <id>` 与执行器的发布监视器，两者都不记录任一角色的身份，因此在一条既知道谁提案又知道谁审查的路径调用它之前，这条拒绝只是存储自己的答案。
+- **拒绝在运维者晋升路径上强制，而不在监视器上** —— `dsh-command-evolution` 的 `/canary promote <id>` 会查询 `checkDuties`：该命令把自身会话记录为审查身份，并在该次运行记录的提案者就是同一身份时拒绝晋升，部署留在原处。执行器的发布监视器按 §49 的 `auto-promote` 路由晋升，而该决定由心跳在完全没有会话身份的情况下做出，因此那条自动路径不记录也不检查任何职责；决策词汇中的 `verdict` 一半没有消费者，因为没有任何东西记录 `evaluation` 身份。
 - **职责只记录，绝不推断** —— 存储保存调用者给出的身份，并在某角色没有身份时拒绝；它不观测会话、代理或运维者，因此从不调用 `recordDuty` 的部署对每一次运行都会得到 `unknown-identity`，而不是被猜测的裁决。
 
 <a id="dev-note"></a>

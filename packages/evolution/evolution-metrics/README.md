@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-evolution-metrics` measures whether the evolutionary harness is getting better. Its north-star metric is capability gain per unit of compute — a pass-rate delta over tokens or compute hours those runs spent. The supporting metrics answer what it raises: how fast gain accumulated, what the search spent, whether failures recur, open regression debt, the value of recalled memory, and how promotions, rollbacks, and the evaluator ensemble held up.
+`dsh-evolution-metrics` measures whether the evolutionary harness is getting better. Its north-star metric is capability gain per unit of compute — a pass-rate delta over the cost, tokens, or hours those runs spent. The supporting metrics answer what it raises: how fast gain accumulated, what the search spent, whether failures recur, open regression debt, the value of recalled memory, and how promotions, rollbacks, and the evaluator ensemble held up.
 
 It never writes or calls a model; values come from stores other packages record, and missing records report unmeasurable, never zero, so "nothing improved" stays distinct from "nothing was measured".
 
@@ -41,6 +41,7 @@ Every entry is the same shape: `value` (a number, or `null` when it is not compu
 
 | Metric | Measured from | Meaning |
 |---|---|---|
+| `capability-gain-per-cost-unit` | `ctx.evolutionMeta.runs()`, `ctx.evolutionBudget.spends()` | The same gain per unit of cost the window's own runs were billed. Unmeasurable unless every run's batch recorded a priced spend. |
 | `capability-gain-per-million-tokens` | `ctx.evolutionMeta.runs()` | Pass-rate gain of the window's newer half over its older half, per million tokens the window spent. |
 | `capability-gain-per-compute-hour` | `ctx.evolutionMeta.runs()` | The same gain per hour of scorer-summed wall time. |
 | `learning-velocity` | `ctx.evolutionMeta.runs()` | The same gain per elapsed day of the window. |
@@ -80,9 +81,11 @@ One recorded source per metric, and no arithmetic across sources that describe d
 
 A single engine run's cost is durable in three places: `evolution_meta.runs` (the winning candidate's own evaluation, with the pass, the cost, and the instant of the same run), `evolution_router.outcomes` (the same triple for the same staged write), and `evolution_budget.spends` (a run-cumulative sum over every variant the batch evaluated, so a superset of the other two). Adding any two of them would report two to three times the compute spent, so the north star reads `runs` alone — the only one that carries the pass and the cost of the same run — and the extra cost the search paid is reported as `compute-overhead-ratio` instead of being folded into the denominator.
 
-Capability is the recorded pass rate: the window's runs, oldest first, split into an older and a newer half, and the gain is the newer half's pass rate minus the older half's. An odd count gives the newer half the extra run, so the treatment side never sees less evidence than the baseline. The same gain then divides by the tokens, the compute hours, and the elapsed days of the whole window, which is why every north-star entry shares one numerator and differs only in what it is measured against.
+The billed-cost denominator is the same runs again, so it is not a second scope: a run is recorded under the batch identity its producer spends against, so the cost of a run is the spend its own batch recorded. That reading is strict about partial bills — a window whose runs did not all record a spend, or whose spends left `cost` unset, reports unmeasurable and names the gap, because a partial sum would divide the gain by less compute than produced it. Cost is the deployment's own unit; it is dollars only where the deployment bills in dollars.
 
-A metric that other packages already compute is read, not recomputed: regression debt is the curator's own table, rollback rate is the canary's own state counts, evaluator reliability is the health summary's own rates. The layer adds arithmetic only where no store answers the question — the window split, the two denominators, and the search-overhead ratio.
+Capability is the recorded pass rate: the window's runs, oldest first, split into an older and a newer half, and the gain is the newer half's pass rate minus the older half's. An odd count gives the newer half the extra run, so the treatment side never sees less evidence than the baseline. The same gain then divides by the cost, the tokens, the compute hours, and the elapsed days of the whole window, which is why every north-star entry shares one numerator and differs only in what it is measured against.
+
+A metric that other packages already compute is read, not recomputed: regression debt is the curator's own table, rollback rate is the canary's own state counts, evaluator reliability is the health summary's own rates. The layer adds arithmetic only where no store answers the question — the window split, the three denominators, and the search-overhead ratio.
 
 ### Failure and recovery
 
@@ -100,7 +103,7 @@ No domain is opened and nothing is durable, so no invariant companion is publish
 - [Evolutionary Harness specification](../../../specs/evolutionary-harness-v11-deep-research.md) §55 — the north-star metric and the supporting set this package implements.
 - [Evolution package map](../README.md) — the group's packages and their repository position.
 - [`dsh-evolution-meta`](../evolution-meta/README.md) — the run, cost, and instant the capability gain is measured over.
-- [`dsh-evolution-budget`](../evolution-budget/README.md) — the batch spends the search-overhead ratio reads.
+- [`dsh-evolution-budget`](../evolution-budget/README.md) — the batch spends the cost denominator and the search-overhead ratio read.
 - [`dsh-evolution-curator`](../evolution-curator/README.md) — the regression debt and the failure signals behind it.
 - [`dsh-evolution-canary`](../evolution-canary/README.md) — the deployment states the rollback rate counts.
 - [`dsh-evolution-evaluator-health`](../evolution-evaluator-health/README.md) — the verdict summary the reliability reading comes from.
@@ -125,7 +128,7 @@ These limits define what the numbers do and do not mean. They are current packag
 - **Every run-derived metric is conditioned on the promoted path** — the optimizer records a run when a candidate staged, and records nothing for a rejection, a failed holdout, or a truncated batch. A pass rate here is the share of staged attempts that passed, not a capability level, and no recorded series answers "how often does a change fail to improve anything".
 - **No per-task outcome exists** — nothing durable stores whether an individual task, benchmark case, or test passed. `benchmark-robustness`, `skill-incremental-utility`, and per-task regression debt are consequently unmeasurable, and each names the record that would make it computable.
 - **Memory utility records three of §23's links and three of §24's factors** — retrieval, the decision batch that followed, and a caller-supplied outcome are recorded, so the reading is real; whether an injected item was *used* or *cited*, and §24's source-quality factor, have no recorded source. The number is therefore a floor, and its caveat names each missing link rather than reporting it as zero.
-- **No dollar cost exists** — `evolution-budget` and `evolution-router` deliberately assume no pricing source, so compute is measured in tokens and wall time only. A dollar denominator needs a price table the harness does not have.
+- **The billed-cost denominator needs the deployment to state a price** — `evolutionBudget.spend` bills a spend that states no `cost` from the deployment's `pricePerMillionTokens`, and the shipped profile sets no price, so no shipped spend carries a cost. `capability-gain-per-cost-unit` therefore names the unpriced spend until an operator prices their tokens; it is per cost unit rather than per dollar because the unit is whatever the deployment bills in.
 - **Only run-derived metrics take a time bound** — `since`, `until`, and `taskClass` filter the engine-run window. The supporting metrics are current-state readings of host-wide stores: a canary summary or a debt table has no task-class key to filter by, and the two counter stores (`evolution-operators`, `evolution-evaluator-strategy`) keep only `lastAt`, so no window can be reconstructed from them at all.
 - **Search overhead spans two scopes by construction** — the ratio compares a run-cumulative spend against winner-only tokens. It measures how much compute bought the winners, and it must never be added to either side.
 - **The evaluator reliability reading is an inter-verdict proxy** — the health store compares one verdict against a later one, not against a human outcome.
@@ -140,6 +143,6 @@ The window is built from `ctx.evolutionMeta.runs()`, whose records are stamped w
 
 Reasons and caveats are carried by the service rather than written by the command, matching the other evolution stores, whose records already carry a `reason` string. `/metrics` renders them, so the layer's honesty about a number travels with the number.
 
-When the stores start recording what this layer cannot measure — a per-task outcome, a no-skill baseline arm, a recall-hit counter — the entry changes from `unavailable(...)` to `metric(...)` in one place, and the metric id stays stable for callers.
+When the stores start recording what this layer cannot measure — a per-task outcome, a no-skill baseline arm, a recall-hit counter, a billed cost — the entry changes from `unavailable(...)` to `metric(...)` in one place, and the metric id stays stable for callers.
 
 </details>

@@ -93,6 +93,30 @@ describe('evolution budget', () => {
     }
   })
 
+  it('bills a spend from the configured token price when the caller states no cost', async () => {
+    const { fiber, store } = await boot(undefined, { baseMaxCost: 10, pricePerMillionTokens: 4 })
+    try {
+      await store.allocate(allocate({ candidateClass: 'standard' }))
+      const billed = await store.spend('b1', spend({ tokens: 500000 }))
+      expect(billed.cost).toEqual({ budgeted: 10, spent: 2, remaining: 8, exceeded: 0 })
+      expect(store.spends()[0]?.cost).toBe(2)
+    } finally {
+      await fiber.dispose()
+    }
+  })
+
+  it('leaves the cost dimension unmeasured when the deployment states neither a price nor a cost', async () => {
+    const { fiber, store } = await boot(undefined, { baseMaxCost: 10 })
+    try {
+      await store.allocate(allocate({ candidateClass: 'standard' }))
+      const unpriced = await store.spend('b1', spend({ tokens: 500000 }))
+      expect(unpriced.cost).toEqual({ budgeted: 10, spent: null, remaining: null, exceeded: null })
+      expect(store.spends()[0]?.cost).toBeUndefined()
+    } finally {
+      await fiber.dispose()
+    }
+  })
+
   it('settles a spend against the priced cost, deadline, and parallelism ceilings', async () => {
     const { fiber, store } = await boot(undefined, { baseMaxCost: 10, baseTimeLimitMs: 3600000, baseParallelism: 4 })
     try {

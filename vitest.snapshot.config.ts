@@ -5,6 +5,13 @@ import { standardDecoratorPlugin, vitestExecArgv } from './vitest.shared.ts'
 
 const DEFAULT_SNAPSHOT_MAX_CONCURRENCY = 5
 
+/**
+ * Windows spawns every scenario's subprocess through a much slower path (and a
+ * scenario that runs `bash` pays a WSL start), so the lane's per-process
+ * wall-clock budget is reached under the same fan-out a posix host absorbs.
+ */
+const WINDOWS_SNAPSHOT_MAX_CONCURRENCY = 2
+
 function positiveIntFromEnv(name: string, fallback: number): number {
   const raw = process.env[name]
   if (raw === undefined || raw === '') return fallback
@@ -18,7 +25,10 @@ function positiveIntFromEnv(name: string, fallback: number): number {
 
 const snapshotMaxConcurrency = positiveIntFromEnv(
   'DSH_SNAPSHOT_MAX_CONCURRENCY',
-  Math.min(DEFAULT_SNAPSHOT_MAX_CONCURRENCY, availableParallelism()),
+  Math.min(
+    process.platform === 'win32' ? WINDOWS_SNAPSHOT_MAX_CONCURRENCY : DEFAULT_SNAPSHOT_MAX_CONCURRENCY,
+    availableParallelism(),
+  ),
 )
 
 // Replay is the keyless default: boot real subprocess paths from recorded model responses and diff

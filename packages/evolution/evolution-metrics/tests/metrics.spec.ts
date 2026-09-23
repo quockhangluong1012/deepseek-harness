@@ -129,6 +129,7 @@ describe('metric report', () => {
     expect(report.window.runs).toBe(0)
     expect(report.window.from).toBeNull()
     expect(report.northStar.map(entry => entry.id)).toEqual([
+      'capability-gain-per-cost-unit',
       'capability-gain-per-million-tokens',
       'capability-gain-per-compute-hour',
     ])
@@ -150,7 +151,11 @@ describe('metric report', () => {
     }
     // The unrecorded metrics name the record that is missing, not a store.
     expect(value(report, 'skill-incremental-utility').unavailableReason).toContain('no-skill control')
+    expect(value(report, 'skill-incremental-utility').unavailableReason)
+      .toContain('a producer that scores one scenario with the skill absent')
     expect(value(report, 'benchmark-robustness').unavailableReason).toContain('no outcome field')
+    expect(value(report, 'benchmark-robustness').unavailableReason)
+      .toContain('a producer that executes a task and records whether it passed')
   })
 
   it('withholds a gain the window cannot evidence, keeping the measured costs', async () => {
@@ -187,6 +192,62 @@ describe('metric report', () => {
     // 800 tokens of search bought the 200 winner tokens the runs recorded.
     expect(value(report, 'compute-overhead-ratio').value).toBe(4)
     expect(value(report, 'compute-overhead-ratio').caveat).toContain('never be added')
+  })
+
+  it('measures capability gain per cost unit the window\'s own runs were billed', async () => {
+    vi.useFakeTimers()
+    const { ctx, metrics } = await boot()
+    await ctx.plugin(EvolutionMeta, {})
+    await ctx.plugin(EvolutionBudget, {})
+    // Older half: one pass in three. Newer half: three passes in three.
+    const runs = [
+      ['r1', 0, true], ['r2', 1, false], ['r3', 2, false],
+      ['r4', 3, true], ['r5', 4, true], ['r6', 5, true],
+    ] as const
+    for (const [runId, hour, pass] of runs) {
+      await recordRun(ctx, runId, hour, pass)
+      await ctx.evolutionBudget.allocate({ batchId: runId, taskClass: 'writer', candidateClass: 'standard' })
+      await ctx.evolutionBudget.spend(runId, { tokens: 100, wallTimeMs: 60_000, rollouts: 1, cost: 2 })
+    }
+
+    const billed = value(metrics.report(), 'capability-gain-per-cost-unit')
+
+    // A gain of 2/3 over six runs billed at two cost units each.
+    expect(billed.value).toBeCloseTo((2 / 3) / 12, 12)
+    expect(billed.unit).toBe('gain-per-cost-unit')
+    expect(billed.unavailableReason).toBeNull()
+    expect(billed.inputs).toEqual([
+      'ctx.evolutionMeta.runs(): EngineRun.runId',
+      'ctx.evolutionBudget.spends(): SpendRecord.batchId / cost',
+    ])
+    expect(billed.caveat).toContain('the deployment\'s own cost unit')
+  })
+
+  it('refuses a cost denominator the window cannot bill completely', async () => {
+    vi.useFakeTimers()
+    const { ctx, metrics } = await boot()
+    await ctx.plugin(EvolutionMeta, {})
+    await recordRun(ctx, 'r1', 0, true)
+    await recordRun(ctx, 'r2', 1, true)
+    await recordRun(ctx, 'r3', 2, true)
+    await recordRun(ctx, 'r4', 3, true)
+
+    // No budget store: nothing bills a run at all.
+    expect(value(metrics.report(), 'capability-gain-per-cost-unit').unavailableReason)
+      .toContain('the evolution budget store that bills a run is not mounted')
+
+    await ctx.plugin(EvolutionBudget, {})
+    // A run whose batch spent nothing leaves the bill open.
+    expect(value(metrics.report(), 'capability-gain-per-cost-unit').unavailableReason)
+      .toContain("the run 'r1' recorded no spend on its own batch")
+
+    for (const runId of ['r1', 'r2', 'r3', 'r4']) {
+      await ctx.evolutionBudget.allocate({ batchId: runId, taskClass: 'writer', candidateClass: 'standard' })
+      await ctx.evolutionBudget.spend(runId, { tokens: 100, wallTimeMs: 60_000, rollouts: 1 })
+    }
+    // An unpriced spend is not a zero, so the reading names the missing producer.
+    expect(value(metrics.report(), 'capability-gain-per-cost-unit').unavailableReason)
+      .toContain('carries no billed cost')
   })
 
   it('reads the supporting metrics from the stores that own them', async () => {

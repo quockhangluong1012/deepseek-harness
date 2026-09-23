@@ -83,7 +83,7 @@ A seam is a zero-argument function returning a judgment, not a service lookup in
 
 ### Failure and recovery
 
-A rung that refuses is terminal, and the ladder makes no judgment of its own beyond the two deterministic rungs: it never turns an abstention into a pass, and it never invents a reason a rung did not give. A seam that throws fails the whole verification, so a host whose simulator is down learns that instead of reading a quiet abstention. Nothing here writes durable state, so there is no invariant companion to publish.
+A rung that refuses is terminal, and the ladder makes no judgment of its own beyond the two deterministic rungs: it never turns an abstention into a pass, and it never invents a reason a rung did not give. A seam that throws fails the whole verification, so a host whose simulator is down learns that instead of reading a quiet abstention. No invariant companion is published: nothing here writes durable state, so there is no second observation to check against.
 
 </details>
 
