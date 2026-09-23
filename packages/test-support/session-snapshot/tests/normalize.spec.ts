@@ -965,6 +965,29 @@ describe('tokenizeSessionFixtureCwd', () => {
     expect(tokenizeSessionFixtureCwd(out)).toBe(out)
   })
 
+  it('tokenizes free text of a refresh-stabilized log from the run cwd', () => {
+    const runCwd = String.raw`C:\Users\runner\AppData\Local\Temp\acp-snap-cwd-abc123`
+    const raw = [
+      JSON.stringify({ type: 'session', id: 's', createdAt: 1, cwd: '{{cwd}}' }),
+      JSON.stringify({
+        type: 'tool/result',
+        seq: 1,
+        time: 2,
+        data: { content: [{ type: 'text', text: `<path>${runCwd}\\proof.txt</path>` }] },
+      }),
+      '',
+    ].join('\n')
+    const textOf = (log: string): string => {
+      const record = JSON.parse(log.split('\n')[1] as string) as { data: { content: { text: string }[] } }
+      return (record.data.content[0] as { text: string }).text
+    }
+
+    expect(textOf(tokenizeSessionFixtureCwd(raw))).toBe(`<path>${runCwd}\\proof.txt</path>`)
+    const out = tokenizeSessionFixtureCwd(raw, runCwd)
+    expect(textOf(out)).toBe(String.raw`<path>{{cwd}}\proof.txt</path>`)
+    expect(tokenizeSessionFixtureCwd(out, runCwd)).toBe(out)
+  })
+
   it('rejects a log without a session cwd', () => {
     expect(() => tokenizeSessionFixtureCwd('')).toThrow(
       'acp-snapshot: cannot tokenize a cwd without a basename',

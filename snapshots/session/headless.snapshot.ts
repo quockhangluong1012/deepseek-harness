@@ -159,6 +159,12 @@ function headerOf(log: string): JsonObject {
   return records(log)[0] ?? {}
 }
 
+/** The cwd a harvested run recorded, before refresh stabilization replaces it with the token. */
+function rawCwdOf(log: string): string | undefined {
+  const cwd = headerOf(log).cwd
+  return typeof cwd === 'string' ? cwd : undefined
+}
+
 function contextOf(logs: readonly string[]): NormalizeContext {
   const headers = logs.map(headerOf)
   return {
@@ -228,7 +234,7 @@ async function writeSessionFixtures(
   const fresh = actualLogs.map((log, index) => {
     const stable = tokenizeSessionFixtureCwd(mode === 'refresh'
       ? stabilizeRefreshLog(log.content, prior[index] as string, replacements, ctx)
-      : log.content)
+      : log.content, rawCwdOf(log.content))
     return scrubSessionSnapshot(prepareSessionSnapshotFixtureForComparison(stable))
   })
   const output = redactSessionSnapshotIds(stabilizeFixtureMessageIds(fresh, prior))

@@ -112,7 +112,14 @@ function cwdSpellings(ctx: NormalizeContext): string[] {
   const macAliases = spellings
     .filter(spelling => spelling.startsWith('/') && !spelling.startsWith('/private/'))
     .map(spelling => `/private${spelling}`)
-  return [...new Set([...spellings, ...macAliases])]
+  // A tool may report the same directory with either separator, and text that
+  // embeds a path as JSON escapes each backslash, so both forms are covered.
+  const separatorVariants = spellings.flatMap(spelling => [
+    spelling.replaceAll('\\', '/'),
+    spelling.replaceAll('/', '\\'),
+    spelling.replaceAll('\\', '\\\\'),
+  ])
+  return [...new Set([...spellings, ...macAliases, ...separatorVariants])]
     .sort((left, right) => right.length - left.length)
 }
 
@@ -165,7 +172,7 @@ function scrubString(
   cwdPathMode: CwdPathMode,
   identityMode: 'legacy' | 'preserve',
 ): string {
-  let out = replaceCwd(value, ctx, CWD)
+  let out = tokenizeFixtureString(value, ctx, cwdBasename(ctx.cwd))
   // Filesystem APIs can report one directory with several spellings. Replace
   // every known spelling longest-first so a shorter alias cannot corrupt a
   // longer one before it is tokenized. macOS additionally symlinks
@@ -233,12 +240,21 @@ function escapeRegExp(value: string): string {
 /** Replace any absolute spelling whose final segment is the generated cwd basename. */
 function tokenizeFixtureString(value: string, ctx: NormalizeContext, basename: string): string {
   const exact = replaceCwd(value, ctx, CWD)
-  const absoluteCwd = new RegExp(
-    String.raw`(?:[A-Za-z]:)?[\\/](?:[^\\/\s<>"]+[\\/])*${escapeRegExp(basename)}`
-    + String.raw`(?=$|[\\/\s<>'"()\[\]{},;:!?=])`,
-    'g',
-  )
-  return exact.replace(absoluteCwd, CWD).split(`/private${CWD}`).join(CWD)
+  // An already-tokenized log carries `{{cwd}}` as its basename, so the pattern
+  // would consume the segments before the token and corrupt the fixture.
+  const tokenized = basename.length === 0 || basename === CWD
+    ? exact
+    : exact.replace(new RegExp(
+      String.raw`(?:[A-Za-z]:)?[\\/]{1,2}(?:[^\\/\s<>"]+[\\/]{1,2})*${escapeRegExp(basename)}`
+      + String.raw`(?=$|[\\/\s<>'"()\[\]{},;:!?=])`,
+      'g',
+    ), CWD)
+  return tokenized.split(`/private${CWD}`).join(CWD)
+}
+
+/** The final segment of a cwd, empty when the context carries no usable root. */
+function cwdBasename(cwd: string): string {
+  return cwd.split(/[\\/]/).at(-1) ?? ''
 }
 
 /** Recursively replace generated-cwd spellings while preserving every other JSON value. */
@@ -265,19 +281,21 @@ function tokenizeFixtureValue(
  * path.
  *
  * @param rawLog The raw or refresh-stabilized session JSONL fixture.
+ * @param cwd The run's real cwd, for a refresh-stabilized log whose header already
+ * carries the `{{cwd}}` token; omitted, the header's own cwd supplies the basename.
  * @returns Compact JSONL whose known cwd spellings become `{{cwd}}`.
  * @throws If a non-empty line is invalid JSON or the session cwd has no basename.
  */
-export function tokenizeSessionFixtureCwd(rawLog: string): string {
+export function tokenizeSessionFixtureCwd(rawLog: string, cwd?: string): string {
   const lines = rawLog.split('\n')
   const firstLine = lines.find(line => line.trim().length > 0)
   const header = firstLine === undefined ? undefined : JSON.parse(firstLine) as { cwd?: unknown }
-  const cwd = typeof header?.cwd === 'string' ? header.cwd : ''
-  const basename = cwd.split(/[\\/]/).at(-1)
+  const declared = cwd ?? (typeof header?.cwd === 'string' ? header.cwd : '')
+  const basename = declared.split(/[\\/]/).at(-1)
   if (basename === undefined || basename.length === 0) {
     throw new Error('acp-snapshot: cannot tokenize a cwd without a basename')
   }
-  const ctx: NormalizeContext = { sessionIds: [], cwd }
+  const ctx: NormalizeContext = { sessionIds: [], cwd: declared }
   return lines.map((line) => {
     if (line.trim().length === 0) return line
     return JSON.stringify(tokenizeFixtureValue(JSON.parse(line), ctx, basename))
