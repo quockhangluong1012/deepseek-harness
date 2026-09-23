@@ -47,26 +47,26 @@
     "zod": "^4.4.3"
   },
   "peerDependencies": {
-    "@deepseek-ai/dsh-command-evolution": "workspace:^",
-    "@deepseek-ai/dsh-deque": "workspace:^",
-    "@deepseek-ai/dsh-evolution-memory": "workspace:^",
-    "@deepseek-ai/dsh-evolution-reviewer": "workspace:^",
-    "@deepseek-ai/dsh-storage-domain": "workspace:^",
-    "@deepseek-ai/dsh-typert-protocol": "workspace:^",
-    "@deepseek-ai/dsh-usage-ledger": "workspace:^",
-    "@deepseek-ai/dsh-workspace": "workspace:^",
-    "@deepseek-ai/cordis": "workspace:^"
+    "@deepseek-ai/dsh-command-evolution": "workspace:*",
+    "@deepseek-ai/dsh-deque": "workspace:*",
+    "@deepseek-ai/dsh-evolution-memory": "workspace:*",
+    "@deepseek-ai/dsh-evolution-reviewer": "workspace:*",
+    "@deepseek-ai/dsh-storage-domain": "workspace:*",
+    "@deepseek-ai/dsh-typert-protocol": "workspace:*",
+    "@deepseek-ai/dsh-usage-ledger": "workspace:*",
+    "@deepseek-ai/dsh-workspace": "workspace:*",
+    "@deepseek-ai/cordis": "workspace:~"
   },
   "devDependencies": {
-    "@deepseek-ai/dsh-command-evolution": "workspace:^",
-    "@deepseek-ai/dsh-deque": "workspace:^",
-    "@deepseek-ai/dsh-evolution-memory": "workspace:^",
-    "@deepseek-ai/dsh-evolution-reviewer": "workspace:^",
-    "@deepseek-ai/dsh-storage": "workspace:^",
-    "@deepseek-ai/dsh-storage-domain": "workspace:^",
-    "@deepseek-ai/dsh-typert-protocol": "workspace:^",
-    "@deepseek-ai/dsh-usage-ledger": "workspace:^",
-    "@deepseek-ai/dsh-workspace": "workspace:^",
-    "@deepseek-ai/cordis": "workspace:^"
+    "@deepseek-ai/dsh-command-evolution": "workspace:*",
+    "@deepseek-ai/dsh-deque": "workspace:*",
+    "@deepseek-ai/dsh-evolution-memory": "workspace:*",
+    "@deepseek-ai/dsh-evolution-reviewer": "workspace:*",
+    "@deepseek-ai/dsh-storage": "workspace:*",
+    "@deepseek-ai/dsh-storage-domain": "workspace:*",
+    "@deepseek-ai/dsh-typert-protocol": "workspace:*",
+    "@deepseek-ai/dsh-usage-ledger": "workspace:*",
+    "@deepseek-ai/dsh-workspace": "workspace:*",
+    "@deepseek-ai/cordis": "workspace:~"
   }
 }

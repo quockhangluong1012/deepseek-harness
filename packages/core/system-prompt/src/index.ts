@@ -61,10 +61,13 @@ export interface PromptSection {
   /**
    * Static text or a provider evaluated at each assembly with that assembly's
    * {@link AssembleContext}. The text may reference `{{variable}}`s — they are
-   * interpolated later, by {@link renderPrompt}. Write `\{{` for a literal
-   * brace pair; static text with a malformed group is rejected at registration.
+   * interpolated later, by {@link renderPrompt}, unless `interpolate` is false;
+   * write `\{{` for a literal brace pair, and static text with a malformed group
+   * is rejected at registration.
    */
   readonly text: string | ((context: AssembleContext) => string)
+  /** Whether to interpolate prompt variables. Defaults to true; false preserves literal text. */
+  readonly interpolate?: boolean
   /**
    * Treat this contribution as the complete system prompt. Assembly still
    * runs the cooperative waterfall so tools, contexts, and variables can be
@@ -90,6 +93,8 @@ export interface AssembledSection {
   name: string
   /** The resolved (but not yet interpolated) section text. */
   text: string
+  /** Whether to interpolate prompt variables. Defaults to true; false preserves literal text. */
+  interpolate?: boolean
 }
 
 /** One resolved dynamic context contribution. */
@@ -140,11 +145,12 @@ const SECTION_ORDERS = {
   TOOL_LSP: 2200,
   TOOL_SESSION_QUERY: 2300,
   TOOL_GOAL: 2400,
-  TOOL_CORDIS: 2500,
   TOOL_WORKFLOW: 2600,
   TOOL_RALPH: 2700,
   TOOL_SUBAGENT: 2800,
   TOOL_REPORT: 2900,
+  TOOL_COMPUTER_USE: 3000,
+  MCP_SERVERS: 3100,
   TOOLS_SDK: 5000,
   DELIVERABLE_FILE_REFERENCES: 9000,
   STRUCTURED_OUTPUT: 9900,
@@ -265,7 +271,8 @@ export interface Config {
 
 /**
  * Interpolate strict `{{variable}}` references, drop empty sections, and join
- * the rest with blank lines. Malformed, unknown, or undefined references throw;
+ * the rest with blank lines. Sections with `interpolate: false` retain literal
+ * text. Malformed, unknown, or undefined references in other sections throw;
  * a lone `{{` without any later `}}` is literal prose, `\{{` renders a literal
  * `{{`, and substituted values are not scanned again.
  * @param assembly - the assembly whose sections and variables to render.
@@ -273,7 +280,7 @@ export interface Config {
  */
 export function renderPrompt(assembly: PromptAssembly): string {
   return assembly.sections
-    .map(section => interpolate(section, assembly.variables, 'section'))
+    .map(section => section.interpolate === false ? section.text : interpolate(section, assembly.variables, 'section'))
     .filter(text => text.length > 0)
     .join('\n\n')
 }
@@ -467,8 +474,9 @@ export class SystemPrompt extends Service {
    * Register an ordered prompt section in the calling context's scope. A scoped
    * section shadows a global section with the same name; duplicates within one
    * layer and non-finite orders throw. Static text with a malformed `{{...}}`
-   * group throws at registration; unknown variable names throw at assembly,
-   * when the full registered set is known. Registration and disposal emit
+   * group throws at registration unless the section sets `interpolate: false`,
+   * whose text is literal; unknown variable names throw at assembly, when the
+   * full registered set is known. Registration and disposal emit
    * `system-prompt/change`.
    * @param section - the section to register.
    * @returns the exact Cordis effect disposer.
@@ -477,7 +485,7 @@ export class SystemPrompt extends Service {
     if (!Number.isFinite(section.order)) {
       throw new TypeError(`prompt section "${section.name}" order must be a finite number`)
     }
-    if (typeof section.text === 'string') validateStaticTemplate(section.name, section.text, 'section')
+    if (typeof section.text === 'string' && section.interpolate !== false) validateStaticTemplate(section.name, section.text, 'section')
     return this.layers.effect(
       this.ctx,
       layer => layer.sections.insert(section.name, section),
@@ -609,10 +617,11 @@ export class SystemPrompt extends Service {
     const knownNames = new Set<string>()
     for (const provider of providers) {
       const result = provider(context)
-      const schemas = result.schemas.map(({ name, description, parameters }): ToolSchema => ({
+      const schemas = result.schemas.map(({ name, description, parameters, deferLoading }): ToolSchema => ({
         name,
         description,
         parameters: structuredClone(parameters),
+        ...deferLoading === true ? { deferLoading } : {},
       }))
       const acceptedKnownNames = result.knownNames ?? schemas.map(tool => tool.name)
       collected.push(...schemas)
@@ -629,6 +638,7 @@ export class SystemPrompt extends Service {
         const assembled = {
           name: section.name,
           text: typeof section.text === 'function' ? section.text(context) : section.text,
+          ...section.interpolate !== undefined ? { interpolate: section.interpolate } : {},
         }
         if (section.complete === true) completeSection = { ...assembled }
         return assembled

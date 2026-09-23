@@ -27,30 +27,30 @@
   ],
   "license": "MIT",
   "peerDependencies": {
-    "@deepseek-ai/cordis": "workspace:^",
-    "@deepseek-ai/dsh-evolution-budget": "workspace:^",
-    "@deepseek-ai/dsh-evolution-canary": "workspace:^",
-    "@deepseek-ai/dsh-evolution-curator": "workspace:^",
-    "@deepseek-ai/dsh-evolution-evaluator-health": "workspace:^",
-    "@deepseek-ai/dsh-evolution-feedback": "workspace:^",
-    "@deepseek-ai/dsh-evolution-lineage": "workspace:^",
-    "@deepseek-ai/dsh-evolution-memory": "workspace:^",
-    "@deepseek-ai/dsh-evolution-meta": "workspace:^",
-    "@deepseek-ai/dsh-evolution-skill-telemetry": "workspace:^"
+    "@deepseek-ai/cordis": "workspace:~",
+    "@deepseek-ai/dsh-evolution-budget": "workspace:*",
+    "@deepseek-ai/dsh-evolution-canary": "workspace:*",
+    "@deepseek-ai/dsh-evolution-curator": "workspace:*",
+    "@deepseek-ai/dsh-evolution-evaluator-health": "workspace:*",
+    "@deepseek-ai/dsh-evolution-feedback": "workspace:*",
+    "@deepseek-ai/dsh-evolution-lineage": "workspace:*",
+    "@deepseek-ai/dsh-evolution-memory": "workspace:*",
+    "@deepseek-ai/dsh-evolution-meta": "workspace:*",
+    "@deepseek-ai/dsh-evolution-skill-telemetry": "workspace:*"
   },
   "dependencies": {
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@deepseek-ai/cordis": "workspace:^",
-    "@deepseek-ai/dsh-evolution-budget": "workspace:^",
-    "@deepseek-ai/dsh-evolution-canary": "workspace:^",
-    "@deepseek-ai/dsh-evolution-curator": "workspace:^",
-    "@deepseek-ai/dsh-evolution-evaluator-health": "workspace:^",
-    "@deepseek-ai/dsh-evolution-feedback": "workspace:^",
-    "@deepseek-ai/dsh-evolution-lineage": "workspace:^",
-    "@deepseek-ai/dsh-evolution-memory": "workspace:^",
-    "@deepseek-ai/dsh-evolution-meta": "workspace:^",
-    "@deepseek-ai/dsh-evolution-skill-telemetry": "workspace:^"
+    "@deepseek-ai/cordis": "workspace:~",
+    "@deepseek-ai/dsh-evolution-budget": "workspace:*",
+    "@deepseek-ai/dsh-evolution-canary": "workspace:*",
+    "@deepseek-ai/dsh-evolution-curator": "workspace:*",
+    "@deepseek-ai/dsh-evolution-evaluator-health": "workspace:*",
+    "@deepseek-ai/dsh-evolution-feedback": "workspace:*",
+    "@deepseek-ai/dsh-evolution-lineage": "workspace:*",
+    "@deepseek-ai/dsh-evolution-memory": "workspace:*",
+    "@deepseek-ai/dsh-evolution-meta": "workspace:*",
+    "@deepseek-ai/dsh-evolution-skill-telemetry": "workspace:*"
   }
 }

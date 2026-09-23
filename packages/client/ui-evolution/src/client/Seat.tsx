@@ -6,7 +6,7 @@
  * no-Scope state rather than a blank column.
  */
 import type { ReactNode } from 'react'
-import { IconEnhanceOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconEnhanceOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import type {
   InjectFace,
   PropsLocale,
@@ -41,7 +41,7 @@ export type EvolutionPanelIconProps = PropsRuntime<'sidebar.panellist'>
  * @returns the icon element.
  */
 export function EvolutionPanelIcon({ size }: EvolutionPanelIconProps): ReactNode {
-  return <IconEnhanceOutline16 size={size} />
+  return <IconEnhanceOutlineRegular size={size} />
 }
 
 /**

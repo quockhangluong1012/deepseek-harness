@@ -22,12 +22,13 @@ type WatchedBundle = {
 /** Snapshot the executable bundle metadata that drives reloads. */
 function bundleStat(path: string): WatchedBundleStat {
   const bundle = statSync(path)
-  return { mtimeMs: bundle.mtimeMs, size: bundle.size }
+  return { mtimeMs: bundle.mtimeMs, ctimeMs: bundle.ctimeMs, size: bundle.size }
 }
 
-/** Whether the executable bundle is unchanged since the last successful re-hash. */
+/** Whether the executable bundle metadata is unchanged since its last publication. */
 function sameBundleStat(left: WatchedBundleStat, right: WatchedBundleStat): boolean {
   return left.mtimeMs === right.mtimeMs
+    && left.ctimeMs === right.ctimeMs
     && left.size === right.size
 }
 
@@ -42,7 +43,7 @@ export function installBundleWatch(ctx: Context, pollIntervalMs: number): void {
   const rehash = (id: string, watch: WatchedBundle, current: WatchedBundleStat): void => {
     try {
       // rebuilt() replaces the opaque startup rev on its first call; later
-      // calls stay silent when the content hash is unchanged.
+      // calls stay silent when the artifact revision is unchanged.
       ctx.clientModules.rebuilt(id)
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code
@@ -53,6 +54,7 @@ export function installBundleWatch(ctx: Context, pollIntervalMs: number): void {
       ctx.logger.warn(error)
     }
     watch.mtimeMs = current.mtimeMs
+    watch.ctimeMs = current.ctimeMs
     watch.size = current.size
     watch.dirty = false
   }

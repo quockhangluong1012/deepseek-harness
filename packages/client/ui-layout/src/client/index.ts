@@ -1,7 +1,7 @@
 /**
  * Layout plugin, browser half: one register() call contributes AppFrame into
  * the runtime's built-in 'root' slot and, in the same breath, declares the
- * four child slots (declaration = exclusive render authority), seats the
+ * five child slots (declaration = exclusive render authority), seats the
  * layout store (panel geometry), and wires the panel-action service face.
  * ctx.layout selects the main panel and controls column geometry; Session
  * selection belongs to the Session Controller. A second effect seats the theme
@@ -126,13 +126,25 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      * layout — belongs to the page itself, not to this seat.
      */
     'shell.page': { kind: 'single'; scope: 'root' }
+     * Window-chrome seat at the frame's top-left, over every main panel.
+     * Mounted only while the sidebar column is fully hidden (macOS desktop
+     * collapse; other platforms keep the rail), so the occupant can assume the
+     * frame edge is the window edge and the macOS traffic lights sit before it.
+     * OCCUPIED by ui-sidebar's reopen/New Session controls.
+     *
+     * While the seat is mounted the frame publishes
+     * `--dsh-frame-leading-clearance` (the inline inset the seat's band
+     * occupies, measured from the frame's left edge); a main panel whose
+     * content reaches the top-left corner pads by it so nothing lands under
+     * the lights or the controls.
+     */
+    'shell.leading': { kind: 'single'; scope: 'root' }
   }
 }
 
 // OwnerShare contracts — the render-side share the slot owner supplies at
 // renderSlot. Registrants IMPORT these and compose their full component props
-// through the four-share intersection (PropsRuntime & PropsRenderSlots &
-// PropsStore & I). Conversation business state and actions arrive through
+// from the framework-derived shares. Conversation business state and actions arrive through
 // framework-standard hooks and each registrant's inject face, not owner props.
 
 /** Sidebar owner share: live column state from the frame's concession solve. */
@@ -172,7 +184,7 @@ export const inject = ['slots', 'theme', 'locale']
 
 /**
  * Client plugin body: provide ctx.layout, then one register() call — AppFrame
- * into 'root' with the five child-slot declarations, the layout store seat,
+ * into 'root' with the six child-slot declarations, the layout store seat,
  * and the shared root instance supplying commands and the panel-info and
  * page-occupancy sources.
  * @param ctx - client root context.
@@ -211,6 +223,7 @@ export function apply(ctx: ClientContext): void {
         'rightbar': { kind: 'single', scope: 'root' },
         'shell.overlay': { kind: 'list', scope: 'root' },
         'shell.page': { kind: 'single', scope: 'root' },
+        'shell.leading': { kind: 'single', scope: 'root' },
       },
       store,
       // The frame's only injected business fact: whether a page holds the

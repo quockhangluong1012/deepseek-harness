@@ -176,7 +176,7 @@ describe('session.search', () => {
       },
     })
     expect(searchSessions).toHaveBeenCalledOnce()
-    const [query, exec] = searchSessions.mock.calls[0] as unknown as [
+    const [query, exec] = searchSessions.mock.calls[0] as [
       SessionSearchRequest,
       { signal: AbortSignal },
     ]

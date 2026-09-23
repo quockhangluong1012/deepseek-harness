@@ -5,6 +5,7 @@
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
     "jsx": "react-jsx",
+    "lib": ["ES2024", "DOM", "DOM.Iterable", "ESNext.Disposable"],
     "lib": ["ES2024", "ESNext.Disposable", "DOM", "DOM.Iterable"],
     "typeRoots": ["./scripts/types", "./node_modules/@types"],
     "types": ["client-build-environment"]

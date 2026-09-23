@@ -1,16 +1,16 @@
 /**
  * HMR plugin, node half: the host end of the dev reload chain. It mounts the
  * bundle watch shared with the watch-only row (./bundle-watch.ts, reporting
- * changes through `clientModuleHost.rebuilt(id)`) and serves the
+ * changes through `clientModules.rebuilt(id)`) and serves the
  * `/plugins/events` SSE channel broadcasting graph/rebuilt frames to the
- * browser half (src/client/). The web bundle mounts this row unconditionally:
- * without a rebuild watcher rewriting client bundles, the poll observes no
- * changes and the chain stays idle.
+ * browser half (src/client/). The Web composition mounts this transport for
+ * live graph updates; without a rebuild watcher rewriting client bundles, the
+ * poll observes no changes and the chain stays idle.
  */
 import type { ServerResponse } from 'node:http'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
-// Empty type imports carry the clientModuleHost/webServer Context merges.
+// Empty type imports carry the clientModules/webServer Context merges.
 import type {} from '@deepseek-ai/dsh-client-modules'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import { installBundleWatch } from './bundle-watch.ts'
@@ -23,7 +23,7 @@ export { EVENTS_ENDPOINT } from './events.ts'
 /** Cordis plugin name. */
 export const name = 'client-hmr'
 
-/** Required services: the web plugin table and the route registry. */
+/** Required services: the client graph and Web route registry. */
 export const inject = ['clientModules', 'webServer']
 
 /** Plugin config, validated by the same-named schemastery schema. */
@@ -42,8 +42,8 @@ function sseData(frame: PluginsEventFrame): string {
 }
 
 /**
- * Mount the dev chain: bundle watches, rebuilt reporting, and the SSE channel.
- * @param ctx - host plugin context carrying clientModuleHost and webServer.
+ * Mount bundle watches and graph/rebuilt SSE delivery.
+ * @param ctx - host plugin context carrying clientModules and webServer.
  * @param config - validated {@link Config}.
  */
 export function apply(ctx: Context, config: Config): void {
@@ -55,6 +55,11 @@ export function apply(ctx: Context, config: Config): void {
   // --- /plugins/events SSE channel ----------------------------------------
   const connections = new Set<ServerResponse>()
 
+  const publishGraph = (): void => {
+    const line = sseData({ type: 'graph', graph: ctx.clientModules.graph() })
+    for (const res of connections) res.write(line)
+  }
+
   const connect = (res: ServerResponse): void => {
     res.writeHead(200, {
       'content-type': 'text/event-stream',
@@ -64,8 +69,8 @@ export function apply(ctx: Context, config: Config): void {
     // Comment line on open so clients/proxies see a live channel even when
     // no rebuild ever happens; EventSource frame parsing skips it naturally.
     res.write(': connected\n\n')
-    res.write(sseData({ type: 'graph', graph: ctx.clientModules.graph() }))
     connections.add(res)
+    res.write(sseData({ type: 'graph', graph: ctx.clientModules.graph() }))
     res.on('close', () => { connections.delete(res) })
   }
 
@@ -84,11 +89,13 @@ export function apply(ctx: Context, config: Config): void {
         connect(res)
       },
     })
+    const unsubscribeGraph = ctx.clientModules.onGraphChanged(publishGraph)
     const unsubscribe = ctx.clientModules.onRebuilt((id, rev) => {
       const line = sseData({ type: 'rebuilt', id, rev })
       for (const res of connections) res.write(line)
     })
     return () => {
+      unsubscribeGraph()
       unsubscribe()
       disposeRoute()
       for (const res of connections) res.destroy()

@@ -27,16 +27,16 @@
   ],
   "license": "MIT",
   "peerDependencies": {
-    "@deepseek-ai/cordis": "workspace:^",
-    "@deepseek-ai/dsh-evolution-model-routes": "workspace:^",
-    "@deepseek-ai/dsh-storage-domain": "workspace:^"
+    "@deepseek-ai/cordis": "workspace:~",
+    "@deepseek-ai/dsh-evolution-model-routes": "workspace:*",
+    "@deepseek-ai/dsh-storage-domain": "workspace:*"
   },
   "dependencies": {
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@deepseek-ai/cordis": "workspace:^",
-    "@deepseek-ai/dsh-evolution-model-routes": "workspace:^",
-    "@deepseek-ai/dsh-storage-domain": "workspace:^"
+    "@deepseek-ai/cordis": "workspace:~",
+    "@deepseek-ai/dsh-evolution-model-routes": "workspace:*",
+    "@deepseek-ai/dsh-storage-domain": "workspace:*"
   }
 }

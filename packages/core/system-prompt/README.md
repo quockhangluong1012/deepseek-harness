@@ -63,9 +63,11 @@ ctx.systemPrompt.section({
 })
 ```
 
+Set `interpolate: false` on a section to preserve its text literally, including `{{…}}` groups in generated tool documentation. Other sections interpolate variables by default.
+
 ### Contribute a prompt variable
 
-Variables are referenced from section text as `{{name}}` and resolved at each assembly; scoped variables shadow a same-named global for that agent. The loop supplies `model` and `cwd`; any plugin can register the facts it owns. Write `\{{` for a literal brace pair that must reach the model unchanged. Static section and context text with a malformed `{{…}}` group is rejected at registration; an unknown variable name is rejected at assembly, when the full registered set is known.
+Variables are referenced from section text as `{{name}}` and resolved at each assembly; scoped variables shadow a same-named global for that agent. The loop supplies `model` and `cwd`; any plugin can register the facts it owns. Write `\{{` for a literal brace pair that must reach the model unchanged. Static section and context text with a malformed `{{…}}` group is rejected at registration — a section with `interpolate: false` is literal and exempt; an unknown variable name is rejected at assembly, when the full registered set is known.
 
 ```text
 ctx.systemPrompt.variable('cwd', ({ agent }) => agent?.session.header.cwd)
@@ -102,7 +104,7 @@ The package is a registry plus a cooperative assembly pipeline. One `assemble()`
 
 ### Assembly and rendering
 
-Assembly resolves and renders in two stages: `assemble()` returns sections with resolved-but-uninterpolated text, the ordered tool schemas, and every registered variable resolved against the context, while `renderPrompt()` interpolates `{{variable}}` references, drops empty sections, and joins with blank lines — strictly, an unknown reference, a registered-but-valueless reference, or a malformed complete group throws, because a malformed prompt is worse than a loud failure. `toolOrder` canonicalizes the collected tools before the waterfall (registration order is a plugin-load artifact); a waterfall listener that mutates the list owns the determinism of what it emits.
+Assembly resolves and renders in two stages: `assemble()` returns sections with resolved-but-uninterpolated text, the ordered tool schemas, and every registered variable resolved against the context, while `renderPrompt()` interpolates `{{variable}}` references unless a section sets `interpolate: false`, drops empty sections, and joins with blank lines — strictly, an unknown reference, a registered-but-valueless reference, or a malformed complete group throws, because a malformed prompt is worse than a loud failure. `toolOrder` canonicalizes the collected tools before the waterfall (registration order is a plugin-load artifact); a waterfall listener that mutates the list owns the determinism of what it emits.
 
 ### Scoping
 
@@ -170,6 +172,7 @@ Prefix-stable while the visible schema set, rendering, and order are unchanged. 
 These limits define when prompt assembly needs special care. They are current package constraints, not a task backlog.
 
 - **Deployment-authored prompt text is config/composition only** — this plugin owns the global persona prefix and suffix defaults, creator plugins may register agent-scoped shadows, and other sections come from the plugin that owns the fact; there is no end-user prompt-editing API.
+- **Escapes are per-group, not per-section** — `\{{` escapes one brace pair inside interpolated text, so a whole section that must stay literal, including generated tool documentation, sets `interpolate: false`.
 - **`toolOrder` misconfiguration surfaces at prompt assembly (the first turn), not at boot** — only shape violations throw at config load.
 
 

@@ -30,8 +30,8 @@ export function turnEndToStopReason(reason: TurnEndReason): StopReason {
     case 'blocked':
     case 'error':
       return 'end_turn'
-    /* v8 ignore next 2 -- TurnEndReasonMap is merge-extensible, so a backend-added
-     * variant cannot be listed; unknown endings report ordinary quiescence. */
+    /* v8 ignore next 2 -- TurnEndReason is merge-extensible; every live-turn member is
+     * handled above, and seed-only variants (`forked`) never end an ACP prompt turn. */
     default:
       return 'end_turn'
   }

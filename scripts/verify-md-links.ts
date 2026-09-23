@@ -30,12 +30,23 @@ const PATTERNS = [
   'README.zh.md',
   '.agents/notes/**/*.md',
   'docs/**/*.md',
+  'packages/*.md',
   'packages/*/*.md',
   'packages/*/*/*.md',
   'AGENTS.md',
-  'packages/AGENTS.md',
   '.agents/skills/**/*.md',
 ]
+
+/**
+ * Discover authored Markdown sources, deduplicating symlinks.
+ * Archived notes are excluded as sources, but links to them remain checked.
+ * @param scanRoot - absolute repository root; pass the same root to findViolations for matching diagnostics.
+ * @returns forward-slash source paths relative to scanRoot.
+ */
+export function markdownLinkSourcePaths(scanRoot: string = root): string[] {
+  return uniqueRepoFiles(scanRoot, PATTERNS, isArchivedAgentNotePath)
+    .map(file => relative(scanRoot, file.abs).replaceAll('\\', '/'))
+}
 
 /** A broken relative link: a missing target path or a missing anchor on it. */
 interface Violation {
@@ -240,10 +251,10 @@ if (process.argv[1] && import.meta.filename === resolve(process.argv[1])) {
       allowPositionals: false,
     })
     const files = values.since === undefined
-      ? uniqueRepoFiles(root, PATTERNS, isArchivedAgentNotePath)
-      : changedMarkdownSources(root, values.since)
+      ? markdownLinkSourcePaths(root).map(file => resolve(root, file))
+      : changedMarkdownSources(root, values.since).map(file => file.abs)
     const anchorsOf = anchorCache()
-    const all = files.flatMap(file => findViolations(file.abs, anchorsOf))
+    const all = files.flatMap(abs => findViolations(abs, anchorsOf))
     const checked = files.length
     const scope = values.since === undefined ? '' : ` changed since ${values.since}`
 

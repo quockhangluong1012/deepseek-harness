@@ -25,7 +25,7 @@ llm 组提供 harness 的模型调用能力：一个提供方无关的服务，�
 | 包 | 职责 | ctx key |
 |---|---|---|
 | [`llm/`](llm/README.zh.md) | 通过已注册的提供方适配器流式发起一次模型调用，并共享 harness 的消息、块与分片词汇 | `ctx.llm` |
-| [`llm-deepseek/`](llm-deepseek/README.zh.md) | 以 DeepSeek chat-completions 直连、thinking 与图片输入服务 `deepseek-official` 路由 | 注册到 `ctx.llm` |
+| [`llm-deepseek/`](llm-deepseek/README.zh.md) | 通过 DeepSeek Messages 为 `deepseek-official` 路由提供思考与图片输入 | 注册到 `ctx.llm` |
 | [`llm-pi-ai/`](llm-pi-ai/README.zh.md) | 通过 pi-ai 目录与协议格式服务配置的提供方路由，包括手工声明的网关 | 注册到 `ctx.llm` |
 | [`embeddings/`](embeddings/README.zh.md) | 注册嵌入提供方路由，并以内容哈希缓存一次服务一个批次 | `ctx.embeddings` |
 | [`embeddings-http/`](embeddings-http/README.zh.md) | 由 OpenAI 兼容后端服务一个嵌入路由，并每批解析其凭据 | 注册到 `ctx.embeddings` |

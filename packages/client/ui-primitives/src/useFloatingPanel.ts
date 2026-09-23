@@ -19,6 +19,7 @@
  */
 
 import { useLayoutEffect, useState, type CSSProperties, type RefObject } from 'react'
+import { overlayTopMargin } from './overlay-top-margin.ts'
 
 /** Gap kept between the panel and the composer card. */
 const GAP = 4
@@ -47,6 +48,12 @@ export interface FloatingPanelOptions {
   cap: number
   /** Re-measure trigger: pass the panel's render state so anchor moves (composer growth) re-fit. */
   signal: unknown
+  /**
+   * Viewport top margin floor in px for a panel opening above the anchor; the
+   * frame's published top clearance widens it. Callers under fixed chrome (the
+   * conversation header) raise it past their chrome's height.
+   */
+  margin?: number
 }
 
 /**
@@ -55,7 +62,7 @@ export interface FloatingPanelOptions {
  * @returns the placement while open, or `null` before the first measurement.
  */
 export function useFloatingPanel(options: FloatingPanelOptions): FloatingPanelPlacement | null {
-  const { open, anchorRef, cap, signal } = options
+  const { open, anchorRef, cap, signal, margin = MARGIN } = options
   const [placement, setPlacement] = useState<FloatingPanelPlacement | null>(null)
   useLayoutEffect(() => {
     if (!open) {
@@ -68,7 +75,7 @@ export function useFloatingPanel(options: FloatingPanelOptions): FloatingPanelPl
          rather than unit tests. */
       const anchor = anchorRef.current?.getBoundingClientRect()
       if (anchor === undefined) return
-      const roomAbove = anchor.top - GAP - MARGIN
+      const roomAbove = anchor.top - GAP - overlayTopMargin(margin)
       const roomBelow = window.innerHeight - anchor.bottom - GAP - MARGIN
       const side: FloatingPanelSide = roomBelow > roomAbove ? 'below' : 'above'
       const room = Math.max(0, Math.min(cap, side === 'above' ? roomAbove : roomBelow))
@@ -95,6 +102,6 @@ export function useFloatingPanel(options: FloatingPanelOptions): FloatingPanelPl
       window.removeEventListener('scroll', place, true)
       window.removeEventListener('resize', place)
     }
-  }, [open, anchorRef, cap, signal])
+  }, [open, anchorRef, cap, signal, margin])
   return placement
 }

@@ -4,13 +4,13 @@
  *
  * @module @deepseek-ai/dsh-agent-loop
  */
+import type { Volatile } from '@deepseek-ai/cosmokit'
 
 import { Context, FiberState, Service } from '@deepseek-ai/cordis'
 import { randomUUID } from 'node:crypto'
 import z from '@deepseek-ai/schemastery'
 import { z as zod } from 'zod'
 import { brandString } from '@deepseek-ai/dsh-brand'
-import { emitAgentEvent } from '@deepseek-ai/dsh-agent'
 import type {
   Agent,
   AgentFactory,
@@ -23,7 +23,6 @@ import type {
   TurnBoundaryProjection,
 } from '@deepseek-ai/dsh-agent'
 import { errorChain, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
-import type {} from '@deepseek-ai/dsh-settings'
 import { interruptedTurnClosers, SessionLogOffset, SessionPreparation, SessionSeq } from '@deepseek-ai/dsh-session'
 import type { Session, SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-system-prompt'
@@ -33,7 +32,9 @@ import type { ProjectionDefinition } from '@deepseek-ai/dsh-session-projection'
 import { SessionPersistenceNotFoundError } from '@deepseek-ai/dsh-session-persistence'
 import type { SessionHandle, SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
 import { ReactLoopAgent } from './agent.ts'
+import { inboxProjectionDefinition } from './inbox.ts'
 import { DEFAULT_MAX_PARALLEL_TOOL_CALLS, DEFAULT_MAX_REQUEST_RETRIES, DEFAULT_MAX_STEPS } from './constants.ts'
+import type {} from './runtime-context.ts'
 
 /** Fiber states that cannot own or serve a new lifecycle. */
 const INACTIVE_STATES: ReadonlySet<FiberState> = new Set([
@@ -192,33 +193,6 @@ async function raceAbortCall<T>(
   }
 }
 
-/** Resolve the deployment-wide scheduler cap at the owning config boundary. */
-function resolveMaxParallelToolCalls(value: number | undefined): number {
-  const maxParallelToolCalls = value ?? DEFAULT_MAX_PARALLEL_TOOL_CALLS
-  if (!Number.isInteger(maxParallelToolCalls) || maxParallelToolCalls < 1) {
-    throw new Error('maxParallelToolCalls must be a positive integer')
-  }
-  return maxParallelToolCalls
-}
-
-/** Resolve the per-turn step ceiling at the owning config boundary. */
-function resolveMaxSteps(value: number | undefined): number {
-  const maxSteps = value ?? DEFAULT_MAX_STEPS
-  if (!Number.isInteger(maxSteps) || maxSteps < 1) {
-    throw new Error('maxSteps must be a positive integer')
-  }
-  return maxSteps
-}
-
-/** Resolve the per-step honored-retry ceiling at the owning config boundary. */
-function resolveMaxRequestRetries(value: number | undefined): number {
-  const maxRequestRetries = value ?? DEFAULT_MAX_REQUEST_RETRIES
-  if (!Number.isInteger(maxRequestRetries) || maxRequestRetries < 0) {
-    throw new Error('maxRequestRetries must be a non-negative integer')
-  }
-  return maxRequestRetries
-}
-
 /** Reject an output-token cap that cannot be represented exactly on the request wire. */
 function assertAgentOptions(options: AgentOptions): void {
   if (options.maxTokens !== undefined
@@ -238,8 +212,8 @@ interface PreparedAgent {
   agent: ReactLoopAgent
   /** Aborts when the factory unloads, the caller cancels, or teardown begins — ends any setup await. */
   signal: AbortSignal
-  /** Enter registries, announce, notify session-start, and start the machine. */
-  publish(source: SessionStartSource): AgentHandle
+  /** Enter both registries and await creation listeners. */
+  publish(source: SessionStartSource): Promise<AgentHandle>
   /** Reverse teardown: stop the machine, unregister, unwind the scope. Memoized. */
   dispose(): Promise<void>
 }
@@ -320,49 +294,25 @@ function applyLauncherIdentities(
   })
 }
 
-/** Settings namespace carrying the tool-call parallelism a user owns. */
-export const AGENT_LOOP_SETTINGS_NAMESPACE = 'agent-loop'
-
-/**
- * The agent-loop fields a user owns. Deliberately a strict subset of
- * {@link Config}: `agents` is a boot-time composition array consumed once when
- * the service starts, so a stored change could only look like it had an effect.
- */
-export interface AgentLoopSettings {
-  /** Maximum parallel-safe calls in flight per agent step. */
-  maxParallelToolCalls: number
-  /** Maximum entered steps per agent turn; a turn that would run past it ends `max-steps`. */
-  maxSteps: number
-  /** Maximum honored `agent/request-error` retries per step; further recoveries stay terminal. */
-  maxRequestRetries: number
-}
-
-/** Schema of the agent-loop settings section. */
-export const AGENT_LOOP_SETTINGS_SCHEMA: z<AgentLoopSettings> = z.object({
-  maxParallelToolCalls: z.number().step(1).min(1).default(DEFAULT_MAX_PARALLEL_TOOL_CALLS),
-  maxSteps: z.number().step(1).min(1).default(DEFAULT_MAX_STEPS),
-  maxRequestRetries: z.number().step(1).min(0).default(DEFAULT_MAX_REQUEST_RETRIES),
-})
-
 /** Agent-loop plugin configuration. */
 export interface Config {
   /**
    * Maximum parallel-safe calls in flight per agent step. `1` is serial;
    * omission defaults to {@link DEFAULT_MAX_PARALLEL_TOOL_CALLS}.
    */
-  maxParallelToolCalls?: number
+  maxParallelToolCalls: Volatile<number>
   /**
    * Maximum entered steps per agent turn. A turn that would run past the
    * ceiling ends `max-steps` instead of running unbounded; omission defaults
    * to {@link DEFAULT_MAX_STEPS}.
    */
-  maxSteps?: number
+  maxSteps: Volatile<number>
   /**
    * Maximum honored `agent/request-error` retries per step. A recovery past
    * the ceiling stays terminal; omission defaults to
    * {@link DEFAULT_MAX_REQUEST_RETRIES}. `0` disables request recovery.
    */
-  maxRequestRetries?: number
+  maxRequestRetries: Volatile<number>
   /** Agents created or resumed at plugin startup. */
   agents: (AgentOptions & {
     /** Stable config label used in logs and as the fresh combined-id prefix. */
@@ -375,9 +325,6 @@ export interface Config {
     resumeSessionId?: SessionId
   })[]
 }
-
-/** Agent-loop configuration after defaults and load-time validation. */
-type ResolvedConfig = Config & { maxParallelToolCalls: number; maxSteps: number; maxRequestRetries: number }
 
 /** Reject self-contained identity conflicts before any configured agent starts. */
 function validateConfiguredAgents(agents: Config['agents']): void {
@@ -402,10 +349,15 @@ export class AgentLoop extends Service implements AgentFactory {
   static inject = ['agents', 'sessions', 'llm', 'tools', 'systemPrompt', 'sessionProjections']
 
   /** Runtime schema for declarative agents. */
-  static Config = z.object({
-    maxParallelToolCalls: z.number().step(1).min(1).default(DEFAULT_MAX_PARALLEL_TOOL_CALLS),
-    maxSteps: z.number().step(1).min(1).default(DEFAULT_MAX_STEPS),
-    maxRequestRetries: z.number().step(1).min(0).default(DEFAULT_MAX_REQUEST_RETRIES),
+  static Config: z<{
+    agents?: Config['agents']
+    maxParallelToolCalls?: number
+    maxSteps?: number
+    maxRequestRetries?: number
+  }, Config> = z.object({
+    maxParallelToolCalls: z.number().step(1).min(1).default(DEFAULT_MAX_PARALLEL_TOOL_CALLS).volatile(),
+    maxSteps: z.number().step(1).min(1).default(DEFAULT_MAX_STEPS).volatile(),
+    maxRequestRetries: z.number().step(1).min(0).default(DEFAULT_MAX_REQUEST_RETRIES).volatile(),
     agents: z.array(z.object({
       id: z.string().required(),
       sessionId: z.string().min(1),
@@ -416,10 +368,15 @@ export class AgentLoop extends Service implements AgentFactory {
       cwd: z.string(),
       resumeSessionId: z.string(),
     })).default([]),
-  }) as z<Config>
+  }) as z<{
+    agents?: Config['agents']
+    maxParallelToolCalls?: number
+    maxSteps?: number
+    maxRequestRetries?: number
+  }, Config>
 
   /** Validated configuration owned by the agent-loop service. */
-  readonly config: ResolvedConfig
+  readonly config: Config
   private readonly ownership: FactoryOwnership
   /** Plain holder prevents Cordis from re-tracing the factory's dependency context through a caller shadow. */
   private readonly runtime: { ctx: Context }
@@ -427,53 +384,17 @@ export class AgentLoop extends Service implements AgentFactory {
   constructor(ctx: Context, config: Config) {
     super(ctx, 'agentLoop')
 
-    const entry: AgentLoopSettings = {
-      maxParallelToolCalls: resolveMaxParallelToolCalls(config.maxParallelToolCalls),
-      maxSteps: resolveMaxSteps(config.maxSteps),
-      maxRequestRetries: resolveMaxRequestRetries(config.maxRequestRetries),
-    }
-    let source: () => AgentLoopSettings = () => entry
     this.config = {
-      ...config,
       agents: applyLauncherIdentities(config.agents, ctx.get(CONFIGURED_AGENT_IDENTITIES_KEY)),
-      // Read through on every scheduler decision: `tool-calls.ts` destructures
-      // this at the start of each group, so a committed change caps the next
-      // group without disturbing the one in flight.
-      get maxParallelToolCalls() {
-        return source().maxParallelToolCalls
-      },
-      // Read through on every turn continuation for the same reason: a
-      // committed change bounds the next step without disturbing this one.
-      get maxSteps() {
-        return source().maxSteps
-      },
-      // Read through on every retry decision for the same reason: a committed
-      // change bounds the next recovery without disturbing this one.
-      get maxRequestRetries() {
-        return source().maxRequestRetries
-      },
+      maxParallelToolCalls: config.maxParallelToolCalls,
+      maxSteps: config.maxSteps,
+      maxRequestRetries: config.maxRequestRetries,
     }
-    ctx.inject(['settings'], (settingsCtx) => {
-      settingsCtx.settings.installSection(ctx, AGENT_LOOP_SETTINGS_NAMESPACE, AGENT_LOOP_SETTINGS_SCHEMA, entry, {
-        // The schema admits any integer above zero (retries: zero or above);
-        // the resolvers own the whole rule, so refusing here keeps the running
-        // scheduler on its last good caps instead of failing at the next tool
-        // group, step, or retry.
-        validate: (value) => {
-          void resolveMaxParallelToolCalls(value.maxParallelToolCalls)
-          void resolveMaxSteps(value.maxSteps)
-        },
-        setSource: (current) => {
-          source = current
-        },
-        // Nothing is derived from the cap: the getter above is the only reader.
-        onChange: () => {},
-      })
-    })
     validateConfiguredAgents(this.config.agents)
     // Register only after every config validation above has passed, so a
     // rejected constructor leaves no projection unit behind.
     ctx.sessionProjections.register(turnBoundaryProjectionDefinition)
+    ctx.sessionProjections.register(inboxProjectionDefinition)
     this.ownership = new FactoryOwnership(ctx.fiber)
     this.runtime = { ctx }
     ctx.effect(() => () => this.ownership.dispose(), 'agentLoop.transactions()')
@@ -629,6 +550,7 @@ export class AgentLoop extends Service implements AgentFactory {
     let detachSession: (() => void) | undefined
     let detachAgent: (() => void) | undefined
     let disposing: Promise<void> | undefined
+    let publication: ReturnType<typeof Promise.withResolvers<void>> | undefined
     const machineReady = Promise.withResolvers<void>()
     // Reverse teardown, memoized so every racing owner awaits one quiescence:
     // stop the machine, drain and close the session's write path, leave the
@@ -642,6 +564,8 @@ export class AgentLoop extends Service implements AgentFactory {
       // disposal rejects with what failed so every racing owner observes it.
       const failures: unknown[] = []
       try {
+        // Creation listeners retain the session and scope through their awaits.
+        if (publication !== undefined) await publication.promise
         // Disposal IS a disposed-cause cancel followed by quiescence. New work
         // sent after this point is the sender's bug — the registries are about
         // to drop the agent, so nothing should still hold it.
@@ -719,22 +643,23 @@ export class AgentLoop extends Service implements AgentFactory {
       return {
         agent,
         signal: abort.signal,
-        publish: (source) => {
-          assertLive()
-          detachSession = agent.ctx.sessions.enter(session)
-          // The mounted backend routes announced live events into the active
-          // write handle by session id; the loop only owns the handle itself.
-          detachAgent = loopCtx.agents.enter(agent, parentAgent)
-          agent.ctx.sessions.announce(session)
-          assertLive()
-          loopCtx.agents.announce(agent)
-          assertLive()
-          // A synchronous announce/session-start listener may have started
-          // teardown; the machine is already live (delivery works from the
-          // session-start extension point), so only the liveness recheck is owed.
-          emitAgentEvent(loopCtx, agent, 'agent/session-start', { source })
-          assertLive()
-          return { agent, dispose }
+        publish: async (source) => {
+          publication = Promise.withResolvers<void>()
+          try {
+            assertLive()
+            detachSession = agent.ctx.sessions.enter(session)
+            // The mounted backend routes announced live events into the active
+            // write handle by session id; the loop only owns the handle itself.
+            detachAgent = loopCtx.agents.enter(agent, parentAgent)
+            agent.ctx.sessions.announce(session)
+            assertLive()
+            await loopCtx.agents.announce(agent, source, abort.signal)
+            assertLive()
+            return { agent, dispose }
+          } finally {
+            publication.resolve()
+            publication = undefined
+          }
         },
         dispose,
       }
@@ -767,14 +692,10 @@ export class AgentLoop extends Service implements AgentFactory {
       await stored?.handle.close().catch(() => {})
       throw error
     }
-    try {
+    return (await this.initializeAgent(prepared, async () => {
       await this.appendUnstoredSuffix(stored, preparation.session)
-      return prepared.publish('startup').agent
-    } catch (error: unknown) {
-      // Rollback swallows a disposal rejection: the setup failure is primary.
-      void prepared.dispose().catch(() => {})
-      throw error
-    }
+      return await prepared.publish('startup')
+    })).agent
   }
 
   /**
@@ -885,11 +806,25 @@ export class AgentLoop extends Service implements AgentFactory {
       await stored?.handle.close().catch(() => {})
       throw error
     }
-    try {
+    return await this.initializeAgent(prepared, async () => {
       const setupCommit = await raceAbort(setup?.(prepared.agent.ctx, prepared.agent), prepared.signal, id)
       setupCommit?.commit()
       await this.appendUnstoredSuffix(stored, session)
-      return prepared.publish(source)
+      return await prepared.publish(source)
+    })
+  }
+
+  private async initializeAgent(prepared: PreparedAgent, initialize: () => Promise<AgentHandle>): Promise<AgentHandle> {
+    try {
+      return await prepared.agent.runMaintenance(async () => {
+        try {
+          return await initialize()
+        } catch (error: unknown) {
+          // Teardown owns inbox cleanup and may already have removed its projection.
+          prepared.agent.cancel({ kind: 'disposed' }, { keepInbox: true })
+          throw error
+        }
+      })
     } catch (error: unknown) {
       // Rollback swallows a disposal rejection (a failing final handle close):
       // the setup failure is the primary error the caller must see.

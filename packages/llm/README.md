@@ -25,7 +25,7 @@ The llm group provides the harness's model-call capability: one provider-neutral
 | Package | Role | ctx key |
 |---|---|---|
 | [`llm/`](llm/README.md) | Streams one model call through a registered provider adapter and shares the harness message, block, and chunk vocabulary | `ctx.llm` |
-| [`llm-deepseek/`](llm-deepseek/README.md) | Serves the `deepseek-official` route with direct DeepSeek chat-completions, thinking, and image input | registers on `ctx.llm` |
+| [`llm-deepseek/`](llm-deepseek/README.md) | Serves the `deepseek-official` route through DeepSeek Messages with thinking and image input | registers on `ctx.llm` |
 | [`llm-pi-ai/`](llm-pi-ai/README.md) | Serves configured provider routes through pi-ai catalogs and wire protocols, including hand-declared gateways | registers on `ctx.llm` |
 | [`embeddings/`](embeddings/README.md) | Registers embedding provider routes and serves one batch at a time from a content-hash cache | `ctx.embeddings` |
 | [`embeddings-http/`](embeddings-http/README.md) | Serves one embeddings route from an OpenAI-compatible endpoint, resolving its credential per batch | registers on `ctx.embeddings` |

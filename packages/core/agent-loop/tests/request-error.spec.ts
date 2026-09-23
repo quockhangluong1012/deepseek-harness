@@ -154,7 +154,7 @@ describe('agent/request-error', () => {
     agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
     await agent.whenIdle()
 
-    expect(ctx.agentLoop.config.maxRequestRetries).toBe(10)
+    expect(ctx.agentLoop.config.maxRequestRetries.get()).toBe(10)
     expect(adapter.requests).toHaveLength(11)
     expect(agent.session.snapshotEvents().filter(event => event.type === 'assistant/attempt')).toHaveLength(11)
     expect(agent.session.snapshotEvents().find(event => event.type === 'turn/end')).toMatchObject({
@@ -197,10 +197,7 @@ describe('agent/request-error', () => {
   })
 
   it('rejects a negative or fractional retry ceiling at load', async () => {
-    // Direct construction bypasses the config schema, so the resolver owns the message.
-    expect(() => new AgentLoop(new Context(), { agents: [], maxRequestRetries: -1 }))
-      .toThrow('maxRequestRetries must be a non-negative integer')
-    expect(() => new AgentLoop(new Context(), { agents: [], maxRequestRetries: 1.5 }))
-      .toThrow('maxRequestRetries must be a non-negative integer')
+    await expect(harness(new MockAdapter([]), { maxRequestRetries: -1 })).rejects.toThrow()
+    await expect(harness(new MockAdapter([]), { maxRequestRetries: 1.5 })).rejects.toThrow()
   })
 })

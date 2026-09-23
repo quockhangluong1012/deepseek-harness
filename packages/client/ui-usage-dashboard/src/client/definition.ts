@@ -8,7 +8,7 @@
  */
 import type { TranslateNS } from '@deepseek-ai/dsh-client-locale/client'
 import type { SidebarRightTabDefinition } from '@deepseek-ai/dsh-client-ui-sidebar-right/client'
-import { IconGaugeOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconGaugeOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 
 /** The tab kind this package owns. */
 export const USAGE_KIND = 'usage'
@@ -31,7 +31,7 @@ export function usageDefinition(t: TranslateNS<'sidebarUsage'>): SidebarRightTab
       order: 20,
       title: () => t('guide.title'),
       description: () => t('guide.description'),
-      icon: IconGaugeOutline16,
+      icon: IconGaugeOutlineRegular,
     }],
   }
 }

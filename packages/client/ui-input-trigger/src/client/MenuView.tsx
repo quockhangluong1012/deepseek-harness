@@ -17,7 +17,7 @@
 import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
 import clsx from 'clsx'
-import { IconChevronRightOutline14, ReferenceIcon, useFloatingPanel } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconChevronRightOutlineRegular, ReferenceIconRegular, useFloatingPanel } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import css from './MenuView.module.css'
 import type { ComposerOverlayOwnerProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
@@ -34,6 +34,13 @@ export type MenuViewProps = MenuViewInjected & ComposerOverlayOwnerProps & Props
 
 /** Height cap that fits the two headings and eight built-in command rows. */
 const MAX_HEIGHT = 400
+
+/**
+ * Viewport top margin: the conversation header's 76px block (title row plus
+ * view tabs, ui-conversation) plus 8px of air, so a tall list stops below the
+ * header instead of sliding under it.
+ */
+const TOP_MARGIN = 84
 
 /** DOM id of one option row (the aria-activedescendant target). */
 function optionId(source: string, index: number): string {
@@ -58,9 +65,10 @@ export function MenuView({ menu, headers, anchorRef, onPick, onCrumb, onHover, o
   // The portaled list hangs from the side of the composer card with room for
   // it, re-placed on every store update (the anchor moves when the composer
   // grows) and on viewport scroll/resize.
-  const placement = useFloatingPanel({ open: state.open, anchorRef, cap: MAX_HEIGHT, signal: state })
+  const placement = useFloatingPanel({ open: state.open, anchorRef, cap: MAX_HEIGHT, signal: state, margin: TOP_MARGIN })
   const viewportRef = useRef<HTMLDivElement>(null)
   const [hasOverflowBelow, setHasOverflowBelow] = useState(false)
+
   const updateOverflowHint = useCallback(() => {
     const viewport = viewportRef.current
     setHasOverflowBelow(viewport !== null
@@ -112,7 +120,7 @@ export function MenuView({ menu, headers, anchorRef, onPick, onCrumb, onHover, o
           <nav key={group.source} className={css.crumbs} aria-label={t('crumbs.aria')}>
             {trail.map((crumb, index) => (
               <Fragment key={`${String(index)}-${crumb.value}`}>
-                {index > 0 && <span className={css.crumbSeparator} aria-hidden><IconChevronRightOutline14 /></span>}
+                {index > 0 && <span className={css.crumbSeparator} aria-hidden><IconChevronRightOutlineRegular /></span>}
                 <button
                   type="button"
                   className={clsx(css.crumb, crumb.current === true && css.crumbCurrent)}
@@ -184,8 +192,8 @@ export function MenuView({ menu, headers, anchorRef, onPick, onCrumb, onHover, o
                         {item.icon !== undefined && (
                           <span className={css.itemIcon} aria-hidden>
                             {typeof item.icon === 'string'
-                              ? <ReferenceIcon kind={item.icon} size={16} />
-                              : <item.icon size={16} />}
+                              ? <ReferenceIconRegular kind={item.icon} size={14} />
+                              : <item.icon size={14} />}
                           </span>
                         )}
                         <span className={css.itemName}>{item.label ?? item.name}</span>
@@ -211,7 +219,7 @@ export function MenuView({ menu, headers, anchorRef, onPick, onCrumb, onHover, o
                                 onPick(group.source, index, 'drill')
                               }}
                             >
-                              <IconChevronRightOutline14 />
+                              <IconChevronRightOutlineRegular size={12} />
                             </span>
                           </span>
                         )}

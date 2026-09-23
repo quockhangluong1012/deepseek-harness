@@ -4,18 +4,18 @@
  * body and hung from the composer card the slot hands it. Unlike the slash
  * menu (combobox — textarea keeps focus), this shell HOLDS focus while open: the
  * inner search input takes focus, plain typing filters the loaded options
- * locally, Enter/↑↓ drive the filtered highlight (scrolled into view), Escape
- * dismisses back to the composer, and ←→ keep the search input's native
- * caret. Any pointer interaction outside the box dismisses (the click's own
- * target takes focus). Closed state renders null; the overlay slot stays
- * mounted. The card hangs from whichever side of the composer card has the
- * room and clamps its height to that side.
+ * locally, Enter and Tab accept the filtered highlight, ↑↓ walk it (wrapping,
+ * scrolled into view), and Escape and Shift+Tab dismiss back to the composer.
+ * ←→ keep the search input's native caret. Any pointer interaction outside the
+ * box dismisses (the click's own target takes focus). Closed state renders
+ * null; the overlay slot stays mounted. The card hangs from whichever side of
+ * the composer card has the room and clamps its height to that side.
  */
 import { useEffect, useRef } from 'react'
 import { useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
 import clsx from 'clsx'
-import { IconCheckOutline16, RiskConfirmation, useFloatingPanel } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconCheckOutlineRegular, RiskConfirmation, useFloatingPanel } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ComposerOverlayOwnerProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { filterOptions } from './popup.ts'
@@ -104,6 +104,19 @@ export function PopupSelectView({ popup, anchorRef, t }: PopupSelectViewProps) {
         ev.preventDefault()
         void popup.select(state.active)
         return
+      // Tab settles like Enter and Shift+Tab dismisses like Escape, so the
+      // card's keys mean what they mean in the composer. Both must be consumed:
+      // the shell HOLDS focus, and native traversal would leave an open card
+      // whose search input lost focus.
+      case 'Tab':
+        // With nothing to settle — still loading, failed, or filtered empty —
+        // the keystroke stays the browser's, which is how the error strip's
+        // retry button remains reachable.
+        if (!ev.shiftKey && (state.status !== 'ready' || rows.length === 0)) return
+        ev.preventDefault()
+        if (ev.shiftKey) popup.dismiss({ focusComposer: true })
+        else void popup.select(state.active)
+        return
       case 'Escape':
         ev.preventDefault()
         popup.dismiss({ focusComposer: true })
@@ -152,6 +165,7 @@ export function PopupSelectView({ popup, anchorRef, t }: PopupSelectViewProps) {
                   key={option.id}
                   role="option"
                   aria-selected={index === state.active}
+                  aria-label={option.badge === undefined ? undefined : `${option.label} ${option.badge}`}
                   className={clsx(css.row, index === state.active && css.rowActive)}
                   // mousedown would race the document capture listener; the shell
                   // owns focus anyway, so a plain click (inside the card → no
@@ -159,9 +173,12 @@ export function PopupSelectView({ popup, anchorRef, t }: PopupSelectViewProps) {
                   onClick={() => { void popup.select(index) }}
                   onMouseEnter={() => { popup.highlight(index) }}
                 >
-                  <span className={css.label}>{option.label}</span>
+                  <span className={css.label}>
+                    <span className={css.labelText}>{option.label}</span>
+                    {option.badge !== undefined && <sup className={css.badge}>{option.badge}</sup>}
+                  </span>
                   {option.detail !== undefined && <span className={css.detail}>{option.detail}</span>}
-                  {option.active === true && <span className={css.check}><IconCheckOutline16 /></span>}
+                  {option.active === true && <span className={css.check}><IconCheckOutlineRegular /></span>}
                 </div>
               ))}
             </div>

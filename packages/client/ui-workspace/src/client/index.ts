@@ -5,14 +5,22 @@
  * (`conversation.hero.workspace` — both hero forms). Both read real Host
  * Workspaces through the global useWorkspaces hook, and each declares its
  * own `single` directory-flow child hole for the composed picker package's
- * client half (see the contract module doc). Export discipline:
+ * client half. WorkspaceBrowser additionally declares the two Session row
+ * action lists, and this apply registers the shipped actions — pin, rename,
+ * fork, archive — into them the way any client plugin would, each with its
+ * own behavior, plus the rename dialog and the row-action notice into
+ * `shell.overlay` (see the contract module doc). Export discipline:
  * packages/client/AGENTS.md.
  */
 import type { Context } from '@deepseek-ai/cordis'
 import type { RemoteHostFacts } from '@deepseek-ai/dsh-api-remotes/client'
 import type { ISessions } from '@deepseek-ai/dsh-api-session-controller/client'
-import type { IWorkspaces, WorkspaceId, WorkspaceSnapshot } from '@deepseek-ai/dsh-api-workspace-controller/client'
+import type {
+  IWorkspaces, SessionActivity, WorkspaceArchiveError, WorkspaceId, WorkspaceSnapshot,
+} from '@deepseek-ai/dsh-api-workspace-controller/client'
+import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { HostObservable, SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 // Type-only: pulls the Controller service merges.
 import type {} from '@deepseek-ai/dsh-api-session-controller/client'
 import type {} from '@deepseek-ai/dsh-api-workspace-controller/client'
@@ -23,17 +31,30 @@ import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 // Type-only: pulls the Session root standard-hook merge.
 import type {} from '@deepseek-ai/dsh-client-ui-session/client'
-import type { WorkspaceBrowserInjected, WorkspacePickerInjected } from './contract/slots.ts'
+import {
+  type ArchiveSessionInjected, type ForkSessionInjected, menuOpenStateFactory, type PinSessionInjected,
+  type SessionArchiveConfirmInjected, type SessionArchiveConfirmRequest,
+  type RenameSessionInjected, type RowToast, type RowToastInjected, type RowToastState, type SessionRenameDialogInjected,
+  type SessionRenameTarget, type WorkspaceBrowserInjected, type WorkspacePickerInjected,
+} from './contract/slots.ts'
 import { UiWorkspaceService } from './navigation.ts'
 import { createWorkspaceViewStore } from './stores.ts'
 import { WorkspaceBrowser } from './rows/WorkspaceBrowser.tsx'
+import { ArchiveSessionMenuItem, ArchiveSessionRowButton, SessionArchiveConfirmDialog } from './session-actions/ArchiveSession.tsx'
+import { derive } from './session-actions/derived.ts'
+import { ForkSessionMenuItem } from './session-actions/ForkSession.tsx'
+import { PinSessionMenuItem, PinSessionRowButton } from './session-actions/PinSession.tsx'
+import { RenameSessionMenuItem, SessionRenameDialog } from './session-actions/RenameSession.tsx'
+import { RowActionToast } from './session-actions/RowActionToast.tsx'
 import { WorkspacePicker } from './WorkspacePicker.tsx'
 import { en, zh, type WorkspaceKey } from './locales.ts'
 
 export type { UiWorkspace } from './navigation.ts'
 export type {
   DirectoryFlowOwnerProps, DirectoryFlowSlotName, DirectoryPickingHooks, DirectoryPickingInjected,
-  WorkspaceBrowserInjected, WorkspaceBrowserProps, WorkspacePickerInjected, WorkspacePickerProps,
+  MenuOpenState, RowToast, SessionRenameTarget, SessionRowOwnerProps, UseMenuOpenState, WorkspaceBrowserInjected,
+  WorkspaceBrowserProps,
+  WorkspacePickerInjected, WorkspacePickerProps,
 } from './contract/slots.ts'
 export type { WorkspaceKey } from './locales.ts'
 
@@ -46,6 +67,12 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
     /** The workspace browsing region and pick/create flow copy. */
     workspace: WorkspaceKey
+  }
+}
+
+declare module '@deepseek-ai/dsh-api-session-controller/client' {
+  interface SessionReferenceSourceMap {
+    workspaceOperation: unknown
   }
 }
 
@@ -73,8 +100,18 @@ export const inject = [
 export function apply(ctx: Context): void {
   const sessions = ctx.get('sessions') as ISessions
   const workspaces = ctx.get('workspaces') as IWorkspaces
+  // One viewing-store instance, created here as ui-layout does for its layout
+  // store: the browser declares the handle, and the UiWorkspace service writes
+  // view order through the same instance the renderer hands the browser.
+  const viewHandle = createWorkspaceViewStore()
+  const viewInstance = viewHandle.create()
+  const viewStore: typeof viewHandle = { ...viewHandle, create: () => viewInstance }
+  const rowToast = createSnapshotStore<RowToastState | null>(null)
+  let toastSeq = 0
+  const notify = (toast: RowToast): void => { rowToast.set({ ...toast, seq: ++toastSeq }) }
   const uiWorkspace = new UiWorkspaceService(
-    ctx, ctx.remote.directoryPicker, workspaces, sessions)
+    ctx, ctx.remote.directoryPicker, workspaces, sessions, viewInstance.actions, notify,
+  )
   ctx.slots.provideRoot({ hooks: { workspaces: workspaces.list } })
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'ui-workspace: dictionaries')
 
@@ -99,16 +136,17 @@ export function apply(ctx: Context): void {
   const openSession: WorkspaceBrowserInjected['open'] = (sessionId) => {
     uiWorkspace.openSession(sessionId)
   }
-  const browserInjected = (): WorkspaceBrowserInjected => {
-    // Optional page opener owned by the workspace-memory page plugin.
-    // Resolved per injection (not once at apply): the page plugin's roster
-    // row follows this one, so an apply-time read would always miss it.
-    // Named cast stands in for the host-face seam declaration, which this
-    // browser program cannot import without a feature-plugin edge.
-    const clientCtx = ctx as unknown as {
+  // Optional page opener owned by the workspace-memory page plugin.
+  // Resolved per injection (not once at apply): the page plugin's roster
+  // row follows this one, so an apply-time read would always miss it.
+  // Named cast stands in for the host-face seam declaration, which this
+  // browser program cannot import without a feature-plugin edge.
+  const pageOpener = (): { open(workspaceId: WorkspaceId): void } | undefined =>
+    (ctx as unknown as {
       get(key: string): { open(workspaceId: WorkspaceId): void } | undefined
-    }
-    const opener = clientCtx.get('workspacePage')
+    }).get('workspacePage')
+  const browserInjected = (): WorkspaceBrowserInjected => {
+    const opener = pageOpener()
     return {
       // Explicit group actions keep their target; unscoped New Session inherits
       // the current Session Workspace before the recent-Workspace fallback.
@@ -116,36 +154,21 @@ export function apply(ctx: Context): void {
       open: openSession,
       searchSessions,
       searchResultLimit: sessions.searchResultLimit,
-      renameSession: async (sessionId, title) => {
-        // Row → session-face hop: rename is a per-session verb (ISession), not
-        // a list-service verb; the binding resolves any listed session.
-        const session = sessions.binding(sessionId)?.session
-        if (session === undefined) throw new Error(`unknown session "${sessionId}"`)
-        const result = await session.rename(title)
-        if (!result.ok) throw new Error(result.error.message)
-      },
-      forkSession: (sessionId) => {
-        uiWorkspace.forkSession(sessionId)
-          .catch(() => {
-          // Fork or child-rename failure keeps the current selection.
-          })
-      },
+      requestSessionRename,
+      notifyArchivedNotOpenable: () => { notify({ kind: 'archivedNotOpenable' }) },
       renameWorkspace: async (workspaceId, title) => { await workspaces.rename(workspaceId, title) },
       deleteWorkspace: async (workspaceId) => { await workspaces.delete(workspaceId) },
       insertWorkspaceBefore: async (workspaceId, beforeWorkspaceId) => {
         await workspaces.insertBefore(workspaceId, beforeWorkspaceId)
       },
-      archiveSession: async (sessionId) => { await uiWorkspace.archiveSession(sessionId) },
-      insertSessionBefore: async (workspaceId, sessionId, beforeSessionId) => {
-        await workspaces.insertSessionBefore(workspaceId, sessionId, beforeSessionId)
-      },
+      unarchiveSession: async (sessionId) => { await uiWorkspace.unarchiveSession(sessionId) },
       createWorkspace: input => workspaces.create(input),
       hooks: { directoryFlow: browserFlowSource, hostInfo },
       // Compositions without the page keep the name toggling the group.
       ...(opener === undefined
         ? {}
         : {
-          openWorkspacePage: (workspaceId: WorkspaceId) => {
+          openWorkspacePage: (workspaceId) => {
             // The centre shows one route at a time: the page takes the track
             // from a selected global panel, which would otherwise stay on
             // screen above it and hide the page's own composer band.
@@ -159,18 +182,54 @@ export function apply(ctx: Context): void {
     createWorkspace: input => workspaces.create(input),
     hooks: { directoryFlow: pickerFlowSource },
   })
-  // Each registration declares its directory-flow child in the same call;
-  // slot injection follows both the owner and declaration HMR lifetimes.
+  // Each registration declares its owned children in the same call; slot
+  // injection follows both the owner and declaration HMR lifetimes.
   ctx.slots.inject('sidebar.workspaces', () => ctx.slots.register(
     {
       name: 'sidebar.workspaces',
-      children: { 'sidebar.workspaces.directoryFlow': { kind: 'single', scope: 'root' } },
-      store: createWorkspaceViewStore(),
+      children: {
+        'sidebar.workspaces.directoryFlow': { kind: 'single', scope: 'root' },
+        // Every row entry reads the menu's open state through a hook bound
+        // from the row's render occurrence (the owner passes the state pair
+        // as hookContext).
+        'sidebar.workspaces.session.menu.item': {
+          kind: 'list', scope: 'root', inject: { hooks: { menuOpenState: menuOpenStateFactory } },
+        },
+        'sidebar.workspaces.session.row.action': { kind: 'list', scope: 'root' },
+      },
+      store: viewStore,
       inject: browserInjected,
       locale: NS,
     },
     WorkspaceBrowser,
   ))
+  // The shipped row actions take the same route as a plugin's: `slots.inject`
+  // waits for the browser registration above to declare each list, and the
+  // entries leave with it. Orders step by 100 so a plugin entry can land
+  // between them.
+  ctx.slots.inject('sidebar.workspaces.session.menu.item', function* () {
+    yield ctx.slots.register({ name: 'sidebar.workspaces.session.menu.item', id: 'pin', order: 100, locale: NS, inject: pinInjected }, PinSessionMenuItem)
+    yield ctx.slots.register({ name: 'sidebar.workspaces.session.menu.item', id: 'rename', order: 200, locale: NS, inject: renameInjected }, RenameSessionMenuItem)
+    yield ctx.slots.register({ name: 'sidebar.workspaces.session.menu.item', id: 'fork', order: 300, locale: NS, inject: forkInjected }, ForkSessionMenuItem)
+    yield ctx.slots.register({ name: 'sidebar.workspaces.session.menu.item', id: 'archive', order: 400, locale: NS, inject: archiveInjected }, ArchiveSessionMenuItem)
+  })
+  ctx.slots.inject('sidebar.workspaces.session.row.action', function* () {
+    yield ctx.slots.register({ name: 'sidebar.workspaces.session.row.action', id: 'archive', order: 100, locale: NS, inject: archiveInjected }, ArchiveSessionRowButton)
+    yield ctx.slots.register({ name: 'sidebar.workspaces.session.row.action', id: 'pin', order: 200, locale: NS, inject: pinInjected }, PinSessionRowButton)
+  })
+  // The surfaces the actions raise live in the frame-wide layer: they must
+  // outlive the row menu the action sat in.
+  ctx.slots.inject('shell.overlay', function* () {
+    yield ctx.slots.register({
+      name: 'shell.overlay', id: 'workspace.session-rename', locale: NS, inject: renameDialogInjected,
+    }, SessionRenameDialog)
+    yield ctx.slots.register({
+      name: 'shell.overlay', id: 'workspace.session-archive', locale: NS, inject: archiveConfirmInjected,
+    }, SessionArchiveConfirmDialog)
+    yield ctx.slots.register({
+      name: 'shell.overlay', id: 'workspace.row-toast', locale: NS, inject: rowToastInjected,
+    }, RowActionToast)
+  })
   ctx.slots.inject('conversation.hero.workspace', () => ctx.slots.register(
     {
       name: 'conversation.hero.workspace',
@@ -180,4 +239,15 @@ export function apply(ctx: Context): void {
     },
     WorkspacePicker,
   ))
+}
+
+/**
+ * The activity a Host `workspace/session-active` refusal reported, or nothing
+ * for any other failure. The class identity check goes by name: client plugin
+ * bundles do not share error-class identity.
+ */
+function activeSessionRefusal(reason: unknown): readonly SessionActivity[] | undefined {
+  if (!(reason instanceof Error) || reason.name !== 'WorkspaceArchiveError') return undefined
+  const { rpcError } = reason as WorkspaceArchiveError
+  return rpcError.code === 'workspace/session-active' ? rpcError.details.activity : undefined
 }

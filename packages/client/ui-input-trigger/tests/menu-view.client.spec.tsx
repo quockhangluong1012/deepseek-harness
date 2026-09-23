@@ -145,7 +145,7 @@ describe('MenuView', () => {
     }))
     const options = screen.getAllByRole('option')
     expect(options.map(o => o.textContent)).toEqual(['计划plan进入或退出计划模式', 'File'])
-    expect(options[0]?.querySelector('[data-glyph="plan"]')?.getAttribute('width')).toBe('16')
+    expect(options[0]?.querySelector('[data-glyph="plan"]')?.getAttribute('width')).toBe('14')
     // A label that is the name in another letter case renders no alias.
     expect(options[1]?.querySelectorAll('span')).toHaveLength(1)
     expect(screen.getAllByText('添加')).toHaveLength(1)
@@ -274,13 +274,13 @@ describe('MenuView', () => {
   })
 
   it('clamps the list height to the room on the hanging side when it is under the design maximum', () => {
-    // Above wins narrowly (354px of room against 332px below), so the cap
+    // Above wins narrowly (352px of room against 332px below), so the cap
     // follows the room above instead of the design maximum.
-    anchorCard(370, 420)
+    anchorCard(440, 420)
     mount(openState())
     const shell = menuShell()
     expect(shell.dataset.side).toBe('above')
-    expect(shell.style.maxHeight).toBe('354px')
+    expect(shell.style.maxHeight).toBe('352px')
   })
 
   it('re-places the list when the window resizes', () => {

@@ -7,7 +7,7 @@ Every model-facing tool a shipped plugin contributes to `ctx.tools`: the `name`,
 
 This file is GENERATED and verified fresh by `pnpm run verify-tool-catalog` (part of `doc-sync`) — do not edit it by hand. Unlike the cordis catalog (a pure source-AST pass), this generator BOOTS each tool plugin on a real context and reads `ctx.tools.schemas()`, because a tool schema is not statically knowable (runtime-spread enums, concatenated descriptions, config-driven names, raw-JSON-Schema MCP tools). A completeness guard globs `packages/*/tool-*` and fails if any package is missing from the generator's boot manifest, so a new tool cannot be silently undocumented.
 
-Scope: shipped product tools under `packages/*/tool-*`, each booted with its DEFAULT config, except where a Config field is REQUIRED with no default — there the generator must choose, and the per-package note records which branch this page shows. The registered tool NAME can be a load-time config (e.g. `tool-subagent`'s `toolName`), so a deployment may expose a package under a different or additional name — a per-package note records those shipped aliases where they exist. The `examples/` demo tools (e.g. `echo`) are excluded, matching the cordis catalog's packages-only scope. Tools minted at runtime outside any tool package are out of scope by construction and documented by their owners: MCP servers contribute `mcp__<server>__<tool>` names (see [dsh-mcp-client](../packages/mcp/mcp-client/README.md)), and structured subagent runs contribute a per-run `structured_output` tool (see [dsh-subagent-in-process-driver](../packages/subagent/subagent-in-process-driver/README.md)).
+Scope: shipped product tools under `packages/*/tool-*`, each booted with its DEFAULT config, except where a Config field is REQUIRED with no default — there the generator must choose, and the per-package note records which branch this page shows. The registered tool NAME can be a load-time config (e.g. `tool-subagent`'s `toolName`), so a deployment may expose a package under a different or additional name — a per-package note records those shipped aliases where they exist. The `examples/` demo tools (e.g. `echo`) are excluded, matching the cordis catalog's packages-only scope.
 
 ## Tool Package Map
 
@@ -15,13 +15,16 @@ This table connects model-visible tool names to the plugin package and service s
 
 | Tool package | Model-visible names | Requires | Writes / affects | Shipped aliases | Deployment note |
 | --- | --- | --- | --- | --- | --- |
+| `@deepseek-ai/dsh-plugin-manager` | `plugin_manager` | `ctx.tools`, `ctx.pluginManager`, `ctx.sandboxPolicy` | `tool/call`, `tool/result`, `user/message` | - | - |
+| `@deepseek-ai/dsh-mcp-resources` | `list_mcp_resource_templates`, `list_mcp_resources`, `read_mcp_resource` | `ctx.tools`, `ctx.mcpResources` | `tool/call`, `tool/result` | - | - |
+| `@deepseek-ai/dsh-experimental-browser-use-stagehand-native` | `stagehand_act`, `stagehand_extract`, `stagehand_navigate`, `stagehand_observe`, `stagehand_screenshot`, `stagehand_tabs` | `ctx.browserUse`, `ctx.agents`, `ctx.tools`, `ctx.systemPrompt` | `tool/call`, `tool/result` | - | - |
 | `@deepseek-ai/dsh-tool-ask-user` | `ask_user_question` | `ctx.tools`, `ctx.userQuestions` | `tool/call`, `tool/result after a UI/provider answers the question` | - | ask_user_question pauses the tool call until the active UI provider returns a human answer. |
-| `@deepseek-ai/dsh-tools` | `run_code` | `ctx.tools`, `ctx.codeRuntime (execution time)`, `ctx.systemPrompt` | `tool/call`, `one tool/ptc-dispatch-start + tool/ptc-dispatch pair per bridged sub-call`, `tool/result` | - | Owned by the tool registry as a reserved transport outside filterable capability layers under `mode: ptc` / `mode: both` (see the PTC mode Agent Note). Under `ptc` it is the registry's only wire contribution; the other visible capabilities are declared in a generated SDK section in the loaded runtime's language, and a program calls them through bindings scheduled under the native concurrency contract (submission-ordered starts and policy; concurrency-safe bodies overlap up to `maxParallelSubCalls`) that re-enter the complete guarded tool pipeline and link each nested execution to this outer result. |
+| `@deepseek-ai/dsh-tools` | `run_code` | `ctx.tools`, `ctx.ptcRuntime (execution time)`, `ctx.systemPrompt` | `tool/call`, `one tool/ptc-dispatch-start + tool/ptc-dispatch pair per bridged sub-call`, `tool/result` | - | Owned by the tool registry as a reserved transport outside filterable capability layers under `mode: ptc` / `mode: both` (see the PTC mode Agent Note). Under `ptc` it is the registry's only wire contribution; the other visible capabilities are declared in a generated SDK section in the loaded runtime's language, and a program calls them through bindings scheduled under the native concurrency contract (submission-ordered starts and policy; concurrency-safe bodies overlap up to `maxParallelSubCalls`) that re-enter the complete guarded tool pipeline and link each nested execution to this outer result. |
 | `@deepseek-ai/dsh-plan-mode` | `exit_plan_mode` | `ctx.tools`, `ctx.systemPrompt`, `ctx.userQuestions (execution time, opportunistic)` | `tool/call`, `plan/mode inactive on an approved review`, `tool/result` | - | exit_plan_mode stays in the model-facing schema while planning is inactive so transitions add no tool-catalog churn on top of the plan-policy change. Its execute path rejects calls outside plan mode; in plan mode it presents the plan over the user-questions seam (approve / keep planning with feedback), and approval logs plan mode inactive at the step boundary. |
-| `@deepseek-ai/dsh-tool-bash` | `bash` | `ctx.tools`, `ctx.shell`, `ctx.systemPrompt`, `ctx.shellEnv`, `ctx.jobs at call time for run_in_background` | `tool/call`, `tool/result` | - | The bash tool is the model-facing consumer of the bash executor seam. A `run_in_background` run registers with the generic `ctx.jobs` runtime and is collected/stopped through the `job_*` tools from `@deepseek-ai/dsh-tool-jobs`; the `enableRunInBackground` config (default true) removes the parameter entirely when disabled. |
+| `@deepseek-ai/dsh-tool-bash` | `bash` | `ctx.tools`, `ctx.shell`, `ctx.systemPrompt`, `ctx.shellEnv`, `ctx.jobs for run_in_background and the job-backed foreground path` | `tool/call`, `tool/result` | - | The bash tool is the model-facing consumer of the bash executor seam. With a job registry composed every call registers with the generic `ctx.jobs` runtime as it starts, collected/stopped through the `job_*` tools from `@deepseek-ai/dsh-tool-jobs`; without one, or with `enableRunInBackground: false`, the tool registers a foreground-only schema without the `run_in_background` parameter. |
 | `@deepseek-ai/dsh-tool-present` | `present` | `ctx.tools`, `ctx.fs`, `ctx.sessionProjections` | `tool/call`, `deliverables/presented after a successful final result`, `tool/result` | - | Deliveries belong to the calling Session; Web ui-deliverables supplies source-file opening and cards. |
-| `@deepseek-ai/dsh-tool-pwsh` | `pwsh` | `ctx.tools`, `ctx.shell`, `ctx.systemPrompt`, `ctx.shellEnv`, `ctx.jobs at call time for run_in_background` | `tool/call`, `tool/result` | - | The pwsh tool is the PowerShell-dialect consumer of the shell executor seam for Windows compositions (a PowerShell executor such as `@deepseek-ai/dsh-pwsh-local` backs `ctx.shell`); it mirrors the bash tool call-for-call including full sandbox-escalation (`sandbox_permissions` + `justification` resolved through `ctx.approval`) — `run_in_background` runs register with the generic `ctx.jobs` runtime and are collected/stopped through the `job_*` tools, and the managed `DSH_*` environment comes from `@deepseek-ai/dsh-shell-env`. Each call runs in a fresh process (no persistent PTY session), with native `C:\...` paths and `$env:NAME` variables. |
-| `@deepseek-ai/dsh-tool-cordis` | `cordis_define`, `cordis_inspect_list`, `cordis_inspect_query`, `cordis_inspect_self`, `cordis_run`, `cordis_stop`, `cordis_undefine` | `ctx.tools`, `ctx.dynamicCordisRunner` | `tool/call`, `tool/result`, `process-local dynamic package lifecycle` | - | Not in any shipped tree (a deliberate opt-in — dynamic package code reaches the real runtime, see .agents/notes/implemented/feature/2026-07-08-self-referential-cordis-toolset.md). The toolset injects `ctx.dynamicCordisRunner` from `@deepseek-ai/dsh-cordis-host-runner`, which owns the definition registry and the vm sandbox; a composition missing it never activates the tools. A running package may register ADDITIONAL model-visible tools until it is stopped, undefined, or DSH restarts; a full changed request header logs those tool-set changes. |
+| `@deepseek-ai/dsh-tool-pwsh` | `pwsh` | `ctx.tools`, `ctx.shell`, `ctx.systemPrompt`, `ctx.shellEnv`, `ctx.jobs for run_in_background and the job-backed foreground path` | `tool/call`, `tool/result` | - | The pwsh tool is the PowerShell-dialect consumer of the bash executor seam for Windows compositions (a PowerShell executor such as `@deepseek-ai/dsh-pwsh-local` backs `ctx.shell`); it mirrors the bash tool call-for-call minus sandbox controls — `run_in_background` runs register with the generic `ctx.jobs` runtime and are collected/stopped through the `job_*` tools, and the managed `DSH_*` environment comes from `@deepseek-ai/dsh-shell-env`. Each call runs in a fresh process (no persistent PTY session), with native `C:\...` paths and `$env:NAME` variables. |
+| `@deepseek-ai/dsh-tool-cordis` | `cordis_inspect_list`, `cordis_inspect_query` | `ctx.tools`, `ctx.cordisInspect` | `tool/call`, `tool/result` | - | Creator mode provides two read-only runtime inspection tools. The Cordis host runner supplies the inspection registry; Client queries require a connected page. Author persistent changes as bundles and install them with plugin_manager. |
 | `@deepseek-ai/dsh-tool-bash-persistent` | `bash` | `ctx.tools`, `ctx.terminals`, `an owning Agent at execution time` | `tool/call`, `PTY shell state`, `tool/result` | - | One owner-isolated persistent bash tool; deployment composition supplies the PTY backend and may override the model-facing environment description. |
 | `@deepseek-ai/dsh-tool-pwsh-persistent` | `pwsh` | `ctx.tools`, `ctx.terminals`, `an owning Agent at execution time` | `tool/call`, `PTY shell state`, `tool/result` | - | One owner-isolated persistent pwsh tool, the Windows counterpart of the persistent bash tool; deployment composition supplies a pwsh-dialect PTY backend and may override the model-facing environment description. |
 | `@deepseek-ai/dsh-tool-str-replace-editor` | `str_replace_editor` | `ctx.tools`, `ctx.fs` | `tool/call`, `fs/observed after view presence/absence, edit absence, or successful mutation`, `tool/result` | - | Standalone view/create/unique literal replace/line insert tool over the filesystem seam; it composes with any shell or terminal API. |
@@ -40,7 +43,395 @@ This table connects model-visible tool names to the plugin package and service s
 | `@deepseek-ai/dsh-experimental-tool-agent-team` | `interrupt_agent`, `list_agents`, `send_message`, `spawn_teammate`, `team_task_create`, `team_task_get`, `team_task_list`, `team_task_update`, `wait_agent` | `ctx.tools`, `ctx.systemPrompt`, `ctx.agentTeams`, `an exact live Team member Agent` | `tool/call`, `team/member`, `team/message/queued`, `team/message/delivered`, `team/task`, `tool/result` | - | All nine tools are scoped to implicit Team Leads and durable teammates. The shipped dsh-base bundle keeps the package disabled; the documented Agent Teams profile patch enables it while disabling the legacy continuable-child control names. |
 | `@deepseek-ai/dsh-tool-todo` | `todo_write` | `ctx.tools`, `owning Agent session` | `tool/call`, `todo/write`, `tool/result` | - | todo_write is session-owned state; UIs render the latest todo/write event as a checklist. `allowParallelInProgress` is required with no default, so the catalog states its choice: `true`, whose description invites several `in_progress` items. A deployment choosing `false` receives the same tool with a description asking for exactly one active task. |
 | `@deepseek-ai/dsh-tool-workflow` | `workflow` | `ctx.tools`, `ctx.workflowEngine`, `ctx.systemPrompt`, `a calling Agent (exec.agent parents the script children)` | `tool/call`, `tool/result` | - | - |
+| `@deepseek-ai/dsh-tool-workspace-dependencies` | `load_workspace_dependencies` | `ctx.tools` | `tool/call`, `tool/result` | - | - |
 | `@deepseek-ai/dsh-tool-web` | `web_fetch`, `web_search` | `ctx.tools`, `ctx.web`, `ctx.systemPrompt` | `tool/call`, `tool/result` | - | web_search and web_fetch keep provider selection behind ctx.web so model-visible schemas stay stable across backend swaps. |
+
+<a id="deepseek-aidsh-plugin-manager"></a>
+
+## `@deepseek-ai/dsh-plugin-manager`
+
+### `plugin_manager`
+
+List plugins or bundles in the current profile, enable or disable them, install a bundle, or remove an installed bundle. Every action requires danger-full-access permission or approval for this call. Approval does not change the session permission mode. Changes affect every session in this profile. List first to obtain exact identifiers. Package installation can execute allowed build scripts. Live profiles apply changes immediately; startup profiles require restart.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "action": {
+      "type": "string",
+      "description": "Management operation.",
+      "enum": [
+        "list_plugins",
+        "list_bundles",
+        "set_plugin",
+        "set_bundle",
+        "install_bundle",
+        "remove_bundle"
+      ]
+    },
+    "target": {
+      "type": "string",
+      "description": "Plugin entry id, bundle package name, or installation spec, according to action."
+    },
+    "enabled": {
+      "type": "boolean",
+      "description": "Required for set operations; defaults to true for installation."
+    },
+    "approvedBuilds": {
+      "type": "array",
+      "description": "For install_bundle: pass names from pendingBuilds only after the user explicitly approves running their install scripts in the conversation. This grants persistent permission for this profile.",
+      "items": {
+        "type": "string"
+      }
+    },
+    "registry": {
+      "type": "string",
+      "description": "For install_bundle: the npm registry URL asked first, when the user names one; otherwise the configured registry is asked, and its configured fallbacks while a registry is unreachable."
+    },
+    "offset": {
+      "type": "number",
+      "description": "Zero-based list offset; defaults to 0."
+    },
+    "limit": {
+      "type": "number",
+      "description": "List page size, from 1 to 100; defaults to 25."
+    }
+  },
+  "required": [
+    "action"
+  ]
+}
+```
+
+Source: [`packages/boot/plugin-manager/src/tools.ts`](../packages/boot/plugin-manager/src/tools.ts)
+
+<a id="deepseek-aidsh-mcp-resources"></a>
+
+## `@deepseek-ai/dsh-mcp-resources`
+
+### `list_mcp_resource_templates`
+
+List parameterized resource URI templates from an MCP server.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "server": {
+      "type": "string",
+      "description": "Configured MCP server name."
+    },
+    "cursor": {
+      "type": "string",
+      "description": "Continuation cursor returned by this server."
+    }
+  },
+  "required": [
+    "server"
+  ]
+}
+```
+
+Source: [`packages/mcp/mcp-resources/src/tools.ts`](../packages/mcp/mcp-resources/src/tools.ts)
+
+### `list_mcp_resources`
+
+List resources available from an MCP server.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "server": {
+      "type": "string",
+      "description": "Configured MCP server name."
+    },
+    "cursor": {
+      "type": "string",
+      "description": "Continuation cursor returned by this server."
+    }
+  },
+  "required": [
+    "server"
+  ]
+}
+```
+
+Source: [`packages/mcp/mcp-resources/src/tools.ts`](../packages/mcp/mcp-resources/src/tools.ts)
+
+### `read_mcp_resource`
+
+Read an MCP resource by URI from the named server. Use a listed URI or an expanded resource template.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "server": {
+      "type": "string",
+      "description": "Configured MCP server name."
+    },
+    "uri": {
+      "type": "string",
+      "description": "Resource URI to read."
+    }
+  },
+  "required": [
+    "server",
+    "uri"
+  ]
+}
+```
+
+Source: [`packages/mcp/mcp-resources/src/tools.ts`](../packages/mcp/mcp-resources/src/tools.ts)
+
+<a id="deepseek-aidsh-experimental-browser-use-stagehand-native"></a>
+
+## `@deepseek-ai/dsh-experimental-browser-use-stagehand-native`
+
+### `stagehand_act`
+
+Perform one natural-language browser action using the configured Stagehand model.
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "pageId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "instruction": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "required": [
+    "instruction"
+  ],
+  "additionalProperties": false
+}
+```
+
+Source: [`packages/experimental/browser-use-stagehand-native/src/index.ts`](../packages/experimental/browser-use-stagehand-native/src/index.ts)
+
+### `stagehand_extract`
+
+Extract page data using the configured Stagehand model and an optional JSON Schema.
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "pageId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "instruction": {
+      "type": "string",
+      "minLength": 1
+    },
+    "schema": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/__schema0"
+      }
+    }
+  },
+  "required": [
+    "instruction"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "__schema0": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/__schema0"
+          }
+        },
+        {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/__schema0"
+          }
+        }
+      ]
+    }
+  }
+}
+```
+
+Source: [`packages/experimental/browser-use-stagehand-native/src/index.ts`](../packages/experimental/browser-use-stagehand-native/src/index.ts)
+
+### `stagehand_navigate`
+
+Navigate a Stagehand browser tab to a URL.
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "pageId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "url": {
+      "type": "string",
+      "format": "uri"
+    }
+  },
+  "required": [
+    "url"
+  ],
+  "additionalProperties": false
+}
+```
+
+Source: [`packages/experimental/browser-use-stagehand-native/src/index.ts`](../packages/experimental/browser-use-stagehand-native/src/index.ts)
+
+### `stagehand_observe`
+
+Find browser actions matching an instruction using the configured Stagehand model.
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "pageId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "instruction": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "required": [
+    "instruction"
+  ],
+  "additionalProperties": false
+}
+```
+
+Source: [`packages/experimental/browser-use-stagehand-native/src/index.ts`](../packages/experimental/browser-use-stagehand-native/src/index.ts)
+
+### `stagehand_screenshot`
+
+Capture a Stagehand tab screenshot for visual inspection.
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "pageId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "fullPage": {
+      "default": false,
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "fullPage"
+  ],
+  "additionalProperties": false
+}
+```
+
+Source: [`packages/experimental/browser-use-stagehand-native/src/index.ts`](../packages/experimental/browser-use-stagehand-native/src/index.ts)
+
+### `stagehand_tabs`
+
+List, create, select, or close a Stagehand browser tab.
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "action": {
+          "type": "string",
+          "const": "list"
+        }
+      },
+      "required": [
+        "action"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "action": {
+          "type": "string",
+          "const": "new"
+        },
+        "url": {
+          "type": "string",
+          "format": "uri"
+        }
+      },
+      "required": [
+        "action"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "action": {
+          "type": "string",
+          "enum": [
+            "select",
+            "close"
+          ]
+        },
+        "pageId": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "action",
+        "pageId"
+      ],
+      "additionalProperties": false
+    }
+  ],
+  "type": "object"
+}
+```
+
+Source: [`packages/experimental/browser-use-stagehand-native/src/index.ts`](../packages/experimental/browser-use-stagehand-native/src/index.ts)
 
 <a id="deepseek-aidsh-tool-ask-user"></a>
 
@@ -106,7 +497,6 @@ Ask the user a concise question when you need confirmation, a choice, or missing
       }
     }
   },
-  "additionalProperties": false,
   "required": [
     "questions"
   ]
@@ -136,9 +526,24 @@ Execute a TypeScript program against the available tools. Takes two required arg
     "description": {
       "type": "string",
       "description": "Clear, concise description of what this program does in active voice, 5-10 words (shown in the UI). Examples: \"Count TODO markers across packages\"; \"Read failing test and its fixture\"; \"Rename config key in every cordis.yml\"."
+    },
+    "timeoutMs": {
+      "type": "number",
+      "description": "Positive elapsed-time budget in milliseconds, capped by the deployment maximum."
+    },
+    "sandbox_permissions": {
+      "type": "string",
+      "description": "Wider sandbox mode for this complete program execution; requires justification and approval.",
+      "enum": [
+        "workspace-write",
+        "danger-full-access"
+      ]
+    },
+    "justification": {
+      "type": "string",
+      "description": "Reason this complete program needs wider access, shown to the user for approval."
     }
   },
-  "additionalProperties": false,
   "required": [
     "code",
     "description"
@@ -167,7 +572,6 @@ Use only in plan mode. Present your plan for the user's review and, on approval,
       "description": "The complete plan, as markdown, starting with a # heading that names it."
     }
   },
-  "additionalProperties": false,
   "required": [
     "plan"
   ]
@@ -184,7 +588,7 @@ exit_plan_mode stays in the model-facing schema while planning is inactive so tr
 
 ### `bash`
 
-Execute a bash command (`bash -c`) and return its stdout/stderr. Each call runs in a fresh shell: no state (cwd, variables, functions) persists between calls — pass `workdir` instead of using `cd`. Non-zero exits are reported as `[exit code: N]`. Current harness environment facts are exposed through managed `$DSH_*` variables; inspect them when needed. Commands may run under a file sandbox; a blocked file operation is reported as `[sandbox: file access denied under <mode> mode]` — a policy denial, not a bug in the command; do not retry another way. Long output is truncated to its tail; the full output is saved to a file whose path is reported when available. Set `run_in_background: true` for long-running commands: the call returns a job id immediately; read its output with `job_output` and stop it with `job_kill`.
+Execute a bash command (`bash -c`) and return its stdout/stderr. Each call runs in a fresh shell: no state (cwd, variables, functions) persists between calls — pass `workdir` instead of using `cd`. Non-zero exits are reported as `[exit code: N]`. Current harness environment facts are exposed through managed `$DSH_*` variables; inspect them when needed. Commands may run under a file sandbox; a blocked file operation is reported as `[sandbox: file access denied under <mode> mode]` — a policy denial, not a bug in the command; do not retry another way. Long output is truncated to its tail; the full output is saved to a file whose path is reported when available. Set `run_in_background: true` for long-running commands: the call returns a job id immediately; read its output with `job_output` and stop it with `job_kill`. A foreground command that reaches its timeout is not killed: it moves to the background the same way, returning its job id and the output so far.
 
 ```json
 {
@@ -200,7 +604,7 @@ Execute a bash command (`bash -c`) and return its stdout/stderr. Each call runs 
     },
     "timeoutMs": {
       "type": "number",
-      "description": "Timeout in milliseconds. The executor applies its configured default and cap, and kills the command on expiry."
+      "description": "Timeout in milliseconds. The executor applies its configured default and cap; on expiry the command moves to the background as a job instead of being killed."
     },
     "workdir": {
       "type": "string",
@@ -211,7 +615,6 @@ Execute a bash command (`bash -c`) and return its stdout/stderr. Each call runs 
       "description": "Run in the background and return a job id immediately (collect with job_output, stop with job_kill). No timeout applies."
     }
   },
-  "additionalProperties": false,
   "required": [
     "command",
     "description"
@@ -221,7 +624,7 @@ Execute a bash command (`bash -c`) and return its stdout/stderr. Each call runs 
 
 Source: [`packages/shell/tool-bash/src/index.ts`](../packages/shell/tool-bash/src/index.ts)
 
-The bash tool is the model-facing consumer of the bash executor seam. A `run_in_background` run registers with the generic `ctx.jobs` runtime and is collected/stopped through the `job_*` tools from `@deepseek-ai/dsh-tool-jobs`; the `enableRunInBackground` config (default true) removes the parameter entirely when disabled.
+The bash tool is the model-facing consumer of the bash executor seam. With a job registry composed every call registers with the generic `ctx.jobs` runtime as it starts, collected/stopped through the `job_*` tools from `@deepseek-ai/dsh-tool-jobs`; without one, or with `enableRunInBackground: false`, the tool registers a foreground-only schema without the `run_in_background` parameter.
 
 <a id="deepseek-aidsh-tool-present"></a>
 
@@ -229,7 +632,7 @@ The bash tool is the model-facing consumer of the bash executor seam. A `run_in_
 
 ### `present`
 
-Declare existing files accessible through the Session filesystem as final deliverables. When a file you create or update is an output the user asked to receive, you must call present after writing it and before your final response, including files created through Bash or code execution. Mentioning its path in your reply does not replace this call. The files must already exist. The user opens the current source files; their contents are not copied or preserved.
+Declare selected existing files accessible through the Session filesystem as final deliverables. Use present when the user needs a separate file deliverable, especially Office documents, spreadsheets, and slide decks. Prefer showing results in your final response when that is sufficient; creating or editing a file does not by itself require present. Usually select the 1-2 most important deliverables; include more when needed, but at most 4 files in a single present call. The files must already exist. The user opens the current source files; their contents are not copied or preserved.
 
 ```json
 {
@@ -256,14 +659,13 @@ Declare existing files accessible through the Session filesystem as final delive
       }
     }
   },
-  "additionalProperties": false,
   "required": [
     "files"
   ]
 }
 ```
 
-Source: [`packages/fs/tool-present/src/index.ts`](../packages/fs/tool-present/src/index.ts)
+Source: [`packages/deliverables/tool-present/src/index.ts`](../packages/deliverables/tool-present/src/index.ts)
 
 Deliveries belong to the calling Session; Web ui-deliverables supplies source-file opening and cards.
 
@@ -273,7 +675,7 @@ Deliveries belong to the calling Session; Web ui-deliverables supplies source-fi
 
 ### `pwsh`
 
-Execute a PowerShell command (`pwsh -Command`) and return its stdout/stderr. Each call runs in a fresh pwsh process: no state (cwd, variables, functions) persists between calls — pass `workdir` instead of using `cd`. Paths use native Windows form (`C:\...`); read environment variables with `$env:NAME`. Non-zero exits are reported as `[exit code: N]`. Current harness environment facts are exposed through managed `$env:DSH_*` variables; inspect them when needed. Commands may run under a file sandbox; a blocked file operation is reported as `[sandbox: file access denied under <mode> mode]` — a policy denial, not a bug in the command; do not retry another way. Long output is truncated to its tail; the full output is saved to a file whose path is reported when available. On Windows a force-killed command settles as `[exit code: 1]` without a signal marker — treat it as an interruption, not a command failure. Set `run_in_background: true` for long-running commands: the call returns a job id immediately; read its output with `job_output` and stop it with `job_kill`.
+Execute a PowerShell command (`pwsh -Command`) and return its stdout/stderr. Each call runs in a fresh pwsh process: no state (cwd, variables, functions) persists between calls — pass `workdir` instead of using `cd`. Paths use native Windows form (`C:\...`); read environment variables with `$env:NAME`. Non-zero exits are reported as `[exit code: N]`. Current harness environment facts are exposed through managed `$env:DSH_*` variables; inspect them when needed. Commands may run under a file sandbox; a blocked file operation is reported as `[sandbox: file access denied under <mode> mode]` — a policy denial, not a bug in the command; do not retry another way. Long output is truncated to its tail; the full output is saved to a file whose path is reported when available. On Windows a force-killed command settles as `[exit code: 1]` without a signal marker — treat it as an interruption, not a command failure. Set `run_in_background: true` for long-running commands: the call returns a job id immediately; read its output with `job_output` and stop it with `job_kill`. A foreground command that reaches its timeout is not killed: it moves to the background the same way, returning its job id and the output so far.
 
 ```json
 {
@@ -289,7 +691,7 @@ Execute a PowerShell command (`pwsh -Command`) and return its stdout/stderr. Eac
     },
     "timeoutMs": {
       "type": "number",
-      "description": "Timeout in milliseconds. The executor applies its configured default and cap, and kills the command on expiry."
+      "description": "Timeout in milliseconds. The executor applies its configured default and cap; on expiry the command moves to the background as a job instead of being killed."
     },
     "workdir": {
       "type": "string",
@@ -300,7 +702,6 @@ Execute a PowerShell command (`pwsh -Command`) and return its stdout/stderr. Eac
       "description": "Run in the background and return a job id immediately (collect with job_output, stop with job_kill). No timeout applies."
     }
   },
-  "additionalProperties": false,
   "required": [
     "command",
     "description"
@@ -310,104 +711,20 @@ Execute a PowerShell command (`pwsh -Command`) and return its stdout/stderr. Eac
 
 Source: [`packages/shell/tool-pwsh/src/index.ts`](../packages/shell/tool-pwsh/src/index.ts)
 
-The pwsh tool is the PowerShell-dialect consumer of the shell executor seam for Windows compositions (a PowerShell executor such as `@deepseek-ai/dsh-pwsh-local` backs `ctx.shell`); it mirrors the bash tool call-for-call including full sandbox-escalation (`sandbox_permissions` + `justification` resolved through `ctx.approval`) — `run_in_background` runs register with the generic `ctx.jobs` runtime and are collected/stopped through the `job_*` tools, and the managed `DSH_*` environment comes from `@deepseek-ai/dsh-shell-env`. Each call runs in a fresh process (no persistent PTY session), with native `C:\...` paths and `$env:NAME` variables.
+The pwsh tool is the PowerShell-dialect consumer of the bash executor seam for Windows compositions (a PowerShell executor such as `@deepseek-ai/dsh-pwsh-local` backs `ctx.shell`); it mirrors the bash tool call-for-call minus sandbox controls — `run_in_background` runs register with the generic `ctx.jobs` runtime and are collected/stopped through the `job_*` tools, and the managed `DSH_*` environment comes from `@deepseek-ai/dsh-shell-env`. Each call runs in a fresh process (no persistent PTY session), with native `C:\...` paths and `$env:NAME` variables.
 
 <a id="deepseek-aidsh-tool-cordis"></a>
 
 ## `@deepseek-ai/dsh-tool-cordis`
 
-### `cordis_define`
-
-Define an immutable Cordis Package. For a new Plugin, use kind:"new" and provide only a semantic prefix of 3–6 lowercase English letters; the Host returns the final pluginId and packageId. To modify an existing Plugin, use kind:"existing" with its exact pluginId to append a Package without overwriting older versions. Provide at least one of code.host and code.client. Each value is a plain JavaScript function body that returns a Cordis Plugin; no TypeScript, JSX, or import transformation occurs. Query Inspect before depending on a Service, Event, Builtin, Slot, or token. Define only validates parameters and syntax and records source: it does not request approval, execute apply, or change currentPackageId. On success, call cordis_run with the returned IDs.
-
-```json
-{
-  "type": "object",
-  "properties": {
-    "plugin": {
-      "oneOf": [
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "kind": {
-              "type": "string",
-              "const": "new"
-            },
-            "idPrefix": {
-              "type": "string",
-              "description": "Suggested semantic prefix of 3–6 lowercase English letters; the Host adds a unique numeric suffix."
-            }
-          },
-          "required": [
-            "kind",
-            "idPrefix"
-          ]
-        },
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "kind": {
-              "type": "string",
-              "const": "existing"
-            },
-            "pluginId": {
-              "type": "string",
-              "description": "Exact ID of an existing Plugin; the new Package is appended to that instance."
-            }
-          },
-          "required": [
-            "kind",
-            "pluginId"
-          ]
-        }
-      ]
-    },
-    "name": {
-      "type": "string",
-      "description": "Short, readable Package name."
-    },
-    "purpose": {
-      "type": "string",
-      "description": "One-sentence, user-facing description of the Package purpose."
-    },
-    "code": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "host": {
-          "type": "string",
-          "description": "Plain JavaScript function body that returns the Host-half Cordis Plugin."
-        },
-        "client": {
-          "type": "string",
-          "description": "Plain JavaScript function body that returns the browser Client-half Cordis Plugin."
-        }
-      }
-    }
-  },
-  "additionalProperties": false,
-  "required": [
-    "plugin",
-    "name",
-    "purpose",
-    "code"
-  ]
-}
-```
-
-Source: [`packages/extensions/tool-cordis/src/index.ts`](../packages/extensions/tool-cordis/src/index.ts)
-
 ### `cordis_inspect_list`
 
-List every Cordis Inspect Provider currently known to the Host, including local Host Providers and the latest manifests synchronized from the Client. Each entry includes its platform, purpose, read-only methods, and input/output schemas. Call this Tool before creating or modifying a Package, then select the provider and method for cordis_inspect_query from its result. Do not guess names or treat an Inspect method as a business Service that Plugin code can call.
+List every Cordis Inspect Provider currently known to the Host, including local Host Providers and the latest manifests synchronized from the Client. Each entry includes its platform, purpose, read-only methods, and input/output schemas. Call this Tool before writing or configuring a plugin, then select the provider and method for cordis_inspect_query from its result. Do not guess names or treat an Inspect method as a business Service that Plugin code can call.
 
 ```json
 {
   "type": "object",
-  "properties": {},
-  "additionalProperties": false
+  "properties": {}
 }
 ```
 
@@ -415,7 +732,7 @@ Source: [`packages/extensions/tool-cordis/src/index.ts`](../packages/extensions/
 
 ### `cordis_inspect_query`
 
-Run a read-only query explicitly declared by an Inspect Provider. platform, provider, and method must come from cordis_inspect_list, and input must satisfy that method's schema. Use this Tool before cordis_define to read exact Service methods, Event modes, Builtin signatures, Tool schemas, theme tokens, or live Slot trees and props. Host queries run locally. A Client query waits for the first valid page response and remains pending until a page answers or the Tool is cancelled. This Tool cannot invoke business Service methods or modify the runtime. For Service.listService and Event.listEvents, query without input to navigate the compact signature directory, then query the exact service or event for its structured contract and referenced types. For Slots.listSubTree, query without root to navigate the compact tree, then query the exact root for its complete registration contract and props.
+Run a read-only query declared by an Inspect Provider. platform, provider, and method must come from cordis_inspect_list, and input must satisfy that method's schema. Use this Tool before writing plugin code to read exact Service methods, Event modes, plugin Config schemas, Tool schemas, theme tokens, or live Slot trees and props. Host queries run locally. A Client query waits for the first valid page response and remains pending until a page answers or the Tool is cancelled. This Tool cannot invoke business Service methods or modify the runtime.
 
 ```json
 {
@@ -441,7 +758,6 @@ Run a read-only query explicitly declared by an Inspect Provider. platform, prov
       "description": "Optional query input; it must satisfy the method input schema."
     }
   },
-  "additionalProperties": false,
   "required": [
     "platform",
     "provider",
@@ -452,110 +768,7 @@ Run a read-only query explicitly declared by an Inspect Provider. platform, prov
 
 Source: [`packages/extensions/tool-cordis/src/index.ts`](../packages/extensions/tool-cordis/src/index.ts)
 
-### `cordis_inspect_self`
-
-Inspect dynamic Cordis objects owned by the current Session at increasing levels of detail. With no IDs, list only Plugin summaries. With pluginId alone, return version pointers, the latest Run, and every Package summary. Only pluginId plus packageId returns that immutable Package's Host/Client source and runtime diagnostics. packageId cannot be supplied alone. Query an exact Package before handling @pluginId, repairing an asynchronous failure, or defining an updated version. This Tool is read-only: it neither executes code nor changes version pointers.
-
-```json
-{
-  "type": "object",
-  "properties": {
-    "pluginId": {
-      "type": "string",
-      "description": "Stable Plugin ID returned by cordis_define or injected by @pluginId; omit it to list every current Plugin."
-    },
-    "packageId": {
-      "type": "string",
-      "description": "Exact immutable Package ID owned by pluginId; when specified, source and diagnostics are returned."
-    }
-  },
-  "additionalProperties": false
-}
-```
-
-Source: [`packages/extensions/tool-cordis/src/index.ts`](../packages/extensions/tool-cordis/src/index.ts)
-
-### `cordis_run`
-
-Activate one exact Package of a dynamic Plugin. Use mode:"run" for the first activation, restarting currentPackageId, or rollback. When current exists, use mode:"update" to switch to a different Package, even if the Plugin is currently stopped. An unauthorized Client Package creates an approval request and returns awaiting-approval; an authorized Package returns starting and continues asynchronously in the browser. Neither result waits for the final outcome inside the Tool. currentPackageId changes only after complete success; on failure, the old current and target next remain. Asynchronous success, rejection, or technical failure is reported through state and steering. After a technical failure, read diagnostics with cordis_inspect_self, correct the same Plugin, and retry autonomously. Do not request approval again after the user rejects it.
-
-```json
-{
-  "type": "object",
-  "properties": {
-    "pluginId": {
-      "type": "string",
-      "description": "Stable Plugin ID returned by cordis_define."
-    },
-    "packageId": {
-      "type": "string",
-      "description": "Exact immutable Package ID to activate under that Plugin."
-    },
-    "mode": {
-      "type": "string",
-      "description": "Use run for the first activation, restarting current, or rollback; use update to switch from current to a different Package.",
-      "enum": [
-        "run",
-        "update"
-      ]
-    }
-  },
-  "additionalProperties": false,
-  "required": [
-    "pluginId",
-    "packageId",
-    "mode"
-  ]
-}
-```
-
-Source: [`packages/extensions/tool-cordis/src/index.ts`](../packages/extensions/tool-cordis/src/index.ts)
-
-### `cordis_stop`
-
-Stop the current Run of a dynamic Plugin and cancel unfinished approval or activation requests. Retain the Plugin, every immutable Package, grants, currentPackageId, and nextPackageId so it can later run or update directly. Stopping an already stopped Plugin succeeds idempotently. Use this Tool to disable effects temporarily; use cordis_undefine for permanent removal.
-
-```json
-{
-  "type": "object",
-  "properties": {
-    "pluginId": {
-      "type": "string",
-      "description": "Stable dynamic Plugin ID to stop."
-    }
-  },
-  "additionalProperties": false,
-  "required": [
-    "pluginId"
-  ]
-}
-```
-
-Source: [`packages/extensions/tool-cordis/src/index.ts`](../packages/extensions/tool-cordis/src/index.ts)
-
-### `cordis_undefine`
-
-Permanently remove a dynamic Plugin owned by the current Session. If it is running or awaiting approval, first stop it and cancel the request, then delete every Package, grant, and version pointer. After this returns, its pluginId, packageIds, @ reference, and Package business views are invalid; historical cards retain only a "Plugin removed" record. Do not call this Tool when versions must remain available for restart or rollback; use cordis_stop instead.
-
-```json
-{
-  "type": "object",
-  "properties": {
-    "pluginId": {
-      "type": "string",
-      "description": "Stable dynamic Plugin ID to remove permanently."
-    }
-  },
-  "additionalProperties": false,
-  "required": [
-    "pluginId"
-  ]
-}
-```
-
-Source: [`packages/extensions/tool-cordis/src/index.ts`](../packages/extensions/tool-cordis/src/index.ts)
-
-Not in any shipped tree (a deliberate opt-in — dynamic package code reaches the real runtime, see .agents/notes/implemented/feature/2026-07-08-self-referential-cordis-toolset.md). The toolset injects `ctx.dynamicCordisRunner` from `@deepseek-ai/dsh-cordis-host-runner`, which owns the definition registry and the vm sandbox; a composition missing it never activates the tools. A running package may register ADDITIONAL model-visible tools until it is stopped, undefined, or DSH restarts; a full changed request header logs those tool-set changes.
+Creator mode provides two read-only runtime inspection tools. The Cordis host runner supplies the inspection registry; Client queries require a connected page. Author persistent changes as bundles and install them with plugin_manager.
 
 <a id="deepseek-aidsh-tool-bash-persistent"></a>
 
@@ -574,7 +787,6 @@ Run commands in a persistent bash shell. State, including the current directory 
       "description": "The bash command to run. Relative path is preferred in the command."
     }
   },
-  "additionalProperties": false,
   "required": [
     "command"
   ]
@@ -602,7 +814,6 @@ Run commands in a persistent PowerShell shell. State, including the current dire
       "description": "The PowerShell command to run. Relative path is preferred in the command."
     }
   },
-  "additionalProperties": false,
   "required": [
     "command"
   ]
@@ -708,7 +919,6 @@ Notes for using the `str_replace` command:
       "description": "Optional parameter of `view` command when `path` points to a file. If omitted or null, the full file is shown. If provided, the file will be shown in the indicated line number range, e.g. [11, 12] will show lines 11 and 12. Indexing at 1 to start. Setting `[start_line, -1]` shows all lines from `start_line` to the end of the file."
     }
   },
-  "additionalProperties": false,
   "required": [
     "command",
     "path"
@@ -749,7 +959,6 @@ Edit an existing UTF-8 text file by replacing literal text.
       "description": "Replace all matches. Defaults to false; when false, old_string must appear exactly once."
     }
   },
-  "additionalProperties": false,
   "required": [
     "file_path",
     "old_string",
@@ -781,7 +990,6 @@ Read a UTF-8 text file and return line-numbered content.
       "description": "Maximum number of lines to return. Defaults to 2000."
     }
   },
-  "additionalProperties": false,
   "required": [
     "file_path"
   ]
@@ -803,7 +1011,6 @@ Read a PNG/JPEG/WebP/GIF file and return the image itself. A path without a file
       "description": "Path to the image file, resolved by the filesystem backend."
     }
   },
-  "additionalProperties": false,
   "required": [
     "file_path"
   ]
@@ -829,7 +1036,6 @@ Create or fully replace a UTF-8 text file.
       "description": "Full UTF-8 text content to write."
     }
   },
-  "additionalProperties": false,
   "required": [
     "file_path",
     "content"
@@ -862,7 +1068,6 @@ Find files whose paths match a glob pattern. Returns matching file paths — nev
       "description": "Directory to search in. Defaults to the session workspace; a relative path resolves against it."
     }
   },
-  "additionalProperties": false,
   "required": [
     "pattern"
   ]
@@ -892,7 +1097,6 @@ Search file contents with a ripgrep regular expression. Returns matching lines w
       "description": "One glob filter for which files to search (e.g. \"*.ts\", \"*.{js,jsx}\"). Not a list; negation is not supported."
     }
   },
-  "additionalProperties": false,
   "required": [
     "pattern"
   ]
@@ -920,7 +1124,6 @@ Close one persistent terminal and wait until its captured owned process tree is 
       "description": "Terminal session id."
     }
   },
-  "additionalProperties": false,
   "required": [
     "sessionId"
   ]
@@ -936,8 +1139,7 @@ List persistent terminal sessions owned by the current agent.
 ```json
 {
   "type": "object",
-  "properties": {},
-  "additionalProperties": false
+  "properties": {}
 }
 ```
 
@@ -964,7 +1166,6 @@ Create a persistent, owner-isolated terminal session from a registered backend t
       "description": "Initial working directory. Defaults to the deployment workspace root."
     }
   },
-  "additionalProperties": false,
   "required": [
     "type"
   ]
@@ -994,7 +1195,6 @@ Read a bounded page of retained output from a persistent terminal without sendin
       "description": "Requested line count (default 500; backend caps apply)."
     }
   },
-  "additionalProperties": false,
   "required": [
     "sessionId"
   ]
@@ -1005,7 +1205,7 @@ Source: [`packages/terminal/tool-terminal/src/index.ts`](../packages/terminal/to
 
 ### `terminal_send`
 
-Send text to a persistent terminal. By default Enter is submitted and the call waits for a prompt, stdin wait, output silence, backend-bounded timeout, or session exit. Only one send may be active per session: wait for the prior send before sending again. Background mode returns a job id for job_output/job_kill.
+Send text to a persistent terminal. By default Enter is submitted and the call waits for a prompt, stdin wait, output silence, timeout, or session exit. Background mode returns a job id for job_output/job_kill.
 
 ```json
 {
@@ -1028,7 +1228,6 @@ Send text to a persistent terminal. By default Enter is submitted and the call w
       "description": "Return a job id immediately; collect with job_output or stop with job_kill."
     }
   },
-  "additionalProperties": false,
   "required": [
     "sessionId",
     "text"
@@ -1062,7 +1261,6 @@ Send an allowed signal to the current foreground process group of a persistent t
       ]
     }
   },
-  "additionalProperties": false,
   "required": [
     "sessionId",
     "signal"
@@ -1091,11 +1289,10 @@ Create one persisted same-session completion goal when the current direct human 
       "description": "The concrete completion objective inferred from the direct human request."
     },
     "max_goal_rounds": {
-      "type": "integer",
+      "type": "number",
       "description": "Optional positive safe-integer limit on automatic continuation rounds."
     }
   },
-  "additionalProperties": false,
   "required": [
     "objective"
   ]
@@ -1111,8 +1308,7 @@ Read the current same-session goal, including its exact id/revision, objective, 
 ```json
 {
   "type": "object",
-  "properties": {},
-  "additionalProperties": false
+  "properties": {}
 }
 ```
 
@@ -1131,7 +1327,7 @@ Update the exact current goal revision. edit, pause, and resume require a direct
       "description": "Exact id returned by get_goal."
     },
     "revision": {
-      "type": "integer",
+      "type": "number",
       "description": "Exact positive revision returned by get_goal."
     },
     "action": {
@@ -1150,7 +1346,7 @@ Update the exact current goal revision. edit, pause, and resume require a direct
       "description": "Replacement objective; valid only with action edit."
     },
     "max_goal_rounds": {
-      "type": "integer",
+      "type": "number",
       "description": "Replacement cap; valid only with action edit."
     },
     "blocked_reason": {
@@ -1158,7 +1354,6 @@ Update the exact current goal revision. edit, pause, and resume require a direct
       "description": "Concrete blocking condition; required only with action blocked."
     }
   },
-  "additionalProperties": false,
   "required": [
     "goal_id",
     "revision",
@@ -1224,7 +1419,6 @@ Create one reminder in the current session. Supply a non-empty prompt and exactl
       "description": "Absolute target as strict offset RFC 3339 or local date/time with an explicit IANA zone."
     }
   },
-  "additionalProperties": false,
   "required": [
     "prompt"
   ]
@@ -1246,7 +1440,6 @@ Delete one active reminder in the current session by the exact id returned by sc
       "description": "Exact session-local schedule id."
     }
   },
-  "additionalProperties": false,
   "required": [
     "id"
   ]
@@ -1262,8 +1455,7 @@ List every active reminder in the current session in creation order, including i
 ```json
 {
   "type": "object",
-  "properties": {},
-  "additionalProperties": false
+  "properties": {}
 }
 ```
 
@@ -1277,7 +1469,7 @@ Registered only inside live root Agent scopes created after the opt-in Schedule 
 
 ### `lsp`
 
-Query a language server for precise code navigation. operation is one of goToDefinition, findReferences, goToImplementation, hover. line and character are one-based UTF-16 cursor coordinates. findReferences includes the declaration. Queries against one workspace run serially; parallel fan-out to the same workspace waits in queue, so prefer sequential calls or distinct workspaces.
+Query a language server for precise code navigation. operation is one of goToDefinition, findReferences, goToImplementation, hover. line and character are one-based UTF-16 cursor coordinates. findReferences includes the declaration.
 
 ```json
 {
@@ -1298,15 +1490,14 @@ Query a language server for precise code navigation. operation is one of goToDef
       "description": "The source file to query, relative to the workspace or absolute."
     },
     "line": {
-      "type": "integer",
+      "type": "number",
       "description": "One-based line of the cursor."
     },
     "character": {
-      "type": "integer",
+      "type": "number",
       "description": "One-based UTF-16 column of the cursor."
     }
   },
-  "additionalProperties": false,
   "required": [
     "operation",
     "file_path",
@@ -1341,7 +1532,6 @@ Run a foreground fresh-agent Ralph loop toward one immutable objective. Use only
       "description": "Optional positive safe-integer round cap, bounded by the deployment ceiling."
     }
   },
-  "additionalProperties": false,
   "required": [
     "objective"
   ]
@@ -1369,7 +1559,6 @@ Load the full instructions for an available skill. Call this with the exact skil
       "description": "The exact skill name from the available skills list."
     }
   },
-  "additionalProperties": false,
   "required": [
     "name"
   ]
@@ -1407,7 +1596,6 @@ Read one full unabridged event and optional neighboring raw-event summaries from
       "description": "Number of following raw events to summarize. Omit for none."
     }
   },
-  "additionalProperties": false,
   "required": [
     "seq"
   ]
@@ -1468,7 +1656,6 @@ Search prior events in one authorized session; the current session excludes the 
       }
     }
   },
-  "additionalProperties": false,
   "required": [
     "query"
   ]
@@ -1494,7 +1681,6 @@ Read every direct replacement and relationship to a cited source event for one e
       "description": "Target event sequence number."
     }
   },
-  "additionalProperties": false,
   "required": [
     "seq"
   ]
@@ -1588,7 +1774,6 @@ Search prior sessions in the caller workspace and return the strongest matching 
       }
     }
   },
-  "additionalProperties": false,
   "required": [
     "query"
   ]
@@ -1609,8 +1794,7 @@ Read the authorized session lineage around one session, including complete visib
       "type": "string",
       "description": "Target session id. Omit for the current session."
     }
-  },
-  "additionalProperties": false
+  }
 }
 ```
 
@@ -1638,8 +1822,7 @@ Discover LLM routes for subagents without changing the current Agent. Call with 
       "type": "string",
       "description": "Exact model id to inspect. Requires provider; omit to list that provider's advertised models."
     }
-  },
-  "additionalProperties": false
+  }
 }
 ```
 
@@ -1659,17 +1842,13 @@ Delegate a self-contained task to a subagent (a separate agent that works in its
     },
     "prompt": {
       "type": "string",
-      "description": "The complete, self-contained task for the subagent. It does not share this conversation's context, so include everything it needs. Ask for a text answer: only the child's text reaches this conversation."
+      "description": "The complete, self-contained task for the subagent. It does not share this conversation's context, so include everything it needs."
     },
     "run_in_background": {
       "type": "boolean",
       "description": "Whether to run as a background job and return its id. Defaults to false; collect with job_output or stop with job_kill."
-    },
-    "output_schema": {
-      "description": "Optional object-rooted JSON Schema for a structured final answer. When supplied, the child must call structured_output with a matching value instead of finishing with plain text; the validated value returns as `structured`. Foreground one-shot runs only."
     }
   },
-  "additionalProperties": false,
   "required": [
     "description",
     "prompt"
@@ -1698,7 +1877,6 @@ Request cancellation of a background agent's current turn by its agent id. The t
       "description": "The agent id of the running agent to interrupt."
     }
   },
-  "additionalProperties": false,
   "required": [
     "agent_id"
   ]
@@ -1709,7 +1887,7 @@ Source: [`packages/subagent/tool-subagent-control/src/index.ts`](../packages/sub
 
 ### `list_agents`
 
-List your continuable background subagents by durable id and label. Use it to recall which ones you started, not to poll for completion — you are told when one finishes. Status comes from the live registry: running means the agent is working right now, idle means it is loaded but between turns (it may be waiting on agents it started), and ready means it exists only in storage — resumable, not terminal, and not a result waiting to be collected; a `send_message` steers a running child at its nearest step boundary or starts a turn for an idle or ready child, and a direct child remains a `send_message` candidate in every status. The snapshot is not a delivery promise — `send_message` performs the authoritative check and may still fail. Children that could not be read are reported as diagnostics instead of being silently dropped. Scope `descendants` walks the whole tree below you in stable pre-order, annotating each entry with its durable direct-parent session id and depth. You may use `send_message` only for depth-1 entries; deeper entries are candidates for `interrupt_agent` only.
+List your continuable background subagents by durable id and label. Use it to recall which ones you started, not to poll for completion — you are told when one finishes. Status comes from the live registry: running means the agent is working right now; inactive means no turn is executing, whether the child is loaded or must be resumed. inactive does not describe task completion, success, failure, or waiting for other agents. A `send_message` steers a running child at its nearest step boundary or starts or resumes a turn for an inactive child, and a direct child remains a `send_message` candidate in every status. The snapshot is not a delivery promise — `send_message` performs the authoritative check and may still fail. Children that could not be read are reported as diagnostics only in `descendants` scope. Scope `descendants` walks the whole tree below you in stable pre-order, annotating each entry with its durable direct-parent session id and depth. You may use `send_message` only for depth-1 entries; deeper entries are candidates for `interrupt_agent` only.
 
 ```json
 {
@@ -1723,8 +1901,7 @@ List your continuable background subagents by durable id and label. Use it to re
         "descendants"
       ]
     }
-  },
-  "additionalProperties": false
+  }
 }
 ```
 
@@ -1732,7 +1909,7 @@ Source: [`packages/subagent/tool-subagent-control/src/list-agents.ts`](../packag
 
 ### `send_message`
 
-Send a message to a direct continuable child by its agent id. If you are a resident continuable child, you may also target your direct parent. If the target is still working, the message steers its nearest step; if it is idle, the message starts a turn. This call returns no answer from the agent — only confirmation that the message was delivered. A failure means the message was NOT delivered.
+Send a message to a direct continuable child by its agent id. If you are a resident continuable child, you may also target your direct parent. If the target is still working, the message steers its nearest step; if it is inactive, the message starts or resumes a turn. This call returns no answer from the agent — only confirmation that the message was delivered. A failure means the message was NOT delivered.
 
 ```json
 {
@@ -1747,7 +1924,6 @@ Send a message to a direct continuable child by its agent id. If you are a resid
       "description": "The message to deliver to the agent."
     }
   },
-  "additionalProperties": false,
   "required": [
     "agent_id",
     "message"
@@ -1780,7 +1956,6 @@ Request cancellation of a running background job by job id. Returns immediately;
       "description": "Optional short reason, recorded in the log and forwarded to the job."
     }
   },
-  "additionalProperties": false,
   "required": [
     "job_id"
   ]
@@ -1796,8 +1971,7 @@ List your background jobs (running and finished) with their ids, kinds, and stat
 ```json
 {
   "type": "object",
-  "properties": {},
-  "additionalProperties": false
+  "properties": {}
 }
 ```
 
@@ -1820,11 +1994,10 @@ Read a background job. Stream jobs return only output since the previous read; f
       "description": "Block until the job reaches a terminal status or the timeout expires. A timed-out wait returns [status: running] and leaves the job alive."
     },
     "timeout_ms": {
-      "type": "integer",
-      "description": "Max wait in milliseconds (only meaningful with wait: true). Must be a positive integer. Defaults to the configured wait timeout; capped by the configured maximum."
+      "type": "number",
+      "description": "Max wait in milliseconds (only meaningful with wait: true). Defaults to the configured wait timeout; capped by the configured maximum."
     }
   },
-  "additionalProperties": false,
   "required": [
     "job_id"
   ]
@@ -1849,10 +2022,9 @@ Interrupt one teammate's current turn while preserving its pending inbox. Team L
   "properties": {
     "target": {
       "type": "string",
-      "description": "Teammate name."
+      "description": "Teammate target returned by spawn_teammate or list_agents."
     }
   },
-  "additionalProperties": false,
   "required": [
     "target"
   ]
@@ -1863,13 +2035,12 @@ Source: [`packages/experimental/tool-agent-team/src/index.ts`](../packages/exper
 
 ### `list_agents`
 
-List the Lead and every durable teammate with current runtime status.
+List the Lead and every durable teammate with an addressable target and current availability. inactive means no turn is executing, not a task result. provisioning and failed describe member creation.
 
 ```json
 {
   "type": "object",
-  "properties": {},
-  "additionalProperties": false
+  "properties": {}
 }
 ```
 
@@ -1877,7 +2048,7 @@ Source: [`packages/experimental/tool-agent-team/src/index.ts`](../packages/exper
 
 ### `send_message`
 
-Send one durable message to another Team member. A running target receives it at the nearest step boundary; an idle target starts a turn; an inactive teammate cold-resumes.
+Send one durable message to another Team member. A running target receives it at the nearest step boundary; an inactive target starts or resumes a turn.
 
 ```json
 {
@@ -1885,14 +2056,13 @@ Send one durable message to another Team member. A running target receives it at
   "properties": {
     "target": {
       "type": "string",
-      "description": "Team member name, or lead."
+      "description": "Member target returned by spawn_teammate or list_agents, including lead."
     },
     "message": {
       "type": "string",
       "description": "Self-contained message for the target."
     }
   },
-  "additionalProperties": false,
   "required": [
     "target",
     "message"
@@ -1931,7 +2101,6 @@ Create one named, durable teammate. Only the Team Lead may call this tool.
       ]
     }
   },
-  "additionalProperties": false,
   "required": [
     "name",
     "description",
@@ -1973,7 +2142,6 @@ Create one unowned pending task on the shared Team task board.
       }
     }
   },
-  "additionalProperties": false,
   "required": [
     "subject",
     "description"
@@ -1996,7 +2164,6 @@ Read the complete latest value of one shared task before changing or executing i
       "description": "Shared task id."
     }
   },
-  "additionalProperties": false,
   "required": [
     "task_id"
   ]
@@ -2024,7 +2191,7 @@ List shared tasks, including readiness, owner, revision, blockers, and write-sco
     },
     "owner": {
       "type": "string",
-      "description": "Optional member-name filter; use unowned for tasks without an owner."
+      "description": "Optional member target from spawn_teammate or list_agents, matching ownerName; use unowned for tasks without an owner."
     },
     "ready": {
       "type": "boolean",
@@ -2038,8 +2205,7 @@ List shared tasks, including readiness, owner, revision, blockers, and write-sco
       "type": "integer",
       "description": "Number of rows, 1 through 100. Defaults to 50."
     }
-  },
-  "additionalProperties": false
+  }
 }
 ```
 
@@ -2099,10 +2265,9 @@ Compare-and-set a shared task action using the latest revision from team_task_ge
     },
     "owner": {
       "type": "string",
-      "description": "Member name for Lead-only reassign; omit to unassign."
+      "description": "Member target from spawn_teammate or list_agents for Lead-only reassign; omit to unassign."
     }
   },
-  "additionalProperties": false,
   "required": [
     "task_id",
     "expected_revision",
@@ -2125,8 +2290,7 @@ Wait for the next teammate status, mailbox, or shared-task change after this cal
       "type": "integer",
       "description": "Wait duration in milliseconds, from 10000 through 3600000. Defaults to 30000."
     }
-  },
-  "additionalProperties": false
+  }
 }
 ```
 
@@ -2174,7 +2338,6 @@ Record and update a structured task list for the current work. Send the ENTIRE l
       }
     }
   },
-  "additionalProperties": false,
   "required": [
     "todos"
   ]
@@ -2203,7 +2366,7 @@ Script-body hooks:
 
 Misused hooks (bad arguments, unknown options, unsupported schemas, tripped caps) throw errors that ALWAYS kill the script — they never dissolve into a per-item `null`.
 
-Constraints: concurrency and total-agent caps apply; no filesystem, network, timers, or Node.js APIs are provided — the agents do the work, the script only coordinates them. The run executes in the foreground: this call returns when the whole script finishes.
+Constraints: concurrency and total-agent caps apply; no filesystem, network, timers, or Node.js APIs are provided — the agents do the work, the script only coordinates them. The run executes in the foreground by default: this call returns when the whole script finishes. Set `run_in_background: true` for a long run: the call returns a job id immediately, the run keeps orchestrating in the background, and its return value arrives with the job's completion notice (check on it with `job_output`, stop it with `job_kill`).
 
 ```json
 {
@@ -2269,9 +2432,12 @@ Constraints: concurrency and total-agent caps apply; no filesystem, network, tim
       "type": "object",
       "description": "Optional JSON input exposed to the script as the `args` global (wrap a bare list as a field, e.g. {\"files\": [...]}).",
       "additionalProperties": true
+    },
+    "run_in_background": {
+      "type": "boolean",
+      "description": "Run as a background job: return a job id immediately instead of waiting; the return value arrives with the completion notice."
     }
   },
-  "additionalProperties": false,
   "required": [
     "script",
     "meta"
@@ -2280,6 +2446,23 @@ Constraints: concurrency and total-agent caps apply; no filesystem, network, tim
 ```
 
 Source: [`packages/workflow/tool-workflow/src/index.ts`](../packages/workflow/tool-workflow/src/index.ts)
+
+<a id="deepseek-aidsh-tool-workspace-dependencies"></a>
+
+## `@deepseek-ai/dsh-tool-workspace-dependencies`
+
+### `load_workspace_dependencies`
+
+Get absolute paths to bundled Python and library directories, plus bundled Python distribution versions. Node.js and pnpm paths are included when the payload provides them. Python includes numpy, pandas, python-docx, python-pptx, openpyxl, Pillow, lxml, and XlsxWriter. Use these libraries for Office files unless the user or workspace instructions select another environment. When Node.js and pnpm paths are returned, run pnpm with that Node executable and pnpm script path. This does not change PATH or package-manager settings.
+
+```json
+{
+  "type": "object",
+  "properties": {}
+}
+```
+
+Source: [`packages/skill/tool-workspace-dependencies/src/index.ts`](../packages/skill/tool-workspace-dependencies/src/index.ts)
 
 <a id="deepseek-aidsh-tool-web"></a>
 
@@ -2298,7 +2481,6 @@ Fetch the content of a specific HTTP(S) URL and return it decoded to text.
       "description": "The HTTP(S) URL to fetch."
     }
   },
-  "additionalProperties": false,
   "required": [
     "url"
   ]
@@ -2323,7 +2505,6 @@ Search the web for current information. Provide 1–4 queries in the required qu
       }
     }
   },
-  "additionalProperties": false,
   "required": [
     "queries"
   ]

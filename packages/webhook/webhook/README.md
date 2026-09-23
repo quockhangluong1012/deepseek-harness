@@ -38,7 +38,7 @@ Registration is an effect. Its awaitable disposer first hides the rule, then abo
 
 The runtime validates presets before mutation, resolves or creates the canonical Workspace, creates an Agent with that Workspace path as `SessionHeader.cwd`, mounts the agent preset before publication, and attaches the Session before applying permissions, title, and prompt. Failed attachment disposes the unpublished action. A later pre-prompt failure detaches the Workspace and disposes the Agent on a best-effort rollback.
 
-Successful `Agent.followup()` is the webhook operation's commit point. The message uses `source.kind: "webhook"` with provider, source, delivery, and rule provenance. The runtime does not wait for idle, flush specially, inspect the reply, or publish completion state; ordinary Agent and Session behavior owns everything afterward.
+Successful `Agent.followup()` is the webhook operation's commit point. The message uses `source.kind: "webhook"` and records the provider, source, delivery, and rule identifiers. The runtime does not wait for idle, flush specially, inspect the reply, or publish completion state; ordinary Agent and Session behavior owns everything afterward.
 
 <a id="composition"></a>
 ## Composition

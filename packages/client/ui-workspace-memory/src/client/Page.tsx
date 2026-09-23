@@ -10,8 +10,8 @@
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
-  Button, IconChevronLeftOutline14, IconChevronRightOutline14, IconEditOutline16,
-  IconRefreshOutline14, IconTrashOutline16,
+  Button, IconChevronLeftOutlineRegular, IconChevronRightOutlineRegular, IconEditOutlineRegular,
+  IconRefreshOutlineRegular, IconTrashOutlineRegular,
   Input, MarkdownText, Modal, Pill, relativeTime,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
@@ -419,7 +419,7 @@ export function WorkspaceMemoryPage({
                 ? (
                   <button type="button" className={css.descriptionText} onClick={() => { openDescriptionEditor(value.description) }}>
                     <span>{value.description}</span>
-                    <IconEditOutline16 className={css.edit} />
+                    <IconEditOutlineRegular className={css.edit} />
                   </button>
                 )
                 : (
@@ -429,7 +429,7 @@ export function WorkspaceMemoryPage({
                     onClick={() => { openDescriptionEditor('') }}
                   >
                     <span>{t('description.placeholder')}</span>
-                    <IconEditOutline16 className={css.edit} />
+                    <IconEditOutlineRegular className={css.edit} />
                   </button>
                 ))}
           </section>
@@ -460,7 +460,7 @@ export function WorkspaceMemoryPage({
                     <Button
                       variant="ghost"
                       size="sm"
-                      icon={<IconChevronLeftOutline14 />}
+                      icon={<IconChevronLeftOutlineRegular />}
                       aria-label={t('outputs.previous')}
                       disabled={!ends.prev}
                       onClick={() => {
@@ -473,7 +473,7 @@ export function WorkspaceMemoryPage({
                     <Button
                       variant="ghost"
                       size="sm"
-                      icon={<IconChevronRightOutline14 />}
+                      icon={<IconChevronRightOutlineRegular />}
                       aria-label={t('outputs.next')}
                       disabled={!ends.next}
                       onClick={() => {
@@ -560,7 +560,7 @@ export function WorkspaceMemoryPage({
           <section aria-label={t('card.instructions')} className={css.card}>
             <div className={css.cardHead}>
               <h2 className={css.cardTitle}>{t('card.instructions')}</h2>
-              <Button variant="ghost" size="sm" icon={<IconEditOutline16 />} onClick={openInstructionEditor}>
+              <Button variant="ghost" size="sm" icon={<IconEditOutlineRegular />} onClick={openInstructionEditor}>
                 {t('card.edit')}
               </Button>
             </div>
@@ -573,7 +573,7 @@ export function WorkspaceMemoryPage({
           <section aria-label={t('card.memory')} className={css.card}>
             <div className={css.cardHead}>
               <h2 className={css.cardTitle}>{t('card.memory')}</h2>
-              <Button variant="ghost" size="sm" icon={<IconEditOutline16 />} onClick={openMemoryEditor}>
+              <Button variant="ghost" size="sm" icon={<IconEditOutlineRegular />} onClick={openMemoryEditor}>
                 {t('card.edit')}
               </Button>
             </div>
@@ -586,7 +586,7 @@ export function WorkspaceMemoryPage({
             )}
             <div className={css.cardFoot}>
               <Button variant="outline" size="sm" onClick={() => { setMemPreview(true) }}>{t('card.preview')}</Button>
-              <Button variant="outline" size="sm" icon={<IconRefreshOutline14 />} onClick={regenerate}>
+              <Button variant="outline" size="sm" icon={<IconRefreshOutlineRegular />} onClick={regenerate}>
                 {regenerating ? t('card.regenerating') : t('card.regenerate')}
               </Button>
             </div>
@@ -613,7 +613,7 @@ export function WorkspaceMemoryPage({
                       <Button
                         variant="ghost"
                         size="sm"
-                        icon={<IconTrashOutline16 />}
+                        icon={<IconTrashOutlineRegular />}
                         aria-label={`${t('card.remove')} ${item.label}`}
                         onClick={() => { removeItem(item.id) }}
                       />

@@ -7,7 +7,7 @@
  */
 import { useMemo } from 'react'
 import type { ReactNode } from 'react'
-import { classifyLinkPath, IconCheckOutline14, LinkIcon } from '@deepseek-ai/dsh-client-ui-primitives'
+import { classifyLinkPath, IconCheckOutlineRegular, LinkIcon } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import { fileAddressFor, workspaceTitleOf } from '@deepseek-ai/dsh-util-workspace-path'
 import type {} from '@deepseek-ai/dsh-client-ui-chat/client'
@@ -39,7 +39,7 @@ const STATUS_LABEL = {
 function TaskMark({ status, label }: { status: TodoItem['status']; label: string }): ReactNode {
   return (
     <span className={css.mark} role="img" aria-label={label}>
-      {status === 'completed' ? <IconCheckOutline14 /> : <span className={css.ring} />}
+      {status === 'completed' ? <IconCheckOutlineRegular /> : <span className={css.ring} />}
     </span>
   )
 }

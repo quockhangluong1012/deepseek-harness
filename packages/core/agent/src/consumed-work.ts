@@ -48,11 +48,12 @@ function accountsForClaim(reason: TurnEndReason): boolean {
     case 'interrupted':
     case 'error':
       return true
-    /* v8 ignore next 4 -- unreachable: the unnamed built-ins, `max-tokens` and
-     * `max-steps`, require a step, so their turns short-circuit as stepped
-     * before this call, and `TurnEndReasonMap` is merge-extensible, so a
-     * backend-added variant cannot be listed; an unnameable ending over
-     * consumed input must not read as success. */
+    /* v8 ignore next 5 -- unreachable: the unnamed built-ins, `max-tokens` and
+     * `max-steps`, require a step, so their turns short-circuit as stepped before this
+     * call; `forked` exists only in constructor seed history, while production callers
+     * fold an operation-owned suffix. `TurnEndReasonMap` is merge-extensible, so a
+     * backend-added variant cannot be listed; an unnameable ending over consumed input
+     * must not read as success. */
     default:
       return true
   }

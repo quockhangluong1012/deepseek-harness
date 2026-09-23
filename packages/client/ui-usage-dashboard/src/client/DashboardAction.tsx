@@ -13,7 +13,7 @@
 import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import clsx from 'clsx'
-import { IconCloseOutline16, IconGaugeOutline16, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconCloseOutlineRegular, IconGaugeOutlineRegular, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { TabId } from '@deepseek-ai/dsh-client-ui-dockkit'
 import type { InjectFace, PropsLocale, PropsRuntime, PropsStore } from '@deepseek-ai/dsh-client-ui-slots'
 // Type-only: pulls the sidebar footer-action SlotMap row into this program.
@@ -90,7 +90,7 @@ export function DashboardAction({ wide, useStore, actions, loadSummary, t }: Das
           data-dashboard-action="trigger"
           onClick={() => { setOpen(true) }}
         >
-          <IconGaugeOutline16 size={wide ? 16 : 18} />
+          <IconGaugeOutlineRegular size={wide ? 16 : 18} />
           {wide && <span className={css.triggerLabel}>{label}</span>}
         </button>
       </Tooltip>
@@ -107,7 +107,7 @@ export function DashboardAction({ wide, useStore, actions, loadSummary, t }: Das
                 data-dashboard-action="close"
                 onClick={() => { setOpen(false) }}
               >
-                <IconCloseOutline16 size={14} />
+                <IconCloseOutlineRegular size={14} />
               </button>
             </div>
             <div className={css.body}>

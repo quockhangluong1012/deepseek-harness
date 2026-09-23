@@ -42,10 +42,13 @@
       "path": "../../session/session-projection"
     },
     {
-      "path": "../../settings/settings"
+      "path": "../commands"
     },
     {
-      "path": "../commands"
+      "path": "../../typert/protocol"
+    },
+    {
+      "path": "../../settings/settings"
     }
   ]
 }

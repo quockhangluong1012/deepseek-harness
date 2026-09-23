@@ -7,7 +7,7 @@
  */
 import type { TranslateNS } from '@deepseek-ai/dsh-client-locale/client'
 import type { SidebarRightTabDefinition } from '@deepseek-ai/dsh-client-ui-sidebar-right/client'
-import { IconChecklistOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconChecklistOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 
 /** The tab kind this package owns. */
 export const PROGRESS_KIND = 'progress'
@@ -30,7 +30,7 @@ export function progressDefinition(t: TranslateNS<'sidebarProgress'>): SidebarRi
       order: 30,
       title: () => t('guide.title'),
       description: () => t('guide.description'),
-      icon: IconChecklistOutline14,
+      icon: IconChecklistOutlineRegular,
     }],
   }
 }

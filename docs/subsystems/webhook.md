@@ -26,7 +26,7 @@ The runtime has no queue, retry, execution status, crash replay, Agent-status li
 
 A non-null result is snapshotted before asynchronous preflight. The runtime validates permission and agent presets, resolves or creates the canonical Workspace, creates an Agent whose Session cwd equals the Workspace path, mounts the selected agent preset before publication, and durably attaches the Session before applying permission, title, and the initial follow-up.
 
-The follow-up is a normal durable user-role message with `source.kind: "webhook"` and provider/source/delivery/rule provenance. Its accepted inbox insertion commits the webhook operation. The runtime does not specially flush or wait for the turn; ordinary Session persistence and Agent lifecycle apply afterward.
+The follow-up is a normal durable user-role message with `source.kind: "webhook"` and the provider, source, delivery, and rule identifiers. Its accepted inbox insertion commits the webhook operation. The runtime does not specially flush or wait for the turn; ordinary Session persistence and Agent lifecycle apply afterward.
 
 Failed attachment disposes the new Agent before a prompt exists. A failure between attachment and prompt admission attempts Workspace detach and Agent disposal without replacing the original error. A Workspace automatically created during preflight remains because another concurrent caller may already use it.
 

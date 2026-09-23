@@ -27,31 +27,31 @@
   ],
   "license": "MIT",
   "dependencies": {
-    "@deepseek-ai/schemastery": "workspace:^"
+    "@deepseek-ai/schemastery": "workspace:~"
   },
   "peerDependencies": {
-    "@deepseek-ai/cordis": "workspace:^",
-    "@deepseek-ai/dsh-evolution-evaluator-health": "workspace:^",
-    "@deepseek-ai/dsh-evolution-skill-manage": "workspace:^",
-    "@deepseek-ai/dsh-evolution-skill-telemetry": "workspace:^",
-    "@deepseek-ai/dsh-evolution-uncertainty": "workspace:^",
-    "@deepseek-ai/dsh-llm-replay": "workspace:^",
-    "@deepseek-ai/dsh-session": "workspace:^",
-    "@deepseek-ai/dsh-session-snapshot": "workspace:^",
-    "@deepseek-ai/dsh-skill": "workspace:^",
-    "@deepseek-ai/dsh-token-meter": "workspace:^"
+    "@deepseek-ai/cordis": "workspace:~",
+    "@deepseek-ai/dsh-evolution-evaluator-health": "workspace:*",
+    "@deepseek-ai/dsh-evolution-skill-manage": "workspace:*",
+    "@deepseek-ai/dsh-evolution-skill-telemetry": "workspace:*",
+    "@deepseek-ai/dsh-evolution-uncertainty": "workspace:*",
+    "@deepseek-ai/dsh-llm-replay": "workspace:*",
+    "@deepseek-ai/dsh-session": "workspace:*",
+    "@deepseek-ai/dsh-session-snapshot": "workspace:*",
+    "@deepseek-ai/dsh-skill": "workspace:*",
+    "@deepseek-ai/dsh-token-meter": "workspace:*"
   },
   "devDependencies": {
-    "@deepseek-ai/cordis": "workspace:^",
-    "@deepseek-ai/dsh-evolution-evaluator-health": "workspace:^",
-    "@deepseek-ai/dsh-evolution-skill-manage": "workspace:^",
-    "@deepseek-ai/dsh-evolution-skill-telemetry": "workspace:^",
-    "@deepseek-ai/dsh-evolution-uncertainty": "workspace:^",
-    "@deepseek-ai/dsh-llm-replay": "workspace:^",
-    "@deepseek-ai/dsh-session": "workspace:^",
-    "@deepseek-ai/dsh-session-projection": "workspace:^",
-    "@deepseek-ai/dsh-session-snapshot": "workspace:^",
-    "@deepseek-ai/dsh-skill": "workspace:^",
-    "@deepseek-ai/dsh-token-meter": "workspace:^"
+    "@deepseek-ai/cordis": "workspace:~",
+    "@deepseek-ai/dsh-evolution-evaluator-health": "workspace:*",
+    "@deepseek-ai/dsh-evolution-skill-manage": "workspace:*",
+    "@deepseek-ai/dsh-evolution-skill-telemetry": "workspace:*",
+    "@deepseek-ai/dsh-evolution-uncertainty": "workspace:*",
+    "@deepseek-ai/dsh-llm-replay": "workspace:*",
+    "@deepseek-ai/dsh-session": "workspace:*",
+    "@deepseek-ai/dsh-session-projection": "workspace:*",
+    "@deepseek-ai/dsh-session-snapshot": "workspace:*",
+    "@deepseek-ai/dsh-skill": "workspace:*",
+    "@deepseek-ai/dsh-token-meter": "workspace:*"
   }
 }
