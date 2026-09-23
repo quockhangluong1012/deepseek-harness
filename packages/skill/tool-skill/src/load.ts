@@ -62,7 +62,7 @@ export interface SkillRenderRequest {
   /** Loading agent's session id used for `${DSH_SESSION_ID}`. */
   readonly sessionId?: string | undefined
   /** Mounted shell executor; absent leaves inline shell expansion unavailable. */
-  readonly shell?: Pick<ShellExecutor, 'resolve' | 'run'> | undefined
+  readonly shell?: Pick<ShellExecutor, 'resolve' | 'execute'> | undefined
   /** Cancels in-flight inline shell commands with the loading step. */
   readonly signal?: AbortSignal | undefined
   /** Host log sink for inline shell failures. */
@@ -174,7 +174,7 @@ async function runInlineShell(command: string, request: SkillRenderRequest): Pro
       ...request.signal !== undefined ? { signal: request.signal } : {},
       env: { ...request.spec.env, ...request.spec.config },
     })
-    const result = await shell.run(spec)
+    const result = await (await shell.execute(spec)).result()
     if (result.timedOut || result.aborted || result.exitCode !== 0) {
       request.warn(`skill "${request.spec.skill.name}" inline shell command failed: ${command}`)
       return ''

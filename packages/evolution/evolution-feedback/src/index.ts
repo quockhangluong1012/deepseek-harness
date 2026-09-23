@@ -484,12 +484,12 @@ export class EvolutionFeedback extends Service {
       return
     }
     if (event.type !== 'tool/result') return
-    const block = event.data.message.content[0]
-    if (block.isError !== true) return
-    const callId = String(event.data.message.source.callId)
+    const result = event.data.message
+    if (result.isError !== true) return
+    const callId = String(result.source.callId)
     const tool = this.pending.get(callId) ?? null
     this.pending.delete(callId)
-    const message = textOf(block.content) || event.data.error?.code || ''
+    const message = textOf(result.content) || event.data.error?.code || ''
     this.enqueue(String(session.id), tool, message)
   }
 

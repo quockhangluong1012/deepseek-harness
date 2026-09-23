@@ -20,13 +20,19 @@ import { readdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { BlockAssembler, createAssistantMessage, createToolResultMessage, createUserMessage, ToolCallId } from '@deepseek-ai/dsh-llm'
-import type { ContentBlock, GenerateOptions, Message, StreamChunk, ToolSchema } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock, ContextFormed, GenerateOptions, Message, StreamChunk, ToolSchema } from '@deepseek-ai/dsh-llm'
 import type { SkillUsageRecord } from '@deepseek-ai/dsh-evolution-skill-telemetry'
 import type { EvolutionSkillTelemetry } from '@deepseek-ai/dsh-evolution-skill-telemetry'
 import { SKILL_FILE } from '@deepseek-ai/dsh-evolution-skill-manage'
 import { runVerifierLadder } from '@deepseek-ai/dsh-evolution-verifiers'
 import { appendLedger, moveTree, pathExists, textSha, writeTextBlob } from './safety.ts'
 import type { ConsolidationRefusal, ConsolidationVerdict, SurveyCandidate } from './types.ts'
+
+declare module '@deepseek-ai/dsh-llm' {
+  interface MessageSourceMap {
+    'evolution-curator': { kind: 'evolution-curator' } & ContextFormed
+  }
+}
 
 /** File extensions whose `${DSH_SKILL_DIR}` references are rewritten on re-home. */
 const TEXT_FILE = /\.(?:md|markdown|txt|ya?ml|json|sh|ps1|ts|js|mjs|cjs|py)$/i
@@ -159,7 +165,7 @@ export interface ConsolidationRunOptions {
 export async function runConsolidationFork(fork: ConsolidationFork, options: ConsolidationRunOptions): Promise<number> {
   const messages: Message[] = [createUserMessage({
     content: [{ type: 'text', text: options.input }],
-    source: { kind: 'plugin', plugin: 'dsh-evolution-curator' },
+    source: { kind: 'evolution-curator' },
   })]
   for (let step = 1; step <= options.maxSteps; step += 1) {
     const assembler = new BlockAssembler()

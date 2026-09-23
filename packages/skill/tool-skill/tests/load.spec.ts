@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { ShellExecRequest, ShellExecSpec, ShellExecutor, ShellRunResult } from '@deepseek-ai/dsh-shell'
+import type { ShellExecRequest, ShellExecSpec, ShellExecution, ShellExecutor, ShellRunResult } from '@deepseek-ai/dsh-shell'
 import type { SkillDefinition } from '@deepseek-ai/dsh-skill'
 import {
   DEFAULT_SHELL_TIMEOUT_MS,
@@ -43,12 +43,13 @@ function runResult(stdout: string, overrides: Partial<ShellRunResult> = {}): She
 
 /** A scriptable `ctx.shell` stand-in: records requests and replays queued results. */
 function fakeShell(results: ShellRunResult[] = [], error?: Error): {
-  with: Pick<ShellExecutor, 'resolve' | 'run'>
+  with: Pick<ShellExecutor, 'resolve' | 'execute'>
   requests: ShellExecRequest[]
   specs: ShellExecSpec[]
 } {
   const requests: ShellExecRequest[] = []
   const specs: ShellExecSpec[] = []
+  const reader = { readFrom: (from: number) => ({ text: '', nextOffset: from, lossy: false }) }
   return {
     requests,
     specs,
@@ -59,15 +60,28 @@ function fakeShell(results: ShellRunResult[] = [], error?: Error): {
           command: request.command,
           workdir: request.workdir ?? '/work',
           timeoutMs: request.timeoutMs ?? DEFAULT_SHELL_TIMEOUT_MS,
+          onExpiry: request.onExpiry ?? 'kill',
           stdoutMaxBytes: request.stdoutMaxBytes ?? MAX_SHELL_OUTPUT_CHARS,
           sandboxPolicy: request.sandboxPolicy,
           ...request.env === undefined ? {} : { env: request.env },
         }
       },
-      async run(spec: ShellExecSpec): Promise<ShellRunResult> {
+      async execute(spec: ShellExecSpec): Promise<ShellExecution> {
         specs.push(spec)
-        if (error !== undefined) throw error
-        return results.shift() ?? runResult('')
+        // Only `result()` is consulted; the live-handle members are inert.
+        return {
+          status: 'completed',
+          exitCode: 0,
+          signal: null,
+          done: Promise.resolve(),
+          readOutput: () => ({ delta: '', lossy: false }),
+          observed: { stdout: reader, stderr: reader },
+          kill: () => false,
+          result: async () => {
+            if (error !== undefined) throw error
+            return results.shift() ?? runResult('')
+          },
+        }
       },
     },
   }

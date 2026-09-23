@@ -588,7 +588,7 @@ export function apply(ctx: Context, config: Config, session?: Session): void {
                   // No output sources: the child session owns intermediate detail.
                 }
               },
-            }), (started) => { jobs.kill(started, exec.agent) })
+            }), (started) => { jobs.kill(started, parent.id) })
             return { kind: 'background' as const, jobId: id }
           }
 

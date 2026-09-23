@@ -11,7 +11,7 @@ import { realpath } from 'node:fs/promises'
 import { Context, Service } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { BlockAssembler, createUserMessage } from '@deepseek-ai/dsh-llm'
-import type { GenerateOptions } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock, ContextFormed, GenerateOptions } from '@deepseek-ai/dsh-llm'
 import type { Session, SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-query'
 import { RemoteError } from '@deepseek-ai/dsh-typert-protocol'
@@ -23,6 +23,12 @@ import type { WorkspaceOutput } from '@deepseek-ai/dsh-workspace-memory/types'
 import { extractionSystemPrompt, frameExtractionInput, truncateUtf8Bytes } from './prompt.ts'
 
 export { extractionSystemPrompt, frameExtractionInput } from './prompt.ts'
+
+declare module '@deepseek-ai/dsh-llm' {
+  interface MessageSourceMap {
+    'workspace-memory-llm': { kind: 'workspace-memory-llm' } & ContextFormed
+  }
+}
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -115,21 +121,19 @@ interface TranscriptRow {
   text: string
 }
 
-function textOfContent(content: readonly { type: string; text?: string }[]): string {
-  return content.filter(block => block.type === 'text').map(block => (block as { text: string }).text).join('')
+function textOfContent(content: readonly ContentBlock[]): string {
+  return content.map(block => (block.type === 'text' ? block.text : '')).join('')
 }
 
 function admittedRows(events: readonly SessionEvent[]): TranscriptRow[] {
   const rows: TranscriptRow[] = []
   for (const event of events) {
     if (event.type === 'user/message') {
-      const source = (event.data as { source?: { kind?: string } }).source
-      if (source?.kind !== 'user') continue
-      const text = textOfContent((event.data as { content: { type: string; text?: string }[] }).content)
+      if (event.data.source.kind !== 'user') continue
+      const text = textOfContent(event.data.content)
       if (text.length > 0) rows.push({ role: 'user', text })
     } else if (event.type === 'assistant/message') {
-      const message = (event.data as { message: { content: { type: string; text?: string }[] } }).message
-      const text = textOfContent(message.content)
+      const text = textOfContent(event.data.message.content)
       if (text.length > 0) rows.push({ role: 'assistant', text })
     }
   }
@@ -250,11 +254,10 @@ export class WorkspaceMemoryExtractor extends Service {
           // oxlint-disable-next-line typescript/no-deprecated -- Existing Session history read; migration deferred.
           for (const event of live.ownEvents()) {
             if (event.type === 'user/message') {
-              const text = textOfContent((event.data as { content: { type: string; text?: string }[] }).content)
+              const text = textOfContent(event.data.content)
               if (text.length > 0) rows.push({ role: 'user', text })
             } else if (event.type === 'assistant/message') {
-              const message = (event.data as { message: { content: { type: string; text?: string }[] } }).message
-              const text = textOfContent(message.content)
+              const text = textOfContent(event.data.message.content)
               if (text.length > 0) rows.push({ role: 'assistant', text })
             }
           }
@@ -359,11 +362,8 @@ export class WorkspaceMemoryExtractor extends Service {
         const data = event.data as { callId: string; name: string; arguments: string }
         calls.set(data.callId, { name: data.name, args: data.arguments })
       } else if (event.type === 'tool/result') {
-        const message = (event.data as { message: { content: { toolCallId?: string; isError?: boolean }[] } }).message
-        const block = message.content[0]
-        const callId = (event.data as unknown as { callId?: string }).callId ?? block?.toolCallId
-        const isError = block?.isError === true
-        if (callId !== undefined) results.set(callId, isError)
+        const message = event.data.message
+        results.set(message.toolCallId, message.isError === true)
       }
     }
     const cwd = session.header.cwd ?? process.cwd()
@@ -455,7 +455,7 @@ export class WorkspaceMemoryExtractor extends Service {
     const framed = frameExtractionInput(rows, currentMemory)
     const messages = [createUserMessage({
       content: [{ type: 'text', text: framed }],
-      source: { kind: 'plugin', plugin: 'dsh-workspace-memory-llm' },
+      source: { kind: 'workspace-memory-llm' },
     })]
     const options: GenerateOptions = {
       provider: route.provider,

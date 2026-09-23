@@ -280,9 +280,9 @@ export function project(sessionId: string, events: readonly SessionEvent[], maxC
         if (pending !== undefined) pendingCalls.delete(callId)
         const built = stepOf(event.data.turn, event.data.step)
         if (pending === undefined || built === undefined) break
-        const block = event.data.message.content[0]
-        const isError = block.isError === true
-        const snapshot = truncateUtf8(textOf(block.content).replace(/\s+/gu, ' ').trim(), maxChars)
+        const result = event.data.message
+        const isError = result.isError === true
+        const snapshot = truncateUtf8(textOf(result.content).replace(/\s+/gu, ' ').trim(), maxChars)
         const recorded = snapshot.length === 0 ? null : snapshot
         const failureText = recorded ?? event.data.error?.code ?? pending.name
         const message = isError ? failureText : null

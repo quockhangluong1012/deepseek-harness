@@ -9,7 +9,7 @@
 
 英文源文件由系统**生成**，并通过 `pnpm run verify-tool-catalog`（`doc-sync`（文档同步门禁）的一部分）验证新鲜度；本中文文件作为经评审对侧通过双语配对维护。与 Cordis 目录（纯源码 AST 处理）不同，英文生成器会在真实上下文中**启动**每个工具插件并读取 `ctx.tools.schemas()`，因为工具 schema 无法通过静态分析完全确定，例如运行时展开的枚举、拼接的描述、由配置决定的名称以及使用原始 JSON Schema 的 MCP 工具。完整性守卫会 glob 匹配 `packages/*/tool-*`；如果生成器的启动 manifest（元数据清单）遗漏任何包，检查就会失败，因此新工具不会在无人察觉的情况下缺少文档。
 
-范围：`packages/*/tool-*` 下已发布的产品工具，每个工具均使用其**默认**配置启动；但如果某个 Config 字段是**必填项**且没有默认值，生成器就必须作出选择，对应包的说明会记录本页展示的是哪个分支。注册的工具**名称**可以是加载时配置，例如 `tool-subagent` 的 `toolName`，因此部署可能以不同名称或额外名称提供某个包；如果存在随产品发布的别名，对应包的说明会予以记录。`examples/` 中的演示工具（例如 `echo`）不在范围内，这与 Cordis 目录仅涵盖包的范围一致。
+范围：`packages/*/tool-*` 下已发布的产品工具，每个工具均使用其**默认**配置启动；但如果某个 Config 字段是**必填项**且没有默认值，生成器就必须作出选择，对应包的说明会记录本页展示的是哪个分支。注册的工具**名称**可以是加载时配置，例如 `tool-subagent` 的 `toolName`，因此部署可能以不同名称或额外名称提供某个包；如果存在随产品发布的别名，对应包的说明会予以记录。`examples/` 中的演示工具（例如 `echo`）不在范围内，这与 Cordis 目录仅涵盖包的范围一致。在任何工具包之外于运行时铸造的工具按构造即不在范围内，由其所有者负责记录：MCP 服务器贡献 `mcp__<server>__<tool>` 名称（参见 [dsh-mcp-client](../packages/mcp/mcp-client/README.zh.md)），结构化 subagent 运行则贡献每次运行一个的 `structured_output` 工具（参见 [dsh-subagent-in-process-driver](../packages/subagent/subagent-in-process-driver/README.zh.md)）。
 
 <a id="tool-package-map"></a>
 
@@ -27,7 +27,7 @@
 | `@deepseek-ai/dsh-plan-mode` | `exit_plan_mode` | `ctx.tools`、`ctx.systemPrompt`、`ctx.userQuestions (execution time, opportunistic)` | `tool/call`、`plan/mode inactive on an approved review`、`tool/result` | - | 规划未激活时，exit_plan_mode 仍保留在面向模型的 schema 中，这样状态转换不会在规划策略变更之外额外造成工具目录变动。其执行路径会拒绝规划模式之外的调用；在规划模式下，它通过用户交互 seam 提交计划（批准／根据反馈继续规划），批准后会在步骤边界记录规划模式已停用。 |
 | `@deepseek-ai/dsh-tool-bash` | `bash` | `ctx.tools`、`ctx.shell`、`ctx.systemPrompt`、`ctx.shellEnv`、`ctx.jobs for run_in_background and the job-backed foreground path` | `tool/call`、`tool/result` | - | bash 工具是 bash 执行器 seam 面向模型的消费方。组合中有 job 注册表时，每次调用一启动就注册到通用 `ctx.jobs` 运行时，并通过 `job_*` 工具（来自 `@deepseek-ai/dsh-tool-jobs`）收集／停止；没有注册表或 `enableRunInBackground: false` 时，工具注册不带 `run_in_background` 参数的纯前台 schema。 |
 | `@deepseek-ai/dsh-tool-present` | `present` | `ctx.tools`, `ctx.fs`, `ctx.sessionProjections` | `tool/call`, `deliverables/presented 在成功的最终结果之后`, `tool/result` | - | 交付归调用方 Session 所有；Web ui-deliverables 提供源文件打开与卡片。 |
-| `@deepseek-ai/dsh-tool-pwsh` | `pwsh` | `ctx.tools`、`ctx.shell`、`ctx.systemPrompt`、`ctx.shellEnv`、`ctx.jobs for run_in_background and the job-backed foreground path` | `tool/call`、`tool/result` | - | pwsh 工具是 Windows 组合中 bash 执行器 seam 的 PowerShell 方言消费方（由 `@deepseek-ai/dsh-pwsh-local` 等 PowerShell 执行器为 `ctx.shell` 提供后端）；除沙箱接口外，它逐项对应 bash 工具调用。使用 `run_in_background` 的运行会注册到通用 `ctx.jobs` 运行时，并通过 `job_*` 工具收集／停止；托管的 `DSH_*` 环境来自 `@deepseek-ai/dsh-shell-env`。每次调用都在新进程中运行，不使用持久 PTY 会话。路径采用原生 `C:\...` 形式，变量采用 `$env:NAME`。 |
+| `@deepseek-ai/dsh-tool-pwsh` | `pwsh` | `ctx.tools`、`ctx.shell`、`ctx.systemPrompt`、`ctx.shellEnv`、`ctx.jobs for run_in_background and the job-backed foreground path` | `tool/call`、`tool/result` | - | pwsh 工具是 Windows 组合中 shell 执行器 seam 的 PowerShell 方言消费方（由 `@deepseek-ai/dsh-pwsh-local` 等 PowerShell 执行器为 `ctx.shell` 提供后端）；它逐项对应 bash 工具调用，并包含完整的沙箱升权（`sandbox_permissions` 与 `justification` 经 `ctx.approval` 解析）。使用 `run_in_background` 的运行会注册到通用 `ctx.jobs` 运行时，并通过 `job_*` 工具收集／停止；托管的 `DSH_*` 环境来自 `@deepseek-ai/dsh-shell-env`。每次调用都在新进程中运行，不使用持久 PTY 会话。路径采用原生 `C:\...` 形式，变量采用 `$env:NAME`。 |
 | `@deepseek-ai/dsh-tool-cordis` | `cordis_inspect_list`, `cordis_inspect_query` | `ctx.tools`, `ctx.cordisInspect` | `tool/call`, `tool/result` | - | 创造模式提供两个只读运行时检查工具。Cordis host runner 提供检查注册表；Client 查询需要已连接页面。持久化变更编写为组合包，再通过 plugin_manager 安装。 |
 | `@deepseek-ai/dsh-tool-bash-persistent` | `bash` | `ctx.tools`、`ctx.terminals`、`an owning Agent at execution time` | `tool/call`、`PTY shell state`、`tool/result` | - | 一个按所有者隔离的持久 bash 工具；部署组合提供 PTY 后端，并可覆盖面向模型的环境描述。 |
 | `@deepseek-ai/dsh-tool-pwsh-persistent` | `pwsh` | `ctx.tools`、`ctx.terminals`、`an owning Agent at execution time` | `tool/call`、`PTY shell state`、`tool/result` | - | 一个按所有者隔离的持久 pwsh 工具，持久 bash 工具的 Windows 对应物；部署组合提供 pwsh 方言的 PTY 后端，并可覆盖面向模型的环境描述。 |
@@ -102,6 +102,7 @@
       "description": "List page size, from 1 to 100; defaults to 25."
     }
   },
+  "additionalProperties": false,
   "required": [
     "action"
   ]
@@ -131,6 +132,7 @@
       "description": "Continuation cursor returned by this server."
     }
   },
+  "additionalProperties": false,
   "required": [
     "server"
   ]
@@ -156,6 +158,7 @@
       "description": "Continuation cursor returned by this server."
     }
   },
+  "additionalProperties": false,
   "required": [
     "server"
   ]
@@ -181,6 +184,7 @@
       "description": "Resource URI to read."
     }
   },
+  "additionalProperties": false,
   "required": [
     "server",
     "uri"
@@ -501,6 +505,7 @@
       }
     }
   },
+  "additionalProperties": false,
   "required": [
     "questions"
   ]
@@ -548,6 +553,7 @@ ask_user_question 会暂停工具调用，直到当前 UI 提供方返回人类�
       "description": "Reason this complete program needs wider access, shown to the user for approval."
     }
   },
+  "additionalProperties": false,
   "required": [
     "code",
     "description"
@@ -576,6 +582,7 @@ ask_user_question 会暂停工具调用，直到当前 UI 提供方返回人类�
       "description": "The complete plan, as markdown, starting with a # heading that names it."
     }
   },
+  "additionalProperties": false,
   "required": [
     "plan"
   ]
@@ -619,6 +626,7 @@ ask_user_question 会暂停工具调用，直到当前 UI 提供方返回人类�
       "description": "Run in the background and return a job id immediately (collect with job_output, stop with job_kill). No timeout applies."
     }
   },
+  "additionalProperties": false,
   "required": [
     "command",
     "description"
@@ -663,6 +671,7 @@ bash 工具是 bash 执行器 seam 面向模型的消费方。组合中有 job �
       }
     }
   },
+  "additionalProperties": false,
   "required": [
     "files"
   ]
@@ -706,6 +715,7 @@ bash 工具是 bash 执行器 seam 面向模型的消费方。组合中有 job �
       "description": "Run in the background and return a job id immediately (collect with job_output, stop with job_kill). No timeout applies."
     }
   },
+  "additionalProperties": false,
   "required": [
     "command",
     "description"
@@ -715,7 +725,7 @@ bash 工具是 bash 执行器 seam 面向模型的消费方。组合中有 job �
 
 来源：[`packages/shell/tool-pwsh/src/index.ts`](../packages/shell/tool-pwsh/src/index.ts)
 
-pwsh 工具是 Windows 组合中 bash 执行器 seam 的 PowerShell 方言消费方（由 `@deepseek-ai/dsh-pwsh-local` 等 PowerShell 执行器为 `ctx.shell` 提供后端）；除沙箱接口外，它逐项对应 bash 工具调用。使用 `run_in_background` 的运行会注册到通用 `ctx.jobs` 运行时，并通过 `job_*` 工具收集／停止；托管的 `DSH_*` 环境来自 `@deepseek-ai/dsh-shell-env`。每次调用都在新进程中运行，不使用持久 PTY 会话。路径采用原生 `C:\...` 形式，变量采用 `$env:NAME`。
+pwsh 工具是 Windows 组合中 shell 执行器 seam 的 PowerShell 方言消费方（由 `@deepseek-ai/dsh-pwsh-local` 等 PowerShell 执行器为 `ctx.shell` 提供后端）；它逐项对应 bash 工具调用，并包含完整的沙箱升权（`sandbox_permissions` 与 `justification` 经 `ctx.approval` 解析）。使用 `run_in_background` 的运行会注册到通用 `ctx.jobs` 运行时，并通过 `job_*` 工具收集／停止；托管的 `DSH_*` 环境来自 `@deepseek-ai/dsh-shell-env`。每次调用都在新进程中运行，不使用持久 PTY 会话。路径采用原生 `C:\...` 形式，变量采用 `$env:NAME`。
 
 <a id="deepseek-aidsh-tool-cordis"></a>
 
@@ -728,7 +738,8 @@ pwsh 工具是 Windows 组合中 bash 执行器 seam 的 PowerShell 方言消费
 ```json
 {
   "type": "object",
-  "properties": {}
+  "properties": {},
+  "additionalProperties": false
 }
 ```
 
@@ -762,6 +773,7 @@ pwsh 工具是 Windows 组合中 bash 执行器 seam 的 PowerShell 方言消费
       "description": "Optional query input; it must satisfy the method input schema."
     }
   },
+  "additionalProperties": false,
   "required": [
     "platform",
     "provider",
@@ -791,6 +803,7 @@ pwsh 工具是 Windows 组合中 bash 执行器 seam 的 PowerShell 方言消费
       "description": "The bash command to run. Relative path is preferred in the command."
     }
   },
+  "additionalProperties": false,
   "required": [
     "command"
   ]
@@ -818,6 +831,7 @@ pwsh 工具是 Windows 组合中 bash 执行器 seam 的 PowerShell 方言消费
       "description": "The PowerShell command to run. Relative path is preferred in the command."
     }
   },
+  "additionalProperties": false,
   "required": [
     "command"
   ]
@@ -925,6 +939,7 @@ pwsh 工具是 Windows 组合中 bash 执行器 seam 的 PowerShell 方言消费
       "description": "Optional parameter of `view` command when `path` points to a file. If omitted or null, the full file is shown. If provided, the file will be shown in the indicated line number range, e.g. [11, 12] will show lines 11 and 12. Indexing at 1 to start. Setting `[start_line, -1]` shows all lines from `start_line` to the end of the file."
     }
   },
+  "additionalProperties": false,
   "required": [
     "command",
     "path"
@@ -965,6 +980,7 @@ pwsh 工具是 Windows 组合中 bash 执行器 seam 的 PowerShell 方言消费
       "description": "Replace all matches. Defaults to false; when false, old_string must appear exactly once."
     }
   },
+  "additionalProperties": false,
   "required": [
     "file_path",
     "old_string",
@@ -996,6 +1012,7 @@ pwsh 工具是 Windows 组合中 bash 执行器 seam 的 PowerShell 方言消费
       "description": "Maximum number of lines to return. Defaults to 2000."
     }
   },
+  "additionalProperties": false,
   "required": [
     "file_path"
   ]
@@ -1017,6 +1034,7 @@ pwsh 工具是 Windows 组合中 bash 执行器 seam 的 PowerShell 方言消费
       "description": "Path to the image file, resolved by the filesystem backend."
     }
   },
+  "additionalProperties": false,
   "required": [
     "file_path"
   ]
@@ -1042,6 +1060,7 @@ pwsh 工具是 Windows 组合中 bash 执行器 seam 的 PowerShell 方言消费
       "description": "Full UTF-8 text content to write."
     }
   },
+  "additionalProperties": false,
   "required": [
     "file_path",
     "content"
@@ -1074,6 +1093,7 @@ pwsh 工具是 Windows 组合中 bash 执行器 seam 的 PowerShell 方言消费
       "description": "Directory to search in. Defaults to the session workspace; a relative path resolves against it."
     }
   },
+  "additionalProperties": false,
   "required": [
     "pattern"
   ]
@@ -1103,6 +1123,7 @@ pwsh 工具是 Windows 组合中 bash 执行器 seam 的 PowerShell 方言消费
       "description": "One glob filter for which files to search (e.g. \"*.ts\", \"*.{js,jsx}\"). Not a list; negation is not supported."
     }
   },
+  "additionalProperties": false,
   "required": [
     "pattern"
   ]
@@ -1130,6 +1151,7 @@ glob 和 grep 是无条件可用的发现工具，通过 ctx.subprocess spawn �
       "description": "Terminal session id."
     }
   },
+  "additionalProperties": false,
   "required": [
     "sessionId"
   ]
@@ -1145,7 +1167,8 @@ glob 和 grep 是无条件可用的发现工具，通过 ctx.subprocess spawn �
 ```json
 {
   "type": "object",
-  "properties": {}
+  "properties": {},
+  "additionalProperties": false
 }
 ```
 
@@ -1172,6 +1195,7 @@ glob 和 grep 是无条件可用的发现工具，通过 ctx.subprocess spawn �
       "description": "Initial working directory. Defaults to the deployment workspace root."
     }
   },
+  "additionalProperties": false,
   "required": [
     "type"
   ]
@@ -1201,6 +1225,7 @@ glob 和 grep 是无条件可用的发现工具，通过 ctx.subprocess spawn �
       "description": "Requested line count (default 500; backend caps apply)."
     }
   },
+  "additionalProperties": false,
   "required": [
     "sessionId"
   ]
@@ -1211,7 +1236,7 @@ glob 和 grep 是无条件可用的发现工具，通过 ctx.subprocess spawn �
 
 ### `terminal_send`
 
-向持久终端发送文本。默认会提交 Enter，并等待提示符、stdin 等待、输出静默、超时或会话退出。后台模式会返回供 job_output／job_kill 使用的 job id。
+向持久终端发送文本。默认会提交 Enter，并等待提示符、stdin 等待、输出静默、受后端约束的超时或会话退出。每个会话同时只能有一个发送处于活动状态：请等待前一次发送结束后再发送。后台模式会返回供 job_output／job_kill 使用的 job id。
 
 ```json
 {
@@ -1234,6 +1259,7 @@ glob 和 grep 是无条件可用的发现工具，通过 ctx.subprocess spawn �
       "description": "Return a job id immediately; collect with job_output or stop with job_kill."
     }
   },
+  "additionalProperties": false,
   "required": [
     "sessionId",
     "text"
@@ -1267,6 +1293,7 @@ glob 和 grep 是无条件可用的发现工具，通过 ctx.subprocess spawn �
       ]
     }
   },
+  "additionalProperties": false,
   "required": [
     "sessionId",
     "signal"
@@ -1295,10 +1322,11 @@ glob 和 grep 是无条件可用的发现工具，通过 ctx.subprocess spawn �
       "description": "The concrete completion objective inferred from the direct human request."
     },
     "max_goal_rounds": {
-      "type": "number",
+      "type": "integer",
       "description": "Optional positive safe-integer limit on automatic continuation rounds."
     }
   },
+  "additionalProperties": false,
   "required": [
     "objective"
   ]
@@ -1314,7 +1342,8 @@ glob 和 grep 是无条件可用的发现工具，通过 ctx.subprocess spawn �
 ```json
 {
   "type": "object",
-  "properties": {}
+  "properties": {},
+  "additionalProperties": false
 }
 ```
 
@@ -1333,7 +1362,7 @@ glob 和 grep 是无条件可用的发现工具，通过 ctx.subprocess spawn �
       "description": "Exact id returned by get_goal."
     },
     "revision": {
-      "type": "number",
+      "type": "integer",
       "description": "Exact positive revision returned by get_goal."
     },
     "action": {
@@ -1352,7 +1381,7 @@ glob 和 grep 是无条件可用的发现工具，通过 ctx.subprocess spawn �
       "description": "Replacement objective; valid only with action edit."
     },
     "max_goal_rounds": {
-      "type": "number",
+      "type": "integer",
       "description": "Replacement cap; valid only with action edit."
     },
     "blocked_reason": {
@@ -1360,6 +1389,7 @@ glob 和 grep 是无条件可用的发现工具，通过 ctx.subprocess spawn �
       "description": "Concrete blocking condition; required only with action blocked."
     }
   },
+  "additionalProperties": false,
   "required": [
     "goal_id",
     "revision",
@@ -1425,6 +1455,7 @@ create、edit、pause 和 resume 要求直接来自人类的根权限；complete
       "description": "Absolute target as strict offset RFC 3339 or local date/time with an explicit IANA zone."
     }
   },
+  "additionalProperties": false,
   "required": [
     "prompt"
   ]
@@ -1446,6 +1477,7 @@ create、edit、pause 和 resume 要求直接来自人类的根权限；complete
       "description": "Exact session-local schedule id."
     }
   },
+  "additionalProperties": false,
   "required": [
     "id"
   ]
@@ -1461,7 +1493,8 @@ create、edit、pause 和 resume 要求直接来自人类的根权限；complete
 ```json
 {
   "type": "object",
-  "properties": {}
+  "properties": {},
+  "additionalProperties": false
 }
 ```
 
@@ -1475,7 +1508,7 @@ create、edit、pause 和 resume 要求直接来自人类的根权限；complete
 
 ### `lsp`
 
-查询语言服务器，以精确导航代码。operation 可取 goToDefinition、findReferences、goToImplementation 或 hover。line 和 character 是从 1 开始的 UTF-16 光标坐标。findReferences 包含声明。
+查询语言服务器，以精确导航代码。operation 可取 goToDefinition、findReferences、goToImplementation 或 hover。line 和 character 是从 1 开始的 UTF-16 光标坐标。findReferences 包含声明。针对同一 workspace 的查询串行执行；向同一 workspace 的并行扇出会排队等待，因此请优先采用顺序调用或不同 workspace。
 
 ```json
 {
@@ -1496,14 +1529,15 @@ create、edit、pause 和 resume 要求直接来自人类的根权限；complete
       "description": "The source file to query, relative to the workspace or absolute."
     },
     "line": {
-      "type": "number",
+      "type": "integer",
       "description": "One-based line of the cursor."
     },
     "character": {
-      "type": "number",
+      "type": "integer",
       "description": "One-based UTF-16 column of the cursor."
     }
   },
+  "additionalProperties": false,
   "required": [
     "operation",
     "file_path",
@@ -1538,6 +1572,7 @@ lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，�
       "description": "Optional positive safe-integer round cap, bounded by the deployment ceiling."
     }
   },
+  "additionalProperties": false,
   "required": [
     "objective"
   ]
@@ -1565,6 +1600,7 @@ lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，�
       "description": "The exact skill name from the available skills list."
     }
   },
+  "additionalProperties": false,
   "required": [
     "name"
   ]
@@ -1602,6 +1638,7 @@ lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，�
       "description": "Number of following raw events to summarize. Omit for none."
     }
   },
+  "additionalProperties": false,
   "required": [
     "seq"
   ]
@@ -1662,6 +1699,7 @@ lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，�
       }
     }
   },
+  "additionalProperties": false,
   "required": [
     "query"
   ]
@@ -1687,6 +1725,7 @@ lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，�
       "description": "Target event sequence number."
     }
   },
+  "additionalProperties": false,
   "required": [
     "seq"
   ]
@@ -1780,6 +1819,7 @@ lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，�
       }
     }
   },
+  "additionalProperties": false,
   "required": [
     "query"
   ]
@@ -1800,7 +1840,8 @@ lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，�
       "type": "string",
       "description": "Target session id. Omit for the current session."
     }
-  }
+  },
+  "additionalProperties": false
 }
 ```
 
@@ -1828,7 +1869,8 @@ lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，�
       "type": "string",
       "description": "Exact model id to inspect. Requires provider; omit to list that provider's advertised models."
     }
-  }
+  },
+  "additionalProperties": false
 }
 ```
 
@@ -1848,13 +1890,17 @@ lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，�
     },
     "prompt": {
       "type": "string",
-      "description": "The complete, self-contained task for the subagent. It does not share this conversation's context, so include everything it needs."
+      "description": "The complete, self-contained task for the subagent. It does not share this conversation's context, so include everything it needs. Ask for a text answer: only the child's text reaches this conversation."
     },
     "run_in_background": {
       "type": "boolean",
       "description": "Whether to run as a background job and return its id. Defaults to false; collect with job_output or stop with job_kill."
+    },
+    "output_schema": {
+      "description": "Optional object-rooted JSON Schema for a structured final answer. When supplied, the child must call structured_output with a matching value instead of finishing with plain text; the validated value returns as `structured`. Foreground one-shot runs only."
     }
   },
+  "additionalProperties": false,
   "required": [
     "description",
     "prompt"
@@ -1883,6 +1929,7 @@ lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，�
       "description": "The agent id of the running agent to interrupt."
     }
   },
+  "additionalProperties": false,
   "required": [
     "agent_id"
   ]
@@ -1907,7 +1954,8 @@ lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，�
         "descendants"
       ]
     }
-  }
+  },
+  "additionalProperties": false
 }
 ```
 
@@ -1930,6 +1978,7 @@ lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，�
       "description": "The message to deliver to the agent."
     }
   },
+  "additionalProperties": false,
   "required": [
     "agent_id",
     "message"
@@ -1962,6 +2011,7 @@ lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，�
       "description": "Optional short reason, recorded in the log and forwarded to the job."
     }
   },
+  "additionalProperties": false,
   "required": [
     "job_id"
   ]
@@ -1977,7 +2027,8 @@ lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，�
 ```json
 {
   "type": "object",
-  "properties": {}
+  "properties": {},
+  "additionalProperties": false
 }
 ```
 
@@ -2000,10 +2051,11 @@ lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，�
       "description": "Block until the job reaches a terminal status or the timeout expires. A timed-out wait returns [status: running] and leaves the job alive."
     },
     "timeout_ms": {
-      "type": "number",
-      "description": "Max wait in milliseconds (only meaningful with wait: true). Defaults to the configured wait timeout; capped by the configured maximum."
+      "type": "integer",
+      "description": "Max wait in milliseconds (only meaningful with wait: true). Must be a positive integer. Defaults to the configured wait timeout; capped by the configured maximum."
     }
   },
+  "additionalProperties": false,
   "required": [
     "job_id"
   ]
@@ -2031,6 +2083,7 @@ lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，�
       "description": "Teammate target returned by spawn_teammate or list_agents."
     }
   },
+  "additionalProperties": false,
   "required": [
     "target"
   ]
@@ -2046,7 +2099,8 @@ lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，�
 ```json
 {
   "type": "object",
-  "properties": {}
+  "properties": {},
+  "additionalProperties": false
 }
 ```
 
@@ -2069,6 +2123,7 @@ lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，�
       "description": "Self-contained message for the target."
     }
   },
+  "additionalProperties": false,
   "required": [
     "target",
     "message"
@@ -2107,6 +2162,7 @@ lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，�
       ]
     }
   },
+  "additionalProperties": false,
   "required": [
     "name",
     "description",
@@ -2148,6 +2204,7 @@ lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，�
       }
     }
   },
+  "additionalProperties": false,
   "required": [
     "subject",
     "description"
@@ -2170,6 +2227,7 @@ lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，�
       "description": "Shared task id."
     }
   },
+  "additionalProperties": false,
   "required": [
     "task_id"
   ]
@@ -2211,7 +2269,8 @@ lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，�
       "type": "integer",
       "description": "Number of rows, 1 through 100. Defaults to 50."
     }
-  }
+  },
+  "additionalProperties": false
 }
 ```
 
@@ -2274,6 +2333,7 @@ lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，�
       "description": "Member target from spawn_teammate or list_agents for Lead-only reassign; omit to unassign."
     }
   },
+  "additionalProperties": false,
   "required": [
     "task_id",
     "expected_revision",
@@ -2296,7 +2356,8 @@ lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，�
       "type": "integer",
       "description": "Wait duration in milliseconds, from 10000 through 3600000. Defaults to 30000."
     }
-  }
+  },
+  "additionalProperties": false
 }
 ```
 
@@ -2345,6 +2406,7 @@ lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，�
       }
     }
   },
+  "additionalProperties": false,
   "required": [
     "todos"
   ]
@@ -2446,6 +2508,7 @@ todo_write 是会话所有的状态；UI 将最新的 todo/write 事件渲染为
       "description": "Run as a background job: return a job id immediately instead of waiting; the return value arrives with the completion notice."
     }
   },
+  "additionalProperties": false,
   "required": [
     "script",
     "meta"
@@ -2466,7 +2529,8 @@ todo_write 是会话所有的状态；UI 将最新的 todo/write 事件渲染为
 ```json
 {
   "type": "object",
-  "properties": {}
+  "properties": {},
+  "additionalProperties": false
 }
 ```
 
@@ -2489,6 +2553,7 @@ todo_write 是会话所有的状态；UI 将最新的 todo/write 事件渲染为
       "description": "The HTTP(S) URL to fetch."
     }
   },
+  "additionalProperties": false,
   "required": [
     "url"
   ]
@@ -2513,6 +2578,7 @@ todo_write 是会话所有的状态；UI 将最新的 todo/write 事件渲染为
       }
     }
   },
+  "additionalProperties": false,
   "required": [
     "queries"
   ]

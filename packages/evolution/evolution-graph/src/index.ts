@@ -27,7 +27,7 @@
 import { Context, Service } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { BlockAssembler, createUserMessage } from '@deepseek-ai/dsh-llm'
-import type { GenerateOptions } from '@deepseek-ai/dsh-llm'
+import type { ContextFormed, GenerateOptions } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import type { KvTable } from '@deepseek-ai/dsh-storage-domain'
 import { deadline } from '@deepseek-ai/dsh-timeout'
@@ -52,6 +52,12 @@ import type {
   GraphRecord,
   GraphTriple,
 } from './types.ts'
+
+declare module '@deepseek-ai/dsh-llm' {
+  interface MessageSourceMap {
+    'evolution-graph': { kind: 'evolution-graph' } & ContextFormed
+  }
+}
 
 export type * from './types.ts'
 export { claim, claimEvidence, graphDomainSpec, graphEdge, graphNode, graphRecordSchema } from './spec.ts'
@@ -675,7 +681,7 @@ export class EvolutionGraph extends Service {
       model: route.model,
       messages: [createUserMessage({
         content: [{ type: 'text', text: clipped }],
-        source: { kind: 'plugin', plugin: 'dsh-evolution-graph' },
+        source: { kind: 'evolution-graph' },
       })],
       system: extractionSystemPrompt(),
       maxTokens: this.resolved.maxOutputTokens,

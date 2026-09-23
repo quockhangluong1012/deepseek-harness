@@ -237,7 +237,7 @@ describe('the authorization Remote namespace a sign-in surface calls', () => {
     const { ctx, remote } = await boot()
     scriptedFlow(ctx, KEY, 'Widget', async (session) => {
       session.notify({ message: 'Starting' })
-      await session.prompt({ kind: 'secret', message: 'Paste a token', placeholder: 'sk-â€¦' })
+      await session.prompt({ kind: 'secret', message: 'Paste a token', placeholder: 'sk-…' })
     })
     const attempt = remote.begin(KEY, undefined)
     await waitFor(() => remote.frames(attempt.attemptId, 0).next >= 2)

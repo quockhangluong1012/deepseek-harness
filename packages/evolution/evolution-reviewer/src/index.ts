@@ -26,7 +26,7 @@ import { realpath } from 'node:fs/promises'
 import { isAbsolute, relative, resolve } from 'node:path'
 import { Context, Service } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
-import type { GenerateOptions } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock, ContextFormed, GenerateOptions, ToolResultMessage } from '@deepseek-ai/dsh-llm'
 import { BlockAssembler, createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { Session, SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionQueryEngine } from '@deepseek-ai/dsh-session-query'
@@ -41,6 +41,12 @@ import { skillCreationEvidence, skillProposalMergeKey } from '@deepseek-ai/dsh-e
 import { extractionSystemPrompt, frameExtractionRequest, parseExtractionDecisions } from './protocol.ts'
 import type { CritiqueDecision, ExtractionDecision, IndexedArtifact } from './protocol.ts'
 import { selectRelevantArtifacts } from './relevance.ts'
+
+declare module '@deepseek-ai/dsh-llm' {
+  interface MessageSourceMap {
+    'evolution-reviewer': { kind: 'evolution-reviewer' } & ContextFormed
+  }
+}
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -312,10 +318,10 @@ function reduceOverCapBatch(
  * @param content - message content blocks.
  * @returns concatenated text of the text blocks.
  */
-function textOfContent(content: readonly { type: string; text?: string }[]): string {
+function textOfContent(content: readonly ContentBlock[]): string {
   let out = ''
   for (const block of content) {
-    if (block.type === 'text' && typeof block.text === 'string') out += block.text
+    if (block.type === 'text') out += block.text
   }
   return out
 }
@@ -329,14 +335,12 @@ function textOfContent(content: readonly { type: string; text?: string }[]): str
  */
 function admittedRow(event: SessionEvent): TranscriptRow | undefined {
   if (event.type === 'user/message') {
-    const data = event.data as { source?: { kind?: string }; content: { type: string; text?: string }[] }
-    if (data.source?.kind !== 'user') return undefined
-    const text = textOfContent(data.content)
+    if (event.data.source.kind !== 'user') return undefined
+    const text = textOfContent(event.data.content)
     return text.length === 0 ? undefined : { role: 'user', text }
   }
   if (event.type !== 'assistant/message') return undefined
-  const message = (event.data as { message: { content: { type: string; text?: string }[] } }).message
-  const text = textOfContent(message.content)
+  const text = textOfContent(event.data.message.content)
   return text.length === 0 ? undefined : { role: 'assistant', text }
 }
 
@@ -349,22 +353,14 @@ function admittedRow(event: SessionEvent): TranscriptRow | undefined {
  */
 function parseToolOutcome(
   data: {
-    callId?: string
+    message: ToolResultMessage
     error?: { code?: string }
-    message: {
-      content: readonly {
-        toolCallId?: string
-        isError?: boolean
-        content?: readonly { type: string; text?: string }[]
-      }[]
-    }
   },
 ): { callId: string; failed: boolean; detail: string } | undefined {
-  const block = data.message.content[0]
-  const callId = data.callId ?? block?.toolCallId
-  if (callId === undefined) return undefined
-  if (block?.isError !== true) return { callId, failed: false, detail: '' }
-  return { callId, failed: true, detail: textOfContent(block.content ?? []) || data.error?.code || '' }
+  const message = data.message
+  const callId = String(message.toolCallId)
+  if (message.isError !== true) return { callId, failed: false, detail: '' }
+  return { callId, failed: true, detail: textOfContent(message.content) || data.error?.code || '' }
 }
 
 /**
@@ -1335,7 +1331,7 @@ export class EvolutionReviewer extends Service {
     const framed = frameExtractionRequest(rows, relevant)
     const messages = [createUserMessage({
       content: [{ type: 'text', text: framed }],
-      source: { kind: 'plugin', plugin: 'dsh-evolution-reviewer' },
+      source: { kind: 'evolution-reviewer' },
     })]
     const options: GenerateOptions = {
       provider: route.provider,

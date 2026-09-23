@@ -107,7 +107,10 @@ Registry service for the prompt inputs assembled before each model step.
 /**
  * Register an ordered prompt section in the calling context's scope. A scoped
  * section shadows a global section with the same name; duplicates within one
- * layer and non-finite orders throw. Registration and disposal emit
+ * layer and non-finite orders throw. Static text with a malformed `{{...}}`
+ * group throws at registration unless the section sets `interpolate: false`,
+ * whose text is literal; unknown variable names throw at assembly, when the
+ * full registered set is known. Registration and disposal emit
  * `system-prompt/change`.
  * @param section - the section to register.
  * @returns the exact Cordis effect disposer.
@@ -130,7 +133,9 @@ getContextOrder(name: PromptContextOrderName): number
 
 /**
  * Register ordered dynamic context in the calling context's scope. Scoped
- * entries shadow global entries with the same name.
+ * entries shadow global entries with the same name. Static text with a
+ * malformed `{{...}}` group throws at registration; unknown variable names
+ * throw at assembly, when the full registered set is known.
  * @param context - the context contribution to register.
  * @returns the exact Cordis effect disposer.
  */

@@ -35,7 +35,7 @@ function isSnapshotSource(source: UserMessage['source']): source is SnapshotSour
 /**
  * Identity two snapshots share when the later one supersedes the earlier:
  * the producer alone. A snapshot's sections are its payload, so two briefs
- * from one plugin are one slot even when their content, digest, or scope
+ * from one producer are one slot even when their content, digest, or scope
  * differs — the older brief in a moved session is exactly the stale one. A
  * source that declares no `supersedes`, such as a per-step reading that a
  * later reading measures elapsed time against, has no slot and appends.
@@ -44,7 +44,7 @@ function isSnapshotSource(source: UserMessage['source']): source is SnapshotSour
  */
 export function snapshotSlot(source: UserMessage['source']): string | undefined {
   if (!isSnapshotSource(source)) return undefined
-  return source.kind === 'plugin' ? `plugin:${source.plugin}` : `kind:${source.kind}`
+  return `kind:${source.kind}`
 }
 
 /**

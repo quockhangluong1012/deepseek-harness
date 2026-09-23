@@ -14,8 +14,8 @@ import type { ShareGptConversation, ShareGptInput, ShareGptMessage, ShareGptRole
 type ContentBlock = SessionEventMap['user/message']['content'][number]
 
 /**
- * Join the text blocks of one message content array. Reasoning, image, file,
- * and tool-result blocks contribute no text of their own.
+ * Join the text blocks of one message content array. Reasoning, image, and
+ * file blocks contribute no text of their own.
  * @param content - content blocks of one message.
  * @returns the concatenated text.
  */
@@ -87,7 +87,7 @@ function admittedMessage(event: SessionEvent): ShareGptMessage | undefined {
     case 'assistant/message':
       return message('gpt', assistantText(event.data.message.content))
     case 'tool/result':
-      return message('tool', textOf(event.data.message.content[0].content))
+      return message('tool', textOf(event.data.message.content))
     // Merge-extensible event map: every other event type carries no conversation
     // message, and an unknown one cannot be interpreted as one.
     default:

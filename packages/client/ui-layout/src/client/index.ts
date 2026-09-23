@@ -126,6 +126,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      * layout — belongs to the page itself, not to this seat.
      */
     'shell.page': { kind: 'single'; scope: 'root' }
+    /**
      * Window-chrome seat at the frame's top-left, over every main panel.
      * Mounted only while the sidebar column is fully hidden (macOS desktop
      * collapse; other platforms keep the rail), so the occupant can assume the

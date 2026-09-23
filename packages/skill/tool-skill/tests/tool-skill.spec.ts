@@ -6,7 +6,7 @@ import { Context } from '@deepseek-ai/cordis'
 import { createUserMessage, ToolCallId, type Message } from '@deepseek-ai/dsh-llm'
 import type { ContextFormed, MessageSource } from '@deepseek-ai/dsh-llm'
 import { createScope, type Scope } from '@deepseek-ai/dsh-scope'
-import { ShellExecutor, type ShellExecRequest, type ShellExecSpec, type ShellRunResult } from '@deepseek-ai/dsh-shell'
+import { ShellExecutor, type ShellExecRequest, type ShellExecSpec, type ShellExecution, type ShellRunResult } from '@deepseek-ai/dsh-shell'
 import {
   SESSION_FORMAT_VERSION, Session, SessionId, type SessionEvent, type UserMessage,
 } from '@deepseek-ai/dsh-session'
@@ -1441,30 +1441,39 @@ describe('load-time skill environment', () => {
   class FakeShell extends ShellExecutor {
     readonly requests: ShellExecRequest[] = []
     readonly results: ShellRunResult[] = []
+    private readonly reader = { readFrom: (from: number) => ({ text: '', nextOffset: from, lossy: false }) }
     override resolve(request: ShellExecRequest): ShellExecSpec {
       this.requests.push(request)
       return {
         command: request.command,
         workdir: request.workdir ?? process.cwd(),
         timeoutMs: request.timeoutMs ?? 10_000,
+        onExpiry: request.onExpiry ?? 'kill',
         stdoutMaxBytes: request.stdoutMaxBytes ?? 0,
         sandboxPolicy: undefined,
         ...request.env === undefined ? {} : { env: request.env },
       }
     }
-    override async run(): Promise<ShellRunResult> {
-      return this.results.shift() ?? {
+    override async execute(): Promise<ShellExecution> {
+      // Only `result()` is consulted; the live-handle members are inert.
+      return {
+        status: 'completed',
         exitCode: 0,
         signal: null,
-        timedOut: false,
-        aborted: false,
-        timeoutMs: 10_000,
-        stdout: { text: '', truncated: false },
-        stderr: { text: '', truncated: false },
+        done: Promise.resolve(),
+        readOutput: () => ({ delta: '', lossy: false }),
+        observed: { stdout: this.reader, stderr: this.reader },
+        kill: () => false,
+        result: async () => this.results.shift() ?? {
+          exitCode: 0,
+          signal: null,
+          timedOut: false,
+          aborted: false,
+          timeoutMs: 10_000,
+          stdout: { text: '', truncated: false },
+          stderr: { text: '', truncated: false },
+        },
       }
-    }
-    override start(): never {
-      throw new Error('tool-skill must never start a background job')
     }
   }
 

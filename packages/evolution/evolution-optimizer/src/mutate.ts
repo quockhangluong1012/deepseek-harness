@@ -8,7 +8,13 @@
  */
 
 import { BlockAssembler, createUserMessage } from '@deepseek-ai/dsh-llm'
-import type { ContentBlock, GenerateOptions, Message, StreamChunk } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock, ContextFormed, GenerateOptions, Message, StreamChunk } from '@deepseek-ai/dsh-llm'
+
+declare module '@deepseek-ai/dsh-llm' {
+  interface MessageSourceMap {
+    'evolution-optimizer': { kind: 'evolution-optimizer' } & ContextFormed
+  }
+}
 
 /**
  * Instruction opening every mutation request: the fixed protocol plus the
@@ -203,7 +209,7 @@ export async function mutateOnce(
 ): Promise<string[]> {
   const messages: Message[] = [createUserMessage({
     content: [{ type: 'text', text: options.input }],
-    source: { kind: 'plugin', plugin: 'dsh-evolution-optimizer' },
+    source: { kind: 'evolution-optimizer' },
   })]
   const assembler = new BlockAssembler()
   for await (const chunk of fork.stream({

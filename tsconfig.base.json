@@ -176,8 +176,8 @@
       "@deepseek-ai/dsh-agent-loop/invariant": ["./packages/core/agent-loop/src/invariant.ts"],
       "@deepseek-ai/dsh-experimental-agent-team/invariant": ["./packages/experimental/agent-team/src/invariant.ts"],
       // host/client package names prefix the group dir (dsh-client-<dir>), so
-      // the generated aliases below â€” which map a package only when its name is
-      // exactly dsh-<dir> â€” skip them; strip the group prefix with a dedicated
+      // the generated aliases below — which map a package only when its name is
+      // exactly dsh-<dir> — skip them; strip the group prefix with a dedicated
       // wildcard per group instead.
       "@deepseek-ai/dsh-host-*/invariant": ["./packages/host/*/src/invariant.ts"],
       "@deepseek-ai/dsh-client-*/invariant": ["./packages/client/*/src/invariant.ts"],
@@ -188,7 +188,7 @@
       // dir names are unique across groups, so first-on-disk-wins resolution is
       // unambiguous; adding a package under an existing group needs no edit
       // here. The aggregates' project references (tsconfig.host.json /
-      // tsconfig.client.json) stay explicit â€” TS project references have no
+      // tsconfig.client.json) stay explicit — TS project references have no
       // wildcard form.
       "@deepseek-ai/dsh-host-directory-picker": ["./packages/host/directory-picker/src"],
       "@deepseek-ai/dsh-host-directory-picker/*": ["./packages/host/directory-picker/src/*"],
@@ -345,7 +345,7 @@
       "@deepseek-ai/dsh-command-evolution/types": ["./packages/evolution/command-evolution/src/types.ts"],
       "@deepseek-ai/dsh-evolution-controller/types": ["./packages/evolution/evolution-controller/src/types.ts"],
       "@deepseek-ai/dsh-evolution-memory/types": ["./packages/evolution/evolution-memory/src/types.ts"],
-      // BEGIN generated package aliases â€” pnpm run gen-tsconfig-paths
+      // BEGIN generated package aliases — pnpm run gen-tsconfig-paths
       "@deepseek-ai/dsh-acp": ["./packages/acp/acp/src"],
       "@deepseek-ai/dsh-acp-app": ["./packages/bundle/acp-app/src"],
       "@deepseek-ai/dsh-active-memory-context": ["./packages/context/active-memory-context/src"],

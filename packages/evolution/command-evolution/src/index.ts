@@ -28,6 +28,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { CommandDefinitionId } from '@deepseek-ai/dsh-commands/brand'
 import type { CommandInvocation, CommandResult } from '@deepseek-ai/dsh-commands'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import type { ContextFormed } from '@deepseek-ai/dsh-llm'
 import type { Session } from '@deepseek-ai/dsh-session'
 import { serializeSessionLog } from '@deepseek-ai/dsh-session-log-export'
 import { remoteErrorOf } from '@deepseek-ai/dsh-typert-protocol'
@@ -87,6 +88,12 @@ import type { OperatorRanking, OperatorStats } from '@deepseek-ai/dsh-evolution-
 import type { RouteEffectiveness, RouteRankingEntry, RoutingRole } from '@deepseek-ai/dsh-evolution-router'
 import { ROUTING_ROLES } from '@deepseek-ai/dsh-evolution-router'
 import type { EvaluatorStrategy, StrategyRanking } from '@deepseek-ai/dsh-evolution-evaluator-strategy'
+
+declare module '@deepseek-ai/dsh-llm' {
+  interface MessageSourceMap {
+    'command-evolution': { kind: 'command-evolution' } & ContextFormed
+  }
+}
 
 export * from './journey.ts'
 
@@ -1949,7 +1956,7 @@ function executeLearn(invocation: CommandInvocation): CommandResult {
   if (topic.length === 0) return { kind: 'error', text: LEARN_USAGE }
   invocation.agent.followup(createUserMessage({
     content: [{ type: 'text', text: buildLearnPrompt(topic) }],
-    source: { kind: 'plugin', plugin: 'command-evolution' },
+    source: { kind: 'command-evolution' },
   }))
   return {
     kind: 'success',
