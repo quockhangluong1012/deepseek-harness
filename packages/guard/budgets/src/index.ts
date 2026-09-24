@@ -105,7 +105,9 @@ function validateCeilings(config: Config): void {
  * The first configured ceiling this turn has reached, or undefined when no
  * ceiling is configured or none is reached. Tool calls and wall clock are
  * compared before the token measurement so a turn already over a cheaper
- * ceiling never pays for a replay of its log.
+ * ceiling never pays for a replay of its log. The token and cost ceilings read
+ * the meter's request measurement, which is context pressure rather than
+ * settled spend; see this package's README.
  * @param ctx - plugin context providing `tokenMeter`.
  * @param config - validated plugin configuration.
  * @param session - session whose measured pressure the token ceiling compares.

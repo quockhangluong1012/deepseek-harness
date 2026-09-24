@@ -30,7 +30,7 @@ import type {
 export const UNRESTRICTED_SCOPE = '**'
 
 /** Capabilities a receipt bounds by writable scope rather than by presence alone. */
-const MUTATING_CAPABILITIES: readonly Capability[] = ['fs.write', 'fs.edit']
+const MUTATING_CAPABILITIES: readonly Capability[] = ['fs.write', 'fs.edit', 'git.write']
 
 /**
  * Digest one permission document and the profile name it is mounted under, so

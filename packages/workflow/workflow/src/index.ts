@@ -12,21 +12,23 @@ import type {
   WorkflowResultInfo,
   WorkflowRunInfo,
 } from './types.ts'
-import type { WorkflowRun, WorkflowStartRequest } from './runtime-types.ts'
+import type { WorkflowResumeRequest, WorkflowRun, WorkflowStartRequest } from './runtime-types.ts'
 
 export { WorkflowRunId } from './types.ts'
 export type {
   WorkflowAgentEndInfo,
   WorkflowAgentInfo,
   WorkflowAgentOutcome,
+  WorkflowCheckpointRef,
   WorkflowMeta,
   WorkflowPhase,
   WorkflowResult,
   WorkflowResultInfo,
   WorkflowRunInfo,
+  WorkflowRunStatus,
   WorkflowStopReason,
 } from './types.ts'
-export type { WorkflowRun, WorkflowStartRequest } from './runtime-types.ts'
+export type { WorkflowResumeRequest, WorkflowRun, WorkflowStartRequest } from './runtime-types.ts'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -116,6 +118,7 @@ export type WorkflowErrorCode =
   | 'AGENT_START'
   | 'AGENT_RESULT'
   | 'RESULT_UNSERIALIZABLE'
+  | 'CHECKPOINT_LIVE'
   | 'CANCELLED'
 
 /**
@@ -166,6 +169,37 @@ export abstract class WorkflowEngine extends Service {
    * @returns the live run; its `result` resolves when the script settles.
    */
   abstract start(request: WorkflowStartRequest): WorkflowRun
+
+  /**
+   * Resume one checkpointed run: start the checkpointed script again over the
+   * inputs the checkpoint recorded, on behalf of the resuming caller.
+   *
+   * The resumed run gets its own identity, because it is a new execution with
+   * its own children, budget, and event pair. What carries across is the work
+   * itself: the caller holds the checkpoint, so it can correlate the resumed
+   * run with the run it resumes. A checkpoint taken while its run was still
+   * live is refused — resuming it would run the same script twice — so a
+   * suspended run is cancelled first, and the checkpoint of that cancelled run
+   * is what a resume starts from.
+   * @param request - the checkpoint and the agent the resumed run executes for.
+   * @returns the live resumed run.
+   * @throws When the checkpoint describes a run that has not stopped.
+   */
+  resume(request: WorkflowResumeRequest): WorkflowRun {
+    const { checkpoint } = request
+    if (checkpoint.status === 'running') {
+      throw new WorkflowError(`workflow: cannot resume checkpoint ${JSON.stringify(checkpoint.checkpointId)}: its run ${JSON.stringify(checkpoint.runId)} is still live`, 'CHECKPOINT_LIVE')
+    }
+    return this.start({
+      script: checkpoint.script,
+      meta: checkpoint.meta,
+      ...checkpoint.args === undefined ? {} : { args: checkpoint.args },
+      ...checkpoint.subagentProvider === undefined ? {} : { subagentProvider: checkpoint.subagentProvider },
+      ...checkpoint.maxTotalAgents === undefined ? {} : { maxTotalAgents: checkpoint.maxTotalAgents },
+      parent: request.parent,
+      ...request.signal === undefined ? {} : { signal: request.signal },
+    })
+  }
 
   /**
    * Emit a lifecycle event while containing and logging each listener failure.

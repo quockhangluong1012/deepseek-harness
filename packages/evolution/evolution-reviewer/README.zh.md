@@ -91,7 +91,7 @@ kind: "package-reference"
 
 ### 写入与审批
 
-`writeApproval` 开启时，回合提取把每次调用的一批决策暂存为一条 `applyDecisions` 条目，因此 `/memory approve <id>` 在审批时读到的记录上原子地应用整批。重建（来源 `rebuild`）始终直接写入，没有待批内容的批次也一样。失败的提取告警并保留已存工件；teardown 与会话释放会中止在途调用。
+`writeApproval` 开启时，回合提取把每次调用的一批决策暂存为一条 `applyDecisions` 条目，因此 `/memory approve <id>` 在审批时读到的记录上原子地应用整批。受污染的内容始终暂存：当 prompt-injection 守卫为该会话记录了 `tainted: true` 的 `security/scan` 时，批次中每条 `new` 候选都携带 `trust: 'untrusted'`，且无论 `writeApproval` 如何设置，整批都会被暂存——因为污点只能经过审批进入长期记忆。重建（来源 `rebuild`）始终直接写入，没有待批内容的批次也一样。失败的提取告警并保留已存工件；teardown 与会话释放会中止在途调用。
 
 ### 相关性窗口
 

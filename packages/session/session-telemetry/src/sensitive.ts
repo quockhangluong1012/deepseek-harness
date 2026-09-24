@@ -5,7 +5,7 @@
  * @module @deepseek-ai/dsh-session-telemetry/sensitive
  */
 
-import type { SessionTelemetryRecord } from './index.ts'
+import type { SessionTelemetryRecord } from './record.ts'
 
 /** Replacement marker for scrubbed secret text. */
 export const SENSITIVE_PLACEHOLDER = '[REDACTED]'

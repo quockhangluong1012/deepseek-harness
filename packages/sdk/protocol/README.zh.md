@@ -40,7 +40,7 @@ kind: "package-library"
 | client→server | `initialize` | `InitializeParams` → `InitializeResult` |
 | client→server | `session/prompt` | `SessionPromptParams` → `SessionPromptResult`（持久入队回执） |
 | client→server | `shutdown` | 无参数 → `{}` |
-| server→client | `session.event` | `SessionEventNotification`（运行时内每个会话，不过滤） |
+| server→client | `session.event` | `SessionEventNotification`（运行时内每个会话，不过滤——挂载 agent kernel 时同样包含它的 `task/*`、`action/*`、`policy/decision`、`verification/*`、`failure/recorded` 与 `checkpoint/*` 记录） |
 | server→client | `session.status` | `SessionStatusNotification`（整个 agent（智能体）的 `running`/`idle` 转换） |
 | server→client | `subagent.started` | `SubagentStartedNotification` |
 | server→client | `subagent.finished` | `SubagentFinishedNotification`（仅进程内运行） |

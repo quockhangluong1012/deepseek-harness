@@ -46,12 +46,23 @@ The compiler service (`ctx.agentContext`). It attaches to the prompt assembly wa
 
 ```ts cordis-catalog
 /**
+ * Register one producer's descriptor and item supplier (S2). The compiler
+ * places its items alongside the assembly and the kernel's task facts on
+ * every later compile, until the disposer runs.
+ * @param descriptor - the producer's source descriptor.
+ * @param provide - the item supplier, called once per compile.
+ * @returns a disposer that unregisters the producer.
+ */
+register(descriptor: ContextSourceDescriptor, provide: ContextSourceProvider): () => void
+
+/**
  * Compile one assembly for a live agent and record the placement.
  * @param agent - the agent the assembly is for.
  * @param assembly - the assembled prompt contributions.
+ * @param signal - cancellation forwarded to every registered provider.
  * @returns the placement, already appended as `context/compiled`.
  */
-async compile(agent: Agent, assembly: PromptAssembly): Promise<CompiledContext>
+async compile(agent: Agent, assembly: PromptAssembly, signal: AbortSignal = new AbortController().signal): Promise<CompiledContext>
 ```
 
 Types: [Agent](core.zh.md)

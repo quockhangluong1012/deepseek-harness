@@ -86,6 +86,12 @@ function rejectElectronProfile(program: Command, profile: string): void {
   }
 }
 
+/**
+ * The profile `dsh task` and `dsh policy` boot: the shipped template whose
+ * bundles are `dsh-base` plus the kernel-ops command line.
+ */
+const KERNEL_OPS_PROFILE = 'kernel-ops'
+
 /** The launcher's own help text; each app prints its own. */
 const HELP_EXAMPLES = `
 Examples:
@@ -144,6 +150,13 @@ function resolveBoot(program: Command, profile: string, options: BootOptions, ar
  */
 export function parseDshArgs(argv: readonly string[], version: string): DshInvocation {
   const first = argv[0]
+  // `dsh task` and `dsh policy` name an app command line, not a profile: they
+  // boot the profile that mounts the kernel-ops commands with the invocation
+  // verbatim, the way `dsh plugin` manages profile packages. `dsh --profile
+  // kernel-ops task show <id>` selects the same profile explicitly.
+  if (first === 'task' || first === 'policy') {
+    return { mode: 'profile', profile: KERNEL_OPS_PROFILE, patches: [], args: [...argv] }
+  }
   let resolved: DshInvocation | undefined
   // Annotated, not inferred: the actions below call back into `program`, and an
   // inferred type would be circular through its own chain.

@@ -38,10 +38,8 @@ function transition(overrides: Partial<StateTransition> = {}): StateTransition {
 }
 
 describe('task state machine', () => {
-  it('admits the documented staged chain and rejects the edges leaving a terminal state', () => {
-    expect(canTransition('intake', 'understanding')).toBe(true)
-    expect(canTransition('understanding', 'retrieving')).toBe(true)
-    expect(canTransition('retrieving', 'planning')).toBe(true)
+  it('admits every edge the kernel drives and rejects the edges leaving a terminal state', () => {
+    expect(canTransition('intake', 'planning')).toBe(true)
     expect(canTransition('planning', 'ready')).toBe(true)
     expect(canTransition('ready', 'executing')).toBe(true)
     expect(canTransition('executing', 'observing')).toBe(true)
@@ -54,6 +52,13 @@ describe('task state machine', () => {
       expect(isActive(terminal)).toBe(false)
     }
     expect(isActive('ready')).toBe(true)
+  })
+
+  it('lists only the statuses a producer reaches', () => {
+    expect(TASK_STATUSES).toEqual([
+      'intake', 'planning', 'ready', 'executing', 'observing', 'verifying', 'recovering',
+      'awaiting-approval', 'awaiting-user', 'paused', 'completed', 'failed', 'cancelled',
+    ])
   })
 
   it('rejects an edge the table does not carry', () => {

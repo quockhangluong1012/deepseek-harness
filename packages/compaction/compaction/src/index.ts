@@ -21,6 +21,15 @@ export { toolPairingBalancedAfter, toolPairingBalancedBefore } from './tool-pair
 // root's Context merge; the root stays the host-side entry point for both.
 export { compactCheckpointSource, isCompactCheckpointSource } from './checkpoint.ts'
 export type { CompactionCheckpointSource } from './checkpoint.ts'
+export { deriveCompactionCheckpoint } from './facts.ts'
+export type {
+  CompactionCheckpointFacts,
+  CompactionCheckpointInput,
+  CompactionLogEvent,
+  CompactionOpenWork,
+  CompactionRetainedFact,
+  CompactionUnresolvedFailure,
+} from './facts.ts'
 
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {

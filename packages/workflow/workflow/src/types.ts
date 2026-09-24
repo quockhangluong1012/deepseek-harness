@@ -94,6 +94,39 @@ export interface WorkflowRunInfo {
   meta: WorkflowMeta
 }
 
+/** Where one workflow run stands. */
+export type WorkflowRunStatus = 'running' | 'completed' | 'failed' | 'cancelled'
+
+/**
+ * Everything one run needs to be resumed: its identity, where it stood when
+ * the checkpoint was taken, and the inputs it was started with.
+ *
+ * The script is data, so a checkpoint is complete without engine state: a
+ * resuming caller hands the same body and arguments back to the engine, which
+ * is why a checkpoint can be persisted as plain JSON anywhere a caller keeps
+ * durable records.
+ */
+export interface WorkflowCheckpointRef {
+  /** Identity of this checkpoint, distinct from the run it describes. */
+  readonly checkpointId: string
+  /** The run this checkpoint was taken from. */
+  readonly runId: WorkflowRunId
+  /** Where the run stood when the checkpoint was taken. */
+  readonly status: WorkflowRunStatus
+  /** Unix epoch milliseconds the checkpoint was taken. */
+  readonly createdAt: number
+  /** The plain-JS script body, exactly as the start request carried it. */
+  readonly script: string
+  /** The run's validated meta block. */
+  readonly meta: WorkflowMeta
+  /** The run's input, when it had one. */
+  readonly args?: unknown
+  /** The child-provider override the run was started with, when it had one. */
+  readonly subagentProvider?: string
+  /** The per-run child ceiling the run was started with, when it had one. */
+  readonly maxTotalAgents?: number
+}
+
 /** One `agent()` call's identity within a run (the `workflow/agent-start` payload). */
 export interface WorkflowAgentInfo {
   /** 1-based sequence number of this `agent()` call within the run. */

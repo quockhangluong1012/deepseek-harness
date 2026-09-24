@@ -26,6 +26,12 @@ const EXPECTED: Readonly<Record<FailureKind, RecoveryAction>> = {
   'workflow-failed': 'diagnose',
   'persistence-failed': 'fail-closed',
   'prompt-injection': 'quarantine',
+  // S4's loop-robustness failures.
+  'output-truncated': 'retry',
+  'tool-args-malformed': 'diagnose',
+  'no-progress': 'ask-user',
+  stalled: 'retry',
+  'step-ceiling': 'checkpoint-pause',
   unknown: 'diagnose',
 }
 

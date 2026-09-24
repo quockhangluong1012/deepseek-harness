@@ -68,6 +68,10 @@ The `hook/invoked` and `hook/result` events are declaration-merged into `Session
 
 Invocation and result records must sit inside an open turn: `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, and `Stop` satisfy that relation by construction, while `SessionStart` runs before turn 1 and gets no `hook/*` record — its injected context is delivered instead. The invariant companion registers on `ctx.invariants` and rejects `hook/*` events appended outside an open turn, a result without a matching invoked, an unknown dialect, or a non-finite duration.
 
+### Typed hook contributions
+
+Every matched hook's output is classified as exactly one contribution kind: `observe`, `annotate`, `inject-untrusted-context`, `request-policy-change`, or `veto` (`classifyHookOutput`, and `MergedHookOutcome.contributions` in hook order). The kinds are ranked but none carries a capability: a hook may veto an action, ask the policy owner to decide, or inject context as untrusted data, and only a kernel or policy owner turns such a request into a grant. A hook's `allow` is therefore advisory — both bridges consume just `deny` and `ask`, and nothing outside a policy owner may read a hook's consent as authorization.
+
 ### Design philosophy
 
 - **One axis of difference collapsed into `mode`.** The dialects differ only in how a matcher pattern is interpreted, so the matcher takes the mode as a parameter instead of duplicating the engine.
@@ -86,6 +90,7 @@ The [hook-protocol-lib Agent Note](../../../.agents/notes/archived/feature/2026-
 | [`src/runner.ts`](src/runner.ts) | `runHook` execution through `ctx.shell` and `DEFAULT_HOOK_TIMEOUT_MS` |
 | [`src/codec.ts`](src/codec.ts) | Exit-code and structured-stdout decoding into `HookOutput` |
 | [`src/merge.ts`](src/merge.ts) | Most-restrictive merge and the `MergedHookOutcome` type |
+| [`src/contribution.ts`](src/contribution.ts) | `classifyHookOutput` and the five `HookContributionKind`s |
 | [`src/events.ts`](src/events.ts) | `hook/*` event declaration, append helpers, stderr summary |
 | [`src/detached.ts`](src/detached.ts) | Detached-run quiescence tracking |
 | [`src/types.ts`](src/types.ts) | `HookOutput`, `MatcherGroup`, `CommandHook`, and the `hook/*` payload types |

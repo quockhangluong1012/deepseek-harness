@@ -27,6 +27,8 @@ English | [中文](README.zh.md)
 
 Mount the plugin beside the store. The deployment must choose what a Workspace may cost per request.
 
+With `@deepseek-ai/dsh-agent-context` mounted, the compiler also records the latest visible Workspace brief as an untrusted, required stable-core memory source. Shadow migration leaves the existing pre-step message unchanged.
+
 ```yaml
 - name: '@deepseek-ai/dsh-workspace-memory'
   config:

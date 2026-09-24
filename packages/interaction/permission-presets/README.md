@@ -29,7 +29,7 @@ Choose this service when a deployment wants to offer users one Permissions selec
 
 ### Configuring presets
 
-The plugin config defines the preset table and the default for fresh sessions. Each preset name bundles one sandbox mode with one approval policy; `name` and `description` are optional client presentation. The reserved names `custom` and `auto` cannot appear in this table.
+The plugin config defines the preset table and the default for fresh sessions. Each preset name bundles one sandbox mode with one approval policy; `name` and `description` are optional client presentation. A preset may also carry a `policy`: capability rules the agent kernel intersects with its deployment document, so selecting that preset also narrows what the session's tools may do. The reserved names `custom` and `auto` cannot appear in this table.
 
 ```yaml
 - name: '@deepseek-ai/dsh-permission-presets'
@@ -47,9 +47,10 @@ The plugin config defines the preset table and the default for fresh sessions. E
 | Field | Default | Meaning |
 |---|---|---|
 | `presets` | `workspace-write`, `danger-full-access` | Table of preset name → sandbox/approval bundle |
+| `presets.<name>.policy` | none | Capability rules this preset adds to the agent kernel's policy, intersected with the deployment document |
 | `defaultPreset` | inferred | Preset pinned into fresh sessions; required when composition defaults match no preset |
 
-The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-permission-presets) is the exhaustive source for every accepted field and its JSDoc. `custom` is reserved for the derived not-a-preset state, while `auto` is reserved for the Auto review integration. Mounting requires a confining bash executor (one that reports a `sandboxMode`) and the approval service.
+The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-permission-presets) is the exhaustive source for every accepted field and its JSDoc. `custom` is reserved for the derived not-a-preset state, while `auto` is reserved for the Auto review integration. The agent kernel is optional: without it a preset's `policy` is recorded but nothing evaluates it. Mounting requires a confining bash executor (one that reports a `sandboxMode`) and the approval service.
 
 ### Switching presets
 

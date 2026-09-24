@@ -21,6 +21,9 @@
       "path": "../goal"
     },
     {
+      "path": "../../runtime/agent-context"
+    },
+    {
       "path": "../../llm/llm"
     },
     {

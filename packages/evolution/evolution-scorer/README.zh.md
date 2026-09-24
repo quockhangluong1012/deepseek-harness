@@ -46,7 +46,7 @@ if (outcome.status === 'scored') console.log(outcome.score.pass, outcome.score.t
 
 ### 触发器与技能评估
 
-`shouldOptimize(usage, thresholds)` 是纯触发器，决定一个技能的已记录结果是否值得运行一次优化：至少 `triggerMinUses` 次加载且失败占比超过 `triggerFailureRate`，其中占比为 `failureCount / (useCount + failureCount)`——正是遥测记录所记录的公式。`evaluateSkill({ skill, scenarios, agent, run })` 经由已有的 `score` 为每个具名场景评分，并聚合成优化器三元组：仅当每个场景都通过时 `pass` 才成立，token 与耗时取各场景中位数之和。一个场景被跳过则整个评估随之跳过并附上理由，因为基于不完整的评估做优化等于在不存在的证据上做选择；未指名任何场景的技能同样跳过。
+`shouldOptimize(usage, thresholds)` 是纯触发器，决定一个技能的已记录结果是否值得运行一次优化。只要技能有任何整理器分级的任务结果（`usage.sessionOutcomes`，S9 修正案），就由它决定：占比为「失败 / 已分级」，以 `triggerMinUses` 份已分级会话为门槛。若尚无分级，则回退到工具加载计数器：至少 `triggerMinUses` 次加载且失败占比超过 `triggerFailureRate`，其中占比为 `failureCount / (useCount + failureCount)`——正是遥测记录所记录的公式。`evaluateSkill({ skill, scenarios, agent, run })` 经由已有的 `score` 为每个具名场景评分，并聚合成优化器三元组：仅当每个场景都通过时 `pass` 才成立，token 与耗时取各场景中位数之和。一个场景被跳过则整个评估随之跳过并附上理由，因为基于不完整的评估做优化等于在不存在的证据上做选择；未指名任何场景的技能同样跳过。
 
 ### 行为评估
 

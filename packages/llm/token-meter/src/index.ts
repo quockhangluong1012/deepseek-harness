@@ -38,6 +38,10 @@ import type { MeterSurfaceNode } from './surface-fold.ts'
 import { priceSurface } from './route-pricing.ts'
 
 export type * from './types.ts'
+// Host-face export: the kernel's budget governor reads the same per-turn
+// provider accounting the meter derives, so measured spend has one owner.
+export { deriveSessionTokenSpend, deriveTurnTokenUsage } from './turn-usage.ts'
+export type { TurnTokenUsage, TurnTokenUsageRoute } from './turn-usage.ts'
 // Module-edge re-export: forces the emitted index.d.ts to import the
 // projection-unit modules, so their SessionProjectionStateMap augmentations load
 // in aggregate programs that only import the package root.

@@ -21,6 +21,9 @@
       "path": "../../core/agent"
     },
     {
+      "path": "../../runtime/agent-context"
+    },
+    {
       "path": "../../core/session"
     },
     {

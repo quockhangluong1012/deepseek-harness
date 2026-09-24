@@ -1,0 +1,41 @@
+# The control-plane layer of a profile: the agent kernel, the built-in
+# capability declarations it needs to govern real traffic, and the
+# prompt-injection guard. Inserted by a profile that wants the governance plane;
+# nothing here is part of dsh-base, so a deployment opts in by listing this
+# bundle in its profile.
+#
+# Every row starts in `shadow`, which records what the runtime decided and
+# changes nothing: a deployment measures a permission document against real
+# traffic before it can stop any of it. Flip `mode` to `enforce` on the kernel
+# to make its composed decisions binding, and on the guard to rewrite
+# model-visible results.
+
+- insert:
+    # The kernel attaches to the loop and tool waterfalls in its constructor, so
+    # every session under this profile gains durable task, action, and
+    # verification records in its log — log-only, never model context.
+    - id: agent-kernel
+      name: '@deepseek-ai/dsh-agent-kernel'
+      config:
+        mode: shadow
+
+    # The kernel's registry starts empty and fails closed, so this companion
+    # declares every shipped product tool. Without it a shadow kernel records a
+    # denial for each call it cannot evaluate; with it, the record names the
+    # capability the call actually needs.
+    - id: agent-kernel-builtins
+      name: '@deepseek-ai/dsh-agent-kernel-builtins'
+
+    # The research tools write the knowledge plane through the kernel: what the
+    # model records as evidence and as a claim becomes an `evidence/recorded`
+    # and `claim/updated` record the task can cite, instead of prose.
+    - id: tool-evidence
+      name: '@deepseek-ai/dsh-tool-evidence'
+
+    # The guard wraps tool results and model proposals in a tainted envelope,
+    # records what matched, and — in `enforce` — replaces credentials before
+    # they reach model context. It grants nothing and blocks nothing.
+    - id: prompt-injection
+      name: '@deepseek-ai/dsh-prompt-injection'
+      config:
+        mode: shadow

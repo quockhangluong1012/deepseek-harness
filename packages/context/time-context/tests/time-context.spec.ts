@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
+import AgentContext from '@deepseek-ai/dsh-agent-context'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import { createUserMessage, ToolCallId, LlmAdapter } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
@@ -192,6 +193,36 @@ describe('durable step context', () => {
       }],
     })
     expect(event.surfaceOp).toBe('append')
+  })
+
+  it('registers durable readings as trusted delta history sources', async () => {
+    const { ctx, fiber } = await mount({ timeZone: 'Asia/Shanghai' })
+    const compilerFiber = await ctx.plugin(AgentContext, {})
+    try {
+      const session = Session.create(SessionId('compiler-source'))
+      openMessageTurn(session, 1, 'Asia/Shanghai')
+      const agent = sessionAgent(session)
+      await fire(ctx, agent, 1, 1)
+      const event = session.snapshotEvents().find(
+        entry => entry.type === 'user/message' && entry.data.source.kind === 'time-context',
+      )
+      if (event?.type !== 'user/message') throw new Error('time-context did not emit a reading')
+      const text = event.data.content.find(block => block.type === 'text')
+      if (text?.type !== 'text') throw new Error('time-context reading has no text')
+
+      const compiled = await ctx.agentContext.compile(agent, { sections: [], contexts: [], tools: [], variables: {} })
+      const source = compiled.included.find(entry => entry.source.id === `time-context:${String(event.data.id)}`)
+      expect(source?.source.content).toBe(text.text)
+      expect(source?.source.kind).toBe('history')
+      expect(source?.source.trust).toBe('trusted')
+      expect(source?.source.retention).toBe('compressible')
+
+      const repeated = await ctx.agentContext.compile(agent, { sections: [], contexts: [], tools: [], variables: {} })
+      expect(repeated.included.some(entry => entry.source.id === source?.source.id)).toBe(false)
+    } finally {
+      await compilerFiber.dispose()
+      await fiber.dispose()
+    }
   })
 
   it('reports an unavailable first-step baseline when no model-visible message precedes it', async () => {

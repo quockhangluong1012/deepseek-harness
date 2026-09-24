@@ -139,9 +139,9 @@ describe('agent-kernel real Loader composition through cordis.yml', () => {
     expect(result.isError).toBe(false)
     const types = owner.session.snapshotEvents().map(event => event.type)
     expect(types).toContain('task/created')
-    expect(types).toContain('action/authorized')
+    expect(types).toContain('action/decided')
     expect(types).toContain('action/committed')
-    expect(types).not.toContain('action/denied')
+    expect(types).not.toContain('action/authorized')
   }, 30_000)
 
   it('refuses an undeclared tool in enforce mode and leaves its action uncommitted as a failure', async () => {
@@ -175,7 +175,7 @@ describe('agent-kernel real Loader composition through cordis.yml', () => {
 
     expect(result.isError).toBe(true)
     const events = owner.session.snapshotEvents()
-    expect(events.find(event => event.type === 'action/denied')).toBeDefined()
+    expect(events.find(event => event.type === 'action/decided')).toBeDefined()
     expect(events.find(event => event.type === 'action/committed')?.data).toMatchObject({ outcome: 'denied' })
   }, 30_000)
 

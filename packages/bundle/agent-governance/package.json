@@ -1,0 +1,51 @@
+{
+  "name": "@deepseek-ai/dsh-agent-governance",
+  "description": "The control-plane layer as a profile bundle: the agent kernel with its built-in capability declarations and the prompt-injection guard, inserted in shadow mode so a deployment can measure before it enforces",
+  "version": "0.1.7-alpha.2",
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/deepseek-ai/deepseek-harness.git",
+    "directory": "packages/bundle/agent-governance"
+  },
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./src/*": "./src/*",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/index.js",
+    "cordis.patch.yml",
+    "lib/types/**/*.d.ts"
+  ],
+  "license": "MIT",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "dependencies": {
+    "@deepseek-ai/dsh-agent-kernel": "workspace:*",
+    "@deepseek-ai/dsh-agent-kernel-builtins": "workspace:*",
+    "@deepseek-ai/dsh-prompt-injection": "workspace:*",
+    "@deepseek-ai/dsh-tool-evidence": "workspace:*"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "workspace:~",
+    "@deepseek-ai/cordis-plugin-include": "workspace:~",
+    "@deepseek-ai/cordis-plugin-loader": "workspace:~",
+    "@deepseek-ai/dsh-agent-kernel": "workspace:*",
+    "@deepseek-ai/dsh-agent-kernel-builtins": "workspace:*",
+    "@deepseek-ai/dsh-agent-loop-testkit": "workspace:*",
+    "@deepseek-ai/dsh-prompt-injection": "workspace:*"
+  }
+}

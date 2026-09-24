@@ -99,6 +99,15 @@ describe('permission evaluation', () => {
     expect(decision.reasons).toContain('tool "write_file" declared no capability; failing closed')
   })
 
+  it('fails closed when a declared tool requires no capability', () => {
+    const engine = new PermissionPolicyEngine({ defaults: { effect: 'allow' }, rules: [] })
+    const decision = engine.evaluate(context([]))
+
+    expect(decision.effect).toBe('deny')
+    expect(decision.matchedRuleIndex).toBeNull()
+    expect(decision.reasons).toContain('tool "write_file" declared no required capability; failing closed')
+  })
+
   it('falls back to the default effect when no rule matches, and the last matching rule wins', () => {
     const engine = new PermissionPolicyEngine({
       defaults: { effect: 'deny' },
@@ -116,6 +125,61 @@ describe('permission evaluation', () => {
     const overridden = engine.evaluate(context([request('fs.write', 'workspace/secret/a')]))
     expect(overridden).toMatchObject({ effect: 'deny', matchedRuleIndex: 1 })
     expect(overridden.reasons).toContain('rule 1 decides deny')
+  })
+
+  it('maps Git and browser capabilities to distinct policy families', () => {
+    const engine = new PermissionPolicyEngine({
+      defaults: { effect: 'deny' },
+      rules: [
+        { action: 'read', resource: 'workspace/**', effect: 'allow' },
+        { action: 'write', resource: 'workspace/**', effect: 'deny' },
+        { action: 'browser', resource: 'https://docs.example/**', effect: 'ask' },
+      ],
+    })
+
+    expect(engine.evaluate(context([request('git.read', 'workspace/repo')])).effect).toBe('allow')
+    expect(engine.evaluate(context([request('git.write', 'workspace/repo')])).effect).toBe('deny')
+    expect(engine.evaluate(context([request('browser.read', 'https://docs.example/page')])).effect).toBe('ask')
+    expect(engine.evaluate(context([request('network.read', 'https://docs.example/page')])).effect).toBe('deny')
+  })
+
+  it('lets a denial on any required capability dominate an allow on another', () => {
+    const engine = new PermissionPolicyEngine({
+      defaults: { effect: 'allow' },
+      rules: [
+        { action: 'read', resource: '**', effect: 'deny' },
+        { action: 'write', resource: '**', effect: 'allow' },
+      ],
+    })
+
+    expect(engine.evaluate(context([
+      request('fs.read', 'workspace/a'),
+      request('fs.write', 'workspace/a'),
+    ])).effect).toBe('deny')
+  })
+
+  it('requires approval when any required capability asks', () => {
+    const engine = new PermissionPolicyEngine({
+      defaults: { effect: 'allow' },
+      rules: [
+        { action: 'read', resource: '**', effect: 'ask' },
+        { action: 'write', resource: '**', effect: 'allow' },
+      ],
+    })
+
+    expect(engine.evaluate(context([
+      request('fs.read', 'workspace/a'),
+      request('fs.write', 'workspace/a'),
+    ])).effect).toBe('ask')
+  })
+
+  it('treats Git writes as mutations inside the technical read-only sandbox', () => {
+    const engine = new PermissionPolicyEngine({ defaults: { effect: 'allow' }, rules: [] })
+    const requestValue = request('git.write', 'workspace/repo')
+    const decision = engine.evaluate(context([requestValue]))
+    const sandbox = { mode: 'read-only', workspaceRoot: 'C:\\ws' } as const
+
+    expect(composeAuthorization(decision, proposal(), context([requestValue], sandbox), true).effect).toBe('deny')
   })
 })
 

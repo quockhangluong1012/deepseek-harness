@@ -15,6 +15,7 @@ import type { LessonDecision } from './decisions.ts'
 // the controller's wire face, for one — can name the artifact types without
 // importing the package root, whose module body reaches for `node:crypto`.
 export type { LessonArtifact, LessonArtifactInput, LessonArtifactPatch, LessonMergeStrategy } from './lesson-artifact.ts'
+export type { LessonLineage, LessonSupersession, UtilityEstimate } from './lesson-artifact.ts'
 
 declare module '@deepseek-ai/dsh-typert-protocol' {
   interface RemoteErrorDetailsMap {

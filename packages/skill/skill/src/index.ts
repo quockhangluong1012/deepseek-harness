@@ -13,6 +13,9 @@
 import { Context, Service } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-llm'
 import { assertNever } from '@deepseek-ai/dsh-util-values'
+import type { TrustLabel } from '@deepseek-ai/dsh-agent-kernel'
+import type { SkillAdmission } from './admission.ts'
+export * from './admission.ts'
 import { NamedEntries, ScopedLayers, scopeChainOf, scopeOf } from '@deepseek-ai/dsh-scope'
 import type { ScopeKey, ScopeLayer } from '@deepseek-ai/dsh-scope'
 import z from '@deepseek-ai/schemastery'
@@ -97,6 +100,24 @@ export interface SkillSummary {
   readonly version?: string
   /** Scenario names usable by the scorer/optimizer; absent means none declared. */
   readonly testScenarios?: readonly string[]
+  /**
+   * How the skill entered this deployment. `quarantined` skills are neither
+   * advertised nor loadable; absent leaves the decision to the provider, which
+   * is how every provider that filters at discovery stays as it is.
+   */
+  readonly admission?: SkillAdmission
+  /**
+   * How far the skill body may be trusted. Project and repository skills stay
+   * `untrusted` until a review admits them.
+   */
+  readonly trust?: TrustLabel
+  /**
+   * Digest of the exact source the provider read, so an admitted skill can be
+   * tied to the artifact it was reviewed from.
+   */
+  readonly sourceDigest?: string
+  /** Artifact that restores the previous version of this skill, when one exists. */
+  readonly rollbackArtifact?: string
   /** Resolved model and user invocation controls. */
   readonly invocation: SkillInvocationPolicy
   /** Discovery source that produced this winning skill. */
@@ -685,6 +706,14 @@ export class SkillRegistry extends Service {
       quarantinedCount += observation.quarantinedCount ?? 0
       for (const candidate of observation.candidates) {
         validateCandidate(candidate, provider.name)
+        // A provider that reports a quarantine instead of withholding the
+        // candidate keeps it out of every advertised or loadable view, and the
+        // observation still counts it.
+        if (candidate.admission === 'quarantined') {
+          quarantinedCount += 1
+          this.ctx.logger.warn(`skill "${candidate.name}" from provider "${provider.name}" quarantined: it is neither advertised nor loadable`)
+          continue
+        }
         candidates.push({ candidate, provider, providerOrder: order, localOrder, layer })
         localOrder += 1
       }
@@ -911,6 +940,10 @@ function toSummary(skill: SkillDefinition | SkillCandidate): SkillSummary {
     ...whenToUse !== undefined ? { whenToUse } : {},
     ...carriedStringLists(skill),
     ...skill.version !== undefined ? { version: skill.version } : {},
+    ...skill.admission !== undefined ? { admission: skill.admission } : {},
+    ...skill.trust !== undefined ? { trust: skill.trust } : {},
+    ...skill.sourceDigest !== undefined ? { sourceDigest: skill.sourceDigest } : {},
+    ...skill.rollbackArtifact !== undefined ? { rollbackArtifact: skill.rollbackArtifact } : {},
     invocation,
     source,
     provider,

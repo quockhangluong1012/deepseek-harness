@@ -9,10 +9,11 @@
  * module is stored outside the session log when it affects completion,
  * authority, or recovery.
  *
- * @module @deepseek-ai/dsh-agent-kernel/types
  */
 
+import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { Branded } from '@deepseek-ai/dsh-brand'
+
 import type { ToolCallId } from '@deepseek-ai/dsh-llm/brand'
 import type { SandboxExecutionPolicy } from '@deepseek-ai/dsh-sandbox'
 import type { Session } from '@deepseek-ai/dsh-session'
@@ -44,6 +45,15 @@ export type FailureId = Branded<'FailureId'>
 /** Identity of one issued delegation receipt. */
 export type DelegationId = Branded<'DelegationId'>
 
+/** Identity of one recorded observation a claim may cite. */
+export type EvidenceId = Branded<'EvidenceId'>
+
+/** Identity of one claim a task asserts. */
+export type TaskClaimId = Branded<'TaskClaimId'>
+
+/** Identity of one question a task is testing. */
+export type TaskHypothesisId = Branded<'TaskHypothesisId'>
+
 /**
  * How far content or a decision may be trusted. Untrusted content is data: it
  * never becomes an instruction authority and never widens a grant.
@@ -52,6 +62,18 @@ export type TrustLabel = 'trusted' | 'untrusted' | 'unknown'
 
 /** Who caused a durable kernel record. */
 export type ActorKind = 'user' | 'model' | 'kernel' | 'tool' | 'system'
+
+/**
+ * What kind of work a task is. The class decides which acceptance criteria the
+ * task starts from and whether the completion gate demands one at all: a
+ * conversational task answers without a criterion, while a coding, research, or
+ * operations task is held to the criteria its deployment configured for that
+ * class.
+ */
+export type TaskClass = 'conversational' | 'coding' | 'research' | 'operations'
+
+/** Every task class, for configuration schemas and exhaustive switches. */
+export const TASK_CLASSES: readonly TaskClass[] = ['conversational', 'coding', 'research', 'operations']
 
 /** Where a kernel record's content came from. */
 export interface Provenance {
@@ -63,14 +85,38 @@ export interface Provenance {
   readonly digest?: string
 }
 
+/** Versioned identity and provenance shared by every new kernel Session event. */
+export interface KernelEventMetadata {
+  /** Kernel event schema version. */
+  readonly version: 1
+  /** Durable run this event belongs to. */
+  readonly runId: RunId
+  /** Durable task this event belongs to, when task intake has occurred. */
+  readonly taskId?: TaskId
+  /** Actor that caused this event. */
+  readonly actor: ActorKind
+  /** Unix epoch milliseconds when the record was written. */
+  readonly timestamp: number
+  /** Source and locator for the fact recorded. */
+  readonly provenance: Provenance
+}
+
+/** An event payload with audit metadata; optional only for historical records. */
+export type KernelEventData<T extends object> = T & { readonly metadata?: KernelEventMetadata }
+
 /**
  * Task lifecycle state. The kernel owns these; `turn/step` state stays with
  * `core/agent-loop` and is not duplicated here.
+ *
+ * A status exists only while a named producer reaches it: `intake` at
+ * intake, `planning` when plan mode is entered, `ready` at first-step
+ * admission, `executing`/`observing` around a step, `verifying` at turn end,
+ * `recovering` when recovery starts, `awaiting-approval` from the approval
+ * linkage, `awaiting-user`, `paused` from a budget or liveness stop, and the
+ * terminal three from the completion gate or a cancellation.
  */
 export type TaskStatus =
   | 'intake'
-  | 'understanding'
-  | 'retrieving'
   | 'planning'
   | 'ready'
   | 'executing'
@@ -118,6 +164,8 @@ export interface ResourceBudget {
   readonly maxCostUsd?: number
   /** Delegation depth the task may reach. */
   readonly maxSubagentDepth?: number
+  /** Concurrent actions the task may have in flight. */
+  readonly maxConcurrentActions?: number
 }
 
 /** Observed resource use of one task, plus what remains of its configured budget. */
@@ -126,6 +174,8 @@ export interface BudgetSnapshot {
   readonly steps: number
   /** `tool/call` events observed for the task's session. */
   readonly toolCalls: number
+  /** Provider-reported tokens the session's completed turns were billed for. */
+  readonly tokens: number
   /** Wall-clock milliseconds since the task was created. */
   readonly wallMs: number
   /** Remaining allowance per configured ceiling; an unbounded ceiling is absent. */
@@ -161,6 +211,11 @@ export interface TaskContract {
   readonly parentTaskId?: TaskId
   /** Agent profile the task runs under. */
   readonly agentProfile: string
+  /**
+   * Class of work this task is. Absent on records written before the field
+   * existed, which read as `conversational`.
+   */
+  readonly taskClass?: TaskClass
   /** Policy profile the task runs under. */
   readonly policyProfile: string
   /** Ceilings the task may spend. */
@@ -183,12 +238,22 @@ export interface TaskInput {
   readonly workspace?: WorkspaceRef
   /** Enclosing task, when this task was delegated. */
   readonly parentTaskId?: TaskId
-  /** Agent profile the task runs under. */
+  /** Agent profile the task runs under; a registered profile supplies the rest of the role. */
   readonly agentProfile: string
-  /** Policy profile the task runs under. */
-  readonly policyProfile: string
+  /**
+   * Policy profile the task runs under. Omitted means the kernel resolves it:
+   * the registered agent profile's own policy profile, else the deployment's
+   * configured default. A caller that names one overrides the role.
+   */
+  readonly policyProfile?: string
   /** Ceilings the task may spend. */
   readonly budget?: ResourceBudget
+  /**
+   * Class of work this task is. Omitted means the kernel resolves it: the
+   * registered agent profile's own class, else the mutation heuristic, else the
+   * deployment default.
+   */
+  readonly taskClass?: TaskClass
 }
 
 /** Why the kernel moved a task between states. */
@@ -209,6 +274,9 @@ export type TransitionKind =
   | 'verification-failed'
   | 'human-required'
   | 'recovery-started'
+  | 'plan-recorded'
+  | 'plan-mode-entered'
+  | 'plan-mode-exited'
   | 'cancelled'
   | 'paused'
   | 'budget-exhausted'
@@ -284,10 +352,13 @@ export type Capability =
   | 'fs.read'
   | 'fs.write'
   | 'fs.edit'
+  | 'git.read'
+  | 'git.write'
   | 'process.exec'
   | 'terminal.interactive'
   | 'network.read'
   | 'network.write'
+  | 'browser.read'
   | 'mcp.call'
   | 'memory.read'
   | 'memory.write'
@@ -295,7 +366,6 @@ export type Capability =
   | 'workflow.start'
   | 'approval.request'
   | 'policy.propose'
-
 /** One capability request against one resource selector. */
 export interface CapabilityRequest {
   /** Capability the action needs. */
@@ -323,6 +393,15 @@ export interface CapabilityDeclaration {
    * @returns the resource selector for this invocation.
    */
   resources(args: unknown): string
+  /**
+   * Trust of the content a call to this tool acts on, when the declaring
+   * package knows it. A tool that carries content from outside the trust
+   * boundary — an MCP server, a fetch, a web search — declares `untrusted`, and
+   * a deployment quarantining untrusted content then requires a human answer
+   * before such a call runs. Omitted means the trust is unknown to the kernel,
+   * which the policy engine treats exactly like an undeclared capability.
+   */
+  readonly trust?: TrustLabel
 }
 
 /** One action the model, a workflow, a subagent, or a human proposed. */
@@ -351,6 +430,7 @@ export type PolicyAction =
   | 'write'
   | 'edit'
   | 'shell'
+  | 'browser'
   | 'network'
   | 'mcp'
   | 'delegate'
@@ -361,7 +441,7 @@ export type PolicyAction =
 /** What a policy rule or default decides. */
 export type PolicyEffect = 'allow' | 'ask' | 'deny'
 
-/** One permission rule. The last matching rule wins. */
+/** A capability rule; the last matching rule decides that capability. */
 export interface PolicyRule {
   /** Action family the rule selects. */
   readonly action: PolicyAction
@@ -382,8 +462,26 @@ export interface PolicyDocument {
     /** Effect applied when no rule matches an action. */
     readonly effect: PolicyEffect
   }
-  /** Rules in declaration order; the last match wins. */
+  /** Rules in declaration order; deny dominates across capabilities, then ask, then allow. */
   rules: PolicyRule[]
+}
+
+/** Session-selected policy layer that must not widen the deployment policy. */
+export interface PolicyProfileSelection {
+  /** Profile identity recorded with task and action decisions. */
+  readonly profile: string
+  /** Additional policy intersected with the deployment document. */
+  readonly document?: PolicyDocument
+}
+
+/** Resolves the currently selected policy layer for one session. */
+export interface PolicyProfileProvider {
+  /**
+   * Resolve one session's selected policy profile.
+   * @param session - session whose current preset is read.
+   * @returns the profile and optional restriction, or undefined when no selection applies.
+   */
+  resolve(session: Session): PolicyProfileSelection | undefined
 }
 
 /** Everything one policy evaluation reads. */
@@ -402,6 +500,84 @@ export interface PolicyContext {
    * is refused no matter what the rules or the state say.
    */
   readonly parentGrant?: DelegationReceipt
+  /**
+   * The capability grant of the agent profile the task was created under,
+   * absent when that name resolves to no registered profile. A role narrows
+   * what an agent may do: a capability outside the grant is refused even when a
+   * permission rule would allow it, because the rule decides what this
+   * deployment permits, and the profile decides what this role is for. A child
+   * inherits the intersection, never the union, of both.
+   */
+  readonly agentGrant?: readonly Capability[]
+}
+
+/**
+ * The kernel's enforceable slice of one agent role: what this kind of agent is
+ * for, which capabilities it may ever use, the permission document that
+ * decides its actions, and the ceilings it starts from.
+ *
+ * A profile is a ROLE boundary, not a second task. The model and context
+ * policy of a role belong to the packages that own models and context — the
+ * model router and the context compiler — and a deployment selects them by
+ * composing a preset for that role; restating them here would give the kernel
+ * a second, silently diverging copy of decisions it does not make.
+ */
+export interface AgentProfile {
+  /** Name tasks record as `agentProfile` and the registry resolves. */
+  readonly id: string
+  /** Human-readable role this profile stands for. */
+  readonly role: string
+  /**
+   * Every capability this role may ever use. An action needing a capability
+   * outside this list is refused regardless of the permission document, so a
+   * rule that allows it for another role cannot widen this one. An empty list
+   * refuses every action.
+   */
+  readonly capabilities: readonly Capability[]
+  /** Policy profile name the kernel resolves for tasks created under this role. */
+  readonly policyProfile: string
+  /** Ceilings tasks created under this role start from. */
+  readonly budget: ResourceBudget
+  /** Class of work this role's tasks default to; absent means the deployment's. */
+  readonly taskClass?: TaskClass
+}
+
+/**
+ * One agent profile as configuration declares it. The configuration schema
+ * materializes a mutable `capabilities` array, so the registered
+ * {@link AgentProfile} keeps the immutable copy.
+ */
+export interface AgentProfileConfig {
+  /** Name tasks record as `agentProfile` and the registry resolves. */
+  readonly id: string
+  /** Human-readable role this profile stands for. */
+  readonly role: string
+  /** Every capability this role may ever use; empty refuses every action. */
+  readonly capabilities: Capability[]
+  /** Policy profile name tasks created under this role run under. */
+  readonly policyProfile: string
+  /** Ceilings tasks created under this role start from. */
+  readonly budget: ResourceBudget
+  /** Class of work this role's tasks default to; absent means the deployment's. */
+  readonly taskClass?: TaskClass
+}
+
+/** The registry `ctx.agentKernel.profiles` names: the roles this deployment defines. */
+export interface AgentProfileRegistry {
+  /**
+   * Register one role.
+   * @param profile - the profile; registering the same id twice replaces the earlier one.
+   * @returns a disposer that removes exactly this registration.
+   */
+  register(profile: AgentProfile): () => void
+  /**
+   * Resolve one role by the name a task records.
+   * @param id - the profile id.
+   * @returns the profile, or undefined when this deployment registered none.
+   */
+  resolve(id: string): AgentProfile | undefined
+  /** Every registered profile, in registration order. */
+  readonly list: readonly AgentProfile[]
 }
 
 /**
@@ -415,9 +591,9 @@ export interface PolicyDecision {
   readonly actionId: ActionId
   /** Decision reached. */
   readonly effect: PolicyEffect
-  /** Index of the winning rule in the document, or null when the default decided. */
+  /** A matched rule associated with the final effect, or null when defaults decide; reasons retain each capability's winner. */
   readonly matchedRuleIndex: number | null
-  /** Capability requests the winning rule was matched against. */
+  /** All capability requests included in the evaluation. */
   readonly capabilities: readonly CapabilityRequest[]
   /** Why the decision came out this way, in evaluation order. */
   readonly reasons: readonly string[]
@@ -462,6 +638,32 @@ export interface ActionDecisionEvent {
 }
 
 /**
+ * One tool call's whole authorization in a single record: what was proposed,
+ * what the permission rules decided, and the composed answer the pipeline acted
+ * on, including the capabilities that answer granted. A steady-state tool call
+ * appends this and its commit, and nothing else.
+ */
+export interface ActionDecidedEvent extends ActionDecisionEvent {
+  /** The permission rules' decision, before the sandbox and the human are composed. */
+  readonly policy: PolicyDecision
+}
+
+/** One action's settle: its receipt and the grants that ended with it. */
+export interface ActionCommittedEvent extends ActionReceipt {
+  /** Action-scoped grants the settle ended; empty when the action held none. */
+  readonly revoked: readonly CapabilityGrant[]
+}
+
+/** One capability granted to one action, which its action's settle ends. */
+export interface CapabilityGrant {
+  /** Action the grant belongs to. */
+  readonly actionId: ActionId
+  /** Capabilities granted. */
+  readonly capabilities: readonly Capability[]
+}
+
+
+/**
  * The composed policy/imposition result for one action: the rule decision, the
  * sandbox actually applied, and the human outcome when one was asked for.
  */
@@ -482,16 +684,6 @@ export interface GovernanceReceipt {
   readonly at: number
 }
 
-/** One capability grant attached to an action. */
-export interface CapabilityGrant {
-  /** Action the grant belongs to. */
-  readonly actionId: ActionId
-  /** Capabilities granted. */
-  readonly capabilities: readonly Capability[]
-  /** Unix epoch milliseconds the grant stops applying, when it expires. */
-  readonly expiresAt?: number
-}
-
 /** The settled outcome of one executed action. */
 export interface ActionReceipt {
   /** Action identity shared by the proposal, decision, and this receipt. */
@@ -510,6 +702,12 @@ export interface ActionReceipt {
   readonly failureId?: FailureId
   /** The linked policy, sandbox, and human-decision record for this action. */
   readonly governance?: GovernanceReceipt
+  /**
+   * Digest of the result the action returned. Two calls with the same tool and
+   * arguments and the same digest told the model nothing new, which is what the
+   * no-progress detector counts.
+   */
+  readonly resultDigest?: string
   /** Unix epoch milliseconds the receipt was recorded. */
   readonly committedAt: number
 }
@@ -536,6 +734,13 @@ export type FailureKind =
   | 'workflow-failed'
   | 'persistence-failed'
   | 'prompt-injection'
+  // Loop-robustness failures (amendment S4): each names a way a run stops
+  // making progress without failing outright.
+  | 'output-truncated'
+  | 'tool-args-malformed'
+  | 'no-progress'
+  | 'stalled'
+  | 'step-ceiling'
   | 'unknown'
 
 /** One classified failure. */
@@ -591,6 +796,16 @@ export interface RecoveryDecision {
   readonly reason: string
   /** Unix epoch milliseconds the decision was recorded. */
   readonly at: number
+}
+
+/** One recovery pass began for a recorded failure. */
+export interface RecoveryStartedRecord {
+  /** Failure whose recovery began. */
+  readonly failureId: FailureId
+  /** Classification the recovery engine will decide for. */
+  readonly kind: FailureKind
+  /** Unix epoch milliseconds when recovery began. */
+  readonly startedAt: number
 }
 
 /**
@@ -655,6 +870,107 @@ export interface VerificationRequest {
   readonly criteria: readonly AcceptanceCriterion[]
   /** Scopes the task changed, for `diff` verifiers. */
   readonly changedScopes: readonly string[]
+}
+
+/** Which family observed one piece of evidence. */
+export type EvidenceKind = 'file' | 'tool-result' | 'web' | 'mcp' | 'test' | 'user' | 'model'
+
+/**
+ * One observation a claim may cite. The content stays where it lives — a file,
+ * a logged tool result, an attachment — so this record holds only the
+ * reference, the digest of what was observed, and how far it may be trusted.
+ */
+export interface Evidence {
+  /** Identity of this observation. */
+  readonly evidenceId: EvidenceId
+  /** Family that observed it. */
+  readonly kind: EvidenceKind
+  /** Repository-relative path, URL, or tool call id locating the content. */
+  readonly contentRef: string
+  /** Digest of the observed content, when the observer could compute one. */
+  readonly digest?: string
+  /** Source and locator of the observation itself. */
+  readonly provenance: Provenance
+  /** How far the observed content may be trusted. */
+  readonly trust: TrustLabel
+  /** Unix epoch milliseconds the content was observed. */
+  readonly observedAt: number
+}
+
+/** How far the evidence behind a claim has established it. */
+export type TaskClaimStatus = 'proposed' | 'supported' | 'contradicted' | 'stale' | 'rejected'
+
+/**
+ * One statement a task asserts, with the observations behind it. This is the
+ * live task's research record; the cross-session claims `evolution-graph`
+ * stores are a separate, promotion-scoped record.
+ */
+export interface TaskClaim {
+  /** Identity of this claim. */
+  readonly claimId: TaskClaimId
+  /** The statement the task asserts. */
+  readonly statement: string
+  /** Evidence recorded in this session supporting or contradicting it. */
+  readonly evidence: readonly EvidenceId[]
+  /** Stated confidence in `[0, 1]`. */
+  readonly confidence: number
+  /** How far the evidence has established the statement. */
+  readonly status: TaskClaimStatus
+}
+
+/** How far the tests behind a hypothesis have settled it. */
+export type TaskHypothesisStatus = 'open' | 'supported' | 'refuted' | 'inconclusive'
+
+/** One question a task is testing through claims and verifications. */
+export interface TaskHypothesis {
+  /** Identity of this hypothesis. */
+  readonly hypothesisId: TaskHypothesisId
+  /** The question being tested. */
+  readonly question: string
+  /** Claims recorded in this session that bear on it. */
+  readonly claims: readonly TaskClaimId[]
+  /** Verifications run against it. */
+  readonly tests: readonly VerificationRequest[]
+  /** How far those tests have settled the question. */
+  readonly status: TaskHypothesisStatus
+}
+
+/** Caller-supplied fields of one observation. */
+export interface EvidenceInput {
+  /** Family that observed it. */
+  readonly kind: EvidenceKind
+  /** Repository-relative path, URL, or tool call id locating the content. */
+  readonly contentRef: string
+  /** Digest of the observed content, when the observer could compute one. */
+  readonly digest?: string
+  /** Source and locator of the observation itself. */
+  readonly provenance: Provenance
+  /** How far the observed content may be trusted. */
+  readonly trust: TrustLabel
+}
+
+/** Caller-supplied fields of one claim. */
+export interface TaskClaimInput {
+  /** The statement the task asserts. */
+  readonly statement: string
+  /** Observations recorded in this session, by identity. */
+  readonly evidence?: readonly EvidenceId[]
+  /** Stated confidence in `[0, 1]`. */
+  readonly confidence: number
+  /** How far the evidence has established the statement; `proposed` when omitted. */
+  readonly status?: TaskClaimStatus
+}
+
+/** Caller-supplied fields of one hypothesis. */
+export interface TaskHypothesisInput {
+  /** The question being tested. */
+  readonly question: string
+  /** Claims recorded in this session, by identity. */
+  readonly claims?: readonly TaskClaimId[]
+  /** Verifications run against it. */
+  readonly tests?: readonly VerificationRequest[]
+  /** How far the tests have settled it; `open` when omitted. */
+  readonly status?: TaskHypothesisStatus
 }
 
 /** One verifier's answer for one criterion. */
@@ -756,6 +1072,18 @@ export interface Checkpoint {
   readonly createdAt: number
 }
 
+/** One live agent resumed from a durable checkpoint. */
+export interface CheckpointResumedRecord {
+  /** Checkpoint the resumed session loaded. */
+  readonly checkpointId: CheckpointId
+  /** Session the checkpoint belongs to. */
+  readonly agentSessionId: SessionId
+  /** Session sequence covered by the checkpoint. */
+  readonly sessionSeq: SessionLogOffset
+  /** Unix epoch milliseconds when the session resumed. */
+  readonly resumedAt: number
+}
+
 /** What the kernel knows about one session's task, derived from its log. */
 export interface KernelView {
   /** The current task contract. */
@@ -768,6 +1096,12 @@ export interface KernelView {
   readonly openActionIds: readonly ActionId[]
   /** Failures with no accepted recovery. */
   readonly unresolvedFailures: readonly FailureRef[]
+  /** Observations recorded for this task, in log order. */
+  readonly evidence: readonly Evidence[]
+  /** Claims asserted by this task, in log order. */
+  readonly claims: readonly TaskClaim[]
+  /** Questions this task is testing, in log order. */
+  readonly hypotheses: readonly TaskHypothesis[]
   /** Latest recorded plan revision, when the task has one. */
   readonly plan?: PlanRevision
   /** Latest recorded checkpoint, when the task has one. */
@@ -807,6 +1141,12 @@ export interface CapabilityRegistry {
    * @returns true when a declaration is registered.
    */
   has(toolName: string): boolean
+  /**
+   * The trust one tool declared for the content it acts on.
+   * @param toolName - registered tool name.
+   * @returns the declared trust, or undefined when the tool declared none.
+   */
+  trustOf(toolName: string): TrustLabel | undefined
   /** Number of registered declarations. */
   readonly size: number
 }
@@ -814,7 +1154,9 @@ export interface CapabilityRegistry {
 /** The permission-rule evaluator. */
 export interface PolicyEngine {
   /**
-   * Evaluate one action against the compiled permission document.
+   * Evaluate each capability independently. The last matching rule decides
+   * that capability; deny dominates across requests, then ask, then allow. An
+   * action with no required capability fails closed.
    * @param context - the action, its capabilities, and the composed boundaries.
    * @returns the rule decision, before sandbox and human composition.
    */
@@ -823,6 +1165,14 @@ export interface PolicyEngine {
 
 /** The completion gate. */
 export interface VerificationGate {
+  /**
+   * Whether this deployment demands an acceptance criterion for the task's
+   * class. A task with no criterion whose class demands none has nothing to
+   * verify, and its completion is vacuous rather than unproven.
+   * @param task - the task being considered.
+   * @returns true when a missing criterion is itself a refusal reason.
+   */
+  requiredFor(task: TaskContract): boolean
   /**
    * Build the verification request for one task revision.
    * @param task - the task to verify.
@@ -852,6 +1202,21 @@ export interface VerificationGate {
     unresolvedFailures: readonly FailureRef[],
     budgets: BudgetSnapshot,
   ): CompletionDecision
+}
+
+/** How one persisted session's non-terminal task can proceed after restart. */
+export type RecoveryScanClass = 'resumable' | 'repairable' | 'blocked'
+
+/** One persisted session's startup recovery classification. */
+export interface RecoveryScanEntry {
+  /** The scanned session. */
+  readonly sessionId: SessionId
+  /** The classification this session's tail earned. */
+  readonly classification: RecoveryScanClass
+  /** Why, naming the task status and open-turn or read-failure evidence. */
+  readonly reason: string
+  /** The recorded task status, absent when the session could not be read. */
+  readonly status?: TaskStatus
 }
 
 /** What the recovery engine reads to classify one failure. */
@@ -909,14 +1274,88 @@ export interface AgentKernel {
   readonly state: KernelStateReader
   /** Permission-rule evaluator. */
   readonly policy: PolicyEngine
+  /**
+   * Register the provider for session-selected policy layers.
+   * @param provider - resolves the profile and optional policy restriction for each session.
+   * @returns a disposer that removes this provider while it remains registered.
+   * @throws when another policy profile provider is already registered.
+   */
+  registerPolicyProfileProvider(provider: PolicyProfileProvider): () => void
   /** Tool capability registry. */
   readonly capabilities: CapabilityRegistry
   /** Completion gate. */
   readonly verification: VerificationGate
   /** Failure classifier and recovery chooser. */
   readonly recovery: RecoveryEngine
+  /**
+   * Result of the one read-only scan started when session persistence becomes available.
+   * @returns one recovery entry per non-terminal or unreadable stored session; rejects when listing fails.
+   */
+  readonly startupRecovery: Promise<readonly RecoveryScanEntry[]>
   /** Task budget observer. */
   readonly budgets: BudgetGovernor
+  /**
+   * Attach one live agent to its durable task.
+   * @param agent - the live agent whose session owns the task.
+   * @returns a handle that reads the current task view and detaches on disposal.
+   */
+  attach(agent: Agent): KernelAttachment
+  /**
+   * Persist one caller-supplied task contract.
+   * @param agent - the live agent whose session owns the task.
+   * @param input - the objective, constraints, acceptance, profiles, workspace and budget.
+   * @returns the task at its initial `intake` revision.
+   */
+  intake(agent: Agent, input: TaskInput): TaskContract
+  /**
+   * Record or amend a task plan.
+   * @param agent - the live agent whose task owns the plan.
+   * @param steps - ordered work items in the new plan revision.
+   * @param failureId - unresolved failure that justifies an amendment.
+   * @returns the durable plan revision.
+   */
+  recordPlan(agent: Agent, steps: readonly string[], failureId?: FailureId): PlanRevision
+  /**
+   * Record one observation a claim may cite.
+   * @param agent - the live agent whose task observed it.
+   * @param input - what was observed, where it lives, and how far it may be trusted.
+   * @returns the durable evidence record.
+   */
+  recordEvidence(agent: Agent, input: EvidenceInput): Evidence
+  /**
+   * Assert one claim against evidence this session recorded.
+   * @param agent - the live agent whose task asserts it.
+   * @param input - the statement, the evidence it cites, its confidence, and its status.
+   * @returns the durable claim.
+   */
+  recordClaim(agent: Agent, input: TaskClaimInput): TaskClaim
+  /**
+   * Record one question a task is testing.
+   * @param agent - the live agent whose task is testing it.
+   * @param input - the question, the claims behind it, and the verifications run against it.
+   * @returns the durable hypothesis.
+   */
+  recordHypothesis(agent: Agent, input: TaskHypothesisInput): TaskHypothesis
+  /**
+   * Read one agent's task snapshot.
+   * @param agent - the live agent whose session is read.
+   * @returns the current view, or undefined before task intake.
+   */
+  snapshot(agent: Agent): Promise<KernelView | undefined>
+  /**
+   * Verify one agent's current task.
+   * @param agent - the live agent whose task is verified.
+   * @param changedScopes - scopes the task changed.
+   * @returns the completion decision, or undefined before task intake.
+   */
+  verify(agent: Agent, changedScopes?: readonly string[]): Promise<CompletionDecision | undefined>
+  /**
+   * Record a checkpoint of one agent's current task.
+   * @param agent - the live agent whose task is checkpointed.
+   * @param reason - why the checkpoint is recorded.
+   * @returns the checkpoint, or undefined before task intake.
+   */
+  checkpoint(agent: Agent, reason: CheckpointReason): Checkpoint | undefined
 }
 
 declare module '@deepseek-ai/dsh-session/types' {
@@ -926,92 +1365,87 @@ declare module '@deepseek-ai/dsh-session/types' {
      * complete contract at creation, always `status: 'intake'`,
      * `revision: 1`. Log-only: it never enters model context.
      */
-    'task/created': TaskContract
+    'task/created': KernelEventData<TaskContract>
     /**
      * One accepted task-state transition. The fold of these events over
      * `task/created` is the task's current status and revision; a transition
      * that does not satisfy the legal edge table or the current revision is
      * never appended. Log-only.
      */
-    'task/transitioned': StateTransition
+    'task/transitioned': KernelEventData<StateTransition>
     /**
      * One plan revision, either the initial plan or a recovery amendment
      * carrying the failure it answers. Log-only.
      */
-    'task/plan': PlanRevision
+    'task/plan': KernelEventData<PlanRevision>
     /**
-     * One proposed action, written immediately before its policy evaluation so
-     * a crash between proposal and decision still records what was asked.
+     * One tool call's proposal, rule decision, composed authorization, and
+     * granted capabilities in a single record. Log-only audit.
+     */
+    'action/decided': KernelEventData<ActionDecidedEvent>
+    /**
+     * The settled outcome of one executed action, paired with its decision by
+     * `actionId`, with the action-scoped grants that ended with it. A tool call
+     * in steady state appends `action/decided` and this, and nothing else.
      * Log-only.
      */
-    'action/proposed': ActionProposal
+    'action/committed': KernelEventData<ActionCommittedEvent>
     /**
-     * The composed runtime authorization for one action: an `allow`, or an
-     * `ask` whose human outcome the action's `action/committed` governance
-     * receipt records. Log-only audit.
+     * One observation a claim may cite, with the digest of what was seen and
+     * how far the observed content may be trusted. Log-only: the content stays
+     * where it lives.
      */
-    'action/authorized': ActionDecisionEvent
+    'evidence/recorded': KernelEventData<Evidence>
     /**
-     * An action the composed policy refused, whether by rule or by the
-     * implementation's sandbox boundary. A denied action is never disguised as
-     * a tool failure. Log-only.
+     * The current state of one claim: its statement, the evidence it cites,
+     * its confidence, and its status. Log-only.
      */
-    'action/denied': ActionDecisionEvent
+    'claim/updated': KernelEventData<TaskClaim>
     /**
-     * The settled outcome of one executed action, paired with its proposal by
-     * `actionId`. Log-only.
+     * The current state of one hypothesis: the question, the claims behind it,
+     * the verifications run against it, and its status. Log-only.
      */
-    'action/committed': ActionReceipt
-    /**
-     * The permission rules' decision about one action, written before the
-     * sandbox and human answerer are composed into the authorization.
-     * Log-only.
-     */
-    'policy/decision': {
-      proposal: ActionProposal
-      decision: PolicyDecision
-    }
-    /**
-     * Capabilities granted to one action. Log-only audit; a grant never widens
-     * the deployment sandbox.
-     */
-    'capability/grant': CapabilityGrant
+    'hypothesis/updated': KernelEventData<TaskHypothesis>
     /**
      * A verification was requested for one task revision. Log-only.
      */
-    'verification/requested': VerificationRequest
+    'verification/requested': KernelEventData<VerificationRequest>
     /**
      * The outcome of one verification, including the per-criterion results the
      * completion gate reads. Log-only.
      */
-    'verification/result': VerificationResult
+    'verification/result': KernelEventData<VerificationResult>
     /**
      * One classified failure. Log-only; a policy denial or approval rejection
      * is recorded here with its own kind rather than as a tool error.
      */
-    'failure/recorded': FailureRecord
+    'failure/recorded': KernelEventData<FailureRecord>
+    /** Recovery began for a classified failure. Log-only. */
+    'recovery/started': KernelEventData<RecoveryStartedRecord>
     /**
      * The recovery chosen for one failure, including whether the action may be
      * retried under the same action id. Log-only.
      */
-    'recovery/decided': RecoveryDecision
+    'recovery/decided': KernelEventData<RecoveryDecision>
     /**
      * A checkpoint indexing one task's kernel state at a session sequence.
      * Log-only.
      */
-    'checkpoint/created': Checkpoint
+    'checkpoint/created': KernelEventData<Checkpoint>
+    /** A checkpoint was loaded by the existing agent registry during resume. Log-only. */
+    'checkpoint/resumed': KernelEventData<CheckpointResumedRecord>
     /**
      * The authority a child agent acts under, written into the CHILD's log
      * when its agent is created and before its task contract, so a replay
      * reconstructs the child's authority without the parent's session.
      * Log-only.
      */
-    'delegation/received': DelegationReceipt
+    'delegation/received': KernelEventData<DelegationReceipt>
     /**
      * The same delegation, written into the PARENT's log so a parent records
      * what it handed down. The child's `delegation/received` is the authority.
      * Log-only.
      */
-    'delegation/issued': DelegationReceipt
+    'delegation/issued': KernelEventData<DelegationReceipt>
   }
 }

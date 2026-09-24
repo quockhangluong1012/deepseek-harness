@@ -108,7 +108,7 @@ export function eventsOf<T extends keyof SessionEventMap>(agent: Agent, type: T)
 }
 
 /** The budget observation every fixture view carries. */
-const BUDGET: BudgetSnapshot = { steps: 1, toolCalls: 0, wallMs: 12, remaining: {} }
+const BUDGET: BudgetSnapshot = { steps: 1, toolCalls: 0, tokens: 0, wallMs: 12, remaining: {} }
 
 /**
  * Build a complete kernel view, so each spec overrides only the field it reads.
@@ -128,7 +128,7 @@ export function viewOf(overrides: Partial<KernelView> = {}): KernelView {
     status: 'executing',
     revision: 3,
   }
-  return { task, sessionId: SessionId('context-agent-view'), budgets: BUDGET, openActionIds: [], unresolvedFailures: [], ...overrides }
+  return { task, sessionId: SessionId('context-agent-view'), budgets: BUDGET, openActionIds: [], unresolvedFailures: [], evidence: [], claims: [], hypotheses: [], ...overrides }
 }
 
 /**

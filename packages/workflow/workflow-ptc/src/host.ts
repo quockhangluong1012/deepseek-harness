@@ -1,4 +1,5 @@
 /** Workflow child ownership and progress over the shared sandboxed PTC executor. */
+import { randomUUID } from 'node:crypto'
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { PtcBindingFunction, PtcJsonValue, PtcRuntime } from '@deepseek-ai/dsh-ptc-runtime'
@@ -9,7 +10,7 @@ import type { SubagentRun } from '@deepseek-ai/dsh-subagent'
 import { assertObjectJsonSchema } from '@deepseek-ai/dsh-tools'
 import type { ObjectJsonSchema } from '@deepseek-ai/dsh-tools'
 import { assertNever, snapshotJsonValue } from '@deepseek-ai/dsh-util-values'
-import type { WorkflowAgentEndInfo, WorkflowAgentInfo, WorkflowMeta, WorkflowResult, WorkflowRun, WorkflowRunId } from '@deepseek-ai/dsh-workflow'
+import type { WorkflowAgentEndInfo, WorkflowAgentInfo, WorkflowCheckpointRef, WorkflowMeta, WorkflowResult, WorkflowRun, WorkflowRunId, WorkflowRunStatus } from '@deepseek-ai/dsh-workflow'
 import { WORKFLOW_GUEST_SOURCE } from './guest-source.ts'
 import type { WorkflowProgress } from './guest-types.ts'
 import { renderThrown } from './realm.ts'
@@ -117,6 +118,7 @@ export class PtcWorkflowRun implements WorkflowRun {
   private readonly liveAgents = new Map<number, WorkflowAgentInfo>()
   private started = 0
   private terminal = false
+  private settled: WorkflowRunStatus | undefined
   private cancelReason: string | undefined
   private disposed: Promise<void> | undefined
   private readonly externalAbort: () => void
@@ -139,6 +141,31 @@ export class PtcWorkflowRun implements WorkflowRun {
     else signal?.addEventListener('abort', this.externalAbort, { once: true })
     // Consumers attach durable run recording after start() returns.
     this.result = Promise.resolve().then(() => this.drive())
+  }
+
+  /** Where the run stands: its settled outcome, else still running. */
+  get status(): WorkflowRunStatus {
+    return this.settled ?? 'running'
+  }
+
+  /**
+   * Capture what this run would need to be resumed: the script and inputs it
+   * was started with, plus the checkpoint's own identity and the run's status.
+   * Reads only the run's start inputs, so it is safe while the run is live.
+   * @returns the checkpoint reference a caller may persist and later resume.
+   */
+  checkpoint(): Promise<WorkflowCheckpointRef> {
+    return Promise.resolve({
+      checkpointId: randomUUID(),
+      runId: this.id,
+      status: this.status,
+      createdAt: Date.now(),
+      script: this.init.body,
+      meta: this.meta,
+      ...this.init.args === undefined ? {} : { args: this.init.args },
+      subagentProvider: this.provider,
+      maxTotalAgents: this.init.limits.maxTotalAgents,
+    })
   }
 
   /**
@@ -285,11 +312,13 @@ export class PtcWorkflowRun implements WorkflowRun {
       if (this.cancelReason !== undefined) result = this.cancelled()
       else if (outcome.error !== undefined) result = { value: null, stopReason: 'error', error: `workflow execution failed (${outcome.error.kind}): ${outcome.error.message}`, agentsStarted: this.started }
       else result = workflowResult(outcome.value)
+      this.settled = result.stopReason === 'completed' ? 'completed' : result.stopReason === 'cancelled' ? 'cancelled' : 'failed'
     } catch (error: unknown) {
       this.terminal = true
       result = this.cancelReason === undefined
         ? { value: null, stopReason: 'error', error: renderThrown(error), agentsStarted: this.started }
         : this.cancelled()
+      this.settled = result.stopReason === 'cancelled' ? 'cancelled' : 'failed'
     } finally {
       this.terminal = true
       this.signal?.removeEventListener('abort', this.externalAbort)

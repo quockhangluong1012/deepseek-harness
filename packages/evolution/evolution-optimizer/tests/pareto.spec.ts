@@ -40,9 +40,11 @@ describe('dominates', () => {
 describe('paretoFrontier', () => {
   it('keeps only the nondominated members in input order', () => {
     const cheap = variant(0, true, 3, 9)
-    const fast = variant(1, true, 9, 3)
-    const dominated = variant(2, true, 9, 9)
-    expect(paretoFrontier([dominated, cheap, fast]).map(member => member.index)).toEqual([0, 1])
+    // Within the token epsilon of `cheap`, so neither dominates the other —
+    // wall time no longer separates candidates on its own (S9).
+    const equalCost = variant(1, true, 3, 3)
+    const dominated = variant(2, true, 12, 3)
+    expect(paretoFrontier([dominated, cheap, equalCost]).map(member => member.index)).toEqual([0, 1])
   })
 
   it('returns the empty frontier for no candidates', () => {
@@ -87,17 +89,18 @@ describe('pickWinner', () => {
     expect(winner?.index).toBe(1)
   })
 
-  it('breaks ties by novelty, then wall time, then earlier mutation', () => {
+  it('breaks ties by novelty, then earlier mutation, and never by wall time', () => {
     const baseline = { pass: true, tokens: 10, wallTimeMs: 10 }
-    // Dominance still rules: a faster candidate is not passed over for a novel
-    // one. Novelty decides only among candidates that measured the same.
-    expect(pickWinner(baseline, [variant(0, true, 5, 4, 0), variant(1, true, 5, 8, 0.5)])?.index).toBe(0)
+    // Same billed tokens, different wall times: the faster candidate is no
+    // longer preferred, so the more novel body wins (S9 — wall time measures
+    // the machine, not the candidate).
+    expect(pickWinner(baseline, [variant(0, true, 5, 4, 0), variant(1, true, 5, 8, 0.5)])?.index).toBe(1)
     const byNovelty = pickWinner(baseline, [variant(0, true, 5, 4, 0), variant(1, true, 5, 4, 0.5)])
     expect(byNovelty?.index).toBe(1)
-    const byWall = pickWinner(baseline, [variant(0, true, 5, 8, 0.2), variant(1, true, 5, 4, 0.2)])
-    expect(byWall?.index).toBe(1)
-    const byIndex = pickWinner(baseline, [variant(0, true, 5, 4, 0.2), variant(1, true, 5, 4, 0.2)])
-    expect(byIndex?.index).toBe(0)
+    // Equal tokens and equal novelty: earlier mutation wins. The faster wall
+    // time on the second candidate no longer outranks it.
+    const byMutation = pickWinner(baseline, [variant(0, true, 5, 8, 0.2), variant(1, true, 5, 4, 0.2)])
+    expect(byMutation?.index).toBe(0)
   })
 
   it('prefers a new pass over a cheaper failure', () => {

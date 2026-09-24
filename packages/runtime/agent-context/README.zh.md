@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-当需要从会话日志回答"某一步究竟依据什么编译出来、重放能否复现它"时，就挂载本包。它把组装出的每条提示词 section 与运行时 context，加上 Kernel 推导出的持久任务事实，包装成来源信封；按可信度、种类与相关性排序，用 token meter 计价，并在每次组装后追加一条仅日志的 `context/compiled` 记录。`mode: 'shadow'`（默认）记录放置结果且不改变任何东西；`mode: 'apply'` 还会丢弃被上限切掉的可压缩来源。`policy`、`task`、`plan` 与 `evidence` 来源永不被丢弃。
+当需要从会话日志回答"某一步究竟依据什么编译出来、重放能否复现它"时，就挂载本包。它把组装出的每条提示词 section 与运行时 context，加上 Kernel 推导出的持久任务事实，包装成来源信封；按可信度、种类与相关性排序，用 token meter 计价，并为每个不同的放置追加一条仅日志的 `context/compiled` 记录（摘要值重复时不追加）。`mode: 'shadow'`（默认）记录放置结果且不改变任何东西；`mode: 'apply'` 还会丢弃被上限切掉的可压缩来源。`policy`、`task`、`plan` 与 `evidence` 来源永不被丢弃。
 
 ## 目录
 
@@ -49,7 +49,7 @@ kind: "package-reference"
 
 ### 你会得到什么
 
-在每次指名了某个 agent 的 `system-prompt/assemble` waterfall 之后，服务记录一条 `context/compiled` 事件，记录中包含放置摘要、声明的编译器版本、所拟合的上限、放置的 token 价格、每个被放置来源的条目（id、kind、trust、retention、价格、相关性）、每条遗漏及其原因，以及每个被保留的冲突。提示词文本本身留在 `system/message` 面上，因此该记录是重放必须复现的身份，而不是提示词的第二份副本。
+在每次指名了某个 agent、且编译出的摘要值尚未被本会话记录过的 `system-prompt/assemble` waterfall 之后，服务记录一条 `context/compiled` 事件，记录中包含放置摘要、声明的编译器版本、所拟合的上限、放置的 token 价格、每个被放置来源的条目（id、kind、trust、retention、价格、相关性）、每条遗漏及其原因，以及每个被保留的冲突。提示词文本本身留在 `system/message` 面上，因此该记录是重放必须复现的身份，而不是提示词的第二份副本。
 
 有两个决策被刻意分开。编译器决定一个步骤依据什么编译，并在 `apply` 模式下决定上限切掉了哪些可压缩来源；它从不决定某条贡献说了什么，从不编辑提示词文本，也从不调用模型。
 
@@ -66,6 +66,27 @@ kind: "package-reference"
 | 其他任何前缀 | `artifact` | `untrusted` | `repo` |
 
 从 `ctx.agentKernel.state.view(session)` 读到的持久任务事实始终是 `trusted`、始终是 `required`，并归属 `kernel`：目标、每个验收标准一条来源、每条约束一条、最新计划修订、每个未结动作一条，以及每个未解决失败一条。
+
+### 注册一个动态来源（S2）
+
+`ctx.agentContext.register(descriptor, provide)` 是前置步骤的产出者用来替代直接追加提示词 section 的接口：`provide(agent, signal)` 为一次编译返回若干条目，编译器把每条包装成一个 `ContextSource`（`id: '<producer>:<itemId>'`），与组装内容及 Kernel 的任务事实一起排序定价，并计入同一份摘要。调用会返回一个撤销函数；调用它之后，该产出者的条目不再出现在任何后续编译中。
+
+```ts
+const stop = ctx.agentContext.register(
+  { producer: 'goal', kind: 'task', trust: 'trusted', placement: 'stable-core', maxBytes: 4000 },
+  async (agent, signal) => [{ id: 'objective', text: currentGoalText(agent), relevance: 1 }],
+)
+```
+
+`placement` 同时决定保留等级与重复方式，对应 S1 修正案第 3 点与 S2：
+
+| Placement | 保留 | 重复方式 |
+|---|---|---|
+| `stable-core` | `required` | 每次编译都无条件出现——产出者自身不变的身份简介 |
+| `delta` | `compressible` | 每个条目 id 每个会话只出现一次；此后每次编译都被压下，直到该会话上出现 `compaction/end` 事件才清空 |
+| `tail-reminder` | `compressible` | 每次编译都出现——随 turn 变化的提醒文本，是上限最先切掉的一类 |
+
+过了自身 `expiresAt` 的条目会在放置前被丢弃，条目文本会在成为来源前按描述符的 `maxBytes` 截断。这个注册表是纯增量的：目前没有任何随包产出者迁移出 `core/system-prompt` section 改用它，因此在没有任何注册的情况下挂载本插件，行为与之前完全一致。
 
 ### 保留与排序
 

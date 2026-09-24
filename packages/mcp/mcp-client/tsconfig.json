@@ -24,6 +24,9 @@
       "path": "../../core/tools"
     },
     {
+      "path": "../../runtime/agent-kernel"
+    },
+    {
       "path": "../../core/scope"
     },
     {

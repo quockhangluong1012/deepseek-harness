@@ -87,6 +87,7 @@
     { "path": "./packages/client/ui-tool" },
     { "path": "./packages/client/ui-deliverables/tsconfig.client.json" },
     { "path": "./packages/client/ui-workflow-run" },
+    { "path": "./packages/client/ui-kernel-task" },
     { "path": "./packages/client/ui-workspace" },
     { "path": "./packages/client/ui-workspace-memory/tsconfig.client.json" },
     { "path": "./packages/client/ui-evolution/tsconfig.client.json" },

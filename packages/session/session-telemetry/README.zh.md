@@ -69,9 +69,10 @@ seam 建立在一个边界之上：harness 的职责止于 `emit()`。完整事�
 
 | 文件 | 职责 |
 |---|---|
-| [`src/index.ts`](src/index.ts) | Service Definition：`SessionTelemetryBackend`/`SessionTelemetrySink` 约定、记录词汇、`session-telemetry/record` waterfall 声明 |
-| [`src/coordinator.ts`](src/coordinator.ts) | 捕获：live 监听器、生命周期本地 on-demand 回放、脱敏、handoff 游标、异常隔离 |
-| [`src/sensitive.ts`](src/sensitive.ts) | 可选的敏感值擦除辅助函数，供部署方编写脱敏规则 |
+| [`src/index.ts`](src/index.ts) | Service Definition：后端约定与 `session-telemetry/record` waterfall 声明 |
+| [`src/record.ts`](src/record.ts) | 捕获、脱敏与后端共用、独立于 Cordis 服务的记录和严重级别类型 |
+| [`src/coordinator.ts`](src/coordinator.ts) | 捕获：实时监听器、生命周期本地按需回放、脱敏、handoff 游标与异常隔离 |
+| [`src/sensitive.ts`](src/sensitive.ts) | 部署方可选的敏感值擦除辅助函数 |
 
 ### 捕获流程
 

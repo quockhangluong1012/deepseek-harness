@@ -3,6 +3,7 @@ import { mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
+import AgentContext from '@deepseek-ai/dsh-agent-context'
 import { agentEvents, type Agent } from '@deepseek-ai/dsh-agent'
 import { createAssistantMessage, createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { UserMessage } from '@deepseek-ai/dsh-llm'
@@ -19,7 +20,7 @@ const SIGNAL = new AbortController().signal
 
 /** One lesson artifact candidate for the store's addArtifact write. */
 function lessonInput(statement: string): LessonArtifactInput {
-  return { statement, source: 's1', conditions: '', evidence: 'fact', confidence: 0.9, scope: 'project' }
+  return { statement, source: 's1', conditions: '', evidence: 'fact', confidence: 0.9, scope: 'project', sourceRefs: ['session:s1'] }
 }
 
 interface Harness {
@@ -176,6 +177,33 @@ describe('evolution-memory-context injector', () => {
       expect(textOf(replaced[0] as UserMessage)).toContain('follow the new guide')
       expect((replaced[0]?.source as { digest: string }).digest).not.toBe(digest)
     } finally {
+      await fiber.dispose()
+    }
+  })
+
+  it('compiles the exact rendered brief as stable memory context', async () => {
+    const { ctx, fiber, workspaces, dir, scope } = await harness()
+    dirs.push(dir)
+    const compilerFiber = await ctx.plugin(AgentContext, {})
+    try {
+      const session = sessionIn(ctx, dir, 'registry-memory')
+      const agent = fakeAgent(session)
+      const id = scope('ws-1')
+      workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: dir, sessionIds: [session.id] })
+      await ctx.evolutionMemory.setInstructions(id, 'follow the registry guide')
+
+      const compiled = await ctx.agentContext.compile(agent, { sections: [], contexts: [], tools: [], variables: {} })
+      const decision = await preStep(ctx, agent)
+      const brief = briefsOf(decision.kind === 'enter' ? decision.messages : [])[0]
+      if (brief === undefined) throw new Error('evolution memory did not emit a brief')
+      const source = compiled.included.find(entry => entry.source.id === 'evolution-memory:brief')
+
+      expect(source?.source.content).toBe(textOf(brief))
+      expect(source?.source.kind).toBe('memory')
+      expect(source?.source.trust).toBe('untrusted')
+      expect(source?.source.retention).toBe('required')
+    } finally {
+      await compilerFiber.dispose()
       await fiber.dispose()
     }
   })

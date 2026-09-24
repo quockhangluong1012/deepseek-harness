@@ -11,12 +11,15 @@
  */
 
 import type {
+  AcceptanceCriterion,
   BudgetSnapshot,
   CompletionDecision,
   CriterionResult,
+  CriterionVerdict,
   CriterionVerifier,
   FailureRef,
   ResourceBudget,
+  TaskClass,
   TaskContract,
   VerificationGate,
   VerificationRequest,
@@ -28,8 +31,11 @@ export const VERIFIER_VERSION = 'agent-kernel/1'
 
 /** Deployment choices the completion gate reads. */
 export interface VerificationConfig {
-  /** Whether a task with no acceptance criteria may complete at all. */
-  readonly requireAcceptanceCriteria: boolean
+  /**
+   * Whether a task with no acceptance criteria may complete, by task class. A
+   * class absent from the map demands no criterion.
+   */
+  readonly requireAcceptanceCriteria: Partial<Record<TaskClass, boolean>>
   /** Whether a task whose only passing evidence is human-reported may complete. */
   readonly allowHumanOnlyCompletion: boolean
 }
@@ -51,6 +57,15 @@ export class DefaultVerificationGate implements VerificationGate {
    */
   constructor(config: VerificationConfig) {
     this.config = config
+  }
+
+  /**
+   * Whether this deployment demands an acceptance criterion for the task's class.
+   * @param task - the task being considered.
+   * @returns true when the task's class is required to declare a criterion.
+   */
+  requiredFor(task: TaskContract): boolean {
+    return this.config.requireAcceptanceCriteria[task.taskClass ?? 'conversational'] === true
   }
 
   /**
@@ -120,8 +135,9 @@ export class DefaultVerificationGate implements VerificationGate {
     budgets: BudgetSnapshot,
   ): CompletionDecision {
     const reasons: string[] = []
-    if (task.acceptance.length === 0 && this.config.requireAcceptanceCriteria) {
-      reasons.push('the task declares no acceptance criterion and this deployment requires one before completion')
+    if (task.acceptance.length === 0 && this.requiredFor(task)) {
+      const taskClass = task.taskClass ?? 'conversational'
+      reasons.push(`the ${taskClass} task declares no acceptance criterion and this deployment requires one before completion`)
     }
     if (result.status !== 'pass') {
       reasons.push(`verification reported ${result.status} for revision ${result.revision}`)
@@ -172,9 +188,32 @@ function humanEvidenceOnly(task: TaskContract, result: VerificationResult): bool
  * criterion answers it, and a criterion no verifier supports stays unresolved,
  * which the gate reports as `unknown` rather than a pass.
  */
+/**
+ * How expensive one verifier family is, cheapest first. The gate runs the cheap
+ * families before the slow ones and stops at the first failed required
+ * criterion, so a broken assertion never pays for a build.
+ */
+const FAMILY_COST: Readonly<Record<AcceptanceCriterion['verifier'], number>> = {
+  assertion: 0,
+  diff: 1,
+  human: 2,
+  research: 3,
+  build: 4,
+  test: 5,
+}
+
 export class CriterionVerifierRegistry {
   /** Registered verifiers in registration order. */
   private readonly registered: CriterionVerifier[] = []
+  /** Per-verifier wall-clock ceiling; a verifier that overruns answers `fail`. */
+  private readonly timeoutMs: number
+
+  /**
+   * @param timeoutMs - ceiling for one verifier's own evaluation.
+   */
+  constructor(timeoutMs = 60_000) {
+    this.timeoutMs = timeoutMs
+  }
 
   /**
    * Register one verifier.
@@ -197,15 +236,55 @@ export class CriterionVerifierRegistry {
   async collect(request: VerificationRequest): Promise<{ results: CriterionResult[]; commands: string[] }> {
     const results: CriterionResult[] = []
     const commands: string[] = []
-    for (const criterion of request.criteria) {
+    const ordered = [...request.criteria].sort((left, right) => FAMILY_COST[left.verifier] - FAMILY_COST[right.verifier])
+    for (const criterion of ordered) {
       const verifier = this.registered.find(candidate => candidate.supports(criterion))
       if (verifier === undefined) continue
-      const verdict = await verifier.verify(request, criterion)
+      const verdict = await this.runVerifier(verifier, request, criterion)
       if (verdict === undefined) continue
       results.push(verdict.result)
       commands.push(...verdict.commands ?? [])
+      // A failed required criterion already decides the aggregate: running a
+      // slower verifier cannot make the task complete.
+      if (criterion.required && verdict.result.status === 'fail') break
     }
     return { results, commands }
+  }
+
+  /**
+   * Run one verifier under its wall-clock ceiling. A verifier that never
+   * answers is reported as a failed criterion naming the timeout, because an
+   * unbounded verifier must not hold a turn open forever.
+   * @param verifier - the verifier to run.
+   * @param request - the request the criterion belongs to.
+   * @param criterion - the criterion to evaluate.
+   * @returns the verdict, or a failure naming the timeout.
+   */
+  private async runVerifier(
+    verifier: CriterionVerifier,
+    request: VerificationRequest,
+    criterion: AcceptanceCriterion,
+  ): Promise<CriterionVerdict | undefined> {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const timedOut = new Promise<'timeout'>(resolve => {
+      timer = setTimeout(() => { resolve('timeout') }, this.timeoutMs)
+    })
+    try {
+      const settled = await Promise.race([verifier.verify(request, criterion), timedOut])
+      if (settled === 'timeout') {
+        return {
+          result: {
+            criterionId: criterion.id,
+            status: 'fail',
+            evidence: [],
+            detail: `verifier "${verifier.id}" exceeded its ${String(this.timeoutMs)}ms ceiling`,
+          },
+        }
+      }
+      return settled
+    } finally {
+      clearTimeout(timer)
+    }
   }
 }
 

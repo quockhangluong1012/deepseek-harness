@@ -48,7 +48,9 @@ class StubEngine extends WorkflowEngine {
     return {
       id,
       meta: request.meta,
+      status: 'running',
       result,
+      checkpoint: () => Promise.reject(new Error('not under test')),
       cancel: (reason?: string) => {
         this.cancels.push(reason ?? 'cancelled')
         this.settle({ value: null, stopReason: 'cancelled', ...reason !== undefined ? { error: reason } : {}, agentsStarted: 0 })

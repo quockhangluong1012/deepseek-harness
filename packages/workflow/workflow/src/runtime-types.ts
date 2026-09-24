@@ -8,7 +8,7 @@
 
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type {
-  WorkflowMeta, WorkflowResult, WorkflowRunId,
+  WorkflowCheckpointRef, WorkflowMeta, WorkflowResult, WorkflowRunId, WorkflowRunStatus,
 } from './types.ts'
 
 /**
@@ -41,9 +41,27 @@ export interface WorkflowRun {
   readonly id: WorkflowRunId
   /** The validated meta block available before the script body runs. */
   readonly meta: WorkflowMeta
+  /** Where the run stands right now. */
+  readonly status: WorkflowRunStatus
   readonly result: Promise<WorkflowResult>
+  /**
+   * Capture what this run would need to be resumed later. Safe to call while
+   * the run is live: it reads the run's inputs, not its in-flight state.
+   * @returns the durable checkpoint reference.
+   */
+  checkpoint(): Promise<WorkflowCheckpointRef>
   /** Cancel the run and its children. */
   cancel(reason?: string): void
   /** Cancel if needed and await script and child cleanup. */
   dispose(): Promise<void>
+}
+
+/** What a caller hands back to {@link WorkflowEngine} to resume a checkpointed run. */
+export interface WorkflowResumeRequest {
+  /** The checkpoint to resume. */
+  readonly checkpoint: WorkflowCheckpointRef
+  /** The agent the resumed run executes on behalf of (parent of every child). */
+  readonly parent: Agent
+  /** Cancels the resumed run when aborted. */
+  readonly signal?: AbortSignal
 }

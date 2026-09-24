@@ -9,6 +9,9 @@
   ],
   "references": [
     {
+      "path": "../../guard/prompt-injection"
+    },
+    {
       "path": "../../../vendor/cosmokit"
     },
     {

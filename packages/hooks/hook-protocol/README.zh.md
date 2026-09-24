@@ -68,6 +68,10 @@ kind: "package-library"
 
 调用与结果记录必须位于尚未结束的轮次内：`UserPromptSubmit`、`PreToolUse`、`PostToolUse` 与 `Stop` 按构造满足该关系，而 `SessionStart` 在轮次 1 之前运行、没有 `hook/*` 记录——改为投递其注入的上下文。不变式伴生插件注册到 `ctx.invariants`，拒绝在尚未结束的轮次之外追加的 `hook/*` 事件、没有匹配 invoked 的结果、未知方言或非有限时长。
 
+### 带类型的 hook 贡献
+
+每个匹配 hook 的输出会且仅会被归类为一种贡献类型：`observe`、`annotate`、`inject-untrusted-context`、`request-policy-change` 或 `veto`（`classifyHookOutput`，以及按 hook 顺序的 `MergedHookOutcome.contributions`）。这些类型有强弱次序，但都不携带能力：hook 可以否决某个动作、请求策略所有者裁决，或把上下文作为不可信数据注入；只有内核或策略所有者才会把这种请求变成授权。因此 hook 的 `allow` 只是建议——两个桥接都只消费 `deny` 与 `ask`，策略所有者之外的任何代码都不得把 hook 的同意当作授权。
+
 ### 设计理念
 
 - **把唯一差异轴收拢进 `mode`。** 两个方言只在 matcher pattern 的解读方式上不同，因此 matcher 把 mode 作为参数，而不是复制引擎。
@@ -86,6 +90,7 @@ kind: "package-library"
 | [`src/runner.ts`](src/runner.ts) | 通过 `ctx.shell` 的 `runHook` 执行与 `DEFAULT_HOOK_TIMEOUT_MS` |
 | [`src/codec.ts`](src/codec.ts) | 退出码与结构化 stdout 解码为 `HookOutput` |
 | [`src/merge.ts`](src/merge.ts) | 最严格合并与 `MergedHookOutcome` 类型 |
+| [`src/contribution.ts`](src/contribution.ts) | `classifyHookOutput` 与五种 `HookContributionKind` |
 | [`src/events.ts`](src/events.ts) | `hook/*` 事件声明、追加辅助函数、stderr 摘要 |
 | [`src/detached.ts`](src/detached.ts) | 脱离运行的完全停稳跟踪 |
 | [`src/types.ts`](src/types.ts) | `HookOutput`、`MatcherGroup`、`CommandHook` 与 `hook/*` 载荷类型 |

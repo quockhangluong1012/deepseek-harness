@@ -45,6 +45,21 @@ export interface SweepResult {
 }
 
 /**
+ * Whether a fact's observed utility is too low to keep after enough surfacings.
+ * A fact that has never been surfaced is never demoted: absence of evidence is
+ * not evidence of uselessness.
+ * @param artifact - the artifact to judge.
+ * @param minUtility - value below which a surfaced fact is demoted.
+ * @param minSurfaced - surfacings required before the value is trusted.
+ * @returns true when the artifact should be demoted.
+ */
+export function demotable(artifact: LessonArtifact, minUtility: number, minSurfaced: number): boolean {
+  const utility = artifact.utility
+  if (utility === undefined || utility.surfaced < minSurfaced) return false
+  return utility.value < minUtility
+}
+
+/**
  * Whether decay should drop one artifact: condemned by refutations, or past
  * its ttl measured from the last validation, refutation, or edit. An artifact
  * with no ttl never expires by age, so only the refutation floor can drop it.

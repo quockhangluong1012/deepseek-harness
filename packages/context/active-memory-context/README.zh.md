@@ -27,6 +27,8 @@ kind: "package-reference"
 
 挂载本插件时需要 workspace registry，以及一个向量通道已就绪的 session-query 后端（在 `dsh-session-query-sqlite` 之后挂载嵌入服务，例如 `dsh-embeddings-http`）。作用域按每轮从 workspace 成员关系解析（registry 中的 session id，回退到 canonical-path 的 `cwd` 匹配）；不属于任何 workspace 的轮次，或所在 workspace 没有其它会话的轮次，都不会注入任何内容。若挂载还提供 `ctx.evolutionGraph`，则会额外获得下文所述的图谱腿；没有它时，简报只承载向量腿自己的命中——每个会话一行，按融合顺序排列。
 
+挂载 `@deepseek-ai/dsh-agent-context` 后，它还会把已记录的 active-memory 简报写入不可信 delta 来源；每个条目只出现一次，直到压缩清除其放置状态。shadow 模式下原有的 pre-step 消息保持不变。
+
 ### 检索配置记录
 
 当 `ctx.evolutionRetrieval` 已挂载时，注入器会在每个会话的首个步骤为该会话记录一次它所运行的检索配置：既有本挂载实际设定的 §39 维度（检索来源、图深度、活动记忆阈值），也有其余维度的已发布选择。这只是一条旁路记录——用 `ctx.get` 读取的结构化接缝、每个会话一次不被等待的写入、不调用模型、不改变提示词——因此挂载与否简报完全相同，而存储拒绝写入也只记一行 debug 日志。`dsh-evolution-retrieval` 把这些记录变成逐任务类别的推荐；不挂载它则不记录任何东西。它描述的是本挂载，而绝不是任务感知策略施加到某一轮上的推荐——后者记在简报自身，见下。

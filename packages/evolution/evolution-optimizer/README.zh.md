@@ -77,7 +77,7 @@ Web 组合里带有本行与评分器的行，但[默认关闭](../../bundle/web
 | `budgetWallTimeMs` | `0` | 一次运行可用于候选评分的墙钟毫秒；`0` 表示不设上限 |
 | `screenScenarioCount` | `0` | 每个候选先被筛选的场景数，幸存者再做完整评分；`0` 关闭筛选 |
 | `operators` | `['rewrite']` | 本次运行取候选的变异算子，按请求顺序 |
-| `confirmationRuns` | `1` | 一次晋级必须赢下的成对「优胜者-基线」比较次数 |
+| `confirmationRuns` | `3` | 一次晋级必须赢下的成对「优胜者-基线」比较次数 |
 | `skipRepeatedExperiments` | `true` | 拒绝假说完全相同、且已有记录结果的运行；设为 `false` 会再次为同一搜索付费 |
 | `stagnationWindow` | `5` | 多少次未晋级的已评估运行算该技能停滞并切换变异阵容 |
 | `priorMinTries` | `3` | 在同一失败签名下，一个算子需要多少次产出候选的运行，其记录才开始影响阵容顺序 |
@@ -118,7 +118,8 @@ Web 组合里带有本行与评分器的行，但[默认关闭](../../bundle/web
 
 - **`holdoutScenarios`**——搜索永不评分的语料场景。任何内容被分选前，优胜者与基线都会先在其上评分，若基线在那里支配优胜者则拒绝（`status: 'holdout-rejected'`，不分选任何内容）。holdout 放在插件配置而非请求里是有意的：能点名 holdout 的调用方，也能丢掉一个没通过的场景。而该技能自己的台账已记录为搜索过的 holdout 场景，会在运行任何东西之前被拒绝：选出过早期优胜者的任务已经塑造了这个技能，它不再是干净的测试，改配置也洗不白它。
 - **`budgetTokens` / `budgetWallTimeMs`**——一次运行可为候选评分买下的上限。越过上限后循环在下一轮完整评估前停止并报告 `truncated: true`；搜索仍在已评分的候选间选择，而在评分任何候选前就花完预算的运行返回 `skipped`，而不是靠猜去分选。
-- **`screenScenarioCount`**——逐次减半。每个候选先在前 N 个搜索场景上评分，较优的一半幸存（先看通过状态，再看 token，再看墙钟），只有幸存者跑完整场景集。即使设了预算，筛选也会对每个候选执行，因此幸存者始终在同一子集上排序。
+- **挂载 `evolutionBudget` 存储会按技能自身的历史（而非本次运行)限流每一次评分。** `budgetTokens` / `budgetWallTimeMs` 限的是这一次运行；挂载的 `ctx.evolutionBudget` 额外按技能限流每一次运行，用两个长期存在、按 `evolution-optimizer:<skill>:daily:<UTC 日期>` 与 `...:weekly:<ISO 周>` 为键的批次（S9 的二级上限）。一旦任一上限已花完，评分运行会在真正花费前就以 `status: 'skipped'` 被拒绝；每次真正评分都会把其 token 与耗时计入这两个批次。这与分选写入已经按其自身批次 id 记录、供分配策略学习的事后记录是两回事。
+- **`screenScenarioCount`**——逐次减半。每个候选先在前 N 个搜索场景上评分，较优的一半幸存（先看通过状态，再看 token，再看档案新颖度、正文新颖度，最后按变异顺序），只有幸存者跑完整场景集。即使设了预算，筛选也会对每个候选执行，因此幸存者始终在同一子集上排序。
 
 两份场景列表在任何模型调用之前校验：任一列表内部重名，或同时出现在两份列表中，都会直接抛错而不是继续运行。台账也一样检查——该技能搜过的名字出现在 holdout 里就抛错——因此污染在最早能确定的点大声失败。跨运行复用场景做搜索仍是常规做法；被拒绝的只是把搜索历史提拔成 holdout。
 
@@ -130,7 +131,7 @@ Web 组合里带有本行与评分器的行，但[默认关闭](../../bundle/web
 <details>
 <summary>Implementation internals — click to expand</summary>
 
-`src/pareto.ts` 是纯选择器：（pass、token、wallTimeMs）上的支配关系、非支配前沿、筛选晋级的幸存者切分（按成本、档案新颖度、正文新颖度、墙钟时间依次排序），以及必须先支配重评基线、再由同一组轴排序的优胜者。`src/mutate.ts` 拥有算子组合，并为每个算子组织一次请求（该算子的指令加字节预算，预算只砍证据不砍技能正文），把 JSON 数组作答解析为互异正文——随后 `src/index.ts` 会逐个送进 scorer 的 `checkBehaviorContract`，因此无法落地的正文在换来一次评分之前就被拒绝。`src/evaluate.ts` 把每个正文分选进全新的 `DSH_HOME` 覆盖层，经 `evolutionScorer.evaluateSkill` 以把覆盖层 home 叠入尝试环境的 runner 评分；评分落定即删除覆盖层。`src/surface.ts` 是失败面：一段证据文本折算成的签名、某作用域的台账行针对它持有的按算子尝试与获胜计数，以及该先验强加给阵容的顺序。`src/experiments.ts` 是台账词汇：持久行模式、保留策略、分页读取、实验键与重复查找，以及重复拒绝时引用的措辞。`src/index.ts` 编排：场景校验、依台账选择策略、重复拒绝、触发门、同一 harness 下的基线重评、筛选、受预算约束的完整评估、Pareto 选中、holdout 检查、确认用的成对比较、一次 `kind: 'skill'`、`op: 'patch'` 的 `stageWrite`，以及台账行。`src/experiments.ts` 拥有域声明、持久行 schema，以及读取路径与保留策略使用的两个纯选择器（`experimentPage`、`staleExperiments`）。 `src/contamination.ts` 是 holdout 守卫：该技能已记录的搜索场景，holdout 不得重复。 `src/lineage.ts` 统计变更组成：起始正文与优胜者之间新增与删除的行数，按顺序敏感的方式，因此台账记录每次晋级的改动有多大。
+`src/pareto.ts` 是纯选择器：（pass、token）上的支配关系（token 带 2% 相对容差，且不含墙钟轴）、非支配前沿、筛选晋级的幸存者切分（按成本、档案新颖度、正文新颖度、变异顺序依次排序），以及必须先支配重评基线、再由同一组轴排序的优胜者。`src/mutate.ts` 拥有算子组合，并为每个算子组织一次请求（该算子的指令加字节预算，预算只砍证据不砍技能正文），把 JSON 数组作答解析为互异正文——随后 `src/index.ts` 会逐个送进 scorer 的 `checkBehaviorContract`，因此无法落地的正文在换来一次评分之前就被拒绝。`src/evaluate.ts` 把每个正文分选进全新的 `DSH_HOME` 覆盖层，经 `evolutionScorer.evaluateSkill` 以把覆盖层 home 叠入尝试环境的 runner 评分；评分落定即删除覆盖层。`src/surface.ts` 是失败面：一段证据文本折算成的签名、某作用域的台账行针对它持有的按算子尝试与获胜计数，以及该先验强加给阵容的顺序。`src/experiments.ts` 是台账词汇：持久行模式、保留策略、分页读取、实验键与重复查找，以及重复拒绝时引用的措辞。`src/index.ts` 编排：场景校验、依台账选择策略、重复拒绝、触发门、同一 harness 下的基线重评、筛选、受预算约束的完整评估、Pareto 选中、holdout 检查、确认用的成对比较、一次 `kind: 'skill'`、`op: 'patch'` 的 `stageWrite`，以及台账行。`src/experiments.ts` 拥有域声明、持久行 schema，以及读取路径与保留策略使用的两个纯选择器（`experimentPage`、`staleExperiments`）。 `src/contamination.ts` 是 holdout 守卫：该技能已记录的搜索场景，holdout 不得重复。 `src/lineage.ts` 统计变更组成：起始正文与优胜者之间新增与删除的行数，按顺序敏感的方式，因此台账记录每次晋级的改动有多大。
 
 不发布不变量配套包：实验域表是这份状态的唯一副本，因此不存在可独立核对的第二种观测。
 

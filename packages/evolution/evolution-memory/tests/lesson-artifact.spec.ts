@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { artifactKey, lessonArtifact, lessonArtifactInput, wrapLegacyLessons } from '../src/lesson-artifact.ts'
+import { artifactKey, lessonArtifact, lessonArtifactInput, scrubArtifactText, wrapLegacyLessons } from '../src/lesson-artifact.ts'
 
 const NOW = '2026-09-13T00:00:00.000Z'
 
@@ -62,5 +62,15 @@ describe('lesson artifacts', () => {
       statement: 'prefer pnpm over npm', source: 'session-1', conditions: '',
       evidence: 'fact', confidence: 0.5,
     }).success).toBe(false)
+  })
+})
+
+describe('credential scrubbing before a durable write', () => {
+  it('replaces recognized credential shapes in the text a lesson stores', () => {
+    expect(scrubArtifactText('use sk-abcdefghijklmnopqrstuvwxyz0123 for the API')).toBe('use [REDACTED] for the API')
+    expect(scrubArtifactText('curl -H "Authorization: Bearer abcdefghijklmnopqrstuvwxyz"')).toBe('curl -H "Authorization: [REDACTED]"')
+    expect(scrubArtifactText('AKIAIOSFODNN7EXAMPLE is the access key')).toBe('[REDACTED] is the access key')
+    // Ordinary prose is untouched.
+    expect(scrubArtifactText('prefer tabs over spaces')).toBe('prefer tabs over spaces')
   })
 })

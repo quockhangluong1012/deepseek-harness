@@ -41,6 +41,7 @@ export const POLICY_ACTIONS = [
   'edit',
   'shell',
   'network',
+  'browser',
   'mcp',
   'delegate',
   'workflow',
@@ -58,11 +59,14 @@ export const POLICY_EFFECTS = ['allow', 'ask', 'deny'] as const satisfies readon
 const CAPABILITY_ACTIONS: Readonly<Record<Capability, PolicyAction>> = {
   'fs.read': 'read',
   'fs.write': 'write',
+  'git.read': 'read',
+  'git.write': 'write',
   'fs.edit': 'edit',
   'process.exec': 'shell',
   'terminal.interactive': 'shell',
   'network.read': 'network',
   'network.write': 'network',
+  'browser.read': 'browser',
   'mcp.call': 'mcp',
   'memory.read': 'memory',
   'memory.write': 'memory',
@@ -73,7 +77,7 @@ const CAPABILITY_ACTIONS: Readonly<Record<Capability, PolicyAction>> = {
 }
 
 /** Capabilities a `read-only` sandbox refuses outright. */
-const MUTATING_CAPABILITIES: readonly Capability[] = ['fs.write', 'fs.edit']
+const MUTATING_CAPABILITIES: readonly Capability[] = ['fs.write', 'fs.edit', 'git.write']
 
 /**
  * Translate one resource glob into a regular expression. `**` matches any run
@@ -156,8 +160,13 @@ export function insideWorkspace(root: string, target: string): boolean {
   return path === '' || (!path.startsWith('..') && !isAbsolute(path))
 }
 
-/** Every capability the vocabulary declares, in declaration order. */
-const CAPABILITIES = Object.keys(CAPABILITY_ACTIONS) as Capability[]
+/**
+ * Every capability the vocabulary declares, in declaration order: the grant
+ * vocabulary a permission rule, a delegation receipt, and an agent profile all
+ * speak. Exported so a configuration schema can reject a name the kernel would
+ * never evaluate instead of accepting it silently.
+ */
+export const CAPABILITY_VOCABULARY = Object.keys(CAPABILITY_ACTIONS) as Capability[]
 
 /**
  * Every capability a compiled document admits at all. A capability is admitted
@@ -176,7 +185,7 @@ export function admittedCapabilities(compiled: CompiledPolicy): Capability[] {
   for (const rule of compiled.rules) {
     if (rule.effect !== 'deny') families.add(rule.action)
   }
-  return CAPABILITIES.filter(capability => families.has(CAPABILITY_ACTIONS[capability]))
+  return CAPABILITY_VOCABULARY.filter(capability => families.has(CAPABILITY_ACTIONS[capability]))
 }
 
 /**
@@ -197,17 +206,19 @@ export class PermissionPolicyEngine implements PolicyEngine {
   }
 
   /**
-   * Evaluate one action against the compiled document. The last matching rule
-   * wins; an action whose tool declared no capability fails closed without
-   * consulting the rules, because there is no resource to match against.
+   * Evaluate each declared capability independently. The last matching rule
+   * decides that capability; any denial dominates, then approval, then allow.
+   * An action with no required capability fails closed.
    * @param context - the action, its declared capabilities, and its boundaries.
    * @returns the rule decision.
    */
   evaluate(context: PolicyContext): PolicyDecision {
     const decisionId = brandString<PolicyDecisionId>(randomUUID())
     const reasons: string[] = []
-    if (context.undeclared) {
-      reasons.push(`tool "${context.action.toolName}" declared no capability; failing closed`)
+    if (context.undeclared || context.capabilities.length === 0) {
+      reasons.push(context.undeclared
+        ? `tool "${context.action.toolName}" declared no capability; failing closed`
+        : `tool "${context.action.toolName}" declared no required capability; failing closed`)
       return {
         decisionId,
         actionId: context.action.actionId,
@@ -217,47 +228,42 @@ export class PermissionPolicyEngine implements PolicyEngine {
         reasons,
       }
     }
-    let matched: { rule: CompiledRule; index: number } | undefined
-    for (const [index, rule] of this.compiled.rules.entries()) {
-      const request = matchingRequest(rule, context.capabilities)
-      if (request === undefined) continue
-      matched = { rule, index }
-      reasons.push(`rule ${index} (${rule.action} ${JSON.stringify(rule.resource)}) matched ${request.capability} ${JSON.stringify(request.resource)}`)
-    }
-    if (matched === undefined) {
-      reasons.push(`no rule matched; default effect ${this.compiled.defaultEffect}`)
-      return {
-        decisionId,
-        actionId: context.action.actionId,
-        effect: this.compiled.defaultEffect,
-        matchedRuleIndex: null,
-        capabilities: context.capabilities,
-        reasons,
+
+    let effect: PolicyEffect = 'allow'
+    let matchedRuleIndex: number | null = null
+    for (const request of context.capabilities) {
+      let matched: { rule: CompiledRule; index: number } | undefined
+      for (const [index, rule] of this.compiled.rules.entries()) {
+        if (CAPABILITY_ACTIONS[request.capability] !== rule.action || !rule.pattern.test(request.resource)) continue
+        matched = { rule, index }
+        reasons.push(`rule ${index} (${rule.action} ${JSON.stringify(rule.resource)}) matched ${request.capability} ${JSON.stringify(request.resource)}`)
+      }
+      const requestEffect = matched?.rule.effect ?? this.compiled.defaultEffect
+      if (matched === undefined) reasons.push(`no rule matched; default effect ${requestEffect}`)
+      else reasons.push(`rule ${matched.index} decides ${requestEffect}`)
+
+      if (requestEffect === 'deny' && effect !== 'deny') {
+        effect = 'deny'
+        matchedRuleIndex = matched?.index ?? null
+      } else if (requestEffect === 'ask' && effect === 'allow') {
+        effect = 'ask'
+        matchedRuleIndex = matched?.index ?? null
+      } else if (requestEffect === effect && matched !== undefined) {
+        matchedRuleIndex = matched.index
       }
     }
-    reasons.push(`rule ${matched.index} decides ${matched.rule.effect}`)
+
     return {
       decisionId,
       actionId: context.action.actionId,
-      effect: matched.rule.effect,
-      matchedRuleIndex: matched.index,
+      effect,
+      matchedRuleIndex,
       capabilities: context.capabilities,
       reasons,
     }
   }
 }
 
-/**
- * The first capability request a rule selects, or undefined when the rule does
- * not match this action at all.
- * @param rule - the compiled rule to test.
- * @param requests - the action's declared capability requests.
- * @returns the matched request, or undefined.
- */
-function matchingRequest(rule: CompiledRule, requests: readonly CapabilityRequest[]): CapabilityRequest | undefined {
-  return requests.find(request =>
-    CAPABILITY_ACTIONS[request.capability] === rule.action && rule.pattern.test(request.resource))
-}
 
 /**
  * Intersect a rule decision with the implementation's sandbox boundary and the
@@ -297,6 +303,8 @@ export function composeAuthorization(
   if (decision.effect === 'deny') return refuse('policy rules denied the action')
   const blocked = sandboxRefusal(sandbox, decision.capabilities)
   if (blocked !== undefined) return refuse(blocked)
+  const outsideRole = profileRefusal(context.agentGrant, decision.capabilities)
+  if (outsideRole !== undefined) return refuse(outsideRole)
   const withheld = context.parentGrant === undefined
     ? undefined
     : delegationRefusal(context.parentGrant, decision.capabilities)
@@ -321,6 +329,22 @@ export function composeAuthorization(
     ...delegationId === undefined ? {} : { delegationId },
     reasons,
   }
+}
+
+/**
+ * The capability an agent profile withholds, if any. A profile is a role
+ * boundary: the permission document may allow a capability for the deployment
+ * and still not intend it for this role.
+ * @param grant - the role's capability grant, absent when no profile is registered.
+ * @param requests - the capabilities this invocation needs.
+ * @returns the refusal reason, or undefined when the role covers every request.
+ */
+function profileRefusal(grant: readonly Capability[] | undefined, requests: readonly CapabilityRequest[]): string | undefined {
+  if (grant === undefined) return undefined
+  const outside = requests.find(request => !grant.includes(request.capability))
+  return outside === undefined
+    ? undefined
+    : `the agent profile withholds capability "${outside.capability}"`
 }
 
 /**

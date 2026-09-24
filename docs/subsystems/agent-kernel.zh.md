@@ -8,7 +8,15 @@
 
 任务是一组 `task/*` 事件的投影，绝不是内存中的单例。`TaskId` 与 `RunId` 是[带品牌 id](core.zh.md#branded-ids)；`ActionId` 是工具调用自身的 `ToolCallId` 在第二个品牌下的形态，因此一条提议、它的决策与它的回执无需第二个标识符即可关联。
 
-`TaskContract` 携带目标、其约束、其验收标准、文件策略被限定到的工作区、agent 与策略 profile、资源预算、当前 `TaskStatus`，以及每次被接受的迁移都会递增的正 `revision`。`TaskStatus` 是封闭联合 `intake | understanding | retrieving | planning | ready | executing | observing | verifying | recovering | awaiting-approval | awaiting-user | paused | completed | failed | cancelled`；`intake`、`understanding`、`retrieving` 与 `planning` 是为 Kernel 并未附带的规划器而存在，它自己驱动 `intake → ready → executing → observing`。
+`TaskContract` 携带目标、其约束、其验收标准、文件策略被限定到的工作区、agent 与策略 profile、资源预算、当前 `TaskStatus`，以及每次被接受的迁移都会递增的正 `revision`。`TaskStatus` 是封闭联合 `intake | planning | ready | executing | observing | verifying | recovering | awaiting-approval | awaiting-user | paused | completed | failed | cancelled`，且每个成员都有产生者：任务被打开时为 `intake`，进入 plan mode 期间为 `planning`，首个步骤被接纳后为 `ready`，每个步骤前后为 `executing`／`observing`，轮次结束时为 `verifying`，恢复开始时为 `recovering`，直到完成门或取消给出终态。未进入 plan mode 时，Kernel 自身驱动 `intake → ready → executing → observing`。
+
+一个会话同一时间只持有一个任务。当前任务处于终态时被领取的人类消息会开启下一份契约，并在 `parentTaskId` 中指明它所承接的任务；当前任务仍活跃时，该消息继续同一任务。`TaskClass` 决定任务从什么起步：`conversational`（默认）不需要验收标准，并在轮次结束时完成、不产生验证事件对；`coding`、`research` 与 `operations` 采用 `acceptanceByClass` 配置的标准，且只在 `requireAcceptanceCriteriaByClass` 要求时被标准约束。类别来源依次为：调用方自己的 `taskClass`、任务所用角色、变异启发式——承接了一个提出过 `fs.write`/`fs.edit` 工具的任务属于编码工作。
+
+## Agent profile
+
+`AgentProfile` 是 Kernel 对某个角色可强制执行的切片：一个 id、它所代表的角色、该角色永远可以使用的 capability 授予、其任务解析用的 policy profile，以及任务起始时的各项上限。任务会记录自己运行的 profile 名称，而 Kernel 通过 `ctx.agentKernel.profiles` 解析该名称——该注册表由部署从 `Config.profiles` 或之后更晚的配置层经 `register()` 填充。
+
+角色只能收窄，永不放宽：当声明所需的 capability 落在 profile 授予之外时，`composeAuthorization()` 会以理由 `the agent profile withholds capability "<capability>"` 拒绝，因此即便某条权限规则对部署允许该 capability，也不等于对该未声明它的角色授权。子级继承的是回执与自身角色的交集，而绝非并集。角色的模型与上下文策略归属于拥有模型与上下文的包——模型路由器与[上下文编译器](agent-context.zh.md)——因此 profile 只陈述 Kernel 自己会强制执行的内容，而不为它并不做出的决策保留第二份副本。
 
 `StateTransition` 是一次被接受的迁移的持久记录：迁移标识、任务、`from` 与 `to` 状态、`TransitionTrigger`、被求值的 `preconditions`、被提交的 `effects`、它所依据的任务 revision、它产生的 revision、可选的授权 `policyDecisionId`、`actor` 与时间戳。[`src/state-machine.ts`](../../packages/runtime/agent-kernel/src/state-machine.ts) 中的 `applyTransition()` 会拒绝属于另一任务、从过期状态出发、或引用过期 revision 的迁移。
 
@@ -22,7 +30,7 @@
 
 ## 权限文档
 
-`PolicyDocument` 是一个默认 `effect` 加一个有序的 `PolicyRule` 列表；每条规则选择一种 `PolicyAction` 族与一个资源 glob，并决定 `allow`、`ask` 或 `deny`。[`src/policy.ts`](../../packages/runtime/agent-kernel/src/policy.ts) 中的 `POLICY_ACTIONS` 与 `POLICY_EFFECTS` 是被接受的词汇表，`compilePolicy()` 会在任何动作被求值之前拒绝未知的 action、未知的 effect 或空资源。`Capability` 是授予词汇——`fs.read`、`fs.write`、`fs.edit`、`process.exec`、`terminal.interactive`、`network.read`、`network.write`、`mcp.call`、`memory.read`、`memory.write`、`subagent.spawn`、`workflow.start`、`approval.request` 与 `policy.propose`——而 `CapabilityDeclaration` 把一个已注册工具映射到每次调用所需的能力，外加一个从其参数到这些能力所适用资源的纯投影。
+`PolicyDocument` 是一个默认 `effect` 加一个有序的 `PolicyRule` 列表；每条规则选择一种 `PolicyAction` 族与一个资源 glob，并决定 `allow`、`ask` 或 `deny`。[`src/policy.ts`](../../packages/runtime/agent-kernel/src/policy.ts) 中的 `POLICY_ACTIONS` 与 `POLICY_EFFECTS` 是被接受的词汇表，`compilePolicy()` 会在任何动作被求值之前拒绝未知的 action、未知的 effect 或空资源。`Capability` 是授予词汇——`fs.read`、`fs.write`、`fs.edit`、`process.exec`、`terminal.interactive`、`network.read`、`network.write`、`mcp.call`、`memory.read`、`memory.write`、`subagent.spawn`、`workflow.start`、`approval.request` 与 `policy.propose`——而 `CapabilityDeclaration` 把一个已注册工具映射到每次调用所需的能力，外加一个从其参数到这些能力所适用资源的纯投影。声明还可以携带该工具所处理内容的信任度：当某个包的工具越出信任边界时，它声明 `trust: 'untrusted'`，而启用不可信内容隔离的部署随后要求这类调用先获得人工回答，因此仅凭权限规则永远无法授权外部内容。`PolicyProfileProvider` 是该文档之上的可选会话级策略层：`ctx.agentKernel.registerPolicyProfileProvider()` 为每个会话解析一个 profile 名称与可选的 `PolicyDocument`，Kernel 再将其与部署文档求交，因此会话可以收窄自身权限，但绝不可能放宽。
 
 ## 委派
 
@@ -38,11 +46,25 @@ Kernel 注册表初始为空并按失败关闭。[`@deepseek-ai/dsh-agent-kernel
 
 `VerificationRequest` 携带任务、标准所读取的确切 revision、那些标准，以及变更范围。`VerificationResult` 把逐标准的 `CriterionResult` 记录聚合为 `pass`、`fail` 或 `unknown`，并带验证器运行过的命令与验证器版本。`CompletionDecision` 是门禁的答案：只有在每个必需标准都通过、没有未解决的失败残留、且没有已配置上限被耗尽时，才允许完成。
 
-`FailureKind` 是共享的分类——`model-auth`、`model-rate-limit`、`model-context-overflow`、`tool-invalid-input`、`tool-policy-denied`、`tool-transient`、`sandbox-denied`、`approval-rejected`、`timeout`、`budget-exhausted`、`stale-write`、`verification-failed`、`subagent-failed`、`workflow-failed`、`persistence-failed`、`prompt-injection` 与 `unknown`。`FailureRecord` 指名一次发生，`RecoveryDecision` 记录为它选定的 `RecoveryAction`、该动作是否可重试、剩余尝试次数、重试前是否必须先做检查点，以及原因。
+`FailureKind` 是共享的分类——`model-auth`、`model-rate-limit`、`model-context-overflow`、`tool-invalid-input`、`tool-policy-denied`、`tool-transient`、`sandbox-denied`、`approval-rejected`、`timeout`、`budget-exhausted`、`stale-write`、`verification-failed`、`subagent-failed`、`workflow-failed`、`persistence-failed`、`prompt-injection`、`output-truncated`、`tool-args-malformed`、`no-progress`、`stalled`、`step-ceiling` 与 `unknown`。后五者是修正案 S4 的循环健壮性分类：每一种都描述「运行没有直接失败却不再推进」的形态；Kernel 自己的检测器会在任务达到所配置的步骤上限时记录 `step-ceiling`——连同其恢复动作 `checkpoint-pause`——把任务置为暂停，而不是再接纳一个步骤。`FailureRecord` 指名一次发生，`RecoveryDecision` 记录为它选定的 `RecoveryAction`、该动作是否可重试、剩余尝试次数、重试前是否必须先做检查点，以及原因。
+
+## 研究记录
+
+`Evidence` 是一条可供 claim 引用的观测：由哪个来源族观测（`file`、`tool-result`、`web`、`mcp`、`test`、`user`、`model`）、内容所在位置的引用、可选的已见内容摘要、为该观测记录下来的来源与定位、其 `TrustLabel`，以及观测时间。内容本身留在各自的存储中；该记录只是引用，因此即便被 claim 引用，不可信观测依然只是数据。
+
+`TaskClaim` 是任务断言的一条陈述、其背后的 `EvidenceId`、`[0, 1]` 内的置信度，以及一个状态（`proposed`、`supported`、`contradicted`、`stale`、`rejected`）——这是活动任务的研究记录，与 `evolution-graph` 存储、面向晋升的跨会话 claim 是两回事。`TaskHypothesis` 是一个问题、与其相关的 `TaskClaimId` 与 `VerificationRequest`，以及一个状态（`open`、`supported`、`refuted`、`inconclusive`）。`recordEvidence()`、`recordClaim()` 与 `recordHypothesis()` 把记录追加为 `evidence/recorded`、`claim/updated` 或 `hypothesis/updated`，并在以下情况抛错：陈述或问题为空、置信度超出 `[0, 1]`、引用了本会话从未记录的条目、`supported` claim 未引用任何观测，或测试指名了另一个任务。
 
 ## 检查点与读模型
 
 `Checkpoint` 在一个会话序列处为一个任务建索引：任务与运行标识、会话、`sessionSeq`、状态与 revision、`BudgetSnapshot`、未完成动作 id、未解决失败、`CheckpointReason` 与时间戳。`KernelView` 是读取者从 `ctx.agentKernel.state.view(session)` 得到的内容：当前契约、预算观测、未完成动作、未解决失败、存在时的最新计划与检查点，以及 agent 为子级时的委派回执。
+
+## 对外界面
+
+Kernel 记录就是持久的会话事件，因此任何已经承载会话日志的桥接都会承载它们：[SDK 协议包](../../packages/sdk/protocol/README.zh.md) 以 `session.event` 通知不过滤地推送，[ACP](../../packages/acp/acp/README.zh.md) 把持久计划修订投影为自身的 `plan` 更新，并通过 `session/request_permission` 传递权限请求。验证结果、检查点与动作决策在 ACP 中没有对应表示，因此 ACP 客户端从 SDK 流或会话日志本身读取它们。
+
+## 指标
+
+`readKernelMetrics(events)` 把一个会话的 Kernel 事件折叠成该平面自有的计数器：创建的任务及其终态、验证次数与通过率、步数与工具调用、提案/成功/失败/被拒的动作、策略拒绝与询问、被驳回的审批、按类别统计的失败、按动作统计的恢复决策、检查点与恢复次数、重试过的动作，以及从未结算的动作。分母为零的比率会缺省而非记为零，读者因此不会把「什么都没发生」误读成「全部失败」。重试的动作保留其 action id，因此回执对应已结算的那次尝试，而尝试本身体现为提案数与重试动作计数。其它包拥有的指标——上下文压缩、记忆召回效用、技能效用、演化增益——不在此处推导；由各自的拥有者写入。
 
 ## 持久事件族
 
@@ -53,14 +75,13 @@ Kernel 把这些声明合并进 `SessionEventMap`；它们全部只入日志，�
 | `task/created` | 创建时的完整 `TaskContract` |
 | `task/transitioned` | 一次 `StateTransition` |
 | `task/plan` | 一次 `PlanRevision` |
-| `action/proposed` | 一条 `ActionProposal` |
-| `policy/decision` | 提议及其 `PolicyDecision` |
-| `action/authorized`、`action/denied` | 提议及其组合后的 `AuthorizationDecision` |
-| `capability/grant` | 动作与被授予的能力 |
-| `action/committed` | 一条 `ActionReceipt` |
+| `action/decided` | 一条 `ActionProposal`、它所依据的 `PolicyDecision`，以及组合后的 `AuthorizationDecision`（含其所授予的能力） |
+| `action/committed` | 一条 `ActionReceipt` 以及随其结算而结束的单次授权 |
 | `verification/requested`、`verification/result` | 请求与聚合后的结果 |
 | `failure/recorded`、`recovery/decided` | 失败与所选恢复 |
 | `checkpoint/created` | 一个 `Checkpoint` |
+| `evidence/recorded` | 一条 `Evidence` |
+| `claim/updated`、`hypothesis/updated` | 一条 `TaskClaim` 或一条 `TaskHypothesis` |
 | `delegation/received` | 子级据以行动的 `DelegationReceipt`，在子级自己的日志里 |
 | `delegation/issued` | 同一份回执，作为审计副本在父级日志上 |
 
@@ -82,12 +103,76 @@ The kernel service (`ctx.agentKernel`). It attaches to the loop and tool waterfa
 
 ```ts cordis-catalog
 /**
+ * Register the provider for session-selected policy layers.
+ * @param provider - resolves the profile and optional restriction for each session.
+ * @returns a disposer that removes this provider while it remains registered.
+ * @throws when another policy profile provider is already registered.
+ */
+registerPolicyProfileProvider(provider: PolicyProfileProvider): () => void
+
+/**
+ * Persist one caller-supplied task contract before its first request.
+ * @param agent - the live agent whose session owns the task.
+ * @param input - the objective, constraints, acceptance, profiles, workspace and budget.
+ * @returns the newly recorded contract at its initial `intake` revision.
+ * @throws When the session already has a task contract.
+ */
+intake(agent: Agent, input: TaskInput): TaskContract
+
+/**
  * Attach one live agent to its task contract.
  * @param agent - the live agent to attach.
  * @returns the attachment handle.
  * @throws When the agent's session holds no `task/created` event yet; the kernel creates one at the first admitted step.
  */
 attach(agent: Agent): KernelAttachment
+
+/**
+ * Read one agent's task state.
+ * @param agent - the live agent whose session is read.
+ * @returns the current view, or undefined before task intake.
+ */
+snapshot(agent: Agent): Promise<KernelView | undefined>
+
+/**
+ * Record an initial plan or a recovery amendment tied to one unresolved failure.
+ * @param agent - the live agent whose task owns the plan.
+ * @param steps - ordered work items in the new plan revision.
+ * @param failureId - unresolved failure that justifies an amendment.
+ * @returns the durable plan revision.
+ * @throws When the session has no task, or an amendment is not linked to an unresolved failure.
+ */
+recordPlan(agent: Agent, steps: readonly string[], failureId?: FailureId): PlanRevision
+
+/**
+ * Record one observation a claim may cite.
+ * @param agent - the live agent whose task observed it.
+ * @param input - what was observed, where it lives, and how far it may be trusted.
+ * @returns the durable evidence record.
+ * @throws When the session has no task or the reference is empty.
+ */
+recordEvidence(agent: Agent, input: EvidenceInput): Evidence
+
+/**
+ * Assert one claim against evidence this session recorded.
+ * @param agent - the live agent whose task asserts it.
+ * @param input - the statement, the evidence it cites, its confidence, and its status.
+ * @returns the durable claim.
+ * @throws When the session has no task, the statement is empty, the confidence
+ *   is outside `[0, 1]`, a cited observation was never recorded, or a
+ *   `supported` claim cites no observation.
+ */
+recordClaim(agent: Agent, input: TaskClaimInput): TaskClaim
+
+/**
+ * Record one question a task is testing.
+ * @param agent - the live agent whose task is testing it.
+ * @param input - the question, the claims behind it, and the verifications run against it.
+ * @returns the durable hypothesis.
+ * @throws When the session has no task, the question is empty, a cited claim
+ *   was never asserted, or a test does not verify this task.
+ */
+recordHypothesis(agent: Agent, input: TaskHypothesisInput): TaskHypothesis
 
 /**
  * Verify one task revision with the registered criterion verifiers, record the
@@ -105,9 +190,20 @@ verify(agent: Agent, changedScopes: readonly string[] = []): Promise<CompletionD
  * @returns the checkpoint, or undefined when the agent has no task.
  */
 checkpoint(agent: Agent, reason: CheckpointReason): Checkpoint | undefined
+
+/**
+ * Follow plan mode, the producer of the `planning` status: entering it moves a
+ * non-terminal task to `planning`, leaving it returns the task to `ready`. A
+ * session with no task yet has nothing to move, and a status that cannot reach
+ * `planning` keeps its current one. The plan-mode plugin calls this immediately
+ * after it records the mode, so the status and the mode agree in the log.
+ * @param session - the session whose mode changed.
+ * @param active - whether plan mode is now in force.
+ */
+recordPlanMode(session: Session, active: boolean): void
 ```
 
-Types: [Agent](core.zh.md)
+Types: [Agent](core.zh.md) · [Session](session.zh.md)
 
 Source: [`packages/runtime/agent-kernel/src/index.ts`](../../packages/runtime/agent-kernel/src/index.ts)
 <!-- END GENERATED cordis-surface -->

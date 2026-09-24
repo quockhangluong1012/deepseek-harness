@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
+import AgentContext from '@deepseek-ai/dsh-agent-context'
 import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
 import { agentEvents } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
@@ -219,6 +220,28 @@ describe('same-session goal driving', () => {
     expect(requestText(test.adapter.requests[1]!)).toContain('Round: 2/2')
     expect(test.agent.session.snapshotEvents().flatMap(event =>
       event.type === 'request/header' ? [event.data.reason] : [])).toEqual(['initial', 'series'])
+  })
+
+  it('registers admitted goal prompts as trusted task deltas', async () => {
+    const test = await harness([textResponse('round completed')])
+    await test.ctx.plugin(AgentContext, {})
+    test.ctx.goals.create(test.agent, { objective: 'finish this goal', maxGoalRounds: 1 })
+    await waitForGoal(test.ctx, test.agent, goal => goal?.phase === 'blocked')
+
+    const event = test.agent.session.snapshotEvents().find(entry =>
+      entry.type === 'user/message' && entry.data.source.kind === 'goal' && entry.data.source.round > 0)
+    if (event?.type !== 'user/message') throw new Error('goal driver did not admit a round prompt')
+    const text = event.data.content.flatMap(block => block.type === 'text' ? [block.text] : []).join('\n')
+    const compiled = await test.ctx.agentContext.compile(test.agent, { sections: [], contexts: [], tools: [], variables: {} })
+    const source = compiled.included.find(entry => entry.source.id === `goal:${String(event.data.id)}`)
+
+    expect(source?.source.content).toBe(text)
+    expect(source?.source.kind).toBe('task')
+    expect(source?.source.trust).toBe('trusted')
+    expect(source?.source.retention).toBe('compressible')
+
+    const repeated = await test.ctx.agentContext.compile(test.agent, { sections: [], contexts: [], tools: [], variables: {} })
+    expect(repeated.included.some(entry => entry.source.id === source?.source.id)).toBe(false)
   })
 
   it('never adopts activation from an already-live driver and waits for explicit resume', async () => {

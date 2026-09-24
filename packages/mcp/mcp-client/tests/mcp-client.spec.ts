@@ -1,6 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { Client, InMemoryTransport } from '@modelcontextprotocol/client'
 import { Context } from '@deepseek-ai/cordis'
+import AgentKernel from '@deepseek-ai/dsh-agent-kernel'
 import AttachmentStore, { AttachmentError, AttachmentId } from '@deepseek-ai/dsh-attachment'
 import type { ImageAttachmentLimits, ImageAttachmentRef, SaveImageAttachment, StoredImageAttachment } from '@deepseek-ai/dsh-attachment'
 import { ToolCallId, LlmAdapter, LlmRuntime } from '@deepseek-ai/dsh-llm'
@@ -10,7 +11,7 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import type { PostToolDecision } from '@deepseek-ai/dsh-tools'
-import { endpointHashForStdio, publicToolName, syncTools, type ToolBridgeOptions } from '@deepseek-ai/dsh-mcp-client/src/tools.ts'
+import { createMcpCapabilityPublisher, endpointHashForStdio, publicToolName, syncTools, type ToolBridgeOptions } from '@deepseek-ai/dsh-mcp-client/src/tools.ts'
 import { createTransport } from '@deepseek-ai/dsh-mcp-client/src/transport.ts'
 import type { Config } from '@deepseek-ai/dsh-mcp-client'
 
@@ -270,6 +271,40 @@ describe('syncTools', () => {
     expect(ctx.tools.get('mcp__srv__free')).toBeUndefined()
     // The squatter is untouched.
     expect(ctx.tools.get('mcp__srv__taken')).toBeDefined()
+  })
+
+  it('declares mcp.call for each synced tool and follows the live generation', async () => {
+    await ctx.plugin(AgentKernel, {})
+    const kernel = ctx.agentKernel
+    const client = createMockClient([{ name: 'greet', inputSchema: { type: 'object' } }])
+    const capabilities = createMcpCapabilityPublisher(ctx, 'srv')
+    const opts = { ...defaultOpts, capabilities }
+    const first = await syncTools(client as never, ctx, opts, new Map())
+
+    expect(kernel.capabilities.resolve('mcp__srv__greet', {})).toEqual([
+      { capability: 'mcp.call', resource: 'mcp:srv/greet' },
+    ])
+
+    client.listTools.mockResolvedValue({ tools: [{ name: 'add', inputSchema: { type: 'object' } }], nextCursor: undefined })
+    await syncTools(client as never, ctx, opts, first)
+
+    expect(kernel.capabilities.has('mcp__srv__greet')).toBe(false)
+    expect(kernel.capabilities.resolve('mcp__srv__add', {})).toEqual([
+      { capability: 'mcp.call', resource: 'mcp:srv/add' },
+    ])
+  })
+
+  it('publishes the synced generation when the kernel mounts afterwards', async () => {
+    const client = createMockClient([{ name: 'greet', inputSchema: { type: 'object' } }])
+    const capabilities = createMcpCapabilityPublisher(ctx, 'srv')
+    await syncTools(client as never, ctx, { ...defaultOpts, capabilities }, new Map())
+    expect(ctx.get('agentKernel')).toBeUndefined()
+
+    await ctx.plugin(AgentKernel, {})
+
+    expect(ctx.agentKernel.capabilities.resolve('mcp__srv__greet', {})).toEqual([
+      { capability: 'mcp.call', resource: 'mcp:srv/greet' },
+    ])
   })
 
   it('unregisters previous tools before re-syncing', async () => {

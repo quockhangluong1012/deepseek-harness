@@ -62,9 +62,9 @@ kind: "package-reference"
 
 ### 经验工件
 
-一个工件就是一条持久化的提炼事实：`statement`、`source`（会话 id，或手工暂存条目的标签）、`conditions`、`evidence`（`fact` | `observation` | `inference`）、`[0, 1]` 区间内的 `confidence`、`validationCount`、`refutationCount`、`scope`（`user` | `project` | `global`）、可选的 `ttlDays`，以及 `createdAt` / `updatedAt` 时刻。
+一个工件就是一条持久化的提炼事实。任何持久写入之前都会先擦除凭据：statement、其 conditions 以及它据以提取的标签中，每一种可识别的凭据形态都会替换为 `[REDACTED]`；身份由擦除后的 statement 推导，因此被擦除的事实只保有一个身份，而不会多出一个孪生。字段包括 `statement`、`source`（会话 id，或手工暂存条目的标签）、`conditions`、`evidence`（`fact` | `observation` | `inference`）、`[0, 1]` 区间内的 `confidence`、`validationCount`、`refutationCount`、`scope`（`user` | `project` | `global`）、可选的 `ttlDays`，以及 `createdAt` / `updatedAt` 时刻。
 
-工件的身份就是其规范化后的 statement——转小写、内部空白折叠、首尾去空——该身份即是所有操作寻址的 `id`。同一记录内身份两两不同，因此 `addArtifact`、`updateArtifact` 与 `removeArtifact` 各自恰好命名一个工件，且这一命名在每次写入后都不变：身份、计数与时刻由存储赋予，永不来自调用方或模型。`updateArtifact` 只修补 `conditions`、`confidence`、`evidence` 与 `ttlDays`；statement 变了就是另一条事实，因此它以一次 remove 加一次 add 表达，而不是一次 patch。`validationCount` 与 `refutationCount` 只经决策批次移动——没有其他操作会触碰它们。
+工件的身份就是其规范化后的 statement——转小写、内部空白折叠、首尾去空——该身份即是所有操作寻址的 `id`。同一记录内身份两两不同，因此 `addArtifact`、`updateArtifact` 与 `removeArtifact` 各自恰好命名一个工件，且这一命名在每次写入后都不变：身份、计数与时刻由存储赋予，永不来自调用方或模型。一条事实只有指名它所依据的来源，才会被接纳为长期学习：`addArtifact` 与 `applyExtractionDecisions` 都会拒绝 `sourceRefs` 为空的候选，并给出 `it names no source reference`，因此泛泛的对话摘要永远不会作为经验沉淀下来（规范 §9.2）。调用方无法得知的部分由存储补上——过期策略，以及估算器随后更新的零值 utility。若候选项声明其内容为 `trust: 'untrusted'`——取自仓库文件、工具输出、抓取页面或 MCP 服务器的文本——则**不能直接写入**：`addArtifact` 与 `applyExtractionDecisions` 会拒绝它并指明暂存路径，因此污点只有经过人类或策略批准的审批才可能进入长期记忆。`updateArtifact` 只修补 `conditions`、`confidence`、`evidence` 与 `ttlDays`；statement 变了就是另一条事实，因此它以一次 remove 加一次 add 表达，而不是一次 patch。`validationCount` 与 `refutationCount` 只经决策批次移动——没有其他操作会触碰它们。
 
 `addArtifact` 接收候选与合并策略（默认 `keep_both`），是唯一一种可以成功却不存储任何内容的操作：在 `keep_both` 下，若候选身份已存在，调用直接返回原记录，不进入写入链，也不盖任何分族时间戳。在 `overwrite` 或 `merge` 下，候选折入它匹配到的工件——先按身份匹配，否则匹配相似度达到 `mergeSimilarityFloor` 的最相似工件，相似度经由可选的 `ctx.embeddings` seam 度量。`merge` 合并两者的 `conditions` 并取较高置信度；`overwrite` 用候选的内容替换工件内容。两种情况中被匹配工件都保留其 id、statement、计数与创建时刻，只有 `updatedAt` 变化。没有 embeddings 服务时什么也不度量，因此只有完全相同的身份才能匹配，同义改写会另存为一个独立工件：改写检测能力降级，写入永不失败。
 
@@ -72,7 +72,7 @@ kind: "package-reference"
 
 ### 决策批次
 
-`applyExtractionDecisions(id, decisions, extraction?)` 是评审器每次提取调用的一次写入，也是唯一移动那两个计数的路径。一批决策由 `LessonDecision` 条目组成：`confirms` 让所寻址工件的 `validationCount` 加一，`contradicts` 让其 `refutationCount` 加一，并替换该决策携带的 statement 与 confidence，`new` 则经与 `addArtifact` 相同的按义合并路径添加一个工件候选——因此一条只是重述已存工件的事实不会被另存在它旁边。更正保留工件的 `id`、`createdAt`、`validationCount` 以及该决策未提供的每一个字段，因此被更正的事实保留其血统与调用方寻址它所用的身份。
+`applyExtractionDecisions(id, decisions, extraction?)` 是评审器每次提取调用的一次写入，也是唯一移动那两个计数的路径。一批决策由 `LessonDecision` 条目组成：`confirms` 让所寻址工件的 `validationCount` 加一，`contradicts` 或让其 `refutationCount` 加一，或在决策携带更正时**取代**该事实：旧措辞移入工件的 `supersedes` 历史，`validationCount` 与 `refutationCount` 归零（它们度量的是已不再成立的那个值），因此仍然成立的新值绝不会被针对它所取代措辞的 refutation 剪除。`new` 则经与 `addArtifact` 相同的按义合并路径添加一个工件候选——因此一条只是重述已存工件的事实不会被另存在它旁边。更正保留工件的 `id`、`createdAt` 以及该决策未提供的每一个字段，因此被更正的事实保留其血统与调用方寻址它所用的身份。
 
 决策按提取报告它们的顺序折入，在写入时读到的记录之上，因此每条都作用于此前各条产生的结果。`confirms` 或 `contradicts` 若命名了记录已不再持有的工件，会被跳过而不是拒绝——该目标是在更早一次读取上解析的，其间可能发生一次剪除——批次其余部分照常应用。整批就是一次写入：它盖一次 `lessonsUpdatedAt`，没有任何改动的批次（空批次，或各条决策都被跳过的批次）一个分族时间戳都不盖，而一次什么都没找到的调用的来源仍会记录在 `lastExtraction` 上。
 
@@ -98,7 +98,7 @@ kind: "package-reference"
 
 另外两个环节由档案本就会写入的内容记录下来。带来源信息落地的决策批次——`applyExtractionDecisions(id, decisions, extraction)`——会把所有仍在等待决策的召回绑定到该批次，记下它的会话与时刻：该批次就是被召回材料在场上时的那次已记录决策。`recordRecallOutcome(id, recalledId, outcome, at?)` 把会话的分级结果记到该记忆最新一条仍在等待结果的召回上，若该记忆没有这样的召回则大声拒绝，因此在某个结果被记录之后再次被召回的记忆，会在它更新的那条召回上再次被分级。
 
-§23 还有两个环节完全没有记录，台账也从不臆测它们：没有任何东西观测被注入的条目是否真的被**使用**，也没有任何东西标记某条被**引用**。`recalls()` 返回全部已记录行及其落地的作用域，`recallUtility()` 据此推导出 §24 的读数：`相关性 × 决策影响 × 结果增益`，其中相关性是该记忆已记录召回上的 `n / (n + 1)`——与知识图信念所用的同一饱和函数，因此没有任何记忆能仅凭检索触顶——决策影响是其中有已记录批次跟随的召回占比，结果增益是被分级为 `ok` 的召回占比。§24 的第四个因子**来源质量**，对于被召回的记忆没有任何记录来源，因此该乘积携带三个因子，而不是编造出来的第四个。
+§23 还有两个环节完全没有记录，台账也从不臆测它们：没有任何东西观测被注入的条目是否真的被**使用**，也没有任何东西标记某条被**引用**。`recalls()` 返回全部已记录行及其落地的作用域，给一次回想打分（`recordRecallOutcome`）同时会把结果折叠进被回想的那条事实：`rememberOutcome` 增加一次浮现并据计数器重算 Laplace 值，因此被「随后失败的任务」浮现过的事实会累积失败结果，供 `demotable` 读取。若回想的对象不是一条事实，则只保留其账本行，不更新任何工件。`recallUtility()` 据此推导出 §24 的读数（每条读数还携带 S8 的 `estimate`：`surfaced`、`passingTasks`、`failingTasks` 以及由 `utilityValue` 得出的 Laplace `value`；`demotable` 据此把在 `minSurfaced` 次浮现后仍低于 `minUtility` 的事实降级）：`相关性 × 决策影响 × 结果增益`，其中相关性是该记忆已记录召回上的 `n / (n + 1)`——与知识图信念所用的同一饱和函数，因此没有任何记忆能仅凭检索触顶——决策影响是其中有已记录批次跟随的召回占比，结果增益是被分级为 `ok` 的召回占比。§24 的第四个因子**来源质量**，对于被召回的记忆没有任何记录来源，因此该乘积携带三个因子，而不是编造出来的第四个。
 
 移除上下文条目不会移除召回：召回已经发生，把该条目从简报中丢掉并不等于没有检索过它。
 

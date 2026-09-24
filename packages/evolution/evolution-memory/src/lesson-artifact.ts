@@ -5,6 +5,7 @@
  * @module @deepseek-ai/dsh-evolution-memory/lesson-artifact
  */
 
+import { SENSITIVE_PLACEHOLDER, DEFAULT_SENSITIVE_PATTERNS } from '@deepseek-ai/dsh-session-telemetry/src/sensitive.ts'
 import { z } from 'zod'
 
 /** Whether an artifact came from a fact, a direct observation, or a model inference. */
@@ -42,6 +43,104 @@ export interface LessonArtifact {
   createdAt: string
   /** ISO-8601 instant of the last validation, refutation, or edit. */
   updatedAt: string
+  /**
+   * What the fact was drawn from: session ids, artifact paths, or tool-result
+   * digests. Absent on records written before admission required a source.
+   */
+  sourceRefs?: readonly string[] | undefined
+  /** Runs whose trajectories produced the fact, when any. */
+  trajectoryRefs?: readonly string[] | undefined
+  /**
+   * What the fact earned when it was surfaced: how often it reached a task's
+   * compiled context and how those tasks ended. Absent until it is surfaced.
+   */
+  utility?: UtilityEstimate | undefined
+  /**
+   * Statements this artifact replaced, oldest first. A contradiction that
+   * corrects a fact keeps the old wording here instead of deleting it, so a
+   * refuted value is answered by its replacement rather than lost.
+   */
+  supersedes?: readonly LessonSupersession[] | undefined
+  /** Where the artifact came from and what it was derived from. */
+  lineage?: LessonLineage | undefined
+  /** Content a promotion could restore, so a promoted fact can be rolled back. */
+  rollbackPreimage?: string | undefined
+  /**
+   * How far the fact's content may be trusted. An `untrusted` artifact is
+   * derived from content nobody vouched for (repository text, tool output, a
+   * fetched page, MCP content), so it enters the store only through staging,
+   * where a human or a policy decides. Absent reads as `unknown`, which the
+   * direct write path still admits for records written before this field.
+   */
+  trust?: LessonTrust | undefined
+}
+
+/** How far the content behind one artifact may be trusted. */
+export type LessonTrust = 'trusted' | 'untrusted' | 'unknown'
+
+/**
+ * What one surfaced fact earned: how often it was placed into a task's
+ * compiled context, and how those tasks ended.
+ */
+export interface UtilityEstimate {
+  /** Times the fact was surfaced into a task's compiled context. */
+  surfaced: number
+  /** Surfaced tasks that verified successfully. */
+  passingTasks: number
+  /** Surfaced tasks that failed verification. */
+  failingTasks: number
+  /** `(passingTasks + 1) / (passingTasks + failingTasks + 2)`, the Laplace estimate. */
+  value: number
+}
+
+/** One statement a later contradiction replaced. */
+export interface LessonSupersession {
+  /** The statement that no longer stands. */
+  statement: string
+  /** Confidence the superseded statement carried. */
+  confidence: number
+  /** ISO-8601 instant the contradiction landed. */
+  supersededAt: string
+}
+
+/** Where one artifact came from and what it was derived from. */
+export interface LessonLineage {
+  /** The run, session, or manual entry that produced the artifact. */
+  origin: string
+  /** Identities of the artifacts this one was derived from, when any. */
+  derivedFrom?: readonly string[] | undefined
+}
+
+/**
+ * The utility value S8 defines for an estimate's counters.
+ * @param passingTasks - surfaced tasks that verified successfully.
+ * @param failingTasks - surfaced tasks that failed verification.
+ * @returns the Laplace estimate, 0.5 for a fact that has never been surfaced.
+ */
+export function utilityValue(passingTasks: number, failingTasks: number): number {
+  return (passingTasks + 1) / (passingTasks + failingTasks + 2)
+}
+
+/**
+ * Fold one recalled outcome into a fact's utility estimate. The value is always
+ * recomputed from the counters, so a reader never sees a value that disagrees
+ * with the outcomes behind it.
+ * @param utility - the estimate so far, when the fact was surfaced before.
+ * @param outcome - how the task that received the fact ended.
+ * @returns the estimate covering this recall as well.
+ */
+export function rememberOutcome(
+  utility: UtilityEstimate | undefined,
+  outcome: 'ok' | 'failed',
+): UtilityEstimate {
+  const passingTasks = (utility?.passingTasks ?? 0) + (outcome === 'ok' ? 1 : 0)
+  const failingTasks = (utility?.failingTasks ?? 0) + (outcome === 'failed' ? 1 : 0)
+  return {
+    surfaced: (utility?.surfaced ?? 0) + 1,
+    passingTasks,
+    failingTasks,
+    value: utilityValue(passingTasks, failingTasks),
+  }
 }
 
 /**
@@ -80,6 +179,25 @@ export const lessonArtifact: z.ZodType<LessonArtifact> = z.object({
   ttlDays: z.number().int().min(1).optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
+  sourceRefs: z.array(z.string().min(1)).optional(),
+  trajectoryRefs: z.array(z.string().min(1)).optional(),
+  utility: z.object({
+    surfaced: z.number().int().min(0),
+    passingTasks: z.number().int().min(0),
+    failingTasks: z.number().int().min(0),
+    value: z.number().min(0).max(1),
+  }).optional(),
+  supersedes: z.array(z.object({
+    statement: z.string().min(1),
+    confidence: z.number().min(0).max(1),
+    supersededAt: z.string(),
+  })).optional(),
+  lineage: z.object({
+    origin: z.string().min(1),
+    derivedFrom: z.array(z.string().min(1)).optional(),
+  }).optional(),
+  rollbackPreimage: z.string().optional(),
+  trust: z.enum(['trusted', 'untrusted', 'unknown']).optional(),
 })
 
 /** Durable shape of a caller-supplied new artifact. */
@@ -91,6 +209,8 @@ export const lessonArtifactInput: z.ZodType<LessonArtifactInput> = z.object({
   confidence: z.number().min(0).max(1),
   scope: artifactScope,
   ttlDays: z.number().int().min(1).optional(),
+  trust: z.enum(['trusted', 'untrusted', 'unknown']).optional(),
+  sourceRefs: z.array(z.string().min(1)).optional(),
 })
 
 /**
@@ -101,6 +221,60 @@ export const lessonArtifactInput: z.ZodType<LessonArtifactInput> = z.object({
  */
 export function normalizeStatement(statement: string): string {
   return statement.toLowerCase().replaceAll(/\s+/g, ' ').trim()
+}
+
+/**
+ * Scrub credentials from text that is about to become durable memory — an
+ * artifact's statement, its conditions, or the label it was drawn from. A
+ * secret that reached an extraction is not a lesson, and a stored one would be
+ * replayed into every later brief, so it is replaced before the write.
+ * @param text - the text a caller or a model supplied.
+ * @returns the same text with every recognized credential shape replaced.
+ */
+export function scrubArtifactText(text: string): string {
+  let scrubbed = text
+  for (const { pattern } of DEFAULT_SENSITIVE_PATTERNS) {
+    pattern.lastIndex = 0
+    scrubbed = scrubbed.replace(pattern, SENSITIVE_PLACEHOLDER)
+  }
+  return scrubbed
+}
+
+/**
+ * Refuse a direct write of an artifact whose own content is untrusted. Taint
+ * propagates to what is derived from it, and such a fact enters a long-term
+ * store only through staging, where a human or a policy answers for it.
+ * @param candidate - the artifact a caller is about to store.
+ * @throws When the candidate declares its content untrusted.
+ */
+export function assertDirectlyAdmissible(candidate: LessonArtifactInput): void {
+  if (candidate.trust === 'untrusted') {
+    throw new Error(
+      'evolution-memory: an artifact derived from untrusted content is not admissible directly; '
+      + `stage the write for approval instead (statement ${JSON.stringify(candidate.statement)})`,
+    )
+  }
+  const issues = admissionIssues(candidate)
+  if (issues.length > 0) {
+    throw new Error(
+      `evolution-memory: artifact is not admissible as durable learning — ${issues.join('; ')} `
+      + `(statement ${JSON.stringify(candidate.statement)})`,
+    )
+  }
+}
+
+/**
+ * Why one candidate is not admissible as durable learning. A generic transcript
+ * summary that names no source is not admissible (spec §9.2); a candidate that
+ * names its source is, because the store supplies the expiry policy and the
+ * utility that later recall updates.
+ * @param candidate - the artifact a caller is about to store.
+ * @returns the reasons, empty when the candidate may be admitted.
+ */
+export function admissionIssues(candidate: LessonArtifactInput): string[] {
+  return candidate.sourceRefs === undefined || candidate.sourceRefs.length === 0
+    ? ['it names no source reference']
+    : []
 }
 
 /**

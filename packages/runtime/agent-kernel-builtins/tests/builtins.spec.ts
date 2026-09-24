@@ -142,9 +142,11 @@ describe('registration', () => {
 
     expect(result.isError).toBe(false)
     const types = agent.session.snapshotEvents().map(event => event.type)
-    expect(types).toContain('action/authorized')
+    expect(types).toContain('action/decided')
     expect(types).toContain('action/committed')
-    expect(types).not.toContain('action/denied')
+    // One decision record per call: the refusals it would have produced are a
+    // field of that record, not separate events.
+    expect(types.filter(type => type === 'action/decided')).toHaveLength(1)
   })
 })
 
@@ -262,6 +264,17 @@ describe('tool catalog inventory', () => {
     }
     expect(names.size).toBeGreaterThan(0)
     const declared = new Set(BUILTIN_DECLARATIONS.map(declaration => declaration.tool))
-    expect([...names].sort()).toEqual([...declared].sort())
+    // The cordis host runner mints its tool names at runtime, so the generated
+    // catalog lists only the two it registers literally. Naming that set here
+    // keeps both directions checked: a catalog tool with no declaration fails,
+    // and a new name invisible to the catalog fails until it is listed.
+    expect([...declared].filter(name => !names.has(name)).sort()).toEqual([
+      'cordis_define',
+      'cordis_inspect_self',
+      'cordis_run',
+      'cordis_stop',
+      'cordis_undefine',
+    ])
+    expect([...names].filter(name => !declared.has(name)).sort()).toEqual([])
   })
 })

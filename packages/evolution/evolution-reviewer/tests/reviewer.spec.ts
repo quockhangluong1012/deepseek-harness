@@ -1115,6 +1115,39 @@ describe('evolution reviewer', () => {
     }
   })
 
+  it('stages a batch whose turn recorded tainted content, whatever the approval setting', async () => {
+    const h = await harness({ provider: 'p', model: 'm' })
+    dirs.push(h.dir)
+    try {
+      const session = sessionIn(h.ctx, h.dir, 's1')
+      const id = h.scope('ws-1')
+      h.workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: h.dir, sessionIds: [session.id] })
+      // The guard marked the scanned content tainted: text nobody vouched for
+      // reached the model, so what the extraction derives from it is untrusted.
+      session.append('security/scan', {
+        phase: 'result', toolName: 'read', source: 'tool', digest: 'd',
+        tainted: true, findings: [], redactions: 0,
+      } as never)
+      h.streamImpl = immediate(answer(newDecision('Guard me')))
+      appendTurn(session, 1, { user: 'read the fixture and remember what it says', assistant: 'ok' })
+
+      await vi.waitFor(() => {
+        expect(h.ctx.evolutionMemory.read(id)?.staged).toHaveLength(1)
+      })
+      const record = h.ctx.evolutionMemory.read(id)
+      expect(record?.agentLessons).toEqual([])
+      expect(record?.staged[0]).toMatchObject({
+        kind: 'memory',
+        op: 'applyDecisions',
+        payload: { decisions: [
+          { kind: 'new', candidate: { statement: 'Guard me', trust: 'untrusted' } },
+        ] },
+      })
+    } finally {
+      await h.fiber.dispose()
+    }
+  })
+
   it('stages one applyDecisions entry carrying the whole batch for approval', async () => {
     const h = await harness({ provider: 'p', model: 'm', writeApproval: true })
     dirs.push(h.dir)
@@ -1156,8 +1189,11 @@ describe('evolution reviewer', () => {
       expect(applied?.staged).toHaveLength(0)
       expect(applied?.agentLessons.find(artifact => artifact.id === 'first fact')).toMatchObject({ validationCount: 1 })
       expect(applied?.agentLessons.find(artifact => artifact.id === 'second fact')).toMatchObject({
-        refutationCount: 1,
+        // The correction supersedes the wording: counters reset onto the
+        // replacement, and the old wording stays in its history.
+        refutationCount: 0,
         statement: 'corrected second fact',
+        supersedes: [{ statement: 'second fact', supersededAt: expect.any(String) as unknown }],
       })
       expect(applied?.agentLessons.some(artifact => artifact.statement === 'Staged')).toBe(true)
     } finally {

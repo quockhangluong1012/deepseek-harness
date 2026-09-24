@@ -29,7 +29,7 @@ kind: "package-reference"
 
 ### 配置预设
 
-插件配置定义预设表与新会话的默认值。每个预设名称把一个沙箱模式与一个审批策略捆绑为一组；`name` 与 `description` 是可选的客户端呈现。保留名称 `custom` 与 `auto` 不能出现在该表中。
+插件配置定义预设表与新会话的默认值。每个预设名称把一个沙箱模式与一个审批策略捆绑为一组；`name` 与 `description` 是可选的客户端呈现。预设还可以携带 `policy`：由 agent kernel 与其部署文档求交的能力规则，因此选择该预设同时收窄该会话工具可执行的动作。保留名称 `custom` 与 `auto` 不能出现在该表中。
 
 ```yaml
 - name: '@deepseek-ai/dsh-permission-presets'
@@ -47,9 +47,10 @@ kind: "package-reference"
 | 字段 | 默认值 | 含义 |
 |---|---|---|
 | `presets` | `workspace-write`、`danger-full-access` | 预设名称 → 沙箱／审批捆绑的表 |
+| `presets.<name>.policy` | 无 | 该预设加入 agent kernel 策略的能力规则，与部署文档求交 |
 | `defaultPreset` | 推断 | 固定到新会话的预设；组合默认值不匹配任何预设时必填 |
 
-生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-permission-presets)是每个受支持字段及其 JSDoc 的穷尽式真源。`custom` 保留给推导出的非预设状态，`auto` 则保留给 Auto review integration。挂载需要具有约束能力的 bash 执行器（会报告 `sandboxMode` 的执行器）与审批服务。
+生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-permission-presets)是每个受支持字段及其 JSDoc 的穷尽式真源。`custom` 保留给推导出的非预设状态，`auto` 则保留给 Auto review integration。agent kernel 是可选的：没有它时预设的 `policy` 会被记录，但没有组件对其求值。挂载需要具有约束能力的 bash 执行器（会报告 `sandboxMode` 的执行器）与审批服务。
 
 ### 切换预设
 

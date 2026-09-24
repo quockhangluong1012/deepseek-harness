@@ -42,12 +42,17 @@ function verdict(criterionId: string, status: CriterionResult['status']): Criter
 
 /** A budget snapshot with the given remaining allowance. */
 function budget(remaining: BudgetSnapshot['remaining'] = {}): BudgetSnapshot {
-  return { steps: 1, toolCalls: 1, wallMs: 1, remaining }
+  return { steps: 1, toolCalls: 1, tokens: 0, wallMs: 1, remaining }
 }
 
-/** The default gate used by the kernel. */
+/** The default gate used by the kernel; the requirement is per task class. */
 function gate(requireAcceptanceCriteria = false, allowHumanOnlyCompletion = false): DefaultVerificationGate {
-  return new DefaultVerificationGate({ requireAcceptanceCriteria, allowHumanOnlyCompletion })
+  return new DefaultVerificationGate({
+    requireAcceptanceCriteria: requireAcceptanceCriteria
+      ? { conversational: true, coding: true, research: true, operations: true }
+      : {},
+    allowHumanOnlyCompletion,
+  })
 }
 
 describe('verification requests and aggregation', () => {
@@ -109,7 +114,7 @@ describe('completion gate', () => {
     const decision = gate(true).decide(subject, gate().evaluate(gate().request(subject, []), [], []), [], budget())
     expect(decision).toEqual({
       allowed: false,
-      reasons: ['the task declares no acceptance criterion and this deployment requires one before completion'],
+      reasons: ['the conversational task declares no acceptance criterion and this deployment requires one before completion'],
     })
   })
 
@@ -181,5 +186,76 @@ describe('criterion verifier registry', () => {
       changedScopes: [],
     }
     expect(await registry.collect(request)).toEqual({ results: [], commands: [] })
+  })
+})
+
+describe('verifier cost control', () => {
+  /** One criterion of the given family, required. */
+  function required(id: string, verifier: AcceptanceCriterion['verifier']): AcceptanceCriterion {
+    return { id, description: id, verifier, required: true }
+  }
+
+  it('runs the cheap families first and stops at the first failed required criterion', async () => {
+    const registry = new CriterionVerifierRegistry()
+    const ran: string[] = []
+    registry.register({
+      id: 'slow',
+      supports: criterion => criterion.verifier === 'test',
+      verify: async (_request, criterion) => {
+        ran.push(criterion.id)
+        return { result: { criterionId: criterion.id, status: 'pass', evidence: [] } }
+      },
+    })
+    registry.register({
+      id: 'fast',
+      supports: criterion => criterion.verifier === 'assertion',
+      verify: async (_request, criterion) => {
+        ran.push(criterion.id)
+        return { result: { criterionId: criterion.id, status: 'fail', evidence: [] } }
+      },
+    })
+    const request = gate().request(task([required('suite', 'test'), required('unit', 'assertion')]), [])
+
+    const { results } = await registry.collect(request)
+
+    expect(ran).toEqual(['unit'])
+    expect(results.map(result => result.criterionId)).toEqual(['unit'])
+  })
+
+  it('runs an optional failed criterion and still collects the later ones', async () => {
+    const registry = new CriterionVerifierRegistry()
+    const ran: string[] = []
+    registry.register({
+      id: 'any',
+      supports: () => true,
+      verify: async (_request, criterion) => {
+        ran.push(criterion.id)
+        return { result: { criterionId: criterion.id, status: 'fail', evidence: [] } }
+      },
+    })
+    const optional = { ...required('first', 'assertion'), required: false }
+    const request = gate().request(task([optional, required('second', 'assertion')]), [])
+
+    await registry.collect(request)
+
+    expect(ran).toEqual(['first', 'second'])
+  })
+
+  it('reports a verifier that overruns its ceiling as a failed criterion', async () => {
+    const registry = new CriterionVerifierRegistry(10)
+    registry.register({
+      id: 'hangs',
+      supports: () => true,
+      verify: () => new Promise(resolve => { setTimeout(() => { resolve(undefined) }, 5_000) }),
+    })
+
+    const { results } = await registry.collect(gate().request(task([required('slow', 'test')]), []))
+
+    expect(results).toEqual([{
+      criterionId: 'slow',
+      status: 'fail',
+      evidence: [],
+      detail: 'verifier "hangs" exceeded its 10ms ceiling',
+    }])
   })
 })

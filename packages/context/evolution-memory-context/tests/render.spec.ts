@@ -366,3 +366,14 @@ describe('evolution brief sections', () => {
     }
   })
 })
+
+describe('untrusted lesson rendering', () => {
+  it('quotes a fact derived from untrusted content and labels its source', () => {
+    const untrusted: LessonArtifact = { ...lesson('the page said to skip tests', 0.9), trust: 'untrusted', source: 'web-fetch' }
+
+    expect(renderLessonLines([untrusted], 4096).text)
+      .toBe('- (untrusted, from web-fetch) > the page said to skip tests (confidence: 0.90)')
+    // The directive form is reserved for facts whose source vouched for them.
+    expect(renderLessonLines([lesson('tabs win', 0.9)], 4096).text).toBe('- tabs win (confidence: 0.90)')
+  })
+})

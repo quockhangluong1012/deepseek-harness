@@ -11,14 +11,14 @@ const NOW = '2026-09-14T00:00:00.000Z'
 function artifact(statement: string, overrides: Partial<LessonArtifact> = {}): LessonArtifact {
   return {
     id: artifactKey(statement), statement, source: 's1', conditions: 'first', evidence: 'inference',
-    confidence: 0.6, validationCount: 2, refutationCount: 1, scope: 'project',
+    confidence: 0.6, validationCount: 2, refutationCount: 1, scope: 'project', sourceRefs: ['session:s2'],
     createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z', ...overrides,
   }
 }
 
 /** One caller-supplied candidate with the fields these tests vary pinned. */
 function candidate(statement: string, overrides: Partial<LessonArtifactInput> = {}): LessonArtifactInput {
-  return { statement, source: 's2', conditions: 'second', evidence: 'fact', confidence: 0.9, scope: 'project', ...overrides }
+  return { statement, source: 's2', conditions: 'second', evidence: 'fact', confidence: 0.9, scope: 'project', sourceRefs: ['session:s2'], ...overrides }
 }
 
 /** One record carrying the given artifacts and nothing else. */
@@ -64,6 +64,29 @@ describe('lesson decision vocabulary', () => {
   })
 })
 
+describe('credential scrubbing on the write path', () => {
+  it('stores a candidate with its credential replaced, under the scrubbed identity', () => {
+    const next = apply(record(), [
+      { kind: 'new', candidate: candidate('deploy with token sk-abcdefghijklmnopqrstuvwxyz0123') },
+    ])
+
+    const stored = next.agentLessons[0]
+    expect(stored?.statement).toBe('deploy with token [REDACTED]')
+    // The identity names the statement the store actually holds, so a later
+    // candidate spelling the raw text cannot create a twin.
+    expect(stored?.id).toBe(artifactKey('deploy with token [REDACTED]'))
+  })
+
+  it('scrubs the correction a contradicts decision carries', () => {
+    const existing = artifact('old hint')
+    const next = apply(record([existing]), [
+      { kind: 'contradicts', artifactId: existing.id, statement: 'send Authorization: Bearer abcdefghijklmnopqrstuvwxyz instead' },
+    ])
+
+    expect(next.agentLessons[0]?.statement).toBe('send Authorization: [REDACTED] instead')
+  })
+})
+
 describe('applying a decision batch', () => {
   it('confirms an artifact: one counter and the instant, nothing else', () => {
     const existing = artifact('use postgres', { ttlDays: 7 })
@@ -82,7 +105,7 @@ describe('applying a decision batch', () => {
     expect(pruned).toBe(base)
   })
 
-  it('contradicts an artifact: bumps the counter and applies the correction it carries', () => {
+  it('supersedes a corrected fact: keeps its history, resets the counters that measured the old value', () => {
     const existing = artifact('use postgres', { conditions: 'database work' })
     const next = apply(record([existing]), [
       { kind: 'contradicts', artifactId: existing.id, statement: 'use mysql 8', confidence: 0.2 },
@@ -91,14 +114,33 @@ describe('applying a decision batch', () => {
       ...existing,
       statement: 'use mysql 8',
       confidence: 0.2,
-      refutationCount: 2,
+      // The refutations counted the wording that no longer stands, so they
+      // cannot condemn the replacement; the old wording is kept as history.
+      refutationCount: 0,
+      validationCount: 0,
+      supersedes: [{ statement: 'use postgres', confidence: 0.6, supersededAt: NOW }],
       updatedAt: NOW,
     }])
     // The correction keeps the id it is addressed by, so the id no longer
     // equals the normalized statement the artifact now carries.
     expect(next.agentLessons[0]?.id).toBe(existing.id)
     expect(next.agentLessons[0]?.createdAt).toBe(existing.createdAt)
-    expect(next.agentLessons[0]?.validationCount).toBe(existing.validationCount)
+  })
+
+  it('keeps a second correction in history and never drops the standing value', () => {
+    const existing = artifact('use postgres', {
+      supersedes: [{ statement: 'use sqlite', confidence: 0.4, supersededAt: '2026-02-01T00:00:00.000Z' }],
+    })
+    const corrected = apply(record([existing]), [
+      { kind: 'contradicts', artifactId: existing.id, statement: 'use mysql 8' },
+    ])
+    const correctedAgain = apply(corrected, [
+      { kind: 'contradicts', artifactId: existing.id, statement: 'use mysql 9' },
+    ])
+
+    expect(correctedAgain.agentLessons[0]?.supersedes?.map(entry => entry.statement))
+      .toEqual(['use sqlite', 'use postgres', 'use mysql 8'])
+    expect(correctedAgain.agentLessons[0]?.statement).toBe('use mysql 9')
   })
 
   it('contradicts an artifact with one field and with none, touching only that counter', () => {
@@ -124,7 +166,9 @@ describe('applying a decision batch', () => {
       confidence: 0.9,
       validationCount: 0,
       refutationCount: 0,
+      sourceRefs: ['session:s2'],
       scope: 'project',
+      sourceRefs: ['session:s2'],
       ttlDays: 30,
       createdAt: NOW,
       updatedAt: NOW,
@@ -206,8 +250,12 @@ describe('applying a decision batch', () => {
       {
         ...existing,
         statement: 'use postgres 15',
-        validationCount: 3,
-        refutationCount: 2,
+        // The confirmation landed before the correction, so the superseded
+        // value carried three validations and one refutation; the replacement
+        // starts its own history.
+        validationCount: 0,
+        refutationCount: 0,
+        supersedes: [{ statement: 'use postgres', confidence: 0.6, supersededAt: NOW }],
         updatedAt: NOW,
       },
       {
@@ -219,6 +267,7 @@ describe('applying a decision batch', () => {
         confidence: 0.9,
         validationCount: 1,
         refutationCount: 0,
+        sourceRefs: ['session:s2'],
         scope: 'project',
         ttlDays: 30,
         createdAt: NOW,
@@ -241,7 +290,10 @@ describe('applying a decision batch', () => {
     expect(after.agentLessons[0]).toMatchObject({
       id: 'use postgres',
       conditions: 'rechecked',
-      refutationCount: 2,
+      // The merge folds into the standing value, whose counters the correction
+      // reset; the superseded wording stays in its history.
+      refutationCount: 0,
+      supersedes: [{ statement: 'use postgres', confidence: 0.6, supersededAt: NOW }],
       updatedAt: NOW,
     })
     // A corrected twin is a taken identity even under keep_both.

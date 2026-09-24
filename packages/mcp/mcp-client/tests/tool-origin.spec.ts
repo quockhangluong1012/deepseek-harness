@@ -26,6 +26,8 @@ interface MockTool {
 
 function createMockClient(tools: MockTool[]) {
   return {
+    getServerCapabilities: () => ({ tools: {} }),
+    listTools: vi.fn(async (): Promise<{ tools: MockTool[]; nextCursor: string | undefined }> => ({ tools, nextCursor: undefined })),
     request: vi.fn(async (
       request: { method: string; params?: Record<string, unknown> },
     ): Promise<unknown> => {
@@ -174,7 +176,7 @@ describe('synced definition provenance', () => {
     const first = await syncTools(client as never, ctx, stdioOpts, new Map())
     const firstDigest = ctx.tools.get('mcp__srv__old_tool')?.serverDigest
 
-    client.request.mockResolvedValue({ tools: [{ name: 'new_tool', inputSchema: { type: 'object' } }], nextCursor: undefined })
+    client.listTools.mockResolvedValue({ tools: [{ name: 'new_tool', inputSchema: { type: 'object' } }], nextCursor: undefined })
     await syncTools(client as never, ctx, stdioOpts, first)
 
     const tool = ctx.tools.get('mcp__srv__new_tool')

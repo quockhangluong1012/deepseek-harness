@@ -69,7 +69,8 @@ The seam is built on one boundary: the harness's aspect ends at `emit()`. Comple
 
 | File | Role |
 |---|---|
-| [`src/index.ts`](src/index.ts) | Service Definition: `SessionTelemetryBackend`/`SessionTelemetrySink` contract, record vocabulary, `session-telemetry/record` waterfall declaration |
+| [`src/index.ts`](src/index.ts) | Service Definition: backend contract and `session-telemetry/record` waterfall declaration |
+| [`src/record.ts`](src/record.ts) | Cordis-free record and severity types shared by capture, redaction, and backends |
 | [`src/coordinator.ts`](src/coordinator.ts) | Capture: live listeners, lifecycle-local on-demand replay, redaction, handoff cursor, containment |
 | [`src/sensitive.ts`](src/sensitive.ts) | Opt-in sensitive-value scrubbing helpers for deployment redaction rules |
 

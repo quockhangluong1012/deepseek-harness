@@ -1206,3 +1206,51 @@ describe('HMR disposal', () => {
     expect(agent.session.snapshotEvents().some(event => event.type === 'plan/mode')).toBe(false)
   })
 })
+
+describe('task status reporting', () => {
+  it('reports each committed mode to the agent kernel, after the log records it', async () => {
+    const ctx = await setup()
+    const reported: { session: Session; active: boolean; sawMode: boolean }[] = []
+    ctx.provide('agentKernel', {
+      recordPlanMode: (session: Session, active: boolean) => {
+        // The mode is already durable when the kernel is told, because a
+        // session observer cannot append inside the append window.
+        reported.push({
+          session,
+          active,
+          sawMode: session.snapshotEvents().some(event => event.type === 'plan/mode'),
+        })
+      },
+    } as never)
+    const agent = await agentWithSession(ctx)
+
+    expect(ctx.planMode.set(agent, true)).toBe('committed')
+    expect(ctx.planMode.set(agent, false)).toBe('committed')
+
+    expect(reported).toEqual([
+      { session: agent.session, active: true, sawMode: true },
+      { session: agent.session, active: false, sawMode: true },
+    ])
+  })
+
+  it('reports the mode it commits at an in-turn pre-step boundary', async () => {
+    const ctx = await setup()
+    const reported: boolean[] = []
+    ctx.provide('agentKernel', { recordPlanMode: (_session: Session, active: boolean) => { reported.push(active) } } as never)
+    const agent = await agentWithSession(ctx)
+    openTurn(agent.session)
+
+    expect(ctx.planMode.set(agent, true)).toBe('queued')
+    await boundary(ctx, agent, 'step-start')
+
+    expect(reported).toEqual([true])
+  })
+
+  it('runs without an agent kernel mounted', async () => {
+    const ctx = await setup()
+    const agent = await agentWithSession(ctx)
+
+    expect(ctx.planMode.set(agent, true)).toBe('committed')
+    expect(ctx.planMode.get(agent)).toEqual({ active: true })
+  })
+})

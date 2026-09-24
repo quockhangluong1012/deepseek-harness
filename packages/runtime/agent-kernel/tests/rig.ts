@@ -15,7 +15,9 @@ import { SessionId, type SessionEvent, type SessionEventMap } from '@deepseek-ai
 import { defineContentToolFixture, type ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import AgentKernel from '../src/index.ts'
 import type { AgentKernelService, Config } from '../src/index.ts'
-import type { StateTransition, TaskContract } from '../src/types.ts'
+import type {
+  ActionDecidedEvent, ActionProposal, AuthorizationDecision, KernelEventData, PolicyDecision, StateTransition, TaskContract,
+} from '../src/types.ts'
 
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
@@ -179,6 +181,31 @@ export function eventsOf<T extends keyof SessionEventMap>(agent: Agent, type: T)
   return agent.session.snapshotEvents()
     .filter((event): event is SessionEvent<T> => event.type === type)
     .map(event => event.data)
+}
+
+/** Every action decision this agent recorded, in log order. */
+export function decisions(agent: Agent): KernelEventData<ActionDecidedEvent>[] {
+  return eventsOf(agent, 'action/decided')
+}
+
+/** The proposal of each decided action, in log order. */
+export function proposals(agent: Agent): ActionProposal[] {
+  return decisions(agent).map(record => record.proposal)
+}
+
+/** The permission rules' decision for each action, in log order. */
+export function policies(agent: Agent): PolicyDecision[] {
+  return decisions(agent).map(record => record.policy)
+}
+
+/** The composed authorization for each action, in log order. */
+export function authorizations(agent: Agent): AuthorizationDecision[] {
+  return decisions(agent).map(record => record.decision)
+}
+
+/** The composed authorizations that refused an action, in log order. */
+export function denials(agent: Agent): AuthorizationDecision[] {
+  return authorizations(agent).filter(decision => decision.effect === 'deny')
 }
 
 /**

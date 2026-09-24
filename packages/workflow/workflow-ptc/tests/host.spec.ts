@@ -176,4 +176,41 @@ describe('workflow runtime outcomes', () => {
       await handle.dispose()
     }
   })
+
+  it('reports a live run and checkpoints the inputs it was started with', async () => {
+    const gate = Promise.withResolvers<PtcRunResult>()
+    const { start } = await setup(() => gate.promise)
+    const handle = start()
+    try {
+      const live = await handle.checkpoint()
+      expect(handle.status).toBe('running')
+      expect(live).toMatchObject({
+        runId: handle.id,
+        status: 'running',
+        script: 'return null',
+        meta: { name: 'host-test' },
+        subagentProvider: 'stub',
+      })
+      expect(typeof live.checkpointId).toBe('string')
+      expect(live.createdAt).toBeGreaterThan(0)
+      gate.resolve(completed)
+      expect((await handle.result).stopReason).toBe('completed')
+      expect(handle.status).toBe('completed')
+      const stopped = await handle.checkpoint()
+      expect(stopped.status).toBe('completed')
+      expect(stopped.checkpointId).not.toBe(live.checkpointId)
+    } finally { await handle.dispose() }
+  })
+
+  it('reports a cancelled run as cancelled, so a resume refuses its live checkpoint', async () => {
+    const gate = Promise.withResolvers<PtcRunResult>()
+    const { start } = await setup(() => gate.promise)
+    const handle = start()
+    try {
+      handle.cancel('stop requested')
+      gate.resolve(completed)
+      expect((await handle.result).stopReason).toBe('cancelled')
+      expect(handle.status).toBe('cancelled')
+    } finally { await handle.dispose() }
+  })
 })

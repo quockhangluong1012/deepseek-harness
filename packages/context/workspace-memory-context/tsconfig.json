@@ -11,6 +11,7 @@
     { "path": "../../../vendor/schemastery" },
     { "path": "../../llm/llm" },
     { "path": "../../core/agent" },
+    { "path": "../../runtime/agent-context" },
     { "path": "../../core/session" },
     { "path": "../../fs/fs" },
     { "path": "../../workspace/workspace" },

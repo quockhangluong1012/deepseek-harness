@@ -101,6 +101,28 @@ function usageUpdate(
   }
 }
 
+/**
+ * Project the kernel's durable plan revision into the ACP plan update.
+ *
+ * ACP owns the plan vocabulary for a client's view of what the agent intends to
+ * do; the kernel owns the durable plan. One revision therefore becomes one plan
+ * update: an ordered entry per step, all `pending` because the kernel records
+ * what a step IS, never how far along it is — that stays with the loop's own
+ * turn and step state, which ACP already receives as message and tool updates.
+ * @param event - committed kernel `task/plan` event.
+ * @returns the standard ACP plan update.
+ */
+export function planUpdate(event: SessionEvent<'task/plan'>): SessionUpdate {
+  return {
+    sessionUpdate: 'plan',
+    entries: event.data.steps.map(step => ({
+      content: step,
+      priority: 'medium' as const,
+      status: 'pending' as const,
+    })),
+  }
+}
+
 /** Preserve malformed model output as opaque input instead of dropping the call update. */
 function parseToolArguments(value: string): unknown {
   try {

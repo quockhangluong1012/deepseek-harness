@@ -6,6 +6,8 @@
  * @module @deepseek-ai/dsh-hook-protocol/merge
  */
 
+import type { HookContribution } from './contribution.ts'
+import { classifyHookOutput } from './contribution.ts'
 import type { HookOutput } from './types.ts'
 
 /** The single decision a hook point resolves to after merging all matched hooks. */
@@ -25,10 +27,20 @@ export interface MergedHookOutcome {
   stop: boolean
   /** The first halting hook's `stopReason`, when one halted. */
   stopReason?: string
-  /** Every hook's `additionalContext`, in hook order (no joining — the bridge decides). */
+  /**
+   * Every hook's `additionalContext`, in hook order (no joining — the bridge
+   * decides). This is untrusted external data: it may reach the next request as
+   * context, never as policy.
+   */
   additionalContext: string[]
   /** Every hook's `systemMessage`, in hook order. */
   systemMessages: string[]
+  /**
+   * One {@link HookContribution} per matched hook, in hook order — what each
+   * hook contributed, so a policy owner sees who vetoed, who asked, and who
+   * only injected context. No kind grants a capability.
+   */
+  contributions: HookContribution[]
 }
 
 /** Rank a single hook's decision for the deny>ask>allow precedence (higher = stricter). */
@@ -67,8 +79,10 @@ export function mergeHookOutputs(outputs: HookOutput[]): MergedHookOutcome {
   let stopReason: string | undefined
   const additionalContext: string[] = []
   const systemMessages: string[] = []
+  const contributions: HookContribution[] = []
 
   for (const out of outputs) {
+    contributions.push({ index: contributions.length, kind: classifyHookOutput(out) })
     const r = rank(out.decision)
     if (r > maxRank) maxRank = r
     if ((r === 3 || r === 2) && out.reason !== undefined && out.reason.length > 0) {
@@ -96,5 +110,6 @@ export function mergeHookOutputs(outputs: HookOutput[]): MergedHookOutcome {
     ...stopReason !== undefined ? { stopReason } : {},
     additionalContext,
     systemMessages,
+    contributions,
   }
 }

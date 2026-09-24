@@ -12,8 +12,6 @@ import type { StateTransition, TaskContract, TaskStatus } from './types.ts'
 /** Every task status, in the order the kernel's lifecycle reaches them. */
 export const TASK_STATUSES: readonly TaskStatus[] = [
   'intake',
-  'understanding',
-  'retrieving',
   'planning',
   'ready',
   'executing',
@@ -29,21 +27,19 @@ export const TASK_STATUSES: readonly TaskStatus[] = [
 ]
 
 /**
- * Every legal edge of the task state machine. The staged chain
- * `intake → understanding → retrieving → planning → ready` is available to a
- * planner; the kernel's own driver takes `intake → ready` directly because the
- * loop exposes no plan phase to observe, and records `step-admitted` as the
- * trigger. `awaiting-approval`, `paused`, and `cancelled` are reachable from
- * every non-terminal state; terminal states have no outgoing edge.
+ * Every legal edge of the task state machine. The kernel's driver takes
+ * `intake → ready` directly when plan mode is not entered, and records
+ * `step-admitted` as the trigger; plan mode moves `intake`/`awaiting-user`/
+ * `paused`/`recovering` through `planning` before the next step is admitted.
+ * `awaiting-approval`, `awaiting-user`, `paused`, and `cancelled` are reachable
+ * from every non-terminal state; terminal states have no outgoing edge.
  */
 const LEGAL_EDGES: Readonly<Record<TaskStatus, readonly TaskStatus[]>> = {
-  intake: ['understanding', 'ready', 'awaiting-approval', 'awaiting-user', 'paused', 'cancelled', 'failed'],
-  understanding: ['retrieving', 'planning', 'ready', 'awaiting-approval', 'awaiting-user', 'paused', 'cancelled', 'failed'],
-  retrieving: ['planning', 'ready', 'awaiting-approval', 'awaiting-user', 'paused', 'cancelled', 'failed'],
-  planning: ['ready', 'awaiting-approval', 'awaiting-user', 'paused', 'cancelled', 'failed'],
-  ready: ['executing', 'awaiting-approval', 'awaiting-user', 'paused', 'cancelled', 'failed'],
-  executing: ['observing', 'awaiting-approval', 'awaiting-user', 'paused', 'cancelled', 'failed'],
-  observing: ['executing', 'verifying', 'recovering', 'awaiting-approval', 'awaiting-user', 'paused', 'cancelled', 'failed'],
+  intake: ['planning', 'ready', 'awaiting-approval', 'awaiting-user', 'paused', 'cancelled', 'failed'],
+  planning: ['ready', 'executing', 'observing', 'awaiting-approval', 'awaiting-user', 'paused', 'cancelled', 'failed'],
+  ready: ['executing', 'planning', 'awaiting-approval', 'awaiting-user', 'paused', 'cancelled', 'failed'],
+  executing: ['observing', 'planning', 'awaiting-approval', 'awaiting-user', 'paused', 'cancelled', 'failed'],
+  observing: ['executing', 'planning', 'verifying', 'recovering', 'awaiting-approval', 'awaiting-user', 'paused', 'cancelled', 'failed'],
   verifying: ['completed', 'recovering', 'awaiting-user', 'paused', 'cancelled', 'failed'],
   recovering: ['executing', 'planning', 'awaiting-user', 'paused', 'cancelled', 'failed'],
   'awaiting-approval': ['ready', 'executing', 'awaiting-user', 'paused', 'cancelled', 'failed'],

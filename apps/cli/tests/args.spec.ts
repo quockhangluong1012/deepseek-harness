@@ -32,6 +32,16 @@ describe('parseDshArgs', () => {
       .toEqual({ mode: 'profile', profile: 'web', patches: ['web.yml'], args: [] })
   })
 
+  it('routes the kernel-ops command families to the profile that mounts them', () => {
+    expect(parse(['task', 'show', 'session-1']))
+      .toEqual({ mode: 'profile', profile: 'kernel-ops', patches: [], args: ['task', 'show', 'session-1'] })
+    expect(parse(['policy', 'explain', 'session-1', 'call-3', '--json']))
+      .toEqual({ mode: 'profile', profile: 'kernel-ops', patches: [], args: ['policy', 'explain', 'session-1', 'call-3', '--json'] })
+    // An explicit profile selection reaches the same app unchanged.
+    expect(parse(['--profile', 'kernel-ops', 'task', 'verify', 'session-1']))
+      .toEqual({ mode: 'profile', profile: 'kernel-ops', patches: [], args: ['task', 'verify', 'session-1'] })
+  })
+
   it('ends the launcher flags at the first token it does not own', () => {
     // App flags, including its -h, and positionals reach the app verbatim.
     expect(parse(['--profile', 'tui', '--resume', 'abc']))

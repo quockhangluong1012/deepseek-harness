@@ -21,6 +21,9 @@
       "path": "../../core/scope"
     },
     {
+      "path": "../../runtime/agent-kernel"
+    },
+    {
       "path": "../../llm/llm"
     },
     {

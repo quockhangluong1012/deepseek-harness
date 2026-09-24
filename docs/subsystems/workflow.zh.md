@@ -92,7 +92,7 @@ interface WorkflowResult {
 
 ## 活跃运行：`WorkflowRun`
 
-消费方等待 `result`，可以在执行期间调用 `cancel`，且必须在每条路径上调用 `dispose`（资源释放）。`result` 绝不拒绝：脚本失败以 `stopReason: 'error'` 兑现，取消以 `'cancelled'` 兑现。PTC 引擎没有整体经过时间截止；取消时立即中止受管进程。资源释放按照各提供方约定等待进程与子 agent 清理，不另设工作流清理截止。
+消费方等待 `result`，可以在执行期间调用 `cancel`，且必须在每条路径上调用 `dispose`（资源释放）。`result` 绝不拒绝：脚本失败以 `stopReason: 'error'` 兑现，取消以 `'cancelled'` 兑现。PTC 引擎没有整体经过时间截止；取消时立即中止受管进程。资源释放按照各提供方约定等待进程与子 agent 清理，不另设工作流清理截止。`status` 报告已结算的结果；运行仍在进行时报告 `running`。
 
 ```ts type-equiv
 /**
@@ -103,11 +103,74 @@ interface WorkflowRun {
   readonly id: WorkflowRunId
   /** The validated meta block available before the script body runs. */
   readonly meta: WorkflowMeta
+  /** Where the run stands right now. */
+  readonly status: WorkflowRunStatus
   readonly result: Promise<WorkflowResult>
+  /**
+   * Capture what this run would need to be resumed later. Safe to call while
+   * the run is live: it reads the run's inputs, not its in-flight state.
+   * @returns the durable checkpoint reference.
+   */
+  checkpoint(): Promise<WorkflowCheckpointRef>
   /** Cancel the run and its children. */
   cancel(reason?: string): void
   /** Cancel if needed and await script and child cleanup. */
   dispose(): Promise<void>
+}
+```
+
+## 检查点与恢复：`WorkflowCheckpointRef`
+
+检查点携带运行的标识、捕获时的状态，以及运行启动时使用的输入——其中包含脚本体，因为脚本是**数据**而非引擎状态。因此检查点自身即完备：调用方以纯 JSON 持久化它，之后把它交回引擎就能恢复同一项工作，引擎无需重建该检查点之外的任何状态。
+
+```ts type-equiv
+/** Where one workflow run stands. */
+type WorkflowRunStatus = 'running' | 'completed' | 'failed' | 'cancelled'
+```
+
+```ts type-equiv
+/**
+ * Everything one run needs to be resumed: its identity, where it stood when
+ * the checkpoint was taken, and the inputs it was started with.
+ *
+ * The script is data, so a checkpoint is complete without engine state: a
+ * resuming caller hands the same body and arguments back to the engine, which
+ * is why a checkpoint can be persisted as plain JSON anywhere a caller keeps
+ * durable records.
+ */
+interface WorkflowCheckpointRef {
+  /** Identity of this checkpoint, distinct from the run it describes. */
+  readonly checkpointId: string
+  /** The run this checkpoint was taken from. */
+  readonly runId: WorkflowRunId
+  /** Where the run stood when the checkpoint was taken. */
+  readonly status: WorkflowRunStatus
+  /** Unix epoch milliseconds the checkpoint was taken. */
+  readonly createdAt: number
+  /** The plain-JS script body, exactly as the start request carried it. */
+  readonly script: string
+  /** The run's validated meta block. */
+  readonly meta: WorkflowMeta
+  /** The run's input, when it had one. */
+  readonly args?: unknown
+  /** The child-provider override the run was started with, when it had one. */
+  readonly subagentProvider?: string
+  /** The per-run child ceiling the run was started with, when it had one. */
+  readonly maxTotalAgents?: number
+}
+```
+
+`WorkflowEngine.resume(request)` 用记录下来的输入重新启动已检查点的脚本，并在调用方提供的 agent 名下执行：恢复后的运行拥有自己的标识、子 agent、预算，以及自己的 `workflow/start`/`workflow/end` 事件对，因此引擎不会引入第二套生命周期。运行仍在进行时捕获的检查点会被**拒绝**，错误码为 `CHECKPOINT_LIVE`——恢复它会重复执行同一脚本——因此挂起前先取消该运行，恢复正是从那次已取消运行的检查点开始。恢复由调用方决定时机：持久化的检查点可以比捕获它的进程活得更久。
+
+```ts type-equiv
+/** What a caller hands back to {@link WorkflowEngine} to resume a checkpointed run. */
+interface WorkflowResumeRequest {
+  /** The checkpoint to resume. */
+  readonly checkpoint: WorkflowCheckpointRef
+  /** The agent the resumed run executes on behalf of (parent of every child). */
+  readonly parent: Agent
+  /** Cancels the resumed run when aborted. */
+  readonly signal?: AbortSignal
 }
 ```
 
@@ -149,6 +212,23 @@ Workflow Service Definition contract. Invalid requests throw before publication;
  * @returns the live run; its `result` resolves when the script settles.
  */
 abstract start(request: WorkflowStartRequest): WorkflowRun
+
+/**
+ * Resume one checkpointed run: start the checkpointed script again over the
+ * inputs the checkpoint recorded, on behalf of the resuming caller.
+ *
+ * The resumed run gets its own identity, because it is a new execution with
+ * its own children, budget, and event pair. What carries across is the work
+ * itself: the caller holds the checkpoint, so it can correlate the resumed
+ * run with the run it resumes. A checkpoint taken while its run was still
+ * live is refused — resuming it would run the same script twice — so a
+ * suspended run is cancelled first, and the checkpoint of that cancelled run
+ * is what a resume starts from.
+ * @param request - the checkpoint and the agent the resumed run executes for.
+ * @returns the live resumed run.
+ * @throws When the checkpoint describes a run that has not stopped.
+ */
+resume(request: WorkflowResumeRequest): WorkflowRun
 ```
 
 Source: [`packages/workflow/workflow/src/index.ts`](../../packages/workflow/workflow/src/index.ts)

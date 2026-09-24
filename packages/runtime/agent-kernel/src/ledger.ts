@@ -13,22 +13,31 @@
  */
 
 import { SessionSeq, type Session, type SessionEvent } from '@deepseek-ai/dsh-session'
+import { deriveSessionTokenSpend } from '@deepseek-ai/dsh-token-meter'
 import type { ApprovalOutcome, ApprovalRequestId } from '@deepseek-ai/dsh-user-approval/types'
 import type {
   ActionId,
   ActionProposal,
   AuthorizationDecision,
   BudgetGovernor,
+  PolicyDecision,
   BudgetSnapshot,
   Checkpoint,
+  TaskClaim,
+  TaskClaimId,
   DelegationReceipt,
+  Evidence,
+  EvidenceId,
   FailureId,
   FailureRef,
+  TaskHypothesis,
+  TaskHypothesisId,
   KernelStateReader,
   KernelView,
   PlanRevision,
   ResourceBudget,
   TaskContract,
+  TaskId,
 } from './types.ts'
 import { applyTransition } from './state-machine.ts'
 
@@ -67,6 +76,8 @@ export interface LedgerEntry {
   attempts: Map<ActionId, number>
   /** The composed decision recorded for every action this run. */
   authorizations: Map<ActionId, AuthorizationDecision>
+  /** The permission rules' decision recorded for every action this run. */
+  policies: Map<ActionId, PolicyDecision>
   /** Approval request identity to the action whose tool call asked. */
   approvalRequests: Map<ApprovalRequestId, ActionId>
   /** Human outcome observed per action. */
@@ -75,12 +86,99 @@ export interface LedgerEntry {
   failures: Map<FailureId, FailureRef>
   /** The action each action-owned failure belongs to, so a success can resolve it. */
   failureAction: Map<FailureId, ActionId>
+  /** The task and revision of the last verification that passed, when one did. */
+  passingVerification: { readonly taskId: TaskId; readonly revision: number } | undefined
   /** Latest plan revision. */
   plan: PlanRevision | undefined
+  /** Observations recorded for this task, in log order. */
+  evidence: Map<EvidenceId, Evidence>
+  /** Claims asserted by this task. */
+  claims: Map<TaskClaimId, TaskClaim>
+  /** Questions this task is testing. */
+  hypotheses: Map<TaskHypothesisId, TaskHypothesis>
   /** Latest checkpoint. */
   checkpoint: Checkpoint | undefined
   /** The delegation this session's agent acts under, when it is a child. */
   delegation: DelegationReceipt | undefined
+}
+
+/**
+ * Everything one session's kernel events fold into, as a durable record: the
+ * replayable half of a kernel view, rebuilt from a Session log alone.
+ *
+ * The record carries no live handle and no wall-clock reading, so any reader
+ * holding the log — a crash-recovery scan, a review command, a test — sees the
+ * same task state the live kernel folded, without the kernel or the Agent.
+ */
+export interface KernelRecord {
+  /** Task contract at the folded revision. */
+  readonly task: TaskContract
+  /** Model steps counted from `step/start`. */
+  readonly steps: number
+  /** Tool calls counted from `tool/call`. */
+  readonly toolCalls: number
+  /** Milliseconds between `task/created` and the last folded event. */
+  readonly wallMs: number
+  /** Evidence recorded for the task, in log order. */
+  readonly evidence: readonly Evidence[]
+  /** Claims recorded for the task, newest state per claim. */
+  readonly claims: readonly TaskClaim[]
+  /** Hypotheses recorded for the task, newest state per hypothesis. */
+  readonly hypotheses: readonly TaskHypothesis[]
+  /** Actions proposed and not yet committed. */
+  readonly openActionIds: readonly ActionId[]
+  /** Failures with no accepted resolution. */
+  readonly unresolvedFailures: readonly FailureRef[]
+  /** Proposals seen this run, keyed by action id. */
+  readonly proposals: ReadonlyMap<ActionId, ActionProposal>
+  /** Attempts spent per action id. */
+  readonly attempts: ReadonlyMap<ActionId, number>
+  /** The composed decision recorded for each action. */
+  readonly authorizations: ReadonlyMap<ActionId, AuthorizationDecision>
+  /** Human approval outcome observed per action. */
+  readonly approvals: ReadonlyMap<ActionId, ApprovalOutcome>
+  /** The task's latest plan revision, when one was recorded. */
+  readonly plan?: PlanRevision
+  /** The task's latest checkpoint, when one was recorded. */
+  readonly checkpoint?: Checkpoint
+  /** The delegation receipt this run received, when it is a child run. */
+  readonly delegation?: DelegationReceipt
+}
+
+/**
+ * Fold a persisted kernel event sequence into the record a reader sees. This
+ * is the same fold the live kernel applies to a session; it needs no live
+ * Session, so a reader can rebuild task state from storage.
+ * @param events - the session's events, in log order.
+ * @returns the task record, or undefined when the log holds no `task/created`.
+ */
+export function readKernelRecord(events: Iterable<SessionEvent>): KernelRecord | undefined {
+  const entry = emptyEntry()
+  let lastTime = 0
+  for (const event of events) {
+    fold(entry, event)
+    lastTime = Math.max(lastTime, event.time)
+  }
+  const task = entry.task
+  if (task === undefined) return undefined
+  return {
+    task,
+    steps: entry.steps,
+    toolCalls: entry.toolCalls,
+    wallMs: entry.createdAt === 0 ? 0 : Math.max(0, lastTime - entry.createdAt),
+    evidence: [...entry.evidence.values()],
+    claims: [...entry.claims.values()],
+    hypotheses: [...entry.hypotheses.values()],
+    openActionIds: [...entry.openActions],
+    unresolvedFailures: [...entry.failures.values()],
+    proposals: entry.proposals,
+    attempts: entry.attempts,
+    authorizations: entry.authorizations,
+    approvals: entry.approvals,
+    ...entry.plan === undefined ? {} : { plan: entry.plan },
+    ...entry.checkpoint === undefined ? {} : { checkpoint: entry.checkpoint },
+    ...entry.delegation === undefined ? {} : { delegation: entry.delegation },
+  }
 }
 
 /** One session's ledger entry in its initial state. */
@@ -95,11 +193,16 @@ function emptyEntry(): LedgerEntry {
     proposals: new Map(),
     attempts: new Map(),
     authorizations: new Map(),
+    policies: new Map(),
     approvalRequests: new Map(),
     approvals: new Map(),
     failures: new Map(),
     failureAction: new Map(),
+    passingVerification: undefined,
     plan: undefined,
+    evidence: new Map(),
+    claims: new Map(),
+    hypotheses: new Map(),
     checkpoint: undefined,
     delegation: undefined,
   }
@@ -128,6 +231,9 @@ export class KernelLedger implements KernelStateReader, BudgetGovernor {
       budgets: this.measure(task, session),
       openActionIds: [...entry.openActions],
       unresolvedFailures: [...entry.failures.values()],
+      evidence: [...entry.evidence.values()],
+      claims: [...entry.claims.values()],
+      hypotheses: [...entry.hypotheses.values()],
       ...entry.plan === undefined ? {} : { plan: entry.plan },
       ...entry.checkpoint === undefined ? {} : { checkpoint: entry.checkpoint },
       ...entry.delegation === undefined ? {} : { delegation: entry.delegation },
@@ -165,11 +271,13 @@ export class KernelLedger implements KernelStateReader, BudgetGovernor {
   measure(task: TaskContract, session: Session): BudgetSnapshot {
     const entry = this.entryOf(session)
     const wallMs = entry.createdAt === 0 ? 0 : Math.max(0, Date.now() - entry.createdAt)
+    const tokens = deriveSessionTokenSpend(session.snapshotEvents())
     return {
       steps: entry.steps,
       toolCalls: entry.toolCalls,
+      tokens,
       wallMs,
-      remaining: remainingAllowance(task.budget, entry.steps, entry.toolCalls, wallMs),
+      remaining: remainingAllowance(task.budget, entry.steps, entry.toolCalls, wallMs, tokens),
     }
   }
 
@@ -204,27 +312,60 @@ export class KernelLedger implements KernelStateReader, BudgetGovernor {
  */
 function fold(entry: LedgerEntry, event: SessionEvent): void {
   switch (event.type) {
-    case 'task/created':
-      entry.task = event.data
+    case 'task/created': {
+      const { metadata: _metadata, ...task } = event.data
+      void _metadata
+      entry.task = task
       entry.createdAt = event.time
       return
+    }
     case 'task/transitioned':
       // A transition whose task is unknown belongs to a prefix this fold never
       // saw; without the create event there is no contract to apply it to.
       if (entry.task !== undefined) entry.task = applyTransition(entry.task, event.data)
       return
-    case 'task/plan':
-      entry.plan = event.data
+    case 'verification/result': {
+      if (event.data.status !== 'pass') return
+      const verified = entry.task
+      if (verified !== undefined) entry.passingVerification = { taskId: verified.taskId, revision: event.data.revision }
+      // A later pass is what resolves an earlier verification failure: the
+      // criterion that failed now holds, so it no longer blocks completion.
+      resolveFailuresOfKind(entry, 'verification-failed')
       return
-    case 'action/proposed':
-      entry.openActions.add(event.data.actionId)
-      entry.proposals.set(event.data.actionId, event.data)
-      entry.attempts.set(event.data.actionId, (entry.attempts.get(event.data.actionId) ?? 0) + 1)
+    }
+    case 'task/plan': {
+      const { metadata: _metadata, ...plan } = event.data
+      void _metadata
+      entry.plan = plan
       return
-    case 'action/authorized':
-    case 'action/denied':
-      entry.authorizations.set(event.data.proposal.actionId, event.data.decision)
+    }
+    case 'evidence/recorded': {
+      const { metadata: _metadata, ...evidence } = event.data
+      void _metadata
+      entry.evidence.set(evidence.evidenceId, evidence)
       return
+    }
+    case 'claim/updated': {
+      const { metadata: _metadata, ...claim } = event.data
+      void _metadata
+      entry.claims.set(claim.claimId, claim)
+      return
+    }
+    case 'hypothesis/updated': {
+      const { metadata: _metadata, ...hypothesis } = event.data
+      void _metadata
+      entry.hypotheses.set(hypothesis.hypothesisId, hypothesis)
+      return
+    }
+    case 'action/decided': {
+      const actionId = event.data.proposal.actionId
+      entry.openActions.add(actionId)
+      entry.proposals.set(actionId, event.data.proposal)
+      entry.attempts.set(actionId, (entry.attempts.get(actionId) ?? 0) + 1)
+      entry.authorizations.set(actionId, event.data.decision)
+      entry.policies.set(actionId, event.data.policy)
+      return
+    }
     case 'action/committed':
       entry.openActions.delete(event.data.actionId)
       // A successful action resolves the failures recorded against it: the
@@ -245,16 +386,18 @@ function fold(entry: LedgerEntry, event: SessionEvent): void {
       entry.failures.set(event.data.failureId, { failureId: event.data.failureId, kind: event.data.kind })
       if (event.data.actionId !== undefined) entry.failureAction.set(event.data.failureId, event.data.actionId)
       return
-    case 'verification/result':
-      // A passing verification resolves the verification failures it answers.
-      if (event.data.status === 'pass') resolveFailuresOfKind(entry, 'verification-failed')
+    case 'checkpoint/created': {
+      const { metadata: _metadata, ...checkpoint } = event.data
+      void _metadata
+      entry.checkpoint = checkpoint
       return
-    case 'checkpoint/created':
-      entry.checkpoint = event.data
+    }
+    case 'delegation/received': {
+      const { metadata: _metadata, ...delegation } = event.data
+      void _metadata
+      entry.delegation = delegation
       return
-    case 'delegation/received':
-      entry.delegation = event.data
-      return
+    }
     case 'step/start':
       entry.steps += 1
       return
@@ -305,15 +448,17 @@ function remainingAllowance(
   steps: number,
   toolCalls: number,
   wallMs: number,
+  tokens: number,
 ): ResourceBudget {
   return {
     ...budget.maxSteps === undefined ? {} : { maxSteps: Math.max(0, budget.maxSteps - steps) },
     ...budget.maxToolCalls === undefined ? {} : { maxToolCalls: Math.max(0, budget.maxToolCalls - toolCalls) },
     ...budget.maxWallMs === undefined ? {} : { maxWallMs: Math.max(0, budget.maxWallMs - wallMs) },
-    // Token and cost ceilings are measured by the token meter, which this
-    // package does not own: the kernel reports them unbounded rather than
-    // guessing, and `guard/budgets` remains their enforcement listener.
-    ...budget.maxTokens === undefined ? {} : { maxTokens: budget.maxTokens },
+    // Token spend is derived from the same per-turn provider accounting the
+    // token meter owns, so the remaining allowance is measured spend rather
+    // than context pressure. Cost has no price source here, so a cost ceiling
+    // stays unreported and `guard/budgets` keeps enforcing it.
+    ...budget.maxTokens === undefined ? {} : { maxTokens: Math.max(0, budget.maxTokens - tokens) },
     ...budget.maxCostUsd === undefined ? {} : { maxCostUsd: budget.maxCostUsd },
     ...budget.maxSubagentDepth === undefined ? {} : { maxSubagentDepth: budget.maxSubagentDepth },
   }

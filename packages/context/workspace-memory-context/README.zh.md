@@ -27,6 +27,8 @@ kind: "package-reference"
 
 在存储旁挂载本插件。部署方必须选定一个 Workspace 每次请求可承担的成本。
 
+挂载 `@deepseek-ai/dsh-agent-context` 后，编译器还会把当前可见的最新 Workspace brief 记录为不可信、必须保留的 stable-core memory 来源。shadow 迁移期间，原有 pre-step 消息保持不变。
+
 ```yaml
 - name: '@deepseek-ai/dsh-workspace-memory'
   config:

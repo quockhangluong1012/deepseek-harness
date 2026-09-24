@@ -63,6 +63,8 @@ const SDK_RENDERERS: Record<string, (schemas: ToolSdkSchema[]) => string> = {
   python: renderToolsSdkPy,
 } satisfies Record<PtcSdkLanguage, (schemas: ToolSdkSchema[]) => string>
 
+import { ToolArgsError } from './schema.ts'
+
 export {
   defineTool,
   valueSchemaSpecToJsonSchema,
@@ -286,6 +288,16 @@ export interface ToolDefinition extends ToolSchema {
    * cooperative implementation that can reach quiescence when the signal aborts.
    */
   timeoutMs?: number
+  /**
+   * Declares that the runtime validates this definition's arguments against
+   * `parameters` before the policy pipeline runs, so a call that cannot execute
+   * never reaches a `tools/pre-execute` listener or an approval prompt
+   * (amendment S4). `defineTool` sets it, because its `parameters` is a
+   * compiled schema. A raw registration omits it: an MCP server answers for its
+   * own schema. A tool whose arguments depend on state resolved inside
+   * `execute` sets it to `false` and answers for its own schema instead.
+   */
+  readonly validatesArgs?: boolean
   /**
    * Pure synchronous classifier for overlap with sibling tool calls. Only
    * `true` opts in; omission, exceptions, non-`true` returns, and invalid
@@ -1587,6 +1599,18 @@ export class ToolRuntime extends Service {
   }
 
   /**
+   * The arguments one call failed to satisfy, checked against the schema the
+   * model was shown for the caller's scope.
+   * @param exec - the call whose arguments are checked.
+   * @returns the violations, empty when the call may be dispatched.
+   */
+  private invalidArguments(exec: MutableToolRunContext): string[] {
+    const definition = this.get(exec.name, exec.agent)
+    if (definition?.validatesArgs !== true) return []
+    return validateJsonSchemaValue(this.schemaOf(definition, false).parameters, exec.arguments, '')
+  }
+
+  /**
    * Run the ordered pre-execute and monotonic guard stages for the scheduler.
    * @param input - the caller-supplied execution input.
    * @returns the prepared execution plus the next scheduler stage.
@@ -1605,6 +1629,15 @@ export class ToolRuntime extends Service {
     const exec = created.exec
     if (this.callerCancelled(exec)) {
       return next({ kind: 'final-result', exec, result: toolAbortedBeforeDispatchResult() })
+    }
+    // A `defineTool` call is validated against the schema the model was shown
+    // BEFORE the policy pipeline, so a call that cannot execute never reaches a
+    // `tools/pre-execute` listener or an approval prompt (amendment S4). The
+    // execute path validates again, because a tool may be dispatched through a
+    // seam that does not pass this scheduler.
+    const violations = this.invalidArguments(exec)
+    if (violations.length > 0) {
+      return await next({ kind: 'final-result', exec, result: toolErrorResult(new ToolArgsError(violations)) })
     }
     try {
       const carrier = scopeTarget(this, exec.agent)

@@ -32,6 +32,8 @@ import { APPROVAL_POLICIES, setApprovalPolicy } from '@deepseek-ai/dsh-user-appr
 // Type-only: resolves the required projection service and optional settings/command children.
 import type {} from '@deepseek-ai/dsh-session-projection'
 import type {} from '@deepseek-ai/dsh-commands'
+import { compilePolicy, POLICY_ACTIONS, POLICY_EFFECTS } from '@deepseek-ai/dsh-agent-kernel'
+import type { PolicyDocument, PolicyProfileProvider, PolicyProfileSelection } from '@deepseek-ai/dsh-agent-kernel'
 import type { PermissionCatalog, PermissionSelection, PresetOption } from './types.ts'
 
 export type * from './types.ts'
@@ -61,12 +63,14 @@ declare module '@deepseek-ai/dsh-session/types' {
   }
 }
 
-/** One preset's sandbox/approval bundle and optional client presentation. */
+/** One preset's sandbox/approval bundle, optional policy restriction, and client presentation. */
 export interface PresetSpec {
   /** The `sandbox/mode` value the preset writes through. */
   sandbox: SandboxMode
   /** The `approval/policy` value the preset writes through. */
   approval: ApprovalPolicy
+  /** Additional capability rules intersected with the deployment policy. */
+  policy?: PolicyDocument
   /** The display label a client shows for this preset; the raw table key when omitted. */
   name?: string
   /** One user-facing sentence on what the preset means; omitted when not configured. */
@@ -200,10 +204,10 @@ export interface PermissionSettings {
 /** The {@link PermissionPresetService} config: preset table and composition default. */
 export interface Config {
   /**
-   * The preset table: name → knob bundle. Defaults to `workspace-write`
-   * (workspace-write + ask) and `danger-full-access` (danger-full-access +
-   * never). The names `custom` and `auto` are reserved for derived state and
-   * the Auto review integration respectively.
+   * The preset table: name → sandbox/approval bundle with an optional
+   * capability policy. Defaults to `workspace-write` (workspace-write + ask)
+   * and `danger-full-access` (danger-full-access + never). The names `custom`
+   * and `auto` are reserved for derived state and the Auto review integration.
    */
   presets: Record<string, PresetSpec>
   /**
@@ -231,6 +235,17 @@ export class PermissionPresetService extends TypertRemoteService {
     presets: z.dict(z.object({
       sandbox: z.union(SANDBOX_MODES as SandboxMode[]).required(),
       approval: z.union(APPROVAL_POLICIES as ApprovalPolicy[]).required(),
+      policy: z.union([
+        z.object({
+          defaults: z.object({ effect: z.union(POLICY_EFFECTS) }),
+          rules: z.array(z.object({
+            action: z.union(POLICY_ACTIONS),
+            resource: z.string().pattern(/[\s\S]+/),
+            effect: z.union(POLICY_EFFECTS),
+          })),
+        }),
+        z.const(undefined),
+      ]),
       name: z.string(),
       description: z.string(),
     })).default({
@@ -265,6 +280,17 @@ export class PermissionPresetService extends TypertRemoteService {
     if (AUTO_PRESET in this.presets) {
       throw new Error(`permission: "${AUTO_PRESET}" is reserved and cannot name a configured preset`)
     }
+    for (const [name, spec] of Object.entries(this.presets)) {
+      if (spec.policy === undefined) continue
+      // Fail loud at load: the kernel owns the permission vocabulary, so a
+      // preset that names an unknown action or an empty resource is a
+      // misconfiguration of this table, not a runtime surprise.
+      try {
+        compilePolicy(spec.policy)
+      } catch (error) {
+        throw new Error(`permission: preset "${name}" declares an invalid capability policy`, { cause: error })
+      }
+    }
     if (ctx.shell.sandboxMode === undefined) {
       throw new Error('permission: the mounted bash executor does not confine (no sandboxMode) — presets bundle a sandbox mode, so composing this plugin over an unconfined executor is a misconfiguration')
     }
@@ -297,6 +323,15 @@ export class PermissionPresetService extends TypertRemoteService {
     for (const session of ctx.sessions.list()) {
       this.pinInitialPermission(session)
     }
+
+    // The selected preset adds policy restrictions to the kernel without
+    // making AgentKernel a requirement for the user-facing selector.
+    const policyProfiles: PolicyProfileProvider = {
+      resolve: session => this.policyProfileOf(session),
+    }
+    ctx.inject(['agentKernel'], kernelCtx => {
+      kernelCtx.effect(() => kernelCtx.agentKernel.registerPolicyProfileProvider(policyProfiles))
+    })
 
     // First-class approval producer: gated tools resolve through `ctx.approval`
     // before dispatch. The `ask` decision always routes through the approval
@@ -402,6 +437,13 @@ export class PermissionPresetService extends TypertRemoteService {
     const state = this.ctx.sessionProjections.stateOf(session, 'permissions')
     if (state === undefined) throw new Error('permission: permissions session projection is not registered')
     return state
+  }
+
+  /** Resolve the selected preset's policy layer for the kernel. */
+  private policyProfileOf(session: Session): PolicyProfileSelection {
+    const profile = this.current(session)
+    const document = this.specOf(profile)?.policy
+    return { profile, ...document === undefined ? {} : { document } }
   }
 
   /**

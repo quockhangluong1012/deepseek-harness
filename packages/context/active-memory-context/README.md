@@ -27,6 +27,8 @@ English | [中文](README.zh.md)
 
 Mount the plugin with the workspace registry and a session-query backend whose vector channel is populated (an embeddings service, e.g. `dsh-embeddings-http`, mounted behind `dsh-session-query-sqlite`). Scopes resolve per turn from workspace membership (registry session ids, falling back to a canonical-path `cwd` match); turns outside any workspace, or in a workspace with no other session, add nothing. A mount that also provides `ctx.evolutionGraph` gains the graph leg below; without it the brief holds the vector leg's own hits — one line per session, in fusion order.
 
+When `@deepseek-ai/dsh-agent-context` is mounted, it also records logged active-memory briefs as untrusted delta sources; each item appears once until compaction clears the placement. The existing pre-step messages remain unchanged in shadow mode.
+
 ### Retrieval-configuration record
 
 When `ctx.evolutionRetrieval` is mounted, the injector records the retrieval configuration it runs under for each session, once, at that session's first step: the §39 dimensions this mount sets (retrieval source, graph depth, and the active-memory threshold) beside the shipped choice for the rest. It is a side record — a structural seam read with `ctx.get`, one unawaited write per session, no model call, no prompt change, so the brief is identical with and without that store and a store that rejects the write only logs a debug line. `dsh-evolution-retrieval` turns those records into a per-task-class recommendation; leaving it unmounted records nothing. It describes this mount, never a recommendation the task-aware policy applied to one turn: that is on the brief itself, below.

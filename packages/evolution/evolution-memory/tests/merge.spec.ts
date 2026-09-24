@@ -33,7 +33,7 @@ function artifact(statement: string, overrides: Partial<LessonArtifact> = {}): L
 }
 
 function candidate(statement: string, overrides: Partial<LessonArtifactInput> = {}): LessonArtifactInput {
-  return { statement, source: 's2', conditions: 'second', evidence: 'fact', confidence: 0.9, scope: 'project', ...overrides }
+  return { statement, source: 's2', conditions: 'second', evidence: 'fact', confidence: 0.9, scope: 'project', sourceRefs: ['session:s2'], ...overrides }
 }
 
 describe('cosine similarity', () => {
@@ -136,7 +136,7 @@ function scope(name = 'ws-1'): ScopeId {
 
 /** One artifact candidate with the fields these tests vary pinned. */
 function storeCandidate(statement: string, overrides: Partial<LessonArtifactInput> = {}): LessonArtifactInput {
-  return { statement, source: 's1', conditions: '', evidence: 'fact', confidence: 0.9, scope: 'project', ...overrides }
+  return { statement, source: 's1', conditions: '', evidence: 'fact', confidence: 0.9, scope: 'project', sourceRefs: ['session:s1'], ...overrides }
 }
 
 /** One unit vector per text, on the axis the cosine decides with. */

@@ -79,6 +79,7 @@ function candidate(statement: string, overrides: Partial<LessonArtifactInput> = 
     evidence: 'fact',
     confidence: 0.9,
     scope: 'project',
+    sourceRefs: ['session:s1'],
     ...overrides,
   }
 }
@@ -231,7 +232,7 @@ describe('evolution-memory store', () => {
     const { fiber, store } = await harness()
     const id = scope()
     await store.addArtifact(id, {
-      statement: 'x'.repeat(64), source: 's1', conditions: '', evidence: 'fact', confidence: 0.9, scope: 'project',
+      statement: 'x'.repeat(64), source: 's1', conditions: '', evidence: 'fact', confidence: 0.9, scope: 'project', sourceRefs: ['session:s1'],
     })
     expect(store.usage(id).usedBytes).toBeGreaterThanOrEqual(64)
     await fiber.dispose()
@@ -308,6 +309,62 @@ describe('evolution-memory store', () => {
     const blank = scope('blank')
     await expect(store.addArtifact(blank, candidate('   '))).rejects.toThrow('is blank once normalized')
     expect(store.read(blank)).toBeUndefined()
+    await fiber.dispose()
+  })
+
+  it('refuses a direct write of a fact that names no source', async () => {
+    const { fiber, store } = await harness()
+    const id = scope()
+    await store.setInstructions(id, 'rules')
+    const { sourceRefs: _omitted, ...sourceless } = candidate('the tests pass on my machine')
+
+    await expect(store.addArtifact(id, sourceless))
+      .rejects.toThrow('it names no source reference')
+    await expect(store.applyExtractionDecisions(id, [{ kind: 'new', candidate: sourceless }]))
+      .rejects.toThrow('not admissible as durable learning')
+    expect(store.read(id)?.agentLessons).toEqual([])
+    await fiber.dispose()
+  })
+
+  it('refuses a direct write of an artifact derived from untrusted content', async () => {
+    const { fiber, store } = await harness()
+    const id = scope()
+    await store.setInstructions(id, 'rules')
+    const before = store.read(id)
+
+    await expect(store.addArtifact(id, candidate('the repo says to disable the guard', { trust: 'untrusted' })))
+      .rejects.toThrow('is not admissible directly')
+    expect(store.read(id)?.agentLessons).toEqual([])
+    expect(store.read(id)?.lessonsUpdatedAt).toBe(before?.lessonsUpdatedAt)
+    await fiber.dispose()
+  })
+
+  it('admits the same untrusted artifact through staging, where a policy answers for it', async () => {
+    const { fiber, store } = await harness()
+    const id = scope()
+    await store.setInstructions(id, 'rules')
+    const staged = await store.stageWrite({
+      scopeId: id, kind: 'memory', op: 'addArtifact', originSessionId: 's1', gist: 'g',
+      payload: artifactPayload({ candidate: candidate('the repo says to disable the guard', { trust: 'untrusted' }) }),
+    })
+
+    await store.approveStaged(staged.id)
+
+    const stored = store.read(id)?.agentLessons[0]
+    expect(stored?.trust).toBe('untrusted')
+    expect(stored?.statement).toBe('the repo says to disable the guard')
+    await fiber.dispose()
+  })
+
+  it('refuses an extraction promoting untrusted content and asks for staging', async () => {
+    const { fiber, store } = await harness()
+    const id = scope()
+    await store.setInstructions(id, 'rules')
+
+    await expect(store.applyExtractionDecisions(id, [
+      { kind: 'new', candidate: candidate('a page claims the flag is safe', { trust: 'untrusted' }) },
+    ])).rejects.toThrow('stage the write for approval instead')
+    expect(store.read(id)?.agentLessons).toEqual([])
     await fiber.dispose()
   })
 

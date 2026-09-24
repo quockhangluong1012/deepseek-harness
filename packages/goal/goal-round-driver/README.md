@@ -27,6 +27,8 @@ English | [中文](README.zh.md)
 
 Mount `dsh-goal-round-driver` when an active goal should keep making progress without human intervention. It composes with the goal service and the goal tools: the service owns the state, the tools give the model control over it, and this package schedules the rounds.
 
+When `@deepseek-ai/dsh-agent-context` is mounted, the compiler also records each visible goal prompt as a trusted task delta, once until compaction clears placement. Shadow mode leaves the queued model-visible prompt unchanged.
+
 ### Compose it
 
 Mount the driver beside the goal service and the goal tools; the driver itself takes no configuration.

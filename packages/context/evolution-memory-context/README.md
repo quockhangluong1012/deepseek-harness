@@ -27,6 +27,8 @@ English | [中文](README.zh.md)
 
 Mount the plugin with the memory store and a workspace registry. Scopes resolve per turn from workspace membership (registry session ids, falling back to a canonical-path `cwd` match) under the required `profile`; turns outside any scope add nothing.
 
+When `@deepseek-ai/dsh-agent-context` is mounted, this package also registers the exact rendered brief as an untrusted, required memory source. Without it, brief injection is unchanged.
+
 ### Configuration
 
 `maxBytes` and `profile` are required: the deployment must choose what a brief may cost and which scope namespace it serves. The nudge cadence and the two condition thresholds are optional and default to the shipped values.
@@ -116,7 +118,7 @@ No invariant companion is published because the injector owns no durable state o
 
 #### What the model sees
 
-One durable `user/message` carrying the framed brief: the scope title, directory, and `Memory usage: used/cap (pct%)` header, then the `Instructions`, `Lessons`, `User profile`, and per-item `Context: label` sections that are non-empty, plus one budget notice line when anything was dropped or truncated. The `Lessons` section renders one line per stored artifact — `- <statement> (confidence: 0.82)` — strongest first: confidence descending, ties broken by ascending `id` so the same record always renders the same order. Under budget pressure the weakest artifacts drop whole, and when not even one fits the section is omitted entirely rather than sending a truncated statement.
+One durable `user/message` carrying the framed brief: the scope title, directory, and `Memory usage: used/cap (pct%)` header, then the `Instructions`, `Lessons`, `User profile`, and per-item `Context: label` sections that are non-empty, plus one budget notice line when anything was dropped or truncated. The `Lessons` section renders one line per stored artifact — `- <statement> (confidence: 0.82)`, or `- (untrusted, from <source>) > <statement> (confidence: 0.82)` for a fact derived from content nobody vouched for, which reaches the model as quoted data labelled with its source rather than as a directive — strongest first: confidence descending, ties broken by ascending `id` so the same record always renders the same order. Under budget pressure the weakest artifacts drop whole, and when not even one fits the section is omitted entirely rather than sending a truncated statement.
 
 ##### Verbatim text for this field, when needed
 

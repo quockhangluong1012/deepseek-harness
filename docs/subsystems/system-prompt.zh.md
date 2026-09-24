@@ -56,9 +56,9 @@ interface PromptSection {
   /**
    * Static text or a provider evaluated at each assembly with that assembly's
    * {@link AssembleContext}. The text may reference `{{variable}}`s — they are
-   * interpolated later, by {@link renderPrompt}, unless `interpolate` is false.
-   * Write `\{{` for a literal brace pair; static text with a malformed group is
-   * rejected at registration.
+   * interpolated later, by {@link renderPrompt}, unless `interpolate` is false;
+   * write `\{{` for a literal brace pair, and static text with a malformed group
+   * is rejected at registration.
    */
   readonly text: string | ((context: AssembleContext) => string)
   /** Whether to interpolate prompt variables. Defaults to true; false preserves literal text. */

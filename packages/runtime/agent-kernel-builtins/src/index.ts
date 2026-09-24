@@ -11,8 +11,9 @@
  * The declarations live here rather than in the tool packages because only
  * the policy plane may extend the capability vocabulary, and because a tool
  * package must stay mountable without the kernel. A deployment that renames a
- * tool, mints `mcp__*` names, or ships its own tools declares those itself;
- * an undeclared tool stays denied.
+ * tool or ships its own tools declares those itself; an undeclared tool stays
+ * denied. Names minted at runtime are declared by their own bridge: the MCP
+ * client declares every synced `mcp__*` tool it publishes.
  *
  * @module @deepseek-ai/dsh-agent-kernel-builtins
  */

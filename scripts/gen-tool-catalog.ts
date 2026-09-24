@@ -64,6 +64,8 @@ import * as StagehandBrowserTools from '@deepseek-ai/dsh-experimental-browser-us
 import type TeamService from '@deepseek-ai/dsh-experimental-agent-team'
 import * as ToolTeam from '@deepseek-ai/dsh-experimental-tool-agent-team'
 import * as ToolTodo from '@deepseek-ai/dsh-tool-todo'
+import * as ToolEvidence from '@deepseek-ai/dsh-tool-evidence'
+import AgentKernel from '@deepseek-ai/dsh-agent-kernel'
 import type PluginManager from '@deepseek-ai/dsh-plugin-manager'
 import * as PluginManagerTools from '@deepseek-ai/dsh-plugin-manager/tools'
 import SandboxPolicy from '@deepseek-ai/dsh-sandbox-policy'
@@ -629,6 +631,19 @@ const TOOL_PACKAGES: ToolPackage[] = [
     },
     note:
       'todo_write is session-owned state; UIs render the latest todo/write event as a checklist. `allowParallelInProgress` is required with no default, so the catalog states its choice: `true`, whose description invites several `in_progress` items. A deployment choosing `false` receives the same tool with a description asking for exactly one active task.',
+  },
+  {
+    pkg: '@deepseek-ai/dsh-tool-evidence',
+    dir: 'tool-evidence',
+    source: 'packages/runtime/tool-evidence/src/index.ts',
+    requires: ['ctx.tools', 'ctx.agentKernel', 'a calling Agent with an open task'],
+    writes: ['tool/call', 'evidence/recorded', 'claim/updated', 'tool/result'],
+    async mount(ctx) {
+      await ctx.plugin(AgentKernel, {})
+      await ctx.plugin(ToolEvidence, {})
+    },
+    note:
+      'Both tools write the knowledge plane through the kernel. `record_evidence` states what was observed and how far it may be trusted; `record_claim` states what the task asserts, citing recorded evidence. The kernel refuses either call when the calling agent has no task, so a deployment without the kernel records nothing rather than dropping a fact.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-workflow',

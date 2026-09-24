@@ -97,6 +97,35 @@ describe('automation-only ACP bridge', () => {
     expect(harness.adapter.requests[0]?.messages.at(-1)?.content).toEqual([{ type: 'text', text: 'say hello' }])
   })
 
+  it('projects a kernel plan revision into an ACP plan update', async () => {
+    harness = await makeBridgeHarness({ script: [textResponse('planned')] })
+    await harness.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
+    const { sessionId } = await harness.client.newSession({ cwd: process.cwd(), mcpServers: [] })
+    await harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'plan the work' }] })
+    const agent = harness.ctx.agents.get(SessionId(sessionId))!
+
+    // The kernel owns the durable plan; ACP renders it as its own plan update,
+    // queued behind the turn's tool and message output.
+    const plan = {
+      revision: 1,
+      steps: ['reproduce the failure', 'repair it'],
+      createdAt: Date.now(),
+    }
+    agent.session.append('task/plan', plan)
+
+    await vi.waitFor(() => {
+      expect(harness!.updates.some(update => update.sessionUpdate === 'plan')).toBe(true)
+    })
+    const planUpdates = harness.updates.filter(candidate => candidate.sessionUpdate === 'plan')
+    expect(planUpdates).toHaveLength(1)
+    expect(planUpdates[0]).toMatchObject({
+      entries: [
+        { content: 'reproduce the failure', priority: 'medium', status: 'pending' },
+        { content: 'repair it', priority: 'medium', status: 'pending' },
+      ],
+    })
+  })
+
   it('closes one active session without affecting its neighbor', async () => {
     harness = await makeBridgeHarness()
     await harness.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })

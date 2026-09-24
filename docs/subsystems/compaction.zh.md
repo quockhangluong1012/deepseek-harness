@@ -69,6 +69,8 @@ interface CompactionResult {
   shadowedSeqs: SessionSeq[]
   /** Estimated token count of the shadowed content. */
   shadowedTokenCount: number
+  /** What the checkpoint kept, on a backend that records one. */
+  checkpoint?: CompactionCheckpointFacts
 }
 ```
 

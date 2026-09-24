@@ -4,6 +4,8 @@
  * winning variant stages exactly one skill patch.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { readFile } from 'node:fs/promises'
+import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import Storage from '@deepseek-ai/dsh-storage'
 import { DomainFacility } from '@deepseek-ai/dsh-storage-domain'
@@ -31,6 +33,7 @@ function usage(useCount: number, failureCount?: number) {
     useCount, failureCount, viewCount: 0, patchCount: 0, lastUsedAt: null, sessionIds: [],
     lastViewedAt: null, lastPatchedAt: null, createdAt: '2026-01-01T00:00:00.000Z',
     state: 'active', pinned: false, createdBy: null, absorbedInto: null, archivedAt: null,
+    sessionOutcomes: [],
   }
 }
 
@@ -72,12 +75,28 @@ interface BenchSeams {
   llmBodies?: string[][] | undefined
   /** Fail every ledger write, so the run must survive a broken store. */
   brokenLedger?: boolean | undefined
+  /**
+   * Skip the harness's own confirmationRuns:1 baseline so the plugin's real
+   * configured/default confirmationRuns applies unmodified.
+   */
+  bareConfirmationDefault?: boolean | undefined
+  /**
+   * Mount a fake evolution-budget store; `exceeded: true` makes every
+   * ceiling check refuse a new scoring run before it is paid for.
+   */
+  budget?: { exceeded?: boolean } | undefined
   /** Decided staged entries the memory scope reports, for the regression guard. */
   resolutions?: { id: string; kind: string; decision: 'approved' | 'rejected' }[] | undefined
   /** Wall-time samples each scored scenario carries; the attempt count. */
   sampleCount?: number | undefined
   /** Score one call by the scenarios it runs and its global call index. */
   scoresFor?: ((scenarios: readonly string[], call: number) => { pass: boolean; tokens: number; wallTimeMs: number }) | undefined
+  /**
+   * Score one variant by the body the optimizer staged for it. A confirmation
+   * round re-scores the baseline and the winner in the same order the search
+   * did, so a fixture that must tell them apart has to look at the body.
+   */
+  scoreForBody?: ((body: string) => { pass: boolean; tokens: number; wallTimeMs: number }) | undefined
   /** Scoring-semantics version the fake scorer reports; the ledger stamps it. */
   scorerVersion?: number | undefined
   /** Mount a fake population store; `error` fails every record write. */
@@ -115,6 +134,16 @@ function brokenDomain(): unknown {
       }),
       close: () => {},
     }),
+  }
+}
+
+/** Read the SKILL.md the optimizer staged in one attempt's overlay home. */
+async function stagedBody(options: { homeDir?: string } | undefined): Promise<string | undefined> {
+  if (options?.homeDir === undefined) return undefined
+  try {
+    return await readFile(join(options.homeDir, 'skills', 'writer', 'SKILL.md'), 'utf8')
+  } catch {
+    return undefined
   }
 }
 
@@ -157,7 +186,11 @@ async function bench(seams: BenchSeams = {}) {
       if (seams.skipEvaluation !== undefined && (seams.skipOnCall ?? 0) === call) {
         return { status: 'skipped' as const, skill: request.skill, reason: seams.skipEvaluation }
       }
-      const measured = seams.scoresFor?.(request.scenarios, call)
+      const staged = seams.scoreForBody === undefined
+        ? undefined
+        : (await request.run({} as never, {} as never) as { body?: string }).body
+      const measured = (staged === undefined ? undefined : seams.scoreForBody?.(staged))
+        ?? seams.scoresFor?.(request.scenarios, call)
         ?? scores[request.skill]
         ?? { pass: true, tokens: 10, wallTimeMs: 10 }
       return {
@@ -274,16 +307,31 @@ async function bench(seams: BenchSeams = {}) {
       },
     } as never)
   }
+  const budgetSpends: { batchId: string; tokens: number }[] = []
+  if (seams.budget !== undefined) {
+    ctx.provide('evolutionBudget', {
+      batches: () => [],
+      allocate: async () => ({}) as never,
+      withinBudget: () => seams.budget?.exceeded !== true,
+      spend: async (batchId: string, input: { tokens: number }) => {
+        budgetSpends.push({ batchId, tokens: input.tokens })
+        return {} as never
+      },
+    } as never)
+  }
   await ctx.plugin(EvolutionOptimizer, {
     ...(seams.route === false ? {} : { provider: 'deepseek', model: 'deepseek-chat' }),
     agent: { binScript: 'bin', configPath: 'cfg', tsconfigPath: 'tsconfig' },
+    // Every other fixture in this file assumes one paired comparison; pin it
+    // here so only a fixture that opts out sees the plugin's real default.
+    ...(seams.bareConfirmationDefault === true ? {} : { confirmationRuns: 1 }),
     ...seams.config,
   })
   const optimizer = ctx.get('evolutionOptimizer') as EvolutionOptimizer
   return {
     ctx, optimizer, staged, populationRows, routeRows, canaryRows, noveltyRows,
     stagnationRows, islandTicks, selfModelObservations, lineageEnvelopes,
-    scoreCalls, scorer: fakeScorer, llmCalls: () => llmCalls,
+    scoreCalls, scorer: fakeScorer, llmCalls: () => llmCalls, budgetSpends,
   }
 }
 const request = {
@@ -291,7 +339,11 @@ const request = {
   scenarios: ['s1'],
   scopeId: 'profile/scope' as never,
   originSessionId: 'session-1',
-  run: (async () => ({ workspace: [], tokens: 0, wallTimeMs: 0 })) as never,
+  // The optimizer stages every variant in an overlay home; reading it back is
+  // how a fixture can tell the baseline body from a candidate.
+  run: (async (_input: unknown, options?: { homeDir?: string }) => ({
+    workspace: [], tokens: 0, wallTimeMs: 0, body: await stagedBody(options),
+  })) as never,
 }
 
 describe('EvolutionOptimizer', () => {
@@ -410,8 +462,9 @@ describe('EvolutionOptimizer', () => {
       record: { name: 'writer', usage: usage(12, 10) },
       body: BASE,
       mutations: [V2],
-      // Baseline scores costly, the variant scores cheap.
-      scoresFor: (_scenarios, call) => ({ pass: true, tokens: call === 0 ? 9 : call === 1 ? 3 : 10, wallTimeMs: 5 }),
+      // The baseline body scores costly, the staged variant cheap; every
+      // confirmation round therefore sees the same winner.
+      scoreForBody: body => ({ pass: true, tokens: body === V2 ? 3 : 9, wallTimeMs: 5 }),
     })
     const report = await optimizer.optimize(request)
     expect(report.status).toBe('staged')
@@ -421,6 +474,67 @@ describe('EvolutionOptimizer', () => {
     expect(staged).toHaveLength(1)
     expect(staged[0]).toMatchObject({ kind: 'skill', op: 'patch' })
     expect(staged[0]?.payload).toMatchObject({ skill: 'writer', body: V2, operator: 'rewrite' })
+  })
+
+  it('defaults to three confirmation rounds before staging a winner', async () => {
+    const { optimizer, staged } = await bench({
+      record: { name: 'writer', usage: usage(12, 10) },
+      body: BASE,
+      mutations: [V2],
+      bareConfirmationDefault: true,
+      scoreForBody: body => ({ pass: true, tokens: body === V2 ? 3 : 9, wallTimeMs: 5 }),
+    })
+    const report = await optimizer.optimize(request)
+    expect(report.status).toBe('staged')
+    expect(report.confidence).toEqual({ runs: 3, wins: 3 })
+    expect(staged).toHaveLength(1)
+  })
+
+  it('refuses to stage when a default-run confirmation round fails to repeat', async () => {
+    const { optimizer, staged } = await bench({
+      record: { name: 'writer', usage: usage(12, 10) },
+      body: BASE,
+      mutations: [V2],
+      bareConfirmationDefault: true,
+      // Search and the first confirmation favour the variant; the second
+      // confirmation ties, so the default three rounds cannot confirm it.
+      scoresFor: (_scenarios, call) => ({ pass: true, tokens: call === 5 ? 9 : (call % 2 === 0 ? 9 : 3), wallTimeMs: 5 }),
+    })
+    const report = await optimizer.optimize(request)
+    expect(report.status).toBe('unconfirmed')
+    expect(report.confidence).toEqual({ runs: 3, wins: 2 })
+    expect(staged).toHaveLength(0)
+  })
+
+  it('refuses a new scoring run once the evolution-budget ceiling is spent', async () => {
+    const { optimizer } = await bench({
+      record: { name: 'writer', usage: usage(12, 10) },
+      body: BASE,
+      mutations: [V2],
+      budget: { exceeded: true },
+      scoreForBody: body => ({ pass: true, tokens: body === V2 ? 3 : 9, wallTimeMs: 5 }),
+    })
+    const report = await optimizer.optimize(request)
+    expect(report.status).toBe('skipped')
+    expect(report.reason).toContain('evolution-budget')
+    expect(report.reason).toContain('spent')
+  })
+
+  it('records every live scoring run against the mounted evolution-budget store', async () => {
+    const { optimizer, budgetSpends } = await bench({
+      record: { name: 'writer', usage: usage(12, 10) },
+      body: BASE,
+      mutations: [V2],
+      budget: {},
+      scoreForBody: body => ({ pass: true, tokens: body === V2 ? 3 : 9, wallTimeMs: 5 }),
+    })
+    const report = await optimizer.optimize(request)
+    expect(report.status).toBe('staged')
+    // Baseline plus the winning variant: one live run each, spent into both
+    // the daily and the weekly ceiling batch, plus the existing post-hoc
+    // total-run record `recordBudget` already writes under the staged id.
+    expect(budgetSpends).toHaveLength(5)
+    expect(budgetSpends.map(row => row.tokens)).toEqual([9, 9, 3, 3, 12])
   })
 
   it('keeps staging when the population store is not mounted', async () => {

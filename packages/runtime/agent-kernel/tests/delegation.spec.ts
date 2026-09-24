@@ -24,7 +24,18 @@ import type {
   RunId,
   TaskId,
 } from '../src/types.ts'
-import { callTool, currentTask, eventsOf, humanMessage, makeAgent, preStep, registerTool, rig } from './rig.ts'
+import {
+  authorizations,
+  callTool,
+  currentTask,
+  denials,
+  eventsOf,
+  humanMessage,
+  makeAgent,
+  preStep,
+  registerTool,
+  rig,
+} from './rig.ts'
 
 const contexts: Context[] = []
 
@@ -91,7 +102,7 @@ function declareProbe(
 
 /** A minimal kernel view naming the given task facts. */
 function viewOf(overrides: Partial<KernelView> & Pick<KernelView, 'task' | 'sessionId' | 'budgets'>): KernelView {
-  return { openActionIds: [], unresolvedFailures: [], ...overrides }
+  return { openActionIds: [], unresolvedFailures: [], evidence: [], claims: [], hypotheses: [], ...overrides }
 }
 
 describe('receipt issuance', () => {
@@ -124,7 +135,12 @@ describe('receipt issuance', () => {
     })
     expect(receipt?.childRunId).not.toBe(currentTask(parent).runId)
     expect(eventsOf(parent, 'delegation/issued')).toEqual(received)
-    expect(kernel.state.entryOf(child.session).delegation).toEqual(receipt)
+    expect(kernel.state.entryOf(child.session).delegation).toMatchObject({
+      delegationId: receipt?.delegationId,
+      childRunId: receipt?.childRunId,
+      parentTaskId: receipt?.parentTaskId,
+      writableScopes: receipt?.writableScopes,
+    })
   })
 
   it('inherits the run identity, parent link, and remaining budget into the child contract', async () => {
@@ -142,7 +158,12 @@ describe('receipt issuance', () => {
     expect(created?.parentTaskId).toBe(eventsOf(parent, 'task/created')[0]?.taskId)
     // The parent spent one of its five steps, so the child inherits four.
     expect(created?.budget).toEqual({ maxSteps: 4, maxSubagentDepth: 2 })
-    expect(kernel.state.view(child.session)?.delegation).toEqual(receipt)
+    expect(kernel.state.view(child.session)?.delegation).toMatchObject({
+      delegationId: receipt?.delegationId,
+      childRunId: receipt?.childRunId,
+      parentTaskId: receipt?.parentTaskId,
+      writableScopes: receipt?.writableScopes,
+    })
   })
 
   it('narrows the writable scopes to the intersection of parent and child sandboxes', async () => {
@@ -272,9 +293,9 @@ describe('intersection', () => {
     const result = await callTool(ctx, 'probe', child)
 
     expect(result.isError).toBe(true)
-    const denied = eventsOf(child, 'action/denied')[0]
-    expect(denied?.decision.delegationId).toBe('delegation-narrow')
-    expect(denied?.decision.reasons.join('; ')).toContain('the delegation does not grant fs.write')
+    const denied = denials(child)[0]
+    expect(denied?.delegationId).toBe('delegation-narrow')
+    expect(denied?.reasons.join('; ')).toContain('the delegation does not grant fs.write')
     expect(eventsOf(child, 'delegation/received')).toHaveLength(1)
   })
 
@@ -292,7 +313,7 @@ describe('intersection', () => {
 
     expect(result.isError).toBe(false)
     const receipt = eventsOf(child, 'delegation/received')[0]
-    expect(eventsOf(child, 'action/authorized')[0]?.decision.delegationId).toBe(receipt?.delegationId)
+    expect(authorizations(child)[0]?.delegationId).toBe(receipt?.delegationId)
   })
 
   it('denies every action past the parent depth cap', async () => {
@@ -311,7 +332,7 @@ describe('intersection', () => {
     const result = await callTool(ctx, 'probe', child)
 
     expect(result.isError).toBe(true)
-    expect(eventsOf(child, 'action/denied')[0]?.decision.reasons.join('; '))
+    expect(denials(child)[0]?.reasons.join('; '))
       .toContain('the delegation is at depth 2, past the 1 its parent allows')
   })
 
@@ -341,10 +362,10 @@ describe('intersection', () => {
 
     await callTool(ctx, 'probe', child)
 
-    const authorized = eventsOf(child, 'action/authorized')[0]
+    const authorized = authorizations(child)[0]
     const receipt = eventsOf(child, 'delegation/received')[0]
-    expect(authorized?.decision.effect).toBe('ask')
-    expect(authorized?.decision.delegationId).toBe(receipt?.delegationId)
+    expect(authorized?.effect).toBe('ask')
+    expect(authorized?.delegationId).toBe(receipt?.delegationId)
   })
 })
 
@@ -362,12 +383,12 @@ describe('delegation helpers', () => {
   })
 
   it('admits every family under an allow default and only ruled families under deny', () => {
-    expect(admittedCapabilities(compilePolicy(ALLOW_ALL))).toHaveLength(14)
+    expect(admittedCapabilities(compilePolicy(ALLOW_ALL))).toHaveLength(17)
     const readOnly = admittedCapabilities(compilePolicy({
       defaults: { effect: 'deny' },
       rules: [{ action: 'read', resource: '**', effect: 'allow' }],
     }))
-    expect(readOnly).toEqual(['fs.read'])
+    expect(readOnly).toEqual(['fs.read', 'git.read'])
     const asked = admittedCapabilities(compilePolicy({
       defaults: { effect: 'deny' },
       rules: [{ action: 'shell', resource: 'git status', effect: 'ask' }],
@@ -385,7 +406,7 @@ describe('delegation helpers', () => {
       delegationId: brandString<DelegationId>('delegation-1'),
       childRunId: brandString<RunId>('run-child'),
       parentSessionId: SessionId('parent'),
-      allowedCapabilities: ['fs.read', 'fs.write'],
+      allowedCapabilities: ['fs.read', 'fs.write', 'git.write'],
       resourceLimits: {},
       writableScopes: ['C:\\ws'],
       inheritedPolicyDigest: 'digest',
@@ -398,6 +419,9 @@ describe('delegation helpers', () => {
       .toBe('the delegation does not grant process.exec')
     expect(delegationRefusal(receipt, [{ capability: 'fs.write', resource: 'C:\\elsewhere\\a.ts' }]))
       .toBe('the delegation refuses fs.write outside C:\\ws')
+    expect(delegationRefusal(receipt, [{ capability: 'git.write', resource: 'C:\\ws\\repo' }])).toBeUndefined()
+    expect(delegationRefusal(receipt, [{ capability: 'git.write', resource: 'C:\\elsewhere\\repo' }]))
+      .toBe('the delegation refuses git.write outside C:\\ws')
     expect(delegationRefusal(
       { ...receipt, writableScopes: [] },
       [{ capability: 'fs.write', resource: 'C:\\ws\\a.ts' }],
@@ -423,7 +447,7 @@ describe('delegation helpers', () => {
         revision: 3,
       },
       sessionId: SessionId('parent'),
-      budgets: { steps: 0, toolCalls: 0, wallMs: 0, remaining: { maxSubagentDepth: 3 } },
+      budgets: { steps: 0, toolCalls: 0, tokens: 0, wallMs: 0, remaining: { maxSubagentDepth: 3 } },
       delegation: {
         delegationId: brandString<DelegationId>('delegation-parent'),
         childRunId: brandString<RunId>('run-parent'),
@@ -487,7 +511,7 @@ describe('delegation helpers', () => {
         revision: 1,
       },
       sessionId: SessionId('parent'),
-      budgets: { steps: 0, toolCalls: 0, wallMs: 0, remaining: {} },
+      budgets: { steps: 0, toolCalls: 0, tokens: 0, wallMs: 0, remaining: {} },
       delegation: {
         delegationId: brandString<DelegationId>('delegation-parent'),
         childRunId: brandString<RunId>('run-parent'),
@@ -530,7 +554,7 @@ describe('delegation helpers', () => {
         revision: 1,
       },
       sessionId: SessionId('parent'),
-      budgets: { steps: 0, toolCalls: 0, wallMs: 0, remaining: {} },
+      budgets: { steps: 0, toolCalls: 0, tokens: 0, wallMs: 0, remaining: {} },
       delegation: {
         delegationId: brandString<DelegationId>('delegation-parent'),
         childRunId: brandString<RunId>('run-parent'),

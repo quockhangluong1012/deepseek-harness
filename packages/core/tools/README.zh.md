@@ -82,7 +82,7 @@ ctx.tools.register(defineTool({
 
 ### 对调用实施策略
 
-`ctx.tools.guard(guard)` 在可扩展的 `tools/pre-execute` waterfall（瀑布式事件）之后注册单调同步守卫：返回的理由会拒绝调用，后续监听器无法把该拒绝重新变为允许。流水线事件给插件更多控制——`tools/pre-execute` 决定允许／拒绝／询问，`tools/execute` 为超时或重试包装分发，`tools/post-execute` 检查或替换结果，`tools/result` 观测冻结的最终结果。
+在此之前，`defineTool` 调用会先按模型所见到的 schema 校验：无法执行的调用直接返回解析或 schema 错误，绝不会到达 `tools/pre-execute` 监听器或审批提示（当参数依赖 `execute` 内部解析出的状态时，可用 `validateArgsBeforePipeline: false` 让工具自己负责；直接注册的工具自行为其 schema 负责）。`ctx.tools.guard(guard)` 在可扩展的 `tools/pre-execute` waterfall（瀑布式事件）之后注册单调同步守卫：返回的理由会拒绝调用，后续监听器无法把该拒绝重新变为允许。流水线事件给插件更多控制——`tools/pre-execute` 决定允许／拒绝／询问，`tools/execute` 为超时或重试包装分发，`tools/post-execute` 检查或替换结果，`tools/result` 观测冻结的最终结果。
 
 工具的 `projectContent` 在执行后策略之前安装执行期间准备的图文内容。策略仍可替换或阻止这些内容；`finalizeContent` 保留为策略之后的最终内容处理。
 

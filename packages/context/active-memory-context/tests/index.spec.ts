@@ -3,6 +3,7 @@ import { mkdtemp, realpath, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { isSearchTurn, resolveConfig } from '../src/index.ts'
+import AgentContext from '@deepseek-ai/dsh-agent-context'
 import { Context } from '@deepseek-ai/cordis'
 import { agentEvents, type Agent } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
@@ -322,6 +323,27 @@ describe('active-memory-context injector', () => {
     const text = briefs[0]?.content.find(block => block.type === 'text')
     expect(text && 'text' in text ? text.text : '').toContain('sibling-needle')
     expect(text && 'text' in text ? text.text : '').not.toContain('sibling-hay')
+  })
+
+  it('registers its logged recall as an untrusted delta memory source', async () => {
+    const fake = fakeEmbeddings()
+    const { ctx, workspaces } = await harness({ maxBytes: 4096 }, fake.service)
+    await ctx.plugin(AgentContext, {})
+    const session = await scopeWith(ctx, workspaces, [{ id: 'sibling-needle', text: 'needle in the stack' }])
+    const agent = fakeAgent(session)
+    const decision = await preStep(ctx, agent, [textMessage('needle')])
+    const brief = briefsOf(decision.kind === 'enter' ? decision.messages : [])[0]
+    if (brief === undefined) throw new Error('active memory did not emit a brief')
+    const text = briefText(brief)
+    session.append('user/message', brief, { surfaceOp: 'append' })
+
+    const compiled = await ctx.agentContext.compile(agent, { sections: [], contexts: [], tools: [], variables: {} })
+    const source = compiled.included.find(entry => entry.source.id === `active-memory:${String(brief.id)}`)
+
+    expect(source?.source.content).toBe(text)
+    expect(source?.source.kind).toBe('memory')
+    expect(source?.source.trust).toBe('untrusted')
+    expect(source?.source.retention).toBe('compressible')
   })
 
   it('excludes the current session from its own search results', async () => {

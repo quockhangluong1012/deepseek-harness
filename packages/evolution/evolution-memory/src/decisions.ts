@@ -14,7 +14,7 @@
  */
 
 import { z } from 'zod'
-import { artifactKey, lessonArtifact, lessonArtifactInput, normalizeStatement } from './lesson-artifact.ts'
+import { artifactKey, lessonArtifact, lessonArtifactInput, normalizeStatement, scrubArtifactText } from './lesson-artifact.ts'
 import type { LessonArtifact, LessonArtifactInput, LessonMergeStrategy } from './lesson-artifact.ts'
 import { mergeArtifact } from './merge.ts'
 import type { EvolutionMemoryRecord } from './types.ts'
@@ -80,7 +80,10 @@ export const lessonDecision: z.ZodType<LessonDecision> = z.discriminatedUnion('k
  * @returns the non-empty identity.
  */
 export function artifactIdOf(candidate: LessonArtifactInput): string {
-  const id = artifactKey(candidate.statement)
+  // The identity is the normalized statement the store will hold, so it is
+  // derived from the scrubbed text: an artifact's id must keep naming exactly
+  // the statement stored beside it.
+  const id = artifactKey(scrubArtifactText(candidate.statement))
   if (id.length === 0) {
     throw new Error(
       `evolution-memory: artifact statement ${JSON.stringify(candidate.statement)} is blank once normalized and cannot key an artifact`,
@@ -101,6 +104,11 @@ export function artifactIdOf(candidate: LessonArtifactInput): string {
 export function freshArtifact(candidate: LessonArtifactInput, id: string, now: string, defaultTtlDays: number): LessonArtifact {
   return {
     ...structuredClone(candidate),
+    // Credentials are scrubbed on the way in: a durable fact is replayed into
+    // every later brief, so a secret that reached an extraction must not land.
+    statement: scrubArtifactText(candidate.statement),
+    conditions: scrubArtifactText(candidate.conditions),
+    source: scrubArtifactText(candidate.source),
     id,
     ttlDays: candidate.ttlDays ?? defaultTtlDays,
     validationCount: 0,
@@ -204,11 +212,25 @@ function confirmArtifactIn(record: EvolutionMemoryRecord, artifactId: string, no
 function contradictArtifactIn(record: EvolutionMemoryRecord, decision: ContradictsDecision, now: string): EvolutionMemoryRecord {
   const existing = record.agentLessons.find(artifact => artifact.id === decision.artifactId)
   if (existing === undefined) return record
+  // A contradiction that carries a correction REPLACES the fact: the old
+  // wording moves into the artifact's history and the counters reset, because
+  // they measured the value that no longer stands. Refutations of the
+  // superseded wording can therefore never prune its replacement (S8).
+  const replaces = decision.statement !== undefined
   const next = lessonArtifact.parse({
     ...existing,
-    ...decision.statement === undefined ? {} : { statement: decision.statement },
+    ...replaces && decision.statement !== undefined ? { statement: scrubArtifactText(decision.statement) } : {},
     ...decision.confidence === undefined ? {} : { confidence: decision.confidence },
-    refutationCount: existing.refutationCount + 1,
+    ...replaces
+      ? {
+          supersedes: [
+            ...existing.supersedes ?? [],
+            { statement: existing.statement, confidence: existing.confidence, supersededAt: now },
+          ],
+          validationCount: 0,
+          refutationCount: 0,
+        }
+      : { refutationCount: existing.refutationCount + 1 },
     updatedAt: now,
   })
   return { ...record, agentLessons: record.agentLessons.map(artifact => artifact.id === decision.artifactId ? next : artifact) }

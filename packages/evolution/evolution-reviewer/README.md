@@ -91,7 +91,7 @@ Two gates decide whether a critique is recorded: the transcript the call sent mu
 
 ### Writing and approval
 
-Turn extraction stages the batch as one `applyDecisions` entry per call when `writeApproval` is on, so `/memory approve <id>` applies the whole batch atomically against the record read at approval time. A rebuild (provenance `rebuild`) always writes directly, as does a batch with nothing to approve in it. A failed extraction warns and keeps the stored artifacts; teardown and session disposal abort in-flight calls.
+Turn extraction stages the batch as one `applyDecisions` entry per call when `writeApproval` is on, so `/memory approve <id>` applies the whole batch atomically against the record read at approval time. Tainted content always stages: when the prompt-injection guard recorded a `security/scan` with `tainted: true` for the session, every `new` candidate in the batch carries `trust: 'untrusted'` and the batch is staged whatever `writeApproval` says, because taint reaches durable memory only through an approval. A rebuild (provenance `rebuild`) always writes directly, as does a batch with nothing to approve in it. A failed extraction warns and keeps the stored artifacts; teardown and session disposal abort in-flight calls.
 
 ### Relevance window
 

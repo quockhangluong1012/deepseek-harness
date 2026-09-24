@@ -4,7 +4,7 @@ English | [中文](session-telemetry.zh.md)
 
 Outbound session reporting is split as a [capability seam](../capability-seams.md): the Service Definition and capture coordinator ([dsh-session-telemetry](../../packages/session/session-telemetry), `ctx.sessionTelemetry`) own complete canonical-event capture, the `session-telemetry/record` redaction waterfall, the handoff cursor, and the minimal backend contract; the Service Provider a deployment loads ([dsh-session-telemetry-otel](../../packages/session/session-telemetry-otel)) is the OpenTelemetry JS SDK's log pipeline configured verbatim. It is one optional capability, not part of the agent-loop spine, and nothing here reaches a model request. The boundary axiom — the harness's aspect ends at `emit()`; batching, retry, queueing, and loss policy belong to the reporting SDK — and the rejected alternatives are pinned in the [revival Agent Note](../../.agents/notes/implemented/feature/2026-07-23-session-telemetry-otel-revival.md); the capture and cursor contracts live in the [Service Definition README](../../packages/session/session-telemetry/README.md).
 
-Source: [`packages/session/session-telemetry/src/index.ts`](../../packages/session/session-telemetry/src/index.ts)
+Source: [Service Definition](../../packages/session/session-telemetry/src/index.ts) and [record types](../../packages/session/session-telemetry/src/record.ts).
 
 ## The logical record
 
@@ -111,7 +111,7 @@ interface SessionTelemetrySink {
    * flush so records are exported after each turn. Called
    * fire-and-forget; implementations must not block and must not throw
    * meaningfully (the coordinator contains exceptions). Most backends should
-   * leave this unimplemented and let their SDK's own batching cadence govern
+   * leave it unimplemented and let their SDK's own batching cadence govern
    * export timing: a backend that does implement it owns the interaction
    * between its concurrent flushes and {@link shutdown}'s drain (the OTel
    * backend leaves it unimplemented for exactly that hazard — see the

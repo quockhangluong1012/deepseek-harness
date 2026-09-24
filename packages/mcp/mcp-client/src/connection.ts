@@ -21,7 +21,7 @@ import { assertNever, type JsonValue } from '@deepseek-ai/dsh-util-values'
 import type { ServerContext } from './server-context.ts'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import { createTransport } from './transport.ts'
-import { endpointOriginForConfig, syncTools } from './tools.ts'
+import { createMcpCapabilityPublisher, endpointOriginForConfig, syncTools } from './tools.ts'
 import type { ToolBridgeOptions, ToolDisposers } from './tools.ts'
 import type { Config } from './index.ts'
 
@@ -131,10 +131,12 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
   // version joins per generation inside enqueueSync — it is only known after
   // the MCP initialize handshake.
   const incompleteDisposalMessage = `${label}: transport closure could not be confirmed during disposal — server shutdown may be incomplete`
+  const capabilities = createMcpCapabilityPublisher(ctx, config.serverName)
   const opts: ToolBridgeOptions = {
     registrationFailure: 'contain',
     serverName: config.serverName,
     toolCallTimeoutMs: config.toolCallTimeoutMs,
+    capabilities,
     ...endpointOriginForConfig(config),
   }
   // The initial sync uses 'throw' when failOnStartupError is configured, so
@@ -241,6 +243,7 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
       syncChain = syncChain.then(() => {
         for (const dispose of disposers.values()) dispose()
         disposers = new Map()
+        capabilities(new Map())
         serverInstructions = ''
       })
       ctx.logger.error(`${label}: giving up after ${policy.maxAttempts} consecutive failed reconnect attempts — tools unregistered; reload the plugin or restart the Host to reconnect`)
@@ -417,6 +420,7 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
       await syncChain
       for (const dispose of disposers.values()) dispose()
       disposers = new Map()
+      capabilities(new Map())
     },
   }
 }

@@ -11,12 +11,14 @@ Source: [`packages/interaction/permission-presets/src/index.ts`](../../packages/
 A preset maps one stable key to a sandbox/approval bundle plus optional client presentation. The default configured table ships `workspace-write` (`workspace-write` + `ask`) and `danger-full-access` (`danger-full-access` + `never`); `custom` and `auto` are reserved and cannot be configured.
 
 ```ts type-equiv
-/** One preset's sandbox/approval bundle and optional client presentation. */
+/** One preset's sandbox/approval bundle, optional policy restriction, and client presentation. */
 interface PresetSpec {
   /** The `sandbox/mode` value the preset writes through. */
   sandbox: SandboxMode
   /** The `approval/policy` value the preset writes through. */
   approval: ApprovalPolicy
+  /** Additional capability rules intersected with the deployment policy. */
+  policy?: PolicyDocument
   /** The display label a client shows for this preset; the raw table key when omitted. */
   name?: string
   /** One user-facing sentence on what the preset means; omitted when not configured. */
@@ -28,10 +30,10 @@ interface PresetSpec {
 /** The {@link PermissionPresetService} config: preset table and composition default. */
 interface Config {
   /**
-   * The preset table: name → knob bundle. Defaults to `workspace-write`
-   * (workspace-write + ask) and `danger-full-access` (danger-full-access +
-   * never). The names `custom` and `auto` are reserved for derived state and
-   * the Auto review integration respectively.
+   * The preset table: name → sandbox/approval bundle with an optional
+   * capability policy. Defaults to `workspace-write` (workspace-write + ask)
+   * and `danger-full-access` (danger-full-access + never). The names `custom`
+   * and `auto` are reserved for derived state and the Auto review integration.
    */
   presets: Record<string, PresetSpec>
   /**

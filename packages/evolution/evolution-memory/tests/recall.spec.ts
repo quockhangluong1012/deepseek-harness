@@ -6,12 +6,23 @@ import { MemoryMediaPool, MemoryStorageBackend } from '../../../storage/storage-
 import EvolutionMemoryStore, {
   EvolutionScopeId,
   RECALL_LABEL_PREFIX,
+  demotable,
   memoryUtility,
   recallTarget,
+  utilityValue,
+  type LessonArtifactInput,
 } from '../src/index.ts'
 import { appendRecall, bindRecalls, gradeRecall } from '../src/recall.ts'
 import type { EvolutionExtraction, MemoryRecall, Config } from '../src/index.ts'
 import type { EvolutionScopeId as ScopeId } from '../src/types.ts'
+
+/** One fact candidate this spec admits through the store. */
+function candidate(statement: string): LessonArtifactInput {
+  return {
+    statement, source: 's1', conditions: '', evidence: 'fact', confidence: 0.9, scope: 'project',
+    sourceRefs: ['session:s1'],
+  }
+}
 
 async function harness(config: Config = { capacityBytes: 65536 }) {
   const ctx = new Context()
@@ -212,6 +223,41 @@ describe('recall ledger over the store', () => {
     } finally {
       await fiber.dispose()
     }
+  })
+
+  it('folds graded recalls into the recalled fact utility estimate', async () => {
+    const { fiber, store } = await harness()
+    try {
+      const id = scope('utility')
+      const lesson = await store.addArtifact(id, candidate('prefer tabs over spaces'))
+      const artifactId = lesson.agentLessons[0]?.id ?? ''
+      expect(lesson.agentLessons[0]?.utility).toBeUndefined()
+
+      await store.addContextItem(id, { kind: 'text', label: `${RECALL_LABEL_PREFIX}${artifactId}`, text: 'prior snippet' })
+      const passed = await store.recordRecallOutcome(id, artifactId, 'ok', '2026-01-02T00:00:00.000Z')
+      expect(passed.agentLessons[0]?.utility).toEqual({ surfaced: 1, passingTasks: 1, failingTasks: 0, value: utilityValue(1, 0) })
+
+      // A second surfacing with a different outcome moves the estimate, so a
+      // demotion rests on observed outcomes rather than on age.
+      await store.addContextItem(id, { kind: 'text', label: `${RECALL_LABEL_PREFIX}${artifactId}`, text: 'prior snippet' })
+      const failed = await store.recordRecallOutcome(id, artifactId, 'failed', '2026-01-03T00:00:00.000Z')
+      expect(failed.agentLessons[0]?.utility).toEqual({ surfaced: 2, passingTasks: 1, failingTasks: 1, value: utilityValue(1, 1) })
+      expect(demotable(failed.agentLessons[0]!, 0.6, 2)).toBe(true)
+    } finally { await fiber.dispose() }
+  })
+
+  it('leaves every fact alone when the graded recall was not a fact', async () => {
+    const { fiber, store } = await harness()
+    try {
+      const id = scope('utility-other')
+      const lesson = await store.addArtifact(id, candidate('prefer tabs over spaces'))
+
+      await store.addContextItem(id, { kind: 'text', label: `${RECALL_LABEL_PREFIX}s-9`, text: 'x' })
+      const graded = await store.recordRecallOutcome(id, 's-9', 'ok')
+
+      expect(graded.agentLessons[0]?.utility).toBeUndefined()
+      expect(lesson.agentLessons[0]?.utility).toBeUndefined()
+    } finally { await fiber.dispose() }
   })
 
   it('keeps the recall after its item is detached', async () => {

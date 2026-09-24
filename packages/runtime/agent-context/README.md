@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Mount this package to answer, from the session log, what one model step was compiled from and whether a replay reproduces it. It wraps every assembled prompt section and runtime context, plus the durable task facts the kernel derives, in a source envelope; ranks them by trust, kind, and relevance; prices them with the token meter; and appends one log-only `context/compiled` record per assembly. `mode: 'shadow'` (the default) records the placement and changes nothing; `mode: 'apply'` also drops the compressible sources the ceiling cut. Policy, task, plan, and evidence sources are never dropped.
+Mount this package to answer, from the session log, what one model step was compiled from and whether a replay reproduces it. It wraps every assembled prompt section and runtime context, plus the durable task facts the kernel derives, in a source envelope; ranks them by trust, kind, and relevance; prices them with the token meter; and appends one log-only `context/compiled` record per distinct placement (a repeat digest records nothing). `mode: 'shadow'` (the default) records the placement and changes nothing; `mode: 'apply'` also drops the compressible sources the ceiling cut. Policy, task, plan, and evidence sources are never dropped.
 
 ## Table of Contents
 
@@ -49,7 +49,7 @@ Every accepted field is listed in the generated [configuration catalog](../../..
 
 ### What you get
 
-The service records one `context/compiled` event per `system-prompt/assemble` waterfall that names an agent, and the record holds the placement digest, the stated compiler version, the ceiling it was fitted to, the placement's token price, one entry per placed source (id, kind, trust, retention, price, relevance), every omission with its reason, and every retained conflict. The prompt text itself stays on the `system/message` surface, so the record is an identity a replay must reproduce rather than a second copy of the prompt.
+The service records one `context/compiled` event per `system-prompt/assemble` waterfall that names an agent and compiles to a digest the session has not already recorded, and the record holds the placement digest, the stated compiler version, the ceiling it was fitted to, the placement's token price, one entry per placed source (id, kind, trust, retention, price, relevance), every omission with its reason, and every retained conflict. The prompt text itself stays on the `system/message` surface, so the record is an identity a replay must reproduce rather than a second copy of the prompt.
 
 Two decisions are separate on purpose. The compiler decides what a step was compiled from and, in `apply` mode, which compressible sources the ceiling cut; it never decides what a contribution says, never edits prompt text, and never calls a model.
 
@@ -66,6 +66,28 @@ An assembled contribution is classified by the prefix of its registered name, an
 | anything else | `artifact` | `untrusted` | `repo` |
 
 A durable task fact read from `ctx.agentKernel.state.view(session)` is always `trusted`, always `required`, and attributed to `kernel`: the objective, one source per acceptance criterion, one per constraint, the latest plan revision, one per unsettled action, and one per unresolved failure.
+
+
+### Registering a dynamic source (S2)
+
+`ctx.agentContext.register(descriptor, provide)` is the seam a pre-step producer uses instead of appending a prompt section directly: `provide(agent, signal)` returns items for one compile, and the compiler wraps each as a `ContextSource` (`id: '<producer>:<itemId>'`), ranks and prices it alongside the assembly and the kernel's task facts, and includes it in the same digest. The call returns a disposer; calling it stops the producer's items from appearing in any later compile.
+
+```ts
+const stop = ctx.agentContext.register(
+  { producer: 'goal', kind: 'task', trust: 'trusted', placement: 'stable-core', maxBytes: 4000 },
+  async (agent, signal) => [{ id: 'objective', text: currentGoalText(agent), relevance: 1 }],
+)
+```
+
+`placement` governs both retention and repetition, per amendment S1 point 3 and S2:
+
+| Placement | Retention | Repetition |
+|---|---|---|
+| `stable-core` | `required` | Every compile, unconditionally — the producer's own unchanging identity brief |
+| `delta` | `compressible` | Once per session per item id; withheld on every later compile until a `compaction/end` event on that session clears it |
+| `tail-reminder` | `compressible` | Every compile — turn-conditional text, the first class the ceiling cuts |
+
+An item past its own `expiresAt` is dropped before placement, and an item's text is truncated to the descriptor's `maxBytes` before it becomes a source. This registry is additive: no shipped producer has migrated off `core/system-prompt` sections onto it yet, so mounting the plugin with nothing registered behaves exactly as before.
 
 ### Retention and ranking
 

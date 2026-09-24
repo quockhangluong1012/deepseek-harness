@@ -22,6 +22,23 @@ describe('recording one placement per assembly', () => {
     expect(records[0]?.digest).toMatch(/^[0-9a-f]{64}$/)
   })
 
+  it('records one placement while the digest stays the same, and a second once it changes', async () => {
+    const { ctx } = await rig()
+    const agent = makeAgent(ctx)
+    ctx.systemPrompt.section({ name: 'tool:read', order: 1100, text: 'Read a file.' })
+
+    await ctx.systemPrompt.assemble(assembleContextFor(agent))
+    await ctx.systemPrompt.assemble(assembleContextFor(agent))
+    expect(eventsOf(agent, 'context/compiled')).toHaveLength(1)
+
+    ctx.systemPrompt.section({ name: 'tool:write', order: 1101, text: 'Write a file.' })
+    await ctx.systemPrompt.assemble(assembleContextFor(agent))
+
+    const records = eventsOf(agent, 'context/compiled')
+    expect(records).toHaveLength(2)
+    expect(records[1]?.digest).not.toBe(records[0]?.digest)
+  })
+
   it('records nothing for an assembly that belongs to no agent', async () => {
     const { ctx } = await rig()
     const agent = makeAgent(ctx)

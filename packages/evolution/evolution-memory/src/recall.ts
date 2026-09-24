@@ -21,6 +21,7 @@
  * @module @deepseek-ai/dsh-evolution-memory/recall
  */
 
+import { utilityValue, type UtilityEstimate } from './lesson-artifact.ts'
 import type { MemoryRecall } from './types.ts'
 
 /**
@@ -119,6 +120,11 @@ export interface MemoryUtility {
   /** Graded recalls whose outcome was clean. */
   readonly okRecalls: number
   /**
+   * S8's utility estimate for this memory: how often it was surfaced with a
+   * graded outcome and how those outcomes split.
+   */
+  readonly estimate: UtilityEstimate
+  /**
    * §24's estimated utility: relevance × decision impact × outcome gain, each
    * in [0, 1]. Relevance is `n / (n + 1)` over the recorded recalls, the
    * saturation the knowledge graph's belief already uses for repeated
@@ -155,6 +161,14 @@ export function memoryUtility(recalls: readonly MemoryRecall[]): MemoryUtility[]
       decidedRecalls,
       gradedRecalls,
       okRecalls,
+      // S8's estimate counts surfaced outcomes, so it reads the graded recalls
+      // rather than every retrieval; `utilityValue` is its one implementation.
+      estimate: {
+        surfaced: gradedRecalls,
+        passingTasks: okRecalls,
+        failingTasks: gradedRecalls - okRecalls,
+        value: utilityValue(okRecalls, gradedRecalls - okRecalls),
+      },
       utility: count / (count + 1) * (decidedRecalls / count) * (okRecalls / count),
     }
   })

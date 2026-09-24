@@ -50,7 +50,11 @@ When the script settles, the run's result resolves with the returned value, the 
 
 Plugin consumers can start a run directly: `ctx.workflowEngine.start({ script, meta, args?, parent, signal? })`. `parent` attributes every child to the invoking agent; `signal` cancels the run when aborted. `start()` validates the meta block and parses the script before a run exists, so a malformed request fails immediately with a violation list.
 
-A returned run exposes `id`, `meta`, `result`, `cancel(reason?)`, and `dispose()`. The result never rejects: a script failure resolves with `stopReason: 'error'`, cancellation with `'cancelled'`. The caller owns the run — call `dispose()` on every path; it cancels remaining work and waits for script and child cleanup under the providers' lifecycle contracts.
+A returned run exposes `id`, `meta`, `status`, `result`, `checkpoint()`, `cancel(reason?)`, and `dispose()`. The result never rejects: a script failure resolves with `stopReason: 'error'`, cancellation with `'cancelled'`. The caller owns the run — call `dispose()` on every path; it cancels remaining work and waits for script and child cleanup under the providers' lifecycle contracts.
+
+### Checkpoints and resume
+
+`checkpoint()` resolves the run's identity, its current status, and the inputs it was started with — script, meta, args, child-provider override, and child ceiling. The script is data, so this reference is complete: persist it as plain JSON and hand it back later as `ctx.workflowEngine.resume({ checkpoint, parent, signal? })` to run the same work again. A resume is a NEW run with its own identity, children, and `workflow/*` event pair, attributed to the agent the caller supplies, so the engine never grows a second lifecycle. Resuming a checkpoint whose run is still live is refused with `CHECKPOINT_LIVE`: cancel the run first, then resume the cancelled run's checkpoint.
 
 ### Failures and recovery
 

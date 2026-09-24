@@ -27,6 +27,8 @@ kind: "package-reference"
 
 当 active 的 goal 应在无人干预的情况下持续推进时，挂载 `dsh-goal-round-driver`。它与 goal 服务和 goal 工具组合使用：服务拥有状态，工具让模型控制状态，本包负责调度轮次。
 
+挂载 `@deepseek-ai/dsh-agent-context` 后，编译器还会把每条可见 goal 提示词作为可信 task delta 记录，每个条目只出现一次，直到压缩清除其放置状态。shadow 模式下，驱动器仍排入相同的模型可见提示词。
+
 ### 组合方式
 
 把驱动器挂载在 goal 服务与 goal 工具旁边；驱动器本身不需要任何配置。

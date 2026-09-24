@@ -6,6 +6,7 @@
 import { isDeepStrictEqual } from 'node:util'
 import { FiberState } from '@deepseek-ai/cordis'
 import type { Context } from '@deepseek-ai/cordis'
+import type { ContextItem } from '@deepseek-ai/dsh-agent-context'
 import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
 import type { GoalMessageSource, GoalRef, GoalView } from '@deepseek-ai/dsh-goal'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
@@ -67,14 +68,43 @@ function goalRef(goal: GoalView): GoalRef {
   return { id: goal.id, revision: goal.revision }
 }
 
+function goalPromptItems(agent: Agent): ContextItem[] {
+  const items: ContextItem[] = []
+  for (const message of agent.session.deriveMessages()) {
+    if (message.role !== 'user' || message.source.kind !== 'goal') continue
+    let text = ''
+    for (const block of message.content) {
+      if (block.type === 'text') text += `${text.length === 0 ? '' : '\n'}${(block as { text: string }).text}`
+    }
+    items.push({ id: String(message.id), text, relevance: 1 })
+  }
+  return items
+}
+
 /** Human-readable unexpected values for logs. */
 function renderThrown(value: unknown): string {
   return value instanceof Error ? value.message : String(value)
 }
 
-/** Install automatic same-session continuation and its race fences. */
+/**
+ * Install automatic continuation and its optional task-source provider.
+ * @param ctx - plugin context; all registrations dispose with its fiber.
+ * @returns nothing; the Cordis fiber owns the driver lifecycle.
+ */
 export function apply(ctx: Context): void {
   const states = new Map<Agent, DriverState>()
+  ctx.inject(['agentContext'], compilerCtx => {
+    compilerCtx.effect(() => compilerCtx.agentContext.register({
+      producer: 'goal',
+      kind: 'task',
+      trust: 'trusted',
+      placement: 'delta',
+      maxBytes: Number.MAX_SAFE_INTEGER,
+    }, async (agent, signal) => {
+      signal.throwIfAborted()
+      return goalPromptItems(agent)
+    }))
+  })
 
   /** Create state for an exact currently live agent. */
   function stateFor(agent: Agent): DriverState {

@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-当一次部署必须从持久证据回答"任务原本要做什么、Harness 允许了什么、它为什么停下"时，就使用本包。Kernel 挂载到循环已经发布的 agent 与工具 waterfall 上，并记录四件事：每个会话一份任务契约；每次工具调用一条提议/决策/授权/执行记录；一个与技术上沙箱组合的能力权限决策；以及一个只有在全部必需验收标准都通过时才放行的完成决策。它不拥有任何执行。`mode: 'shadow'`（默认）记录每个决策且不改变任何行为。
+当一次部署必须从持久证据回答「任务原本要做什么、Harness 允许了什么、它为什么停下」时，就使用本包。Kernel 挂载到循环已经发布的 agent 与工具 waterfall 上，并记录四件事：每个请求一份任务契约；每次工具调用一条提议/决策/授权/执行记录；一个与沙箱组合的能力决策；以及一个只有在全部必需标准都通过时才放行的完成决策。它不拥有任何执行，`mode: 'shadow'`（默认）不改变任何行为。一个会话同一时间只持有一个任务；它结束后到达的消息会开启下一份契约。已附带的 `web` profile 正是这样挂载的——kernel、内置声明与 prompt-injection 守卫全部处于 `shadow`——因此每个 Web 会话都带有持久记录，而尚无任何决策具有约束力；`@deepseek-ai/dsh-agent-governance` 则是供其他 profile 使用的同一治理面的可选 bundle。
 
 ## 目录
 
@@ -25,7 +25,7 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用本包
 
-当一次部署需要持久治理记录或完成门禁时，在 profile 中挂载该插件。不做任何配置地挂载时，它以 shadow 模式在默认 `ask` 策略下记录，并且不拒绝任何东西，因为没有任何东西被强制执行。
+当一次部署需要持久治理记录或完成门禁时，在 profile 中挂载该插件。不做任何配置地挂载时，它以 shadow 模式在默认 `ask` 策略下记录，并且不拒绝任何东西，因为没有任何东西被强制执行。已附带的 `web`、`headless`、`sdk` 与 `acp` profile 都这样挂载它——kernel、内置声明与 prompt-injection 守卫全部处于 `shadow`——因此这些平面上的每个会话都带有持久记录，而尚无任何决策具有约束力；`@deepseek-ai/dsh-agent-governance` 则是供其他 profile 使用的同一治理面的可选 bundle。
 
 ### 何时选择它
 
@@ -71,6 +71,8 @@ kind: "package-reference"
 | `allowHumanOnlyCompletion` | `false` | 唯一通过证据由人类报告的任务是否允许完成 |
 | `maxAttemptsPerAction` | `2` | 恢复引擎据此报告剩余尝试次数的重试上限 |
 | `checkpointBeforeRetry` | `true` | 重试是否被记录为需要先做检查点 |
+| `maxPlanRevisions` | `32` | 每个任务的计划修订上限；需要更多修订说明任务在打转，下一次修订会被明确拒绝 |
+| `untrustedContent` | `quarantine` | 工具声明 `trust: 'untrusted'` 的提案如何裁决：`quarantine` 将合成结果上限压在 `ask`，因此仅凭权限 `allow` 永远无法授权外部内容；`allow` 则让权限文档成为唯一权威 |
 
 非空的 `resource: ''`、未知的 `action`、未知的 `effect`，或未知的默认 effect 都会以明确错误使插件加载失败，因此权限文档绝不会静默失效。全部被接受的字段列在生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-agent-kernel)中。
 
@@ -96,7 +98,7 @@ kind: "package-reference"
 
 ### 你会得到什么
 
-每个被接纳的步骤开启一份任务契约：`task/created` 携带目标、约束、验收标准、工作区、profile 与预算，处于 `status: 'intake'`、`revision: 1`；`task/transitioned` 记录之后的每次迁移。每次工具调用被记录为 `action/proposed`、`policy/decision`、`action/authorized` 或 `action/denied`、可选的 `capability/grant`，以及 `action/committed`——最后一条携带治理回执，指明沙箱模式、工作区根目录，以及被询问时的人类结果。每个在带必需标准的任务上结束的轮次都会记录 `verification/requested`、`verification/result`，而当门禁拒绝完成时，还记录 `failure/recorded` 与 `recovery/decided`。每个子 agent 都携带一份 `delegation/received` 回执，在创建时写入自己的日志：其父级下发的权能、可写范围、预算与深度，父级日志上则留一份 `delegation/issued` 作为审计副本。
+每个被接纳的步骤开启一份任务契约：`task/created` 携带目标、约束、验收标准、工作区、profile 与预算，处于 `status: 'intake'`、`revision: 1`；`task/transitioned` 记录之后的每次迁移。每次工具调用被记录为一条 `action/decided`，其中携带提议、规则决策、组合后的授权（以及它所授予的能力、是否拒绝了该调用）；另有 `action/committed`，携带治理回执，指明沙箱模式、工作区根目录，以及被询问时的人类结果。每个在带必需标准的任务上结束的轮次都会记录 `verification/requested`、`verification/result`，而当门禁拒绝完成时，还记录 `failure/recorded` 与 `recovery/decided`。每个子 agent 都携带一份 `delegation/received` 回执，在创建时写入自己的日志：其父级下发的权能、可写范围、预算与深度，父级日志上则留一份 `delegation/issued` 作为审计副本。
 
 四个决策被有意分开。规则决定 `allow`、`ask` 或 `deny`；实现的沙箱仍可能拒绝其边界之外的写入能力；子 agent 的委派回执仍可能扣留其父级从未授予的能力、资源或深度；而 `ask` 由已组合的审批应答链决定，缺少应答者时按失败关闭处理。拒绝被记录为 `outcome: 'denied'`，绝不记录为执行失败。
 
@@ -108,12 +110,19 @@ kind: "package-reference"
 |---|---|
 | `state.view(session)` | 当前任务契约、预算观测、未完成动作、未解决失败、最新计划、最新检查点，以及 agent 为子级时的委派回执 |
 | `attach(agent)` | 一个句柄，其 `snapshot()` 读取实时视图，其 `dispose()` 释放 Kernel 的引用 |
-| `capabilities.register(declaration)` | 声明一个工具的能力并返回 disposer |
+| `capabilities.register(declaration)` | 声明一个工具的能力，并可选声明它所处理内容的信任度，返回 disposer |
+| `profiles.register(profile)` | 注册一个 agent 角色——其能力授予、策略 profile 与各项上限——并返回 disposer |
+| `registerPolicyProfileProvider(provider)` | 选择该会话的策略层，并与部署文档求交，返回 disposer |
 | `verifiers.register(verifier)` | 向完成门禁提供标准结果并返回 disposer |
 | `verify(agent, changedScopes)` | 记录一次验证请求与结果并返回完成决策 |
 | `checkpoint(agent, reason)` | 在当前会话序列处记录当前 Kernel 状态的索引 |
+| `recordEvidence(agent, input)` | 记录一条供断言引用的观测并返回它 |
+| `recordClaim(agent, input)` | 依据本会话已记录的观测断言一条 claim 并返回它 |
+| `recordHypothesis(agent, input)` | 记录一个任务正在检验的问题并返回它 |
+| `readKernelMetrics(events)` | 把一个会话的 Kernel 事件折叠成本平面自有的计数器（任务、验证、动作、失败、恢复、检查点） |
+| `startupRecovery` | 已存会话的一次性只读扫描；每个非终态任务都按证据原因分类为可继续、可修复或受阻 |
 
-Kernel 不在会话日志之外保存任何状态。它的账本在一个按会话游标之后折叠 `task/*`、`action/*`、`capability/grant`、`failure/recorded`、`verification/result`、`checkpoint/created`、`delegation/received`、`step/start` 与 `tool/call` 事件，因此重放的日志会重建同一个视图。
+任务状态的唯一事实来源是会话日志：ledger 在按会话游标之后折叠 `task/*`、`action/*`、`evidence/recorded`、`claim/updated`、`failure/recorded`、`verification/result`、`checkpoint/created`、`delegation/received`、`evidence/recorded`、`claim/updated`、`hypothesis/updated`、`step/start` 与 `tool/call` 事件，因此重放会重建同一视图。进程还提供 `startupRecovery`，它是从已存会话推导的一次性只读分类，不会取代日志。
 
 -----
 
@@ -124,6 +133,10 @@ Kernel 不在会话日志之外保存任何状态。它的账本在一个按会�
 <summary>实现内部细节——点击展开</summary>
 
 本节解释 Kernel 如何得知发生了什么、以及在何处介入；可观察行为已在[使用本包](#use-this-package)中完整覆盖。
+
+### 验证失败与修复
+
+达到所配置步骤上限的任务不会再被接纳新的步骤：Kernel 记录一条 `step-ceiling` 失败，将其归类为 `checkpoint-pause`，并只把任务置为 `paused` 一次——之后的步骤不会再接纳任何内容，也不会记录第二次失败。循环因为模型达到输出上限而结束的轮次（`turn/end` 的 `max-tokens` 原因）同样会被记录为 `output-truncated` 失败，且在被截断轮次之后的那个步骤上检测到——因为结束原因是在本 Kernel 的 turn-stopping 监听器运行之后才写入的。同一个会话第三次以相同参数调用某个工具、且返回结果也相同时，就是一次 `no-progress` 失败：回执记录每次调用返回内容的摘要，一旦两次相同的调用构成一段行程，Kernel 就记录该失败；在 `enforce` 模式下还会拒绝第三次调用，并给出要求模型先整合已有信息的理由。其余 S4 类型（`tool-args-malformed`、`stalled`）由同一张表分类；它们的检测器属于观测那些 seam 的包。以验证失败结束的轮次会记录该失败、把任务置为 `recovering`，并发送一条修复消息，其中列出门禁的理由；重复次数受 `Config.maxRepairAttempts`（默认 3）限制。超过上限后任务带着同样的理由转入 `awaiting-user`，因为无法收敛的修复循环属于人的决策。此后若有验证通过，就会解除先前的 `verification-failed` 失败，因此完成判定读取的是通过结果。
 
 ### 设计哲学
 
@@ -140,8 +153,7 @@ Kernel 建立在四项承诺之上：
 |---|---|---|
 | 开启或推进任务 | `agent/pre-step` | 在首个被接纳的步骤创建契约，随后把它迁移到 `executing` |
 | 签发委派 | `agent/created` | 把子级的回执写入其自己的日志，并把审计副本写入父级日志，都在双方拥有任务之前 |
-| 提议动作 | `tools/pre-execute` | 在任何求值之前追加 `action/proposed`，因此崩溃时仍记录被请求的内容 |
-| 决定动作 | `tools/pre-execute` | 求值文档、组合沙箱与委派回执、追加 `policy/decision` 与授权 |
+| 决定动作 | `tools/pre-execute` | 求值文档、组合沙箱与委派回执，并追加一条 `action/decided`，其中携带提议、规则决策、授权及其授予 |
 | 强制执行动作 | `tools/pre-execute` 返回值 | `deny` 拦下调用，`ask` 路由到已组合的应答链；shadow 模式总是委托 |
 | 观察动作 | `tools/post-execute` | 追加带治理回执的 `action/committed` |
 | 结束轮次 | `agent/turn-stopping` | 记录观察边，然后对必需标准运行完成门禁 |
@@ -149,7 +161,7 @@ Kernel 建立在四项承诺之上：
 
 ### 状态机
 
-`state-machine.ts` 拥有合法边表。分阶段链路 `intake → understanding → retrieving → planning → ready` 供规划器使用；Kernel 自身的驱动器直接走 `intake → ready`，因为循环没有暴露可观察的计划阶段，并以 `step-admitted` 作为触发器。`awaiting-approval`、`awaiting-user`、`paused` 与 `cancelled` 可从每个非终态到达，终态没有出边。`applyTransition()` 强制 Kernel 承诺的 compare-and-set：一次迁移必须属于该任务、从它当前的状态出发、并引用它当前的 revision，否则在任何追加之前抛出。
+`state-machine.ts` 拥有合法边表与状态列表本身，而 `TaskClass` 决定每一类任务从什么起步：`conversational`（默认）不需要验收标准、在轮次结束时完成；`coding`、`research` 与 `operations` 采用部署为该类配置的标准，并且只有在 `requireAcceptanceCriteriaByClass` 要求时才被标准约束。类别来源依次为：调用方自己的声明、任务所用角色、变异启发式——承接了一个提出过文件变更工具的任务即视为编码工作。被类别豁免标准的任务不产生验证事件对，因为无物可验。每个状态都有产生者：任务创建时为 `intake`，进入 plan mode 期间为 `planning`，首个步骤被接纳时为 `ready`，每个步骤前后为 `executing` 与 `observing`，轮次结束时为 `verifying`，恢复开始时为 `recovering`，`awaiting-approval` 来自审批联动，`paused` 来自预算或存活停止，终态三者来自完成门或取消。未进入 plan mode 时，Kernel 自身的驱动器直接走 `intake → ready`，并以 `step-admitted` 作为触发器。`awaiting-approval`、`awaiting-user`、`paused` 与 `cancelled` 可从每个非终态到达，终态没有出边。`applyTransition()` 强制 Kernel 承诺的 compare-and-set：一次迁移必须属于该任务、从它当前的状态出发、并引用它当前的 revision，否则在任何追加之前抛出。
 
 ### 源码地图
 
@@ -163,6 +175,7 @@ Kernel 建立在四项承诺之上：
 | [`src/capabilities.ts`](src/capabilities.ts) | 工具能力注册表 |
 | [`src/verification.ts`](src/verification.ts) | 完成门禁与本地标准验证器注册表 |
 | [`src/recovery.ts`](src/recovery.ts) | 失败类型到恢复动作的映射表及其重试上限 |
+| [`src/recovery-scan.ts`](src/recovery-scan.ts) | 对已存会话执行只读扫描，并分类为可继续/可修复/受阻 |
 | [`src/ledger.ts`](src/ledger.ts) | 基于游标的折叠与预算观测 |
 | — | 不发布运行时 invariant 伴生件；Kernel 的折叠从独立伴生件会读取的同一批事件重新推导视图，因此两者不可能分叉。 |
 
@@ -211,9 +224,13 @@ shadow 模式下增加零 token。在 `enforce` 模式下，被拒绝的调用�
 - **enforce 模式按设计拒绝一切未声明者** — 不带 builtins 插件就打开 `enforce` 的部署会停下每一次工具调用。请先以 `shadow` 挂载并阅读 `action/denied` 记录。
 - **没有随包发布的标准验证器** — `verifiers.register()` 是接缝；声明了必需标准却没有注册验证器的任务会记录一次 `unknown` 验证并永不完成。命令、构建与 diff 不由本包运行。
 - **Token 与成本上限只被报告，不被测量** — `budget.maxTokens` 与 `budget.maxCostUsd` 在每份预算观测中都显示为无上限，因为该测量由 token meter 拥有；`guard/budgets` 仍是它们的强制执行监听器。
-- **重试次数统计的是提议，而非执行** — `maxAttemptsPerAction` 与同一 action id 下 `action/proposed` 事件的数量比较，因此一次不再重新提议的 provider 层重试不会推进计数。
-- **未实现崩溃恢复** — Kernel 记录 `checkpoint/created` 并在继续时重读日志，但没有启动扫描器把已持久化的会话分类为可继续、可修复或受阻。
-- **状态机没有规划器** — `understanding`、`retrieving` 与 `planning` 合法但没有东西驱动它们，因此 Kernel 任务走 `intake → ready → executing → observing` 再回到原处。
+- **重试次数统计的是提议，而非执行** — `maxAttemptsPerAction` 与同一 action id 下 `action/decided` 记录的数量比较，因此一次不再重新提议的 provider 层重试不会推进计数。
+- **启动恢复只分类，不会继续执行。** `sessionPersistence` 可用后，Kernel 通过后端打开列出的每个会话，由后端解析其当前 generation。无任务或已终态的会话会被排除；未闭合轮次或等待必需检查点的恢复决策会被判为可修复；逐会话打开/读取失败会被判为受阻。会话列表读取失败则扫描 Promise 会拒绝。`dsh task recover-scan` 输出同一结果。
+- **`planning` 有两个产生者** — plan mode（`recordPlanMode`，由 plan-mode 插件在记录模式后调用）与首次记录的计划修订。两者皆无的任务走 `intake → ready → executing → observing`。
+- **变异启发式读的是工具声明，而非路径** — 承接了一个提出过 `fs.write`/`fs.edit` 工具的任务会被归为 `coding`；Kernel 不检查该工具实际触碰了哪些路径。
+- **预算报告实测 token 花费；成本仍无报告** — `maxTokens` 的剩余量等于上限减去本会话的计费 token 数，来源于 token meter 自有的逐轮 provider 总计（`deriveSessionTokenSpend`）。provider 未报告 usage 的上限会被视为未花费；而 `maxCostUsd` 需要本包并不拥有的价格来源，因此保持缺省，继续由 `guard/budgets` 执行。
+- **验证成本控制不完整** — 注册表按验证器族排序（assertion、diff、human、research、build、test），在首个失败的必需标准处停止，并让超出 `verifierTimeoutMs` 的验证器判为失败。无变更时跳过验证、跨轮次缓存结果、以及保持轮次开启以修复失败均未实现。
+- **类别标准由部署拥有** — Kernel 记录 `Config.acceptanceByClass` 为该类提供的标准。从工作区清单推导 typecheck、lint 与 test 命令尚未实现；需要它们的部署自行声明。
 - **委派回执的严格程度不超过签发它的文档** — 回执求交权能、可写范围、预算与深度，但逐资源的精确性仍来自子级用同一份文档做的规则求值。签发之后部署文档发生变更的子级跑在新规则之下，而回执仍记着旧摘要；`inheritedPolicyDigest` 就是读者分辨的依据。
 - **解析不到父级的子级回退到部署上限** — 父级会话不可解析时，回执不记父级 run 或任务，子契约从部署预算起步。已携带回执的继续子级沿用日志里那份，不再领取第二份。
 

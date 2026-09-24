@@ -17,6 +17,11 @@
 import type { EvaluatedVariant } from './types.ts'
 
 /**
+ * How much cheaper one variant must be before its cost counts as better.
+ */
+const TOKEN_EPSILON = 0.02
+
+/**
  * Whether `a` dominates `b`: at least as good on every axis, strictly better on one.
  * @param a - comparison's left score triple.
  * @param b - comparison's right score triple.
@@ -27,10 +32,10 @@ export function dominates(
   b: { pass: boolean; tokens: number; wallTimeMs: number },
 ): boolean {
   if (a.pass !== b.pass) return a.pass
-  return (
-    (a.tokens <= b.tokens && a.wallTimeMs <= b.wallTimeMs) &&
-    (a.tokens < b.tokens || a.wallTimeMs < b.wallTimeMs)
-  )
+  // Wall time is deliberately absent: it measures the machine, not the
+  // candidate (amendment S9). Two bodies within TOKEN_EPSILON of each other
+  // bill the same in practice, so neither dominates on tokens alone.
+  return a.tokens <= b.tokens * (1 + TOKEN_EPSILON) && a.tokens < b.tokens * (1 - TOKEN_EPSILON)
 }
 
 /**
@@ -61,7 +66,6 @@ export function screenSurvivors(screened: readonly EvaluatedVariant[], keep: num
       left.score.tokens - right.score.tokens ||
       right.archiveNovelty - left.archiveNovelty ||
       right.novelty - left.novelty ||
-      left.score.wallTimeMs - right.score.wallTimeMs ||
       left.index - right.index,
     )
     .slice(0, keep)
@@ -71,7 +75,7 @@ export function screenSurvivors(screened: readonly EvaluatedVariant[], keep: num
 /**
  * Pick the winner: the frontier member that dominates the re-scored baseline,
  * breaking ties by fewer tokens, then furthest from the skill's archive, then
- * more novel body, then less wall time, then earlier mutation. Dominance is
+ * more novel body, then earlier mutation. Wall time is never an ordering key. Dominance is
  * the only gate, so a candidate that does not beat the baseline is never
  * chosen on novelty.
  * @param baseline - triple the baseline scored under the same harness.
@@ -87,7 +91,6 @@ export function pickWinner(
     left.score.tokens - right.score.tokens ||
     right.archiveNovelty - left.archiveNovelty ||
     right.novelty - left.novelty ||
-    left.score.wallTimeMs - right.score.wallTimeMs ||
     left.index - right.index,
   )
   return beating[0] ?? null

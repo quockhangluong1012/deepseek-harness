@@ -34,6 +34,8 @@ import type { Session, UserMessage } from '@deepseek-ai/dsh-session'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { UserQuestionError } from '@deepseek-ai/dsh-user-questions'
 import type { CommandDefinitionId, CommandId } from '@deepseek-ai/dsh-commands'
+// Type-only: declares `ctx.agentKernel`, the optional owner of task status.
+import type {} from '@deepseek-ai/dsh-agent-kernel'
 import type {} from '@deepseek-ai/dsh-session-projection'
 import type { ProjectionDefinition } from '@deepseek-ai/dsh-session-projection'
 import type { PlanProjection, PlanUnitState } from './types.ts'
@@ -437,6 +439,7 @@ export class PlanModeController extends Service {
       return 'cancelled'
     }
     session.append('plan/mode', { active })
+    this.reportToKernel(session, active)
     this.pendingIntents.delete(session)
     const narration = this.narration(session, active)
     if (narration !== undefined) agent.inject(narration)
@@ -453,9 +456,22 @@ export class PlanModeController extends Service {
       return
     }
     session.append('plan/mode', { active: target })
+    this.reportToKernel(session, target)
     // Delete only after append succeeds so a later accepted in-turn pre-step
     // can retry a failed durable write.
     this.pendingIntents.delete(session)
+  }
+
+  /**
+   * Tell the agent kernel about the mode the log now records, when one is
+   * mounted: plan mode is the producer of the kernel's `planning` status, and
+   * the status must agree with the mode. Reporting happens after the append
+   * returns, because a session observer cannot append inside that window.
+   * @param session The session whose mode was recorded.
+   * @param active The mode the log now holds.
+   */
+  private reportToKernel(session: Session, active: boolean): void {
+    this.ctx.get('agentKernel')?.recordPlanMode(session, active)
   }
 
   /** Build a user-switch notice when the last logged header described the other mode. */

@@ -18,6 +18,23 @@
     mode: !!js process.env.DSH_TOOLS_MODE
 
 - insert:
+    # Governance plane (spec §33 B0), mirroring the web surface: the kernel
+    # and its builtin capability declarations, plus the prompt-injection
+    # guard, all mounted in `shadow`. Shadow records what each decision would
+    # have been and changes no behaviour.
+    - id: agent-kernel
+      name: '@deepseek-ai/dsh-agent-kernel'
+      config:
+        mode: shadow
+
+    - id: agent-kernel-builtins
+      name: '@deepseek-ai/dsh-agent-kernel-builtins'
+
+    - id: prompt-injection
+      name: '@deepseek-ai/dsh-prompt-injection'
+      config:
+        mode: shadow
+
     - id: headless-startup
       name: '@deepseek-ai/dsh-headless/startup'
 

@@ -69,6 +69,16 @@ interface ToolDefinition extends ToolSchema {
    */
   timeoutMs?: number
   /**
+   * Declares that the runtime validates this definition's arguments against
+   * `parameters` before the policy pipeline runs, so a call that cannot execute
+   * never reaches a `tools/pre-execute` listener or an approval prompt
+   * (amendment S4). `defineTool` sets it, because its `parameters` is a
+   * compiled schema. A raw registration omits it: an MCP server answers for its
+   * own schema. A tool whose arguments depend on state resolved inside
+   * `execute` sets it to `false` and answers for its own schema instead.
+   */
+  readonly validatesArgs?: boolean
+  /**
    * Pure synchronous classifier for overlap with sibling tool calls. Only
    * `true` opts in; omission, exceptions, non-`true` returns, and invalid
    * `defineTool` arguments are exclusive. This metadata is never model-visible.

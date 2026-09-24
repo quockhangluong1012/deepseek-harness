@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
 import { ToolCallId, MessageId } from '@deepseek-ai/dsh-llm'
 import { SessionSeq, type Session, type SessionEvent } from '@deepseek-ai/dsh-session'
-import { assistantUpdates, toolCallUpdate, toolResultUpdate } from '../src/updates.ts'
+import { assistantUpdates, planUpdate, toolCallUpdate, toolResultUpdate } from '../src/updates.ts'
 
 /** Minimal committed assistant event for pure update projection tests. */
 function assistantEvent(
@@ -28,6 +28,25 @@ function assistantEvent(
     },
   }
 }
+
+describe('kernel plan projection', () => {
+  it('renders one pending plan entry per recorded step, in order', () => {
+    const update = planUpdate({
+      type: 'task/plan',
+      seq: SessionSeq(3),
+      time: 0,
+      data: { revision: 1, steps: ['reproduce the failure', 'repair it'], createdAt: 0 },
+    })
+
+    expect(update).toEqual({
+      sessionUpdate: 'plan',
+      entries: [
+        { content: 'reproduce the failure', priority: 'medium', status: 'pending' },
+        { content: 'repair it', priority: 'medium', status: 'pending' },
+      ],
+    })
+  })
+})
 
 describe('standard ACP update projection', () => {
   it('omits empty reasoning, unsupported assistant blocks, and absent usage', async () => {

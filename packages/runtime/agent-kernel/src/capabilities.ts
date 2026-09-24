@@ -10,7 +10,7 @@
  * @module @deepseek-ai/dsh-agent-kernel/capabilities
  */
 
-import type { CapabilityDeclaration, CapabilityRegistry, CapabilityRequest } from './types.ts'
+import type { CapabilityDeclaration, CapabilityRegistry, CapabilityRequest, TrustLabel } from './types.ts'
 
 /**
  * The registry `ctx.agentKernel.capabilities` names. Registering one tool twice
@@ -23,10 +23,12 @@ export class ToolCapabilityRegistry implements CapabilityRegistry {
 
   /**
    * Register one tool's capability declaration.
-   * @param declaration - the declaration; its `resources` projection must be total.
+   * @param declaration - the declaration; at least one capability is required and `resources` must be total.
    * @returns a disposer that removes this declaration while it is still the registered one.
+   * @throws When the declaration lists no required capabilities.
    */
   register(declaration: CapabilityDeclaration): () => void {
+    if (declaration.capabilities.length === 0) throw new Error(`Tool "${declaration.tool}" must declare at least one capability`)
     this.declarations.set(declaration.tool, declaration)
     return () => {
       if (this.declarations.get(declaration.tool) === declaration) this.declarations.delete(declaration.tool)
@@ -54,6 +56,15 @@ export class ToolCapabilityRegistry implements CapabilityRegistry {
    */
   has(toolName: string): boolean {
     return this.declarations.has(toolName)
+  }
+
+  /**
+   * The trust one tool declared for the content it acts on.
+   * @param toolName - registered tool name.
+   * @returns the declared trust, or undefined when the tool declared none.
+   */
+  trustOf(toolName: string): TrustLabel | undefined {
+    return this.declarations.get(toolName)?.trust
   }
 
   /** Number of registered declarations. */

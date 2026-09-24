@@ -3,6 +3,7 @@ import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
+import AgentContext from '@deepseek-ai/dsh-agent-context'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import * as AgentInstructions from '@deepseek-ai/dsh-agent-instructions'
 import LlmRuntime, { createUserMessage, ToolCallId, type Message, type MessageSource, type StreamChunk } from '@deepseek-ai/dsh-llm'
@@ -1358,6 +1359,38 @@ describe('workspace context request injection', () => {
       expect(derivedText(agent)).not.toContain('<context source=')
       expect(derivedText(agent)).not.toContain('<agent-instructions')
     } finally {
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
+  it('records visible workspace instructions as untrusted policy sources', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    const ctx = new Context()
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      await write(join(root, 'AGENTS.md'), 'repository instructions')
+      await mountFileToolsAndAgentInstructions(ctx, { dshHome: home, maxBytes: 65536 })
+      await ctx.plugin(AgentContext, {})
+      const agent = await stubAgent(root)
+      await composeBaselinePrefix(ctx, agent)
+
+      const events = agent.session.snapshotEvents().filter(event =>
+        event.type === 'user/message' && event.data.source.kind === 'agent-instructions')
+      const compiled = await ctx.agentContext.compile(agent, { sections: [], contexts: [], tools: [], variables: {} })
+
+      expect(events.length).toBeGreaterThan(0)
+      for (const event of events) {
+        if (event.type !== 'user/message') continue
+        const source = compiled.included.find(entry => entry.source.id === `agent-instructions:${String(event.data.id)}`)
+        expect(source?.source.content).toBe(blocksText(event.data.content))
+        expect(source?.source.kind).toBe('policy')
+        expect(source?.source.trust).toBe('untrusted')
+        expect(source?.source.retention).toBe('compressible')
+      }
+    } finally {
+      await ctx.fiber.dispose()
       await rm(root, { recursive: true, force: true })
       await rm(home, { recursive: true, force: true })
     }

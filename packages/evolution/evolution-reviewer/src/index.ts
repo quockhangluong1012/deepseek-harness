@@ -33,6 +33,8 @@ import type { SessionQueryEngine } from '@deepseek-ai/dsh-session-query'
 import { deadline } from '@deepseek-ai/dsh-timeout'
 import { RemoteError, remoteErrorOf } from '@deepseek-ai/dsh-typert-protocol'
 import type {} from '@deepseek-ai/dsh-workspace'
+// Type-only: declares the `security/scan` event the taint check reads.
+import type {} from '@deepseek-ai/dsh-prompt-injection'
 import { WorkspaceId } from '@deepseek-ai/dsh-workspace'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import type { EvolutionExtraction, EvolutionOutput, LessonDecision } from '@deepseek-ai/dsh-evolution-memory'
@@ -56,6 +58,17 @@ declare module '@deepseek-ai/cordis' {
 }
 
 /** Deployment choices for review scheduling and budgets. Fields read alphabetically. */
+/**
+ * Whether the harness marked content of this session untrusted. The
+ * prompt-injection guard records one `security/scan` per scanned call, and a
+ * tainted record means text nobody vouched for reached the model.
+ * @param session - the session being reviewed, when it is still live.
+ * @returns true when any scanned content was tainted.
+ */
+function sessionHasTaintedContent(session: Session | undefined): boolean {
+  return session?.snapshotEvents().some(event => event.type === 'security/scan' && event.data.tainted) ?? false
+}
+
 export interface Config {
   /** Minimum gap between two extractions for one scope. */
   cooldownMs?: number
@@ -1082,11 +1095,13 @@ export class EvolutionReviewer extends Service {
   ): Promise<void> {
     const relevant = await this.indexedArtifacts(scope, rows)
     const response = await this.callModel(route, rows, relevant, signal, sessionId)
+    const untrusted = sessionHasTaintedContent(this.ctx.get('sessions')?.get(sessionId))
     const { decisions, critiques } = this.resolveDecisions(
       parseExtractionDecisions(response.text),
       relevant,
       String(sessionId),
       rows.some(row => row.role === 'tool'),
+      untrusted,
     )
     await this.recordCritiques(scope, critiques, sessionId)
     await this.applyExtraction(scope, decisions, {
@@ -1097,7 +1112,7 @@ export class EvolutionReviewer extends Service {
       origin: meta.origin,
       inputBytes: meta.inputBytes,
       truncated: response.truncated,
-    }, meta.turn)
+    }, meta.turn, untrusted)
   }
 
   /**
@@ -1142,6 +1157,7 @@ export class EvolutionReviewer extends Service {
     relevant: readonly IndexedArtifact[],
     source: string,
     hasFailure: boolean,
+    untrusted: boolean,
   ): { decisions: LessonDecision[]; critiques: CritiqueDecision[] } {
     const resolved: LessonDecision[] = []
     const critiques: CritiqueDecision[] = []
@@ -1165,6 +1181,10 @@ export class EvolutionReviewer extends Service {
             evidence: 'inference',
             confidence: decision.confidence,
             scope: decision.scope,
+            // The reviewed session is what the fact was drawn from, so it is
+            // the source reference the store admits the artifact under.
+            sourceRefs: [`session:${source}`],
+            ...untrusted ? { trust: 'untrusted' as const } : {},
           },
         })
         continue
@@ -1179,7 +1199,12 @@ export class EvolutionReviewer extends Service {
             evidence: decision.evidence,
             confidence: decision.confidence,
             scope: decision.scope,
+            sourceRefs: [`session:${source}`],
             ...decision.ttlDays === undefined ? {} : { ttlDays: decision.ttlDays },
+            // A turn whose scanned content the harness marked tainted yields
+            // facts nobody vouched for, so they carry that label into the
+            // store and enter it only through staging.
+            ...untrusted ? { trust: 'untrusted' as const } : {},
           },
         })
         continue
@@ -1252,8 +1277,11 @@ export class EvolutionReviewer extends Service {
     decisions: readonly LessonDecision[],
     extraction: EvolutionExtraction,
     turn: number,
+    untrusted: boolean,
   ): Promise<void> {
-    if (this.resolved.writeApproval && extraction.origin === 'background_review' && decisions.length > 0) {
+    // Facts derived from tainted content always stage, whatever the approval
+    // setting says: taint reaches durable memory only through an approval.
+    if (decisions.length > 0 && (untrusted || this.resolved.writeApproval && extraction.origin === 'background_review')) {
       await this.ctx.evolutionMemory.stageWrite({
         scopeId: scope,
         kind: 'memory',

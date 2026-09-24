@@ -97,7 +97,11 @@ Skill 摘要保留胜出提供方可选的指令文件 `path`，供提供文件�
 
 ### 目录收集
 
-读取（`list`/`snapshot`）会收集每一层的候选项：先是运行时 skill，再是各提供方的 `list()` 结果，注册表会依次等待各提供方，并隔离失败。候选项经验证后在层内去重，跨层合并；摘要按名称排序。完成的收集按 cwd、scope 链与 revision 缓存，上限为 `collectCacheMaxEntries`；读取中途提供方或运行时变更使 revision 递增时，进行中的收集会重试一次，第二次变更则返回最新候选项并标记为不完整、不予缓存。
+读取（`list`/`snapshot`）会收集每一层的候选项：先是运行时 skill，再是各提供方的 `list()` 结果，注册表会依次等待各提供方，并隔离失败。候选项经验证后在层内去重，跨层合并；摘要按名称排序。被提供方标记为 `quarantined` 的候选项会在此处被丢弃并计入隔离计数，因此既不会被广告也不可加载——报告隔离而非扣留候选项的提供方会得到同样结果。完成的收集按 cwd、scope 链与 revision 缓存，上限为 `collectCacheMaxEntries`；读取中途提供方或运行时变更使 revision 递增时，进行中的收集会重试一次，第二次变更则返回最新候选项并标记为不完整、不予缓存。
+
+### 准入
+
+摘要可以携带 `admission`（`bundled`、`project-reviewed`、`user-approved` 或 `quarantined`）、`trust`、`sourceDigest` 与 `rollbackArtifact`。注册表只强制执行隔离；`admitSkill()` 是持有授权的调用方所施加的门禁：它拒绝被隔离的 skill、拒绝提供方未指明评审的不可信 skill，并拒绝声明了超出调用方授权的 capability，因为 skill 可以收窄调用方权限却绝不能放宽它。`capabilitiesWithin()` 单独暴露该包含性检查。
 
 ### 加载与陈旧
 

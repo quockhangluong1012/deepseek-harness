@@ -2693,11 +2693,18 @@ describe('defineTool validation (the runtime-validation Agent Note, part 1)', ()
       },
     }))
 
+    // S4: the call cannot execute, so no policy listener and no approval may
+    // observe it — the schema error is the whole answer.
+    let consulted = 0
+    ctx.on('tools/pre-execute', async (_exec, next) => { consulted += 1; return next() })
+
     const result = await ctx.tools.execute({ signal: testToolSignal, callId: ToolCallId('c1'), name: 'reader', arguments: {} })
+
     expect(result.isError).toBe(true)
     expect(result.content[0]).toMatchObject({
       text: 'Error: invalid arguments: missing required property "path"',
     })
+    expect(consulted).toBe(0)
   })
 
   it('runs execute normally when args are valid', async () => {

@@ -341,6 +341,10 @@ export function createRunCodeTool(registry: ToolRuntime, options: RunCodeBridgeO
     // off this static spec (defineTool closes over it), which is language-
     // independent (one required string `code`).
     description: TYPESCRIPT_FLAVOR.description,
+    // Escalation and timeout fields are validated against the runtime this call
+    // resolves to, which a pre-pipeline schema walk cannot know, so this tool
+    // answers for its own arguments.
+    validateArgsBeforePipeline: false,
     parameters: {
       code: { type: 'string', required: true, description: TYPESCRIPT_FLAVOR.codeDescription },
       description: {

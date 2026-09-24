@@ -5,11 +5,15 @@
  * response — proactive retrieval instead of the user having to ask for it.
  * With `taskAwarePolicy` on, the turn's recorded task class selects the §39
  * configuration `ctx.evolutionRetrieval` recommends instead of the mount's own.
+ * When `agent-context` is mounted, the compiler records logged briefs as untrusted
+ * deltas until compaction clears their placement.
  * @module @deepseek-ai/dsh-active-memory-context
  */
 
 import { realpath } from 'node:fs/promises'
 import type { Context } from '@deepseek-ai/cordis'
+import type { ContextItem } from '@deepseek-ai/dsh-agent-context'
+import type {} from '@deepseek-ai/dsh-compaction'
 import z from '@deepseek-ai/schemastery'
 import type { PreStepDecision } from '@deepseek-ai/dsh-agent'
 import type { GraphNode, GraphReach } from '@deepseek-ai/dsh-evolution-graph'
@@ -246,6 +250,12 @@ function textOf(message: UserMessage): string {
     .join('\n')
 }
 
+function activeMemoryItem(message: UserMessage): ContextItem | undefined {
+  const source = message.source as { kind?: string } | undefined
+  if (source?.kind !== 'active-memory') return undefined
+  return { id: String(message.id), text: textOf(message), relevance: 1 }
+}
+
 /**
  * The slice of `ctx.evolutionGraph` this plugin reads: label lookup and bounded
  * expansion. Declared here rather than imported so active memory keeps no hard
@@ -394,7 +404,8 @@ function otherSessionIds(ids: readonly SessionId[], self: SessionId): SessionId[
 }
 
 /**
- * Register the pre-step active-memory search for the lifetime of `ctx`.
+ * Register the pre-step search and its optional compiler-source provider for
+ * the lifetime of `ctx`.
  * @param ctx - plugin context; listeners dispose with it.
  * @param config - byte cap, result bounds, search cadence, and policy switch.
  */
@@ -415,12 +426,25 @@ export function apply(ctx: Context, config: Config): void {
   const turnsBySession = new Map<string, number>()
   const searchedForTurn = new Map<string, number>()
   const recordedSessions = new Set<string>()
+  const activeMemoryItems = new Map<string, Map<string, ContextItem>>()
   const configurationInForce = inForceConfiguration(resolved)
 
   ctx.on('session/event', (session: Session, event: SessionEvent) => {
-    if (event.type !== 'turn/start') return
     const key = String(session.id)
-    turnsBySession.set(key, (turnsBySession.get(key) ?? 0) + 1)
+    if (event.type === 'turn/start') {
+      turnsBySession.set(key, (turnsBySession.get(key) ?? 0) + 1)
+      return
+    }
+    if (event.type === 'compaction/end') {
+      activeMemoryItems.delete(key)
+      return
+    }
+    if (event.type !== 'user/message') return
+    const item = activeMemoryItem(event.data)
+    if (item === undefined) return
+    const items = activeMemoryItems.get(key) ?? new Map<string, ContextItem>()
+    items.set(item.id, item)
+    activeMemoryItems.set(key, items)
   })
   ctx.on('session/disposed', (session: Session) => {
     const key = String(session.id)
@@ -428,12 +452,14 @@ export function apply(ctx: Context, config: Config): void {
     turnsBySession.delete(key)
     searchedForTurn.delete(key)
     recordedSessions.delete(key)
+    activeMemoryItems.delete(key)
   })
   ctx.effect(() => () => {
     workspaceBySession.clear()
     turnsBySession.clear()
     searchedForTurn.clear()
     recordedSessions.clear()
+    activeMemoryItems.clear()
   }, 'active-memory-context.cache')
 
   /**
@@ -650,6 +676,42 @@ export function apply(ctx: Context, config: Config): void {
     }
     return hits
   }
+
+  const activeMemorySources = async (
+    session: Session,
+    signal: AbortSignal,
+  ): Promise<readonly ContextItem[]> => {
+    signal.throwIfAborted()
+    const key = String(session.id)
+    const cached = activeMemoryItems.get(key)
+    if (cached !== undefined) return [...cached.values()]
+    let surface: { events: readonly SessionEvent[] }
+    try {
+      surface = await ctx.sessionQuery.readSurface(session.id)
+    } catch (error: unknown) {
+      ctx.logger.debug(`active-memory: source read degraded (${String(error)})`)
+      return []
+    }
+    signal.throwIfAborted()
+    const items = new Map<string, ContextItem>()
+    for (const event of surface.events) {
+      if (event.type !== 'user/message') continue
+      const item = activeMemoryItem(event.data)
+      if (item !== undefined) items.set(item.id, item)
+    }
+    activeMemoryItems.set(key, items)
+    return [...items.values()]
+  }
+
+  ctx.inject(['agentContext'], compilerCtx => {
+    compilerCtx.effect(() => compilerCtx.agentContext.register({
+      producer: 'active-memory',
+      kind: 'memory',
+      trust: 'untrusted',
+      placement: 'delta',
+      maxBytes,
+    }, async (agent, signal) => activeMemorySources(agent.session, signal)))
+  })
 
   ctx.on('agent/pre-step', async (input, next): Promise<PreStepDecision> => {
     recordConfiguration(input.agent.session)

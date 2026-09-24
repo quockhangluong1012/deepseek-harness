@@ -6,7 +6,8 @@
 **Repository audited:** `https://github.com/quockhangluong1012/deepseek-harness`  
 **Audited revision:** `85d814676cb06eb723487e09313d7178ffad970a` (`feat(memory): implement episodic notes retention and management`, 2026-09-16)  
 **Scope:** runtime evolution, not a second agent loop  
-**Normative labels:** `[CONFIRMED]`, `[PROPOSED]`, `[REFACTOR]`, `[REMOVE]`, `[EXTERNAL BENCHMARK]`
+**Normative labels:** `[CONFIRMED]`, `[PROPOSED]`, `[REFACTOR]`, `[REMOVE]`, `[EXTERNAL BENCHMARK]`\
+**Amendments:** §32–§35 (review of 2026-09-23) record implementation status, normative amendments S1–S11, findings outside this specification, and the consolidated roadmap. Where §33 conflicts with §1–§31, §33 governs.
 
 This document is deliberately source-grounded. A statement labelled `[CONFIRMED]` is an observation of the audited checkout, including its path and public symbol. A statement labelled `[PROPOSED]` is a target contract. `[REFACTOR]` means an existing mechanism remains the owner but its seam or representation changes. `[REMOVE]` means delete, merge, or demote an abstraction after migration. `[EXTERNAL BENCHMARK]` records a useful mechanism from Codex, Claude Code, OpenCode, or MiniMax Code; it is not evidence that the fork already implements it.
 
@@ -1382,3 +1383,419 @@ The evolution succeeds when the repository can truthfully answer:
 > The model proposes. The Harness records, classifies, constrains, authorizes, executes, observes, verifies, recovers, remembers, and learns — while every step remains attributable to an existing lifecycle owner and replayable from durable evidence.
 
 That is an incremental extension of the audited DeepSeek Harness, not a rewrite disguised as a feature list.
+
+## 32. Implementation status (2026-09-23) [CONFIRMED]
+
+Audited tree: `main` at `556c0dc2e6` plus the uncommitted working tree of 2026-09-23. The working tree adds the kernel evidence, claim, and hypothesis API with lifecycle tests; MCP capability declarations; the permission-presets policy-profile provider; and the new `packages/guard/prompt-injection`. Line numbers refer to that tree and drift with later edits.
+
+| Section | Status | Observation |
+|---|---|---|
+| §6 Task contract, state machine | Implemented | `task/*` events and `applyTransition()` exist. The kernel drives `intake → ready → executing → observing` and, at turn end, `verifying`, `recovering`, or a terminal status. One task per session: `completed`, `failed`, and `cancelled` have no outgoing edges (`packages/runtime/agent-kernel/src/state-machine.ts:52-54`). |
+| §7 Loop adapter, action ledger | Implemented | Listeners on `agent/inbox/claimed`, `agent/created`, `agent/pre-step`, `agent/turn-stopping`, `tools/pre-execute`, `tools/post-execute` (`packages/runtime/agent-kernel/src/index.ts:291-302`). |
+| §8.1 Context compiler | Partial, shadow | `packages/runtime/agent-context` observes only `system-prompt/assemble` (`packages/runtime/agent-context/src/index.ts:83-86`). Memory briefs and runtime readings enter through `agent/pre-step`, outside the compiler: `packages/context/evolution-memory-context/src/index.ts:479`, `packages/context/active-memory-context/src/index.ts:654`, `packages/context/workspace-memory-context/src/index.ts:137`, `packages/context/time-context/src/index.ts:188`, `packages/context/agent-instructions/src/index.ts:323`, `packages/goal/goal-round-driver/src/index.ts:362`. Tool-result retention (pruner, spill) is also outside it. `apply` mode only drops the sections and contexts the token ceiling cut. |
+| §8.2 Compaction checkpoint | Not implemented | `packages/compaction/compaction/src/checkpoint.ts` (upstream) records compaction checkpoints. It holds no retained facts, open work, or unresolved failures. |
+| §9.2 Memory admission | Not implemented | A lesson artifact's only source reference is the id of the session that extracted it. |
+| §10 Capability vocabulary, policy DSL | Implemented | `compilePolicy()` (`packages/runtime/agent-kernel/src/policy.ts`) and the built-in tool declarations (`packages/runtime/agent-kernel-builtins`) are implemented. MCP declarations and `PolicyProfileProvider` are in the working tree. |
+| §11.1 Governance receipt | Implemented | Part of `ActionReceipt`. |
+| §11.2 Prompt-injection guard | Partial, shadow | `packages/guard/prompt-injection` scans tool proposals and results. It appends `security/scan` only when a rule matched (`src/index.ts:180,200`). It does not cover long-term memory writes or retrieval indexes (see S11). |
+| §11.3 Typed hook outputs | Not implemented | `hooks-claude-code` and `hooks-codex` are not mounted in any bundle. |
+| §12.1 Skill admission | Partial | Skill metadata carries capabilities, version, and test scenarios. There are no admission states and no quarantine. |
+| §13.2 Delegation receipt | Implemented | `packages/runtime/agent-kernel/src/delegation.ts`. |
+| §13.3 Workflow checkpoint | Not implemented | |
+| §14.2 Model router | Not implemented | `evolution-router` and `evolution-model-routes` record optimizer routes. Neither selects a runtime route. |
+| §15.1 Evidence, claims, hypotheses | Partial | `recordEvidence()`, `recordClaim()`, and `recordHypothesis()` are in the working tree. No model-facing tool exposes them. |
+| §15.2 Verification gate | Partial | `DefaultVerificationGate` and `CriterionVerifierRegistry` exist, but no production code calls `register()` (`packages/runtime/agent-kernel/src/verification.ts:184`). With empty acceptance the gate never runs. `closeTurn` records statuses but never steers, so the gate cannot keep a turn open. |
+| §16 Failure, recovery | Partial | Only `verification-failed` is produced. Nothing reads `recovery/decided`. |
+| §17 Checkpoint, resume | Partial | `checkpoint()` and `checkpoint/resumed` exist. There is no boot-time recovery scanner. |
+| §18.1 Unified budget | Partial, observe-only | The kernel reports token and cost ceilings as unbounded (`packages/runtime/agent-kernel/src/ledger.ts:361-365`). `guard/budgets` measures context pressure, not spend (§34.1 #3). |
+| §18.3 Metrics, §22 CLI/Web/SDK, §24.3 benchmarks, §25 Phase 6 | Not implemented | |
+
+Mount status: no bundle under `packages/bundle/*/cordis.patch.yml` mounts `agent-kernel`, `agent-kernel-builtins`, `agent-context`, or `prompt-injection`. The shipped product runs none of §6–§18.
+
+## 33. Amendments [PROPOSED]
+
+Each amendment names the sections it changes, the observed problem, and the normative change.
+
+### S1. Prompt-cache stability is a compiler objective
+
+Amends: §8.1, §21, §28 (Context and memory).
+
+Problem [CONFIRMED]:
+
+- A pre-step message that declares `supersedes` removes the producer's earlier node from the surface. That changes `contentGeneration`, the next request starts a new series, and every cached token from the removed node onward is lost (`packages/core/agent-loop/src/agent.ts:447-463`, `packages/core/agent-loop/src/snapshot-injections.ts`).
+- The evolution-memory digest covers whole lesson objects, counters included. A `confirms` decision therefore re-renders the brief and supersedes it (`packages/evolution/evolution-memory/src/digest.ts:23-28`).
+- Nudge sections inside the system prompt switch on and off by turn interval (`packages/context/evolution-memory-context/src/sections.ts:47-49`).
+- `apply` mode recomputes the ceiling cut on every assembly, so the set of placed sources can change between steps.
+
+Normative change:
+
+1. Compiler objectives, in priority order:
+   1. Retain policy, task, acceptance, and open failures (§8.2).
+   2. Keep the request prefix byte-stable.
+   3. Rank by relevance.
+2. System-prompt sections change only when configuration, the tool set, or policy changes. Turn-conditional text is a tail reminder, never a system section.
+3. Dynamic sources are append-only deltas. An item already surfaced in a session is not surfaced again until compaction removes it.
+4. A superseding snapshot is allowed only for a producer's stable core brief, and only under all of these conditions:
+   - the rendered text differs by at least `minSupersedeChangeBytes`;
+   - the producer has superseded fewer than `maxSupersedesPerSession` times.
+
+   Digests are computed over the rendered text.
+5. The ceiling cut uses hysteresis. It changes only at request-series boundaries (compaction, route change).
+6. `context/compiled` records input tokens by source kind and the supersede count. The cache-hit ratio comes from `usage-ledger`.
+
+### S2. The compiler covers every model-visible producer
+
+Amends: §8.1, §20, §26.3.
+
+Problem [CONFIRMED]: see the §8.1 row in §32. The largest per-turn sources bypass the compiler: memory briefs, active-memory recall, workspace memory, time, instructions, goal prompts, and tool results. No single ranked contract exists.
+
+Normative change: `ctx.agentContext` exposes a source registry. Pre-step producers register a descriptor and return items. The compiler owns placement and emits the pre-step messages.
+
+```ts
+interface ContextSourceDescriptor {
+  readonly producer: string
+  readonly kind: ContextSource['kind']
+  readonly trust: TrustLabel
+  readonly placement: 'stable-core' | 'delta' | 'tail-reminder'
+  readonly maxBytes: number
+}
+
+interface ContextItem {
+  readonly id: string
+  readonly text: string
+  readonly relevance: number
+  readonly expiresAt?: string
+}
+
+interface ContextSourceRegistry {
+  register(
+    descriptor: ContextSourceDescriptor,
+    provide: (agent: Agent, signal: AbortSignal) => Promise<readonly ContextItem[]>,
+  ): () => void
+}
+```
+
+Migration follows §26.3:
+
+1. Producers keep appending their messages, while the compiler records its own placement in shadow.
+2. Ownership moves to the compiler after digest parity on recorded sessions.
+
+Tool-result retention is a compiler policy input. It covers the pruner's recency guard and a spill notice that states how to read the original result.
+
+### S3. Event-volume budget
+
+Amends: §18.2, §28 (Operations).
+
+Problem [CONFIRMED]:
+
+- Each tool call appends `action/proposed`, `policy/decision`, `action/authorized` or `action/denied`, `capability/grant`, `action/committed`, and `capability/revoke` (`packages/runtime/agent-kernel/src/index.ts:830-921`).
+- Each step appends `task/transitioned` for the `executing ↔ observing` cycle (`:800`).
+- Each assembly appends `context/compiled` (`packages/runtime/agent-context/src/index.ts:103`).
+
+Every event costs a JSONL append, a persistence write, a projection fold, and an SDK stream frame.
+
+Normative change:
+
+- In steady state, each tool call appends at most two log-only kernel events:
+  - `action/decided`: proposal, policy decision, authorization, and grants;
+  - `action/committed`: receipt and revocations.
+- The `executing ↔ observing` cycle inside one turn is not recorded. A transition is recorded only when the task leaves or re-enters the execution cycle.
+- `context/compiled` is appended only when its digest differs from the session's previous record.
+- `security/scan` keeps its current rule: it is appended only when a rule matched.
+
+### S4. Loop-robustness failures
+
+Amends: §16.1, §16.2, §7.1.
+
+Problem [CONFIRMED]:
+
+- `repeat-tool-reminder` detects only consecutive identical calls. It reminds at 3, 5, and 8 repeats and never blocks (`packages/guard/repeat-tool-reminder/src/index.ts:196-239`).
+- On `max-tokens`, the assembler drops the tool calls of the truncated message (`packages/llm/llm/src/assembler.ts:142-145`). The turn then ends, and the model is not told.
+- Argument validation runs inside `execute`, after `tools/pre-execute` and the approval prompt (`packages/core/tools/src/index.ts:1609-1616`). A user can therefore approve a call that cannot run.
+- The step ceiling ends the turn on bare tool results, with no final answer (`packages/core/agent-loop/src/agent.ts:397-400`).
+
+Normative change: add the following `FailureKind` members and recovery rows. Detectors are fork plugins on existing seams. A detector records a `FailureRecord`, and `RecoveryEngine` decides the response.
+
+| FailureKind | Detector | Recovery |
+|---|---|---|
+| `output-truncated` | `finish: max-tokens` with dropped tool calls | Retry once with a larger output limit; otherwise steer the model to split the call |
+| `tool-args-malformed` | JSON parse or schema failure, checked before `tools/pre-execute` | Return the parse or schema error; show no approval prompt |
+| `no-progress` | A-B-A-B oscillation, the same error N times, or N steps with no new observation | Remind; then steer with the diagnosis; then move to `awaiting-user` |
+| `stalled` | No stream or tool progress within the liveness window | Cancel the step, checkpoint, retry once |
+| `step-ceiling` | `maxSteps` reached | Run one final step without tools, then checkpoint and move to `paused` |
+
+All thresholds are `Config` fields.
+
+### S5. Task boundaries and task classes
+
+Amends: §6.1, §6.2, §15.2, §21.
+
+Problem [CONFIRMED]: each session has one task, and `completed` is terminal. With the default empty acceptance, the gate never runs. With `verification.requireAcceptanceCriteria: true` (§21), a conversational question would either be blocked or need invented criteria.
+
+Normative change:
+
+- When a user message is claimed while the current task is terminal, it opens a new `TaskContract`. The new contract's `parentTaskId` names the previous task.
+- `TaskContract` gains `taskClass: 'conversational' | 'coding' | 'research' | 'operations'`. The class is chosen in this order:
+  1. an explicit request (CLI, SDK, preset);
+  2. the preset's default;
+  3. the heuristic "a filesystem mutation occurred ⇒ `coding`".
+- Default criteria per class:
+  - `conversational`: none; the gate answers `not-required`.
+  - `coding`: typecheck, lint, and test commands derived from the workspace (overridable in `Config`), plus a diff verifier.
+  - `research`: every claim in the final answer cites recorded evidence.
+- §21 `requireAcceptanceCriteria: true` becomes a per-class map with `conversational: false`.
+
+### S6. Verification cost controls
+
+Amends: §15.2, §21.
+
+Normative change:
+
+- Verify only when the changed scopes since the last passing verification are non-empty. Changed scopes come from the turn snapshots of `packages/deliverables/workspace-changes/src/recorder.ts`.
+- Cache each `CriterionResult` by criterion id and repository digest.
+- Run verifiers cheapest first and stop at the first failed required criterion.
+- The gate keeps a turn open through `agent/turn-stopping` plus `agent.steer`, following the pattern in `packages/hooks/hooks-claude-code/src/index.ts:276-282`. It does so at most `maxRepairAttempts` times (default 3). After that, the task moves to `awaiting-user` with the failing output.
+- Each verifier has its own timeout.
+
+### S7. Every status names its producer
+
+Amends: §6.1, §6.2.
+
+Problem [CONFIRMED]: there are 15 statuses. `understanding` and `retrieving` have no producer, and `planning` is reserved for a planner the kernel does not ship.
+
+Normative change: a status stays in `TaskStatus` only if it has a named producer.
+
+- Remove `understanding` and `retrieving` until a producer exists.
+- `planning` is produced by plan mode (enter and exit) and by the first todo plan.
+- `awaiting-approval` is produced by the approval request linkage.
+- `paused` is produced by budget exhaustion, `stalled`, and `step-ceiling` (S4).
+
+### S8. Utility estimator and non-destructive contradiction
+
+Amends: §9.2, §18.3.
+
+Problem [CONFIRMED]:
+
+- §9.2 requires `utility` without defining it.
+- `recordRecallOutcome()` has no production caller (`packages/evolution/evolution-memory/src/index.ts:1256`), so recall utility stays 0.
+- A lesson contradicted `refutationFloor` times is deleted together with its latest corrected value (`packages/evolution/evolution-memory/src/maintenance.ts:56-57`, `src/decisions.ts:204-215`).
+
+Normative change:
+
+```ts
+interface UtilityEstimate {
+  readonly surfaced: number
+  readonly passingTasks: number
+  readonly failingTasks: number
+  /** (passingTasks + 1) / (passingTasks + failingTasks + 2) */
+  readonly value: number
+}
+```
+
+- An artifact counts toward a task when its item id appears in that task's `context/compiled` record (S2). The counters update on `verification/result`.
+- An artifact is demoted when its value stays below `minUtility` after `minSurfaced` surfacings.
+- `contradicts` supersedes the statement, writes a history entry, and resets the counters for the new value. Refutations never delete the replacing value.
+
+### S9. Evolution evaluation validity
+
+Amends: §25 (Phase 6), §24.3, §28 (Evolution).
+
+Problem [CONFIRMED]:
+
+- `llm-replay` binds a live session to a recorded script by first-call order and replays it by cursor (`packages/test-support/llm-replay/src/index.ts:1055-1107`). A rewritten SKILL.md cannot change the replayed responses, so replay scores cannot distinguish candidates.
+- `dominates()` accepts any strictly lower wall time (`packages/evolution/evolution-optimizer/src/pareto.ts:25-34`).
+- The holdout defaults to empty.
+- The lineage record hard-codes `outcome: 'improved'` (`packages/evolution/evolution-optimizer/src/index.ts:1117-1126`).
+- Approving a staged patch removes the entry and asks the human to write the skill (`packages/evolution/command-evolution/src/index.ts:2220-2225`).
+
+Normative change:
+
+1. Tier 1, content-keyed replay: the key is a hash of the normalized request (system text, messages, tool schemas). A key miss means the candidate changed behavior, and the candidate escalates to tier 2.
+2. Tier 2, live: seeded runs, N ≥ 5, under a daily and a weekly ceiling in `evolution-budget`. The ceiling is checked before every model call.
+3. Selection uses pass rate with a paired sign test or bootstrap interval, plus a relative token epsilon. Wall time is excluded. `confirmationRuns` is at least 3.
+4. Each skill has a protected holdout drawn from mined scenarios and checked by `packages/evolution/evolution-optimizer/src/contamination.ts`.
+5. The trigger reads task outcomes after a skill load (`verification/result`, feedback), not skill-load errors.
+6. Promotion writes the body with a preimage and advances canary and lineage in one transaction. Lineage records the measured outcome.
+
+### S10. One owner per concept
+
+Amends: §5.2, §14.2, §15, §17, §18.3.
+
+| Concept | Owner | Consolidation |
+|---|---|---|
+| Runtime model routing | §14.2 `ModelRouter` in `packages/runtime` | `evolution-router` and `evolution-model-routes` merge into one package that holds its recorded history |
+| Task claims and evidence | `agent-kernel`, per task | `evolution-graph` claims hold only cross-session promotions of verified task claims |
+| Metrics | One metric layer, generalized from `evolution-metrics` | Absorbs the §18.3 kernel metrics and the `evaluator-health`, `uncertainty`, and `self-model` read models |
+| Checkpoints | The kernel `Checkpoint`, indexing `session-checkpoint-policy` and the compaction checkpoint | No third checkpoint store |
+| Background scheduling | `evolution-heartbeat` | The curator's own `setInterval` is removed |
+| Budgets | `guard/budgets` enforces in-session; `evolution-budget` gates background spend | The kernel `BudgetGovernor` reads both |
+
+### S11. Taint propagates to derived artifacts
+
+Amends: §11.2, §9.2, §23.
+
+Problem [CONFIRMED]:
+
+- The reviewer writes a critique of a failing tool result as a scope context item without approval, even when background approval stages the other decisions (`packages/evolution/evolution-reviewer/src/index.ts:1207-1235`). The item reaches every later brief.
+- The session index extracts `tool/result` text and every `user/message`, injected briefs included (`packages/session-query/session-query/src/extraction.ts:15-28`). Active memory renders the hits inside `<system-reminder>`.
+- Rule-based scanning has limited recall and covers only tool results.
+
+Normative change:
+
+- Any artifact derived from tainted content carries `trust: 'untrusted'`. This covers lessons, critiques, graph nodes and edges, index rows, and skills. Such an artifact enters a long-term store only through staging (human or policy approval).
+- Retrieved untrusted text is rendered as quoted data labelled with its source kind, never inside an instruction-bearing frame.
+- Messages from memory producers are excluded from session indexing and graph extraction.
+- Credentials are scrubbed before any durable memory write. Reuse `redactSecrets` from `packages/guard/prompt-injection/src/scan.ts` or `packages/session/session-telemetry/src/sensitive.ts:26-39`.
+
+## 34. Findings outside this specification [CONFIRMED]
+
+Defects and waste found in the same review. The "Owner" column says who maintains the package: "upstream" means fix minimally and propose the fix upstream; "fork" means the package exists only in this fork.
+
+### 34.1 Defects
+
+| # | Finding | Location | Fix | Owner |
+|---|---|---|---|---|
+| 1 | `defaultTimeoutMs: 120000` applies to every tool that declares no timeout. It cancels `ask_user_question`, `exit_plan_mode`, foreground `subagent`, and long shell commands after two minutes. Upstream has no default. | `packages/guard/timeout-policy/src/index.ts:77-83`, `packages/bundle/base/cordis.patch.yml:400-403` | `exemptTools` config, or remove the default; update the README | fork change to an upstream package |
+| 2 | A message queued during a turn that then fails is never picked up | `packages/core/agent-loop/src/agent.ts:236-246,274-286` | Re-wake when the inbox gained a waking message after turn start, with a guard against error loops | upstream |
+| 3 | `maxTotalTokens` and `maxCostUsd` read current context pressure, not spend | `packages/guard/budgets/src/index.ts:129-139` | Read `packages/llm/token-meter/src/turn-usage.ts` | fork |
+| 4 | `llm-fallback`: the per-step `pending` map is never cleared; the breaker never resets on success; with `eligibleCodes` unset it switches provider on non-transient errors | `packages/llm/llm-fallback/src/index.ts:172-231` | Clear the map; reset on success; transient-only default | fork |
+| 5 | Parallel edit and write scope keys use `path.normalize`, so two spellings of one path on Windows run concurrently. The observation guard then fails the second call closed: a spurious stale-write error, not corruption. | `packages/fs/tool-fs/src/edit.ts:118`, `write.ts:110` | `path.resolve` plus case folding on win32 | upstream |
+| 6 | Deferred reviewer extraction keeps only the last turn's rows, and drops them on dispose | `packages/evolution/evolution-reviewer/src/index.ts:847-851,515` | Accumulate rows; flush on dispose | fork |
+| 7 | Lost updates: graph and dreaming write records computed from stale reads, and the first memory write is a blind `put` | `packages/evolution/evolution-graph/src/index.ts:423-459,819-827`; `packages/evolution/evolution-dreaming/src/index.ts:594-602`; `packages/evolution/evolution-memory/src/index.ts:1653-1659` | Use storage-domain `update` | fork |
+| 8 | A contradicted lesson is deleted along with its corrected value | See S8 | S8 | fork |
+| 9 | A paraphrased `new` decision is dropped: `keep_both` returns the record unchanged | `packages/evolution/evolution-memory/src/decisions.ts:157,251` | Count it as a validation of the matched lesson | fork |
+| 10 | The dreaming heartbeat writes to profile `'workspace'` while everything else uses `'default'`. Recurring narratives are pruned because `identical` sightings do not refresh `promotedAt`. | `packages/evolution/evolution-dreaming/src/index.ts:371-377`, `src/narrative.ts:216` | Fix the scope; refresh `promotedAt` | fork |
+| 11 | Fallback embeddings are cached under the primary model's key, and a dimension mismatch is compared as zeros | `packages/llm/embeddings-http/src/provider.ts:124-131`, `packages/evolution/evolution-memory/src/merge.ts:25` | Key by the model that produced the vector; throw on mismatch | fork |
+| 12 | Controller `setLessons` resets counters and `createdAt` | `packages/evolution/evolution-controller/src/index.ts:285-290` | Merge instead of replace | fork |
+| 13 | Curator consolidation patches pinned skills: the `patch` branch runs before the pinned check | `packages/evolution/evolution-curator/src/consolidate.ts:285-314` | Check pinned status and eligibility before every action | fork |
+| 14 | The Pareto winner is decided by wall-time noise | See S9 | S9 | fork |
+| 15 | The operator vocabulary differs between the operator store and the mutator | `packages/evolution/evolution-operators/src/operators.ts:14-23`, `packages/evolution/evolution-optimizer/src/mutate.ts:63-76` | One shared vocabulary | fork |
+| 16 | Heartbeat `runDue` has no re-entrancy guard. Heartbeat and curator both await a full pass inside `Service.init`, which delays startup. | `packages/evolution/evolution-heartbeat/src/index.ts:135,226-285`; `packages/evolution/evolution-curator/src/index.ts:524` | Add the guard; schedule the due pass after ready | fork |
+| 17 | `markFailed` omits the session id; `frameMutationInput` never truncates the body | `packages/skill/evolution-skill-telemetry/src/index.ts:294-301`; `packages/evolution/evolution-optimizer/src/mutate.ts:134-138` | Record the session id; truncate to `maxInputBytes` | fork |
+| 18 | `doc-sync` fails in this fork. `verify-concrete-terms` finds the retired origin label (AGENTS.md "Ban `prove` + `nance`") in 137 tracked files, including this specification. Upstream has none. | `scripts/verify-concrete-terms.ts` | Replace each use with its exact concept | fork |
+
+### 34.2 Token and time waste
+
+| # | Waste | Location | Change |
+|---|---|---|---|
+| W1 | Two LLM extraction passes per turn use the same rubric (workspace memory and the evolution reviewer), and the produced-file index is kept twice | `packages/workspace/workspace-memory-llm/src/prompt.ts:21` vs `packages/evolution/evolution-reviewer/src/protocol.ts:114`; `packages/workspace/workspace-memory-llm/src/index.ts:386` | Unmount `workspace-memory-llm`. `workspace-memory` keeps only user-edited notes (§9.1 keeps the store). |
+| W2 | The workspace-memory rewrite is truncated by a 1024-token output cap on a 64 KB document | `packages/workspace/workspace-memory-llm/src/index.ts:70,483-484` | Removed with W1 |
+| W3 | The brief includes every lesson (up to 16 KB) with no relevance selection. Workspace and active-memory briefs accumulate because they do not supersede. | `packages/context/evolution-memory-context/src/render.ts:120-135`; `packages/context/workspace-memory-context/src/index.ts:192-195` | S1 and S2: a stable core plus append-only deltas |
+| W4 | Session search is disabled (`openAt: never`), yet active memory, reviewer recall, and a system-prompt hint still depend on it | `packages/bundle/base/cordis.patch.yml:148-153`; `packages/bundle/web-app/cordis.patch.yml:27-30`; `packages/context/evolution-memory-context/src/sections.ts:29-33` | Set `openAt: first-search` with a durable path and index embeddings at `turn/end`; or unmount active memory and remove the hint |
+| W5 | Background LLM calls (reviewer, graph extraction, consolidation, mutation) run with no budget check before the call. Mutation and holdout spend are not counted. | `packages/evolution/evolution-graph/src/index.ts:693`; `packages/evolution/evolution-optimizer/src/index.ts:616-627,789-803` | Gate each call on `evolution-budget` |
+| W6 | Two schedulers (heartbeat with 11 tasks every 15 minutes, plus the curator's interval), and both block startup with a pass | `packages/evolution/evolution-heartbeat/src/index.ts:136-146`; `packages/evolution/evolution-curator/src/index.ts:524-535` | S10 scheduling owner; §34.1 #16 |
+| W7 | Every evolution-memory write rewrites and fsyncs the whole scope file (temp file, fsync, rename, directory fsync), three to five times per turn | `packages/storage/storage-json/src/atomic.ts:4-35` | Coalesce writes per turn |
+| W8 | A deterministic replay is repeated three times by default | `packages/evolution/evolution-scorer/src/index.ts:101,186` | One run in tier 1 (S9) |
+| W9 | Kernel log volume | S3 | S3 |
+
+### 34.3 Evolution surface area
+
+About 13 stores are written only by the optimizer, which is disabled (`packages/bundle/web-app/cordis.patch.yml:225-231`). The meta layer was built before the base loop runs. Decision (§35.1): consolidate the 36 packages to about 18–20.
+
+- Merge `evolution-population`, `evolution-novelty-search`, `evolution-stagnation`, and `evolution-lineage` into the optimizer experiment ledger.
+- Merge `evolution-router` and `evolution-model-routes` (S10).
+- Merge `evolution-curriculum`, `evolution-benchmark`, and `evolution-adversary` into one task store.
+- Fold `evolution-evaluator-health`, `evolution-uncertainty`, and `evolution-self-model` into the metric layer (S10).
+- Remove `evolution-islands` and the `evolutionVerifiers` service.
+- Remove `evolution-operators`, `evolution-evaluator-strategy`, and `evolution-meta` until a consumer exists.
+- Demote `evolution-sleeptime`: nothing reads its artifacts.
+- Rename `evolution-controller` to `evolution-remote`, and remove its import of `command-evolution`.
+- Split `command-evolution` (3,239 lines, 34 commands) by domain.
+- Before each removal, a repository-wide `rg` must show zero consumers. Each persisted domain keeps a migration reader or declares an explicit drop.
+
+## 35. Consolidated roadmap [PROPOSED]
+
+### 35.1 Decisions (2026-09-23)
+
+| Topic | Decision |
+|---|---|
+| Direction | Upgrade the loop, memory, and evolution; remove steps that spend tokens or time without effect |
+| Evolution surface | Aggressive consolidation (§34.3) |
+| Evaluation cost | Hybrid with ceilings: content-keyed replay screens at no cost; only candidates that pass run live, N ≥ 5, under daily and weekly `Config` ceilings (S9) |
+| Sequencing | Track A runs in parallel with the work on this specification and does not touch the kernel working tree |
+| This specification | Amendments are recorded here; §1–§31 stay unchanged |
+
+### 35.2 Tracks
+
+```text
+Track A (runs in parallel; touches no kernel files):
+  A0 Baseline: scripts/measure-turn-economics.ts over recorded sessions in snapshots/.
+     Measures input tokens by source, model calls per turn (background included),
+     cache-hit ratio, supersedes per session, log-only events per tool call,
+     and startup time.
+  A1 Defects: §34.1 #1, #2, #4–#18 (#3 moves to B1).
+  A2 Waste: W1, W2, W4–W8. Quick S1 items: digest over rendered text, nudges as
+     tail reminders, and no session-search hint while search is off.
+     Consolidation per §34.3.
+  A3 Tool-argument validation before approval (S4, row 2). Pruner recency guard.
+     Recall tool (`session_event_read`). Instruction precedence (AGENTS.md over
+     memory instructions). Multi-process lock per memory scope.
+
+Track B (this specification, with S1–S11):
+  B0 Land the kernel working tree. Mount agent-kernel, builtins, agent-context,
+     and prompt-injection in web-app in shadow. Apply the S3 event budget.
+  B1 P0, enforcing:
+     - S5 task boundaries and classes; S7 statuses
+     - S6 verifiers, gate, and repair budget
+     - S4 detectors
+     - §18.1 spend-based budgets with a final wrap-up step
+     - plan mode as a policy profile
+  B2 P1:
+     - S2 source registry with S1 delta placement
+     - §8.2 compaction checkpoint
+     - S11 taint propagation
+     - §9.2 admission with S8 utility
+     - skill admission
+     - evidence tools for the model
+  B3 P2 (Phase 6):
+     - S9 evaluation tiers and outcome trigger
+     - mined scenario corpus with holdout
+     - transactional promotion and rollback
+     - safety invariants: protected safety text, diff-size cap, verifier level 2
+       before any curator write, fail-closed separation of duties
+     - then mount the scorer and optimizer
+
+Wave C (after this specification):
+  - file rewind (workspace-changes snapshots + session fork)
+  - agent memory tools: search, remember, forget; gated by memory.* capabilities;
+    global preference scope
+  - hybrid retrieval: BM25 + vector + graph, RRF, recency x importance x relevance,
+    MMR, durable lesson vectors
+  - reflective mutation: trace root causes, feedback reflections, temperature > 0,
+    frontier merge, persistent Pareto pool
+  - contrastive insight extraction from success/failure pairs
+  - §14.2 router, §13.3 workflow checkpoint, §22 CLI/Web/SDK, §18.3 metrics
+```
+
+Estimated effort in person-days: Track A 15–18, B0 3, B1 12, B2 14, B3 16, Wave C about 25.
+
+### 35.3 Roadmap items absorbed by this specification
+
+| Item | Lands in |
+|---|---|
+| Spend-based budgets | §18.1, in B1 |
+| Verification loop | §15.2 and §16, with S5–S7 |
+| Plan-mode enforcement | A policy profile through `PolicyProfileProvider` |
+| Handling of stuck loops, truncated output, and malformed arguments | S4 detectors feeding `RecoveryEngine` |
+| Cache-aware memory injection | S1 and S2, inside the compiler |
+| Memory lineage, expiry, and history | §9.2, with S8 |
+| Memory poisoning defense | §11.2, with S11 |
+| Evolution evaluation and promotion | Phase 6, with S9 |
+
+These items stay outside this specification:
+
+- the §34.1 defects;
+- the §34.2 waste, except W3 and W9;
+- the §34.3 consolidation;
+- Wave C.
+
+### 35.4 Additional acceptance criteria (extends §28)
+
+- **Cache stability:** the cache-hit ratio on recorded sessions does not decrease after any context change, and supersedes per session stay at or below `maxSupersedesPerSession`.
+- **Log volume:** in steady state, each tool call appends at most 2 log-only kernel events.
+- **Background calls:** each turn runs at most one extraction pass.
+- **Startup:** startup does not wait for a background maintenance pass.
+- **Verification gate:** a conversational task completes without a verification gate. A coding task with a failing test is steered until the test passes or `maxRepairAttempts` is reached.
+- **Timeouts:** a default tool timeout never cancels `ask_user_question` or `exit_plan_mode`.
+- **Evolution:** a candidate that changes a skill body produces either a different tier-1 key or a tier-2 score. Nothing is promoted without a holdout result, a measured outcome, and a preimage.
+- **Gates:** `pnpm run doc-sync` passes.

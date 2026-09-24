@@ -3,6 +3,7 @@ import { mkdtemp, realpath, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
+import AgentContext from '@deepseek-ai/dsh-agent-context'
 import { agentEvents, type Agent } from '@deepseek-ai/dsh-agent'
 import { createAssistantMessage, createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { UserMessage } from '@deepseek-ai/dsh-llm'
@@ -103,6 +104,35 @@ describe('workspace-memory-context injector', () => {
       expect(textOf(replaced[0] as UserMessage)).toContain('follow the new guide')
       expect((replaced[0]?.source as { digest: string }).digest).not.toBe(digest)
     } finally {
+      await fiber.dispose()
+    }
+  })
+
+  it('registers the visible brief as a required untrusted memory source', async () => {
+    const { ctx, fiber, workspaces, dir } = await harness()
+    dirs.push(dir)
+    const compilerFiber = await ctx.plugin(AgentContext, {})
+    try {
+      const session = sessionIn(ctx, dir, 'registry-workspace-memory')
+      const id = WorkspaceId('ws-1')
+      workspaces.set(id, { id, title: 'Project', path: dir, sessionIds: [session.id] })
+      await ctx.workspaceMemory.setInstructions(id, 'follow the registry guide')
+
+      const decision = await preStep(ctx, fakeAgent(session))
+      const brief = briefsOf(decision.kind === 'enter' ? decision.messages : [])[0]
+      if (brief === undefined) throw new Error('workspace memory did not emit a brief')
+      const text = textOf(brief)
+      session.append('user/message', brief, { surfaceOp: 'append' })
+
+      const compiled = await ctx.agentContext.compile(fakeAgent(session), { sections: [], contexts: [], tools: [], variables: {} })
+      const source = compiled.included.find(entry => entry.source.id === 'workspace-memory:brief')
+
+      expect(source?.source.content).toBe(text)
+      expect(source?.source.kind).toBe('memory')
+      expect(source?.source.trust).toBe('untrusted')
+      expect(source?.source.retention).toBe('required')
+    } finally {
+      await compilerFiber.dispose()
       await fiber.dispose()
     }
   })

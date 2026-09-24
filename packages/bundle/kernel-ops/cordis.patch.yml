@@ -1,0 +1,17 @@
+# The dsh-kernel-ops bundle patch: the read-only kernel command line.
+#
+# It mounts one ordinary app plugin over `dsh-base`, whose session persistence
+# is what most commands read: `dsh task show`, `dsh task verify`, `dsh task
+# checkpoint`, and `dsh policy explain` print what a stored session's kernel
+# events already record. `dsh evolution replay` instead reads the storage
+# domain's lineage table directly — `dsh-base` already opens it — so the
+# lineage store is mounted here too. Nothing here runs an agent, calls a
+# model, or writes to a session log.
+
+- insert:
+    - id: kernel-ops
+      name: '@deepseek-ai/dsh-kernel-ops'
+
+    - id: evolution-lineage
+      name: '@deepseek-ai/dsh-evolution-lineage'
+      config: {}

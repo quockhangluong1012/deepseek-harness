@@ -4,9 +4,11 @@ import Storage from '@deepseek-ai/dsh-storage'
 import { DomainFacility } from '@deepseek-ai/dsh-storage-domain'
 import { MemoryMediaPool, MemoryStorageBackend } from '../../../storage/storage-domain/tests/helpers/memory-backend.ts'
 import EvolutionMemoryStore, {
+  demotable,
   EVOLUTION_MEMORY_MAINTENANCE_TASK,
   EvolutionScopeId,
   storageKey,
+  utilityValue,
   type LessonArtifactInput,
 } from '../src/index.ts'
 import type { EvolutionScopeId as ScopeId } from '../src/types.ts'
@@ -113,6 +115,7 @@ function candidate(statement: string, overrides: Partial<LessonArtifactInput> = 
     evidence: 'fact',
     confidence: 0.9,
     scope: 'project',
+    sourceRefs: ['session:s1'],
     ...overrides,
   }
 }
@@ -306,5 +309,26 @@ describe('evolution-memory maintenance task', () => {
     expect(await store.sweep(id)).toEqual({ pruned: 0, refined: 0 })
     expect(store.read(id)?.agentLessons).toHaveLength(1)
     await fiber.dispose()
+  })
+})
+
+describe('S8 utility and demotion', () => {
+  it('computes the Laplace estimate of one fact s observed outcomes', () => {
+    expect(utilityValue(0, 0)).toBe(0.5)
+    expect(utilityValue(1, 0)).toBeCloseTo(2 / 3)
+    expect(utilityValue(1, 1)).toBe(0.5)
+    expect(utilityValue(0, 3)).toBeCloseTo(1 / 5)
+  })
+
+  it('demotes only a fact surfaced enough times below the floor', () => {
+    const unproven = artifact()
+    const low = artifact({ utility: { surfaced: 5, passingTasks: 0, failingTasks: 5, value: utilityValue(0, 5) } })
+    const good = artifact({ utility: { surfaced: 5, passingTasks: 4, failingTasks: 1, value: utilityValue(4, 1) } })
+
+    expect(demotable(unproven, 0.4, 3)).toBe(false)
+    expect(demotable(low, 0.4, 3)).toBe(true)
+    expect(demotable(good, 0.4, 3)).toBe(false)
+    // Fewer surfacings than the floor is not yet evidence either way.
+    expect(demotable({ ...low, utility: { ...low.utility!, surfaced: 1 } }, 0.4, 3)).toBe(false)
   })
 })

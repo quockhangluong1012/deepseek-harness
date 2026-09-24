@@ -27,6 +27,8 @@ English | [中文](README.zh.md)
 
 Mount this plugin when the model should interpret unqualified dates and times in the user's zone, and when a request-local browser zone is available or a configured fallback is acceptable. Each injection is one additional user-role message in the durable history; schedule it with `refreshIntervalMs` when per-step readings are more than the conversation needs.
 
+With `@deepseek-ai/dsh-agent-context` mounted, the compiler also records each logged time reading as a trusted history delta, once per item until compaction clears placement. The existing pre-step message remains unchanged in shadow mode.
+
 ### What the model gets
 
 Each injected reading has three lines: an ISO-shaped timestamp with numeric offset and IANA zone, the browser-zone policy for the request, and the elapsed duration in compact whole-second units. Step 1 measures from the latest preceding model-visible message; later steps measure from the preceding time-context event in the same turn. A missing baseline reports `unavailable`, and backward wall-clock movement clamps elapsed time to zero.

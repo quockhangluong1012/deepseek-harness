@@ -32,6 +32,16 @@ const RECOVERY_BY_KIND: Readonly<Record<FailureKind, { action: RecoveryAction; r
   'workflow-failed': { action: 'diagnose', retryable: false },
   'persistence-failed': { action: 'fail-closed', retryable: false },
   'prompt-injection': { action: 'quarantine', retryable: false },
+  // S4: truncated output retries once with a larger limit, then the model is
+  // steered to split the call; a malformed argument set is answered with the
+  // parse or schema error before any approval; a run making no progress is
+  // diagnosed and then handed to the user; a stalled step is cancelled,
+  // checkpointed, and retried once; the step ceiling pauses the task.
+  'output-truncated': { action: 'retry', retryable: true },
+  'tool-args-malformed': { action: 'diagnose', retryable: false },
+  'no-progress': { action: 'ask-user', retryable: false },
+  stalled: { action: 'retry', retryable: true },
+  'step-ceiling': { action: 'checkpoint-pause', retryable: false },
   unknown: { action: 'diagnose', retryable: false },
 }
 

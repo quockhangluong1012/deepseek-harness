@@ -502,6 +502,14 @@ export interface DefineToolOptions<S extends ParameterSchemaSpec, O extends Valu
   }
   /** Requests deferred loading of the tool definition; see {@link @deepseek-ai/dsh-llm#ToolSchema.deferLoading}. */
   readonly deferLoading?: true
+  /**
+   * Whether the runtime validates this tool's arguments against its compiled
+   * schema before the policy pipeline runs, so a call that cannot execute
+   * reaches no `tools/pre-execute` listener and no approval prompt (S4).
+   * Defaults to true. Set `false` when the arguments are validated against
+   * state resolved inside `execute`, which the schema walk cannot know.
+   */
+  readonly validateArgsBeforePipeline?: boolean
   /** Optional positive cooperative timeout budget in milliseconds. */
   readonly timeoutMs?: number
   /**
@@ -590,6 +598,9 @@ export function defineTool<const S extends ParameterSchemaSpec, const O extends 
     name: options.name,
     description: options.description,
     parameters: parameters as unknown as Record<string, unknown>,
+    // The runtime validates this definition's arguments before the policy
+    // pipeline because a compiled schema is what it will be checked against.
+    validatesArgs: options.validateArgsBeforePipeline ?? true,
     output: {
       schema: outputSchema,
       render(args: unknown, value: JsonValue): ContentBlock[] {

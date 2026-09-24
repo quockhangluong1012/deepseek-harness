@@ -3,12 +3,14 @@
  * compares the record's digest against the newest visible `user/message`
  * with a `workspace-memory` source and appends exactly one complete fresh
  * brief when they differ.
+ * A mounted `agent-context` also records the visible brief as a required, untrusted memory source.
  * @module @deepseek-ai/dsh-workspace-memory-context
  */
 
 import { realpath } from 'node:fs/promises'
 import { readFile } from 'node:fs/promises'
 import type { Context } from '@deepseek-ai/cordis'
+import type { ContextItem } from '@deepseek-ai/dsh-agent-context'
 import z from '@deepseek-ai/schemastery'
 import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
@@ -56,25 +58,30 @@ export const Config: z<Config> = z.object({
 /** Required host services. */
 export const inject = ['workspaceRegistry', 'workspaceMemory']
 
-function isWorkspaceMemoryMessage(message: UserMessage): boolean {
-  return (message.source as { kind?: string }).kind === 'workspace-memory'
+function workspaceMemoryDigest(message: UserMessage): string | undefined {
+  const source = message.source as { kind?: string; digest?: unknown } | undefined
+  return source?.kind === 'workspace-memory' && typeof source.digest === 'string' ? source.digest : undefined
 }
 
-function newestVisibleDigest(agent: Agent, claimed: readonly UserMessage[]): string | undefined {
-  for (const message of [...claimed].reverse()) {
-    if (!isWorkspaceMemoryMessage(message)) continue
-    const source = message.source as unknown as WorkspaceMemorySource
-    if (typeof source.digest === 'string') return source.digest
+function newestVisibleBrief(agent: Agent, claimed: readonly UserMessage[]): UserMessage | undefined {
+  for (let index = claimed.length - 1; index >= 0; index -= 1) {
+    const message = claimed[index]
+    if (message !== undefined && workspaceMemoryDigest(message) !== undefined) return message
   }
-  // The committed transcript is already the maintained surface projection, and
-  // each derived message carries the source its producing event recorded, so
-  // the newest committed brief's digest is reachable without a historical read.
-  for (const message of [...agent.session.deriveMessages()].reverse()) {
-    const source = message.source
-    if (source.kind !== 'workspace-memory') continue
-    if (typeof source.digest === 'string') return source.digest
+  const messages = agent.session.deriveMessages()
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index]
+    if (message?.role === 'user' && workspaceMemoryDigest(message) !== undefined) return message
   }
   return undefined
+}
+
+function textOfUserMessage(message: UserMessage): string {
+  let text = ''
+  for (const block of message.content) {
+    if (block.type === 'text') text += (block as { text: string }).text
+  }
+  return text
 }
 
 async function canonicalPath(path: string): Promise<string | undefined> {
@@ -91,7 +98,8 @@ async function readFileText(path: string, signal: AbortSignal): Promise<string> 
 }
 
 /**
- * Register the pre-step brief injector for the lifetime of `ctx`.
+ * Register pre-step brief injection and its optional compiler source for the
+ * lifetime of `ctx`.
  * @param ctx - plugin context; the listener is disposed with it.
  * @param config - byte cap on the complete brief.
  */
@@ -134,6 +142,20 @@ export function apply(ctx: Context, config: Config): void {
     return undefined
   }
 
+  ctx.inject(['agentContext'], compilerCtx => {
+    compilerCtx.effect(() => compilerCtx.agentContext.register({
+      producer: 'workspace-memory',
+      kind: 'memory',
+      trust: 'untrusted',
+      placement: 'stable-core',
+      maxBytes,
+    }, async (agent, signal): Promise<readonly ContextItem[]> => {
+      signal.throwIfAborted()
+      const brief = newestVisibleBrief(agent, [])
+      return brief === undefined ? [] : [{ id: 'brief', text: textOfUserMessage(brief), relevance: 1 }]
+    }))
+  })
+
   ctx.on('agent/pre-step', async (
     { agent, signal },
     next,
@@ -147,8 +169,8 @@ export function apply(ctx: Context, config: Config): void {
     // content check below subsumes both: nothing to inject either way.
     if (record === undefined) return decision
     const digest = ctx.workspaceMemory.digest(membership.id)
-    const visible = newestVisibleDigest(agent, decision.messages)
-    if (visible === digest) return decision
+    const visible = newestVisibleBrief(agent, decision.messages)
+    if (visible !== undefined && workspaceMemoryDigest(visible) === digest) return decision
     const hasContent = record.instructions.length > 0 || record.memory.length > 0 || record.contextItems.length > 0
     if (!hasContent) return decision
 

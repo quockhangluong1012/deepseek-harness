@@ -25,16 +25,25 @@
       "path": "../../core/tools"
     },
     {
+      "path": "../../deliverables/workspace-changes"
+    },
+    {
       "path": "../../interaction/user-approval"
     },
     {
       "path": "../../llm/llm"
     },
     {
+      "path": "../../llm/token-meter"
+    },
+    {
       "path": "../../sandbox/sandbox"
     },
     {
       "path": "../../sandbox/sandbox-policy"
+    },
+    {
+      "path": "../../session/session-persistence"
     },
     {
       "path": "../../util/brand"

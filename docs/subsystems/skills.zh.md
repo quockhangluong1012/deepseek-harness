@@ -99,7 +99,7 @@ type SkillSource = 'project-dsh' | 'project-hermes' | 'project-agents' | 'runtim
 
 ## 摘要、候选项与完整定义
 
-`SkillSummary` 是注册表中与调用策略无关的摘要形状。消费方自行选择渲染哪些条目和字段；模型会话目录仅使用模型可调用 skill 的 `name` 和 `description`，从不使用正文或绝对文件路径。`SkillInvocationPolicy` 将两个独立调用控制规范化为正向布尔值，且每个已解析的摘要、候选项和定义都携带该策略，而不会把任意 frontmatter 纳入领域模型。
+`SkillSummary` 是注册表中与调用策略无关的摘要形状。消费方自行选择渲染哪些条目和字段；模型会话目录仅使用模型可调用 skill 的 `name` 和 `description`，从不使用正文或绝对文件路径。`SkillInvocationPolicy` 将两个独立调用控制规范化为正向布尔值，且每个已解析的摘要、候选项和定义都携带该策略，而不会把任意 frontmatter 纳入领域模型。 `admission`、`trust`、`sourceDigest` 与 `rollbackArtifact` 记录一个 skill 如何进入该部署、以及它是从哪份原件评审而来：注册表拒绝广告或加载被 provider 标记为 `quarantined` 的候选项，并在目录变化载荷中计入它；而 `admitSkill()` 是持有授权上限的调用方所施加的门禁——被隔离的 skill 一律拒绝，不可信 skill 需要具名评审，声明了超出调用方授权的 capability 也会被拒绝，因为 skill 可以收窄该授权，却绝不能放宽它。
 
 ```ts type-equiv
 /** Invocation controls shared by skill discovery consumers. */
@@ -156,6 +156,24 @@ interface SkillSummary {
   readonly version?: string
   /** Scenario names usable by the scorer/optimizer; absent means none declared. */
   readonly testScenarios?: readonly string[]
+  /**
+   * How the skill entered this deployment. `quarantined` skills are neither
+   * advertised nor loadable; absent leaves the decision to the provider, which
+   * is how every provider that filters at discovery stays as it is.
+   */
+  readonly admission?: SkillAdmission
+  /**
+   * How far the skill body may be trusted. Project and repository skills stay
+   * `untrusted` until a review admits them.
+   */
+  readonly trust?: TrustLabel
+  /**
+   * Digest of the exact source the provider read, so an admitted skill can be
+   * tied to the artifact it was reviewed from.
+   */
+  readonly sourceDigest?: string
+  /** Artifact that restores the previous version of this skill, when one exists. */
+  readonly rollbackArtifact?: string
   /** Resolved model and user invocation controls. */
   readonly invocation: SkillInvocationPolicy
   /** Discovery source that produced this winning skill. */

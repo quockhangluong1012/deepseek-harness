@@ -32,6 +32,9 @@
     },
     {
       "path": "../agent-kernel"
+    },
+    {
+      "path": "../../compaction/compaction"
     }
   ]
 }

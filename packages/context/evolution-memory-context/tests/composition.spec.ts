@@ -118,7 +118,7 @@ describe('evolution-memory-context composition', () => {
       workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: dir, sessionIds: [agent.session.id] })
       await ctx.evolutionMemory.setInstructions(scope, 'follow the guide')
       await ctx.evolutionMemory.addArtifact(scope, {
-        statement: 'tabs win', source: 's1', conditions: '', evidence: 'fact', confidence: 0.9, scope: 'project',
+        statement: 'tabs win', source: 's1', conditions: '', evidence: 'fact', confidence: 0.9, scope: 'project', sourceRefs: ['session:s1'],
       })
 
       agent.followup(createUserMessage({ content: [{ type: 'text', text: 'hello' }], source: { kind: 'user' } }))

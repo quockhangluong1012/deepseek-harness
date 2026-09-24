@@ -50,6 +50,7 @@ Every package below exports a Cordis plugin that a bundle patch can name in a Lo
 |---|---|---|
 | `@deepseek-ai/dsh-acp-app` | no | The dsh ACP profile bundle: automation-only JSON-RPC stdio and process lifecycle over dsh-base |
 | `@deepseek-ai/dsh-headless` | yes | The dsh one-shot bundle: a direct core Agent/Session runner over dsh-base with no Host, HTTP, or browser layer |
+| `@deepseek-ai/dsh-kernel-ops` | no | Read-only kernel command line: task, verification, checkpoint, and policy records of a stored session. |
 | `@deepseek-ai/dsh-sdk-app` | yes | The dsh SDK profile bundle: stdio JSON-RPC serving and process lifecycle over dsh-base |
 | `@deepseek-ai/dsh-web-app` | yes | The dsh browser-surface bundle: the web patch layer over dsh-base plus the runtime glue plugin (frontend dist serving, web-surface prompt, bash runtime variables, URL line) |
 
@@ -73,9 +74,11 @@ Every package below exports a Cordis plugin that a bundle patch can name in a Lo
 | `@deepseek-ai/dsh-client-ui-deliverables` | no | Changed-files card with per-file comparison tabs, delivery cards, and clickable final-response file references for Web |
 | `@deepseek-ai/dsh-client-ui-directory-picker-browse` | no | In-app directory browsing surface: the workspace directory-flow owner rendering the host's listing and creation primitives |
 | `@deepseek-ai/dsh-client-ui-directory-picker-native` | no | Native directory-picker surface: the renderless workspace directory-flow occupant driving the local Desktop or Host OS chooser |
+| `@deepseek-ai/dsh-client-ui-evolution` | no | Evolution journey page and its Host evolutionCurator status Remote face over the per-scope evolution record |
 | `@deepseek-ai/dsh-client-ui-goal` | no | Session goal surface: GoalBar docked above the composer, read from the goal session projection |
 | `@deepseek-ai/dsh-client-ui-input-trigger` | no | Input trigger pipeline: '/' and '@' detection, candidate menu, pick routing to registered sources |
 | `@deepseek-ai/dsh-client-ui-jobs` | no | Session-header background-job list with on-demand streaming record panels |
+| `@deepseek-ai/dsh-client-ui-kernel-task` | no | Durable kernel-task surface: one Chat node folding an agent-kernel task record |
 | `@deepseek-ai/dsh-client-ui-layout` | no | Shell plugin: three-column AppFrame with drag handles, ctx.layout viewing-state service (navigation + panels) |
 | `@deepseek-ai/dsh-client-ui-message-feedback` | no | The Web feedback surface: per-message Like/Dislike in the assistant-message action strip and the feedback dialog behind both ratings and /feedback, backed by the messageFeedback and sessionFeedback Host Remotes |
 | `@deepseek-ai/dsh-client-ui-model-selection` | no | Model selection over the shared model catalog, Session projection, and session.selectModel |
@@ -83,6 +86,7 @@ Every package below exports a Cordis plugin that a bundle patch can name in a Lo
 | `@deepseek-ai/dsh-client-ui-permission-presets` | no | Permission surfaces: a new-session default in General settings and a current-session /permission popup over the permissions projection |
 | `@deepseek-ai/dsh-client-ui-plan` | no | Plan mode controls, persistent transcript plan cards, and sidebar Markdown previews |
 | `@deepseek-ai/dsh-client-ui-plugin-manager` | yes | Plugin management for the dsh web client: the sidebar Plugins panel installs, enables, disables, retries, and composes installed plugin packages |
+| `@deepseek-ai/dsh-client-ui-progress` | no | Progress tab type for the right Sidebar: the session's task checklist and the files it produced, revealed at the first sign of work |
 | `@deepseek-ai/dsh-client-ui-reference` | no | Unified Web @file and @session reference source |
 | `@deepseek-ai/dsh-client-ui-renderer` | no | Browser UI renderer: React slot bindings, ctx.uiRenderer, and the assembled application root |
 | `@deepseek-ai/dsh-client-ui-schedule` | no | Read-only active Schedule catalog in the Web Session header |
@@ -90,6 +94,7 @@ Every package below exports a Cordis plugin that a bundle patch can name in a Lo
 | `@deepseek-ai/dsh-client-ui-settings` | no | Settings domain base plugin: shared configuration forms and the canonical settings slot-type contract |
 | `@deepseek-ai/dsh-client-ui-settings-account` | yes | Manage DeepSeek login and open Platform billing pages |
 | `@deepseek-ai/dsh-client-ui-settings-agent-loop` | no | Settings page of the agent loop on the dsh web client's Plugins page: the parallel tool-call cap of the agent-loop namespace |
+| `@deepseek-ai/dsh-client-ui-settings-authorization` | no | Sign-in companion for the Models page: OAuth and interactive provider logins over the authorization Remote namespace |
 | `@deepseek-ai/dsh-client-ui-settings-general` | no | Settings ownerless-copy and product onboarding plugin: the General section, shell trigger/header chrome content, settings dictionaries, and the versioned welcome notice |
 | `@deepseek-ai/dsh-client-ui-settings-models` | yes | Models settings and shared product-onboarding dialogs over existing settings and credential joins |
 | `@deepseek-ai/dsh-client-ui-settings-plugin-inventory` | no | Read-only Cordis Loader inventory tab in Web Plugins settings |
@@ -108,9 +113,11 @@ Every package below exports a Cordis plugin that a bundle patch can name in a Lo
 | `@deepseek-ai/dsh-client-ui-theme` | yes | Theme plugin: Host bootstrap for the pre-plugin palette; DOM-free ThemeRuntime for light/dark/system state; --dsw-* token styles and Appearance settings row |
 | `@deepseek-ai/dsh-client-ui-tool` | no | Client Tool call-tree renderer and keyed per-tool presentation slot |
 | `@deepseek-ai/dsh-client-ui-trajectory` | no | Trajectory event ledger with an interactive timing overview: pure-consumer plugin registering into the conversation ViewMap (no service) |
+| `@deepseek-ai/dsh-client-ui-usage-dashboard` | no | Usage dashboard right-Sidebar tab and its Host usageDashboard Remote face over the usage ledger |
 | `@deepseek-ai/dsh-client-ui-user-questions` | no | Web ask_user_question composer takeover and plan-review presentation UI |
 | `@deepseek-ai/dsh-client-ui-workflow-run` | no | Durable workflow-run Conversation Node and nested member disclosure for dsh web |
 | `@deepseek-ai/dsh-client-ui-workspace` | no | Workspace picker plugin: one WorkspacePicker registered into the sidebar and empty-state workspace slots |
+| `@deepseek-ai/dsh-client-ui-workspace-memory` | no | Workspace memory page and its Host workspaceMemory Remote face over the workspace memory store |
 
 ## compaction
 
@@ -131,11 +138,14 @@ Every package below exports a Cordis plugin that a bundle patch can name in a Lo
 
 | Package | Config | Description |
 |---|---|---|
+| `@deepseek-ai/dsh-active-memory-context` | yes | Proactive per-turn memory search: injects semantically relevant past-session snippets into agent pre-step before the model responds |
 | `@deepseek-ai/dsh-agent-instructions` | yes | Workspace context loader for AGENTS.md/CLAUDE.md instruction files |
+| `@deepseek-ai/dsh-evolution-memory-context` | yes | Evolution memory brief injector: renders Instructions, Lessons, Profile, and Context into agent pre-step |
 | `@deepseek-ai/dsh-file-reference-local` | yes | Local-filesystem ctx.fileReferences provider with bounded fuzzy indexes |
 | `@deepseek-ai/dsh-session-reference` | yes | Cross-session snapshot references and durable untrusted model context (ctx.sessionReferenceResolver) |
 | `@deepseek-ai/dsh-time-context` | yes | Opt-in durable per-step context with the current time and elapsed time |
 | `@deepseek-ai/dsh-tmux-context` | yes | Opt-in durable per-step context with this agent's tmux pane and window location |
+| `@deepseek-ai/dsh-workspace-memory-context` | yes | Workspace memory brief injector: renders Instructions, Memory, and Context into agent pre-step |
 
 ## core
 
@@ -154,6 +164,7 @@ Every package below exports a Cordis plugin that a bundle patch can name in a Lo
 | Package | Config | Description |
 |---|---|---|
 | `@deepseek-ai/dsh-authorization` | no | Authorization seam (ctx.authorization): plugin-owned flows that obtain a credential through a conversation with the human |
+| `@deepseek-ai/dsh-authorization-remote` | no | Remote owner for the authorization seam: browser surfaces list, start, follow, and answer credential sign-in flows |
 | `@deepseek-ai/dsh-credentials-local` | yes | File-backed credentials provider ($DSH_HOME/.env under the live process environment) for the DeepSeek Harness |
 | `@deepseek-ai/dsh-deepseek-account-platform` | yes | Authorize DeepSeek accounts through browser PKCE |
 
@@ -169,6 +180,47 @@ Every package below exports a Cordis plugin that a bundle patch can name in a Lo
 | Package | Config | Description |
 |---|---|---|
 | `@deepseek-ai/dsh-office-to-pdf` | yes | Shared Office-to-PDF conversion with bounded queues and caching |
+
+## evolution
+
+| Package | Config | Description |
+|---|---|---|
+| `@deepseek-ai/dsh-command-evolution` | yes | Human-facing slash commands for staged evolution memory writes and on-demand rebuilds |
+| `@deepseek-ai/dsh-evolution-actuator` | yes | Evolution actuator: the heartbeat tasks that act on a recorded evolution verdict — rollout decisions, scheduled island migration, stagnation recovery, uncertainty drain, and curriculum admission |
+| `@deepseek-ai/dsh-evolution-adversary` | yes | Adversarial evolution: durable adversarial probes across eight weakness categories plus the evaluator-gaming defense checklist (ctx.evolutionAdversary) |
+| `@deepseek-ai/dsh-evolution-benchmark` | yes | Benchmark growth from production failures: a durable evaluation-task store with content deduplication, contamination states, and regression promotion (ctx.evolutionBenchmark) |
+| `@deepseek-ai/dsh-evolution-budget` | yes | Evolution budget: per-batch budget allocations priced by candidate class with spend settlements and the halving schedule (ctx.evolutionBudget) |
+| `@deepseek-ai/dsh-evolution-canary` | no | Shadow/canary deployment tracking: a durable rollout-state store over staged skill patches with measured shadow evidence (ctx.evolutionCanary) |
+| `@deepseek-ai/dsh-evolution-controller` | yes | Host Remote controller for the evolution harness: scope reads and writes, staged-write decisions, the journey timeline, and the memory follow stream |
+| `@deepseek-ai/dsh-evolution-curator` | yes | Idle-triggered skill lifecycle curation: automatic active/stale/archived transitions with dry-run previews (ctx.evolutionCurator) |
+| `@deepseek-ai/dsh-evolution-curriculum` | yes | Automatic curriculum from measured capability gaps: proposes training/evaluation tasks from the most decisive failure gists of each tracked skill, with a durable proposal store (ctx.evolutionCurriculum) |
+| `@deepseek-ai/dsh-evolution-dreaming` | yes | Dreaming consolidation: three-phase light/REM/deep cycle that scores recorded failures with the six-signal composite and promotes qualified candidates into durable scope memory (ctx.evolutionDreaming) |
+| `@deepseek-ai/dsh-evolution-evaluator-health` | yes | Evaluator ensemble health: judge agreement, approval-rate drift, and false-positive tracking over recorded behavior-evaluation verdicts (ctx.evolutionEvaluatorHealth) |
+| `@deepseek-ai/dsh-evolution-evaluator-strategy` | yes | Evaluator-strategy evolution: durable per-evaluator trust statistics with the per-task-class recommendation (ctx.evolutionEvaluatorStrategy) |
+| `@deepseek-ai/dsh-evolution-feedback` | yes | Per-session failure observations: failing tool results recorded, deduplicated, and aggregated into natural-language feedback for the learning loop (ctx.evolutionFeedback) |
+| `@deepseek-ai/dsh-evolution-graph` | yes | Knowledge-graph memory: durable per-scope entities and directed relations with bounded traversal, plus one deterministic extraction that turns text into triples (ctx.evolutionGraph) |
+| `@deepseek-ai/dsh-evolution-heartbeat` | yes | Host-wide idle-triggered task scheduling: one timer and a registry of autonomous maintenance tasks with durable per-task bookkeeping (ctx.evolutionHeartbeat) |
+| `@deepseek-ai/dsh-evolution-islands` | yes | Island evolution: durable per-skill evolution lanes with an objective each, migration recording between islands, and schedule-based migration due checks (ctx.evolutionIslands) |
+| `@deepseek-ai/dsh-evolution-lineage` | yes | Dependency-aware evolution: dependency-versioned experiment envelopes with comparability checks and ablation attribution (ctx.evolutionLineage) |
+| `@deepseek-ai/dsh-evolution-memory` | yes | Durable per-scope evolution memory record, lessons/profile writes, staged writes, and capacity accounting (ctx.evolutionMemory) |
+| `@deepseek-ai/dsh-evolution-meta` | yes | Meta-evolution: durable engine runs under their configurations with the next-configuration recommendation (ctx.evolutionMeta) |
+| `@deepseek-ai/dsh-evolution-metrics` | yes | Evolution metrics: capability gain per unit of compute and the supporting set, read from the evolution stores (ctx.evolutionMetrics) |
+| `@deepseek-ai/dsh-evolution-model-routes` | no | Adaptive model routing: durable per-role route assignments with measured evidence and recommendation, over the evolutionary role topology (ctx.evolutionModelRoutes) |
+| `@deepseek-ai/dsh-evolution-novelty-search` | no | Novelty search: a durable per-skill archive of behavior descriptors whose Jaccard-based archive novelty rewards meaningfully different candidates (ctx.evolutionNovelty) |
+| `@deepseek-ai/dsh-evolution-operators` | yes | Mutation-operator evolution: durable per-operator mutation statistics with the exploration-adjusted next-operator ranking (ctx.evolutionOperators) |
+| `@deepseek-ai/dsh-evolution-optimizer` | yes | Minimal offline skill optimization: trigger-gated mutation over ctx.llm, scorer evaluation under a DSH_HOME overlay, Pareto pick, staged skill patch (ctx.evolutionOptimizer) |
+| `@deepseek-ai/dsh-evolution-population` | no | Population-based evolution: a durable cross-run candidate record with generations, parent lineage, and an approved elite archive per skill (ctx.evolutionPopulation) |
+| `@deepseek-ai/dsh-evolution-retrieval` | yes | Retrieval-aware evolution: recorded retrieval configurations per session, judged by downstream task success, with the configuration recommendation per task class (ctx.evolutionRetrieval) |
+| `@deepseek-ai/dsh-evolution-reviewer` | yes | Evolution background review: per-turn output indexing, gated lessons extraction, on-demand rebuild (ctx.evolutionReviewer) |
+| `@deepseek-ai/dsh-evolution-router` | yes | Routing self-optimization: per-task-class route outcomes with derived effectiveness and the route recommendation (ctx.evolutionRouter) |
+| `@deepseek-ai/dsh-evolution-scorer` | yes | Measured improvement scoring: pass/workspace-diff, metered billed tokens, and median-of-N wall time over the recorded-session corpus (ctx.evolutionScorer) |
+| `@deepseek-ai/dsh-evolution-self-model` | yes | Controlled self-model: a durable per-skill capability record feeding a weakest-first capability frontier that says what to learn next (ctx.evolutionSelfModel) |
+| `@deepseek-ai/dsh-evolution-sleeptime` | yes | Sleep-time compute: anticipated future tasks with precomputed reasoning artifacts under an offline-cost economic policy (ctx.evolutionSleeptime) |
+| `@deepseek-ai/dsh-evolution-stagnation` | yes | Stagnation detection: counts a skill's evaluation runs without meaningful improvement and names the next diversity strategy when the frontier stalls (ctx.evolutionStagnation) |
+| `@deepseek-ai/dsh-evolution-trace` | yes | Immutable session trace projection: structured learning traces with ranked root-cause attribution and compressed summaries over the committed session log (ctx.evolutionTrace) |
+| `@deepseek-ai/dsh-evolution-trajectory` | yes | ShareGPT trajectory export of finished Sessions and Workspace scopes, written under the harness home (ctx.evolutionTrajectory) |
+| `@deepseek-ai/dsh-evolution-uncertainty` | yes | Uncertainty-driven learning: durable uncertainty signals aggregated into a prioritized queue of high-value evaluation tasks (ctx.evolutionUncertainty) |
+| `@deepseek-ai/dsh-evolution-verifiers` | no | Verifier-first candidate admission: the cheapest-first ladder of schema, invariant, simulation, evaluator, and human levels, stopping at the first decisive rung (ctx.evolutionVerifiers) |
 
 ## experimental
 
@@ -230,8 +282,10 @@ Every package below exports a Cordis plugin that a bundle patch can name in a Lo
 
 | Package | Config | Description |
 |---|---|---|
+| `@deepseek-ai/dsh-budgets` | yes | Per-turn budget guard: token, tool-call, and wall-clock ceilings enforced on agent/pre-step |
+| `@deepseek-ai/dsh-prompt-injection` | yes | Prompt-injection and credential guard: wraps external content in a tainted envelope, records what matched, and replaces credentials before content reaches model context |
 | `@deepseek-ai/dsh-repeat-tool-reminder` | yes | Repeat-tool-call guard plugin: advisory reminders when an agent loops on identical tool calls |
-| `@deepseek-ai/dsh-tool-call-timeout-policy` | no | Tool-call timeout policy: a tools/execute wrapper that arms a per-tool deadline on exec.signal and returns TOOL_TIMEOUT when it wins |
+| `@deepseek-ai/dsh-tool-call-timeout-policy` | yes | Tool-call timeout policy: a tools/execute wrapper that arms a per-tool deadline on exec.signal and returns TOOL_TIMEOUT when it wins |
 
 ## hooks
 
@@ -275,8 +329,11 @@ Every package below exports a Cordis plugin that a bundle patch can name in a Lo
 | Package | Config | Description |
 |---|---|---|
 | `@deepseek-ai/dsh-deepseek-llm-api-extensions` | no | Additive request-field registry for the official DeepSeek LLM API adapter |
+| `@deepseek-ai/dsh-embeddings` | yes | Embedding provider registry and cached batch call: one route-resolved request per batch, vectors cached by content hash (ctx.embeddings) |
+| `@deepseek-ai/dsh-embeddings-http` | yes | OpenAI-compatible embedding endpoint provider for ctx.embeddings: one POST per batch, vectors validated at the wire boundary |
 | `@deepseek-ai/dsh-llm` | no | Provider-neutral LLM service interface for the DeepSeek Harness |
 | `@deepseek-ai/dsh-llm-deepseek` | yes | DeepSeek Messages adapter |
+| `@deepseek-ai/dsh-llm-fallback` | yes | Provider route fallback on the agent loop's request recovery extension point (dsh-llm-fallback) |
 | `@deepseek-ai/dsh-llm-pi-ai` | yes | pi-ai-backed DeepSeek adapter for the DeepSeek Harness LLM seam (design-verification twin of dsh-llm-deepseek) |
 | `@deepseek-ai/dsh-llm-retry` | yes | Provider-routed LLM request retry policy for the DeepSeek Harness |
 | `@deepseek-ai/dsh-plugin-package-inventory-deepseek` | yes | Active Loader-backed plugin package inventory for official DeepSeek LLM API requests |
@@ -316,6 +373,15 @@ Every package below exports a Cordis plugin that a bundle patch can name in a Lo
 | Package | Config | Description |
 |---|---|---|
 | `@deepseek-ai/dsh-ptc-runtime-node` | yes | Sandboxed Node process implementation of the DeepSeek Harness PTC execution capability |
+
+## runtime
+
+| Package | Config | Description |
+|---|---|---|
+| `@deepseek-ai/dsh-agent-context` | yes | Context compiler: source envelopes, deterministic ranking, conflict reports, token-budget fitting, and a replayable compiled-context digest over the existing prompt contributors |
+| `@deepseek-ai/dsh-agent-kernel` | yes | Agent kernel: durable task contract, action ledger, capability policy, and completion gate observed through the existing agent and tool seams |
+| `@deepseek-ai/dsh-agent-kernel-builtins` | no | Built-in tool capability declarations for the agent kernel: one declaration per shipped product tool so enforce mode governs real traffic |
+| `@deepseek-ai/dsh-tool-evidence` | yes | Model-facing evidence and claim recording over the agent kernel's knowledge plane. |
 
 ## runtime-diagnostics
 
@@ -357,6 +423,7 @@ Every package below exports a Cordis plugin that a bundle patch can name in a Lo
 | `@deepseek-ai/dsh-session-title-all-prompts-llm` | yes | All-user-messages LLM provider plugin for DeepSeek Harness session titles |
 | `@deepseek-ai/dsh-session-title-first-prompt-llm` | yes | First-message LLM provider plugin for DeepSeek Harness session titles |
 | `@deepseek-ai/dsh-session-turn-outline` | no | Whole-log turn outline projection (turnOutline) for the DeepSeek Harness |
+| `@deepseek-ai/dsh-usage-ledger` | yes | Durable ledger of billed LLM attempts aggregated by day and model for the DeepSeek Harness usage dashboard |
 
 ## session-query
 
@@ -390,6 +457,8 @@ Every package below exports a Cordis plugin that a bundle patch can name in a Lo
 
 | Package | Config | Description |
 |---|---|---|
+| `@deepseek-ai/dsh-evolution-skill-manage` | yes | Model-facing skill_manage tool: create, patch, edit, write_file, remove_file, and delete skills (ctx.tools) |
+| `@deepseek-ai/dsh-evolution-skill-telemetry` | yes | Per-skill use/view/patch telemetry with provenance, pin, and lifecycle state (ctx.evolutionSkillTelemetry) |
 | `@deepseek-ai/dsh-skill` | yes | Agent skill provider registry for the DeepSeek Harness |
 | `@deepseek-ai/dsh-skill-badge` | no | Bundled dsh badge skill provider for DeepSeek Harness |
 | `@deepseek-ai/dsh-skill-filesystem` | yes | Local filesystem skill provider for the DeepSeek Harness |
@@ -499,3 +568,5 @@ Every package below exports a Cordis plugin that a bundle patch can name in a Lo
 | Package | Config | Description |
 |---|---|---|
 | `@deepseek-ai/dsh-workspace` | no | Workspace entity registry (ctx.workspaceRegistry): durable workspace records with validated session attachment over the domain data form for the DeepSeek Harness |
+| `@deepseek-ai/dsh-workspace-memory` | yes | Durable per-workspace memory record, caps, and capacity accounting (ctx.workspaceMemory) |
+| `@deepseek-ai/dsh-workspace-memory-llm` | yes | Workspace memory extraction: per-turn output indexing, per-turn memory derivation, on-demand rebuild (ctx.workspaceMemoryExtractor) |

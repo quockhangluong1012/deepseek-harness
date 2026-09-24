@@ -99,7 +99,7 @@ type SkillSource = 'project-dsh' | 'project-hermes' | 'project-agents' | 'runtim
 
 ## Summaries, candidates, and complete definitions
 
-`SkillSummary` is the registry's invocation-neutral summary shape. Consumers choose which entries and fields to render; the model session catalog uses only model-invocable `name` and `description`, never the body or absolute file path. `SkillInvocationPolicy` normalizes the two independent invocation controls into positive booleans, and every resolved summary, candidate, and definition carries it without turning arbitrary frontmatter into the domain model.
+`SkillSummary` is the registry's invocation-neutral summary shape. Consumers choose which entries and fields to render; the model session catalog uses only model-invocable `name` and `description`, never the body or absolute file path. `SkillInvocationPolicy` normalizes the two independent invocation controls into positive booleans, and every resolved summary, candidate, and definition carries it without turning arbitrary frontmatter into the domain model. `admission`, `trust`, `sourceDigest`, and `rollbackArtifact` carry how a skill entered the deployment and which artifact it was reviewed from: the registry refuses to advertise or load a candidate whose provider marks it `quarantined` and counts it in the catalog-change payload, while `admitSkill()` is the gate a consumer with a grant in hand applies — a quarantined skill is refused outright, an untrusted skill needs a named review, and a declared capability outside the caller's grant is refused because a skill may narrow that grant but never widen it.
 
 ```ts type-equiv
 /** Invocation controls shared by skill discovery consumers. */
@@ -156,6 +156,24 @@ interface SkillSummary {
   readonly version?: string
   /** Scenario names usable by the scorer/optimizer; absent means none declared. */
   readonly testScenarios?: readonly string[]
+  /**
+   * How the skill entered this deployment. `quarantined` skills are neither
+   * advertised nor loadable; absent leaves the decision to the provider, which
+   * is how every provider that filters at discovery stays as it is.
+   */
+  readonly admission?: SkillAdmission
+  /**
+   * How far the skill body may be trusted. Project and repository skills stay
+   * `untrusted` until a review admits them.
+   */
+  readonly trust?: TrustLabel
+  /**
+   * Digest of the exact source the provider read, so an admitted skill can be
+   * tied to the artifact it was reviewed from.
+   */
+  readonly sourceDigest?: string
+  /** Artifact that restores the previous version of this skill, when one exists. */
+  readonly rollbackArtifact?: string
   /** Resolved model and user invocation controls. */
   readonly invocation: SkillInvocationPolicy
   /** Discovery source that produced this winning skill. */

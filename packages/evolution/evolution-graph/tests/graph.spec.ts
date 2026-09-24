@@ -795,6 +795,7 @@ describe('claim graph', () => {
       evidence: 'fact',
       confidence: 0.9,
       scope: 'project',
+      sourceRefs: [`session:${source}`],
     }
   }
 

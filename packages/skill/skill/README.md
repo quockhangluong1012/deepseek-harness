@@ -97,7 +97,11 @@ The registry is host+per-scope layered, the shape the tools registry established
 
 ### Catalog collection
 
-A read (`list`/`snapshot`) collects each layer's candidates: runtime skills first, then each provider's `list()` result, awaiting providers sequentially and containing failures. Candidates are validated, deduplicated within the layer, and merged across layers; summaries sort by name. Completed collections are cached per cwd, scope chain, and revision up to `collectCacheMaxEntries`; an in-flight collection retries once when a provider or runtime mutation bumps the revision mid-read, and a second change returns the latest candidates as an incomplete, uncached observation.
+A read (`list`/`snapshot`) collects each layer's candidates: runtime skills first, then each provider's `list()` result, awaiting providers sequentially and containing failures. Candidates are validated, deduplicated within the layer, and merged across layers; summaries sort by name. A candidate whose provider marks it `quarantined` is dropped here and added to the quarantined count, so it is neither advertised nor loadable — a provider that reports the quarantine instead of withholding the candidate reaches the same outcome. Completed collections are cached per cwd, scope chain, and revision up to `collectCacheMaxEntries`; an in-flight collection retries once when a provider or runtime mutation bumps the revision mid-read, and a second change returns the latest candidates as an incomplete, uncached observation.
+
+### Admission
+
+A summary may carry `admission` (`bundled`, `project-reviewed`, `user-approved`, or `quarantined`), `trust`, `sourceDigest`, and `rollbackArtifact`. The registry enforces only the quarantine; `admitSkill()` is the gate a consumer applies when it holds a grant: it refuses a quarantined skill, refuses an untrusted skill whose provider names no review, and refuses a declared capability outside the caller's grant, because a skill may narrow the caller's authority but never widen it. `capabilitiesWithin()` exposes that containment check alone.
 
 ### Loading and staleness
 

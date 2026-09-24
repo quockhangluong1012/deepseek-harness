@@ -40,7 +40,7 @@ Both wire ends share one method set: three client-to-server requests and four se
 | client→server | `initialize` | `InitializeParams` → `InitializeResult` |
 | client→server | `session/prompt` | `SessionPromptParams` → `SessionPromptResult` (durable enqueue receipt) |
 | client→server | `shutdown` | no params → `{}` |
-| server→client | `session.event` | `SessionEventNotification` (every session in the runtime, unfiltered) |
+| server→client | `session.event` | `SessionEventNotification` (every session in the runtime, unfiltered — including the agent kernel's `task/*`, `action/*`, `policy/decision`, `verification/*`, `failure/recorded`, and `checkpoint/*` records when that plugin is mounted) |
 | server→client | `session.status` | `SessionStatusNotification` (whole-agent `running`/`idle` transition) |
 | server→client | `subagent.started` | `SubagentStartedNotification` |
 | server→client | `subagent.finished` | `SubagentFinishedNotification` (in-process runs only) |

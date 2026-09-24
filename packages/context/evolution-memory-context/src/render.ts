@@ -130,7 +130,12 @@ function orderedLessons(artifacts: readonly LessonArtifact[]): LessonArtifact[] 
  */
 function lessonLines(ordered: readonly LessonArtifact[], kept: number): string {
   return ordered.slice(0, kept)
-    .map(artifact => `- ${artifact.statement} (confidence: ${artifact.confidence.toFixed(2)})`)
+    // A fact derived from content nobody vouched for is quoted data with the
+    // source it came from, never a directive the model reads as instruction
+    // (amendment S11). Trusted and unlabelled facts keep the directive form.
+    .map(artifact => artifact.trust === 'untrusted'
+      ? `- (untrusted, from ${artifact.source}) > ${artifact.statement} (confidence: ${artifact.confidence.toFixed(2)})`
+      : `- ${artifact.statement} (confidence: ${artifact.confidence.toFixed(2)})`)
     .join('\n')
 }
 

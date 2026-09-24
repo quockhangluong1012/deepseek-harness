@@ -13,11 +13,13 @@ import {
 import type { Agent, AgentHandle, AgentOptions, ModelSelection } from '@deepseek-ai/dsh-agent'
 import { createUserMessage, errorChain, type UserMessage } from '@deepseek-ai/dsh-llm'
 import { type Session, type SessionEvent, type SessionId, type TurnEndReason } from '@deepseek-ai/dsh-session'
+// Type-only: activates the kernel's `task/*` augmentation of `SessionEventMap`.
+import type {} from '@deepseek-ai/dsh-agent-kernel'
 import { AcpContentError, admitAcpPrompt, supportsAcpImagePrompts } from './content.ts'
 import { turnEndToStopReason } from './codec.ts'
 import { mountAcpMcpServers } from './mcp.ts'
 import { AcpModelControl } from './model-control.ts'
-import { assistantUpdates, toolCallUpdate, toolResultUpdate } from './updates.ts'
+import { assistantUpdates, planUpdate, toolCallUpdate, toolResultUpdate } from './updates.ts'
 
 /** The continuable-subagent teardown used without depending on the subagent package. */
 interface ContinuableDrain {
@@ -387,6 +389,15 @@ export class AcpSession {
             this.ctx.logger.warn(`acp: tool-call update delivery failed: ${errorChain(error)}`)
           })
         /* v8 ignore stop */
+      } else if (event.type === 'task/plan') {
+        // The kernel's durable plan revision is what ACP's plan vocabulary
+        // renders; it queues behind tool output like every other update.
+        const previous = this.outputTail
+        this.outputTail = previous
+          .then(() => this.notify({ sessionId: this.agent.session.id, update: planUpdate(event) }))
+          .catch((error: unknown) => {
+            this.ctx.logger.warn(`acp: plan update delivery failed: ${errorChain(error)}`)
+          })
       } else if (event.type === 'tool/result') {
         const previous = this.outputTail
         this.outputTail = previous

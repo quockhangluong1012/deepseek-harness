@@ -42,6 +42,7 @@ This table connects model-visible tool names to the plugin package and service s
 | `@deepseek-ai/dsh-tool-jobs` | `job_kill`, `job_list`, `job_output` | `ctx.tools`, `ctx.jobs`, `ctx.systemPrompt` | `tool/call`, `tool/result`, `user/message via agent.inject() for background completion notices` | - | The kind-agnostic background-job controller: background bash commands, PTY sends, and subagents are read, listed, and killed through the same three tools. Loading the plugin attaches the controller that arms producers' `ctx.jobs.start()`. |
 | `@deepseek-ai/dsh-experimental-tool-agent-team` | `interrupt_agent`, `list_agents`, `send_message`, `spawn_teammate`, `team_task_create`, `team_task_get`, `team_task_list`, `team_task_update`, `wait_agent` | `ctx.tools`, `ctx.systemPrompt`, `ctx.agentTeams`, `an exact live Team member Agent` | `tool/call`, `team/member`, `team/message/queued`, `team/message/delivered`, `team/task`, `tool/result` | - | All nine tools are scoped to implicit Team Leads and durable teammates. The shipped dsh-base bundle keeps the package disabled; the documented Agent Teams profile patch enables it while disabling the legacy continuable-child control names. |
 | `@deepseek-ai/dsh-tool-todo` | `todo_write` | `ctx.tools`, `owning Agent session` | `tool/call`, `todo/write`, `tool/result` | - | todo_write is session-owned state; UIs render the latest todo/write event as a checklist. `allowParallelInProgress` is required with no default, so the catalog states its choice: `true`, whose description invites several `in_progress` items. A deployment choosing `false` receives the same tool with a description asking for exactly one active task. |
+| `@deepseek-ai/dsh-tool-evidence` | `record_claim`, `record_evidence` | `ctx.tools`, `ctx.agentKernel`, `a calling Agent with an open task` | `tool/call`, `evidence/recorded`, `claim/updated`, `tool/result` | - | Both tools write the knowledge plane through the kernel. `record_evidence` states what was observed and how far it may be trusted; `record_claim` states what the task asserts, citing recorded evidence. The kernel refuses either call when the calling agent has no task, so a deployment without the kernel records nothing rather than dropping a fact. |
 | `@deepseek-ai/dsh-tool-workflow` | `workflow` | `ctx.tools`, `ctx.workflowEngine`, `ctx.systemPrompt`, `a calling Agent (exec.agent parents the script children)` | `tool/call`, `tool/result` | - | - |
 | `@deepseek-ai/dsh-tool-workspace-dependencies` | `load_workspace_dependencies` | `ctx.tools` | `tool/call`, `tool/result` | - | - |
 | `@deepseek-ai/dsh-tool-web` | `web_fetch`, `web_search` | `ctx.tools`, `ctx.web`, `ctx.systemPrompt` | `tool/call`, `tool/result` | - | web_search and web_fetch keep provider selection behind ctx.web so model-visible schemas stay stable across backend swaps. |
@@ -2409,6 +2410,105 @@ Record and update a structured task list for the current work. Send the ENTIRE l
 Source: [`packages/todo/tool-todo/src/index.ts`](../packages/todo/tool-todo/src/index.ts)
 
 todo_write is session-owned state; UIs render the latest todo/write event as a checklist. `allowParallelInProgress` is required with no default, so the catalog states its choice: `true`, whose description invites several `in_progress` items. A deployment choosing `false` receives the same tool with a description asking for exactly one active task.
+
+<a id="deepseek-aidsh-tool-evidence"></a>
+
+## `@deepseek-ai/dsh-tool-evidence`
+
+### `record_claim`
+
+Record what the task now asserts, citing the evidence you recorded, with your confidence and how well the evidence establishes it. A claim without evidence is a proposal, not a finding.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "statement": {
+      "type": "string",
+      "description": "The statement the task asserts."
+    },
+    "evidenceIds": {
+      "type": "array",
+      "description": "Evidence identities this claim cites.",
+      "items": {
+        "type": "string"
+      }
+    },
+    "confidence": {
+      "type": "number",
+      "description": "Confidence in [0, 1]."
+    },
+    "status": {
+      "type": "string",
+      "description": "How far the evidence establishes the statement.",
+      "enum": [
+        "proposed",
+        "supported",
+        "contradicted",
+        "stale",
+        "rejected"
+      ]
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "statement",
+    "confidence"
+  ]
+}
+```
+
+Source: [`packages/runtime/tool-evidence/src/index.ts`](../packages/runtime/tool-evidence/src/index.ts)
+
+### `record_evidence`
+
+Record one observation as evidence the task can later cite: what kind it is, where the content is, and how far it may be trusted. Record evidence when you read a file, run a check, or receive a result you intend to reason from.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "kind": {
+      "type": "string",
+      "description": "Where the observation came from.",
+      "enum": [
+        "file",
+        "tool-result",
+        "web",
+        "mcp",
+        "test",
+        "user",
+        "model"
+      ]
+    },
+    "contentRef": {
+      "type": "string",
+      "description": "Repository-relative path, URL, or tool call id locating the content."
+    },
+    "digest": {
+      "type": "string",
+      "description": "Digest of the observed content, when you computed one."
+    },
+    "trust": {
+      "type": "string",
+      "description": "How far the content may be trusted.",
+      "enum": [
+        "trusted",
+        "untrusted",
+        "unknown"
+      ]
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "contentRef"
+  ]
+}
+```
+
+Source: [`packages/runtime/tool-evidence/src/index.ts`](../packages/runtime/tool-evidence/src/index.ts)
+
+Both tools write the knowledge plane through the kernel. `record_evidence` states what was observed and how far it may be trusted; `record_claim` states what the task asserts, citing recorded evidence. The kernel refuses either call when the calling agent has no task, so a deployment without the kernel records nothing rather than dropping a fact.
 
 <a id="deepseek-aidsh-tool-workflow"></a>
 

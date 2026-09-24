@@ -42,6 +42,26 @@
 # `dsh.client` rows are the browser roster the modules node half scans into
 # window.__DSH_BOOT__; the modules row is simultaneously a host row.
 - insert:
+    # Governance plane (spec §33 B0): the kernel and its builtin capability
+    # declarations, plus the prompt-injection guard, all mounted in `shadow`.
+    # Shadow records what each decision would have been and changes no
+    # behaviour, so a deployment measures a permission document against real
+    # traffic before any of it can stop a call. The kernel writes log-only
+    # task/action/verification records; the guard wraps tool results and model
+    # proposals in a tainted envelope and redacts credentials in `enforce`.
+    - id: agent-kernel
+      name: '@deepseek-ai/dsh-agent-kernel'
+      config:
+        mode: shadow
+
+    - id: agent-kernel-builtins
+      name: '@deepseek-ai/dsh-agent-kernel-builtins'
+
+    - id: prompt-injection
+      name: '@deepseek-ai/dsh-prompt-injection'
+      config:
+        mode: shadow
+
     # Guard row. `budgets` mounts with every ceiling off: it observes each
     # turn and rejects nothing until a deployment sets a ceiling here.
     - id: budgets
@@ -349,6 +369,7 @@
     # envelope domain and reaches no model prompt.
     - id: evolution-lineage
       name: '@deepseek-ai/dsh-evolution-lineage'
+      config: {}
 
     # Sleep-time compute: the command plane anticipates likely future tasks,
     # records precomputed reasoning artifacts, and reads the offline-cost plan
@@ -673,6 +694,17 @@
     # existing generic workflow tool row.
     - id: ui-workflow-run
       name: '@deepseek-ai/dsh-client-ui-workflow-run'
+
+    # The agent kernel's task record as its own Chat node: status, plan
+    # revision, budget, verification, checkpoint, and research counts. The
+    # node reads whatever the kernel recorded and shows nothing when no
+    # kernel is mounted in this profile.
+    # Kernel task node: one row per durable task contract, showing the objective,
+    # status, plan revision, budget, verification, checkpoint, and research
+    # counts. It reads whatever the kernel recorded and shows nothing when no
+    # kernel is mounted in this profile.
+    - id: ui-kernel-task
+      name: '@deepseek-ai/dsh-client-ui-kernel-task'
 
     # Input triggers: the '/' | '@' pipeline (ui-input-trigger), the command surface over
     # it (ui-commands), and the reference sources (ui-skill / ui-reference).

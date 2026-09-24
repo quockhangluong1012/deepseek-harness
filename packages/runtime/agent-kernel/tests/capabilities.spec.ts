@@ -44,6 +44,12 @@ describe('tool capability registry', () => {
     expect(registry.size).toBe(0)
   })
 
+  it('rejects a declaration without required capabilities', () => {
+    const registry = new ToolCapabilityRegistry()
+    expect(() => registry.register({ ...declaration, capabilities: [] }))
+      .toThrow('must declare at least one capability')
+  })
+
   it('propagates a throwing resource projection', () => {
     const registry = new ToolCapabilityRegistry()
     registry.register({

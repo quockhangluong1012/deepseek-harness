@@ -28,6 +28,8 @@ This group maps the installable patch layers used by `dsh --profile`. Each packa
 | [`headless`](headless/README.md) | One-shot command-line task application over base | `headless-runner` |
 | [`sdk-app`](sdk-app/README.md) | SDK JSON-RPC stdio application over base | mounts the SDK server |
 | [`sdk-minimal`](sdk-minimal/README.md) | Standalone minimal SDK application without base or Web | — (complete patch tree) |
+| [`agent-governance`](agent-governance/README.md) | Opt-in control plane: the agent kernel, its built-in declarations, and the prompt-injection guard | `agentKernel` |
+| [`kernel-ops`](kernel-ops/README.md) | Read-only kernel command line over stored sessions: `dsh task` and `dsh policy` | `sessionPersistence` |
 
 In-box bundles resolve from the dsh installation; out-of-tree bundles install into a profile through `dsh plugin --profile <name> add <package>`.
 

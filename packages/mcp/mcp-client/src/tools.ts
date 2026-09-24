@@ -16,6 +16,10 @@ import { createHash } from 'node:crypto'
 import { isDeepStrictEqual } from 'node:util'
 import { specTypeSchemas, type Client, type ImageContent } from '@modelcontextprotocol/client'
 import type { Context } from '@deepseek-ai/cordis'
+// Type-only: activates the `ctx.agentKernel` Context declaration and its
+// capability registry, which this bridge declares MCP tools against.
+import type {} from '@deepseek-ai/dsh-agent-kernel'
+import type { AgentKernel } from '@deepseek-ai/dsh-agent-kernel'
 import { isImageAdmissionError } from '@deepseek-ai/dsh-attachment'
 import type { AttachmentStore, ImageAttachmentRef, ImageMediaType, SaveImageAttachment } from '@deepseek-ai/dsh-attachment'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
@@ -47,6 +51,12 @@ export interface ToolBridgeOptions {
    * still yields a digest over the tool-name list alone.
    */
   serverVersion?: string
+  /**
+   * Publishes this generation's capability declarations; omitted when the
+   * deployment declares MCP tools itself. See
+   * {@link createMcpCapabilityPublisher}.
+   */
+  capabilities?: (generation: ReadonlyMap<string, string>) => void
 }
 
 /**
@@ -124,6 +134,57 @@ export function computeServerDigest(rawToolNames: readonly string[], serverVersi
 
 /** State for one sync generation: the current set of disposers keyed by public name. */
 export type ToolDisposers = Map<string, () => void>
+
+/**
+ * Publish a live MCP tool generation's capability declarations to the agent
+ * kernel.
+ *
+ * The kernel owns the policy decision; this publisher only tells it what each
+ * synced tool needs, as `mcp.call` against `mcp:<serverName>/<rawToolName>`. A
+ * declaration follows its registry generation, so a reconnect, a tool
+ * removal, a namespace-conflict rollback, and plugin unload each replace or
+ * clear it: the kernel never authorizes a tool the server no longer publishes.
+ * The kernel is optional and may mount before or after this server;
+ * subscribing publishes the current generation once it exists.
+ *
+ * @param ctx - the server plugin's scope, which owns the kernel subscription.
+ * @param serverName - the namespace the declared resources are qualified by.
+ * @returns the publisher: call it with the live `publicName → rawName`
+ *   generation, or with an empty map to withdraw every declaration.
+ */
+export function createMcpCapabilityPublisher(
+  ctx: Context,
+  serverName: string,
+): (generation: ReadonlyMap<string, string>) => void {
+  let generation: ReadonlyMap<string, string> = new Map()
+  let declarations = new Map<string, () => void>()
+  const publish = (kernel: AgentKernel | undefined): void => {
+    for (const dispose of declarations.values()) dispose()
+    declarations = new Map()
+    if (kernel === undefined) return
+    for (const [publicName, rawName] of generation) {
+      declarations.set(publicName, kernel.capabilities.register({
+        tool: publicName,
+        capabilities: ['mcp.call'],
+        resources: () => `mcp:${serverName}/${rawName}`,
+        // An MCP server is outside the trust boundary: what it returns is
+        // external content, so a deployment quarantining untrusted content
+        // requires a human answer before the call runs.
+        trust: 'untrusted',
+      }))
+    }
+  }
+  ctx.inject(['agentKernel'], (kernelCtx) => {
+    kernelCtx.effect(() => {
+      publish(kernelCtx.agentKernel)
+      return () => { declarations = new Map() }
+    })
+  })
+  return (next) => {
+    generation = next
+    publish(ctx.get('agentKernel'))
+  }
+}
 
 /** Canonical MCP result exposed to PTC mode without discarding protocol blocks. */
 export type McpResult<Structured extends JsonValue = JsonValue> = {
@@ -208,6 +269,7 @@ export async function syncTools(
 ): Promise<ToolDisposers> {
   // Phase 1: fetch and build the next generation without touching the registry.
   const definitions = new Map<string, ToolDefinition>()
+  const declared = new Map<string, string>()
   const response = client.getServerCapabilities()?.tools === undefined
     ? { tools: [] }
     : await client.listTools(undefined, { cacheMode: 'refresh' })
@@ -227,6 +289,7 @@ export async function syncTools(
         `mcp-client(${opts.serverName}): server listed tool "${tool.name}" more than once — invalid tool list`,
       )
     }
+    declared.set(publicName, tool.name)
     definitions.set(publicName, createMcpToolDefinition(ctx, {
       name: publicName,
       rawName: tool.name,
@@ -256,9 +319,11 @@ export async function syncTools(
     // sees either the full generation or none of it — never a partial set.
     for (const dispose of disposers.values()) dispose()
     ctx.logger.error(`mcp-client(${opts.serverName}): tool registration failed, no tools registered: ${String(error)}`)
+    opts.capabilities?.(new Map())
     if (opts.registrationFailure === 'throw') throw error
     return new Map()
   }
+  opts.capabilities?.(declared)
   return disposers
 }
 

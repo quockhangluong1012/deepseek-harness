@@ -10,6 +10,8 @@
     { "path": "../../../vendor/cordis" },
     { "path": "../../../vendor/schemastery" },
     { "path": "../../core/agent" },
+    { "path": "../../runtime/agent-context" },
+    { "path": "../../compaction/compaction" },
     { "path": "../../core/session" },
     { "path": "../../evolution/evolution-graph" },
     { "path": "../../evolution/evolution-memory" },

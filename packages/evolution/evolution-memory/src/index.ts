@@ -29,7 +29,7 @@ import z from '@deepseek-ai/schemastery'
 import type { KvTable } from '@deepseek-ai/dsh-storage-domain'
 import { RemoteError } from '@deepseek-ai/dsh-typert-protocol'
 import { artifactBytesOf, digestOf, usedBytesOf, utf8Bytes } from './digest.ts'
-import { artifactKey, lessonArtifactInput } from './lesson-artifact.ts'
+import { artifactKey, assertDirectlyAdmissible, lessonArtifactInput, rememberOutcome } from './lesson-artifact.ts'
 import type { LessonArtifact, LessonArtifactInput, LessonArtifactPatch, LessonMergeStrategy } from './lesson-artifact.ts'
 import { cosineSimilarity, mergeArtifact, pickMergeTarget } from './merge.ts'
 import { addArtifactTo, applyLessonDecisions, artifactIdOf, freshArtifact, lessonDecision } from './decisions.ts'
@@ -86,8 +86,9 @@ export { evolutionMemoryDomainSpec } from './spec.ts'
 export { RECALL_LABEL_PREFIX, memoryUtility, recallTarget } from './recall.ts'
 export type { MemoryUtility } from './recall.ts'
 export { digestOf, usedBytesOf, EMPTY_DIGEST, truncateUtf8, utf8Bytes, artifactBytesOf } from './digest.ts'
-export { artifactKey, lessonArtifact, lessonArtifactInput, normalizeStatement, wrapLegacyLessons } from './lesson-artifact.ts'
+export { admissionIssues, artifactKey, assertDirectlyAdmissible, rememberOutcome, lessonArtifact, lessonArtifactInput, normalizeStatement, scrubArtifactText, utilityValue, wrapLegacyLessons } from './lesson-artifact.ts'
 export { cosineSimilarity, mergeArtifact, pickMergeTarget } from './merge.ts'
+export { demotable } from './maintenance.ts'
 export type { SweepResult } from './maintenance.ts'
 export type {
   LessonArtifact,
@@ -95,7 +96,11 @@ export type {
   LessonArtifactPatch,
   LessonArtifactScope,
   LessonEvidenceKind,
+  LessonLineage,
   LessonMergeStrategy,
+  LessonTrust,
+  LessonSupersession,
+  UtilityEstimate,
 } from './lesson-artifact.ts'
 
 /** Heartbeat task name carrying the automatic maintenance sweep. */
@@ -987,6 +992,7 @@ export class EvolutionMemoryStore extends Service {
     strategy: LessonMergeStrategy = 'keep_both',
   ): Promise<EvolutionMemoryRecord> {
     const parsed = lessonArtifactInput.parse(candidate)
+    assertDirectlyAdmissible(parsed)
     const key = artifactKey(parsed.statement)
     const current = this.requireTable().get(storageKey(id) as EvolutionScopeId)
     const artifacts = current?.agentLessons ?? []
@@ -1073,6 +1079,11 @@ export class EvolutionMemoryStore extends Service {
     extraction?: EvolutionExtraction,
   ): Promise<EvolutionMemoryRecord> {
     const parsed = decisions.map(decision => lessonDecision.parse(decision))
+    // An extraction that read untrusted content cannot promote it: its
+    // candidates are staged for approval instead of landing directly.
+    for (const decision of parsed) {
+      if (decision.kind === 'new') assertDirectlyAdmissible(decision.candidate)
+    }
     const artifacts = this.read(id)?.agentLessons ?? []
     const addTargets = await this.decisionAddTargets(artifacts, parsed)
     const now = new Date().toISOString()
@@ -1263,7 +1274,16 @@ export class EvolutionMemoryStore extends Service {
     if (current === undefined || !current.recalls.some(recall => recall.id === recalledId && recall.outcome === null)) {
       throw itemNotFound(recalledId)
     }
-    return this.write(id, record => ({ ...record, recalls: gradeRecall(record.recalls, recalledId, outcome, at) }))
+    return this.write(id, record => ({
+      ...record,
+      recalls: gradeRecall(record.recalls, recalledId, outcome, at),
+      // S8: the fact that was surfaced earns the outcome its task reached, so a
+      // demotion rests on observed outcomes instead of on age alone. A recall of
+      // something that is not a lesson keeps its ledger row and updates nothing.
+      agentLessons: record.agentLessons.map(artifact => artifact.id === recalledId
+        ? { ...artifact, utility: rememberOutcome(artifact.utility, outcome) }
+        : artifact),
+    }))
   }
 
   /**

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { brandString } from '@deepseek-ai/dsh-brand'
-import { Session, SessionId } from '@deepseek-ai/dsh-session'
+import { Session, SessionId, type SessionEventMap } from '@deepseek-ai/dsh-session'
 import { actionIdOf, KernelLedger } from '../src/ledger.ts'
 import type { ApprovalRequestId } from '@deepseek-ai/dsh-user-approval/types'
 import type { ToolCallId } from '@deepseek-ai/dsh-llm/brand'
@@ -68,6 +68,23 @@ function proposal(actionId: string): ActionProposal {
   }
 }
 
+/** One decided action whose compose answer allows it, as the kernel records it. */
+function decided(actionId: string): SessionEventMap['action/decided'] {
+  const record = proposal(actionId)
+  return {
+    proposal: record,
+    policy: { decisionId: brandString<PolicyDecisionId>('decision-1'), actionId: record.actionId, effect: 'allow', matchedRuleIndex: null, capabilities: [], reasons: [] },
+    decision: {
+      effect: 'allow',
+      decisionId: brandString<PolicyDecisionId>('decision-1'),
+      capabilityGrants: [],
+      sandbox: { mode: 'workspace-write', workspaceRoot: '/tmp' },
+      enforced: false,
+      reasons: [],
+    },
+  }
+}
+
 describe('kernel ledger fold', () => {
   it('reports nothing for a session without a task, then folds the contract and its transitions', () => {
     const ledger = new KernelLedger()
@@ -87,8 +104,8 @@ describe('kernel ledger fold', () => {
     const target = session()
     target.append('task/created', created())
     target.append('task/transitioned', transition('intake', 'ready', 1))
-    target.append('action/proposed', proposal('call-1'))
-    target.append('action/proposed', proposal('call-2'))
+    target.append('action/decided', decided('call-1'))
+    target.append('action/decided', decided('call-2'))
     target.append('step/start', { turn: 1, step: 1 })
     target.append('tool/call', { turn: 1, step: 1, callId: brandString<ToolCallId>('call-1'), name: 'probe', arguments: '{}' })
     target.append('failure/recorded', {
@@ -144,6 +161,7 @@ describe('kernel ledger fold', () => {
       decisionId: brandString<PolicyDecisionId>('d-1'),
       outcome: 'succeeded',
       committedAt: 4,
+      revoked: [],
     })
     expect(ledger.view(target)?.unresolvedFailures).toEqual([{ failureId: 'f-3', kind: 'timeout' }])
 
@@ -153,6 +171,7 @@ describe('kernel ledger fold', () => {
       decisionId: brandString<PolicyDecisionId>('d-2'),
       outcome: 'failed',
       committedAt: 5,
+      revoked: [],
     })
 
     const after = ledger.view(target)
@@ -168,7 +187,7 @@ describe('kernel ledger fold', () => {
       sessionSeq: target.seq,
       status: 'executing',
       revision: 3,
-      budgets: { steps: 1, toolCalls: 1, wallMs: 0, remaining: {} },
+      budgets: { steps: 1, toolCalls: 1, tokens: 0, wallMs: 0, remaining: {} },
       openActionIds: [],
       unresolvedFailures: [],
       reason: 'turn-boundary',
@@ -182,7 +201,7 @@ describe('kernel ledger fold', () => {
     const ledger = new KernelLedger()
     const target = session()
     target.append('task/created', created())
-    target.append('action/proposed', proposal('call-9'))
+    target.append('action/decided', decided('call-9'))
     target.append('approval/asked', { id: brandString<ApprovalRequestId>('a-1'), toolName: 'probe', callId: brandString<ToolCallId>('call-9') })
     target.append('approval/asked', { id: brandString<ApprovalRequestId>('a-2'), toolName: 'probe' })
     target.append('approval/decided', { id: brandString<ApprovalRequestId>('a-2'), outcome: 'rejected' })

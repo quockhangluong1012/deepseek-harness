@@ -50,7 +50,11 @@ return { reviewed: reviews.length }
 
 插件消费方可以直接启动运行：`ctx.workflowEngine.start({ script, meta, args?, parent, signal? })`。`parent` 把每个子 agent 归属于调用它的 agent；`signal` 在中止时取消运行。`start()` 在运行存在之前校验 meta 块并解析脚本，因此格式错误的请求会立即以违规清单失败。
 
-返回的运行公开 `id`、`meta`、`result`、`cancel(reason?)` 与 `dispose()`。result 绝不拒绝：脚本失败以 `stopReason: 'error'` 兑现，取消以 `'cancelled'` 兑现。调用方拥有该运行——每条路径都要调用 `dispose()`；它会取消剩余工作，并按提供方的生命周期约定等待脚本与子 agent 清理完成。
+返回的运行公开 `id`、`meta`、`status`、`result`、`checkpoint()`、`cancel(reason?)` 与 `dispose()`。result 绝不拒绝：脚本失败以 `stopReason: 'error'` 兑现，取消以 `'cancelled'` 兑现。调用方拥有该运行——每条路径都要调用 `dispose()`；它会取消剩余工作，并按提供方的生命周期约定等待脚本与子 agent 清理完成。
+
+### 检查点与恢复
+
+`checkpoint()` 兑现该运行的标识、当前状态，以及启动时使用的输入——script、meta、args、子提供方覆盖与子 agent 上限。脚本是数据，因此该引用自身即完备：以纯 JSON 持久化它，之后交回 `ctx.workflowEngine.resume({ checkpoint, parent, signal? })` 即可再次执行同一项工作。恢复是一次**新**运行，拥有自己的标识、子 agent 与 `workflow/*` 事件对，并归属于调用方提供的 agent，因此引擎不会长出第二套生命周期。恢复仍在进行中的运行的检查点会被拒绝，错误码为 `CHECKPOINT_LIVE`：先取消该运行，再恢复那个已取消运行的检查点。
 
 ### 失败与恢复
 

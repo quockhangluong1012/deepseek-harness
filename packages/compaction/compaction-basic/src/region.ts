@@ -14,7 +14,7 @@ import {
   toolPairingBalancedAfter,
   toolPairingBalancedBefore,
 } from '@deepseek-ai/dsh-compaction'
-import type { CompactionResult } from '@deepseek-ai/dsh-compaction'
+import { deriveCompactionCheckpoint, type CompactionResult } from '@deepseek-ai/dsh-compaction'
 import type { CommandId } from '@deepseek-ai/dsh-commands/brand'
 import { createUserMessage, errorChain } from '@deepseek-ai/dsh-llm'
 import type { Message, UserMessage } from '@deepseek-ai/dsh-llm'
@@ -488,6 +488,14 @@ function commitCompactionBody(
   const callRecord = summarized.llmStreamCall === true
     ? { rawOutput: summarized.rawOutput, llmStreamCall: true as const }
     : summarized.rawOutput === undefined ? {} : { rawOutput: summarized.rawOutput }
+  const checkpoint = deriveCompactionCheckpoint({
+    checkpointId: String(startEvent.data.compactionId),
+    shadowedSeqs: [...shadowedSeqs],
+    summaryText: summary.map(block => block.type === 'text' ? block.text : '').join('\n'),
+    summarizer: { provider, model },
+    events: session.snapshotEvents(),
+    droppedToolResultIds: droppedToolResults(session, shadowedSeqs),
+  })
   const summaryEvent = session.append('compaction/summary', {
     compactionId: startEvent.data.compactionId,
     ...startEvent.data.sourceCommandId === undefined
@@ -498,6 +506,7 @@ function commitCompactionBody(
     shadowedRange: { start, end },
     shadowedSeqs: [...shadowedSeqs],
     shadowedTokenCount,
+    checkpoint,
     provider,
     model,
     ...maxTokens === undefined ? {} : { maxTokens },
@@ -508,6 +517,7 @@ function commitCompactionBody(
     sourceEventSeqs: [startEvent.seq, summaryEvent.seq, ...shadowedSeqs],
   })
   return {
+    checkpoint,
     compactionId: startEvent.data.compactionId,
     ...startEvent.data.sourceCommandId === undefined
       ? {}
@@ -597,4 +607,21 @@ function inspectCompactionEntryState(session: Session): CompactionEntryState {
       && latestEndSeedSeq !== undefined) break
   }
   return { openTurn, unmatchedCompactionStart, latestEndSeedSeq }
+}
+
+/**
+ * The tool results one compaction shadows, so the checkpoint can name what the
+ * replacement dropped.
+ * @param session - the session the compaction runs in.
+ * @param shadowedSeqs - the surface nodes the replacement shadows.
+ * @returns the shadowed tool-result call ids, in surface order.
+ */
+function droppedToolResults(session: Session, shadowedSeqs: readonly SessionSeq[]): string[] {
+  const shadowed = new Set(shadowedSeqs)
+  const dropped: string[] = []
+  for (const event of session.snapshotEvents()) {
+    if (event.type !== 'tool/result' || !shadowed.has(event.seq)) continue
+    dropped.push(event.data.message.toolCallId)
+  }
+  return dropped
 }

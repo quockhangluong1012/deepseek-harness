@@ -1,11 +1,13 @@
 /**
  * Opt-in request clock context. Eligible steps add durable,
  * source-attributed time readings to the request history.
+ * A mounted `agent-context` also records logged readings as trusted history deltas until compaction clears placement.
  *
  * @module @deepseek-ai/dsh-time-context
  */
 
 import type { Context } from '@deepseek-ai/cordis'
+import type { ContextItem } from '@deepseek-ai/dsh-agent-context'
 import z from '@deepseek-ai/schemastery'
 import { z as zod } from 'zod'
 import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
@@ -114,6 +116,17 @@ function renderText(
     + `Elapsed since the preceding ${baseline}: ${elapsed}.`
 }
 
+function timeContextItems(agent: Agent): ContextItem[] {
+  const items: ContextItem[] = []
+  for (const message of agent.session.deriveMessages()) {
+    if (message.role !== 'user') continue
+    const source = message.source
+    if (source.kind !== name || source.form !== 'snapshot') continue
+    items.push({ id: String(message.id), text: source.sections.map(section => section.text).join('\n'), relevance: 1 })
+  }
+  return items
+}
+
 /** Reject refresh intervals that cannot represent an exact elapsed-millisecond threshold. */
 function validateRefreshInterval(refreshIntervalMs: number | undefined): void {
   if (refreshIntervalMs !== undefined && (
@@ -127,7 +140,8 @@ function validateRefreshInterval(refreshIntervalMs: number | undefined): void {
 }
 
 /**
- * Register a prepended pre-step listener for the lifetime of `ctx`.
+ * Register the prepended pre-step listener and optional compiler source for
+ * the lifetime of `ctx`.
  * @param ctx - plugin context; the listener is disposed with it.
  * @param config - time zone and durable refresh scheduling configuration.
  * @throws when the refresh interval is invalid or the configured or process time zone cannot be resolved.
@@ -147,6 +161,19 @@ export function apply(ctx: Context, config: Config): void {
   }
   const fallbackTimeZone = fallbackFormatter.resolvedOptions().timeZone
   const formatters = new Map<string, Intl.DateTimeFormat>([[fallbackTimeZone, fallbackFormatter]])
+
+  ctx.inject(['agentContext'], compilerCtx => {
+    compilerCtx.effect(() => compilerCtx.agentContext.register({
+      producer: name,
+      kind: 'history',
+      trust: 'trusted',
+      placement: 'delta',
+      maxBytes: Number.MAX_SAFE_INTEGER,
+    }, async (agent, signal) => {
+      signal.throwIfAborted()
+      return timeContextItems(agent)
+    }))
+  })
 
   /** Resolve and cache one request-local timestamp formatter. */
   const formatterFor = (selectedTimeZone: string): Intl.DateTimeFormat => {

@@ -36,9 +36,12 @@ describe('replay', () => {
     await ctx.systemPrompt.assemble(assembleContextFor(agent))
     await ctx.systemPrompt.assemble(assembleContextFor(agent))
 
+    // The second assembly compiles to the same digest, so the log keeps one
+    // record: a repeat says nothing a reader could not already read.
     const records = eventsOf(agent, 'context/compiled')
-    expect(records).toHaveLength(2)
-    expect(records[1]?.digest).toBe(records[0]?.digest)
+    expect(records).toHaveLength(1)
+    expect((await ctx.agentContext.compile(agent, await ctx.systemPrompt.assemble())).digest)
+      .toBe(records[0]?.digest)
   })
 
   it('changes the digest when the task objective changes', async () => {

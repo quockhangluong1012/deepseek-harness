@@ -175,6 +175,30 @@ function sameAttempt(
  * @param events - Turn-local durable events from `turn/start` through `turn/end`.
  * @returns exact aggregate usage, or undefined when it cannot be proven.
  */
+/**
+ * The tokens a session has been billed for so far: every turn's
+ * provider-reported total, summed. A turn that has not ended yet contributes
+ * the usage of the attempts it has already settled, so a ceiling is reached
+ * during the turn that spends the tokens, not after it.
+ * @param events - the session's events, in log order.
+ * @returns the billed token total.
+ */
+export function deriveSessionTokenSpend(events: readonly SessionEvent[]): number {
+  let total = 0
+  let opened = -1
+  for (let index = 0; index < events.length; index += 1) {
+    const event = events[index]
+    if (event === undefined) continue
+    if (event.type === 'turn/start') opened = index
+    else if (event.type === 'turn/end' && opened >= 0) {
+      total += deriveTurnTokenUsage(events.slice(opened, index + 1))?.totalTokens ?? 0
+      opened = -1
+    }
+  }
+  if (opened >= 0) total += deriveTurnTokenUsage(events.slice(opened))?.totalTokens ?? 0
+  return total
+}
+
 export function deriveTurnTokenUsage(events: readonly SessionEvent[]): TurnTokenUsage | undefined {
   let state: AttemptState = { kind: 'idle' }
   const attempts: NormalizedAttempt[] = []

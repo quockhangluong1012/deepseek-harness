@@ -27,6 +27,8 @@ kind: "package-reference"
 
 与记忆存储和 workspace 注册表一起挂载本插件。作用域按回合从 workspace 归属解析（注册表会话 id，退回规范化 `cwd` 匹配），归属到必填的 `profile` 之下；作用域之外的回合什么也不加。
 
+挂载 `@deepseek-ai/dsh-agent-context` 后，本包还会将同一条渲染简报注册为不可信且必须保留的 memory 来源；未挂载时，简报注入保持不变。
+
 ### 配置
 
 `maxBytes` 与 `profile` 必填：部署方必须选定简报可承担的成本，以及它服务的作用域命名空间。提示节奏与两个条件阈值可选，默认采用随附取值。
@@ -116,7 +118,7 @@ kind: "package-reference"
 
 #### 模型所见
 
-一条持久 `user/message` 承载组帧后的简报：作用域标题、目录、`Memory usage: used/cap (pct%)` 头，以及非空的 `Instructions`、`Lessons`、`User profile` 与逐条 `Context: label` 分节；有丢弃或截断时附一行预算通知。`Lessons` 分节为每个存储的工件渲染一行——`- <statement> (confidence: 0.82)`——按强度从强到弱：置信度降序，置信度相同则以 `id` 升序定序，因此同一记录总是渲染出同一顺序。预算压力下最弱的工件整体丢弃；连一个都放不下时该分节被整体省略，而不是发出一条被截断的 statement。
+一条持久 `user/message` 承载组帧后的简报：作用域标题、目录、`Memory usage: used/cap (pct%)` 头，以及非空的 `Instructions`、`Lessons`、`User profile` 与逐条 `Context: label` 分节；有丢弃或截断时附一行预算通知。`Lessons` 分节为每个存储的工件渲染一行——`- <statement> (confidence: 0.82)`；若该事实源自无人背书的内容，则为 `- (untrusted, from <source>) > <statement> (confidence: 0.82)`，以带来源标签的引用数据形式而非指令形式到达模型——按强度从强到弱：置信度降序，置信度相同则以 `id` 升序定序，因此同一记录总是渲染出同一顺序。预算压力下最弱的工件整体丢弃；连一个都放不下时该分节被整体省略，而不是发出一条被截断的 statement。
 
 ##### 本字段原文（如需）
 

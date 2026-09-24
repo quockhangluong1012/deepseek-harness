@@ -113,7 +113,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/runtime/agent-context/src/index.ts:40`](../packages/runtime/agent-context/src/index.ts)
+Source: [`packages/runtime/agent-context/src/index.ts:55`](../packages/runtime/agent-context/src/index.ts)
 
 <a id="deepseek-aidsh-agent-default-model"></a>
 
@@ -201,16 +201,60 @@ export interface Config {
    * records no verification and claims no completion.
    */
   acceptance?: AcceptanceCriterion[]
+  /**
+   * Criteria a task of one class starts with, overriding {@link acceptance} for
+   * that class. Declaring `conversational` here is the only way a conversational
+   * task gets a criterion.
+   */
+  acceptanceByClass?: Partial<Record<TaskClass, AcceptanceCriterion[]>>
+  /** Class of work a task defaults to when neither the caller nor its role names one. */
+  taskClass?: TaskClass
   /** The permission document every action is evaluated against. */
   policy?: PolicyDocument
   /** Whether a task with no acceptance criterion may be reported complete. */
   requireAcceptanceCriteria?: boolean
+  /**
+   * Whether a task of one class with no acceptance criterion may be reported
+   * complete, overriding {@link requireAcceptanceCriteria} for that class.
+   */
+  requireAcceptanceCriteriaByClass?: Partial<Record<TaskClass, boolean>>
   /** Whether a task whose only passing evidence is human-reported may complete. */
   allowHumanOnlyCompletion?: boolean
+  /**
+   * Agent profiles this deployment defines, registered at load. A task created
+   * under a profile name resolves that role: the task inherits its policy
+   * profile and budget, and every action it proposes is checked against the
+   * role's capability grant. `capabilities` is a mutable array here because the
+   * configuration schema materializes one; the kernel copies it into the
+   * immutable {@link AgentProfile} it registers.
+   */
+  profiles?: AgentProfileConfig[]
+  /** Wall-clock ceiling for one criterion verifier; a verifier that overruns answers `fail`. */
+  verifierTimeoutMs?: number
+  /**
+   * Times the gate may steer the agent back into work after a failed
+   * verification before the task asks the user instead. A repair loop that
+   * cannot converge is a decision for a human, not more turns.
+   */
+  maxRepairAttempts?: number
   /** Retry cap per action before the recovery engine reports no attempts remaining. */
   maxAttemptsPerAction?: number
   /** Whether a retry must be preceded by a checkpoint. */
   checkpointBeforeRetry?: boolean
+  /**
+   * Ceiling on plan revisions per task. A task that needs more amendments than
+   * this is looping: the cap refuses the next revision loudly rather than
+   * letting an agent rewrite its plan without bound.
+   */
+  maxPlanRevisions?: number
+  /**
+   * How a proposal whose own trust label is `untrusted` is decided. Under
+   * `quarantine` the composed effect can never be `allow`: untrusted content
+   * may inform a proposal but may not authorize one, so the action is at best
+   * `ask` for a human. `allow` leaves the permission document as the only
+   * authority, which is the pre-existing behavior.
+   */
+  untrustedContent?: 'allow' | 'quarantine'
 }
 
 /** Ceilings one task may spend. An absent field is unbounded. */
@@ -227,6 +271,8 @@ export interface ResourceBudget {
   readonly maxCostUsd?: number
   /** Delegation depth the task may reach. */
   readonly maxSubagentDepth?: number
+  /** Concurrent actions the task may have in flight. */
+  readonly maxConcurrentActions?: number
 }
 
 /** One criterion a completion decision must satisfy. */
@@ -242,6 +288,15 @@ export interface AcceptanceCriterion {
 }
 
 /**
+ * What kind of work a task is. The class decides which acceptance criteria the
+ * task starts from and whether the completion gate demands one at all: a
+ * conversational task answers without a criterion, while a coding, research, or
+ * operations task is held to the criteria its deployment configured for that
+ * class.
+ */
+export type TaskClass = 'conversational' | 'coding' | 'research' | 'operations'
+
+/**
  * A deployment's complete permission document. The rule list is a mutable
  * array because it is also the `Config.policy` field's shape, which the
  * configuration schema produces; nothing in this package mutates it.
@@ -252,14 +307,34 @@ export interface PolicyDocument {
     /** Effect applied when no rule matches an action. */
     readonly effect: PolicyEffect
   }
-  /** Rules in declaration order; the last match wins. */
+  /** Rules in declaration order; deny dominates across capabilities, then ask, then allow. */
   rules: PolicyRule[]
+}
+
+/**
+ * One agent profile as configuration declares it. The configuration schema
+ * materializes a mutable `capabilities` array, so the registered
+ * {@link AgentProfile} keeps the immutable copy.
+ */
+export interface AgentProfileConfig {
+  /** Name tasks record as `agentProfile` and the registry resolves. */
+  readonly id: string
+  /** Human-readable role this profile stands for. */
+  readonly role: string
+  /** Every capability this role may ever use; empty refuses every action. */
+  readonly capabilities: Capability[]
+  /** Policy profile name tasks created under this role run under. */
+  readonly policyProfile: string
+  /** Ceilings tasks created under this role start from. */
+  readonly budget: ResourceBudget
+  /** Class of work this role's tasks default to; absent means the deployment's. */
+  readonly taskClass?: TaskClass
 }
 
 /** What a policy rule or default decides. */
 export type PolicyEffect = 'allow' | 'ask' | 'deny'
 
-/** One permission rule. The last matching rule wins. */
+/** A capability rule; the last matching rule decides that capability. */
 export interface PolicyRule {
   /** Action family the rule selects. */
   readonly action: PolicyAction
@@ -269,12 +344,37 @@ export interface PolicyRule {
   readonly effect: PolicyEffect
 }
 
+/**
+ * One capability a tool needs. Capabilities are grants, not tool names: the
+ * kernel intersects the requested capability with the task grant, the
+ * deployment sandbox, and the approval outcome before execution.
+ */
+export type Capability =
+  | 'fs.read'
+  | 'fs.write'
+  | 'fs.edit'
+  | 'git.read'
+  | 'git.write'
+  | 'process.exec'
+  | 'terminal.interactive'
+  | 'network.read'
+  | 'network.write'
+  | 'browser.read'
+  | 'mcp.call'
+  | 'memory.read'
+  | 'memory.write'
+  | 'subagent.spawn'
+  | 'workflow.start'
+  | 'approval.request'
+  | 'policy.propose'
+
 /** The action families a permission rule selects. */
 export type PolicyAction =
   | 'read'
   | 'write'
   | 'edit'
   | 'shell'
+  | 'browser'
   | 'network'
   | 'mcp'
   | 'delegate'
@@ -283,7 +383,7 @@ export type PolicyAction =
   | 'policy'
 ```
 
-Source: [`packages/runtime/agent-kernel/src/index.ts:84`](../packages/runtime/agent-kernel/src/index.ts)
+Source: [`packages/runtime/agent-kernel/src/index.ts:116`](../packages/runtime/agent-kernel/src/index.ts)
 
 <a id="deepseek-aidsh-agent-loop"></a>
 
@@ -846,7 +946,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/evolution/command-evolution/src/index.ts:100`](../packages/evolution/command-evolution/src/index.ts)
+Source: [`packages/evolution/command-evolution/src/index.ts:107`](../packages/evolution/command-evolution/src/index.ts)
 
 <a id="deepseek-aidsh-compaction-basic"></a>
 
@@ -1404,7 +1504,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/evolution/evolution-graph/src/index.ts:74`](../packages/evolution/evolution-graph/src/index.ts)
+Source: [`packages/evolution/evolution-graph/src/index.ts:80`](../packages/evolution/evolution-graph/src/index.ts)
 
 <a id="deepseek-aidsh-evolution-heartbeat"></a>
 
@@ -1509,7 +1609,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/evolution/evolution-memory/src/index.ts:185`](../packages/evolution/evolution-memory/src/index.ts)
+Source: [`packages/evolution/evolution-memory/src/index.ts:190`](../packages/evolution/evolution-memory/src/index.ts)
 
 <a id="deepseek-aidsh-evolution-memory-context"></a>
 
@@ -1537,7 +1637,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/context/evolution-memory-context/src/index.ts:119`](../packages/context/evolution-memory-context/src/index.ts)
+Source: [`packages/context/evolution-memory-context/src/index.ts:121`](../packages/context/evolution-memory-context/src/index.ts)
 
 <a id="deepseek-aidsh-evolution-meta"></a>
 
@@ -1659,8 +1759,9 @@ export interface Config {
    */
   operators?: string[]
   /**
-   * Paired winner-versus-baseline comparisons a promotion must win; 1 keeps
-   * the single comparison the search already made.
+   * Paired winner-versus-baseline comparisons a promotion must win. At least
+   * three: the search's own comparison plus two repeats, because a single
+   * paired comparison is a coin flip (amendment S9).
    */
   confirmationRuns?: number
   /**
@@ -1740,7 +1841,6 @@ Source: [`packages/evolution/evolution-retrieval/src/index.ts:55`](../packages/e
 Requires: `llm` · `sessions` · `evolutionMemory` · `workspaceRegistry`
 
 ```ts config-catalog
-/** Deployment choices for review scheduling and budgets. Fields read alphabetically. */
 export interface Config {
   /** Minimum gap between two extractions for one scope. */
   cooldownMs?: number
@@ -1784,7 +1884,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/evolution/evolution-reviewer/src/index.ts:53`](../packages/evolution/evolution-reviewer/src/index.ts)
+Source: [`packages/evolution/evolution-reviewer/src/index.ts:72`](../packages/evolution/evolution-reviewer/src/index.ts)
 
 <a id="deepseek-aidsh-evolution-router"></a>
 
@@ -3373,10 +3473,10 @@ Requires: `shell` · `approval` · `sessions` · `sessionProjections`
 /** The {@link PermissionPresetService} config: preset table and composition default. */
 export interface Config {
   /**
-   * The preset table: name → knob bundle. Defaults to `workspace-write`
-   * (workspace-write + ask) and `danger-full-access` (danger-full-access +
-   * never). The names `custom` and `auto` are reserved for derived state and
-   * the Auto review integration respectively.
+   * The preset table: name → sandbox/approval bundle with an optional
+   * capability policy. Defaults to `workspace-write` (workspace-write + ask)
+   * and `danger-full-access` (danger-full-access + never). The names `custom`
+   * and `auto` are reserved for derived state and the Auto review integration.
    */
   presets: Record<string, PresetSpec>
   /**
@@ -3392,12 +3492,14 @@ export interface Config {
   approvalTools?: string[]
 }
 
-/** One preset's sandbox/approval bundle and optional client presentation. */
+/** One preset's sandbox/approval bundle, optional policy restriction, and client presentation. */
 export interface PresetSpec {
   /** The `sandbox/mode` value the preset writes through. */
   sandbox: SandboxMode
   /** The `approval/policy` value the preset writes through. */
   approval: ApprovalPolicy
+  /** Additional capability rules intersected with the deployment policy. */
+  policy?: PolicyDocument
   /** The display label a client shows for this preset; the raw table key when omitted. */
   name?: string
   /** One user-facing sentence on what the preset means; omitted when not configured. */
@@ -3405,9 +3507,9 @@ export interface PresetSpec {
 }
 ```
 
-Depends on: [`ApprovalPolicy`](subsystems/approval.md) · [`SandboxMode`](subsystems/sandbox.md) · `Volatile` (`@deepseek-ai/cordis`)
+Depends on: [`ApprovalPolicy`](subsystems/approval.md) · [`PolicyDocument`](../packages/runtime/agent-kernel/src/index.ts) · [`SandboxMode`](subsystems/sandbox.md) · `Volatile` (`@deepseek-ai/cordis`)
 
-Source: [`packages/interaction/permission-presets/src/index.ts:201`](../packages/interaction/permission-presets/src/index.ts)
+Source: [`packages/interaction/permission-presets/src/index.ts:205`](../packages/interaction/permission-presets/src/index.ts)
 
 <a id="deepseek-aidsh-persona"></a>
 
@@ -3452,7 +3554,7 @@ export interface PlanModeConfig {
 }
 ```
 
-Source: [`packages/plan/plan-mode/src/index.ts:71`](../packages/plan/plan-mode/src/index.ts)
+Source: [`packages/plan/plan-mode/src/index.ts:73`](../packages/plan/plan-mode/src/index.ts)
 
 <a id="deepseek-aidsh-plugin-manager"></a>
 
@@ -3499,6 +3601,26 @@ export interface Config {
 ```
 
 Source: [`packages/llm/plugin-package-inventory-deepseek/src/index.ts:32`](../packages/llm/plugin-package-inventory-deepseek/src/index.ts)
+
+<a id="deepseek-aidsh-prompt-injection"></a>
+
+## `@deepseek-ai/dsh-prompt-injection`
+
+```ts config-catalog
+/** Plugin configuration; `Config` supplies the fail-closed defaults. */
+export interface Config {
+  /**
+   * Whether found credentials are replaced in the model-visible result
+   * (`enforce`) or only recorded (`shadow`, the default). Neither mode changes
+   * any authority: the guard never grants, denies, or asks.
+   */
+  mode?: 'shadow' | 'enforce'
+  /** Ceiling on how many characters of one result the injection rules examine. */
+  maxScanBytes?: number
+}
+```
+
+Source: [`packages/guard/prompt-injection/src/index.ts:66`](../packages/guard/prompt-injection/src/index.ts)
 
 <a id="deepseek-aidsh-ptc-runtime-node"></a>
 
@@ -4022,7 +4144,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/skill/skill/src/index.ts:341`](../packages/skill/skill/src/index.ts)
+Source: [`packages/skill/skill/src/index.ts:362`](../packages/skill/skill/src/index.ts)
 
 <a id="deepseek-aidsh-skill-filesystem"></a>
 
@@ -4672,6 +4794,22 @@ export interface Config {
 
 Source: [`packages/guard/timeout-policy/src/index.ts:40`](../packages/guard/timeout-policy/src/index.ts)
 
+<a id="deepseek-aidsh-tool-evidence"></a>
+
+## `@deepseek-ai/dsh-tool-evidence`
+
+Requires: `tools`
+
+```ts config-catalog
+/** Model-facing research tool configuration. */
+export interface Config {
+  /** Maximum characters accepted in one evidence locator or claim statement. */
+  maxTextChars?: number
+}
+```
+
+Source: [`packages/runtime/tool-evidence/src/index.ts:30`](../packages/runtime/tool-evidence/src/index.ts)
+
 <a id="deepseek-aidsh-tool-fs"></a>
 
 ## `@deepseek-ai/dsh-tool-fs`
@@ -5206,7 +5344,7 @@ export interface Config {
 export type ToolPresentationMode = 'native' | 'ptc' | 'both'
 ```
 
-Source: [`packages/core/tools/src/index.ts:774`](../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:786`](../packages/core/tools/src/index.ts)
 
 <a id="deepseek-aidsh-typert-loader"></a>
 
@@ -5589,7 +5727,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/workspace/workspace-memory-llm/src/index.ts:35`](../packages/workspace/workspace-memory-llm/src/index.ts)
+Source: [`packages/workspace/workspace-memory-llm/src/index.ts:41`](../packages/workspace/workspace-memory-llm/src/index.ts)
 
 ## Loadable plugins with no config
 
@@ -5622,6 +5760,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-client-ui-goal` ([`packages/client/ui-goal/src/index.ts`](../packages/client/ui-goal/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-input-trigger` ([`packages/client/ui-input-trigger/src/index.ts`](../packages/client/ui-input-trigger/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-jobs` ([`packages/client/ui-jobs/src/index.ts`](../packages/client/ui-jobs/src/index.ts))
+- `@deepseek-ai/dsh-client-ui-kernel-task` ([`packages/client/ui-kernel-task/src/index.ts`](../packages/client/ui-kernel-task/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-layout` ([`packages/client/ui-layout/src/index.ts`](../packages/client/ui-layout/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-message-feedback` ([`packages/client/ui-message-feedback/src/index.ts`](../packages/client/ui-message-feedback/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-model-selection` ([`packages/client/ui-model-selection/src/index.ts`](../packages/client/ui-model-selection/src/index.ts))
@@ -5680,6 +5819,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-host-directory-picker-auto` — requires `webServer` · `loader` ([`packages/host/directory-picker-auto/src/index.ts`](../packages/host/directory-picker-auto/src/index.ts))
 - `@deepseek-ai/dsh-host-directory-picker-native` ([`packages/host/directory-picker-native/src/index.ts`](../packages/host/directory-picker-native/src/index.ts))
 - `@deepseek-ai/dsh-host-plugin-inventory` — requires `loader` ([`packages/host/plugin-inventory/src/index.ts`](../packages/host/plugin-inventory/src/index.ts))
+- `@deepseek-ai/dsh-kernel-ops` — requires `sessionPersistence` ([`packages/bundle/kernel-ops/src/index.ts`](../packages/bundle/kernel-ops/src/index.ts))
 - `@deepseek-ai/dsh-llm` ([`packages/llm/llm/src/index.ts`](../packages/llm/llm/src/index.ts))
 - `@deepseek-ai/dsh-lsp` ([`packages/lsp/lsp/src/index.ts`](../packages/lsp/lsp/src/index.ts))
 - `@deepseek-ai/dsh-mcp-resources` — requires `tools` ([`packages/mcp/mcp-resources/src/index.ts`](../packages/mcp/mcp-resources/src/index.ts))
@@ -5728,6 +5868,7 @@ Abstract service classes — a deployment loads a concrete implementation packag
 
 Imported as libraries by other packages; a `cordis.yml` cannot load them.
 
+- `@deepseek-ai/dsh-agent-governance` ([`packages/bundle/agent-governance/src/index.ts`](../packages/bundle/agent-governance/src/index.ts))
 - `@deepseek-ai/dsh-agent-loop-testkit` ([`packages/test-support/agent-loop-testkit/src/index.ts`](../packages/test-support/agent-loop-testkit/src/index.ts))
 - `@deepseek-ai/dsh-anonymous-user-id` ([`packages/identity/anonymous-user-id/src/index.ts`](../packages/identity/anonymous-user-id/src/index.ts))
 - `@deepseek-ai/dsh-app-boot` ([`packages/boot/app-boot/src/index.ts`](../packages/boot/app-boot/src/index.ts))

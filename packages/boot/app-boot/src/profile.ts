@@ -163,6 +163,12 @@ export const PROFILE_TEMPLATES: Record<string, ProfileTemplate> = {
   headless: {
     bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-headless'],
   },
+  'kernel-ops': {
+    // The read-only command line plus the control plane it reads: the kernel and
+    // the prompt-injection guard are shadow-mode here, so the profile records
+    // what it decided while changing nothing. Product profiles stay opt-in.
+    bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-agent-governance', '@deepseek-ai/dsh-kernel-ops'],
+  },
   sdk: {
     bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-sdk-app'],
   },

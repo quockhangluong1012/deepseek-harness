@@ -4,6 +4,7 @@ import SessionStore, {
   Session,
   SessionId,
 } from '@deepseek-ai/dsh-session'
+import AgentKernel from '@deepseek-ai/dsh-agent-kernel'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import type { SandboxMode } from '@deepseek-ai/dsh-sandbox'
 import type { ApprovalPolicy } from '@deepseek-ai/dsh-user-approval'
@@ -97,6 +98,60 @@ describe('PermissionPresetService', () => {
     expect(ctx.permissionPresets.names).toEqual(['workspace-write', 'danger-full-access'])
     expect(ctx.permissionPresets.resolve('danger-full-access')).toMatchObject({ sandbox: 'danger-full-access', approval: 'never' })
     expect(() => ctx.permissionPresets.resolve('plan')).toThrow(/unknown preset "plan"/)
+  })
+
+  it('retains a capability policy on its configured preset', async () => {
+    const policy = {
+      defaults: { effect: 'deny' },
+      rules: [{ action: 'read', resource: 'workspace/**', effect: 'allow' }],
+    }
+    const ctx = await mounted({ config: {
+      presets: {
+        'read-review': { sandbox: 'workspace-write', approval: 'ask', policy },
+      },
+    } as never })
+
+    expect(ctx.permissionPresets.resolve('read-review').policy).toEqual(policy)
+  })
+
+  it('rejects policy rules outside the shared vocabulary', async () => {
+    const invalid = {
+      presets: {
+        invalid: {
+          sandbox: 'workspace-write', approval: 'ask',
+          policy: { defaults: { effect: 'allow' }, rules: [{ action: 'evade', resource: '**', effect: 'allow' }] },
+        },
+      },
+    }
+
+    let rejected = false
+    try {
+      await mounted({ config: invalid as never })
+    } catch {
+      rejected = true
+    }
+    expect(rejected).toBe(true)
+  })
+
+  it('supplies the selected policy profile when AgentKernel mounts later', async () => {
+    const ctx = await mounted({ config: {
+      presets: {
+        'read-review': {
+          sandbox: 'workspace-write', approval: 'ask',
+          policy: { defaults: { effect: 'deny' }, rules: [] },
+        },
+      },
+    } as never })
+    await ctx.plugin(AgentKernel, {})
+    const session = freshSession('policy-profile-late-kernel')
+    ctx.permissionPresets.set(session, 'read-review')
+
+    const task = ctx.agentKernel.intake(
+      { id: SessionId('policy-profile-agent'), session } as never,
+      { objective: 'test preset policy', agentProfile: 'default', policyProfile: 'default' },
+    )
+
+    expect(task.policyProfile).toBe('read-review')
   })
 
   it('publishes an effect-scoped current-session preset and removes it on unload', async () => {

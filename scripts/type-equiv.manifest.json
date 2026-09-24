@@ -1552,6 +1552,21 @@
       "source": "packages/workflow/workflow/src/runtime-types.ts"
     },
     {
+      "doc": "docs/subsystems/workflow.md",
+      "symbol": "WorkflowRunStatus",
+      "source": "packages/workflow/workflow/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/workflow.md",
+      "symbol": "WorkflowCheckpointRef",
+      "source": "packages/workflow/workflow/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/workflow.md",
+      "symbol": "WorkflowResumeRequest",
+      "source": "packages/workflow/workflow/src/runtime-types.ts"
+    },
+    {
       "doc": "docs/subsystems/lsp.md",
       "symbol": "LspOperation",
       "source": "packages/lsp/lsp/src/types.ts"
@@ -1879,12 +1894,12 @@
     {
       "doc": "docs/subsystems/session-telemetry.md",
       "symbol": "SessionTelemetrySeverity",
-      "source": "packages/session/session-telemetry/src/index.ts"
+      "source": "packages/session/session-telemetry/src/record.ts"
     },
     {
       "doc": "docs/subsystems/session-telemetry.md",
       "symbol": "SessionTelemetryRecord",
-      "source": "packages/session/session-telemetry/src/index.ts"
+      "source": "packages/session/session-telemetry/src/record.ts"
     },
     {
       "doc": "docs/subsystems/session-telemetry.md",

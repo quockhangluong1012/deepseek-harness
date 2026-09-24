@@ -9,6 +9,7 @@ import { tmpdir } from 'node:os'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import AgentRegistry, { type Agent, type AgentHandle } from '@deepseek-ai/dsh-agent'
+import AgentKernel, { type Config as KernelConfig } from '@deepseek-ai/dsh-agent-kernel'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
 
@@ -58,12 +59,15 @@ async function mockCompletionServer(): Promise<{ url: string; requests: unknown[
   return { url: `http://127.0.0.1:${address.port}`, requests, headers }
 }
 
-async function makeHarness(storageDir: string) {
+async function makeHarness(storageDir: string, options: { kernel?: KernelConfig } = {}) {
   const ctx = new Context()
   await mountAgentLoopTestDependencies(ctx)
   await ctx.plugin(AgentLoop, { agents: [] })
   await ctx.plugin(SubagentRuntime)
   await ctx.plugin(JsonlSessionPersistence, { root: storageDir })
+  // The kernel is opt-in everywhere else; a harness that mounts it records the
+  // task contract this SDK then streams to its client.
+  if (options.kernel !== undefined) await ctx.plugin(AgentKernel, options.kernel)
   await new Promise(resolve => setTimeout(resolve, 50))
   return ctx
 }
@@ -172,6 +176,57 @@ describe('HarnessSdkJsonRpcServer', () => {
       await orphanHandle.agent.whenIdle()
       await orphanHandle.dispose()
       expect(llmServer.requests).toHaveLength(3)
+
+      await server.handleRequest('shutdown', undefined)
+    } finally {
+      await ctx.fiber.dispose()
+      await rm(storageDir, { recursive: true, force: true })
+    }
+  })
+
+  it('streams the kernel task contract and its verification over session.event', { timeout: 15_000 }, async () => {
+    const storageDir = await mkdtemp(join(tmpdir(), 'dsh-jsonrpc-kernel-'))
+    const llmServer = await mockCompletionServer()
+    vi.stubEnv('DEEPSEEK_API_KEY', 'test-key')
+    vi.stubEnv('DEEPSEEK_BASE_URL', llmServer.url)
+    const ctx = await makeHarness(storageDir, {
+      kernel: { acceptance: [{ id: 'streams', description: 'the record streams', verifier: 'assertion', required: true }] },
+    })
+    ctx.agentKernel.verifiers.register({
+      id: 'streams-verifier',
+      supports: () => true,
+      verify: async (_request, criterion) => ({ result: { criterionId: criterion.id, status: 'pass', evidence: ['streamed'] } }),
+    })
+    try {
+      const transport = new FakeTransport()
+      const server = new HarnessSdkJsonRpcServer(ctx, transport)
+      await server.handleRequest('initialize', {
+        cwd: storageDir,
+        provider: 'deepseek-official',
+        model: 'dsagent-model',
+      })
+
+      await server.handleRequest('session/prompt', {
+        sessionId: 'main',
+        contentBlocks: [{ type: 'text', text: 'record the task' }],
+      })
+      await vi.waitFor(() => { expect(llmServer.requests).toHaveLength(1) })
+
+      // The client sees the kernel's own records because the stream is the
+      // session log, unfiltered: task intake, its transitions, and the
+      // verification the completion gate ran at the turn boundary.
+      const kernelEvents = transport.notifications
+        .filter(notification => notification.method === 'session.event')
+        .map(notification => (notification.params as { event?: { type?: string } }).event)
+        .map(event => event?.type)
+      expect(kernelEvents).toContain('task/created')
+      const created = transport.notifications
+        .filter(notification => notification.method === 'session.event')
+        .map(notification => (notification.params as { event?: { type?: string, data?: { objective?: string } } }).event)
+        .find(event => event?.type === 'task/created')
+      expect(created?.data?.objective).toBe('record the task')
+      expect(kernelEvents).toContain('task/transitioned')
+      expect(kernelEvents).toContain('verification/result')
 
       await server.handleRequest('shutdown', undefined)
     } finally {

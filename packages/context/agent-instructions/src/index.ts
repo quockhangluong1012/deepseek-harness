@@ -6,10 +6,13 @@
  * Plugin lifecycle reads use the optional `ctx.fs` provider, so providerless products
  * mount it as a no-op.
  *
+ * When `agent-context` is mounted, visible instructions are also recorded as
+ * untrusted policy deltas.
  * @module @deepseek-ai/dsh-agent-instructions
  */
 
 import type { Context } from '@deepseek-ai/cordis'
+import type { ContextItem } from '@deepseek-ai/dsh-agent-context'
 import { isDeepStrictEqual } from 'node:util'
 import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
@@ -68,6 +71,25 @@ function isAgentInstructionsMessage(message: UserMessage): boolean {
   return message.source.kind === 'agent-instructions'
 }
 
+function instructionItems(agent: Agent): ContextItem[] {
+  const items: ContextItem[] = []
+  for (const seq of agent.session.surface.nodes) {
+    // oxlint-disable-next-line typescript/no-deprecated -- Match the current user-message surface without replaying history.
+    const event = agent.session.eventAt(seq)
+    if (event?.type !== 'user/message' || !isAgentInstructionsMessage(event.data)) continue
+    let text = ''
+    let firstTextBlock = true
+    for (const block of event.data.content) {
+      if (block.type !== 'text') continue
+      if (!firstTextBlock) text += '\n'
+      text += (block as { text: string }).text
+      firstTextBlock = false
+    }
+    items.push({ id: String(event.data.id), text, relevance: 1 })
+  }
+  return items
+}
+
 function sameContextPayload(left: UserMessage, right: UserMessage): boolean {
   return isDeepStrictEqual(left.content, right.content)
     && isDeepStrictEqual(left.source, right.source)
@@ -83,6 +105,12 @@ function filePathFromExecution(exec: ToolExecution): string | undefined {
   return filePath.length > 0 ? filePath : undefined
 }
 
+/**
+ * Register workspace instruction reconciliation and its optional compiler source.
+ * @param ctx - plugin context; registrations dispose with it.
+ * @param config - discovery and rendered-byte limits.
+ * @returns nothing; the Cordis fiber owns every registration.
+ */
 export function apply(ctx: Context, config: Config): void {
   const resolved: ResolvedConfig = resolveConfig(config)
   const instructionVersions: InstructionVersionCache = new WeakMap()
@@ -100,6 +128,19 @@ export function apply(ctx: Context, config: Config): void {
     },
     'agent-instructions.projectionLifecycle',
   )
+
+  ctx.inject(['agentContext'], compilerCtx => {
+    compilerCtx.effect(() => compilerCtx.agentContext.register({
+      producer: 'agent-instructions',
+      kind: 'policy',
+      trust: 'untrusted',
+      placement: 'delta',
+      maxBytes: resolved.maxBytes,
+    }, async (agent, signal) => {
+      signal.throwIfAborted()
+      return instructionItems(agent)
+    }))
+  })
   // Emit listeners are not awaited, so each projection must compose against the
   // inbox produced by earlier file results for the same agent.
   const projectionTails = new WeakMap<Agent, Promise<void>>()

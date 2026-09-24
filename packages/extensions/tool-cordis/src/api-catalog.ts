@@ -92,9 +92,15 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         parameters: [],
       },
       {
-        signature: 'async compile(agent: Agent, assembly: PromptAssembly): Promise<CompiledContext>',
+        signature: 'register(descriptor: ContextSourceDescriptor, provide: ContextSourceProvider): () => void',
+        description: 'Register one producer\'s descriptor and item supplier (S2). The compiler places its items alongside the assembly and the kernel\'s task facts on every later compile, until the disposer runs.',
+        parameters: [{ name: 'descriptor', description: 'the producer\'s source descriptor.' }, { name: 'provide', description: 'the item supplier, called once per compile.' }],
+        returns: 'a disposer that unregisters the producer.',
+      },
+      {
+        signature: 'async compile(agent: Agent, assembly: PromptAssembly, signal: AbortSignal = new AbortController().signal): Promise<CompiledContext>',
         description: 'Compile one assembly for a live agent and record the placement.',
-        parameters: [{ name: 'agent', description: 'the agent the assembly is for.' }, { name: 'assembly', description: 'the assembled prompt contributions.' }],
+        parameters: [{ name: 'agent', description: 'the agent the assembly is for.' }, { name: 'assembly', description: 'the assembled prompt contributions.' }, { name: 'signal', description: 'cancellation forwarded to every registered provider.' }],
         returns: 'the placement, already appended as `context/compiled`.',
       },
     ],
@@ -134,6 +140,11 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         parameters: [],
       },
       {
+        signature: 'readonly profiles: AgentProfileRegistry',
+        description: 'The agent roles this deployment defines; a task resolves its profile through this registry.',
+        parameters: [],
+      },
+      {
         signature: 'readonly verification: VerificationGate',
         description: 'The completion gate.',
         parameters: [],
@@ -149,9 +160,33 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         parameters: [],
       },
       {
+        signature: 'readonly startupRecovery: Promise<readonly RecoveryScanEntry[]>',
+        description: 'Read-only persisted-session classifications from the one startup scan.',
+        parameters: [],
+      },
+      {
         signature: 'readonly state: KernelLedger',
         description: 'The read model and budget observer over session logs.',
         parameters: [],
+      },
+      {
+        signature: 'readonly budgets: BudgetGovernor',
+        description: 'Budget observer over the current session ledger.',
+        parameters: [],
+      },
+      {
+        signature: 'registerPolicyProfileProvider(provider: PolicyProfileProvider): () => void',
+        description: 'Register the provider for session-selected policy layers.',
+        parameters: [{ name: 'provider', description: 'resolves the profile and optional restriction for each session.' }],
+        returns: 'a disposer that removes this provider while it remains registered.',
+        throws: ['when another policy profile provider is already registered.'],
+      },
+      {
+        signature: 'intake(agent: Agent, input: TaskInput): TaskContract',
+        description: 'Persist one caller-supplied task contract before its first request.',
+        parameters: [{ name: 'agent', description: 'the live agent whose session owns the task.' }, { name: 'input', description: 'the objective, constraints, acceptance, profiles, workspace and budget.' }],
+        returns: 'the newly recorded contract at its initial `intake` revision.',
+        throws: ['When the session already has a task contract.'],
       },
       {
         signature: 'attach(agent: Agent): KernelAttachment',
@@ -159,6 +194,40 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         parameters: [{ name: 'agent', description: 'the live agent to attach.' }],
         returns: 'the attachment handle.',
         throws: ['When the agent\'s session holds no `task/created` event yet; the kernel creates one at the first admitted step.'],
+      },
+      {
+        signature: 'snapshot(agent: Agent): Promise<KernelView | undefined>',
+        description: 'Read one agent\'s task state.',
+        parameters: [{ name: 'agent', description: 'the live agent whose session is read.' }],
+        returns: 'the current view, or undefined before task intake.',
+      },
+      {
+        signature: 'recordPlan(agent: Agent, steps: readonly string[], failureId?: FailureId): PlanRevision',
+        description: 'Record an initial plan or a recovery amendment tied to one unresolved failure.',
+        parameters: [{ name: 'agent', description: 'the live agent whose task owns the plan.' }, { name: 'steps', description: 'ordered work items in the new plan revision.' }, { name: 'failureId', description: 'unresolved failure that justifies an amendment.' }],
+        returns: 'the durable plan revision.',
+        throws: ['When the session has no task, or an amendment is not linked to an unresolved failure.'],
+      },
+      {
+        signature: 'recordEvidence(agent: Agent, input: EvidenceInput): Evidence',
+        description: 'Record one observation a claim may cite.',
+        parameters: [{ name: 'agent', description: 'the live agent whose task observed it.' }, { name: 'input', description: 'what was observed, where it lives, and how far it may be trusted.' }],
+        returns: 'the durable evidence record.',
+        throws: ['When the session has no task or the reference is empty.'],
+      },
+      {
+        signature: 'recordClaim(agent: Agent, input: TaskClaimInput): TaskClaim',
+        description: 'Assert one claim against evidence this session recorded.',
+        parameters: [{ name: 'agent', description: 'the live agent whose task asserts it.' }, { name: 'input', description: 'the statement, the evidence it cites, its confidence, and its status.' }],
+        returns: 'the durable claim.',
+        throws: ['When the session has no task, the statement is empty, the confidence is outside `[0, 1]`, a cited observation was never recorded, or a `supported` claim cites no observation.'],
+      },
+      {
+        signature: 'recordHypothesis(agent: Agent, input: TaskHypothesisInput): TaskHypothesis',
+        description: 'Record one question a task is testing.',
+        parameters: [{ name: 'agent', description: 'the live agent whose task is testing it.' }, { name: 'input', description: 'the question, the claims behind it, and the verifications run against it.' }],
+        returns: 'the durable hypothesis.',
+        throws: ['When the session has no task, the question is empty, a cited claim was never asserted, or a test does not verify this task.'],
       },
       {
         signature: 'verify(agent: Agent, changedScopes: readonly string[] = []): Promise<CompletionDecision | undefined>',
@@ -171,6 +240,11 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Record one checkpoint of an agent\'s current kernel state.',
         parameters: [{ name: 'agent', description: 'the live agent whose task is checkpointed.' }, { name: 'reason', description: 'why the checkpoint is recorded.' }],
         returns: 'the checkpoint, or undefined when the agent has no task.',
+      },
+      {
+        signature: 'recordPlanMode(session: Session, active: boolean): void',
+        description: 'Follow plan mode, the producer of the `planning` status: entering it moves a non-terminal task to `planning`, leaving it returns the task to `ready`. A session with no task yet has nothing to move, and a status that cannot reach `planning` keeps its current one. The plan-mode plugin calls this immediately after it records the mode, so the status and the mode agree in the log.',
+        parameters: [{ name: 'session', description: 'the session whose mode changed.' }, { name: 'active', description: 'whether plan mode is now in force.' }],
       },
     ],
   },
@@ -5153,6 +5227,13 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         parameters: [{ name: 'request', description: 'the script, its `args`, the parent agent, and an optional cancel signal.' }],
         returns: 'the live run; its `result` resolves when the script settles.',
       },
+      {
+        signature: 'resume(request: WorkflowResumeRequest): WorkflowRun',
+        description: 'Resume one checkpointed run: start the checkpointed script again over the inputs the checkpoint recorded, on behalf of the resuming caller.\n\nThe resumed run gets its own identity, because it is a new execution with its own children, budget, and event pair. What carries across is the work itself: the caller holds the checkpoint, so it can correlate the resumed run with the run it resumes. A checkpoint taken while its run was still live is refused — resuming it would run the same script twice — so a suspended run is cancelled first, and the checkpoint of that cancelled run is what a resume starts from.',
+        parameters: [{ name: 'request', description: 'the checkpoint and the agent the resumed run executes for.' }],
+        returns: 'the live resumed run.',
+        throws: ['When the checkpoint describes a run that has not stopped.'],
+      },
     ],
   },
   {
@@ -6223,6 +6304,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface AgentPresetRow {\n    readonly id: string;\n    readonly isDefault: boolean;\n    readonly name?: string;\n    readonly description?: string;\n    readonly broken?: string;\n}',
   },
   {
+    name: 'AgentProfile',
+    declaration: 'export interface AgentProfile {\n    readonly id: string;\n    readonly role: string;\n    readonly capabilities: readonly Capability[];\n    readonly policyProfile: string;\n    readonly budget: ResourceBudget;\n    readonly taskClass?: TaskClass;\n}',
+  },
+  {
+    name: 'AgentProfileRegistry',
+    declaration: 'export interface AgentProfileRegistry {\n    register(profile: AgentProfile): () => void;\n    resolve(id: string): AgentProfile | undefined;\n    readonly list: readonly AgentProfile[];\n}',
+  },
+  {
     name: 'AgentResolver',
     declaration: 'export type AgentResolver = (sessionId: SessionId) => Promise<Agent>;',
   },
@@ -6536,7 +6625,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'BudgetSnapshot',
-    declaration: 'export interface BudgetSnapshot {\n    readonly steps: number;\n    readonly toolCalls: number;\n    readonly wallMs: number;\n    readonly remaining: ResourceBudget;\n}',
+    declaration: 'export interface BudgetSnapshot {\n    readonly steps: number;\n    readonly toolCalls: number;\n    readonly tokens: number;\n    readonly wallMs: number;\n    readonly remaining: ResourceBudget;\n}',
   },
   {
     name: 'BudgetTaskClass',
@@ -6560,11 +6649,11 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'Capability',
-    declaration: 'export type Capability = \'fs.read\' | \'fs.write\' | \'fs.edit\' | \'process.exec\' | \'terminal.interactive\' | \'network.read\' | \'network.write\' | \'mcp.call\' | \'memory.read\' | \'memory.write\' | \'subagent.spawn\' | \'workflow.start\' | \'approval.request\' | \'policy.propose\';',
+    declaration: 'export type Capability = \'fs.read\' | \'fs.write\' | \'fs.edit\' | \'git.read\' | \'git.write\' | \'process.exec\' | \'terminal.interactive\' | \'network.read\' | \'network.write\' | \'browser.read\' | \'mcp.call\' | \'memory.read\' | \'memory.write\' | \'subagent.spawn\' | \'workflow.start\' | \'approval.request\' | \'policy.propose\';',
   },
   {
     name: 'CapabilityDeclaration',
-    declaration: 'export interface CapabilityDeclaration {\n    readonly tool: string;\n    readonly capabilities: readonly Capability[];\n    resources(args: unknown): string;\n}',
+    declaration: 'export interface CapabilityDeclaration {\n    readonly tool: string;\n    readonly capabilities: readonly Capability[];\n    resources(args: unknown): string;\n    readonly trust?: TrustLabel;\n}',
   },
   {
     name: 'CapabilityEntry',
@@ -6576,7 +6665,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'CapabilityRegistry',
-    declaration: 'export interface CapabilityRegistry {\n    register(declaration: CapabilityDeclaration): () => void;\n    resolve(toolName: string, args: unknown): readonly CapabilityRequest[] | undefined;\n    has(toolName: string): boolean;\n    readonly size: number;\n}',
+    declaration: 'export interface CapabilityRegistry {\n    register(declaration: CapabilityDeclaration): () => void;\n    resolve(toolName: string, args: unknown): readonly CapabilityRequest[] | undefined;\n    has(toolName: string): boolean;\n    trustOf(toolName: string): TrustLabel | undefined;\n    readonly size: number;\n}',
   },
   {
     name: 'CapabilityRequest',
@@ -6683,16 +6772,32 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface CompactionAgentContext {\n    session: Session;\n    options: {\n        provider?: string;\n        model?: string;\n    };\n}',
   },
   {
+    name: 'CompactionCheckpointFacts',
+    declaration: 'export interface CompactionCheckpointFacts {\n    readonly checkpointId: string;\n    readonly sourceSeqRange: {\n        readonly start: number;\n        readonly end: number;\n    };\n    readonly retainedFacts: readonly CompactionRetainedFact[];\n    readonly droppedToolResultIds: readonly string[];\n    readonly openWork: readonly CompactionOpenWork[];\n    readonly unresolvedFailures: readonly CompactionUnresolvedFailure[];\n    readonly contextDigest: string;\n    readonly summarizer: {\n        readonly provider: string;\n        readonly model: string;\n    };\n}',
+  },
+  {
     name: 'CompactionId',
     declaration: 'export type CompactionId = Branded<\'CompactionId\'>;',
   },
   {
+    name: 'CompactionOpenWork',
+    declaration: 'export interface CompactionOpenWork {\n    readonly callId: string;\n    readonly toolName: string;\n}',
+  },
+  {
     name: 'CompactionResult',
-    declaration: 'export interface CompactionResult {\n    compactionId: CompactionId;\n    sourceCommandId?: CommandId;\n    startSeq: SessionSeq;\n    summarySeq: SessionSeq;\n    endSeq: SessionSeq;\n    summary: ContentBlock[];\n    shadowedRange: {\n        start: SessionSeq;\n        end: SessionSeq;\n    };\n    shadowedSeqs: SessionSeq[];\n    shadowedTokenCount: number;\n}',
+    declaration: 'export interface CompactionResult {\n    compactionId: CompactionId;\n    sourceCommandId?: CommandId;\n    startSeq: SessionSeq;\n    summarySeq: SessionSeq;\n    endSeq: SessionSeq;\n    summary: ContentBlock[];\n    shadowedRange: {\n        start: SessionSeq;\n        end: SessionSeq;\n    };\n    shadowedSeqs: SessionSeq[];\n    shadowedTokenCount: number;\n    checkpoint?: CompactionCheckpointFacts;\n}',
+  },
+  {
+    name: 'CompactionRetainedFact',
+    declaration: 'export interface CompactionRetainedFact {\n    readonly id: string;\n    readonly kind: \'task\' | \'plan\' | \'policy\' | \'approval\' | \'evidence\';\n    readonly statement: string;\n}',
   },
   {
     name: 'CompactionTrigger',
     declaration: 'export type CompactionTrigger = \'pressure\' | \'context-overflow\';',
+  },
+  {
+    name: 'CompactionUnresolvedFailure',
+    declaration: 'export interface CompactionUnresolvedFailure {\n    readonly failureId: string;\n    readonly kind: string;\n}',
   },
   {
     name: 'CompiledContext',
@@ -6843,16 +6948,32 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface ContextConflict {\n    readonly subject: string;\n    readonly sources: readonly string[];\n}',
   },
   {
+    name: 'ContextItem',
+    declaration: 'export interface ContextItem {\n    readonly id: string;\n    readonly text: string;\n    readonly relevance: number;\n    readonly expiresAt?: string;\n}',
+  },
+  {
     name: 'ContextOmission',
     declaration: 'export interface ContextOmission {\n    readonly id: string;\n    readonly reason: OmissionReason;\n}',
+  },
+  {
+    name: 'ContextPlacement',
+    declaration: 'export type ContextPlacement = \'stable-core\' | \'delta\' | \'tail-reminder\';',
   },
   {
     name: 'ContextSource',
     declaration: 'export interface ContextSource {\n    readonly id: string;\n    readonly kind: ContextSourceKind;\n    readonly content: string;\n    readonly trust: TrustLabel;\n    readonly provenance: Provenance;\n    readonly retention: RetentionClass;\n    readonly subject?: string;\n}',
   },
   {
+    name: 'ContextSourceDescriptor',
+    declaration: 'export interface ContextSourceDescriptor {\n    readonly producer: string;\n    readonly kind: ContextSourceKind;\n    readonly trust: TrustLabel;\n    readonly placement: ContextPlacement;\n    readonly maxBytes: number;\n}',
+  },
+  {
     name: 'ContextSourceKind',
     declaration: 'export type ContextSourceKind = \'policy\' | \'task\' | \'plan\' | \'memory\' | \'evidence\' | \'artifact\' | \'history\' | \'tool\';',
+  },
+  {
+    name: 'ContextSourceProvider',
+    declaration: 'export type ContextSourceProvider = (agent: Agent, signal: AbortSignal) => Promise<readonly ContextItem[]>;',
   },
   {
     name: 'ContinuableCreateRequest',
@@ -7000,7 +7121,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'CriterionVerifierRegistry',
-    declaration: 'export class CriterionVerifierRegistry {\n    register(verifier: CriterionVerifier): () => void;\n    async collect(request: VerificationRequest): Promise<{\n        results: CriterionResult[];\n        commands: string[];\n    }>;\n}',
+    declaration: 'export class CriterionVerifierRegistry {\n    constructor(timeoutMs = 60000);\n    register(verifier: CriterionVerifier): () => void;\n    async collect(request: VerificationRequest): Promise<{\n        results: CriterionResult[];\n        commands: string[];\n    }>;\n}',
   },
   {
     name: 'CuratorMaybeRunOptions',
@@ -7403,6 +7524,22 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface EvaluatorStrategy {\n    evaluator: Evaluator;\n    taskClass: TaskClass;\n    samples: number;\n    independentSamples: number;\n    corroborations: number;\n    selfJudgedSamples?: number | undefined;\n    weight: number;\n    lastAt: string;\n}',
   },
   {
+    name: 'Evidence',
+    declaration: 'export interface Evidence {\n    readonly evidenceId: EvidenceId;\n    readonly kind: EvidenceKind;\n    readonly contentRef: string;\n    readonly digest?: string;\n    readonly provenance: Provenance;\n    readonly trust: TrustLabel;\n    readonly observedAt: number;\n}',
+  },
+  {
+    name: 'EvidenceId',
+    declaration: 'export type EvidenceId = Branded<\'EvidenceId\'>;',
+  },
+  {
+    name: 'EvidenceInput',
+    declaration: 'export interface EvidenceInput {\n    readonly kind: EvidenceKind;\n    readonly contentRef: string;\n    readonly digest?: string;\n    readonly provenance: Provenance;\n    readonly trust: TrustLabel;\n}',
+  },
+  {
+    name: 'EvidenceKind',
+    declaration: 'export type EvidenceKind = \'file\' | \'tool-result\' | \'web\' | \'mcp\' | \'test\' | \'user\' | \'model\';',
+  },
+  {
     name: 'EvolutionAddContextItemRequest',
     declaration: 'export interface EvolutionAddContextItemRequest extends EvolutionScopeRequest {\n    readonly kind: \'text\' | \'file\';\n    readonly label: string;\n    readonly text?: string;\n    readonly path?: string;\n}',
   },
@@ -7480,7 +7617,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'FailureKind',
-    declaration: 'export type FailureKind = \'model-auth\' | \'model-rate-limit\' | \'model-context-overflow\' | \'tool-invalid-input\' | \'tool-policy-denied\' | \'tool-transient\' | \'sandbox-denied\' | \'approval-rejected\' | \'timeout\' | \'budget-exhausted\' | \'stale-write\' | \'verification-failed\' | \'subagent-failed\' | \'workflow-failed\' | \'persistence-failed\' | \'prompt-injection\' | \'unknown\';',
+    declaration: 'export type FailureKind = \'model-auth\' | \'model-rate-limit\' | \'model-context-overflow\' | \'tool-invalid-input\' | \'tool-policy-denied\' | \'tool-transient\' | \'sandbox-denied\' | \'approval-rejected\' | \'timeout\' | \'budget-exhausted\' | \'stale-write\' | \'verification-failed\' | \'subagent-failed\' | \'workflow-failed\' | \'persistence-failed\' | \'prompt-injection\' | \'output-truncated\' | \'tool-args-malformed\' | \'no-progress\' | \'stalled\' | \'step-ceiling\' | \'unknown\';',
   },
   {
     name: 'FailureRecord',
@@ -7988,7 +8125,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'KernelView',
-    declaration: 'export interface KernelView {\n    readonly task: TaskContract;\n    readonly sessionId: SessionId;\n    readonly budgets: BudgetSnapshot;\n    readonly openActionIds: readonly ActionId[];\n    readonly unresolvedFailures: readonly FailureRef[];\n    readonly plan?: PlanRevision;\n    readonly checkpoint?: Checkpoint;\n    readonly delegation?: DelegationReceipt;\n}',
+    declaration: 'export interface KernelView {\n    readonly task: TaskContract;\n    readonly sessionId: SessionId;\n    readonly budgets: BudgetSnapshot;\n    readonly openActionIds: readonly ActionId[];\n    readonly unresolvedFailures: readonly FailureRef[];\n    readonly evidence: readonly Evidence[];\n    readonly claims: readonly TaskClaim[];\n    readonly hypotheses: readonly TaskHypothesis[];\n    readonly plan?: PlanRevision;\n    readonly checkpoint?: Checkpoint;\n    readonly delegation?: DelegationReceipt;\n}',
   },
   {
     name: 'KvFacet',
@@ -8164,7 +8301,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'MemoryUtility',
-    declaration: 'export interface MemoryUtility {\n    readonly id: string;\n    readonly recalls: number;\n    readonly decidedRecalls: number;\n    readonly gradedRecalls: number;\n    readonly okRecalls: number;\n    readonly utility: number;\n}',
+    declaration: 'export interface MemoryUtility {\n    readonly id: string;\n    readonly recalls: number;\n    readonly decidedRecalls: number;\n    readonly gradedRecalls: number;\n    readonly okRecalls: number;\n    readonly estimate: UtilityEstimate;\n    readonly utility: number;\n}',
   },
   {
     name: 'Message',
@@ -8515,12 +8652,36 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type PluginSpecInspection = {\n    readonly status: \'accepted\';\n    readonly kind: InstallSpecKind;\n    readonly name?: string;\n    readonly version?: string;\n    readonly description?: string;\n    readonly bundle: boolean | null;\n    readonly registry: Registry;\n    readonly host?: string;\n} | {\n    readonly status: \'refused\';\n    readonly problem: PluginInspectProblem;\n    readonly reason: string;\n    readonly registries?: Registry[];\n};',
   },
   {
+    name: 'PolicyAction',
+    declaration: 'export type PolicyAction = \'read\' | \'write\' | \'edit\' | \'shell\' | \'browser\' | \'network\' | \'mcp\' | \'delegate\' | \'workflow\' | \'memory\' | \'policy\';',
+  },
+  {
     name: 'PolicyContext',
-    declaration: 'export interface PolicyContext {\n    readonly action: ActionProposal;\n    readonly capabilities: readonly CapabilityRequest[];\n    readonly undeclared: boolean;\n    readonly sandbox: SandboxExecutionPolicy;\n    readonly parentGrant?: DelegationReceipt;\n}',
+    declaration: 'export interface PolicyContext {\n    readonly action: ActionProposal;\n    readonly capabilities: readonly CapabilityRequest[];\n    readonly undeclared: boolean;\n    readonly sandbox: SandboxExecutionPolicy;\n    readonly parentGrant?: DelegationReceipt;\n    readonly agentGrant?: readonly Capability[];\n}',
+  },
+  {
+    name: 'PolicyDocument',
+    declaration: 'export interface PolicyDocument {\n    readonly defaults: {\n        readonly effect: PolicyEffect;\n    };\n    rules: PolicyRule[];\n}',
+  },
+  {
+    name: 'PolicyEffect',
+    declaration: 'export type PolicyEffect = \'allow\' | \'ask\' | \'deny\';',
   },
   {
     name: 'PolicyEngine',
     declaration: 'export interface PolicyEngine {\n    evaluate(context: PolicyContext): PolicyDecision;\n}',
+  },
+  {
+    name: 'PolicyProfileProvider',
+    declaration: 'export interface PolicyProfileProvider {\n    resolve(session: Session): PolicyProfileSelection | undefined;\n}',
+  },
+  {
+    name: 'PolicyProfileSelection',
+    declaration: 'export interface PolicyProfileSelection {\n    readonly profile: string;\n    readonly document?: PolicyDocument;\n}',
+  },
+  {
+    name: 'PolicyRule',
+    declaration: 'export interface PolicyRule {\n    readonly action: PolicyAction;\n    readonly resource: string;\n    readonly effect: PolicyEffect;\n}',
   },
   {
     name: 'PooledCandidate',
@@ -8600,7 +8761,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'PresetSpec',
-    declaration: 'export interface PresetSpec {\n    sandbox: SandboxMode;\n    approval: ApprovalPolicy;\n    name?: string;\n    description?: string;\n}',
+    declaration: 'export interface PresetSpec {\n    sandbox: SandboxMode;\n    approval: ApprovalPolicy;\n    policy?: PolicyDocument;\n    name?: string;\n    description?: string;\n}',
   },
   {
     name: 'PreStepDecision',
@@ -8791,6 +8952,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface RecoveryInput {\n    readonly failure: FailureRecord;\n    readonly attempts: number;\n    readonly maxAttemptsPerAction: number;\n}',
   },
   {
+    name: 'RecoveryScanClass',
+    declaration: 'export type RecoveryScanClass = \'resumable\' | \'repairable\' | \'blocked\';',
+  },
+  {
+    name: 'RecoveryScanEntry',
+    declaration: 'export interface RecoveryScanEntry {\n    readonly sessionId: SessionId;\n    readonly classification: RecoveryScanClass;\n    readonly reason: string;\n    readonly status?: TaskStatus;\n}',
+  },
+  {
     name: 'RecurrenceSource',
     declaration: 'export type RecurrenceSource = \'skill\' | \'route\';',
   },
@@ -8920,7 +9089,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ResourceBudget',
-    declaration: 'export interface ResourceBudget {\n    readonly maxSteps?: number;\n    readonly maxToolCalls?: number;\n    readonly maxTokens?: number;\n    readonly maxWallMs?: number;\n    readonly maxCostUsd?: number;\n    readonly maxSubagentDepth?: number;\n}',
+    declaration: 'export interface ResourceBudget {\n    readonly maxSteps?: number;\n    readonly maxToolCalls?: number;\n    readonly maxTokens?: number;\n    readonly maxWallMs?: number;\n    readonly maxCostUsd?: number;\n    readonly maxSubagentDepth?: number;\n    readonly maxConcurrentActions?: number;\n}',
   },
   {
     name: 'RestoredSessionOptions',
@@ -9791,6 +9960,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type SignInErrorCode = \'network\' | \'protocol\' | \'expired\' | \'storage\';',
   },
   {
+    name: 'SkillAdmission',
+    declaration: 'export type SkillAdmission = \'bundled\' | \'project-reviewed\' | \'user-approved\' | \'quarantined\';',
+  },
+  {
     name: 'SkillBlueprint',
     declaration: 'export interface SkillBlueprint {\n    readonly schedule: string;\n    readonly deliver: \'session\' | \'file\';\n    readonly prompt: string;\n}',
   },
@@ -9876,7 +10049,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SkillSummary',
-    declaration: 'export interface SkillSummary {\n    readonly path?: string;\n    readonly name: string;\n    readonly description: string;\n    readonly whenToUse?: string;\n    readonly requires?: readonly string[];\n    readonly conflictsWith?: readonly string[];\n    readonly compatibleWith?: readonly string[];\n    readonly composableWith?: readonly string[];\n    readonly capabilities?: readonly string[];\n    readonly inputs?: readonly string[];\n    readonly outputs?: readonly string[];\n    readonly derivedFrom?: readonly string[];\n    readonly version?: string;\n    readonly testScenarios?: readonly string[];\n    readonly invocation: SkillInvocationPolicy;\n    readonly source: SkillSource;\n    readonly provider: string;\n    readonly resourceBase?: SkillResourceBase;\n}',
+    declaration: 'export interface SkillSummary {\n    readonly path?: string;\n    readonly name: string;\n    readonly description: string;\n    readonly whenToUse?: string;\n    readonly requires?: readonly string[];\n    readonly conflictsWith?: readonly string[];\n    readonly compatibleWith?: readonly string[];\n    readonly composableWith?: readonly string[];\n    readonly capabilities?: readonly string[];\n    readonly inputs?: readonly string[];\n    readonly outputs?: readonly string[];\n    readonly derivedFrom?: readonly string[];\n    readonly version?: string;\n    readonly testScenarios?: readonly string[];\n    readonly admission?: SkillAdmission;\n    readonly trust?: TrustLabel;\n    readonly sourceDigest?: string;\n    readonly rollbackArtifact?: string;\n    readonly invocation: SkillInvocationPolicy;\n    readonly source: SkillSource;\n    readonly provider: string;\n    readonly resourceBase?: SkillResourceBase;\n}',
   },
   {
     name: 'SkillTrustFailure',
@@ -10271,16 +10444,48 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type TableValueOf<S extends DomainSpec, N extends keyof S[\'tables\']> = S[\'tables\'][N] extends DomainTableSpec<string, infer V> ? V : never;',
   },
   {
-    name: 'TaskClass',
-    declaration: 'export type TaskClass = string;',
+    name: 'TaskClaim',
+    declaration: 'export interface TaskClaim {\n    readonly claimId: TaskClaimId;\n    readonly statement: string;\n    readonly evidence: readonly EvidenceId[];\n    readonly confidence: number;\n    readonly status: TaskClaimStatus;\n}',
+  },
+  {
+    name: 'TaskClaimId',
+    declaration: 'export type TaskClaimId = Branded<\'TaskClaimId\'>;',
+  },
+  {
+    name: 'TaskClaimInput',
+    declaration: 'export interface TaskClaimInput {\n    readonly statement: string;\n    readonly evidence?: readonly EvidenceId[];\n    readonly confidence: number;\n    readonly status?: TaskClaimStatus;\n}',
+  },
+  {
+    name: 'TaskClaimStatus',
+    declaration: 'export type TaskClaimStatus = \'proposed\' | \'supported\' | \'contradicted\' | \'stale\' | \'rejected\';',
   },
   {
     name: 'TaskContract',
-    declaration: 'export interface TaskContract {\n    readonly taskId: TaskId;\n    readonly runId: RunId;\n    readonly objective: string;\n    readonly constraints: readonly Constraint[];\n    readonly acceptance: readonly AcceptanceCriterion[];\n    readonly workspace?: WorkspaceRef;\n    readonly parentTaskId?: TaskId;\n    readonly agentProfile: string;\n    readonly policyProfile: string;\n    readonly budget: ResourceBudget;\n    readonly status: TaskStatus;\n    readonly revision: number;\n}',
+    declaration: 'export interface TaskContract {\n    readonly taskId: TaskId;\n    readonly runId: RunId;\n    readonly objective: string;\n    readonly constraints: readonly Constraint[];\n    readonly acceptance: readonly AcceptanceCriterion[];\n    readonly workspace?: WorkspaceRef;\n    readonly parentTaskId?: TaskId;\n    readonly agentProfile: string;\n    readonly taskClass?: TaskClass;\n    readonly policyProfile: string;\n    readonly budget: ResourceBudget;\n    readonly status: TaskStatus;\n    readonly revision: number;\n}',
+  },
+  {
+    name: 'TaskHypothesis',
+    declaration: 'export interface TaskHypothesis {\n    readonly hypothesisId: TaskHypothesisId;\n    readonly question: string;\n    readonly claims: readonly TaskClaimId[];\n    readonly tests: readonly VerificationRequest[];\n    readonly status: TaskHypothesisStatus;\n}',
+  },
+  {
+    name: 'TaskHypothesisId',
+    declaration: 'export type TaskHypothesisId = Branded<\'TaskHypothesisId\'>;',
+  },
+  {
+    name: 'TaskHypothesisInput',
+    declaration: 'export interface TaskHypothesisInput {\n    readonly question: string;\n    readonly claims?: readonly TaskClaimId[];\n    readonly tests?: readonly VerificationRequest[];\n    readonly status?: TaskHypothesisStatus;\n}',
+  },
+  {
+    name: 'TaskHypothesisStatus',
+    declaration: 'export type TaskHypothesisStatus = \'open\' | \'supported\' | \'refuted\' | \'inconclusive\';',
   },
   {
     name: 'TaskId',
     declaration: 'export type TaskId = Branded<\'TaskId\'>;',
+  },
+  {
+    name: 'TaskInput',
+    declaration: 'export interface TaskInput {\n    readonly objective: string;\n    readonly constraints?: readonly Constraint[];\n    readonly acceptance?: readonly AcceptanceCriterion[];\n    readonly workspace?: WorkspaceRef;\n    readonly parentTaskId?: TaskId;\n    readonly agentProfile: string;\n    readonly policyProfile?: string;\n    readonly budget?: ResourceBudget;\n    readonly taskClass?: TaskClass;\n}',
   },
   {
     name: 'TaskOccurrence',
@@ -10288,7 +10493,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'TaskStatus',
-    declaration: 'export type TaskStatus = \'intake\' | \'understanding\' | \'retrieving\' | \'planning\' | \'ready\' | \'executing\' | \'observing\' | \'verifying\' | \'recovering\' | \'awaiting-approval\' | \'awaiting-user\' | \'paused\' | \'completed\' | \'failed\' | \'cancelled\';',
+    declaration: 'export type TaskStatus = \'intake\' | \'planning\' | \'ready\' | \'executing\' | \'observing\' | \'verifying\' | \'recovering\' | \'awaiting-approval\' | \'awaiting-user\' | \'paused\' | \'completed\' | \'failed\' | \'cancelled\';',
   },
   {
     name: 'TeamId',
@@ -10476,7 +10681,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ToolDefinition',
-    declaration: 'export interface ToolDefinition extends ToolSchema {\n    readonly output: ToolOutputDefinition;\n    execute(args: unknown, exec: ToolRunContext): Promise<unknown>;\n    projectContent?(exec: Readonly<ToolExecution>, result: Readonly<ToolExecutionResult>): ContentBlock[] | undefined;\n    finalizeContent?(exec: Readonly<ToolExecution>, result: Readonly<ToolExecutionResult>): ContentBlock[] | undefined;\n    timeoutMs?: number;\n    isConcurrencySafe?(args: unknown): boolean;\n    parallelScopeKey?(args: unknown): string;\n    readonly origin?: ToolOrigin;\n    readonly serverDigest?: string;\n    readonly capabilities?: readonly string[];\n    presentCall?(args: unknown): ToolCallView | undefined;\n    presentResult?(args: unknown, result: ToolResult): ToolResultView | undefined;\n}',
+    declaration: 'export interface ToolDefinition extends ToolSchema {\n    readonly output: ToolOutputDefinition;\n    execute(args: unknown, exec: ToolRunContext): Promise<unknown>;\n    projectContent?(exec: Readonly<ToolExecution>, result: Readonly<ToolExecutionResult>): ContentBlock[] | undefined;\n    finalizeContent?(exec: Readonly<ToolExecution>, result: Readonly<ToolExecutionResult>): ContentBlock[] | undefined;\n    timeoutMs?: number;\n    readonly validatesArgs?: boolean;\n    isConcurrencySafe?(args: unknown): boolean;\n    parallelScopeKey?(args: unknown): string;\n    readonly origin?: ToolOrigin;\n    readonly serverDigest?: string;\n    readonly capabilities?: readonly string[];\n    presentCall?(args: unknown): ToolCallView | undefined;\n    presentResult?(args: unknown, result: ToolResult): ToolResultView | undefined;\n}',
   },
   {
     name: 'ToolDispatchExecution',
@@ -10799,8 +11004,12 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface UserMessage extends MessageBase {\n    readonly role: \'user\';\n}',
   },
   {
+    name: 'UtilityEstimate',
+    declaration: 'export interface UtilityEstimate {\n    surfaced: number;\n    passingTasks: number;\n    failingTasks: number;\n    value: number;\n}',
+  },
+  {
     name: 'VerificationGate',
-    declaration: 'export interface VerificationGate {\n    request(task: TaskContract, changedScopes: readonly string[]): VerificationRequest;\n    evaluate(request: VerificationRequest, results: readonly CriterionResult[], commands: readonly string[]): VerificationResult;\n    decide(task: TaskContract, result: VerificationResult, unresolvedFailures: readonly FailureRef[], budgets: BudgetSnapshot): CompletionDecision;\n}',
+    declaration: 'export interface VerificationGate {\n    requiredFor(task: TaskContract): boolean;\n    request(task: TaskContract, changedScopes: readonly string[]): VerificationRequest;\n    evaluate(request: VerificationRequest, results: readonly CriterionResult[], commands: readonly string[]): VerificationResult;\n    decide(task: TaskContract, result: VerificationResult, unresolvedFailures: readonly FailureRef[], budgets: BudgetSnapshot): CompletionDecision;\n}',
   },
   {
     name: 'VerificationRequest',
@@ -10971,6 +11180,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type WorkflowAgentOutcome = \'completed\' | \'failed\' | \'cancelled\';',
   },
   {
+    name: 'WorkflowCheckpointRef',
+    declaration: 'export interface WorkflowCheckpointRef {\n    readonly checkpointId: string;\n    readonly runId: WorkflowRunId;\n    readonly status: WorkflowRunStatus;\n    readonly createdAt: number;\n    readonly script: string;\n    readonly meta: WorkflowMeta;\n    readonly args?: unknown;\n    readonly subagentProvider?: string;\n    readonly maxTotalAgents?: number;\n}',
+  },
+  {
     name: 'WorkflowMeta',
     declaration: 'export interface WorkflowMeta {\n    name: string;\n    description: string;\n    whenToUse?: string;\n    phases?: WorkflowPhase[];\n}',
   },
@@ -10987,8 +11200,12 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface WorkflowResultInfo {\n    stopReason: WorkflowStopReason;\n    error?: string;\n    agentsStarted: number;\n}',
   },
   {
+    name: 'WorkflowResumeRequest',
+    declaration: 'export interface WorkflowResumeRequest {\n    readonly checkpoint: WorkflowCheckpointRef;\n    readonly parent: Agent;\n    readonly signal?: AbortSignal;\n}',
+  },
+  {
     name: 'WorkflowRun',
-    declaration: 'export interface WorkflowRun {\n    readonly id: WorkflowRunId;\n    readonly meta: WorkflowMeta;\n    readonly result: Promise<WorkflowResult>;\n    cancel(reason?: string): void;\n    dispose(): Promise<void>;\n}',
+    declaration: 'export interface WorkflowRun {\n    readonly id: WorkflowRunId;\n    readonly meta: WorkflowMeta;\n    readonly status: WorkflowRunStatus;\n    readonly result: Promise<WorkflowResult>;\n    checkpoint(): Promise<WorkflowCheckpointRef>;\n    cancel(reason?: string): void;\n    dispose(): Promise<void>;\n}',
   },
   {
     name: 'WorkflowRunId',

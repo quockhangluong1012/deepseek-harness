@@ -11,6 +11,7 @@ import type { ContentBlock, TokenUsage } from '@deepseek-ai/dsh-llm'
 import type { CommandId } from '@deepseek-ai/dsh-commands/brand'
 import type { SessionSeq } from '@deepseek-ai/dsh-session/types'
 import type { CompactionId } from './brand.ts'
+import type { CompactionCheckpointFacts } from './facts.ts'
 
 export type { CompactionId }
 
@@ -38,6 +39,13 @@ declare module '@deepseek-ai/dsh-session/types' {
       shadowedRange: { start: SessionSeq; end: SessionSeq }
       shadowedSeqs: SessionSeq[]
       shadowedTokenCount: number
+      /**
+       * What this checkpoint kept: the retained facts, the dropped tool
+       * results, the work still open, the unresolved failures, the digest of
+       * the summary, and the model that wrote it. Absent on records written
+       * before the field existed.
+       */
+      checkpoint?: CompactionCheckpointFacts
       /** The provider route that wrote the summary. */
       provider: string
       /**
@@ -117,4 +125,6 @@ export interface CompactionResult {
   shadowedSeqs: SessionSeq[]
   /** Estimated token count of the shadowed content. */
   shadowedTokenCount: number
+  /** What the checkpoint kept, on a backend that records one. */
+  checkpoint?: CompactionCheckpointFacts
 }

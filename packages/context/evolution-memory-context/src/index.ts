@@ -9,12 +9,15 @@
  * something to act on. Capacity usage is reported only in the brief, never
  * interpolated into the system prompt, so a memory write never invalidates
  * the request's cached prefix on its own.
+ * When `agent-context` is mounted, the injector also registers the rendered brief as a
+ * required, untrusted memory source for compiler placements.
  * @module @deepseek-ai/dsh-evolution-memory-context
  */
 
 import { realpath } from 'node:fs/promises'
 import { readFile } from 'node:fs/promises'
 import type { Context } from '@deepseek-ai/cordis'
+import type { ContextItem } from '@deepseek-ai/dsh-agent-context'
 import z from '@deepseek-ai/schemastery'
 import type { PreStepDecision } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
@@ -197,21 +200,30 @@ function checkProfile(profile: string): void {
   }
 }
 
-function isEvolutionMemoryMessage(message: UserMessage): boolean {
-  return (message.source as { kind?: string }).kind === 'evolution-memory'
+function evolutionMemoryDigest(message: UserMessage): string | undefined {
+  const source = message.source as { kind?: string; digest?: unknown } | undefined
+  return source?.kind === 'evolution-memory' && typeof source.digest === 'string' ? source.digest : undefined
 }
 
-/**
- * Read the digest off the newest claimed evolution brief that carries one.
- * @param claimed - messages claimed for this step.
- * @returns the digest, or undefined when none carries one.
- */
-function claimedDigest(claimed: readonly UserMessage[]): string | undefined {
-  const digests = claimed
-    .filter(isEvolutionMemoryMessage)
-    .map(message => (message.source as unknown as EvolutionMemorySource).digest)
-    .filter((digest): digest is string => typeof digest === 'string')
-  return digests.at(-1)
+function evolutionMemoryScope(message: UserMessage): string | undefined {
+  const source = message.source as { kind?: string; scopeId?: unknown } | undefined
+  return source?.kind === 'evolution-memory' && typeof source.scopeId === 'string' ? source.scopeId : undefined
+}
+
+function textOfUserMessage(message: UserMessage): string {
+  let text = ''
+  for (const block of message.content) {
+    if (block.type === 'text') text += (block as { text: string }).text
+  }
+  return text
+}
+
+function claimedBrief(claimed: readonly UserMessage[]): UserMessage | undefined {
+  for (let index = claimed.length - 1; index >= 0; index -= 1) {
+    const message = claimed[index]
+    if (message !== undefined && evolutionMemoryDigest(message) !== undefined) return message
+  }
+  return undefined
 }
 
 /** The registry's view of the workspace a session belongs to. */
@@ -223,9 +235,16 @@ interface Membership {
   sessionIds: readonly SessionId[]
 }
 
+interface RenderedBrief {
+  readonly scope: EvolutionScopeId
+  readonly digest: string
+  readonly text: string
+  readonly sections: readonly ContextSnapshotSection[]
+}
+
 /**
- * Register the pre-step brief injector plus the nudge sections for the
- * lifetime of `ctx`.
+ * Register pre-step brief injection, its optional compiler source, and the
+ * nudge sections for the lifetime of `ctx`.
  * @param ctx - plugin context; listeners dispose with it.
  * @param config - byte cap on the complete brief and scope namespace.
  */
@@ -242,6 +261,7 @@ export function apply(ctx: Context, config: Config): void {
   checkProfile(profile)
   const workspaceBySession = new Map<string, WorkspaceId | null>()
   const injectedDigests = new Map<string, string>()
+  const renderedBriefs = new Map<string, RenderedBrief>()
   const turnsBySession = new Map<string, number>()
   const nudgeFiredTurns = new Map<string, number>()
   ctx.on('session/event', (session: Session, event: SessionEvent) => {
@@ -253,6 +273,7 @@ export function apply(ctx: Context, config: Config): void {
     const key = String(session.id)
     workspaceBySession.delete(key)
     injectedDigests.delete(key)
+    renderedBriefs.delete(key)
     turnsBySession.delete(key)
     for (const nudgeKey of [...nudgeFiredTurns.keys()]) {
       if (nudgeKey.startsWith(`${key}\u0000`)) nudgeFiredTurns.delete(nudgeKey)
@@ -263,6 +284,7 @@ export function apply(ctx: Context, config: Config): void {
     injectedDigests.clear()
     turnsBySession.clear()
     nudgeFiredTurns.clear()
+    renderedBriefs.clear()
   }, 'evolution-memory-context.cache')
 
   const scopeOf = (workspaceId: WorkspaceId): EvolutionScopeId => EvolutionScopeId(profile, String(workspaceId))
@@ -310,7 +332,7 @@ export function apply(ctx: Context, config: Config): void {
     return toMembership(match)
   }
 
-  const newestLoggedDigest = async (session: Session): Promise<string | undefined> => {
+  const newestLoggedBrief = async (session: Session): Promise<UserMessage | undefined> => {
     const sessionQuery = ctx.get('sessionQuery')
     if (sessionQuery?.readSurface === undefined) return undefined
     let surface: { events: readonly SessionEvent[] }
@@ -322,8 +344,8 @@ export function apply(ctx: Context, config: Config): void {
     const events = [...surface.events].reverse()
     for (const event of events) {
       if (event.type !== 'user/message') continue
-      const source = (event.data as { source?: { kind?: string; digest?: unknown } }).source
-      if (source?.kind === 'evolution-memory' && typeof source.digest === 'string') return source.digest
+      const message = event.data as UserMessage
+      if (evolutionMemoryDigest(message) !== undefined) return message
     }
     return undefined
   }
@@ -422,35 +444,42 @@ export function apply(ctx: Context, config: Config): void {
     return [...materialized.filter(item => !item.label.startsWith(RECALL_LABEL_PREFIX)), ...recalled]
   }
 
-  /** Decide whether the admitted batch needs a fresh brief and append it. */
-  const injectBrief = async (
+  const renderBrief = async (
     session: Session,
     member: Membership,
-    decision: Extract<PreStepDecision, { kind: 'enter' }>,
     signal: AbortSignal,
-  ): Promise<PreStepDecision> => {
+  ): Promise<RenderedBrief | undefined> => {
+    const sessionKey = String(session.id)
     const scope = scopeOf(member.id)
     const record = ctx.evolutionMemory.read(scope)
-    // An absent record digests as 'empty' and carries no sections, so the
-    // content check below subsumes both: nothing to inject either way.
-    if (record === undefined) return decision
+    if (record === undefined) {
+      renderedBriefs.delete(sessionKey)
+      injectedDigests.delete(sessionKey)
+      return undefined
+    }
     const digest = ctx.evolutionMemory.digest(scope)
-    const sessionKey = String(session.id)
-    if (injectedDigests.get(sessionKey) === digest) return decision
-    const claimed = claimedDigest(decision.messages)
-    if (claimed === digest) {
-      injectedDigests.set(sessionKey, digest)
-      return decision
-    }
-    if (claimed === undefined && await newestLoggedDigest(session) === digest) {
-      injectedDigests.set(sessionKey, digest)
-      return decision
-    }
+    const cached = renderedBriefs.get(sessionKey)
+    if (cached?.scope === scope && cached.digest === digest) return cached
+
     const hasContent = record.instructions.length > 0
       || record.agentLessons.length > 0
       || record.userProfile.length > 0
       || record.contextItems.length > 0
-    if (!hasContent) return decision
+    if (!hasContent) {
+      renderedBriefs.delete(sessionKey)
+      injectedDigests.delete(sessionKey)
+      return undefined
+    }
+
+    const logged = await newestLoggedBrief(session)
+    if (logged !== undefined
+      && evolutionMemoryDigest(logged) === digest
+      && evolutionMemoryScope(logged) === String(scope)) {
+      const brief: RenderedBrief = { scope, digest, text: textOfUserMessage(logged), sections: [] }
+      renderedBriefs.set(sessionKey, brief)
+      injectedDigests.set(sessionKey, digest)
+      return brief
+    }
 
     const materialized = await materializeContext(record, signal)
     const usage = ctx.evolutionMemory.usage(scope)
@@ -464,13 +493,59 @@ export function apply(ctx: Context, config: Config): void {
       profile: record.userProfile,
       context: materialized,
     }
-    const text = renderEvolutionBrief(briefInput, maxBytes)
-    const sections = evolutionBriefSections(briefInput, maxBytes)
-    // Rendered text is empty exactly when every section is empty, which
-    // hasContent above already excludes: reaching here always injects.
+    const brief: RenderedBrief = {
+      scope,
+      digest,
+      text: renderEvolutionBrief(briefInput, maxBytes),
+      sections: evolutionBriefSections(briefInput, maxBytes),
+    }
+    renderedBriefs.set(sessionKey, brief)
+    return brief
+  }
+
+  ctx.inject(['agentContext'], agentContextCtx => {
+    agentContextCtx.effect(() => agentContextCtx.agentContext.register({
+      producer: 'evolution-memory',
+      kind: 'memory',
+      trust: 'untrusted',
+      placement: 'stable-core',
+      maxBytes,
+    }, async (agent, signal): Promise<readonly ContextItem[]> => {
+      const member = await resolveWorkspace(agent.session)
+      if (member === undefined) {
+        const key = String(agent.session.id)
+        renderedBriefs.delete(key)
+        injectedDigests.delete(key)
+        return []
+      }
+      const brief = await renderBrief(agent.session, member, signal)
+      return brief === undefined ? [] : [{ id: 'brief', text: brief.text, relevance: 1 }]
+    }))
+  })
+
+  /** Decide whether the admitted batch needs a fresh brief and append it. */
+  const injectBrief = async (
+    session: Session,
+    member: Membership,
+    decision: Extract<PreStepDecision, { kind: 'enter' }>,
+    signal: AbortSignal,
+  ): Promise<PreStepDecision> => {
+    const sessionKey = String(session.id)
+    const rendered = await renderBrief(session, member, signal)
+    if (rendered === undefined) return decision
+    const { scope, digest } = rendered
+    if (injectedDigests.get(sessionKey) === digest) return decision
+    const claimed = claimedBrief(decision.messages)
+    if (claimed !== undefined
+      && evolutionMemoryDigest(claimed) === digest
+      && evolutionMemoryScope(claimed) === String(scope)) {
+      renderedBriefs.set(sessionKey, { ...rendered, text: textOfUserMessage(claimed) })
+      injectedDigests.set(sessionKey, digest)
+      return decision
+    }
     const brief = createUserMessage({
-      content: [{ type: 'text', text }],
-      source: { kind: 'evolution-memory', form: 'snapshot', scopeId: scope, digest, sections, supersedes: true },
+      content: [{ type: 'text', text: rendered.text }],
+      source: { kind: 'evolution-memory', form: 'snapshot', scopeId: scope, digest, sections: rendered.sections, supersedes: true },
     })
     injectedDigests.set(sessionKey, digest)
     return { ...decision, messages: [...decision.messages, brief] }
@@ -481,7 +556,13 @@ export function apply(ctx: Context, config: Config): void {
     const membership = decision.kind === 'reject' || input.signal.aborted
       ? undefined
       : await resolveWorkspace(input.agent.session)
-    if (decision.kind === 'reject' || membership === undefined) return decision
+    if (decision.kind === 'reject') return decision
+    if (membership === undefined) {
+      const key = String(input.agent.session.id)
+      renderedBriefs.delete(key)
+      injectedDigests.delete(key)
+      return decision
+    }
     return injectBrief(input.agent.session, membership, decision, input.signal)
   })
 }

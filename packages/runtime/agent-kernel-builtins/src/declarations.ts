@@ -190,4 +190,23 @@ export const BUILTIN_DECLARATIONS: readonly CapabilityDeclaration[] = [
   // Asking the user is requesting a human decision, with the question ids as
   // the selector.
   { tool: 'ask_user_question', capabilities: ['approval.request'], resources: questionIdsOf },
+  // MCP resource access rides the same bridge as the server's tools, so the
+  // server and the resource URI select the rule.
+  { tool: 'list_mcp_resources', capabilities: ['mcp.call'], resources: args => `mcp:${fieldOf(args, ['server'], 'mcp')}` },
+  { tool: 'list_mcp_resource_templates', capabilities: ['mcp.call'], resources: args => `mcp:${fieldOf(args, ['server'], 'mcp')}` },
+  { tool: 'read_mcp_resource', capabilities: ['mcp.call'], resources: args => `mcp:${fieldOf(args, ['server'], 'mcp')}/${fieldOf(args, ['uri'], 'resource')}` },
+  // Managing the profile's plugins and bundles changes the runtime's own
+  // composition: proposed policy, with the action and target as the selector.
+  { tool: 'plugin_manager', capabilities: ['policy.propose'], resources: args => fieldOf(args, ['target', 'action'], 'plugins') },
+  // The workspace dependency payload only reports bundled interpreter and
+  // library paths; it reads, and the constant names the payload family.
+  { tool: 'load_workspace_dependencies', capabilities: ['fs.read'], resources: () => 'workspace-dependencies' },
+  // Browser automation reads the live session: navigation selects the URL it
+  // opens, and every other action selects the instruction it carries.
+  { tool: 'stagehand_navigate', capabilities: ['browser.read'], resources: args => fieldOf(args, ['url'], 'browser') },
+  { tool: 'stagehand_act', capabilities: ['browser.read'], resources: args => fieldOf(args, ['instruction'], 'browser') },
+  { tool: 'stagehand_observe', capabilities: ['browser.read'], resources: args => fieldOf(args, ['instruction'], 'browser') },
+  { tool: 'stagehand_extract', capabilities: ['browser.read'], resources: args => fieldOf(args, ['instruction'], 'browser') },
+  { tool: 'stagehand_screenshot', capabilities: ['browser.read'], resources: args => fieldOf(args, ['url'], 'browser') },
+  { tool: 'stagehand_tabs', capabilities: ['browser.read'], resources: args => fieldOf(args, ['url', 'action'], 'browser') },
 ]
