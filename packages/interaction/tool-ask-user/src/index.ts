@@ -20,6 +20,9 @@ export function apply(ctx: Context): void {
   ctx.tools.register(defineTool({
     name: 'ask_user_question',
     description,
+    // A human answer has no natural time bound; the deployment default
+    // timeout must not cancel this wait (S4/timeouts).
+    unboundedTimeout: true,
     parameters: {
       questions: {
         type: 'array',

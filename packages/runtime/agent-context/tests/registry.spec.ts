@@ -5,6 +5,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { assembleContextFor } from '@deepseek-ai/dsh-agent'
+import { Session } from '@deepseek-ai/dsh-session'
 import { eventsOf, makeAgent, rig } from './rig.ts'
 
 describe('context source registry', () => {
@@ -39,6 +40,21 @@ describe('context source registry', () => {
     expect(second?.included.map(entry => entry.id)).not.toContain('evidence:e1')
   })
 
+  it('keeps a budget-omitted delta item eligible on the next compile', async () => {
+    const { ctx, service } = await rig({ maxContextTokens: 0 })
+    const agent = makeAgent(ctx)
+    service.register(
+      { producer: 'evidence', kind: 'evidence', trust: 'trusted', placement: 'delta', maxBytes: 1000 },
+      () => Promise.resolve([{ id: 'e1', text: 'the build failed on main.ts', relevance: 1 }]),
+    )
+
+    const first = await service.compile(agent, { sections: [], contexts: [] })
+    const second = await service.compile(agent, { sections: [], contexts: [] })
+
+    expect(first.omitted).toContainEqual({ id: 'evidence:e1', reason: 'budget' })
+    expect(second.omitted).toContainEqual({ id: 'evidence:e1', reason: 'budget' })
+  })
+
   it('surfaces a delta item again once compaction clears the session', async () => {
     const { ctx, service } = await rig()
     const agent = makeAgent(ctx)
@@ -51,6 +67,9 @@ describe('context source registry', () => {
     const first = await service.compile(agent, empty)
     agent.session.append('compaction/end', { compactionId: 'c1', turn: null })
     const second = await service.compile(agent, empty)
+    const records = eventsOf(agent, 'context/compiled')
+    expect(records).toHaveLength(2)
+    expect(records[1]?.digest).toBe(records[0]?.digest)
 
     expect(first.included.map(entry => entry.source.id)).toContain('evidence:e1')
     expect(second.included.map(entry => entry.source.id)).toContain('evidence:e1')
@@ -97,5 +116,26 @@ describe('context source registry', () => {
 
     const placed = compiled.included.find(entry => entry.source.id === 'notes:n1')
     expect(placed?.source.content).toBe('far t')
+  })
+
+  it('withholds a delta item after replaying its session in a new compiler', async () => {
+    const first = await rig()
+    const agent = makeAgent(first.ctx)
+    const descriptor = { producer: 'evidence', kind: 'evidence' as const, trust: 'trusted' as const, placement: 'delta' as const, maxBytes: 1000 }
+    first.service.register(descriptor, () => Promise.resolve([
+      { id: 'e1', text: 'the build failed on main.ts', relevance: 1 },
+    ]))
+    const initial = await first.service.compile(agent, { sections: [], contexts: [] })
+    const replayed = Session.create(agent.session.id, agent.session.snapshotEvents())
+
+    const resumed = await rig()
+    const resumedAgent = { ...makeAgent(resumed.ctx), id: replayed.id, session: replayed }
+    resumed.service.register(descriptor, () => Promise.resolve([
+      { id: 'e1', text: 'the build failed on main.ts', relevance: 1 },
+    ]))
+    const afterResume = await resumed.service.compile(resumedAgent, { sections: [], contexts: [] })
+
+    expect(initial.included.map(entry => entry.source.id)).toContain('evidence:e1')
+    expect(afterResume.included.map(entry => entry.source.id)).not.toContain('evidence:e1')
   })
 })

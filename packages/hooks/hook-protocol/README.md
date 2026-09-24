@@ -70,7 +70,7 @@ Invocation and result records must sit inside an open turn: `UserPromptSubmit`, 
 
 ### Typed hook contributions
 
-Every matched hook's output is classified as exactly one contribution kind: `observe`, `annotate`, `inject-untrusted-context`, `request-policy-change`, or `veto` (`classifyHookOutput`, and `MergedHookOutcome.contributions` in hook order). The kinds are ranked but none carries a capability: a hook may veto an action, ask the policy owner to decide, or inject context as untrusted data, and only a kernel or policy owner turns such a request into a grant. A hook's `allow` is therefore advisory — both bridges consume just `deny` and `ask`, and nothing outside a policy owner may read a hook's consent as authorization.
+Every matched hook's output is classified as exactly one contribution kind: `observe`, `annotate`, `inject-untrusted-context`, `request-policy-change`, or `veto` (`classifyHookOutput`, and `MergedHookOutcome.contributions` in hook order). The kinds are ranked but none carries a capability: a hook may veto an action, ask the policy owner to decide, or inject context as untrusted data, and only a kernel or policy owner turns such a request into a grant. A hook's `allow` is therefore advisory — both bridges consume just `deny` and `ask`, and nothing outside a policy owner may read a hook's consent as authorization. Every bridge that turns `inject-untrusted-context` output into a model message prefixes it with the shared `UNTRUSTED_HOOK_CONTEXT_NOTICE`, so the content reads as untrusted external data rather than an instruction, wherever it lands.
 
 ### Design philosophy
 

@@ -56,6 +56,8 @@ Oversized results keep their original order. Each end receives half the budget r
 
 The notice also reports omitted image counts. A notice-only result is allowed when no preview fits; if the notice itself exceeds the cap, the original content stays visible. The full result file keeps all accepted text and an attachment path at each image position, so the model can use `read` and then `read_image`. Attachment bytes are not copied into this file. Local attachment objects persist independently of spill cleanup.
 
+When result retention is enabled and `dsh-agent-context` is mounted, each visible spill notice is registered as an untrusted required source. A later compaction using that placement preserves the whole tool result, keeping its locator and retrieval instruction available; the compiler record stores source identity, not a second copy of the notice text.
+
 ### Which results are affected
 
 The policy accepts text/image sequences. Results within budget, `read`, `glob`/`grep` (both self-spill with paging guidance), blocked decisions, value replacements, and other block types pass through. Text-only nested results are bounded only in their log copies. Provider or tool limits applied before this policy cannot be recovered here.

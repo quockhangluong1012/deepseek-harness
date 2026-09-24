@@ -56,11 +56,32 @@ The compiler service (`ctx.agentContext`). It attaches to the prompt assembly wa
 register(descriptor: ContextSourceDescriptor, provide: ContextSourceProvider): () => void
 
 /**
- * Compile one assembly for a live agent and record the placement.
+ * Test whether a source was included by this session's latest successful compile.
+ * @param session - live session the compile recorded.
+ * @param sourceId - source id returned by the compiler.
+ * @returns whether the latest placement included the source.
+ */
+isIncluded(session: Agent['session'], sourceId: string): boolean
+
+/**
+ * Per-source-kind token totals of the session's newest recorded placement
+ * (S1), including registered-producer sources alongside assembled sections
+ * and contexts — a registered source reaches the model through its own
+ * producer's injection, not through this compiler, but its price is
+ * accounted for here on the same terms as everything else compiled
+ * alongside it. `placementCount` is how many distinct placements this
+ * session has recorded; each new digest supersedes the one before it.
+ * @param session - live session whose latest compile to read.
+ * @returns token totals by kind, and the placement count.
+ */
+tokenTotals(session: Agent['session']): { readonly byKind: Readonly<Partial<Record<ContextSourceKind, number>>> readonly placementCount: number }
+
+/**
+ * Compile one assembly and record each new placement or delta resurface.
  * @param agent - the agent the assembly is for.
  * @param assembly - the assembled prompt contributions.
- * @param signal - cancellation forwarded to every registered provider.
- * @returns the placement, already appended as `context/compiled`.
+ * @param signal - cancellation forwarded to every provider.
+ * @returns the compiled placement.
  */
 async compile(agent: Agent, assembly: PromptAssembly, signal: AbortSignal = new AbortController().signal): Promise<CompiledContext>
 ```

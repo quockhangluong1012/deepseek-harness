@@ -32,6 +32,8 @@ function created(overrides: Partial<KernelTaskState> = {}): KernelTaskState {
     evidence: 0,
     claims: 0,
     hypotheses: 0,
+    evidenceById: {},
+    claimById: {},
     ...overrides,
   }
 }
@@ -108,8 +110,23 @@ describe('kernel-task fold', () => {
       createdAt: 1,
       metadata: metadata(),
     }))
-    state = foldKernelTask(state, event(9, 'evidence/recorded', { evidenceId: 'e-1', metadata: metadata() }))
-    state = foldKernelTask(state, event(10, 'claim/updated', { claimId: 'c-1', metadata: metadata() }))
+    state = foldKernelTask(state, event(9, 'evidence/recorded', {
+      evidenceId: 'e-1',
+      kind: 'test',
+      contentRef: 'tests/reader.spec.ts',
+      trust: 'trusted',
+      provenance: { source: 'tool', locator: 'call-2' },
+      observedAt: 1,
+      metadata: metadata(),
+    }))
+    state = foldKernelTask(state, event(10, 'claim/updated', {
+      claimId: 'c-1',
+      statement: 'the reader parses malformed input without throwing',
+      evidence: ['e-1'],
+      confidence: 0.8,
+      status: 'supported',
+      metadata: metadata(),
+    }))
     state = foldKernelTask(state, event(11, 'hypothesis/updated', { hypothesisId: 'h-1', metadata: metadata() }))
 
     expect(state).toMatchObject({
@@ -133,6 +150,22 @@ describe('kernel-task fold', () => {
       revision: 1,
       sessionSeq: 0,
     })
+    // Evidence lineage: the claim resolves the evidence it cited by id, not
+    // just a bare count.
+    const projected = projectKernelTask(context(state))
+    expect(projected.claimRecords).toEqual([{
+      claimId: 'c-1',
+      statement: 'the reader parses malformed input without throwing',
+      status: 'supported',
+      confidence: 0.8,
+      evidence: [{
+        evidenceId: 'e-1',
+        kind: 'test',
+        contentRef: 'tests/reader.spec.ts',
+        trust: 'trusted',
+        source: 'tool',
+      }],
+    }])
   })
 
   it('reports a live run inside an open location as running', () => {

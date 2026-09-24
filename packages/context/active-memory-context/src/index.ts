@@ -62,6 +62,7 @@ export interface ActiveMemorySource {
 
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
+    /** @persistenceAttribution */
     'active-memory': ActiveMemorySource
   }
 }

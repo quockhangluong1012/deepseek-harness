@@ -18,6 +18,9 @@
       "path": "../../../vendor/schemastery"
     },
     {
+      "path": "../../runtime/agent-context"
+    },
+    {
       "path": "../../util/output-retention"
     },
     {

@@ -33,6 +33,7 @@ import {
   matchesMatcher,
   mergeHookOutputs,
   runHook,
+  UNTRUSTED_HOOK_CONTEXT_NOTICE,
   type HookOutput,
   type MatcherGroup,
   type MergedHookOutcome,
@@ -197,7 +198,10 @@ export function apply(ctx: Context, config: Config): void {
   /** Build additional model context from hook output, or return undefined when empty. */
   function contextFrom(merged: MergedHookOutcome): UserMessage | undefined {
     if (merged.additionalContext.length === 0) return undefined
-    const content: ContentBlock[] = merged.additionalContext.map(text => ({ type: 'text', text }))
+    const content: ContentBlock[] = [
+      { type: 'text', text: UNTRUSTED_HOOK_CONTEXT_NOTICE },
+      ...merged.additionalContext.map(text => ({ type: 'text' as const, text })),
+    ]
     return createUserMessage({ content, source: CONTEXT_SOURCE })
   }
 

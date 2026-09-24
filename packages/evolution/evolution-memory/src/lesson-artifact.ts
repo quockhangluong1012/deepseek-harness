@@ -211,6 +211,11 @@ export const lessonArtifactInput: z.ZodType<LessonArtifactInput> = z.object({
   ttlDays: z.number().int().min(1).optional(),
   trust: z.enum(['trusted', 'untrusted', 'unknown']).optional(),
   sourceRefs: z.array(z.string().min(1)).optional(),
+  trajectoryRefs: z.array(z.string().min(1)).optional(),
+  lineage: z.object({
+    origin: z.string().min(1),
+    derivedFrom: z.array(z.string().min(1)).optional(),
+  }).optional(),
 })
 
 /**
@@ -265,16 +270,25 @@ export function assertDirectlyAdmissible(candidate: LessonArtifactInput): void {
 
 /**
  * Why one candidate is not admissible as durable learning. A generic transcript
- * summary that names no source is not admissible (spec §9.2); a candidate that
- * names its source is, because the store supplies the expiry policy and the
- * utility that later recall updates.
+ * summary that names no source, no trajectory, or no lineage is not admissible
+ * (spec §9.2); a candidate that names all three is, because the store supplies
+ * the expiry policy and the utility that later recall updates, and a later
+ * audit needs to trace the fact back to the run and the origin that produced it.
  * @param candidate - the artifact a caller is about to store.
  * @returns the reasons, empty when the candidate may be admitted.
  */
 export function admissionIssues(candidate: LessonArtifactInput): string[] {
-  return candidate.sourceRefs === undefined || candidate.sourceRefs.length === 0
-    ? ['it names no source reference']
-    : []
+  const issues: string[] = []
+  if (candidate.sourceRefs === undefined || candidate.sourceRefs.length === 0) {
+    issues.push('it names no source reference')
+  }
+  if (candidate.trajectoryRefs === undefined || candidate.trajectoryRefs.length === 0) {
+    issues.push('it names no trajectory reference')
+  }
+  if (candidate.lineage === undefined) {
+    issues.push('it carries no lineage')
+  }
+  return issues
 }
 
 /**

@@ -25,6 +25,10 @@ it('boots default Web without experimental modules or an active built-in Browser
       expect.objectContaining({ name: '@deepseek-ai/dsh-host-webserver', state: FiberState.ACTIVE }),
       expect.objectContaining({ name: '@deepseek-ai/dsh-client-modules', state: FiberState.ACTIVE }),
     ]))
+
+    expect(roster.entries).toContainEqual(expect.objectContaining({
+      name: '@deepseek-ai/dsh-agent-context', state: FiberState.ACTIVE,
+    }))
     expect(roster.entries.some(entry => entry.name.endsWith('/runtime-roster-observer.js') && entry.state === FiberState.ACTIVE)).toBe(true)
     expect(roster.plugins.length).toBeGreaterThan(roster.entries.length)
     expect(roster.modules.some(url => modulePackage(url) === '@deepseek-ai/dsh')).toBe(true)

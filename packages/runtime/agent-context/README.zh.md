@@ -29,11 +29,12 @@ kind: "package-reference"
 
 ### 何时选择它
 
-当上下文来源或上下文 token 上限必须成为运行时契约时选择它：事后必须重建其提示词的无人值守运行、按输入 token 计费的部署，或必须精确复现一次放置的重放。当组装出的提示词很小且完全可信时请避开它，因为编译器为每次组装追加一条仅日志记录，并在 `apply` 模式下移除贡献。
+当上下文来源或上下文 token 上限必须成为运行时契约时选择它：事后必须重建其提示词的无人值守运行、按输入 token 计费的部署，或必须精确复现一次放置的重放。当组装出的提示词很小且完全可信时请避开它，因为放置变化与 delta 重新出现会追加仅日志记录，而 `apply` 模式会移除遗漏贡献。
 
 ### 最小配置
 
 ```yaml
+- name: '@deepseek-ai/dsh-session-projection'
 - name: '@deepseek-ai/dsh-agent-context'
   config:
     mode: shadow
@@ -49,7 +50,9 @@ kind: "package-reference"
 
 ### 你会得到什么
 
-在每次指名了某个 agent、且编译出的摘要值尚未被本会话记录过的 `system-prompt/assemble` waterfall 之后，服务记录一条 `context/compiled` 事件，记录中包含放置摘要、声明的编译器版本、所拟合的上限、放置的 token 价格、每个被放置来源的条目（id、kind、trust、retention、价格、相关性）、每条遗漏及其原因，以及每个被保留的冲突。提示词文本本身留在 `system/message` 面上，因此该记录是重放必须复现的身份，而不是提示词的第二份副本。
+服务会为每个变化的放置追加一条 `context/compiled` 记录；压缩让已放置的 delta 来源再次出现时，即使摘要相同也会追加记录。记录保存来源身份与价格，不保存提示词文本。仅主机可见的 `contextSourcePlacement` 投影折叠已包含的 id 与最新摘要，在 `compaction/end` 时清除已见 id，并在重启后从日志重建。
+
+上限裁剪本身具有滞后性：一个可压缩来源一旦被上限放置或裁掉，在同一请求序列的后续每次编译中都会保持相同结果，即使其他来源的价格发生变化，从而让一组稳定的来源保持稳定，而不是每一步都重新洗牌。只有 `compaction/end` 边界会清除这个冻结的判定，此后下一次编译才会从头重新计算裁剪结果。
 
 有两个决策被刻意分开。编译器决定一个步骤依据什么编译，并在 `apply` 模式下决定上限切掉了哪些可压缩来源；它从不决定某条贡献说了什么，从不编辑提示词文本，也从不调用模型。
 
@@ -71,6 +74,10 @@ kind: "package-reference"
 
 `ctx.agentContext.register(descriptor, provide)` 是前置步骤的产出者用来替代直接追加提示词 section 的接口：`provide(agent, signal)` 为一次编译返回若干条目，编译器把每条包装成一个 `ContextSource`（`id: '<producer>:<itemId>'`），与组装内容及 Kernel 的任务事实一起排序定价，并计入同一份摘要。调用会返回一个撤销函数；调用它之后，该产出者的条目不再出现在任何后续编译中。
 
+`ctx.agentContext.isIncluded(session, sourceId)` 用于查询该活动会话最近一次成功放置是否包含某来源；首次编译前、压缩清除放置后或来源被省略时返回 false。持久回放记录仍是 `context/compiled` 事件。
+
+`ctx.agentContext.tokenTotals(session)` 按来源类型汇总最新记录放置的 token 价格（`byKind`），并报告 `placementCount`——该会话已有多少次放置取代了前一次（S1）。汇总口径对所有已放置来源一视同仁——组装出的分节与上下文、Kernel 的持久任务事实，以及已注册的（S2）来源皆一样——因此已注册生产者的价格不会因为其内容是经由自身的注入路径而非 `PromptAssembly` 到达模型，就在统计中缺失。首次编译前 `byKind` 读作 `{}`，`placementCount` 为 `0`；压缩边界会清空增量/滞后追踪，但会保留上一次放置的汇总值，直到下一次编译覆盖它。
+
 ```ts
 const stop = ctx.agentContext.register(
   { producer: 'goal', kind: 'task', trust: 'trusted', placement: 'stable-core', maxBytes: 4000 },
@@ -82,15 +89,15 @@ const stop = ctx.agentContext.register(
 
 | Placement | 保留 | 重复方式 |
 |---|---|---|
-| `stable-core` | `required` | 每次编译都无条件出现——产出者自身不变的身份简介 |
-| `delta` | `compressible` | 每个条目 id 每个会话只出现一次；此后每次编译都被压下，直到该会话上出现 `compaction/end` 事件才清空 |
-| `tail-reminder` | `compressible` | 每次编译都出现——随 turn 变化的提醒文本，是上限最先切掉的一类 |
+| `stable-core` | `required` | 每次编译都出现——用于必须经受预算裁剪的材料，包括身份与恢复来源 |
+| `delta` | `compressible` | 每个会话和条目 id 在首次包含后只出现一次；省略条目仍可再次放置，压缩后已包含条目也会重新符合条件 |
+| `tail-reminder` | `compressible` | 每次编译都出现——随 turn 变化、可能为适配上限而被裁掉的内容 |
 
 过了自身 `expiresAt` 的条目会在放置前被丢弃，条目文本会在成为来源前按描述符的 `maxBytes` 截断。这个注册表是纯增量的：目前没有任何随包产出者迁移出 `core/system-prompt` section 改用它，因此在没有任何注册的情况下挂载本插件，行为与之前完全一致。
 
 ### 保留与排序
 
-保留等级随 kind：`policy`、`task`、`plan` 与 `evidence` 是 `required`，因此即使它们单独就超出上限也仍被放置；`memory`、`artifact`、`history` 与 `tool` 是 `compressible`。
+组装贡献的保留等级随 kind：`policy`、`task`、`plan` 与 `evidence` 是 `required`；`memory`、`artifact`、`history` 与 `tool` 是 `compressible`。注册来源的保留等级随 placement：`stable-core` 是 `required`；`delta` 与 `tail-reminder` 是 `compressible`。信任度与保留等级相互独立，因此不可信的必需来源仍是数据，不会变成指令权限。
 
 放置顺序是全序，因此重放能复现它：先是可信度层级（`trusted`、`unknown`、`untrusted`），再是 kind（`policy`、`task`、`plan`、`evidence`、`memory`、`artifact`、`history`、`tool`），再是与任务目标的词面重叠度，最后是来源 id 的码元顺序。上限切掉该顺序的一个前缀：一旦某条可压缩来源放不下，其后每条可压缩来源都以 `reason: 'budget'` 被省略。内容已被某个已放置来源承载的可压缩来源以 `reason: 'duplicate'` 被省略；无论哪种情况，required 来源都不会被丢弃。
 

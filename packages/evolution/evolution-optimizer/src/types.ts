@@ -178,6 +178,32 @@ export interface ExperimentRecord {
    * rows recorded before this field existed, which read as never measured.
    */
   winnerArchiveNovelty?: number | null
+  /**
+   * Combined content digest of the recorded fixture(s) behind the winner's
+   * (or, absent a winner, the baseline's) per-scenario scores; null when the
+   * run never scored anything and on rows recorded before this field
+   * existed. §24.3 repository fixture digest.
+   */
+  fixtureDigest?: string | null
+  /**
+   * Harvested session ids of the scored scenarios' first attempt, in
+   * scenario order; empty when the run never scored anything or harvested no
+   * session. §24.3 trajectory.
+   */
+  trajectory?: readonly string[]
+  /**
+   * Named dsh profile the run's agent composition booted under, absent for a
+   * test-only fake bin with its own config grammar. §24.3 policy profile.
+   */
+  policyProfile?: string | null
+  /**
+   * JSON of the frontmatter contract gate's verdict on the promoted body —
+   * the only verifier this optimizer itself runs before landing a candidate
+   * — absent when nothing was promoted. Not the curator's fuller verifier
+   * ladder and not the scorer's routing/replay behavior gates, neither of
+   * which this run consults. §24.3 verifier output.
+   */
+  verifierOutput?: string | null
 }
 
 /** Query one scope's experiment ledger. */
@@ -229,4 +255,6 @@ export interface ExperimentDraft {
    * history when the pick was made.
    */
   winnerArchiveNovelty: number | null
+  /** Named dsh profile the run's agent composition booted under, or null. */
+  agentProfile: string | null
 }

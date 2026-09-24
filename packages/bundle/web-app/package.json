@@ -51,6 +51,7 @@
   },
   "dependencies": {
     "@deepseek-ai/dsh-active-memory-context": "workspace:*",
+    "@deepseek-ai/dsh-agent-context": "workspace:*",
     "@deepseek-ai/dsh-agent-instructions": "workspace:*",
     "@deepseek-ai/dsh-agent-kernel": "workspace:*",
     "@deepseek-ai/dsh-agent-kernel-builtins": "workspace:*",

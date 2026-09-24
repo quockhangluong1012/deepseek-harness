@@ -1,4 +1,4 @@
-import { afterAll, afterEach, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, describe, expect, it, vi } from 'vitest'
 import { createHash } from 'node:crypto'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -11,6 +11,7 @@ import EvolutionSkillTelemetry from '@deepseek-ai/dsh-evolution-skill-telemetry'
 import type { SkillUsageRecord } from '@deepseek-ai/dsh-evolution-skill-telemetry'
 import { MemoryMediaPool, MemoryStorageBackend } from '../../../storage/storage-domain/tests/helpers/memory-backend.ts'
 import EvolutionCurator, { resolveConfig } from '../src/index.ts'
+import type { CuratorReport } from '../src/types.ts'
 import { applyConsolidation, frameConsolidationInput } from '../src/consolidate.ts'
 import { appendLedger, curatorHome, pathExists, readLedger, readTextBlob, textSha } from '../src/safety.ts'
 import type { LedgerEntry } from '../src/safety.ts'
@@ -137,6 +138,26 @@ async function packageSkill(
 const CONSOLIDATING = { consolidate: true, provider: 'aux', model: 'cheap' }
 
 describe('evolution curator consolidation', () => {
+  it('does not wait for the start-time due pass before the plugin resolves', async () => {
+    const pending = Promise.withResolvers<CuratorReport | undefined>()
+    const spy = vi.spyOn(EvolutionCurator.prototype, 'maybeRun').mockReturnValue(pending.promise)
+    try {
+      let mounted = false
+      const promise = harness({ curatorConfig: { enabled: true } }).then((h) => {
+        mounted = true
+        return h
+      })
+      // If startup still awaited the pass, `mounted` would never flip while
+      // `pending` is unresolved: this is the observable startup contract.
+      await vi.waitFor(() => { expect(mounted).toBe(true) }, { timeout: 1000, interval: 5 })
+      pending.resolve(undefined)
+      const h = await promise
+      await h.fiber.dispose()
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
   it('requires a complete route when consolidation is opted in', () => {
     expect(() => resolveConfig({ consolidate: true })).toThrow('requires both provider and model')
     expect(() => resolveConfig({ provider: 'aux' })).toThrow('provider and model must be set together')
@@ -522,6 +543,7 @@ describe('evolution curator consolidation', () => {
         telemetry,
         candidates: new Map([['leaf', candidate]]),
         dirs: new Map([['leaf', dir]]),
+        maxDiffLines: 0,
       }, [
         { name: 'leaf', action: 'patch', body: 'no fenced head at all\n' },
         { name: 'leaf', action: 'patch', body: '---\nname: other\ndescription: d\n---\nbody\n' },
@@ -544,6 +566,145 @@ describe('evolution curator consolidation', () => {
       expect(rows[0]?.after).toBe(telemetry.read('leaf')?.contentSha)
       expect(rows[0]?.evidence['file']).toBe(join(dir, 'SKILL.md'))
       expect(await readTextBlob(curatorHome(), textSha(original))).toBe(original)
+    } finally {
+      await h.fiber.dispose()
+    }
+  })
+
+  it('refuses a patch that changes more lines than the configured cap, and lands one under it', async () => {
+    const h = await harness({ curatorConfig: CONSOLIDATING })
+    try {
+      h.skills.push(await packageSkill(h.home, 'leaf'))
+      await h.telemetry?.markAgentCreated('leaf')
+      const telemetry = h.telemetry
+      if (telemetry === undefined) throw new Error('expected telemetry')
+      const dir = join(h.home, 'skills', 'leaf')
+      const candidate = {
+        name: 'leaf',
+        description: 'leaf skill',
+        source: 'user-dsh',
+        state: 'active' as const,
+        idleDays: 0,
+        useCount: 0,
+        viewCount: 0,
+        patchCount: 0,
+        lastUsedAt: null,
+        failures: [],
+        trust: 'provisional' as const,
+        revision: 0,
+        contentSha: null,
+        lastTrustFailure: null,
+      }
+      const applied = await applyConsolidation({
+        at: '2026-06-01T00:00:00.000Z',
+        passId: 'pass-diff-cap',
+        home: curatorHome(),
+        telemetry,
+        candidates: new Map([['leaf', candidate]]),
+        dirs: new Map([['leaf', dir]]),
+        maxDiffLines: 3,
+      }, [
+        // Frontmatter and the trailing blank line stay put; one body line
+        // changes — 1 added, 1 removed, under the cap.
+        { name: 'leaf', action: 'patch', body: '---\nname: leaf\ndescription: leaf skill\n---\nbody of leaf v2\n' },
+        // A full body rewrite past valid frontmatter changes more lines than
+        // the cap allows.
+        {
+          name: 'leaf', action: 'patch',
+          body: '---\nname: leaf\ndescription: leaf skill\n---\nrewritten line one\nrewritten line two\nrewritten line three\nrewritten line four\n',
+        },
+      ])
+      expect(applied.patched).toBe(1)
+      expect(applied.skipped).toBe(1)
+      expect(applied.refusals).toEqual([
+        { name: 'leaf', level: 'diff-cap', reason: 'the patch changes 5 line(s) (+4/-1), over the 3-line cap' },
+      ])
+      expect(await readFile(join(dir, 'SKILL.md'), 'utf8')).toContain('body of leaf v2')
+    } finally {
+      await h.fiber.dispose()
+    }
+  })
+
+  it('forwards the simulation seam to the ladder and refuses a patch it fails', async () => {
+    const h = await harness({ curatorConfig: CONSOLIDATING })
+    try {
+      h.skills.push(await packageSkill(h.home, 'leaf'))
+      await h.telemetry?.markAgentCreated('leaf')
+      const telemetry = h.telemetry
+      if (telemetry === undefined) throw new Error('expected telemetry')
+      const dir = join(h.home, 'skills', 'leaf')
+      const candidate = {
+        name: 'leaf', description: 'leaf skill', source: 'user-dsh', state: 'active' as const,
+        idleDays: 0, useCount: 0, viewCount: 0, patchCount: 0, lastUsedAt: null, failures: [],
+        trust: 'provisional' as const, revision: 0, contentSha: null, lastTrustFailure: null,
+      }
+      const seen: string[] = []
+      const applied = await applyConsolidation({
+        at: '2026-06-01T00:00:00.000Z',
+        passId: 'pass-simulation',
+        home: curatorHome(),
+        telemetry,
+        candidates: new Map([['leaf', candidate]]),
+        dirs: new Map([['leaf', dir]]),
+        maxDiffLines: 0,
+        requireVerifierPass: false,
+        simulation: async () => {
+          seen.push('consulted')
+          return { status: 'failed', reason: 'the simulated task run failed on this body' }
+        },
+      }, [
+        { name: 'leaf', action: 'patch', body: '---\nname: leaf\ndescription: leaf skill\n---\nbody of leaf v2\n' },
+      ])
+      expect(seen).toEqual(['consulted'])
+      expect(applied.patched).toBe(0)
+      expect(applied.skipped).toBe(1)
+      expect(applied.refusals).toEqual([
+        { name: 'leaf', level: 2, reason: 'simulation: the simulated task run failed on this body' },
+      ])
+    } finally {
+      await h.fiber.dispose()
+    }
+  })
+
+  it('requireVerifierPass refuses an abstained ladder even though nothing failed', async () => {
+    const h = await harness({ curatorConfig: CONSOLIDATING })
+    try {
+      h.skills.push(await packageSkill(h.home, 'leaf'))
+      await h.telemetry?.markAgentCreated('leaf')
+      const telemetry = h.telemetry
+      if (telemetry === undefined) throw new Error('expected telemetry')
+      const dir = join(h.home, 'skills', 'leaf')
+      const candidate = {
+        name: 'leaf', description: 'leaf skill', source: 'user-dsh', state: 'active' as const,
+        idleDays: 0, useCount: 0, viewCount: 0, patchCount: 0, lastUsedAt: null, failures: [],
+        trust: 'provisional' as const, revision: 0, contentSha: null, lastTrustFailure: null,
+      }
+      const body = '---\nname: leaf\ndescription: leaf skill\n---\nbody of leaf v2\n'
+      // No seams mounted: levels 0 and 1 pass, levels 2-4 abstain — an
+      // ordinary pass commits on the deterministic evidence alone.
+      const permissive = await applyConsolidation({
+        at: '2026-06-01T00:00:00.000Z', passId: 'pass-permissive', home: curatorHome(), telemetry,
+        candidates: new Map([['leaf', candidate]]), dirs: new Map([['leaf', dir]]),
+        maxDiffLines: 0, requireVerifierPass: false,
+      }, [{ name: 'leaf', action: 'patch', body }])
+      expect(permissive.patched).toBe(1)
+      expect(permissive.refusals).toEqual([])
+      // The same body, the same absent seams, but the pass now demands a
+      // full ladder decision: the abstention refuses instead of committing.
+      const strict = await applyConsolidation({
+        at: '2026-06-01T00:00:00.000Z', passId: 'pass-strict', home: curatorHome(), telemetry,
+        candidates: new Map([['leaf', candidate]]), dirs: new Map([['leaf', dir]]),
+        maxDiffLines: 0, requireVerifierPass: true,
+      }, [{ name: 'leaf', action: 'patch', body: '---\nname: leaf\ndescription: leaf skill\n---\nbody of leaf v3\n' }])
+      expect(strict.patched).toBe(0)
+      expect(strict.skipped).toBe(1)
+      expect(strict.refusals).toEqual([{
+        name: 'leaf',
+        level: 'ladder-incomplete',
+        reason: 'nothing failed; 3 of 5 rungs abstained: simulation (no domain simulator is mounted); evaluator (no evaluator model is mounted); human (no human review is recorded)',
+      }])
+      // The strict run's refusal left the body from the permissive run in place.
+      expect(await readFile(join(dir, 'SKILL.md'), 'utf8')).toContain('body of leaf v2')
     } finally {
       await h.fiber.dispose()
     }
@@ -634,6 +795,7 @@ describe('evolution curator consolidation', () => {
           ['leaf', { name: 'leaf', description: '', source: 'user-dsh', state: 'active' as const, idleDays: 0, useCount: 0, viewCount: 0, patchCount: 0, lastUsedAt: null }],
         ]),
         dirs: new Map([['leaf', join(h.home, 'skills', 'leaf')]]),
+        maxDiffLines: 0,
       }
       const applied = await applyConsolidation(deps as never, [
         { name: 'ghost', action: 'archive' },
@@ -721,21 +883,38 @@ describe('evolution curator consolidation', () => {
     }
   })
 
-  it('aborts an in-flight consolidation at teardown', async () => {
+  it('drains an in-flight consolidation before teardown completes', async () => {
     const started: PromiseWithResolvers<void> = Promise.withResolvers()
+    const aborted: PromiseWithResolvers<void> = Promise.withResolvers()
+    const release: PromiseWithResolvers<void> = Promise.withResolvers()
     const h = await harness({
       curatorConfig: CONSOLIDATING,
       respond: (request) => {
         started.resolve()
         const pending = Promise.withResolvers<StreamChunk[]>()
-        request.signal?.addEventListener('abort', () =>{  pending.reject(new Error('aborted at teardown')) }, { once: true })
+        request.signal?.addEventListener('abort', () => {
+          aborted.resolve()
+          void release.promise.then(() => { pending.reject(new Error('aborted at teardown')) })
+        }, { once: true })
         return pending.promise
       },
     })
     await h.telemetry?.markAgentCreated('leaf')
     const settled = h.curator.consolidate().then(() => 'resolved', (error: unknown) => String(error))
     await started.promise
-    await h.fiber.dispose()
-    expect(await settled).toBe('Error: aborted at teardown')
+    let disposed = false
+    const disposal = h.fiber.dispose().then(() => { disposed = true })
+    try {
+      await aborted.promise
+      await new Promise(resolve => setImmediate(resolve))
+      expect(disposed).toBe(false)
+      release.resolve()
+      await disposal
+      expect(disposed).toBe(true)
+      expect(await settled).toBe('Error: aborted at teardown')
+    } finally {
+      release.resolve()
+      await Promise.allSettled([disposal, settled])
+    }
   })
 })

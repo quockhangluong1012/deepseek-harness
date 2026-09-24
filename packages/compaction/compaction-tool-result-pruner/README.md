@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-compaction-tool-result-pruner` keeps oversized tool output from filling the context window. Once a compaction trigger qualifies, it replaces over-budget text with a bounded head, a short "middle pruned" marker, and a bounded tail; below-pressure conversations remain unchanged. The complete original result remains in the session log for exact replay and inspection. Trimming makes no model call and may relieve enough token pressure to skip summarization. Character budgets only approximate token use; the token meter determines whether pressure was relieved.
+`dsh-compaction-tool-result-pruner` bounds oversized tool results before summarization. It replaces eligible text with configured head/middle/tail excerpts, preserves non-text blocks, and logs an exact replay citation. With `dsh-agent-context`, included recent results and spill-recovery results remain intact; other over-threshold results are pruned. It makes no model call; reduced token pressure can avoid summarization. Character budgets approximate token use; token meter decides whether pressure is relieved.
 
 ## Table of Contents
 
@@ -41,7 +41,7 @@ With these rows, oversized tool results are trimmed automatically as part of con
 
 ### What gets trimmed
 
-Every tool result whose text exceeds the threshold is replaced by a trimmed version: the configured head, a short "middle pruned" marker, and the configured tail. Rich content such as images and structured blocks keeps its order and all logged image-offload selections. The replacement keeps the tool call, step, errors, and metadata — only the text content changes. If a replacement cannot be recorded, the run fails and the trims already applied stay in place.
+Only over-threshold tool results absent from the latest live `dsh-agent-context` placement are trimmed. An included recent-result source and each required spill-notice source keep their full result; without a successful live compile, every over-threshold surface result is eligible. Rich content such as images and structured blocks keeps its order and all logged image-offload selections. The replacement keeps the tool call, step, errors, and metadata — only text content changes. If a replacement cannot be recorded, the run fails and earlier trims stay in place.
 
 ### Setting the size limits
 

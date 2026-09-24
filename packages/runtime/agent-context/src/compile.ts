@@ -12,6 +12,7 @@
 
 import type { PromptAssembly } from '@deepseek-ai/dsh-system-prompt'
 import { fitBudget, priceSources } from './budget.ts'
+import type { BudgetHysteresis } from './budget.ts'
 import { contentDigest, digestPlacement } from './digest.ts'
 import { compareCompiled, compareText, scoreSources } from './rank.ts'
 import { sourcesFromAssembly } from './sources.ts'
@@ -38,6 +39,8 @@ export interface ContextCompileInput {
   readonly objective?: string
   /** Token ceiling for the placement, or null for no ceiling. */
   readonly maxTokens?: number | null
+  /** The prior compile's budget decision in this request series (S1 point 5), or absent at a series boundary. */
+  readonly hysteresis?: BudgetHysteresis
 }
 
 /** Compiles one model step's context from its contributors. */
@@ -75,7 +78,7 @@ function place(input: ContextCompileInput): CompiledContext {
   const priced = priceSources(scoreSources(sources, input.objective ?? '')).sort(compareCompiled)
   const deduplicated = deduplicate(priced)
   const maxTokens = input.maxTokens ?? null
-  const placement = fitBudget(deduplicated.kept, maxTokens)
+  const placement = fitBudget(deduplicated.kept, maxTokens, input.hysteresis)
   const conflicts = conflictsOf(placement.included)
   const omitted = [...deduplicated.omitted, ...placement.omitted]
   return {

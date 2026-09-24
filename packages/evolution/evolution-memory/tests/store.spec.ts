@@ -80,6 +80,8 @@ function candidate(statement: string, overrides: Partial<LessonArtifactInput> = 
     confidence: 0.9,
     scope: 'project',
     sourceRefs: ['session:s1'],
+    trajectoryRefs: ['run:s1'],
+    lineage: { origin: 's1' },
     ...overrides,
   }
 }
@@ -127,6 +129,8 @@ describe('evolution-memory scope ids', () => {
       defaultTtlDays: 30,
       episodicRetentionDays: 7,
       maxEpisodicEntries: 100,
+      demoteUtilityFloor: 0.35,
+      demoteMinSurfaced: 3,
     })
   })
 })
@@ -232,7 +236,8 @@ describe('evolution-memory store', () => {
     const { fiber, store } = await harness()
     const id = scope()
     await store.addArtifact(id, {
-      statement: 'x'.repeat(64), source: 's1', conditions: '', evidence: 'fact', confidence: 0.9, scope: 'project', sourceRefs: ['session:s1'],
+      statement: 'x'.repeat(64), source: 's1', conditions: '', evidence: 'fact', confidence: 0.9, scope: 'project',
+      sourceRefs: ['session:s1'], trajectoryRefs: ['run:s1'], lineage: { origin: 's1' },
     })
     expect(store.usage(id).usedBytes).toBeGreaterThanOrEqual(64)
     await fiber.dispose()
@@ -321,6 +326,34 @@ describe('evolution-memory store', () => {
     await expect(store.addArtifact(id, sourceless))
       .rejects.toThrow('it names no source reference')
     await expect(store.applyExtractionDecisions(id, [{ kind: 'new', candidate: sourceless }]))
+      .rejects.toThrow('not admissible as durable learning')
+    expect(store.read(id)?.agentLessons).toEqual([])
+    await fiber.dispose()
+  })
+
+  it('refuses a direct write of a fact that names no trajectory reference', async () => {
+    const { fiber, store } = await harness()
+    const id = scope()
+    await store.setInstructions(id, 'rules')
+    const { trajectoryRefs: _omitted, ...untraced } = candidate('the tests pass on my machine')
+
+    await expect(store.addArtifact(id, untraced))
+      .rejects.toThrow('it names no trajectory reference')
+    await expect(store.applyExtractionDecisions(id, [{ kind: 'new', candidate: untraced }]))
+      .rejects.toThrow('not admissible as durable learning')
+    expect(store.read(id)?.agentLessons).toEqual([])
+    await fiber.dispose()
+  })
+
+  it('refuses a direct write of a fact that carries no lineage', async () => {
+    const { fiber, store } = await harness()
+    const id = scope()
+    await store.setInstructions(id, 'rules')
+    const { lineage: _omitted, ...unlineaged } = candidate('the tests pass on my machine')
+
+    await expect(store.addArtifact(id, unlineaged))
+      .rejects.toThrow('it carries no lineage')
+    await expect(store.applyExtractionDecisions(id, [{ kind: 'new', candidate: unlineaged }]))
       .rejects.toThrow('not admissible as durable learning')
     expect(store.read(id)?.agentLessons).toEqual([])
     await fiber.dispose()

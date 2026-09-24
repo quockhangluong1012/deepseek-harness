@@ -7,18 +7,18 @@ kind: "package-bundle"
 
 [English](README.md) | 中文
 
-## Summary
+## 概述
 
 把本层加入需要记录每个会话决定、并在部署就绪后据其行动的组合包。它插入 shadow 模式的 agent kernel、让 kernel 能评估每个随包工具的内置声明，以及一个记录不可信内容意图的 prompt 注入守卫。没有任何随包组合包包含它：由部署自行选择启用，先让权限文档对照真实流量度量，再把 `mode` 切到 enforce。它写入的一切都只入日志。
 
-## Table of Contents
+## 目录
 
 - [使用本包](#use-this-package)
 - [理解实现](#understand-the-implementation)
 - [进一步探索](#further-exploration)
 - [模型体验](#model-experience)
 - [已知限制与待办](#known-limitations-and-deferred-work)
-- [Dev Note](#dev-note)
+- [开发备注](#dev-note)
 
 -----
 
@@ -91,7 +91,7 @@ dsh plugin --profile <name> remove @deepseek-ai/dsh-agent-governance
 - **守卫是模式匹配器**——其规则只识别已知形态，且 `enforce` 只替换凭据片段，并不证明结果安全。
 
 <a id="dev-note"></a>
-### Dev Note
+### 开发备注
 
 <details>
 <summary>维护者的工作上下文——点击展开</summary>

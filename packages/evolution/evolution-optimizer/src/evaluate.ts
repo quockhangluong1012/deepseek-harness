@@ -60,9 +60,10 @@ export interface ScoreVariantDeps {
  * remove the overlay when scoring settles.
  * @param deps - scorer, skill, scenarios, agent, and runner.
  * @param body - complete SKILL.md body to score.
+ * @param attempts - fresh-process attempt-count override; see {@link ScoreRequest.attempts}.
  * @returns the scorer's evaluation, possibly a skip the caller propagates.
  */
-export async function scoreVariant(deps: ScoreVariantDeps, body: string): Promise<SkillEvaluation> {
+export async function scoreVariant(deps: ScoreVariantDeps, body: string, attempts?: number): Promise<SkillEvaluation> {
   const home = await stageVariantHome(deps.skill, body)
   try {
     return await deps.scorer.evaluateSkill({
@@ -70,6 +71,7 @@ export async function scoreVariant(deps: ScoreVariantDeps, body: string): Promis
       scenarios: deps.scenarios,
       agent: deps.agent,
       run: overlayRunner(deps.run, home),
+      ...attempts === undefined ? {} : { attempts },
     })
   } finally {
     await rm(home, { recursive: true, force: true })

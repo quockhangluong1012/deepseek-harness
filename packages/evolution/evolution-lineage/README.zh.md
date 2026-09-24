@@ -43,7 +43,7 @@ const verdict = ctx.evolutionLineage.compare('exp-0', 'exp-1')
 if (verdict?.comparable) console.log('apples-to-apples')
 ```
 
-`record(input)` 为信封打上记录时刻，并按实验标识存储。`experiments(skill?)` 按最新优先列出信封；`envelope(id)` 读取一个脱离存储的信封，未知时返回 undefined；`compare(idA, idB)` 报告两个信封是否在配置的比较键上一致并点名变化的键，任一 ID 未知时返回 undefined；`replay(id)` 返回脱离存储的信封，其种子可复现该运行。
+`record(input)` 为信封打上记录时刻，并按实验标识存储。`experiments(skill?)` 按最新优先列出信封；`envelope(id)` 读取一个脱离存储的信封，未知时返回 undefined；`compare(idA, idB)` 报告两个信封是否在配置的比较键上一致并点名变化的键，任一 ID 未知时返回 undefined；`replay(id)` 返回脱离存储的信封，其种子可复现该运行。`amendOutcome(id, outcome, rejectedReason?)` 原地更新一个既有信封的结果与拒绝原因，不动其余字段，未知 ID 时抛错——`command-evolution` 的 `/canary reject`/`/canary rollback` 调用它，使候选已记录的 `'improved'` 结论不会活得比操作者随后「它没能站住」的决定更久。
 
 ### 配置
 

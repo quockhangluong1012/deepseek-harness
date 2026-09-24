@@ -216,9 +216,8 @@ export const LOOP_TASK_NAMES: Record<AutomationLoop, string> = {
 }
 
 /**
- * Register one heartbeat task per configured loop. Registration is the whole
- * trigger: the heartbeat owns the cadence and the idle gate, and disposing the
- * plugin removes every task with it.
+ * Register one heartbeat task per configured loop. Registration is the trigger.
+ * The plugin removes each task on teardown and awaits any active run.
  * @param ctx - plugin context; registrations dispose with it.
  * @param config - which loops to drive and how often.
  */

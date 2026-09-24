@@ -7,18 +7,18 @@ kind: "package-bundle"
 
 [English](README.md) | 中文
 
-## Summary
+## 概述
 
 通过 `dsh` 读取已记录的 kernel 状态，无需启动 agent。`dsh task show`、`verify`、`checkpoint`、`metrics`、`recover-scan` 与 `dsh policy explain` 分别报告某会话的契约、验证、检查点、计数器、恢复状态或策略决策。`dsh evolution replay` 读取一份已记录的实验。所有命令均只读。
 
-## Table of Contents
+## 目录
 
 - [使用本包](#use-this-package)
 - [理解实现](#understand-the-implementation)
 - [进一步探索](#further-exploration)
 - [模型体验](#model-experience)
 - [已知限制与延后工作](#known-limitations-and-deferred-work)
-- [开发者说明](#dev-note)
+- [开发备注](#dev-note)
 
 -----
 
@@ -105,7 +105,7 @@ dsh evolution replay <run-id> [--json]
 - **`evolution replay` 轮询而非注入其存储。** lineage 存储作为普通同级行挂载，而非硬性插件依赖，因此省略它的部署里 `task`/`policy` 命令仍能正常工作；该命令最多轮询 300ms 后才报告未挂载，以覆盖存储自身的异步启动，同时不让整条命令行都卡在它上面。
 
 <a id="dev-note"></a>
-### 开发者说明
+### 开发备注
 
 <details>
 <summary>维护者工作上下文——点击展开</summary>

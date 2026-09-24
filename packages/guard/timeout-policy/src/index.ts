@@ -78,7 +78,12 @@ export function apply(ctx: Context, config: Config = {}): void {
     throw new Error(`timeout-policy: defaultTimeoutMs must be a positive finite number, got ${String(defaultTimeoutMs)}.`)
   }
   ctx.on('tools/execute', async (exec, next): Promise<ToolExecutionResult> => {
-    const timeoutMs = ctx.tools.get(exec.name, exec.agent)?.timeoutMs ?? defaultTimeoutMs
+    const definition = ctx.tools.get(exec.name, exec.agent)
+    // A tool that declares no natural time bound (it blocks on a human
+    // response) is exempt from the deployment fallback too: applying a fixed
+    // default here would cancel a legitimate long wait for an answer.
+    if (definition?.unboundedTimeout === true) return next()
+    const timeoutMs = definition?.timeoutMs ?? defaultTimeoutMs
 
     using d = deadline(exec.signal, timeoutMs, TOOL_TIMEOUT)
     // Swap the derived deadline onto exec for dispatch, then restore the

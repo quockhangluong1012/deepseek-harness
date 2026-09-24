@@ -109,7 +109,8 @@ The public surface is `ctx.agentKernel`:
 | Member | What it answers |
 |---|---|
 | `state.view(session)` | The current task contract, budget observation, open actions, unresolved failures, latest plan, latest checkpoint, and the delegation receipt when the agent is a child |
-| `attach(agent)` | A handle whose `snapshot()` reads the live view and whose `dispose()` releases the kernel's reference |
+| `viewOf(sessionId)` | The live agent's current kernel view, or undefined when no live agent or task is registered for that identity |
+| `attach(agent)` | A handle whose `snapshot()` reads the live view and whose `dispose()` releases the kernel's reference; plugin unload awaits every open attachment |
 | `capabilities.register(declaration)` | Declares one tool's capabilities, and optionally the trust of the content it acts on, and returns the disposer |
 | `profiles.register(profile)` | Registers one agent role — its capability grant, policy profile, and ceilings — and returns the disposer |
 | `registerPolicyProfileProvider(provider)` | Selects the session's policy layer, intersected with the deployment document, and returns the disposer |
@@ -139,6 +140,10 @@ This section explains how the kernel learns what happened and where it intervene
 A task that reaches its configured step ceiling is not admitted another step: the kernel records a `step-ceiling` failure, classifies it as `checkpoint-pause`, and moves the task to `paused` once — a later step re-admits nothing and records no second failure. A turn the loop closed because the model reached its output limit (`turn/end` with a `max-tokens` reason) is likewise recorded as an `output-truncated` failure, detected on the step that follows the truncated turn because the end reason is appended after this kernel's turn-stopping listener ran. A tool the session calls a third time with the same arguments and the same result is a `no-progress` failure: the receipt records a digest of what each call returned, and once a run of two identical calls is complete the kernel records the failure — and, in `enforce` mode, refuses the third call with a reason telling the model to consolidate instead. The remaining S4 kinds (`tool-args-malformed`, `stalled`) are classified by the same table; their detectors belong to the packages that observe those seams.
 
 A turn that ends with a failed verification records the failure, moves the task to `recovering`, and steers one repair message naming the gate's reasons, up to `Config.maxRepairAttempts` (default 3). Past the cap the task moves to `awaiting-user` with the same reasons, because a repair loop that cannot converge is a human decision. A later passing verification resolves the earlier `verification-failed` failure, so the passing result is what completion reads.
+
+### Automatic checkpoints (§17.1)
+
+`checkpoint(agent, reason)` is also called automatically, so a resume never replays past a point the kernel already indexed: every turn boundary (`'turn-boundary'`, before the observed transition), the step-ceiling pause above (`'before-pause'`, before the `paused` transition), a `compaction/start` event (`'before-compaction'`, deferred one microtask past the session's own append-reentrancy boundary), a verification failure (`'verification-failure'`, before the repair steer), and an authorized call declaring `subagent.spawn` or `workflow.start` (`'before-suspension'`, before the call runs — a spawned child or workflow can run long enough to suspend the parent step). Every automatic checkpoint runs whether or not `mode` enforces, matching how `action/decided` is always recorded.
 
 ### Design philosophy
 

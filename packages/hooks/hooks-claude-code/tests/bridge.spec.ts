@@ -127,7 +127,10 @@ describe('hooks-claude-code bridge — UserPromptSubmit', () => {
     await waitForIdle(ctx, agent)
 
     // The injected context reached the model and is recorded with the plugin source.
-    expect(JSON.stringify(adapter.requests[0]!.messages)).toContain('remember: be brief')
+    const sent = JSON.stringify(adapter.requests[0]!.messages)
+    expect(sent).toContain('remember: be brief')
+    // Hook-injected content is untrusted data, visibly marked as such.
+    expect(sent).toContain('untrusted')
     const ctxMsg = events(agent).find(e => e.type === 'user/message' && e.data.source.kind !== 'user')
     expect(ctxMsg?.type === 'user/message' && ctxMsg.data.source).toEqual({ kind: 'hooks-claude-code' })
   })

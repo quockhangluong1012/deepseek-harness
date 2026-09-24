@@ -53,6 +53,13 @@ const FULL: KernelTaskData = {
   evidence: 2,
   claims: 1,
   hypotheses: 3,
+  claimRecords: [{
+    claimId: 'c-1',
+    statement: 'the reader parses malformed input without throwing',
+    status: 'supported',
+    confidence: 0.8,
+    evidence: [{ evidenceId: 'e-1', kind: 'test', contentRef: 'tests/reader.spec.ts', trust: 'trusted', source: 'tool' }],
+  }],
 }
 
 describe('KernelTaskPanel', () => {
@@ -75,6 +82,10 @@ describe('KernelTaskPanel', () => {
     expect(line(container, 'data-task-verification')).toBe('Verification: fail · Verifier kernel-1 · Criterion crit-1: fail')
     expect(line(container, 'data-task-checkpoint')).toBe('Checkpoint checkpoint-1 · Reason: turn-boundary · Covers session seq 9')
     expect(line(container, 'data-task-research')).toBe('Research record: Evidence 2, claims 1, hypotheses 3')
+    expect(line(container, 'data-task-lineage')).toContain('the reader parses malformed input without throwing')
+    expect(line(container, 'data-task-lineage')).toContain('supported')
+    expect(line(container, 'data-task-lineage')).toContain('tests/reader.spec.ts')
+    expect(line(container, 'data-task-lineage')).toContain('trusted')
     expect(line(container, 'data-task-profile')).toBe('Agent profile: worker')
     expect(line(container, 'data-task-policy')).toBe('Policy profile: default')
     expect(container.querySelector('[data-task-failures]')?.getAttribute('data-task-failure-kinds'))
@@ -90,6 +101,7 @@ describe('KernelTaskPanel', () => {
     delete bare.checkpoint
     Object.assign(bare, {
       budget: {}, planSteps: [], openActions: 0, unresolvedFailures: [], evidence: 0, claims: 0, hypotheses: 0,
+      claimRecords: [],
     })
 
     const container = renderPanel(bare as unknown as KernelTaskData)
@@ -98,6 +110,7 @@ describe('KernelTaskPanel', () => {
     expect(line(container, 'data-task-budget')).toBe('Budget: Unbounded')
     expect(line(container, 'data-task-verification')).toBe('Verification never ran')
     expect(line(container, 'data-task-checkpoint')).toBeUndefined()
+    expect(line(container, 'data-task-lineage')).toBeUndefined()
     expect(line(container, 'data-task-summary')).toBe('Revision 3')
   })
 

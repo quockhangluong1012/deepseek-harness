@@ -7,18 +7,18 @@ kind: "package-reference"
 
 [English](README.md) | 中文
 
-## Summary
+## 概述
 
 当 agent 读到的内容——工具输出、仓库文件、web 或 MCP 结果——绝不能指挥它、也绝不能把凭据带进模型上下文时，挂载本包。它把每个被检查的结果包进一个信封，记录内容来自何处、是否可被当作指令、命中了哪条已知规则，以及所读原件的摘要。默认的 `shadow` 模式只记录发现；`enforce` 还会替换模型可见副本中的凭据片段，并在内容试图改变读者时加一条前置提示。它从不授予、拒绝或批准任何东西。
 
-## Table of Contents
+## 目录
 
 - [使用本包](#use-this-package)
 - [理解实现](#understand-the-implementation)
 - [进一步探索](#further-exploration)
 - [模型体验](#model-experience)
 - [已知限制与待办](#known-limitations-and-deferred-work)
-- [Dev Note](#dev-note)
+- [开发备注](#dev-note)
 
 -----
 
@@ -147,7 +147,7 @@ kind: "package-reference"
 - **上下文准入不是本包的决策**——守卫只报告与脱敏；哪些来源进入某次请求由上下文编译器排序，权威属于 Kernel。
 
 <a id="dev-note"></a>
-### Dev Note
+### 开发备注
 
 <details>
 <summary>维护者的工作上下文——点击展开</summary>

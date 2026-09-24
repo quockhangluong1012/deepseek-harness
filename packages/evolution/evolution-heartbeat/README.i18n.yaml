@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/evolution/evolution-heartbeat/README.md
-README.md: fb5e6e12d6f4f806fd7fc0efda43b0ff2b5cd747
-README.zh.md: 61c4d2fffac3ead08b9456763bccc876b705a828
+README.md: 4632e07b75b4ebc5962c6c0387154694103c4234
+README.zh.md: 0732d8650c7f1695a2a677e563ec708d5a42fe6b

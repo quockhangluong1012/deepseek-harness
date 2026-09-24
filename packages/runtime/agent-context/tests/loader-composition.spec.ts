@@ -121,11 +121,14 @@ describe('agent-context real Loader composition through cordis.yml', () => {
     expect(record).toMatchObject({ maxTokens: 20, omitted: [{ id: 'tool:big', reason: 'budget' }] })
   }, 30_000)
 
-  it('fails loading when the mode is not a placement mode', async () => {
-    // Stringified rather than matched against the rejection: the Loader wraps
-    // the schema error in a Cordis error that vitest cannot pretty-print.
-    const failure = await boot(['    mode: enforce']).then(() => '', (error: unknown) => String(error))
-    expect(failure).toContain('@deepseek-ai/dsh-agent-context')
+  it('rejects an invalid mode in the plugin fiber', async () => {
+    const ctx = await boot(['    mode: enforce'])
+    // Loader.await() settles entries; await the entry fiber to observe its schema error.
+    const fiber = [...ctx.loader.entries()]
+      .find(entry => entry.options.name === '@deepseek-ai/dsh-agent-context')?.fiber
+    if (fiber === undefined) throw new Error('agent-context entry did not create a fiber')
+    const failure = await fiber.await().then(() => '', (error: unknown) => String(error))
+    expect(failure).toMatch(/invalid config/i)
     expect(failure).toMatch(/mode/i)
   }, 30_000)
 })

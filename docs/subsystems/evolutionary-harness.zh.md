@@ -409,8 +409,9 @@ lastRunAt(): string | null
  * tarball plus pass and transition ledger entries when backups are on.
  * @param options - clock override and dry-run preview flag.
  * @returns the pass report with every movement.
+ * @throws when teardown has begun.
  */
-async run(options: CuratorRunOptions = {}): Promise<CuratorReport>
+run(options: CuratorRunOptions = {}): Promise<CuratorReport>
 
 /**
  * Run a pass only when enabled, the interval elapsed since the last pass,
@@ -420,8 +421,9 @@ async run(options: CuratorRunOptions = {}): Promise<CuratorReport>
  * observed the host counts as idle.
  * @param options - clock and idleness overrides plus the dry-run flag.
  * @returns the pass report, or undefined when this call defers.
+ * @throws when teardown has begun.
  */
-async maybeRun(options: CuratorMaybeRunOptions = {}): Promise<CuratorReport | undefined>
+maybeRun(options: CuratorMaybeRunOptions = {}): Promise<CuratorReport | undefined>
 
 /**
  * Survey agent-created skills for a future consolidation verdict: names,
@@ -443,8 +445,9 @@ async surveyCandidates(options: CuratorRunOptions = {}): Promise<ConsolidationSu
  * machinery as an automatic pass.
  * @param options - clock override.
  * @returns the consolidation report, or undefined when no run happened.
+ * @throws when teardown has begun.
  */
-async consolidate(options: CuratorRunOptions = {}): Promise<ConsolidationReport | undefined>
+consolidate(options: CuratorRunOptions = {}): Promise<ConsolidationReport | undefined>
 
 /**
  * List the skills the ledger currently stages, worst failure rate first
@@ -958,13 +961,14 @@ Host-wide idle-triggered task registry. Opens the `evolution_heartbeat` domain a
 
 ```ts cordis-catalog
 /**
- * Register one task. The task runs only while its registration is live, so a
- * consumer disposes it by calling the returned disposer. A task registered
- * after start-up is seeded by the next due-check and defers one interval.
+ * Register one task. The task runs only while its registration is live. A
+ * consumer disposes it by calling the returned disposer.
  * @param task - identity, cadence, and the work to run.
- * @returns the disposer removing the task; idempotent.
+ * @returns an idempotent asynchronous disposer that removes the task,
+ *   aborts an active attempt, and waits for it to settle.
+ * @throws when teardown has begun or the task descriptor is unusable.
  */
-register(task: HeartbeatTask): () => void
+register(task: HeartbeatTask): () => Promise<void>
 
 /**
  * Inspect the registered tasks' schedule and last outcome.
@@ -986,9 +990,9 @@ lastRunAt(name: string): string | null
  * not elapsed, or whose idle gate is unsatisfied, is deferred. Tasks run
  * sequentially, and a failing task is recorded without stopping the pass.
  * @param options - clock, idleness, and force overrides.
- * @returns one entry per registered task.
+ * @returns entries for tasks reached before teardown stops the pass.
  */
-async runDue(options: HeartbeatRunOptions = {}): Promise<HeartbeatReport>
+runDue(options: HeartbeatRunOptions = {}): Promise<HeartbeatReport>
 
 /**
  * Run one registered task now, ignoring its interval and the idle gate.
@@ -996,7 +1000,7 @@ async runDue(options: HeartbeatRunOptions = {}): Promise<HeartbeatReport>
  * @param options - clock override.
  * @returns the task's report, or undefined when no such task is registered.
  */
-async runTask(name: string, options: HeartbeatRunOptions = {}): Promise<HeartbeatTaskReport | undefined>
+runTask(name: string, options: HeartbeatRunOptions = {}): Promise<HeartbeatTaskReport | undefined>
 ```
 
 Source: [`packages/evolution/evolution-heartbeat/src/index.ts`](../../packages/evolution/evolution-heartbeat/src/index.ts)
@@ -1233,10 +1237,11 @@ async replaceArtifacts( id: EvolutionScopeId, candidates: readonly LessonArtifac
 
 /**
  * Apply decay to one scope's artifacts: drop every artifact `prunable`
- * condemns by ttl or refutation floor and leave the rest untouched. A sweep
- * that finds nothing to drop reaches no write at all, so it moves neither
- * `updatedAt` nor the lessons family stamp; a sweep that drops something
- * stamps the lessons family like any other lessons write.
+ * condemns by ttl or refutation floor, or `demotable` condemns by S8
+ * utility, and leave the rest untouched. A sweep that finds nothing to
+ * drop reaches no write at all, so it moves neither `updatedAt` nor the
+ * lessons family stamp; a sweep that drops something stamps the lessons
+ * family like any other lessons write.
  *
  * `refined` is always 0. The extraction protocol folds decisions into the
  * artifacts it reads rather than refining them, so nothing yet splits the
@@ -1281,12 +1286,12 @@ recalls(): readonly RecordedRecall[]
 /**
  * Record the graded outcome of one recall: the §23 loop's `helped outcome`
  * link. The grader is whichever pass reads the outcome record — the
- * curator's idle pass is the shipped one, which grades the session the
- * recall's decision batch was extracted from off the feedback store. The
- * newest recall of that memory still awaiting an outcome is the one graded,
- * so a memory recalled again after an outcome is graded again on its newer
- * recall. A memory with no awaiting recall is refused loudly rather than
- * graded twice.
+ * reviewer's `verification/result` listener is the shipped one, which
+ * grades the session a compiled kernel verification just settled off the
+ * bound decision batch's `decidedInSessionId`. The newest recall of that
+ * memory still awaiting an outcome is the one graded, so a memory recalled
+ * again after an outcome is graded again on its newer recall. A memory
+ * with no awaiting recall is refused loudly rather than graded twice.
  * @param id - scope identity.
  * @param recalledId - recalled memory's identity, as its label carried it.
  * @param outcome - `ok` when the graded session's evidence was clean, else `failed`.

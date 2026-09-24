@@ -18,7 +18,7 @@ import type { KvTable } from '@deepseek-ai/dsh-storage-domain'
 import z from 'zod'
 import { changedDependencies, DEPENDENCY_KEYS } from './lineage.ts'
 import { lineageDomainSpec } from './spec.ts'
-import type { DependencyKey, ExperimentComparison, ExperimentEnvelope, ExperimentInput } from './types.ts'
+import type { DependencyKey, ExperimentComparison, ExperimentEnvelope, ExperimentInput, ExperimentOutcome } from './types.ts'
 
 export type * from './types.ts'
 export { changedDependencies, comparable, attributeImprovement, DEPENDENCY_KEYS } from './lineage.ts'
@@ -111,6 +111,33 @@ export class EvolutionLineage extends Service {
     }
     await table.put(envelope.experimentId, envelope)
     return structuredClone(envelope)
+  }
+
+  /**
+   * Amend the recorded outcome of an existing envelope. A deployment's real
+   * outcome is not known at proposal time — the optimizer stamps a measured
+   * verdict when it records the envelope, but whether the candidate is later
+   * rolled back or rejected is an operator decision that happens afterward.
+   * This keeps the recorded fact truthful once that decision lands, without
+   * refusing or gating anything the operator does (§58.12: recorded, never
+   * enforced).
+   * @param id - the experiment identity.
+   * @param outcome - the outcome to record in place of the measured verdict.
+   * @param rejectedReason - why the outcome changed, when the caller has one.
+   * @returns the amended envelope.
+   * @throws when the experiment identity is unknown.
+   */
+  async amendOutcome(id: string, outcome: ExperimentOutcome, rejectedReason?: string): Promise<ExperimentEnvelope> {
+    const table = this.requireTable()
+    const current = table.get(id)
+    if (current === undefined) throw new Error(`evolution-lineage: unknown experiment '${id}'`)
+    const next: ExperimentEnvelope = {
+      ...current,
+      outcome,
+      ...rejectedReason === undefined ? {} : { rejectedReason },
+    }
+    await table.put(id, next)
+    return structuredClone(next)
   }
 
   /**

@@ -4,6 +4,7 @@
  * winning variant stages exactly one skill patch.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
@@ -59,11 +60,14 @@ function archived(candidateId: string, body: string): NoveltyArchiveEntry {
   }
 }
 
+/** The measured triple a fake scorer call answers with, plus the two §24.3 fields a fixture may set on it. */
+type MeasuredTriple = { pass: boolean; tokens: number; wallTimeMs: number; fixtureDigest?: string; trajectory?: string | null }
+
 interface BenchSeams {
   record?: { name: string; usage: ReturnType<typeof usage> } | undefined
   body?: string | undefined
   mutations?: string[] | undefined
-  scores?: Record<string, { pass: boolean; tokens: number; wallTimeMs: number }> | undefined
+  scores?: Record<string, MeasuredTriple> | undefined
   staged?: { id: string; gist: string; kind: string; op: string; payload: unknown }[] | undefined
   llm?: boolean | undefined
   route?: boolean | undefined
@@ -81,6 +85,11 @@ interface BenchSeams {
    */
   bareConfirmationDefault?: boolean | undefined
   /**
+   * Skip the harness's own default holdout scenario, so a fixture testing
+   * empty-holdout or overlap behavior sees exactly what it configures.
+   */
+  bareHoldoutDefault?: boolean | undefined
+  /**
    * Mount a fake evolution-budget store; `exceeded: true` makes every
    * ceiling check refuse a new scoring run before it is paid for.
    */
@@ -90,13 +99,13 @@ interface BenchSeams {
   /** Wall-time samples each scored scenario carries; the attempt count. */
   sampleCount?: number | undefined
   /** Score one call by the scenarios it runs and its global call index. */
-  scoresFor?: ((scenarios: readonly string[], call: number) => { pass: boolean; tokens: number; wallTimeMs: number }) | undefined
+  scoresFor?: ((scenarios: readonly string[], call: number) => MeasuredTriple) | undefined
   /**
    * Score one variant by the body the optimizer staged for it. A confirmation
    * round re-scores the baseline and the winner in the same order the search
    * did, so a fixture that must tell them apart has to look at the body.
    */
-  scoreForBody?: ((body: string) => { pass: boolean; tokens: number; wallTimeMs: number }) | undefined
+  scoreForBody?: ((body: string) => MeasuredTriple) | undefined
   /** Scoring-semantics version the fake scorer reports; the ledger stamps it. */
   scorerVersion?: number | undefined
   /** Mount a fake population store; `error` fails every record write. */
@@ -206,6 +215,8 @@ async function bench(seams: BenchSeams = {}) {
             tokens: measured.tokens,
             wallTimeMs: measured.wallTimeMs,
             samples: Array.from({ length: seams.sampleCount ?? 0 }, () => measured.wallTimeMs),
+            fixtureDigest: measured.fixtureDigest ?? 'digest',
+            trajectory: measured.trajectory ?? null,
           })),
         },
       }
@@ -325,8 +336,13 @@ async function bench(seams: BenchSeams = {}) {
     // Every other fixture in this file assumes one paired comparison; pin it
     // here so only a fixture that opts out sees the plugin's real default.
     ...(seams.bareConfirmationDefault === true ? {} : { confirmationRuns: 1 }),
+    // A promotion now requires a configured holdout; pin a default one here
+    // so only a fixture that explicitly configures its own (or opts out via
+    // `bareHoldoutDefault`) sees a different holdout list.
+    ...(seams.bareHoldoutDefault === true ? {} : { holdoutScenarios: ['holdout-1'] }),
     ...seams.config,
   })
+
   const optimizer = ctx.get('evolutionOptimizer') as EvolutionOptimizer
   return {
     ctx, optimizer, staged, populationRows, routeRows, canaryRows, noveltyRows,
@@ -496,9 +512,10 @@ describe('EvolutionOptimizer', () => {
       body: BASE,
       mutations: [V2],
       bareConfirmationDefault: true,
-      // Search and the first confirmation favour the variant; the second
-      // confirmation ties, so the default three rounds cannot confirm it.
-      scoresFor: (_scenarios, call) => ({ pass: true, tokens: call === 5 ? 9 : (call % 2 === 0 ? 9 : 3), wallTimeMs: 5 }),
+      // Search, the holdout check, and the first confirmation favour the
+      // variant; the second confirmation ties, so the default three rounds
+      // cannot confirm it.
+      scoresFor: (_scenarios, call) => ({ pass: true, tokens: call === 7 ? 9 : (call % 2 === 0 ? 9 : 3), wallTimeMs: 5 }),
     })
     const report = await optimizer.optimize(request)
     expect(report.status).toBe('unconfirmed')
@@ -531,10 +548,12 @@ describe('EvolutionOptimizer', () => {
     const report = await optimizer.optimize(request)
     expect(report.status).toBe('staged')
     // Baseline plus the winning variant: one live run each, spent into both
-    // the daily and the weekly ceiling batch, plus the existing post-hoc
-    // total-run record `recordBudget` already writes under the staged id.
-    expect(budgetSpends).toHaveLength(5)
-    expect(budgetSpends.map(row => row.tokens)).toEqual([9, 9, 3, 3, 12])
+    // the daily and the weekly ceiling batch — once for the search
+    // comparison and again for the required private holdout comparison —
+    // plus the existing post-hoc total-run record `recordBudget` already
+    // writes under the staged id.
+    expect(budgetSpends).toHaveLength(9)
+    expect(budgetSpends.map(row => row.tokens)).toEqual([9, 9, 3, 3, 9, 9, 3, 3, 12])
   })
 
   it('keeps staging when the population store is not mounted', async () => {
@@ -1026,8 +1045,10 @@ describe('EvolutionOptimizer', () => {
     const report = await optimizer.optimize(request)
     expect(report.status).toBe('staged')
     expect(staged[0]?.payload).toMatchObject({ body: V2, operator: 'compress' })
-    // One baseline plus one survivor: the broken body never bought a scoring run.
-    expect(scoreCalls).toHaveLength(2)
+    // One baseline plus one survivor for the search, then the same pair
+    // again for the required private holdout: the broken body never bought
+    // a scoring run either way.
+    expect(scoreCalls).toHaveLength(4)
   })
 
   it('reports the refusals when no candidate body could be landed', async () => {
@@ -1077,8 +1098,9 @@ describe('EvolutionOptimizer', () => {
       record: { name: 'writer', usage: usage(12, 10) },
       body: BASE,
       mutations: [V2],
-      // The first run stages a winner at 4 tokens; the second offers 6.
-      scoresFor: (_scenarios, call) => ({ pass: true, tokens: call < 2 ? (call === 1 ? 4 : 10) : (call === 3 ? 6 : 10), wallTimeMs: 5 }),
+      // The first run stages a winner at 4 tokens (search and holdout both
+      // confirm it); the second offers 6 on both.
+      scoresFor: (_scenarios, call) => ({ pass: true, tokens: [10, 4, 10, 4, 10, 6][call] ?? 10, wallTimeMs: 5 }),
       resolutions: [{ id: 'staged-0', kind: 'skill', decision: 'approved' }],
     })
     const first = await optimizer.optimize(request)
@@ -1106,7 +1128,9 @@ describe('EvolutionOptimizer', () => {
       record: { name: 'writer', usage: usage(12, 10) },
       body: BASE,
       mutations: [V2],
-      scoresFor: (_scenarios, call) => ({ pass: true, tokens: call === 1 ? 4 : call === 3 ? 6 : 10, wallTimeMs: 5 }),
+      // Winner always beats baseline, on search and on holdout, across both
+      // runs; only `elsewhere`'s different scenario set matters here.
+      scoresFor: (_scenarios, call) => ({ pass: true, tokens: call % 2 === 0 ? 10 : 4, wallTimeMs: 5 }),
       resolutions: [{ id: 'staged-0', kind: 'skill', decision: 'approved' }],
     })
     await elsewhere.optimizer.optimize(request)
@@ -1156,9 +1180,9 @@ describe('EvolutionOptimizer', () => {
       record: { name: 'writer', usage: usage(12, 10) },
       body: BASE,
       mutations: [V2],
-      // Run 1 stages a winner at 4 tokens; run 2 offers 6, which the run-1
-      // floor would dominate had the scorer version not changed.
-      scoresFor: (_scenarios, call) => ({ pass: true, tokens: call < 2 ? (call === 1 ? 4 : 10) : (call === 3 ? 6 : 10), wallTimeMs: 5 }),
+      // Winner always beats baseline, on search and on holdout, across both
+      // runs; the scorer-version bump is what makes run 2's floor lookup miss.
+      scoresFor: (_scenarios, call) => ({ pass: true, tokens: call % 2 === 0 ? 10 : 4, wallTimeMs: 5 }),
       resolutions: [{ id: 'staged-0', kind: 'skill', decision: 'approved' }],
     })
     expect((await optimizer.optimize(request)).status).toBe('staged')
@@ -1174,13 +1198,28 @@ describe('EvolutionOptimizer', () => {
       record: { name: 'writer', usage: usage(12, 10) },
       body: BASE,
       mutations: [V2],
-      scoresFor: (_scenarios, call) => ({ pass: true, tokens: call === 1 ? 4 : call === 3 ? 2 : 10, wallTimeMs: 5 }),
+      // Run 1 stages a winner at 4 tokens (search and holdout); run 2 offers
+      // 2 on both, which still beats the run-1 floor.
+      scoresFor: (_scenarios, call) => ({ pass: true, tokens: [10, 4, 10, 4, 10, 2, 10, 2][call] ?? 10, wallTimeMs: 5 }),
       resolutions: [{ id: 'staged-0', kind: 'skill', decision: 'approved' }],
     })
     expect((await optimizer.optimize(request)).status).toBe('staged')
     const second = await optimizer.optimize({ ...request, evidence: 'new failures' })
     expect(second.status).toBe('staged')
     expect(second.floor).toBeNull()
+  })
+
+  it('refuses to stage a winner when no holdout is configured', async () => {
+    const { optimizer } = await bench({
+      record: { name: 'writer', usage: usage(12, 10) },
+      body: BASE,
+      mutations: [V2],
+      bareHoldoutDefault: true,
+      scoreForBody: body => ({ pass: true, tokens: body === V2 ? 3 : 9, wallTimeMs: 5 }),
+    })
+    await expect(optimizer.optimize(request)).rejects.toThrow(
+      "promotion requires configured holdoutScenarios to stage a skill patch for 'writer'",
+    )
   })
 
   it('refuses a search scenario listed as holdout', async () => {
@@ -1245,6 +1284,7 @@ describe('EvolutionOptimizer', () => {
       ['s1', 's2', 's3'],
       ['s1'], ['s1'], ['s1'],
       ['s1', 's2', 's3'], ['s1', 's2', 's3'],
+      ['holdout-1'], ['holdout-1'],
     ])
     expect(report.status).toBe('staged')
     expect(report.candidates.map(candidate => candidate.index)).toEqual([1, 2])
@@ -1334,7 +1374,7 @@ describe('EvolutionOptimizer', () => {
       scoresFor: (_scenarios, call) => ({ pass: true, tokens: call === 0 ? 10 : 4, wallTimeMs: 5 }),
     })
     const report = await optimizer.optimize({ ...request, scenarios: ['s1', 's2'] })
-    expect(scoreCalls).toEqual([['s1', 's2'], ['s1', 's2'], ['s1', 's2']])
+    expect(scoreCalls).toEqual([['s1', 's2'], ['s1', 's2'], ['s1', 's2'], ['holdout-1'], ['holdout-1']])
     expect(report.status).toBe('staged')
   })
 
@@ -1398,9 +1438,34 @@ describe('EvolutionOptimizer', () => {
     expect(rows[0]?.baseline).toEqual({ pass: true, tokens: 10, wallTimeMs: 5 })
     expect(rows[0]?.winner).toEqual({ pass: true, tokens: 4, wallTimeMs: 5 })
     expect(rows[0]?.bodySha).not.toBe(rows[0]?.winnerSha)
+    // §24.3 durable evidence: the winner's single scenario reported the
+    // fake scorer's fixed digest and no harvested session, so the combined
+    // digest is the plain hash of that one scenario's digest and the
+    // trajectory list is empty; no profile was configured on the request's
+    // agent, and the promoted body still passes the frontmatter contract gate.
+    expect(rows[0]?.fixtureDigest).toBe(createHash('sha256').update('digest', 'utf8').digest('hex'))
+    expect(rows[0]?.trajectory).toEqual([])
+    expect(rows[0]?.policyProfile).toBeNull()
+    expect(rows[0]?.verifierOutput).toBe(JSON.stringify({ ok: true, issues: [] }))
   })
 
-  it('records a rejected run and skips a run that never mutated', async () => {
+  it('records the request agent\'s named profile as the policy profile', async () => {
+    const { optimizer } = await bench({
+      record: { name: 'writer', usage: usage(12, 10) },
+      body: BASE,
+      mutations: [V2],
+      config: { holdoutScenarios: ['h1'] },
+      scoresFor: (_scenarios, call) => ({ pass: true, tokens: call === 1 || call === 3 ? 4 : 10, wallTimeMs: 5 }),
+    })
+    const report = await optimizer.optimize({
+      ...request,
+      agent: { binScript: 'custom', configPath: 'custom-cfg', tsconfigPath: 'custom-tsconfig', profile: 'headless' },
+    })
+    expect(report.status).toBe('staged')
+    expect(optimizer.experiments(request.scopeId)[0]?.policyProfile).toBe('headless')
+  })
+
+  it('records a rejected run with its route and skips a run that never mutated', async () => {
     const { optimizer } = await bench({
       record: { name: 'writer', usage: usage(12, 10) },
       body: BASE,
@@ -1410,7 +1475,8 @@ describe('EvolutionOptimizer', () => {
     expect((await optimizer.optimize(request)).status).toBe('no-improvement')
     const rows = optimizer.experiments(request.scopeId)
     expect(rows).toHaveLength(1)
-    expect(rows[0]).toMatchObject({ outcome: 'no-improvement', winnerSha: null, stagedId: null })
+    expect(rows[0]).toMatchObject({ outcome: 'no-improvement', stagedId: null, samples: 0, addedLines: 0, removedLines: 0,
+      provider: 'deepseek', model: 'deepseek-chat' })
     expect(rows[0]?.reason).toContain('no variant beats the baseline')
 
     const quiet = await bench({ record: { name: 'writer', usage: usage(30) } })
@@ -1703,7 +1769,7 @@ describe('EvolutionOptimizer', () => {
       scoresFor: (_scenarios, call) => ({ pass: true, tokens: call % 2 === 1 ? 4 : 10, wallTimeMs: 5 }),
     })
     const report = await optimizer.optimize(request)
-    expect(scoreCalls).toHaveLength(4)
+    expect(scoreCalls).toHaveLength(6)
     expect(report.status).toBe('staged')
     expect(report.confidence).toEqual({ runs: 2, wins: 2 })
     expect(staged).toHaveLength(1)
@@ -1715,8 +1781,9 @@ describe('EvolutionOptimizer', () => {
       body: BASE,
       mutations: [V2],
       config: { confirmationRuns: 2 },
-      // The search comparison favours the variant; the repeat favours the baseline.
-      scoresFor: (_scenarios, call) => ({ pass: true, tokens: call === 2 ? 1 : call === 1 ? 4 : 10, wallTimeMs: 5 }),
+      // The search comparison favours the variant, the holdout comparison
+      // agrees, and the confirmation repeat favours the baseline.
+      scoresFor: (_scenarios, call) => ({ pass: true, tokens: [10, 4, 10, 4, 1, 10][call] ?? 10, wallTimeMs: 5 }),
     })
     const report = await optimizer.optimize(request)
     expect(report.status).toBe('unconfirmed')

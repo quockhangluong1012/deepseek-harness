@@ -1262,7 +1262,8 @@ export interface KernelAttachment {
    */
   snapshot(): KernelView
   /**
-   * Detach the agent from its task.
+   * Detach the agent from its task. Plugin unload awaits this disposer for
+   * every open attachment.
    * @returns a promise that settles when the attachment is released.
    */
   dispose(): Promise<void>
@@ -1342,6 +1343,14 @@ export interface AgentKernel {
    * @returns the current view, or undefined before task intake.
    */
   snapshot(agent: Agent): Promise<KernelView | undefined>
+  /**
+   * Read one live session's task view by identity.
+   * The method resolves `ctx.agents` on each call; agent identity and disposal
+   * remain registry-owned.
+   * @param sessionId - the identity of the session to read.
+   * @returns the view, or undefined when no live agent or task exists.
+   */
+  viewOf(sessionId: SessionId): KernelView | undefined
   /**
    * Verify one agent's current task.
    * @param agent - the live agent whose task is verified.

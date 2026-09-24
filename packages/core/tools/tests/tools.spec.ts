@@ -2887,6 +2887,22 @@ describe('defineTool validation (the runtime-validation Agent Note, part 1)', ()
       async execute() { return [{ type: 'text' as const, text: 'ok' }] },
     })).toThrow('positive finite number')
   })
+
+  it('attaches unboundedTimeout to the definition', () => {
+    const tool = defineContentToolFixture({
+      name: 'x', description: 'd', parameters: {}, unboundedTimeout: true,
+      async execute() { return [{ type: 'text' as const, text: 'ok' }] },
+    })
+    expect(tool.unboundedTimeout).toBe(true)
+    expect(tool.timeoutMs).toBeUndefined()
+  })
+
+  it('throws when unboundedTimeout and timeoutMs are both declared', () => {
+    expect(() => defineContentToolFixture({
+      name: 'x', description: 'd', parameters: {}, unboundedTimeout: true, timeoutMs: 30_000,
+      async execute() { return [{ type: 'text' as const, text: 'ok' }] },
+    })).toThrow('unboundedTimeout and timeoutMs are mutually exclusive')
+  })
 })
 
 describe('defineTool presentation (presentCall / presentResult)', () => {

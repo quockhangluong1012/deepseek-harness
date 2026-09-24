@@ -191,6 +191,14 @@ export interface Config {
   stageMinUses?: number
   /** Failure share a skill must exceed to be staged, in 0..1. */
   stageFailureRate?: number
+  /** Total changed-line ceiling (added plus removed) a consolidation `patch` body may not exceed; `0` leaves it unbounded. */
+  maxDiffLines?: number
+  /**
+   * Refuse a consolidation `patch` the verifier ladder did not fully pass —
+   * an abstention as well as a failure — instead of committing on levels 0
+   * and 1 alone. Default `false` keeps today's behavior.
+   */
+  requireVerifierPass?: boolean
 }
 
 /** Validated deployment choices. */
@@ -221,6 +229,8 @@ export const Config: z<Config> = z.object({
   timeoutMs: z.number().step(1).min(1).default(60000),
   stageMinUses: z.number().step(1).min(1).default(20),
   stageFailureRate: z.number().min(0).max(1).default(0.3),
+  maxDiffLines: z.number().step(1).min(0).default(0),
+  requireVerifierPass: z.boolean().default(false),
 })
 
 /** Normalized configuration used by the curator. */
@@ -251,6 +261,8 @@ export interface ResolvedConfig {
   timeoutMs: number
   stageMinUses: number
   stageFailureRate: number
+  maxDiffLines: number
+  requireVerifierPass: boolean
 }
 
 /**
@@ -286,6 +298,8 @@ export function resolveConfig(config: Config): ResolvedConfig {
     timeoutMs = 60000,
     stageMinUses = 20,
     stageFailureRate = 0.3,
+    maxDiffLines = 0,
+    requireVerifierPass = false,
   } = config
   if (archiveAfterDays < staleAfterDays) {
     throw new Error(`evolution-curator: archiveAfterDays (${archiveAfterDays}) must not be below staleAfterDays (${staleAfterDays})`)
@@ -320,6 +334,8 @@ export function resolveConfig(config: Config): ResolvedConfig {
     timeoutMs,
     stageMinUses,
     stageFailureRate,
+    maxDiffLines,
+    requireVerifierPass,
   }
 }
 
@@ -493,8 +509,12 @@ export class EvolutionCurator extends Service {
   private readonly resolved: ResolvedConfig
   /** Newest host-wide session activity this process observed, or null before any. */
   private lastActivityAt: number | null = null
-  /** Cancellation for the consolidation run in flight, aborted at teardown. */
-  private active: AbortController | undefined
+  /** Cancellation for every consolidation run in flight. */
+  private readonly active = new Set<AbortController>()
+  /** Public maintenance operations that teardown must await. */
+  private readonly inFlight = new Set<Promise<unknown>>()
+  /** Set before teardown cancels runs and blocks new work. */
+  private stopping = false
 
   /**
    * @param ctx - Host context carrying the storage domain and skill registry.
@@ -507,32 +527,35 @@ export class EvolutionCurator extends Service {
 
   /**
    * Open the domain, observe host-wide activity, and own the maintenance
-   * schedule. The start-time due-check runs first and awaits, so a short-lived
-   * CLI process cannot exit before a due pass ran; the repeating tick is
-   * `unref()`ed and disposed through `ctx.effect`.
+   * schedule. No consumer can trigger a pass before this method's
+   * `ctx.provide` takes effect, so the start-time due-check runs
+   * fire-and-forget, matching the interval tick, and plugin startup never
+   * waits on a background pass. Teardown stops the timer, aborts active
+   * consolidation, awaits in-flight passes, then closes the domain.
    */
   protected async [Service.init](): Promise<void> {
     const domain = await this.ctx.storageDomain.open(curatorDomainSpec)
-    this.ctx.effect(() => () => domain.close(), 'evolution-curator.domainClose')
     this.table = domain.table('meta')
     this.debts = domain.table('debt')
     this.ctx.on('session/event', () => {
       this.lastActivityAt = Date.now()
     })
+    const timer: { handle?: ReturnType<typeof setInterval> } = {}
+    this.ctx.effect(() => async () => {
+      clearInterval(timer.handle)
+      await this.drain()
+      await domain.close()
+    }, 'evolution-curator.lifecycle')
     if (!this.resolved.enabled) return
-    this.ctx.effect(() => () => this.active?.abort(), 'evolution-curator.abort')
-    await this.maybeRun()
-    this.ctx.effect(() => {
-      const timer = setInterval(() => {
-        void this.maybeRun().catch((error: unknown) => {
-          this.ctx.logger.warn(`evolution curator scheduled pass failed: ${String(error)}`)
-        })
-      }, this.resolved.tickMinutes * 60_000)
-      timer.unref()
-      return () => {
-        clearInterval(timer)
-      }
-    }, 'evolution-curator.tick')
+    const runScheduledPass = (): void => {
+      void this.maybeRun().catch((error: unknown) => {
+        this.ctx.logger.warn(`evolution curator scheduled pass failed: ${String(error)}`)
+      })
+    }
+    runScheduledPass()
+    const handle = setInterval(runScheduledPass, this.resolved.tickMinutes * 60_000)
+    timer.handle = handle
+    handle.unref()
   }
 
   /**
@@ -549,8 +572,14 @@ export class EvolutionCurator extends Service {
    * tarball plus pass and transition ledger entries when backups are on.
    * @param options - clock override and dry-run preview flag.
    * @returns the pass report with every movement.
+   * @throws when teardown has begun.
    */
-  async run(options: CuratorRunOptions = {}): Promise<CuratorReport> {
+  run(options: CuratorRunOptions = {}): Promise<CuratorReport> {
+    if (this.stopping) return Promise.reject(new Error('evolution-curator: service is disposing'))
+    return this.track(this.runPass(options))
+  }
+
+  private async runPass(options: CuratorRunOptions = {}): Promise<CuratorReport> {
     const now = options.now ?? Date.now()
     const dryRun = options.dryRun ?? false
     const at = new Date(now).toISOString()
@@ -700,8 +729,14 @@ export class EvolutionCurator extends Service {
    * observed the host counts as idle.
    * @param options - clock and idleness overrides plus the dry-run flag.
    * @returns the pass report, or undefined when this call defers.
+   * @throws when teardown has begun.
    */
-  async maybeRun(options: CuratorMaybeRunOptions = {}): Promise<CuratorReport | undefined> {
+  maybeRun(options: CuratorMaybeRunOptions = {}): Promise<CuratorReport | undefined> {
+    if (this.stopping) return Promise.reject(new Error('evolution-curator: service is disposing'))
+    return this.track(this.maybeRunPass(options))
+  }
+
+  private async maybeRunPass(options: CuratorMaybeRunOptions = {}): Promise<CuratorReport | undefined> {
     if (!this.resolved.enabled) return undefined
     const now = options.now ?? Date.now()
     const last = this.lastRunAt()
@@ -767,8 +802,14 @@ export class EvolutionCurator extends Service {
    * machinery as an automatic pass.
    * @param options - clock override.
    * @returns the consolidation report, or undefined when no run happened.
+   * @throws when teardown has begun.
    */
-  async consolidate(options: CuratorRunOptions = {}): Promise<ConsolidationReport | undefined> {
+  consolidate(options: CuratorRunOptions = {}): Promise<ConsolidationReport | undefined> {
+    if (this.stopping) return Promise.reject(new Error('evolution-curator: service is disposing'))
+    return this.track(this.consolidatePass(options))
+  }
+
+  private async consolidatePass(options: CuratorRunOptions = {}): Promise<ConsolidationReport | undefined> {
     if (!this.resolved.consolidate) return undefined
     const llm = this.ctx.get('llm')
     const telemetry = this.ctx.get('evolutionSkillTelemetry')
@@ -818,8 +859,9 @@ export class EvolutionCurator extends Service {
     })
     telemetry.recordConsolidationCost(cost)
     const verdicts: ConsolidationVerdict[] = []
+    if (this.stopping) throw new Error('evolution-curator: service is disposing')
     const controller = new AbortController()
-    this.active = controller
+    this.active.add(controller)
     let steps: number
     try {
       using callDeadline = deadline(controller.signal, this.resolved.timeoutMs, EVOLUTION_CONSOLIDATE_TIMEOUT)
@@ -835,9 +877,16 @@ export class EvolutionCurator extends Service {
         signal: callDeadline.signal,
       })
     } finally {
-      this.active = undefined
+      this.active.delete(controller)
     }
-    const applied = await applyConsolidation({ at, passId, home, telemetry, candidates, dirs }, verdicts)
+    const applied = await applyConsolidation(
+      {
+        at, passId, home, telemetry, candidates, dirs,
+        maxDiffLines: this.resolved.maxDiffLines,
+        requireVerifierPass: this.resolved.requireVerifierPass,
+      },
+      verdicts,
+    )
     let snapshot: string | null = null
     // A pass that only patched bodies still records its `pass` row: that row
     // is the anchor `/curator rollback --id` resolves, and each patch row
@@ -861,6 +910,23 @@ export class EvolutionCurator extends Service {
       refusals: applied.refusals,
       steps,
     }
+  }
+
+  /** Track a maintenance operation until its full storage and filesystem work settles. */
+  private track<T>(operation: Promise<T>): Promise<T> {
+    this.inFlight.add(operation)
+    void operation.then(
+      () => { this.inFlight.delete(operation) },
+      () => { this.inFlight.delete(operation) },
+    )
+    return operation
+  }
+
+  /** Abort consolidation requests and await every pass before storage closes. */
+  private async drain(): Promise<void> {
+    this.stopping = true
+    for (const controller of this.active) controller.abort(new Error('evolution-curator: service disposed'))
+    while (this.inFlight.size > 0) await Promise.allSettled([...this.inFlight])
   }
 
   private async stampLastRun(at: string): Promise<void> {

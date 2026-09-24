@@ -1,6 +1,6 @@
 ---
 description: "Durable kernel-task surface: one Chat node per agent-kernel task contract, folding the kernel's own records into status, plan, budget, verification, checkpoint, and research facts."
-kind: "client-ui"
+kind: "package-reference"
 ---
 
 # @deepseek-ai/dsh-client-ui-kernel-task
@@ -29,7 +29,7 @@ The Web app mounts it as one client row (`ui-kernel-task`); nothing else is requ
 
 | Collapsed | Expanded |
 |---|---|
-| Objective, status dot, status label, revision, open-action count, unresolved-failure count | Agent and policy profile, budget ceilings, plan revision with its steps, verification status with each criterion, newest checkpoint with its reason and covered sequence, and the research counts |
+| Objective, status dot, status label, revision, open-action count, unresolved-failure count | Agent and policy profile, budget ceilings, plan revision with its steps, verification status with each criterion, newest checkpoint with its reason and covered sequence, the research counts, and each claim's evidence lineage |
 
 A task that never reached a terminal status inside a **closed** turn or step renders as interrupted: the log holds no further events, so the run cannot still be progressing. That is a reading of the log, not a second state machine — a still-open location keeps rendering as in progress.
 
@@ -76,7 +76,7 @@ None.
 <a id="known-limitations-and-deferred-work"></a>
 
 - **Read-only.** The node shows what the kernel recorded; pausing, resuming, or approving stays with the surfaces that own those actions.
-- **No evidence bodies.** It counts evidence, claims, and hypotheses; the records themselves live in the session log and the storage domain.
+- **No evidence bodies.** The expanded view shows evidence lineage — each claim's statement, status, confidence, and the evidence it cites (kind, content reference, trust) — but the observed content itself lives in the session log and the storage domain, not in this node.
 - **One node per task.** A session that opened several tasks renders one node each, anchored at its own `task/created`.
 
 <a id="dev-note"></a>

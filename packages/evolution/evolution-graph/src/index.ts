@@ -55,6 +55,7 @@ import type {
 
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
+    /** @persistenceAttribution */
     'evolution-graph': { kind: 'evolution-graph' } & ContextFormed
   }
 }

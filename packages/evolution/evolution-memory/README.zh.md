@@ -53,6 +53,8 @@ kind: "package-reference"
 | `defaultTtlDays` | `30` | 候选未自带 ttl 时，新工件被赋予的 ttl 天数 |
 | `episodicRetentionDays` | `7` | 情景笔记落地后可读的天数；追加路径会丢弃更早的笔记 |
 | `maxEpisodicEntries` | `100` | 每个作用域在年龄裁剪之后保留的情景笔记数，保留最新的 |
+| `demoteUtilityFloor` | `0.35` | S8 效用值低于该值时，一条被充分召回过的事实会被衰退降级 |
+| `demoteMinSurfaced` | `3` | 事实需要被召回这么多次，其效用值才会被信任用于降级判定 |
 
 生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-evolution-memory)是每个可接受字段的详尽来源。
 
@@ -64,7 +66,7 @@ kind: "package-reference"
 
 一个工件就是一条持久化的提炼事实。任何持久写入之前都会先擦除凭据：statement、其 conditions 以及它据以提取的标签中，每一种可识别的凭据形态都会替换为 `[REDACTED]`；身份由擦除后的 statement 推导，因此被擦除的事实只保有一个身份，而不会多出一个孪生。字段包括 `statement`、`source`（会话 id，或手工暂存条目的标签）、`conditions`、`evidence`（`fact` | `observation` | `inference`）、`[0, 1]` 区间内的 `confidence`、`validationCount`、`refutationCount`、`scope`（`user` | `project` | `global`）、可选的 `ttlDays`，以及 `createdAt` / `updatedAt` 时刻。
 
-工件的身份就是其规范化后的 statement——转小写、内部空白折叠、首尾去空——该身份即是所有操作寻址的 `id`。同一记录内身份两两不同，因此 `addArtifact`、`updateArtifact` 与 `removeArtifact` 各自恰好命名一个工件，且这一命名在每次写入后都不变：身份、计数与时刻由存储赋予，永不来自调用方或模型。一条事实只有指名它所依据的来源，才会被接纳为长期学习：`addArtifact` 与 `applyExtractionDecisions` 都会拒绝 `sourceRefs` 为空的候选，并给出 `it names no source reference`，因此泛泛的对话摘要永远不会作为经验沉淀下来（规范 §9.2）。调用方无法得知的部分由存储补上——过期策略，以及估算器随后更新的零值 utility。若候选项声明其内容为 `trust: 'untrusted'`——取自仓库文件、工具输出、抓取页面或 MCP 服务器的文本——则**不能直接写入**：`addArtifact` 与 `applyExtractionDecisions` 会拒绝它并指明暂存路径，因此污点只有经过人类或策略批准的审批才可能进入长期记忆。`updateArtifact` 只修补 `conditions`、`confidence`、`evidence` 与 `ttlDays`；statement 变了就是另一条事实，因此它以一次 remove 加一次 add 表达，而不是一次 patch。`validationCount` 与 `refutationCount` 只经决策批次移动——没有其他操作会触碰它们。
+工件的身份就是其规范化后的 statement——转小写、内部空白折叠、首尾去空——该身份即是所有操作寻址的 `id`。同一记录内身份两两不同，因此 `addArtifact`、`updateArtifact` 与 `removeArtifact` 各自恰好命名一个工件，且这一命名在每次写入后都不变：身份、计数与时刻由存储赋予，永不来自调用方或模型。一条事实只有同时指名它所依据的来源、轨迹与谱系，才会被接纳为长期学习：`addArtifact` 与 `applyExtractionDecisions` 都会拒绝 `sourceRefs` 为空的候选（`it names no source reference`）、`trajectoryRefs` 为空的候选（`it names no trajectory reference`），以及没有 `lineage` 的候选（`it carries no lineage`）——三项检查各自独立，一个候选可能同时触发多项——因此泛泛的对话摘要永远不会作为经验沉淀下来（规范 §9.2）。`utility` 刻意不在接纳时要求：它是涌现值，只在事实被检索命中并经 `rememberOutcome` 评分后才会计算，从不由调用方提供。调用方无法得知的部分由存储补上——过期策略，以及估算器随后更新的零值 utility。若候选项声明其内容为 `trust: 'untrusted'`——取自仓库文件、工具输出、抓取页面或 MCP 服务器的文本——则**不能直接写入**：`addArtifact` 与 `applyExtractionDecisions` 会拒绝它并指明暂存路径，因此污点只有经过人类或策略批准的审批才可能进入长期记忆。`updateArtifact` 只修补 `conditions`、`confidence`、`evidence` 与 `ttlDays`；statement 变了就是另一条事实，因此它以一次 remove 加一次 add 表达，而不是一次 patch。`validationCount` 与 `refutationCount` 只经决策批次移动——没有其他操作会触碰它们。
 
 `addArtifact` 接收候选与合并策略（默认 `keep_both`），是唯一一种可以成功却不存储任何内容的操作：在 `keep_both` 下，若候选身份已存在，调用直接返回原记录，不进入写入链，也不盖任何分族时间戳。在 `overwrite` 或 `merge` 下，候选折入它匹配到的工件——先按身份匹配，否则匹配相似度达到 `mergeSimilarityFloor` 的最相似工件，相似度经由可选的 `ctx.embeddings` seam 度量。`merge` 合并两者的 `conditions` 并取较高置信度；`overwrite` 用候选的内容替换工件内容。两种情况中被匹配工件都保留其 id、statement、计数与创建时刻，只有 `updatedAt` 变化。没有 embeddings 服务时什么也不度量，因此只有完全相同的身份才能匹配，同义改写会另存为一个独立工件：改写检测能力降级，写入永不失败。
 
@@ -108,7 +110,7 @@ kind: "package-reference"
 
 ### 衰退与维护
 
-`sweep` 丢弃每一个被衰退判定的工件：`refutationCount` 达到 `refutationFloor` 的，或 `ttlDays` 自其 `updatedAt` 起已经过期的——该时刻是最后一次校验、反驳或编辑，永不来自读取或渲染出的简报。没有 `ttlDays` 的工件永远不会因存续时长过期，因此只有反驳下限能剪除它；未自带该值的候选在被存储接纳时会获得 `defaultTtlDays`，所以经普通路径写入的每个工件都带有 ttl。扫描只整件丢弃，永不编辑或截断某个工件，且无可丢弃时根本不进入写入链，既不移动 `updatedAt` 也不移动分族时间戳。
+`sweep` 丢弃每一个被衰退判定的工件：`refutationCount` 达到 `refutationFloor` 的、`ttlDays` 自其 `updatedAt` 起已经过期的——该时刻是最后一次校验、反驳或编辑，永不来自读取或渲染出的简报——或被 `demotable` 依 S8 效用判定的：一条事实被召回至少 `demoteMinSurfaced` 次后，其效用值低于 `demoteUtilityFloor`。被召回次数未达该下限的事实永不会仅因效用被降级——没有证据不等于证据表明无用——而效用只经 `recordRecallOutcome` 累积，因此从未被召回过的事实仍只受 ttl 与反驳衰退的约束。没有 `ttlDays` 的工件永远不会因存续时长过期，因此只有反驳下限或低效用读数能剪除它；未自带该值的候选在被存储接纳时会获得 `defaultTtlDays`，所以经普通路径写入的每个工件都带有 ttl。扫描只整件丢弃，永不编辑或截断某个工件，且无可丢弃时根本不进入写入链，既不移动 `updatedAt` 也不移动分族时间戳。
 
 挂载 `ctx.evolutionHeartbeat` 时，存储注册 `evolution-memory-maintenance` 任务，每 `maintenanceIntervalHours` 小时扫描每个已存作用域；没有挂载时存储行为不变，由调用方自行驱动 `sweep`。`sweep` 报告 `pruned` 与 `refined`；`refined` 恒为 `0`——没有任何东西拆分迁移来的文档被接纳成的那一个粗粒度工件，因为提取是在它读到的工件旁边写入新工件，而不是精化它们；在那之前该粗粒度工件是正确且永久的兜底形态。
 
@@ -177,7 +179,7 @@ kind: "package-reference"
 - **仅限本机**——记录位于 `$DSH_HOME` 之下，永不写入项目目录内。
 - **同义改写合并依赖 embeddings**——候选匹配所用的相似度来自可选的 `ctx.embeddings` seam；没有它时只有规范化后完全相同的 statement 才能匹配，改写过措辞的重复项会另存为一个独立工件。
 - **迁移来的工件保持粗粒度**——旧经验文档打开时是一个覆盖整份文本的工件，目前还没有任何一趟流程拆分它；提取把决策折入它读到的工件，因此迁移来的作用域在简报里保留那一条很长的工件行，而新工件是加在它旁边，不是取代它。
-- **衰退由写入与反驳驱动**——工件在最后一次触达它的写入之后 `defaultTtlDays` 天被剪除，使用工件从不计入，因此一条再无人讨论的事实即使仍然为真也会衰退。决策批次写入的计数正是作用域自身回合所提供的：`confirms` 刷新工件的 `updatedAt`，`contradicts` 计入 `refutationFloor`，而提取的相关性窗口从未向模型展示的工件两者都得不到。迁移来的粗粒度工件完全不携带 ttl，因为接纳时不会赋予该值，因此只有反驳下限可能剪除它。
+- **衰退由写入与反驳驱动，充分召回后还会叠加 S8 效用**——工件在最后一次触达它的写入之后 `defaultTtlDays` 天被剪除，使用工件从不计入这个时钟，因此一条再无人讨论的事实即使仍然为真也会衰退。决策批次写入的计数正是作用域自身回合所提供的：`confirms` 刷新工件的 `updatedAt`，`contradicts` 计入 `refutationFloor`，而提取的相关性窗口从未向模型展示的工件两者都得不到。迁移来的粗粒度工件完全不携带 ttl，因为接纳时不会赋予该值，因此只有反驳下限或低效用读数可能剪除它。效用本身只经 `recordRecallOutcome` 累积，因此从未被召回过的工件既不积累这第三条衰退路径的证据，也不承受它的风险。
 - **文件大小是快照**——磁盘文件变化时，不刷新文件条目记录的大小。
 - **召回台账只记录 §23 四个环节中的两个**——检索、以及随后的决策批次都有记录，结果由评分方提供；被注入条目是否被*使用*、是否被*引用*，全仓库都没有写入方，因此它们对记忆效用毫无贡献，而 §24 的第四个因子（来源质量）对被召回的记忆也没有记录来源。因此台账是效用的下限，而不是完整测量。
 - **召回台账有上限，不是累计量**——`maxRecalls` 按作用域给它设限，因此被召回次数超过上限的记忆只保留最新几条召回，其计数是保留下来的召回数；读取方不应把 `recalls` 当作全时段总量。结果由调用方分级：没有任何东西自行判定某条被召回的记忆起了作用。

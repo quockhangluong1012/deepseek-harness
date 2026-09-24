@@ -17,7 +17,9 @@ import type {
 import type { ChatConversationViewNode } from '@deepseek-ai/dsh-client-ui-chat/client'
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 import type {} from '@deepseek-ai/dsh-agent-kernel/src/types.ts'
-import type { CriterionResult, FailureKind, ResourceBudget, TaskStatus } from '@deepseek-ai/dsh-agent-kernel/src/types.ts'
+import type {
+  CriterionResult, EvidenceKind, FailureKind, Provenance, ResourceBudget, TaskClaimStatus, TaskStatus, TrustLabel,
+} from '@deepseek-ai/dsh-agent-kernel/src/types.ts'
 
 /** Final renderer data for one verification result. */
 export interface KernelTaskVerificationData {
@@ -39,6 +41,34 @@ export interface KernelTaskCheckpointData {
   readonly revision: number
   /** Session sequence the checkpoint covers. */
   readonly sessionSeq: number
+}
+
+/** One evidence record a claim's lineage cites (S1: evidence lineage). */
+export interface KernelTaskEvidenceData {
+  /** Evidence identity. */
+  readonly evidenceId: string
+  /** Family that observed it. */
+  readonly kind: EvidenceKind
+  /** Repository-relative path, URL, or tool call id locating the content. */
+  readonly contentRef: string
+  /** How far the observed content may be trusted. */
+  readonly trust: TrustLabel
+  /** Emitting subsystem or external boundary that produced the observation. */
+  readonly source: Provenance['source']
+}
+
+/** One claim's current state, resolved with the evidence it cites (S1: evidence lineage). */
+export interface KernelTaskClaimData {
+  /** Claim identity. */
+  readonly claimId: string
+  /** The statement the task asserts. */
+  readonly statement: string
+  /** How far the evidence has established the statement. */
+  readonly status: TaskClaimStatus
+  /** Stated confidence in `[0, 1]`. */
+  readonly confidence: number
+  /** The evidence this claim cites, resolved from the session's recorded evidence. */
+  readonly evidence: readonly KernelTaskEvidenceData[]
 }
 
 /** Final keyed Chat payload for one kernel task. */
@@ -79,6 +109,8 @@ export interface KernelTaskData {
   readonly claims: number
   /** Hypotheses the session recorded for this task. */
   readonly hypotheses: number
+  /** Claims recorded for this task, each resolved with the evidence it cites (S1: evidence lineage). */
+  readonly claimRecords: readonly KernelTaskClaimData[]
 }
 
 declare module '@deepseek-ai/dsh-client-ui-chat/client' {
@@ -105,6 +137,16 @@ export interface KernelTaskState {
   readonly evidence: number
   readonly claims: number
   readonly hypotheses: number
+  /** Evidence recorded for this task, by identity. */
+  readonly evidenceById: Readonly<Record<string, KernelTaskEvidenceData>>
+  /** Claims recorded for this task, by identity, evidence unresolved until projection. */
+  readonly claimById: Readonly<Record<string, {
+    readonly claimId: string
+    readonly statement: string
+    readonly status: TaskClaimStatus
+    readonly confidence: number
+    readonly evidenceIds: readonly string[]
+  }>>
 }
 
 /** Whether a location's turn or step has closed, so a live run is interrupted. */
@@ -162,10 +204,40 @@ export function foldKernelTask(state: KernelTaskState, event: SessionEvent): Ker
           sessionSeq: event.data.sessionSeq,
         },
       }
-    case 'evidence/recorded':
-      return { ...state, evidence: state.evidence + 1 }
-    case 'claim/updated':
-      return { ...state, claims: state.claims + 1 }
+    case 'evidence/recorded': {
+      const evidenceId = String(event.data.evidenceId)
+      return {
+        ...state,
+        evidence: state.evidence + 1,
+        evidenceById: {
+          ...state.evidenceById,
+          [evidenceId]: {
+            evidenceId,
+            kind: event.data.kind,
+            contentRef: event.data.contentRef,
+            trust: event.data.trust,
+            source: event.data.provenance.source,
+          },
+        },
+      }
+    }
+    case 'claim/updated': {
+      const claimId = String(event.data.claimId)
+      return {
+        ...state,
+        claims: state.claims + 1,
+        claimById: {
+          ...state.claimById,
+          [claimId]: {
+            claimId,
+            statement: event.data.statement,
+            status: event.data.status,
+            confidence: event.data.confidence,
+            evidenceIds: event.data.evidence.map(String),
+          },
+        },
+      }
+    }
     case 'hypothesis/updated':
       return { ...state, hypotheses: state.hypotheses + 1 }
     default:
@@ -201,6 +273,18 @@ export function projectKernelTask(context: ConversationNodeContext<KernelTaskSta
     evidence: state.evidence,
     claims: state.claims,
     hypotheses: state.hypotheses,
+    claimRecords: Object.values(state.claimById).map(claim => ({
+      claimId: claim.claimId,
+      statement: claim.statement,
+      status: claim.status,
+      confidence: claim.confidence,
+      // Evidence recorded after the claim that cites it (or in a prefix this
+      // node cannot see) resolves as an id-only, untrusted stub rather than
+      // silently dropping the citation.
+      evidence: claim.evidenceIds.map(evidenceId => state.evidenceById[evidenceId] ?? {
+        evidenceId, kind: 'model', contentRef: '', trust: 'unknown', source: 'kernel',
+      }),
+    })),
   }
 }
 
@@ -247,6 +331,8 @@ export const kernelTaskDefinition: ConversationNodeDefinition<KernelTaskState> =
       evidence: 0,
       claims: 0,
       hypotheses: 0,
+      evidenceById: {},
+      claimById: {},
     }
   },
   // The matcher admitted only the kernel events above; the fold reads those.

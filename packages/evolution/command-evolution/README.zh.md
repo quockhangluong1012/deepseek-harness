@@ -133,8 +133,8 @@ kind: "package-reference"
 | `/canary status [<skill>]` | 同一部署列表收窄到单个技能；该技能无部署时报告 `No deployments for '<skill>'.` |
 | `/canary rollout <id>` | 把一个 shadow 部署移到 canary，并报告 `Deployment '<id8>' (<skill>) moved to '<state>'.` |
 | `/canary promote <id>` | 把一个 canary 部署提升为 promoted，报告同一条消息。§53 的职责分离把守这次晋升：调用会话被记录为审查身份，若晋升者就是提案该候选的身份——或该候选的提案身份从未被记录——则报告 `Promotion of '<id>' refused: <reason>`，部署留在原处。 |
-| `/canary reject <id>` | 让一次分阶段发布以 rejected 退出，报告同一条消息。 |
-| `/canary rollback <id>` | 让一次分阶段发布以 rolled-back 退出，报告同一条消息。 |
+| `/canary reject <id>` | 让一次分阶段发布以 rejected 退出，报告同一条消息。当血缘存储已挂载且记录过该 ID 时，其结果会被改为 `'regressed'`，附上点名此次退出的原因，使已记录的 `'improved'` 结论不会活得比这次拒绝更久；改写失败只记警告，不会让报告本身失败。 |
+| `/canary rollback <id>` | 让一次分阶段发布以 rolled-back 退出，报告同一条消息，并做同样的血缘改写。 |
 | `/canary <anything-else>` | `Usage: /canary [status [<skill>] \| rollout <id> \| promote <id> \| reject <id> \| rollback <id>]` |
 | `/novelty` | 汇总新颖性档案：`Novelty archive: <n> entry(ies) across <n> skill(s).`，随后按技能名排序的 `- <skill>: <n> entry(ies), mean novelty <x.xx>`；无记录时报告 `No recorded novelty archive entries. The optimizer records staged writes as descriptors.`。未挂载存储时报告 `The evolution novelty-search store is not mounted.` |
 | `/novelty <skill>` | 列出单个技能的行为描述符：`Novelty archive '<skill>': <n> entry(ies), mean <x.xx>.`，随后至多十条 `- <id8>: <n> features, novelty <x.xx> at <instant>`；该技能无记录时报告 `No recorded novelty archive entries for '<skill>'.` |
@@ -298,7 +298,7 @@ kind: "package-reference"
 
 这些限制说明该命令何时不合适；它们是当前包约束。
 
-- **不应用技能写入**——`/skills approve` 丢弃暂存技能条目；技能文件由 `skill_manage` 写入，命令本身从不写技能文件。
+- **不应用技能写入**——`/skills approve` 丢弃暂存技能条目；技能文件由 `skill_manage` 写入，命令本身从不写技能文件。`/canary reject`/`rollback` 会改写匹配的血缘结果，使记录的结论贴合现实，但没有任何 `/canary` 动词会对照暂存正文核验实际技能文件，也没有一个会写入它：这两者任一都会推翻这一刻意的人工写入把关，以及这个包里每个姊妹存储都记录在案的、组级的 §58.12「只记录、不强制」边界——不是一条命令能单独改动的事。
 - **`/learn` 依赖受门控的写入器**——命令只排队一个回合；如果组合出的 agent 没有 `skill_manage`（或没有收集工具），该回合无法保存任何内容，提示词也会如实说明，而不是假装技能已落地。
 - **`/suggestions` 只是建议**——它读取 blueprint 且不调度任何内容；安装 blueprint 所命名的 cron 条目仍是人类单独且审慎的行动。
 - **blueprint 读取兼容两种表面**——技能的 blueprint 从解析后的 frontmatter 字段读取，或从它被解析自的 frontmatter 袋读取，因为发现层只发布其中一种；未被接受的形状只是不被建议。

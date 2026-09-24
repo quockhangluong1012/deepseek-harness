@@ -1,8 +1,9 @@
 /**
  * Token-budgeted tool content with recoverable text and image addresses.
  * Post-execute policies settle before retention; canonical program values
- * remain intact. Missing recovery storage or image pricing keeps the original
- * content and reports the reason through the logger.
+ * remain intact. With `agent-context` mounted, spill notices become required
+ * compiler sources so result pruning preserves their recovery guidance. Missing
+ * storage or image pricing keeps the original content and reports the reason.
  * @module @deepseek-ai/dsh-spill-policy
  */
 import type { Context } from '@deepseek-ai/cordis'
@@ -14,8 +15,9 @@ import type { SpillRef } from '@deepseek-ai/dsh-spill'
 import type { PostToolDecision, ToolExecution } from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-attachment'
 import type {} from '@deepseek-ai/dsh-fs'
+import type { ContextItem } from '@deepseek-ai/dsh-agent-context'
 import type { SpillPolicyExec } from './types.ts'
-import { formatSpillNotice } from './notice.ts'
+import { extractSpillNotice, formatSpillNotice } from './notice.ts'
 import { retainContent } from './retention.ts'
 import type { RetainableBlock } from './retention.ts'
 
@@ -42,7 +44,8 @@ const GAP = { type: 'text', text: '\n\n[...]\n\n' } as const
 
 /**
  * Mount token retention for accepted tool results and PTC log copies.
- * @param ctx - tool registry and optional pricing, filesystem, attachment, and spill services.
+ * When `agent-context` is mounted, register current spill notices as required sources.
+ * @param ctx - tool registry and optional pricing, filesystem, attachment, spill, and compiler services.
  * @param config - maximum estimated result tokens; omission disables the plugin.
  */
 export function apply(ctx: Context, config: Config): void {
@@ -52,6 +55,29 @@ export function apply(ctx: Context, config: Config): void {
     throw new Error(`spill-policy: maxInlineTokens must be a non-negative integer (got ${cap})`)
   }
   const maxTokens = cap
+
+  ctx.inject(['agentContext'], (compilerCtx) => {
+    compilerCtx.effect(() => compilerCtx.agentContext.register({
+      producer: 'spill-notice-retention',
+      kind: 'tool',
+      trust: 'untrusted',
+      placement: 'stable-core',
+      maxBytes: Number.MAX_SAFE_INTEGER,
+    }, (agent, signal) => {
+      signal.throwIfAborted()
+      const items: ContextItem[] = []
+      for (const message of agent.session.deriveMessages()) {
+        if (message.role !== 'tool') continue
+        const text = message.content
+          .filter((block): block is Extract<ContentBlock, { type: 'text' }> => block.type === 'text')
+          .map(block => block.text)
+          .join('')
+        const notice = extractSpillNotice(text)
+        if (notice !== undefined) items.push({ id: String(message.id), text: notice, relevance: 1 })
+      }
+      return Promise.resolve(items)
+    }))
+  })
 
   /** Price actual request images and their accompanying descriptor text. */
   function pricing(exec: ToolExecution, images: ImageBlock[]): (block: RetainableBlock) => number {

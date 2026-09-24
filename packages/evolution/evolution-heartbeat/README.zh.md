@@ -25,17 +25,17 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用本包
 
-每个宿主挂载本插件一次，然后注册任务。注册本身就是全部触发条件：任务仅在其注册存活期间运行，调用返回的注销函数即可移除它。
+每个宿主挂载本插件一次，然后通过 `ctx.effect` 注册任务，使异步注销函数能在 provider 卸载前排空正在运行的尝试。
 
 ```ts
 import type { Context } from '@deepseek-ai/cordis'
 
 export function apply(ctx: Context): void {
-  ctx.evolutionHeartbeat.register({
+  ctx.effect(() => ctx.evolutionHeartbeat.register({
     name: 'memory-consolidation',
     intervalHours: 24,
     run: async (signal) => { await consolidate(signal) },
-  })
+  }))
 }
 ```
 
@@ -74,7 +74,7 @@ export function apply(ctx: Context): void {
 
 每个任务在存储域 `evolution_heartbeat`（版本 `1`、布局 `per-record`、表 `tasks`）中以任务名为键占一行记账，内容为上次尝试的时刻与最近的失败信息；无此行表示该任务从未被尝试过，这正是新注册任务被推迟一个间隔的原因。引擎只在内存中保存注册：重启后由挂载的插件重新注册，持久化的只是记账。
 
-时钟与空闲时长以调用参数进入 `runDue`，而挂载后的插件补上宿主级部分：记录最新活动时刻的 `session/event` 监听器、一次被等待的启动时到期检查，以及通过 `ctx.effect` 释放的 `unref()` 定时器。规格用假定时器驱动调度，因此本插件不携带仅测试用的时钟缝。
+时钟与空闲时长以调用参数进入 `runDue`，而挂载后的插件补上宿主级部分：记录最新活动时刻的 `session/event` 监听器、一次不阻塞插件启动的即发即弃启动时到期检查，以及通过 `ctx.effect` 释放的 `unref()` 定时器。规格用假定时器驱动调度，因此本插件不携带仅测试用的时钟缝。
 
 ### 任务执行
 
@@ -82,7 +82,7 @@ export function apply(ctx: Context): void {
 
 ### 释放
 
-注册返回幂等的注销函数，把任务从注册表移除。被移除的任务保留其记账行，因此重新注册会沿用已存节奏，而不是重新播种。
+注册返回幂等的异步注销函数，会移除任务、中止并等待其当前尝试结束，并保留其记账行供后续注册沿用。插件销毁会停止定时器，中止活动尝试，阻止当前趟次启动其余任务，等待活动趟次结束后再关闭记账域。
 
 ### 失败与恢复
 

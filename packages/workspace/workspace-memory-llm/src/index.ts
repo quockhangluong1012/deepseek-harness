@@ -26,6 +26,7 @@ export { extractionSystemPrompt, frameExtractionInput } from './prompt.ts'
 
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
+    /** @persistenceAttribution */
     'workspace-memory-llm': { kind: 'workspace-memory-llm' } & ContextFormed
   }
 }

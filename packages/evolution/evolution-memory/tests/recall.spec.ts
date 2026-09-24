@@ -20,7 +20,7 @@ import type { EvolutionScopeId as ScopeId } from '../src/types.ts'
 function candidate(statement: string): LessonArtifactInput {
   return {
     statement, source: 's1', conditions: '', evidence: 'fact', confidence: 0.9, scope: 'project',
-    sourceRefs: ['session:s1'],
+    sourceRefs: ['session:s1'], trajectoryRefs: ['run:s1'], lineage: { origin: 's1' },
   }
 }
 

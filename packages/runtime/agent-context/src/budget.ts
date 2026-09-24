@@ -20,6 +20,20 @@ export interface ScoredSource {
   readonly relevance: number
 }
 
+/**
+ * The previous request-series compile's budget decision for sources still
+ * present. Amendment S1 point 5: the ceiling cut changes only at a
+ * request-series boundary (compaction), not on every compile, so a source
+ * already placed or already cut stays that way until the caller clears the
+ * hysteresis at a boundary.
+ */
+export interface BudgetHysteresis {
+  /** Compressible source ids the ceiling placed last time in this series. */
+  readonly includedIds: ReadonlySet<string>
+  /** Compressible source ids the ceiling cut last time in this series. */
+  readonly omittedIds: ReadonlySet<string>
+}
+
 /** The placement a budget produced. */
 export interface BudgetPlacement {
   /** The sources that fit, in placement order. */
@@ -53,19 +67,34 @@ export function priceSources(scored: readonly ScoredSource[]): CompiledSource[] 
  * placement order: once a droppable source does not fit, every later droppable
  * source is omitted too, so the placement stays a stable prefix. A required
  * source is placed even when it alone exceeds the ceiling, so a bounded
- * placement can still price above its ceiling — the task's own authority is
- * never the thing that gets dropped.
+ * placement can still price above its ceiling; no required source is dropped.
+ *
+ * A source named in `hysteresis` bypasses that arithmetic: a previously
+ * included source stays included even if it no longer fits, and a previously
+ * cut source stays cut even if it would now fit. Only a source unseen by the
+ * hysteresis is decided against the ceiling and the room the frozen
+ * inclusions leave behind.
  * @param priced - the priced sources, in placement order.
  * @param maxTokens - the ceiling, or null for no ceiling.
+ * @param hysteresis - the prior compile's decision for sources still present, or absent at a series boundary.
  * @returns the placed sources, the omitted ones, and the placement's price.
  */
-export function fitBudget(priced: readonly CompiledSource[], maxTokens: number | null): BudgetPlacement {
+export function fitBudget(priced: readonly CompiledSource[], maxTokens: number | null, hysteresis?: BudgetHysteresis): BudgetPlacement {
   const included: CompiledSource[] = []
   const omitted: ContextOmission[] = []
   let tokens = 0
   let cut = false
   for (const entry of priced) {
     if (entry.source.retention === 'required') {
+      included.push(entry)
+      tokens += entry.tokens
+      continue
+    }
+    if (hysteresis?.omittedIds.has(entry.source.id)) {
+      omitted.push({ id: entry.source.id, reason: 'budget' })
+      continue
+    }
+    if (hysteresis?.includedIds.has(entry.source.id)) {
       included.push(entry)
       tokens += entry.tokens
       continue

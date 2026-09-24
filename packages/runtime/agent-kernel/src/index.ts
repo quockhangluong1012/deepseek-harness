@@ -30,6 +30,8 @@ import type { SandboxExecutionPolicy } from '@deepseek-ai/dsh-sandbox'
 // Type-only: activates the `ctx.sandboxPolicy` Context declaration.
 import type {} from '@deepseek-ai/dsh-sandbox-policy'
 import type { Session, SessionId } from '@deepseek-ai/dsh-session'
+// Type-only: declares the `compaction/start` Session event.
+import type {} from '@deepseek-ai/dsh-compaction'
 // Type-only: declares the `workspace/changes` Session event and `ctx.workspaceChanges`.
 import type {} from '@deepseek-ai/dsh-workspace-changes'
 import type { PreToolDecision, ToolExecution, ToolResult } from '@deepseek-ai/dsh-tools'
@@ -313,6 +315,7 @@ function digestOf(value: unknown): string {
 
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
+    /** @persistenceAttribution */
     'agent-kernel': { kind: 'agent-kernel' }
   }
 }
@@ -395,8 +398,8 @@ class KernelTaskAttachment implements KernelAttachment {
 
 /**
  * The kernel service (`ctx.agentKernel`). It attaches to the loop and tool
- * waterfalls in its constructor, so unloading the plugin unloads every
- * listener, declaration, and attachment with it.
+ * waterfalls in its constructor. Plugin unload removes those registrations
+ * and awaits release of every open attachment.
  */
 export class AgentKernelService extends Service implements AgentKernel {
   /** The permission-rule evaluator compiled from `Config.policy`. */
@@ -494,17 +497,29 @@ export class AgentKernelService extends Service implements AgentKernel {
       if (payload.source === 'resume') this.recordCheckpointResume(payload.agent)
     })
     ctx.on('agent/pre-step', (payload, next) => {
-      this.openOrAdvance(payload.agent.session, payload.messages, payload.turn, payload.step)
+      this.openOrAdvance(payload.agent, payload.messages, payload.turn, payload.step)
       return next()
     })
     ctx.on('agent/turn-stopping', payload => this.closeTurn(payload.agent, payload.turn))
+    // §17.1: compaction may rewrite or drop the log tail a resume would
+    // otherwise replay from, so the kernel checkpoints before it runs.
+    ctx.on('session/event', (session, event) => {
+      if (event.type !== 'compaction/start') return
+      // `session.append` refuses to reenter while `compaction/start`'s own
+      // append is still publishing, so the checkpoint runs on the next
+      // microtask instead of inline in this listener.
+      queueMicrotask(() => {
+        const agent = ctx.get('agents')?.get(session.id)
+        if (agent !== undefined) this.checkpoint(agent, 'before-compaction')
+      })
+    })
     ctx.on('tools/pre-execute', (exec, next) => this.authorize(exec, next))
     ctx.on('tools/post-execute', (exec, result, next) => {
       this.commit(exec, result.isError, result)
       return next()
     })
-    ctx.effect(() => () => {
-      for (const attachment of [...this.attachments]) void attachment.dispose()
+    ctx.effect(() => async () => {
+      await Promise.all([...this.attachments].map(attachment => attachment.dispose()))
     }, 'agent-kernel.attachments')
   }
 
@@ -609,6 +624,18 @@ export class AgentKernelService extends Service implements AgentKernel {
    */
   snapshot(agent: Agent): Promise<KernelView | undefined> {
     return Promise.resolve(this.state.view(agent.session))
+  }
+
+  /**
+   * Read the current task view through the live agents registry.
+   * The registry remains the sole owner of agent identity and disposal; this
+   * method resolves it on every call and retains no agent reference.
+   * @param sessionId - the identity of the session to read.
+   * @returns the current view, or undefined when no live agent or task exists.
+   */
+  viewOf(sessionId: SessionId): KernelView | undefined {
+    const agent = this.ctx.get('agents')?.get(sessionId)
+    return agent === undefined ? undefined : this.state.view(agent.session)
   }
 
   /**
@@ -838,12 +865,13 @@ export class AgentKernelService extends Service implements AgentKernel {
   /**
    * Create the task contract on a session's first admitted step, then move it to
    * `executing` for the step the loop is about to run.
-   * @param session - the agent's session.
+   * @param agent - the agent proposing the step.
    * @param messages - the messages this step claims.
    * @param turn - the turn that will own the step.
    * @param step - the step the loop proposed.
    */
-  private openOrAdvance(session: Session, messages: readonly UserMessage[], turn: number, step: number): void {
+  private openOrAdvance(agent: Agent, messages: readonly UserMessage[], turn: number, step: number): void {
+    const session = agent.session
     const current = this.state.entryOf(session).task
     // A step admitted after the previous task ended is the next request in the
     // same conversation: it opens its own contract, exactly as the inbox claim
@@ -865,6 +893,9 @@ export class AgentKernelService extends Service implements AgentKernel {
       this.recordFailure(session, 'step-ceiling', `the task reached its ${String(ceiling)}-step ceiling`)
       const reached = this.state.ledgerTask(session)
       if (canTransition(reached.status, 'paused')) {
+        // §17.1: index the state a resume would restart from before the
+        // pause takes effect.
+        this.checkpoint(agent, 'before-pause')
         this.transition(session, reached, 'paused', { kind: 'budget-exhausted', detail: `turn ${turn} step ${step}` }, 'kernel')
       }
       return
@@ -1274,6 +1305,11 @@ export class AgentKernelService extends Service implements AgentKernel {
         source: 'policy', locator: profile.profile,
       }),
     })
+    if (declared?.some(request => request.capability === 'subagent.spawn' || request.capability === 'workflow.start')) {
+      // §17.1: a spawned child or workflow may run long enough to suspend
+      // this step, so the parent's state is indexed before the call proceeds.
+      this.checkpoint(agent, 'before-suspension')
+    }
     if (!enforced) return next()
     // The tool registry owns `ask` resolution: it routes the question through
     // the composed approval answerers and fails closed when there are none.
@@ -1345,6 +1381,9 @@ export class AgentKernelService extends Service implements AgentKernel {
     const view = this.state.view(session)
     if (view === undefined) return
     if (!isActive(view.task.status)) return
+    // §17.1: index the observed state before it advances toward
+    // verification, so a resume never replays past this turn's boundary.
+    this.checkpoint(agent, 'turn-boundary')
     const observed = canTransition(view.task.status, 'observing')
       ? this.transition(session, view.task, 'observing', { kind: 'turn-ended', detail: `turn ${turn}` }, 'kernel')
       : view.task
@@ -1390,6 +1429,8 @@ export class AgentKernelService extends Service implements AgentKernel {
       if (canTransition(failed.status, 'recovering')) {
         this.transition(session, failed, 'recovering', { kind: 'verification-failed', detail: decision.reasons.join('; ') }, 'kernel')
       }
+      // §17.1: index the failing state before the repair steer changes it.
+      this.checkpoint(agent, 'verification-failure')
       agent.steer(createUserMessage({
         content: [{ type: 'text', text: REPAIR_PROMPT(decision.reasons) }],
         source: { kind: 'agent-kernel', form: 'notice', summary: 'verification failed; repair the task' },

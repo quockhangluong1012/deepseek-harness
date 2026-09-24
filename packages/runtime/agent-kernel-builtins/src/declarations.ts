@@ -209,4 +209,8 @@ export const BUILTIN_DECLARATIONS: readonly CapabilityDeclaration[] = [
   { tool: 'stagehand_extract', capabilities: ['browser.read'], resources: args => fieldOf(args, ['instruction'], 'browser') },
   { tool: 'stagehand_screenshot', capabilities: ['browser.read'], resources: args => fieldOf(args, ['url'], 'browser') },
   { tool: 'stagehand_tabs', capabilities: ['browser.read'], resources: args => fieldOf(args, ['url', 'action'], 'browser') },
+  // Evidence and claims are durable task memory the kernel keeps; the content
+  // reference or the statement selects the rule.
+  { tool: 'record_evidence', capabilities: ['memory.write'], resources: args => fieldOf(args, ['contentRef'], 'evidence') },
+  { tool: 'record_claim', capabilities: ['memory.write'], resources: args => fieldOf(args, ['statement'], 'claim') },
 ]

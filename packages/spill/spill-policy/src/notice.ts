@@ -36,14 +36,9 @@ function isOmission(text: string): boolean {
     && text === describeOmitted({ kind: 'exact', count }, 'bytes')
 }
 
-/**
- * Recognize a final spill-policy notice in persisted text, including notice-only output.
- * This identifies the text convention, not authenticated tool-output origin.
- * @param text - complete recorded text result.
- * @returns whether a complete notice occupies the end of the result.
- */
-export function hasSpillNotice(text: string): boolean {
-  if (!text.endsWith(CLOSE)) return false
+/** Locate the recognized spill notice suffix without treating its origin as authenticated. */
+function spillNoticeStart(text: string): number | undefined {
+  if (!text.endsWith(CLOSE)) return undefined
   let start = 0
   while (true) {
     const next = text.indexOf(`${SEPARATOR}${OPEN}`, start)
@@ -51,9 +46,29 @@ export function hasSpillNotice(text: string): boolean {
     const location = candidate.indexOf(LOCATION, OPEN.length)
     if (candidate.startsWith(OPEN) && location >= 0
       && isOmission(candidate.slice(OPEN.length, location))) {
-      return text.indexOf(GUIDANCE_SEPARATOR, start + location + LOCATION.length) >= 0
+      return text.indexOf(GUIDANCE_SEPARATOR, start + location + LOCATION.length) >= 0 ? start : undefined
     }
-    if (next < 0) return false
+    if (next < 0) return undefined
     start = next + SEPARATOR.length
   }
+}
+
+/**
+ * Extract a recognized spill notice and its retrieval guidance from recorded text.
+ * @param text - complete recorded text result.
+ * @returns the notice suffix, or `undefined` when no complete notice is recognized.
+ */
+export function extractSpillNotice(text: string): string | undefined {
+  const start = spillNoticeStart(text)
+  return start === undefined ? undefined : text.slice(start)
+}
+
+/**
+ * Recognize a final spill-policy notice in persisted text.
+ * This identifies the text convention, not authenticated tool-output origin.
+ * @param text - complete recorded text result.
+ * @returns whether a complete notice occupies the end of the result.
+ */
+export function hasSpillNotice(text: string): boolean {
+  return spillNoticeStart(text) !== undefined
 }

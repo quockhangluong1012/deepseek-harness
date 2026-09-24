@@ -290,6 +290,29 @@ describe('continuable activation capacity', () => {
     }
   })
 
+  it('drains resident children before the subagent runtime unloads', async () => {
+    const release = Promise.withResolvers<undefined>()
+    const adapter = new GatedAdapter([{ chunks: textResponse('done'), gate: release.promise }])
+    const { ctx, parent } = await setupWith(adapter)
+    parkParent(ctx, parent)
+    const child = await ctx.subagents.startContinuable(startSpec(parent))
+    await vi.waitFor(() => { expect(adapter.requests).toHaveLength(1) })
+    const fiber = subagentConfigs.get(ctx)!.fiber
+    let disposed = false
+    try {
+      const disposal = fiber.dispose().then(() => { disposed = true })
+      await vi.waitFor(() => { expect(adapter.requests[0]?.signal?.aborted).toBe(true) })
+      expect(disposed).toBe(false)
+      release.resolve(undefined)
+      await disposal
+      expect(ctx.agents.get(child.childId)).toBeUndefined()
+      expect(ctx.get('subagents')).toBeUndefined()
+    } finally {
+      release.resolve(undefined)
+      await ctx.fiber.dispose()
+    }
+  })
+
   it('applies capacity edits to an existing root without stopping resident children', async () => {
     const release = Promise.withResolvers<undefined>()
     const adapter = new GatedAdapter(Array.from({ length: 4 }, () => ({ chunks: textResponse('done'), gate: release.promise })))

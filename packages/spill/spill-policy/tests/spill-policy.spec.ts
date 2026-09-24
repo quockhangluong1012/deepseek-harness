@@ -11,11 +11,13 @@
 import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
-import { createUserMessage, ToolCallId } from '@deepseek-ai/dsh-llm'
+import AgentContext from '@deepseek-ai/dsh-agent-context'
+import type { Agent } from '@deepseek-ai/dsh-agent'
+import { createMessage, createToolResultMessage, createUserMessage, ToolCallId } from '@deepseek-ai/dsh-llm'
 import { estimateContent } from '@deepseek-ai/dsh-token-meter/estimate'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { ContextFormed } from '@deepseek-ai/dsh-llm'
-import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
+import SessionStore, { Session, SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime, { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
@@ -178,6 +180,44 @@ describe('oversized plain-text replacement', () => {
     // is smaller than the original — the whole point of spilling.
     expect(estimateContent(result.content)).toBeLessThanOrEqual(64)
     expect(Buffer.byteLength(text, 'utf8')).toBeLessThan(body.length)
+  })
+
+  it('records spill recovery guidance as a required compiler source', async () => {
+    const { ctx } = await setup({ maxInlineTokens: 64 })
+    onTestFinished(async () => { await ctx.fiber.dispose() })
+    await ctx.plugin(SessionProjections)
+    await ctx.plugin(AgentContext, {})
+    ctx.tools.register(textTool('big', 'HEAD'.repeat(200) + 'TAIL'.repeat(200)))
+    const result = await ctx.tools.execute(exec('big'))
+    const callId = ToolCallId('spill-context')
+    const session = Session.create(SessionId('spill-context'))
+    session.append('turn/start', { turn: 1 })
+    session.append('step/start', { turn: 1, step: 1 })
+    session.append('assistant/message', {
+      stream: [], turn: 1, step: 1,
+      message: createMessage({
+        role: 'assistant',
+        content: [{ type: 'tool-call', id: callId, name: 'big', arguments: '{}' }],
+        source: { kind: 'model', provider: 'test', model: 'test' },
+      }),
+    }, { surfaceOp: 'append' })
+    session.append('tool/call', { turn: 1, step: 1, callId, name: 'big', arguments: '{}' })
+    const resultEvent = session.append('tool/result', {
+      turn: 1, step: 1,
+      message: createToolResultMessage({ callId, content: result.content, isError: result.isError }),
+    }, { surfaceOp: 'append' })
+    session.append('step/end', { turn: 1, step: 1 })
+    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    const compiled = await ctx.agentContext.compile({ id: session.id, session } as Agent, {
+      sections: [], contexts: [], tools: [], variables: {},
+    })
+
+    const resultText = textOf(result.content)
+    const noticeStart = resultText.indexOf('\n\n(')
+    const retained = compiled.included.find(entry => entry.source.id === `spill-notice-retention:${String(resultEvent.data.message.id)}`)
+    expect(noticeStart).toBeGreaterThanOrEqual(0)
+    expect(retained?.source.retention).toBe('required')
+    expect(retained?.source.content).toBe(resultText.slice(noticeStart + 2))
   })
 
   it('keeps the inline result when the notice-only replacement would exceed the cap', async () => {

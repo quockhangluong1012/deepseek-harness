@@ -1560,6 +1560,47 @@ describe('evolution reviewer', () => {
     }
   })
 
+  it('a rebuild never runs concurrently with a live turn extraction of the same scope', async () => {
+    const h = await harness(
+      { provider: 'p', model: 'm' },
+      async () => ({ events: [userEvent('older material')] }),
+    )
+    dirs.push(h.dir)
+    let release = (): void => {}
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    try {
+      h.streamImpl = () => {
+        if (h.calls.length > 1) return immediate(answer(newDecision('B')))()
+        return (async function* (): AsyncIterable<StreamChunk> {
+          await gate
+          yield* textChunks(answer(newDecision('A')))
+        })()
+      }
+      const session = sessionIn(h.ctx, h.dir, 's1')
+      const id = h.scope('ws-1')
+      h.workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: h.dir, sessionIds: [session.id] })
+      appendTurn(session, 1, { user: `remember ${'a'.repeat(300)}`, assistant: 'ok' })
+      await vi.waitFor(() => {
+        expect(h.calls).toHaveLength(1)
+      })
+      // The live turn's model call is still gated (in flight). A rebuild of the
+      // same scope must queue behind it rather than starting its own call: at
+      // most one extraction pass runs at a time per scope.
+      const rebuilding = h.ctx.evolutionReviewer.rebuild(id, new AbortController().signal)
+      await new Promise(resolve => setTimeout(resolve, 30))
+      expect(h.calls).toHaveLength(1)
+      release()
+      await rebuilding
+      expect(h.calls).toHaveLength(2)
+      expect(lessonsOf(h.ctx.evolutionMemory.read(id))).toContain('A')
+      expect(lessonsOf(h.ctx.evolutionMemory.read(id))).toContain('B')
+    } finally {
+      release()
+    }
+  })
+
   it('aborts in-flight extractions on context teardown', async () => {
     const h = await harness({ provider: 'p', model: 'm' })
     dirs.push(h.dir)
@@ -1765,6 +1806,73 @@ describe('evolution reviewer', () => {
       })
       // Replacement keeps exactly one recalled item.
       expect(h.ctx.evolutionMemory.read(id)?.contextItems).toHaveLength(1)
+    } finally {
+      await h.fiber.dispose()
+    }
+  })
+
+  it('grades a scope recall from a compiled verification outcome', async () => {
+    const h = await harness(
+      { provider: 'p', model: 'm', enabled: true },
+      undefined,
+      IMMEDIATE_TURNS,
+      {
+        searchSessions: async () => ({ items: [recallHit('s2', 7, 'prior parser fix')] }),
+        readEvent: async () => ({ target: userEvent('an older parser fix') }) as SessionEventWindow,
+      },
+    )
+    dirs.push(h.dir)
+    try {
+      h.streamImpl = immediate(answer(newDecision('R')))
+      const session = sessionIn(h.ctx, h.dir, 's1')
+      const id = h.scope('ws-1')
+      h.workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: h.dir, sessionIds: [session.id] })
+      appendTurn(session, 1, { user: 'fix the parser', assistant: 'ok' })
+      // The turn's own extraction lands with provenance, binding the recall
+      // still awaiting one to this asking session's decision batch.
+      await vi.waitFor(() => {
+        expect(h.ctx.evolutionMemory.read(id)?.recalls[0]).toMatchObject({
+          id: 's2',
+          decidedInSessionId: String(session.id),
+          outcome: null,
+        })
+      })
+      session.append('verification/result', {
+        taskId: 't1', revision: 1, status: 'pass', criterionResults: [], commands: [], verifierVersion: '1',
+      } as never)
+      await vi.waitFor(() => {
+        expect(h.ctx.evolutionMemory.read(id)?.recalls[0]).toMatchObject({ outcome: 'ok' })
+      })
+    } finally {
+      await h.fiber.dispose()
+    }
+  })
+
+  it('never grades a recall from an inconclusive verification outcome', async () => {
+    const h = await harness(
+      { provider: 'p', model: 'm', enabled: true },
+      undefined,
+      IMMEDIATE_TURNS,
+      {
+        searchSessions: async () => ({ items: [recallHit('s2', 7, 'prior parser fix')] }),
+        readEvent: async () => ({ target: userEvent('an older parser fix') }) as SessionEventWindow,
+      },
+    )
+    dirs.push(h.dir)
+    try {
+      h.streamImpl = immediate(answer(newDecision('R')))
+      const session = sessionIn(h.ctx, h.dir, 's1')
+      const id = h.scope('ws-1')
+      h.workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: h.dir, sessionIds: [session.id] })
+      appendTurn(session, 1, { user: 'fix the parser', assistant: 'ok' })
+      await vi.waitFor(() => {
+        expect(h.ctx.evolutionMemory.read(id)?.recalls[0]?.decidedInSessionId).toBe(String(session.id))
+      })
+      session.append('verification/result', {
+        taskId: 't1', revision: 1, status: 'unknown', criterionResults: [], commands: [], verifierVersion: '1',
+      } as never)
+      await new Promise(resolve => setTimeout(resolve, 50))
+      expect(h.ctx.evolutionMemory.read(id)?.recalls[0]?.outcome).toBeNull()
     } finally {
       await h.fiber.dispose()
     }

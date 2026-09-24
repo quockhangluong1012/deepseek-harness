@@ -9,6 +9,8 @@ import z from '@deepseek-ai/schemastery'
 import { freezeMessage } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { Session, SessionEvent, SessionSeq, ToolResultMessage } from '@deepseek-ai/dsh-session'
+// Type-only: the optional context compiler service declaration.
+import type {} from '@deepseek-ai/dsh-agent-context'
 // Type-only: the `compaction/*` SessionEventMap merges (the shadow-price event).
 import type {} from '@deepseek-ai/dsh-compaction'
 // Type-only: the `ctx.tokenMeter` Context merge for the declared injection.
@@ -35,6 +37,10 @@ declare module '@deepseek-ai/cordis' {
   }
 }
 
+const TOOL_RESULT_RETENTION_SOURCE = 'tool-result-retention'
+const SPILL_NOTICE_RETENTION_SOURCE = 'spill-notice-retention'
+
+
 interface SnapshotCandidate {
   readonly seq: SessionSeq
   readonly event: SessionEvent<'tool/result'>
@@ -58,6 +64,29 @@ export class ToolResultPruner extends Service {
   constructor(ctx: Context, config: ToolResultPruneConfig = {}) {
     super(ctx, 'toolResultPruner')
     this.config = resolveConfig(config)
+    // The latest placement selects the result to keep and the recovery notices to protect.
+    ctx.inject(['agentContext'], (compilerCtx) => {
+      compilerCtx.effect(() => compilerCtx.agentContext.register({
+        producer: TOOL_RESULT_RETENTION_SOURCE,
+        kind: 'tool',
+        trust: 'untrusted',
+        placement: 'tail-reminder',
+        maxBytes: Number.MAX_SAFE_INTEGER,
+      }, (agent, signal) => {
+        signal.throwIfAborted()
+        const messages = agent.session.deriveMessages()
+        for (let index = messages.length - 1; index >= 0; index -= 1) {
+          const message = messages[index]
+          if (message?.role !== 'tool') continue
+          const text = message.content
+            .filter((block): block is Extract<ContentBlock, { type: 'text' }> => block.type === 'text')
+            .map(block => block.text)
+            .join('')
+          return Promise.resolve(text.length === 0 ? [] : [{ id: String(message.id), text, relevance: 1 }])
+        }
+        return Promise.resolve([])
+      }))
+    })
   }
 
   /**
@@ -122,18 +151,17 @@ export class ToolResultPruner extends Service {
   }
 
   /**
-   * Prune every over-budget tool result from one stable current-surface snapshot.
-   * Each replacement preserves the complete event data except for `content`,
-   * cites the shadowed node so replay can recover the replacement input, and is
-   * immediately preceded by a `compaction/prune` shadow-price event pricing the
-   * shadowed node through the injected token meter, so pure consumers can
-   * subtract it without per-node state.
+   * Prune over-budget results not selected by the latest live context placement.
+   * An included recent-result source or required spill-notice source preserves
+   * its whole tool result; without a live placement, all surface results remain
+   * eligible. Each replacement preserves complete event data except `content`,
+   * cites the shadowed node, and is preceded by its shadow price.
    * @param session - session whose current surface is rewritten.
    * @returns landed replacements and aggregate Unicode-code-point savings.
-   * @throws when the session rejects a replacement; replacements committed
-   * earlier in the pass remain durable.
+   * @throws when the session rejects a replacement; earlier replacements stay durable.
    */
   pruneSession(session: Session): PruneResult {
+    const agentContext = this.ctx.get('agentContext')
     const candidates: SnapshotCandidate[] = []
     for (const seq of [...session.surface.nodes]) {
       // oxlint-disable-next-line typescript/no-deprecated -- Existing Session history read; migration deferred.
@@ -145,6 +173,9 @@ export class ToolResultPruner extends Service {
     const pruned: PrunedEntry[] = []
     let charsRemoved = 0
     for (const { seq, event } of candidates) {
+      const sourceId = String(event.data.message.id)
+      if (agentContext?.isIncluded(session, `${TOOL_RESULT_RETENTION_SOURCE}:${sourceId}`)
+        || agentContext?.isIncluded(session, `${SPILL_NOTICE_RETENTION_SOURCE}:${sourceId}`)) continue
       const original = session.deriveEventMessage(event) as ToolResultMessage
       const content = this.pruneContent(original.content)
       if (content === null) continue

@@ -99,7 +99,7 @@ Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnp
 
 ### `ctx.agentKernel` — `AgentKernelService`
 
-The kernel service (`ctx.agentKernel`). It attaches to the loop and tool waterfalls in its constructor, so unloading the plugin unloads every listener, declaration, and attachment with it.
+The kernel service (`ctx.agentKernel`). It attaches to the loop and tool waterfalls in its constructor. Plugin unload removes those registrations and awaits release of every open attachment.
 
 ```ts cordis-catalog
 /**
@@ -133,6 +133,15 @@ attach(agent: Agent): KernelAttachment
  * @returns the current view, or undefined before task intake.
  */
 snapshot(agent: Agent): Promise<KernelView | undefined>
+
+/**
+ * Read the current task view through the live agents registry.
+ * The registry remains the sole owner of agent identity and disposal; this
+ * method resolves it on every call and retains no agent reference.
+ * @param sessionId - the identity of the session to read.
+ * @returns the current view, or undefined when no live agent or task exists.
+ */
+viewOf(sessionId: SessionId): KernelView | undefined
 
 /**
  * Record an initial plan or a recovery amendment tied to one unresolved failure.
@@ -203,7 +212,7 @@ checkpoint(agent: Agent, reason: CheckpointReason): Checkpoint | undefined
 recordPlanMode(session: Session, active: boolean): void
 ```
 
-Types: [Agent](core.md) · [Session](session.md)
+Types: [Agent](core.md) · [Session](session.md) · [SessionId](core.md)
 
 Source: [`packages/runtime/agent-kernel/src/index.ts`](../../packages/runtime/agent-kernel/src/index.ts)
 <!-- END GENERATED cordis-surface -->

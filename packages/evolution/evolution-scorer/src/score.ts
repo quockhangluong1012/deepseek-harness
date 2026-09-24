@@ -16,8 +16,9 @@ import type { ScoreInput, ScoreRecord, WorkspaceChange } from './types.ts'
  * expected capture, or its own initial state when the scenario ships no
  * `workspace.expected/`. `changes` reports the first divergent attempt, so a
  * failure names paths rather than only a verdict. Tokens and wall time are
- * medians across attempts.
- * @param input - scenario name, expected capture, and the per-attempt observations.
+ * medians across attempts. `fixtureDigest` passes through unchanged, and
+ * `trajectory` carries the first attempt's harvested session id, or null.
+ * @param input - scenario name, expected capture, the fixture digest, and the per-attempt observations.
  * @returns the metric triple for this scenario.
  */
 export function scoreRun(input: ScoreInput): ScoreRecord {
@@ -36,5 +37,7 @@ export function scoreRun(input: ScoreInput): ScoreRecord {
     tokens: medianOf(input.attempts.map(attempt => attempt.tokens)),
     wallTimeMs: medianOf(input.attempts.map(attempt => attempt.wallTimeMs)),
     samples: input.attempts.map(attempt => attempt.wallTimeMs),
+    fixtureDigest: input.fixtureDigest,
+    trajectory: input.attempts[0]?.sessionId ?? null,
   }
 }

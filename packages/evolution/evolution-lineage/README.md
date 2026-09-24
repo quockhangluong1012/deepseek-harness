@@ -43,7 +43,7 @@ const verdict = ctx.evolutionLineage.compare('exp-0', 'exp-1')
 if (verdict?.comparable) console.log('apples-to-apples')
 ```
 
-`record(input)` stamps the envelope's recording instant and stores it under its experiment identity. `experiments(skill?)` lists envelopes newest first; `envelope(id)` reads one envelope detached, or undefined when unknown; `compare(idA, idB)` reports whether the two envelopes agree on the configured compared keys and names the changed keys, or undefined when either id is unknown; `replay(id)` returns the detached envelope whose seeds reproduce the run.
+`record(input)` stamps the envelope's recording instant and stores it under its experiment identity. `experiments(skill?)` lists envelopes newest first; `envelope(id)` reads one envelope detached, or undefined when unknown; `compare(idA, idB)` reports whether the two envelopes agree on the configured compared keys and names the changed keys, or undefined when either id is unknown; `replay(id)` returns the detached envelope whose seeds reproduce the run. `amendOutcome(id, outcome, rejectedReason?)` updates an existing envelope's outcome and rejection reason in place, leaving every other field untouched, and throws for an unknown id — `command-evolution`'s `/canary reject`/`/canary rollback` call it so a candidate's recorded `'improved'` verdict does not outlive an operator's later decision that it did not hold.
 
 ### Configuration
 

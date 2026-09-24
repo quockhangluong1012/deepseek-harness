@@ -93,6 +93,12 @@ interface ResolvedTask {
   run: (signal: AbortSignal) => Promise<void> | void
 }
 
+/** One active attempt owned by its exact task registration. */
+interface ActiveAttempt {
+  controller: AbortController
+  operation: Promise<HeartbeatTaskReport>
+}
+
 /**
  * Host-wide idle-triggered task registry. Opens the `evolution_heartbeat`
  * domain at init and closes it through `ctx.effect`.
@@ -105,8 +111,12 @@ export class EvolutionHeartbeat extends Service {
   private readonly tasks = new Map<string, ResolvedTask>()
   /** Newest host-wide session activity this process observed, or null before any. */
   private lastActivityAt: number | null = null
-  /** Cancellation for the task attempt in flight, aborted at teardown. */
-  private active: AbortController | undefined
+  /** Attempts still owned by each task registration. */
+  private readonly active = new Map<ResolvedTask, Set<ActiveAttempt>>()
+  /** Scheduling passes and direct task runs still owned by this service. */
+  private readonly inFlight = new Set<Promise<unknown>>()
+  /** Set before teardown aborts work, so no new work starts. */
+  private stopping = false
 
   /**
    * @param ctx - Host context carrying the storage domain.
@@ -119,41 +129,46 @@ export class EvolutionHeartbeat extends Service {
 
   /**
    * Open the domain, observe host-wide activity, and own the maintenance
-   * schedule. The start-time due-check runs first and awaits, so a short-lived
-   * CLI process cannot exit before a due task ran; the repeating tick is
+   * schedule. No task can be registered before this method's `ctx.provide`
+   * takes effect, so the start-time due-check always finds an empty task
+   * table; it runs fire-and-forget, matching the interval tick, so plugin
+   * startup never waits on a background pass. The repeating tick is
    * `unref()`ed and disposed through `ctx.effect`.
    */
   protected async [Service.init](): Promise<void> {
     const domain = await this.ctx.storageDomain.open(heartbeatDomainSpec)
-    this.ctx.effect(() => () => domain.close(), 'evolution-heartbeat.domainClose')
     this.table = domain.table('tasks')
     this.ctx.on('session/event', () => {
       this.lastActivityAt = Date.now()
     })
+    const timer: { handle?: ReturnType<typeof setInterval> } = {}
+    this.ctx.effect(() => async () => {
+      clearInterval(timer.handle)
+      await this.drain()
+      await domain.close()
+    }, 'evolution-heartbeat.lifecycle')
     if (!this.resolved.enabled) return
-    this.ctx.effect(() => () => this.active?.abort(), 'evolution-heartbeat.abort')
-    await this.runDue()
-    this.ctx.effect(() => {
-      const timer = setInterval(() => {
-        void this.runDue().catch((error: unknown) => {
-          this.ctx.logger.warn(`evolution heartbeat scheduled pass failed: ${String(error)}`)
-        })
-      }, this.resolved.tickMinutes * 60_000)
-      timer.unref()
-      return () => {
-        clearInterval(timer)
-      }
-    }, 'evolution-heartbeat.tick')
+    const runScheduledPass = (): void => {
+      void this.runDue().catch((error: unknown) => {
+        this.ctx.logger.warn(`evolution heartbeat scheduled pass failed: ${String(error)}`)
+      })
+    }
+    runScheduledPass()
+    const handle = setInterval(runScheduledPass, this.resolved.tickMinutes * 60_000)
+    timer.handle = handle
+    handle.unref()
   }
 
   /**
-   * Register one task. The task runs only while its registration is live, so a
-   * consumer disposes it by calling the returned disposer. A task registered
-   * after start-up is seeded by the next due-check and defers one interval.
+   * Register one task. The task runs only while its registration is live. A
+   * consumer disposes it by calling the returned disposer.
    * @param task - identity, cadence, and the work to run.
-   * @returns the disposer removing the task; idempotent.
+   * @returns an idempotent asynchronous disposer that removes the task,
+   *   aborts an active attempt, and waits for it to settle.
+   * @throws when teardown has begun or the task descriptor is unusable.
    */
-  register(task: HeartbeatTask): () => void {
+  register(task: HeartbeatTask): () => Promise<void> {
+    if (this.stopping) throw new Error('evolution-heartbeat: service is disposing')
     if (!TASK_NAME_RE.test(task.name)) {
       throw new Error(`evolution-heartbeat: task name '${task.name}' must match ${TASK_NAME_RE}`)
     }
@@ -167,12 +182,19 @@ export class EvolutionHeartbeat extends Service {
     if (!Number.isFinite(minIdleHours) || minIdleHours < 0) {
       throw new Error(`evolution-heartbeat: task '${task.name}' minIdleHours must not be negative`)
     }
-    this.tasks.set(task.name, { intervalHours: task.intervalHours, minIdleHours, run: task.run })
-    let disposed = false
+    const resolved: ResolvedTask = { intervalHours: task.intervalHours, minIdleHours, run: task.run }
+    this.tasks.set(task.name, resolved)
+    let disposal: Promise<void> | undefined
     return () => {
-      if (disposed) return
-      disposed = true
-      this.tasks.delete(task.name)
+      if (disposal !== undefined) return disposal
+      if (this.tasks.get(task.name) === resolved) this.tasks.delete(task.name)
+      const attempts = this.active.get(resolved)
+      const running = attempts === undefined ? [] : [...attempts]
+      for (const attempt of running) {
+        attempt.controller.abort(new Error(`evolution-heartbeat: task '${task.name}' was unregistered`))
+      }
+      disposal = Promise.allSettled(running.map(attempt => attempt.operation)).then(() => {})
+      return disposal
     }
   }
 
@@ -221,14 +243,21 @@ export class EvolutionHeartbeat extends Service {
    * not elapsed, or whose idle gate is unsatisfied, is deferred. Tasks run
    * sequentially, and a failing task is recorded without stopping the pass.
    * @param options - clock, idleness, and force overrides.
-   * @returns one entry per registered task.
+   * @returns entries for tasks reached before teardown stops the pass.
    */
-  async runDue(options: HeartbeatRunOptions = {}): Promise<HeartbeatReport> {
+  runDue(options: HeartbeatRunOptions = {}): Promise<HeartbeatReport> {
+    if (this.stopping) return Promise.reject(new Error('evolution-heartbeat: service is disposing'))
+    return this.track(this.runDuePass(options))
+  }
+
+  private async runDuePass(options: HeartbeatRunOptions): Promise<HeartbeatReport> {
     const now = options.now ?? Date.now()
     const at = new Date(now).toISOString()
     const idleMs = this.idleMsAt(now, options.idleMs)
     const tasks: HeartbeatTaskReport[] = []
     for (const [name, task] of [...this.tasks]) {
+      if (this.stopping) break
+      if (this.tasks.get(name) !== task) continue
       if (!options.force) {
         const row = this.requireTable().get(name)
         if (row === undefined) {
@@ -256,10 +285,11 @@ export class EvolutionHeartbeat extends Service {
    * @param options - clock override.
    * @returns the task's report, or undefined when no such task is registered.
    */
-  async runTask(name: string, options: HeartbeatRunOptions = {}): Promise<HeartbeatTaskReport | undefined> {
+  runTask(name: string, options: HeartbeatRunOptions = {}): Promise<HeartbeatTaskReport | undefined> {
+    if (this.stopping) return Promise.reject(new Error('evolution-heartbeat: service is disposing'))
     const task = this.tasks.get(name)
-    if (task === undefined) return undefined
-    return this.attempt(name, task, options.now ?? Date.now())
+    if (task === undefined) return Promise.resolve(undefined)
+    return this.track(this.attempt(name, task, options.now ?? Date.now()))
   }
 
   /**
@@ -267,21 +297,67 @@ export class EvolutionHeartbeat extends Service {
    * whether it succeeded or failed, so a permanently failing task is retried
    * on its interval instead of every tick.
    */
-  private async attempt(name: string, task: ResolvedTask, now: number): Promise<HeartbeatTaskReport> {
+  private attempt(name: string, task: ResolvedTask, now: number): Promise<HeartbeatTaskReport> {
     const controller = new AbortController()
-    this.active = controller
+    const operation = Promise.resolve().then(() => this.runAttempt(name, task, now, controller))
+    let attempts = this.active.get(task)
+    if (attempts === undefined) {
+      attempts = new Set()
+      this.active.set(task, attempts)
+    }
+    const activeAttempt: ActiveAttempt = { controller, operation }
+    attempts.add(activeAttempt)
+    const retire = (): void => {
+      attempts.delete(activeAttempt)
+      if (attempts.size === 0) this.active.delete(task)
+    }
+    void operation.then(retire, retire)
+    return operation
+  }
+
+  private async runAttempt(
+    name: string,
+    task: ResolvedTask,
+    now: number,
+    controller: AbortController,
+  ): Promise<HeartbeatTaskReport> {
     try {
       await task.run(controller.signal)
+      if (controller.signal.aborted) {
+        return { name, outcome: 'deferred', reason: 'task attempt cancelled during teardown' }
+      }
       await this.stamp(name, now, null)
       return { name, outcome: 'ran' }
     } catch (error: unknown) {
+      if (controller.signal.aborted) {
+        return { name, outcome: 'deferred', reason: 'task attempt cancelled during teardown' }
+      }
       const message = error instanceof Error ? error.message : String(error)
       await this.stamp(name, now, message)
       this.ctx.logger.warn(`evolution heartbeat task '${name}' failed: ${message}`)
       return { name, outcome: 'failed', error: message }
-    } finally {
-      this.active = undefined
     }
+  }
+
+  /** Track work so teardown waits for the promise returned to its caller. */
+  private track<T>(operation: Promise<T>): Promise<T> {
+    this.inFlight.add(operation)
+    void operation.then(
+      () => { this.inFlight.delete(operation) },
+      () => { this.inFlight.delete(operation) },
+    )
+    return operation
+  }
+
+  /** Abort active attempts and wait until every pass has settled. */
+  private async drain(): Promise<void> {
+    this.stopping = true
+    for (const attempts of this.active.values()) {
+      for (const attempt of attempts) {
+        attempt.controller.abort(new Error('evolution-heartbeat: service disposed'))
+      }
+    }
+    while (this.inFlight.size > 0) await Promise.allSettled([...this.inFlight])
   }
 
   /** Write one task's bookkeeping row, seeding it on the first attempt. */

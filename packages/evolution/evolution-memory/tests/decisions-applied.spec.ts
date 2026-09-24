@@ -35,7 +35,10 @@ function scope(name = 'ws-decisions'): ScopeId {
 
 /** One caller-supplied artifact candidate, with the fields a test varies pinned. */
 function candidate(statement: string, source = 's1'): LessonArtifactInput {
-  return { statement, source, conditions: '', evidence: 'fact', confidence: 0.9, scope: 'project', sourceRefs: [`session:${source}`] }
+  return {
+    statement, source, conditions: '', evidence: 'fact', confidence: 0.9, scope: 'project',
+    sourceRefs: [`session:${source}`], trajectoryRefs: [`run:${source}`], lineage: { origin: source },
+  }
 }
 
 /** One extraction's provenance, as the reviewer stamps it on a batch. */

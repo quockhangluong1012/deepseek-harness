@@ -3,7 +3,7 @@ import { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { ToolCallId, createToolResultMessage } from '@deepseek-ai/dsh-llm'
 import SessionStore, { type Session, SessionId } from '@deepseek-ai/dsh-session'
-import SystemPrompt, { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
+import SystemPrompt, { renderContextSnapshot, renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import Storage from '@deepseek-ai/dsh-storage'
 import { DomainFacility } from '@deepseek-ai/dsh-storage-domain'
 import EvolutionBenchmark from '@deepseek-ai/dsh-evolution-benchmark'
@@ -47,6 +47,8 @@ async function nudgeHarness(options: {
     stagedWriteWaitMinutes?: number
   }
   skillTool?: boolean
+  /** Whether a session-search seam is mounted; defaults to available. */
+  searchEnabled?: boolean
 } = {}): Promise<NudgeHarness> {
   const stores = new Set(options.stores ?? [])
   const ctx = new Context()
@@ -82,6 +84,9 @@ async function nudgeHarness(options: {
   ctx.provide('tools', {
     get: (name: string) => name === 'skill_manage' && options.skillTool !== false ? {} : undefined,
   } as never)
+  if (options.searchEnabled !== false) {
+    ctx.provide('sessionQuery', { searchSessions: async () => ({ items: [] }) } as never)
+  }
   const fiber = await ctx.plugin(evolutionMemoryContext, { maxBytes: 8192, profile: 'test', ...options.config })
   return {
     ctx,
@@ -93,13 +98,20 @@ async function nudgeHarness(options: {
   }
 }
 
-/** Count `turns` further observed turns, then render the prompt the assembly would send. */
+/**
+ * Count `turns` further observed turns, then render everything the assembly
+ * would send: the static section prompt plus the tail-positioned dynamic
+ * runtime-context snapshot. Turn-conditional nudges render in the latter
+ * (S1 point: tail context), so a caller checking only `renderPrompt` would
+ * see them disappear even though the model still receives them.
+ */
 async function nudgePrompt(ctx: Context, session: Session, turns = 0): Promise<string> {
   for (let turn = 0; turn < turns; turn += 1) {
     ctx.emit('session/event', session, { type: 'turn/start' } as never)
   }
   const agent = { id: String(session.id), session } as unknown as Agent
-  return renderPrompt(await ctx.systemPrompt.assemble({ agent }))
+  const assembly = await ctx.systemPrompt.assemble({ agent })
+  return `${renderPrompt(assembly)}\n\n${renderContextSnapshot(assembly)}`
 }
 
 /** Append one failing tool call and its result, as the feedback store observes them. */
@@ -137,6 +149,29 @@ describe('evolution nudge sections', () => {
     ]).size).toBe(3)
   })
 
+  it('renders a fired turn-conditional nudge as tail context, never as a static section', async () => {
+    const h = keep(await nudgeHarness({ config: { stagedWriteWaitMinutes: 0 } }))
+    await h.ctx.evolutionMemory.stageWrite({
+      scopeId: h.scope,
+      kind: 'memory',
+      op: 'setInstructions',
+      payload: { text: 'rules' },
+      originSessionId: String(h.session.id),
+      gist: 'rules',
+    })
+    const agent = { id: String(h.session.id), session: h.session } as unknown as Agent
+    const assembly = await h.ctx.systemPrompt.assemble({ agent })
+    // The condition fired: it reaches the model through the dynamic
+    // runtime-context snapshot (a fresh user-role message near the tail of
+    // history), never baked into the static section prompt.
+    expect(renderContextSnapshot(assembly)).toContain(SCOPE_FRAGMENT)
+    expect(assembly.sections.some(section => section.text.includes(SCOPE_FRAGMENT))).toBe(false)
+    // The standing session-search hint is not turn-conditional: it stays a
+    // static section, unaffected by the migration.
+    expect(assembly.sections.some(section => section.name === SESSION_SEARCH_SECTION.name)).toBe(true)
+    expect(assembly.contexts.some(context => context.name === SESSION_SEARCH_SECTION.name)).toBe(false)
+  })
+
   it('caps a fired condition at its interval and repeats within one turn', () => {
     expect(nudgeDue(undefined, 0, 5)).toBe(true)
     expect(nudgeDue(4, 4, 5)).toBe(true)
@@ -145,7 +180,7 @@ describe('evolution nudge sections', () => {
     expect(nudgeDue(4, 10, 1)).toBe(true)
   })
 
-  it('resolves the shipped cadence and threshold defaults', () => {
+  it('resolves the shipped cadence, threshold, and supersede-gate defaults', () => {
     expect(evolutionMemoryContext.resolveConfig({ maxBytes: 8, profile: 'p' })).toEqual({
       maxBytes: 8,
       profile: 'p',
@@ -154,6 +189,8 @@ describe('evolution nudge sections', () => {
       stagedWriteWaitMinutes: 1440,
       failureSignalScanLimit: 20,
       capacityWarnPct: 0.8,
+      minSupersedeChangeBytes: 0,
+      maxSupersedesPerSession: 1000000,
     })
     expect(evolutionMemoryContext.resolveConfig({
       maxBytes: 9,
@@ -163,6 +200,8 @@ describe('evolution nudge sections', () => {
       stagedWriteWaitMinutes: 5,
       failureSignalScanLimit: 6,
       capacityWarnPct: 0.4,
+      minSupersedeChangeBytes: 64,
+      maxSupersedesPerSession: 3,
     })).toEqual({
       maxBytes: 9,
       profile: 'q',
@@ -171,6 +210,8 @@ describe('evolution nudge sections', () => {
       stagedWriteWaitMinutes: 5,
       failureSignalScanLimit: 6,
       capacityWarnPct: 0.4,
+      minSupersedeChangeBytes: 64,
+      maxSupersedesPerSession: 3,
     })
   })
 
@@ -326,6 +367,19 @@ describe('evolution nudge sections', () => {
     expect(prompt).toContain(SESSION_SEARCH_SECTION.text)
     expect(prompt).not.toContain('Benchmark holdouts:')
     expect(prompt).not.toContain('skill_manage')
+  })
+
+  it('hides the session-search hint when no search seam is mounted', async () => {
+    const enabled = keep(await nudgeHarness({}))
+    const enabledAssembly = await enabled.ctx.systemPrompt.assemble({})
+    expect(renderPrompt(enabledAssembly)).toContain(SESSION_SEARCH_SECTION.text)
+
+    const disabled = keep(await nudgeHarness({ searchEnabled: false }))
+    const disabledAssembly = await disabled.ctx.systemPrompt.assemble({})
+    // The section registration still exists (a name every assembly can shadow
+    // or query), but its rendered text is empty without a search seam.
+    expect(disabledAssembly.sections.map(section => section.name)).toContain('evolution-session-search')
+    expect(renderPrompt(disabledAssembly)).not.toContain(SESSION_SEARCH_SECTION.text)
   })
 
   it('keeps the system prompt byte-identical across a memory write (cache-prefix stability)', async () => {

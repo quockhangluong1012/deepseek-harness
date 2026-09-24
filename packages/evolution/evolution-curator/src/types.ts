@@ -218,12 +218,17 @@ export interface ConsolidationCost {
   truncated: boolean
 }
 
-/** One patch body the verifier ladder refused, with the level that decided. */
+/** One patch body the verifier ladder, or the curator's own diff-size or required-pass gate, refused. */
 export interface ConsolidationRefusal {
   /** Skill name the refused body targeted. */
   name: string
-  /** Verifier rung that refused the body. */
-  level: VerifierLevel
+  /**
+   * Verifier rung that refused the body; `'diff-cap'` for the curator-owned
+   * size gate the ladder does not run; `'ladder-incomplete'` when
+   * `requireVerifierPass` demanded a full pass and the ladder abstained
+   * instead — nothing failed, but nothing decided either.
+   */
+  level: VerifierLevel | 'diff-cap' | 'ladder-incomplete'
   /** The rung's name and reason, as the verdict phrased it. */
   reason: string
 }

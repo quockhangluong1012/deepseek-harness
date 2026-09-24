@@ -3,7 +3,9 @@ import { resolve } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import { emitAgentEvent } from '@deepseek-ai/dsh-agent'
+import { SessionId } from '@deepseek-ai/dsh-session'
 import { brandString } from '@deepseek-ai/dsh-brand'
+import type { CompactionId } from '@deepseek-ai/dsh-compaction'
 import ApprovalService from '@deepseek-ai/dsh-user-approval'
 import SandboxPolicy from '@deepseek-ai/dsh-sandbox-policy'
 import { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
@@ -785,6 +787,24 @@ describe('attachments and checkpoints', () => {
     expect(kernel.attach(agent).taskId).toBe(attachment.taskId)
   })
 
+  it('reads a live task view by session identity, without requiring the caller already hold the Agent', async () => {
+    const { ctx } = await mounted()
+    const kernel = ctx.agentKernel
+    const agent = await makeAgent(ctx)
+    expect(kernel.viewOf(agent.id)).toBeUndefined()
+
+    await preStep(ctx, agent, [humanMessage('go')])
+    expect(kernel.viewOf(agent.id)?.task.taskId).toBe(currentTask(agent).taskId)
+    expect(kernel.viewOf(agent.id)?.task.status).toBe('executing')
+
+    await stopTurn(ctx, agent)
+    expect(kernel.viewOf(agent.id)?.task.status).toBe('completed')
+
+    // A session identity `ctx.agents` never registered resolves to nothing,
+    // never a stale or foreign view.
+    expect(kernel.viewOf(SessionId('never-registered'))).toBeUndefined()
+  })
+
   it('records a checkpoint of the current kernel state', async () => {
     const { ctx, kernel } = await mounted()
     const agent = await makeAgent(ctx)
@@ -834,8 +854,98 @@ describe('attachments and checkpoints', () => {
     const agent = await makeAgent(ctx)
     await preStep(ctx, agent, [humanMessage('go')])
     const attachment = kernel.attach(agent)
-    await ctx.fiber.dispose()
-    expect(attachment.taskId).toBe(currentTask(agent).taskId)
-    await attachment.dispose()
+    const originalDispose = attachment.dispose.bind(attachment)
+    const entered = Promise.withResolvers<undefined>()
+    const release = Promise.withResolvers<undefined>()
+    attachment.dispose = async () => {
+      entered.resolve(undefined)
+      await release.promise
+      await originalDispose()
+    }
+    let disposed = false
+    const disposal = ctx.fiber.dispose().then(() => { disposed = true })
+    try {
+      await entered.promise
+      await new Promise(resolve => setImmediate(resolve))
+      expect(disposed).toBe(false)
+      release.resolve(undefined)
+      await disposal
+      expect(disposed).toBe(true)
+      expect(attachment.taskId).toBe(currentTask(agent).taskId)
+    } finally {
+      release.resolve(undefined)
+      await Promise.allSettled([disposal, ctx.fiber.dispose()])
+    }
+  })
+
+  it('checkpoints automatically at every turn boundary', async () => {
+    const { ctx } = await mounted()
+    const agent = await makeAgent(ctx)
+    await preStep(ctx, agent, [humanMessage('go')])
+
+    await stopTurn(ctx, agent)
+
+    expect(eventsOf(agent, 'checkpoint/created').map(entry => entry.reason)).toContain('turn-boundary')
+  })
+
+  it('checkpoints before a task pauses at its step ceiling', async () => {
+    const { ctx } = await mounted({ budgets: { maxSteps: 2 } })
+    const agent = await makeAgent(ctx)
+
+    await preStep(ctx, agent, [humanMessage('one')], 1, 1)
+    agent.session.append('step/start', { turn: 1, step: 1 })
+    await preStep(ctx, agent, [humanMessage('two')], 1, 2)
+    agent.session.append('step/start', { turn: 1, step: 2 })
+    await preStep(ctx, agent, [humanMessage('three')], 1, 3)
+
+    expect(currentTask(agent).status).toBe('paused')
+    expect(eventsOf(agent, 'checkpoint/created').map(entry => entry.reason)).toContain('before-pause')
+  })
+
+  it('checkpoints before a compaction pass begins', async () => {
+    const { ctx } = await mounted()
+    const agent = await makeAgent(ctx)
+    await preStep(ctx, agent, [humanMessage('go')])
+
+    agent.session.append('compaction/start', { compactionId: brandString<CompactionId>('c-1'), turn: 1 })
+    // The kernel defers the checkpoint past the session's append-reentrancy
+    // guard onto the next microtask.
+    await Promise.resolve()
+
+    expect(eventsOf(agent, 'checkpoint/created').map(entry => entry.reason)).toContain('before-compaction')
+  })
+
+  it('checkpoints a verification failure before the repair steer', async () => {
+    const { ctx, kernel } = await mounted({
+      acceptance: [{ id: 'build', description: 'build passes', verifier: 'assertion', required: true }],
+      maxRepairAttempts: 2,
+    })
+    kernel.verifiers.register({
+      id: 'reports-fail',
+      supports: () => true,
+      verify: async (_request, criterion) => ({ result: { criterionId: criterion.id, status: 'fail', evidence: [] } }),
+    })
+    const agent = await makeAgent(ctx)
+    const steered: string[] = []
+    agent.steer = () => { steered.push('steered') }
+
+    await preStep(ctx, agent, [humanMessage('one')])
+    await stopTurn(ctx, agent)
+
+    expect(steered).toHaveLength(1)
+    expect(eventsOf(agent, 'checkpoint/created').map(entry => entry.reason)).toContain('verification-failure')
+  })
+
+  it('checkpoints before an authorized action spawns a subagent or workflow', async () => {
+    const { ctx, kernel } = await mounted({ mode: 'enforce', policy: ALLOW_ALL })
+    const agent = await makeAgent(ctx)
+    registerTool(ctx, 'spawn_child')
+    kernel.capabilities.register({ tool: 'spawn_child', capabilities: ['subagent.spawn'], resources: () => 'child' })
+    await preStep(ctx, agent, [humanMessage('go')])
+
+    const result = await callTool(ctx, 'spawn_child', agent, 'call-spawn')
+
+    expect(result.isError).toBeFalsy()
+    expect(eventsOf(agent, 'checkpoint/created').map(entry => entry.reason)).toContain('before-suspension')
   })
 })

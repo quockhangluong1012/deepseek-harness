@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { fitBudget, priceOf, priceSources } from '../src/budget.ts'
+import type { BudgetHysteresis } from '../src/budget.ts'
 import type { CompiledSource, ContextSource, ContextSourceKind, RetentionClass } from '../src/types.ts'
 
 /** One envelope fixture of a given kind. */
@@ -69,5 +70,27 @@ describe('budget cut', () => {
     const placement = fitBudget([priced('a', 'compressible', 10)], 10)
     expect(placement.included.map(entry => entry.source.id)).toEqual(['a'])
     expect(placement.omitted).toEqual([])
+  })
+
+  it('keeps a previously cut compressible source omitted even when it would now fit', () => {
+    const hysteresis: BudgetHysteresis = { includedIds: new Set(), omittedIds: new Set(['a']) }
+    const placement = fitBudget([priced('a', 'compressible', 5)], 10, hysteresis)
+    expect(placement.included).toEqual([])
+    expect(placement.omitted).toEqual([{ id: 'a', reason: 'budget' }])
+    expect(placement.tokenEstimate).toBe(0)
+  })
+
+  it('keeps a previously included compressible source past the ceiling', () => {
+    const hysteresis: BudgetHysteresis = { includedIds: new Set(['a']), omittedIds: new Set() }
+    const placement = fitBudget([priced('a', 'compressible', 100)], 10, hysteresis)
+    expect(placement.included.map(entry => entry.source.id)).toEqual(['a'])
+    expect(placement.tokenEstimate).toBe(100)
+  })
+
+  it('fits a new source against the room remaining after frozen inclusions', () => {
+    const hysteresis: BudgetHysteresis = { includedIds: new Set(['frozen']), omittedIds: new Set() }
+    const placement = fitBudget([priced('frozen', 'compressible', 8), priced('new', 'compressible', 5)], 10, hysteresis)
+    expect(placement.included.map(entry => entry.source.id)).toEqual(['frozen'])
+    expect(placement.omitted).toEqual([{ id: 'new', reason: 'budget' }])
   })
 })

@@ -9,6 +9,9 @@
   ],
   "references": [
     {
+      "path": "../../runtime/agent-kernel"
+    },
+    {
       "path": "../../guard/prompt-injection"
     },
     {

@@ -235,16 +235,14 @@ measureContent(blocks: readonly ContentBlock[]): number
 pruneContent(blocks: readonly ContentBlock[]): ContentBlock[] | null
 
 /**
- * Prune every over-budget tool result from one stable current-surface snapshot.
- * Each replacement preserves the complete event data except for `content`,
- * cites the shadowed node so replay can recover the replacement input, and is
- * immediately preceded by a `compaction/prune` shadow-price event pricing the
- * shadowed node through the injected token meter, so pure consumers can
- * subtract it without per-node state.
+ * Prune over-budget results not selected by the latest live context placement.
+ * An included recent-result source or required spill-notice source preserves
+ * its whole tool result; without a live placement, all surface results remain
+ * eligible. Each replacement preserves complete event data except `content`,
+ * cites the shadowed node, and is preceded by its shadow price.
  * @param session - session whose current surface is rewritten.
  * @returns landed replacements and aggregate Unicode-code-point savings.
- * @throws when the session rejects a replacement; replacements committed
- * earlier in the pass remain durable.
+ * @throws when the session rejects a replacement; earlier replacements stay durable.
  */
 pruneSession(session: Session): PruneResult
 ```

@@ -7,18 +7,18 @@ kind: "package-reference"
 
 [English](README.md) | 中文
 
-## Summary
+## 概述
 
 通过任务的持久会话日志记录研究观察与主张。`record_evidence` 保存来源引用与可选摘要；`record_claim` 引用同一会话中已记录的证据。两个工具都要求当前任务已挂载 Kernel，`maxTextChars` 会限制写入文本长度。
 
-## Table of Contents
+## 目录
 
 - [使用本包](#use-this-package)
 - [理解实现](#understand-the-implementation)
 - [进一步探索](#further-exploration)
 - [模型体验](#model-experience)
 - [已知限制与待办](#known-limitations-and-deferred-work)
-- [Dev Note](#dev-note)
+- [开发备注](#dev-note)
 
 -----
 
@@ -99,7 +99,7 @@ kind: "package-reference"
 - **主张只属于当前会话。** 主张只能引用本任务会话记录的证据；跨会话晋升由单独的准入流程负责。
 
 <a id="dev-note"></a>
-### Dev Note
+### 开发备注
 
 <details>
 <summary>维护者的工作上下文——点击展开</summary>

@@ -109,7 +109,8 @@ kind: "package-reference"
 | 成员 | 回答什么 |
 |---|---|
 | `state.view(session)` | 当前任务契约、预算观测、未完成动作、未解决失败、最新计划、最新检查点，以及 agent 为子级时的委派回执 |
-| `attach(agent)` | 一个句柄，其 `snapshot()` 读取实时视图，其 `dispose()` 释放 Kernel 的引用 |
+| `viewOf(sessionId)` | 按会话身份读取实时 agent 的当前 Kernel 视图；该身份未注册实时 agent 或任务时返回 undefined |
+| `attach(agent)` | 一个句柄，其 `snapshot()` 读取实时视图、`dispose()` 释放 Kernel 的引用；插件卸载会等待所有已打开句柄释放 |
 | `capabilities.register(declaration)` | 声明一个工具的能力，并可选声明它所处理内容的信任度，返回 disposer |
 | `profiles.register(profile)` | 注册一个 agent 角色——其能力授予、策略 profile 与各项上限——并返回 disposer |
 | `registerPolicyProfileProvider(provider)` | 选择该会话的策略层，并与部署文档求交，返回 disposer |
@@ -137,6 +138,10 @@ kind: "package-reference"
 ### 验证失败与修复
 
 达到所配置步骤上限的任务不会再被接纳新的步骤：Kernel 记录一条 `step-ceiling` 失败，将其归类为 `checkpoint-pause`，并只把任务置为 `paused` 一次——之后的步骤不会再接纳任何内容，也不会记录第二次失败。循环因为模型达到输出上限而结束的轮次（`turn/end` 的 `max-tokens` 原因）同样会被记录为 `output-truncated` 失败，且在被截断轮次之后的那个步骤上检测到——因为结束原因是在本 Kernel 的 turn-stopping 监听器运行之后才写入的。同一个会话第三次以相同参数调用某个工具、且返回结果也相同时，就是一次 `no-progress` 失败：回执记录每次调用返回内容的摘要，一旦两次相同的调用构成一段行程，Kernel 就记录该失败；在 `enforce` 模式下还会拒绝第三次调用，并给出要求模型先整合已有信息的理由。其余 S4 类型（`tool-args-malformed`、`stalled`）由同一张表分类；它们的检测器属于观测那些 seam 的包。以验证失败结束的轮次会记录该失败、把任务置为 `recovering`，并发送一条修复消息，其中列出门禁的理由；重复次数受 `Config.maxRepairAttempts`（默认 3）限制。超过上限后任务带着同样的理由转入 `awaiting-user`，因为无法收敛的修复循环属于人的决策。此后若有验证通过，就会解除先前的 `verification-failed` 失败，因此完成判定读取的是通过结果。
+
+### 自动检查点（§17.1）
+
+`checkpoint(agent, reason)` 也会被自动调用，因此恢复运行永远不会重放超过 Kernel 已经索引过的那个点：每个 turn 边界（`'turn-boundary'`，在 observed 转换之前）、上文的 step 上限暂停（`'before-pause'`，在 `paused` 转换之前）、一次 `compaction/start` 事件（`'before-compaction'`，延后一个微任务，跳过会话自身的追加重入防护边界）、一次验证失败（`'verification-failure'`，在修复消息发出之前），以及一次声明了 `subagent.spawn` 或 `workflow.start` 的已授权调用（`'before-suspension'`，在调用运行之前——被派生的子 agent 或 workflow 可能运行足够久，从而使父级步骤挂起）。无论 `mode` 是否处于强制模式，每个自动检查点都会运行，这与 `action/decided` 始终被记录的方式一致。
 
 ### 设计哲学
 

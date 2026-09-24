@@ -362,6 +362,30 @@ export function defineCoverageCases(group: CoverageGroup): void {
       expect(res?.type === 'hook/result' && res.data.exitCode).toBe(0)
       expect(res?.type === 'hook/result' && 'stderrSummary' in res.data).toBe(false)
     })
+
+    it('an explicit PreToolUse permissionDecision:allow never suppresses a downstream policy deny', async () => {
+      // The hook explicitly says "allow" — the strongest signal its dialect can
+      // send — but `allow` does not pre-approve; the bridge only ever short
+      // circuits on `deny`, so a real policy owner registered on the same
+      // waterfall still gets to answer, and its deny reaches the tool call
+      // unweakened by the hook's affirmative opinion.
+      const d = dir()
+      const s = sh(d, 'allow.sh', '#!/usr/bin/env bash\necho \'{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow"}}\'\n')
+      const path = hooks(d, { PreToolUse: [{ hooks: [{ type: 'command', command: s }] }] })
+      const adapter = new MockAdapter([toolCallResponse('c1', 'echo', {}), textResponse('done')])
+      const ctx = await harness(path, adapter)
+      let ran = false
+      ctx.tools.register(defineContentToolFixture({ name: 'echo', description: 'e', parameters: {}, async execute() { ran = true; return [{ type: 'text', text: 'ok' }] } }))
+      ctx.on('tools/pre-execute', async () => ({ kind: 'deny' as const, reason: 'policy: denied by the real policy owner' }))
+      const agent = await ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+      agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
+      await waitForIdle(ctx, agent)
+      expect(ran).toBe(false)
+      const result = events(agent).find(e => e.type === 'tool/result')
+      expect(result?.type === 'tool/result' && result.data.message.isError).toBe(true)
+      expect(result?.type === 'tool/result'
+        && result.data.message.content.some(b => b.type === 'text' && b.text.includes('denied by the real policy owner'))).toBe(true)
+    })
   })
 
   if (group === 'edge-paths') describe('hooks-claude-code coverage — schema-bypass apply + unspawnable hook', () => {

@@ -92,6 +92,8 @@ Host 启动时挂载本插件一次。此后它自行拥有维护计划：自己
 | `timeoutMs` | `60000` | 一次归并运行的截止时间 |
 | `stageMinUses` | `20` | 失败率据以分选技能前所需的已记录加载次数 |
 | `stageFailureRate` | `0.3` | 技能被分选必须超过的失败占比 |
+| `maxDiffLines` | `0` | 一次归并补丁可改动行数（新增加删除）的上限；`0` 表示不设上限 |
+| `requireVerifierPass` | `false` | 拒绝验证器阶梯未完全通过的归并补丁——弃权也算未通过——而不是仅凭第 0/1 级就提交 |
 
 生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-evolution-curator)是每个可接受字段的详尽来源。
 
@@ -105,14 +107,14 @@ Host 启动时挂载本插件一次。此后它自行拥有维护计划：自己
 
 ### 设计概念
 
-存储域 `evolution_curator`（版本 `1`、布局 `per-record`、表 `meta`）中单个键 `state` 下的一行记账。流转经由 `ctx.get` 通过技能遥测应用，因此存储未挂载时整理退化为记账而不是失败；目录中未知的名称记入 `custom` 来源，而不是逃出整理。时钟与闲置观测以 `run`/`maybeRun` 的调用参数到达，而挂载后的插件补上 host 范围的部分：一个保存最新活动时刻的 `session/event` 监听、一次被 await 的启动时到期检查，以及一个经 `ctx.effect` 处置的 `unref()` 定时器。规格用假定时器驱动到期与闲置转换，因此插件不携带任何仅测试用的时钟接缝。
+存储域 `evolution_curator`（版本 `1`、布局 `per-record`、表 `meta`）中单个键 `state` 下的一行记账。流转经由 `ctx.get` 通过技能遥测应用，因此存储未挂载时整理退化为记账而不是失败；目录中未知的名称记入 `custom` 来源，而不是逃出整理。时钟与闲置观测以 `run`/`maybeRun` 的调用参数到达，而挂载后的插件补上 host 范围的部分：一个保存最新活动时刻的 `session/event` 监听、一次不阻塞插件启动的即发即弃启动时到期检查，以及一个经 `ctx.effect` 处置的 `unref()` 定时器。规格用假定时器驱动到期与闲置转换，因此插件不携带任何仅测试用的时钟接缝。插件销毁会停止定时器、中止活动归并，等待正在运行的维护趟次结束后再关闭记账域。
 
 <a id="consolidation"></a>
 ### 归并
 
 `consolidate` 默认关闭，且产生真实模型调用。开启时，真实通过调查处于 `active` 或 `stale` 状态的 agent 创建技能，在 `maxInputBytes` 内框定它们，并在 fork 启动前追加一条 `cost` 台账行 `{inputBytes, maxOutputTokens, provider, model, truncated}`。每个候选都携带加载过它的那些会话里记录的失败——至多 `maxCandidateFailures` 条，在反馈存储已挂载时读取——因此裁决反映的是真正坏在哪里，而不是技能作者的意图。fork 是 `ctx.llm` 之上的有界进程内工具循环，白名单只有两个工具：`skill_view` 读取一个候选包，`skill_apply` 为每个候选记录一条裁决（`keep`、`patch`、`consolidate`、`archive`）。循环至多花 `maxSteps` 次请求，并在首个纯文本回答处结束；请求失败会抛出，运行的截止时间在 `timeoutMs` 处中止它，插件处置时同样中止。
 
-所有写入都由整理器执行，因此无论模型要求什么，整包规则都成立。`patch` 正文在提交前先通过验证器优先的阶梯（见 [`dsh-evolution-verifiers`](../evolution-verifiers/README.zh.md)）：第 0、1 级确定性地判定 `skill_manage edit` 强制的 frontmatter 不变式，以及名称与指令不变式；在任何一级失败的正文被跳过，其拒绝层级与理由记入 `refusals`；通过确定性层级的正文通过就地重写 `SKILL.md` 被提交——阶梯的更高层级在 host 挂载其接缝时才会被咨询，而本路径不挂载任何接缝。被替换的原文本先按内容寻址存为 blob。`consolidate` 裁决把候选的整个目录搬到伞技能之下（`<umbrella>/<name>/`），把被搬移树中每一处 `${DSH_SKILL_DIR}` 引用改写为新的相对根，并向伞技能的 `SKILL.md` 追加一条引用——随包携带 `references/`、`templates/`、`scripts/` 或 `assets/` 的包绝不会被压平成只剩 `SKILL.md`。`archive` 裁决把整个目录搬入技能旁边的 `.archive/`。伞技能缺失、不可写，或已占用同名目录时，包原地不动，该裁决计入跳过。归并记一条携带两端点的 `move` 台账条目；生命周期移动与自动通过走同一套快照、`pass` 与 `transition` 机制；`rollbackPass` 把每个被搬移的包搬回并恢复生命周期状态。
+所有写入都由整理器执行，因此无论模型要求什么，整包规则都成立。`patch` 正文在提交前先通过验证器优先的阶梯（见 [`dsh-evolution-verifiers`](../evolution-verifiers/README.zh.md)）：第 0、1 级确定性地判定 `skill_manage edit` 强制的 frontmatter 不变式，以及名称与指令不变式；在任何一级失败的正文被跳过，其拒绝层级与理由记入 `refusals`；通过确定性层级的正文接着要过 `maxDiffLines`——改动行数（新增加删除）超过配置上限的补丁会被跳过，`refusals` 中记为 `level: 'diff-cap'`，且不写入任何内容。阶梯的更高层级运行在 `applyConsolidation` 调用方转发的任意 `simulation`/`evaluator`/`review` 接缝之后；本插件自己的通过如今不转发任何接缝，因此它们弃权。默认情况下，弃权但未失败的阶梯仍会仅凭确定性证据提交；`requireVerifierPass` 会改为拒绝，记为 `level: 'ladder-incomplete'`，因此确实转发了更高层接缝的调用方可以要求每一级都做出判定后写入才落地。通过阶梯与行数上限两关的正文才会通过就地重写 `SKILL.md` 被提交——被替换的原文本先按内容寻址存为 blob。`consolidate` 裁决把候选的整个目录搬到伞技能之下（`<umbrella>/<name>/`），把被搬移树中每一处 `${DSH_SKILL_DIR}` 引用改写为新的相对根，并向伞技能的 `SKILL.md` 追加一条引用——随包携带 `references/`、`templates/`、`scripts/` 或 `assets/` 的包绝不会被压平成只剩 `SKILL.md`。`archive` 裁决把整个目录搬入技能旁边的 `.archive/`。伞技能缺失、不可写，或已占用同名目录时，包原地不动，该裁决计入跳过。归并记一条携带两端点的 `move` 台账条目；生命周期移动与自动通过走同一套快照、`pass` 与 `transition` 机制；`rollbackPass` 把每个被搬移的包移回并恢复生命周期状态。
 
 host 插件无法无头 fork subagent 接缝——进程内 provider 从活跃的父会话继承路由，而整理器没有会话——因此循环在进程内运行。
 
@@ -137,7 +139,7 @@ host 插件无法无头 fork subagent 接缝——进程内 provider 从活跃�
 
 ### 失败与恢复
 
-失败的流转向上传播并停止本次通过：此前的移动有效，报告丢弃，记账保持未盖戳，因此下次通过重新检查每个技能。计划触发的失败被捕获并告警，定时器与记账保持完好以便下次滴答。非法记账会导致域打开时大声失败：丢失的 `lastRunAt` 会重跑首次递延并推移整个计划。启动前读取抛错。处置时会中止进行中的归并运行。
+失败的流转向上传播并停止本次通过：此前的移动有效，报告丢弃，记账保持未盖戳，因此下次通过重新检查每个技能。计划触发的失败被捕获并告警，定时器与记账保持完好以便下次滴答。非法记账会导致域打开时大声失败：丢失的 `lastRunAt` 会重跑首次递延并推移整个计划。启动前读取抛错。
 
 不发布 invariant 伴生包，因为域表是该状态的唯一副本，不存在第二个可供核对的独立观测。
 
@@ -188,6 +190,7 @@ skill_apply(name, action, into?, body?) — record one verdict
 - **归档包会搬文件，处置生命周期状态不会**——自动的 `stale → archived` 流转只是遥测，而归并的 `archive` 裁决会把整个目录搬入 `.archive/`。
 - **信任只被记录，不被强制**——技能的状态会进入观测与状态行，但不会限制模型可以加载什么。
 - **归并在进程内运行**——host 插件无法无头 fork subagent 接缝，因此工具循环跑在 `ctx.llm` 上而非子 agent 上。
+- **没有受保护文本；未内置领域模拟器**——`maxDiffLines` 只限规模，不限内容：它不知道哪些文本绝不能被补丁删除。`applyConsolidation` 现在可以向阶梯转发 `simulation`/`evaluator`/`review` 接缝，`requireVerifierPass` 也能要求完整通过，但本插件自己的通过不挂载任何接缝，`requireVerifierPass` 也保持默认的 `false`；这个仓库里也没有任何包实现可挂载的第 2 级领域模拟器——构建一个领域模拟器，以及一套受保护文本的约定，都是本包无法单方面做出的、更大的独立决定。
 - **归并改写目录引用，不改写计划条目**——归并改写被搬移包内的 `${DSH_SKILL_DIR}` 路径；目前没有任何计划条目引用技能，因此 `protectedNames` 仍是计划引用的护栏。
 - **认领单向**——被认领的技能保持用户主导来源；没有任何操作能将其送回 agent 创建。
 - **§22 的两个来源并非按技能**——知识图中被否证的声明与记忆存储按工件计数的 `refutationCount`，只能以 `conflicting-evidence` 不确定性信号的形式抵达阶梯，因为没有任何存储字段把工件或声明连接到技能；技能使用上同样没有任务类别轴，因此任务分布漂移根本不会被推导。

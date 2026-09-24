@@ -52,6 +52,10 @@ if (outcome.status === 'scored') console.log(outcome.score.pass, outcome.score.t
 
 `evaluateBehavior({ baseline, candidate, candidateBody, catalog, positiveQueries, negativeQueries, routingTopK?, vectors? })` 用三道门（按从廉价到昂贵的顺序）评判一个技能修订。契约门（`checkBehaviorContract`）拒绝会破坏技能 frontmatter 的正文，复用技能管理器在编辑时强制执行的同一不变式。路由门（`checkBehaviorRouting`）把肯定与否定触发查询送入真实的选择器：每个肯定查询必须把候选排进 `routingTopK`（默认 3），每个否定查询必须把它挡在外面；所用的目录为每个条目携带修订键，因此一份报告永不混入不同修订。目录条目还可携带 frontmatter `requires`、`capabilities` 与 `conflictsWith`，它们会被转发进同一次选择器调用：前置若没有任何目录条目提供——无论按名称，还是由某条目以能力声明——该候选即得零分、挂掉每个肯定查询，因为路由到它根本不可能工作；与排名更高的条目声明冲突的候选同样无法通过其肯定查询。廉价门一旦失败，评估即以 `status: 'gated'` 停止，不再启动任何全新进程。否则两个回放组合在相同场景上运行，回放门（`compareBehaviorReplay`）仅当候选没有退化基线已证明的任何场景时才批准——双方都失败的场景上的持平不是退化，因为门只判断「没有更差」，而「更好」由选择来判断。只有三道门全过，`approved` 才为真：唯有回放证据才能批准。每份判断还携带 `disagreement`：各通道被归约为按从廉价到昂贵的标准顺序排列的批准与反对两份名单，并以 `unanimous` 表示它们是否口径一致——一致拒绝也算一致，因此只有分歧才是 uncertainty 信号。在 `gated` 路径上，归约只覆盖两道廉价门，因为回放从未运行；一道通过的门伴随一道失败的门仍记为分歧，绝不记为批准。`evaluatorDisagreement` 是纯函数，调用者无需启动任何东西即可归约自己的通道裁决。
 
+### 持久证据（§24.3）
+
+每个 `ScoreRecord`——无论在 `ScoreOutcome` 内，还是在每条 `SkillScore.scores` 条目内——除了既有的通过/token/挂钟三元组之外，还携带两个字段，用以补齐 SPEC §24.3 的持久证据清单。`fixtureDigest` 是该场景录制夹具（主会话夹具加每个子夹具，按场景自身的序号顺序）的 SHA-256，每次 `score()` 调用只计算一次，因为夹具在各次尝试之间不变；它准确点名这条记录测量所依据的语料代次。`trajectory` 是第一次尝试所采集的会话 id（`ScoreAttempt.sessionId`，取自 `result.sessionLogs[0].id`），若运行器未采集到任何会话则为 `null`——读者无需在一个场景的多次尝试之间挑选，就能凭它取到确定的转录引用。
+
 ```yaml
 - name: '@deepseek-ai/dsh-evolution-scorer'
   config:
@@ -62,7 +66,7 @@ if (outcome.status === 'scored') console.log(outcome.score.pass, outcome.score.t
 | 字段 | 默认值 | 含义 |
 |---|---|---|
 | `corpusDir` | `required` | 语料根目录的绝对路径，每个录制场景一个子目录 |
-| `attempts` | `3` | 每次评分的全新进程尝试次数；中位数取自这些样本 |
+| `attempts` | `3` | 每次评分的全新进程尝试次数；中位数取自这些样本。调用方可按次调用用 `ScoreRequest.attempts` / `EvaluateSkillRequest.attempts` 覆盖它——`evolution-optimizer` 的 S9 分级门为本次运行自己出发的那个正文传入 `1`，因为录制好的夹具已经验证过它 |
 | `triggerMinUses` | `20` | 失败率据以触发优化前所需的已记录加载次数 |
 | `triggerFailureRate` | `0.3` | 技能触发优化必须超过的失败占比 |
 

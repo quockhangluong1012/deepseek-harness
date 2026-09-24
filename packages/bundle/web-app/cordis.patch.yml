@@ -62,8 +62,15 @@
       config:
         mode: shadow
 
+    # Knowledge plane (S2): record the sources placed with each assembly,
+    # without changing the model request until a deployment opts into apply.
+    - id: agent-context
+      name: '@deepseek-ai/dsh-agent-context'
+      config:
+        mode: shadow
     # Guard row. `budgets` mounts with every ceiling off: it observes each
     # turn and rejects nothing until a deployment sets a ceiling here.
+
     - id: budgets
       name: '@deepseek-ai/dsh-budgets'
 

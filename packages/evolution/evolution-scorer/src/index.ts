@@ -14,7 +14,8 @@
 
 import { Context, Service } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
-import { randomUUID } from 'node:crypto'
+import { randomUUID, createHash } from 'node:crypto'
+import { readFile } from 'node:fs/promises'
 import { captureExpectedWorkspaceSnapshot } from '@deepseek-ai/dsh-session-snapshot'
 import type { RunOptions } from '@deepseek-ai/dsh-session-snapshot'
 import type {} from '@deepseek-ai/dsh-evolution-evaluator-health'
@@ -126,6 +127,21 @@ export function resolveConfig(config: Config): ResolvedConfig {
   return { corpusDir, attempts, triggerMinUses, triggerFailureRate }
 }
 
+/**
+ * Content digest of one scenario's recorded fixture(s): the primary session
+ * fixture plus every child fixture, hashed in a stable order so the digest
+ * identifies exactly which corpus generation a score ran against, independent
+ * of the paths' own names or mtimes.
+ * @param fixtureFile - absolute path of the primary recorded session fixture.
+ * @param childFiles - absolute recorded child-session fixtures, in ordinal order.
+ * @returns a stable hex digest identifying the fixture set's content.
+ */
+async function fixtureDigestOf(fixtureFile: string, childFiles: readonly string[]): Promise<string> {
+  const hash = createHash('sha256')
+  for (const file of [fixtureFile, ...childFiles]) hash.update(await readFile(file))
+  return hash.digest('hex')
+}
+
 declare module '@deepseek-ai/cordis' {
   interface Context {
     /** Measured improvement scorer. */
@@ -167,7 +183,12 @@ export class EvolutionScorer extends Service {
    * Every attempt boots a fresh process through the caller's runner in the
    * keyless replay tier, and is scored against `workspace.expected/` when the
    * scenario ships one, or against its own initial workspace otherwise.
-   * @param request - scenario name plus the agent composition and runner to boot it with.
+   * `request.attempts` overrides the configured attempt count for this one
+   * call, so a caller can buy a single cheap run for a body the fixture
+   * already validates. The returned record also carries a content digest of
+   * the recorded fixture(s) and the first attempt's harvested session id as
+   * its trajectory reference (§24.3 durable evidence).
+   * @param request - scenario name, the agent composition and runner to boot it with, and an optional attempt-count override.
    * @returns the metric triple, or the reason the scenario could not be scored.
    * @throws when the configured corpus does not exist, a shipped fixture cannot be parsed,
    * or the runner fails; only an unknown scenario and an absent fixture are skips.
@@ -179,8 +200,10 @@ export class EvolutionScorer extends Service {
     const expected = plan.expectedWorkspaceDir === undefined
       ? undefined
       : await captureExpectedWorkspaceSnapshot(plan.expectedWorkspaceDir)
+    const fixtureDigest = await fixtureDigestOf(plan.fixtureFile, plan.childFiles)
     const attempts: ScoreAttempt[] = []
-    for (let index = 0; index < this.resolved.attempts; index += 1) {
+    const runCount = request.attempts ?? this.resolved.attempts
+    for (let index = 0; index < runCount; index += 1) {
       const options: RunOptions = {
         agent: request.agent,
         mode: 'replay',
@@ -196,6 +219,7 @@ export class EvolutionScorer extends Service {
         final: result.finalWorkspace,
         tokens: measureRunTokens(this.ctx.tokenMeter, result.sessionLogs),
         wallTimeMs: Date.now() - startedAt,
+        ...result.sessionLogs[0] === undefined ? {} : { sessionId: result.sessionLogs[0].id },
       })
     }
     return {
@@ -204,6 +228,7 @@ export class EvolutionScorer extends Service {
         scenario: plan.scenario,
         ...expected === undefined ? {} : { expected },
         attempts,
+        fixtureDigest,
       }),
     }
   }
@@ -215,7 +240,7 @@ export class EvolutionScorer extends Service {
    * prove, and optimizing on a partial evaluation would select on evidence
    * that is not there — so one skip skips the whole evaluation with its
    * reason attached.
-   * @param request - skill name plus the scenarios, agent composition, and runner to score it with.
+   * @param request - skill name plus the scenarios, agent composition, runner, and optional attempt-count override to score it with.
    * @returns the aggregated triple with per-scenario records, or the reason the skill could not be evaluated.
    */
   async evaluateSkill(request: EvaluateSkillRequest): Promise<SkillEvaluation> {
@@ -224,7 +249,8 @@ export class EvolutionScorer extends Service {
     }
     const scores: ScoreRecord[] = []
     for (const scenario of request.scenarios) {
-      const outcome = await this.score({ scenario, agent: request.agent, run: request.run })
+      const attempts = request.attempts === undefined ? {} : { attempts: request.attempts }
+      const outcome = await this.score({ scenario, agent: request.agent, run: request.run, ...attempts })
       if (outcome.status === 'skipped') {
         return { status: 'skipped', skill: request.skill, reason: outcome.reason }
       }

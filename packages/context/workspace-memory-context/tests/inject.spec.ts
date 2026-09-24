@@ -8,6 +8,7 @@ import { agentEvents, type Agent } from '@deepseek-ai/dsh-agent'
 import { createAssistantMessage, createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { UserMessage } from '@deepseek-ai/dsh-llm'
 import SessionStore, { Session, SessionId } from '@deepseek-ai/dsh-session'
+import SessionProjections from '@deepseek-ai/dsh-session-projection'
 import Storage from '@deepseek-ai/dsh-storage'
 import { DomainFacility } from '@deepseek-ai/dsh-storage-domain'
 import { WorkspaceId } from '@deepseek-ai/dsh-workspace'
@@ -111,6 +112,7 @@ describe('workspace-memory-context injector', () => {
   it('registers the visible brief as a required untrusted memory source', async () => {
     const { ctx, fiber, workspaces, dir } = await harness()
     dirs.push(dir)
+    await ctx.plugin(SessionProjections)
     const compilerFiber = await ctx.plugin(AgentContext, {})
     try {
       const session = sessionIn(ctx, dir, 'registry-workspace-memory')

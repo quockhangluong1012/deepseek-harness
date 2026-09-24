@@ -29,11 +29,12 @@ Mount the plugin in a profile when a step's compiled context must be attributabl
 
 ### When to choose it
 
-Choose it when context provenance or a context token ceiling must be a runtime contract: an unattended run whose prompt you must reconstruct afterwards, a deployment paying per input token, or a replay that must reproduce a placement exactly. Avoid it when the assembled prompt is small and fully trusted, because the compiler appends one log-only record per assembly and, in `apply` mode, removes contributions.
+Choose it when context provenance or a context token ceiling must be a runtime contract: an unattended run whose prompt you must reconstruct afterwards, a deployment paying per input token, or a replay that must reproduce a placement exactly. Avoid it when the assembled prompt is small and fully trusted, because changed placements and delta resurfaces append log-only records, and `apply` mode removes omitted contributions.
 
 ### Minimal configuration
 
 ```yaml
+- name: '@deepseek-ai/dsh-session-projection'
 - name: '@deepseek-ai/dsh-agent-context'
   config:
     mode: shadow
@@ -49,7 +50,9 @@ Every accepted field is listed in the generated [configuration catalog](../../..
 
 ### What you get
 
-The service records one `context/compiled` event per `system-prompt/assemble` waterfall that names an agent and compiles to a digest the session has not already recorded, and the record holds the placement digest, the stated compiler version, the ceiling it was fitted to, the placement's token price, one entry per placed source (id, kind, trust, retention, price, relevance), every omission with its reason, and every retained conflict. The prompt text itself stays on the `system/message` surface, so the record is an identity a replay must reproduce rather than a second copy of the prompt.
+The service appends one `context/compiled` record per changed placement, plus a same-digest record when compaction lets an included delta source resurface. Records store source identities and prices, never prompt text. A host-only `contextSourcePlacement` projection folds included ids and the last digest, clears seen ids at `compaction/end`, and rebuilds them from the log after restart.
+
+The ceiling cut itself has hysteresis: a compressible source the ceiling placed or cut keeps that outcome on every later compile in the same request series, even as other sources' prices change, so a stable set of sources stays stable rather than reshuffling with every step. Only a `compaction/end` boundary clears the frozen decision, after which the next compile recomputes the cut from scratch.
 
 Two decisions are separate on purpose. The compiler decides what a step was compiled from and, in `apply` mode, which compressible sources the ceiling cut; it never decides what a contribution says, never edits prompt text, and never calls a model.
 
@@ -72,6 +75,10 @@ A durable task fact read from `ctx.agentKernel.state.view(session)` is always `t
 
 `ctx.agentContext.register(descriptor, provide)` is the seam a pre-step producer uses instead of appending a prompt section directly: `provide(agent, signal)` returns items for one compile, and the compiler wraps each as a `ContextSource` (`id: '<producer>:<itemId>'`), ranks and prices it alongside the assembly and the kernel's task facts, and includes it in the same digest. The call returns a disposer; calling it stops the producer's items from appearing in any later compile.
 
+`ctx.agentContext.isIncluded(session, sourceId)` reports whether the live session's latest successful placement included that source; it returns false before a compile, after compaction clears the placement, or when the source was omitted. The `context/compiled` event remains the durable replay record.
+
+`ctx.agentContext.tokenTotals(session)` sums the newest recorded placement's token prices by source kind (`byKind`) and reports `placementCount`, the number of placements that have superseded an earlier one for the session (S1). The totals cover every placed source uniformly — assembled sections and contexts, the kernel's durable task facts, and registered (S2) sources alike — so a registered producer's price is never missing from the accounting just because its content reaches the model through its own injection path rather than through `PromptAssembly`. Before any compile `byKind` reads `{}` and `placementCount` is `0`; a compaction boundary clears the delta/hysteresis tracking but leaves the last placement's totals in place until the next compile overwrites them.
+
 ```ts
 const stop = ctx.agentContext.register(
   { producer: 'goal', kind: 'task', trust: 'trusted', placement: 'stable-core', maxBytes: 4000 },
@@ -83,15 +90,15 @@ const stop = ctx.agentContext.register(
 
 | Placement | Retention | Repetition |
 |---|---|---|
-| `stable-core` | `required` | Every compile, unconditionally — the producer's own unchanging identity brief |
-| `delta` | `compressible` | Once per session per item id; withheld on every later compile until a `compaction/end` event on that session clears it |
-| `tail-reminder` | `compressible` | Every compile — turn-conditional text, the first class the ceiling cuts |
+| `stable-core` | `required` | Every compile — use for material that must survive budget cuts, including identity and recovery sources |
+| `delta` | `compressible` | Surfaced once per session per item id after inclusion; omitted items stay eligible, and compaction makes included items eligible again |
+| `tail-reminder` | `compressible` | Every compile — turn-conditional material that may be cut to fit the ceiling |
 
 An item past its own `expiresAt` is dropped before placement, and an item's text is truncated to the descriptor's `maxBytes` before it becomes a source. This registry is additive: no shipped producer has migrated off `core/system-prompt` sections onto it yet, so mounting the plugin with nothing registered behaves exactly as before.
 
 ### Retention and ranking
 
-Retention follows the kind: `policy`, `task`, `plan`, and `evidence` are `required`, so they are placed even when they alone exceed the ceiling; `memory`, `artifact`, `history`, and `tool` are `compressible`.
+Retention for assembled contributions follows kind: `policy`, `task`, `plan`, and `evidence` are `required`; `memory`, `artifact`, `history`, and `tool` are `compressible`. Registered sources follow placement: `stable-core` is required; `delta` and `tail-reminder` are compressible. Trust is independent, so a required untrusted source remains data, not instruction authority.
 
 Placement order is total, so a replay reproduces it: trust tier first (`trusted`, `unknown`, `untrusted`), then kind (`policy`, `task`, `plan`, `evidence`, `memory`, `artifact`, `history`, `tool`), then lexical overlap with the task objective, then the source id by code unit. The ceiling cuts a prefix of that order: once one compressible source does not fit, every later compressible one is omitted with `reason: 'budget'`. A compressible source whose content an already-placed source carries is omitted with `reason: 'duplicate'`; a required source is never dropped either way.
 

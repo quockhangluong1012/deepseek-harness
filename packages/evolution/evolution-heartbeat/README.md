@@ -25,17 +25,17 @@ English | [中文](README.zh.md)
 <a id="use-this-package"></a>
 ## Use this package
 
-Mount the plugin once per host, then register tasks. Registration is the whole trigger: a task runs only while its registration is live, and the returned disposer removes it.
+Mount the plugin once per host, then register tasks through `ctx.effect` so their asynchronous disposer drains a running attempt before its provider unloads.
 
 ```ts
 import type { Context } from '@deepseek-ai/cordis'
 
 export function apply(ctx: Context): void {
-  ctx.evolutionHeartbeat.register({
+  ctx.effect(() => ctx.evolutionHeartbeat.register({
     name: 'memory-consolidation',
     intervalHours: 24,
     run: async (signal) => { await consolidate(signal) },
-  })
+  }))
 }
 ```
 
@@ -74,7 +74,7 @@ The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-a
 
 One bookkeeping row per task in storage domain `evolution_heartbeat`, version `1`, layout `per-record`, table `tasks` keyed by task name. The row holds the last attempt instant and the last failure message; an absent row means the task was never attempted, which is what defers a freshly registered task by one interval. The engine holds registrations in memory only: a restart re-registers them from the mounting plugins, and the durable bookkeeping is what survives.
 
-The clock and the idleness arrive as call arguments on `runDue`, while the mounted plugin adds the host-wide parts: a `session/event` listener keeping the newest activity instant, one awaited start-time due-check, and an `unref()`ed interval disposed through `ctx.effect`. Specs drive the schedule with fake timers, so the plugin carries no test-only clock seam.
+The clock and the idleness arrive as call arguments on `runDue`, while the mounted plugin adds the host-wide parts: a `session/event` listener keeping the newest activity instant, a fire-and-forget start-time due-check that never blocks plugin startup, and an `unref()`ed interval disposed through `ctx.effect`. Specs drive the schedule with fake timers, so the plugin carries no test-only clock seam.
 
 ### Task execution
 
@@ -82,7 +82,7 @@ Tasks run sequentially in registration order. Each attempt owns one `AbortContro
 
 ### Disposal
 
-Registering returns an idempotent disposer that removes the task from the registry. A removed task keeps its bookkeeping row, so re-registering it resumes on the stored schedule rather than re-seeding.
+Registering returns an idempotent asynchronous disposer that removes the task, aborts and awaits its active attempt, and preserves its bookkeeping row for later registration. Plugin teardown stops the timer, aborts active attempts, prevents remaining tasks in their current passes from starting, waits for active passes to settle, then closes the bookkeeping domain.
 
 ### Failure and recovery
 

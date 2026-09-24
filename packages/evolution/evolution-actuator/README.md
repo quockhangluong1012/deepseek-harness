@@ -25,7 +25,7 @@ English | [中文](README.zh.md)
 <a id="use-this-package"></a>
 ## Use this package
 
-Mount the plugin wherever the stores it acts on are mounted. The heartbeat is an injected service, so the plugin applies once the scheduler exists and disposes its seven registrations with the context.
+Mount the plugin wherever the stores it acts on are mounted. The heartbeat is an injected service, so the plugin applies once the scheduler exists; its context-owned registrations drain active tasks before teardown returns.
 
 ```ts
 import * as evolutionActuator from '@deepseek-ai/dsh-evolution-actuator'

@@ -17,12 +17,12 @@ import { TOOL_TIMEOUT } from '@deepseek-ai/dsh-tool-call-timeout-policy'
 
 const testToolSignal = new AbortController().signal
 
-/** Mount the registry + the zero-config timeout-policy enforcer. */
-async function setup() {
+/** Mount the registry + the timeout-policy enforcer, zero-config unless overridden. */
+async function setup(config: timeoutPolicy.Config = {}) {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
-  await ctx.plugin(timeoutPolicy)
+  await ctx.plugin(timeoutPolicy, config)
   return ctx
 }
 
@@ -80,6 +80,47 @@ describe('timeout-policy delegation (unconfigured / fast)', () => {
     expect(seenSignal).toBeDefined()
     expect(seenSignal).not.toBe(upstream)
   })
+})
+
+describe('timeout-policy unboundedTimeout exemption', () => {
+  it('passes the caller signal through unchanged, never wrapping it in a derived deadline', async () => {
+    const ctx = await setup()
+    let seenSignal: AbortSignal | undefined
+    ctx.tools.register(defineContentToolFixture({
+      name: 'ask', description: 'd', parameters: {}, unboundedTimeout: true,
+      async execute(_a, exec) { seenSignal = exec.signal; return [{ type: 'text' as const, text: 'ok' }] },
+    }))
+    const upstream = new AbortController().signal
+    const result = await ctx.tools.execute({ callId: ToolCallId('c1'), name: 'ask', arguments: {}, signal: upstream })
+    expect(result.isError).toBe(false)
+    expect(seenSignal).toBe(upstream)
+  })
+
+  it('never times out, even past the configured default', async () => {
+    vi.useFakeTimers()
+    try {
+      const ctx = await setup({ defaultTimeoutMs: 100 })
+      const release: PromiseWithResolvers<void> = Promise.withResolvers()
+      ctx.tools.register(defineContentToolFixture({
+        name: 'ask', description: 'd', parameters: {}, unboundedTimeout: true,
+        async execute() { await release.promise; return [{ type: 'text' as const, text: 'answered' }] },
+      }))
+      const pending = ctx.tools.execute({ signal: testToolSignal, callId: ToolCallId('c1'), name: 'ask', arguments: {} })
+      // Ten times the configured default: a wrapped call would already have
+      // been replaced with TOOL_TIMEOUT by now.
+      await vi.advanceTimersByTimeAsync(1_000)
+      release.resolve()
+      const result = await pending
+      expect(result).toEqual({
+        content: [{ type: 'text', text: 'answered' }],
+        isError: false,
+        value: [{ type: 'text', text: 'answered' }],
+      })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
 })
 
 describe('timeout-policy signal restoration', () => {

@@ -35,6 +35,8 @@ import { RemoteError, remoteErrorOf } from '@deepseek-ai/dsh-typert-protocol'
 import type {} from '@deepseek-ai/dsh-workspace'
 // Type-only: declares the `security/scan` event the taint check reads.
 import type {} from '@deepseek-ai/dsh-prompt-injection'
+// Type-only: declares the `verification/result` event recall grading reads.
+import type {} from '@deepseek-ai/dsh-agent-kernel'
 import { WorkspaceId } from '@deepseek-ai/dsh-workspace'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import type { EvolutionExtraction, EvolutionOutput, LessonDecision } from '@deepseek-ai/dsh-evolution-memory'
@@ -46,6 +48,7 @@ import { selectRelevantArtifacts } from './relevance.ts'
 
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
+    /** @persistenceAttribution */
     'evolution-reviewer': { kind: 'evolution-reviewer' } & ContextFormed
   }
 }
@@ -604,12 +607,14 @@ export class EvolutionReviewer extends Service {
     const { rows: cappedOldest, inputBytes } = capRowsByBytes(rows, this.resolved.maxInputBytes)
     const framed = [...cappedOldest].reverse()
     const firstSession = sessionIds[0] ?? ('' as SessionId)
-    await this.extract(scopeId, route, framed, signal, firstSession, {
+    // Chained behind the scope's own queue, so a rebuild never runs at the
+    // same time as a live turn's background extraction of the same scope.
+    await this.runChained(scopeId, () => this.extract(scopeId, route, framed, signal, firstSession, {
       at: new Date().toISOString(),
       turn: 0,
       inputBytes,
       origin: 'rebuild',
-    })
+    }))
   }
 
   /**
@@ -624,6 +629,10 @@ export class EvolutionReviewer extends Service {
     }
     if (event.type === 'turn/end') {
       void this.onTurnEnd(session, event.data.turn)
+      return
+    }
+    if (event.type === 'verification/result') {
+      void this.gradeRecalls(session, event.data)
       return
     }
     this.bufferEvent(session, event)
@@ -835,6 +844,36 @@ export class EvolutionReviewer extends Service {
   }
 
   /**
+   * Grade every recall the compiled verification outcome settles: the §23
+   * `helped outcome` link, from the kernel's own completion gate rather than
+   * a self-report. A recall still awaiting one is graded only when its
+   * decision batch was extracted from the session that just verified — the
+   * link `applyExtractionDecisions` records — so an outcome never grades a
+   * recall some other session's turn happened to leave pending. `unknown`
+   * settles nothing: it is not a decisive signal either way. A store
+   * rejection (the recall was graded or removed between the read and the
+   * write) warns instead of failing the event.
+   * @param session - session the verification settled.
+   * @param result - the kernel's completion-gate outcome.
+   */
+  private async gradeRecalls(session: Session, result: { status: 'pass' | 'fail' | 'unknown' }): Promise<void> {
+    if (result.status === 'unknown') return
+    const outcome = result.status === 'pass' ? 'ok' : 'failed'
+    const membership = await this.resolveWorkspace(session)
+    if (membership === undefined) return
+    const sessionKey = String(session.id)
+    const pending = this.ctx.evolutionMemory.read(membership.scope)?.recalls
+      .filter(recall => recall.outcome === null && recall.decidedInSessionId === sessionKey) ?? []
+    for (const recall of pending) {
+      try {
+        await this.ctx.evolutionMemory.recordRecallOutcome(membership.scope, recall.id, outcome)
+      } catch (error) {
+        this.ctx.logger.warn(`evolution review could not grade a recall for '${String(membership.scope)}': ${String(error)}`)
+      }
+    }
+  }
+
+  /**
    * Queue one turn for extraction at its session's defer deadline.
    *
    * A turn that closes before the flush replaces the pending entry's snapshot
@@ -905,14 +944,28 @@ export class EvolutionReviewer extends Service {
   }
 
   /**
-   * Run one extraction behind its scope's chain, so a scope never runs two at
-   * once. The entry drops itself when no later turn superseded it.
+   * Serialize one function behind a scope's chain, so extraction never runs
+   * twice at once for the same scope — whether triggered by a live turn's
+   * background extraction or an explicit rebuild. A rejection settles the
+   * caller's own returned promise but never poisons the shared queue: the
+   * next entry chained behind this one still runs. The entry drops itself
+   * from the map when nothing later superseded it.
    * @param scope - resolved workspace scope.
-   * @param session - owning session.
-   * @param turn - turn number the snapshot came from.
-   * @param rows - admitted transcript rows.
-   * @param route - resolved model route.
+   * @param fn - the chained work.
+   * @returns `fn`'s own settlement, independent of the queue's continuation.
    */
+  private runChained<T>(scope: EvolutionScopeId, fn: () => Promise<T>): Promise<T> {
+    const scopeKey = String(scope)
+    const previous = this.chains.get(scopeKey) ?? Promise.resolve()
+    const result = previous.then(fn)
+    const queued = result.then(() => {}, () => {})
+    this.chains.set(scopeKey, queued)
+    void queued.then(() => {
+      if (this.chains.get(scopeKey) === queued) this.chains.delete(scopeKey)
+    })
+    return result
+  }
+
   private enqueueExtraction(
     scope: EvolutionScopeId,
     session: Session,
@@ -920,15 +973,7 @@ export class EvolutionReviewer extends Service {
     rows: readonly TranscriptRow[],
     route: { provider: string; model: string },
   ): void {
-    const scopeKey = String(scope)
-    const previous = this.chains.get(scopeKey) ?? Promise.resolve()
-    const current = previous.then(async () => {
-      await this.runExtraction(scope, session, turn, rows, route)
-    })
-    this.chains.set(scopeKey, current)
-    void current.then(() => {
-      if (this.chains.get(scopeKey) === current) this.chains.delete(scopeKey)
-    })
+    void this.runChained(scope, () => this.runExtraction(scope, session, turn, rows, route))
   }
 
   private async runExtraction(
@@ -1182,8 +1227,11 @@ export class EvolutionReviewer extends Service {
             confidence: decision.confidence,
             scope: decision.scope,
             // The reviewed session is what the fact was drawn from, so it is
-            // the source reference the store admits the artifact under.
+            // the source, trajectory, and lineage reference the store admits
+            // the artifact under.
             sourceRefs: [`session:${source}`],
+            trajectoryRefs: [`run:${source}`],
+            lineage: { origin: `session:${source}` },
             ...untrusted ? { trust: 'untrusted' as const } : {},
           },
         })
@@ -1200,6 +1248,8 @@ export class EvolutionReviewer extends Service {
             confidence: decision.confidence,
             scope: decision.scope,
             sourceRefs: [`session:${source}`],
+            trajectoryRefs: [`run:${source}`],
+            lineage: { origin: `session:${source}` },
             ...decision.ttlDays === undefined ? {} : { ttlDays: decision.ttlDays },
             // A turn whose scanned content the harness marked tainted yields
             // facts nobody vouched for, so they carry that label into the

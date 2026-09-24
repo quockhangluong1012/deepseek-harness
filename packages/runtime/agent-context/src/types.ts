@@ -24,12 +24,7 @@ export type ContextSourceKind =
   | 'history'
   | 'tool'
 
-/**
- * Whether a source may be dropped to fit a budget. `required` sources carry the
- * task's own authority — its objective, its acceptance criteria, the permission
- * that applies to it, its active plan, its evidence references, and its
- * unresolved failures — and are placed even when they alone exceed the ceiling.
- */
+/** Whether a source may be dropped to fit a budget; required sources survive regardless of trust. */
 export type RetentionClass = 'required' | 'compressible'
 
 /** Why one source was left out of a compiled context. */

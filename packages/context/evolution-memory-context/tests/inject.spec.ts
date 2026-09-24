@@ -8,6 +8,7 @@ import { agentEvents, type Agent } from '@deepseek-ai/dsh-agent'
 import { createAssistantMessage, createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { UserMessage } from '@deepseek-ai/dsh-llm'
 import SessionStore, { Session, SessionId } from '@deepseek-ai/dsh-session'
+import SessionProjections from '@deepseek-ai/dsh-session-projection'
 import Storage from '@deepseek-ai/dsh-storage'
 import { DomainFacility } from '@deepseek-ai/dsh-storage-domain'
 import { EvolutionScopeId, type LessonArtifactInput } from '@deepseek-ai/dsh-evolution-memory'
@@ -20,7 +21,10 @@ const SIGNAL = new AbortController().signal
 
 /** One lesson artifact candidate for the store's addArtifact write. */
 function lessonInput(statement: string): LessonArtifactInput {
-  return { statement, source: 's1', conditions: '', evidence: 'fact', confidence: 0.9, scope: 'project', sourceRefs: ['session:s1'] }
+  return {
+    statement, source: 's1', conditions: '', evidence: 'fact', confidence: 0.9, scope: 'project',
+    sourceRefs: ['session:s1'], trajectoryRefs: ['run:s1'], lineage: { origin: 's1' },
+  }
 }
 
 interface Harness {
@@ -31,7 +35,13 @@ interface Harness {
   scope: (name: string) => ScopeId
 }
 
-async function harness(config: { maxBytes: number } = { maxBytes: 8192 }): Promise<Harness> {
+interface HarnessConfig {
+  maxBytes: number
+  minSupersedeChangeBytes?: number
+  maxSupersedesPerSession?: number
+}
+
+async function harness(config: HarnessConfig = { maxBytes: 8192 }): Promise<Harness> {
   const dir = await realpath(await mkdtemp(join(tmpdir(), 'evc-')))
   const ctx = new Context()
   await ctx.plugin(Storage)
@@ -181,9 +191,100 @@ describe('evolution-memory-context injector', () => {
     }
   })
 
+  it('never supersedes when a store change does not alter the rendered text', async () => {
+    const { ctx, fiber, workspaces, dir, scope } = await harness()
+    dirs.push(dir)
+    try {
+      const session = sessionIn(ctx, dir, 's1')
+      const id = scope('ws-1')
+      workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: dir, sessionIds: [session.id] })
+      const record = await ctx.evolutionMemory.addArtifact(id, lessonInput('the project is green'))
+      const artifactId = record.agentLessons[0]?.id
+      if (artifactId === undefined) throw new Error('no artifact id')
+
+      const first = await preStep(ctx, fakeAgent(session))
+      const briefs = briefsOf(first.kind === 'enter' ? first.messages : [])
+      expect(briefs).toHaveLength(1)
+      const digest = (briefs[0]?.source as { digest: string }).digest
+      session.append('user/message', briefs[0] as UserMessage, { surfaceOp: 'append' })
+
+      // A `confirms` decision bumps the artifact's validationCount only; the
+      // rendered lesson line never changes, so the store digest moves but the
+      // brief must not.
+      await ctx.evolutionMemory.applyExtractionDecisions(id, [{ kind: 'confirms', artifactId }])
+      expect(ctx.evolutionMemory.digest(id)).not.toBe(digest)
+
+      const second = await preStep(ctx, fakeAgent(session))
+      expect(briefsOf(second.kind === 'enter' ? second.messages : [])).toHaveLength(0)
+    } finally {
+      await fiber.dispose()
+    }
+  })
+
+  it('withholds a supersede below the configured minimum byte change', async () => {
+    const { ctx, fiber, workspaces, dir, scope } = await harness({ maxBytes: 8192, minSupersedeChangeBytes: 200 })
+    dirs.push(dir)
+    try {
+      const session = sessionIn(ctx, dir, 's1')
+      const id = scope('ws-1')
+      workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: dir, sessionIds: [session.id] })
+      await ctx.evolutionMemory.setInstructions(id, 'follow the guide')
+
+      const first = await preStep(ctx, fakeAgent(session))
+      const briefs = briefsOf(first.kind === 'enter' ? first.messages : [])
+      expect(briefs).toHaveLength(1)
+      session.append('user/message', briefs[0] as UserMessage, { surfaceOp: 'append' })
+
+      // A few added characters stays well under the 200-byte threshold.
+      await ctx.evolutionMemory.setInstructions(id, 'follow the new guide')
+      const second = await preStep(ctx, fakeAgent(session))
+      expect(briefsOf(second.kind === 'enter' ? second.messages : [])).toHaveLength(0)
+
+      // A change large enough to cross the threshold still supersedes.
+      await ctx.evolutionMemory.setInstructions(id, 'x'.repeat(400))
+      const third = await preStep(ctx, fakeAgent(session))
+      const replaced = briefsOf(third.kind === 'enter' ? third.messages : [])
+      expect(replaced).toHaveLength(1)
+      expect(textOf(replaced[0] as UserMessage)).toContain('x'.repeat(400))
+    } finally {
+      await fiber.dispose()
+    }
+  })
+
+  it('stops superseding once the session cap is reached', async () => {
+    const { ctx, fiber, workspaces, dir, scope } = await harness({ maxBytes: 8192, maxSupersedesPerSession: 1 })
+    dirs.push(dir)
+    try {
+      const session = sessionIn(ctx, dir, 's1')
+      const id = scope('ws-1')
+      workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: dir, sessionIds: [session.id] })
+      await ctx.evolutionMemory.setInstructions(id, 'first guide')
+
+      const first = await preStep(ctx, fakeAgent(session))
+      const briefs = briefsOf(first.kind === 'enter' ? first.messages : [])
+      expect(briefs).toHaveLength(1)
+      session.append('user/message', briefs[0] as UserMessage, { surfaceOp: 'append' })
+
+      // First change spends the session's one allowed supersede.
+      await ctx.evolutionMemory.setInstructions(id, 'second guide, much longer than the first by far')
+      const second = await preStep(ctx, fakeAgent(session))
+      const replaced = briefsOf(second.kind === 'enter' ? second.messages : [])
+      expect(replaced).toHaveLength(1)
+      session.append('user/message', replaced[0] as UserMessage, { surfaceOp: 'append' })
+
+      // A further, even larger change has no budget left.
+      await ctx.evolutionMemory.setInstructions(id, 'third guide, even longer than the second by a wide margin')
+      const third = await preStep(ctx, fakeAgent(session))
+      expect(briefsOf(third.kind === 'enter' ? third.messages : [])).toHaveLength(0)
+    } finally {
+      await fiber.dispose()
+    }
+  })
+
   it('compiles the exact rendered brief as stable memory context', async () => {
     const { ctx, fiber, workspaces, dir, scope } = await harness()
     dirs.push(dir)
+    await ctx.plugin(SessionProjections)
     const compilerFiber = await ctx.plugin(AgentContext, {})
     try {
       const session = sessionIn(ctx, dir, 'registry-memory')

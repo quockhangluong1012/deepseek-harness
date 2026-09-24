@@ -2,9 +2,8 @@
  * S2's context source registry: pre-step producers register a descriptor and
  * a provider instead of appending prompt sections directly, and the compiler
  * places their items alongside the assembly and the kernel's task facts.
- * S1 point 3's delta placement lives here too: a `delta` source's item
- * surfaces once per session and is withheld on every later compile until
- * compaction clears the session's seen set.
+ * Delta items are withheld only after a context/compiled record includes their
+ * source id; compaction clears that placement history.
  * @module @deepseek-ai/dsh-agent-context/registry
  */
 
@@ -13,9 +12,10 @@ import type { TrustLabel } from '@deepseek-ai/dsh-agent-kernel'
 import type { ContextSource, ContextSourceKind, RetentionClass } from './types.ts'
 
 /**
- * Where a registered source is placed. `stable-core` is the producer's
- * unchanging identity brief; `delta` is an append-only item surfaced once;
- * `tail-reminder` is turn-conditional text, the first to drop under budget.
+ * Where a registered source is placed. `stable-core` items are required on
+ * every compile, including identity and recovery sources; `delta` items are
+ * compressible and withheld after inclusion until compaction; `tail-reminder`
+ * items are compressible and offered on every compile.
  */
 export type ContextPlacement = 'stable-core' | 'delta' | 'tail-reminder'
 
@@ -63,12 +63,11 @@ export interface ContextSourceRegistry {
 export function retentionOfPlacement(placement: ContextPlacement): RetentionClass {
   return placement === 'stable-core' ? 'required' : 'compressible'
 }
-
 /**
- * Drop `delta` items a session has already surfaced.
+ * Drop `delta` items whose source ids a session already placed.
  * @param placement - the producer's placement class.
- * @param seen - item keys (`producer\0itemId`) the session already surfaced.
- * @param producer - the registering producer, for the seen-key namespace.
+ * @param seen - source ids (for example, `producer:itemId`) already included.
+ * @param producer - the registering producer, for the source-id namespace.
  * @param items - the producer's items for this compile.
  * @returns the items still eligible for placement, in input order.
  */
@@ -79,7 +78,7 @@ export function filterDelta(
   items: readonly ContextItem[],
 ): readonly ContextItem[] {
   if (placement !== 'delta') return items
-  return items.filter(item => !seen.has(`${producer}\0${item.id}`))
+  return items.filter(item => !seen.has(`${producer}:${item.id}`))
 }
 
 /**

@@ -1,11 +1,13 @@
 /**
- * Batch-id helpers behind the S9 tier-2 ceiling gate: a day is UTC calendar
- * date, a week is ISO-8601 (Monday-based), including the boundary cases a
- * naive week-of-year formula gets wrong — a week that crosses the new year,
- * and a year that carries a 53rd week.
+ * S9 evaluation-tier behavior: batch-id helpers behind the tier-2 ceiling
+ * gate, and the tier-1 content key that buys one attempt for a body the
+ * fixture corpus already validates while escalating any changed candidate
+ * to the scorer's full configured attempt count.
  */
 import { describe, expect, it } from 'vitest'
-import { dailyBatchId, weeklyBatchId } from '../src/tiers.ts'
+import { Context } from '@deepseek-ai/cordis'
+import type { ScoreVariantDeps } from '../src/evaluate.ts'
+import { dailyBatchId, scoreVariantTiered, tierOneKey, weeklyBatchId } from '../src/tiers.ts'
 
 describe('dailyBatchId', () => {
   it('keys by the UTC calendar date', () => {
@@ -31,5 +33,61 @@ describe('weeklyBatchId', () => {
     const monday = weeklyBatchId('writer', new Date('2024-06-10T00:00:00Z'))
     const sunday = weeklyBatchId('writer', new Date('2024-06-16T23:59:00Z'))
     expect(monday).toBe(sunday)
+  })
+})
+
+describe('tierOneKey', () => {
+  it('is stable regardless of scenario order and changes with any input', () => {
+    const a = tierOneKey('writer', ['s1', 's2'], 'body')
+    expect(tierOneKey('writer', ['s2', 's1'], 'body')).toBe(a)
+    expect(tierOneKey('writer', ['s1'], 'body')).not.toBe(a)
+    expect(tierOneKey('other', ['s1', 's2'], 'body')).not.toBe(a)
+    expect(tierOneKey('writer', ['s1', 's2'], 'body v2')).not.toBe(a)
+  })
+})
+
+describe('scoreVariantTiered', () => {
+  /** Fake scorer that records the attempts each evaluateSkill call received. */
+  function fakeScorer(): { attemptsSeen: (number | undefined)[]; scorer: ScoreVariantDeps['scorer'] } {
+    const attemptsSeen: (number | undefined)[] = []
+    const scorer = {
+      version: 1,
+      evaluateSkill: async (request: { skill: string; attempts?: number }) => {
+        attemptsSeen.push(request.attempts)
+        return {
+          status: 'evaluated' as const,
+          skill: request.skill,
+          score: { skill: request.skill, pass: true, tokens: 5, wallTimeMs: 5, scores: [] },
+        }
+      },
+    } as unknown as ScoreVariantDeps['scorer']
+    return { attemptsSeen, scorer }
+  }
+
+  const AGENT = { binScript: 'unused-bin', configPath: 'unused-cfg', tsconfigPath: 'unused-tsconfig' }
+  const run: ScoreVariantDeps['run'] = async () => ({
+    rawStdout: '', stderr: '', cwd: '/tmp/nowhere', cwdAliases: [], initialWorkspace: [], finalWorkspace: [], sessionLogs: [],
+  })
+
+  it('buys one attempt for the run\'s own starting body — the fixture corpus already validates it', async () => {
+    const { attemptsSeen, scorer } = fakeScorer()
+    const deps: ScoreVariantDeps = { scorer, skill: 'writer', scenarios: ['s1'], agent: AGENT, run }
+    await scoreVariantTiered(new Context(), deps, '# writer', '# writer')
+    expect(attemptsSeen).toEqual([1])
+  })
+
+  it('escalates to the scorer\'s configured attempts for a body that changed — a content-key miss', async () => {
+    const { attemptsSeen, scorer } = fakeScorer()
+    const deps: ScoreVariantDeps = { scorer, skill: 'writer', scenarios: ['s1'], agent: AGENT, run }
+    await scoreVariantTiered(new Context(), deps, '# writer v2', '# writer')
+    expect(attemptsSeen).toEqual([undefined])
+  })
+
+  it('never caches — a candidate that keeps changing keeps escalating', async () => {
+    const { attemptsSeen, scorer } = fakeScorer()
+    const deps: ScoreVariantDeps = { scorer, skill: 'writer', scenarios: ['s1'], agent: AGENT, run }
+    await scoreVariantTiered(new Context(), deps, '# writer v2', '# writer')
+    await scoreVariantTiered(new Context(), deps, '# writer v3', '# writer')
+    expect(attemptsSeen).toEqual([undefined, undefined])
   })
 })

@@ -12,6 +12,7 @@ import type { ContentBlock, ContextFormed, GenerateOptions, Message, StreamChunk
 
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
+    /** @persistenceAttribution */
     'evolution-optimizer': { kind: 'evolution-optimizer' } & ContextFormed
   }
 }

@@ -9,6 +9,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { createHash } from 'node:crypto'
 import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -19,6 +20,7 @@ import TokenMeter from '@deepseek-ai/dsh-token-meter'
 import { captureWorkspaceSnapshot } from '@deepseek-ai/dsh-session-snapshot'
 import type { AgentUnderTest, RunOptions, RunResult } from '@deepseek-ai/dsh-session-snapshot'
 import EvolutionScorer, { resolveConfig } from '../src/index.ts'
+import { loadScenarioPlan } from '../src/scenario.ts'
 import type { ScenarioRunner } from '../src/types.ts'
 
 /**
@@ -121,6 +123,45 @@ describe('EvolutionScorer', () => {
     expect(outcome.score.wallTimeMs).toBeGreaterThanOrEqual(Math.min(...outcome.score.samples))
     expect(outcome.score.wallTimeMs).toBeLessThanOrEqual(Math.max(...outcome.score.samples))
     expect(calls.map(call => call.mode)).toEqual(['replay', 'replay'])
+  })
+
+  it('overrides the configured attempt count for one call (S9 tier gate)', async () => {
+    calls.length = 0
+    const outcome = await scorer(3).score({ scenario: 'text-turn', agent: AGENT, run: fakeRunner, attempts: 1 })
+    expect(outcome.status).toBe('scored')
+    if (outcome.status !== 'scored') throw new Error(`expected a score, got a skip: ${outcome.reason}`)
+    expect(outcome.score.samples).toHaveLength(1)
+    expect(calls).toHaveLength(1)
+  })
+
+  it('captures the recorded fixture digest and the first attempt\'s session as the trajectory (§24.3)', async () => {
+    const outcome = await scorer(1).score({ scenario: 'text-turn', agent: AGENT, run: fakeRunner })
+    expect(outcome.status).toBe('scored')
+    if (outcome.status !== 'scored') throw new Error(`expected a score, got a skip: ${outcome.reason}`)
+    expect(outcome.score.trajectory).toBe('recorded')
+    const planned = await loadScenarioPlan(corpus, 'text-turn')
+    if (planned.status !== 'planned') throw new Error('expected a plan')
+    const digest = createHash('sha256')
+    for (const file of [planned.plan.fixtureFile, ...planned.plan.childFiles]) digest.update(await readFile(file))
+    expect(outcome.score.fixtureDigest).toBe(digest.digest('hex'))
+    // read-only ships one recorded fixture where text-turn ships two, so even
+    // though every fixture holds the same recorded bytes the digests differ.
+    const other = await scorer(1).score({ scenario: 'read-only', agent: AGENT, run: fakeRunner })
+    if (other.status !== 'scored') throw new Error('expected a score')
+    expect(other.score.fixtureDigest).not.toBe(outcome.score.fixtureDigest)
+  })
+
+  it('forwards the per-call attempt override to every scenario in a skill evaluation', async () => {
+    calls.length = 0
+    const evaluation = await scorer(3).evaluateSkill({
+      skill: 'writer',
+      scenarios: ['text-turn', 'read-only'],
+      agent: AGENT,
+      run: fakeRunner,
+      attempts: 1,
+    })
+    expect(evaluation.status).toBe('evaluated')
+    expect(calls).toHaveLength(2)
   })
 
   it('fails the score when the attempt diverges from workspace.expected', async () => {

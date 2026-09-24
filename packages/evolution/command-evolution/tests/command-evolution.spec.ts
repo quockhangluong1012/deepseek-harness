@@ -311,6 +311,10 @@ interface LineageStub {
   comparisons: Record<string, unknown>
   /** Envelope `replay` reports per id; a missing id reads undefined. */
   replays: Record<string, unknown>
+  /** (id, outcome, rejectedReason) triples passed to `amendOutcome`, in call order. */
+  amendments: { id: string; outcome: string; rejectedReason: string | undefined }[]
+  /** When set, `amendOutcome` rejects with this value. */
+  amendError?: unknown
 }
 
 /** Sleeptime state the `/sleeptime` command reads, when provided. */
@@ -746,13 +750,18 @@ async function harness(
       },
     } as never)
   }
-  const lineage: LineageStub = { experiments: [], comparisons: {}, replays: {} }
+  const lineage: LineageStub = { experiments: [], comparisons: {}, replays: {}, amendments: [] }
   if (extra.lineage === true) {
     ctx.provide('evolutionLineage', {
       experiments: (skill?: string) => lineage.experiments.filter(envelope =>
         (skill === undefined || (envelope as { skill: string }).skill === skill)),
       compare: (idA: string, idB: string) => lineage.comparisons[`${idA}/${idB}`],
       replay: (id: string) => lineage.replays[id],
+      amendOutcome: async (id: string, outcome: string, rejectedReason?: string) => {
+        lineage.amendments.push({ id, outcome, rejectedReason })
+        if (lineage.amendError !== undefined) throw lineage.amendError
+        return { experimentId: id, outcome, rejectedReason }
+      },
     } as never)
   }
   const sleeptime: SleeptimeStub = { tasks: [], artifacts: [], plan: [] }
@@ -3873,6 +3882,31 @@ describe('/canary human command', () => {
       expect((await run(test, session, '/canary rollout ghost')).result).toEqual({
         kind: 'error',
         text: "evolution-canary: unknown deployment 'ghost'",
+      })
+    } finally {
+      await shutdown(test)
+    }
+  })
+
+  it('amends the matching lineage envelope\'s outcome when a deployment exits to rejected or rolled-back', async () => {
+    const test = await harness(true, undefined, { canary: true, lineage: true })
+    try {
+      const session = sessionIn(test.ctx, test.dir, 'canary-lineage-amend')
+      await run(test, session, '/canary reject dd-ee-ff')
+      await run(test, session, '/canary rollback ee-ff-00')
+      expect(test.lineage.amendments).toEqual([
+        { id: 'dd-ee-ff', outcome: 'regressed', rejectedReason: 'deployment rejected by an operator after promotion' },
+        { id: 'ee-ff-00', outcome: 'regressed', rejectedReason: 'deployment rolled-back by an operator after promotion' },
+      ])
+      // Rolling out or promoting never touches lineage: only the two exits do.
+      await run(test, session, '/canary rollout aa-bb-cc')
+      expect(test.lineage.amendments).toHaveLength(2)
+      // A lineage amendment failure must not surface as a canary error: the
+      // transition already landed, and lineage bookkeeping is optional (§58.12).
+      test.lineage.amendError = new Error('evolution-lineage: unknown experiment \'ghost-id\'')
+      expect((await run(test, session, '/canary reject ghost-id')).result).toEqual({
+        kind: 'success',
+        text: "Deployment 'ghost-id' (writer) moved to 'rejected'.",
       })
     } finally {
       await shutdown(test)

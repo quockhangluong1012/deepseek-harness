@@ -116,6 +116,7 @@ export interface EvolutionMemorySource {
 
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
+    /** @persistenceAttribution */
     'evolution-memory': EvolutionMemorySource
   }
 }
@@ -136,6 +137,10 @@ export interface Config {
   failureSignalScanLimit?: number
   /** Usage ratio at or above which the brief header warns to consolidate. */
   capacityWarnPct?: number
+  /** Minimum rendered-brief byte change before a store update replaces the visible brief (S1 point 4); 0 replaces on any change. */
+  minSupersedeChangeBytes?: number
+  /** Session cap on brief supersedes (S1 point 4); a store change past the cap leaves the visible brief in place. */
+  maxSupersedesPerSession?: number
 }
 
 /** Schemastery validation for {@link Config}. */
@@ -147,6 +152,8 @@ export const Config: z<Config> = z.object({
   stagedWriteWaitMinutes: z.number().min(0).default(1440),
   failureSignalScanLimit: z.number().step(1).min(1).default(20),
   capacityWarnPct: z.number().min(0).max(1).default(0.8),
+  minSupersedeChangeBytes: z.number().step(1).min(0).default(0),
+  maxSupersedesPerSession: z.number().step(1).min(0).default(1000000),
 })
 
 /** Plugin configuration with the optional nudge cadences resolved. */
@@ -165,6 +172,10 @@ export interface ResolvedConfig {
   failureSignalScanLimit: number
   /** Usage ratio at or above which the brief header warns to consolidate. */
   capacityWarnPct: number
+  /** Minimum rendered-brief byte change a store update must cross before it replaces the visible brief. */
+  minSupersedeChangeBytes: number
+  /** Session cap on brief supersedes. */
+  maxSupersedesPerSession: number
 }
 
 /**
@@ -183,6 +194,8 @@ export function resolveConfig(config: Config): ResolvedConfig {
     stagedWriteWaitMinutes: config.stagedWriteWaitMinutes ?? 1440,
     failureSignalScanLimit: config.failureSignalScanLimit ?? 20,
     capacityWarnPct: config.capacityWarnPct ?? 0.8,
+    minSupersedeChangeBytes: config.minSupersedeChangeBytes ?? 0,
+    maxSupersedesPerSession: config.maxSupersedesPerSession ?? 1000000,
   }
 }
 
@@ -216,6 +229,26 @@ function textOfUserMessage(message: UserMessage): string {
     if (block.type === 'text') text += (block as { text: string }).text
   }
   return text
+}
+
+/**
+ * Count of UTF-8 bytes that differ between two texts: every byte past the
+ * shorter text's length, plus every differing byte within the shared prefix.
+ * A plain length delta alone would call a same-length full rewrite
+ * unchanged, so this counts content, not just size.
+ * @param a - the first text.
+ * @param b - the second text.
+ * @returns the number of differing bytes.
+ */
+function byteDiff(a: string, b: string): number {
+  const left = Buffer.from(a, 'utf8')
+  const right = Buffer.from(b, 'utf8')
+  const shared = Math.min(left.length, right.length)
+  let diff = Math.abs(left.length - right.length)
+  for (let index = 0; index < shared; index += 1) {
+    if (left[index] !== right[index]) diff += 1
+  }
+  return diff
 }
 
 function claimedBrief(claimed: readonly UserMessage[]): UserMessage | undefined {
@@ -257,11 +290,18 @@ export function apply(ctx: Context, config: Config): void {
     stagedWriteWaitMinutes,
     failureSignalScanLimit,
     capacityWarnPct,
+    minSupersedeChangeBytes,
+    maxSupersedesPerSession,
   } = resolveConfig(config)
   checkProfile(profile)
   const workspaceBySession = new Map<string, WorkspaceId | null>()
   const injectedDigests = new Map<string, string>()
   const renderedBriefs = new Map<string, RenderedBrief>()
+  // S1 point 4: the last brief text actually placed on the surface, and how
+  // many times this session has replaced it, so a small or over-budget store
+  // change leaves the surface (and the request prefix) unchanged.
+  const lastSupersedeText = new Map<string, string>()
+  const supersedeCounts = new Map<string, number>()
   const turnsBySession = new Map<string, number>()
   const nudgeFiredTurns = new Map<string, number>()
   ctx.on('session/event', (session: Session, event: SessionEvent) => {
@@ -275,6 +315,8 @@ export function apply(ctx: Context, config: Config): void {
     injectedDigests.delete(key)
     renderedBriefs.delete(key)
     turnsBySession.delete(key)
+    lastSupersedeText.delete(key)
+    supersedeCounts.delete(key)
     for (const nudgeKey of [...nudgeFiredTurns.keys()]) {
       if (nudgeKey.startsWith(`${key}\u0000`)) nudgeFiredTurns.delete(nudgeKey)
     }
@@ -285,6 +327,8 @@ export function apply(ctx: Context, config: Config): void {
     turnsBySession.clear()
     nudgeFiredTurns.clear()
     renderedBriefs.clear()
+    lastSupersedeText.clear()
+    supersedeCounts.clear()
   }, 'evolution-memory-context.cache')
 
   const scopeOf = (workspaceId: WorkspaceId): EvolutionScopeId => EvolutionScopeId(profile, String(workspaceId))
@@ -344,7 +388,7 @@ export function apply(ctx: Context, config: Config): void {
     const events = [...surface.events].reverse()
     for (const event of events) {
       if (event.type !== 'user/message') continue
-      const message = event.data as UserMessage
+      const message = event.data
       if (evolutionMemoryDigest(message) !== undefined) return message
     }
     return undefined
@@ -394,7 +438,12 @@ export function apply(ctx: Context, config: Config): void {
   const prompt = ctx.get('systemPrompt')
   if (prompt !== undefined) {
     const tools = ctx.get('tools')
-    const sections = [
+    // Turn-conditional nudges (S1: fire only some turns, driven by
+    // `NUDGE_CONDITIONS`) register as dynamic runtime context, not a static
+    // section: `prompt.context()` materializes as a fresh user-role snapshot
+    // near the tail of model history, adjacent to the turn it fired for,
+    // rather than baked permanently into the system prompt header.
+    const contexts = [
       {
         def: LESSONS_SKILLS_SECTION,
         text: (context: AssembleContext) => tools?.get(SKILL_MANAGE_TOOL, context.scope) === undefined
@@ -402,15 +451,25 @@ export function apply(ctx: Context, config: Config): void {
           : sectionText('skills', context),
       },
       { def: MEMORY_SCOPE_SECTION, text: (context: AssembleContext) => sectionText('memory', context) },
-      { def: SESSION_SEARCH_SECTION, text: () => SESSION_SEARCH_SECTION.text },
     ]
-    for (const section of sections) {
-      const { def, text } = section
+    for (const contribution of contexts) {
+      const { def, text } = contribution
       ctx.effect(
-        () => prompt.section({ name: def.name, order: def.order, text }),
+        () => prompt.context({ name: def.name, order: def.order, text }),
         `evolution-memory-context.${def.name}`,
       )
     }
+    // The session-search hint is a standing capability notice, not a
+    // turn-conditional nudge: it stays a static section, but only renders
+    // when a session-search seam is actually mounted.
+    ctx.effect(
+      () => prompt.section({
+        name: SESSION_SEARCH_SECTION.name,
+        order: SESSION_SEARCH_SECTION.order,
+        text: () => ctx.get('sessionQuery')?.searchSessions === undefined ? '' : SESSION_SEARCH_SECTION.text,
+      }),
+      `evolution-memory-context.${SESSION_SEARCH_SECTION.name}`,
+    )
   }
 
   /**
@@ -503,7 +562,7 @@ export function apply(ctx: Context, config: Config): void {
     return brief
   }
 
-  ctx.inject(['agentContext'], agentContextCtx => {
+  ctx.inject(['agentContext'], (agentContextCtx) => {
     agentContextCtx.effect(() => agentContextCtx.agentContext.register({
       producer: 'evolution-memory',
       kind: 'memory',
@@ -539,15 +598,33 @@ export function apply(ctx: Context, config: Config): void {
     if (claimed !== undefined
       && evolutionMemoryDigest(claimed) === digest
       && evolutionMemoryScope(claimed) === String(scope)) {
-      renderedBriefs.set(sessionKey, { ...rendered, text: textOfUserMessage(claimed) })
+      const claimedText = textOfUserMessage(claimed)
+      renderedBriefs.set(sessionKey, { ...rendered, text: claimedText })
       injectedDigests.set(sessionKey, digest)
+      lastSupersedeText.set(sessionKey, claimedText)
       return decision
     }
+
+    // S1 point 4: a superseding snapshot is gated on the rendered text, not
+    // the store's own digest (which also moves on counter-only writes), and
+    // on a minimum byte change plus a per-session supersede budget.
+    const previousText = lastSupersedeText.get(sessionKey)
+    if (previousText !== undefined) {
+      const changedBytes = previousText === rendered.text ? 0 : byteDiff(previousText, rendered.text)
+      const supersedeCount = supersedeCounts.get(sessionKey) ?? 0
+      if (changedBytes === 0 || changedBytes < minSupersedeChangeBytes || supersedeCount >= maxSupersedesPerSession) {
+        injectedDigests.set(sessionKey, digest)
+        return decision
+      }
+      supersedeCounts.set(sessionKey, supersedeCount + 1)
+    }
+
     const brief = createUserMessage({
       content: [{ type: 'text', text: rendered.text }],
       source: { kind: 'evolution-memory', form: 'snapshot', scopeId: scope, digest, sections: rendered.sections, supersedes: true },
     })
     injectedDigests.set(sessionKey, digest)
+    lastSupersedeText.set(sessionKey, rendered.text)
     return { ...decision, messages: [...decision.messages, brief] }
   }
 

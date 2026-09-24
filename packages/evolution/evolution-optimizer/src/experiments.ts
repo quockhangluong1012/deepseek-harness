@@ -48,6 +48,10 @@ export const experimentRecordSchema = z.object({
   winnerSha: z.string().nullable(),
   winnerOperator: z.string().nullable(),
   winnerArchiveNovelty: z.number().min(0).max(1).nullable().default(null),
+  fixtureDigest: z.string().nullable().default(null),
+  trajectory: z.array(z.string()).default([]),
+  policyProfile: z.string().nullable().default(null),
+  verifierOutput: z.string().nullable().default(null),
 })
 
 /** One stored experiment row, inferred from {@link experimentRecordSchema}. */

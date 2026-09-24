@@ -49,6 +49,8 @@ When `@deepseek-ai/dsh-agent-context` is mounted, this package also registers th
 | `stagedWriteWaitMinutes` | `1440` | Minutes a staged write may wait before the memory nudge names it |
 | `failureSignalScanLimit` | `20` | Failure signals one nudge evaluation grades |
 | `capacityWarnPct` | `0.8` | Usage ratio at or above which the brief header warns to consolidate |
+| `minSupersedeChangeBytes` | `0` | Minimum rendered-brief byte change before a store update replaces the visible brief (S1 point 4) |
+| `maxSupersedesPerSession` | `1000000` | Session cap on brief supersedes; a store change past the cap leaves the visible brief in place |
 
 `memoryNudgeInterval` and `skillNudgeInterval` used to be the trigger — a nudge rendered on every turn that was a multiple of them. They are now the cadence ceiling over the recorded conditions (`conditions.ts`), which is the §53 upgrade: a nudge fires when evidence holds and stays silent while none does, and the interval only limits how often a standing condition repeats. A host that sets them keeps its numbers and gets the new meaning.
 
@@ -58,6 +60,10 @@ The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-a
 Empty sections are omitted and an all-empty record injects nothing. Under pressure trailing context items drop first, then the weakest lesson artifacts drop whole — strongest first by confidence, ties broken by ascending id, and a lesson is never truncated mid-statement — then the profile truncates with lessons already gone, then instructions truncate last; one notice line names every drop and truncation, and file bytes are re-read at injection time while the recorded size stays a snapshot. The digest covers instructions, lessons, profile, and context only, so output indexing and staged writes never re-inject the brief. Once usage reaches `capacityWarnPct` the header carries a near-capacity warning telling the model to consolidate instead of adding, ahead of the store's hard reject at full capacity.
 
 Recalled context material — items labelled with the store's `RECALL_LABEL_PREFIX` — renders after every item the user attached, because the renderer drops trailing context first and recalled material outranks nothing the user attached.
+
+### Supersede gate (S1 point 4)
+
+A store digest change alone does not replace the surface brief: the injector compares the newly rendered text against the text it last placed on the surface, byte for byte. A store write that leaves the rendered text unchanged — a lesson `confirms` decision bumps `validationCount` only, for example — never supersedes, even though the store's own digest moved. A genuine text change still needs at least `minSupersedeChangeBytes` differing bytes and an unspent session budget under `maxSupersedesPerSession`; below either, the surface brief stays exactly as it was, and the request prefix stays cache-stable. A withheld change is not lost: the next store change is measured against the same still-visible text, so small edits accumulate toward the threshold instead of resetting it.
 
 -----
 
@@ -138,7 +144,7 @@ Prefix-stable while the record is unchanged: the brief is appended after the cla
 
 #### What the model sees
 
-Three nudge sections: `evolution-memory-scope`, `evolution-lessons-skills`, `evolution-session-search`. The first two carry §53's recorded conditions instead of fixed advice: each line names the condition that fired, its count, and the surface that acts on it, and a section renders nothing while none of its conditions holds. The skill section renders only beside a visible `skill_manage` tool, because one of its lines tells the model to record a lesson with that tool.
+Three nudge registrations: `evolution-memory-scope`, `evolution-lessons-skills`, `evolution-session-search`. The first two carry §53's recorded conditions instead of fixed advice: each line names the condition that fired, its count, and the surface that acts on it, and a contribution renders nothing while none of its conditions holds. The skill contribution renders only beside a visible `skill_manage` tool, because one of its lines tells the model to record a lesson with that tool. Being turn-conditional, the memory and skill nudges register as dynamic `systemPrompt.context()` entries rather than static sections (S1): a fired condition reaches the model as a fresh runtime-context snapshot near the tail of history, adjacent to the turn it fired for, instead of a line baked permanently into the system prompt header. The session-search hint is a standing notice, not a condition, so it stays a static `systemPrompt.section()` registration — but its text renders only while a session-search seam (`ctx.sessionQuery.searchSessions`) is actually mounted; without one, the section registers but renders empty (S1).
 
 ##### Verbatim text for this field, when needed
 

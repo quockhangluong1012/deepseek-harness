@@ -133,8 +133,8 @@ The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-a
 | `/canary status [<skill>]` | The same deployment list narrowed to one skill; a skill with none reports `No deployments for '<skill>'.` |
 | `/canary rollout <id>` | Move one shadow deployment to canary and report `Deployment '<id8>' (<skill>) moved to '<state>'.` |
 | `/canary promote <id>` | Move one canary deployment to promoted, with the same report. §53's separation of duties guards the promotion: the invoking session is recorded as the reviewing identity, and a promotion by the identity that proposed the candidate — or one whose proposing identity was never recorded — reports `Promotion of '<id>' refused: <reason>` and leaves the deployment where it is. |
-| `/canary reject <id>` | Exit one staged rollout to rejected, with the same report. |
-| `/canary rollback <id>` | Exit one staged rollout to rolled-back, with the same report. |
+| `/canary reject <id>` | Exit one staged rollout to rejected, with the same report. When the lineage store is mounted and recorded this id, its outcome is amended to `'regressed'` with a reason naming the exit, so a recorded `'improved'` verdict does not outlive the rejection; a failed amendment logs a warning instead of failing the report. |
+| `/canary rollback <id>` | Exit one staged rollout to rolled-back, with the same report and the same lineage amendment. |
 | `/canary <anything-else>` | `Usage: /canary [status [<skill>] \| rollout <id> \| promote <id> \| reject <id> \| rollback <id>]` |
 | `/novelty` | Summarize the archive as `Novelty archive: <n> entry(ies) across <n> skill(s).` then `- <skill>: <n> entry(ies), mean novelty <x.xx>`, sorted by skill; none recorded reports `No recorded novelty archive entries. The optimizer records staged writes as descriptors.` Without the store mounted: `The evolution novelty-search store is not mounted.` |
 | `/novelty <skill>` | List one skill's descriptors as `Novelty archive '<skill>': <n> entry(ies), mean <x.xx>.` then up to ten `- <id8>: <n> features, novelty <x.xx> at <instant>` lines; a skill with none reports `No recorded novelty archive entries for '<skill>'.` |
@@ -298,7 +298,7 @@ Discovery and command bookkeeping do not affect the cache. An approved lessons c
 
 These limits define when the commands are a poor fit; they are the current package constraints.
 
-- **No skill-write application** — `/skills approve` drops a staged skill entry; the skill file is written by `skill_manage`, and the command never writes skill files itself.
+- **No skill-write application** — `/skills approve` drops a staged skill entry; the skill file is written by `skill_manage`, and the command never writes skill files itself. `/canary reject`/`rollback` amend the matching lineage outcome so the recorded verdict tracks reality, but no `/canary` verb verifies the live skill file against the staged body, and none writes it: doing either would reverse this deliberate human-write gate and the group-wide §58.12 recorded-not-enforced boundary every sibling store in this package documents, not a change one command can make alone.
 - **`/learn` depends on the gated writer** — the command only queues a turn; if the composed agent has no `skill_manage` (or no gathering tools), the turn cannot save anything, and the prompt says so instead of pretending a skill landed.
 - **`/suggestions` only suggests** — it reads blueprints and schedules nothing; installing the cron entry a blueprint names stays a separate, deliberate act by the human.
 - **Blueprint reader tolerates two surfaces** — a skill's blueprint is read from the parsed frontmatter field, or from the frontmatter bag it was parsed from, because discovery publishes one of the two; an unaccepted shape is simply not suggested.

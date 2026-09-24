@@ -40,6 +40,7 @@ export interface WorkspaceMemorySource {
 
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
+    /** @persistenceAttribution */
     'workspace-memory': WorkspaceMemorySource
   }
 }

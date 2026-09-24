@@ -106,7 +106,10 @@ export function defineCoverageCases(groups: CoverageGroup | readonly CoverageGro
       const ctx = await harness(join(d, 'hooks.json'), adapter)
       const agent = await ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
       agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } })); await waitForIdle(ctx, agent)
-      expect(JSON.stringify(adapter.requests[0]!.messages)).toContain('ctx-x')
+      const sent = JSON.stringify(adapter.requests[0]!.messages)
+      expect(sent).toContain('ctx-x')
+      // Hook-injected content is untrusted data, visibly marked as such.
+      expect(sent).toContain('untrusted')
     })
 
     it('a context-only UserPromptSubmit hook DELEGATES so a later listener can still block', async () => {
@@ -391,6 +394,27 @@ export function defineCoverageCases(groups: CoverageGroup | readonly CoverageGro
       const agent = await ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
       agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } })); await waitForIdle(ctx, agent)
       expect(ran).toBe(true)
+    })
+
+    it('a clean PreToolUse hook never suppresses a downstream policy deny (advisory allow only)', async () => {
+      // The hook itself expresses no opinion (exit 0, no decision) — it only
+      // ever DELEGATEs when it does not itself deny — so a real policy owner
+      // registered on the same waterfall still gets to answer, and its deny
+      // reaches the tool call unweakened by the hook's silence.
+      const d = dir()
+      hooks(d, { PreToolUse: [{ hooks: [{ type: 'command', command: sh(d, 'ok.sh', '#!/usr/bin/env bash\nexit 0\n') }] }] })
+      const adapter = new MockAdapter([toolCallResponse('c1', 'Bash', { command: 'x' }), textResponse('done')])
+      const ctx = await harness(join(d, 'hooks.json'), adapter)
+      let ran = false
+      ctx.tools.register(defineContentToolFixture({ name: 'Bash', description: 'b', parameters: { command: { type: 'string' } }, async execute() { ran = true; return [{ type: 'text', text: 'ok' }] } }))
+      ctx.on('tools/pre-execute', async () => ({ kind: 'deny' as const, reason: 'policy: denied by the real policy owner' }))
+      const agent = await ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+      agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } })); await waitForIdle(ctx, agent)
+      expect(ran).toBe(false)
+      const result = events(agent).find(e => e.type === 'tool/result')
+      expect(result?.type === 'tool/result' && result.data.message.isError).toBe(true)
+      expect(result?.type === 'tool/result'
+        && result.data.message.content.some(b => b.type === 'text' && b.text.includes('denied by the real policy owner'))).toBe(true)
     })
 
     it('a non-matching regex matcher skips the hook (matchesMatcher false → continue)', async () => {

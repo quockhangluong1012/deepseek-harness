@@ -84,7 +84,10 @@ describe('hooks-codex bridge', () => {
     await ctx.agents.announce(agent, 'resume')
 
     expect(inject).toHaveBeenCalledWith(expect.objectContaining({
-      content: [{ type: 'text', text: 'resumed context' }],
+      content: [
+        { type: 'text', text: expect.stringContaining('untrusted') as string },
+        { type: 'text', text: 'resumed context' },
+      ],
     }))
   })
 

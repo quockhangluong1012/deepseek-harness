@@ -18,8 +18,10 @@ export interface HeartbeatTask {
   minIdleHours?: number
   /**
    * The work this task performs. A rejection is recorded against the task and
-   * never stops the other tasks in the pass.
-   * @param signal - aborts at plugin teardown, so a long task observes disposal.
+   * never stops the remaining pass. An aborted task is deferred, not recorded
+   * as a failure.
+   * @param signal - aborted on task unregistration or engine teardown. The task
+   *   must settle after abort; disposal waits before its provider can unload.
    */
   run: (signal: AbortSignal) => Promise<void> | void
 }
@@ -77,6 +79,6 @@ export interface HeartbeatTaskReport {
 export interface HeartbeatReport {
   /** ISO-8601 instant the pass evaluated. */
   at: string
-  /** One entry per task still registered, in registration order. */
+  /** One entry per task reached by the pass, in registration order. */
   tasks: HeartbeatTaskReport[]
 }

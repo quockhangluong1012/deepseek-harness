@@ -1,7 +1,9 @@
 import { imageOffloadProjection } from '@deepseek-ai/dsh-compaction-image-offload/projection'
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import { ToolCallId , createMessage, createToolResultMessage } from '@deepseek-ai/dsh-llm'
+import AgentContext from '@deepseek-ai/dsh-agent-context'
+import type { Agent } from '@deepseek-ai/dsh-agent'
+import { ToolCallId, createMessage, createToolResultMessage } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import SessionStore, {
   Session,
@@ -266,6 +268,79 @@ describe('ToolResultPruner session transaction', () => {
       first.pruned.reduce((sum, entry) => sum + entry.charsBefore - entry.charsAfter, 0),
     )
     expect(second).toEqual({ pruned: [], charsRemoved: 0 })
+  })
+
+  it('preserves the compiler-selected recent result and prunes older output', async () => {
+    const ctx = new Context()
+    new SessionProjectionRegistry(ctx)
+    void new TokenMeter(ctx)
+    const pruner = new ToolResultPruner(ctx, SMALL)
+    await ctx.plugin(AgentContext, {})
+    try {
+      const session = Session.create(SessionId('compiler-retention'))
+      appendToolStep(session, 1, 'old', [{ type: 'text', text: 'A'.repeat(100) }])
+      appendToolStep(session, 2, 'recent', [{ type: 'text', text: 'B'.repeat(100) }])
+      const recentMessage = session.deriveMessages().findLast(message => message.role === 'tool')
+      if (recentMessage?.role !== 'tool') throw new Error('recent tool result did not enter the session surface')
+      const recentId = String(recentMessage.id)
+      session.append('turn/start', { turn: 3 })
+      const agent = { id: session.id, session } as Agent
+      const compiled = await ctx.agentContext.compile(agent, { sections: [], contexts: [], tools: [], variables: {} })
+
+      const recent = compiled.included.find(entry => entry.source.id === `tool-result-retention:${recentId}`)
+      expect(recent?.source.retention).toBe('compressible')
+      expect(recent?.source.content).toBe('B'.repeat(100))
+      expect(pruner.pruneSession(session).pruned.map(entry => entry.callId)).toEqual([ToolCallId('old')])
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('preserves compiler-required spill results but prunes unselected output', async () => {
+    const ctx = new Context()
+    new SessionProjectionRegistry(ctx)
+    void new TokenMeter(ctx)
+    const pruner = new ToolResultPruner(ctx, SMALL)
+    await ctx.plugin(AgentContext, { maxContextTokens: 0 })
+    try {
+      const session = Session.create(SessionId('compiler-spill-retention'))
+      appendToolStep(session, 1, 'spill', [{
+        type: 'text',
+        text: '(Omitted 100 bytes. Full formatted result stored at: /spill/a.txt. Use read.)',
+      }])
+      const spillMessage = session.deriveMessages().findLast(message => message.role === 'tool')
+      if (spillMessage?.role !== 'tool') throw new Error('spill tool result did not enter the session surface')
+      const spillId = String(spillMessage.id)
+      appendToolStep(session, 2, 'middle', [{ type: 'text', text: 'M'.repeat(100) }])
+      appendToolStep(session, 3, 'recent', [{ type: 'text', text: 'R'.repeat(100) }])
+      const recentMessage = session.deriveMessages().findLast(message => message.role === 'tool')
+      if (recentMessage?.role !== 'tool') throw new Error('recent tool result did not enter the session surface')
+      const recentId = String(recentMessage.id)
+      session.append('turn/start', { turn: 4 })
+      const stop = ctx.agentContext.register({
+        producer: 'spill-notice-retention',
+        kind: 'tool',
+        trust: 'untrusted',
+        placement: 'stable-core',
+        maxBytes: 128,
+      }, () => Promise.resolve([{
+        id: spillId,
+        text: 'Preserve the recovery notice for this spilled tool result.',
+        relevance: 1,
+      }]))
+      const agent = { id: session.id, session } as Agent
+      const compiled = await ctx.agentContext.compile(agent, { sections: [], contexts: [], tools: [], variables: {} })
+
+      expect(compiled.included.some(entry => entry.source.id === `spill-notice-retention:${spillId}`
+        && entry.source.retention === 'required')).toBe(true)
+      expect(compiled.omitted).toContainEqual({ id: `tool-result-retention:${recentId}`, reason: 'budget' })
+      expect(pruner.pruneSession(session).pruned.map(entry => entry.callId)).toEqual([
+        ToolCallId('middle'), ToolCallId('recent'),
+      ])
+      stop()
+    } finally {
+      await ctx.fiber.dispose()
+    }
   })
 
   it('replays to the identical pruned model messages', () => {

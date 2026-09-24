@@ -41,7 +41,7 @@ import type {} from '@deepseek-ai/dsh-skill'
 import type { AgentUnderTest } from '@deepseek-ai/dsh-session-snapshot'
 import { distributeCandidates, frameMutationInput, mutateOnce, resolveOperators } from './mutate.ts'
 import { dominates, pickWinner, screenSurvivors } from './pareto.ts'
-import { scoreVariantGated } from './tiers.ts'
+import { scoreVariantTiered } from './tiers.ts'
 import {
   describeOutcome,
   experimentKey,
@@ -336,8 +336,8 @@ export class EvolutionOptimizer extends Service {
    * @returns the run report; `staged` carries the staged entry id.
    * @throws when the scenario lists overlap or repeat, a holdout scenario was
    * already used for search for the skill, a required seam
-   * (scorer, telemetry, memory, skills, llm) is missing, or the
-   * provider/model route is missing.
+   * (scorer, telemetry, memory, skills, llm) is missing, the provider/model
+   * route is missing, or a run reaches staging with no holdout configured.
    */
   async optimize(request: OptimizeRequest): Promise<OptimizeReport> {
     const outcome = await this.execute(request)
@@ -360,7 +360,10 @@ export class EvolutionOptimizer extends Service {
   }
 
   /**
-   * Append one run to the ledger and drop the scope's stale rows.
+   * Append one run to the ledger and drop the scope's stale rows. Also binds
+   * §24.3 durable evidence: the recorded fixture digest, harvested session
+   * trajectory, named policy profile, and the frontmatter contract gate's
+   * verdict on the promoted body.
    * @param request - the run's staging identity.
    * @param report - what the run decided.
    * @param draft - what the run measured.
@@ -368,6 +371,16 @@ export class EvolutionOptimizer extends Service {
   private async record(request: OptimizeRequest, report: OptimizeReport, draft: ExperimentDraft): Promise<void> {
     const triple = (score: { pass: boolean; tokens: number; wallTimeMs: number } | null) =>
       score === null ? null : { pass: score.pass, tokens: score.tokens, wallTimeMs: score.wallTimeMs }
+    // §24.3 durable evidence: the winner's per-scenario scores when one was
+    // promoted, else the re-scored baseline's — both already carry the
+    // fixture digest and trajectory the scorer captured while measuring.
+    const scores = draft.winner?.score.scores ?? report.baseline?.scores ?? []
+    const fixtureDigest = scores.length === 0
+      ? null
+      : digestOf([...scores].sort((a, b) => a.scenario.localeCompare(b.scenario)).map(score => score.fixtureDigest).join('\n'))
+    const trajectory = scores
+      .map(score => score.trajectory)
+      .filter((sessionId): sessionId is string => sessionId !== null)
     const row: ExperimentRecord = {
       id: randomUUID(),
       at: new Date().toISOString(),
@@ -394,6 +407,10 @@ export class EvolutionOptimizer extends Service {
       winnerSha: draft.winner === null ? null : digestOf(draft.winner.body),
       winnerOperator: draft.winner?.operator ?? null,
       winnerArchiveNovelty: draft.winnerArchiveNovelty,
+      fixtureDigest,
+      trajectory,
+      policyProfile: draft.agentProfile,
+      verifierOutput: draft.winner === null ? null : JSON.stringify(checkBehaviorContract(request.skill, draft.winner.body)),
     }
     try {
       const table = this.requireTable()
@@ -671,6 +688,7 @@ export class EvolutionOptimizer extends Service {
       body,
       winner,
       winnerArchiveNovelty: winner?.archiveNovelty ?? null,
+      agentProfile: agent.profile ?? null,
       samples,
     })
     const deps = { scorer, skill: request.skill, scenarios: request.scenarios, agent, run }
@@ -682,7 +700,7 @@ export class EvolutionOptimizer extends Service {
     const withinBudget = (): boolean =>
       (this.resolved.budgetTokens === 0 || spent.tokens < this.resolved.budgetTokens)
       && (this.resolved.budgetWallTimeMs === 0 || spent.wallTimeMs < this.resolved.budgetWallTimeMs)
-    const baseline = await scoreVariantGated(this.ctx, deps, body)
+    const baseline = await scoreVariantTiered(this.ctx, deps, body, body)
     if (baseline.status !== 'evaluated') {
       return { report: report('skipped', { reason: baseline.reason }), draft: draft(null) }
     }
@@ -702,7 +720,8 @@ export class EvolutionOptimizer extends Service {
     if (screenCount > 0 && mutated.length > 1 && screenCount < request.scenarios.length) {
       const screened: EvaluatedVariant[] = []
       for (const [index, variant] of mutated.entries()) {
-        const scored = await scoreVariantGated(this.ctx, { ...deps, scenarios: request.scenarios.slice(0, screenCount) }, variant.body)
+        const screenDeps = { ...deps, scenarios: request.scenarios.slice(0, screenCount) }
+        const scored = await scoreVariantTiered(this.ctx, screenDeps, variant.body, body)
         if (scored.status !== 'evaluated') {
           return {
             report: report('skipped', { baseline: baseline.score, candidates: screened, reason: scored.reason }),
@@ -728,7 +747,7 @@ export class EvolutionOptimizer extends Service {
         truncated = true
         break
       }
-      const evaluated = await scoreVariantGated(this.ctx, deps, survivor.body)
+      const evaluated = await scoreVariantTiered(this.ctx, deps, survivor.body, body)
       if (evaluated.status !== 'evaluated') {
         return {
           report: report('skipped', { baseline: baseline.score, candidates, truncated, reason: evaluated.reason }),
@@ -784,36 +803,37 @@ export class EvolutionOptimizer extends Service {
         draft: draft(winner),
       }
     }
-    let checked: HoldoutCheck | null = null
-    if (holdout.length > 0) {
-      const privateDeps = { ...deps, scenarios: holdout }
-      const baselineHoldout = await scoreVariantGated(this.ctx, privateDeps, body)
-      if (baselineHoldout.status !== 'evaluated') {
-        return {
-          report: report('skipped', { baseline: baseline.score, candidates, reason: baselineHoldout.reason }),
-          draft: draft(winner),
-        }
-      }
-      const winnerHoldout = await scoreVariantGated(this.ctx, privateDeps, winner.body)
-      if (winnerHoldout.status !== 'evaluated') {
-        return {
-          report: report('skipped', { baseline: baseline.score, candidates, reason: winnerHoldout.reason }),
-          draft: draft(winner),
-        }
-      }
-      checked = { baseline: baselineHoldout.score, winner: winnerHoldout.score }
-      if (dominates(baselineHoldout.score, winnerHoldout.score)) {
-        return {
-          report: report('holdout-rejected', {
-            baseline: baseline.score,
-            candidates,
-            checked,
-            reason: `the winner for '${request.skill}' is dominated by the baseline on the holdout scenarios`,
-          }),
-          draft: draft(winner),
-        }
+    if (holdout.length === 0) {
+      throw new Error(`evolution-optimizer: promotion requires configured holdoutScenarios to stage a skill patch for '${request.skill}'`)
+    }
+    const privateDeps = { ...deps, scenarios: holdout }
+    const baselineHoldout = await scoreVariantTiered(this.ctx, privateDeps, body, body)
+    if (baselineHoldout.status !== 'evaluated') {
+      return {
+        report: report('skipped', { baseline: baseline.score, candidates, reason: baselineHoldout.reason }),
+        draft: draft(winner),
       }
     }
+    const winnerHoldout = await scoreVariantTiered(this.ctx, privateDeps, winner.body, body)
+    if (winnerHoldout.status !== 'evaluated') {
+      return {
+        report: report('skipped', { baseline: baseline.score, candidates, reason: winnerHoldout.reason }),
+        draft: draft(winner),
+      }
+    }
+    const checked: HoldoutCheck = { baseline: baselineHoldout.score, winner: winnerHoldout.score }
+    if (dominates(baselineHoldout.score, winnerHoldout.score)) {
+      return {
+        report: report('holdout-rejected', {
+          baseline: baseline.score,
+          candidates,
+          checked,
+          reason: `the winner for '${request.skill}' is dominated by the baseline on the holdout scenarios`,
+        }),
+        draft: draft(winner),
+      }
+    }
+
     // The search comparison already beat the baseline once; a promotion must
     // repeat that result on every further paired comparison the run was asked for.
     const confidence: PromotionConfidence = { runs: this.resolved.confirmationRuns, wins: 1 }
@@ -829,7 +849,7 @@ export class EvolutionOptimizer extends Service {
           draft: draft(winner),
         }
       }
-      const repeatBaseline = await scoreVariantGated(this.ctx, deps, body)
+      const repeatBaseline = await scoreVariantTiered(this.ctx, deps, body, body)
       if (repeatBaseline.status !== 'evaluated') {
         return {
           report: report('skipped', { baseline: baseline.score, candidates, reason: repeatBaseline.reason }),
@@ -837,7 +857,7 @@ export class EvolutionOptimizer extends Service {
         }
       }
       spend(repeatBaseline.score)
-      const repeatWinner = await scoreVariantGated(this.ctx, deps, winner.body)
+      const repeatWinner = await scoreVariantTiered(this.ctx, deps, winner.body, body)
       if (repeatWinner.status !== 'evaluated') {
         return {
           report: report('skipped', { baseline: baseline.score, candidates, reason: repeatWinner.reason }),

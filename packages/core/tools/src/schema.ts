@@ -513,6 +513,12 @@ export interface DefineToolOptions<S extends ParameterSchemaSpec, O extends Valu
   /** Optional positive cooperative timeout budget in milliseconds. */
   readonly timeoutMs?: number
   /**
+   * Declares this tool has no natural time bound (blocks on a human
+   * response) and must be exempt from the deployment default fallback in
+   * `@deepseek-ai/dsh-tool-call-timeout-policy`. Mutually exclusive with `timeoutMs`.
+   */
+  readonly unboundedTimeout?: boolean
+  /**
    * Pure classifier for sibling overlap.
    * @param args - typed validated arguments.
    * @returns Whether the call may join a parallel group.
@@ -591,6 +597,9 @@ export function defineTool<const S extends ParameterSchemaSpec, const O extends 
   if (options.timeoutMs !== undefined && (!Number.isFinite(options.timeoutMs) || options.timeoutMs <= 0)) {
     throw new Error(`defineTool(${options.name}): timeoutMs must be a positive finite number`)
   }
+  if (options.unboundedTimeout === true && options.timeoutMs !== undefined) {
+    throw new Error(`defineTool(${options.name}): unboundedTimeout and timeoutMs are mutually exclusive`)
+  }
   const parameters = parameterSchemaSpecToJsonSchema(options.parameters)
   const outputSchema = valueSchemaSpecToJsonSchema(options.output.schema)
   const validate = (args: unknown): string[] => validateJsonSchemaValue(parameters, args, '')
@@ -614,6 +623,7 @@ export function defineTool<const S extends ParameterSchemaSpec, const O extends 
     },
     ...(options.deferLoading === true ? { deferLoading: options.deferLoading } : {}),
     ...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
+    ...(options.unboundedTimeout === true ? { unboundedTimeout: true } : {}),
     async execute(args: unknown, exec: ToolRunContext): Promise<JsonValue> {
       const violations = validate(args)
       if (violations.length > 0) throw new ToolArgsError(violations)

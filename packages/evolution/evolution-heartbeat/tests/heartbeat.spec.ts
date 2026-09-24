@@ -4,6 +4,7 @@ import Storage from '@deepseek-ai/dsh-storage'
 import { DomainFacility } from '@deepseek-ai/dsh-storage-domain'
 import { MemoryMediaPool, MemoryStorageBackend } from '../../../storage/storage-domain/tests/helpers/memory-backend.ts'
 import EvolutionHeartbeat, { resolveConfig } from '../src/index.ts'
+import type { HeartbeatReport } from '../src/types.ts'
 
 const HOUR = 3_600_000
 const T0 = Date.parse('2026-06-01T00:00:00.000Z')
@@ -37,6 +38,26 @@ describe('evolution heartbeat', () => {
     const heartbeat = new EvolutionHeartbeat(ctx, {})
     expect(() => heartbeat.lastRunAt('anything')).toThrow('not started yet')
     expect(() => heartbeat.state()).toThrow('not started yet')
+  })
+
+  it('does not wait for the start-time due pass before the plugin resolves', async () => {
+    const pending = Promise.withResolvers<HeartbeatReport>()
+    const spy = vi.spyOn(EvolutionHeartbeat.prototype, 'runDue').mockReturnValue(pending.promise)
+    try {
+      let mounted = false
+      const promise = harness().then((h) => {
+        mounted = true
+        return h
+      })
+      // If startup still awaited the pass, `mounted` would never flip while
+      // `pending` is unresolved: this is the observable startup contract.
+      await vi.waitFor(() => { expect(mounted).toBe(true) }, { timeout: 1000, interval: 5 })
+      pending.resolve({ at: new Date().toISOString(), tasks: [] })
+      const h = await promise
+      await h.fiber.dispose()
+    } finally {
+      spy.mockRestore()
+    }
   })
 
   it('seeds a newly registered task and defers one interval', async () => {
@@ -173,8 +194,8 @@ describe('evolution heartbeat', () => {
       const dispose = h.heartbeat.register({ name: 'maintenance', intervalHours: 1, run: () => { runs.push(Date.now()) } })
       expect(await h.heartbeat.runTask('maintenance')).toEqual({ name: 'maintenance', outcome: 'ran' })
       expect(await h.heartbeat.runTask('missing')).toBeUndefined()
-      dispose()
-      dispose()
+      await dispose()
+      await dispose()
       expect(runs).toEqual([T0])
       expect(await h.heartbeat.runDue()).toMatchObject({ tasks: [] })
       expect(h.heartbeat.state()).toEqual([])
@@ -230,6 +251,78 @@ describe('evolution heartbeat', () => {
       expect(warn).toHaveBeenCalledWith(expect.stringContaining('scheduled pass failed'))
       expect(h.heartbeat.lastRunAt('maintenance')).toBeNull()
     } finally {
+      await h.fiber.dispose()
+    }
+  })
+
+  it('aborts and drains every active task before plugin disposal resolves', async () => {
+    const h = await harness()
+    const names = ['first', 'second']
+    const started = new Map(names.map(name => [name, Promise.withResolvers<undefined>()] as const))
+    const release = new Map(names.map(name => [name, Promise.withResolvers<undefined>()] as const))
+    const aborted = new Set<string>()
+    for (const name of names) {
+      h.heartbeat.register({
+        name,
+        intervalHours: 1,
+        run: async (signal) => {
+          started.get(name)!.resolve(undefined)
+          signal.addEventListener('abort', () => { aborted.add(name) }, { once: true })
+          await release.get(name)!.promise
+        },
+      })
+    }
+    const runs = names.map(name => h.heartbeat.runTask(name))
+    await Promise.all([...started.values()].map(value => value.promise))
+    let disposed = false
+    const disposal = h.fiber.dispose().then(() => { disposed = true })
+    try {
+      await vi.waitFor(() => { expect([...aborted].sort()).toEqual(names) })
+      expect(disposed).toBe(false)
+      release.get(names[0]!)!.resolve(undefined)
+      await runs[0]
+      expect(disposed).toBe(false)
+      release.get(names[1]!)!.resolve(undefined)
+      await Promise.all([disposal, ...runs])
+      expect(disposed).toBe(true)
+    } finally {
+      for (const value of release.values()) value.resolve(undefined)
+      await Promise.allSettled([disposal, ...runs])
+      await h.fiber.dispose()
+    }
+  })
+
+  it('drains a task before its provider plugin unloads', async () => {
+    const h = await harness()
+    const started = Promise.withResolvers<undefined>()
+    const release = Promise.withResolvers<undefined>()
+    let signal: AbortSignal | undefined
+    const ownerPlugin = Object.assign((ctx: Context) => {
+      ctx.effect(() => ctx.evolutionHeartbeat.register({
+        name: 'owned',
+        intervalHours: 1,
+        run: async (taskSignal) => {
+          signal = taskSignal
+          started.resolve(undefined)
+          await release.promise
+        },
+      }))
+    }, { inject: ['evolutionHeartbeat'] })
+    const owner = await h.ctx.plugin(ownerPlugin)
+    const running = h.heartbeat.runTask('owned')
+    await started.promise
+    let disposed = false
+    const disposal = owner.dispose().then(() => { disposed = true })
+    try {
+      await vi.waitFor(() => { expect(signal?.aborted).toBe(true) })
+      expect(disposed).toBe(false)
+      release.resolve(undefined)
+      await Promise.all([disposal, running])
+      expect(disposed).toBe(true)
+      await expect(running).resolves.toMatchObject({ outcome: 'deferred' })
+    } finally {
+      release.resolve(undefined)
+      await Promise.allSettled([disposal, running])
       await h.fiber.dispose()
     }
   })

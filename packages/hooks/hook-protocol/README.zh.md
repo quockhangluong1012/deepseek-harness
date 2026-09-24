@@ -70,7 +70,7 @@ kind: "package-library"
 
 ### 带类型的 hook 贡献
 
-每个匹配 hook 的输出会且仅会被归类为一种贡献类型：`observe`、`annotate`、`inject-untrusted-context`、`request-policy-change` 或 `veto`（`classifyHookOutput`，以及按 hook 顺序的 `MergedHookOutcome.contributions`）。这些类型有强弱次序，但都不携带能力：hook 可以否决某个动作、请求策略所有者裁决，或把上下文作为不可信数据注入；只有内核或策略所有者才会把这种请求变成授权。因此 hook 的 `allow` 只是建议——两个桥接都只消费 `deny` 与 `ask`，策略所有者之外的任何代码都不得把 hook 的同意当作授权。
+每个匹配 hook 的输出会且仅会被归类为一种贡献类型：`observe`、`annotate`、`inject-untrusted-context`、`request-policy-change` 或 `veto`（`classifyHookOutput`，以及按 hook 顺序的 `MergedHookOutcome.contributions`）。这些类型有强弱次序，但都不携带能力：hook 可以否决某个动作、请求策略所有者裁决，或把上下文作为不可信数据注入；只有内核或策略所有者才会把这种请求变成授权。因此 hook 的 `allow` 只是建议——两个桥接都只消费 `deny` 与 `ask`，策略所有者之外的任何代码都不得把 hook 的同意当作授权。凡是把 `inject-untrusted-context` 输出转成模型消息的桥接，都会在其前面加上共享的 `UNTRUSTED_HOOK_CONTEXT_NOTICE`，因此无论这段内容落在哪里，都会读作不可信的外部数据，而不是一条指令。
 
 ### 设计理念
 

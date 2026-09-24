@@ -54,6 +54,34 @@ describe('evolution lineage', () => {
     }
   })
 
+  it('amends an existing envelope\'s outcome and reason without touching its other fields', async () => {
+    const { fiber, store } = await boot()
+    try {
+      const original = await store.record(experiment({ hypothesis: 'compress' }))
+      const amended = await store.amendOutcome('e1', 'regressed', 'rolled back after a canary regression')
+      expect(amended).toMatchObject({
+        experimentId: 'e1',
+        outcome: 'regressed',
+        rejectedReason: 'rolled back after a canary regression',
+        hypothesis: 'compress',
+        candidate: 'c1',
+      })
+      expect(amended.at).toBe(original.at)
+      expect(store.envelope('e1')?.outcome).toBe('regressed')
+    } finally {
+      await fiber.dispose()
+    }
+  })
+
+  it('amending an unknown experiment throws', async () => {
+    const { fiber, store } = await boot()
+    try {
+      await expect(store.amendOutcome('missing', 'regressed')).rejects.toThrow("unknown experiment 'missing'")
+    } finally {
+      await fiber.dispose()
+    }
+  })
+
   it('lists envelopes newest first, filters by skill, and detaches copies', async () => {
     const { fiber, store } = await boot()
     try {
@@ -155,5 +183,11 @@ describe('evolution lineage', () => {
     expect(() => store.envelope('e1')).toThrow('not started yet')
     expect(() => store.compare('a', 'b')).toThrow('not started yet')
     expect(() => store.replay('e1')).toThrow('not started yet')
+  })
+
+  it('amending throws before the store starts', async () => {
+    const ctx = new Context()
+    const store = new EvolutionLineage(ctx, { comparedKeys: ['skill'] })
+    await expect(store.amendOutcome('e1', 'regressed')).rejects.toThrow('not started yet')
   })
 })

@@ -98,10 +98,22 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'a disposer that unregisters the producer.',
       },
       {
+        signature: 'isIncluded(session: Agent[\'session\'], sourceId: string): boolean',
+        description: 'Test whether a source was included by this session\'s latest successful compile.',
+        parameters: [{ name: 'session', description: 'live session the compile recorded.' }, { name: 'sourceId', description: 'source id returned by the compiler.' }],
+        returns: 'whether the latest placement included the source.',
+      },
+      {
+        signature: 'tokenTotals(session: Agent[\'session\']): { readonly byKind: Readonly<Partial<Record<ContextSourceKind, number>>> readonly placementCount: number }',
+        description: 'Per-source-kind token totals of the session\'s newest recorded placement (S1), including registered-producer sources alongside assembled sections and contexts — a registered source reaches the model through its own producer\'s injection, not through this compiler, but its price is accounted for here on the same terms as everything else compiled alongside it. `placementCount` is how many distinct placements this session has recorded; each new digest supersedes the one before it.',
+        parameters: [{ name: 'session', description: 'live session whose latest compile to read.' }],
+        returns: 'token totals by kind, and the placement count.',
+      },
+      {
         signature: 'async compile(agent: Agent, assembly: PromptAssembly, signal: AbortSignal = new AbortController().signal): Promise<CompiledContext>',
-        description: 'Compile one assembly for a live agent and record the placement.',
-        parameters: [{ name: 'agent', description: 'the agent the assembly is for.' }, { name: 'assembly', description: 'the assembled prompt contributions.' }, { name: 'signal', description: 'cancellation forwarded to every registered provider.' }],
-        returns: 'the placement, already appended as `context/compiled`.',
+        description: 'Compile one assembly and record each new placement or delta resurface.',
+        parameters: [{ name: 'agent', description: 'the agent the assembly is for.' }, { name: 'assembly', description: 'the assembled prompt contributions.' }, { name: 'signal', description: 'cancellation forwarded to every provider.' }],
+        returns: 'the compiled placement.',
       },
     ],
   },
@@ -127,7 +139,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
   {
     key: 'agentKernel',
     summary: 'The kernel service (`ctx.agentKernel`).',
-    description: 'The kernel service (`ctx.agentKernel`). It attaches to the loop and tool waterfalls in its constructor, so unloading the plugin unloads every listener, declaration, and attachment with it.',
+    description: 'The kernel service (`ctx.agentKernel`). It attaches to the loop and tool waterfalls in its constructor. Plugin unload removes those registrations and awaits release of every open attachment.',
     methods: [
       {
         signature: 'readonly policy: PolicyEngine',
@@ -200,6 +212,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Read one agent\'s task state.',
         parameters: [{ name: 'agent', description: 'the live agent whose session is read.' }],
         returns: 'the current view, or undefined before task intake.',
+      },
+      {
+        signature: 'viewOf(sessionId: SessionId): KernelView | undefined',
+        description: 'Read the current task view through the live agents registry. The registry remains the sole owner of agent identity and disposal; this method resolves it on every call and retains no agent reference.',
+        parameters: [{ name: 'sessionId', description: 'the identity of the session to read.' }],
+        returns: 'the current view, or undefined when no live agent or task exists.',
       },
       {
         signature: 'recordPlan(agent: Agent, steps: readonly string[], failureId?: FailureId): PlanRevision',
@@ -1472,16 +1490,18 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the ISO-8601 instant, or null before the first pass.',
       },
       {
-        signature: 'async run(options: CuratorRunOptions = {}): Promise<CuratorReport>',
+        signature: 'run(options: CuratorRunOptions = {}): Promise<CuratorReport>',
         description: 'Run one pass over every tracked skill, applying or previewing idle lifecycle movements. A real pass with movements writes one snapshot tarball plus pass and transition ledger entries when backups are on.',
         parameters: [{ name: 'options', description: 'clock override and dry-run preview flag.' }],
         returns: 'the pass report with every movement.',
+        throws: ['when teardown has begun.'],
       },
       {
-        signature: 'async maybeRun(options: CuratorMaybeRunOptions = {}): Promise<CuratorReport | undefined>',
+        signature: 'maybeRun(options: CuratorMaybeRunOptions = {}): Promise<CuratorReport | undefined>',
         description: 'Run a pass only when enabled, the interval elapsed since the last pass, and enough idleness was observed. The first call only seeds the bookkeeping and defers one interval. Idleness defaults to the newest host-wide session activity this process observed; before any activity is observed the host counts as idle.',
         parameters: [{ name: 'options', description: 'clock and idleness overrides plus the dry-run flag.' }],
         returns: 'the pass report, or undefined when this call defers.',
+        throws: ['when teardown has begun.'],
       },
       {
         signature: 'async surveyCandidates(options: CuratorRunOptions = {}): Promise<ConsolidationSurvey>',
@@ -1490,10 +1510,11 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the verdict evidence per skill.',
       },
       {
-        signature: 'async consolidate(options: CuratorRunOptions = {}): Promise<ConsolidationReport | undefined>',
+        signature: 'consolidate(options: CuratorRunOptions = {}): Promise<ConsolidationReport | undefined>',
         description: 'Run one opt-in LLM consolidation over the agent-created skills this curator tracks. Returns undefined when consolidation is off, when the seam is unmounted, or when no candidate awaits a verdict. A cost row reaches the ledger before the fork starts; the fork runs as a bounded in-package tool loop over `ctx.llm`; the returned verdicts apply under the full-package rule and land in the same snapshot, ledger, and rollback machinery as an automatic pass.',
         parameters: [{ name: 'options', description: 'clock override.' }],
         returns: 'the consolidation report, or undefined when no run happened.',
+        throws: ['when teardown has begun.'],
       },
       {
         signature: 'async staged(): Promise<StagedSkill[]>',
@@ -1821,10 +1842,11 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     description: 'Host-wide idle-triggered task registry. Opens the `evolution_heartbeat` domain at init and closes it through `ctx.effect`.',
     methods: [
       {
-        signature: 'register(task: HeartbeatTask): () => void',
-        description: 'Register one task. The task runs only while its registration is live, so a consumer disposes it by calling the returned disposer. A task registered after start-up is seeded by the next due-check and defers one interval.',
+        signature: 'register(task: HeartbeatTask): () => Promise<void>',
+        description: 'Register one task. The task runs only while its registration is live. A consumer disposes it by calling the returned disposer.',
         parameters: [{ name: 'task', description: 'identity, cadence, and the work to run.' }],
-        returns: 'the disposer removing the task; idempotent.',
+        returns: 'an idempotent asynchronous disposer that removes the task, aborts an active attempt, and waits for it to settle.',
+        throws: ['when teardown has begun or the task descriptor is unusable.'],
       },
       {
         signature: 'state(name?: string): HeartbeatTaskState[]',
@@ -1839,13 +1861,13 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the ISO-8601 instant, or null when unknown or never attempted.',
       },
       {
-        signature: 'async runDue(options: HeartbeatRunOptions = {}): Promise<HeartbeatReport>',
+        signature: 'runDue(options: HeartbeatRunOptions = {}): Promise<HeartbeatReport>',
         description: 'Consider every registered task once, in registration order. A task whose bookkeeping is absent is seeded and deferred; a task whose interval has not elapsed, or whose idle gate is unsatisfied, is deferred. Tasks run sequentially, and a failing task is recorded without stopping the pass.',
         parameters: [{ name: 'options', description: 'clock, idleness, and force overrides.' }],
-        returns: 'one entry per registered task.',
+        returns: 'entries for tasks reached before teardown stops the pass.',
       },
       {
-        signature: 'async runTask(name: string, options: HeartbeatRunOptions = {}): Promise<HeartbeatTaskReport | undefined>',
+        signature: 'runTask(name: string, options: HeartbeatRunOptions = {}): Promise<HeartbeatTaskReport | undefined>',
         description: 'Run one registered task now, ignoring its interval and the idle gate.',
         parameters: [{ name: 'name', description: 'task identity.' }, { name: 'options', description: 'clock override.' }],
         returns: 'the task\'s report, or undefined when no such task is registered.',
@@ -1993,7 +2015,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'async sweep(scopeId: EvolutionScopeId, now: string = new Date().toISOString()): Promise<SweepResult>',
-        description: 'Apply decay to one scope\'s artifacts: drop every artifact `prunable` condemns by ttl or refutation floor and leave the rest untouched. A sweep that finds nothing to drop reaches no write at all, so it moves neither `updatedAt` nor the lessons family stamp; a sweep that drops something stamps the lessons family like any other lessons write.\n\n`refined` is always 0. The extraction protocol folds decisions into the artifacts it reads rather than refining them, so nothing yet splits the coarse artifact `wrapLegacyLessons` admits from a legacy lessons document; until a pass does that, the coarse artifact is a correct, permanent fallback and this sweep never calls an extractor.',
+        description: 'Apply decay to one scope\'s artifacts: drop every artifact `prunable` condemns by ttl or refutation floor, or `demotable` condemns by S8 utility, and leave the rest untouched. A sweep that finds nothing to drop reaches no write at all, so it moves neither `updatedAt` nor the lessons family stamp; a sweep that drops something stamps the lessons family like any other lessons write.\n\n`refined` is always 0. The extraction protocol folds decisions into the artifacts it reads rather than refining them, so nothing yet splits the coarse artifact `wrapLegacyLessons` admits from a legacy lessons document; until a pass does that, the coarse artifact is a correct, permanent fallback and this sweep never calls an extractor.',
         parameters: [{ name: 'scopeId', description: 'scope identity.' }, { name: 'now', description: 'ISO-8601 instant to judge decay at and stamp the write with, defaulting to the wall clock.' }],
         returns: 'what the sweep changed.',
       },
@@ -2017,7 +2039,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'async recordRecallOutcome( id: EvolutionScopeId, recalledId: string, outcome: \'ok\' | \'failed\', at: string = new Date().toISOString(), ): Promise<EvolutionMemoryRecord>',
-        description: 'Record the graded outcome of one recall: the §23 loop\'s `helped outcome` link. The grader is whichever pass reads the outcome record — the curator\'s idle pass is the shipped one, which grades the session the recall\'s decision batch was extracted from off the feedback store. The newest recall of that memory still awaiting an outcome is the one graded, so a memory recalled again after an outcome is graded again on its newer recall. A memory with no awaiting recall is refused loudly rather than graded twice.',
+        description: 'Record the graded outcome of one recall: the §23 loop\'s `helped outcome` link. The grader is whichever pass reads the outcome record — the reviewer\'s `verification/result` listener is the shipped one, which grades the session a compiled kernel verification just settled off the bound decision batch\'s `decidedInSessionId`. The newest recall of that memory still awaiting an outcome is the one graded, so a memory recalled again after an outcome is graded again on its newer recall. A memory with no awaiting recall is refused loudly rather than graded twice.',
         parameters: [{ name: 'id', description: 'scope identity.' }, { name: 'recalledId', description: 'recalled memory\'s identity, as its label carried it.' }, { name: 'outcome', description: '`ok` when the graded session\'s evidence was clean, else `failed`.' }, { name: 'at', description: 'ISO-8601 instant the outcome was recorded, defaulting to the wall clock.' }],
         returns: 'the stored record.',
       },
@@ -4934,10 +4956,10 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'pruneSession(session: Session): PruneResult',
-        description: 'Prune every over-budget tool result from one stable current-surface snapshot. Each replacement preserves the complete event data except for `content`, cites the shadowed node so replay can recover the replacement input, and is immediately preceded by a `compaction/prune` shadow-price event pricing the shadowed node through the injected token meter, so pure consumers can subtract it without per-node state.',
+        description: 'Prune over-budget results not selected by the latest live context placement. An included recent-result source or required spill-notice source preserves its whole tool result; without a live placement, all surface results remain eligible. Each replacement preserves complete event data except `content`, cites the shadowed node, and is preceded by its shadow price.',
         parameters: [{ name: 'session', description: 'session whose current surface is rewritten.' }],
         returns: 'landed replacements and aggregate Unicode-code-point savings.',
-        throws: ['when the session rejects a replacement; replacements committed earlier in the pass remain durable.'],
+        throws: ['when the session rejects a replacement; earlier replacements stay durable.'],
       },
     ],
   },
@@ -6616,6 +6638,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface BudgetGovernor {\n    measure(task: TaskContract, session: Session): BudgetSnapshot;\n}',
   },
   {
+    name: 'BudgetHysteresis',
+    declaration: 'export interface BudgetHysteresis {\n    readonly includedIds: ReadonlySet<string>;\n    readonly omittedIds: ReadonlySet<string>;\n}',
+  },
+  {
     name: 'BudgetMargin',
     declaration: 'export interface BudgetMargin {\n    budgeted: number | null;\n    spent: number | null;\n    remaining: number | null;\n    exceeded: number | null;\n}',
   },
@@ -6937,7 +6963,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ContextCompileInput',
-    declaration: 'export interface ContextCompileInput {\n    readonly assembly: PromptAssembly;\n    readonly sources?: readonly ContextSource[];\n    readonly objective?: string;\n    readonly maxTokens?: number | null;\n}',
+    declaration: 'export interface ContextCompileInput {\n    readonly assembly: PromptAssembly;\n    readonly sources?: readonly ContextSource[];\n    readonly objective?: string;\n    readonly maxTokens?: number | null;\n    readonly hysteresis?: BudgetHysteresis;\n}',
   },
   {
     name: 'ContextCompiler',

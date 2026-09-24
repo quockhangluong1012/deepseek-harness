@@ -34,7 +34,7 @@ import type { LessonArtifact, LessonArtifactInput, LessonArtifactPatch, LessonMe
 import { cosineSimilarity, mergeArtifact, pickMergeTarget } from './merge.ts'
 import { addArtifactTo, applyLessonDecisions, artifactIdOf, freshArtifact, lessonDecision } from './decisions.ts'
 import type { LessonDecision } from './decisions.ts'
-import { pruneEpisodic, prunable } from './maintenance.ts'
+import { demotable, pruneEpisodic, prunable } from './maintenance.ts'
 import type { SweepResult } from './maintenance.ts'
 import { appendRecall, bindRecalls, gradeRecall, memoryUtility, recallTarget } from './recall.ts'
 import type { MemoryUtility } from './recall.ts'
@@ -224,6 +224,15 @@ export interface Config {
   episodicRetentionDays?: number
   /** Episodic notes retained per scope past the age cut, newest kept. */
   maxEpisodicEntries?: number
+  /**
+   * S8 utility value below which a sufficiently surfaced fact is demoted by
+   * decay alongside ttl and refutation pruning. A fact with fewer surfacings
+   * than `demoteMinSurfaced` is never demoted: absence of evidence is not
+   * evidence of uselessness.
+   */
+  demoteUtilityFloor?: number
+  /** Surfacings a fact needs before its utility value is trusted for demotion. */
+  demoteMinSurfaced?: number
 }
 
 /** Capacity-bar denominator and hard ceiling on stored bytes. */
@@ -268,6 +277,12 @@ const episodicRetentionDaysField = z.number().step(1).min(1).default(7)
 /** Episodic notes retained per scope past the age cut, newest kept. */
 const maxEpisodicEntriesField = z.number().step(1).min(1).default(100)
 
+/** S8 utility floor below which a sufficiently surfaced fact is demoted. */
+const demoteUtilityFloorField = z.number().min(0).max(1).default(0.35)
+
+/** Surfacings required before a fact's utility value is trusted for demotion. */
+const demoteMinSurfacedField = z.number().step(1).min(1).default(3)
+
 /** Validated deployment choices; `capacityBytes` is required. */
 export const Config: z<Config> = z.object({
   capacityBytes: capacityBytesField,
@@ -284,6 +299,8 @@ export const Config: z<Config> = z.object({
   defaultTtlDays: defaultTtlDaysField,
   episodicRetentionDays: episodicRetentionDaysField,
   maxEpisodicEntries: maxEpisodicEntriesField,
+  demoteUtilityFloor: demoteUtilityFloorField,
+  demoteMinSurfaced: demoteMinSurfacedField,
 })
 
 /** Normalized configuration used by the store. */
@@ -302,6 +319,8 @@ export interface ResolvedConfig {
   defaultTtlDays: number
   episodicRetentionDays: number
   maxEpisodicEntries: number
+  demoteUtilityFloor: number
+  demoteMinSurfaced: number
 }
 
 /**
@@ -325,6 +344,8 @@ export function resolveConfig(config: Config): ResolvedConfig {
     defaultTtlDays = 30,
     episodicRetentionDays = 7,
     maxEpisodicEntries = 100,
+    demoteUtilityFloor = 0.35,
+    demoteMinSurfaced = 3,
   } = config
   return {
     capacityBytes,
@@ -341,6 +362,8 @@ export function resolveConfig(config: Config): ResolvedConfig {
     defaultTtlDays,
     episodicRetentionDays,
     maxEpisodicEntries,
+    demoteUtilityFloor,
+    demoteMinSurfaced,
   }
 }
 
@@ -1145,10 +1168,11 @@ export class EvolutionMemoryStore extends Service {
 
   /**
    * Apply decay to one scope's artifacts: drop every artifact `prunable`
-   * condemns by ttl or refutation floor and leave the rest untouched. A sweep
-   * that finds nothing to drop reaches no write at all, so it moves neither
-   * `updatedAt` nor the lessons family stamp; a sweep that drops something
-   * stamps the lessons family like any other lessons write.
+   * condemns by ttl or refutation floor, or `demotable` condemns by S8
+   * utility, and leave the rest untouched. A sweep that finds nothing to
+   * drop reaches no write at all, so it moves neither `updatedAt` nor the
+   * lessons family stamp; a sweep that drops something stamps the lessons
+   * family like any other lessons write.
    *
    * `refined` is always 0. The extraction protocol folds decisions into the
    * artifacts it reads rather than refining them, so nothing yet splits the
@@ -1164,7 +1188,9 @@ export class EvolutionMemoryStore extends Service {
     const record = this.read(scopeId)
     if (record === undefined) return { pruned: 0, refined: 0 }
     const instant = Date.parse(now)
-    const decayed = (artifact: LessonArtifact): boolean => prunable(artifact, instant, this.resolved.refutationFloor)
+    const { refutationFloor, demoteUtilityFloor, demoteMinSurfaced } = this.resolved
+    const decayed = (artifact: LessonArtifact): boolean => prunable(artifact, instant, refutationFloor)
+      || demotable(artifact, demoteUtilityFloor, demoteMinSurfaced)
     if (!record.agentLessons.some(decayed)) return { pruned: 0, refined: 0 }
     // The record the snapshot above decided on is not necessarily the record
     // the write chain resolves: another write can land in between. Both the
@@ -1252,12 +1278,12 @@ export class EvolutionMemoryStore extends Service {
   /**
    * Record the graded outcome of one recall: the §23 loop's `helped outcome`
    * link. The grader is whichever pass reads the outcome record — the
-   * curator's idle pass is the shipped one, which grades the session the
-   * recall's decision batch was extracted from off the feedback store. The
-   * newest recall of that memory still awaiting an outcome is the one graded,
-   * so a memory recalled again after an outcome is graded again on its newer
-   * recall. A memory with no awaiting recall is refused loudly rather than
-   * graded twice.
+   * reviewer's `verification/result` listener is the shipped one, which
+   * grades the session a compiled kernel verification just settled off the
+   * bound decision batch's `decidedInSessionId`. The newest recall of that
+   * memory still awaiting an outcome is the one graded, so a memory recalled
+   * again after an outcome is graded again on its newer recall. A memory
+   * with no awaiting recall is refused loudly rather than graded twice.
    * @param id - scope identity.
    * @param recalledId - recalled memory's identity, as its label carried it.
    * @param outcome - `ok` when the graded session's evidence was clean, else `failed`.

@@ -25,7 +25,7 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用本包
 
-在它所操作的存储被挂载之处挂载本插件。心跳是被注入的服务，因此调度器一旦存在插件就会应用，并随上下文一并释放它的七个注册。
+在它所操作的存储被挂载之处挂载本插件。心跳是被注入的服务，因此调度器一旦存在插件就会应用；上下文拥有的注册注销函数会在销毁返回前排空活动任务。
 
 ```ts
 import * as evolutionActuator from '@deepseek-ai/dsh-evolution-actuator'

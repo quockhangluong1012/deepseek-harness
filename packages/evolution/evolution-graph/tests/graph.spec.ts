@@ -796,6 +796,8 @@ describe('claim graph', () => {
       confidence: 0.9,
       scope: 'project',
       sourceRefs: [`session:${source}`],
+      trajectoryRefs: [`run:${source}`],
+      lineage: { origin: source },
     }
   }
 

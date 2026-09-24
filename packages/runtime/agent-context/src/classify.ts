@@ -1,12 +1,10 @@
 /**
  * Classification of assembled contributions. `core/system-prompt` owns the
- * names; this module owns what each name family means to the compiler, so a
- * contribution's authority and its retention class are decided in one table
- * rather than at each use site.
+ * names; this module resolves each family's kind, trust, and default retention
+ * in one table. Registered sources receive their retention from placement.
  *
- * The table mirrors the section and context families that ship today. An
- * unlisted family is treated as untrusted repository content — data, never an
- * instruction authority — so a new contributor is never silently trusted.
+ * Unlisted families are untrusted repository content — data, never instruction
+ * authority — so a new contributor is never silently trusted.
  *
  * @module @deepseek-ai/dsh-agent-context/classify
  */

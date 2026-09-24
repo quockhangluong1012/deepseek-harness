@@ -29,6 +29,8 @@ export interface ScoreAttempt {
   tokens: number
   /** Wall-clock milliseconds the attempt took, sampling a fresh process each time. */
   wallTimeMs: number
+  /** Recorded id of the attempt's primary harvested session, or undefined when none was harvested. */
+  sessionId?: string | undefined
 }
 
 /** Everything the pure scorer needs: the expectation plus every attempt's observation. */
@@ -39,6 +41,8 @@ export interface ScoreInput {
   expected?: readonly WorkspaceSnapshotEntry[]
   /** Fresh-process attempts in run order; the score needs at least one. */
   attempts: readonly ScoreAttempt[]
+  /** Content digest of the recorded fixture(s) this scenario ran against, carried through to the record. */
+  fixtureDigest: string
 }
 
 /** One scenario's metric triple: pass state, billed tokens, and wall time. */
@@ -55,6 +59,10 @@ export interface ScoreRecord {
   wallTimeMs: number
   /** Every attempt's wall-clock sample in run order, so a reader can see the spread behind the median. */
   samples: readonly number[]
+  /** Content digest of the recorded fixture(s) this scenario ran against — names which corpus generation validated this score. */
+  fixtureDigest: string
+  /** Recorded session id of the first attempt's primary harvested session, or null when none was harvested. */
+  trajectory: string | null
 }
 
 /** Result of scoring one scenario. */
@@ -95,6 +103,12 @@ export interface ScoreRequest {
   agent: AgentUnderTest
   /** Fresh-process runner; {@link processScenarioRunner} and the snapshot harness's `runScenario` satisfy it. */
   run: ScenarioRunner
+  /**
+   * Fresh-process attempts this score buys, overriding the scorer's configured
+   * default (S9 tier gate: 1 for a body a corpus fixture already validates, the
+   * configured default for a candidate that changed it).
+   */
+  attempts?: number
 }
 
 /** Fresh-process scenario runner: `runScenario` from `@deepseek-ai/dsh-session-snapshot` satisfies it. */
@@ -118,6 +132,8 @@ export interface EvaluateSkillRequest {
   agent: AgentUnderTest
   /** Fresh-process runner; {@link processScenarioRunner} and the snapshot harness's `runScenario` satisfy it. */
   run: ScenarioRunner
+  /** Fresh-process attempts each scenario buys; see {@link ScoreRequest.attempts}. */
+  attempts?: number
 }
 
 /** One skill's aggregated metric triple: the Pareto input an optimizer selects on. */

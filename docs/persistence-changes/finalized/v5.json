@@ -1,0 +1,507 @@
+{
+  "schemaVersion": 1,
+  "sessionFormatVersion": 5,
+  "roots": {
+    "JsonlHeaderLine": {
+      "kind": "header",
+      "digest": "18ee62b8900a4c3d046700f05d7a4d49d6cab2a660a020c87481d1603dd8bd4f"
+    },
+    "SessionEventEnvelope": {
+      "kind": "envelope",
+      "digest": "5776e5553ff2dfe3f5bc202dbb1e7c9f93e35a531aebb7764c23b2b6153b2ccc"
+    },
+    "SessionHeader": {
+      "kind": "header",
+      "digest": "22c6899a78214dd841c266348ae997027ef391174ddb21127f1b71dc1b362824"
+    },
+    "event:action/committed": {
+      "kind": "event",
+      "digest": "08d895c504e1796bea4577b2cfe10c42ca295531b7fa442bb4fe55a657209395",
+      "event": "action/committed",
+      "surface": false
+    },
+    "event:action/decided": {
+      "kind": "event",
+      "digest": "ac2e1e7b6fdca29da06a4b0230fbc37c1f91ebc310e6a49b95714d5e417b6bc1",
+      "event": "action/decided",
+      "surface": false
+    },
+    "event:agent-preset/selected": {
+      "kind": "event",
+      "digest": "a10c17474eaf2ddab7095a099e0fe3d046fc18e56c3e344fc8894c05ff9ef97b",
+      "event": "agent-preset/selected",
+      "surface": false
+    },
+    "event:agent/inbox/spliced": {
+      "kind": "event",
+      "digest": "39776a128196c7509f8ab932704e410408eae1646ab630a308c3b420fa407a32",
+      "event": "agent/inbox/spliced",
+      "surface": false
+    },
+    "event:approval/asked": {
+      "kind": "event",
+      "digest": "3bfeb47b58606f4661904bc723da612782214c463d01e6d61cd6d6193d7374e1",
+      "event": "approval/asked",
+      "surface": false
+    },
+    "event:approval/decided": {
+      "kind": "event",
+      "digest": "bb1ab3d08f49a9f3b265f844cd78d5c49813062a7b34b54904b426f85d0ff6e3",
+      "event": "approval/decided",
+      "surface": false
+    },
+    "event:approval/policy": {
+      "kind": "event",
+      "digest": "26718e15e7e395bce9642dba5bbe09b3b1a4ce2213d20d566cd9207d7fc5fb78",
+      "event": "approval/policy",
+      "surface": false
+    },
+    "event:assistant/attempt": {
+      "kind": "event",
+      "digest": "15d5dfdd822aa35e115afd74a8982825a493880457774e6850bc1520b50875e4",
+      "event": "assistant/attempt",
+      "surface": false
+    },
+    "event:assistant/message": {
+      "kind": "event",
+      "digest": "1033093edd0db80ff410e00830b523405e00bb0c7684948e531ff65095799625",
+      "event": "assistant/message",
+      "surface": true
+    },
+    "event:budget/exceeded": {
+      "kind": "event",
+      "digest": "126afc36b0158f9df6867df64456aba351851dffb45cc647c934f5088a5f533b",
+      "event": "budget/exceeded",
+      "surface": false
+    },
+    "event:checkpoint/created": {
+      "kind": "event",
+      "digest": "3c5f3e46f62ba61c77e610a22fbcb4b68482fbeca5e65f2735b7b0d0192b60a2",
+      "event": "checkpoint/created",
+      "surface": false
+    },
+    "event:checkpoint/resumed": {
+      "kind": "event",
+      "digest": "1d3846c9fee308677667ca395155354956b0f54dd4477ed00faaae619e7d94b4",
+      "event": "checkpoint/resumed",
+      "surface": false
+    },
+    "event:claim/updated": {
+      "kind": "event",
+      "digest": "f5d042eb7d11628306134346617f4dc992edc6e6a97cbbbbdd87521cb16702f2",
+      "event": "claim/updated",
+      "surface": false
+    },
+    "event:command/done": {
+      "kind": "event",
+      "digest": "15196447222782e773eb943c92b18316ce96b9af0f0cfddb6e57ba8274ecc5ff",
+      "event": "command/done",
+      "surface": false
+    },
+    "event:command/run": {
+      "kind": "event",
+      "digest": "37184378c6439257d105c4e2022d80fc9c3a3f7c7f6ac661b00bc9f18d871006",
+      "event": "command/run",
+      "surface": false
+    },
+    "event:compaction/end": {
+      "kind": "event",
+      "digest": "b0127044ab31a702bddfd785d345f5abd7a70876746e895ce443afa3e60ddf2d",
+      "event": "compaction/end",
+      "surface": false
+    },
+    "event:compaction/prune": {
+      "kind": "event",
+      "digest": "7f7fd5a6b0064f597534b29ff62ef26e786dffccf5e14f654a7d4fcea2c35f04",
+      "event": "compaction/prune",
+      "surface": false
+    },
+    "event:compaction/start": {
+      "kind": "event",
+      "digest": "db874d463b0fdec77e9da1c4568f37cb70bd6596781eb93800db44fb8a116965",
+      "event": "compaction/start",
+      "surface": false
+    },
+    "event:compaction/summary": {
+      "kind": "event",
+      "digest": "6abc83b9140f3925e2ae6a6e533feae779bdd71e5a22bae6a1cf7ddf09a40c27",
+      "event": "compaction/summary",
+      "surface": false
+    },
+    "event:context/compiled": {
+      "kind": "event",
+      "digest": "df071df8f4fab579c0a91686c9560a27fa6dda38e1d594c525164d868ff14f79",
+      "event": "context/compiled",
+      "surface": false
+    },
+    "event:delegation/issued": {
+      "kind": "event",
+      "digest": "120a02a8a7313c38a0b0bda63276548b8c1fc3afe756a116071eefa848f75dfc",
+      "event": "delegation/issued",
+      "surface": false
+    },
+    "event:delegation/received": {
+      "kind": "event",
+      "digest": "5186002667d10869f1b5d16b8409ea314f39e1bb4be6211f9d4c38bee694fd14",
+      "event": "delegation/received",
+      "surface": false
+    },
+    "event:deliverables/presented": {
+      "kind": "event",
+      "digest": "13d3d180f977bf78081d487ffa0ecb75857349bcab29a5a3fb48189fca2a6176",
+      "event": "deliverables/presented",
+      "surface": false
+    },
+    "event:developer/message": {
+      "kind": "event",
+      "digest": "323b4364fa1e174cc346607f6e345c95dc12ef5f8562459c04bd91bf58e8efaf",
+      "event": "developer/message",
+      "surface": true
+    },
+    "event:evidence/recorded": {
+      "kind": "event",
+      "digest": "091b30fac1dbbfd89ca4ca0f05571b91f6e6e8d50a26b3a039752f90641beaf4",
+      "event": "evidence/recorded",
+      "surface": false
+    },
+    "event:failure/recorded": {
+      "kind": "event",
+      "digest": "5b38ecbd24196b3c4b2469f5756c09f761101f19ade7013f581ed1ce74dfd0ad",
+      "event": "failure/recorded",
+      "surface": false
+    },
+    "event:feedback/message-delete": {
+      "kind": "event",
+      "digest": "3ee93b06f3a125850337602bcdf155d2538c43a5c944ec55b1b3c365152d6796",
+      "event": "feedback/message-delete",
+      "surface": false
+    },
+    "event:feedback/message-put": {
+      "kind": "event",
+      "digest": "b5086d249e8502e9ead1d39156bb8d559bde7951cac0f14ce150345b4e42a2bf",
+      "event": "feedback/message-put",
+      "surface": false
+    },
+    "event:feedback/record": {
+      "kind": "event",
+      "digest": "b54940ff095c17e874c5be03815f4c2145a256cf3a1d34dae4ab2f7769dfffe8",
+      "event": "feedback/record",
+      "surface": false
+    },
+    "event:goal/change": {
+      "kind": "event",
+      "digest": "763c8a20af487263a0080548274f7437ef4a86e0ba8769127d1ced10a72c664d",
+      "event": "goal/change",
+      "surface": false
+    },
+    "event:hook/invoked": {
+      "kind": "event",
+      "digest": "8a6e1ec9e8db346b0e02f027db73c07a94f067a26d40c1aef1abd09c47ce7ba0",
+      "event": "hook/invoked",
+      "surface": false
+    },
+    "event:hook/result": {
+      "kind": "event",
+      "digest": "e75916628f3f10c2d50658bd143052a46285fbf1a9a700ba54947614603d26b4",
+      "event": "hook/result",
+      "surface": false
+    },
+    "event:hypothesis/updated": {
+      "kind": "event",
+      "digest": "25ed756c00e9dbb833f3f41908ec79171f581500d205ccfdf29207d4c7a9800e",
+      "event": "hypothesis/updated",
+      "surface": false
+    },
+    "event:image/offload": {
+      "kind": "event",
+      "digest": "b222069eea2d768065161c1147b1f2c78c1b54328c84b3586ae5c8f91b8ed35e",
+      "event": "image/offload",
+      "surface": false
+    },
+    "event:llm/fallback": {
+      "kind": "event",
+      "digest": "1de196c2aba6d4bbba982cdb63ffa7f81328c9daca09bdc78fb933135c9317f3",
+      "event": "llm/fallback",
+      "surface": false
+    },
+    "event:llm/retry": {
+      "kind": "event",
+      "digest": "525254db03b1d1e6b74cf55aced52817568331ac1f96c0818728910b6692e336",
+      "event": "llm/retry",
+      "surface": false
+    },
+    "event:llm/retry-started": {
+      "kind": "event",
+      "digest": "48e5c9861f16ac07e78cb7b5ae9dabdf7bb85c58baed5a51b4ad275050ea58e3",
+      "event": "llm/retry-started",
+      "surface": false
+    },
+    "event:model/selection": {
+      "kind": "event",
+      "digest": "35203ba7ad5ef6f97d556b85df20ae98f04f09c65748cecdf8eefdb8b6405ffc",
+      "event": "model/selection",
+      "surface": false
+    },
+    "event:permission/preset": {
+      "kind": "event",
+      "digest": "5c45bf4c544a7211dcd8ba6ba7e5f1bc39b49e7a9df9d5cbdc8e87c22771b37b",
+      "event": "permission/preset",
+      "surface": false
+    },
+    "event:plan/mode": {
+      "kind": "event",
+      "digest": "a7cf43ce7c2a4c038feed1885cd7a00d5c6ee2d90a7e0d56b46f78a3e1ca327f",
+      "event": "plan/mode",
+      "surface": false
+    },
+    "event:recovery/decided": {
+      "kind": "event",
+      "digest": "0b3422aaa8086c7f01ff5e619e28b95efe6ffec7528ecf3cbdb1cf95e48c9e60",
+      "event": "recovery/decided",
+      "surface": false
+    },
+    "event:recovery/started": {
+      "kind": "event",
+      "digest": "8f098954477517a8defbbbb818ecb82724e604952d1100d98c5d1df6bb19b208",
+      "event": "recovery/started",
+      "surface": false
+    },
+    "event:request/context": {
+      "kind": "event",
+      "digest": "37cbc9cf06d494cfe5c67f078af1605eacb8e4c2c853e9e26455b73de0ee7ccf",
+      "event": "request/context",
+      "surface": false
+    },
+    "event:request/header": {
+      "kind": "event",
+      "digest": "4208123b50df5006b181481ab45fcf1cde807b88d3fd4d340090bc2e202fac41",
+      "event": "request/header",
+      "surface": false
+    },
+    "event:sandbox/mode": {
+      "kind": "event",
+      "digest": "516da4cdd6d2f1e5ce488e648578ca51f40e458f707b803e5b24de870e799415",
+      "event": "sandbox/mode",
+      "surface": false
+    },
+    "event:schedule/change": {
+      "kind": "event",
+      "digest": "2a7f86849ae54b3398ee49661a757c4fcb59a6192b7036ee2ff514617e13fb42",
+      "event": "schedule/change",
+      "surface": false
+    },
+    "event:security/scan": {
+      "kind": "event",
+      "digest": "d7398a9a37b2f88ae82945493ad8b6ebdba6c4fe3fea09044ce1bb2139b7d8f6",
+      "event": "security/scan",
+      "surface": false
+    },
+    "event:session-log-deepseek/delivery-accepted": {
+      "kind": "event",
+      "digest": "d63b8b8ffad9c02fd80c43a17df4f240c1fe8118ecca9de34f9d5871838ab5b9",
+      "event": "session-log-deepseek/delivery-accepted",
+      "surface": false
+    },
+    "event:session/end-seed": {
+      "kind": "event",
+      "digest": "5e6db6e24948d4a853c71cb9fabd252ad051ce93d4672c1266cf837c1c17b84e",
+      "event": "session/end-seed",
+      "surface": false
+    },
+    "event:session/title": {
+      "kind": "event",
+      "digest": "1b912703e2d64f91c99c675b8f805b01076c8325b905c1218ad81ef0b24909d5",
+      "event": "session/title",
+      "surface": false
+    },
+    "event:session/title-llm-request": {
+      "kind": "event",
+      "digest": "c4907659735b456a834427fd1e3f794f76c02d3c6cb3a19e0e7b6c5258a331bb",
+      "event": "session/title-llm-request",
+      "surface": false
+    },
+    "event:step/end": {
+      "kind": "event",
+      "digest": "e0a787e6ec76c7c94fecbc501b489164ab0293db05bc947914077ad01e674f05",
+      "event": "step/end",
+      "surface": false
+    },
+    "event:step/start": {
+      "kind": "event",
+      "digest": "4513e088d43e6c68425be30451b9f961cc264fe7318ca62681c41d4d78615986",
+      "event": "step/start",
+      "surface": false
+    },
+    "event:subagent/catalog": {
+      "kind": "event",
+      "digest": "3abae7324356f155cb42450c00b806d134ec93bd6439d2063b8d724162d58604",
+      "event": "subagent/catalog",
+      "surface": false
+    },
+    "event:subagent/descriptor": {
+      "kind": "event",
+      "digest": "b79ada42962cad0190a9d465805260567621fa3a4abd757eb31e6016b52d5ab5",
+      "event": "subagent/descriptor",
+      "surface": false
+    },
+    "event:subagent/model-selection-policy": {
+      "kind": "event",
+      "digest": "a6567ccb2e530606b775371eb4fa31468d72084339968e8b0440a516a23b39dc",
+      "event": "subagent/model-selection-policy",
+      "surface": false
+    },
+    "event:system/message": {
+      "kind": "event",
+      "digest": "69081694be231d56fd9580ba14645fd5e35373202605d5c5c841a9435b5fa3b1",
+      "event": "system/message",
+      "surface": true
+    },
+    "event:task/created": {
+      "kind": "event",
+      "digest": "c2209d455f63782ee3f25e3d1ccfdee93d90faf3a0de93b5db04f94f4c394be7",
+      "event": "task/created",
+      "surface": false
+    },
+    "event:task/plan": {
+      "kind": "event",
+      "digest": "5fa943ba2fb6e5d8b3f8909d58a8b37458bed859f3533e64ff882739f5b30b63",
+      "event": "task/plan",
+      "surface": false
+    },
+    "event:task/transitioned": {
+      "kind": "event",
+      "digest": "75898e2317836bd990551de2d24451e84007eac5a26335c2e7637df591831040",
+      "event": "task/transitioned",
+      "surface": false
+    },
+    "event:team/member": {
+      "kind": "event",
+      "digest": "4fb59762612c3e3ac3a3bd4f84c9c148d3c3893bd422ba2b201cc039fabd49bc",
+      "event": "team/member",
+      "surface": false
+    },
+    "event:team/message/delivered": {
+      "kind": "event",
+      "digest": "48f9c19417a1abbedfa59f4667bba36b93ac2db407adf5e84cb3ba0de30942cb",
+      "event": "team/message/delivered",
+      "surface": false
+    },
+    "event:team/message/queued": {
+      "kind": "event",
+      "digest": "21fb6a90d5068f6a0003b7ab316ed2f56342477146a65c00db0f13c4d8df667d",
+      "event": "team/message/queued",
+      "surface": false
+    },
+    "event:team/task": {
+      "kind": "event",
+      "digest": "d595ec73b32b016a6055333c67a5d646032b22e672da1d4a09c5b1ae398a093a",
+      "event": "team/task",
+      "surface": false
+    },
+    "event:todo/write": {
+      "kind": "event",
+      "digest": "b978cff734e62143eb56c9125423ec275405eda969802d42aaf73ecb987d3b26",
+      "event": "todo/write",
+      "surface": false
+    },
+    "event:tool-workflow/agent-end": {
+      "kind": "event",
+      "digest": "babf9ee4d1af62bf6c3a8103737f7a5e4e78ce179be835ce05a38803e15884b7",
+      "event": "tool-workflow/agent-end",
+      "surface": false
+    },
+    "event:tool-workflow/agent-start": {
+      "kind": "event",
+      "digest": "5f26a6c20b37632f8f57729d171c671def4683d994ac6257a8dffcd855101627",
+      "event": "tool-workflow/agent-start",
+      "surface": false
+    },
+    "event:tool-workflow/run-end": {
+      "kind": "event",
+      "digest": "42e0916e0dda5f6d1e7bb05d8514717147c036a79c9f36085683469516c1fd3f",
+      "event": "tool-workflow/run-end",
+      "surface": false
+    },
+    "event:tool-workflow/run-start": {
+      "kind": "event",
+      "digest": "c1f9e0405de6d18cabb9ee70782a027f9bbdc57e5abec9dcccdd56119e2e9058",
+      "event": "tool-workflow/run-start",
+      "surface": false
+    },
+    "event:tool/call": {
+      "kind": "event",
+      "digest": "3b1be838223869fe0a08210db85bf773796ed3f2373ac16555dff227cade0c48",
+      "event": "tool/call",
+      "surface": false
+    },
+    "event:tool/ptc-dispatch": {
+      "kind": "event",
+      "digest": "100f6dca1468538239522cde3533e5bd721d0f1a7b50bea8b0eb533ea6c96163",
+      "event": "tool/ptc-dispatch",
+      "surface": false
+    },
+    "event:tool/ptc-dispatch-start": {
+      "kind": "event",
+      "digest": "ec38b5949af8eacaf00df002f4acbe344f934f8a061e9cdc65a52a48e5f6dd93",
+      "event": "tool/ptc-dispatch-start",
+      "surface": false
+    },
+    "event:tool/result": {
+      "kind": "event",
+      "digest": "7c9f44e90a0058f4cc532ae20dad0c10afa6eba22e70a6c79fc79490bad64397",
+      "event": "tool/result",
+      "surface": true
+    },
+    "event:turn/end": {
+      "kind": "event",
+      "digest": "85f15e198c730df32e4db6e51cae200d86685208b1eaabbf1bf6be555de3a92a",
+      "event": "turn/end",
+      "surface": false
+    },
+    "event:turn/start": {
+      "kind": "event",
+      "digest": "aa0957eca50aeb28bcd2e6930b95809926edacb550c8c340ba526ba6b861b3d8",
+      "event": "turn/start",
+      "surface": false
+    },
+    "event:user/message": {
+      "kind": "event",
+      "digest": "5b2f42e67ff7a6f45e13141c1383e19b1a9e99bb1545f3ce2da4ff16edccb942",
+      "event": "user/message",
+      "surface": true
+    },
+    "event:verification/requested": {
+      "kind": "event",
+      "digest": "8b12962106d94de745466a7e5d31fd9c6ebf9232c0cc9d470640dea5aa741295",
+      "event": "verification/requested",
+      "surface": false
+    },
+    "event:verification/result": {
+      "kind": "event",
+      "digest": "f514b1a9c3bf4138691e4c77a6932b347579e0c127931266b208246911902356",
+      "event": "verification/result",
+      "surface": false
+    },
+    "event:web/deepseek-search-llm-request": {
+      "kind": "event",
+      "digest": "cf6e3aaf1e2de6480aa0157730a41b9a492108a55304100b0f7e112711dd4331",
+      "event": "web/deepseek-search-llm-request",
+      "surface": false
+    },
+    "event:workspace/changes": {
+      "kind": "event",
+      "digest": "e308ccf867a5398e316e0af8cb6ce238a8d33a63b9b384c8250a686786285f72",
+      "event": "workspace/changes",
+      "surface": false
+    }
+  },
+  "acceptedRecords": {
+    "2026-09-11-initial": "1257b73faa71fda3504b42af8ef7fa6a8c608a1aafe4fc77f21b8cd1c30e0ec1",
+    "2026-09-12-auto-review-error-metadata": "a98f6eb5d28618a355a358bddf7b278a25ab8aa08288c85e32c2031d7994b865",
+    "2026-09-14-image-offload": "ec2ac7c3e20842e33870307384200b893a3ec0b0028882858abb0ac9dfc002c6",
+    "2026-09-14-workspace-changes-event": "b5455973864a92f227f4af0c8eae2182dc33a20d22d2121083652aa0e61af83d",
+    "2026-09-16-session-format-v4": "0d854cc665bea188f82b6b8d2298a7e484fd138dfdf1d1e974b8be2c9f15c6ac",
+    "2026-09-20-unknown-child-catalog": "3892fbeb35e0916f0fa253d4d5ba8df9521e6c262a29d866aa7112f7e4600c1e",
+    "2026-09-24-session-format-v5": "51a1bd65a685566d3188a113fc7ba81cee026a942ae2fd8d4dcdd95da25c8990"
+  }
+}

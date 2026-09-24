@@ -40,6 +40,9 @@ export const zh = {
   'checkpoint.cover': '覆盖会话序号 {seq}',
   'research.title': '研究记录',
   'research.counts': '证据 {evidence}，断言 {claims}，假设 {hypotheses}',
+  'lineage.title': '证据谱系',
+  'lineage.claim': '{statement}（{status}，置信度 {confidence}）',
+  'lineage.evidence': '{kind} {ref}（{trust}）',
 }
 
 /** Every key this namespace defines. */
@@ -82,4 +85,7 @@ export const en: Record<KernelTaskKey, string> = {
   'checkpoint.cover': 'Covers session seq {seq}',
   'research.title': 'Research record',
   'research.counts': 'Evidence {evidence}, claims {claims}, hypotheses {hypotheses}',
+  'lineage.title': 'Evidence lineage',
+  'lineage.claim': '{statement} ({status}, confidence {confidence})',
+  'lineage.evidence': '{kind} {ref} ({trust})',
 }

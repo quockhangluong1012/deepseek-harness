@@ -285,6 +285,9 @@ export class PlanModeController extends Service {
     ctx.tools.register(defineTool({
       name: EXIT_PLAN_MODE,
       description: EXIT_DESCRIPTION,
+      // A human plan review has no natural time bound; the deployment
+      // default timeout must not cancel this wait (S4/timeouts).
+      unboundedTimeout: true,
       parameters: {
         plan: { type: 'string', required: true, description: 'The complete plan, as markdown, starting with a # heading that names it.' },
       },

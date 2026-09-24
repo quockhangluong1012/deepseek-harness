@@ -25,13 +25,45 @@ import type { SkillUsageRecord } from '@deepseek-ai/dsh-evolution-skill-telemetr
 import type { EvolutionSkillTelemetry } from '@deepseek-ai/dsh-evolution-skill-telemetry'
 import { SKILL_FILE } from '@deepseek-ai/dsh-evolution-skill-manage'
 import { runVerifierLadder } from '@deepseek-ai/dsh-evolution-verifiers'
+import type { VerifierSeam } from '@deepseek-ai/dsh-evolution-verifiers'
 import { appendLedger, moveTree, pathExists, textSha, writeTextBlob } from './safety.ts'
 import type { ConsolidationRefusal, ConsolidationVerdict, SurveyCandidate } from './types.ts'
 
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
+    /** @persistenceAttribution */
     'evolution-curator': { kind: 'evolution-curator' } & ContextFormed
   }
+}
+
+/**
+ * Count the lines one patch would add and remove: both bodies minus their
+ * longest common subsequence, so unchanged lines in place cost nothing and
+ * every other line counts once on its own side. Order-sensitive, matching
+ * `@deepseek-ai/dsh-evolution-optimizer`'s `diffLineCounts` — duplicated here
+ * rather than imported so this package does not depend on the optimizer for
+ * one pure line-diff function.
+ * @param before - the body on disk.
+ * @param after - the candidate patch body.
+ * @returns added and removed line counts.
+ */
+function diffLineCounts(before: string, after: string): { addedLines: number; removedLines: number } {
+  const oldLines = before.split('\n')
+  const newLines = after.split('\n')
+  const memo = new Map<string, number>()
+  const shared = (i: number, j: number): number => {
+    if (i >= oldLines.length || j >= newLines.length) return 0
+    const key = `${i},${j}`
+    const hit = memo.get(key)
+    if (hit !== undefined) return hit
+    const value = oldLines[i] === newLines[j]
+      ? shared(i + 1, j + 1) + 1
+      : Math.max(shared(i + 1, j), shared(i, j + 1))
+    memo.set(key, value)
+    return value
+  }
+  const common = shared(0, 0)
+  return { addedLines: newLines.length - common, removedLines: oldLines.length - common }
 }
 
 /** File extensions whose `${DSH_SKILL_DIR}` references are rewritten on re-home. */
@@ -235,6 +267,21 @@ export interface ConsolidationApplyDeps {
   candidates: ReadonlyMap<string, SurveyCandidate>
   /** Resolvable, writable skill directories by name. */
   dirs: ReadonlyMap<string, string>
+  /** Total changed-line ceiling (added plus removed) a `patch` body may not exceed; `0` leaves it unbounded. */
+  maxDiffLines: number
+  /** Level 2: a host-mounted domain simulator, absent unless the host mounts one. */
+  simulation?: VerifierSeam
+  /** Level 3: a host-mounted evaluator model, absent unless the host mounts one. */
+  evaluator?: VerifierSeam
+  /** Level 4: a host-mounted human-review seam, absent unless the host mounts one. */
+  review?: VerifierSeam
+  /**
+   * Refuse a patch the ladder did not fully pass — an abstention as well as a
+   * failure — instead of committing on deterministic evidence alone. Default
+   * `false` keeps today's behavior: a body that passes levels 0 and 1 commits
+   * even when the higher rungs abstain for want of a mounted seam.
+   */
+  requireVerifierPass: boolean
 }
 
 /** One applied consolidation movement. */
@@ -256,12 +303,19 @@ export interface ConsolidationApplied {
  * entire directory into `.archive/`, and a merge whose umbrella is missing or
  * unwritable leaves the package exactly where it is.
  *
- * A `patch` body is admitted through the verifier ladder: the schema and
+ * A `patch` body is admitted through the verifier ladder first: the schema and
  * invariant rungs decide it deterministically, a failing rung refuses the body
- * with the level that decided, and the higher rungs — which this path mounts no
- * seam for — abstain, so the body is committed on the deterministic evidence
- * alone rather than on a judgment the curator did not make.
- * @param deps - host seams and the surveyed candidate set.
+ * with the level that decided, and the higher rungs run behind whatever
+ * `simulation`/`evaluator`/`review` seams the deps carry — an unset seam
+ * abstains. By default an abstained-but-not-failed ladder still commits on
+ * the deterministic evidence alone, the same as an unmounted ladder;
+ * `requireVerifierPass` refuses instead, with `level: 'ladder-incomplete'`,
+ * so a host that mounted higher rungs can demand every one of them actually
+ * decide before a write lands. A ladder pass then meets `maxDiffLines`: a
+ * patch that changes more lines than the configured ceiling is refused with
+ * `level: 'diff-cap'` before anything is written, bounding how much of a
+ * skill one automatic pass may rewrite.
+ * @param deps - host seams, the surveyed candidate set, the diff-size ceiling, and the optional ladder seams and pass requirement.
  * @param verdicts - the fork's verdicts, in tool-call order.
  * @returns the lifecycle movements, the skipped-verdict count, and the refused bodies.
  */
@@ -287,14 +341,38 @@ export async function applyConsolidation(
         applied.skipped += 1
         continue
       }
-      const admission = await runVerifierLadder({ name: verdict.name, body: verdict.body })
+      const admission = await runVerifierLadder({
+        name: verdict.name,
+        body: verdict.body,
+        ...deps.simulation === undefined ? {} : { simulation: deps.simulation },
+        ...deps.evaluator === undefined ? {} : { evaluator: deps.evaluator },
+        ...deps.review === undefined ? {} : { review: deps.review },
+      })
       if (admission.status === 'failed') {
         applied.skipped += 1
         applied.refusals.push({ name: verdict.name, level: admission.decidedBy, reason: admission.reason })
         continue
       }
+      if (deps.requireVerifierPass && admission.status !== 'passed') {
+        applied.skipped += 1
+        applied.refusals.push({ name: verdict.name, level: 'ladder-incomplete', reason: admission.reason })
+        continue
+      }
       const file = join(dir, SKILL_FILE)
       const previous = await readFile(file, 'utf8')
+      if (deps.maxDiffLines > 0) {
+        const { addedLines, removedLines } = diffLineCounts(previous, verdict.body)
+        const changed = addedLines + removedLines
+        if (changed > deps.maxDiffLines) {
+          applied.skipped += 1
+          applied.refusals.push({
+            name: verdict.name,
+            level: 'diff-cap',
+            reason: `the patch changes ${changed} line(s) (+${addedLines}/-${removedLines}), over the ${deps.maxDiffLines}-line cap`,
+          })
+          continue
+        }
+      }
       const beforeSha = textSha(previous)
       await writeTextBlob(deps.home, beforeSha, previous)
       await writeFile(file, verdict.body)

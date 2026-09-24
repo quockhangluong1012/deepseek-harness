@@ -79,7 +79,13 @@ interface RecordedTask {
 }
 
 async function harness(options: {
-  config?: { capacityBytes: number; maintenanceIntervalHours?: number; defaultTtlDays?: number }
+  config?: {
+    capacityBytes: number
+    maintenanceIntervalHours?: number
+    defaultTtlDays?: number
+    demoteUtilityFloor?: number
+    demoteMinSurfaced?: number
+  }
   heartbeat?: RecordedTask[]
 } = {}) {
   const pool = new MemoryMediaPool()
@@ -116,6 +122,8 @@ function candidate(statement: string, overrides: Partial<LessonArtifactInput> = 
     confidence: 0.9,
     scope: 'project',
     sourceRefs: ['session:s1'],
+    trajectoryRefs: ['run:s1'],
+    lineage: { origin: 's1' },
     ...overrides,
   }
 }
@@ -142,6 +150,24 @@ async function condemn(facility: DomainFacility, id: ScopeId, artifactId: string
   await scopeTable(facility).put(storageKey(id), {
     ...stored,
     agentLessons: stored.agentLessons.map(entry => entry.id === artifactId ? { ...entry, refutationCount: 3 } : entry),
+  })
+}
+
+/** Stamp one stored artifact with a surfaced-and-graded utility reading. */
+async function grade(
+  facility: DomainFacility,
+  id: ScopeId,
+  artifactId: string,
+  surfaced: number,
+  passingTasks: number,
+): Promise<void> {
+  const stored = storedRow(facility, id)
+  const failingTasks = surfaced - passingTasks
+  await scopeTable(facility).put(storageKey(id), {
+    ...stored,
+    agentLessons: stored.agentLessons.map(entry => entry.id === artifactId
+      ? { ...entry, utility: { surfaced, passingTasks, failingTasks, value: utilityValue(passingTasks, failingTasks) } }
+      : entry),
   })
 }
 
@@ -218,6 +244,39 @@ describe('evolution-memory sweep', () => {
     expect(await store.sweep(id)).toEqual({ pruned: 1, refined: 0 })
     expect(store.read(id)?.agentLessons.map(entry => entry.statement)).toEqual(['fresh fact'])
     expect(store.read(id)?.lessonsUpdatedAt).not.toBeNull()
+    await fiber.dispose()
+  })
+
+  it('demotes a sufficiently surfaced low-utility artifact and keeps an unproven sibling', async () => {
+    const { facility, fiber, store } = await harness()
+    const id = scope()
+    await store.addArtifact(id, candidate('useless fact', { ttlDays: 90 }))
+    await store.addArtifact(id, candidate('unproven fact', { ttlDays: 90 }))
+    await grade(facility, id, artifactKey('useless fact'), 5, 0)
+    expect(await store.sweep(id)).toEqual({ pruned: 1, refined: 0 })
+    expect(store.read(id)?.agentLessons.map(entry => entry.statement)).toEqual(['unproven fact'])
+    await fiber.dispose()
+  })
+
+  it('keeps a low-utility artifact under the configured minimum surfacings', async () => {
+    const { facility, fiber, store } = await harness()
+    const id = scope()
+    await store.addArtifact(id, candidate('barely tried fact', { ttlDays: 90 }))
+    await grade(facility, id, artifactKey('barely tried fact'), 1, 0)
+    expect(await store.sweep(id)).toEqual({ pruned: 0, refined: 0 })
+    expect(store.read(id)?.agentLessons).toHaveLength(1)
+    await fiber.dispose()
+  })
+
+  it('respects a configured demotion floor and surfacing minimum', async () => {
+    const { facility, fiber, store } = await harness({
+      config: { capacityBytes: 4096, demoteUtilityFloor: 0.7, demoteMinSurfaced: 2 },
+    })
+    const id = scope()
+    // Passes the default floor (0.35) but not a deployment that raised it to 0.7.
+    await store.addArtifact(id, candidate('middling fact', { ttlDays: 90 }))
+    await grade(facility, id, artifactKey('middling fact'), 2, 1)
+    expect(await store.sweep(id)).toEqual({ pruned: 1, refined: 0 })
     await fiber.dispose()
   })
 

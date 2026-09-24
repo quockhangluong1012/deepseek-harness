@@ -93,11 +93,13 @@ export interface Config {
 export type EscalationMode = typeof ESCALATION_MODES[number]
 ```
 
-Source: [`packages/context/active-memory-context/src/index.ts:75`](../packages/context/active-memory-context/src/index.ts)
+Source: [`packages/context/active-memory-context/src/index.ts:80`](../packages/context/active-memory-context/src/index.ts)
 
 <a id="deepseek-aidsh-agent-context"></a>
 
 ## `@deepseek-ai/dsh-agent-context`
+
+Requires: `sessionProjections`
 
 ```ts config-catalog
 /**
@@ -113,7 +115,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/runtime/agent-context/src/index.ts:55`](../packages/runtime/agent-context/src/index.ts)
+Source: [`packages/runtime/agent-context/src/index.ts:51`](../packages/runtime/agent-context/src/index.ts)
 
 <a id="deepseek-aidsh-agent-default-model"></a>
 
@@ -383,7 +385,7 @@ export type PolicyAction =
   | 'policy'
 ```
 
-Source: [`packages/runtime/agent-kernel/src/index.ts:116`](../packages/runtime/agent-kernel/src/index.ts)
+Source: [`packages/runtime/agent-kernel/src/index.ts:121`](../packages/runtime/agent-kernel/src/index.ts)
 
 <a id="deepseek-aidsh-agent-loop"></a>
 
@@ -946,7 +948,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/evolution/command-evolution/src/index.ts:107`](../packages/evolution/command-evolution/src/index.ts)
+Source: [`packages/evolution/command-evolution/src/index.ts:108`](../packages/evolution/command-evolution/src/index.ts)
 
 <a id="deepseek-aidsh-compaction-basic"></a>
 
@@ -1348,6 +1350,14 @@ export interface Config {
   stageMinUses?: number
   /** Failure share a skill must exceed to be staged, in 0..1. */
   stageFailureRate?: number
+  /** Total changed-line ceiling (added plus removed) a consolidation `patch` body may not exceed; `0` leaves it unbounded. */
+  maxDiffLines?: number
+  /**
+   * Refuse a consolidation `patch` the verifier ladder did not fully pass —
+   * an abstention as well as a failure — instead of committing on levels 0
+   * and 1 alone. Default `false` keeps today's behavior.
+   */
+  requireVerifierPass?: boolean
 }
 ```
 
@@ -1504,7 +1514,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/evolution/evolution-graph/src/index.ts:80`](../packages/evolution/evolution-graph/src/index.ts)
+Source: [`packages/evolution/evolution-graph/src/index.ts:81`](../packages/evolution/evolution-graph/src/index.ts)
 
 <a id="deepseek-aidsh-evolution-heartbeat"></a>
 
@@ -1606,6 +1616,15 @@ export interface Config {
   episodicRetentionDays?: number
   /** Episodic notes retained per scope past the age cut, newest kept. */
   maxEpisodicEntries?: number
+  /**
+   * S8 utility value below which a sufficiently surfaced fact is demoted by
+   * decay alongside ttl and refutation pruning. A fact with fewer surfacings
+   * than `demoteMinSurfaced` is never demoted: absence of evidence is not
+   * evidence of uselessness.
+   */
+  demoteUtilityFloor?: number
+  /** Surfacings a fact needs before its utility value is trusted for demotion. */
+  demoteMinSurfaced?: number
 }
 ```
 
@@ -1634,10 +1653,14 @@ export interface Config {
   failureSignalScanLimit?: number
   /** Usage ratio at or above which the brief header warns to consolidate. */
   capacityWarnPct?: number
+  /** Minimum rendered-brief byte change before a store update replaces the visible brief (S1 point 4); 0 replaces on any change. */
+  minSupersedeChangeBytes?: number
+  /** Session cap on brief supersedes (S1 point 4); a store change past the cap leaves the visible brief in place. */
+  maxSupersedesPerSession?: number
 }
 ```
 
-Source: [`packages/context/evolution-memory-context/src/index.ts:121`](../packages/context/evolution-memory-context/src/index.ts)
+Source: [`packages/context/evolution-memory-context/src/index.ts:125`](../packages/context/evolution-memory-context/src/index.ts)
 
 <a id="deepseek-aidsh-evolution-meta"></a>
 
@@ -1884,7 +1907,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/evolution/evolution-reviewer/src/index.ts:72`](../packages/evolution/evolution-reviewer/src/index.ts)
+Source: [`packages/evolution/evolution-reviewer/src/index.ts:75`](../packages/evolution/evolution-reviewer/src/index.ts)
 
 <a id="deepseek-aidsh-evolution-router"></a>
 
@@ -2598,7 +2621,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/hooks/hooks-claude-code/src/index.ts:51`](../packages/hooks/hooks-claude-code/src/index.ts)
+Source: [`packages/hooks/hooks-claude-code/src/index.ts:52`](../packages/hooks/hooks-claude-code/src/index.ts)
 
 <a id="deepseek-aidsh-hooks-codex"></a>
 
@@ -2625,7 +2648,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/hooks/hooks-codex/src/index.ts:50`](../packages/hooks/hooks-codex/src/index.ts)
+Source: [`packages/hooks/hooks-codex/src/index.ts:51`](../packages/hooks/hooks-codex/src/index.ts)
 
 <a id="deepseek-aidsh-host-directory-picker-browse"></a>
 
@@ -4247,7 +4270,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/spill/spill-policy/src/index.ts:25`](../packages/spill/spill-policy/src/index.ts)
+Source: [`packages/spill/spill-policy/src/index.ts:27`](../packages/spill/spill-policy/src/index.ts)
 
 <a id="deepseek-aidsh-ssh"></a>
 
@@ -4692,7 +4715,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/context/time-context/src/index.ts:56`](../packages/context/time-context/src/index.ts)
+Source: [`packages/context/time-context/src/index.ts:58`](../packages/context/time-context/src/index.ts)
 
 <a id="deepseek-aidsh-tmux-context"></a>
 
@@ -5344,7 +5367,7 @@ export interface Config {
 export type ToolPresentationMode = 'native' | 'ptc' | 'both'
 ```
 
-Source: [`packages/core/tools/src/index.ts:786`](../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:796`](../packages/core/tools/src/index.ts)
 
 <a id="deepseek-aidsh-typert-loader"></a>
 
@@ -5693,7 +5716,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/context/workspace-memory-context/src/index.ts:46`](../packages/context/workspace-memory-context/src/index.ts)
+Source: [`packages/context/workspace-memory-context/src/index.ts:49`](../packages/context/workspace-memory-context/src/index.ts)
 
 <a id="deepseek-aidsh-workspace-memory-llm"></a>
 
@@ -5727,7 +5750,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/workspace/workspace-memory-llm/src/index.ts:41`](../packages/workspace/workspace-memory-llm/src/index.ts)
+Source: [`packages/workspace/workspace-memory-llm/src/index.ts:42`](../packages/workspace/workspace-memory-llm/src/index.ts)
 
 ## Loadable plugins with no config
 
@@ -5819,7 +5842,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-host-directory-picker-auto` — requires `webServer` · `loader` ([`packages/host/directory-picker-auto/src/index.ts`](../packages/host/directory-picker-auto/src/index.ts))
 - `@deepseek-ai/dsh-host-directory-picker-native` ([`packages/host/directory-picker-native/src/index.ts`](../packages/host/directory-picker-native/src/index.ts))
 - `@deepseek-ai/dsh-host-plugin-inventory` — requires `loader` ([`packages/host/plugin-inventory/src/index.ts`](../packages/host/plugin-inventory/src/index.ts))
-- `@deepseek-ai/dsh-kernel-ops` — requires `sessionPersistence` ([`packages/bundle/kernel-ops/src/index.ts`](../packages/bundle/kernel-ops/src/index.ts))
+- `@deepseek-ai/dsh-kernel-ops` — requires `sessionPersistence` · `agentKernel` ([`packages/bundle/kernel-ops/src/index.ts`](../packages/bundle/kernel-ops/src/index.ts))
 - `@deepseek-ai/dsh-llm` ([`packages/llm/llm/src/index.ts`](../packages/llm/llm/src/index.ts))
 - `@deepseek-ai/dsh-lsp` ([`packages/lsp/lsp/src/index.ts`](../packages/lsp/lsp/src/index.ts))
 - `@deepseek-ai/dsh-mcp-resources` — requires `tools` ([`packages/mcp/mcp-resources/src/index.ts`](../packages/mcp/mcp-resources/src/index.ts))
@@ -5911,6 +5934,7 @@ Imported as libraries by other packages; a `cordis.yml` cannot load them.
 - `@deepseek-ai/dsh-session-format-v1-to-v2` ([`packages/session/session-format-v1-to-v2/src/index.ts`](../packages/session/session-format-v1-to-v2/src/index.ts))
 - `@deepseek-ai/dsh-session-format-v2-to-v3` ([`packages/session/session-format-v2-to-v3/src/index.ts`](../packages/session/session-format-v2-to-v3/src/index.ts))
 - `@deepseek-ai/dsh-session-format-v3-to-v4` ([`packages/session/session-format-v3-to-v4/src/index.ts`](../packages/session/session-format-v3-to-v4/src/index.ts))
+- `@deepseek-ai/dsh-session-format-v4-to-v5` ([`packages/session/session-format-v4-to-v5/src/index.ts`](../packages/session/session-format-v4-to-v5/src/index.ts))
 - `@deepseek-ai/dsh-session-snapshot` ([`packages/test-support/session-snapshot/src/index.ts`](../packages/test-support/session-snapshot/src/index.ts))
 - `@deepseek-ai/dsh-session-telemetry` ([`packages/session/session-telemetry/src/index.ts`](../packages/session/session-telemetry/src/index.ts))
 - `@deepseek-ai/dsh-session-title-llm` ([`packages/session/session-title-llm/src/index.ts`](../packages/session/session-title-llm/src/index.ts))

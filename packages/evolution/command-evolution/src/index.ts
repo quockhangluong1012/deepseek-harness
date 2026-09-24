@@ -91,6 +91,7 @@ import type { EvaluatorStrategy, StrategyRanking } from '@deepseek-ai/dsh-evolut
 
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
+    /** @persistenceAttribution */
     'command-evolution': { kind: 'command-evolution' } & ContextFormed
   }
 }
@@ -1225,6 +1226,28 @@ async function promotionRefusal(ctx: Context, id: string, reviewer: string): Pro
 }
 
 /**
+ * Keep a recorded lineage envelope truthful once a deployment exits to a
+ * terminal negative state: the optimizer stamped a measured verdict at
+ * proposal time, but only the operator's later `reject`/`rollback` decision
+ * knows the candidate did not hold. A missing lineage store, or an id the
+ * store never recorded (a deployment that predates lineage, or the store
+ * dropped it), must not fail the canary transition that already landed, so
+ * it logs a warning instead (§58.12: recorded, never enforced).
+ * @param ctx - plugin context carrying the optional lineage store.
+ * @param id - the deployment identity, which is the lineage envelope's experiment id.
+ * @param to - the terminal state the deployment exited to.
+ */
+async function amendLineageOnExit(ctx: Context, id: string, to: 'rejected' | 'rolled-back'): Promise<void> {
+  const lineage = ctx.get('evolutionLineage')
+  if (lineage === undefined) return
+  try {
+    await lineage.amendOutcome(id, 'regressed', `deployment ${to} by an operator after promotion`)
+  } catch (error) {
+    ctx.logger.warn(`command-evolution could not amend the lineage outcome for '${id}': ${String(error)}`)
+  }
+}
+
+/**
  * Execute `/canary [status [<skill>] | rollout <id> | promote <id> | reject
  * <id> | rollback <id>]`: list deployment states (optionally per skill), move
  * a shadow deployment to canary, promote a canary to promoted, or exit a
@@ -1232,7 +1255,9 @@ async function promotionRefusal(ctx: Context, id: string, reviewer: string): Pro
  * automatic: the optimizer records every staged write as shadow. A promotion
  * carries §53's separation of duties: the invocation's session is recorded as
  * the reviewing identity and the promotion is refused when it is the identity
- * that proposed the candidate.
+ * that proposed the candidate. An exit to `rejected` or `rolled-back` amends
+ * the matching lineage envelope's outcome, so a recorded 'improved' verdict
+ * does not outlive an operator's decision that it did not hold.
  * @param ctx - plugin context carrying the optional canary store.
  * @param invocation - raw command input plus the invoking agent.
  * @returns the command result.
@@ -1260,6 +1285,7 @@ async function executeCanary(ctx: Context, invocation: CommandInvocation): Promi
         if (refusal !== null) return { kind: 'error', text: refusal }
       }
       const moved = await store.advance(id, to)
+      if (to === 'rejected' || to === 'rolled-back') await amendLineageOnExit(ctx, id, to)
       return { kind: 'success', text: `Deployment '${moved.id.slice(0, 8)}' (${moved.skill}) moved to '${moved.state}'.` }
     }
     if (verb !== undefined && verb !== 'status') return { kind: 'error', text: CANARY_USAGE }

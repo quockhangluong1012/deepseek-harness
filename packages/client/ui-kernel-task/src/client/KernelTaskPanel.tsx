@@ -153,6 +153,14 @@ export function KernelTaskPanel({ node, t }: KernelTaskPanelProps) {
               hypotheses: data.hypotheses,
             })}
           </p>
+          {data.claimRecords.length === 0 ? null : (
+            <p className={css.line} data-task-lineage>
+              {t('lineage.title')}: {data.claimRecords.map(claim => [
+                t('lineage.claim', { statement: claim.statement, status: claim.status, confidence: claim.confidence }),
+                ...claim.evidence.map(ev => t('lineage.evidence', { kind: ev.kind, ref: ev.contentRef, trust: ev.trust })),
+              ].join(' — ')).join('; ')}
+            </p>
+          )}
           {data.unresolvedFailures.length === 0 ? null : (
             <p className={css.line} data-task-failures data-task-failure-kinds={data.unresolvedFailures.join(',')}>
               {t('failures', { count: data.unresolvedFailures.length })}
