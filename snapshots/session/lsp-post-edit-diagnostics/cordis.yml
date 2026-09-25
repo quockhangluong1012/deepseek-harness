@@ -1,0 +1,26 @@
+# Deterministic LSP provider for the post-edit diagnostics scenario.
+- id: llm-deepseek
+  disabled: true
+
+- id: session-title-llm
+  disabled: true
+
+- id: agent-instructions
+  disabled: true
+
+- id: skill-filesystem
+  config:
+    dshHome: './.dsh-home'
+    agentsHome: './.agents-home'
+    claudeHome: './.claude-home'
+
+- id: lsp-stdio
+  config:
+    autoDetect: false
+    servers:
+      fixture:
+        command: !!js process.execPath
+        args: ['./lsp-server.mjs']
+        extensionToLanguage:
+          '.ts': typescript
+        diagnosticsWaitMs: 1000

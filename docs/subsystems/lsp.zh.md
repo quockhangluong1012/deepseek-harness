@@ -2,7 +2,7 @@
 
 [English](lsp.md) | 中文
 
-LSP seam 是一个[能力 seam](../glossary.zh.md#capability-seam)：它在单一 `ctx.lsp` 服务上公开语言服务器导航与文件诊断。包组提供服务定义（[dsh-lsp](../../packages/lsp/lsp)）、配置好的 stdio 提供方（[dsh-lsp-stdio](../../packages/lsp/lsp-stdio)）、按需模型消费方（[dsh-tool-lsp](../../packages/lsp/tool-lsp)）以及可选的编辑后上下文（[lsp-post-edit-diagnostics](../../packages/lsp/lsp-post-edit-diagnostics)）。LSP 是可选能力，不属于 agent loop 主干；提供方词汇在此定义，而非 [core.md](core.zh.md)。
+LSP seam 是一个[能力 seam](../glossary.zh.md#capability-seam)：它在单一 `ctx.lsp` 服务上公开语言服务器导航与文件诊断。包组提供服务定义（[dsh-lsp](../../packages/lsp/lsp)）、可检测常见本地服务器的 stdio 提供方（[dsh-lsp-stdio](../../packages/lsp/lsp-stdio)）、按需模型消费方（[dsh-tool-lsp](../../packages/lsp/tool-lsp)）以及编辑后结果增强（[lsp-post-edit-diagnostics](../../packages/lsp/lsp-post-edit-diagnostics)）。基于 base 的 profile 会挂载这些插件，但不会安装服务器二进制文件；只有收到匹配查询时服务才会启动服务器。LSP 不属于 agent loop 主干；提供方词汇在此定义，而非 [core.md](core.zh.md)。
 
 源文件：[`packages/lsp/lsp/src/types.ts`](../../packages/lsp/lsp/src/types.ts)
 

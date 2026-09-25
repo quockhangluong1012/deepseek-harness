@@ -1,27 +1,27 @@
 /**
- * Keyless real-server e2e: drives `typescript-language-server` through the full
- * `ctx.lsp` → `dsh-lsp-stdio` stack over the base protocol, covering the four cursor-based
- * request/response operations. Push diagnostics are exercised with the fake server in
- * `instance.spec.ts`. This establishes one TypeScript compatibility floor, not a cross-language
- * claim.
+ * Keyless real-server e2e: auto-detects `typescript-language-server` and drives navigation plus
+ * push diagnostics through the full `ctx.lsp` → `dsh-lsp-stdio` stack over the base protocol.
+ * The resolver is pinned to this package's dev binary so the test does not depend on host PATH.
  */
 
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { mkdtemp, mkdir, rm, writeFile, realpath } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { Context } from '@deepseek-ai/cordis'
 import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
+import { SubprocessExecutableNotFoundError } from '@deepseek-ai/dsh-subprocess'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import Lsp, { type LspQueryRequest, type LspQueryResult } from '@deepseek-ai/dsh-lsp'
 import * as LspLocal from '@deepseek-ai/dsh-lsp-stdio'
 
-// The server binary is a dev dependency of this package; resolve its pnpm-hoisted .bin path.
+// The server binary is a dev dependency of this package; pin lookup to its pnpm .bin entry.
 const serverBin = join(
-  new URL('..', import.meta.url).pathname,
+  fileURLToPath(new URL('..', import.meta.url)),
   'node_modules',
   '.bin',
-  'typescript-language-server',
+  process.platform === 'win32' ? 'typescript-language-server.CMD' : 'typescript-language-server',
 )
 
 let root: string
@@ -52,29 +52,32 @@ beforeAll(async () => {
     'export const text = describe(c)',
     '',
   ].join('\n'))
+  await writeFile(join(ws, 'type-error.ts'), "const invalid: number = 'bad'\n")
 
   ctx = new Context()
   await ctx.plugin(Lsp)
   await ctx.plugin(LocalSubprocessRuntime)
   await ctx.plugin(LocalFileSystem, { cwd: process.cwd() })
-  await ctx.plugin(LspLocal, {
-    servers: {
-      typescript: {
-        command: serverBin,
-        args: ['--stdio'],
-        extensionToLanguage: { '.ts': 'typescript', '.tsx': 'typescriptreact' },
-      },
-    },
+  const resolve = vi.spyOn(ctx.subprocess, 'resolveExecutable').mockImplementation(async (command) => {
+    if (command === 'typescript-language-server') return serverBin
+    throw new SubprocessExecutableNotFoundError(`${command} is not installed for this test`)
   })
+  await ctx.plugin(LspLocal, { autoDetect: true })
 }, 60_000)
 
 afterAll(async () => {
   if (ctx) await ctx.fiber.dispose()
+  vi.restoreAllMocks()
   if (root) await rm(root, { recursive: true, force: true })
 })
 
 /** One-based helper mirroring the model contract, converted to the seam's zero-based position. */
-function at(operation: LspQueryRequest['operation'], line1: number, char1: number, filePath = 'shapes.ts'): LspQueryRequest {
+function at(
+  operation: Exclude<LspQueryRequest['operation'], 'diagnostics'>,
+  line1: number,
+  char1: number,
+  filePath = 'shapes.ts',
+): LspQueryRequest {
   return { operation, filePath, position: { line: line1 - 1, character: char1 - 1 }, workspaceRoot: ws }
 }
 
@@ -114,6 +117,17 @@ describe('real typescript-language-server', () => {
     if (result.kind === 'hover') {
       expect(result.hover).not.toBeNull()
       expect(result.hover?.contents).toContain('Circle')
+    }
+  }, 60_000)
+
+  it('returns push diagnostics for a real TypeScript error', async () => {
+    const result = await ctx.lsp.query({ operation: 'diagnostics', filePath: 'type-error.ts', workspaceRoot: ws })
+    expect(result.kind).toBe('diagnostics')
+    if (result.kind === 'diagnostics') {
+      expect(result.diagnostics).toContainEqual(expect.objectContaining({
+        severity: 'error',
+        message: expect.stringContaining("Type 'string' is not assignable to type 'number'."),
+      }))
     }
   }, 60_000)
 })

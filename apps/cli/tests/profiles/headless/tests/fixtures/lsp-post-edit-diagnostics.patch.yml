@@ -1,0 +1,43 @@
+# Real headless Loader composition with a deterministic language server and model.
+- id: llm-deepseek
+  disabled: true
+
+- id: session-title-llm
+  disabled: true
+
+- id: agent-instructions
+  disabled: true
+
+- id: skill-filesystem
+  config:
+    dshHome: './.dsh-home'
+    agentsHome: './.agents-home'
+    claudeHome: './.claude-home'
+
+- id: agent-default-model
+  config:
+    provider: lsp-mock
+    model: lsp-mock
+
+- id: session-persistence-jsonl
+  config:
+    root: './.sessions'
+
+- id: lsp-stdio
+  config:
+    autoDetect: false
+    servers:
+      fixture:
+        command: !!js process.execPath
+        args:
+          - !!js process.env.DSH_LSP_DIAGNOSTICS_SERVER
+        env:
+          LSP_FAKE_ON_OPEN: diagnostics
+          LSP_FAKE_DIAGNOSTICS: '[{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":1}},"severity":1,"message":"LSP_FIXTURE_DIAGNOSTIC"}]'
+        extensionToLanguage:
+          '.ts': typescript
+        diagnosticsWaitMs: 1000
+
+- insert:
+    - id: lsp-post-edit-diagnostics-test-llm
+      name: '../../../../../../../apps/cli/tests/profiles/headless/tests/fixtures/lsp-post-edit-diagnostics-llm.ts'

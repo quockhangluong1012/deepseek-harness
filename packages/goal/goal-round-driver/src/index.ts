@@ -200,6 +200,13 @@ export function apply(ctx: Context): void {
       })
       return
     }
+    if (goal.maxGoalTokens !== undefined && goal.tokensUsed >= goal.maxGoalTokens) {
+      ctx.goals.block(agent, goalRef(goal), {
+        code: 'token-limit',
+        message: `Goal reached its configured limit of ${goal.maxGoalTokens} tokens (used ${goal.tokensUsed}).`,
+      })
+      return
+    }
 
     const round = goal.roundsStarted + 1
     const content = renderGoalRoundPrompt(goal, round)

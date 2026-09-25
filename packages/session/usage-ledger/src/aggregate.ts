@@ -13,7 +13,7 @@
  */
 
 import { lastAssistantStreamChunk } from '@deepseek-ai/dsh-llm/assistant-stream'
-import type { AssistantMessage, TokenUsage } from '@deepseek-ai/dsh-llm/types'
+import type { AssistantMessage, LlmModelCost, LlmModelCostRates, TokenUsage } from '@deepseek-ai/dsh-llm/types'
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 import type { UsageDayAggregate, UsageLedgerState, UsageModelAggregate } from './spec.ts'
 import type {
@@ -87,6 +87,32 @@ export function normalizeSample(usage: TokenUsage): NormalizedSample | undefined
   const derivedTotal = knownPrompt + outputTokens
   if (!Number.isSafeInteger(derivedTotal)) return undefined
   return { inputTokens: knownPrompt, outputTokens, cacheReadTokens: cacheRead, cacheWriteTokens: cacheWrite, totalTokens: derivedTotal }
+}
+
+/**
+ * Estimate one validated attempt's USD cost from per-million-token route
+ * rates. The greatest tier whose threshold is strictly below billed input
+ * tokens prices the whole sample, matching pi-ai catalog semantics.
+ * @param sample - normalized billed input, cache, and output counts.
+ * @param cost - exact route pricing resolved for the attempt.
+ * @returns estimated USD amount.
+ */
+export function priceSample(sample: NormalizedSample, cost: LlmModelCost): number {
+  let rates: LlmModelCostRates = cost
+  let matchedThreshold = -1
+  for (const tier of cost.tiers ?? []) {
+    if (sample.inputTokens > tier.inputTokensAbove && tier.inputTokensAbove > matchedThreshold) {
+      rates = tier
+      matchedThreshold = tier.inputTokensAbove
+    }
+  }
+  const uncachedInputTokens = sample.inputTokens - sample.cacheReadTokens - sample.cacheWriteTokens
+  return (
+    uncachedInputTokens * rates.inputPerMTok
+    + sample.outputTokens * rates.outputPerMTok
+    + sample.cacheReadTokens * rates.cacheReadPerMTok
+    + sample.cacheWriteTokens * rates.cacheWritePerMTok
+  ) / 1_000_000
 }
 
 /**

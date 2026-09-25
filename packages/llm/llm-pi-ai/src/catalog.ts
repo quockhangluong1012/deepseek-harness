@@ -13,6 +13,7 @@
  */
 
 import { builtinProviders, getBuiltinModels, getBuiltinProviders } from '@earendil-works/pi-ai/providers/all'
+import type { LlmModelCost, LlmModelCostRates } from '@deepseek-ai/dsh-llm'
 import type { BuiltinProvider } from '@earendil-works/pi-ai/providers/all'
 import type {
   AnthropicMessagesCompat,
@@ -22,6 +23,7 @@ import type {
   KnownApi,
   Model,
   ModelCost,
+  ModelCostRates,
   ModelThinkingLevel,
   OpenAICompletionsCompat,
   OpenAIResponsesCompat,
@@ -30,11 +32,35 @@ import type {
 } from '@earendil-works/pi-ai'
 
 /**
- * Pricing for a model the installed catalog does not describe. The harness
- * never reads pi-ai's cost metadata — `replay.ts` zeroes it and no consumer
- * reports spend — so this is the absence of a fact, not a configurable rate.
+ * Pricing for a model the installed catalog does not describe: the absence of
+ * a fact, not a configurable rate.
  */
 const NO_COST: ModelCost = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }
+
+/** Convert one pi-ai rate tuple without translating its million-token units. */
+function modelCostRates(rates: ModelCostRates): LlmModelCostRates {
+  return {
+    inputPerMTok: rates.input,
+    outputPerMTok: rates.output,
+    cacheReadPerMTok: rates.cacheRead,
+    cacheWritePerMTok: rates.cacheWrite,
+  }
+}
+
+/**
+ * Exact-route USD-per-million-token rates, or `undefined` when every catalog
+ * rate is zero. Volume tiers use pi-ai's strict input-token threshold rule.
+ * @param cost - the materialized model's cost block.
+ * @returns harness-shaped rates, or `undefined` for unknown pricing.
+ */
+export function resolvedModelCost(cost: ModelCost): LlmModelCost | undefined {
+  const tiers = cost.tiers?.map(tier => ({ ...modelCostRates(tier), inputTokensAbove: tier.inputTokensAbove }))
+  const baseIsZero = cost.input === 0 && cost.output === 0 && cost.cacheRead === 0 && cost.cacheWrite === 0
+  const tiersAreZero = tiers?.every(tier => tier.inputPerMTok === 0 && tier.outputPerMTok === 0
+    && tier.cacheReadPerMTok === 0 && tier.cacheWritePerMTok === 0) ?? true
+  if (baseIsZero && tiersAreZero) return undefined
+  return { ...modelCostRates(cost), ...tiers === undefined ? {} : { tiers } }
+}
 
 /** One request modality a pi-ai model may accept. */
 export type PiAiModality = Model<Api>['input'][number]

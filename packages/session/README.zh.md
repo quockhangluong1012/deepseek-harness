@@ -54,6 +54,7 @@ session 组让对话持久保存，恢复已发布的日志格式，并使已提
 | 包 | 职责 | ctx key |
 |---|---|---|
 | [`usage-ledger/`](usage-ledger/README.zh.md) | 把已计费 LLM 请求折叠为持久的按天、按模型计数，供用量仪表盘使用 | `ctx.usageLedger` |
+| [`command-cost/`](command-cost/README.zh.md) | 面向人类 `/cost` 命令，按 provider 目录价为一个 agent 的会话树计价 | 注册到 `ctx.commands` |
 
 ### 标题
 

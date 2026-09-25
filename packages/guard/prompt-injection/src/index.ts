@@ -1,13 +1,16 @@
 /**
  * Prompt-injection and credential guard: an observer on the tool pipeline that
  * wraps external content in a tainted envelope, records what it found, and
- * replaces credentials before content reaches model context.
+ * replaces credentials before content reaches model context. It also denies,
+ * by default, `read`/`read_image` calls naming `.env*` or a well-known
+ * credential file, before the call ever reaches the filesystem.
  *
- * The guard owns no authority. It cannot grant, widen, or revoke a capability,
- * it never speaks to the approval answerer, and it never blocks a call: a
- * finding is a record, and the permission document still decides whether an
- * action runs. `mode: 'shadow'` (the default) records findings and changes
- * nothing; `mode: 'enforce'` also replaces credential spans in the
+ * Beyond that one fixed deny list, the guard owns no authority. It cannot
+ * grant, widen, or revoke a capability, it never speaks to the approval
+ * answerer, and it never blocks any other call: a finding is a record, and
+ * the permission document still decides whether an action runs.
+ * `mode: 'shadow'` (the default) records injection/credential findings and
+ * changes nothing; `mode: 'enforce'` also replaces credential spans in the
  * model-visible result and prefixes a notice when content tried to change the
  * reader's instructions or authority.
  *
@@ -25,12 +28,14 @@ import type { Session } from '@deepseek-ai/dsh-session'
 import type { PostToolDecision, PreToolDecision, ToolExecution } from '@deepseek-ai/dsh-tools'
 // Side-effect type import: declaration-merges `ctx.tools` (the waterfall this guard listens on).
 import type {} from '@deepseek-ai/dsh-tools'
+import { deniedPathIn } from './env-files.ts'
 import { redactSecrets, scanContent } from './scan.ts'
 import type { ContentEnvelope, EnvelopeSource, SecurityFinding } from './types.ts'
 
 export * from './rules.ts'
 export * from './scan.ts'
 export * from './types.ts'
+export { isDeniedCredentialPath } from './env-files.ts'
 
 /** Plugin name used by loader diagnostics. */
 export const name = 'prompt-injection'
@@ -72,12 +77,15 @@ export interface Config {
   mode?: 'shadow' | 'enforce'
   /** Ceiling on how many characters of one result the injection rules examine. */
   maxScanBytes?: number
+  /** Deny `read`/`read_image` calls naming `.env*` or a well-known credential file. Default `true`. */
+  denyEnvFileReads?: boolean
 }
 
 /** Runtime configuration schema for the prompt-injection guard. */
 export const Config: z<Config> = z.object({
   mode: z.union(['shadow', 'enforce'] as const).default('shadow'),
   maxScanBytes: z.number().default(262_144),
+  denyEnvFileReads: z.boolean().default(true),
 })
 
 /** Model-visible prefix added when content tried to change the reader's instructions or authority. */
@@ -165,10 +173,23 @@ export function apply(ctx: Context, config: Config): void {
     throw new Error(`prompt-injection: maxScanBytes must be a positive integer, got ${String(config.maxScanBytes)}`)
   }
 
+  // .env* and well-known credential-file reads are denied before the scan:
+  // once the model has seen the content, redaction in the result cannot
+  // undo that. Only the tools this guard knows read a named file's bytes
+  // into model context; grep/glob matches over such a file are not covered.
+  const denyEnvFileReads = config.denyEnvFileReads ?? true
+  const DENIED_READ_TOOLS = new Set(['read', 'read_image'])
+
   // Proposals are scanned before the policy evaluation that follows this
   // waterfall: a call the model built out of injected content stays visible to
   // the audit even though the guard itself decides nothing about it.
   ctx.on('tools/pre-execute', (exec, next): Promise<PreToolDecision> => {
+    if (denyEnvFileReads && DENIED_READ_TOOLS.has(exec.name)) {
+      const denied = deniedPathIn(exec.arguments)
+      if (denied !== undefined) {
+        return Promise.resolve({ kind: 'deny', reason: `reading "${denied}" is denied by default (.env and credential files)` })
+      }
+    }
     const session = exec.agent?.session
     if (session !== undefined) {
       const envelope = scanContent({

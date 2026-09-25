@@ -660,4 +660,23 @@ describe('goal tool state transitions', () => {
     expect(blocked.concludesTurn).toBeUndefined()
     expect(blocked.additionalContexts).toBeUndefined()
   })
+
+  it('creates and edits an optional token budget through the tool, and rejects it outside action edit', async () => {
+    const { ctx, root } = await harness()
+    openTurn(root, { kind: 'user' })
+    const created = resultGoal(await execute(ctx, 'create_goal', {
+      objective: 'stay within budget', max_goal_tokens: 50_000,
+    }, root.agent))
+    expect(created).toMatchObject({ maxGoalTokens: 50_000, tokensUsed: 0 })
+
+    const edited = resultGoal(await execute(ctx, 'update_goal', {
+      goal_id: created['id'], revision: created['revision'], action: 'edit', max_goal_tokens: 75_000,
+    }, root.agent))
+    expect(edited).toMatchObject({ maxGoalTokens: 75_000 })
+
+    const pauseWithBudget = await execute(ctx, 'update_goal', {
+      goal_id: edited['id'], revision: edited['revision'], action: 'pause', max_goal_tokens: 1,
+    }, root.agent)
+    expect(pauseWithBudget.error?.info?.code).toBe('GOAL_TOOL_INVALID_UPDATE')
+  })
 })

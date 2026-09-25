@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-goal` lets one long-running completion objective persist across turns, session resume, fork, and process restarts. Users and agents can create, edit, pause, resume, complete, block, or clear it; compare-and-set updates reject stale views. A configurable round cap (256 by default) bounds automatic continuation, and blocked goals retain a stable policy code with a human-readable explanation. The package stores goal state but does not schedule work, and continuation permission remains process-local rather than durable. Choose it for one objective spanning many turns; skip it for routine single-turn work or parallel objectives.
+`dsh-goal` lets one long-running completion objective persist across turns, session resume, fork, and process restarts. Users and agents can create, edit, pause, resume, complete, block, or clear it; compare-and-set updates reject stale views. A configurable round cap (256 by default) and an optional total-token budget bound automatic continuation, and blocked goals retain a stable policy code with a human-readable explanation. The package stores goal state but does not schedule work, and continuation permission remains process-local rather than durable. Choose it for one objective spanning many turns; skip it for routine single-turn work or parallel objectives.
 
 ## Table of Contents
 
@@ -49,7 +49,7 @@ Load the package with a composition entry; the only deployment choice is the def
 
 ### Session projection
 
-`GoalService` requires `ctx.sessionProjections` ([`@deepseek-ai/dsh-session-projection`](../../session/session-projection/README.md)) and registers the `goal` projection unit at startup; a composition that omits the projection registry cannot activate `ctx.goals`. The unit's version 6 host state retains the latest valid current goal, every previously used goal id, and the first strict replay failure. Its client view exposes the current goal or `null` before the first create and after a clear tombstone. The key merges into both `SessionProjectionStateMap` and `SessionProjectionMap`; carriers serve the client value on the history tail page and the `session/projection` push frame.
+`GoalService` requires `ctx.sessionProjections` ([`@deepseek-ai/dsh-session-projection`](../../session/session-projection/README.md)) and registers the `goal` projection unit at startup; a composition that omits the projection registry cannot activate `ctx.goals`. The unit's version 7 host state retains the latest valid current goal, every previously used goal id, and the first strict replay failure. Its client view exposes the current goal or `null` before the first create and after a clear tombstone. The key merges into both `SessionProjectionStateMap` and `SessionProjectionMap`; carriers serve the client value on the history tail page and the `session/projection` push frame.
 
 ### Drive the lifecycle
 
@@ -57,7 +57,7 @@ A goal moves through four durable phases — `active`, `paused`, `blocked`, `com
 
 | Operation | What it does |
 |---|---|
-| `create` | Starts an active goal with an objective and round cap |
+| `create` | Starts an active goal with an objective, a round cap, and an optional token budget |
 | `edit` | Changes the objective and/or round cap without changing the phase |
 | `pause` | Stops automatic continuation and keeps the state |
 | `resume` | Restarts continuation; also rearms an active goal after session resume or fork |
@@ -79,6 +79,7 @@ Consumers read the current goal with `ctx.goals.get(agent)` and receive a detach
 const view = ctx.goals.get(agent)      // undefined when no goal is current
 view.phase                             // 'active' | 'paused' | 'blocked' | 'complete'
 view.roundsStarted, view.maxGoalRounds // continuation progress
+view.tokensUsed, view.maxGoalTokens    // cumulative token spend; maxGoalTokens absent means no budget
 view.activation                        // 'armed' | 'disarmed' — not persisted
 ```
 
@@ -156,7 +157,7 @@ There is no KV-cache effect until another component exposes goal state in model-
 These limits define when the goal service is a poor fit or needs special care. They are current package constraints, not a task backlog.
 
 - **State, not scheduling** — this package does not decide when an armed goal continues, retry abnormal failures, or cancel an active turn; those policies belong to consumer packages such as `dsh-goal-round-driver`.
-- **Round-count budget only** — `maxGoalRounds` does not meter tokens, currency, wall time, or provider quotas.
+- **Round and token budgets only** — `maxGoalRounds` and the optional `maxGoalTokens` do not meter currency, wall time, or provider quotas.
 - **No independent evaluator** — the caller that records completion or blocking is authoritative; evaluator-backed certification is deferred to a separate policy layer.
 - **One current goal** — parallel objectives and a separate goal database are intentionally absent; history remains available in the session log after replacement or clear.
 - **Trusted in-process producers** — a plugin with direct `Session` access can append counterfeit `goal/change` data. Strict replay detects malformed or inconsistent records and leaves goal access failed at that record until the log is repaired; this is integrity detection, not plugin isolation.

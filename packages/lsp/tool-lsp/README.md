@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-tool-lsp` lets a model navigate code and inspect file diagnostics through one read-only `lsp` tool. Cursor-based requests use one-based UTF-16 line and character positions; file diagnostics need no cursor. Navigation results are grouped and bounded, hover is normalized, and diagnostics use a bounded push-notification wait. The package requires a configured LSP provider and a session workspace root; ordinary navigation should continue to use `search` and `read`.
+`dsh-tool-lsp` lets a model navigate code and inspect file diagnostics through one read-only `lsp` tool. Cursor-based requests use one-based UTF-16 line and character positions; file diagnostics need no cursor. Navigation results are grouped and bounded, hover is normalized, and diagnostics use a bounded push-notification wait. Base-backed profiles mount this tool and auto-detect supported local servers; custom compositions need a provider and session workspace root. Ordinary navigation should continue to use `search` and `read`.
 
 ## Table of Contents
 

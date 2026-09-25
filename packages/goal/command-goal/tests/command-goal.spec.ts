@@ -139,6 +139,17 @@ describe('/goal human command', () => {
     expect(domainEvents(test.session)).toHaveLength(count)
   })
 
+  it('shows the token budget line only when a goal has one', async () => {
+    const test = await harness()
+    test.ctx.goals.create(test.agent, { objective: 'no budget' })
+    expect((await run(test)).text).not.toContain('Tokens:')
+
+    const goal = test.ctx.goals.get(test.agent)!
+    test.ctx.goals.clear(test.agent, ref(goal))
+    test.ctx.goals.create(test.agent, { objective: 'budgeted', maxGoalTokens: 50_000 })
+    expect((await run(test)).text).toContain('Tokens: 0/50000')
+  })
+
   it('treats only exact control words as controls', async () => {
     const test = await harness()
     await run(test, ' pause everything only after verification')

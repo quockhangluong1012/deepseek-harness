@@ -320,6 +320,50 @@ describe('LspInstance diagnostics', () => {
     })
   })
 
+  it('matches TypeScript Windows URIs with an encoded lowercase drive', async () => {
+    const instance = makeInstance({
+      LSP_FAKE_ON_OPEN: 'diagnostics',
+      LSP_FAKE_DIAGNOSTICS_URI: 'file:///c%3A/workspace/a.ts',
+      LSP_FAKE_DIAGNOSTICS: JSON.stringify([
+        { range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } }, severity: 1, message: 'drive URI' },
+      ]),
+    })
+    await expect(instance.query(query('diagnostics'), {
+      fileUrl: 'file:///C:/workspace/a.ts',
+      text: 'const x = 1\n',
+    })).resolves.toEqual({
+      kind: 'diagnostics',
+      diagnostics: [{ range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } }, severity: 'error', message: 'drive URI' }],
+    })
+  })
+
+  it('preserves case-sensitive POSIX URI paths', async () => {
+    const instance = makeInstance({
+      LSP_FAKE_ON_OPEN: 'diagnostics',
+      LSP_FAKE_DIAGNOSTICS_URI: 'file:///tmp/Workspace/a.ts',
+      LSP_FAKE_DIAGNOSTICS: JSON.stringify([
+        { range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } }, severity: 1, message: 'wrong path' },
+      ]),
+    }, { diagnosticsWaitMs: 100 })
+    await expect(instance.query(query('diagnostics'), {
+      fileUrl: 'file:///tmp/workspace/a.ts',
+      text: 'const x = 1\n',
+    })).resolves.toEqual({ kind: 'diagnostics', diagnostics: [] })
+  })
+
+  it('publishes against the opened URI when the fixture has no URI override', async () => {
+    const instance = makeInstance({
+      LSP_FAKE_ON_OPEN: 'diagnostics',
+      LSP_FAKE_DIAGNOSTICS: JSON.stringify([
+        { range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } }, severity: 1, message: 'opened URI' },
+      ]),
+    })
+    await expect(run(instance, 'diagnostics')).resolves.toEqual({
+      kind: 'diagnostics',
+      diagnostics: [{ range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } }, severity: 'error', message: 'opened URI' }],
+    })
+  })
+
   it('resolves an empty result when nothing is published within the wait window', async () => {
     const instance = makeInstance({}, { diagnosticsWaitMs: 100 })
     const started = Date.now()

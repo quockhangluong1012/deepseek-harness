@@ -4,8 +4,9 @@ import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
+import { SubprocessExecutableNotFoundError } from '@deepseek-ai/dsh-subprocess'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
-import Lsp, { type LspQueryRequest } from '@deepseek-ai/dsh-lsp'
+import Lsp, { type LspProvider, type LspQueryRequest } from '@deepseek-ai/dsh-lsp'
 import * as LspLocal from '@deepseek-ai/dsh-lsp-stdio'
 import type { Config, LspLocalServerConfig } from '@deepseek-ai/dsh-lsp-stdio'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
@@ -67,6 +68,127 @@ describe('lsp-stdio provider resolution', () => {
       extensionToLanguage: { '.ts': 'typescript' },
     }))).rejects.toThrow(/was not found on PATH/)
     await ctx.fiber.dispose()
+  })
+
+  it('auto-detects available language servers and skips only executable lookup misses', async () => {
+    const ctx = new Context()
+    await ctx.plugin(Lsp)
+    await ctx.plugin(LocalSubprocessRuntime)
+    await ctx.plugin(LocalFileSystem, { cwd: process.cwd() })
+    const resolve = vi.spyOn(ctx.subprocess, 'resolveExecutable').mockImplementation(async (command) => {
+      if (command === 'gopls') return process.execPath
+      throw new SubprocessExecutableNotFoundError(`missing ${command}`)
+    })
+    const registered: LspProvider[] = []
+    const register = vi.spyOn(ctx.lsp, 'registerProvider').mockImplementation((provider) => {
+      registered.push(provider)
+      return () => {}
+    })
+    try {
+      await ctx.plugin(LspLocal, { autoDetect: true })
+      expect(resolve.mock.calls.map(([command]) => command)).toEqual([
+        'typescript-language-server', 'pyright-langserver', 'gopls', 'rust-analyzer',
+      ])
+      expect(registered.map(provider => String(provider.id))).toEqual(['auto-gopls'])
+      expect(registered[0]?.extensionToLanguage).toEqual({ '.go': 'go' })
+    } finally {
+      register.mockRestore()
+      resolve.mockRestore()
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('maps every known server command to its language extensions', async () => {
+    const ctx = new Context()
+    await ctx.plugin(Lsp)
+    await ctx.plugin(LocalSubprocessRuntime)
+    await ctx.plugin(LocalFileSystem, { cwd: process.cwd() })
+    const resolve = vi.spyOn(ctx.subprocess, 'resolveExecutable').mockResolvedValue(process.execPath)
+    const registered: LspProvider[] = []
+    const register = vi.spyOn(ctx.lsp, 'registerProvider').mockImplementation((provider) => {
+      registered.push(provider)
+      return () => {}
+    })
+    try {
+      await ctx.plugin(LspLocal, { autoDetect: true })
+      expect(resolve.mock.calls.map(([command]) => command)).toEqual([
+        'typescript-language-server', 'pyright-langserver', 'gopls', 'rust-analyzer',
+      ])
+      expect(registered.map(({ id, extensionToLanguage }) => [String(id), extensionToLanguage])).toEqual([
+        ['auto-typescript', { '.ts': 'typescript', '.tsx': 'typescriptreact' }],
+        ['auto-pyright', { '.py': 'python' }],
+        ['auto-gopls', { '.go': 'go' }],
+        ['auto-rust-analyzer', { '.rs': 'rust' }],
+      ])
+    } finally {
+      register.mockRestore()
+      resolve.mockRestore()
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('does not hide automatic lookup failures other than not-found', async () => {
+    const ctx = new Context()
+    await ctx.plugin(Lsp)
+    await ctx.plugin(LocalSubprocessRuntime)
+    await ctx.plugin(LocalFileSystem, { cwd: process.cwd() })
+    const failure = new Error('executable lookup failed')
+    const resolve = vi.spyOn(ctx.subprocess, 'resolveExecutable').mockRejectedValue(failure)
+    try {
+      await expect(ctx.plugin(LspLocal, { autoDetect: true })).rejects.toBe(failure)
+    } finally {
+      resolve.mockRestore()
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('leaves the provider seam unavailable when no known server is installed', async () => {
+    const ctx = new Context()
+    await ctx.plugin(Lsp)
+    await ctx.plugin(LocalSubprocessRuntime)
+    await ctx.plugin(LocalFileSystem, { cwd: process.cwd() })
+    const resolve = vi.spyOn(ctx.subprocess, 'resolveExecutable').mockRejectedValue(
+      new SubprocessExecutableNotFoundError('not installed'),
+    )
+    try {
+      await ctx.plugin(LspLocal, { autoDetect: true })
+      await expect(ctx.lsp.query(query())).rejects.toMatchObject({ code: 'LSP_UNAVAILABLE' })
+    } finally {
+      resolve.mockRestore()
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('keeps explicitly configured extensions while auto-detecting unclaimed extensions', async () => {
+    const ctx = new Context()
+    await ctx.plugin(Lsp)
+    await ctx.plugin(LocalSubprocessRuntime)
+    await ctx.plugin(LocalFileSystem, { cwd: process.cwd() })
+    const resolve = vi.spyOn(ctx.subprocess, 'resolveExecutable').mockImplementation(async (command) => {
+      if (command === process.execPath || command === 'typescript-language-server') return process.execPath
+      throw new SubprocessExecutableNotFoundError(`missing ${command}`)
+    })
+    const registered: LspProvider[] = []
+    const register = vi.spyOn(ctx.lsp, 'registerProvider').mockImplementation((provider) => {
+      registered.push(provider)
+      return () => {}
+    })
+    try {
+      await ctx.plugin(LspLocal, {
+        autoDetect: true,
+        servers: {
+          custom: { command: process.execPath, extensionToLanguage: { '.ts': 'typescript' } },
+        },
+      })
+      expect(registered.map(({ id, extensionToLanguage }) => [String(id), extensionToLanguage])).toEqual([
+        ['custom', { '.ts': 'typescript' }],
+        ['auto-typescript', { '.tsx': 'typescriptreact' }],
+      ])
+    } finally {
+      register.mockRestore()
+      resolve.mockRestore()
+      await ctx.fiber.dispose()
+    }
   })
 
   it('rejects a query after the provider is disposed', async () => {

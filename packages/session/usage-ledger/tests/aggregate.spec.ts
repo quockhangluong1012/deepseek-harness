@@ -24,8 +24,11 @@ import {
   sweepRetention,
   windowStartOfRange,
   isCount,
+  priceSample,
 } from '../src/aggregate.ts'
+import type { LlmModelCost } from '@deepseek-ai/dsh-llm'
 import type { UsageLedgerState } from '../src/spec.ts'
+import type { NormalizedSample } from '../src/aggregate.ts'
 
 const DAY = 86_400_000
 /** 2026-09-09T12:00:00+07:00 in true epoch milliseconds. */
@@ -50,6 +53,47 @@ describe('isCount', () => {
     expect(isCount('3')).toBe(false)
     expect(isCount(undefined)).toBe(false)
     expect(isCount(Number.MAX_SAFE_INTEGER + 1)).toBe(false)
+  })
+})
+
+describe('priceSample', () => {
+  it('prices uncached, cache-read, cache-write, and output tokens independently', () => {
+    const usage: NormalizedSample = {
+      inputTokens: 1_000,
+      outputTokens: 100,
+      cacheReadTokens: 300,
+      cacheWriteTokens: 200,
+      totalTokens: 1_100,
+    }
+    const cost: LlmModelCost = {
+      inputPerMTok: 2,
+      outputPerMTok: 10,
+      cacheReadPerMTok: 0.5,
+      cacheWritePerMTok: 4,
+    }
+    expect(priceSample(usage, cost)).toBeCloseTo(0.00295, 12)
+  })
+
+  it('selects the greatest tier strictly below billed input tokens', () => {
+    const cost: LlmModelCost = {
+      inputPerMTok: 2,
+      outputPerMTok: 3,
+      cacheReadPerMTok: 2,
+      cacheWritePerMTok: 2,
+      tiers: [{
+        inputTokensAbove: 1_000,
+        inputPerMTok: 1,
+        outputPerMTok: 0.5,
+        cacheReadPerMTok: 1,
+        cacheWritePerMTok: 1,
+      }],
+    }
+    const atBoundary: NormalizedSample = {
+      inputTokens: 1_000, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 1_001,
+    }
+    const aboveBoundary = { ...atBoundary, inputTokens: 1_001, totalTokens: 1_002 }
+    expect(priceSample(atBoundary, cost)).toBeCloseTo(0.002003, 12)
+    expect(priceSample(aboveBoundary, cost)).toBeCloseTo(0.0010015, 12)
   })
 })
 

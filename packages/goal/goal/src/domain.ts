@@ -27,6 +27,13 @@ export interface GoalSnapshotChangeMeta {
   readonly operation: Exclude<GoalOperation, 'clear'>
   readonly goal: GoalSnapshot
   readonly roundsStarted: number
+  /**
+   * Cumulative billed tokens observed since creation; folded from
+   * `assistant/message` samples, never set by a caller. Optional because an
+   * event committed before token tracking existed has no such field on disk;
+   * a reader defaults its absence to zero. Every write populates it.
+   */
+  readonly tokensUsed?: number
   readonly createdAt: number
   readonly updatedAt: number
 }
@@ -73,6 +80,8 @@ export interface FoldedGoal {
   readonly goal?: GoalSnapshot
   /** Highest admitted round for the current goal. */
   readonly roundsStarted: number
+  /** Cumulative billed tokens observed since creation. */
+  readonly tokensUsed: number
   /** Current goal creation time, absent without a current goal. */
   readonly createdAt?: number
   /** Current goal mutation time, absent without a current goal. */
@@ -97,6 +106,7 @@ export type GoalErrorCode =
   | 'GOAL_STALE_REVISION'
   | 'GOAL_INVALID_OBJECTIVE'
   | 'GOAL_INVALID_MAX_ROUNDS'
+  | 'GOAL_INVALID_MAX_TOKENS'
   | 'GOAL_INVALID_BLOCK_REASON'
   | 'GOAL_INVALID_EDIT'
   | 'GOAL_INVALID_TRANSITION'

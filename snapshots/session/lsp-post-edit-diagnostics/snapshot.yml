@@ -1,0 +1,11 @@
+version: 1
+scenario: lsp-post-edit-diagnostics
+profile: headless
+composition: lsp-post-edit-diagnostics
+recording: authored
+header:
+  class: lsp-post-edit-diagnostics
+  pin: true
+  toolSchemasSource: lsp-definition
+workspace:
+  final: true

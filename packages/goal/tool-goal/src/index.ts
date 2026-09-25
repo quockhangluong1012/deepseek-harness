@@ -70,6 +70,8 @@ type GoalToolValue =
       phase: GoalView['phase']
       roundsStarted: number
       maxGoalRounds: number
+      tokensUsed: number
+      maxGoalTokens?: number
       blockedReason?: { code: string; message: string }
     }
     activation: GoalView['activation']
@@ -99,6 +101,8 @@ const GOAL_VALUE_SCHEMA = {
             phase: { type: 'string', required: true, enum: ['active', 'paused', 'blocked', 'complete'] },
             roundsStarted: { type: 'integer', required: true },
             maxGoalRounds: { type: 'integer', required: true },
+            tokensUsed: { type: 'integer', required: true },
+            maxGoalTokens: { type: 'integer' },
             blockedReason: {
               type: 'object',
               additionalProperties: false,
@@ -147,6 +151,11 @@ function hasRoundCap(value: number | undefined): value is number {
   return value !== undefined && value !== 0
 }
 
+/** Whether an optional token budget is meaningful rather than a strict-schema zero filler. */
+function hasTokenCap(value: number | undefined): value is number {
+  return value !== undefined && value !== 0
+}
+
 /** Build the exact compare-and-set ref from model arguments. */
 function goalRef(goalId: string, revision: number): GoalRef {
   if (goalId.length === 0 || goalId !== goalId.trim()
@@ -170,6 +179,8 @@ function goalValue(goal: GoalView | undefined): GoalToolValue {
       phase: goal.phase,
       roundsStarted: goal.roundsStarted,
       maxGoalRounds: goal.maxGoalRounds,
+      tokensUsed: goal.tokensUsed,
+      ...goal.maxGoalTokens === undefined ? {} : { maxGoalTokens: goal.maxGoalTokens },
       ...goal.blockedReason === undefined ? {} : {
         blockedReason: { code: goal.blockedReason.code, message: goal.blockedReason.message },
       },
@@ -223,6 +234,10 @@ export function apply(ctx: Context, config: Config): void {
         type: 'integer',
         description: 'Optional positive safe-integer limit on automatic continuation rounds.',
       },
+      max_goal_tokens: {
+        type: 'integer',
+        description: 'Optional positive safe-integer limit on total billed tokens spent since creation.',
+      },
     },
     output: GOAL_OUTPUT,
     execute(args, exec) {
@@ -231,6 +246,7 @@ export function apply(ctx: Context, config: Config): void {
       const goal = ctx.goals.create(execution.agent, {
         objective: args.objective,
         ...args.max_goal_rounds === undefined ? {} : { maxGoalRounds: args.max_goal_rounds },
+        ...args.max_goal_tokens === undefined ? {} : { maxGoalTokens: args.max_goal_tokens },
       })
       return Promise.resolve(goalValue(goal))
     },
@@ -254,6 +270,7 @@ export function apply(ctx: Context, config: Config): void {
       },
       objective: { type: 'string', description: 'Replacement objective; valid only with action edit.' },
       max_goal_rounds: { type: 'integer', description: 'Replacement cap; valid only with action edit.' },
+      max_goal_tokens: { type: 'integer', description: 'Replacement token budget; valid only with action edit.' },
       blocked_reason: {
         type: 'string',
         description: 'Concrete blocking condition; required only with action blocked.',
@@ -266,6 +283,7 @@ export function apply(ctx: Context, config: Config): void {
       const replacements = {
         ...hasText(args.objective) ? { objective: args.objective } : {},
         ...hasRoundCap(args.max_goal_rounds) ? { maxGoalRounds: args.max_goal_rounds } : {},
+        ...hasTokenCap(args.max_goal_tokens) ? { maxGoalTokens: args.max_goal_tokens } : {},
       }
       if (args.action === 'edit') {
         requireDirectHuman(ctx, execution)
@@ -277,9 +295,11 @@ export function apply(ctx: Context, config: Config): void {
       }
       if (args.action === 'pause' || args.action === 'resume') {
         requireDirectHuman(ctx, execution)
-        if (hasText(args.objective) || hasRoundCap(args.max_goal_rounds) || hasText(args.blocked_reason)) {
+        if (hasText(args.objective) || hasRoundCap(args.max_goal_rounds) || hasTokenCap(args.max_goal_tokens)
+          || hasText(args.blocked_reason)) {
           throw new HarnessError(
-            'objective and max_goal_rounds are valid only with action edit; blocked_reason is valid only with action blocked',
+            'objective, max_goal_rounds, and max_goal_tokens are valid only with action edit; '
+            + 'blocked_reason is valid only with action blocked',
             'GOAL_TOOL_INVALID_UPDATE',
           )
         }
@@ -297,9 +317,9 @@ export function apply(ctx: Context, config: Config): void {
         return Promise.resolve(goalValue(goal))
       }
       const authority = completionAuthority(ctx, execution)
-      if (hasText(args.objective) || hasRoundCap(args.max_goal_rounds)) {
+      if (hasText(args.objective) || hasRoundCap(args.max_goal_rounds) || hasTokenCap(args.max_goal_tokens)) {
         throw new HarnessError(
-          'objective and max_goal_rounds are valid only with action edit',
+          'objective, max_goal_rounds, and max_goal_tokens are valid only with action edit',
           'GOAL_TOOL_INVALID_UPDATE',
         )
       }

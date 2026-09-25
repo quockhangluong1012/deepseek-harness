@@ -8,11 +8,13 @@ import { syncNativeTheme } from './preload-theme.ts'
 import { syncWindowsAppearance } from './preload-windows.ts'
 import { installMandatoryUpdateOverlay } from './preload-mandatory-overlay.ts'
 import { createDesktopBrowserBridge } from './preload-browser.ts'
+import { createDesktopNotificationBridge } from './preload-notifications.ts'
 
 function createProductApi(): DshDesktopProductApi {
   return {
     protocolVersion: 1,
     browser: createDesktopBrowserBridge(),
+    notifications: createDesktopNotificationBridge(),
     updates: {
       status: () => ipcRenderer.invoke(DESKTOP_IPC.updatesStatus) as Promise<DesktopUpdatePresentation>,
       open: () => ipcRenderer.invoke(DESKTOP_IPC.updatesOpen) as Promise<void>,

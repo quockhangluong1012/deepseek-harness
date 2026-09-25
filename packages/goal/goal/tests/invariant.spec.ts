@@ -21,6 +21,7 @@ const change: GoalSnapshotChangeMeta = {
     maxGoalRounds: 2,
   },
   roundsStarted: 0,
+  tokensUsed: 0,
   createdAt: 1,
   updatedAt: 1,
 }

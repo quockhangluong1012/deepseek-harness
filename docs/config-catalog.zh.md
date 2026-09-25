@@ -2573,7 +2573,7 @@ export interface Config {
 }
 ```
 
-来源： [`packages/goal/goal/src/index.ts:172`](../packages/goal/goal/src/index.ts)
+来源： [`packages/goal/goal/src/index.ts:178`](../packages/goal/goal/src/index.ts)
 
 <a id="deepseek-aidsh-headless"></a>
 
@@ -3340,16 +3340,14 @@ export type Config = Readonly<Record<string, never>>
 需要： `tools` · `lsp`
 
 ```ts config-catalog
-/** Plugin configuration: which tool calls trigger enrichment, and the rendered-text cap. */
+/** Plugin configuration: the maximum rendered diagnostics text appended to tool results. */
 export interface Config {
-  /** Tool names whose successful calls trigger a diagnostics lookup. Default `['edit', 'write']`. */
-  toolNames?: string[]
-  /** Largest rendered diagnostics text, including truncation metadata (default 16000). */
+  /** Largest diagnostics text, including truncation metadata (default 16000). */
   maxResultChars?: number
 }
 ```
 
-来源： [`packages/lsp/lsp-post-edit-diagnostics/src/index.ts:35`](../packages/lsp/lsp-post-edit-diagnostics/src/index.ts)
+来源： [`packages/lsp/lsp-post-edit-diagnostics/src/index.ts:32`](../packages/lsp/lsp-post-edit-diagnostics/src/index.ts)
 
 <a id="deepseek-aidsh-lsp-stdio"></a>
 
@@ -3358,13 +3356,15 @@ export interface Config {
 需要： `fs` · `lsp` · `subprocess`
 
 ```ts config-catalog
-/** Plugin configuration: provider id → local language-server configuration. */
+/** Plugin configuration: explicit provider entries and optional known-server detection. */
 export interface Config {
-  /** Non-empty table of stable provider ids to independent local server configurations. */
-  servers: Record<string, LspLocalServerConfig>
+  /** Stable provider ids mapped to independently configured local language servers. Default `{}`. */
+  servers?: Record<string, LspLocalServerConfig>
+  /** Detect known language-server commands on PATH; only missing commands are skipped. Default `false`. */
+  autoDetect?: boolean
 }
 
-/** One configured local language server and its host bounds. */
+/** One configured or auto-detected local language server and its host bounds. */
 export interface LspLocalServerConfig {
   /** Executable to spawn (absolute, or resolved on PATH at load). */
   command: string
@@ -3397,7 +3397,7 @@ export interface LspLocalServerConfig {
 }
 ```
 
-来源： [`packages/lsp/lsp-stdio/src/index.ts:90`](../packages/lsp/lsp-stdio/src/index.ts)
+来源： [`packages/lsp/lsp-stdio/src/index.ts:104`](../packages/lsp/lsp-stdio/src/index.ts)
 
 <a id="deepseek-aidsh-mcp-client"></a>
 
@@ -3721,10 +3721,12 @@ export interface Config {
   mode?: 'shadow' | 'enforce'
   /** Ceiling on how many characters of one result the injection rules examine. */
   maxScanBytes?: number
+  /** Deny `read`/`read_image` calls naming `.env*` or a well-known credential file. Default `true`. */
+  denyEnvFileReads?: boolean
 }
 ```
 
-来源： [`packages/guard/prompt-injection/src/index.ts:66`](../packages/guard/prompt-injection/src/index.ts)
+来源： [`packages/guard/prompt-injection/src/index.ts:71`](../packages/guard/prompt-injection/src/index.ts)
 
 <a id="deepseek-aidsh-ptc-runtime-node"></a>
 
@@ -5501,7 +5503,7 @@ export interface Config {
 }
 ```
 
-来源： [`packages/session/usage-ledger/src/index.ts:86`](../packages/session/usage-ledger/src/index.ts)
+来源： [`packages/session/usage-ledger/src/index.ts:93`](../packages/session/usage-ledger/src/index.ts)
 
 <a id="deepseek-aidsh-user-approval"></a>
 
@@ -5859,6 +5861,7 @@ export interface Config {
 - `@deepseek-ai/dsh-client-ui-conversation`（[`packages/client/ui-conversation/src/index.ts`](../packages/client/ui-conversation/src/index.ts)）
 - `@deepseek-ai/dsh-client-ui-cordis`（[`packages/extensions/ui-cordis/src/index.ts`](../packages/extensions/ui-cordis/src/index.ts)）
 - `@deepseek-ai/dsh-client-ui-deliverables` — 需要 `systemPrompt` · `connection` · `sessionQuery` · `sessionController` · `workspaceFiles` · `fs` · `sandboxPolicy` · `workspaceChanges`（[`packages/client/ui-deliverables/src/index.ts`](../packages/client/ui-deliverables/src/index.ts)）
+- `@deepseek-ai/dsh-client-ui-desktop-notifications`（[`packages/client/ui-desktop-notifications/src/index.ts`](../packages/client/ui-desktop-notifications/src/index.ts)）
 - `@deepseek-ai/dsh-client-ui-directory-picker-browse`（[`packages/client/ui-directory-picker-browse/src/index.ts`](../packages/client/ui-directory-picker-browse/src/index.ts)）
 - `@deepseek-ai/dsh-client-ui-directory-picker-native`（[`packages/client/ui-directory-picker-native/src/index.ts`](../packages/client/ui-directory-picker-native/src/index.ts)）
 - `@deepseek-ai/dsh-client-ui-evolution` — 需要 `typert`（[`packages/client/ui-evolution/src/index.ts`](../packages/client/ui-evolution/src/index.ts)）
@@ -5901,6 +5904,7 @@ export interface Config {
 - `@deepseek-ai/dsh-client-ui-workspace`（[`packages/client/ui-workspace/src/index.ts`](../packages/client/ui-workspace/src/index.ts)）
 - `@deepseek-ai/dsh-client-ui-workspace-memory` — 需要 `typert` · `workspaceRegistry` · `workspaceMemory`（[`packages/client/ui-workspace-memory/src/index.ts`](../packages/client/ui-workspace-memory/src/index.ts)）
 - `@deepseek-ai/dsh-command-compact` — 需要 `commands` · `compaction`（[`packages/compaction/command-compact/src/index.ts`](../packages/compaction/command-compact/src/index.ts)）
+- `@deepseek-ai/dsh-command-cost` — 需要 `commands` · `llm` · `sessionQuery` · `subagents`（[`packages/session/command-cost/src/index.ts`](../packages/session/command-cost/src/index.ts)）
 - `@deepseek-ai/dsh-command-feedback` — 需要 `commands`（[`packages/feedback/command-feedback/src/index.ts`](../packages/feedback/command-feedback/src/index.ts)）
 - `@deepseek-ai/dsh-command-goal` — 需要 `commands` · `goals`（[`packages/goal/command-goal/src/index.ts`](../packages/goal/command-goal/src/index.ts)）
 - `@deepseek-ai/dsh-command-rewind` — 需要 `commands` · `workspaceChanges`（[`packages/deliverables/command-rewind/src/index.ts`](../packages/deliverables/command-rewind/src/index.ts)）

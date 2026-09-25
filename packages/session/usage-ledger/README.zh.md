@@ -54,7 +54,7 @@ kind: "package-reference"
 
 `summary(range)` 回答 `today`、`7d`、`30d`、`all` 的总数、按天桶与按模型表。输入 token 是已计费提示 token（`uncached + cacheRead + cacheWrite`）；平均缓存命中为 `cacheRead / billedInput`；天固定为 UTC+7。总数是参考值，不是账单记录：无法证明的样本会被跳过，绝不补零；计数从台账首次挂载开始。
 
-同一套 UTC+7 日历从包根导出——`dayKeyUTC7`、`dayStartUTC7`、`daysOfRange`、`isUsageRange` 与 `windowStartOfRange`——因此报告按天历史的面（即演进时间线）按仪表盘的天分桶，而不是自行重新推导时区偏移。
+同一套 UTC+7 日历从包根导出——`dayKeyUTC7`、`dayStartUTC7`、`daysOfRange`、`isUsageRange` 与 `windowStartOfRange`——因此报告按天历史的面（即演进时间线）按仪表盘的天分桶，而不是自行重新推导时区偏移。包根还导出计价原语——`priceSample(sample, cost)` 按 provider 费率及其用量档位为单个归一化样本计费，旁边还有 `normalizeSample`、`sampleOfAttempt`、`sampleOfMessage` 与 `messageRoute`——供按需为单棵会话树计价的面使用，`/cost` 即其一例。
 
 ### 缓存命中告警（可选开启）
 

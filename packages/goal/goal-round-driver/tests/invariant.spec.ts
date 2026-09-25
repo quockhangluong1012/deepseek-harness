@@ -23,12 +23,13 @@ const change: GoalSnapshotChangeMeta = {
     maxGoalRounds: 2,
   },
   roundsStarted: 0,
+  tokensUsed: 0,
   createdAt: 1,
   updatedAt: 1,
 }
 
 function view(roundsStarted: number): GoalView {
-  return { ...change.goal, roundsStarted, createdAt: 1, updatedAt: 1, activation: 'armed' }
+  return { ...change.goal, roundsStarted, tokensUsed: 0, createdAt: 1, updatedAt: 1, activation: 'armed' }
 }
 
 function appendChange(session: Session): void {

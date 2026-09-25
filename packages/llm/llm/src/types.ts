@@ -341,6 +341,34 @@ export interface LlmModelInfo {
   inputModalities?: readonly ModelModality[]
 }
 
+/** USD prices per million tokens, before multiplying by a usage sample. */
+export interface LlmModelCostRates {
+  /** USD per million uncached input tokens. */
+  inputPerMTok: number
+  /** USD per million output tokens. */
+  outputPerMTok: number
+  /** USD per million cache-read input tokens. */
+  cacheReadPerMTok: number
+  /** USD per million cache-write input tokens. */
+  cacheWritePerMTok: number
+}
+
+/** Alternative rates used once billed input strictly exceeds `inputTokensAbove`. */
+export interface LlmModelCostTier extends LlmModelCostRates {
+  /** Billed input-token threshold; matches pi-ai's tier selection rule. */
+  inputTokensAbove: number
+}
+
+/**
+ * Provider-declared USD prices for one exact route. Absent on
+ * {@link LlmResolvedModelInfo} means the adapter declares no price — callers
+ * must treat that as unknown, never as free.
+ */
+export interface LlmModelCost extends LlmModelCostRates {
+  /** Provider volume tiers, when its catalog declares them. */
+  tiers?: readonly LlmModelCostTier[]
+}
+
 /** Provider-owned context capacity for one exact provider/model route. */
 export interface LlmModelContext {
   /** Maximum combined request and response context in tokens. */
@@ -406,6 +434,8 @@ export interface LlmResolvedModelInfo extends LlmModelInfo {
   reasoning?: LlmModelReasoningInfo
   /** Declared mid-conversation system prompt handling; absent means only a leading system message is read. */
   systemPromptUpdate?: SystemPromptUpdate
+  /** Provider-declared USD price per million billed tokens when the adapter's catalog states one. */
+  cost?: LlmModelCost
 }
 
 /**

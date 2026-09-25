@@ -36,6 +36,7 @@ function goalView(folded: FoldedGoal, source: GoalMessageSource, fail: Invariant
   return {
     ...goal,
     roundsStarted: folded.roundsStarted,
+    tokensUsed: folded.tokensUsed,
     createdAt: folded.createdAt,
     updatedAt: folded.updatedAt,
     activation: 'armed',

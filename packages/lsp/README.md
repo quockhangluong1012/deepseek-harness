@@ -1,5 +1,5 @@
 ---
-description: "The lsp group map: language-server code navigation and diagnostics through the LSP seam, its stdio provider, the model-facing lsp tool, and post-edit diagnostics enrichment, for users and maintainers navigating the group."
+description: "The lsp group map: language-server code navigation and diagnostics through the LSP seam, its stdio provider, the model-facing lsp tool, and post-edit result enrichment, for users and maintainers navigating the group."
 kind: "package-group"
 ---
 
@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Agents can navigate code and inspect diagnostics through configured language servers: definitions, references, implementations, hover, and file diagnostics. `dsh-lsp` standardizes provider results; `lsp-stdio` connects configured servers; `tool-lsp` exposes on-demand queries; `lsp-post-edit-diagnostics` attaches diagnostics after successful `edit`/`write` calls. Deployments supply server binaries and configuration; shipped profiles mount none of these optional packages.
+Agents can navigate code and inspect diagnostics through local language servers: definitions, references, implementations, hover, and file diagnostics. `dsh-lsp` standardizes provider results; `lsp-stdio` connects configured servers and can detect four common commands; `tool-lsp` exposes on-demand queries; `lsp-post-edit-diagnostics` appends diagnostics to successful `edit`/`write` results. Base-backed profiles mount the stack but do not install server binaries.
 
 ## Table of Contents
 
@@ -25,9 +25,9 @@ Agents can navigate code and inspect diagnostics through configured language ser
 | Package | Role | ctx key |
 |---|---|---|
 | [`lsp/`](lsp/README.md) | Defines the code-navigation and diagnostics service: provider selection by file extension, five normalized operations, and structured errors | `ctx.lsp` |
-| [`lsp-stdio/`](lsp-stdio/README.md) | Drives configured stdio language-server commands as providers over `ctx.fs` and `ctx.subprocess`, including bounded diagnostics waits | registers on `ctx.lsp` |
+| [`lsp-stdio/`](lsp-stdio/README.md) | Drives configured or auto-detected stdio language servers as providers over `ctx.fs` and `ctx.subprocess`, including bounded diagnostics waits | registers on `ctx.lsp` |
 | [`tool-lsp/`](tool-lsp/README.md) | Exposes precise code navigation and on-demand diagnostics to the model through the `lsp` tool | registers on `ctx.tools` |
-| [`lsp-post-edit-diagnostics/`](lsp-post-edit-diagnostics/README.md) | Best-effort attaches a touched file's diagnostics after a successful `edit`/`write`, without a model round-trip | listens on `tools/post-execute` |
+| [`lsp-post-edit-diagnostics/`](lsp-post-edit-diagnostics/README.md) | Appends a touched file's diagnostics to successful `edit`/`write` results, without a model round-trip | listens on `tools/post-execute` |
 
 Providers register capabilities, not tools: `tool-lsp` is the only owner of the model-facing name, schema, prompt guidance, and presentation, so swapping a provider never changes how the model asks for navigation or diagnostics.
 

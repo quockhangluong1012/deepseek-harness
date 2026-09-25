@@ -1,51 +1,6 @@
 {
   "initial": [
     {
-      "name": "bash",
-      "description": "Execute a bash command (`bash -c`) and return its stdout/stderr. Each call runs in a fresh shell: no state (cwd, variables, functions) persists between calls — pass `workdir` instead of using `cd`. Non-zero exits are reported as `[exit code: N]`. Current harness environment facts are exposed through managed `$DSH_*` variables; inspect them when needed. Commands may run under a file sandbox; a blocked file operation is reported as `[sandbox: file access denied under <mode> mode]` — a policy denial, not a bug in the command; do not retry another way. Long output is truncated to its tail; the full output is saved to a file whose path is reported when available. Set `run_in_background: true` for long-running commands: the call returns a job id immediately; read its output with `job_output` and stop it with `job_kill`. A foreground command that reaches its timeout is not killed: it moves to the background the same way, returning its job id and the output so far. Attempting a command the sandbox may deny is safe and expected: run it and read the marker rather than assuming the denial. When a command is denied and a wider mode would let it succeed, escalate immediately in the same turn — the one sanctioned exception to a denial: retry the exact same command once with `sandbox_permissions` (the narrowest wider mode that suffices) plus a one-sentence `justification`. Do not detour through chat to ask permission first — the approval prompt raised by that retry is how the user consents. If the session states approval prompts are disabled, there is no exception: a denial is final — do not set `sandbox_permissions`. Never escalate speculatively: ground the request in a real denial — normally the one this command just hit; escalating up front is fine only when this session already denied the same access. A rejected escalation is final for that command — stop and explain, never work around it — but it does not forbid attempting or escalating other commands later.",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "command": {
-            "type": "string",
-            "description": "The bash command to execute."
-          },
-          "description": {
-            "type": "string",
-            "description": "Clear, concise description of what this command does in active voice, 5-10 words (shown in the UI). Examples: \"ls\" → \"List files in current directory\"; \"git status\" → \"Show working tree status\"; \"npm install\" → \"Install package dependencies\"."
-          },
-          "timeoutMs": {
-            "type": "number",
-            "description": "Timeout in milliseconds. The executor applies its configured default and cap; on expiry the command moves to the background as a job instead of being killed."
-          },
-          "workdir": {
-            "type": "string",
-            "description": "Working directory for this command. Defaults to the session workspace; a relative path is resolved against it."
-          },
-          "run_in_background": {
-            "type": "boolean",
-            "description": "Run in the background and return a job id immediately (collect with job_output, stop with job_kill). No timeout applies."
-          },
-          "sandbox_permissions": {
-            "type": "string",
-            "description": "The wider sandbox mode this command needs. Only valid as a one-shot retry of a command the sandbox just denied; requires justification and user approval.",
-            "enum": [
-              "workspace-write",
-              "danger-full-access"
-            ]
-          },
-          "justification": {
-            "type": "string",
-            "description": "Required with sandbox_permissions: one sentence for the user explaining why this exact command needs the wider access."
-          }
-        },
-        "required": [
-          "command",
-          "description"
-        ]
-      }
-    },
-    {
       "name": "create_goal",
       "description": "Create one persisted same-session completion goal when the current direct human request is a long-running objective that should continue across autonomous goal rounds. You may infer that intent without requiring the user to say \"create a goal\". Do not use this for trivial single-turn work. Execution rejects non-human and subagent authority.",
       "parameters": {
@@ -56,10 +11,11 @@
             "description": "The concrete completion objective inferred from the direct human request."
           },
           "max_goal_rounds": {
-            "type": "number",
+            "type": "integer",
             "description": "Optional positive safe-integer limit on automatic continuation rounds."
           }
         },
+        "additionalProperties": false,
         "required": [
           "objective"
         ]
@@ -100,6 +56,7 @@
             "description": "Required with sandbox_permissions: one sentence for the user explaining why this exact file operation needs the wider access."
           }
         },
+        "additionalProperties": false,
         "required": [
           "file_path",
           "old_string",
@@ -118,6 +75,7 @@
             "description": "The complete plan, as markdown, starting with a # heading that names it."
           }
         },
+        "additionalProperties": false,
         "required": [
           "plan"
         ]
@@ -128,7 +86,8 @@
       "description": "Read the current same-session goal, including its exact id/revision, objective, phase, completed continuation rounds, round limit, blocker reason when present, and whether another continuation is armed. Call this before updating a goal.",
       "parameters": {
         "type": "object",
-        "properties": {}
+        "properties": {},
+        "additionalProperties": false
       }
     },
     {
@@ -146,6 +105,7 @@
             "description": "Directory to search in. Defaults to the session workspace; a relative path resolves against it."
           }
         },
+        "additionalProperties": false,
         "required": [
           "pattern"
         ]
@@ -170,6 +130,7 @@
             "description": "One glob filter for which files to search (e.g. \"*.ts\", \"*.{js,jsx}\"). Not a list; negation is not supported."
           }
         },
+        "additionalProperties": false,
         "required": [
           "pattern"
         ]
@@ -186,6 +147,7 @@
             "description": "The agent id of the running agent to interrupt."
           }
         },
+        "additionalProperties": false,
         "required": [
           "agent_id"
         ]
@@ -206,6 +168,7 @@
             "description": "Optional short reason, recorded in the log and forwarded to the job."
           }
         },
+        "additionalProperties": false,
         "required": [
           "job_id"
         ]
@@ -216,7 +179,8 @@
       "description": "List your background jobs (running and finished) with their ids, kinds, and statuses.",
       "parameters": {
         "type": "object",
-        "properties": {}
+        "properties": {},
+        "additionalProperties": false
       }
     },
     {
@@ -234,10 +198,11 @@
             "description": "Block until the job reaches a terminal status or the timeout expires. A timed-out wait returns [status: running] and leaves the job alive."
           },
           "timeout_ms": {
-            "type": "number",
-            "description": "Max wait in milliseconds (only meaningful with wait: true). Defaults to the configured wait timeout; capped by the configured maximum."
+            "type": "integer",
+            "description": "Max wait in milliseconds (only meaningful with wait: true). Must be a positive integer. Defaults to the configured wait timeout; capped by the configured maximum."
           }
         },
+        "additionalProperties": false,
         "required": [
           "job_id"
         ]
@@ -257,7 +222,45 @@
               "descendants"
             ]
           }
-        }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "lsp",
+      "description": "Query a language server for precise code navigation and diagnostics. operation is one of goToDefinition, findReferences, goToImplementation, hover, diagnostics. line and character are one-based UTF-16 cursor coordinates, required for every operation except diagnostics (which is file-scoped). findReferences includes the declaration. diagnostics returns the file's current diagnostics within a bounded wait after opening it; a server that has not finished analyzing the file within that window returns no diagnostics rather than an error. Queries against one workspace run serially; parallel fan-out to the same workspace waits in queue, so prefer sequential calls or distinct workspaces.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "operation": {
+            "type": "string",
+            "description": "goToDefinition, findReferences, goToImplementation, hover, or diagnostics.",
+            "enum": [
+              "goToDefinition",
+              "findReferences",
+              "goToImplementation",
+              "hover",
+              "diagnostics"
+            ]
+          },
+          "file_path": {
+            "type": "string",
+            "description": "The source file to query, relative to the workspace or absolute."
+          },
+          "line": {
+            "type": "integer",
+            "description": "One-based line of the cursor. Required for every operation except diagnostics."
+          },
+          "character": {
+            "type": "integer",
+            "description": "One-based UTF-16 column of the cursor. Required for every operation except diagnostics."
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "operation",
+          "file_path"
+        ]
       }
     },
     {
@@ -280,6 +283,52 @@
       }
     },
     {
+      "name": "pwsh",
+      "description": "Execute a PowerShell command (`pwsh -Command`) and return its stdout/stderr. Each call runs in a fresh pwsh process: no state (cwd, variables, functions) persists between calls — pass `workdir` instead of using `cd`. Paths use native Windows form (`C:\\...`); read environment variables with `$env:NAME`. Non-zero exits are reported as `[exit code: N]`. Current harness environment facts are exposed through managed `$env:DSH_*` variables; inspect them when needed. Commands may run under a file sandbox; a blocked file operation is reported as `[sandbox: file access denied under <mode> mode]` — a policy denial, not a bug in the command; do not retry another way. Long output is truncated to its tail; the full output is saved to a file whose path is reported when available. On Windows a force-killed command settles as `[exit code: 1]` without a signal marker — treat it as an interruption, not a command failure. Set `run_in_background: true` for long-running commands: the call returns a job id immediately; read its output with `job_output` and stop it with `job_kill`. A foreground command that reaches its timeout is not killed: it moves to the background the same way, returning its job id and the output so far. Under the Windows sandbox, read-only pwsh runs in PowerShell ConstrainedLanguage mode, while workspace-write stays in FullLanguage unless host policy says otherwise. In read-only, prefer cmdlets and core types (`[string]`, `[datetime]`, `[regex]`, `[guid]`); .NET static calls (`[System.IO.*]::`, `[math]::`), `Add-Type`, COM objects, and reflection fail with \"only core types\" errors. `-f` formatting, property access, and core cmdlets work. In both confined modes, programs cannot open named pipes, so a command that captures another program's output through piped stdio (Node.js `child_process.spawn`/`exec` with the default `stdio: 'pipe'`) fails with EPERM, while `stdio: 'inherit'` and `stdio: 'ignore'` spawns work and PowerShell's own pipelines are unaffected. That EPERM is the documented boundary: do not retry the command another way — escalate the exact command once or restructure it to avoid capturing output. Attempting a command the sandbox may deny is safe and expected: run it and read the marker rather than assuming the denial. When a command is denied and a wider mode would let it succeed, escalate immediately in the same turn — the one sanctioned exception to a denial: retry the exact same command once with `sandbox_permissions` (the narrowest wider mode that suffices) plus a one-sentence `justification`. Do not detour through chat to ask permission first — the approval prompt raised by that retry is how the user consents. If the session states approval prompts are disabled, there is no exception: a denial is final — do not set `sandbox_permissions`. Never escalate speculatively: ground the request in a real denial — normally the one this command just hit; escalating up front is fine only when this session already denied the same access. A rejected escalation is final for that command — stop and explain, never work around it — but it does not forbid attempting or escalating other commands later.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "command": {
+            "type": "string",
+            "description": "The PowerShell command to execute."
+          },
+          "description": {
+            "type": "string",
+            "description": "Clear, concise description of what this command does in active voice, 5-10 words (shown in the UI). Examples: \"ls\" → \"List files in current directory\"; \"git status\" → \"Show working tree status\"; \"Get-Process\" → \"List running processes\"."
+          },
+          "timeoutMs": {
+            "type": "number",
+            "description": "Timeout in milliseconds. The executor applies its configured default and cap; on expiry the command moves to the background as a job instead of being killed."
+          },
+          "workdir": {
+            "type": "string",
+            "description": "Working directory for this command. Defaults to the session workspace; a relative path is resolved against it."
+          },
+          "run_in_background": {
+            "type": "boolean",
+            "description": "Run in the background and return a job id immediately (collect with job_output, stop with job_kill). No timeout applies."
+          },
+          "sandbox_permissions": {
+            "type": "string",
+            "description": "The wider sandbox mode this command needs. Only valid as a one-shot retry of a command the sandbox just denied; requires justification and user approval.",
+            "enum": [
+              "workspace-write",
+              "danger-full-access"
+            ]
+          },
+          "justification": {
+            "type": "string",
+            "description": "Required with sandbox_permissions: one sentence for the user explaining why this exact command needs the wider access."
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "command",
+          "description"
+        ]
+      }
+    },
+    {
       "name": "read",
       "description": "Read a UTF-8 text file and return line-numbered content.",
       "parameters": {
@@ -298,6 +347,7 @@
             "description": "Maximum number of lines to return. Defaults to 2000."
           }
         },
+        "additionalProperties": false,
         "required": [
           "file_path"
         ]
@@ -314,6 +364,7 @@
             "description": "Path to the image file, resolved by the filesystem backend."
           }
         },
+        "additionalProperties": false,
         "required": [
           "file_path"
         ]
@@ -334,6 +385,7 @@
             "description": "The message to deliver to the agent."
           }
         },
+        "additionalProperties": false,
         "required": [
           "agent_id",
           "message"
@@ -351,6 +403,7 @@
             "description": "The exact skill name from the available skills list."
           }
         },
+        "additionalProperties": false,
         "required": [
           "name"
         ]
@@ -368,13 +421,17 @@
           },
           "prompt": {
             "type": "string",
-            "description": "The complete, self-contained task for the subagent. It does not share this conversation's context, so include everything it needs."
+            "description": "The complete, self-contained task for the subagent. It does not share this conversation's context, so include everything it needs. Ask for a text answer: only the child's text reaches this conversation."
           },
           "run_in_background": {
             "type": "boolean",
             "description": "Whether to run in the background and return a durable subagent id immediately. Defaults to true. Set false to wait for the result when your next action depends on it."
+          },
+          "output_schema": {
+            "description": "Optional object-rooted JSON Schema for a structured final answer. When supplied, the child must call structured_output with a matching value instead of finishing with plain text; the validated value returns as `structured`. Foreground one-shot runs only."
           }
         },
+        "additionalProperties": false,
         "required": [
           "description",
           "prompt"
@@ -393,9 +450,13 @@
           },
           "prompt": {
             "type": "string",
-            "description": "The task for the subagent. It already sees this conversation's completed turns, so build on them freely and state only what is new."
+            "description": "The task for the subagent. It already sees this conversation's completed turns, so build on them freely and state only what is new. Ask for a text answer: only the child's text reaches this conversation."
+          },
+          "output_schema": {
+            "description": "Optional object-rooted JSON Schema for a structured final answer. When supplied, the child must call structured_output with a matching value instead of finishing with plain text; the validated value returns as `structured`. Foreground one-shot runs only."
           }
         },
+        "additionalProperties": false,
         "required": [
           "description",
           "prompt"
@@ -436,6 +497,7 @@
             }
           }
         },
+        "additionalProperties": false,
         "required": [
           "todos"
         ]
@@ -452,7 +514,7 @@
             "description": "Exact id returned by get_goal."
           },
           "revision": {
-            "type": "number",
+            "type": "integer",
             "description": "Exact positive revision returned by get_goal."
           },
           "action": {
@@ -471,7 +533,7 @@
             "description": "Replacement objective; valid only with action edit."
           },
           "max_goal_rounds": {
-            "type": "number",
+            "type": "integer",
             "description": "Replacement cap; valid only with action edit."
           },
           "blocked_reason": {
@@ -479,6 +541,7 @@
             "description": "Concrete blocking condition; required only with action blocked."
           }
         },
+        "additionalProperties": false,
         "required": [
           "goal_id",
           "revision",
@@ -497,6 +560,7 @@
             "description": "The HTTP(S) URL to fetch."
           }
         },
+        "additionalProperties": false,
         "required": [
           "url"
         ]
@@ -516,6 +580,7 @@
             }
           }
         },
+        "additionalProperties": false,
         "required": [
           "queries"
         ]
@@ -593,6 +658,7 @@
             "description": "Run as a background job: return a job id immediately instead of waiting; the return value arrives with the completion notice."
           }
         },
+        "additionalProperties": false,
         "required": [
           "script",
           "meta"
@@ -626,6 +692,7 @@
             "description": "Required with sandbox_permissions: one sentence for the user explaining why this exact file operation needs the wider access."
           }
         },
+        "additionalProperties": false,
         "required": [
           "file_path",
           "content"

@@ -157,6 +157,7 @@ describe('goal projection unit', () => {
     const current: GoalProjection = {
       goal: { id: GoalId('g1'), revision: 1, objective: 'x', phase: 'active', maxGoalRounds: 4 },
       roundsStarted: 0,
+      tokensUsed: 0,
       createdAt: 1,
       updatedAt: 1,
     }

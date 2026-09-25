@@ -11,6 +11,7 @@ import { getBuiltinModels } from '@earendil-works/pi-ai/providers/all'
 import { AssistantMessageEventStream } from '@earendil-works/pi-ai/utils/event-stream'
 import type { Api, Model, OpenAICompletionsCompat, Provider } from '@earendil-works/pi-ai'
 import { resolveProfiles } from '../src/config.ts'
+import { resolvedModelCost } from '../src/catalog.ts'
 import { createModels, createProvider, getSupportedThinkingLevels } from '../src/models.ts'
 import { buildProvider, supportedProtocols } from '../src/provider.ts'
 import { assemble } from './assemble.ts'
@@ -1249,5 +1250,79 @@ describe('configurable-provider directory', () => {
       settingsPath: ['providers', 'openai-codex'],
       declared: false,
     })
+  })
+})
+
+describe('resolvedModelCost', () => {
+  it('reports undefined for the all-zero "unknown pricing" sentinel', () => {
+    expect(resolvedModelCost({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0 })).toBeUndefined()
+  })
+
+  it('maps pi-ai per-million-token rates onto the harness cost shape', () => {
+    expect(resolvedModelCost({ input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 })).toEqual({
+      inputPerMTok: 3,
+      outputPerMTok: 15,
+      cacheReadPerMTok: 0.3,
+      cacheWritePerMTok: 3.75,
+    })
+  })
+
+  it('reports a price when only one rate is non-zero', () => {
+    expect(resolvedModelCost({ input: 0, output: 0.5, cacheRead: 0, cacheWrite: 0 })).toEqual({
+      inputPerMTok: 0,
+      outputPerMTok: 0.5,
+      cacheReadPerMTok: 0,
+      cacheWritePerMTok: 0,
+    })
+  })
+
+  it('preserves per-million-token volume tiers', () => {
+    expect(resolvedModelCost({
+      input: 3,
+      output: 15,
+      cacheRead: 0.3,
+      cacheWrite: 3.75,
+      tiers: [{ inputTokensAbove: 200_000, input: 2, output: 12, cacheRead: 0.2, cacheWrite: 3 }],
+    })).toEqual({
+      inputPerMTok: 3,
+      outputPerMTok: 15,
+      cacheReadPerMTok: 0.3,
+      cacheWritePerMTok: 3.75,
+      tiers: [{
+        inputTokensAbove: 200_000,
+        inputPerMTok: 2,
+        outputPerMTok: 12,
+        cacheReadPerMTok: 0.2,
+        cacheWritePerMTok: 3,
+      }],
+    })
+  })
+})
+
+describe('resolveModel cost surfacing', () => {
+  it('leaves cost undefined for a hand-declared model outside the installed catalog', async () => {
+    const ctx = await bootWithSettings({
+      providers: {
+        'acme-gateway': {
+          displayName: 'Acme Gateway',
+          api: 'openai-completions',
+          baseURL: 'https://acme.test/v1',
+          models: [{ id: 'm', contextWindow: 1, maxTokens: 1 }],
+        },
+      },
+    })
+    const info = await ctx.llm.resolveModelInfo('acme-gateway', 'm')
+    expect(info.cost).toBeUndefined()
+  })
+
+  it('surfaces known rates from the installed model catalog', async () => {
+    const model = getBuiltinModels('openai').find(entry => entry.cost.input > 0 || entry.cost.output > 0
+      || entry.cost.cacheRead > 0 || entry.cost.cacheWrite > 0)
+    if (model === undefined) throw new Error('the installed openai catalog needs a priced model for this test')
+    const ctx = await bootWithSettings({ providers: { openai: { apiKeyEnv: KEY_ENV } } })
+    const info = await ctx.llm.resolveModelInfo('openai', model.id)
+    expect(info.cost).toBeDefined()
+    expect(info.cost?.inputPerMTok).toBe(model.cost.input)
+    expect(info.cost?.outputPerMTok).toBe(model.cost.output)
   })
 })

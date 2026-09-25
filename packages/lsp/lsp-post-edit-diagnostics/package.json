@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-lsp-post-edit-diagnostics",
-  "description": "Post-edit diagnostics enrichment: after edit/write succeeds, best-effort queries ctx.lsp for the touched file's current diagnostics and attaches them as additional context when any exist",
+  "description": "Appends best-effort LSP diagnostics to successful edit/write tool results using the session workspace.",
   "version": "0.1.7-alpha.2",
   "publishConfig": {
     "access": "public"

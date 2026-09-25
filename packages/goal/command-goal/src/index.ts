@@ -82,6 +82,7 @@ function renderGoal(title: string, goal: GoalView): CommandResult {
       ...blocker,
       `Objective: ${goal.objective}`,
       `Rounds: ${goal.roundsStarted}/${goal.maxGoalRounds}`,
+      ...goal.maxGoalTokens === undefined ? [] : [`Tokens: ${goal.tokensUsed}/${goal.maxGoalTokens}`],
       `Activation: ${goal.activation}`,
       '',
       `Commands: ${commandHint(goal)}`,

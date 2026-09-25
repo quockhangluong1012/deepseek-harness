@@ -601,6 +601,12 @@
       name: '@deepseek-ai/dsh-client-ui-sidebar-browser'
       disabled: !!js "ctx.get('profileContext')?.name !== 'desktop'"
 
+    # Desktop-only OS notifications for turn completions, approvals,
+    # questions, and job settlements while the window is unfocused.
+    - id: ui-desktop-notifications
+      name: '@deepseek-ai/dsh-client-ui-desktop-notifications'
+      disabled: !!js "ctx.get('profileContext')?.name !== 'desktop'"
+
     - id: ui-sidebar-terminal
       name: '@deepseek-ai/dsh-client-ui-sidebar-terminal'
     # The right Sidebar's workspace file tree tab type.
@@ -621,6 +627,11 @@
         retentionDays: 90
         writeEveryEvents: 100
         writeIntervalMs: 60000
+
+    # Human command showing catalog-priced billed usage for this Agent and
+    # its subagent descendants.
+    - id: command-cost
+      name: '@deepseek-ai/dsh-command-cost'
 
     # The right Sidebar's usage dashboard tab type plus its Host Remote
     # face over the ledger.

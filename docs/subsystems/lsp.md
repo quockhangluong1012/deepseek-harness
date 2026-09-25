@@ -2,7 +2,7 @@
 
 English | [中文](lsp.zh.md)
 
-The LSP seam — a [capability seam](../glossary.md#capability-seam) exposing language-server navigation and file diagnostics on one `ctx.lsp` service. The package group supplies the service definition ([dsh-lsp](../../packages/lsp/lsp)), a configured stdio provider ([dsh-lsp-stdio](../../packages/lsp/lsp-stdio)), an on-demand model consumer ([dsh-tool-lsp](../../packages/lsp/tool-lsp)), and optional post-edit context ([lsp-post-edit-diagnostics](../../packages/lsp/lsp-post-edit-diagnostics)). LSP is one optional capability, not part of the agent-loop spine; the provider vocabulary lives here, not in [core.md](core.md).
+The LSP seam — a [capability seam](../glossary.md#capability-seam) exposing language-server navigation and file diagnostics on one `ctx.lsp` service. The package group supplies the service definition ([dsh-lsp](../../packages/lsp/lsp)), a stdio provider that can detect common local servers ([dsh-lsp-stdio](../../packages/lsp/lsp-stdio)), an on-demand model consumer ([dsh-tool-lsp](../../packages/lsp/tool-lsp)), and post-edit result enrichment ([lsp-post-edit-diagnostics](../../packages/lsp/lsp-post-edit-diagnostics)). Base-backed profiles mount these plugins but install no server binaries; the service does not start a server until a matching query. LSP is not part of the agent-loop spine; the provider vocabulary lives here, not in [core.md](core.md).
 
 Source: [`packages/lsp/lsp/src/types.ts`](../../packages/lsp/lsp/src/types.ts)
 

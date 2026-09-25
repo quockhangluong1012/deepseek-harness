@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Mount this package when content the agent reads — tool output, repository files, web or MCP results — must not be able to instruct it or leak credentials into model context. It wraps each examined result in an envelope recording where the content came from, whether it may be treated as an instruction, which known rule matched, and the digest of the artifact that was read. `shadow` mode, the default, records findings only; `enforce` also replaces credential spans in the model-visible copy and prefixes a notice when content tried to change the reader. It never grants, denies, or approves anything.
+Mount this package when content the agent reads — tool output, repository files, web or MCP results — must not be able to instruct it or leak credentials into model context. It wraps each result in an envelope recording its origin, whether it may be treated as an instruction, and which rule matched. `shadow` mode, the default, only records findings; `enforce` also replaces credential spans and prefixes a notice when content tried to change the reader. It also denies, by default, `read`/`read_image` calls naming `.env*` or a known credential file.
 
 ## Table of Contents
 
@@ -38,12 +38,14 @@ Choose it when the workspace or the network supplies content the session must tr
   config:
     mode: shadow
     maxScanBytes: 262144
+    denyEnvFileReads: true
 ```
 
 | Field | Default | Meaning |
 |---|---|---|
 | `mode` | `shadow` | `shadow` records findings and changes nothing; `enforce` also replaces credential spans in the model-visible result and prefixes a quarantine notice for critical injection findings |
 | `maxScanBytes` | `262144` | How many characters of one result the injection rules examine; credentials and the digest always cover the whole result |
+| `denyEnvFileReads` | `true` | Deny a `read`/`read_image` call naming `.env*` or a well-known credential filename, before the call reaches the filesystem |
 
 Every accepted field is listed in the generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-prompt-injection). A non-positive scan ceiling fails the load rather than silently scanning nothing.
 
@@ -65,7 +67,7 @@ The guard is one rule table plus one envelope. Rules come in two families: `inje
 
 | Seam | What the guard does |
 |---|---|
-| `tools/pre-execute` | Scans the call's serialized arguments as `source: 'model'`, records a `security/scan` finding for a proposal built out of injected text, then always delegates — the policy evaluation that follows keeps its authority |
+| `tools/pre-execute` | Denies a `read`/`read_image` call naming `.env*` or a known credential file (unless `denyEnvFileReads` is `false`); otherwise scans the call's serialized arguments as `source: 'model'`, records a `security/scan` finding for a proposal built out of injected text, then always delegates — the policy evaluation that follows keeps its authority |
 | `tools/post-execute` | Runs the downstream chain first, scans the text blocks the model will see, records one `security/scan` record per call, and in `enforce` mode returns the redacted content with the quarantine notice for critical injection findings |
 
 Enforcement needs somewhere to record what it changed, so it applies only when the call carries an agent session; an agentless call is still scanned by the exported scanner but its content is left alone. A decision that replaced the canonical value is left as it is, because the registry re-renders that result's content from the value; the finding is recorded either way.
@@ -98,6 +100,26 @@ Read these pages when the package-level contract is not enough.
 
 <a id="model-experience"></a>
 ## Model Experience
+
+### Denied credential-file reads
+
+#### What the model sees
+
+A `read` or `read_image` call naming `.env*` or a well-known credential filename never dispatches; the tool result is an error naming the denied path, for example:
+
+##### Denied-read error text
+
+```markdown
+Error: reading ".env" is denied by default (.env and credential files)
+```
+
+#### Token effect
+
+Zero tokens beyond the short error text; no file content ever reaches the request. Set `denyEnvFileReads: false` to disable.
+
+#### KV Cache effect
+
+None; a denied call never reaches a request.
 
 ### Quarantine notice
 
@@ -145,6 +167,7 @@ These limits define what the guard does not do; none of them narrows the authori
 - **A downstream value replacement is left alone** — when a later `tools/post-execute` listener replaces a result's canonical value, the registry re-renders that content from the value, so the guard records the finding without rewriting it.
 - **The logged canonical value is not redacted** — the guard rewrites the model-visible content, not a tool's own `value`; a tool that returns a secret as its canonical value still records it in `tool/result`.
 - **Context admission is not this package's decision** — the guard reports and redacts; which sources reach a request is the context compiler's ranking, and authority is the kernel's.
+- **The env-file deny is a fixed pattern list, not a general credential-file detector** — it covers `.env*` and a short list of well-known filenames (`.npmrc`, `.netrc`, `.pgpass`, SSH private keys), and only the `read` and `read_image` tools; a shell command, a grep match, or another tool reading the same path is not covered.
 
 <a id="dev-note"></a>
 ### Dev Note

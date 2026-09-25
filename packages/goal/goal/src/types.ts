@@ -28,6 +28,8 @@ export interface GoalRef {
 export interface CreateGoalRequest {
   readonly objective: string
   readonly maxGoalRounds?: number
+  /** Optional total-token spend ceiling since creation; unset means no token budget. */
+  readonly maxGoalTokens?: number
 }
 
 /** Wire-safe acknowledgement of one created goal. */
@@ -39,6 +41,8 @@ export interface CreateGoalResult {
 export interface EditGoalRequest {
   readonly objective?: string
   readonly maxGoalRounds?: number
+  /** Replace the token budget; use `null` semantics are not supported, pass a new positive value. */
+  readonly maxGoalTokens?: number
 }
 
 /** Durable continuation phase. Activation is process-local and separate. */
@@ -66,6 +70,8 @@ export interface GoalSnapshot extends GoalRef {
   readonly blockedReason?: GoalBlockReason
   /** Total admitted goal-round cap. */
   readonly maxGoalRounds: number
+  /** Optional total-token spend ceiling since creation; absent means no token budget. */
+  readonly maxGoalTokens?: number
 }
 
 /** Whether this live process may automatically continue an active goal. */
@@ -90,6 +96,8 @@ export interface GoalActivationChanged {
 export interface GoalView extends GoalSnapshot {
   /** Highest admitted round number for this goal. */
   readonly roundsStarted: number
+  /** Cumulative billed tokens observed since creation. */
+  readonly tokensUsed: number
   /** Epoch milliseconds of the create mutation. */
   readonly createdAt: number
   /** Epoch milliseconds of the latest mutation. */
@@ -109,6 +117,8 @@ export interface GoalProjection {
   readonly goal: GoalSnapshot
   /** Highest admitted round number for this goal. */
   readonly roundsStarted: number
+  /** Cumulative billed tokens observed since creation. */
+  readonly tokensUsed: number
   /** Epoch milliseconds of the create mutation. */
   readonly createdAt: number
   /** Epoch milliseconds of the latest mutation. */

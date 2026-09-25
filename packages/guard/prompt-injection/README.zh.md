@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-当 agent 读到的内容——工具输出、仓库文件、web 或 MCP 结果——绝不能指挥它、也绝不能把凭据带进模型上下文时，挂载本包。它把每个被检查的结果包进一个信封，记录内容来自何处、是否可被当作指令、命中了哪条已知规则，以及所读原件的摘要。默认的 `shadow` 模式只记录发现；`enforce` 还会替换模型可见副本中的凭据片段，并在内容试图改变读者时加一条前置提示。它从不授予、拒绝或批准任何东西。
+当 agent 读到的内容——工具输出、仓库文件、web 或 MCP 结果——绝不能指挥它、也绝不能把凭据带进模型上下文时，挂载本包。它把每个结果包进一个信封，记录其来源、是否可被当作指令，以及命中了哪条规则。默认的 `shadow` 模式只记录发现；`enforce` 还会替换凭据片段，并在内容试图改变读者时加一条前置提示。它还会默认拒绝命名 `.env*` 或已知凭据文件的 `read`/`read_image` 调用。
 
 ## 目录
 
@@ -38,12 +38,14 @@ kind: "package-reference"
   config:
     mode: shadow
     maxScanBytes: 262144
+    denyEnvFileReads: true
 ```
 
 | 字段 | 默认值 | 含义 |
 |---|---|---|
 | `mode` | `shadow` | `shadow` 只记录发现、不做改动；`enforce` 还会替换模型可见结果中的凭据片段，并为严重注入发现加上隔离提示 |
 | `maxScanBytes` | `262144` | 注入规则检查一个结果的字符数上限；凭据与摘要始终覆盖整个结果 |
+| `denyEnvFileReads` | `true` | 在调用触及文件系统之前，拒绝命名 `.env*` 或已知凭据文件名的 `read`/`read_image` 调用 |
 
 每个受支持字段都列在生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-prompt-injection)中。非正的扫描上限会让加载失败，而不是静默地什么都不扫。
 
@@ -65,7 +67,7 @@ kind: "package-reference"
 
 | 接缝 | 守卫做什么 |
 |---|---|
-| `tools/pre-execute` | 以 `source: 'model'` 检查该调用的序列化参数，为源于注入文本的提议记录一条 `security/scan` 发现，然后始终放行——其后的策略求值仍保有全部权威 |
+| `tools/pre-execute` | 拒绝命名 `.env*` 或已知凭据文件的 `read`/`read_image` 调用（除非 `denyEnvFileReads` 为 `false`）；否则以 `source: 'model'` 检查该调用的序列化参数，为源于注入文本的提议记录一条 `security/scan` 发现，然后始终放行——其后的策略求值仍保有全部权威 |
 | `tools/post-execute` | 先运行下游链路，再检查模型将看到的文本块，为每次调用记录一条 `security/scan`，并在 `enforce` 模式下返回脱敏后的内容，且为严重注入发现加上隔离提示 |
 
 强制替换需要一处记录它改了什么，因此仅对带 agent 会话的调用生效；无 agent 的调用仍可由导出的扫描器检查，但其内容保持不变。替换了规范值的决策保持原样，因为注册表会用该值重新渲染结果内容；无论哪种情况，发现都会被记录。
@@ -98,6 +100,26 @@ kind: "package-reference"
 
 <a id="model-experience"></a>
 ## 模型体验
+
+### 拒绝凭据文件读取
+
+#### 模型看到什么
+
+命名 `.env*` 或已知凭据文件名的 `read`/`read_image` 调用永远不会被派发；工具结果是一条指名被拒路径的错误，例如：
+
+##### 拒绝读取错误文本
+
+```markdown
+Error: reading ".env" is denied by default (.env and credential files)
+```
+
+#### Token 影响
+
+除简短错误文本外为零；任何文件内容都不会进入请求。设置 `denyEnvFileReads: false` 可关闭此行为。
+
+#### KV Cache 影响
+
+无；被拒绝的调用永远不会进入请求。
 
 ### 隔离提示
 
@@ -145,6 +167,7 @@ kind: "package-reference"
 - **下游的值替换保持原样**——当更晚的 `tools/post-execute` 监听器替换了结果的规范值时，注册表会用该值重新渲染内容，因此守卫只记录发现，不做改写。
 - **入日志的规范值不做脱敏**——守卫改写的是模型可见内容，而非工具自身的 `value`；把秘密作为规范值返回的工具仍会在 `tool/result` 中记录它。
 - **上下文准入不是本包的决策**——守卫只报告与脱敏；哪些来源进入某次请求由上下文编译器排序，权威属于 Kernel。
+- **env 文件拒绝是固定模式表，不是通用凭据文件检测器**——它只覆盖 `.env*` 与一小份已知文件名列表（`.npmrc`、`.netrc`、`.pgpass`、SSH 私钥），且只覆盖 `read` 与 `read_image` 两个工具；shell 命令、grep 命中或其他工具读取同一路径不受此覆盖。
 
 <a id="dev-note"></a>
 ### 开发备注

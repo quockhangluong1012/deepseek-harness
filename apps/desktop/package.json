@@ -44,6 +44,7 @@
   },
   "devDependencies": {
     "@deepseek-ai/dsh-app-boot": "workspace:*",
+    "@deepseek-ai/dsh-client-ui-desktop-notifications": "workspace:*",
     "@deepseek-ai/dsh-client-ui-settings-general": "workspace:*",
     "@deepseek-ai/dsh-client-ui-sidebar-browser": "workspace:*",
     "@deepseek-ai/dsh-home-paths": "workspace:*",

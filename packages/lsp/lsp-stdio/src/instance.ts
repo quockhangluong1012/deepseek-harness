@@ -346,7 +346,7 @@ export class LspInstance {
     const record = params as { uri?: unknown; diagnostics?: unknown }
     if (typeof record.uri !== 'string') return
     const waiter = this.pendingDiagnostics
-    if (waiter === undefined || waiter.uri !== record.uri) return
+    if (waiter === undefined || !sameDocumentUri(waiter.uri, record.uri)) return
     this.pendingDiagnostics = undefined
     try {
       waiter.resolve(normalizeDiagnostics(record.diagnostics))
@@ -412,6 +412,16 @@ export class LspInstance {
   }
 }
 
+/** TypeScript serializes Windows file URIs with a lowercase drive and an escaped colon. */
+function sameDocumentUri(left: string, right: string): boolean {
+  if (left === right) return true
+  const normalizeDrive = (uri: string) => uri.replace(
+    /^file:\/\/\/([a-z])(?::|%3a)(?=\/)/iu,
+    (_match, drive: string) => `file:///${drive.toLowerCase()}:`,
+  )
+  return normalizeDrive(left) === normalizeDrive(right)
+}
+
 /** Server→client request methods this host acknowledges with an empty result (no dynamic registration). */
 const LIFECYCLE_NOOP_METHODS = new Set([
   'window/workDoneProgress/create',
@@ -426,14 +436,15 @@ function markSettled(): boolean {
 
 /**
  * The client capabilities advertised at `initialize`: UTF-16 positions, workspace folders and
- * configuration, markdown/plaintext hover, and link support for definition/implementation. No
- * dynamic registration; the server's returned capabilities are authoritative.
+ * configuration, push diagnostics, markdown/plaintext hover, and link support for definition/implementation.
+ * No dynamic registration; the server's returned capabilities are authoritative.
  */
 const CLIENT_CAPABILITIES = {
   general: { positionEncodings: ['utf-16'] },
   workspace: { workspaceFolders: true, configuration: true },
   textDocument: {
     synchronization: { dynamicRegistration: false },
+    publishDiagnostics: {},
     hover: { contentFormat: ['markdown', 'plaintext'] },
     definition: { linkSupport: true },
     implementation: { linkSupport: true },

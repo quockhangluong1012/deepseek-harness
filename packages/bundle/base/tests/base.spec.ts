@@ -47,6 +47,19 @@ describe('dsh-base bundle', () => {
     expect(manifest.dependencies).not.toHaveProperty('@deepseek-ai/dsh-subagent-codex')
     expect(manifest.dependencies).not.toHaveProperty('@deepseek-ai/dsh-subagent-claude-code')
     expect(manifest.dependencies).toHaveProperty('@deepseek-ai/dsh-web-fetch-http')
+
+    for (const id of ['lsp', 'lsp-stdio', 'tool-lsp', 'lsp-post-edit-diagnostics']) {
+      expect(rows.filter(row => row.id === id), `base must mount ${id}`).toHaveLength(1)
+    }
+    expect(rows.find(row => row.id === 'lsp-stdio')?.config).toMatchObject({ autoDetect: true })
+    for (const name of [
+      '@deepseek-ai/dsh-lsp',
+      '@deepseek-ai/dsh-lsp-stdio',
+      '@deepseek-ai/dsh-tool-lsp',
+      '@deepseek-ai/dsh-lsp-post-edit-diagnostics',
+    ]) {
+      expect(manifest.dependencies).toHaveProperty(name)
+    }
   })
 
   it('gates each shell stack by platform with a symmetric disabled expression', () => {

@@ -1,5 +1,6 @@
 /** Pure replay fold and strict decoder for durable goal changes. */
 
+import { lastAssistantStreamChunk } from '@deepseek-ai/dsh-llm'
 import type { MessageSource } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import { GOAL_CHANGE_VERSION, GoalId } from './runtime.ts'
@@ -27,6 +28,8 @@ const PHASES: ReadonlySet<GoalPhase> = new Set(['active', 'paused', 'blocked', '
 export interface GoalFoldState {
   goal: GoalSnapshot | undefined
   roundsStarted: number
+  /** Cumulative billed tokens folded from `assistant/message` samples while a goal is current. */
+  tokensUsed: number
   createdAt: number | undefined
   updatedAt: number | undefined
   lastRef: GoalRef | undefined
@@ -41,6 +44,7 @@ export function emptyGoalFoldState(): GoalFoldState {
   return {
     goal: undefined,
     roundsStarted: 0,
+    tokensUsed: 0,
     createdAt: undefined,
     updatedAt: undefined,
     lastRef: undefined,
@@ -98,9 +102,11 @@ function decodeSnapshot(value: unknown): GoalSnapshot {
     throw new Error('goal change goal.phase is invalid')
   }
   const phase = value['phase'] as GoalPhase
-  const expectedKeys = phase === 'blocked'
-    ? 'blockedReason,id,maxGoalRounds,objective,phase,revision'
-    : 'id,maxGoalRounds,objective,phase,revision'
+  const hasMaxGoalTokens = value['maxGoalTokens'] !== undefined
+  const keys = ['id', 'maxGoalRounds', 'objective', 'phase', 'revision']
+  if (phase === 'blocked') keys.push('blockedReason')
+  if (hasMaxGoalTokens) keys.push('maxGoalTokens')
+  const expectedKeys = keys.sort().join(',')
   if (Object.keys(value).sort().join(',') !== expectedKeys) {
     throw new Error(`goal change goal for phase ${phase} must have exactly ${expectedKeys} fields`)
   }
@@ -111,6 +117,7 @@ function decodeSnapshot(value: unknown): GoalSnapshot {
     phase,
     maxGoalRounds: positiveInteger(value['maxGoalRounds'], 'goal.maxGoalRounds'),
     ...phase === 'blocked' ? { blockedReason: decodeBlockReason(value['blockedReason']) } : {},
+    ...hasMaxGoalTokens ? { maxGoalTokens: positiveInteger(value['maxGoalTokens'], 'goal.maxGoalTokens') } : {},
   }
 }
 
@@ -153,7 +160,9 @@ export function decodeGoalChange(value: unknown): GoalChangeMeta | undefined {
     || !SNAPSHOT_OPERATIONS.has(value['operation'] as Exclude<GoalOperation, 'clear'>)) {
     throw new Error('goal change operation is invalid')
   }
+  const hasTokensUsed = value['tokensUsed'] !== undefined
   const allowed = ['createdAt', 'goal', 'kind', 'operation', 'roundsStarted', 'updatedAt', 'version']
+  if (hasTokensUsed) allowed.push('tokensUsed')
   if (Object.keys(value).sort().join(',') !== allowed.sort().join(',')) {
     throw new Error(`goal snapshot change must have exactly ${allowed.sort().join(',')} fields`)
   }
@@ -166,6 +175,9 @@ export function decodeGoalChange(value: unknown): GoalChangeMeta | undefined {
     operation: value['operation'] as Exclude<GoalOperation, 'clear'>,
     goal: decodeSnapshot(value['goal']),
     roundsStarted: nonNegativeInteger(value['roundsStarted'], 'roundsStarted'),
+    // Absent on a goal/change event committed before token tracking existed;
+    // such a prefix predates any observed spend, so it folds as zero.
+    tokensUsed: hasTokensUsed ? nonNegativeInteger(value['tokensUsed'], 'tokensUsed') : 0,
     createdAt,
     updatedAt,
   } satisfies GoalSnapshotChangeMeta
@@ -184,8 +196,9 @@ function goalSource(source: MessageSource): GoalMessageSource | undefined {
 
 /** Require two snapshots to retain fields that only `edit` may replace. */
 function requireSameDefinition(current: GoalSnapshot, next: GoalSnapshot, operation: GoalOperation): void {
-  if (next.objective !== current.objective || next.maxGoalRounds !== current.maxGoalRounds) {
-    throw new Error(`goal ${operation} cannot change objective or maxGoalRounds`)
+  if (next.objective !== current.objective || next.maxGoalRounds !== current.maxGoalRounds
+    || next.maxGoalTokens !== current.maxGoalTokens) {
+    throw new Error(`goal ${operation} cannot change objective, maxGoalRounds, or maxGoalTokens`)
   }
 }
 
@@ -208,7 +221,8 @@ function validateSnapshotTransition(
   if (state.updatedAt === undefined) throw new Error('current goal fold lacks updatedAt')
   if (change.createdAt !== state.createdAt
     || change.updatedAt < state.updatedAt
-    || change.roundsStarted !== state.roundsStarted) {
+    || change.roundsStarted !== state.roundsStarted
+    || (change.tokensUsed ?? 0) !== state.tokensUsed) {
     throw new Error(`goal ${change.operation} does not preserve the current counters and timestamps`)
   }
   switch (change.operation) {
@@ -281,6 +295,7 @@ export function applyGoalChange(state: GoalFoldState, change: GoalChangeMeta): v
     }
     state.goal = undefined
     state.roundsStarted = 0
+    state.tokensUsed = 0
     state.createdAt = undefined
     state.updatedAt = undefined
     state.lastRef = ref
@@ -288,9 +303,10 @@ export function applyGoalChange(state: GoalFoldState, change: GoalChangeMeta): v
   }
   if (change.operation === 'create') {
     if (change.goal.revision !== 1 || change.goal.phase !== 'active' || change.roundsStarted !== 0
+      || (change.tokensUsed ?? 0) !== 0
       || (state.goal !== undefined && state.goal.phase !== 'complete')
       || state.seenGoalIds.has(change.goal.id)) {
-      throw new Error('goal create requires a fresh active revision-one goal with zero rounds')
+      throw new Error('goal create requires a fresh active revision-one goal with zero rounds and zero tokens')
     }
     state.seenGoalIds.add(change.goal.id)
   } else {
@@ -300,6 +316,7 @@ export function applyGoalChange(state: GoalFoldState, change: GoalChangeMeta): v
   }
   state.goal = change.goal
   state.roundsStarted = change.roundsStarted
+  state.tokensUsed = change.tokensUsed ?? 0
   state.createdAt = change.createdAt
   state.updatedAt = change.updatedAt
   state.lastRef = ref
@@ -328,6 +345,11 @@ export function applyGoalEvent(state: GoalFoldState, event: SessionEvent): void 
       throw new Error(`goal round at session event ${event.seq} is not the next admitted round of the active goal`)
     }
     state.roundsStarted = source.round
+    return
+  }
+  if (event.type === 'assistant/message' && state.goal !== undefined) {
+    const usage = event.data.usage ?? lastAssistantStreamChunk(event.data.stream, 'usage')?.usage
+    if (usage !== undefined) state.tokensUsed += usage.totalTokens ?? usage.inputTokens + usage.outputTokens
   }
 }
 
@@ -342,6 +364,7 @@ export function foldGoal(events: readonly SessionEvent[]): FoldedGoal {
   return {
     ...state.goal === undefined ? {} : { goal: { ...state.goal } },
     roundsStarted: state.roundsStarted,
+    tokensUsed: state.tokensUsed,
     ...state.createdAt === undefined ? {} : { createdAt: state.createdAt },
     ...state.updatedAt === undefined ? {} : { updatedAt: state.updatedAt },
     ...state.lastRef === undefined ? {} : { lastRef: { ...state.lastRef } },

@@ -47,6 +47,7 @@ kind: "package-reference"
 
 每个文件携带持久的 `path`——位于工作目录内时为相对路径，否则为绝对路径——以及用于排序和标签的 `display` 路径：相对路径，仓库内位于工作目录之上的文件为 `../` 路径，家目录下的文件为 `~` 路径，其余为绝对路径。文件按 `display` 的码元顺序排序，因此上级路径和绝对路径排在工作目录自身文件之前。`workspace/changes` 事件只携带轮号；`ctx.workspaceChanges.summary(sessionId, seq)` 返回该序号的事件宣告的摘要，Session 已释放或本 Host 进程从未记录时返回 undefined。`ctx.workspaceChanges.diff(sessionId, seq, index, signal)` 对比该下标所列的文件：从两棵快照树或两份副本得出带三行上下文的 hunk；git 报告为二进制或某一侧含 NUL 字节时返回 `binary`；某一侧超过 `maxFileBytes` 时返回 `oversized`。逐行对比运行超过 `diffTimeoutMs` 时退化为一个替换全部行的 hunk，并标记 `coarse`。因此 Host 重启后重新打开的对话，先前轮次既没有卡片也没有对比。
 
+<a id="rewind"></a>
 ### 回退
 
 `ctx.workspaceChanges.restore(sessionId, seq, signal)` 把工作目录回退为给定 `seq` 所宣告的轮次开始时的内容。它把该轮自己的轮起始树与当前工作树的一份全新快照做对比——而不是该轮自己记录的 diff——因此该轮与现在之间的每一轮都会被撤销，不仅仅是该轮自身的改动。轮起始树中存在的文件会被写回那时的内容；那时不存在的文件（此后创建）会被删除；重命名会被撤销：把内容写回原路径，并从重命名后落脚的地方删除文件。二进制文件、超过 `maxFileBytes` 的文件，或无法写回的文件会被跳过而不是让整次回退失败，每个跳过项都会带着原因被报告。需要 git 仓库：未记录快照的轮次返回 undefined，与 `summary`/`diff` 释放后返回 undefined 的约定一致。

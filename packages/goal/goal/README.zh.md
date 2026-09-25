@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-`dsh-goal` 让一个长期完成目标在多轮、会话恢复、fork 与进程重启后持续存在。用户与 agent（智能体）可以 create、edit、pause、resume、complete、block 或 clear 该目标；比较并设置的更新会拒绝陈旧视图。可配置的 Round 上限（默认 256）约束自动续行，被阻塞的 goal 会保留稳定的策略代码和面向人的说明。本包存储 goal 状态但不调度工作，续行权限是进程本地的而非持久状态。单个目标需要横跨多轮时选择本包；常规单轮工作或并行目标不要使用。
+`dsh-goal` 让一个长期完成目标在多轮、会话恢复、fork 与进程重启后持续存在。用户与 agent（智能体）可以 create、edit、pause、resume、complete、block 或 clear 该目标；比较并设置的更新会拒绝陈旧视图。可配置的 Round 上限（默认 256）与可选的总 token 预算共同约束自动续行，被阻塞的 goal 会保留稳定的策略代码和面向人的说明。本包存储 goal 状态但不调度工作，续行权限是进程本地的而非持久状态。单个目标需要横跨多轮时选择本包；常规单轮工作或并行目标不要使用。
 
 ## 目录
 
@@ -49,7 +49,7 @@ goal 适合一个需要跨自动 Goal Round 持续的长期完成目标——例
 
 ### 会话投影
 
-`GoalService` 要求组合提供 `ctx.sessionProjections`（[`@deepseek-ai/dsh-session-projection`](../../session/session-projection/README.zh.md)），并在启动时注册 `goal` 投影单元；未组合投影注册表的组合无法激活 `ctx.goals`。该单元版本为 6，其宿主状态保留最新的有效当前 goal、所有曾使用的 goal id，以及第一次严格回放失败。客户端视图提供当前 goal；首次 create 前与 clear tombstone 后为 `null`。该键同时合并到 `SessionProjectionStateMap` 与 `SessionProjectionMap`；载体通过历史尾页和 `session/projection` 推送帧提供客户端值。
+`GoalService` 要求组合提供 `ctx.sessionProjections`（[`@deepseek-ai/dsh-session-projection`](../../session/session-projection/README.zh.md)），并在启动时注册 `goal` 投影单元；未组合投影注册表的组合无法激活 `ctx.goals`。该单元版本为 7，其宿主状态保留最新的有效当前 goal、所有曾使用的 goal id，以及第一次严格回放失败。客户端视图提供当前 goal；首次 create 前与 clear tombstone 后为 `null`。该键同时合并到 `SessionProjectionStateMap` 与 `SessionProjectionMap`；载体通过历史尾页和 `session/projection` 推送帧提供客户端值。
 
 ### 驱动生命周期
 
@@ -57,7 +57,7 @@ goal 经历四种持久 phase——`active`、`paused`、`blocked`、`complete`�
 
 | 操作 | 作用 |
 |---|---|
-| `create` | 以目标和 Round 上限启动一个 active goal |
+| `create` | 以目标、Round 上限和可选的 token 预算启动一个 active goal |
 | `edit` | 修改目标和/或 Round 上限，不改变 phase |
 | `pause` | 停止自动续行并保留状态 |
 | `resume` | 重新开始续行；也用于会话恢复或 fork 后重新启用 active goal |
@@ -79,6 +79,7 @@ pause、complete、block 和 clear 都会停用续行。block 是唯一保留策
 const view = ctx.goals.get(agent)      // undefined when no goal is current
 view.phase                             // 'active' | 'paused' | 'blocked' | 'complete'
 view.roundsStarted, view.maxGoalRounds // continuation progress
+view.tokensUsed, view.maxGoalTokens    // cumulative token spend; maxGoalTokens absent means no budget
 view.activation                        // 'armed' | 'disarmed' — not persisted
 ```
 
@@ -156,7 +157,7 @@ Goal 变更事件本身不增加模型 token。工具结果与续行调度提示
 这些限制说明 goal 服务何时不合适或需要特别注意。它们是当前包约束，不是任务积压。
 
 - **只负责状态，不负责任务调度**——本包不决定已启用续行的 goal 何时继续，不重试异常失败，也不取消活跃轮次；这些策略属于 `dsh-goal-round-driver` 等消费方包。
-- **只有 Round 数量预算**——`maxGoalRounds` 不计量 token、货币、挂钟时间或提供方配额。
+- **只有 Round 与 token 预算**——`maxGoalRounds` 与可选的 `maxGoalTokens` 不计量货币、挂钟时间或提供方配额。
 - **没有独立评估器**——记录完成或阻塞的调用方拥有最终决定权；由评估器支持的认证暂缓到独立策略层。
 - **只有一个当前 goal**——系统有意不支持并行目标或独立 goal 数据库；替换或清除后，历史仍可在会话日志中读取。
 - **信任进程内生产方**——能直接访问 `Session` 的插件可以追加伪造的 `goal/change` 数据。严格回放会检测格式错误或不一致的记录，并使 goal 访问从该记录起失败，直到日志修复；这是完整性检测，不是插件隔离。

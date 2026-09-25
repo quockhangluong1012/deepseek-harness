@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Use `dsh-lsp-stdio` to query configured local language servers for definitions, references, implementations, hover information, and file diagnostics. It maps file extensions to language identifiers, starts one server per workspace on demand, and reads each queried file afresh. Diagnostics use `textDocument/publishDiagnostics` and wait only up to `diagnosticsWaitMs`; a server that publishes nothing within that window returns an empty list. Deployments supply the server commands and any required confinement.
+Use `dsh-lsp-stdio` to query configured or auto-detected local language servers for definitions, references, implementations, hover information, and file diagnostics. It maps extensions to language identifiers, starts one server per workspace on demand, and reads each queried file afresh. Diagnostics use `textDocument/publishDiagnostics` and wait only up to `diagnosticsWaitMs`; a server that publishes nothing within the window returns an empty list. The package does not install server binaries or confine their processes.
 
 ## Table of Contents
 
@@ -25,11 +25,11 @@ Use `dsh-lsp-stdio` to query configured local language servers for definitions, 
 <a id="use-this-package"></a>
 ## Use this package
 
-Mount this provider when a deployment has local language servers — for example `typescript-language-server` — and wants the harness to navigate code through them. It needs filesystem and subprocess providers for the same execution world, plus the `dsh-lsp` seam and, for model access, `dsh-tool-lsp`.
+Mount this provider when a deployment wants code navigation through local language servers. The base profile enables detection of four common servers on PATH; `dsh-lsp` and same-world filesystem/subprocess providers are also required, and model access needs `dsh-tool-lsp`.
 
 ### Minimal configuration
 
-The `servers` record maps each stable provider id to one server command. The provider resolves every executable at load after credential scrubbing, so a bad entry prevents every provider from registering; processes launch lazily on the first matching query.
+The `servers` record maps stable provider ids to explicit commands. `autoDetect: true` also resolves four known commands on PATH. Missing automatic candidates are skipped, while other lookup failures abort loading. Explicit ids and extension mappings take priority; every selected executable resolves before any provider registers, and processes start only for matching queries.
 
 ```yaml
 - name: '@deepseek-ai/dsh-fs-local'
@@ -37,17 +37,16 @@ The `servers` record maps each stable provider id to one server command. The pro
 - name: '@deepseek-ai/dsh-lsp'
 - name: '@deepseek-ai/dsh-lsp-stdio'
   config:
-    servers:
-      typescript:
-        command: typescript-language-server
-        args: ['--stdio']
-        extensionToLanguage:
-          '.ts': typescript
+    autoDetect: true
 - name: '@deepseek-ai/dsh-tool-lsp'
 ```
 
+`autoDetect` and `servers` configure provider discovery; the remaining fields configure one explicit `servers.<id>` entry.
+
 | Field | Default | Meaning |
 |---|---|---|
+| `autoDetect` | `false` | Probe `typescript-language-server`, `pyright-langserver`, `gopls`, and `rust-analyzer` on PATH; skip only not-found errors |
+| `servers` | `{}` | Explicit server entries; non-empty unless `autoDetect: true` |
 | `command` | required | Executable to spawn — absolute, or resolved on the child PATH at load; launched without a shell |
 | `extensionToLanguage` | required | Lowercase leading-dot extension → LSP language id (e.g. `{ '.ts': 'typescript' }`) |
 | `args` | `[]` | Arguments passed to the executable |
@@ -61,7 +60,7 @@ The `servers` record maps each stable provider id to one server command. The pro
 | `killGraceMs` | `2000` | Request-cancel and SIGTERM→SIGKILL escalation grace |
 | `diagnosticsWaitMs` | `3000` | Maximum wait after opening a file for a matching `textDocument/publishDiagnostics` notification; timeout returns an empty list |
 
-`servers` must contain at least one entry with non-empty ids; timer budgets including `diagnosticsWaitMs` must be positive integers within Node's timer range, and byte caps must be positive. The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-lsp-stdio) is the exhaustive source for every accepted field.
+`servers` may be empty only with `autoDetect: true`; explicit ids must be non-empty. Timer budgets including `diagnosticsWaitMs` must be positive integers within Node's timer range, and byte caps must be positive. The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-lsp-stdio) is the exhaustive source for every accepted field.
 
 ### What a query does
 
@@ -87,7 +86,7 @@ This section explains the design decisions behind the provider and where the cod
 
 ### Design philosophy
 
-- **Generic host, not a catalog.** Deployments configure commands and mappings explicitly; presets belong in `cordis.yml` overlays, not in this package.
+- **Generic host, small detection set.** Deployments still configure custom commands and mappings explicitly; `autoDetect` checks only the four documented commands and never installs or downloads a server.
 - **Compatibility-first transient open.** Every query runs `didOpen` (version 1, full text) → request or bounded diagnostics wait → `didClose`, so the server sees current bytes without retained document state. The diagnostics waiter is armed before `didOpen` reaches the server, so an immediate push is not lost.
 - **Read before spawn.** The source is resolved, contained, and byte-bounded inside the workspace queue before any process is created, so a queued query sees current bytes when its turn starts and an invalid source cannot leave an idle process pooled.
 - **One pooled process per canonical workspace.** Instances are single-flighted per `(server id, canonical workspace target)`; a transport failure retries the read-only query once on a fresh process after awaiting disposal.
@@ -145,7 +144,8 @@ No direct invalidation; `dsh-tool-lsp` owns request-prefix changes.
 
 These limits define when the provider is a poor fit or needs special operational care. They are current package constraints, not a task backlog.
 
-- **No confinement policy** — this package trusts the configured server and does not sandbox its process; a restricted deployment must supply appropriate process and filesystem providers or a same-world sandbox wrapper.
+- **Fixed detection set; no bundled binaries** — `autoDetect` checks only the four commands on PATH and never installs or starts them before a matching query. With no matching provider, `lsp` returns `LSP_UNAVAILABLE` and post-edit diagnostics adds no context.
+- **No confinement policy** — this package trusts configured servers and does not sandbox their processes; a restricted deployment must provide appropriate process and filesystem providers or a same-world sandbox wrapper.
 - **Transient-open compatibility floor** — servers whose synchronization omits open/close (or advertises `None`) are unsupported even if closed-document queries would work; the pinned TypeScript e2e establishes one compatibility floor, not a cross-language claim.
 - **Push diagnostics are time-bounded** — a server that publishes nothing or is still analyzing when `diagnosticsWaitMs` expires produces an empty result; the provider cannot distinguish a clean file from a late analysis.
 - **Per-server and per-workspace serialization latency** — parallel agents sharing one server and workspace queue behind one process; long-lived workspace processes consume memory until disposal.

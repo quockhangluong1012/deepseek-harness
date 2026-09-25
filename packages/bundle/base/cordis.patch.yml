@@ -287,6 +287,22 @@
       config:
         sampleOverCapGlobResults: false
 
+    # Detect common local language servers without making them profile dependencies;
+    # missing binaries leave LSP queries unavailable and post-edit checks idle.
+    - id: lsp
+      name: '@deepseek-ai/dsh-lsp'
+
+    - id: lsp-stdio
+      name: '@deepseek-ai/dsh-lsp-stdio'
+      config:
+        autoDetect: true
+
+    - id: tool-lsp
+      name: '@deepseek-ai/dsh-tool-lsp'
+
+    - id: lsp-post-edit-diagnostics
+      name: '@deepseek-ai/dsh-lsp-post-edit-diagnostics'
+
     - id: agent-instructions
       name: '@deepseek-ai/dsh-agent-instructions'
       config:

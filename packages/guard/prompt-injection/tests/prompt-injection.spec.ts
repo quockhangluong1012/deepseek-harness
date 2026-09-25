@@ -7,6 +7,7 @@ import { SessionId, type SessionEventMap } from '@deepseek-ai/dsh-session'
 import { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
 import { apply } from '../src/index.ts'
 import type { Config } from '../src/index.ts'
+import { deniedPathIn, isDeniedCredentialPath } from '../src/env-files.ts'
 import { digestOf, redactSecrets, scanContent } from '../src/scan.ts'
 import { defaultTrustFor } from '../src/types.ts'
 
@@ -58,6 +59,16 @@ function registerTextTool(ctx: Context, text: string): void {
     name: 'probe',
     description: 'returns one text block',
     parameters: {},
+    async execute() { return [{ type: 'text' as const, text }] },
+  }))
+}
+
+/** Register a tool under an explicit name, accepting the read tools' `file_path` argument, whose whole result is one piece of text. */
+function registerNamedTool(ctx: Context, name: string, text: string): void {
+  ctx.tools.register(defineContentToolFixture({
+    name,
+    description: 'returns one text block',
+    parameters: { file_path: { type: 'string', required: true } },
     async execute() { return [{ type: 'text' as const, text }] },
   }))
 }
@@ -234,5 +245,123 @@ describe('pipeline observer', () => {
 
     await expect(ctx.plugin({ name: 'prompt-injection', apply, inject: ['tools'] }, { maxScanBytes: 0 }))
       .rejects.toThrow('maxScanBytes must be a positive integer')
+  })
+})
+
+describe('env-file deny predicate', () => {
+  it('matches .env and its dotted variants case-insensitively', () => {
+    expect(isDeniedCredentialPath('.env')).toBe(true)
+    expect(isDeniedCredentialPath('.ENV')).toBe(true)
+    expect(isDeniedCredentialPath('.env.production')).toBe(true)
+    expect(isDeniedCredentialPath('/repo/nested/.env.local')).toBe(true)
+    expect(isDeniedCredentialPath('C:\\repo\\.env')).toBe(true)
+  })
+
+  it('matches well-known credential filenames but not their public-key or unrelated siblings', () => {
+    expect(isDeniedCredentialPath('/home/user/.ssh/id_rsa')).toBe(true)
+    expect(isDeniedCredentialPath('/home/user/.npmrc')).toBe(true)
+    expect(isDeniedCredentialPath('/home/user/.ssh/id_rsa.pub')).toBe(false)
+    expect(isDeniedCredentialPath('.envrc')).toBe(false)
+    expect(isDeniedCredentialPath('config.env')).toBe(false)
+    expect(isDeniedCredentialPath('README.md')).toBe(false)
+  })
+
+  it('finds the first denied path among a call\u2019s top-level string arguments', () => {
+    expect(deniedPathIn({ file_path: '.env' })).toBe('.env')
+    expect(deniedPathIn({ file_path: 'README.md' })).toBeUndefined()
+    expect(deniedPathIn({ offset: 1, file_path: 'id_rsa' })).toBe('id_rsa')
+    expect(deniedPathIn('not an object')).toBeUndefined()
+    expect(deniedPathIn(null)).toBeUndefined()
+  })
+})
+
+describe('env-file deny (pipeline)', () => {
+  it('denies a read call naming .env before any scan runs', async () => {
+    const ctx = await mounted()
+    const agent = makeAgent(ctx)
+    registerNamedTool(ctx, 'read', 'file contents')
+    agent.session.append('turn/start', { turn: 1 })
+
+    const result = await ctx.tools.execute({
+      signal: new AbortController().signal,
+      callId: ToolCallId('read-env'),
+      name: 'read',
+      arguments: { file_path: '.env' },
+      agent,
+    })
+
+    expect(result.isError).toBe(true)
+    const body = result.content[0] as { text: string }
+    expect(body.text).toContain('denied by default')
+    expect(scans(agent)).toEqual([])
+  })
+
+  it('denies a read_image call naming a credential file', async () => {
+    const ctx = await mounted()
+    const agent = makeAgent(ctx)
+    registerNamedTool(ctx, 'read_image', 'bytes')
+    agent.session.append('turn/start', { turn: 1 })
+
+    const result = await ctx.tools.execute({
+      signal: new AbortController().signal,
+      callId: ToolCallId('read-image-key'),
+      name: 'read_image',
+      arguments: { file_path: '/home/user/.ssh/id_ed25519' },
+      agent,
+    })
+
+    expect(result.isError).toBe(true)
+  })
+
+  it('does not deny a read of an ordinary file', async () => {
+    const ctx = await mounted()
+    const agent = makeAgent(ctx)
+    registerNamedTool(ctx, 'read', 'file contents')
+    agent.session.append('turn/start', { turn: 1 })
+
+    const result = await ctx.tools.execute({
+      signal: new AbortController().signal,
+      callId: ToolCallId('read-ordinary'),
+      name: 'read',
+      arguments: { file_path: 'src/index.ts' },
+      agent,
+    })
+
+    expect(result.isError).toBe(false)
+  })
+
+  it('does not deny a write naming .env, only the read tools it knows', async () => {
+    const ctx = await mounted()
+    const agent = makeAgent(ctx)
+    registerNamedTool(ctx, 'write', 'ok')
+    agent.session.append('turn/start', { turn: 1 })
+
+    const result = await ctx.tools.execute({
+      signal: new AbortController().signal,
+      callId: ToolCallId('write-env'),
+      name: 'write',
+      arguments: { file_path: '.env' },
+      agent,
+    })
+
+    expect(result.isError).toBe(false)
+  })
+
+  it('allows .env reads when denyEnvFileReads is disabled', async () => {
+    const ctx = await mounted({ denyEnvFileReads: false })
+    const agent = makeAgent(ctx)
+    registerNamedTool(ctx, 'read', 'file contents')
+    agent.session.append('turn/start', { turn: 1 })
+
+    const result = await ctx.tools.execute({
+      signal: new AbortController().signal,
+      callId: ToolCallId('read-env-allowed'),
+      name: 'read',
+      arguments: { file_path: '.env' },
+      agent,
+    })
+
+    expect(result.isError).toBe(false)
+    expect(result.content[0]).toEqual({ type: 'text', text: 'file contents' })
   })
 })

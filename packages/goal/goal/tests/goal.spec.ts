@@ -331,6 +331,37 @@ describe('GoalService mutations', () => {
     }))
   })
 
+  it('creates, edits, validates, and carries forward an optional token budget', async () => {
+    const { ctx, agent } = await harness()
+    expect(() => ctx.goals.create(agent, { objective: 'bad budget', maxGoalTokens: 0 })).toThrow(
+      expect.objectContaining({ code: 'GOAL_INVALID_MAX_TOKENS' }),
+    )
+
+    const noBudget = ctx.goals.create(agent, { objective: 'unbudgeted' })
+    expect(noBudget.maxGoalTokens).toBeUndefined()
+    const cleared = ctx.goals.clear(agent, noBudget)
+
+    const withBudget = ctx.goals.create(agent, { objective: 'budgeted', maxGoalTokens: 50_000 })
+    expect(withBudget).toMatchObject({ objective: 'budgeted', maxGoalTokens: 50_000 })
+    expect(withBudget.id).not.toBe(cleared.id)
+
+    expect(() => ctx.goals.edit(agent, withBudget, { maxGoalTokens: -1 })).toThrow(
+      expect.objectContaining({ code: 'GOAL_INVALID_MAX_TOKENS' }),
+    )
+    const rebudgeted = ctx.goals.edit(agent, withBudget, { maxGoalTokens: 75_000 })
+    expect(rebudgeted).toMatchObject({ maxGoalTokens: 75_000, revision: 2 })
+
+    let goal = ctx.goals.pause(agent, rebudgeted)
+    expect(goal.maxGoalTokens).toBe(75_000)
+    goal = ctx.goals.resume(agent, goal)
+    expect(goal.maxGoalTokens).toBe(75_000)
+    goal = ctx.goals.block(agent, goal, { code: 'needs-input', message: 'A choice is required.' })
+    expect(goal.maxGoalTokens).toBe(75_000)
+    goal = ctx.goals.resume(agent, goal)
+    goal = ctx.goals.complete(agent, goal)
+    expect(goal.maxGoalTokens).toBe(75_000)
+  })
+
   it('supports pause, resume, block, and completion transitions', async () => {
     const { ctx, agent } = await harness()
     let goal = ctx.goals.create(agent, { objective: 'lifecycle' })
@@ -424,7 +455,7 @@ describe('GoalService mutations', () => {
     const tombstone = ctx.goals.clear(agent, goal)
     expect(tombstone).toEqual({ id: goal.id, revision: 2 })
     expect(ctx.goals.get(agent)).toBeUndefined()
-    expect(foldGoal(session.snapshotEvents())).toEqual({ roundsStarted: 0, lastRef: tombstone })
+    expect(foldGoal(session.snapshotEvents())).toEqual({ roundsStarted: 0, tokensUsed: 0, lastRef: tombstone })
     expect(() => ctx.goals.clear(agent, goal)).toThrow(expect.objectContaining({ code: 'GOAL_NOT_FOUND' }))
     const next = ctx.goals.create(agent, { objective: 'fresh' })
     expect(next.id).not.toBe(goal.id)
@@ -526,6 +557,7 @@ describe('GoalService mutations', () => {
         maxGoalRounds: 4,
       },
       roundsStarted: created.roundsStarted,
+      tokensUsed: created.tokensUsed,
       createdAt: created.createdAt,
       updatedAt: created.updatedAt,
     }
@@ -553,6 +585,7 @@ describe('GoalService mutations', () => {
         maxGoalRounds: 4,
       },
       roundsStarted: 0,
+      tokensUsed: 0,
       createdAt: 12,
       updatedAt: 12,
     }
@@ -579,6 +612,7 @@ describe('goal replay validation', () => {
         maxGoalRounds: 2,
       },
       roundsStarted: 0,
+      tokensUsed: 0,
       createdAt: 10,
       updatedAt: 10,
       ...overrides,
@@ -649,7 +683,7 @@ describe('goal replay validation', () => {
       content: [{ type: 'text', text: 'other' }],
       source: { kind: 'test' },
     }))
-    expect(foldGoal(session.snapshotEvents())).toEqual({ roundsStarted: 0 })
+    expect(foldGoal(session.snapshotEvents())).toEqual({ roundsStarted: 0, tokensUsed: 0 })
     const source = { kind: 'ordinary-user-message' } as const
     const turn = nextTurn(session)
     session.append('turn/start', { turn })
@@ -657,7 +691,7 @@ describe('goal replay validation', () => {
       content: [{ type: 'text', text: 'ordinary' }], source,
     }), { surfaceOp: 'append' })
     session.append('turn/end', { turn, reason: { kind: 'completed' } })
-    expect(foldGoal(session.snapshotEvents())).toEqual({ roundsStarted: 0 })
+    expect(foldGoal(session.snapshotEvents())).toEqual({ roundsStarted: 0, tokensUsed: 0 })
   })
 
   it('rejects rounds attributed to another goal', () => {
@@ -665,6 +699,19 @@ describe('goal replay validation', () => {
     const session = Session.create(SessionId('other-goal-round'), oneChange(change))
     appendRound(session, { id: GoalId('goal-other'), revision: 1 }, 1)
     expect(() => foldGoal(session.snapshotEvents())).toThrow('not the next admitted round')
+  })
+
+  it('decodes a pre-token-tracking change without tokensUsed, defaulting it to zero', () => {
+    const base = snapshotChange()
+    // Simulate an event committed before token tracking existed: no
+    // `tokensUsed` field at all, not merely zero.
+    const legacy = { ...base } as Partial<GoalSnapshotChangeMeta>
+    delete legacy.tokensUsed
+    const decoded = decodeGoalChange(legacy)
+    expect(decoded).toMatchObject({ operation: 'create', tokensUsed: 0 })
+    const session = Session.create(SessionId('legacy-tokens-used'))
+    appendChange(session, legacy as GoalChangeMeta)
+    expect(foldGoal(session.snapshotEvents())).toMatchObject({ tokensUsed: 0 })
   })
 
   it('rejects unsupported versions, operations, and extra top-level fields', () => {
@@ -713,6 +760,9 @@ describe('goal replay validation', () => {
       }),
       mutation(base, 'pause', 'paused', {
         goal: { ...base.goal, revision: 2, phase: 'paused', maxGoalRounds: 3 },
+      }),
+      mutation(base, 'pause', 'paused', {
+        goal: { ...base.goal, revision: 2, phase: 'paused', maxGoalTokens: 500 },
       }),
     ]
     for (const change of invalid) expect(() => foldPair(base, change)).toThrow()
@@ -819,6 +869,8 @@ describe('goal replay validation', () => {
       { ...base.goal, phase: 'blocked', blockedReason: { code: 'test-blocker', message: ' padded ' } },
       { ...base.goal, revision: 0 },
       { ...base.goal, maxGoalRounds: -1 },
+      { ...base.goal, maxGoalTokens: -1 },
+      { ...base.goal, maxGoalTokens: 1.5 },
     ]
     for (const goal of badSnapshots) expect(() => decodeGoalChange({ ...base, goal })).toThrow()
     expect(() => decodeGoalChange({ ...base, roundsStarted: -1 })).toThrow('roundsStarted')
@@ -848,6 +900,7 @@ describe('goal replay validation', () => {
     appendChange(session, clear)
     expect(foldGoal(session.snapshotEvents())).toEqual({
       roundsStarted: 0,
+      tokensUsed: 0,
       lastRef: { id: change.goal.id, revision: 2 },
     })
   })

@@ -525,6 +525,58 @@ describe('normalizeSessionLog', () => {
     expect(out).toContain('"operation":"resume"')
   })
 
+  it('normalizes kernel event clocks without rewriting unowned event payloads', () => {
+    const metadata = (timestamp: number) => ({
+      version: 1,
+      runId: 'run-1',
+      taskId: 'task-1',
+      actor: 'kernel',
+      timestamp,
+      provenance: { source: 'kernel' },
+    })
+    const events: Array<{ type: string; data: Record<string, unknown>; clocks?: string[] }> = [
+      { type: 'task/created', data: { metadata: metadata(101) } },
+      { type: 'task/transitioned', data: { at: 102, metadata: metadata(103) }, clocks: ['at'] },
+      { type: 'task/plan', data: { createdAt: 104, metadata: metadata(105) }, clocks: ['createdAt'] },
+      { type: 'action/decided', data: { metadata: metadata(106) } },
+      { type: 'action/committed', data: { committedAt: 107, governance: { at: 108 }, resultDigest: 'volatile-digest', metadata: metadata(109) }, clocks: ['committedAt'] },
+      { type: 'evidence/recorded', data: { observedAt: 110, metadata: metadata(111) }, clocks: ['observedAt'] },
+      { type: 'claim/updated', data: { metadata: metadata(112) } },
+      { type: 'hypothesis/updated', data: { metadata: metadata(113) } },
+      { type: 'verification/requested', data: { metadata: metadata(114) } },
+      { type: 'verification/result', data: { metadata: metadata(115) } },
+      { type: 'failure/recorded', data: { at: 116, metadata: metadata(117) }, clocks: ['at'] },
+      { type: 'recovery/started', data: { startedAt: 118, metadata: metadata(119) }, clocks: ['startedAt'] },
+      { type: 'recovery/decided', data: { at: 120, metadata: metadata(121) }, clocks: ['at'] },
+      { type: 'checkpoint/created', data: { createdAt: 122, budgets: { wallMs: 130, tokens: 4 }, metadata: metadata(123) }, clocks: ['createdAt'] },
+      { type: 'checkpoint/resumed', data: { resumedAt: 124, metadata: metadata(125) }, clocks: ['resumedAt'] },
+      { type: 'delegation/received', data: { at: 126, metadata: metadata(127) }, clocks: ['at'] },
+      { type: 'delegation/issued', data: { at: 128, metadata: metadata(129) }, clocks: ['at'] },
+    ]
+    const unrelated = { at: 130, createdAt: 131, budgets: { wallMs: 140 }, resultDigest: 'custom-digest', metadata: metadata(132) }
+    const raw = `${header({})}\n${[
+      ...events.map(event => JSON.stringify(event)),
+      JSON.stringify({ type: 'custom/event', data: unrelated }),
+    ].join('\n')}\n`
+    const readBody = (log: string): Array<{ type: string; data?: Record<string, unknown> }> =>
+      log.split('\n').filter(Boolean).map(line => JSON.parse(line) as { type: string; data?: Record<string, unknown> }).slice(1)
+
+    for (const normalized of [normalizeSessionLog(raw, ctx), scrubSessionSnapshot(raw)]) {
+      const body = readBody(normalized)
+      for (const [index, event] of events.entries()) {
+        const data = body[index]?.data
+        expect(data?.metadata).toMatchObject({ timestamp: 0 })
+        for (const field of event.clocks ?? []) expect(data?.[field]).toBe(0)
+        if (event.type === 'action/committed') {
+          expect(data?.['governance']).toMatchObject({ at: 0 })
+          expect(data?.['resultDigest']).toBe('{{resultDigest}}')
+        }
+        if (event.type === 'checkpoint/created') expect(data?.['budgets']).toMatchObject({ wallMs: 0, tokens: 4 })
+      }
+      expect(body.at(-1)?.data).toEqual(unrelated)
+    }
+  })
+
   it('normalizes subagent catalog child creation clocks', () => {
     const catalog = JSON.stringify({
       type: 'subagent/catalog',

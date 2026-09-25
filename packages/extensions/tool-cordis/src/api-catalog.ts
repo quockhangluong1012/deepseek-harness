@@ -7122,7 +7122,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'CreateGoalRequest',
-    declaration: 'export interface CreateGoalRequest {\n    readonly objective: string;\n    readonly maxGoalRounds?: number;\n}',
+    declaration: 'export interface CreateGoalRequest {\n    readonly objective: string;\n    readonly maxGoalRounds?: number;\n    readonly maxGoalTokens?: number;\n}',
   },
   {
     name: 'CreateGoalResult',
@@ -7482,7 +7482,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'EditGoalRequest',
-    declaration: 'export interface EditGoalRequest {\n    readonly objective?: string;\n    readonly maxGoalRounds?: number;\n}',
+    declaration: 'export interface EditGoalRequest {\n    readonly objective?: string;\n    readonly maxGoalRounds?: number;\n    readonly maxGoalTokens?: number;\n}',
   },
   {
     name: 'EmbeddingRequest',
@@ -7842,11 +7842,11 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'GoalSnapshot',
-    declaration: 'export interface GoalSnapshot extends GoalRef {\n    readonly objective: string;\n    readonly phase: GoalPhase;\n    readonly blockedReason?: GoalBlockReason;\n    readonly maxGoalRounds: number;\n}',
+    declaration: 'export interface GoalSnapshot extends GoalRef {\n    readonly objective: string;\n    readonly phase: GoalPhase;\n    readonly blockedReason?: GoalBlockReason;\n    readonly maxGoalRounds: number;\n    readonly maxGoalTokens?: number;\n}',
   },
   {
     name: 'GoalView',
-    declaration: 'export interface GoalView extends GoalSnapshot {\n    readonly roundsStarted: number;\n    readonly createdAt: number;\n    readonly updatedAt: number;\n    readonly activation: GoalActivation;\n}',
+    declaration: 'export interface GoalView extends GoalSnapshot {\n    readonly roundsStarted: number;\n    readonly tokensUsed: number;\n    readonly createdAt: number;\n    readonly updatedAt: number;\n    readonly activation: GoalActivation;\n}',
   },
   {
     name: 'GrantRecord',
@@ -8257,6 +8257,18 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface LlmModelContext {\n    contextWindow: number;\n}',
   },
   {
+    name: 'LlmModelCost',
+    declaration: 'export interface LlmModelCost extends LlmModelCostRates {\n    tiers?: readonly LlmModelCostTier[];\n}',
+  },
+  {
+    name: 'LlmModelCostRates',
+    declaration: 'export interface LlmModelCostRates {\n    inputPerMTok: number;\n    outputPerMTok: number;\n    cacheReadPerMTok: number;\n    cacheWritePerMTok: number;\n}',
+  },
+  {
+    name: 'LlmModelCostTier',
+    declaration: 'export interface LlmModelCostTier extends LlmModelCostRates {\n    inputTokensAbove: number;\n}',
+  },
+  {
     name: 'LlmModelDiscoveryRequest',
     declaration: 'export interface LlmModelDiscoveryRequest {\n    provider?: string;\n    baseURL?: string;\n    api?: string;\n    apiKey?: string;\n}',
   },
@@ -8278,7 +8290,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'LlmResolvedModelInfo',
-    declaration: 'export interface LlmResolvedModelInfo extends LlmModelInfo {\n    context?: LlmModelContext;\n    defaultMaxTokens?: number;\n    reasoning?: LlmModelReasoningInfo;\n    systemPromptUpdate?: SystemPromptUpdate;\n}',
+    declaration: 'export interface LlmResolvedModelInfo extends LlmModelInfo {\n    context?: LlmModelContext;\n    defaultMaxTokens?: number;\n    reasoning?: LlmModelReasoningInfo;\n    systemPromptUpdate?: SystemPromptUpdate;\n    cost?: LlmModelCost;\n}',
   },
   {
     name: 'LlmRuntime',

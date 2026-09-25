@@ -33,7 +33,7 @@ kind: "package-reference"
 
 | 输入 | 结果 |
 |---|---|
-| `/goal` | 显示当前目标、持久 phase、Round 数量与上限、进程本地续行启用状态与有效的下一步命令；被阻塞的 goal 还会显示其策略代码与说明 |
+| `/goal` | 显示当前目标、持久 phase、Round 数量与上限、token 消耗量及其配置时的可选上限、进程本地续行启用状态与有效的下一步命令；被阻塞的 goal 还会显示其策略代码与说明 |
 | `/goal <objective>` | 创建 goal 并启用续行，或用全新身份替换已完成 goal |
 | `/goal edit <objective>` | 编辑当前目标，不改变其 phase 或续行启用状态 |
 | `/goal pause` | 暂停 active goal 并停用续行 |
@@ -126,7 +126,7 @@ kind: "package-reference"
 这些限制说明命令何时不合适或需要特别注意。它们是当前包约束，不是任务积压。
 
 - **仅纯文本交互**——通用命令注册表没有模态编辑表单或替换确认回调；内联 edit 与显式 clear 能在不同适配器中保持明确且一致的破坏性意图。
-- **没有逐命令 Round 上限参数**——`defaultMaxGoalRounds` 仍是部署配置；用户直接请求时，可以要求模型通过另行授权的 goal 工具编辑 `max_goal_rounds`。
+- **没有逐命令预算参数**——`defaultMaxGoalRounds` 仍是部署配置；用户直接请求时，可以要求模型通过另行授权的 goal 工具编辑 `max_goal_rounds` 或 `max_goal_tokens`。
 - **没有持续状态组件**——裸 `/goal` 是可移植的观察接口；不提供适配器专用徽标或重连后可恢复的命令输出。
 - **随附应用中只有 Web 命令适配器使用此命令**——无头、ACP 自动化和 JSON-RPC 适配器不消费 `ctx.commands`。如果组合中包含面向模型的 goal 工具，普通提示词仍能授权它们。
 

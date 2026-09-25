@@ -72,8 +72,10 @@ const goalProjectionSchema: ZodType<GoalProjection | null> = zod.union([
       phase: zod.union([zod.literal('active'), zod.literal('paused'), zod.literal('blocked'), zod.literal('complete')]),
       blockedReason: zod.object({ code: zod.string(), message: zod.string() }).optional(),
       maxGoalRounds: zod.number().int().positive(),
+      maxGoalTokens: zod.number().int().positive().optional(),
     }),
     roundsStarted: zod.number().int().nonnegative(),
+    tokensUsed: zod.number().int().nonnegative(),
     createdAt: zod.number(),
     updatedAt: zod.number(),
   }),
@@ -105,6 +107,7 @@ function goalFoldState(state: GoalProjectionState): GoalFoldState {
   return {
     goal: state.current?.goal,
     roundsStarted: state.current?.roundsStarted ?? 0,
+    tokensUsed: state.current?.tokensUsed ?? 0,
     createdAt: state.current?.createdAt,
     updatedAt: state.current?.updatedAt,
     lastRef: undefined,
@@ -123,6 +126,7 @@ function goalProjectionState(state: GoalFoldState): GoalProjectionState {
     current = {
       goal: state.goal,
       roundsStarted: state.roundsStarted,
+      tokensUsed: state.tokensUsed,
       createdAt,
       updatedAt,
     }
@@ -138,14 +142,16 @@ function goalProjectionState(state: GoalFoldState): GoalProjectionState {
  * Fold durable goal events through the strict replay rules without throwing
  * from the projection registry's event drive. The first invalid owned event
  * is retained in `failure`; host goal access rejects that state while the
- * client view remains at the last valid goal.
+ * client view remains at the last valid goal. `assistant/message` events
+ * pass through unconditionally (only checked while a goal is current) so
+ * `tokensUsed` accumulates from every billed sample, not only goal rounds.
  * @param state - the projection covering all prior events.
  * @param event - the next committed session event.
  * @returns the next projection (same reference when the event is unrelated).
  */
 export function applyGoalProjection(state: GoalProjectionState, event: SessionEvent): GoalProjectionState {
   if (state.failure !== null) return state
-  if (event.type !== 'goal/change'
+  if (event.type !== 'goal/change' && event.type !== 'assistant/message'
     && (event.type !== 'user/message' || event.data.source.kind !== 'goal')) return state
   const folded = goalFoldState(state)
   try {
@@ -165,7 +171,7 @@ export const goalProjectionDefinition = {
   init: (): GoalProjectionState => ({ current: null, seenGoalIds: [], failure: null }),
   apply: applyGoalProjection,
   wire: { viewSchema: goalProjectionSchema, view: state => state.current },
-  stateVersion: 6,
+  stateVersion: 7,
 } satisfies ProjectionDefinition<'goal', GoalProjectionState>
 
 /** Deployment defaults for goal creation. */
@@ -193,12 +199,22 @@ interface GoalRuntimeState {
 interface ResolvedCreateGoal {
   readonly objective: string
   readonly maxGoalRounds: number
+  readonly maxGoalTokens?: number
 }
 
 /** Validate a caller-visible positive safe-integer round cap. */
 function resolveMaxGoalRounds(value: number): number {
   if (!Number.isSafeInteger(value) || value < 1) {
     throw new GoalError('maxGoalRounds must be a positive safe integer', 'GOAL_INVALID_MAX_ROUNDS')
+  }
+  return value
+}
+
+/** Validate an optional caller-visible positive safe-integer token budget. */
+function resolveMaxGoalTokens(value: number | undefined): number | undefined {
+  if (value === undefined) return undefined
+  if (!Number.isSafeInteger(value) || value < 1) {
+    throw new GoalError('maxGoalTokens must be a positive safe integer', 'GOAL_INVALID_MAX_TOKENS')
   }
   return value
 }
@@ -213,9 +229,11 @@ function resolveObjective(value: string): string {
 
 /** Materialize deployment defaults and validate one create request. */
 function resolveCreateGoal(request: CreateGoalRequest, defaultMaxGoalRounds: number): ResolvedCreateGoal {
+  const maxGoalTokens = resolveMaxGoalTokens(request.maxGoalTokens)
   return {
     objective: resolveObjective(request.objective),
     maxGoalRounds: resolveMaxGoalRounds(request.maxGoalRounds ?? defaultMaxGoalRounds),
+    ...maxGoalTokens === undefined ? {} : { maxGoalTokens },
   }
 }
 
@@ -314,8 +332,9 @@ export class GoalService extends TypertRemoteService {
       objective: spec.objective,
       phase: 'active',
       maxGoalRounds: spec.maxGoalRounds,
+      ...spec.maxGoalTokens === undefined ? {} : { maxGoalTokens: spec.maxGoalTokens },
     }
-    return this.commitSnapshot(agent, runtime, 'create', goal, 0, now, now, 'armed')
+    return this.commitSnapshot(agent, runtime, 'create', goal, 0, 0, now, now, 'armed')
   }
 
   /**
@@ -330,14 +349,16 @@ export class GoalService extends TypertRemoteService {
     const [state, runtime] = this.prepareMutation(agent)
     const currentState = this.expectCurrent(state, ref)
     const current = currentState.goal
-    if (request.objective === undefined && request.maxGoalRounds === undefined) {
-      throw new GoalError('goal edit requires objective and/or maxGoalRounds', 'GOAL_INVALID_EDIT')
+    if (request.objective === undefined && request.maxGoalRounds === undefined && request.maxGoalTokens === undefined) {
+      throw new GoalError('goal edit requires objective, maxGoalRounds, and/or maxGoalTokens', 'GOAL_INVALID_EDIT')
     }
+    const maxGoalTokens = resolveMaxGoalTokens(request.maxGoalTokens)
     const goal: GoalSnapshot = {
       ...current,
       revision: current.revision + 1,
       ...request.objective === undefined ? {} : { objective: resolveObjective(request.objective) },
       ...request.maxGoalRounds === undefined ? {} : { maxGoalRounds: resolveMaxGoalRounds(request.maxGoalRounds) },
+      ...maxGoalTokens === undefined ? {} : { maxGoalTokens },
     }
     return this.commitCurrent(agent, currentState, runtime, 'edit', goal, runtime.activation)
   }
@@ -375,6 +396,12 @@ export class GoalService extends TypertRemoteService {
     if (currentState.roundsStarted >= current.maxGoalRounds) {
       throw new GoalError(
         `goal "${current.id}" exhausted ${current.maxGoalRounds} goal rounds; increase maxGoalRounds before resuming`,
+        'GOAL_INVALID_TRANSITION',
+      )
+    }
+    if (current.maxGoalTokens !== undefined && currentState.tokensUsed >= current.maxGoalTokens) {
+      throw new GoalError(
+        `goal "${current.id}" exhausted ${current.maxGoalTokens} goal tokens; increase maxGoalTokens before resuming`,
         'GOAL_INVALID_TRANSITION',
       )
     }
@@ -522,6 +549,7 @@ export class GoalService extends TypertRemoteService {
       objective: current.objective,
       phase,
       maxGoalRounds: current.maxGoalRounds,
+      ...current.maxGoalTokens === undefined ? {} : { maxGoalTokens: current.maxGoalTokens },
     }
   }
 
@@ -564,6 +592,7 @@ export class GoalService extends TypertRemoteService {
       operation,
       goal,
       state.roundsStarted,
+      state.tokensUsed,
       state.createdAt,
       this.nextMutationTime(state),
       activation,
@@ -582,6 +611,7 @@ export class GoalService extends TypertRemoteService {
     operation: Exclude<GoalOperation, 'clear'>,
     goal: GoalSnapshot,
     roundsStarted: number,
+    tokensUsed: number,
     createdAt: number,
     updatedAt: number,
     activation: GoalActivation,
@@ -592,6 +622,7 @@ export class GoalService extends TypertRemoteService {
       operation,
       goal,
       roundsStarted,
+      tokensUsed,
       createdAt,
       updatedAt,
     }
@@ -599,6 +630,7 @@ export class GoalService extends TypertRemoteService {
     return {
       ...goal,
       roundsStarted,
+      tokensUsed,
       createdAt,
       updatedAt,
       activation: runtime.activation,
@@ -631,6 +663,7 @@ export class GoalService extends TypertRemoteService {
     return {
       ...state.goal,
       roundsStarted: state.roundsStarted,
+      tokensUsed: state.tokensUsed,
       createdAt: state.createdAt,
       updatedAt: state.updatedAt,
       activation: runtime.activation,

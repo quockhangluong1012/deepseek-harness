@@ -33,7 +33,7 @@ Every sub-command runs against the current goal of the invoking agent; a bare `/
 
 | Input | Result |
 |---|---|
-| `/goal` | Shows the current objective, durable phase, round count and cap, process-local activation, and valid next commands; a blocked goal also shows its policy code and explanation |
+| `/goal` | Shows the current objective, durable phase, round count and cap, token spend and its optional cap when configured, process-local activation, and valid next commands; a blocked goal also shows its policy code and explanation |
 | `/goal <objective>` | Creates and arms a goal, or replaces a completed goal with a fresh identity |
 | `/goal edit <objective>` | Edits the current objective without changing its phase or activation |
 | `/goal pause` | Pauses an active goal and disarms continuation |
@@ -126,7 +126,7 @@ Command discovery, mutations, and direct output do not affect the cache. Later c
 These limits define when the command is a poor fit or needs special care. They are current package constraints, not a task backlog.
 
 - **Plain-text interaction only** — the generic command registry has no modal edit form or replacement-confirmation callback; inline edit and explicit clear keep destructive intent deterministic across adapters.
-- **No per-command round-cap argument** — `defaultMaxGoalRounds` remains deployment config, while a direct human request may ask the model to edit `max_goal_rounds` through the separately authorized goal tool.
+- **No per-command budget arguments** — `defaultMaxGoalRounds` remains deployment config, while a direct human request may ask the model to edit `max_goal_rounds` or `max_goal_tokens` through the separately authorized goal tool.
 - **No continuous status widget** — bare `/goal` is the portable observation API; no adapter-specific badges or reconnectable command output are provided.
 - **Web command adapter only in the shipped apps** — headless, ACP automation, and JSON-RPC adapters do not consume `ctx.commands`. Ordinary prompts can still authorize model-facing goal tools when those are composed.
 

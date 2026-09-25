@@ -40,6 +40,7 @@ const exitDelayMs = Number(process.env.LSP_FAKE_EXIT_DELAY_MS ?? 0)
 const exitMarker = process.env.LSP_FAKE_EXIT_MARKER
 const noShutdown = process.env.LSP_FAKE_NO_SHUTDOWN === '1'
 const onOpen = process.env.LSP_FAKE_ON_OPEN
+let openedDocumentUri: string | undefined
 const errorReply = process.env.LSP_FAKE_ERROR === '1'
 const garbage = process.env.LSP_FAKE_GARBAGE === '1'
 
@@ -136,10 +137,10 @@ function handle(message: { id?: number; method?: string; params?: unknown; resul
   }
   if (method === 'textDocument/didOpen') {
     if (crashOnOpen) process.exit(1)
-    if (openMarker !== undefined) {
-      const params = message.params as { textDocument?: { text?: unknown } } | undefined
-      appendFileSync(openMarker, `${JSON.stringify(params?.textDocument?.text)}\n`)
-    }
+    const params = message.params as { textDocument?: { uri?: unknown; text?: unknown } } | undefined
+    const textDocument = params?.textDocument
+    if (typeof textDocument?.uri === 'string') openedDocumentUri = textDocument.uri
+    if (openMarker !== undefined) appendFileSync(openMarker, `${JSON.stringify(textDocument?.text)}\n`)
     if (onOpen !== undefined) emitServerRequest(onOpen)
     return
   }
@@ -177,7 +178,7 @@ function emitServerRequest(kind: string): void {
     return
   }
   if (kind === 'diagnostics') {
-    const uri = process.env.LSP_FAKE_DIAGNOSTICS_URI ?? 'file:///unset'
+    const uri = process.env.LSP_FAKE_DIAGNOSTICS_URI ?? openedDocumentUri ?? 'file:///unset'
     const diagnostics = process.env.LSP_FAKE_DIAGNOSTICS !== undefined ? JSON.parse(process.env.LSP_FAKE_DIAGNOSTICS) : []
     const publish = (): void => { send({ method: 'textDocument/publishDiagnostics', params: { uri, diagnostics } }) }
     const delayMs = Number(process.env.LSP_FAKE_DIAGNOSTICS_DELAY_MS ?? 0)

@@ -35,6 +35,7 @@
             "description": "Required with sandbox_permissions: one sentence for the user explaining why this exact file operation needs the wider access."
           }
         },
+        "additionalProperties": false,
         "required": [
           "file_path",
           "old_string",
@@ -53,6 +54,7 @@
             "description": "The complete plan, as markdown, starting with a # heading that names it."
           }
         },
+        "additionalProperties": false,
         "required": [
           "plan"
         ]
@@ -73,6 +75,7 @@
             "description": "Directory to search in. Defaults to the session workspace; a relative path resolves against it."
           }
         },
+        "additionalProperties": false,
         "required": [
           "pattern"
         ]
@@ -97,6 +100,7 @@
             "description": "One glob filter for which files to search (e.g. \"*.ts\", \"*.{js,jsx}\"). Not a list; negation is not supported."
           }
         },
+        "additionalProperties": false,
         "required": [
           "pattern"
         ]
@@ -113,6 +117,7 @@
             "description": "The agent id of the running agent to interrupt."
           }
         },
+        "additionalProperties": false,
         "required": [
           "agent_id"
         ]
@@ -132,7 +137,45 @@
               "descendants"
             ]
           }
-        }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "lsp",
+      "description": "Query a language server for precise code navigation and diagnostics. operation is one of goToDefinition, findReferences, goToImplementation, hover, diagnostics. line and character are one-based UTF-16 cursor coordinates, required for every operation except diagnostics (which is file-scoped). findReferences includes the declaration. diagnostics returns the file's current diagnostics within a bounded wait after opening it; a server that has not finished analyzing the file within that window returns no diagnostics rather than an error. Queries against one workspace run serially; parallel fan-out to the same workspace waits in queue, so prefer sequential calls or distinct workspaces.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "operation": {
+            "type": "string",
+            "description": "goToDefinition, findReferences, goToImplementation, hover, or diagnostics.",
+            "enum": [
+              "goToDefinition",
+              "findReferences",
+              "goToImplementation",
+              "hover",
+              "diagnostics"
+            ]
+          },
+          "file_path": {
+            "type": "string",
+            "description": "The source file to query, relative to the workspace or absolute."
+          },
+          "line": {
+            "type": "integer",
+            "description": "One-based line of the cursor. Required for every operation except diagnostics."
+          },
+          "character": {
+            "type": "integer",
+            "description": "One-based UTF-16 column of the cursor. Required for every operation except diagnostics."
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "operation",
+          "file_path"
+        ]
       }
     },
     {
@@ -146,6 +189,7 @@
             "description": "The PowerShell command to run. Relative path is preferred in the command."
           }
         },
+        "additionalProperties": false,
         "required": [
           "command"
         ]
@@ -170,6 +214,7 @@
             "description": "Maximum number of lines to return. Defaults to 2000."
           }
         },
+        "additionalProperties": false,
         "required": [
           "file_path"
         ]
@@ -186,6 +231,7 @@
             "description": "Path to the image file, resolved by the filesystem backend."
           }
         },
+        "additionalProperties": false,
         "required": [
           "file_path"
         ]
@@ -206,6 +252,7 @@
             "description": "The message to deliver to the agent."
           }
         },
+        "additionalProperties": false,
         "required": [
           "agent_id",
           "message"
@@ -224,13 +271,17 @@
           },
           "prompt": {
             "type": "string",
-            "description": "The complete, self-contained task for the subagent. It does not share this conversation's context, so include everything it needs."
+            "description": "The complete, self-contained task for the subagent. It does not share this conversation's context, so include everything it needs. Ask for a text answer: only the child's text reaches this conversation."
           },
           "run_in_background": {
             "type": "boolean",
             "description": "Whether to run in the background and return a durable subagent id immediately. Defaults to true. Set false to wait for the result when your next action depends on it."
+          },
+          "output_schema": {
+            "description": "Optional object-rooted JSON Schema for a structured final answer. When supplied, the child must call structured_output with a matching value instead of finishing with plain text; the validated value returns as `structured`. Foreground one-shot runs only."
           }
         },
+        "additionalProperties": false,
         "required": [
           "description",
           "prompt"
@@ -249,9 +300,13 @@
           },
           "prompt": {
             "type": "string",
-            "description": "The task for the subagent. It already sees this conversation's completed turns, so build on them freely and state only what is new."
+            "description": "The task for the subagent. It already sees this conversation's completed turns, so build on them freely and state only what is new. Ask for a text answer: only the child's text reaches this conversation."
+          },
+          "output_schema": {
+            "description": "Optional object-rooted JSON Schema for a structured final answer. When supplied, the child must call structured_output with a matching value instead of finishing with plain text; the validated value returns as `structured`. Foreground one-shot runs only."
           }
         },
+        "additionalProperties": false,
         "required": [
           "description",
           "prompt"
@@ -292,6 +347,7 @@
             }
           }
         },
+        "additionalProperties": false,
         "required": [
           "todos"
         ]
@@ -308,6 +364,7 @@
             "description": "The HTTP(S) URL to fetch."
           }
         },
+        "additionalProperties": false,
         "required": [
           "url"
         ]
@@ -327,6 +384,7 @@
             }
           }
         },
+        "additionalProperties": false,
         "required": [
           "queries"
         ]
@@ -404,6 +462,7 @@
             "description": "Run as a background job: return a job id immediately instead of waiting; the return value arrives with the completion notice."
           }
         },
+        "additionalProperties": false,
         "required": [
           "script",
           "meta"
@@ -437,6 +496,7 @@
             "description": "Required with sandbox_permissions: one sentence for the user explaining why this exact file operation needs the wider access."
           }
         },
+        "additionalProperties": false,
         "required": [
           "file_path",
           "content"

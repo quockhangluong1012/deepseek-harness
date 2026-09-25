@@ -54,7 +54,7 @@ Mount this plugin when a consumer needs billed-usage aggregates across sessions.
 
 `summary(range)` answers totals, per-day buckets, and the per-model table for `today`, `7d`, `30d`, or `all`. Input tokens are billed prompt tokens (`uncached + cacheRead + cacheWrite`); the average cache hit is `cacheRead / billedInput`; days are fixed to UTC+7. Totals are advisory, not billing records: unprovable samples are skipped, never zero-filled, and counts begin when the ledger first mounts.
 
-The same UTC+7 calendar is exported from the package root — `dayKeyUTC7`, `dayStartUTC7`, `daysOfRange`, `isUsageRange`, and `windowStartOfRange` — so a surface that reports per-day history (the evolution journey) buckets on the dashboard's days instead of re-deriving the zone offset.
+The same UTC+7 calendar is exported from the package root — `dayKeyUTC7`, `dayStartUTC7`, `daysOfRange`, `isUsageRange`, and `windowStartOfRange` — so a surface that reports per-day history (the evolution journey) buckets on the dashboard's days instead of re-deriving the zone offset. The root also exports the pricing primitives — `priceSample(sample, cost)` bills one normalized sample through provider rates and their volume tiers, with `normalizeSample`, `sampleOfAttempt`, `sampleOfMessage`, and `messageRoute` alongside it — for a surface that prices a single session tree on demand, as `/cost` does.
 
 ### Cache-hit alert (opt-in)
 

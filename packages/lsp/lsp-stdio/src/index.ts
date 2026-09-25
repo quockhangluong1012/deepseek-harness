@@ -1,13 +1,12 @@
 /**
- * Generic stdio language-server backend for `ctx.lsp`. One plugin instance configures a named table
- * of server commands and registers one isolated provider for each entry. Every provider lazily
- * single-flights one server process per canonical workspace target, serves transient-open queries
- * through it, and replaces a selected transport that fails before or during the next read-only
- * query. Providers read sources through `ctx.fs` and launch servers through
- * `ctx.subprocess`, so both local and remote implementations share one host.
+ * Generic stdio provider for `ctx.lsp`. A plugin instance registers explicit commands and may
+ * auto-detect a fixed set of common server commands on PATH. Each provider starts one server per
+ * canonical workspace on demand, serves transient-open queries, and replaces a selected transport
+ * that fails before or during the next read-only query. Sources use `ctx.fs`; processes use
+ * `ctx.subprocess`, so local and remote providers share one execution world.
  *
- * Namespace plugin (named exports, no default export). Lifecycle is effect-scoped: disposal
- * unregisters from `ctx.lsp` and tears down every live server.
+ * Namespace plugin (named exports, no default export). Disposal unregisters routes and tears down
+ * every live server.
  * @module @deepseek-ai/dsh-lsp-stdio
  */
 
@@ -19,6 +18,7 @@ import type {
   LspProviderQuery,
   LspQueryResult,
 } from '@deepseek-ai/dsh-lsp'
+import { SubprocessExecutableNotFoundError } from '@deepseek-ai/dsh-subprocess'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import { abortable, abortError } from './abort.ts'
 import { canonicalizeWorkspace, readHostSource } from './host.ts'
@@ -54,7 +54,21 @@ const DEFAULT_SHUTDOWN_TIMEOUT_MS = 5_000
 const DEFAULT_KILL_GRACE_MS = 2_000
 const DEFAULT_DIAGNOSTICS_WAIT_MS = 3_000
 
-/** One configured local language server and its host bounds. */
+interface AutoDetectedServer {
+  readonly providerId: string
+  readonly command: string
+  readonly args: readonly string[]
+  readonly extensionToLanguage: Readonly<Record<string, string>>
+}
+
+const AUTO_DETECTED_SERVERS = [
+  { providerId: 'auto-typescript', command: 'typescript-language-server', args: ['--stdio'], extensionToLanguage: { '.ts': 'typescript', '.tsx': 'typescriptreact' } },
+  { providerId: 'auto-pyright', command: 'pyright-langserver', args: ['--stdio'], extensionToLanguage: { '.py': 'python' } },
+  { providerId: 'auto-gopls', command: 'gopls', args: ['serve'], extensionToLanguage: { '.go': 'go' } },
+  { providerId: 'auto-rust-analyzer', command: 'rust-analyzer', args: [], extensionToLanguage: { '.rs': 'rust' } },
+] as const satisfies readonly AutoDetectedServer[]
+
+/** One configured or auto-detected local language server and its host bounds. */
 export interface LspLocalServerConfig {
   /** Executable to spawn (absolute, or resolved on PATH at load). */
   command: string
@@ -86,11 +100,16 @@ export interface LspLocalServerConfig {
   diagnosticsWaitMs?: number
 }
 
-/** Plugin configuration: provider id → local language-server configuration. */
+/** Plugin configuration: explicit provider entries and optional known-server detection. */
 export interface Config {
-  /** Non-empty table of stable provider ids to independent local server configurations. */
-  servers: Record<string, LspLocalServerConfig>
+  /** Stable provider ids mapped to independently configured local language servers. Default `{}`. */
+  servers?: Record<string, LspLocalServerConfig>
+  /** Detect known language-server commands on PATH; only missing commands are skipped. Default `false`. */
+  autoDetect?: boolean
 }
+
+/** Plugin configuration with schema defaults applied. */
+type ResolvedConfig = Required<Config>
 
 /** One server config after schemastery fills every default. */
 type ResolvedServerConfig = Required<LspLocalServerConfig>
@@ -112,7 +131,8 @@ const LspLocalServerConfig: z<LspLocalServerConfig> = z.object({
 })
 
 export const Config: z<Config> = z.object({
-  servers: z.dict(LspLocalServerConfig).required(),
+  servers: z.dict(LspLocalServerConfig).default({}),
+  autoDetect: z.boolean().default(false),
 })
 
 /** Propagate teardown failures only after every sibling has settled. */
@@ -126,15 +146,20 @@ function throwTeardownFailures(results: readonly PromiseSettledResult<void>[], m
 }
 
 /**
- * Register the configured stdio LSP providers. Resolves every executable at load (after credential
- * scrubbing) before publishing any provider; each process launches lazily on its first matching
+ * Register explicit stdio providers and optional auto-detected servers. Every configured executable
+ * must resolve; a missing auto-detected executable is skipped. Processes start lazily on a matching
  * query.
  * @param ctx - the plugin context carrying `fs`, `lsp`, and `subprocess`.
  * @param config - the resolved plugin configuration (schemastery has filled every default).
+ * @returns after all server lookups complete and their providers are registered.
+ * @throws when a configured executable is absent, an automatic lookup fails for another reason, or a provider config is invalid.
  */
 export async function apply(ctx: Context, config: Config): Promise<void> {
-  const entries = Object.entries(config.servers)
-  if (entries.length === 0) throw new Error('lsp-stdio: servers must contain at least one server')
+  const resolvedConfig = config as ResolvedConfig
+  const entries = Object.entries(resolvedConfig.servers)
+  if (entries.length === 0 && !resolvedConfig.autoDetect) {
+    throw new Error('lsp-stdio: servers must contain at least one server unless autoDetect is enabled')
+  }
 
   const setupAbort = new AbortController()
   const stopSetupCancellation = ctx.on('internal/plugin', (fiber) => {
@@ -145,18 +170,52 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     }
   })
 
-  // Resolve every server-local setting before registration so a bad later command or bound cannot
-  // publish an earlier provider. Registry-level mapping conflicts are rolled back below.
+  // Resolve every server-local setting before publishing any provider. Explicit mappings own
+  // overlapping extensions; missing auto-detected commands are the only optional lookup failure.
   const providers = await (async () => {
-    const lookups = entries.map(async ([providerId, rawConfig]) => {
+    const serverEntries: Array<{
+      providerId: string
+      rawConfig: LspLocalServerConfig
+      autoDetected: boolean
+    }> = entries.map(([providerId, rawConfig]) => ({ providerId, rawConfig, autoDetected: false }))
+    if (resolvedConfig.autoDetect) {
+      const explicitIds = new Set(entries.map(([providerId]) => providerId))
+      const explicitExtensions = new Set(entries.flatMap(([, rawConfig]) =>
+        Object.keys(rawConfig.extensionToLanguage).map(normalizeExtensionKey),
+      ))
+      for (const server of AUTO_DETECTED_SERVERS) {
+        if (explicitIds.has(server.providerId)) continue
+        const extensionToLanguage = Object.fromEntries(
+          Object.entries(server.extensionToLanguage).filter(([extension]) => !explicitExtensions.has(extension)),
+        )
+        if (Object.keys(extensionToLanguage).length === 0) continue
+        serverEntries.push({
+          providerId: server.providerId,
+          rawConfig: LspLocalServerConfig({
+            command: server.command,
+            args: [...server.args],
+            extensionToLanguage,
+          }),
+          autoDetected: true,
+        })
+      }
+    }
+
+    const lookups = serverEntries.map(async ({ providerId, rawConfig, autoDetected }) => {
       if (providerId.trim() === '') throw new Error('lsp-stdio: server ids must be non-empty strings')
       const resolved = rawConfig as ResolvedServerConfig
       validateServerConfig(providerId, resolved)
-      const executable = await ctx.subprocess.resolveExecutable(
-        resolved.command,
-        resolved.env,
-        setupAbort.signal,
-      )
+      let executable: string
+      try {
+        executable = await ctx.subprocess.resolveExecutable(
+          resolved.command,
+          resolved.env,
+          setupAbort.signal,
+        )
+      } catch (error) {
+        if (autoDetected && error instanceof SubprocessExecutableNotFoundError) return undefined
+        throw error
+      }
       setupAbort.signal.throwIfAborted()
       return new LocalLspProvider(
         providerId,
@@ -167,7 +226,9 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       )
     })
     try {
-      return await Promise.all(lookups)
+      return (await Promise.all(lookups)).filter(
+        (provider): provider is LocalLspProvider => provider !== undefined,
+      )
     } catch (error: unknown) {
       setupAbort.abort(error)
       await Promise.allSettled(lookups)
@@ -192,6 +253,12 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       throwTeardownFailures(results, 'lsp-stdio provider teardown failed')
     }
   }, 'lsp-stdio.registerProviders')
+}
+
+/** Match extension keys as the LSP seam normalizes them. */
+function normalizeExtensionKey(extension: string): string {
+  const lower = extension.toLowerCase()
+  return lower.startsWith('.') ? lower : `.${lower}`
 }
 
 /** Validate one resolved server entry before any provider in the table is registered. */

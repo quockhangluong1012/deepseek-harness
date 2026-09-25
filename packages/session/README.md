@@ -54,6 +54,7 @@ The group splits into four families: durable storage (persistence seam, backends
 | Package | Role | ctx key |
 |---|---|---|
 | [`usage-ledger/`](usage-ledger/README.md) | Folds billed LLM attempts into durable per-day and per-model counters for the usage dashboard | `ctx.usageLedger` |
+| [`command-cost/`](command-cost/README.md) | Prices one agent's session tree against provider catalog rates for the human `/cost` command | registers on `ctx.commands` |
 
 ### Titles
 

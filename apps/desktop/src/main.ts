@@ -28,6 +28,7 @@ import { installDesktopDirectoryPicker } from './directory-picker.ts'
 import { installMicrophonePermissions } from './microphone-permissions.ts'
 import { DesktopBackendController } from './backend-controller.ts'
 import { DESKTOP_IPC, SCHEME, assertDesktopSender, type DesktopUpdateState } from './ipc.ts'
+import { DesktopNotifications } from './desktop-notifications.ts'
 import { formatDesktopMessage, resolveDesktopLocale, resolveDesktopStartupLocale } from './locale.ts'
 import { claimDesktopSingleInstance } from './single-instance.ts'
 import { DesktopUpdateCoordinator } from './update-coordinator.ts'
@@ -591,6 +592,24 @@ async function main(): Promise<void> {
   ipcMain.handle(DESKTOP_IPC.browserRelease, (event, lease: unknown) => {
     assertProductSender(event)
     return browserGuests.release(event.sender, lease)
+  })
+
+  const desktopNotifications = new DesktopNotifications()
+  ipcMain.handle(DESKTOP_IPC.notificationsShow, (event, id: unknown, title: unknown, body: unknown) => {
+    assertProductSender(event)
+    if (typeof id !== 'string' || typeof title !== 'string' || typeof body !== 'string') {
+      throw new Error('dsh desktop: malformed notification request')
+    }
+    desktopNotifications.show(id, title, body, (clickedId) => {
+      if (mainWindow === undefined || mainWindow.isDestroyed()) return
+      mainWindow.show()
+      mainWindow.focus()
+      mainWindow.webContents.send(DESKTOP_IPC.notificationsClicked, clickedId)
+    })
+  })
+  ipcMain.handle(DESKTOP_IPC.notificationsWithdraw, (event, id: unknown) => {
+    assertProductSender(event)
+    if (typeof id === 'string') desktopNotifications.withdraw(id)
   })
 
   session.defaultSession.webRequest.onBeforeSendHeaders({ urls: ['ws://127.0.0.1/*'] }, (details, callback) => {

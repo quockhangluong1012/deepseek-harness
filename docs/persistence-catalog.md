@@ -49,7 +49,7 @@ The [format references](persistence-changes/historical-formats/README.md) cover 
 | `event:feedback/message-delete` | event | `3ee93b06f3a125850337602bcdf155d2538c43a5c944ec55b1b3c365152d6796` | [`{ type: "feedback/message-delete" }`](#persistence-type-sha256-3ee93b06f3a125850337602bcdf155d2538c43a5c944ec55b1b3c365152d6796) |
 | `event:feedback/message-put` | event | `b5086d249e8502e9ead1d39156bb8d559bde7951cac0f14ce150345b4e42a2bf` | [`{ type: "feedback/message-put" }`](#persistence-type-sha256-b5086d249e8502e9ead1d39156bb8d559bde7951cac0f14ce150345b4e42a2bf) |
 | `event:feedback/record` | event | `b54940ff095c17e874c5be03815f4c2145a256cf3a1d34dae4ab2f7769dfffe8` | [`{ type: "feedback/record" }`](#persistence-type-sha256-b54940ff095c17e874c5be03815f4c2145a256cf3a1d34dae4ab2f7769dfffe8) |
-| `event:goal/change` | event | `763c8a20af487263a0080548274f7437ef4a86e0ba8769127d1ced10a72c664d` | [`{ type: "goal/change" }`](#persistence-type-sha256-763c8a20af487263a0080548274f7437ef4a86e0ba8769127d1ced10a72c664d) |
+| `event:goal/change` | event | `592ed1c602a431ef09b3da454efabb8b70db10e783013248dd37dc4baaa64fbd` | [`{ type: "goal/change" }`](#persistence-type-sha256-592ed1c602a431ef09b3da454efabb8b70db10e783013248dd37dc4baaa64fbd) |
 | `event:hook/invoked` | event | `8a6e1ec9e8db346b0e02f027db73c07a94f067a26d40c1aef1abd09c47ce7ba0` | [`{ type: "hook/invoked" }`](#persistence-type-sha256-8a6e1ec9e8db346b0e02f027db73c07a94f067a26d40c1aef1abd09c47ce7ba0) |
 | `event:hook/result` | event | `e75916628f3f10c2d50658bd143052a46285fbf1a9a700ba54947614603d26b4` | [`{ type: "hook/result" }`](#persistence-type-sha256-e75916628f3f10c2d50658bd143052a46285fbf1a9a700ba54947614603d26b4) |
 | `event:hypothesis/updated` | event | `25ed756c00e9dbb833f3f41908ec79171f581500d205ccfdf29207d4c7a9800e` | [`{ type: "hypothesis/updated" }`](#persistence-type-sha256-25ed756c00e9dbb833f3f41908ec79171f581500d205ccfdf29207d4c7a9800e) |
@@ -759,7 +759,7 @@ Source: [`packages/feedback/command-feedback/src/types.ts:40`](../packages/feedb
 'goal/change': GoalChangeMeta
 ```
 
-Source: [`packages/goal/goal/src/domain.ts:66`](../packages/goal/goal/src/domain.ts)
+Source: [`packages/goal/goal/src/domain.ts:73`](../packages/goal/goal/src/domain.ts)
 
 ### `hook/*`
 
@@ -1073,7 +1073,7 @@ Source: [`packages/schedule/schedule/src/types.ts:228`](../packages/schedule/sch
 }
 ```
 
-Source: [`packages/guard/prompt-injection/src/index.ts:46`](../packages/guard/prompt-injection/src/index.ts)
+Source: [`packages/guard/prompt-injection/src/index.ts:51`](../packages/guard/prompt-injection/src/index.ts)
 
 ### `session/*`
 
@@ -1653,7 +1653,7 @@ Source: [`packages/web/web-search-deepseek/src/provider.ts:82`](../packages/web/
 'workspace/changes': { turn: number }
 ```
 
-Source: [`packages/deliverables/workspace-changes/src/types.ts:106`](../packages/deliverables/workspace-changes/src/types.ts)
+Source: [`packages/deliverables/workspace-changes/src/types.ts:139`](../packages/deliverables/workspace-changes/src/types.ts)
 
 ## Resolved persistence types
 
@@ -5876,14 +5876,14 @@ Sources: [`packages/llm/llm/src/types.ts:166`](../packages/llm/llm/src/types.ts)
 
 SHA-256: `84ac8c1a66ffc697262e181f42e851259eae14038c113ca329fb4700ccdb1f7c`
 
-Sources: [`packages/goal/goal/src/types.ts:52`](../packages/goal/goal/src/types.ts)
+Sources: [`packages/goal/goal/src/types.ts:56`](../packages/goal/goal/src/types.ts)
 
 | Property | Presence | Type |
 |---|---|---|
 | `code` | required | `string` |
 | `message` | required | `string` |
 
-<a id="persistence-type-sha256-7d226b9fd95b4ba213d4237c22e930a91c3c769c95ca7f92977b9d625ba13438"></a>
+<a id="persistence-type-sha256-7b1785dfb70a7fd2f694ca68cf0882226ac3c023ccadc2b8fa32947c4581d1f7"></a>
 
 <a id="persistence-type-goalchangemeta"></a>
 
@@ -5891,13 +5891,13 @@ Sources: [`packages/goal/goal/src/types.ts:52`](../packages/goal/goal/src/types.
 
 ### `GoalChangeMeta`
 
-SHA-256: `7d226b9fd95b4ba213d4237c22e930a91c3c769c95ca7f92977b9d625ba13438`
+SHA-256: `7b1785dfb70a7fd2f694ca68cf0882226ac3c023ccadc2b8fa32947c4581d1f7`
 
-Sources: [`packages/goal/goal/src/domain.ts:44`](../packages/goal/goal/src/domain.ts)
+Sources: [`packages/goal/goal/src/domain.ts:51`](../packages/goal/goal/src/domain.ts)
 
 | kind | Form property | Other required fields | Full definition |
 |---|---|---|---|
-| `goal/change` | not declared | `createdAt`: `number`; `goal`: [`GoalSnapshot`](#persistence-type-sha256-6bbe793f6a93dc8d50a4d4d3fbb6f8ed15650bcb7e151d28669628f7b7c3fc25); `operation`: [`union (6 variants)`](#persistence-type-sha256-62e6a429ff3f390a46ac39fb468692032f42936ca0db19b53454184189401379); `roundsStarted`: `number`; `updatedAt`: `number`; `version`: `1` | [`GoalSnapshotChangeMeta`](#persistence-type-sha256-1df34a6c086866ffdc2dd9e8e5c581c3751a010cdf6b8538a7327f7a3237f0b4) |
+| `goal/change` | not declared | `createdAt`: `number`; `goal`: [`GoalSnapshot`](#persistence-type-sha256-b487dd27d670e3b2844efc7befbba33db2f298eda65ca601a7fa04850255d146); `operation`: [`union (6 variants)`](#persistence-type-sha256-62e6a429ff3f390a46ac39fb468692032f42936ca0db19b53454184189401379); `roundsStarted`: `number`; `updatedAt`: `number`; `version`: `1` | [`GoalSnapshotChangeMeta`](#persistence-type-sha256-93222440c8801990dee32e59f8ecd951565818e1630ae092558daf6edad46711) |
 | `goal/change` | not declared | `cleared`: [`GoalRef`](#persistence-type-sha256-0b6d718c693fdf7f06dcccb0bcbbabe78cc63514eafc62d6b2a3899735279d6f); `clearedAt`: `number`; `operation`: `"clear"`; `version`: `1` | [`GoalClearChangeMeta`](#persistence-type-sha256-cffcdc19881ab61ec0a9ce18743996f7ac44ac8889f34dfac36ae745574aa22f) |
 
 <a id="persistence-type-sha256-cffcdc19881ab61ec0a9ce18743996f7ac44ac8889f34dfac36ae745574aa22f"></a>
@@ -5910,7 +5910,7 @@ Sources: [`packages/goal/goal/src/domain.ts:44`](../packages/goal/goal/src/domai
 
 SHA-256: `cffcdc19881ab61ec0a9ce18743996f7ac44ac8889f34dfac36ae745574aa22f`
 
-Sources: [`packages/goal/goal/src/domain.ts:35`](../packages/goal/goal/src/domain.ts)
+Sources: [`packages/goal/goal/src/domain.ts:42`](../packages/goal/goal/src/domain.ts)
 
 | Property | Presence | Type |
 |---|---|---|
@@ -5930,7 +5930,7 @@ Sources: [`packages/goal/goal/src/domain.ts:35`](../packages/goal/goal/src/domai
 
 SHA-256: `7f959241c24128b4983b559984811861dc59774b85905c8fa57c6cb0148a3dbc`
 
-Sources: [`packages/goal/goal/src/domain.ts:47`](../packages/goal/goal/src/domain.ts)
+Sources: [`packages/goal/goal/src/domain.ts:54`](../packages/goal/goal/src/domain.ts)
 
 | Property | Presence | Type |
 |---|---|---|
@@ -5949,7 +5949,7 @@ Sources: [`packages/goal/goal/src/domain.ts:47`](../packages/goal/goal/src/domai
 
 SHA-256: `b8327af7ee5767952d1300cb4f03b7fc04197ae5ba275e13981c689ff7506172`
 
-Sources: [`packages/goal/goal/src/types.ts:45`](../packages/goal/goal/src/types.ts)
+Sources: [`packages/goal/goal/src/types.ts:49`](../packages/goal/goal/src/types.ts)
 
 One of:
 
@@ -5975,7 +5975,7 @@ Sources: [`packages/goal/goal/src/types.ts:20`](../packages/goal/goal/src/types.
 | `id` | required | `string` |
 | `revision` | required | `number` |
 
-<a id="persistence-type-sha256-6bbe793f6a93dc8d50a4d4d3fbb6f8ed15650bcb7e151d28669628f7b7c3fc25"></a>
+<a id="persistence-type-sha256-b487dd27d670e3b2844efc7befbba33db2f298eda65ca601a7fa04850255d146"></a>
 
 <a id="persistence-type-goalsnapshot"></a>
 
@@ -5983,20 +5983,21 @@ Sources: [`packages/goal/goal/src/types.ts:20`](../packages/goal/goal/src/types.
 
 ### `GoalSnapshot`
 
-SHA-256: `6bbe793f6a93dc8d50a4d4d3fbb6f8ed15650bcb7e151d28669628f7b7c3fc25`
+SHA-256: `b487dd27d670e3b2844efc7befbba33db2f298eda65ca601a7fa04850255d146`
 
-Sources: [`packages/goal/goal/src/types.ts:60`](../packages/goal/goal/src/types.ts)
+Sources: [`packages/goal/goal/src/types.ts:64`](../packages/goal/goal/src/types.ts)
 
 | Property | Presence | Type |
 |---|---|---|
 | `blockedReason` | optional | [`GoalBlockReason`](#persistence-type-sha256-84ac8c1a66ffc697262e181f42e851259eae14038c113ca329fb4700ccdb1f7c) |
 | `id` | required | `string` |
 | `maxGoalRounds` | required | `number` |
+| `maxGoalTokens` | optional | `number` |
 | `objective` | required | `string` |
 | `phase` | required | [`GoalPhase`](#persistence-type-sha256-b8327af7ee5767952d1300cb4f03b7fc04197ae5ba275e13981c689ff7506172) |
 | `revision` | required | `number` |
 
-<a id="persistence-type-sha256-1df34a6c086866ffdc2dd9e8e5c581c3751a010cdf6b8538a7327f7a3237f0b4"></a>
+<a id="persistence-type-sha256-93222440c8801990dee32e59f8ecd951565818e1630ae092558daf6edad46711"></a>
 
 <a id="persistence-type-goalsnapshotchangemeta"></a>
 
@@ -6004,17 +6005,18 @@ Sources: [`packages/goal/goal/src/types.ts:60`](../packages/goal/goal/src/types.
 
 ### `GoalSnapshotChangeMeta`
 
-SHA-256: `1df34a6c086866ffdc2dd9e8e5c581c3751a010cdf6b8538a7327f7a3237f0b4`
+SHA-256: `93222440c8801990dee32e59f8ecd951565818e1630ae092558daf6edad46711`
 
 Sources: [`packages/goal/goal/src/domain.ts:24`](../packages/goal/goal/src/domain.ts)
 
 | Property | Presence | Type |
 |---|---|---|
 | `createdAt` | required | `number` |
-| `goal` | required | [`GoalSnapshot`](#persistence-type-sha256-6bbe793f6a93dc8d50a4d4d3fbb6f8ed15650bcb7e151d28669628f7b7c3fc25) |
+| `goal` | required | [`GoalSnapshot`](#persistence-type-sha256-b487dd27d670e3b2844efc7befbba33db2f298eda65ca601a7fa04850255d146) |
 | `kind` | required | `"goal/change"` |
 | `operation` | required | [`union (6 variants)`](#persistence-type-sha256-62e6a429ff3f390a46ac39fb468692032f42936ca0db19b53454184189401379) |
 | `roundsStarted` | required | `number` |
+| `tokensUsed` | optional | `number` |
 | `updatedAt` | required | `number` |
 | `version` | required | `1` |
 
@@ -9440,7 +9442,7 @@ Sources: [`packages/hooks/hook-protocol/src/types.ts:19`](../packages/hooks/hook
 
 SHA-256: `3c17d6c077c9487d2851c4d108dcffcb5dbefb795bab6142db0f698edeff74b5`
 
-Sources: [`packages/guard/prompt-injection/src/index.ts:46`](../packages/guard/prompt-injection/src/index.ts)
+Sources: [`packages/guard/prompt-injection/src/index.ts:51`](../packages/guard/prompt-injection/src/index.ts)
 
 | Property | Presence | Type |
 |---|---|---|
@@ -11705,7 +11707,7 @@ Sources: [`packages/todo/tool-todo/src/types.ts:31`](../packages/todo/tool-todo/
 
 SHA-256: `f90eb4ab2d3897bc20c521a038e3119d581f791ec974b1a0004f63a8ab9e232d`
 
-Sources: [`packages/core/session/src/types.ts:294`](../packages/core/session/src/types.ts) · [`packages/deliverables/workspace-changes/src/types.ts:106`](../packages/deliverables/workspace-changes/src/types.ts)
+Sources: [`packages/core/session/src/types.ts:294`](../packages/core/session/src/types.ts) · [`packages/deliverables/workspace-changes/src/types.ts:139`](../packages/deliverables/workspace-changes/src/types.ts)
 
 | Property | Presence | Type |
 |---|---|---|
@@ -12234,17 +12236,17 @@ Sources: [`packages/llm/llm/src/types.ts:447`](../packages/llm/llm/src/types.ts)
 | `replayState` | optional | [`ReplayEnvelope`](#persistence-type-sha256-0acd94fe8794574c9ae72c7855ee16d29c546096d4af760d16d1225385764555) |
 | `type` | required | `"finish"` |
 
-<a id="persistence-type-sha256-763c8a20af487263a0080548274f7437ef4a86e0ba8769127d1ced10a72c664d"></a>
+<a id="persistence-type-sha256-592ed1c602a431ef09b3da454efabb8b70db10e783013248dd37dc4baaa64fbd"></a>
 
 <a id="persistence-type-eventgoalchange"></a>
 
 ### `{ type: "goal/change" }`
 
-SHA-256: `763c8a20af487263a0080548274f7437ef4a86e0ba8769127d1ced10a72c664d`
+SHA-256: `592ed1c602a431ef09b3da454efabb8b70db10e783013248dd37dc4baaa64fbd`
 
 | Property | Presence | Type |
 |---|---|---|
-| `data` | required | [`GoalChangeMeta`](#persistence-type-sha256-7d226b9fd95b4ba213d4237c22e930a91c3c769c95ca7f92977b9d625ba13438) |
+| `data` | required | [`GoalChangeMeta`](#persistence-type-sha256-7b1785dfb70a7fd2f694ca68cf0882226ac3c023ccadc2b8fa32947c4581d1f7) |
 | `ignorable` | optional | `true` |
 | `seq` | required | `number` |
 | `time` | required | `number` |

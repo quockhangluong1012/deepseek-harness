@@ -61,6 +61,16 @@ function textResponse(text: string): StreamChunk[] {
   ]
 }
 
+/** One successful text response carrying an explicit token-usage sample. */
+function textResponseWithUsage(text: string, totalTokens: number): StreamChunk[] {
+  return [
+    { type: 'block-start', index: 0, blockType: 'text' },
+    { type: 'block-end', index: 0, block: { type: 'text', text } },
+    { type: 'usage', usage: { inputTokens: 0, outputTokens: 0, totalTokens } },
+    { type: 'finish', reason: { kind: 'stop' } },
+  ]
+}
+
 /** One successful response cut off at the model output limit. */
 function maxTokensResponse(text: string): StreamChunk[] {
   return [
@@ -220,6 +230,32 @@ describe('same-session goal driving', () => {
     expect(requestText(test.adapter.requests[1]!)).toContain('Round: 2/2')
     expect(test.agent.session.snapshotEvents().flatMap(event =>
       event.type === 'request/header' ? [event.data.reason] : [])).toEqual(['initial', 'series'])
+  })
+
+  it('reaches an optional token budget and blocks with a stable code, independent of the round cap', async () => {
+    const test = await harness([textResponseWithUsage('round one', 600)])
+    const created = test.ctx.goals.create(test.agent, {
+      objective: 'stay within budget', maxGoalRounds: 5, maxGoalTokens: 500,
+    })
+
+    const final = await waitForGoal(test.ctx, test.agent, goal => goal?.phase === 'blocked')
+
+    expect(final).toMatchObject({ id: created.id, roundsStarted: 1, activation: 'disarmed' })
+    expect(final?.blockedReason).toEqual({
+      code: 'token-limit',
+      message: 'Goal reached its configured limit of 500 tokens (used 600).',
+    })
+    expect(test.adapter.requests).toHaveLength(1)
+  })
+
+  it('does not block on tokens when no budget is configured', async () => {
+    const test = await harness([textResponseWithUsage('round one', 10_000), textResponse('round two')])
+    test.ctx.goals.create(test.agent, { objective: 'unbudgeted', maxGoalRounds: 2 })
+
+    const final = await waitForGoal(test.ctx, test.agent, goal => goal?.phase === 'blocked')
+
+    expect(final?.blockedReason?.code).toBe('round-limit')
+    expect(test.adapter.requests).toHaveLength(2)
   })
 
   it('registers admitted goal prompts as trusted task deltas', async () => {

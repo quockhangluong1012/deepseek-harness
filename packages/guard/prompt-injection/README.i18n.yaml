@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/guard/prompt-injection/README.md
-README.md: 6ba0d54b71dbe2ac99478f6c7c6318e7d77edfa0
-README.zh.md: bfc55733d781cc84d0ef941607348e690f13501b
+README.md: 0dd008a2001c94cb1bcf3948c9f28629dccdd1fa
+README.zh.md: abb28858955878bd12bf83d3c707846ed88ae11e

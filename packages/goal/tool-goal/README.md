@@ -29,13 +29,13 @@ Mount `dsh-tool-goal` beside the goal service when the model should create and u
 
 ### Tools
 
-All three tools return the same compact JSON — `{ goal: null }` when no goal is current, otherwise the goal's id, revision, objective, phase, rounds started, round cap, optional blocker reason, and whether continuation is armed — matching what Native callers already render.
+All three tools return the same compact JSON — `{ goal: null }` when no goal is current, otherwise the goal's id, revision, objective, phase, rounds started, round cap, tokens used, optional token cap, optional blocker reason, and whether continuation is armed — matching what Native callers already render.
 
 | Tool | What it does |
 |---|---|
 | `get_goal()` | Reads the current goal, or `null` when none is current |
-| `create_goal(objective, max_goal_rounds?)` | Creates one goal from a direct top-level human turn |
-| `update_goal(goal_id, revision, action, objective?, max_goal_rounds?, blocked_reason?)` | `edit`, `pause`, `resume`, `complete`, or `blocked` on the exact goal revision |
+| `create_goal(objective, max_goal_rounds?, max_goal_tokens?)` | Creates one goal from a direct top-level human turn |
+| `update_goal(goal_id, revision, action, objective?, max_goal_rounds?, max_goal_tokens?, blocked_reason?)` | `edit`, `pause`, `resume`, `complete`, or `blocked` on the exact goal revision |
 
 Call `get_goal` before `update_goal` and copy the exact `goal_id` and `revision`; all calls are exclusive, so a model-ordered batch observes earlier mutations and their new revisions. Replacements belong only to `edit`; `blocked_reason` is required only for `blocked` and is persisted with the stable code `model-reported`. Strict-schema empty-string and zero fillers count as omitted, while meaningful values remain limited to their action.
 
@@ -84,7 +84,7 @@ This section explains how the tools enforce authority and render output; the obs
 
 ### Tool output
 
-All three tools share one canonical output: the compact JSON `{ goal: null }` or `{ goal: { id, revision, objective, phase, roundsStarted, maxGoalRounds, blockedReason? }, activation }`. `activation` in a result is a live observation and never becomes replay authority. UI clients receive pure generic cards — read for `get_goal`, other for mutations.
+All three tools share one canonical output: the compact JSON `{ goal: null }` or `{ goal: { id, revision, objective, phase, roundsStarted, maxGoalRounds, tokensUsed, maxGoalTokens?, blockedReason? }, activation }`. `activation` in a result is a live observation and never becomes replay authority. UI clients receive pure generic cards — read for `get_goal`, other for mutations.
 
 </details>
 

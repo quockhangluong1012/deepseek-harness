@@ -98,6 +98,8 @@ A provider pi-ai ships a login for can be signed into through the harness author
 
 A profile's `models` list replaces the route's installed catalog rather than extending it; each entry defaults its unset fields from the installed model of the same id, so narrowing a route to two models, correcting one capacity, or adding a model newer than the installed catalog are one-line edits. `modelOverrides` reshapes individual installed-catalog models without that cost — correct one model, keep the other thirty-seven — and is refused when set beside a `models` list, on a hand-declared route, or naming a model the catalog does not describe, because a silently unchanged model would be a typo someone hunts for later.
 
+Resolving a model also carries the catalog's per-million-token `cost`, including any volume tiers, into `LlmResolvedModelInfo.cost`, so a consumer can price recorded usage from the same facts that routed the request. An entry whose rates are all zero — pi-ai's own marker for an unknown price — surfaces no `cost` at all rather than a free model.
+
 ### Route through the OpenCode Go gateway
 
 A request whose route key starts with `opencode`, or whose resolved endpoint is hosted on `opencode.ai`, carries `x-opencode-session` with the loop-stamped conversation id. The value is stable across turns, resume, compaction, and retries, so each conversation keeps its own gateway routing affinity; the gateway requires the header on every inference request. A static `headers` entry of the same name loses to the per-conversation value, because one fixed id across conversations would collapse that affinity. Other providers receive no session header.

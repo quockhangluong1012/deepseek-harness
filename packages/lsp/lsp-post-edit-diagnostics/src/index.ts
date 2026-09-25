@@ -1,11 +1,8 @@
 /**
- * Post-edit diagnostics enrichment: after a configured tool (`edit`/`write` by default) succeeds,
- * best-effort queries `ctx.lsp` for the touched file's current diagnostics and, when any exist,
- * attaches them as additional context alongside the tool's own result — the "diagnostics after every
- * edit" behavior competing harnesses ship (§30.3 D, CQ1 of the evolution spec). A missing session
- * workspace, an unrouted file extension, a provider failure or timeout, or an empty diagnostics list
- * all degrade silently: this plugin never turns a successful edit into a failure, and never floods
- * context with a "No diagnostics." line on every clean edit.
+ * Appends compact LSP diagnostics to successful `edit` and `write` result content. Empty results,
+ * missing workspaces, unrouted extensions, provider failures, timeouts, and cancellation leave the
+ * result unchanged. If a later listener replaces rendered content with a structured value, the
+ * diagnostics travel as additional context so that value stays intact.
  *
  * Namespace plugin (named exports, no default export).
  * @module @deepseek-ai/dsh-lsp-post-edit-diagnostics
@@ -31,16 +28,13 @@ export const name = 'lsp-post-edit-diagnostics'
 /** Services required by this plugin. */
 export const inject = ['tools', 'lsp']
 
-/** Plugin configuration: which tool calls trigger enrichment, and the rendered-text cap. */
+/** Plugin configuration: the maximum rendered diagnostics text appended to tool results. */
 export interface Config {
-  /** Tool names whose successful calls trigger a diagnostics lookup. Default `['edit', 'write']`. */
-  toolNames?: string[]
-  /** Largest rendered diagnostics text, including truncation metadata (default 16000). */
+  /** Largest diagnostics text, including truncation metadata (default 16000). */
   maxResultChars?: number
 }
 
 export const Config: z<Config> = z.object({
-  toolNames: z.array(String).default(['edit', 'write']),
   maxResultChars: z.number().default(DEFAULT_MAX_RESULT_CHARS),
 })
 
@@ -56,16 +50,11 @@ const CONTEXT_SOURCE: MessageSource = { kind: 'lsp-post-edit-diagnostics' }
 export function apply(ctx: Context, config: Config): void {
   const resolved = config as ResolvedConfig
   assertPositiveInteger('maxResultChars', resolved.maxResultChars)
-  if (resolved.toolNames.length === 0) {
-    throw new Error('lsp-post-edit-diagnostics: toolNames must be a non-empty array')
-  }
-  const toolNames = new Set(resolved.toolNames)
 
   ctx.on('tools/post-execute', async (exec, result, next): Promise<PostToolDecision> => {
     const decision = await next()
-    // Only enrich a call this plugin is configured for, whose underlying dispatch actually
-    // succeeded, and that no later listener already turned into a block.
-    if (decision.kind !== 'accept' || result.isError || !toolNames.has(exec.name)) return decision
+    if (decision.kind !== 'accept' || result.isError
+      || (exec.name !== 'edit' && exec.name !== 'write')) return decision
     const filePath = filePathArg(exec.arguments)
     if (filePath === undefined) return decision
     const workspaceRoot = sessionCwd(exec)
@@ -73,11 +62,21 @@ export function apply(ctx: Context, config: Config): void {
     const diagnostics = await queryDiagnostics(ctx, filePath, workspaceRoot, exec.signal)
     if (diagnostics === undefined || diagnostics.length === 0) return decision
     const text = `Diagnostics for ${filePath}:\n${formatDiagnostics(diagnostics, resolved.maxResultChars)}`
+    if (decision.value !== undefined) {
+      // A structured replacement has no rendered-content slot in PostToolDecision.
+      return {
+        ...decision,
+        additionalContexts: [
+          ...decision.additionalContexts ?? [],
+          createUserMessage({ content: [{ type: 'text', text }], source: CONTEXT_SOURCE }),
+        ],
+      }
+    }
     return {
       ...decision,
-      additionalContexts: [
-        ...decision.additionalContexts ?? [],
-        createUserMessage({ content: [{ type: 'text', text }], source: CONTEXT_SOURCE }),
+      content: [
+        ...(decision.content ?? result.content),
+        { type: 'text', text },
       ],
     }
   })

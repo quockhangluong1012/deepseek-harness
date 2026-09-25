@@ -349,20 +349,15 @@ export function normalizeStdout(
 }
 
 /**
- * Normalize a session JSONL log into a stable expected output: the header line's
- * volatile fields (`createdAt`, `id`, `cwd`) are zeroed/scrubbed; event,
- * historical packed-row, embedded Assistant-stream, goal lifecycle, and
- * catalog child-creation clocks are zeroed; and all volatile strings are
- * scrubbed. Projected inputs remain
- * projected. Packed `data.dt` gaps are normalized even when the projected row
- * omits its `time0` anchor.
- * Output is JSONL in the same shape as the input — one compact record per
- * line.
- *
- * @param rawLog The raw session `.jsonl` content.
- * @param ctx The run's volatile values to scrub.
- * @param options Separator output controls; shared canonical paths are the default.
- * @returns The normalized JSONL log, one record per line.
+ * Normalize session JSONL into stable expected output: volatile header fields, event and embedded
+ * stream clocks, kernel metadata and lifecycle clocks, checkpoint elapsed time, and action-result
+ * digests are stabilized; volatile strings are scrubbed. Projected inputs remain projected. Packed
+ * `data.dt` gaps are normalized even when the projected row omits its `time0` anchor. Output keeps
+ * the input's one-record-per-line JSONL shape.
+ * @param rawLog - the raw session `.jsonl` content.
+ * @param ctx - the run's volatile values to scrub.
+ * @param options - separator output controls; shared canonical paths are the default.
+ * @returns the normalized JSONL log, one record per line.
  */
 export function normalizeSessionLog(
   rawLog: string,
@@ -403,6 +398,8 @@ export function normalizeSessionLog(
       if ('durationMs' in data) data.durationMs = 0
     }
     normalizeFeedbackClocks(record)
+    normalizeKernelEventClocks(record)
+    normalizeActionResultDigest(record)
     if (record.type === 'goal/change' && record.data !== null && typeof record.data === 'object') {
       const data = record.data as Record<string, unknown>
       if ('createdAt' in data) data.createdAt = 0
@@ -437,12 +434,10 @@ function projectSessionSnapshot(rawLog: string): string {
 }
 
 /**
- * Normalize and project persisted session JSONL for a committed fixture.
- * This composes ordinary log normalization with request-header scrubbing and
- * persistence-envelope projection, then writes the v3 logical event stream as
- * one record per event, independent of persistence flush boundaries. Event order
- * and source-event references are preserved.
- *
+ * Normalize and project persisted session JSONL for a committed fixture. This applies ordinary
+ * log normalization and request-header scrubbing, then projects persistence envelopes to the v3
+ * logical event stream. Kernel wall clocks and cwd-derived action digests are normalized; event
+ * order and source-event references remain intact.
  * @param rawLog - persisted or already-projected session JSONL.
  * @param ctx - the run's volatile values to scrub.
  * @param options - separator output controls.
@@ -564,11 +559,9 @@ export function scrubModelRequestBulk(rawLog: string): string {
 }
 
 /**
- * Project a persisted session log while tokenizing prompt text and schema
- * bulk. Each non-empty line is parsed at most once; the session header stays
- * byte-identical. Body records omit their persistence-only envelopes and expand
+ * Project a persisted session log while tokenizing prompt, schema, kernel-clock, and action-digest
+ * bulk. The session header stays byte-identical; body records omit persistence envelopes and expand
  * source-event ranges without changing reference order.
- *
  * @param rawLog - persisted or already-projected session JSONL.
  * @returns committed snapshot JSONL with prompt text and tool schemas tokenized.
  */
@@ -578,6 +571,8 @@ export function scrubSessionSnapshot(rawLog: string): string {
   return scrubbed.split('\n').map((line) => {
     if (line.trim().length === 0) return line
     const record = JSON.parse(line) as Record<string, unknown>
+    normalizeKernelEventClocks(record)
+    normalizeActionResultDigest(record)
     if (recordIndex++ === 0) {
       if (record.type !== 'session') throw new Error('session snapshot must start with a session header')
       return line
@@ -589,6 +584,58 @@ export function scrubSessionSnapshot(rawLog: string): string {
     normalizeFeedbackClocks(record)
     return JSON.stringify(record)
   }).join('\n')
+}
+
+/** Action result hashes can include cwd-bearing tool text that snapshots tokenize separately. */
+function normalizeActionResultDigest(record: Record<string, unknown>): void {
+  if (record.type !== 'action/committed') return
+  const data = record.data
+  if (data === null || typeof data !== 'object' || Array.isArray(data)) return
+  const payload = data as Record<string, unknown>
+  if (typeof payload.resultDigest === 'string') payload.resultDigest = '{{resultDigest}}'
+}
+
+const KERNEL_EVENT_TYPE_PREFIXES = [
+  'task/', 'action/', 'evidence/', 'claim/', 'hypothesis/', 'verification/',
+  'failure/', 'recovery/', 'checkpoint/', 'delegation/',
+]
+
+const KERNEL_EVENT_CLOCK_FIELDS: Readonly<Record<string, readonly string[]>> = {
+  'task/transitioned': ['at'],
+  'task/plan': ['createdAt'],
+  'action/committed': ['committedAt'],
+  'evidence/recorded': ['observedAt'],
+  'failure/recorded': ['at'],
+  'recovery/started': ['startedAt'],
+  'recovery/decided': ['at'],
+  'checkpoint/created': ['createdAt'],
+  'checkpoint/resumed': ['resumedAt'],
+  'delegation/received': ['at'],
+  'delegation/issued': ['at'],
+}
+
+/** Zero kernel wall clocks; event order already carries chronology. */
+function normalizeKernelEventClocks(record: Record<string, unknown>): void {
+  const type = record.type
+  if (typeof type !== 'string' || !KERNEL_EVENT_TYPE_PREFIXES.some(prefix => type.startsWith(prefix))) return
+  const data = record.data
+  if (data === null || typeof data !== 'object' || Array.isArray(data)) return
+  const payload = data as Record<string, unknown>
+  const metadata = payload.metadata
+  if (metadata !== null && typeof metadata === 'object' && !Array.isArray(metadata)) {
+    const fields = metadata as Record<string, unknown>
+    if (fields.version === 1) zeroClock(fields, 'timestamp')
+  }
+  for (const field of KERNEL_EVENT_CLOCK_FIELDS[type] ?? []) zeroClock(payload, field)
+  if (type === 'action/committed') zeroClock(payload.governance, 'at')
+  if (type === 'checkpoint/created') zeroClock(payload.budgets, 'wallMs')
+}
+
+/** Zero one numeric clock field on a record. */
+function zeroClock(value: unknown, field: string): void {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return
+  const record = value as Record<string, unknown>
+  if (typeof record[field] === 'number') record[field] = 0
 }
 
 /** Normalize service-owned feedback clocks without touching user-authored payloads. */

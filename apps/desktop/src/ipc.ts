@@ -2,6 +2,7 @@
 
 import type { IpcMainInvokeEvent } from 'electron'
 import type { DesktopBrowserBridge } from '@deepseek-ai/dsh-client-ui-sidebar-browser/types'
+import type { DesktopNotificationBridge } from '@deepseek-ai/dsh-client-ui-desktop-notifications/types'
 
 /** IPC channel names kept private to the desktop application bundle. */
 export const DESKTOP_IPC = {
@@ -21,6 +22,9 @@ export const DESKTOP_IPC = {
   windowFullscreen: 'dsh-desktop:window-fullscreen',
   windowsAppearance: 'dsh-desktop:windows-appearance',
   windowsMenu: 'dsh-desktop:windows-menu',
+  notificationsShow: 'dsh-desktop:notifications-show',
+  notificationsWithdraw: 'dsh-desktop:notifications-withdraw',
+  notificationsClicked: 'dsh-desktop:notifications-clicked',
 } as const
 
 /** Desktop release update state rendered by desktop-owned UI. */
@@ -62,6 +66,7 @@ export interface DesktopUpdatePresentation {
 export interface DshDesktopProductApi {
   readonly protocolVersion: 1
   readonly browser: DesktopBrowserBridge
+  readonly notifications: DesktopNotificationBridge
   readonly updates: {
     status(): Promise<DesktopUpdatePresentation>
     open(): Promise<void>

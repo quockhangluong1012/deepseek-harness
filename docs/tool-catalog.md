@@ -1319,6 +1319,10 @@ Create one persisted same-session completion goal when the current direct human 
     "max_goal_rounds": {
       "type": "integer",
       "description": "Optional positive safe-integer limit on automatic continuation rounds."
+    },
+    "max_goal_tokens": {
+      "type": "integer",
+      "description": "Optional positive safe-integer limit on total billed tokens spent since creation."
     }
   },
   "additionalProperties": false,
@@ -1378,6 +1382,10 @@ Update the exact current goal revision. edit, pause, and resume require a direct
     "max_goal_rounds": {
       "type": "integer",
       "description": "Replacement cap; valid only with action edit."
+    },
+    "max_goal_tokens": {
+      "type": "integer",
+      "description": "Replacement token budget; valid only with action edit."
     },
     "blocked_reason": {
       "type": "string",

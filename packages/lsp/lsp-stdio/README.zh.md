@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-使用 `dsh-lsp-stdio` 查询已配置的本地语言服务器，获取定义、引用、实现、悬停信息和文件诊断。它将文件扩展名映射到语言标识符，按需为每个工作区启动一台服务器，并在每次查询时重新读取文件。诊断通过 `textDocument/publishDiagnostics` 获取，等待时间不超过 `diagnosticsWaitMs`；服务器在窗口内未发布时返回空列表。部署方负责提供服务器命令与所需的隔离措施。
+使用 `dsh-lsp-stdio` 查询已配置或自动检测到的本地语言服务器，获取定义、引用、实现、悬停信息和文件诊断。它将扩展名映射到语言标识符，按需为每个工作区启动一台服务器，并在每次查询时重新读取文件。诊断通过 `textDocument/publishDiagnostics` 获取，等待时间不超过 `diagnosticsWaitMs`；服务器在窗口内未发布时返回空列表。本包不安装服务器二进制文件，也不隔离其进程。
 
 ## 目录
 
@@ -25,11 +25,11 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用本包
 
-当部署拥有本地语言服务器——例如 `typescript-language-server`——并希望 harness 通过它们导航代码时，挂载此提供方。它需要位于同一执行世界的文件系统与子进程提供方，以及 `dsh-lsp` seam；若要向模型开放，还需要 `dsh-tool-lsp`。
+当部署需要通过本地语言服务器导航代码时，挂载此提供方。base profile 会检测 PATH 中的四种常见服务器；还需要 `dsh-lsp` seam 以及同一执行世界的文件系统／子进程提供方；若要向模型开放查询，还需要 `dsh-tool-lsp`。
 
 ### 最小配置
 
-`servers` 记录把每个稳定的提供方 id 映射到一条服务器命令。提供方会在清理 credential 后于加载时解析每个可执行文件，因此一个坏配置项会阻止所有提供方注册；进程在第一次匹配查询时惰性启动。
+`servers` 记录将稳定的提供方 id 映射到显式命令。`autoDetect: true` 还会在 PATH 中解析四种已知命令。未找到的自动候选会被跳过，其他查找错误会使加载失败。显式 id 与扩展映射优先；所有选中命令解析成功后才会注册提供方，进程仅在收到匹配查询时启动。
 
 ```yaml
 - name: '@deepseek-ai/dsh-fs-local'
@@ -37,17 +37,16 @@ kind: "package-reference"
 - name: '@deepseek-ai/dsh-lsp'
 - name: '@deepseek-ai/dsh-lsp-stdio'
   config:
-    servers:
-      typescript:
-        command: typescript-language-server
-        args: ['--stdio']
-        extensionToLanguage:
-          '.ts': typescript
+    autoDetect: true
 - name: '@deepseek-ai/dsh-tool-lsp'
 ```
 
+`autoDetect` 与 `servers` 配置提供方发现行为；其余字段配置一个显式的 `servers.<id>` 条目。
+
 | 字段 | 默认值 | 含义 |
 |---|---|---|
+| `autoDetect` | `false` | 在 PATH 中探测 `typescript-language-server`、`pyright-langserver`、`gopls` 与 `rust-analyzer`；仅忽略未找到错误 |
+| `servers` | `{}` | 显式服务器条目；除非 `autoDetect: true`，否则必须非空 |
 | `command` | 必填 | 要 spawn 的可执行文件——绝对路径，或在加载时从子进程 PATH 解析；不使用 shell 启动 |
 | `extensionToLanguage` | 必填 | 小写、以点开头的扩展名 → LSP language id（例如 `{ '.ts': 'typescript' }`） |
 | `args` | `[]` | 传给可执行文件的参数 |
@@ -61,7 +60,7 @@ kind: "package-reference"
 | `killGraceMs` | `2000` | 请求取消及 SIGTERM→SIGKILL 升级的宽限期 |
 | `diagnosticsWaitMs` | `3000` | 打开文件后等待匹配的 `textDocument/publishDiagnostics` 通知的最长时间；超时返回空列表 |
 
-`servers` 必须至少包含一个配置项，每个 id 都必须非空；包括 `diagnosticsWaitMs` 在内的定时器预算必须是 Node 定时器范围内的正整数，字节上限必须为正。生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-lsp-stdio)是每个受支持字段的穷尽式真源。
+仅在 `autoDetect: true` 时 `servers` 才可为空；显式 id 必须非空。包括 `diagnosticsWaitMs` 在内的定时器预算必须是 Node 定时器范围内的正整数，字节上限必须为正。生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-lsp-stdio)是每个受支持字段的穷尽式真源。
 
 ### 查询做什么
 
@@ -87,7 +86,7 @@ kind: "package-reference"
 
 ### 设计理念
 
-- **通用主机，不是目录。** 部署显式配置命令与映射；预设应放在 `cordis.yml` overlay 中，而不是本包内。
+- **通用主机与小型检测集合。** 部署仍显式配置自定义命令与映射；`autoDetect` 只检查文档列出的四个命令，不会安装或下载服务器。
 - **兼容性优先的临时打开。** 每次查询都执行 `didOpen`（版本 1、完整文本）→ 请求或有界诊断等待 → `didClose`，因此服务器能看到当前字节，且不保留文档状态。诊断等待器会在 `didOpen` 到达服务器前启动，因此不会漏掉服务器立即推送的通知。
 - **先读后启动。** 源文件在工作区队列内先完成解析、包含关系检查与字节限制，然后才创建任何进程，因此排队查询只会在轮到自身时读取当前字节，无效源文件也不会留下空闲的池化进程。
 - **每个规范工作区一个池化进程。** 实例按 `(server id, canonical workspace target)` 进行 single-flight；传输故障会在等待释放完成后于新进程上重试一次该只读查询。
@@ -145,6 +144,7 @@ kind: "package-reference"
 
 这些限制说明本提供方何时不合适，或何时需要特别的运维注意。它们是当前包约束，不是任务积压。
 
+- **检测集合固定，且不捆绑二进制文件**——`autoDetect` 仅查找 PATH 中的四个命令，不会安装它们，也不会在首次匹配查询前启动它们。没有匹配的提供方时，`lsp` 返回 `LSP_UNAVAILABLE`，编辑后诊断也不会添加上下文。
 - **不提供隔离策略**——本包信任所配置的服务器，不对其进程实施沙箱；受限部署必须提供适当的进程与文件系统提供方，或使用同一执行世界的沙箱包装层。
 - **临时打开兼容性下限**——同步能力省略打开／关闭（或声明 `None`）的服务器不受支持，即使关闭文档查询能够工作；固定的 TypeScript e2e 只建立一项兼容性下限，不代表跨语言承诺。
 - **推送诊断有时间上限**——服务器不发布诊断，或在 `diagnosticsWaitMs` 到期时仍在分析，都会产生空结果；提供方无法区分干净文件与迟到的分析结果。

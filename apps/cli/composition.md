@@ -104,6 +104,14 @@ flowchart LR
   cfg --> plugin_dsh_base_tool_fs
   plugin_dsh_base_tool_fs_search["tool-fs-search<br/>@deepseek-ai/dsh-tool-fs-search"]
   cfg --> plugin_dsh_base_tool_fs_search
+  plugin_dsh_base_lsp["lsp<br/>@deepseek-ai/dsh-lsp"]
+  cfg --> plugin_dsh_base_lsp
+  plugin_dsh_base_lsp_stdio["lsp-stdio<br/>@deepseek-ai/dsh-lsp-stdio"]
+  cfg --> plugin_dsh_base_lsp_stdio
+  plugin_dsh_base_tool_lsp["tool-lsp<br/>@deepseek-ai/dsh-tool-lsp"]
+  cfg --> plugin_dsh_base_tool_lsp
+  plugin_dsh_base_lsp_post_edit_diagnostics["lsp-post-edit-diagnostics<br/>@deepseek-ai/dsh-lsp-post-edit-diagnostics"]
+  cfg --> plugin_dsh_base_lsp_post_edit_diagnostics
   plugin_dsh_base_agent_instructions["agent-instructions<br/>@deepseek-ai/dsh-agent-instructions"]
   cfg --> plugin_dsh_base_agent_instructions
   plugin_dsh_base_skill["skill<br/>@deepseek-ai/dsh-skill"]
@@ -146,6 +154,8 @@ flowchart LR
   cfg --> plugin_dsh_base_tool_subagent
   plugin_dsh_base_tool_subagent_fork["tool-subagent-fork<br/>@deepseek-ai/dsh-tool-subagent"]
   cfg --> plugin_dsh_base_tool_subagent_fork
+  plugin_dsh_base_command_review["command-review<br/>@deepseek-ai/dsh-command-review"]
+  cfg --> plugin_dsh_base_command_review
   plugin_dsh_base_ptc_runtime["ptc-runtime<br/>@deepseek-ai/dsh-ptc-runtime-node"]
   cfg --> plugin_dsh_base_ptc_runtime
   plugin_dsh_base_workflow_ptc["workflow-ptc<br/>@deepseek-ai/dsh-workflow-ptc"]
@@ -186,6 +196,8 @@ flowchart LR
   cfg --> plugin_dsh_base_tool_web
   plugin_dsh_base_mcp_resources["mcp-resources<br/>@deepseek-ai/dsh-mcp-resources"]
   cfg --> plugin_dsh_base_mcp_resources
+  plugin_dsh_base_mcp_project_config["mcp-project-config<br/>@deepseek-ai/dsh-mcp-project-config"]
+  cfg --> plugin_dsh_base_mcp_project_config
   plugin_dsh_base_tools["tools<br/>@deepseek-ai/dsh-tools"]
   cfg --> plugin_dsh_base_tools
   plugin_dsh_base_system_prompt["system-prompt<br/>@deepseek-ai/dsh-system-prompt"]
@@ -248,6 +260,10 @@ flowchart LR
 | `fs-observation-policy` | `@deepseek-ai/dsh-fs-observation-policy` |
 | `tool-fs` | `@deepseek-ai/dsh-tool-fs` |
 | `tool-fs-search` | `@deepseek-ai/dsh-tool-fs-search` |
+| `lsp` | `@deepseek-ai/dsh-lsp` |
+| `lsp-stdio` | `@deepseek-ai/dsh-lsp-stdio` |
+| `tool-lsp` | `@deepseek-ai/dsh-tool-lsp` |
+| `lsp-post-edit-diagnostics` | `@deepseek-ai/dsh-lsp-post-edit-diagnostics` |
 | `agent-instructions` | `@deepseek-ai/dsh-agent-instructions` |
 | `skill` | `@deepseek-ai/dsh-skill` |
 | `skill-filesystem` | `@deepseek-ai/dsh-skill-filesystem` |
@@ -269,6 +285,7 @@ flowchart LR
 | `tool-subagent-list-agents` | `@deepseek-ai/dsh-tool-subagent-control/list-agents` |
 | `tool-subagent` | `@deepseek-ai/dsh-tool-subagent` |
 | `tool-subagent-fork` | `@deepseek-ai/dsh-tool-subagent` |
+| `command-review` | `@deepseek-ai/dsh-command-review` |
 | `ptc-runtime` | `@deepseek-ai/dsh-ptc-runtime-node` |
 | `workflow-ptc` | `@deepseek-ai/dsh-workflow-ptc` |
 | `tool-workflow` | `@deepseek-ai/dsh-tool-workflow` |
@@ -289,6 +306,7 @@ flowchart LR
 | `web-fetch-http` | `@deepseek-ai/dsh-web-fetch-http` |
 | `tool-web` | `@deepseek-ai/dsh-tool-web` |
 | `mcp-resources` | `@deepseek-ai/dsh-mcp-resources` |
+| `mcp-project-config` | `@deepseek-ai/dsh-mcp-project-config` |
 | `tools` | `@deepseek-ai/dsh-tools` |
 | `system-prompt` | `@deepseek-ai/dsh-system-prompt` |
 | `agent-loop` | `@deepseek-ai/dsh-agent-loop` |
