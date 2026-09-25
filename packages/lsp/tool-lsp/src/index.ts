@@ -53,7 +53,7 @@ export const DEFAULT_LSP_TOOL_TIMEOUT_MS = 60_000
 
 /** The stable system-prompt guidance positioning LSP as a precision aid. */
 export const LSP_PROMPT_TEXT =
-  'Use search/read for ordinary navigation. Use lsp when textual matches are ambiguous or before a change requires precise definitions, implementations, or references. Positions are one-based line and character (UTF-16) at the cursor; an off-symbol position may return no results. findReferences always includes the declaration.'
+  'Use search/read for ordinary navigation. Use lsp when textual matches are ambiguous or before a change requires precise definitions, implementations, or references. Use lsp diagnostics without line or character to check a file. When the post-edit diagnostics plugin is mounted, successful edit/write calls may add non-empty diagnostics to the next model request. Cursor positions are one-based line and character (UTF-16); an off-symbol position may return no results. findReferences always includes the declaration.'
 
 /** Plugin configuration: result caps and the timeout budget. */
 export interface Config {

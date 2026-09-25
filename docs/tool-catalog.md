@@ -1503,7 +1503,7 @@ Registered only inside live root Agent scopes created after the opt-in Schedule 
 
 ### `lsp`
 
-Query a language server for precise code navigation. operation is one of goToDefinition, findReferences, goToImplementation, hover. line and character are one-based UTF-16 cursor coordinates. findReferences includes the declaration. Queries against one workspace run serially; parallel fan-out to the same workspace waits in queue, so prefer sequential calls or distinct workspaces.
+Query a language server for precise code navigation and diagnostics. operation is one of goToDefinition, findReferences, goToImplementation, hover, diagnostics. line and character are one-based UTF-16 cursor coordinates, required for every operation except diagnostics (which is file-scoped). findReferences includes the declaration. diagnostics returns the file's current diagnostics within a bounded wait after opening it; a server that has not finished analyzing the file within that window returns no diagnostics rather than an error. Queries against one workspace run serially; parallel fan-out to the same workspace waits in queue, so prefer sequential calls or distinct workspaces.
 
 ```json
 {
@@ -1511,12 +1511,13 @@ Query a language server for precise code navigation. operation is one of goToDef
   "properties": {
     "operation": {
       "type": "string",
-      "description": "goToDefinition, findReferences, goToImplementation, or hover.",
+      "description": "goToDefinition, findReferences, goToImplementation, hover, or diagnostics.",
       "enum": [
         "goToDefinition",
         "findReferences",
         "goToImplementation",
-        "hover"
+        "hover",
+        "diagnostics"
       ]
     },
     "file_path": {
@@ -1525,19 +1526,17 @@ Query a language server for precise code navigation. operation is one of goToDef
     },
     "line": {
       "type": "integer",
-      "description": "One-based line of the cursor."
+      "description": "One-based line of the cursor. Required for every operation except diagnostics."
     },
     "character": {
       "type": "integer",
-      "description": "One-based UTF-16 column of the cursor."
+      "description": "One-based UTF-16 column of the cursor. Required for every operation except diagnostics."
     }
   },
   "additionalProperties": false,
   "required": [
     "operation",
-    "file_path",
-    "line",
-    "character"
+    "file_path"
   ]
 }
 ```

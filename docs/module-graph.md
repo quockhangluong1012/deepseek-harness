@@ -361,6 +361,7 @@ flowchart TD
   end
   subgraph group_lsp["packages/lsp"]
     pkg_lsp["lsp"]
+    pkg_lsp_post_edit_diagnostics["lsp-post-edit-diagnostics"]
     pkg_lsp_stdio["lsp-stdio"]
     pkg_tool_lsp["tool-lsp"]
   end
@@ -1114,6 +1115,10 @@ flowchart TD
   pkg_host_plugin_inventory --> pkg_agent_preset_registry
   pkg_host_plugin_inventory --> pkg_brand
   pkg_host_plugin_inventory --> pkg_typert_protocol
+  pkg_lsp_post_edit_diagnostics --> pkg_llm
+  pkg_lsp_post_edit_diagnostics --> pkg_lsp
+  pkg_lsp_post_edit_diagnostics --> pkg_tool_lsp
+  pkg_lsp_post_edit_diagnostics --> pkg_tools
   pkg_agent_preset --> pkg_agent_preset_registry
   pkg_session_telemetry_otel --> pkg_anonymous_user_id
   pkg_session_telemetry_otel --> pkg_command_feedback
@@ -1998,6 +2003,7 @@ flowchart TD
 | [`evolution-dreaming`](../packages/evolution/evolution-dreaming) | `evolution` | [`evolution-feedback`](../packages/evolution/evolution-feedback), [`evolution-heartbeat`](../packages/evolution/evolution-heartbeat), [`evolution-memory`](../packages/evolution/evolution-memory), [`storage-domain`](../packages/storage/storage-domain), [`workspace`](../packages/workspace/workspace) |
 | [`tool-cordis`](../packages/extensions/tool-cordis) | `extensions` | [`agent`](../packages/core/agent), [`app-boot`](../packages/boot/app-boot), [`cordis-host-runner`](../packages/extensions/cordis-host-runner), [`tools`](../packages/core/tools) |
 | [`host-plugin-inventory`](../packages/host/plugin-inventory) | `host` | [`agent-preset-registry`](../packages/preset/agent-preset-registry), [`brand`](../packages/util/brand), [`typert-protocol`](../packages/typert/protocol) |
+| [`lsp-post-edit-diagnostics`](../packages/lsp/lsp-post-edit-diagnostics) | `lsp` | [`llm`](../packages/llm/llm), [`lsp`](../packages/lsp/lsp), [`tool-lsp`](../packages/lsp/tool-lsp), [`tools`](../packages/core/tools) |
 | [`agent-preset`](../packages/preset/agent-preset) | `preset` | [`agent-preset-registry`](../packages/preset/agent-preset-registry) |
 | [`session-telemetry-otel`](../packages/session/session-telemetry-otel) | `session` | [`anonymous-user-id`](../packages/identity/anonymous-user-id), [`command-feedback`](../packages/feedback/command-feedback), [`llm`](../packages/llm/llm), [`message-feedback`](../packages/feedback/message-feedback), [`session`](../packages/core/session), [`session-telemetry`](../packages/session/session-telemetry) |
 | [`tool-bash`](../packages/shell/tool-bash) | `shell` | [`agent`](../packages/core/agent), [`jobs`](../packages/jobs/jobs), [`llm`](../packages/llm/llm), [`sandbox`](../packages/sandbox/sandbox), [`sandbox-policy`](../packages/sandbox/sandbox-policy), [`shell`](../packages/shell/shell), [`shell-env`](../packages/shell/shell-env), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools), [`user-approval`](../packages/interaction/user-approval) |

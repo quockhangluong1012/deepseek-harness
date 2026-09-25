@@ -350,6 +350,43 @@ describe('LspInstance diagnostics', () => {
     })
   })
 
+  it('captures publishDiagnostics sent before the didOpen write callback settles', async () => {
+    const uri = pathToFileURL(join(ws, 'a.ts')).href
+    const instance = makeInstance({
+      LSP_FAKE_ON_OPEN: 'diagnostics',
+      LSP_FAKE_DIAGNOSTICS_URI: uri,
+      LSP_FAKE_DIAGNOSTICS: JSON.stringify([
+        { range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } }, severity: 1, message: 'early error' },
+      ]),
+    }, { diagnosticsWaitMs: 1_000 }, (stdin, message, done) => {
+      const finish = (): void => { setTimeout(() => { done() }, 100) }
+      if ((message as { method?: unknown }).method === 'textDocument/didOpen') {
+        stdin.write(encodeMessage(message), finish)
+        return
+      }
+      stdin.write(encodeMessage(message), done)
+    })
+    await expect(run(instance, 'diagnostics')).resolves.toEqual({
+      kind: 'diagnostics',
+      diagnostics: [{ range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } }, severity: 'error', message: 'early error' }],
+    })
+  })
+
+  it('rejects malformed push diagnostics without crashing notification dispatch', async () => {
+    const uri = pathToFileURL(join(ws, 'a.ts')).href
+    const instance = makeInstance({
+      LSP_FAKE_ON_OPEN: 'diagnostics',
+      LSP_FAKE_DIAGNOSTICS_URI: uri,
+      LSP_FAKE_DIAGNOSTICS: JSON.stringify([
+        { range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } }, severity: 5, message: 'bad severity' },
+      ]),
+      LSP_FAKE_DEF: 'null',
+    })
+    await expect(run(instance, 'diagnostics')).rejects.toThrow(expect.objectContaining({ code: 'LSP_MALFORMED_RESPONSE' }))
+    expect(instance.dead).toBe(false)
+    await expect(run(instance, 'goToDefinition')).resolves.toMatchObject({ kind: 'locations', locations: [] })
+  })
+
   it('rejects on caller abort during the wait rather than degrading to empty', async () => {
     const instance = makeInstance({}, { diagnosticsWaitMs: 5_000 })
     const controller = new AbortController()

@@ -254,6 +254,13 @@ export function normalizeDiagnostics(payload: unknown): LspDiagnostic[] {
     const record = element as Record<string, unknown>
     if (!isRange(record.range)) throw malformedResponse('LSP diagnostic contained a malformed range')
     if (typeof record.message !== 'string') throw malformedResponse('LSP diagnostic was missing a message')
+    if (record.source !== undefined && typeof record.source !== 'string') {
+      throw malformedResponse('LSP diagnostic source was not a string')
+    }
+    if (record.code !== undefined && typeof record.code !== 'string'
+      && !(typeof record.code === 'number' && Number.isInteger(record.code))) {
+      throw malformedResponse('LSP diagnostic code was not a string or integer')
+    }
     return {
       range: toRange(record.range),
       severity: normalizeSeverity(record.severity),
@@ -264,19 +271,17 @@ export function normalizeDiagnostics(payload: unknown): LspDiagnostic[] {
   })
 }
 
-/**
- * Map the wire severity enum to the seam's severity. An absent or unrecognized value means
- * `error`, matching the protocol's own default for an omitted `severity`.
- */
+/** Map the wire severity enum; only an omitted severity has the LSP default of `Error`. */
 function normalizeSeverity(value: unknown): LspDiagnosticSeverity {
-  const severity = isWireSeverity(value) ? value : 1
-  switch (severity) {
+  if (value === undefined) return 'error'
+  if (!isWireSeverity(value)) throw malformedResponse('LSP diagnostic severity was not an integer from 1 through 4')
+  switch (value) {
     case 1: return 'error'
     case 2: return 'warning'
     case 3: return 'information'
     case 4: return 'hint'
     /* v8 ignore next -- exhaustive over the closed WireDiagnosticSeverity union; unreachable. */
-    default: return assertNever(severity, 'normalizeSeverity')
+    default: return assertNever(value, 'normalizeSeverity')
   }
 }
 

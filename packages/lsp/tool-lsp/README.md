@@ -1,5 +1,5 @@
 ---
-description: "The model-facing lsp tool: four read-only code-navigation operations with one-based UTF-16 cursor coordinates, bounded results, and hover text, for users and maintainers composing model code navigation."
+description: "The model-facing lsp tool: four cursor-based code-navigation operations plus file diagnostics, with bounded results, for users and maintainers composing language-server queries."
 kind: "package-reference"
 ---
 
@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-tool-lsp` lets a model navigate code through one read-only `lsp` tool: open a symbol's definition, find references and implementations, or read hover documentation. Requests use one-based UTF-16 line and character positions. Navigation results are bounded, grouped by file, and labeled when locations are omitted or text is truncated; hover results are normalized and distinguish missing information from errors. The package requires a configured LSP provider and a session workspace root. Choose it when textual search is ambiguous or a change needs precise symbol relationships; ordinary navigation should continue to use `search` and `read`.
+`dsh-tool-lsp` lets a model navigate code and inspect file diagnostics through one read-only `lsp` tool. Cursor-based requests use one-based UTF-16 line and character positions; file diagnostics need no cursor. Navigation results are grouped and bounded, hover is normalized, and diagnostics use a bounded push-notification wait. The package requires a configured LSP provider and a session workspace root; ordinary navigation should continue to use `search` and `read`.
 
 ## Table of Contents
 
@@ -29,11 +29,11 @@ An agent uses `lsp` when textual matches are ambiguous or before a change that n
 
 ### The tool
 
-`lsp` takes `operation` (`goToDefinition`, `findReferences`, `goToImplementation`, or `hover`), `file_path`, `line`, and `character`. `line` and `character` are positive one-based UTF-16 cursor coordinates; an off-symbol position may return no results. `findReferences` always includes the declaration, so impact analysis never misses the defining site. Provider choice, language id, workspace root, limits, timeout, and executable stay outside model input.
+`lsp` takes `operation` (`goToDefinition`, `findReferences`, `goToImplementation`, `hover`, or `diagnostics`) and `file_path`. The four navigation operations also require `line` and `character`, positive one-based UTF-16 cursor coordinates; `diagnostics` is file-scoped. An off-symbol position may return no results. `findReferences` always includes the declaration. Provider choice, language id, workspace root, limits, timeout, and executable stay outside model input.
 
 ### What the model gets back
 
-Navigation returns `path:line:character` locations grouped by file (one-based); hover returns normalized text or a no-hover notice. Empty locations and no hover are successful no-result responses. Results are capped first by `maxLocations` and then by `maxResultChars`, with omission and truncation markers inside the complete cap; the caps affect only presentation, not the canonical result value.
+Navigation returns `path:line:character` locations grouped by file; hover returns normalized text or a no-hover notice; diagnostics return one-based line/character, severity, optional source/code, and message. Empty locations, no hover, and no diagnostics are successful no-result responses. Results are capped by `maxLocations` where applicable and by `maxResultChars` for all operations; the caps affect presentation, not the canonical result value.
 
 ### Configuration
 
@@ -63,10 +63,10 @@ This section explains the design decisions behind the tool and where the code re
 
 - **Consumer-only.** The tool runtime-injects only `tools`, `lsp`, and `systemPrompt`, imports no provider, and passes only `exec.signal` to the seam.
 - **Coordinate conversion.** `parseLspArgs` validates that `line` and `character` are positive integers and converts them to the seam's zero-based positions; rendered locations convert back to one-based form.
-- **Canonical result passthrough.** The tool returns the seam's closed union (`{ kind: 'locations', locations, resolvedWorkspaceUri }` or `{ kind: 'hover', hover }`) so native renderers can inspect every acquired location and zero-based range directly.
+- **Canonical result passthrough.** The tool returns the seam's closed union (`locations`, `hover`, or `diagnostics`) so renderers can inspect all acquired ranges and diagnostic metadata directly.
 - **Execution-world URI rendering.** `renderUri` resolves a `file:` URI against the provider's canonical workspace URI — workspace-relative inside it, URI-derived absolute outside it, verbatim when malformed or not `file:` — never applying host-platform path rules to the session cwd.
 - **Caps after rendering.** `maxLocations` bounds the item count first, then `maxResultChars` bounds the complete rendered text including its omission or truncation marker.
-- **Generic search-card presentation.** `presentLspCall` renders a `{ card: 'generic', kind: 'search', title, locations: [{ path, line }] }` view; the args-derived title carries the operation and one-based cursor, and follow-along focuses the queried line while the title preserves the column.
+- **Generic search-card presentation.** `presentLspCall` renders a generic search view; cursor-based operations include their one-based cursor and queried line, while the file-scoped `diagnostics` call omits the cursor.
 
 ### Source map
 
@@ -89,7 +89,7 @@ Read these pages when the package-level contract is not enough. They move from t
 - [LSP navigation subsystem](../../../docs/subsystems/lsp.md) — operations, coordinates, requests and results, and `LspError` codes.
 - [dsh-lsp](../lsp/README.md) — the seam this tool queries.
 - [dsh-lsp-stdio](../lsp-stdio/README.md) — the stdio provider that answers these queries.
-- [lsp group map](../README.md) — the three-package family and its related documentation.
+- [lsp group map](../README.md) — the four-package family and its related documentation.
 
 -----
 
@@ -105,7 +105,7 @@ One system-prompt section (first-party order 2200) positions LSP as a precision 
 ##### Verbatim guidance
 
 ```markdown
-Use search/read for ordinary navigation. Use lsp when textual matches are ambiguous or before a change requires precise definitions, implementations, or references. Positions are one-based line and character (UTF-16) at the cursor; an off-symbol position may return no results. findReferences always includes the declaration.
+Use search/read for ordinary navigation. Use lsp when textual matches are ambiguous or before a change requires precise definitions, implementations, or references. Use lsp diagnostics without line or character to check a file. When the post-edit diagnostics plugin is mounted, successful edit/write calls may add non-empty diagnostics to the next model request. Cursor positions are one-based line and character (UTF-16); an off-symbol position may return no results. findReferences always includes the declaration.
 ```
 
 #### Token effect
@@ -134,7 +134,7 @@ Prefix-stable while the visible tool definition and order are unchanged; registr
 
 #### What the model sees
 
-File-grouped `path:line:character` location lines or normalized hover text, capped first by `maxLocations` and then by `maxResultChars`; omission and truncation markers are included inside the complete character cap. These caps affect only Native/model presentation, not the canonical value. Empty results use distinct `No results.` / `No hover information.` lines.
+File-grouped `path:line:character` locations, normalized hover text, or rendered file diagnostics; navigation counts are capped by `maxLocations`, and every rendered result is capped by `maxResultChars`. Empty values use distinct `No results.`, `No hover information.`, and `No diagnostics.` lines. The canonical value retains every diagnostic returned by the provider, even when the rendered text is truncated.
 
 #### Token effect
 
@@ -166,8 +166,7 @@ None; UI presentation is outside the model request.
 These limits define when the tool is a poor fit. They are current package constraints, not a task backlog.
 
 - **UTF-16 cursor coordinates** — columns are exact for the protocol but hard for a model to count around non-BMP characters; an off-symbol position may return empty results, so the prompt explains the convention without encouraging broad LSP use.
-- **No cross-server completeness promise** — supported servers may return empty or partial results depending on indexing readiness; the tool promises no completeness across languages or servers.
-- **Per-workspace serialization** — the stdio provider serves one query per instance at a time, so parallel fan-out to the same workspace queues; the tool is marked concurrency-safe for scheduler dispatch but sequential calls or distinct workspaces fan out better.
+- **Provider completeness and readiness** — navigation may be partial while indexing; diagnostics may be empty if the server publishes nothing or is still analyzing when its bounded wait expires. The tool promises no completeness across servers or languages.
 
 <a id="dev-note"></a>
 ### Dev Note

@@ -64,12 +64,13 @@ const okLocations: LspQueryResult = {
 }
 
 describe('tool-lsp registration', () => {
-  it('registers the lsp tool and its prompt section', async () => {
+  it('registers the lsp tool and guides file-scoped diagnostics without cursor coordinates', async () => {
     const { ctx } = await mount(stubProvider(() => okLocations))
     expect(ctx.tools.get('lsp')).toBeDefined()
     const prompt = await ctx.systemPrompt.assemble()
     const text = prompt.sections.map(s => s.text).join('\n')
     expect(text).toContain(LSP_PROMPT_TEXT)
+    expect(text).toContain('Use lsp diagnostics without line or character to check a file.')
   })
 
   it('attaches the default timeout budget to the tool definition', async () => {

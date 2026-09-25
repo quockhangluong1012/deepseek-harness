@@ -1508,7 +1508,7 @@ create、edit、pause 和 resume 要求直接来自人类的根权限；complete
 
 ### `lsp`
 
-查询语言服务器，以精确导航代码。operation 可取 goToDefinition、findReferences、goToImplementation 或 hover。line 和 character 是从 1 开始的 UTF-16 光标坐标。findReferences 包含声明。针对同一 workspace 的查询串行执行；向同一 workspace 的并行扇出会排队等待，因此请优先采用顺序调用或不同 workspace。
+查询语言服务器，执行精确代码导航或读取文件诊断。`operation` 可取 `goToDefinition`、`findReferences`、`goToImplementation`、`hover` 或 `diagnostics`。前四种操作要求从 1 开始的 UTF-16 光标坐标 `line` 与 `character`；文件级诊断不需要光标。`findReferences` 始终包含声明。`diagnostics` 在打开文件后等待有界时间接收当前诊断；若等待结束前服务器仍未完成分析，则返回空诊断而不是错误。同一 workspace 的查询串行执行，因此对同一 workspace 的并行扇出会排队，宜顺序调用或使用不同 workspace。
 
 ```json
 {
@@ -1516,12 +1516,13 @@ create、edit、pause 和 resume 要求直接来自人类的根权限；complete
   "properties": {
     "operation": {
       "type": "string",
-      "description": "goToDefinition, findReferences, goToImplementation, or hover.",
+      "description": "goToDefinition, findReferences, goToImplementation, hover, or diagnostics.",
       "enum": [
         "goToDefinition",
         "findReferences",
         "goToImplementation",
-        "hover"
+        "hover",
+        "diagnostics"
       ]
     },
     "file_path": {
@@ -1530,26 +1531,24 @@ create、edit、pause 和 resume 要求直接来自人类的根权限；complete
     },
     "line": {
       "type": "integer",
-      "description": "One-based line of the cursor."
+      "description": "One-based line of the cursor. Required for every operation except diagnostics."
     },
     "character": {
       "type": "integer",
-      "description": "One-based UTF-16 column of the cursor."
+      "description": "One-based UTF-16 column of the cursor. Required for every operation except diagnostics."
     }
   },
   "additionalProperties": false,
   "required": [
     "operation",
-    "file_path",
-    "line",
-    "character"
+    "file_path"
   ]
 }
 ```
 
 来源：[`packages/lsp/tool-lsp/src/index.ts`](../packages/lsp/tool-lsp/src/index.ts)
 
-lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，因此其模型可见 schema 在更换提供方时保持稳定。运行时要求已注册提供方，例如 `@deepseek-ai/dsh-lsp-stdio`；如果没有提供方，查询会返回结构化 `LSP_UNAVAILABLE` 错误，而不会改变 schema。
+`lsp` 工具将提供方选择与语言服务器子进程置于 `ctx.lsp` 之后，因此更换提供方不会改变模型可见 schema。运行时要求已注册提供方（例如 `@deepseek-ai/dsh-lsp-stdio`）；没有提供方时查询会返回结构化 `LSP_UNAVAILABLE` 错误，而不会更改 schema。
 
 <a id="deepseek-aidsh-tool-ralph"></a>
 

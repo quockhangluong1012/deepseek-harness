@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-使用 `dsh-lsp-stdio` 可让 agent（智能体）从显式配置的本地语言服务器获得定义、引用、实现与悬停信息。它把文件扩展名映射为语言标识符，按需为每个工作区启动一台服务器，并在每次查询时重新读取文件，不在查询之间保留文档状态。语言服务器进程与源文件读取共享已挂载的文件系统和子进程环境。本包不安装服务器，也不提供沙箱；部署方必须提供命令、映射和所需的隔离措施。同一服务器与工作区的查询串行执行，不同工作区可并行运行。
+使用 `dsh-lsp-stdio` 查询已配置的本地语言服务器，获取定义、引用、实现、悬停信息和文件诊断。它将文件扩展名映射到语言标识符，按需为每个工作区启动一台服务器，并在每次查询时重新读取文件。诊断通过 `textDocument/publishDiagnostics` 获取，等待时间不超过 `diagnosticsWaitMs`；服务器在窗口内未发布时返回空列表。部署方负责提供服务器命令与所需的隔离措施。
 
 ## 目录
 
@@ -59,16 +59,17 @@ kind: "package-reference"
 | `maxDocumentBytes` | `4000000` | 该主机可打开的源文件大小上限 |
 | `shutdownTimeoutMs` | `5000` | 升级前用于优雅 `shutdown`／`exit` 的预算 |
 | `killGraceMs` | `2000` | 请求取消及 SIGTERM→SIGKILL 升级的宽限期 |
+| `diagnosticsWaitMs` | `3000` | 打开文件后等待匹配的 `textDocument/publishDiagnostics` 通知的最长时间；超时返回空列表 |
 
-`servers` 必须至少包含一个配置项，每个 id 都必须非空；定时器预算必须是 Node 定时器范围内的正整数，字节上限必须为正。生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-lsp-stdio)是每个受支持字段的穷尽式真源。
+`servers` 必须至少包含一个配置项，每个 id 都必须非空；包括 `diagnosticsWaitMs` 在内的定时器预算必须是 Node 定时器范围内的正整数，字节上限必须为正。生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-lsp-stdio)是每个受支持字段的穷尽式真源。
 
 ### 查询做什么
 
-首次查询某个工作区时，提供方会为该工作区启动一个服务器进程并放入池中。每次查询通过 `ctx.fs` 读取当前源文件，在服务器中打开它（`textDocument/didOpen`），执行所请求的操作，然后关闭——因此服务器始终看到当前文本，调用之间不会残留任何文档状态。同一服务器与工作区的查询一次只执行一个；不同工作区并行运行。如果池化进程在只读查询之前或期间发生故障，提供方会在新进程上重试该查询一次。
+首次查询某个工作区时，提供方会为该工作区启动一个服务器进程并放入池中。每次查询都通过 `ctx.fs` 读取当前源文件并打开它（`textDocument/didOpen`）。基于光标的操作随后发送一个请求；`diagnostics` 等待匹配的 `textDocument/publishDiagnostics` 通知，最长为 `diagnosticsWaitMs`。超时返回空列表，表示“未及时观察到诊断”，并不证明文件没有问题。提供方在结果产生后关闭文档。同一服务器与工作区的查询一次只执行一个；不同工作区并行运行。查询发生传输故障时，提供方会在新进程上重试该只读查询一次。
 
 ### 可观察的成功与失败
 
-成功的导航返回规范化位置，悬停返回规范化文本或无可悬停提示；空结果是成功的无结果响应。当服务器不支持该操作或临时打开／关闭同步（`LSP_UNSUPPORTED_OPERATION`）、源文件缺失、非普通文件、非 UTF-8、过大或位于规范工作区之外（在服务器启动前被拒绝），或服务器返回格式错误的载荷（`LSP_MALFORMED_RESPONSE`）时，查询会失败。被强制杀死的 harness 会让服务器继续运行直到自行退出——优雅关闭只发生在服务释放时。
+成功的导航返回规范化位置，悬停返回规范化文本或无可悬停提示，诊断返回规范化列表或有界等待后得到的空列表。当服务器不支持所请求的光标操作或临时打开／关闭同步（`LSP_UNSUPPORTED_OPERATION`）、源文件缺失、非普通文件、非 UTF-8、过大或位于规范工作区之外（在服务器启动前被拒绝），或服务器返回格式错误的位置、悬停或诊断（`LSP_MALFORMED_RESPONSE`）时，查询会失败。被强制杀死的 harness 会让服务器继续运行直到自行退出——优雅关闭只发生在服务释放时。
 
 ### 安全边界
 
@@ -87,7 +88,7 @@ kind: "package-reference"
 ### 设计理念
 
 - **通用主机，不是目录。** 部署显式配置命令与映射；预设应放在 `cordis.yml` overlay 中，而不是本包内。
-- **兼容性优先的临时打开。** 每次查询都执行 `didOpen`（版本 1、完整文本）→ 请求 → `didClose`，因此服务器始终看到当前字节，第一版不需要 `didChange`、内容 cache 或文档 LRU。
+- **兼容性优先的临时打开。** 每次查询都执行 `didOpen`（版本 1、完整文本）→ 请求或有界诊断等待 → `didClose`，因此服务器能看到当前字节，且不保留文档状态。诊断等待器会在 `didOpen` 到达服务器前启动，因此不会漏掉服务器立即推送的通知。
 - **先读后启动。** 源文件在工作区队列内先完成解析、包含关系检查与字节限制，然后才创建任何进程，因此排队查询只会在轮到自身时读取当前字节，无效源文件也不会留下空闲的池化进程。
 - **每个规范工作区一个池化进程。** 实例按 `(server id, canonical workspace target)` 进行 single-flight；传输故障会在等待释放完成后于新进程上重试一次该只读查询。
 - **逐工作区串行化。** 每个工作区一条可中止队列，串行执行源读取／打开／查询／关闭生命周期；不同工作区并行运行，无法停止服务器的取消只会终止该实例。
@@ -100,17 +101,17 @@ kind: "package-reference"
 |---|---|
 | [`src/index.ts`](src/index.ts) | 插件入口：config schema、可执行文件解析、提供方注册、进程池 |
 | [`src/host.ts`](src/host.ts) | 通过 `ctx.fs` 完成工作区规范化与有边界的源读取 |
-| [`src/instance.ts`](src/instance.ts) | 单个服务器进程：initialize 握手、串行化临时打开查询、有边界的释放 |
-| [`src/connection.ts`](src/connection.ts) | JSON-RPC 端点：id 关联、出站请求、入站服务器请求、stderr 上限 |
-| [`src/framing.ts`](src/framing.ts) | `Content-Length` 分帧与有边界的解码器 |
-| [`src/protocol.ts`](src/protocol.ts) | 协议类型子集：能力、位置、悬停、文本文档同步 |
-| [`src/translate.ts`](src/translate.ts) | 能力检查、UTF-16 协商、`Location`／`LocationLink`／hover 规范化 |
+| [`src/instance.ts`](src/instance.ts) | 单个服务器进程：initialize 握手、临时打开查询、推送诊断等待、有界释放 |
+| [`src/connection.ts`](src/connection.ts) | JSON-RPC 端点：id 关联、出站消息、入站服务器请求与通知、stderr 上限 |
+| [`src/framing.ts`](src/framing.ts) | `Content-Length` 分帧与有界解码器 |
+| [`src/protocol.ts`](src/protocol.ts) | 协议类型子集：能力、位置、悬停、诊断、文本文档同步 |
+| [`src/translate.ts`](src/translate.ts) | 能力检查、UTF-16 协商、位置／悬停／诊断规范化 |
 | [`src/abort.ts`](src/abort.ts) | 融合调用方与释放信号的取消辅助 |
 | — | 不发布运行时不变式伴生入口；进程池与队列是私有状态，本提供方也不发布独立的生命周期事件流或可枚举快照。 |
 
 ### 协议行为
 
-初始化会声明 UTF-16 位置、工作区文件夹与配置、markdown／plaintext hover，以及定义与实现使用的 link 支持，且不进行动态注册；服务器返回的能力具有最终决定权。服务器省略 `positionEncoding` 时默认为 `utf-16`；其他任何值都会使查询失败。客户端通过静态配置回答 `workspace/configuration`，接受生命周期记账请求，并拒绝 `workspace/applyEdit`——它绝不应用编辑或运行命令。导航直接映射 `Location`，并从 `LocationLink` 的 `targetUri` + `targetSelectionRange` 映射；hover 规范化接受 `MarkupContent` 与 `MarkedString` 形状，保留字符串值，把带 language tag 的值渲染为围栏代码，并用一个空行连接数组。缺失结果、格式错误的范围或位置，以及格式错误的 hover 编码，都会以结构化 `LSP_MALFORMED_RESPONSE` 错误失败。
+初始化会声明 UTF-16 位置、工作区文件夹与配置、markdown／plaintext hover，以及定义与实现使用的 link 支持，且不进行动态注册；服务器返回的能力具有最终决定权。服务器省略 `positionEncoding` 时默认为 `utf-16`；其他任何值都会使查询失败。客户端通过静态配置回答 `workspace/configuration`，接受生命周期记账请求，并拒绝 `workspace/applyEdit`——它绝不应用编辑或运行命令。导航会规范化 `Location` 和 `LocationLink`；hover 会规范化 `MarkupContent` 和 `MarkedString`。`diagnostics` 接收匹配的 `textDocument/publishDiagnostics` 推送，并规范化范围、严重级别、消息、来源与代码。格式错误的结果会以 `LSP_MALFORMED_RESPONSE` 失败。
 
 </details>
 
@@ -124,7 +125,7 @@ kind: "package-reference"
 - [LSP 导航子系统](../../../docs/subsystems/lsp.zh.md)——操作、坐标、请求与结果，以及 `LspError` code。
 - [dsh-lsp](../lsp/README.zh.md)——本提供方注册到的 seam。
 - [dsh-tool-lsp](../tool-lsp/README.zh.md)——基于该 seam 的面向模型工具。
-- [lsp 组地图](../README.zh.md)——三个包的家族及其相关文档。
+- [lsp 组地图](../README.zh.md)——四个包的家族及其相关文档。
 
 -----
 
@@ -146,6 +147,7 @@ kind: "package-reference"
 
 - **不提供隔离策略**——本包信任所配置的服务器，不对其进程实施沙箱；受限部署必须提供适当的进程与文件系统提供方，或使用同一执行世界的沙箱包装层。
 - **临时打开兼容性下限**——同步能力省略打开／关闭（或声明 `None`）的服务器不受支持，即使关闭文档查询能够工作；固定的 TypeScript e2e 只建立一项兼容性下限，不代表跨语言承诺。
+- **推送诊断有时间上限**——服务器不发布诊断，或在 `diagnosticsWaitMs` 到期时仍在分析，都会产生空结果；提供方无法区分干净文件与迟到的分析结果。
 - **逐服务器与逐工作区串行化延迟**——共享同一个服务器与工作区的并行 agent 会在一个进程后排队；长生命周期工作区进程会占用内存直到释放。
 - **被强制杀死的 harness 会遗留语言服务器**——`initialize.processId: null` 取消了服务器侧的客户端 PID 监视，因此服务器只能由服务的优雅释放清理；被 SIGKILL 的 harness 会让它们继续运行，直到自行退出。
 

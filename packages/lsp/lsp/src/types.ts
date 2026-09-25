@@ -31,12 +31,10 @@ export interface LspRange {
 }
 
 /**
- * A caller's normalized query. Every field is required: `workspaceRoot` is caller-supplied,
- * `languageId` comes from the provider registration (not here), and consumers own timeouts and
- * result limits — so no field needs implementation defaulting and there is no `resolve()` step.
- * A discriminated union on `operation`: the four cursor-based operations require a `position`,
- * while `diagnostics` is file-scoped and carries none — each shape has exactly the fields its
- * operation needs.
+ * A caller's normalized query. Every member requires `operation`, `filePath`, and the caller's
+ * `workspaceRoot`. Cursor-based operations also require a zero-based UTF-16 `position`; the
+ * file-scoped `diagnostics` operation has no position. The selected provider derives `languageId`;
+ * callers own timeouts and result limits, so there is no implementation defaulting or `resolve()` step.
  */
 export type LspQueryRequest =
   | {

@@ -1,9 +1,9 @@
 /**
- * One language-server instance: a connection plus the initialize handshake, the serialized abortable
- * query queue, the transient `didOpen`→request→`didClose` lifecycle, and bounded teardown. One
- * instance owns one `(provider id, canonical workspace)` process. Queries serialize through a single
- * queue so a cancellation that fails to stop the server can terminate it without killing unrelated
- * work; distinct instances run in parallel.
+ * One language-server instance: a connection plus the initialize handshake, serialized abortable
+ * query queue, transient `didOpen`→request or push-diagnostics wait→`didClose` lifecycle, and bounded
+ * teardown. One instance owns one `(provider id, canonical workspace)` process. Queries serialize so a
+ * cancellation that cannot stop the server terminates only that instance; distinct instances run in
+ * parallel.
  * @module @deepseek-ai/dsh-lsp-stdio/instance
  */
 
@@ -48,6 +48,14 @@ export interface InstanceSpec extends ConnectionSpec {
   readonly diagnosticsWaitMs: number
 }
 
+/** One in-flight push-notification result, published before `didOpen` can reach the server. */
+interface PendingDiagnostics {
+  readonly uri: string
+  readonly promise: Promise<readonly LspDiagnostic[]>
+  readonly resolve: (diagnostics: readonly LspDiagnostic[]) => void
+  readonly reject: (error: Error) => void
+}
+
 /**
  * A single initialized server process. Not exported as a provider — the provider single-flights and
  * pools these. `query()` serializes; `dispose()` rejects queued work and tears the process down.
@@ -69,11 +77,7 @@ export class LspInstance {
    * through `queue`, so at most one waiter exists at a time; a notification for any other URI is
    * ignored.
    */
-  private pendingDiagnostics: {
-    uri: string
-    resolve: (diagnostics: readonly LspDiagnostic[]) => void
-    reject: (error: Error) => void
-  } | undefined
+  private pendingDiagnostics: PendingDiagnostics | undefined
 
   /**
    * @param spec - the launch, initialize, and teardown parameters.
@@ -177,6 +181,7 @@ export class LspInstance {
     }
 
     const uri = source.fileUrl
+    const diagnosticsWaiter = request.operation === 'diagnostics' ? this.armDiagnostics(uri) : undefined
     let opened = false
     try {
       /* v8 ignore next -- guards an abort landing between the ready wait and didOpen; not deterministically reproducible. */
@@ -193,19 +198,22 @@ export class LspInstance {
       }
       opened = true
       if (request.operation === 'diagnostics') {
-        const diagnostics = await this.waitForDiagnostics(uri, signal)
+        const diagnostics = await this.waitForDiagnostics(diagnosticsWaiter!, signal)
         return { kind: 'diagnostics', diagnostics }
       }
       const payload = await this.sendRequest(request.operation, uri, request.position, signal)
       return this.normalize(request.operation, payload)
     } finally {
+      if (diagnosticsWaiter !== undefined && this.pendingDiagnostics === diagnosticsWaiter) {
+        this.pendingDiagnostics = undefined
+      }
       // A disposed or closed instance (e.g. an aborted request whose server ignored
       // `$/cancelRequest`) is already tearing down; sending didClose would race that teardown and let
       // the next queued query's document lifecycle overlap the still-active request.
       if (opened && !this.dead) {
         try {
           await this.connection.notify('textDocument/didClose', { textDocument: { uri } })
-        } catch (_closeFailure: unknown) {
+        } catch {
           // A close-write failure does not replace the settled result/error, but the instance can no
           // longer be trusted. The provider re-awaits this teardown and owns failure reporting.
           await this.awaitTeardownAttempt()
@@ -234,29 +242,35 @@ export class LspInstance {
   }
 
   /**
-   * Wait for a `textDocument/publishDiagnostics` notification matching `uri`, bounded by
-   * `spec.diagnosticsWaitMs`. A caller `signal` abort is a real cancellation (rejects); the bound
-   * elapsing is not an error — it degrades to an empty result, since a server publishing nothing for
-   * a clean file is indistinguishable from one still analyzing it. A malformed publish rejects
-   * rather than crashing the shared notification dispatch.
+   * Arm the one URI-specific push-notification waiter before `didOpen` is sent. Some servers publish
+   * synchronously from their `didOpen` handler, before the write callback settles.
    */
-  private async waitForDiagnostics(uri: string, signal?: AbortSignal): Promise<readonly LspDiagnostic[]> {
+  private armDiagnostics(uri: string): PendingDiagnostics {
+    const pending = { uri, ...Promise.withResolvers<readonly LspDiagnostic[]>() }
+    // A notification may reject this promise before the didOpen write callback settles and before
+    // `waitForDiagnostics` attaches its await; keep that early failure handled until then.
+    void pending.promise.catch(() => {})
+    this.pendingDiagnostics = pending
+    return pending
+  }
+
+  /**
+   * Wait for the armed `textDocument/publishDiagnostics` result, bounded by `diagnosticsWaitMs`.
+   * Caller cancellation rejects; timeout returns an empty result because a clean file may produce no
+   * notification. A malformed publish rejects rather than throwing into connection dispatch.
+   */
+  private async waitForDiagnostics(pending: PendingDiagnostics, signal?: AbortSignal): Promise<readonly LspDiagnostic[]> {
     if (signal?.aborted) throw abortError(signal)
-    const notified = new Promise<readonly LspDiagnostic[]>((resolve, reject) => {
-      this.pendingDiagnostics = { uri, resolve, reject }
-    })
     const wait = deadline(undefined, this.spec.diagnosticsWaitMs, 'LSP_DIAGNOSTICS_WAIT')
     try {
       const timedOut = new Promise<readonly LspDiagnostic[]>((resolve) => {
         wait.signal.addEventListener('abort', () => { resolve([]) }, { once: true })
       })
-      return await abortable(Promise.race([notified, timedOut]), signal)
+      return await abortable(Promise.race([pending.promise, timedOut]), signal)
     } finally {
       wait[Symbol.dispose]()
-      if (this.pendingDiagnostics?.uri === uri) this.pendingDiagnostics = undefined
     }
   }
-
 
   /**
    * Race a pending request against abort. On abort, send `$/cancelRequest` and give the server a

@@ -3333,6 +3333,24 @@ export type Config = Readonly<Record<string, never>>
 
 来源： [`packages/llm/llm-retry/src/index.ts:25`](../packages/llm/llm-retry/src/index.ts)
 
+<a id="deepseek-aidsh-lsp-post-edit-diagnostics"></a>
+
+## `@deepseek-ai/dsh-lsp-post-edit-diagnostics`
+
+需要： `tools` · `lsp`
+
+```ts config-catalog
+/** Plugin configuration: which tool calls trigger enrichment, and the rendered-text cap. */
+export interface Config {
+  /** Tool names whose successful calls trigger a diagnostics lookup. Default `['edit', 'write']`. */
+  toolNames?: string[]
+  /** Largest rendered diagnostics text, including truncation metadata (default 16000). */
+  maxResultChars?: number
+}
+```
+
+来源： [`packages/lsp/lsp-post-edit-diagnostics/src/index.ts:35`](../packages/lsp/lsp-post-edit-diagnostics/src/index.ts)
+
 <a id="deepseek-aidsh-lsp-stdio"></a>
 
 ## `@deepseek-ai/dsh-lsp-stdio`
@@ -3370,10 +3388,16 @@ export interface LspLocalServerConfig {
   shutdownTimeoutMs?: number
   /** Request-cancel and SIGTERM→SIGKILL grace (ms). Default 2000. */
   killGraceMs?: number
+  /**
+   * How long a `diagnostics` query waits, after `didOpen`, for a matching
+   * `textDocument/publishDiagnostics` notification before returning an empty result (ms). Default
+   * 3000.
+   */
+  diagnosticsWaitMs?: number
 }
 ```
 
-来源： [`packages/lsp/lsp-stdio/src/index.ts:82`](../packages/lsp/lsp-stdio/src/index.ts)
+来源： [`packages/lsp/lsp-stdio/src/index.ts:90`](../packages/lsp/lsp-stdio/src/index.ts)
 
 <a id="deepseek-aidsh-mcp-client"></a>
 

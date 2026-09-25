@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-The lsp group lets agents navigate code and read diagnostics through configured language servers: go to definitions, find references and implementations, read hover documentation, and query a file's current diagnostics — on demand through the model-facing tool, or automatically after a successful edit. Use `lsp-stdio` to connect local stdio language-server commands and extension mappings, `tool-lsp` to make those operations available to the model, and `lsp-post-edit-diagnostics` to attach diagnostics to a successful `edit`/`write` call without a model round-trip. The shared `lsp` package keeps provider choice and normalized results consistent, so changing servers does not change model requests. Deployments must supply and configure their language servers; this group ships none, and none of its packages are mounted by any shipped profile — composing at least one `lsp-stdio` server is a deployment-specific choice.
+Agents can navigate code and inspect diagnostics through configured language servers: definitions, references, implementations, hover, and file diagnostics. `dsh-lsp` standardizes provider results; `lsp-stdio` connects configured servers; `tool-lsp` exposes on-demand queries; `lsp-post-edit-diagnostics` attaches diagnostics after successful `edit`/`write` calls. Deployments supply server binaries and configuration; shipped profiles mount none of these optional packages.
 
 ## Table of Contents
 

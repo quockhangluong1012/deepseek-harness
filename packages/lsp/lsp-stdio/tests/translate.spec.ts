@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   negotiatePositionEncoding,
+  normalizeDiagnostics,
   normalizeHover,
   normalizeLocations,
   requestMethod,
@@ -31,6 +32,10 @@ describe('supportsOperation', () => {
     expect(supportsOperation(caps, 'findReferences')).toBe(true)
     expect(supportsOperation(caps, 'goToImplementation')).toBe(false)
     expect(supportsOperation(caps, 'hover')).toBe(false)
+  })
+
+  it('treats push diagnostics as supported without a provider capability field', () => {
+    expect(supportsOperation({}, 'diagnostics')).toBe(true)
   })
 })
 
@@ -169,5 +174,32 @@ describe('normalizeHover', () => {
   it('rejects a malformed range instead of silently dropping it', () => {
     expect(() => normalizeHover({ contents: 'x', range: { start: { line: 1 } } }))
       .toThrow(expect.objectContaining({ code: 'LSP_MALFORMED_RESPONSE' }))
+  })
+})
+
+describe('normalizeDiagnostics', () => {
+  it('maps all wire severities and defaults an omitted severity to error', () => {
+    expect(normalizeDiagnostics([1, 2, 3, 4, undefined].map((severity, line) => ({
+      range: { start: { line, character: 0 }, end: { line, character: 1 } },
+      ...(severity === undefined ? {} : { severity }),
+      message: `diagnostic-${line}`,
+    }))).map(diagnostic => diagnostic.severity)).toEqual([
+      'error', 'warning', 'information', 'hint', 'error',
+    ])
+  })
+
+  it('rejects a non-enum severity instead of disguising it as an error', () => {
+    expect(() => normalizeDiagnostics([{
+      range: RANGE,
+      severity: 5,
+      message: 'invalid severity',
+    }])).toThrow(expect.objectContaining({ code: 'LSP_MALFORMED_RESPONSE' }))
+  })
+
+  it('rejects malformed optional source and code fields', () => {
+    for (const extra of [{ source: 42 }, { code: 1.5 }, { code: {} }]) {
+      expect(() => normalizeDiagnostics([{ range: RANGE, message: 'bad metadata', ...extra }]))
+        .toThrow(expect.objectContaining({ code: 'LSP_MALFORMED_RESPONSE' }))
+    }
   })
 })

@@ -3278,7 +3278,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
   {
     key: 'lsp',
     summary: 'The LSP capability seam (`ctx.lsp`).',
-    description: 'The LSP capability seam (`ctx.lsp`). Owns provider registration/selection and normalized query execution; exposes exactly the four operations and no protocol escape hatch.',
+    description: 'The LSP capability seam (`ctx.lsp`). Owns provider registration/selection and normalized query execution; exposes exactly the five operations and no protocol escape hatch.',
     methods: [
       {
         signature: 'registerProvider(provider: LspProvider): () => void',
@@ -8289,16 +8289,20 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type LocalizedText = string | {\n    readonly en: string;\n    readonly [locale: string]: string;\n};',
   },
   {
+    name: 'LspDiagnostic',
+    declaration: 'export interface LspDiagnostic {\n    readonly range: LspRange;\n    readonly severity: LspDiagnosticSeverity;\n    readonly message: string;\n    readonly source?: string;\n    readonly code?: string;\n}',
+  },
+  {
+    name: 'LspDiagnosticSeverity',
+    declaration: 'export type LspDiagnosticSeverity = \'error\' | \'warning\' | \'information\' | \'hint\';',
+  },
+  {
     name: 'LspHover',
     declaration: 'export interface LspHover {\n    readonly contents: string;\n    readonly range?: LspRange;\n}',
   },
   {
     name: 'LspLocation',
     declaration: 'export interface LspLocation {\n    readonly uri: string;\n    readonly range: LspRange;\n}',
-  },
-  {
-    name: 'LspOperation',
-    declaration: 'export type LspOperation = \'goToDefinition\' | \'findReferences\' | \'goToImplementation\' | \'hover\';',
   },
   {
     name: 'LspPosition',
@@ -8314,15 +8318,15 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'LspProviderQuery',
-    declaration: 'export interface LspProviderQuery extends LspQueryRequest {\n    readonly languageId: string;\n}',
+    declaration: 'export type LspProviderQuery = LspQueryRequest & {\n    readonly languageId: string;\n};',
   },
   {
     name: 'LspQueryRequest',
-    declaration: 'export interface LspQueryRequest {\n    readonly operation: LspOperation;\n    readonly filePath: string;\n    readonly position: LspPosition;\n    readonly workspaceRoot: string;\n}',
+    declaration: 'export type LspQueryRequest = {\n    readonly operation: \'goToDefinition\' | \'findReferences\' | \'goToImplementation\' | \'hover\';\n    readonly filePath: string;\n    readonly position: LspPosition;\n    readonly workspaceRoot: string;\n} | {\n    readonly operation: \'diagnostics\';\n    readonly filePath: string;\n    readonly workspaceRoot: string;\n};',
   },
   {
     name: 'LspQueryResult',
-    declaration: 'export type LspQueryResult = {\n    readonly kind: \'locations\';\n    readonly locations: readonly LspLocation[];\n    readonly resolvedWorkspaceUri: string;\n} | {\n    readonly kind: \'hover\';\n    readonly hover: LspHover | null;\n};',
+    declaration: 'export type LspQueryResult = {\n    readonly kind: \'locations\';\n    readonly locations: readonly LspLocation[];\n    readonly resolvedWorkspaceUri: string;\n} | {\n    readonly kind: \'hover\';\n    readonly hover: LspHover | null;\n} | {\n    readonly kind: \'diagnostics\';\n    readonly diagnostics: readonly LspDiagnostic[];\n};',
   },
   {
     name: 'LspRange',

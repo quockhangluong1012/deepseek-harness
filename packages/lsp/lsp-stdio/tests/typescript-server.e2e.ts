@@ -1,8 +1,9 @@
 /**
- * Keyless real-server e2e: drives the real `typescript-language-server` through the full
- * `ctx.lsp` → `dsh-lsp-stdio` stack over the base protocol, exercising all four operations. No API
- * key needed — the server is a local dev dependency. This establishes one compatibility floor
- * (TypeScript), not a cross-language claim.
+ * Keyless real-server e2e: drives `typescript-language-server` through the full
+ * `ctx.lsp` → `dsh-lsp-stdio` stack over the base protocol, covering the four cursor-based
+ * request/response operations. Push diagnostics are exercised with the fake server in
+ * `instance.spec.ts`. This establishes one TypeScript compatibility floor, not a cross-language
+ * claim.
  */
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
