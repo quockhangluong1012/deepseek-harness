@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-本插件汇总每个顶层轮次改动了哪些文件、每个文件的行数，并提供每个所列文件在轮次开始与结束时的内容对比。比较轮次开始和结束时的 git 工作树快照；文件工具编辑的每个文件在首次编辑之前和轮次结束时各复制一份整文件，以此覆盖 git 覆盖不到的文件。没有仓库或没有 git 时，只列文件工具的编辑。Session 日志只收到一条写明轮号的 `workspace/changes` 事件；摘要和对比留在 Host 上，直到 Session 释放。Web 的改动文件卡片渲染它们。
+本插件汇总每个顶层轮次改动了哪些文件、每个文件的行数，并提供每个所列文件在轮次开始与结束时的内容对比；它还能把工作目录代码回退到任意一轮的起始状态。比较轮次开始和结束时的 git 工作树快照；文件工具编辑的每个文件在首次编辑之前和轮次结束时各复制一份整文件，以此覆盖 git 覆盖不到的文件。没有仓库或没有 git 时，只列文件工具的编辑。Session 日志只收到一条写明轮号的 `workspace/changes` 事件；摘要、对比与回退都留在 Host 上，直到 Session 释放。Web 的改动文件卡片渲染摘要与对比；[`dsh-command-rewind`](../command-rewind/README.zh.md) 把回退直接暴露给用户。
 
 ## 目录
 
@@ -47,6 +47,10 @@ kind: "package-reference"
 
 每个文件携带持久的 `path`——位于工作目录内时为相对路径，否则为绝对路径——以及用于排序和标签的 `display` 路径：相对路径，仓库内位于工作目录之上的文件为 `../` 路径，家目录下的文件为 `~` 路径，其余为绝对路径。文件按 `display` 的码元顺序排序，因此上级路径和绝对路径排在工作目录自身文件之前。`workspace/changes` 事件只携带轮号；`ctx.workspaceChanges.summary(sessionId, seq)` 返回该序号的事件宣告的摘要，Session 已释放或本 Host 进程从未记录时返回 undefined。`ctx.workspaceChanges.diff(sessionId, seq, index, signal)` 对比该下标所列的文件：从两棵快照树或两份副本得出带三行上下文的 hunk；git 报告为二进制或某一侧含 NUL 字节时返回 `binary`；某一侧超过 `maxFileBytes` 时返回 `oversized`。逐行对比运行超过 `diffTimeoutMs` 时退化为一个替换全部行的 hunk，并标记 `coarse`。因此 Host 重启后重新打开的对话，先前轮次既没有卡片也没有对比。
 
+### 回退
+
+`ctx.workspaceChanges.restore(sessionId, seq, signal)` 把工作目录回退为给定 `seq` 所宣告的轮次开始时的内容。它把该轮自己的轮起始树与当前工作树的一份全新快照做对比——而不是该轮自己记录的 diff——因此该轮与现在之间的每一轮都会被撤销，不仅仅是该轮自身的改动。轮起始树中存在的文件会被写回那时的内容；那时不存在的文件（此后创建）会被删除；重命名会被撤销：把内容写回原路径，并从重命名后落脚的地方删除文件。二进制文件、超过 `maxFileBytes` 的文件，或无法写回的文件会被跳过而不是让整次回退失败，每个跳过项都会带着原因被报告。需要 git 仓库：未记录快照的轮次返回 undefined，与 `summary`/`diff` 释放后返回 undefined 的约定一致。
+
 -----
 
 <a id="understand-the-implementation"></a>
@@ -69,6 +73,7 @@ git 通过 `subprocess` 能力运行，使用净化后的环境、`GIT_CONFIG_CO
 ## 进一步探索
 
 - [Web 产出物](../../client/ui-deliverables/README.zh.md)——读取所提供摘要并打开其文件的改动文件卡片。
+- [`dsh-command-rewind`](../command-rewind/README.zh.md)——直接调用 `restore()` 的 `/rewind` 命令。
 - [子进程能力](../../subprocess/README.zh.md)——git 运行所经过的接缝。
 - [本轮改动文件卡片决策](../../../.agents/notes/implemented/feature/2026-09-11-turn-changed-files-card.zh.md)——快照设计、覆盖规则、暂缓的影子仓库与被否决的备选方案。
 
@@ -96,6 +101,9 @@ git 通过 `subprocess` 能力运行，使用净化后的环境、`GIT_CONFIG_CO
 - 对比会把所列文件的完整文本送到客户端，包括被忽略的文件、工作目录之上的仓库文件和工作区外的文件；摘要路由只送路径和行数。必须把这类内容留在 Host 上的部署应把本插件组合出去。
 - 退化为整文件替换的对比携带两侧的全部行，最多两倍 `maxFileBytes`。
 - Windows 路径在 `path` 中保留原生分隔符；`display` 始终用斜杠分隔。
+- 回退需要 git 仓库——不在任何仓库内的工作目录，或定位到仓库之前记录的轮次，都无法回退；只有该轮自己的文件工具捕获才能描述它，且尚未实现跨轮串联这些捕获。
+- 回退直接用 `node:fs` 写文件，绕过任何沙箱化的文件系统提供方——这是人工发起的 Host 动作，不是面向模型的工具调用，与插件管理器安装包或 Desktop 文件浏览器动作已经跨越的信任边界相同。
+- 回退不涉及对话：只回退代码。把对话回退到某轮是 Session 的“Branch”动作；把两者合并为一个动作仍是 Client UI 工作。
 
 <a id="dev-note"></a>
 ### 开发备注

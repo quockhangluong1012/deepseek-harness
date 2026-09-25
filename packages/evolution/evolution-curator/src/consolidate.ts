@@ -66,6 +66,52 @@ function diffLineCounts(before: string, after: string): { addedLines: number; re
   return { addedLines: newLines.length - common, removedLines: oldLines.length - common }
 }
 
+/** Sentinel opening a protected span; content between it and {@link PROTECTED_TEXT_CLOSE} must survive every patch verbatim. */
+export const PROTECTED_TEXT_OPEN = '<!-- dsh:protected -->'
+
+/** Sentinel closing a protected span opened by {@link PROTECTED_TEXT_OPEN}. */
+export const PROTECTED_TEXT_CLOSE = '<!-- /dsh:protected -->'
+
+/**
+ * Find every protected span in a SKILL.md body: paired, non-nesting runs of
+ * {@link PROTECTED_TEXT_OPEN} through {@link PROTECTED_TEXT_CLOSE}, sentinels
+ * included. An unpaired open past the last close is ignored — the body that
+ * wrote it is already malformed, and this package refuses only a patch that
+ * drops or alters a span the previous body actually closed.
+ * @param body - the SKILL.md text to scan.
+ * @returns each protected span's exact text, in document order.
+ */
+function protectedSpans(body: string): string[] {
+  const spans: string[] = []
+  let from = 0
+  for (;;) {
+    const open = body.indexOf(PROTECTED_TEXT_OPEN, from)
+    if (open === -1) return spans
+    const close = body.indexOf(PROTECTED_TEXT_CLOSE, open + PROTECTED_TEXT_OPEN.length)
+    if (close === -1) return spans
+    spans.push(body.slice(open, close + PROTECTED_TEXT_CLOSE.length))
+    from = close + PROTECTED_TEXT_CLOSE.length
+  }
+}
+
+/**
+ * Refuse a patch that drops or alters a protected span: every
+ * `<!-- dsh:protected -->` block the previous body closed must appear
+ * byte-identical somewhere in the candidate body. A previous body with no
+ * protected span never refuses on this rung.
+ * @param before - the body on disk.
+ * @param after - the candidate patch body.
+ * @returns the reason naming the first missing span, or null when every span survives.
+ */
+export function protectedTextViolation(before: string, after: string): string | null {
+  for (const span of protectedSpans(before)) {
+    if (!after.includes(span)) {
+      return 'the patch drops or alters a protected span the previous body carried'
+    }
+  }
+  return null
+}
+
 /** File extensions whose `${DSH_SKILL_DIR}` references are rewritten on re-home. */
 const TEXT_FILE = /\.(?:md|markdown|txt|ya?ml|json|sh|ps1|ts|js|mjs|cjs|py)$/i
 
@@ -311,10 +357,13 @@ export interface ConsolidationApplied {
  * the deterministic evidence alone, the same as an unmounted ladder;
  * `requireVerifierPass` refuses instead, with `level: 'ladder-incomplete'`,
  * so a host that mounted higher rungs can demand every one of them actually
- * decide before a write lands. A ladder pass then meets `maxDiffLines`: a
- * patch that changes more lines than the configured ceiling is refused with
- * `level: 'diff-cap'` before anything is written, bounding how much of a
- * skill one automatic pass may rewrite.
+ * decide before a write lands. A ladder pass then meets the protected-text
+ * check: a patch that drops or alters a `<!-- dsh:protected -->` span the
+ * previous body carried is refused with `level: 'protected-text'` regardless
+ * of what the ladder decided. A body that keeps every protected span then
+ * meets `maxDiffLines`: a patch that changes more lines than the configured
+ * ceiling is refused with `level: 'diff-cap'` before anything is written,
+ * bounding how much of a skill one automatic pass may rewrite.
  * @param deps - host seams, the surveyed candidate set, the diff-size ceiling, and the optional ladder seams and pass requirement.
  * @param verdicts - the fork's verdicts, in tool-call order.
  * @returns the lifecycle movements, the skipped-verdict count, and the refused bodies.
@@ -360,6 +409,12 @@ export async function applyConsolidation(
       }
       const file = join(dir, SKILL_FILE)
       const previous = await readFile(file, 'utf8')
+      const protectedViolation = protectedTextViolation(previous, verdict.body)
+      if (protectedViolation !== null) {
+        applied.skipped += 1
+        applied.refusals.push({ name: verdict.name, level: 'protected-text', reason: protectedViolation })
+        continue
+      }
       if (deps.maxDiffLines > 0) {
         const { addedLines, removedLines } = diffLineCounts(previous, verdict.body)
         const changed = addedLines + removedLines

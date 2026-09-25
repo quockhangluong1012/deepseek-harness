@@ -9,7 +9,9 @@
 
 import { LspError } from '@deepseek-ai/dsh-lsp'
 import type {
+  LspDiagnostic,
   LspOperation,
+  LspPosition,
   LspProviderQuery,
   LspQueryResult,
 } from '@deepseek-ai/dsh-lsp'
@@ -21,6 +23,7 @@ import type { HostSource } from './host.ts'
 import type { WireInitializeResult, WireServerCapabilities } from './protocol.ts'
 import {
   negotiatePositionEncoding,
+  normalizeDiagnostics,
   normalizeHover,
   normalizeLocations,
   requestMethod,
@@ -36,6 +39,13 @@ export interface InstanceSpec extends ConnectionSpec {
   readonly initializationOptions: unknown
   /** Graceful `shutdown`/`exit` budget before escalation (ms). */
   readonly shutdownTimeoutMs: number
+  /**
+   * How long a `diagnostics` query waits, after `didOpen`, for a matching
+   * `textDocument/publishDiagnostics` notification before returning an empty result. A server that
+   * never publishes for a clean file is indistinguishable from one that has not analyzed it yet
+   * within this window — both degrade to "no diagnostics observed", never an error.
+   */
+  readonly diagnosticsWaitMs: number
 }
 
 /**
@@ -54,6 +64,16 @@ export class LspInstance {
   private processClosed = false
   /** Populated once `initialize` succeeds; a failed handshake rejects every query. */
   private readonly ready: Promise<void>
+  /**
+   * The single in-flight `diagnostics` wait, keyed by the open document's URI. Queries serialize
+   * through `queue`, so at most one waiter exists at a time; a notification for any other URI is
+   * ignored.
+   */
+  private pendingDiagnostics: {
+    uri: string
+    resolve: (diagnostics: readonly LspDiagnostic[]) => void
+    reject: (error: Error) => void
+  } | undefined
 
   /**
    * @param spec - the launch, initialize, and teardown parameters.
@@ -61,7 +81,13 @@ export class LspInstance {
    * @param writer - optional connection writer used by transport conformance tests.
    */
   constructor(private readonly spec: InstanceSpec, spawner: ConnectionSpawner, writer?: ConnectionWriter) {
-    this.connection = new LspConnection(spec, spawner, (method, params) => this.answerServerRequest(method, params), writer)
+    this.connection = new LspConnection(
+      spec,
+      spawner,
+      (method, params) => this.answerServerRequest(method, params),
+      (method, params) => { this.handleNotification(method, params) },
+      writer,
+    )
     this.ready = this.initialize()
     // A handshake rejection must not surface as an unhandled rejection before the first query awaits
     // it; queries attach the real handler.
@@ -166,6 +192,10 @@ export class LspInstance {
         throw error
       }
       opened = true
+      if (request.operation === 'diagnostics') {
+        const diagnostics = await this.waitForDiagnostics(uri, signal)
+        return { kind: 'diagnostics', diagnostics }
+      }
       const payload = await this.sendRequest(request.operation, uri, request.position, signal)
       return this.normalize(request.operation, payload)
     } finally {
@@ -185,9 +215,9 @@ export class LspInstance {
   }
 
   private async sendRequest(
-    operation: LspOperation,
+    operation: Exclude<LspOperation, 'diagnostics'>,
     uri: string,
-    position: LspProviderQuery['position'],
+    position: LspPosition,
     signal?: AbortSignal,
   ): Promise<unknown> {
     const params = {
@@ -202,6 +232,31 @@ export class LspInstance {
     if (signal === undefined) return send
     return this.raceAbort(send, requestId, signal)
   }
+
+  /**
+   * Wait for a `textDocument/publishDiagnostics` notification matching `uri`, bounded by
+   * `spec.diagnosticsWaitMs`. A caller `signal` abort is a real cancellation (rejects); the bound
+   * elapsing is not an error — it degrades to an empty result, since a server publishing nothing for
+   * a clean file is indistinguishable from one still analyzing it. A malformed publish rejects
+   * rather than crashing the shared notification dispatch.
+   */
+  private async waitForDiagnostics(uri: string, signal?: AbortSignal): Promise<readonly LspDiagnostic[]> {
+    if (signal?.aborted) throw abortError(signal)
+    const notified = new Promise<readonly LspDiagnostic[]>((resolve, reject) => {
+      this.pendingDiagnostics = { uri, resolve, reject }
+    })
+    const wait = deadline(undefined, this.spec.diagnosticsWaitMs, 'LSP_DIAGNOSTICS_WAIT')
+    try {
+      const timedOut = new Promise<readonly LspDiagnostic[]>((resolve) => {
+        wait.signal.addEventListener('abort', () => { resolve([]) }, { once: true })
+      })
+      return await abortable(Promise.race([notified, timedOut]), signal)
+    } finally {
+      wait[Symbol.dispose]()
+      if (this.pendingDiagnostics?.uri === uri) this.pendingDiagnostics = undefined
+    }
+  }
+
 
   /**
    * Race a pending request against abort. On abort, send `$/cancelRequest` and give the server a
@@ -235,7 +290,7 @@ export class LspInstance {
     }
   }
 
-  private normalize(operation: LspOperation, payload: unknown): LspQueryResult {
+  private normalize(operation: Exclude<LspOperation, 'diagnostics'>, payload: unknown): LspQueryResult {
     if (operation === 'hover') {
       return { kind: 'hover', hover: normalizeHover(payload) }
     }
@@ -261,6 +316,29 @@ export class LspInstance {
       return Promise.reject(new Error('workspace/applyEdit is not permitted by this host'))
     }
     return Promise.reject(new Error(`unsupported server request: ${method}`))
+  }
+
+  /**
+   * Route a server→client notification. Only `textDocument/publishDiagnostics` matters to this
+   * host; every other method (logs, telemetry, …) is intentionally dropped. A publish for a URI
+   * nobody is waiting on (no in-flight `diagnostics` query, or a query for a different file) is
+   * also dropped — this host never caches diagnostics outside an active wait. This runs inside the
+   * connection's synchronous stdout dispatch, so a malformed payload rejects the waiter instead of
+   * throwing into that shared dispatch path.
+   */
+  private handleNotification(method: string, params: unknown): void {
+    if (method !== 'textDocument/publishDiagnostics') return
+    if (params === null || typeof params !== 'object') return
+    const record = params as { uri?: unknown; diagnostics?: unknown }
+    if (typeof record.uri !== 'string') return
+    const waiter = this.pendingDiagnostics
+    if (waiter === undefined || waiter.uri !== record.uri) return
+    this.pendingDiagnostics = undefined
+    try {
+      waiter.resolve(normalizeDiagnostics(record.diagnostics))
+    } catch (error) {
+      waiter.reject(error instanceof Error ? error : new Error(String(error)))
+    }
   }
 
   /**

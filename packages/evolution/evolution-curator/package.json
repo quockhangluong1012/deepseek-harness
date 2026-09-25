@@ -29,6 +29,7 @@
   "peerDependencies": {
     "@deepseek-ai/cordis": "workspace:~",
     "@deepseek-ai/dsh-evolution-feedback": "workspace:*",
+    "@deepseek-ai/dsh-evolution-model-routes": "workspace:*",
     "@deepseek-ai/dsh-evolution-skill-manage": "workspace:*",
     "@deepseek-ai/dsh-evolution-skill-telemetry": "workspace:*",
     "@deepseek-ai/dsh-evolution-verifiers": "workspace:*",
@@ -49,6 +50,7 @@
   "devDependencies": {
     "@deepseek-ai/cordis": "workspace:~",
     "@deepseek-ai/dsh-evolution-feedback": "workspace:*",
+    "@deepseek-ai/dsh-evolution-model-routes": "workspace:*",
     "@deepseek-ai/dsh-evolution-skill-manage": "workspace:*",
     "@deepseek-ai/dsh-evolution-skill-telemetry": "workspace:*",
     "@deepseek-ai/dsh-evolution-verifiers": "workspace:*",

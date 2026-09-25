@@ -196,7 +196,7 @@ Sources: [`packages/core/session/src/types.ts:437`](../packages/core/session/src
 'action/committed': KernelEventData<ActionCommittedEvent>
 ```
 
-Source: [`packages/runtime/agent-kernel/src/types.ts:1400`](../packages/runtime/agent-kernel/src/types.ts)
+Source: [`packages/runtime/agent-kernel/src/types.ts:1401`](../packages/runtime/agent-kernel/src/types.ts)
 
 <a id="actiondecided--log-only"></a>
 
@@ -210,7 +210,7 @@ Source: [`packages/runtime/agent-kernel/src/types.ts:1400`](../packages/runtime/
 'action/decided': KernelEventData<ActionDecidedEvent>
 ```
 
-Source: [`packages/runtime/agent-kernel/src/types.ts:1393`](../packages/runtime/agent-kernel/src/types.ts)
+Source: [`packages/runtime/agent-kernel/src/types.ts:1394`](../packages/runtime/agent-kernel/src/types.ts)
 
 ### `agent/*`
 
@@ -400,7 +400,7 @@ Source: [`packages/guard/budgets/src/types.ts:37`](../packages/guard/budgets/src
 'checkpoint/created': KernelEventData<Checkpoint>
 ```
 
-Source: [`packages/runtime/agent-kernel/src/types.ts:1442`](../packages/runtime/agent-kernel/src/types.ts)
+Source: [`packages/runtime/agent-kernel/src/types.ts:1443`](../packages/runtime/agent-kernel/src/types.ts)
 
 <a id="checkpointresumed--log-only"></a>
 
@@ -411,7 +411,7 @@ Source: [`packages/runtime/agent-kernel/src/types.ts:1442`](../packages/runtime/
 'checkpoint/resumed': KernelEventData<CheckpointResumedRecord>
 ```
 
-Source: [`packages/runtime/agent-kernel/src/types.ts:1444`](../packages/runtime/agent-kernel/src/types.ts)
+Source: [`packages/runtime/agent-kernel/src/types.ts:1445`](../packages/runtime/agent-kernel/src/types.ts)
 
 ### `claim/*`
 
@@ -427,7 +427,7 @@ Source: [`packages/runtime/agent-kernel/src/types.ts:1444`](../packages/runtime/
 'claim/updated': KernelEventData<TaskClaim>
 ```
 
-Source: [`packages/runtime/agent-kernel/src/types.ts:1411`](../packages/runtime/agent-kernel/src/types.ts)
+Source: [`packages/runtime/agent-kernel/src/types.ts:1412`](../packages/runtime/agent-kernel/src/types.ts)
 
 ### `command/*`
 
@@ -623,7 +623,7 @@ Source: [`packages/runtime/agent-context/src/types.ts:151`](../packages/runtime/
 'delegation/issued': KernelEventData<DelegationReceipt>
 ```
 
-Source: [`packages/runtime/agent-kernel/src/types.ts:1457`](../packages/runtime/agent-kernel/src/types.ts)
+Source: [`packages/runtime/agent-kernel/src/types.ts:1458`](../packages/runtime/agent-kernel/src/types.ts)
 
 <a id="delegationreceived--log-only"></a>
 
@@ -639,7 +639,7 @@ Source: [`packages/runtime/agent-kernel/src/types.ts:1457`](../packages/runtime/
 'delegation/received': KernelEventData<DelegationReceipt>
 ```
 
-Source: [`packages/runtime/agent-kernel/src/types.ts:1451`](../packages/runtime/agent-kernel/src/types.ts)
+Source: [`packages/runtime/agent-kernel/src/types.ts:1452`](../packages/runtime/agent-kernel/src/types.ts)
 
 ### `deliverables/*`
 
@@ -690,7 +690,7 @@ Source: [`packages/core/session/src/types.ts:317`](../packages/core/session/src/
 'evidence/recorded': KernelEventData<Evidence>
 ```
 
-Source: [`packages/runtime/agent-kernel/src/types.ts:1406`](../packages/runtime/agent-kernel/src/types.ts)
+Source: [`packages/runtime/agent-kernel/src/types.ts:1407`](../packages/runtime/agent-kernel/src/types.ts)
 
 ### `failure/*`
 
@@ -706,7 +706,7 @@ Source: [`packages/runtime/agent-kernel/src/types.ts:1406`](../packages/runtime/
 'failure/recorded': KernelEventData<FailureRecord>
 ```
 
-Source: [`packages/runtime/agent-kernel/src/types.ts:1430`](../packages/runtime/agent-kernel/src/types.ts)
+Source: [`packages/runtime/agent-kernel/src/types.ts:1431`](../packages/runtime/agent-kernel/src/types.ts)
 
 ### `feedback/*`
 
@@ -825,7 +825,7 @@ Source: [`packages/hooks/hook-protocol/src/types.ts:31`](../packages/hooks/hook-
 'hypothesis/updated': KernelEventData<TaskHypothesis>
 ```
 
-Source: [`packages/runtime/agent-kernel/src/types.ts:1416`](../packages/runtime/agent-kernel/src/types.ts)
+Source: [`packages/runtime/agent-kernel/src/types.ts:1417`](../packages/runtime/agent-kernel/src/types.ts)
 
 ### `image/*`
 
@@ -951,7 +951,7 @@ Source: [`packages/plan/plan-mode/src/index.ts:56`](../packages/plan/plan-mode/s
 'recovery/decided': KernelEventData<RecoveryDecision>
 ```
 
-Source: [`packages/runtime/agent-kernel/src/types.ts:1437`](../packages/runtime/agent-kernel/src/types.ts)
+Source: [`packages/runtime/agent-kernel/src/types.ts:1438`](../packages/runtime/agent-kernel/src/types.ts)
 
 <a id="recoverystarted--log-only"></a>
 
@@ -962,7 +962,7 @@ Source: [`packages/runtime/agent-kernel/src/types.ts:1437`](../packages/runtime/
 'recovery/started': KernelEventData<RecoveryStartedRecord>
 ```
 
-Source: [`packages/runtime/agent-kernel/src/types.ts:1432`](../packages/runtime/agent-kernel/src/types.ts)
+Source: [`packages/runtime/agent-kernel/src/types.ts:1433`](../packages/runtime/agent-kernel/src/types.ts)
 
 ### `request/*`
 
@@ -1275,7 +1275,7 @@ Source: [`packages/core/session/src/types.ts:336`](../packages/core/session/src/
 'task/created': KernelEventData<TaskContract>
 ```
 
-Source: [`packages/runtime/agent-kernel/src/types.ts:1376`](../packages/runtime/agent-kernel/src/types.ts)
+Source: [`packages/runtime/agent-kernel/src/types.ts:1377`](../packages/runtime/agent-kernel/src/types.ts)
 
 <a id="taskplan--log-only"></a>
 
@@ -1289,7 +1289,7 @@ Source: [`packages/runtime/agent-kernel/src/types.ts:1376`](../packages/runtime/
 'task/plan': KernelEventData<PlanRevision>
 ```
 
-Source: [`packages/runtime/agent-kernel/src/types.ts:1388`](../packages/runtime/agent-kernel/src/types.ts)
+Source: [`packages/runtime/agent-kernel/src/types.ts:1389`](../packages/runtime/agent-kernel/src/types.ts)
 
 <a id="tasktransitioned--log-only"></a>
 
@@ -1305,7 +1305,7 @@ Source: [`packages/runtime/agent-kernel/src/types.ts:1388`](../packages/runtime/
 'task/transitioned': KernelEventData<StateTransition>
 ```
 
-Source: [`packages/runtime/agent-kernel/src/types.ts:1383`](../packages/runtime/agent-kernel/src/types.ts)
+Source: [`packages/runtime/agent-kernel/src/types.ts:1384`](../packages/runtime/agent-kernel/src/types.ts)
 
 ### `team/*`
 
@@ -1609,7 +1609,7 @@ Source: [`packages/core/session/src/types.ts:315`](../packages/core/session/src/
 'verification/requested': KernelEventData<VerificationRequest>
 ```
 
-Source: [`packages/runtime/agent-kernel/src/types.ts:1420`](../packages/runtime/agent-kernel/src/types.ts)
+Source: [`packages/runtime/agent-kernel/src/types.ts:1421`](../packages/runtime/agent-kernel/src/types.ts)
 
 <a id="verificationresult--log-only"></a>
 
@@ -1623,7 +1623,7 @@ Source: [`packages/runtime/agent-kernel/src/types.ts:1420`](../packages/runtime/
 'verification/result': KernelEventData<VerificationResult>
 ```
 
-Source: [`packages/runtime/agent-kernel/src/types.ts:1425`](../packages/runtime/agent-kernel/src/types.ts)
+Source: [`packages/runtime/agent-kernel/src/types.ts:1426`](../packages/runtime/agent-kernel/src/types.ts)
 
 ### `web/*`
 
@@ -7852,7 +7852,7 @@ Sources: [`packages/llm/llm/src/types.ts:127`](../packages/llm/llm/src/types.ts)
 
 SHA-256: `3cfc3a56502da1f8c6153c2c56657bab4b749056968634dd0991d325ec1c919f`
 
-Sources: [`packages/core/tools/src/index.ts:812`](../packages/core/tools/src/index.ts)
+Sources: [`packages/core/tools/src/index.ts:822`](../packages/core/tools/src/index.ts)
 
 | Property | Presence | Type |
 |---|---|---|

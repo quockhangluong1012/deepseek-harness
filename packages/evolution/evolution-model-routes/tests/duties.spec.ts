@@ -33,6 +33,21 @@ describe('separationOfDuties', () => {
     })
   })
 
+  it('separates a curator consolidation apply from the identity that proposed it', () => {
+    expect(separationOfDuties([
+      duty('candidate-generation', 'evolution-curator', 'pass-1'),
+      duty('promotion-review', 'operator-1', 'pass-1'),
+    ], 'pass-1', 'consolidation')).toEqual({ allowed: true })
+    expect(separationOfDuties([
+      duty('candidate-generation', 'evolution-curator', 'pass-1'),
+      duty('promotion-review', 'evolution-curator', 'pass-1'),
+    ], 'pass-1', 'consolidation')).toEqual({
+      allowed: false,
+      refusal: 'same-identity',
+      reason: "identity 'evolution-curator' filled both candidate-generation and promotion-review for run 'pass-1'",
+    })
+  })
+
   it('separates a verdict from the identity that generated its candidate', () => {
     expect(separationOfDuties([
       duty('candidate-generation', 'agent-a'),

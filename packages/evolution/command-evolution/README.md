@@ -67,9 +67,11 @@ The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-a
 | `/curator purge [--dry-run]` | Remove archived skills past their TTL and report the directory-or-record removals and pin skips; `--dry-run` previews the list without writing. |
 | `/curator rollback --id <id>` | Roll one recorded pass back: report the restored lifecycle states, then `Restored bodies: <names>` when SKILL.md bodies were restored from their preimages. |
 | `/curator ledger` | List recorded passes newest-first with their transition counts. |
+| `/curator pending` | List consolidation passes `requireConsolidationReview` withheld, newest first, with the recorded proposer identity and verdict count; nothing pending reports `No pending consolidations.` |
+| `/curator apply <passId>` | Commit one pending consolidation under the invoking session's identity as reviewer. §53's separation of duties refuses an identity that matches the pass's recorded proposer, or when the evolution model-routes store is not mounted. |
 | `/curator pin <name>` / `/curator unpin <name>` | Pin or unpin one tracked skill and report `Pinned '<name>'` / `Unpinned '<name>'`. |
 | `/curator history <name>` | List one skill's committed body revisions oldest first as `<n> revision(s) for '<name>':` then `- r<n> <sha8>[ ← r<n-1> <parentSha8>] (<instant>)`; nothing recorded reports `No recorded revisions for '<name>'.` Pin, unpin, and history read telemetry only: without it they report `Skill telemetry is not mounted. Pin, unpin, and history require the telemetry store.` |
-| `/curator <anything-else>` | `Usage: /curator status \| run [--dry-run] \| staged \| adopt <name> \| purge [--dry-run] \| rollback --id <id> \| ledger \| pin <name> \| unpin <name> \| history <name> \| optimize <skill> <scenario...> \| experiments [skill]`. |
+| `/curator <anything-else>` | `Usage: /curator status \| run [--dry-run] \| staged \| pending \| apply <passId> \| adopt <name> \| purge [--dry-run] \| rollback --id <id> \| ledger \| pin <name> \| unpin <name> \| history <name> \| optimize <skill> <scenario...> \| experiments [skill]`. |
 | `/refine` | Rebuild the scope's lessons through the reviewer and report `Memory rebuild complete.`. |
 | `/refine <anything>` | `Usage: /refine (no arguments)` — the command takes no arguments. |
 | `/trajectory` | Export the invoking session through the trajectory service and report `Trajectory written to <path> (<n> conversations, <n> bytes).`. |
@@ -201,6 +203,8 @@ The commands turn each expected failure into a stable message you can show direc
 | `/suggestions` with no blueprint-backed skill | `No blueprint-backed skills. A skill appears here when its frontmatter declares a blueprint; this command never installs the schedule it names.` |
 | Promoting a patch from the identity that proposed it | `Promotion of '<id>' refused: identity '<identity>' filled both candidate-generation and promotion-review for run '<id>'` — the deployment stays where it is. |
 | Promoting a patch whose proposing identity was never recorded | `Promotion of '<id>' refused: run '<id>' records no candidate-generation identity, so candidate-generation and promotion-review cannot be shown to be separate identities` — the deployment stays where it is. |
+| Applying a pending consolidation from the identity that proposed it | `evolution-curator: consolidation '<passId>' refused: identity '<identity>' filled both candidate-generation and promotion-review for run '<passId>'` — the pass stays pending. |
+| Applying a pending consolidation without the model-routes store mounted | `evolution-curator: the evolution model-routes store is not mounted, so the reviewing identity cannot be verified` |
 
 Cancelling `/refine` stops the wait: the registry settles the invocation with the abort reason, matching the `/compact` cancellation contract. Failures other than these expected cases surface as errors rather than being silently converted.
 
@@ -306,6 +310,7 @@ These limits define when the commands are a poor fit; they are the current packa
 - **One scope per invocation** — the scoped commands govern the invoking session's scope only; there is no cross-scope view (only `/curator status` and `/suggestions` are host-wide).
 - **Command adapters only** — surfaces without `ctx.commands` cannot invoke them; staged writes then wait for a mounted adapter or the `evolutionController` Remote namespace.
 - **A promotion needs a recorded proposer** — `/canary promote` refuses unless the candidate's proposing identity is in the model-routes duties table, and only `/curator optimize` records one. A patch a host staged by calling `ctx.evolutionOptimizer.optimize` directly has no proposing fill, so its promotion is refused as `unknown-identity` until that identity is recorded; the model-routes store must also be mounted, because without it the promotion records no duty at all.
+- **Consolidation review is opt-in** — `/curator apply` only exists to commit a pass `requireConsolidationReview` withheld; with that curator config off (the default), consolidation still commits its own verdicts in one shot and `/curator apply` reports `evolution-curator: no pending consolidation '<passId>'` for any id.
 
 <a id="dev-note"></a>
 ### Dev Note

@@ -198,7 +198,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 'action/committed': KernelEventData<ActionCommittedEvent>
 ```
 
-来源：[`packages/runtime/agent-kernel/src/types.ts:1400`](../packages/runtime/agent-kernel/src/types.ts)
+来源：[`packages/runtime/agent-kernel/src/types.ts:1401`](../packages/runtime/agent-kernel/src/types.ts)
 
 <a id="actiondecided--log-only"></a>
 
@@ -212,7 +212,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 'action/decided': KernelEventData<ActionDecidedEvent>
 ```
 
-来源：[`packages/runtime/agent-kernel/src/types.ts:1393`](../packages/runtime/agent-kernel/src/types.ts)
+来源：[`packages/runtime/agent-kernel/src/types.ts:1394`](../packages/runtime/agent-kernel/src/types.ts)
 
 ### `agent/*`
 
@@ -402,7 +402,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 'checkpoint/created': KernelEventData<Checkpoint>
 ```
 
-来源：[`packages/runtime/agent-kernel/src/types.ts:1442`](../packages/runtime/agent-kernel/src/types.ts)
+来源：[`packages/runtime/agent-kernel/src/types.ts:1443`](../packages/runtime/agent-kernel/src/types.ts)
 
 <a id="checkpointresumed--log-only"></a>
 
@@ -413,7 +413,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 'checkpoint/resumed': KernelEventData<CheckpointResumedRecord>
 ```
 
-来源：[`packages/runtime/agent-kernel/src/types.ts:1444`](../packages/runtime/agent-kernel/src/types.ts)
+来源：[`packages/runtime/agent-kernel/src/types.ts:1445`](../packages/runtime/agent-kernel/src/types.ts)
 
 ### `claim/*`
 
@@ -429,7 +429,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 'claim/updated': KernelEventData<TaskClaim>
 ```
 
-来源：[`packages/runtime/agent-kernel/src/types.ts:1411`](../packages/runtime/agent-kernel/src/types.ts)
+来源：[`packages/runtime/agent-kernel/src/types.ts:1412`](../packages/runtime/agent-kernel/src/types.ts)
 
 ### `command/*`
 
@@ -625,7 +625,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 'delegation/issued': KernelEventData<DelegationReceipt>
 ```
 
-来源：[`packages/runtime/agent-kernel/src/types.ts:1457`](../packages/runtime/agent-kernel/src/types.ts)
+来源：[`packages/runtime/agent-kernel/src/types.ts:1458`](../packages/runtime/agent-kernel/src/types.ts)
 
 <a id="delegationreceived--log-only"></a>
 
@@ -641,7 +641,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 'delegation/received': KernelEventData<DelegationReceipt>
 ```
 
-来源：[`packages/runtime/agent-kernel/src/types.ts:1451`](../packages/runtime/agent-kernel/src/types.ts)
+来源：[`packages/runtime/agent-kernel/src/types.ts:1452`](../packages/runtime/agent-kernel/src/types.ts)
 
 ### `deliverables/*`
 
@@ -692,7 +692,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 'evidence/recorded': KernelEventData<Evidence>
 ```
 
-来源：[`packages/runtime/agent-kernel/src/types.ts:1406`](../packages/runtime/agent-kernel/src/types.ts)
+来源：[`packages/runtime/agent-kernel/src/types.ts:1407`](../packages/runtime/agent-kernel/src/types.ts)
 
 ### `failure/*`
 
@@ -708,7 +708,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 'failure/recorded': KernelEventData<FailureRecord>
 ```
 
-来源：[`packages/runtime/agent-kernel/src/types.ts:1430`](../packages/runtime/agent-kernel/src/types.ts)
+来源：[`packages/runtime/agent-kernel/src/types.ts:1431`](../packages/runtime/agent-kernel/src/types.ts)
 
 ### `feedback/*`
 
@@ -827,7 +827,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 'hypothesis/updated': KernelEventData<TaskHypothesis>
 ```
 
-来源：[`packages/runtime/agent-kernel/src/types.ts:1416`](../packages/runtime/agent-kernel/src/types.ts)
+来源：[`packages/runtime/agent-kernel/src/types.ts:1417`](../packages/runtime/agent-kernel/src/types.ts)
 
 ### `image/*`
 
@@ -953,7 +953,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 'recovery/decided': KernelEventData<RecoveryDecision>
 ```
 
-来源：[`packages/runtime/agent-kernel/src/types.ts:1437`](../packages/runtime/agent-kernel/src/types.ts)
+来源：[`packages/runtime/agent-kernel/src/types.ts:1438`](../packages/runtime/agent-kernel/src/types.ts)
 
 <a id="recoverystarted--log-only"></a>
 
@@ -964,7 +964,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 'recovery/started': KernelEventData<RecoveryStartedRecord>
 ```
 
-来源：[`packages/runtime/agent-kernel/src/types.ts:1432`](../packages/runtime/agent-kernel/src/types.ts)
+来源：[`packages/runtime/agent-kernel/src/types.ts:1433`](../packages/runtime/agent-kernel/src/types.ts)
 
 ### `request/*`
 
@@ -1277,7 +1277,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 'task/created': KernelEventData<TaskContract>
 ```
 
-来源：[`packages/runtime/agent-kernel/src/types.ts:1376`](../packages/runtime/agent-kernel/src/types.ts)
+来源：[`packages/runtime/agent-kernel/src/types.ts:1377`](../packages/runtime/agent-kernel/src/types.ts)
 
 <a id="taskplan--log-only"></a>
 
@@ -1291,7 +1291,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 'task/plan': KernelEventData<PlanRevision>
 ```
 
-来源：[`packages/runtime/agent-kernel/src/types.ts:1388`](../packages/runtime/agent-kernel/src/types.ts)
+来源：[`packages/runtime/agent-kernel/src/types.ts:1389`](../packages/runtime/agent-kernel/src/types.ts)
 
 <a id="tasktransitioned--log-only"></a>
 
@@ -1307,7 +1307,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 'task/transitioned': KernelEventData<StateTransition>
 ```
 
-来源：[`packages/runtime/agent-kernel/src/types.ts:1383`](../packages/runtime/agent-kernel/src/types.ts)
+来源：[`packages/runtime/agent-kernel/src/types.ts:1384`](../packages/runtime/agent-kernel/src/types.ts)
 
 ### `team/*`
 
@@ -1611,7 +1611,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 'verification/requested': KernelEventData<VerificationRequest>
 ```
 
-来源：[`packages/runtime/agent-kernel/src/types.ts:1420`](../packages/runtime/agent-kernel/src/types.ts)
+来源：[`packages/runtime/agent-kernel/src/types.ts:1421`](../packages/runtime/agent-kernel/src/types.ts)
 
 <a id="verificationresult--log-only"></a>
 
@@ -1625,7 +1625,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 'verification/result': KernelEventData<VerificationResult>
 ```
 
-来源：[`packages/runtime/agent-kernel/src/types.ts:1425`](../packages/runtime/agent-kernel/src/types.ts)
+来源：[`packages/runtime/agent-kernel/src/types.ts:1426`](../packages/runtime/agent-kernel/src/types.ts)
 
 ### `web/*`
 
@@ -7854,7 +7854,7 @@ SHA-256: `43e311235aa537df1bacdd92d144df8a952337a76e9ac892cdf670f1a797bad8`
 
 SHA-256: `3cfc3a56502da1f8c6153c2c56657bab4b749056968634dd0991d325ec1c919f`
 
-来源：[`packages/core/tools/src/index.ts:812`](../packages/core/tools/src/index.ts)
+来源：[`packages/core/tools/src/index.ts:822`](../packages/core/tools/src/index.ts)
 
 | 属性 | 存在性 | 类型 |
 |---|---|---|

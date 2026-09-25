@@ -21,8 +21,10 @@ import { describe, expect, it } from 'vitest'
 const repoRoot = fileURLToPath(new URL('../../../', import.meta.url))
 const builtBin = join(repoRoot, 'apps/cli/lib/bin.js')
 const webDist = join(repoRoot, 'apps/web/dist/index.html')
-// Full-text session search ships off (`openAt: never` on both layers): the
-// base patch carries the default, and the web restatement must not re-enable it.
+// Full-text session search ships off at the shared base layer (`openAt:
+// never`) but on for Web/Desktop (`openAt: first-search` with a durable
+// path): both openings defer the `node:sqlite` import until the first
+// search call, so plain startup never emits the SQLite experimental warning.
 const baseConfigPath = join(repoRoot, 'packages/bundle/base/cordis.patch.yml')
 const webConfigPath = join(repoRoot, 'packages/bundle/web-app/cordis.patch.yml')
 const requireBuiltArtifacts = process.env.DSH_REQUIRE_BUILT_CLI_SMOKE === '1'
@@ -100,7 +102,7 @@ function runBuiltWeb(cwd: string): Promise<{ stdout: string; stderr: string; cod
 }
 
 describe.skipIf(!requireBuiltArtifacts)('built CLI lazy-search startup', () => {
-  it('boots and disposes the shipped composition with full-text search off by default', async () => {
+  it('boots and disposes the shipped composition with full-text search deferred to first use', async () => {
     expect(existsSync(builtBin), `missing built CLI ${resolve(builtBin)}; run pnpm build`).toBe(true)
     expect(existsSync(webDist), `missing Web dist ${resolve(webDist)}; run pnpm run build:web`).toBe(true)
     const baseRows = (yaml.load(await readFile(baseConfigPath, 'utf8'), { schema: configSchema }) as PatchEntry[])
@@ -111,8 +113,8 @@ describe.skipIf(!requireBuiltArtifacts)('built CLI lazy-search startup', () => {
     const webRow = webRows.find(row => row.id === 'session-query-sqlite')
     expect(baseRow?.config?.openAt).toBe('never')
     expect(baseRow?.disabled).toBeUndefined()
-    // The web restatement keeps the shipped default; opting in is a later layer's override.
-    expect(webRow?.config?.openAt).toBe('never')
+    // The web restatement opts into content search with a durable index, deferred to first search.
+    expect(webRow?.config?.openAt).toBe('first-search')
     expect(webRow?.disabled).toBeUndefined()
 
     const cwd = await mkdtemp(join(tmpdir(), 'dsh-cli-lazy-search-'))

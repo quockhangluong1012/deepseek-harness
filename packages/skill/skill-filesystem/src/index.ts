@@ -37,9 +37,11 @@ import {
 const PROJECT_DSH_RANK = 100
 const PROJECT_HERMES_RANK = 150
 const PROJECT_AGENTS_RANK = 200
+const PROJECT_CLAUDE_RANK = 250
 const CUSTOM_RANK = 300
 const USER_DSH_RANK = 400
 const USER_AGENTS_RANK = 500
+const USER_CLAUDE_RANK = 550
 const DEFAULT_WATCH_STABILITY_THRESHOLD_MS = 200
 const DEFAULT_WATCH_POLL_INTERVAL_MS = 100
 const DEFAULT_WATCH_MAX_PROJECTS = 128
@@ -57,9 +59,11 @@ export interface Config {
   dshHome?: string
   /** Shared agent config root. Defaults to `$DSH_AGENTS_HOME` or `~/.agents`. */
   agentsHome?: string
+  /** Claude Code config root, scanned for its `.claude/skills` project/user compatibility roots. Defaults to `~/.claude`. */
+  claudeHome?: string
   /** Additional skill roots scanned after project roots and before user roots. */
   customSkillDirs?: string[]
-  /** Absolute project roots whose `.dsh/skills`, `.hermes/skills`, and `.agents/skills` index; others are skipped. */
+  /** Absolute project roots whose `.dsh/skills`, `.hermes/skills`, `.agents/skills`, and `.claude/skills` index; others are skipped. */
   trustedProjectDirs?: string[]
   /** Whether any project roots index; false disables project discovery entirely. */
   projectDiscovery?: boolean
@@ -84,6 +88,7 @@ export const Config: Schema<Config> = z.object({
   includeDefaultRoots: z.boolean().default(true),
   dshHome: z.string(),
   agentsHome: z.string(),
+  claudeHome: z.string(),
   customSkillDirs: z.array(z.string()).default([]),
   trustedProjectDirs: z.array(z.string()).default([]),
   projectDiscovery: z.boolean().default(true),
@@ -216,6 +221,7 @@ export class FileSystemSkillProvider implements SkillProvider {
   private readonly includeDefaultRoots: boolean
   private readonly dshHome: string
   private readonly agentsHome: string
+  private readonly claudeHome: string
   private readonly customSkillDirs: string[]
   private readonly trustedProjectDirs: string[]
   private readonly projectDiscovery: boolean
@@ -235,6 +241,7 @@ export class FileSystemSkillProvider implements SkillProvider {
     this.includeDefaultRoots = config.includeDefaultRoots ?? true
     this.dshHome = resolveDshHome(config.dshHome)
     this.agentsHome = resolve(config.agentsHome ?? process.env.DSH_AGENTS_HOME ?? join(homedir(), '.agents'))
+    this.claudeHome = resolve(config.claudeHome ?? join(homedir(), '.claude'))
     this.customSkillDirs = (config.customSkillDirs ?? []).map(root => resolve(root))
     this.trustedProjectDirs = (config.trustedProjectDirs ?? []).map((root) => {
       if (!isAbsolute(root)) {
@@ -386,6 +393,7 @@ export class FileSystemSkillProvider implements SkillProvider {
           { path: join(projectRoot, '.dsh/skills'), source: 'project-dsh', rank: PROJECT_DSH_RANK, projectRoot },
           { path: join(projectRoot, '.hermes/skills'), source: 'project-hermes', rank: PROJECT_HERMES_RANK, projectRoot },
           { path: join(projectRoot, '.agents/skills'), source: 'project-agents', rank: PROJECT_AGENTS_RANK, projectRoot },
+          { path: join(projectRoot, '.claude/skills'), source: 'project-claude', rank: PROJECT_CLAUDE_RANK, projectRoot },
         )
       } else {
         this.warnUntrustedProjectRoot(projectRoot)
@@ -396,6 +404,7 @@ export class FileSystemSkillProvider implements SkillProvider {
       roots.push(
         { path: join(this.dshHome, 'skills'), source: 'user-dsh', rank: USER_DSH_RANK, skipSystem: true },
         { path: join(this.agentsHome, 'skills'), source: 'user-agents', rank: USER_AGENTS_RANK },
+        { path: join(this.claudeHome, 'skills'), source: 'user-claude', rank: USER_CLAUDE_RANK },
       )
     }
     if (this.bundledSkillDir !== undefined) {

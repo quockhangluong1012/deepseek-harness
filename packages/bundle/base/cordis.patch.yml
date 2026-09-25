@@ -138,14 +138,16 @@
     - id: attachment-local
       name: '@deepseek-ai/dsh-attachment-local'
 
-    # Full-text session search is opt-in. `openAt: never` keeps
-    # ctx.sessionQuery mounted — exact reads, titles, and lineage traces
+    # Full-text session search is opt-in at this shared layer. `openAt: never`
+    # keeps ctx.sessionQuery mounted — exact reads, titles, and lineage traces
     # (session export, subagent-fork Workspace inheritance) stay available —
     # while search calls fail with SESSION_QUERY_SEARCH_DISABLED and SQLite is
-    # never opened; the Web sidebar search matches titles and workspace names
-    # only. Deployments enabling content search override `openAt` to
-    # `first-search` or `startup` in a later patch layer (profile
-    # cordis.patch.yml or a --patch overlay), typically with a durable `path`.
+    # never opened; a profile that inherits this default unchanged (ACP,
+    # headless, SDK) matches titles and workspace names only. The web-app
+    # profile (Web and Desktop) overrides `openAt` to `first-search` with a
+    # durable `path` (`packages/bundle/web-app/cordis.patch.yml`); other
+    # deployments enabling content search follow the same pattern in a later
+    # patch layer (profile cordis.patch.yml or a --patch overlay).
     - id: session-query-sqlite
       name: '@deepseek-ai/dsh-session-query-sqlite'
       config:
@@ -386,6 +388,14 @@
         toolName: subagent_fork
         backgroundMode: one-shot
 
+    # Human `/review`: an independent reviewer subagent (fresh spawn context,
+    # no parent conversation) reports structured findings on a diff (§10.6,
+    # §31.4 CQ4). Uses the same `spawn` provider mounted above.
+    - id: command-review
+      name: '@deepseek-ai/dsh-command-review'
+      config:
+        subagentProvider: spawn
+
     - id: ptc-runtime
       name: '@deepseek-ai/dsh-ptc-runtime-node'
 
@@ -459,6 +469,24 @@
         thresholds: [3, 5, 8]
         argumentsPreviewChars: 500
 
+    # Hook bridges run unmodified Claude Code / Codex command hooks: mounted
+    # by default (§31.3 EX1), pointed at the conventional project-relative
+    # config path. A missing or unparsable file logs one warning and
+    # registers no hooks — the agent still starts — so this default is safe
+    # for every repository, hooked or not. Per-session cwd discovery (a
+    # project opened after boot, or a project switch) remains a known gap:
+    # `configPath` is read once at process launch against the launch cwd.
+    - id: hooks-claude-code
+      name: '@deepseek-ai/dsh-hooks-claude-code'
+      config:
+        configPath: ./.claude/settings.json
+        projectDir: !!js process.cwd()
+
+    - id: hooks-codex
+      name: '@deepseek-ai/dsh-hooks-codex'
+      config:
+        configPath: ./.codex/hooks.json
+
     # The shared base enables the stable model-facing web_search and web_fetch
     # tools. The Web app disables this host row and composes both tools per agent
     # preset; products with a stricter network policy override tool-web. DeepSeek
@@ -492,6 +520,12 @@
 
     - id: mcp-resources
       name: '@deepseek-ai/dsh-mcp-resources'
+
+    # Discovers a project `.mcp.json` and a user-level config, then mounts one
+    # dsh-mcp-client instance per configured server (§31.3 EX6 step a).
+    # Neither file existing is the common case and mounts nothing.
+    - id: mcp-project-config
+      name: '@deepseek-ai/dsh-mcp-project-config'
 
     # ── rows every mode mounts, whose values each overlay may state ──────────────
 

@@ -1,7 +1,7 @@
 /** Per-Session turn recorder: snapshots, captures around file-tool edits, the turn-end diff, and the records kept until disposal. */
-import { mkdtemp, readFile, realpath, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { join, relative, resolve } from 'node:path'
+import { dirname, join, relative, resolve } from 'node:path'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import { captureFile, mutationPath, sameCapture, type Capture } from './capture.ts'
 import { compareText } from './compare.ts'
@@ -9,7 +9,7 @@ import {
   blobText, diffTrees, gitlinkPaths, ignoredPaths, locateGitWorkspace, snapshotTree, treeBlob, type GitRunner, type GitWorkspace,
 } from './git.ts'
 import { canonicalPath, compareDisplay, displayPathOf, durablePathOf, isInside, isTemporaryPath, temporaryRoots, toPosix } from './paths.ts'
-import type { WorkspaceChangedFile, WorkspaceChangesSummary, WorkspaceFileDiff } from './types.ts'
+import type { WorkspaceChangedFile, WorkspaceChangesSummary, WorkspaceFileDiff, WorkspaceRestoreResult, WorkspaceRestoreSkip } from './types.ts'
 
 /** Facts shared by every recorder of one plugin instance. */
 export interface RecorderEnvironment {
@@ -234,6 +234,67 @@ export class TurnRecorder {
       return { kind: 'text', path, display, before: before !== null, after: after !== null, hunks, coarse }
     } catch (error: unknown) {
       // Disposal removes the temporary directory under a running read; the Session is gone either way.
+      if (this.lifetime.signal.aborted) return undefined
+      throw error
+    }
+  }
+
+  /**
+   * Rewind every file changed since one turn's start back to its content at that moment.
+   * Diffs the turn-start tree against a fresh snapshot of the CURRENT working tree — not the
+   * turn's own recorded diff — so every intervening turn's changes are undone too, not only the
+   * named turn's own. A rename is reversed: the content is written back to its original path and
+   * the file is removed from wherever the rename left it.
+   * @param seq - the event's sequence number naming the turn to rewind to.
+   * @param signal - cancels the reads and writes.
+   * @returns the outcome, or undefined for an unknown sequence, once disposed, or without a git snapshot.
+   * @throws when a git read fails while the recorder lives.
+   */
+  async restore(seq: number, signal: AbortSignal): Promise<WorkspaceRestoreResult | undefined> {
+    const record = this.records.get(seq)
+    const snapshot = record?.summary.snapshot
+    const repository = this.repository
+    if (record === undefined || snapshot === undefined || repository === null || this.paths === undefined) return undefined
+    const paths = this.paths
+    const root = repository.workspace.root
+    const combined = AbortSignal.any([signal, this.lifetime.signal])
+    const restored: string[] = []
+    const skipped: WorkspaceRestoreSkip[] = []
+    try {
+      const now = await snapshotTree(repository.git, repository.workspace, combined)
+      const entries = await diffTrees(repository.git, repository.workspace, snapshot.before, now, combined)
+      for (const entry of entries) {
+        const restorePath = entry.oldPath ?? entry.path
+        const currentAbsolute = resolve(root, entry.path)
+        const restoreAbsolute = resolve(root, restorePath)
+        // A rename's final path after restore is its original location; any other
+        // change (in place, or a deletion) keeps its current path as the display.
+        const finalAbsolute = entry.oldPath !== undefined ? restoreAbsolute : currentAbsolute
+        const finalPath = entry.oldPath !== undefined ? restorePath : entry.path
+        const display = displayPathOf(finalAbsolute, paths.cwd, root, paths.home)
+        if (entry.binary) { skipped.push({ path: finalPath, display, reason: 'binary' }); continue }
+        const blob = await treeBlob(repository.git, repository.workspace, snapshot.before, restorePath, combined)
+        if (blob !== null && blob.size > this.env.maxFileBytes) {
+          skipped.push({ path: finalPath, display, reason: 'oversized' })
+          continue
+        }
+        try {
+          if (blob === null) {
+            await rm(currentAbsolute, { force: true })
+          } else {
+            const text = await blobText(repository.git, repository.workspace, blob.oid, this.env.maxFileBytes, combined)
+            await mkdir(dirname(restoreAbsolute), { recursive: true })
+            await writeFile(restoreAbsolute, text, 'utf8')
+            if (restoreAbsolute !== currentAbsolute) await rm(currentAbsolute, { force: true })
+          }
+          restored.push(display)
+        } catch (error: unknown) {
+          if (this.lifetime.signal.aborted) return undefined
+          skipped.push({ path: finalPath, display, reason: 'error' })
+        }
+      }
+      return { restored, skipped }
+    } catch (error: unknown) {
       if (this.lifetime.signal.aborted) return undefined
       throw error
     }

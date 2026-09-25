@@ -525,6 +525,24 @@ describe('approval gate (tools/pre-execute producer)', () => {
     expect(DEFAULT_APPROVAL_TOOLS.length).toBeGreaterThan(0)
   })
 
+  it('gates every current terminal_* tool name that mutates or signals a session', () => {
+    // Regression: an earlier list gated the retired `terminal_spawn`/`terminal_kill`
+    // names, leaving the current tool-terminal registrations ungated.
+    expect(requiresApproval('terminal_open')).toBe(true)
+    expect(requiresApproval('terminal_send')).toBe(true)
+    expect(requiresApproval('terminal_signal')).toBe(true)
+    expect(requiresApproval('terminal_close')).toBe(true)
+    expect(requiresApproval('terminal_read')).toBe(false)
+    expect(requiresApproval('terminal_list')).toBe(false)
+    expect(requiresApproval('terminal_spawn')).toBe(false)
+    expect(requiresApproval('terminal_kill')).toBe(false)
+  })
+
+  it('gates both the spawn and fork subagent tool names', () => {
+    expect(requiresApproval('subagent')).toBe(true)
+    expect(requiresApproval('subagent_fork')).toBe(true)
+  })
+
   it('registers a tools/pre-execute listener that asks for gated tools', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)

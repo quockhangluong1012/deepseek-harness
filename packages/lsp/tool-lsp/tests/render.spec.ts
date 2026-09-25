@@ -4,6 +4,7 @@ import { join, resolve } from 'node:path'
 import {
   DEFAULT_MAX_LOCATIONS,
   DEFAULT_MAX_RESULT_CHARS,
+  formatDiagnostics,
   formatHover,
   formatLocations,
   LSP_OPERATIONS,
@@ -21,12 +22,25 @@ function loc(uri: string, line: number, character = 0): LspLocation {
 }
 
 describe('parseLspArgs', () => {
-  it('accepts the four operations and converts one-based to zero-based', () => {
+  it('accepts the four cursor-based operations and converts one-based to zero-based', () => {
     for (const operation of LSP_OPERATIONS) {
+      if (operation === 'diagnostics') continue
       const input = parseLspArgs({ operation, file_path: 'a.ts', line: 3, character: 5 })
       expect(input.operation).toBe(operation)
-      expect(input.position).toEqual({ line: 2, character: 4 })
+      expect(input).toMatchObject({ position: { line: 2, character: 4 } })
     }
+  })
+
+  it('accepts diagnostics with no line/character and carries no position', () => {
+    const input = parseLspArgs({ operation: 'diagnostics', file_path: 'a.ts' })
+    expect(input).toEqual({ operation: 'diagnostics', filePath: 'a.ts' })
+  })
+
+  it('rejects a cursor-based operation missing line or character', () => {
+    expect(() => parseLspArgs({ operation: 'hover', file_path: 'a.ts', character: 1 }))
+      .toThrow(/line and character are required/)
+    expect(() => parseLspArgs({ operation: 'hover', file_path: 'a.ts', line: 1 }))
+      .toThrow(/line and character are required/)
   })
 
   it('rejects an unknown operation', () => {
@@ -168,5 +182,36 @@ describe('presentLspCall', () => {
       title: 'LSP findReferences a.ts:3:7',
       locations: [{ path: 'a.ts', line: 3 }],
     })
+  })
+
+  it('omits the cursor for diagnostics, which carries no line/character', () => {
+    expect(presentLspCall({ operation: 'diagnostics', file_path: 'a.ts' })).toEqual({
+      card: 'generic',
+      kind: 'search',
+      title: 'LSP diagnostics a.ts',
+      locations: [{ path: 'a.ts' }],
+    })
+  })
+})
+
+describe('formatDiagnostics', () => {
+  it('renders a no-result line for an empty list', () => {
+    expect(formatDiagnostics([], DEFAULT_MAX_RESULT_CHARS)).toBe('No diagnostics.')
+  })
+
+  it('renders one-based line:character, severity, source, and code', () => {
+    const text = formatDiagnostics([
+      { range: { start: { line: 4, character: 2 }, end: { line: 4, character: 8 } }, severity: 'error', message: 'boom', source: 'tsc', code: '2322' },
+      { range: { start: { line: 9, character: 0 }, end: { line: 9, character: 1 } }, severity: 'warning', message: 'unused var' },
+    ], DEFAULT_MAX_RESULT_CHARS)
+    expect(text).toBe('5:3 error tsc (2322): boom\n10:1 warning: unused var')
+  })
+
+  it('caps the complete diagnostics text including its truncation marker', () => {
+    const text = formatDiagnostics([
+      { range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } }, severity: 'error', message: 'a'.repeat(100) },
+    ], 60)
+    expect(text).toHaveLength(60)
+    expect(text).toContain('diagnostics truncated (limit 60 characters).')
   })
 })

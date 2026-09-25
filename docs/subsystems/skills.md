@@ -77,9 +77,11 @@ The shipped local provider scans roots in rank order:
 | 100 | `project-dsh` | `<projectRoot>/.dsh/skills` |
 | 150 | `project-hermes` | `<projectRoot>/.hermes/skills` |
 | 200 | `project-agents` | `<projectRoot>/.agents/skills` |
+| 250 | `project-claude` | `<projectRoot>/.claude/skills` |
 | 300 | `custom` | `Config.customSkillDirs` |
 | 400 | `user-dsh` | `<dshHome>/skills` |
 | 500 | `user-agents` | `<agentsHome>/skills` |
+| 550 | `user-claude` | `~/.claude/skills` |
 | 600 | `bundled` | `Config.bundledSkillDir` when configured |
 
 The project root is the nearest ancestor containing `.git`; without one, the current cwd is used. Project roots index only when explicitly trusted: `Config.trustedProjectDirs` lists absolute project roots (compared as resolved paths, case-insensitively on Windows), `Config.projectDiscovery: false` disables project discovery entirely, and an untrusted root's skills are skipped with one warning per root. Trust is configuration, not interaction: non-interactive surfaces inherit it and never prompt. When `ctx.fs` is available, the git-root walk probes `.git` through the filesystem service so remote or sandboxed workspaces do not fall back to the host filesystem boundary. The user DSH root skips its `.system` child. The local provider does not synthesize built-in system skills; deployments supply packaged skills through configured bundled roots or dedicated providers.
@@ -94,7 +96,7 @@ Skill names are kebab-case (`^[a-z0-9]+(?:-[a-z0-9]+)*$`). The local provider ac
 
 ```ts type-equiv
 /** Origin bucket for a skill contribution. The value is prompt-visible metadata, not precedence by itself. */
-type SkillSource = 'project-dsh' | 'project-hermes' | 'project-agents' | 'runtime' | 'user-dsh' | 'user-agents' | 'custom' | 'bundled' | (string & {})
+type SkillSource = 'project-dsh' | 'project-hermes' | 'project-agents' | 'project-claude' | 'runtime' | 'user-dsh' | 'user-agents' | 'user-claude' | 'custom' | 'bundled' | (string & {})
 ```
 
 ## Summaries, candidates, and complete definitions

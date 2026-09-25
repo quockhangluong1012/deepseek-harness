@@ -20,11 +20,15 @@ afterEach(async () => {
   open = []
 })
 
+/** A recorded server→client notification the test's handler saw. */
+interface SeenNotification { method: string; params: unknown }
+
 /** Spawn the fixture as a raw connection, with a scripted server-request handler. */
 function connect(
   env: Record<string, string>,
   onServerRequest: (method: string, params: unknown) => Promise<unknown> = () => Promise.resolve(null),
   seen?: SeenRequest[],
+  notifications?: SeenNotification[],
 ): LspConnection {
   const conn = new LspConnection({
     command: process.execPath,
@@ -38,6 +42,8 @@ function connect(
   }, spawnSubprocess, (method, params) => {
     seen?.push({ method, params })
     return onServerRequest(method, params)
+  }, (method, params) => {
+    notifications?.push({ method, params })
   })
   open.push(conn)
   return conn
@@ -90,11 +96,14 @@ describe('LspConnection', () => {
     expect(seen[0]?.method).toBe('workspace/configuration')
   })
 
-  it('drops a server→client notification without replying', async () => {
-    const conn = connect({ LSP_FAKE_ON_OPEN: 'notification' })
+  it('forwards a server→client notification without replying', async () => {
+    const notifications: SeenNotification[] = []
+    const conn = connect({ LSP_FAKE_ON_OPEN: 'notification' }, undefined, undefined, notifications)
     await conn.request('initialize', { capabilities: {} })
     await conn.notify('textDocument/didOpen', { textDocument: { uri: 'file:///x', languageId: 'ts', version: 1, text: '' } })
-    // No throw and the connection stays usable.
+    await waitFor(() => notifications.some(n => n.method === 'window/logMessage'))
+    expect(notifications[0]).toEqual({ method: 'window/logMessage', params: { type: 3, message: 'hello' } })
+    // No reply was sent for it, and the connection stays usable.
     await expect(conn.request('textDocument/hover', {})).resolves.toBeDefined()
   })
 
@@ -153,7 +162,7 @@ function connectScript(script: string, maxStderrBytes = 100_000, writer?: Connec
     maxStderrBytes,
     killGraceMs: 3_000,
     configuration: null,
-  }, spawnSubprocess, () => Promise.resolve(null), writer)
+  }, spawnSubprocess, () => Promise.resolve(null), () => {}, writer)
   open.push(conn)
   return conn
 }
@@ -169,7 +178,7 @@ describe('LspConnection edge behavior', () => {
       maxStderrBytes: 1000,
       killGraceMs: 3_000,
       configuration: null,
-    }, spawnSubprocess, () => Promise.resolve(null))
+    }, spawnSubprocess, () => Promise.resolve(null), () => {})
     open.push(conn)
     await expect(conn.request('initialize', {})).rejects.toThrow()
   })

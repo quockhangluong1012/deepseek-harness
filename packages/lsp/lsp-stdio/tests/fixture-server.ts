@@ -176,6 +176,15 @@ function emitServerRequest(kind: string): void {
     send({ method: 'window/logMessage', params: { type: 3, message: 'hello' } })
     return
   }
+  if (kind === 'diagnostics') {
+    const uri = process.env.LSP_FAKE_DIAGNOSTICS_URI ?? 'file:///unset'
+    const diagnostics = process.env.LSP_FAKE_DIAGNOSTICS !== undefined ? JSON.parse(process.env.LSP_FAKE_DIAGNOSTICS) : []
+    const publish = (): void => { send({ method: 'textDocument/publishDiagnostics', params: { uri, diagnostics } }) }
+    const delayMs = Number(process.env.LSP_FAKE_DIAGNOSTICS_DELAY_MS ?? 0)
+    if (delayMs > 0) setTimeout(publish, delayMs)
+    else publish()
+    return
+  }
   const id = serverRequestId++
   const method = kind === 'configuration'
     ? 'workspace/configuration'

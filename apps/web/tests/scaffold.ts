@@ -572,10 +572,11 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     ...extraOverlayPatches,
     { id: 'agent-preset-registry', config: { default: 'standard' } },
     { id: 'session-persistence-jsonl', config: { root: persistenceRoot } },
-    // Content search is enabled here although the shipped bundles default it
-    // off (`openAt: never`, pinned by apps/cli/tests/lazy-search-startup):
-    // the seeded-session scenarios navigate by content search, and these e2e
-    // runs are the assembled coverage for the opt-in search path.
+    // The shipped web-app bundle now defaults content search on
+    // (`openAt: first-search` with a durable path, pinned by
+    // apps/cli/tests/lazy-search-startup). This scaffold overrides the path
+    // back to an ephemeral `:memory:` index so e2e runs never touch a
+    // durable file; the seeded-session scenarios navigate by content search.
     { id: 'session-query-sqlite', config: { path: ':memory:', openAt: 'first-search' } },
     // storage-json's yml root is anchored to the real $DSH_HOME; pin the row
     // to an absolute temp root (removed with the workspace at close) so tests
@@ -584,14 +585,16 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     // First-use initialization must create directories only inside this scaffold's temporary world.
     { id: 'workspace-controller', config: { documentsDirectory: join(workspaceCwd, 'Documents') } },
     // Skill discovery is model-visible input. Pin every host-level root inside
-    // the owned temp world so ~/.dsh, ~/.agents, and a bundled-root env setting
-    // cannot change replay requests or conversation goldens. Project roots stay
-    // enabled against the same empty temp workspace, preserving the real seam.
+    // the owned temp world so ~/.dsh, ~/.agents, ~/.claude, and a bundled-root
+    // env setting cannot change replay requests or conversation goldens.
+    // Project roots stay enabled against the same empty temp workspace,
+    // preserving the real seam.
     {
       id: 'skill-filesystem',
       config: {
         dshHome: join(workspaceCwd, '.dsh-home'),
         agentsHome: join(workspaceCwd, '.agents-home'),
+        claudeHome: join(workspaceCwd, '.claude-home'),
         bundledSkillDir: join(workspaceCwd, '.bundled-skills'),
         watch: false,
       },

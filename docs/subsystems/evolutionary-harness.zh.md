@@ -440,12 +440,16 @@ async surveyCandidates(options: CuratorRunOptions = {}): Promise<ConsolidationSu
  * curator tracks. Returns undefined when consolidation is off, when the
  * seam is unmounted, or when no candidate awaits a verdict. A cost row
  * reaches the ledger before the fork starts; the fork runs as a bounded
- * in-package tool loop over `ctx.llm`; the returned verdicts apply under
- * the full-package rule and land in the same snapshot, ledger, and rollback
- * machinery as an automatic pass.
- * @param options - clock override.
+ * in-package tool loop over `ctx.llm`. With `requireConsolidationReview`
+ * off, the returned verdicts apply under the full-package rule and land in
+ * the same snapshot, ledger, and rollback machinery as an automatic pass.
+ * With it on, the verdicts are withheld and the report's `awaitingReview`
+ * names the recorded proposer identity; `applyPendingConsolidation` commits
+ * them under a distinct reviewing identity.
+ * @param options - clock override and the proposer identity to record.
  * @returns the consolidation report, or undefined when no run happened.
- * @throws when teardown has begun.
+ * @throws when teardown has begun, or when review is required but the
+ *   evolution model-routes store is not mounted.
  */
 consolidate(options: CuratorRunOptions = {}): Promise<ConsolidationReport | undefined>
 
@@ -511,6 +515,30 @@ async rollbackEntry(entryId: string, options: RollbackOptions = {}): Promise<Rol
  * @returns the open debts, detached from the store.
  */
 debt(): RegressionDebt[]
+
+/**
+ * List every consolidation pass `requireConsolidationReview` withheld,
+ * newest first, so an operator can find the pass id `applyPendingConsolidation`
+ * needs.
+ * @returns the pending passes, detached from the store.
+ */
+pendingConsolidations(): PendingConsolidation[]
+
+/**
+ * Apply one consolidation pass `requireConsolidationReview` withheld: §53's
+ * separation of duties over `pending.proposerIdentity` and
+ * `reviewerIdentity` decides it, an identical or unrecorded pair refuses
+ * without writing, and an allowed pair commits the staged verdicts through
+ * the same `applyConsolidation` path an unreviewed pass takes. The pending
+ * row is dropped only once its verdicts have committed.
+ * @param passId - the pending pass to apply.
+ * @param reviewerIdentity - the identity applying the review.
+ * @returns the consolidation report.
+ * @throws when teardown has begun, the pass is unknown, the evolution
+ *   model-routes or skill telemetry store is not mounted, or separation of
+ *   duties refuses the reviewer.
+ */
+applyPendingConsolidation(passId: string, reviewerIdentity: string): Promise<ConsolidationReport>
 ```
 
 Source: [`packages/evolution/evolution-curator/src/index.ts`](../../packages/evolution/evolution-curator/src/index.ts)
@@ -1080,6 +1108,22 @@ Dependency-aware lineage store over durable experiment envelopes. Opens the `evo
  * @returns the stored envelope.
  */
 async record(input: ExperimentInput): Promise<ExperimentEnvelope>
+
+/**
+ * Amend the recorded outcome of an existing envelope. A deployment's real
+ * outcome is not known at proposal time — the optimizer stamps a measured
+ * verdict when it records the envelope, but whether the candidate is later
+ * rolled back or rejected is an operator decision that happens afterward.
+ * This keeps the recorded fact truthful once that decision lands, without
+ * refusing or gating anything the operator does (§58.12: recorded, never
+ * enforced).
+ * @param id - the experiment identity.
+ * @param outcome - the outcome to record in place of the measured verdict.
+ * @param rejectedReason - why the outcome changed, when the caller has one.
+ * @returns the amended envelope.
+ * @throws when the experiment identity is unknown.
+ */
+async amendOutcome(id: string, outcome: ExperimentOutcome, rejectedReason?: string): Promise<ExperimentEnvelope>
 
 /**
  * List every envelope, optionally filtered by skill, newest first.
@@ -1885,7 +1929,12 @@ Recorded-session scorer. One score runs the scenario in `attempts` fresh process
  * Every attempt boots a fresh process through the caller's runner in the
  * keyless replay tier, and is scored against `workspace.expected/` when the
  * scenario ships one, or against its own initial workspace otherwise.
- * @param request - scenario name plus the agent composition and runner to boot it with.
+ * `request.attempts` overrides the configured attempt count for this one
+ * call, so a caller can buy a single cheap run for a body the fixture
+ * already validates. The returned record also carries a content digest of
+ * the recorded fixture(s) and the first attempt's harvested session id as
+ * its trajectory reference (§24.3 durable evidence).
+ * @param request - scenario name, the agent composition and runner to boot it with, and an optional attempt-count override.
  * @returns the metric triple, or the reason the scenario could not be scored.
  * @throws when the configured corpus does not exist, a shipped fixture cannot be parsed,
  * or the runner fails; only an unknown scenario and an absent fixture are skips.
@@ -1899,7 +1948,7 @@ async score(request: ScoreRequest): Promise<ScoreOutcome>
  * prove, and optimizing on a partial evaluation would select on evidence
  * that is not there — so one skip skips the whole evaluation with its
  * reason attached.
- * @param request - skill name plus the scenarios, agent composition, and runner to score it with.
+ * @param request - skill name plus the scenarios, agent composition, runner, and optional attempt-count override to score it with.
  * @returns the aggregated triple with per-scenario records, or the reason the skill could not be evaluated.
  */
 async evaluateSkill(request: EvaluateSkillRequest): Promise<SkillEvaluation>

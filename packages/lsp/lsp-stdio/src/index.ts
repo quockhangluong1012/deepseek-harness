@@ -51,6 +51,7 @@ const DEFAULT_MAX_STDERR_BYTES = 1_000_000
 const DEFAULT_MAX_DOCUMENT_BYTES = 4_000_000
 const DEFAULT_SHUTDOWN_TIMEOUT_MS = 5_000
 const DEFAULT_KILL_GRACE_MS = 2_000
+const DEFAULT_DIAGNOSTICS_WAIT_MS = 3_000
 
 /** One configured local language server and its host bounds. */
 export interface LspLocalServerConfig {
@@ -76,6 +77,12 @@ export interface LspLocalServerConfig {
   shutdownTimeoutMs?: number
   /** Request-cancel and SIGTERM→SIGKILL grace (ms). Default 2000. */
   killGraceMs?: number
+  /**
+   * How long a `diagnostics` query waits, after `didOpen`, for a matching
+   * `textDocument/publishDiagnostics` notification before returning an empty result (ms). Default
+   * 3000.
+   */
+  diagnosticsWaitMs?: number
 }
 
 /** Plugin configuration: provider id → local language-server configuration. */
@@ -100,6 +107,7 @@ const LspLocalServerConfig: z<LspLocalServerConfig> = z.object({
   maxDocumentBytes: z.number().default(DEFAULT_MAX_DOCUMENT_BYTES),
   shutdownTimeoutMs: z.number().max(MAX_TIMER_DELAY_MS).default(DEFAULT_SHUTDOWN_TIMEOUT_MS),
   killGraceMs: z.number().max(MAX_TIMER_DELAY_MS).default(DEFAULT_KILL_GRACE_MS),
+  diagnosticsWaitMs: z.number().max(MAX_TIMER_DELAY_MS).default(DEFAULT_DIAGNOSTICS_WAIT_MS),
 })
 
 export const Config: z<Config> = z.object({
@@ -191,6 +199,9 @@ function validateServerConfig(providerId: string, resolved: ResolvedServerConfig
   // nonpositive value would let a server that ignores shutdown hang disposal forever. Fail at load.
   assertTimer(providerId, 'shutdownTimeoutMs', resolved.shutdownTimeoutMs)
   assertTimer(providerId, 'killGraceMs', resolved.killGraceMs)
+  // Same sentinel applies to the diagnostics wait: `<= 0` would make every `diagnostics` query wait
+  // forever for a server that never publishes for a clean file.
+  assertTimer(providerId, 'diagnosticsWaitMs', resolved.diagnosticsWaitMs)
   // Byte caps must be positive: a nonpositive stderr cap defeats the retained-tail bound
   // (`slice(-0)` keeps everything), `maxMessageBytes: 0` makes every response fatal, and a bad
   // document cap fails later in the read path instead of at load.
@@ -357,6 +368,7 @@ class LocalLspProvider implements LspProvider {
       maxStderrBytes: this.config.maxStderrBytes,
       shutdownTimeoutMs: this.config.shutdownTimeoutMs,
       killGraceMs: this.config.killGraceMs,
+      diagnosticsWaitMs: this.config.diagnosticsWaitMs,
     }
     return new LspInstance(spec, this.spawner)
   }

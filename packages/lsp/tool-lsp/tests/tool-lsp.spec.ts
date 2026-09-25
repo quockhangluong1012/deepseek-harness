@@ -82,10 +82,10 @@ describe('tool-lsp registration', () => {
     expect(ctx.tools.get('lsp')?.timeoutMs).toBe(5000)
   })
 
-  it('exposes exactly the four operations in the schema enum', async () => {
+  it('exposes exactly the five operations in the schema enum', async () => {
     const { ctx } = await mount(stubProvider(() => okLocations))
     const schema = ctx.tools.get('lsp')?.parameters as { properties: { operation: { enum: string[] } } }
-    expect(schema.properties.operation.enum).toEqual(['goToDefinition', 'findReferences', 'goToImplementation', 'hover'])
+    expect(schema.properties.operation.enum).toEqual(['goToDefinition', 'findReferences', 'goToImplementation', 'hover', 'diagnostics'])
   })
 
   it('has no default export (namespace plugin shape)', () => {
@@ -234,5 +234,40 @@ describe('tool-lsp execution', () => {
       title: 'LSP hover a.ts:2:3',
       locations: [{ path: 'a.ts', line: 2 }],
     })
+  })
+
+  it('queries diagnostics without a position and renders the file-scoped result', async () => {
+    const provider = stubProvider(() => ({
+      kind: 'diagnostics',
+      diagnostics: [
+        { range: { start: { line: 0, character: 0 }, end: { line: 0, character: 5 } }, severity: 'error', message: 'boom', source: 'tsc', code: '2322' },
+      ],
+    }))
+    const { ctx } = await mount(provider)
+    const result = await call(ctx, { operation: 'diagnostics', file_path: 'a.ts' }, workspaceRoot)
+    expect(result.isError).toBe(false)
+    expect(provider.seen[0]).toEqual({ operation: 'diagnostics', filePath: 'a.ts', workspaceRoot, languageId: 'typescript' })
+    expect(result.content[0]).toEqual({ type: 'text', text: '1:1 error tsc (2322): boom' })
+  })
+
+  it('renders an empty diagnostics result distinctly', async () => {
+    const { ctx } = await mount(stubProvider(() => ({ kind: 'diagnostics', diagnostics: [] })))
+    const result = await call(ctx, { operation: 'diagnostics', file_path: 'a.ts' }, workspaceRoot)
+    expect(result.content[0]).toEqual({ type: 'text', text: 'No diagnostics.' })
+    expect(result).toMatchObject({ isError: false, value: { kind: 'diagnostics', diagnostics: [] } })
+  })
+
+  it('rejects diagnostics with line/character as an INVALID_ARGS-free no-op (extra args are ignored, not required)', async () => {
+    // line/character are optional at the schema level; diagnostics ignores them if supplied.
+    const { ctx } = await mount(stubProvider(() => ({ kind: 'diagnostics', diagnostics: [] })))
+    const result = await call(ctx, { operation: 'diagnostics', file_path: 'a.ts', line: 5, character: 2 }, workspaceRoot)
+    expect(result.isError).toBe(false)
+  })
+
+  it('returns INVALID_ARGS when a cursor-based operation is missing line/character', async () => {
+    const { ctx } = await mount(stubProvider(() => okLocations))
+    const result = await call(ctx, { operation: 'hover', file_path: 'a.ts' }, workspaceRoot)
+    expect(result.isError).toBe(true)
+    expect(result.error?.info?.code).toBe('INVALID_ARGS')
   })
 })

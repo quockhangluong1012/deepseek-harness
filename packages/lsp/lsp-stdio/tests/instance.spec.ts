@@ -59,6 +59,7 @@ function makeInstance(
     maxStderrBytes: 100_000,
     shutdownTimeoutMs: 200,
     killGraceMs: 200,
+    diagnosticsWaitMs: 500,
     ...overrides,
   }, spawner, writer)
   live.push(instance)
@@ -66,6 +67,9 @@ function makeInstance(
 }
 
 function query(operation: LspProviderQuery['operation'] = 'goToDefinition'): LspProviderQuery {
+  if (operation === 'diagnostics') {
+    return { operation, filePath: 'a.ts', workspaceRoot: ws, languageId: 'typescript' }
+  }
   return { operation, filePath: 'a.ts', position: { line: 0, character: 6 }, workspaceRoot: ws, languageId: 'typescript' }
 }
 
@@ -94,6 +98,7 @@ function scriptInstance(script: string, overrides: Partial<InstanceSpec> = {}): 
     maxStderrBytes: 100_000,
     shutdownTimeoutMs: 150,
     killGraceMs: 150,
+    diagnosticsWaitMs: 500,
     ...overrides,
   }, spawnSubprocess)
   live.push(instance)
@@ -293,6 +298,74 @@ describe('LspInstance query and abort', () => {
     expect(instance.dead).toBe(true)
   })
 
+})
+
+describe('LspInstance diagnostics', () => {
+  it('resolves normalized diagnostics from a matching publish', async () => {
+    const uri = pathToFileURL(join(ws, 'a.ts')).href
+    const instance = makeInstance({
+      LSP_FAKE_ON_OPEN: 'diagnostics',
+      LSP_FAKE_DIAGNOSTICS_URI: uri,
+      LSP_FAKE_DIAGNOSTICS: JSON.stringify([
+        { range: { start: { line: 0, character: 0 }, end: { line: 0, character: 5 } }, severity: 1, message: 'boom', source: 'tsc', code: 2322 },
+        { range: { start: { line: 1, character: 0 }, end: { line: 1, character: 1 } }, message: 'no severity means error' },
+      ]),
+    })
+    await expect(run(instance, 'diagnostics')).resolves.toEqual({
+      kind: 'diagnostics',
+      diagnostics: [
+        { range: { start: { line: 0, character: 0 }, end: { line: 0, character: 5 } }, severity: 'error', message: 'boom', source: 'tsc', code: '2322' },
+        { range: { start: { line: 1, character: 0 }, end: { line: 1, character: 1 } }, severity: 'error', message: 'no severity means error' },
+      ],
+    })
+  })
+
+  it('resolves an empty result when nothing is published within the wait window', async () => {
+    const instance = makeInstance({}, { diagnosticsWaitMs: 100 })
+    const started = Date.now()
+    await expect(run(instance, 'diagnostics')).resolves.toEqual({ kind: 'diagnostics', diagnostics: [] })
+    expect(Date.now() - started).toBeGreaterThanOrEqual(90)
+  })
+
+  it('ignores a publish for a different uri and still resolves empty after the wait', async () => {
+    const instance = makeInstance({
+      LSP_FAKE_ON_OPEN: 'diagnostics',
+      LSP_FAKE_DIAGNOSTICS_URI: 'file:///somewhere/else.ts',
+      LSP_FAKE_DIAGNOSTICS: JSON.stringify([{ range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } }, message: 'not ours' }]),
+    }, { diagnosticsWaitMs: 150 })
+    await expect(run(instance, 'diagnostics')).resolves.toEqual({ kind: 'diagnostics', diagnostics: [] })
+  })
+
+  it('resolves via a delayed publish that arrives before the wait elapses', async () => {
+    const uri = pathToFileURL(join(ws, 'a.ts')).href
+    const instance = makeInstance({
+      LSP_FAKE_ON_OPEN: 'diagnostics',
+      LSP_FAKE_DIAGNOSTICS_URI: uri,
+      LSP_FAKE_DIAGNOSTICS: JSON.stringify([{ range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } }, severity: 2, message: 'delayed warning' }]),
+      LSP_FAKE_DIAGNOSTICS_DELAY_MS: '50',
+    }, { diagnosticsWaitMs: 2_000 })
+    await expect(run(instance, 'diagnostics')).resolves.toEqual({
+      kind: 'diagnostics',
+      diagnostics: [{ range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } }, severity: 'warning', message: 'delayed warning' }],
+    })
+  })
+
+  it('rejects on caller abort during the wait rather than degrading to empty', async () => {
+    const instance = makeInstance({}, { diagnosticsWaitMs: 5_000 })
+    const controller = new AbortController()
+    const pending = run(instance, 'diagnostics', controller.signal)
+    await new Promise<void>(resolve => setTimeout(resolve, 100))
+    controller.abort(new Error('diagnostics-abort'))
+    await expect(pending).rejects.toThrow(/diagnostics-abort/)
+  })
+
+  it('never sends a request/response for diagnostics (push notification only)', async () => {
+    // No LSP_FAKE_DIAGNOSTICS_URI/DIAGNOSTICS configured and no matching onOpen kind: the fixture
+    // answers no textDocument/* request for diagnostics, proving the operation never round-trips one.
+    const instance = makeInstance({}, { diagnosticsWaitMs: 100 })
+    const result = await run(instance, 'diagnostics')
+    expect(result).toEqual({ kind: 'diagnostics', diagnostics: [] })
+  })
 })
 
 describe('LspInstance disposal', () => {

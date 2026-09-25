@@ -108,6 +108,28 @@ type WorkspaceFileDiff =
   | { kind: 'oversized'; path: string; display: string }
 ```
 
+## `WorkspaceRestoreResult`：回退工作目录的结果
+
+```ts type-equiv
+/** One file a rewind could not write back, and why. */
+interface WorkspaceRestoreSkip {
+  /** The listed file's `path`. */
+  path: string
+  /** The listed file's `display`. */
+  display: string
+  /** Binary content, a side larger than `maxFileBytes`, or a read/write failure. */
+  reason: 'binary' | 'oversized' | 'error'
+}
+
+/** The outcome of rewinding a working directory to one turn's start. */
+interface WorkspaceRestoreResult {
+  /** Display paths successfully written back or removed, in file order. */
+  restored: string[]
+  /** Files left untouched, with the reason each was skipped. */
+  skipped: WorkspaceRestoreSkip[]
+}
+```
+
 ## `WorkspaceChanges`：提供摘要与对比的 Host 服务
 
 ```ts type-equiv
@@ -130,6 +152,20 @@ interface WorkspaceChanges {
    * @throws when a snapshot read fails for a live Session.
    */
   diff(sessionId: SessionId, seq: number, index: number, signal: AbortSignal): Promise<WorkspaceFileDiff | undefined>
+  /**
+   * Rewind every file changed since one turn's start back to its content at that moment: a file
+   * present in the turn-start snapshot is written back to that content, and a file absent there
+   * (created since) is removed. Spans every turn between the given one and now, not only the
+   * given turn's own diff. Requires a git repository; a binary, oversized, or unreadable/unwritable
+   * file is skipped rather than failing the whole rewind.
+   * @param sessionId - the Session that appended the event.
+   * @param seq - the event's sequence number, naming the turn to rewind to.
+   * @param signal - cancels the reads and writes.
+   * @returns the outcome, or undefined once its Session was disposed, when this Host never recorded
+   *   it, or when the turn was recorded without a git snapshot.
+   * @throws when a git read fails for a live Session.
+   */
+  restore(sessionId: SessionId, seq: number, signal: AbortSignal): Promise<WorkspaceRestoreResult | undefined>
 }
 ```
 
@@ -170,6 +206,21 @@ summary(sessionId: SessionId, seq: number): WorkspaceChangesSummary | undefined
  * @throws when a snapshot read fails for a live Session.
  */
 diff(sessionId: SessionId, seq: number, index: number, signal: AbortSignal): Promise<WorkspaceFileDiff | undefined>
+
+/**
+ * Rewind every file changed since one turn's start back to its content at that moment: a file
+ * present in the turn-start snapshot is written back to that content, and a file absent there
+ * (created since) is removed. Spans every turn between the given one and now, not only the
+ * given turn's own diff. Requires a git repository; a binary, oversized, or unreadable/unwritable
+ * file is skipped rather than failing the whole rewind.
+ * @param sessionId - the Session that appended the event.
+ * @param seq - the event's sequence number, naming the turn to rewind to.
+ * @param signal - cancels the reads and writes.
+ * @returns the outcome, or undefined once its Session was disposed, when this Host never recorded
+ *   it, or when the turn was recorded without a git snapshot.
+ * @throws when a git read fails for a live Session.
+ */
+restore(sessionId: SessionId, seq: number, signal: AbortSignal): Promise<WorkspaceRestoreResult | undefined>
 ```
 
 Types: [SessionId](core.zh.md)

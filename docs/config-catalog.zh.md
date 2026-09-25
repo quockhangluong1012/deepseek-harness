@@ -952,6 +952,26 @@ export interface Config {
 
 来源： [`packages/evolution/command-evolution/src/index.ts:108`](../packages/evolution/command-evolution/src/index.ts)
 
+<a id="deepseek-aidsh-command-review"></a>
+
+## `@deepseek-ai/dsh-command-review`
+
+需要： `commands` · `subagents`
+
+```ts config-catalog
+/** Plugin config: which delegation backend and model the reviewer runs under. */
+export interface Config {
+  /** `ctx.subagents` provider name the review delegates to. Defaults to `spawn` (a fresh, unrelated context). */
+  subagentProvider?: string
+  /** Provider route override for the reviewer child; omitted inherits the parent's route. */
+  provider?: string
+  /** Model id override for the reviewer child; omitted inherits the parent's model. */
+  model?: string
+}
+```
+
+来源： [`packages/subagent/command-review/src/index.ts:20`](../packages/subagent/command-review/src/index.ts)
+
 <a id="deepseek-aidsh-compaction-basic"></a>
 
 ## `@deepseek-ai/dsh-compaction-basic`
@@ -1360,10 +1380,20 @@ export interface Config {
    * and 1 alone. Default `false` keeps today's behavior.
    */
   requireVerifierPass?: boolean
+  /**
+   * Withhold a consolidation pass's verdicts from `applyConsolidation` until
+   * `applyPendingConsolidation` commits them under a reviewing identity that
+   * differs from the pass's recorded proposer — §53's separation of duties,
+   * checked through `ctx.evolutionModelRoutes` when mounted. Default `false`
+   * keeps today's behavior: a pass commits its own verdicts with no review
+   * step. `true` without the store mounted fails the pass loudly rather than
+   * committing unreviewed.
+   */
+  requireConsolidationReview?: boolean
 }
 ```
 
-来源： [`packages/evolution/evolution-curator/src/index.ts:137`](../packages/evolution/evolution-curator/src/index.ts)
+来源： [`packages/evolution/evolution-curator/src/index.ts:161`](../packages/evolution/evolution-curator/src/index.ts)
 
 <a id="deepseek-aidsh-evolution-curriculum"></a>
 
@@ -3422,6 +3452,31 @@ export interface ReconnectConfig {
 
 来源： [`packages/mcp/mcp-client/src/index.ts:104`](../packages/mcp/mcp-client/src/index.ts)
 
+<a id="deepseek-aidsh-mcp-project-config"></a>
+
+## `@deepseek-ai/dsh-mcp-project-config`
+
+```ts config-catalog
+/** Plugin config: where the project and user `.mcp.json` files live. */
+export interface Config {
+  /**
+   * Project MCP config path, resolved against the process launch cwd (matching the
+   * `hooks-claude-code`/`hooks-codex` `configPath` convention). Defaults to `./.mcp.json`.
+   */
+  configPath?: string
+  /** User-level MCP config path. Defaults to `$DSH_HOME/mcp.json`. */
+  userConfigPath?: string
+  /**
+   * Fail this plugin's activation when a configured server's initial connection or tool
+   * synchronization fails. Default `false`: an unreachable server is logged and left to its own
+   * reconnect policy rather than blocking every other configured server and the profile.
+   */
+  failOnStartupError?: boolean
+}
+```
+
+来源： [`packages/mcp/mcp-project-config/src/index.ts:24`](../packages/mcp/mcp-project-config/src/index.ts)
+
 <a id="deepseek-aidsh-message-feedback"></a>
 
 ## `@deepseek-ai/dsh-message-feedback`
@@ -4188,9 +4243,11 @@ export interface Config {
   dshHome?: string
   /** Shared agent config root. Defaults to `$DSH_AGENTS_HOME` or `~/.agents`. */
   agentsHome?: string
+  /** Claude Code config root, scanned for its `.claude/skills` project/user compatibility roots. Defaults to `~/.claude`. */
+  claudeHome?: string
   /** Additional skill roots scanned after project roots and before user roots. */
   customSkillDirs?: string[]
-  /** Absolute project roots whose `.dsh/skills`, `.hermes/skills`, and `.agents/skills` index; others are skipped. */
+  /** Absolute project roots whose `.dsh/skills`, `.hermes/skills`, `.agents/skills`, and `.claude/skills` index; others are skipped. */
   trustedProjectDirs?: string[]
   /** Whether any project roots index; false disables project discovery entirely. */
   projectDiscovery?: boolean
@@ -5822,6 +5879,7 @@ export interface Config {
 - `@deepseek-ai/dsh-command-compact` — 需要 `commands` · `compaction`（[`packages/compaction/command-compact/src/index.ts`](../packages/compaction/command-compact/src/index.ts)）
 - `@deepseek-ai/dsh-command-feedback` — 需要 `commands`（[`packages/feedback/command-feedback/src/index.ts`](../packages/feedback/command-feedback/src/index.ts)）
 - `@deepseek-ai/dsh-command-goal` — 需要 `commands` · `goals`（[`packages/goal/command-goal/src/index.ts`](../packages/goal/command-goal/src/index.ts)）
+- `@deepseek-ai/dsh-command-rewind` — 需要 `commands` · `workspaceChanges`（[`packages/deliverables/command-rewind/src/index.ts`](../packages/deliverables/command-rewind/src/index.ts)）
 - `@deepseek-ai/dsh-commands`（[`packages/interaction/commands/src/index.ts`](../packages/interaction/commands/src/index.ts)）
 - `@deepseek-ai/dsh-compaction-image-offload` — 需要 `agents` · `sessions`（[`packages/compaction/compaction-image-offload/src/index.ts`](../packages/compaction/compaction-image-offload/src/index.ts)）
 - `@deepseek-ai/dsh-computer-use`（[`packages/computer-use/computer-use/src/index.ts`](../packages/computer-use/computer-use/src/index.ts)）

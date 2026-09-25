@@ -171,7 +171,7 @@ function graphArgs(raw: string): string[] {
 }
 
 /** Argument grammar for `/curator`; anything else reports usage. */
-const CURATOR_USAGE = 'Usage: /curator status | run [--dry-run] | staged | adopt <name> | purge [--dry-run] | rollback --id <id> | ledger | pin <name> | unpin <name> | history <name> | optimize <skill> <scenario...> | experiments [skill]'
+const CURATOR_USAGE = 'Usage: /curator status | run [--dry-run] | staged | pending | apply <passId> | adopt <name> | purge [--dry-run] | rollback --id <id> | ledger | pin <name> | unpin <name> | history <name> | optimize <skill> <scenario...> | experiments [skill]'
 
 /** Argument grammar for `/trajectory`; anything else reports usage. */
 const TRAJECTORY_USAGE = 'Usage: /trajectory [--out <path>] [--all]'
@@ -2183,6 +2183,8 @@ async function executeCurator(ctx: Context, profile: string, invocation: Command
     case 'rollback': if (rest.length !== 2 || rest[0] !== '--id') return { kind: 'error', text: CURATOR_USAGE }; break
     case 'ledger': if (rest.length > 0) return { kind: 'error', text: CURATOR_USAGE }; break
     case 'staged': if (rest.length > 0) return { kind: 'error', text: CURATOR_USAGE }; break
+    case 'pending': if (rest.length > 0) return { kind: 'error', text: CURATOR_USAGE }; break
+    case 'apply': if (rest.length !== 1) return { kind: 'error', text: CURATOR_USAGE }; break
     default: return { kind: 'error', text: CURATOR_USAGE }
   }
 
@@ -2197,6 +2199,8 @@ async function executeCurator(ctx: Context, profile: string, invocation: Command
     case 'rollback': return executeCuratorRollback(curator, rest[1] as string)
     case 'ledger': return executeCuratorLedger(curator)
     case 'staged': return executeCuratorStaged(curator)
+    case 'pending': return executeCuratorPending(curator)
+    case 'apply': return executeCuratorApply(curator, invocation, rest[0] as string)
     default: return { kind: 'error', text: CURATOR_USAGE }
   }
 }
@@ -2449,6 +2453,43 @@ async function executeCuratorStaged(curator: EvolutionCurator): Promise<CommandR
   if (rows.length === 0) return { kind: 'success', text: 'No staged skills.' }
   const lines = rows.map(row => `- ${row.name}: ${row.reason} (staged ${row.at})`)
   return { kind: 'success', text: [`${rows.length} staged skill${rows.length === 1 ? '' : 's'}:`, ...lines].join('\n') }
+}
+
+/**
+ * Execute `/curator pending`: list consolidation passes
+ * `requireConsolidationReview` withheld, newest first, so an operator can
+ * find the pass id `/curator apply` needs.
+ * @param curator - the mounted curator service.
+ * @returns the command result.
+ */
+function executeCuratorPending(curator: EvolutionCurator): CommandResult {
+  const rows = curator.pendingConsolidations()
+  if (rows.length === 0) return { kind: 'success', text: 'No pending consolidations.' }
+  const lines = rows.map(row =>
+    `- ${row.passId} proposed by '${row.proposerIdentity}' at ${row.at}: ${row.verdicts.length} verdict${row.verdicts.length === 1 ? '' : 's'}`)
+  return { kind: 'success', text: [`${rows.length} pending consolidation${rows.length === 1 ? '' : 's'}:`, ...lines].join('\n') }
+}
+
+/**
+ * Execute `/curator apply <passId>`: commit one consolidation pass
+ * `requireConsolidationReview` withheld, under the invoking session's
+ * identity as the reviewer. §53's separation of duties refuses an identity
+ * that matches the pass's recorded proposer.
+ * @param curator - the mounted curator service.
+ * @param invocation - raw command input plus the invoking agent.
+ * @param passId - the pending pass to apply.
+ * @returns the command result.
+ */
+async function executeCuratorApply(curator: EvolutionCurator, invocation: CommandInvocation, passId: string): Promise<CommandResult> {
+  try {
+    const report = await curator.applyPendingConsolidation(passId, String(invocation.agent.session.id))
+    return {
+      kind: 'success',
+      text: `Consolidation '${passId.slice(0, 8)}' applied: ${report.verdicts.length} verdict${report.verdicts.length === 1 ? '' : 's'}, ${report.skipped} skipped.`,
+    }
+  } catch (err: unknown) {
+    return { kind: 'error', text: err instanceof Error ? err.message : String(err) }
+  }
 }
 
 /**
@@ -3076,8 +3117,8 @@ export function apply(ctx: Context, config: Config): void {
     yield ctx.commands.register({
       definitionId: CommandDefinitionId('@deepseek-ai/dsh-command-evolution/curator'),
       name: 'curator',
-      description: 'Manage skill curation: status, pass history, adopt, purge, pin, rollback, and optimize',
-      input: { hint: 'status | run | adopt <name> | purge | rollback | ledger | pin <name> | optimize <skill> <scenario...> | experiments [skill]' },
+      description: 'Manage skill curation: status, pass history, adopt, purge, pin, rollback, consolidation review, and optimize',
+      input: { hint: 'status | run | adopt <name> | purge | rollback | ledger | pending | apply <passId> | pin <name> | optimize <skill> <scenario...> | experiments [skill]' },
       handler: (invocation: CommandInvocation) => track(executeCurator(ctx, profile, invocation)),
     })
     yield ctx.commands.register({

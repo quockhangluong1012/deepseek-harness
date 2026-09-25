@@ -19,11 +19,13 @@ export interface DutySeparation {
 /**
  * The role pair each guarded decision separates: both decisions judge a
  * candidate that candidate generation produced, promotion review judging a
- * promotion and evaluation judging a verdict.
+ * promotion or a curator consolidation verdict, and evaluation judging a
+ * verdict.
  */
 export const SEPARATED_DUTIES: Record<DutyDecision, DutySeparation> = {
   promotion: { producing: 'candidate-generation', judging: 'promotion-review' },
   verdict: { producing: 'candidate-generation', judging: 'evaluation' },
+  consolidation: { producing: 'candidate-generation', judging: 'promotion-review' },
 }
 
 /**

@@ -29,24 +29,58 @@ export const regressionDebtRecord = z.object({
   revision: z.number().int().min(0),
 })
 
-/** One stored debt row, inferred from {@link regressionDebtRecord}. */
-export type RegressionDebtRow = z.infer<typeof regressionDebtRecord>
+/** One consolidation verdict a staged review awaits, or replays into `applyConsolidation`. */
+export const pendingConsolidationVerdict = z.object({
+  name: z.string().min(1),
+  action: z.enum(['keep', 'patch', 'consolidate', 'archive']),
+  into: z.string().optional(),
+  body: z.string().optional(),
+})
+
+/** Durable consolidation cost row, mirroring {@link ConsolidationCost}. */
+export const pendingConsolidationCost = z.object({
+  inputBytes: z.number().int().min(0),
+  maxOutputTokens: z.number().int().min(0),
+  provider: z.string().min(1),
+  model: z.string().min(1),
+  truncated: z.boolean(),
+})
+
+/**
+ * One consolidation pass staged for review: `requireConsolidationReview`
+ * withholds the fork's verdicts from `applyConsolidation` until a reviewer
+ * distinct from `proposerIdentity` applies them.
+ */
+export const pendingConsolidationRecord = z.object({
+  passId: z.string().min(1),
+  at: z.string(),
+  proposerIdentity: z.string().min(1),
+  verdicts: z.array(pendingConsolidationVerdict),
+  cost: pendingConsolidationCost,
+  steps: z.number().int().min(0),
+})
+
+/** One stored pending-consolidation row, inferred from {@link pendingConsolidationRecord}. */
+export type PendingConsolidationRow = z.infer<typeof pendingConsolidationRecord>
 
 /**
  * The evolution-curator domain spec: one `meta` table holding a single
- * `state` row, plus one `debt` table keyed by skill and failure merge key.
+ * `state` row, one `debt` table keyed by skill and failure merge key, and one
+ * `pending` table keyed by pass id holding a consolidation awaiting review.
  * Invalid bookkeeping fails the domain open loudly: a lost `lastRunAt`
  * would rerun the first-run deferral and shift the schedule.
  */
 export const curatorDomainSpec = defineDomain({
   name: 'evolution_curator',
-  version: 2,
-  // Version 1 held only the `meta` table; the debt table arrives empty on
-  // first write, so vouched-for v1 documents open unchanged.
-  compatibleVersions: [1],
+  version: 3,
+  // Version 1 held only the `meta` table, version 2 added `debt`; both arrive
+  // with `pending` empty on first write, the same way `debt` arrived empty
+  // for a vouched-for v1 document.
+  compatibleVersions: [1, 2],
   layout: 'per-record',
   tables: {
     meta: domainTable<string, CuratorStateRow>(curatorState),
     debt: domainTable<string, RegressionDebt>(regressionDebtRecord),
+    pending: domainTable<string, PendingConsolidationRow>(pendingConsolidationRecord),
   },
 })

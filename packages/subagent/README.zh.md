@@ -34,6 +34,7 @@ subagent 包家族让 agent（智能体）将任务委派给子 agent、继续�
 | [`subagent-dsh-sdk/`](subagent-dsh-sdk/README.zh.md) | 经 TypeScript SDK 运行进程外 Harness 子 agent | 注册到 `ctx.subagents` |
 | [`tool-subagent/`](tool-subagent/README.zh.md) | 向模型公开委派 | 注册到 `ctx.tools` |
 | [`tool-subagent-control/`](tool-subagent-control/README.zh.md) | 向模型提供向相邻 agent 发送消息、中断工作和列出子级状态的操作 | 注册到 `ctx.tools` |
+| [`command-review/`](command-review/README.zh.md) | 提供 `/review`：独立审查者子 agent 对 diff 给出发现 | 注册到 `ctx.commands` |
 
 -----
 

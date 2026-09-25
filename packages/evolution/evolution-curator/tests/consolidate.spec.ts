@@ -8,6 +8,7 @@ import Storage from '@deepseek-ai/dsh-storage'
 import { DomainFacility } from '@deepseek-ai/dsh-storage-domain'
 import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
 import EvolutionSkillTelemetry from '@deepseek-ai/dsh-evolution-skill-telemetry'
+import EvolutionModelRoutes from '@deepseek-ai/dsh-evolution-model-routes'
 import type { SkillUsageRecord } from '@deepseek-ai/dsh-evolution-skill-telemetry'
 import { MemoryMediaPool, MemoryStorageBackend } from '../../../storage/storage-domain/tests/helpers/memory-backend.ts'
 import EvolutionCurator, { resolveConfig } from '../src/index.ts'
@@ -79,14 +80,17 @@ async function harness(options: {
   curatorConfig?: Record<string, unknown>
   telemetry?: boolean
   llm?: boolean
+  modelRoutes?: boolean
+  backend?: MemoryStorageBackend
+  home?: string
   respond?: (request: GenerateOptions, index: number) => Promise<StreamChunk[]>
 } = {}) {
-  const home = await mkdtemp(join(tmpdir(), 'curator-consolidate-'))
-  homeDirs.push(home)
+  const home = options.home ?? await mkdtemp(join(tmpdir(), 'curator-consolidate-'))
+  if (options.home === undefined) homeDirs.push(home)
   process.env['DSH_HOME'] = home
   const ctx = new Context()
   await ctx.plugin(Storage)
-  ctx.storage.backend.register('memory', new MemoryStorageBackend(new MemoryMediaPool()))
+  ctx.storage.backend.register('memory', options.backend ?? new MemoryStorageBackend(new MemoryMediaPool()))
   const facility = new DomainFacility(ctx, { backend: 'memory', routes: {} })
   ctx.storage.mount('domain', facility)
   ctx.provide('storageDomain', facility)
@@ -98,8 +102,13 @@ async function harness(options: {
       return skills.map(skill => ({ ...skill }))
     },
   } as never)
+  let telemetryFiber: Awaited<ReturnType<typeof ctx.plugin>> | undefined
   if (options.telemetry !== false) {
-    await ctx.plugin(EvolutionSkillTelemetry)
+    telemetryFiber = await ctx.plugin(EvolutionSkillTelemetry)
+  }
+  let modelRoutesFiber: Awaited<ReturnType<typeof ctx.plugin>> | undefined
+  if (options.modelRoutes === true) {
+    modelRoutesFiber = await ctx.plugin(EvolutionModelRoutes)
   }
   const calls: GenerateOptions[] = []
   if (options.llm !== false) {
@@ -114,7 +123,12 @@ async function harness(options: {
     } as never)
   }
   const fiber = await ctx.plugin(EvolutionCurator, options.curatorConfig ?? {})
-  return { ctx, fiber, curator: ctx.evolutionCurator, telemetry: ctx.get('evolutionSkillTelemetry'), home, skills, calls, state }
+  const disposeAll = async (): Promise<void> => {
+    await fiber.dispose()
+    await modelRoutesFiber?.dispose()
+    await telemetryFiber?.dispose()
+  }
+  return { ctx, fiber, disposeAll, curator: ctx.evolutionCurator, telemetry: ctx.get('evolutionSkillTelemetry'), home, skills, calls, state }
 }
 
 /** Create one skill package on disk and return its catalog summary. */
@@ -625,6 +639,62 @@ describe('evolution curator consolidation', () => {
     }
   })
 
+  it('refuses a patch that drops a protected span, and lands one that keeps it', async () => {
+    const h = await harness({ curatorConfig: CONSOLIDATING })
+    try {
+      h.skills.push(await packageSkill(h.home, 'leaf'))
+      await h.telemetry?.markAgentCreated('leaf')
+      const telemetry = h.telemetry
+      if (telemetry === undefined) throw new Error('expected telemetry')
+      const dir = join(h.home, 'skills', 'leaf')
+      const protectedBody = '---\nname: leaf\ndescription: leaf skill\n---\n'
+        + '<!-- dsh:protected -->\nDo not remove this notice.\n<!-- /dsh:protected -->\nbody of leaf\n'
+      await writeFile(join(dir, 'SKILL.md'), protectedBody)
+      const candidate = {
+        name: 'leaf',
+        description: 'leaf skill',
+        source: 'user-dsh',
+        state: 'active' as const,
+        idleDays: 0,
+        useCount: 0,
+        viewCount: 0,
+        patchCount: 0,
+        lastUsedAt: null,
+        failures: [],
+        trust: 'provisional' as const,
+        revision: 0,
+        contentSha: null,
+        lastTrustFailure: null,
+      }
+      const applied = await applyConsolidation({
+        at: '2026-06-01T00:00:00.000Z',
+        passId: 'pass-protected-text',
+        home: curatorHome(),
+        telemetry,
+        candidates: new Map([['leaf', candidate]]),
+        dirs: new Map([['leaf', dir]]),
+        maxDiffLines: 0,
+      }, [
+        // Drops the protected span entirely.
+        { name: 'leaf', action: 'patch', body: '---\nname: leaf\ndescription: leaf skill\n---\nbody of leaf v2\n' },
+        // Keeps the protected span byte-identical; only the trailing line changes.
+        {
+          name: 'leaf', action: 'patch',
+          body: '---\nname: leaf\ndescription: leaf skill\n---\n'
+            + '<!-- dsh:protected -->\nDo not remove this notice.\n<!-- /dsh:protected -->\nbody of leaf v3\n',
+        },
+      ])
+      expect(applied.skipped).toBe(1)
+      expect(applied.patched).toBe(1)
+      expect(applied.refusals).toEqual([
+        { name: 'leaf', level: 'protected-text', reason: 'the patch drops or alters a protected span the previous body carried' },
+      ])
+      expect(await readFile(join(dir, 'SKILL.md'), 'utf8')).toContain('body of leaf v3')
+    } finally {
+      await h.fiber.dispose()
+    }
+  })
+
   it('forwards the simulation seam to the ladder and refuses a patch it fails', async () => {
     const h = await harness({ curatorConfig: CONSOLIDATING })
     try {
@@ -915,6 +985,113 @@ describe('evolution curator consolidation', () => {
     } finally {
       release.resolve()
       await Promise.allSettled([disposal, settled])
+    }
+  })
+
+  it('throws when requireConsolidationReview is on but the model-routes store is not mounted', async () => {
+    const h = await harness({
+      curatorConfig: { ...CONSOLIDATING, requireConsolidationReview: true },
+      respond: async (_request, index) => (index === 0
+        ? toolTurn([call('skill_apply', { name: 'leaf', action: 'patch', body: '---\nname: leaf\ndescription: leaf skill\n---\nbody of leaf v2\n' })])
+        : textTurn('done')),
+    })
+    try {
+      h.skills.push(await packageSkill(h.home, 'leaf'))
+      await h.telemetry?.markAgentCreated('leaf')
+      await expect(h.curator.consolidate()).rejects.toThrow('requireConsolidationReview is on but the evolution model-routes store is not mounted')
+    } finally {
+      await h.fiber.dispose()
+    }
+  })
+
+  it('stages a consolidation pass for review under the default proposer identity, and refuses apply from that same identity', async () => {
+    const h = await harness({
+      curatorConfig: { ...CONSOLIDATING, requireConsolidationReview: true },
+      modelRoutes: true,
+      respond: async (_request, index) => (index === 0
+        ? toolTurn([call('skill_apply', { name: 'leaf', action: 'patch', body: '---\nname: leaf\ndescription: leaf skill\n---\nbody of leaf v2\n' })])
+        : textTurn('done')),
+    })
+    try {
+      const leaf = await packageSkill(h.home, 'leaf')
+      h.skills.push(leaf)
+      await h.telemetry?.markAgentCreated('leaf')
+      const report = await h.curator.consolidate({ now: Date.parse('2026-06-02T00:00:00.000Z') })
+      expect(report).toMatchObject({
+        passId: expect.any(String) as unknown,
+        snapshot: null,
+        skipped: 1,
+        refusals: [],
+        awaitingReview: 'evolution-curator-automatic-pass',
+        verdicts: [{ name: 'leaf', action: 'patch' }],
+      })
+      const passId = report?.passId as string
+      expect(h.curator.pendingConsolidations()).toMatchObject([{ passId, proposerIdentity: 'evolution-curator-automatic-pass' }])
+      // Nothing committed yet: the body on disk is unchanged.
+      expect(await readFile(leaf.path, 'utf8')).toContain('body of leaf')
+      expect(await readFile(leaf.path, 'utf8')).not.toContain('body of leaf v2')
+      await expect(h.curator.applyPendingConsolidation(passId, 'evolution-curator-automatic-pass')).rejects.toThrow('filled both candidate-generation and promotion-review')
+      expect(h.curator.pendingConsolidations()).toHaveLength(1)
+      expect(await readFile(leaf.path, 'utf8')).not.toContain('body of leaf v2')
+    } finally {
+      await h.fiber.dispose()
+    }
+  })
+
+  it('applies a pending consolidation once a distinct reviewer identity approves it', async () => {
+    const h = await harness({
+      curatorConfig: { ...CONSOLIDATING, requireConsolidationReview: true },
+      modelRoutes: true,
+      respond: async (_request, index) => (index === 0
+        ? toolTurn([call('skill_apply', { name: 'leaf', action: 'patch', body: '---\nname: leaf\ndescription: leaf skill\n---\nbody of leaf v2\n' })])
+        : textTurn('done')),
+    })
+    try {
+      const leaf = await packageSkill(h.home, 'leaf')
+      h.skills.push(leaf)
+      await h.telemetry?.markAgentCreated('leaf')
+      const staged = await h.curator.consolidate({ now: Date.parse('2026-06-02T00:00:00.000Z'), proposerIdentity: 'evolution-optimizer' })
+      const passId = staged?.passId as string
+      const applied = await h.curator.applyPendingConsolidation(passId, 'operator-1')
+      expect(applied).toMatchObject({ passId, skipped: 0, refusals: [] })
+      expect(applied.snapshot).not.toBeNull()
+      expect(await readFile(leaf.path, 'utf8')).toContain('body of leaf v2')
+      expect(h.curator.pendingConsolidations()).toHaveLength(0)
+    } finally {
+      await h.fiber.dispose()
+    }
+  })
+
+  it('a pending consolidation survives a restart, and a distinct reviewer still applies it', async () => {
+    const backend = new MemoryStorageBackend(new MemoryMediaPool())
+    const home = await mkdtemp(join(tmpdir(), 'curator-consolidate-restart-'))
+    homeDirs.push(home)
+    const config = { ...CONSOLIDATING, requireConsolidationReview: true }
+    const first = await harness({
+      curatorConfig: config,
+      modelRoutes: true,
+      backend,
+      home,
+      respond: async (_request, index) => (index === 0
+        ? toolTurn([call('skill_apply', { name: 'leaf', action: 'patch', body: '---\nname: leaf\ndescription: leaf skill\n---\nbody of leaf v2\n' })])
+        : textTurn('done')),
+    })
+    const leaf = await packageSkill(home, 'leaf')
+    first.skills.push(leaf)
+    await first.telemetry?.markAgentCreated('leaf')
+    const staged = await first.curator.consolidate({ now: Date.parse('2026-06-02T00:00:00.000Z') })
+    const passId = staged?.passId as string
+    await first.disposeAll()
+
+    const second = await harness({ curatorConfig: config, modelRoutes: true, backend, home, skills: [leaf] })
+    try {
+      expect(second.curator.pendingConsolidations()).toMatchObject([{ passId, proposerIdentity: 'evolution-curator-automatic-pass' }])
+      const applied = await second.curator.applyPendingConsolidation(passId, 'operator-1')
+      expect(applied).toMatchObject({ passId, skipped: 0, refusals: [] })
+      expect(await readFile(leaf.path, 'utf8')).toContain('body of leaf v2')
+      expect(second.curator.pendingConsolidations()).toHaveLength(0)
+    } finally {
+      await second.disposeAll()
     }
   })
 })

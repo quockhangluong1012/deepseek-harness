@@ -24,11 +24,14 @@ import type { KvTable } from '@deepseek-ai/dsh-storage-domain'
 import type {} from '@deepseek-ai/dsh-skill'
 import type {} from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-llm'
+import type {} from '@deepseek-ai/dsh-evolution-model-routes'
+import type { DutyDecision, DutyInput, DutyRecord, DutyVerdict } from '@deepseek-ai/dsh-evolution-model-routes'
 import type { FeedbackSignal } from '@deepseek-ai/dsh-evolution-feedback'
 import { deadline } from '@deepseek-ai/dsh-timeout'
 import type { SkillLifecycleState, SkillUsageRecord } from '@deepseek-ai/dsh-evolution-skill-telemetry'
 import type { EvolutionSkillTelemetry } from '@deepseek-ai/dsh-evolution-skill-telemetry'
 import { curatorDomainSpec } from './spec.ts'
+import type { PendingConsolidationRow } from './spec.ts'
 import { driftReason, driftSignals } from './drift.ts'
 import type { DriftFloors, DriftSignals, RecordedExperiment } from './drift.ts'
 import {
@@ -62,6 +65,7 @@ import type {
   CuratorRunOptions,
   CuratorTransition,
   PassSummary,
+  PendingConsolidation,
   PurgeReport,
   RegressionDebt,
   RollbackOptions,
@@ -82,6 +86,7 @@ export type {
   CuratorRunOptions,
   CuratorTransition,
   PassSummary,
+  PendingConsolidation,
   PurgeReport,
   RegressionDebt,
   RollbackOptions,
@@ -119,6 +124,25 @@ function debtKeyOf(name: string, mergeKey: string): string {
 
 /** Timeout reason code for one consolidation run. */
 export const EVOLUTION_CONSOLIDATE_TIMEOUT = 'EVOLUTION_CONSOLIDATE_TIMEOUT'
+
+/**
+ * Identity `consolidatePass` records for the candidate-generation duty when
+ * `requireConsolidationReview` is on and the caller names no
+ * `proposerIdentity`: the automatic pass proposes regardless of who
+ * triggered it, so a fixed identity is the honest default. Any distinct
+ * reviewer identity clears separation of duties against it.
+ */
+export const DEFAULT_CONSOLIDATION_PROPOSER = 'evolution-curator-automatic-pass'
+
+/**
+ * The `evolutionModelRoutes` seam `requireConsolidationReview` reads:
+ * §53's duty ledger over one run's producing and judging identities.
+ * Structural, so this package depends on the seam without a hard `inject`.
+ */
+interface DutyStore {
+  recordDuty(input: DutyInput): Promise<DutyRecord>
+  checkDuties(runId: string, decision: DutyDecision): DutyVerdict
+}
 
 /**
  * Read one required string from ledger evidence. Hand-edited ledger lines
@@ -199,6 +223,16 @@ export interface Config {
    * and 1 alone. Default `false` keeps today's behavior.
    */
   requireVerifierPass?: boolean
+  /**
+   * Withhold a consolidation pass's verdicts from `applyConsolidation` until
+   * `applyPendingConsolidation` commits them under a reviewing identity that
+   * differs from the pass's recorded proposer — §53's separation of duties,
+   * checked through `ctx.evolutionModelRoutes` when mounted. Default `false`
+   * keeps today's behavior: a pass commits its own verdicts with no review
+   * step. `true` without the store mounted fails the pass loudly rather than
+   * committing unreviewed.
+   */
+  requireConsolidationReview?: boolean
 }
 
 /** Validated deployment choices. */
@@ -231,6 +265,7 @@ export const Config: z<Config> = z.object({
   stageFailureRate: z.number().min(0).max(1).default(0.3),
   maxDiffLines: z.number().step(1).min(0).default(0),
   requireVerifierPass: z.boolean().default(false),
+  requireConsolidationReview: z.boolean().default(false),
 })
 
 /** Normalized configuration used by the curator. */
@@ -263,6 +298,7 @@ export interface ResolvedConfig {
   stageFailureRate: number
   maxDiffLines: number
   requireVerifierPass: boolean
+  requireConsolidationReview: boolean
 }
 
 /**
@@ -300,6 +336,7 @@ export function resolveConfig(config: Config): ResolvedConfig {
     stageFailureRate = 0.3,
     maxDiffLines = 0,
     requireVerifierPass = false,
+    requireConsolidationReview = false,
   } = config
   if (archiveAfterDays < staleAfterDays) {
     throw new Error(`evolution-curator: archiveAfterDays (${archiveAfterDays}) must not be below staleAfterDays (${staleAfterDays})`)
@@ -336,6 +373,7 @@ export function resolveConfig(config: Config): ResolvedConfig {
     stageFailureRate,
     maxDiffLines,
     requireVerifierPass,
+    requireConsolidationReview,
   }
 }
 
@@ -506,6 +544,7 @@ export class EvolutionCurator extends Service {
 
   private table?: KvTable<string, { lastRunAt: string | null }>
   private debts?: KvTable<string, RegressionDebt>
+  private pendingTable?: KvTable<string, PendingConsolidationRow>
   private readonly resolved: ResolvedConfig
   /** Newest host-wide session activity this process observed, or null before any. */
   private lastActivityAt: number | null = null
@@ -537,6 +576,7 @@ export class EvolutionCurator extends Service {
     const domain = await this.ctx.storageDomain.open(curatorDomainSpec)
     this.table = domain.table('meta')
     this.debts = domain.table('debt')
+    this.pendingTable = domain.table('pending')
     this.ctx.on('session/event', () => {
       this.lastActivityAt = Date.now()
     })
@@ -797,12 +837,16 @@ export class EvolutionCurator extends Service {
    * curator tracks. Returns undefined when consolidation is off, when the
    * seam is unmounted, or when no candidate awaits a verdict. A cost row
    * reaches the ledger before the fork starts; the fork runs as a bounded
-   * in-package tool loop over `ctx.llm`; the returned verdicts apply under
-   * the full-package rule and land in the same snapshot, ledger, and rollback
-   * machinery as an automatic pass.
-   * @param options - clock override.
+   * in-package tool loop over `ctx.llm`. With `requireConsolidationReview`
+   * off, the returned verdicts apply under the full-package rule and land in
+   * the same snapshot, ledger, and rollback machinery as an automatic pass.
+   * With it on, the verdicts are withheld and the report's `awaitingReview`
+   * names the recorded proposer identity; `applyPendingConsolidation` commits
+   * them under a distinct reviewing identity.
+   * @param options - clock override and the proposer identity to record.
    * @returns the consolidation report, or undefined when no run happened.
-   * @throws when teardown has begun.
+   * @throws when teardown has begun, or when review is required but the
+   *   evolution model-routes store is not mounted.
    */
   consolidate(options: CuratorRunOptions = {}): Promise<ConsolidationReport | undefined> {
     if (this.stopping) return Promise.reject(new Error('evolution-curator: service is disposing'))
@@ -878,6 +922,28 @@ export class EvolutionCurator extends Service {
       })
     } finally {
       this.active.delete(controller)
+    }
+    if (this.resolved.requireConsolidationReview) {
+      const duties = this.ctx.get('evolutionModelRoutes') as DutyStore | undefined
+      if (duties === undefined) {
+        throw new Error(
+          'evolution-curator: requireConsolidationReview is on but the evolution model-routes store is not mounted, so the proposer and reviewer identities cannot be verified',
+        )
+      }
+      const proposerIdentity = options.proposerIdentity ?? DEFAULT_CONSOLIDATION_PROPOSER
+      await duties.recordDuty({ runId: passId, role: 'candidate-generation', identity: proposerIdentity })
+      await this.requirePendingTable().put(passId, { passId, at, proposerIdentity, verdicts, cost, steps })
+      return {
+        at,
+        passId,
+        snapshot: null,
+        cost,
+        verdicts,
+        skipped: verdicts.length,
+        refusals: [],
+        steps,
+        awaitingReview: proposerIdentity,
+      }
     }
     const applied = await applyConsolidation(
       {
@@ -1433,6 +1499,97 @@ export class EvolutionCurator extends Service {
       || left.name.localeCompare(right.name)
       || left.mergeKey.localeCompare(right.mergeKey))
     return rows
+  }
+
+  private requirePendingTable(): KvTable<string, PendingConsolidationRow> {
+    if (this.pendingTable === undefined) throw new Error('evolution curator is not started yet')
+    return this.pendingTable
+  }
+
+  /**
+   * List every consolidation pass `requireConsolidationReview` withheld,
+   * newest first, so an operator can find the pass id `applyPendingConsolidation`
+   * needs.
+   * @returns the pending passes, detached from the store.
+   */
+  pendingConsolidations(): PendingConsolidation[] {
+    const rows = [...this.requirePendingTable().entries()].map(([, row]) => structuredClone(row))
+    rows.sort((left, right) => right.at.localeCompare(left.at))
+    return rows
+  }
+
+  /**
+   * Apply one consolidation pass `requireConsolidationReview` withheld: §53's
+   * separation of duties over `pending.proposerIdentity` and
+   * `reviewerIdentity` decides it, an identical or unrecorded pair refuses
+   * without writing, and an allowed pair commits the staged verdicts through
+   * the same `applyConsolidation` path an unreviewed pass takes. The pending
+   * row is dropped only once its verdicts have committed.
+   * @param passId - the pending pass to apply.
+   * @param reviewerIdentity - the identity applying the review.
+   * @returns the consolidation report.
+   * @throws when teardown has begun, the pass is unknown, the evolution
+   *   model-routes or skill telemetry store is not mounted, or separation of
+   *   duties refuses the reviewer.
+   */
+  applyPendingConsolidation(passId: string, reviewerIdentity: string): Promise<ConsolidationReport> {
+    if (this.stopping) return Promise.reject(new Error('evolution-curator: service is disposing'))
+    return this.track(this.applyPendingConsolidationPass(passId, reviewerIdentity))
+  }
+
+  private async applyPendingConsolidationPass(passId: string, reviewerIdentity: string): Promise<ConsolidationReport> {
+    const pending = this.requirePendingTable().get(passId)
+    if (pending === undefined) throw new Error(`evolution-curator: no pending consolidation '${passId}'`)
+    const duties = this.ctx.get('evolutionModelRoutes') as DutyStore | undefined
+    if (duties === undefined) {
+      throw new Error('evolution-curator: the evolution model-routes store is not mounted, so the reviewing identity cannot be verified')
+    }
+    await duties.recordDuty({ runId: passId, role: 'promotion-review', identity: reviewerIdentity })
+    const verdict = duties.checkDuties(passId, 'consolidation')
+    if (!verdict.allowed) {
+      throw new Error(`evolution-curator: consolidation '${passId}' refused: ${verdict.reason}`)
+    }
+    const telemetry = this.ctx.get('evolutionSkillTelemetry')
+    if (telemetry === undefined) throw new Error('evolution-curator: applying a consolidation requires the skill telemetry store')
+    const names = new Set(pending.verdicts.map(row => row.name))
+    const survey = await this.surveyCandidates()
+    const candidates = new Map(survey.candidates.filter(candidate => names.has(candidate.name)).map(candidate => [candidate.name, candidate] as const))
+    const summaries = await this.ctx.skills.list()
+    const dirs = new Map<string, string>()
+    for (const summary of summaries) {
+      const dir = resolveBackupDir(summaries, summary.name)
+      if (dir !== undefined) dirs.set(summary.name, dir)
+    }
+    const home = curatorHome()
+    const applied = await applyConsolidation(
+      {
+        at: pending.at, passId, home, telemetry, candidates, dirs,
+        maxDiffLines: this.resolved.maxDiffLines,
+        requireVerifierPass: this.resolved.requireVerifierPass,
+      },
+      pending.verdicts,
+    )
+    let snapshot: string | null = null
+    if ((applied.transitions.length > 0 || applied.patched > 0) && this.resolved.backup.enabled) {
+      const movedDirs = new Map(applied.transitions.map(transition => [transition.name, transition.dir] as const))
+      snapshot = await this.backupPass(pending.at, passId, applied.transitions.map(transition => ({
+        name: transition.name,
+        reason: 'consolidation',
+        before: transition.before,
+        after: transition.after,
+      })), movedDirs)
+    }
+    await this.requirePendingTable().delete(passId)
+    return {
+      at: pending.at,
+      passId: snapshot === null ? null : passId,
+      snapshot,
+      cost: pending.cost,
+      verdicts: pending.verdicts,
+      skipped: applied.skipped,
+      refusals: applied.refusals,
+      steps: pending.steps,
+    }
   }
 }
 

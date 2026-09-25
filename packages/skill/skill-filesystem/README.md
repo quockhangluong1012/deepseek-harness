@@ -69,9 +69,11 @@ Default roots are scanned in this provider's rank order:
 | 100 | `project-dsh` | `<projectRoot>/.dsh/skills` |
 | 150 | `project-hermes` | `<projectRoot>/.hermes/skills` |
 | 200 | `project-agents` | `<projectRoot>/.agents/skills` |
+| 250 | `project-claude` | `<projectRoot>/.claude/skills` |
 | 300 | `custom` | `Config.customSkillDirs` |
 | 400 | `user-dsh` | `<dshHome>/skills` |
 | 500 | `user-agents` | `<agentsHome>/skills` |
+| 550 | `user-claude` | `~/.claude/skills` |
 
 The project root is the nearest ancestor containing `.git`; without one, the current cwd is used. Project roots index only when explicitly trusted: list absolute project roots in `trustedProjectDirs` (compared as resolved paths, case-insensitively on Windows; relative entries fail loudly at load), or set `projectDiscovery: false` to disable project discovery entirely. Skills under an untrusted root are skipped with one warning per root, and trust is configuration — non-interactive surfaces inherit it and never prompt. Every project skill is security-scanned before it is indexed, and dangerous content quarantines it: the skill is skipped, the host log names the matched rule, and the count travels on the `quarantinedCount` payload of `skills/change`. Quarantine is a host-side fact — the model catalog never receives a quarantine diagnostic, and a quarantined skill cannot be loaded by name. The scan covers project-owned roots only; `custom`, user, and bundled roots are harness-owned and index unscanned. The user DSH root skips its `.system` child. `includeDefaultRoots: false` omits the project and user rows plus the `$DSH_BUNDLED_SKILL_DIR` default so an isolated provider sees only its own configured roots; `bundledSkillDir` adds a bundled root at rank 600.
 
@@ -103,6 +105,7 @@ Load the plugin alongside the skill registry; it requires `ctx.skills`.
 | `includeDefaultRoots` | `true` | Include project and user roots around `customSkillDirs` |
 | `dshHome` | `$DSH_HOME` or `~/.dsh` | Harness config root; its `skills` subdirectory is scanned |
 | `agentsHome` | `$DSH_AGENTS_HOME` or `~/.agents` | Shared agent config root scanned for compatible skills |
+| `claudeHome` | `~/.claude` | Claude Code config root, scanned for its `.claude/skills` compatibility root |
 | `customSkillDirs` | `[]` | Additional local skill roots, after project roots and before user roots |
 | `trustedProjectDirs` | `[]` | Absolute project roots whose project skills index; all other project roots are skipped |
 | `projectDiscovery` | `true` | Index project roots at all; `false` disables project discovery entirely |

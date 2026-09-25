@@ -67,9 +67,11 @@ kind: "package-reference"
 | `/curator purge [--dry-run]` | 删除超过 TTL 的归档技能，并报告按目录或按记录的删除与因置顶而跳过者；`--dry-run` 只预览名单而不写入。 |
 | `/curator rollback --id <id>` | 回滚一次已记录的通过：先报告被恢复的生命周期状态，若 SKILL.md 正文由其前像恢复，再输出 `Restored bodies: <names>`。 |
 | `/curator ledger` | 按新到旧列出已记录的通过及其流转计数。 |
+| `/curator pending` | 列出 `requireConsolidationReview` 扣下的归并通过，按新到旧排列，附带记录的提案身份与裁决数；无待复核项时报告 `No pending consolidations.` |
+| `/curator apply <passId>` | 以调用会话的身份作为复核者，提交一次待复核的归并。§53 的职责分离在身份与该通过记录的提案者相同、或模型路由存储未挂载时拒绝。 |
 | `/curator pin <name>` / `/curator unpin <name>` | 置顶或取消置顶一个被跟踪技能，并报告 `Pinned '<name>'` / `Unpinned '<name>'`。 |
 | `/curator history <name>` | 按由旧到新列出单个技能已提交的正文修订：`<n> revision(s) for '<name>':`，随后 `- r<n> <sha8>[ ← r<n-1> <parentSha8>] (<instant>)`；无记录时报告 `No recorded revisions for '<name>'.` pin、unpin 与 history 只读遥测：未挂载时报告 `Skill telemetry is not mounted. Pin, unpin, and history require the telemetry store.` |
-| `/curator <anything-else>` | `Usage: /curator status \| run [--dry-run] \| staged \| adopt <name> \| purge [--dry-run] \| rollback --id <id> \| ledger \| pin <name> \| unpin <name> \| history <name> \| optimize <skill> <scenario...> \| experiments [skill]`. |
+| `/curator <anything-else>` | `Usage: /curator status \| run [--dry-run] \| staged \| pending \| apply <passId> \| adopt <name> \| purge [--dry-run] \| rollback --id <id> \| ledger \| pin <name> \| unpin <name> \| history <name> \| optimize <skill> <scenario...> \| experiments [skill]`. |
 | `/refine` | 经由评审器重建作用域经验并报告 `Memory rebuild complete.`。 |
 | `/refine <anything>` | `Usage: /refine (no arguments)`——命令不接受参数。 |
 | `/trajectory` | 经轨迹服务导出调用会话并报告 `Trajectory written to <path> (<n> conversations, <n> bytes).`。 |
@@ -201,6 +203,8 @@ kind: "package-reference"
 | 没有任何带 blueprint 的技能时 `/suggestions` | `No blueprint-backed skills. A skill appears here when its frontmatter declares a blueprint; this command never installs the schedule it names.` |
 | 由提案该补丁的身份发起晋升 | `Promotion of '<id>' refused: identity '<identity>' filled both candidate-generation and promotion-review for run '<id>'` —— 部署留在原处。 |
 | 晋升一个提案身份从未被记录的补丁 | `Promotion of '<id>' refused: run '<id>' records no candidate-generation identity, so candidate-generation and promotion-review cannot be shown to be separate identities` —— 部署留在原处。 |
+| 由提案该待复核归并的身份发起应用 | `evolution-curator: consolidation '<passId>' refused: identity '<identity>' filled both candidate-generation and promotion-review for run '<passId>'` —— 该通过仍留在待复核状态。 |
+| 模型路由存储未挂载时应用一次待复核的归并 | `evolution-curator: the evolution model-routes store is not mounted, so the reviewing identity cannot be verified` |
 
 取消 `/refine` 即停止等待：注册表以中止原因结算调用，与 `/compact` 的取消约定一致。除上述预期情形外的失败会以错误形式呈现，而不会被静默转换。
 
@@ -306,6 +310,7 @@ kind: "package-reference"
 - **每次调用只治理一个作用域**——作用域命令只治理调用会话所在的作用域；没有跨作用域视图（只有 `/curator status` 与 `/suggestions` 是宿主级的）。
 - **仅限命令适配器**——没有 `ctx.commands` 的界面无法调用它们；暂存写入转而等待已挂载的适配器或 `evolutionController` Remote 命名空间。
 - **晋升需要已记录的提案者**——除非该候选的提案身份已在模型路由的职责表中，否则 `/canary promote` 拒绝执行，而只有 `/curator optimize` 会记录它。宿主直接调用 `ctx.evolutionOptimizer.optimize` 暂存的补丁没有提案填充，因此其晋升会以 `unknown-identity` 被拒绝，直到该身份被记录；模型路由存储也必须已挂载，因为没有它时晋升根本不记录职责。
+- **归并复核是可选项**——`/curator apply` 只用来提交 `requireConsolidationReview` 扣下的通过；该整理器配置项关闭时（默认如此），归并仍会一次性提交自己的裁决，`/curator apply` 对任何 id 都报告 `evolution-curator: no pending consolidation '<passId>'`。
 
 <a id="dev-note"></a>
 ### 开发备注

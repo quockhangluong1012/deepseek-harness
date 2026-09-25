@@ -1511,10 +1511,10 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'consolidate(options: CuratorRunOptions = {}): Promise<ConsolidationReport | undefined>',
-        description: 'Run one opt-in LLM consolidation over the agent-created skills this curator tracks. Returns undefined when consolidation is off, when the seam is unmounted, or when no candidate awaits a verdict. A cost row reaches the ledger before the fork starts; the fork runs as a bounded in-package tool loop over `ctx.llm`; the returned verdicts apply under the full-package rule and land in the same snapshot, ledger, and rollback machinery as an automatic pass.',
-        parameters: [{ name: 'options', description: 'clock override.' }],
+        description: 'Run one opt-in LLM consolidation over the agent-created skills this curator tracks. Returns undefined when consolidation is off, when the seam is unmounted, or when no candidate awaits a verdict. A cost row reaches the ledger before the fork starts; the fork runs as a bounded in-package tool loop over `ctx.llm`. With `requireConsolidationReview` off, the returned verdicts apply under the full-package rule and land in the same snapshot, ledger, and rollback machinery as an automatic pass. With it on, the verdicts are withheld and the report\'s `awaitingReview` names the recorded proposer identity; `applyPendingConsolidation` commits them under a distinct reviewing identity.',
+        parameters: [{ name: 'options', description: 'clock override and the proposer identity to record.' }],
         returns: 'the consolidation report, or undefined when no run happened.',
-        throws: ['when teardown has begun.'],
+        throws: ['when teardown has begun, or when review is required but the evolution model-routes store is not mounted.'],
       },
       {
         signature: 'async staged(): Promise<StagedSkill[]>',
@@ -1557,6 +1557,19 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'List every open regression debt, worst first: most passes, then most sessions, then name and merge key. Passes count consecutive sightings, so two co-open debts with equal passes opened on the same pass — the order stays total through the key without reading timestamps. Synchronous: the debt table is an in-memory read over the open domain, unlike the filesystem-backed `staged()` listing.',
         parameters: [],
         returns: 'the open debts, detached from the store.',
+      },
+      {
+        signature: 'pendingConsolidations(): PendingConsolidation[]',
+        description: 'List every consolidation pass `requireConsolidationReview` withheld, newest first, so an operator can find the pass id `applyPendingConsolidation` needs.',
+        parameters: [],
+        returns: 'the pending passes, detached from the store.',
+      },
+      {
+        signature: 'applyPendingConsolidation(passId: string, reviewerIdentity: string): Promise<ConsolidationReport>',
+        description: 'Apply one consolidation pass `requireConsolidationReview` withheld: §53\'s separation of duties over `pending.proposerIdentity` and `reviewerIdentity` decides it, an identical or unrecorded pair refuses without writing, and an allowed pair commits the staged verdicts through the same `applyConsolidation` path an unreviewed pass takes. The pending row is dropped only once its verdicts have committed.',
+        parameters: [{ name: 'passId', description: 'the pending pass to apply.' }, { name: 'reviewerIdentity', description: 'the identity applying the review.' }],
+        returns: 'the consolidation report.',
+        throws: ['when teardown has begun, the pass is unknown, the evolution model-routes or skill telemetry store is not mounted, or separation of duties refuses the reviewer.'],
       },
     ],
   },
@@ -1927,6 +1940,13 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Record one experiment envelope, stamping its recording instant.',
         parameters: [{ name: 'input', description: 'the experiment to record.' }],
         returns: 'the stored envelope.',
+      },
+      {
+        signature: 'async amendOutcome(id: string, outcome: ExperimentOutcome, rejectedReason?: string): Promise<ExperimentEnvelope>',
+        description: 'Amend the recorded outcome of an existing envelope. A deployment\'s real outcome is not known at proposal time — the optimizer stamps a measured verdict when it records the envelope, but whether the candidate is later rolled back or rejected is an operator decision that happens afterward. This keeps the recorded fact truthful once that decision lands, without refusing or gating anything the operator does (§58.12: recorded, never enforced).',
+        parameters: [{ name: 'id', description: 'the experiment identity.' }, { name: 'outcome', description: 'the outcome to record in place of the measured verdict.' }, { name: 'rejectedReason', description: 'why the outcome changed, when the caller has one.' }],
+        returns: 'the amended envelope.',
+        throws: ['when the experiment identity is unknown.'],
       },
       {
         signature: 'experiments(skill?: string): readonly ExperimentEnvelope[]',
@@ -2418,15 +2438,15 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'async score(request: ScoreRequest): Promise<ScoreOutcome>',
-        description: 'Score one scenario against its recorded fixtures.\n\nEvery attempt boots a fresh process through the caller\'s runner in the keyless replay tier, and is scored against `workspace.expected/` when the scenario ships one, or against its own initial workspace otherwise.',
-        parameters: [{ name: 'request', description: 'scenario name plus the agent composition and runner to boot it with.' }],
+        description: 'Score one scenario against its recorded fixtures.\n\nEvery attempt boots a fresh process through the caller\'s runner in the keyless replay tier, and is scored against `workspace.expected/` when the scenario ships one, or against its own initial workspace otherwise. `request.attempts` overrides the configured attempt count for this one call, so a caller can buy a single cheap run for a body the fixture already validates. The returned record also carries a content digest of the recorded fixture(s) and the first attempt\'s harvested session id as its trajectory reference (§24.3 durable evidence).',
+        parameters: [{ name: 'request', description: 'scenario name, the agent composition and runner to boot it with, and an optional attempt-count override.' }],
         returns: 'the metric triple, or the reason the scenario could not be scored.',
         throws: ['when the configured corpus does not exist, a shipped fixture cannot be parsed, or the runner fails; only an unknown scenario and an absent fixture are skips.'],
       },
       {
         signature: 'async evaluateSkill(request: EvaluateSkillRequest): Promise<SkillEvaluation>',
         description: 'Evaluate one skill over its corpus scenarios and aggregate the metric triple an optimizer selects on. Every scenario must score: a skipped scenario means the corpus does not describe what the skill was asked to prove, and optimizing on a partial evaluation would select on evidence that is not there — so one skip skips the whole evaluation with its reason attached.',
-        parameters: [{ name: 'request', description: 'skill name plus the scenarios, agent composition, and runner to score it with.' }],
+        parameters: [{ name: 'request', description: 'skill name plus the scenarios, agent composition, runner, and optional attempt-count override to score it with.' }],
         returns: 'the aggregated triple with per-scenario records, or the reason the skill could not be evaluated.',
       },
       {
@@ -5276,6 +5296,13 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the comparison, or undefined once its Session was disposed, when this Host never recorded it, or when no file has that index.',
         throws: ['when a snapshot read fails for a live Session.'],
       },
+      {
+        signature: 'restore(sessionId: SessionId, seq: number, signal: AbortSignal): Promise<WorkspaceRestoreResult | undefined>',
+        description: 'Rewind every file changed since one turn\'s start back to its content at that moment: a file present in the turn-start snapshot is written back to that content, and a file absent there (created since) is removed. Spans every turn between the given one and now, not only the given turn\'s own diff. Requires a git repository; a binary, oversized, or unreadable/unwritable file is skipped rather than failing the whole rewind.',
+        parameters: [{ name: 'sessionId', description: 'the Session that appended the event.' }, { name: 'seq', description: 'the event\'s sequence number, naming the turn to rewind to.' }, { name: 'signal', description: 'cancels the reads and writes.' }],
+        returns: 'the outcome, or undefined once its Session was disposed, when this Host never recorded it, or when the turn was recorded without a git snapshot.',
+        throws: ['when a git read fails for a live Session.'],
+      },
     ],
   },
   {
@@ -6927,11 +6954,11 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ConsolidationRefusal',
-    declaration: 'export interface ConsolidationRefusal {\n    name: string;\n    level: VerifierLevel;\n    reason: string;\n}',
+    declaration: 'export interface ConsolidationRefusal {\n    name: string;\n    level: VerifierLevel | \'protected-text\' | \'diff-cap\' | \'ladder-incomplete\';\n    reason: string;\n}',
   },
   {
     name: 'ConsolidationReport',
-    declaration: 'export interface ConsolidationReport {\n    at: string;\n    passId: string | null;\n    snapshot: string | null;\n    cost: ConsolidationCost;\n    verdicts: ConsolidationVerdict[];\n    skipped: number;\n    refusals: ConsolidationRefusal[];\n    steps: number;\n}',
+    declaration: 'export interface ConsolidationReport {\n    at: string;\n    passId: string | null;\n    snapshot: string | null;\n    cost: ConsolidationCost;\n    verdicts: ConsolidationVerdict[];\n    skipped: number;\n    refusals: ConsolidationRefusal[];\n    steps: number;\n    awaitingReview?: string | undefined;\n}',
   },
   {
     name: 'ConsolidationSurvey',
@@ -7163,7 +7190,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'CuratorRunOptions',
-    declaration: 'export interface CuratorRunOptions {\n    now?: number | undefined;\n    dryRun?: boolean | undefined;\n}',
+    declaration: 'export interface CuratorRunOptions {\n    now?: number | undefined;\n    dryRun?: boolean | undefined;\n    proposerIdentity?: string | undefined;\n}',
   },
   {
     name: 'CuratorTransition',
@@ -7419,7 +7446,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'DutyDecision',
-    declaration: 'export type DutyDecision = \'promotion\' | \'verdict\';',
+    declaration: 'export type DutyDecision = \'promotion\' | \'verdict\' | \'consolidation\';',
   },
   {
     name: 'DutyInput',
@@ -7511,7 +7538,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'EvaluateSkillRequest',
-    declaration: 'export interface EvaluateSkillRequest {\n    skill: string;\n    scenarios: readonly string[];\n    agent: AgentUnderTest;\n    run: ScenarioRunner;\n}',
+    declaration: 'export interface EvaluateSkillRequest {\n    skill: string;\n    scenarios: readonly string[];\n    agent: AgentUnderTest;\n    run: ScenarioRunner;\n    attempts?: number;\n}',
   },
   {
     name: 'EvaluationTask',
@@ -8606,6 +8633,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface PeerScope {\n    readonly id: PeerId;\n    readonly ctx: Context;\n    dispose(): Promise<void>;\n}',
   },
   {
+    name: 'PendingConsolidation',
+    declaration: 'export interface PendingConsolidation {\n    passId: string;\n    at: string;\n    proposerIdentity: string;\n    verdicts: ConsolidationVerdict[];\n    cost: ConsolidationCost;\n    steps: number;\n}',
+  },
+  {
     name: 'PermissionAnswer',
     declaration: 'export interface PermissionAnswer {\n    kind: \'allow_once\' | \'allow_always\' | \'reject_once\' | \'reject_always\';\n}',
   },
@@ -9311,11 +9342,11 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ScoreRecord',
-    declaration: 'export interface ScoreRecord {\n    scenario: string;\n    pass: boolean;\n    changes: readonly WorkspaceChange[];\n    tokens: number;\n    wallTimeMs: number;\n    samples: readonly number[];\n}',
+    declaration: 'export interface ScoreRecord {\n    scenario: string;\n    pass: boolean;\n    changes: readonly WorkspaceChange[];\n    tokens: number;\n    wallTimeMs: number;\n    samples: readonly number[];\n    fixtureDigest: string;\n    trajectory: string | null;\n}',
   },
   {
     name: 'ScoreRequest',
-    declaration: 'export interface ScoreRequest {\n    scenario: string;\n    agent: AgentUnderTest;\n    run: ScenarioRunner;\n}',
+    declaration: 'export interface ScoreRequest {\n    scenario: string;\n    agent: AgentUnderTest;\n    run: ScenarioRunner;\n    attempts?: number;\n}',
   },
   {
     name: 'SearchFileMatches',
@@ -10071,7 +10102,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SkillSource',
-    declaration: 'export type SkillSource = \'project-dsh\' | \'project-hermes\' | \'project-agents\' | \'runtime\' | \'user-dsh\' | \'user-agents\' | \'custom\' | \'bundled\' | (string & {});',
+    declaration: 'export type SkillSource = \'project-dsh\' | \'project-hermes\' | \'project-agents\' | \'project-claude\' | \'runtime\' | \'user-dsh\' | \'user-agents\' | \'user-claude\' | \'custom\' | \'bundled\' | (string & {});',
   },
   {
     name: 'SkillSummary',
@@ -10707,7 +10738,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ToolDefinition',
-    declaration: 'export interface ToolDefinition extends ToolSchema {\n    readonly output: ToolOutputDefinition;\n    execute(args: unknown, exec: ToolRunContext): Promise<unknown>;\n    projectContent?(exec: Readonly<ToolExecution>, result: Readonly<ToolExecutionResult>): ContentBlock[] | undefined;\n    finalizeContent?(exec: Readonly<ToolExecution>, result: Readonly<ToolExecutionResult>): ContentBlock[] | undefined;\n    timeoutMs?: number;\n    readonly validatesArgs?: boolean;\n    isConcurrencySafe?(args: unknown): boolean;\n    parallelScopeKey?(args: unknown): string;\n    readonly origin?: ToolOrigin;\n    readonly serverDigest?: string;\n    readonly capabilities?: readonly string[];\n    presentCall?(args: unknown): ToolCallView | undefined;\n    presentResult?(args: unknown, result: ToolResult): ToolResultView | undefined;\n}',
+    declaration: 'export interface ToolDefinition extends ToolSchema {\n    readonly output: ToolOutputDefinition;\n    execute(args: unknown, exec: ToolRunContext): Promise<unknown>;\n    projectContent?(exec: Readonly<ToolExecution>, result: Readonly<ToolExecutionResult>): ContentBlock[] | undefined;\n    finalizeContent?(exec: Readonly<ToolExecution>, result: Readonly<ToolExecutionResult>): ContentBlock[] | undefined;\n    timeoutMs?: number;\n    readonly unboundedTimeout?: boolean;\n    readonly validatesArgs?: boolean;\n    isConcurrencySafe?(args: unknown): boolean;\n    parallelScopeKey?(args: unknown): string;\n    readonly origin?: ToolOrigin;\n    readonly serverDigest?: string;\n    readonly capabilities?: readonly string[];\n    presentCall?(args: unknown): ToolCallView | undefined;\n    presentResult?(args: unknown, result: ToolResult): ToolResultView | undefined;\n}',
   },
   {
     name: 'ToolDispatchExecution',
@@ -11440,6 +11471,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'WorkspaceRenameRequest',
     declaration: 'export interface WorkspaceRenameRequest {\n    readonly workspaceId: WorkspaceId;\n    readonly title: string;\n}',
+  },
+  {
+    name: 'WorkspaceRestoreResult',
+    declaration: 'export interface WorkspaceRestoreResult {\n    restored: string[];\n    skipped: WorkspaceRestoreSkip[];\n}',
+  },
+  {
+    name: 'WorkspaceRestoreSkip',
+    declaration: 'export interface WorkspaceRestoreSkip {\n    path: string;\n    display: string;\n    reason: \'binary\' | \'oversized\' | \'error\';\n}',
   },
   {
     name: 'WorkspaceUnarchiveSessionRequest',

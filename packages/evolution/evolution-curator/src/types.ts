@@ -16,6 +16,13 @@ export interface CuratorRunOptions {
   now?: number | undefined
   /** Preview without writing when true. */
   dryRun?: boolean | undefined
+  /**
+   * Identity recorded for the consolidation fork's candidate-generation duty
+   * when `requireConsolidationReview` is on; defaults to a fixed identity
+   * naming the automatic pass itself. `applyPendingConsolidation` refuses a
+   * reviewer that matches this identity.
+   */
+  proposerIdentity?: string | undefined
 }
 
 /** Options for the idle-gated entry point. */
@@ -218,17 +225,19 @@ export interface ConsolidationCost {
   truncated: boolean
 }
 
-/** One patch body the verifier ladder, or the curator's own diff-size or required-pass gate, refused. */
+/** One patch body the verifier ladder, or the curator's own protected-text, diff-size, or required-pass gate, refused. */
 export interface ConsolidationRefusal {
   /** Skill name the refused body targeted. */
   name: string
   /**
-   * Verifier rung that refused the body; `'diff-cap'` for the curator-owned
-   * size gate the ladder does not run; `'ladder-incomplete'` when
-   * `requireVerifierPass` demanded a full pass and the ladder abstained
-   * instead — nothing failed, but nothing decided either.
+   * Verifier rung that refused the body; `'protected-text'` for a patch that
+   * drops or alters a `<!-- dsh:protected -->` block the previous body
+   * carried; `'diff-cap'` for the curator-owned size gate the ladder does
+   * not run; `'ladder-incomplete'` when `requireVerifierPass` demanded a
+   * full pass and the ladder abstained instead — nothing failed, but
+   * nothing decided either.
    */
-  level: VerifierLevel | 'diff-cap' | 'ladder-incomplete'
+  level: VerifierLevel | 'protected-text' | 'diff-cap' | 'ladder-incomplete'
   /** The rung's name and reason, as the verdict phrased it. */
   reason: string
 }
@@ -237,7 +246,7 @@ export interface ConsolidationRefusal {
 export interface ConsolidationReport {
   /** ISO-8601 instant the run started. */
   at: string
-  /** Pass identity when a snapshot was written, or null. */
+  /** Pass identity when a snapshot was written or a consolidation awaits review; null otherwise. */
   passId: string | null
   /** Snapshot tarball filename when a snapshot was written, or null. */
   snapshot: string | null
@@ -245,11 +254,34 @@ export interface ConsolidationReport {
   cost: ConsolidationCost
   /** Verdicts the fork returned, in tool-call order. */
   verdicts: ConsolidationVerdict[]
-  /** Requested verdicts skipped as ineligible or unsafe. */
+  /** Requested verdicts skipped as ineligible or unsafe; every verdict, while a review is pending. */
   skipped: number
   /** Patch bodies the verifier ladder refused, each naming the level that decided. */
   refusals: ConsolidationRefusal[]
   /** Fork requests spent. */
+  steps: number
+  /**
+   * Set to the recorded proposer identity when `requireConsolidationReview`
+   * withheld this pass's verdicts from `applyConsolidation`; undefined once a
+   * pass applies immediately or nothing was proposed. `passId` names the run
+   * `applyPendingConsolidation` reads back.
+   */
+  awaitingReview?: string | undefined
+}
+
+/** One consolidation pass withheld from `applyConsolidation`, staged for a distinct reviewing identity. */
+export interface PendingConsolidation {
+  /** Pass identity the review must name to apply it. */
+  passId: string
+  /** ISO-8601 instant the pass proposed its verdicts. */
+  at: string
+  /** Identity recorded for the candidate-generation duty; the reviewer must differ. */
+  proposerIdentity: string
+  /** Verdicts awaiting review, in tool-call order. */
+  verdicts: ConsolidationVerdict[]
+  /** Cost row the fork spent proposing them. */
+  cost: ConsolidationCost
+  /** Fork requests the proposing run spent. */
   steps: number
 }
 

@@ -74,6 +74,24 @@ export interface WireServerCapabilities {
   readonly hoverProvider?: WireProviderCapability
 }
 
+/** LSP `DiagnosticSeverity` wire enum: `1` Error, `2` Warning, `3` Information, `4` Hint. */
+export type WireDiagnosticSeverity = 1 | 2 | 3 | 4
+
+/** A wire `Diagnostic`. `severity` is optional per spec; an absent value means Error. */
+export interface WireDiagnostic {
+  readonly range: WireRange
+  readonly severity?: WireDiagnosticSeverity
+  readonly message: string
+  readonly source?: string
+  readonly code?: string | number
+}
+
+/** The `textDocument/publishDiagnostics` notification params. */
+export interface WirePublishDiagnosticsParams {
+  readonly uri: string
+  readonly diagnostics: readonly WireDiagnostic[]
+}
+
 /** The `initialize` result envelope. */
 export interface WireInitializeResult {
   readonly capabilities: WireServerCapabilities

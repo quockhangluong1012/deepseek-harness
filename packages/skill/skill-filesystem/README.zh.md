@@ -71,9 +71,11 @@ skill 可以是被扫描根目录顶层的目录 bundle `<name>/SKILL.md`，也�
 | 100 | `project-dsh` | `<projectRoot>/.dsh/skills` |
 | 150 | `project-hermes` | `<projectRoot>/.hermes/skills` |
 | 200 | `project-agents` | `<projectRoot>/.agents/skills` |
+| 250 | `project-claude` | `<projectRoot>/.claude/skills` |
 | 300 | `custom` | `Config.customSkillDirs` |
 | 400 | `user-dsh` | `<dshHome>/skills` |
 | 500 | `user-agents` | `<agentsHome>/skills` |
+| 550 | `user-claude` | `~/.claude/skills` |
 
 项目根目录是包含 `.git` 的最近祖先目录；如果不存在，则使用当前 cwd。项目根仅在显式受信后索引：在 `trustedProjectDirs` 中列出绝对项目根（按解析后路径比较，Windows 下不区分大小写；相对条目在加载时大声失败），或以 `projectDiscovery: false` 完全禁用项目发现。不受信根下的技能会被跳过，并对每个根警告一次；信任是配置，不是交互——非交互界面继承信任，永不弹窗。每个项目 skill 在入库前都会做安全扫描，危险内容会被隔离：该 skill 被跳过，宿主日志记录命中的规则，计数随 `skills/change` 的 `quarantinedCount` 载荷上报。隔离是宿主侧事实——模型目录从不收到隔离诊断，被隔离的 skill 也无法按名称加载。扫描只覆盖项目自有根目录；`custom`、用户与随包提供的根属于 harness 自有，未经扫描即索引。用户 DSH 根目录会跳过其 `.system` 子目录。`includeDefaultRoots: false` 会省略项目根、用户根以及 `$DSH_BUNDLED_SKILL_DIR` 默认值，使隔离提供方只看到自身配置的根；`bundledSkillDir` 会按 rank 600 添加一个随包提供的根目录。
 
@@ -105,6 +107,7 @@ skill 可以是被扫描根目录顶层的目录 bundle `<name>/SKILL.md`，也�
 | `includeDefaultRoots` | `true` | 在 `customSkillDirs` 周围包含项目根与用户根 |
 | `dshHome` | `$DSH_HOME` 或 `~/.dsh` | Harness 配置根目录；扫描其 `skills` 子目录 |
 | `agentsHome` | `$DSH_AGENTS_HOME` 或 `~/.agents` | 为兼容 skill 扫描的共享 agent 配置根目录 |
+| `claudeHome` | `~/.claude` | Claude Code 配置根目录，扫描其 `.claude/skills` 兼容根目录 |
 | `customSkillDirs` | `[]` | 其他本地 skill 根目录，位于项目根之后、用户根之前 |
 | `trustedProjectDirs` | `[]` | 允许索引项目技能的绝对项目根；其他项目根一律跳过 |
 | `projectDiscovery` | `true` | 是否索引项目根；`false` 完全禁用项目发现 |

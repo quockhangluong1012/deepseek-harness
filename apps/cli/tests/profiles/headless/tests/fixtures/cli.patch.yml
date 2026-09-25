@@ -27,6 +27,7 @@
   config:
     dshHome: './.dsh-home'
     agentsHome: './.agents-home'
+    claudeHome: './.claude-home'
 
 - id: session-persistence-jsonl
   config:

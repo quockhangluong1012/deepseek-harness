@@ -15,7 +15,7 @@ import type { EvolutionMemoryRecord, EvolutionScopeId as ScopeId, LessonArtifact
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import EvolutionGraph from '@deepseek-ai/dsh-evolution-graph'
 import type {} from '@deepseek-ai/dsh-evolution-reviewer'
-import type { PassSummary, PurgeReport, RollbackReport, StagedCandidate, StagedSkill } from '@deepseek-ai/dsh-evolution-curator'
+import type { ConsolidationReport, PassSummary, PendingConsolidation, PurgeReport, RollbackReport, StagedCandidate, StagedSkill } from '@deepseek-ai/dsh-evolution-curator'
 import type { SkillUsageRecord, SkillVersion } from '@deepseek-ai/dsh-evolution-skill-telemetry'
 import type { TraceRecord } from '@deepseek-ai/dsh-evolution-trace'
 import type { CurriculumProposal } from '@deepseek-ai/dsh-evolution-curriculum'
@@ -84,6 +84,12 @@ interface GovernanceStubs {
   setPinnedError?: Error
   /** Version history `versions` reports for any name. */
   versionsResult?: SkillVersion[]
+  /** Consolidation passes `pendingConsolidations` reports. */
+  pending?: PendingConsolidation[]
+  /** (passId, reviewerIdentity) pairs passed to `applyPendingConsolidation`, in call order. */
+  applyCalls?: { passId: string; reviewerIdentity: string }[]
+  /** Error `applyPendingConsolidation` throws, or the report it returns. */
+  applyResult?: ConsolidationReport | Error
 }
 
 /** Which optional stores and stubs the harness mounts for one spec. */
@@ -504,6 +510,16 @@ async function harness(
         governance.rollbackCalls?.push(passId)
         if (governance.rollbackResult instanceof Error) throw governance.rollbackResult
         return governance.rollbackResult ?? { at: '2026-09-12T01:00:00.000Z', label: `pass '${passId}'`, restored: [], preRollback: 'sha', restoredDirs: [], restoredFiles: [] }
+      },
+      pendingConsolidations: () => governance.pending ?? [],
+      applyPendingConsolidation: async (passId: string, reviewerIdentity: string) => {
+        governance.applyCalls?.push({ passId, reviewerIdentity })
+        if (governance.applyResult instanceof Error) throw governance.applyResult
+        return governance.applyResult ?? {
+          at: '2026-09-12T01:00:00.000Z', passId, snapshot: null,
+          cost: { inputBytes: 0, maxOutputTokens: 0, provider: 'aux', model: 'cheap', truncated: false },
+          verdicts: [], skipped: 0, refusals: [], steps: 0,
+        } satisfies ConsolidationReport
       },
     } as never)
   }
@@ -1064,8 +1080,8 @@ describe('@deepseek-ai/dsh-command-evolution registration', () => {
       expect(test.ctx.commands.list(agent)).toContainEqual({
         definitionId: '@deepseek-ai/dsh-command-evolution/curator',
         name: 'curator',
-        description: 'Manage skill curation: status, pass history, adopt, purge, pin, rollback, and optimize',
-        input: { hint: 'status | run | adopt <name> | purge | rollback | ledger | pin <name> | optimize <skill> <scenario...> | experiments [skill]' },
+        description: 'Manage skill curation: status, pass history, adopt, purge, pin, rollback, consolidation review, and optimize',
+        input: { hint: 'status | run | adopt <name> | purge | rollback | ledger | pending | apply <passId> | pin <name> | optimize <skill> <scenario...> | experiments [skill]' },
       })
       expect(test.ctx.commands.list(agent)).toContainEqual({
         definitionId: '@deepseek-ai/dsh-command-evolution/trajectory',
@@ -2095,11 +2111,14 @@ describe('/curator human command', () => {
     const test = await harness()
     try {
       const session = sessionIn(test.ctx, test.dir, 'curator-usage')
-      const usage = { kind: 'error', text: 'Usage: /curator status | run [--dry-run] | staged | adopt <name> | purge [--dry-run] | rollback --id <id> | ledger | pin <name> | unpin <name> | history <name> | optimize <skill> <scenario...> | experiments [skill]' } as const
+      const usage = { kind: 'error', text: 'Usage: /curator status | run [--dry-run] | staged | pending | apply <passId> | adopt <name> | purge [--dry-run] | rollback --id <id> | ledger | pin <name> | unpin <name> | history <name> | optimize <skill> <scenario...> | experiments [skill]' } as const
       expect((await run(test, session, '/curator')).result).toEqual(usage)
       expect((await run(test, session, '/curator status extra')).result).toEqual(usage)
       expect((await run(test, session, '/curator run extra')).result).toEqual(usage)
       expect((await run(test, session, '/curator run --dry-run --dry-run')).result).toEqual(usage)
+      expect((await run(test, session, '/curator pending extra')).result).toEqual(usage)
+      expect((await run(test, session, '/curator apply')).result).toEqual(usage)
+      expect((await run(test, session, '/curator apply a b')).result).toEqual(usage)
     } finally {
       await shutdown(test)
     }
@@ -2352,7 +2371,7 @@ describe('/curator human command', () => {
     const test = await harness(true, {})
     try {
       const session = sessionIn(test.ctx, test.dir, 'curator-adopt-usage')
-      const usage = { kind: 'error', text: 'Usage: /curator status | run [--dry-run] | staged | adopt <name> | purge [--dry-run] | rollback --id <id> | ledger | pin <name> | unpin <name> | history <name> | optimize <skill> <scenario...> | experiments [skill]' } as const
+      const usage = { kind: 'error', text: 'Usage: /curator status | run [--dry-run] | staged | pending | apply <passId> | adopt <name> | purge [--dry-run] | rollback --id <id> | ledger | pin <name> | unpin <name> | history <name> | optimize <skill> <scenario...> | experiments [skill]' } as const
       expect((await run(test, session, '/curator adopt')).result).toEqual(usage)
       expect((await run(test, session, '/curator adopt a b')).result).toEqual(usage)
     } finally {
@@ -2394,7 +2413,7 @@ describe('/curator human command', () => {
     const test = await harness(true, {})
     try {
       const session = sessionIn(test.ctx, test.dir, 'curator-purge-usage')
-      const usage = { kind: 'error', text: 'Usage: /curator status | run [--dry-run] | staged | adopt <name> | purge [--dry-run] | rollback --id <id> | ledger | pin <name> | unpin <name> | history <name> | optimize <skill> <scenario...> | experiments [skill]' } as const
+      const usage = { kind: 'error', text: 'Usage: /curator status | run [--dry-run] | staged | pending | apply <passId> | adopt <name> | purge [--dry-run] | rollback --id <id> | ledger | pin <name> | unpin <name> | history <name> | optimize <skill> <scenario...> | experiments [skill]' } as const
       expect((await run(test, session, '/curator purge extra')).result).toEqual(usage)
       expect((await run(test, session, '/curator purge --dry-run extra')).result).toEqual(usage)
     } finally {
@@ -2459,7 +2478,7 @@ describe('/curator human command', () => {
     const test = await harness(true, {})
     try {
       const session = sessionIn(test.ctx, test.dir, 'curator-rollback-usage')
-      const usage = { kind: 'error', text: 'Usage: /curator status | run [--dry-run] | staged | adopt <name> | purge [--dry-run] | rollback --id <id> | ledger | pin <name> | unpin <name> | history <name> | optimize <skill> <scenario...> | experiments [skill]' } as const
+      const usage = { kind: 'error', text: 'Usage: /curator status | run [--dry-run] | staged | pending | apply <passId> | adopt <name> | purge [--dry-run] | rollback --id <id> | ledger | pin <name> | unpin <name> | history <name> | optimize <skill> <scenario...> | experiments [skill]' } as const
       expect((await run(test, session, '/curator rollback')).result).toEqual(usage)
       expect((await run(test, session, '/curator rollback --id')).result).toEqual(usage)
       expect((await run(test, session, '/curator rollback --id a b')).result).toEqual(usage)
@@ -2550,6 +2569,84 @@ describe('/curator human command', () => {
     }
   })
 
+  it('lists pending consolidations via pending, and reports none', async () => {
+    const test = await harness(true, {
+      pending: [{
+        passId: 'pass-1',
+        at: '2026-09-12T00:00:00.000Z',
+        proposerIdentity: 'evolution-curator-automatic-pass',
+        verdicts: [{ name: 'leaf', action: 'patch', body: 'body' }],
+        cost: { inputBytes: 100, maxOutputTokens: 2048, provider: 'aux', model: 'cheap', truncated: false },
+        steps: 2,
+      }],
+    })
+    try {
+      const session = sessionIn(test.ctx, test.dir, 'curator-pending')
+      expect((await run(test, session, '/curator pending')).result).toEqual({
+        kind: 'success',
+        text: [
+          '1 pending consolidation:',
+          "- pass-1 proposed by 'evolution-curator-automatic-pass' at 2026-09-12T00:00:00.000Z: 1 verdict",
+        ].join('\n'),
+      })
+    } finally {
+      await shutdown(test)
+    }
+  })
+
+  it('reports no pending consolidations', async () => {
+    const test = await harness(true, { pending: [] })
+    try {
+      const session = sessionIn(test.ctx, test.dir, 'curator-pending-empty')
+      expect((await run(test, session, '/curator pending')).result).toEqual({
+        kind: 'success',
+        text: 'No pending consolidations.',
+      })
+    } finally {
+      await shutdown(test)
+    }
+  })
+
+  it('applies a pending consolidation under the invoking session identity', async () => {
+    const applyCalls: { passId: string; reviewerIdentity: string }[] = []
+    const test = await harness(true, {
+      applyCalls,
+      applyResult: {
+        at: '2026-09-12T01:00:00.000Z', passId: 'pass-1', snapshot: 'pass-1.tar.gz',
+        cost: { inputBytes: 100, maxOutputTokens: 2048, provider: 'aux', model: 'cheap', truncated: false },
+        verdicts: [{ name: 'leaf', action: 'patch', body: 'body' }], skipped: 0, refusals: [], steps: 2,
+      },
+    })
+    try {
+      const session = sessionIn(test.ctx, test.dir, 'curator-apply')
+      expect((await run(test, session, '/curator apply pass-1')).result).toEqual({
+        kind: 'success',
+        text: "Consolidation 'pass-1' applied: 1 verdict, 0 skipped.",
+      })
+      expect(applyCalls).toEqual([{ passId: 'pass-1', reviewerIdentity: 'curator-apply' }])
+    } finally {
+      await shutdown(test)
+    }
+  })
+
+  it('reports an error from apply', async () => {
+    const applyCalls: { passId: string; reviewerIdentity: string }[] = []
+    const test = await harness(true, {
+      applyCalls,
+      applyResult: new Error("evolution-curator: consolidation 'pass-1' refused: identity 'ops' filled both candidate-generation and promotion-review for run 'pass-1'"),
+    })
+    try {
+      const session = sessionIn(test.ctx, test.dir, 'curator-apply-err')
+      expect((await run(test, session, '/curator apply pass-1')).result).toEqual({
+        kind: 'error',
+        text: "evolution-curator: consolidation 'pass-1' refused: identity 'ops' filled both candidate-generation and promotion-review for run 'pass-1'",
+      })
+      expect(applyCalls).toEqual([{ passId: 'pass-1', reviewerIdentity: 'curator-apply-err' }])
+    } finally {
+      await shutdown(test)
+    }
+  })
+
   it('lists staged skills worst first through staged and status', async () => {
     const staged: StagedSkill[] = [
       { name: 'flaky', useCount: 1, failureCount: 4, failureRate: 0.8, reason: 'failures 4/5 exceed 30%', at: '2026-09-12T00:00:00.000Z' },
@@ -2579,7 +2676,7 @@ describe('/curator human command', () => {
     const test = await harness(true, {})
     try {
       const session = sessionIn(test.ctx, test.dir, 'curator-optimize-usage')
-      const usage = { kind: 'error', text: 'Usage: /curator status | run [--dry-run] | staged | adopt <name> | purge [--dry-run] | rollback --id <id> | ledger | pin <name> | unpin <name> | history <name> | optimize <skill> <scenario...> | experiments [skill]' } as const
+      const usage = { kind: 'error', text: 'Usage: /curator status | run [--dry-run] | staged | pending | apply <passId> | adopt <name> | purge [--dry-run] | rollback --id <id> | ledger | pin <name> | unpin <name> | history <name> | optimize <skill> <scenario...> | experiments [skill]' } as const
       expect((await run(test, session, '/curator optimize')).result).toEqual(usage)
       expect((await run(test, session, '/curator optimize writer')).result).toEqual(usage)
     } finally {
@@ -2701,7 +2798,7 @@ describe('/curator human command', () => {
       })
       expect((await run(test, session, '/curator experiments writer extra')).result).toEqual({
         kind: 'error',
-        text: 'Usage: /curator status | run [--dry-run] | staged | adopt <name> | purge [--dry-run] | rollback --id <id> | ledger | pin <name> | unpin <name> | history <name> | optimize <skill> <scenario...> | experiments [skill]',
+        text: 'Usage: /curator status | run [--dry-run] | staged | pending | apply <passId> | adopt <name> | purge [--dry-run] | rollback --id <id> | ledger | pin <name> | unpin <name> | history <name> | optimize <skill> <scenario...> | experiments [skill]',
       })
     } finally {
       await shutdown(test)
@@ -2760,7 +2857,7 @@ describe('/curator human command', () => {
       })
       expect((await run(test, session, '/curator staged now')).result).toEqual({
         kind: 'error',
-        text: 'Usage: /curator status | run [--dry-run] | staged | adopt <name> | purge [--dry-run] | rollback --id <id> | ledger | pin <name> | unpin <name> | history <name> | optimize <skill> <scenario...> | experiments [skill]',
+        text: 'Usage: /curator status | run [--dry-run] | staged | pending | apply <passId> | adopt <name> | purge [--dry-run] | rollback --id <id> | ledger | pin <name> | unpin <name> | history <name> | optimize <skill> <scenario...> | experiments [skill]',
       })
     } finally {
       await shutdown(test)
@@ -2821,7 +2918,7 @@ describe('/curator human command', () => {
     const test = await harness(true, { setPinnedCalls: [] })
     try {
       const session = sessionIn(test.ctx, test.dir, 'curator-pin-usage')
-      const usage = { kind: 'error', text: 'Usage: /curator status | run [--dry-run] | staged | adopt <name> | purge [--dry-run] | rollback --id <id> | ledger | pin <name> | unpin <name> | history <name> | optimize <skill> <scenario...> | experiments [skill]' } as const
+      const usage = { kind: 'error', text: 'Usage: /curator status | run [--dry-run] | staged | pending | apply <passId> | adopt <name> | purge [--dry-run] | rollback --id <id> | ledger | pin <name> | unpin <name> | history <name> | optimize <skill> <scenario...> | experiments [skill]' } as const
       expect((await run(test, session, '/curator pin')).result).toEqual(usage)
       expect((await run(test, session, '/curator pin a b')).result).toEqual(usage)
     } finally {
@@ -2890,7 +2987,7 @@ describe('/curator human command', () => {
     const test = await harness()
     try {
       const session = sessionIn(test.ctx, test.dir, 'curator-history-usage')
-      const usage = 'Usage: /curator status | run [--dry-run] | staged | adopt <name> | purge [--dry-run] | rollback --id <id> | ledger | pin <name> | unpin <name> | history <name> | optimize <skill> <scenario...> | experiments [skill]'
+      const usage = 'Usage: /curator status | run [--dry-run] | staged | pending | apply <passId> | adopt <name> | purge [--dry-run] | rollback --id <id> | ledger | pin <name> | unpin <name> | history <name> | optimize <skill> <scenario...> | experiments [skill]'
       expect((await run(test, session, '/curator history')).result).toEqual({ kind: 'error', text: usage })
       expect((await run(test, session, '/curator history a b')).result).toEqual({ kind: 'error', text: usage })
       expect((await run(test, session, '/curator history draft')).result).toEqual({

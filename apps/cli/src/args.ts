@@ -7,7 +7,7 @@
  * their own flag families and print their own `--help` (see
  * `@deepseek-ai/dsh-cmdline`). Launcher flags therefore come first: the first
  * token this parser does not recognize starts the inner arguments, so
- * `dsh --profile tui --resume abc` boots the tui profile with `--resume abc`,
+ * `dsh --profile web --port 8080` boots the web profile with `--port 8080`,
  * and `dsh --profile web -h` prints the web app's help, not this one's.
  *
  * `dsh <name>` abbreviates `dsh --profile <name>`; `plugin` manages a profile's
@@ -99,10 +99,10 @@ Examples:
   dsh rescue --from-default-profile web
                                             create rescue from the shipped web template, then boot it
   dsh headless "run the tests"              answer one task, print the result, and exit
-  dsh tui --patch ./extra.yml               boot a custom profile with one extra overlay
-  dsh tui --resume <session>                arguments after the launcher flags reach the app
+  dsh web --patch ./extra.yml               boot a custom profile with one extra overlay
+  dsh headless --session-id <id> "..."      arguments after the launcher flags reach the app
   dsh web --help                            the web app's own flags and help
-  dsh plugin --profile tui add <package>    install a plugin into the tui profile
+  dsh plugin --profile web add <package>    install a plugin into the web profile
 `
 
 /**

@@ -1,11 +1,14 @@
 /**
  * Pure protocol translation for the local host: what the server's capabilities allow, and how its
- * `Location`/`LocationLink`/`Hover` payloads normalize into the seam's closed result unions. No I/O
- * or process state — every function here is a pure transform, which the fake-stdio tests pin exactly.
+ * `Location`/`LocationLink`/`Hover`/`Diagnostic` payloads normalize into the seam's closed result
+ * unions. No I/O or process state — every function here is a pure transform, which the fake-stdio
+ * tests pin exactly.
  * @module @deepseek-ai/dsh-lsp-stdio/translate
  */
 
 import type {
+  LspDiagnostic,
+  LspDiagnosticSeverity,
   LspHover,
   LspLocation,
   LspOperation,
@@ -14,6 +17,7 @@ import type {
 import { LspError } from '@deepseek-ai/dsh-lsp'
 import { assertNever } from '@deepseek-ai/dsh-util-values'
 import type {
+  WireDiagnosticSeverity,
   WireHover,
   WireLocation,
   WireLocationLink,
@@ -25,29 +29,30 @@ import type {
 } from './protocol.ts'
 
 /**
- * The `textDocument/*` request method for each LSP operation.
+ * The `textDocument/*` request method for each cursor-based LSP operation (`diagnostics` uses no
+ * request; it is a push notification the connection subscribes to).
  * @param operation - the LSP operation to map.
  * @returns the LSP request method name.
  */
-export function requestMethod(operation: LspOperation): string {
+export function requestMethod(operation: Exclude<LspOperation, 'diagnostics'>): string {
   switch (operation) {
     case 'goToDefinition': return 'textDocument/definition'
     case 'findReferences': return 'textDocument/references'
     case 'goToImplementation': return 'textDocument/implementation'
     case 'hover': return 'textDocument/hover'
-    /* v8 ignore next -- exhaustive over the closed LspOperation union; unreachable. */
+    /* v8 ignore next -- exhaustive over the closed operation union; unreachable. */
     default: return assertNever(operation, 'requestMethod')
   }
 }
 
-/** The `ServerCapabilities` provider field backing each operation. */
-function capabilityValue(capabilities: WireServerCapabilities, operation: LspOperation): WireProviderCapability {
+/** The `ServerCapabilities` provider field backing each cursor-based operation. */
+function capabilityValue(capabilities: WireServerCapabilities, operation: Exclude<LspOperation, 'diagnostics'>): WireProviderCapability {
   switch (operation) {
     case 'goToDefinition': return capabilities.definitionProvider
     case 'findReferences': return capabilities.referencesProvider
     case 'goToImplementation': return capabilities.implementationProvider
     case 'hover': return capabilities.hoverProvider
-    /* v8 ignore next -- exhaustive over the closed LspOperation union; unreachable. */
+    /* v8 ignore next -- exhaustive over the closed operation union; unreachable. */
     default: return assertNever(operation, 'capabilityValue')
   }
 }
@@ -60,12 +65,16 @@ function supportsCapability(value: WireProviderCapability): boolean {
 }
 
 /**
- * Whether the server advertises the requested operation.
+ * Whether the server advertises the requested operation. `diagnostics` is always considered
+ * supported: it rides `textDocument/publishDiagnostics`, a push notification the protocol does not
+ * gate behind a `ServerCapabilities` provider field — a server that never publishes anything for a
+ * file legitimately means "no diagnostics", not "unsupported".
  * @param capabilities - the server's `initialize` capabilities.
  * @param operation - the LSP operation to check.
  * @returns true when the corresponding provider capability is present.
  */
 export function supportsOperation(capabilities: WireServerCapabilities, operation: LspOperation): boolean {
+  if (operation === 'diagnostics') return true
   return supportsCapability(capabilityValue(capabilities, operation))
 }
 
@@ -227,6 +236,53 @@ function isMarkedString(value: unknown): value is WireMarkedString {
   if (value === null || typeof value !== 'object') return false
   const record = value as Record<string, unknown>
   return typeof record.language === 'string' && typeof record.value === 'string'
+}
+
+/**
+ * Normalize a `textDocument/publishDiagnostics` notification's `diagnostics` array to the seam's
+ * diagnostics. An absent `severity` defaults to `error`, matching the wire spec's own default.
+ * @param payload - the raw `diagnostics` array from a `publishDiagnostics` notification.
+ * @returns the normalized diagnostics (empty for `[]`).
+ * @throws Error when the payload is not an array, or an element is not a well-formed `Diagnostic`.
+ */
+export function normalizeDiagnostics(payload: unknown): LspDiagnostic[] {
+  if (!Array.isArray(payload)) throw malformedResponse('LSP publishDiagnostics payload was not an array')
+  return payload.map((element) => {
+    if (element === null || typeof element !== 'object') {
+      throw malformedResponse('LSP diagnostics result contained a non-object entry')
+    }
+    const record = element as Record<string, unknown>
+    if (!isRange(record.range)) throw malformedResponse('LSP diagnostic contained a malformed range')
+    if (typeof record.message !== 'string') throw malformedResponse('LSP diagnostic was missing a message')
+    return {
+      range: toRange(record.range),
+      severity: normalizeSeverity(record.severity),
+      message: record.message,
+      ...typeof record.source === 'string' ? { source: record.source } : {},
+      ...typeof record.code === 'string' || typeof record.code === 'number' ? { code: String(record.code) } : {},
+    }
+  })
+}
+
+/**
+ * Map the wire severity enum to the seam's severity. An absent or unrecognized value means
+ * `error`, matching the protocol's own default for an omitted `severity`.
+ */
+function normalizeSeverity(value: unknown): LspDiagnosticSeverity {
+  const severity = isWireSeverity(value) ? value : 1
+  switch (severity) {
+    case 1: return 'error'
+    case 2: return 'warning'
+    case 3: return 'information'
+    case 4: return 'hint'
+    /* v8 ignore next -- exhaustive over the closed WireDiagnosticSeverity union; unreachable. */
+    default: return assertNever(severity, 'normalizeSeverity')
+  }
+}
+
+/** Whether an untrusted value is a valid `DiagnosticSeverity` (1-4). */
+function isWireSeverity(value: unknown): value is WireDiagnosticSeverity {
+  return value === 1 || value === 2 || value === 3 || value === 4
 }
 
 /** Create the stable structured error used for malformed server result payloads. */

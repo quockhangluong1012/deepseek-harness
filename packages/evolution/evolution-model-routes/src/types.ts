@@ -112,9 +112,10 @@ export interface RoleConflict {
 
 /**
  * The decision §53's separation of duties guards: who may review a promotion,
- * and who may evaluate a candidate.
+ * who may evaluate a candidate, and who may apply a curator consolidation
+ * verdict a different identity proposed.
  */
-export type DutyDecision = 'promotion' | 'verdict'
+export type DutyDecision = 'promotion' | 'verdict' | 'consolidation'
 
 /**
  * One identity that filled one evolutionary role for one run. §53's separation

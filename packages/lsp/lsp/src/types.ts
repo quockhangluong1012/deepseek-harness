@@ -3,18 +3,18 @@
  * {@link LspError} taxonomy and the {@link LspProviderId} brand factory are runtime and live in
  * `index.ts`. Positions and ranges are zero-based UTF-16, matching the protocol; the model-facing
  * tool owns the one-based cursor convention. The seam exposes no protocol types, process or document
- * controls, or generic JSON-RPC escape hatch — only the four semantic operations.
+ * controls, or generic JSON-RPC escape hatch — only the five semantic operations.
  * @module @deepseek-ai/dsh-lsp/types
  */
 
 import type { LspProviderId } from './brand.ts'
 
 /**
- * The four semantic queries the seam and model expose. A closed union: adding an operation is a
+ * The five semantic queries the seam and model expose. A closed union: adding an operation is a
  * compile-enforced change across the seam, providers, and the tool. Symbols and call hierarchy are
  * not operations here; they need different schemas.
  */
-export type LspOperation = 'goToDefinition' | 'findReferences' | 'goToImplementation' | 'hover'
+export type LspOperation = 'goToDefinition' | 'findReferences' | 'goToImplementation' | 'hover' | 'diagnostics'
 
 /** A zero-based UTF-16 cursor coordinate, matching the LSP wire convention. */
 export interface LspPosition {
@@ -34,24 +34,36 @@ export interface LspRange {
  * A caller's normalized query. Every field is required: `workspaceRoot` is caller-supplied,
  * `languageId` comes from the provider registration (not here), and consumers own timeouts and
  * result limits — so no field needs implementation defaulting and there is no `resolve()` step.
+ * A discriminated union on `operation`: the four cursor-based operations require a `position`,
+ * while `diagnostics` is file-scoped and carries none — each shape has exactly the fields its
+ * operation needs.
  */
-export interface LspQueryRequest {
-  /** Which semantic query to run. */
-  readonly operation: LspOperation
-  /** The source file to query (relative to `workspaceRoot` or absolute; the provider canonicalizes). */
-  readonly filePath: string
-  /** The zero-based UTF-16 cursor position to query at. */
-  readonly position: LspPosition
-  /** The workspace root the provider resolves against and indexes; required, never defaulted. */
-  readonly workspaceRoot: string
-}
+export type LspQueryRequest =
+  | {
+    /** Which cursor-based semantic query to run. */
+    readonly operation: 'goToDefinition' | 'findReferences' | 'goToImplementation' | 'hover'
+    /** The source file to query (relative to `workspaceRoot` or absolute; the provider canonicalizes). */
+    readonly filePath: string
+    /** The zero-based UTF-16 cursor position to query at. */
+    readonly position: LspPosition
+    /** The workspace root the provider resolves against and indexes; required, never defaulted. */
+    readonly workspaceRoot: string
+  }
+  | {
+    /** Diagnostics: whole-file, no cursor position. */
+    readonly operation: 'diagnostics'
+    /** The source file to query (relative to `workspaceRoot` or absolute; the provider canonicalizes). */
+    readonly filePath: string
+    /** The workspace root the provider resolves against and indexes; required, never defaulted. */
+    readonly workspaceRoot: string
+  }
 
 /**
  * A request as a provider receives it: the caller's {@link LspQueryRequest} plus the `languageId`
  * the seam derived from the provider's extension mapping. The language id only synchronizes the
  * transient document; it does not participate in selection.
  */
-export interface LspProviderQuery extends LspQueryRequest {
+export type LspProviderQuery = LspQueryRequest & {
   /** The LSP language id for `filePath`, from this provider's extension mapping. */
   readonly languageId: string
 }
@@ -72,9 +84,27 @@ export interface LspHover {
   readonly range?: LspRange
 }
 
+/** Normalized diagnostic severity, from the LSP wire enum (1=Error, 2=Warning, 3=Information, 4=Hint). */
+export type LspDiagnosticSeverity = 'error' | 'warning' | 'information' | 'hint'
+
+/** One normalized diagnostic: a range, severity, and message, plus the source/code the server attached, if any. */
+export interface LspDiagnostic {
+  /** The range the diagnostic applies to. */
+  readonly range: LspRange
+  /** Normalized severity; a server that omits severity is treated as `error`. */
+  readonly severity: LspDiagnosticSeverity
+  /** The diagnostic message text. */
+  readonly message: string
+  /** The tool/component that produced the diagnostic (e.g. `typescript`, `eslint`), when the server supplied one. */
+  readonly source?: string
+  /** The diagnostic's rule/error code, when the server supplied one (numeric codes are stringified). */
+  readonly code?: string
+}
+
 /**
  * The closed result union. Navigation operations (`goToDefinition`, `findReferences`,
- * `goToImplementation`) normalize to `locations`; `hover` normalizes to content or `null`.
+ * `goToImplementation`) normalize to `locations`; `hover` normalizes to content or `null`;
+ * `diagnostics` normalizes to the file's current diagnostic list (possibly empty).
  * Consumers `switch` on `kind` to exhaustiveness so a new arm breaks compilation until handled.
  *
  * The `locations` variant carries `resolvedWorkspaceUri`: the provider's canonical `file:` URI for
@@ -85,6 +115,7 @@ export interface LspHover {
 export type LspQueryResult =
   | { readonly kind: 'locations'; readonly locations: readonly LspLocation[]; readonly resolvedWorkspaceUri: string }
   | { readonly kind: 'hover'; readonly hover: LspHover | null }
+  | { readonly kind: 'diagnostics'; readonly diagnostics: readonly LspDiagnostic[] }
 
 /**
  * A language-server backend registered on `ctx.lsp`. Each provider owns a stable {@link
@@ -108,7 +139,7 @@ export interface LspProvider {
 
 /**
  * The LSP capability seam (`ctx.lsp`). Owns provider registration/selection and normalized query
- * execution; exposes exactly the four operations and no protocol escape hatch.
+ * execution; exposes exactly the five operations and no protocol escape hatch.
  */
 export interface LspService {
   /**
