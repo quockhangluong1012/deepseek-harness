@@ -111,6 +111,18 @@ describe('evolution skill telemetry', () => {
     }
   })
 
+  it('correlates failed loads with their session', async () => {
+    const { fiber, store } = await harness({ catalog: 'user-dsh' })
+    try {
+      expect((await store.markFailed('catalog', undefined, 'session-1'))?.sessionIds).toEqual(['session-1'])
+      expect((await store.markFailed('catalog', undefined, 'session-2'))?.sessionIds).toEqual(['session-2', 'session-1'])
+      // A caller with no session leaves the recorded list untouched.
+      expect((await store.markFailed('catalog'))?.sessionIds).toEqual(['session-2', 'session-1'])
+    } finally {
+      await fiber.dispose()
+    }
+  })
+
   it('keeps the load counters and the state across a reopen', async () => {
     const pool = new MemoryMediaPool()
     {
@@ -401,9 +413,20 @@ describe('evolution skill telemetry', () => {
           return [{ type: 'text' as const, text: 'body' }]
         },
       }))
-      await ctx.tools.execute({ callId: ToolCallId('c1'), name: 'skill', arguments: { name: 'doomed' }, signal })
+      await ctx.tools.execute({
+        callId: ToolCallId('c1'),
+        name: 'skill',
+        arguments: { name: 'doomed' },
+        signal,
+        agent: { session: { id: 'fail-session' } } as never,
+      })
       await vi.waitFor(() => {
-        expect(store.read('doomed')).toMatchObject({ useCount: 0, failureCount: 1, lastOutcome: 'failed' })
+        expect(store.read('doomed')).toMatchObject({
+          useCount: 0,
+          failureCount: 1,
+          lastOutcome: 'failed',
+          sessionIds: ['fail-session'],
+        })
       })
     } finally {
       await fiber.dispose()

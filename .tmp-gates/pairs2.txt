@@ -1,0 +1,31 @@
+enOnly: 2
+   docs/subsystems/spill.md
+   packages/skill/evolution-skill-telemetry/README.md
+zhOnly: 1
+   packages/subagent/tool-subagent/README.md
+both: 10
+   .agents/notes/implemented/feature/2026-09-12-guard-budgets.md
+   docs/subsystems/agent-kernel.md
+   packages/bundle/headless/README.md
+   packages/core/agent-loop/README.md
+   packages/evolution/evolution-controller/README.md
+   packages/evolution/evolution-operators/README.md
+   packages/fs/tool-fs/README.md
+   packages/llm/embeddings/README.md
+   packages/runtime/agent-context/README.md
+   packages/subagent/command-review/README.md
+malformed: 0
+missingSide: 0
+
+RECORDABLE (both/zhOnly):
+.agents/notes/implemented/feature/2026-09-12-guard-budgets.md
+docs/subsystems/agent-kernel.md
+packages/bundle/headless/README.md
+packages/core/agent-loop/README.md
+packages/evolution/evolution-controller/README.md
+packages/evolution/evolution-operators/README.md
+packages/fs/tool-fs/README.md
+packages/llm/embeddings/README.md
+packages/runtime/agent-context/README.md
+packages/subagent/command-review/README.md
+packages/subagent/tool-subagent/README.md

@@ -15,6 +15,9 @@
       "path": "../../../vendor/cordis"
     },
     {
+      "path": "../../../vendor/schemastery"
+    },
+    {
       "path": "../../attachment/attachment"
     },
     {
@@ -24,13 +27,22 @@
       "path": "../../core/scope"
     },
     {
+      "path": "../../core/tools"
+    },
+    {
       "path": "../../llm/llm"
     },
     {
       "path": "../../core/session"
     },
     {
+      "path": "../../core/system-prompt"
+    },
+    {
       "path": "../../util/brand"
+    },
+    {
+      "path": "../../util/home-paths"
     },
     {
       "path": "../../runtime-diagnostics/invariants"

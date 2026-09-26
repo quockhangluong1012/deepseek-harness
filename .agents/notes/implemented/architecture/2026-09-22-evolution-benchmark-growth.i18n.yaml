@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-22-evolution-benchmark-growth.md
-2026-09-22-evolution-benchmark-growth.md: 76cee1326db89027fa4ba9473f58847ef7596f6d
+2026-09-22-evolution-benchmark-growth.md: 19d8c7a3195a5543fe29be188011ea6f01eaac2a
 2026-09-22-evolution-benchmark-growth.zh.md: 845a1c36d2d1ad3c19b58ee1efc22a00588967ad

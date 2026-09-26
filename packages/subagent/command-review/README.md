@@ -1,5 +1,5 @@
 ---
-description: "The human-facing /review slash command for users and maintainers who want an independent reviewer subagent's structured findings on a diff, without sending the diff or the review to the parent agent's own model."
+description: "The human-facing /review and /security-review slash commands: an independent reviewer subagent reports structured findings on a diff, and a client review panel renders them."
 kind: "package-reference"
 ---
 
@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-command-review` gives users the `/review` command: it starts an independent reviewer subagent — by default a fresh `spawn` child with no parent conversation, optionally a different model — asks it to inspect a diff with its own tools, and renders its structured findings directly in the UI. The review never reaches the parent's own model request: it is a direct command result, like `/goal` and `/compact`. Use this package in interactive deployments with a command adapter; headless and automation apps without one do not need it.
+`dsh-command-review` gives users two review commands: `/review` and `/security-review`. Each starts an independent reviewer subagent — by default a fresh `spawn` child with no parent conversation, optionally another model — and renders its structured findings on a diff directly in the UI. Both commands are one implementation: spawn path, report schema, prompt builder, and rendering are shared; only the question differs. A review never reaches the parent's own model request — it is a direct command result like `/goal`. Use it in interactive deployments with a command adapter.
 
 ## Table of Contents
 
@@ -34,12 +34,19 @@ Use `dsh-command-review` in interactive deployments that mount a command adapter
 | `/review` | Reviews the uncommitted working-tree changes |
 | `/review <ref>` | Reviews the diff between the working tree and `<ref>` — a branch or a commit |
 | `/review --help` | Shows usage without starting a reviewer |
+| `/security-review` | Reviews the uncommitted working-tree changes for security defects |
+| `/security-review <ref>` | Reviews the diff against `<ref>` for security defects |
+| `/security-review --help` | Shows usage without starting a reviewer |
 
-The command does not compute the diff itself: it tells the reviewer subagent which `git diff` invocation to run and lets it read the diff, and any surrounding file context it needs, with its own tools. The reviewer never edits anything — the prompt asks it not to, and no write-capable tool is required for the task.
+`/review` reports every real defect, security issue, or correctness risk it finds. `/security-review` asks for security defects only — injection, broken authentication or authorization, missing validation at a trust boundary, exposed secrets, unsafe deserialization, path traversal, server-side request forgery, cross-site scripting, unsafe cryptography or randomness, permissive CORS, and unsafe defaults — and names the vulnerability class in each finding; it leaves style, performance, and general correctness to `/review`.
+
+Neither command computes the diff itself: each tells the reviewer subagent which `git diff` invocation to run and lets it read the diff, and any surrounding file context it needs, with its own tools. The reviewer never edits anything — the prompt asks it not to, and no write-capable tool is required for the task.
 
 ### Findings
 
 A completed review renders as the reviewer's one- or two-sentence summary, followed by every finding — file, optional line or range, and a one-sentence message — grouped `high`, then `medium`, then `low`. No findings prints `No findings.` after the summary. A reviewer that does not finish (cancelled, out of budget, refused, or a model/transport error) or that finishes without a valid structured report is a direct command error naming the stop reason and, when the provider supplied one, its diagnostic text.
+
+A completed review is also recorded durably, as the log-only `review/report` event carrying the review kind, its diff target, the summary, and the findings. The command outcome cites that record, so a client review panel can render the same report as structured UI while the plain text stays the output every adapter shows.
 
 ### Compose it
 
@@ -66,7 +73,7 @@ The command injects the commands registry and the subagents runtime; it needs at
 | `provider` | inherits the parent's | LLM provider route override for the reviewer child |
 | `model` | inherits the parent's | Model id override for the reviewer child |
 
-The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-command-review) is the exhaustive source for every accepted field. The shipped base bundle mounts this row against the `spawn` provider, which is a fresh child with no parent conversation — the review runs with no memory of what the parent has already discussed, matching the independent-reviewer design in the target architecture (§10.6).
+Both commands run under the same configured route: one deployment, one reviewer backend. The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-command-review) is the exhaustive source for every accepted field. The shipped base bundle mounts this row against the `spawn` provider, which is a fresh child with no parent conversation — the review runs with no memory of what the parent has already discussed, matching the independent-reviewer design in the target architecture (§10.6).
 
 -----
 
@@ -76,21 +83,26 @@ The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-a
 <details>
 <summary>Implementation internals — click to expand</summary>
 
-This section explains how the command builds the reviewer's task and renders its answer; the observable contract is covered in [Use this package](#use-this-package).
+This section explains how the commands build the reviewer's task and render its answer; the observable contract is covered in [Use this package](#use-this-package).
 
 ### Design
 
-- **The reviewer computes its own diff.** The command prompt names the exact `git diff` invocation to run and lets the reviewer's own tools read it, rather than pre-computing the diff text and pasting it into the prompt — the reviewer can also read surrounding file context when a finding needs it, at the cost of the reviewer needing shell and file-reading tools in its composition.
-- **Structured output, not free text.** The reviewer's final turn is validated against an object-rooted `outputSchema` (`summary: string`, `findings: { file, line?, severity, message }[]`) through the existing `SubagentStartRequest.outputSchema` seam — the same one `dsh-tool-subagent` model calls use — so rendering never has to parse prose.
-- **Direct command result, never a model turn.** Like `/goal` and `/compact`, `/review` executes in the UI command plane; the diff, the reviewer's tool calls, and its findings never enter the parent agent's own model request.
+- **One spawn path, two prompts.** `src/reviewer.ts` owns the reviewer seam: `runReviewer` starts the configured provider with a task's label, prompt, and output schema, awaits the run, and always disposes it; `reviewPrompt(kind, ref)` builds the question for each kind from one shared scope and target phrase. The commands are variants in a table that carry identity, kind, description, and usage — never a second prompt or a second spawn call.
+- **The reviewer computes its own diff.** The prompt names the exact `git diff` invocation to run and lets the reviewer's own tools read it, rather than pre-computing the diff text and pasting it into the prompt — the reviewer can also read surrounding file context when a finding needs it, at the cost of the reviewer needing shell and file-reading tools in its composition.
+- **Structured output, not free text.** The reviewer's final turn is validated against one object-rooted `outputSchema` (`summary: string`, `findings: { file, line?, severity, message }[]`) through the existing `SubagentStartRequest.outputSchema` seam — the same one `dsh-tool-subagent` model calls use — so rendering never has to parse prose.
+- **Direct command result, never a model turn.** Like `/goal` and `/compact`, both commands execute in the UI command plane; the diff, the reviewer's tool calls, and its findings never enter the parent agent's own model request.
+- **The report is durable.** A completed review is appended as the log-only `review/report` event and cited by the command outcome, so structured UI can render it after a reload. The event never reaches a model request.
 - **The run is always disposed.** Whether the reviewer completes, fails, or the command handler itself throws, the started run's `dispose()` runs in a `finally` block.
 
 ### Source map
 
 | File | Role |
 |---|---|
-| [`src/index.ts`](src/index.ts) | Plugin entry: command registration, reviewer prompt, output schema, result rendering |
+| [`src/index.ts`](src/index.ts) | Plugin entry: config, the review variant table, command registration, the durable record, and result rendering |
+| [`src/reviewer.ts`](src/reviewer.ts) | The shared reviewer seam: prompt builder, report schema, spawn path, and the `review/report` event declaration |
 | — | No runtime invariant companion is published; this command adapter owns no event stream or state projection — dispatch behavior is covered by package tests, and the reviewer child's own lifecycle invariants belong to `dsh-subagent`. |
+
+Other packages reach the same reviewer through the package root: `runReviewer`, `reviewPrompt`, `REVIEW_OUTPUT_SCHEMA`, and the `ReviewFinding`/`ReviewReport` types are exported for callers that own their own reviewer port. `dsh-agent-kernel`'s coding lifecycle is one such caller.
 
 </details>
 
@@ -99,12 +111,13 @@ This section explains how the command builds the reviewer's task and renders its
 <a id="further-exploration"></a>
 ## Further Exploration
 
-The command is a thin adapter over the subagent seam; read these pages for the delegation contract and the registry it plugs into.
+The commands are a thin adapter over the subagent seam; read these pages for the delegation contract and the registry they plug into.
 
-- [Subagent service](../subagent/README.md) — the `ctx.subagents` seam, `outputSchema`, and the one-shot run contract this command drives directly.
+- [Subagent service](../subagent/README.md) — the `ctx.subagents` seam, `outputSchema`, and the one-shot run contract these commands drive directly.
 - [Subagent spawn provider](../subagent-spawn-in-process/README.md) — the reference backend: a fresh child with no parent conversation.
 - [Model-facing delegation tool](../tool-subagent/README.md) — the sibling consumer of the same seam, for the model-authored delegation path.
 - [Commands service](../../interaction/commands/README.md) — the command registry contract and dispatch.
+- [Review findings panel](../../client/ui-review/README.md) — the browser surface that renders the durable report as structured UI.
 - [Generated configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-command-review) — every accepted config field and its source declaration.
 
 -----
@@ -112,7 +125,7 @@ The command is a thin adapter over the subagent seam; read these pages for the d
 <a id="model-experience"></a>
 ## Model Experience
 
-### Human `/review` control
+### Human review control
 
 #### What the model sees
 
@@ -120,22 +133,22 @@ Nothing from the parent agent's perspective: the slash input, the reviewer's tas
 
 #### Token effect
 
-`/review` adds no tokens to the parent's own model requests. The reviewer child's tool calls and turns consume its own budget, under whatever route `provider`/`model` resolve to.
+Neither command adds tokens to the parent's own model requests. The reviewer child's tool calls and turns consume its own budget, under whatever route `provider`/`model` resolve to.
 
 #### KV Cache effect
 
-None for the parent — the command never changes the parent's request prefix. The reviewer child follows the fresh-child KV Cache behavior of whichever provider it is configured against.
+None for the parent — the commands never change the parent's request prefix. The reviewer child follows the fresh-child KV Cache behavior of whichever provider it is configured against.
 
 ## Known Limitations and Deferred Work
 
 <a id="known-limitations-and-deferred-work"></a>
 
-These limits define when the command is a poor fit or needs special care. They are current package constraints, not a task backlog.
+These limits define when the commands are a poor fit or need special care. They are current package constraints, not a task backlog.
 
-- **Web command adapter only in the shipped apps** — headless, ACP automation, and JSON-RPC adapters do not consume `ctx.commands`, so `/review` is reachable only from the Web composer today.
-- **No Desktop review panel** — findings render as plain command text; there is no dedicated per-finding UI, inline diff annotation, or accept/dismiss workflow.
-- **The reviewer needs its own tools** — a composition that gives the `spawn` (or configured) provider's children no shell or file-reading tools cannot produce a real review; the command does not verify tool availability before starting the run.
-- **One review per invocation** — there is no `/security-review` variant with a different prompt, and no way to ask for a second opinion from a different model in the same invocation.
+- **Web command adapter only in the shipped apps** — headless, ACP automation, and JSON-RPC adapters do not consume `ctx.commands`, so the commands are reachable only from the Web composer today.
+- **Read-only findings** — the panel renders what the reviewer reported; accepting, dismissing, or annotating a finding is not implemented.
+- **The reviewer needs its own tools** — a composition that gives the `spawn` (or configured) provider's children no shell or file-reading tools cannot produce a real review; the commands do not verify tool availability before starting the run.
+- **One route per deployment** — both commands run under the configured `provider`/`model`, so asking a second backend for a second opinion in the same invocation is not possible.
 
 <a id="dev-note"></a>
 ### Dev Note
@@ -143,6 +156,6 @@ These limits define when the command is a poor fit or needs special care. They a
 <details>
 <summary>Working context for maintainers — click to expand</summary>
 
-This Dev Note is working context for maintainers; it is explicitly non-authoritative. Open, undecided: a `/security-review` prompt variant and a Desktop review panel are both deferred UI/prompt work, not a change to the delegation contract above.
+This Dev Note is working context for maintainers; it is explicitly non-authoritative. The report reaches the client as the log-only `review/report` event: any new field a panel needs belongs on that event, not in the rendered command text.
 
 </details>

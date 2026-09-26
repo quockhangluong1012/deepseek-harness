@@ -12,15 +12,30 @@ import type { Context } from '@deepseek-ai/cordis'
 import type * as McpClient from '@deepseek-ai/dsh-mcp-client'
 import * as McpProjectConfig from '../src/index.ts'
 
-/** Context stand-in that captures validated MCP configs without opening transports. */
+/** Context double that captures validated MCP configs without opening transports. */
 function captureContext(): { ctx: Context; configs: McpClient.Config[]; warn: ReturnType<typeof vi.fn> } {
   const configs: McpClient.Config[] = []
   const warn = vi.fn()
   const plugin = vi.fn((_plugin: unknown, config: McpClient.Config) => {
     configs.push(config)
-    return Promise.resolve(undefined)
+    // The service mounts a child plugin and may later dispose it; the double
+    // answers with the disposal contract without opening a transport.
+    return Promise.resolve({ dispose: async () => {} })
   })
-  return { ctx: { plugin, logger: { warn } } as unknown as Context, configs, warn }
+  const double = {
+    plugin,
+    logger: { warn },
+    // `McpServers` is a Cordis Service and subscribes to the status event, so
+    // the double carries the registration and effect contract it uses.
+    reflect: { provide: () => () => {} },
+    effect: (run: () => unknown) => {
+      run()
+      return () => {}
+    },
+    on: () => () => {},
+    get: () => undefined,
+  }
+  return { ctx: double as unknown as Context, configs, warn }
 }
 
 async function writeMcpJson(path: string, servers: Record<string, unknown>): Promise<void> {
@@ -68,6 +83,7 @@ describe('mcp-project-config apply', () => {
       cwd: process.cwd(),
       toolCallTimeoutMs: 60_000,
       failOnStartupError: false,
+      trust: 'untrusted',
       maxInstructionBytes: 32_768,
       reconnect: { enabled: true, initialDelayMs: 500, maxDelayMs: 30_000, maxAttempts: 10 },
     }])
@@ -86,6 +102,7 @@ describe('mcp-project-config apply', () => {
       headers: { Authorization: 'Bearer x' },
       toolCallTimeoutMs: 60_000,
       failOnStartupError: false,
+      trust: 'untrusted',
       maxInstructionBytes: 32_768,
       reconnect: { enabled: true, initialDelayMs: 500, maxDelayMs: 30_000, maxAttempts: 10 },
     }])

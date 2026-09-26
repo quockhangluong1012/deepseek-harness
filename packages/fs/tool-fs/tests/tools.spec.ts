@@ -159,21 +159,43 @@ describe('session cwd resolution', () => {
 })
 
 describe('registration', () => {
-  it('registers read, write, and edit', async () => {
+  it('registers the read, write, edit, multi_edit, and apply_patch tools', async () => {
     const { ctx } = await setup()
-    expect(ctx.tools.schemas().map(s => s.name).sort()).toEqual(['edit', 'read', 'write'])
+    expect(ctx.tools.schemas().map(s => s.name).sort()).toEqual(['apply_patch', 'edit', 'multi_edit', 'read', 'write'])
   })
 
-  it('declares every fs tool parallel-safe and scopes the mutating pair by path', async () => {
+  /** One Update File section with a locatable hunk. */
+  function updateSection(path: string): string {
+    return `*** Update File: ${path}\n@@\n-old\n+new`
+  }
+
+  /** A one-file V4A patch: classification sees exactly one section. */
+  function updatePatch(path: string): string {
+    return `*** Begin Patch\n${updateSection(path)}\n*** End Patch`
+  }
+
+  it('declares every fs tool parallel-safe and scopes the mutating tools by path', async () => {
     const { ctx } = await setup()
-    expect(ctx.tools.executionMode({ signal: testToolSignal, callId: ToolCallId('read-safe'), name: 'read', arguments: { file_path: 'a.txt' } }))
-      .toEqual({ kind: 'parallel' })
-    expect(ctx.tools.executionMode({ signal: testToolSignal, callId: ToolCallId('write-unnormalized'), name: 'write', arguments: { file_path: './a.txt', content: 'x' } }))
-      .toEqual({ kind: 'parallel', scopeKey: 'a.txt' })
-    expect(ctx.tools.executionMode({ signal: testToolSignal, callId: ToolCallId('edit-same-path'), name: 'edit', arguments: { file_path: 'a.txt', old_string: 'x', new_string: 'y' } }))
-      .toEqual({ kind: 'parallel', scopeKey: 'a.txt' })
-    expect(ctx.tools.executionMode({ signal: testToolSignal, callId: ToolCallId('write-other-path'), name: 'write', arguments: { file_path: 'b.txt', content: 'x' } }))
-      .toEqual({ kind: 'parallel', scopeKey: 'b.txt' })
+    const classify = (name: string, args: unknown): unknown => ctx.tools.executionMode({
+      signal: testToolSignal,
+      callId: ToolCallId(`scoped-${name}`),
+      name,
+      arguments: args,
+    })
+    const scope = (filePath: string): unknown[] => {
+      return [classify('write', { file_path: filePath, content: 'x' }), classify('edit', { file_path: filePath, old_string: 'x', new_string: 'y' }), classify('multi_edit', { file_path: filePath, edits: [{ old_string: 'x', new_string: 'y' }] }), classify('apply_patch', { patch: updatePatch(filePath) })]
+    }
+    expect(classify('read', { file_path: 'a.txt' })).toEqual({ kind: 'parallel' })
+    // One key for two spellings of one file, shared by every single-file
+    // mutator, so a batch edit and a single edit on one path never overlap.
+    for (const key of scope('./a.txt')) expect(key).toEqual(scope('a.txt')[0])
+    // Distinct files still resolve to distinct keys.
+    expect(scope('b.txt')[0]).not.toEqual(scope('a.txt')[0])
+    // One overlap key cannot describe several files, so a multi-file patch
+    // declares no scope and a malformed one fails closed; both are exclusive.
+    expect(classify('apply_patch', { patch: `*** Begin Patch\n${updateSection('a.txt')}\n${updateSection('b.txt')}\n*** End Patch` }))
+      .toEqual({ kind: 'exclusive' })
+    expect(classify('apply_patch', { patch: 'not a patch at all' })).toEqual({ kind: 'exclusive' })
   })
 
   it('registers prompt sections for each tool', async () => {
@@ -182,6 +204,8 @@ describe('registration', () => {
     expect(prompt).toContain('Use the read tool')
     expect(prompt).toContain('Use the write tool')
     expect(prompt).toContain('Use the edit tool')
+    expect(prompt).toContain('Use the multi_edit tool')
+    expect(prompt).toContain('Use the apply_patch tool')
   })
 
   it('stays pending until ctx.fs exists (inject)', async () => {
@@ -201,9 +225,9 @@ describe('registration', () => {
     const fiber = await ctx.plugin(ToolFs)
     // Each tool contributes BOTH a schema and a prompt section; disposal must
     // withdraw both, not just the schemas.
-    expect(ctx.tools.schemas()).toHaveLength(3)
+    expect(ctx.tools.schemas()).toHaveLength(5)
     const sectionNames = (a: { sections: { name: string }[] }) => a.sections.map(s => s.name).sort()
-    expect(sectionNames(await ctx.systemPrompt.assemble())).toEqual(['deployment:persona-prefix', 'deployment:persona-suffix', 'harness:identity', 'tool:edit', 'tool:read', 'tool:write'])
+    expect(sectionNames(await ctx.systemPrompt.assemble())).toEqual(['deployment:persona-prefix', 'deployment:persona-suffix', 'harness:identity', 'tool:apply_patch', 'tool:edit', 'tool:multi_edit', 'tool:read', 'tool:write'])
     await fiber.dispose()
     expect(ctx.tools.schemas()).toHaveLength(0)
     // Only the system-prompt plugin's own built-in sections remain.
@@ -857,7 +881,7 @@ describe('sandbox escalation API (write/edit)', () => {
     }
   }
 
-  function fsSchema(ctx: Context, name: 'write' | 'edit') {
+  function fsSchema(ctx: Context, name: 'write' | 'edit' | 'multi_edit' | 'apply_patch') {
     const schema = ctx.tools.schemas().find(s => s.name === name)
     if (!schema) throw new Error(`${name} tool not registered`)
     return schema as unknown as { parameters: { properties: Record<string, { enum?: string[] }> } }
@@ -874,16 +898,16 @@ describe('sandbox escalation API (write/edit)', () => {
   it('advertises no escalation fields under a non-confining backend', async () => {
     const { ctx } = await setup()
     expect(ctx.fs.sandboxMode).toBeUndefined()
-    for (const name of ['write', 'edit'] as const) {
+    for (const name of ['write', 'edit', 'multi_edit', 'apply_patch'] as const) {
       const props = fsSchema(ctx, name).parameters.properties
       expect(props['sandbox_permissions']).toBeUndefined()
       expect(props['justification']).toBeUndefined()
     }
   })
 
-  it('advertises the closed target vocabulary on write and edit under a confining backend', async () => {
+  it('advertises the closed target vocabulary on every mutating tool under a confining backend', async () => {
     const { ctx } = await setupConfining()
-    for (const name of ['write', 'edit'] as const) {
+    for (const name of ['write', 'edit', 'multi_edit', 'apply_patch'] as const) {
       const props = fsSchema(ctx, name).parameters.properties
       expect(props['sandbox_permissions']?.enum).toEqual(['workspace-write', 'danger-full-access'])
       expect(props['justification']).toBeDefined()
@@ -1009,13 +1033,15 @@ const originalGuidance = {
   read: 'Use the read tool — not shell commands like cat — to inspect text files. Results include line numbers. Use offset and limit to continue reading large files.',
   write: 'Use the write tool to create files or completely replace file contents. Existing files are overwritten, so read an existing file first (the default fs-observation-policy requires it) and prefer edit for targeted changes.',
   edit: 'Use the edit tool for targeted changes to existing UTF-8 text files. It replaces literal old_string with new_string; by default old_string must appear exactly once. If old_string appears multiple times, provide a more specific old_string or set replace_all to true. Read the file first (the default fs-observation-policy requires it), unless you just created or edited it in this session.',
+  multi_edit: 'Use the multi_edit tool when one file needs several replacements in a single call. It validates every edit against the file before applying any, so a failure leaves the file unchanged; read the file first (the default fs-observation-policy requires it). Use edit for a single replacement.',
+  apply_patch: 'Use the apply_patch tool to change several files with one V4A patch: "*** Begin Patch", "*** Add File:", "*** Update File:", and "*** End Patch" sections. It validates every section before writing any of them. Prefer write or edit for a single file.',
 }
 
 describe('scope-aware filesystem guidance', () => {
-  it.each(Array.from({ length: 8 }, (_, mask) => mask))('preserves exact text for visible tools (mask %i)', async (mask) => {
+  it.each(Array.from({ length: 32 }, (_, mask) => mask))('preserves exact text for visible tools (mask %i)', async (mask) => {
     const { ctx } = await setup()
     const { key, scope } = await guidanceScope(ctx)
-    const names = ['read', 'write', 'edit'] as const
+    const names = ['read', 'write', 'edit', 'multi_edit', 'apply_patch'] as const
     const allow = names.filter((_, index) => (mask & (1 << index)) !== 0)
     const baseline = withPersona(...names.map(name => originalGuidance[name]))
     expect(renderPrompt(await ctx.systemPrompt.assemble())).toBe(baseline)
@@ -1039,7 +1065,7 @@ describe('scope-aware filesystem guidance', () => {
     const { ctx } = await setup()
     const { key, scope } = await guidanceScope(ctx)
     const write = ctx.tools.get('write')!
-    scope.ctx.tools.restrict({ deny: ['write', 'edit'] })
+    scope.ctx.tools.restrict({ deny: ['write', 'edit', 'multi_edit', 'apply_patch'] })
     try {
       expect(renderPrompt(await ctx.systemPrompt.assemble({ scope: key }))).toBe(withPersona(originalGuidance.read))
       const denied = await call(ctx, 'write', { file_path: '/blocked', content: 'blocked' }, key)

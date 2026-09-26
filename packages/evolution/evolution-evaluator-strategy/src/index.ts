@@ -126,7 +126,10 @@ export class EvolutionEvaluatorStrategy extends Service {
   ranking(taskClass: TaskClass): readonly StrategyRanking[] {
     const rows = [...this.requireStrategies().entries()]
       .map(([, row]) => structuredClone(row))
-    const promotionReview = this.ctx.get('evolutionModelRoutes')?.recommend('promotion-review') ?? null
+    const recommended = this.ctx.get('evolutionModelRoutes')?.recommend('promotion-review')
+    const promotionReview = recommended === undefined
+      ? null
+      : { provider: recommended.provider, model: recommended.model }
     return rankStrategies(rows, taskClass).map(entry => ({ ...entry, promotionReview }))
   }
 

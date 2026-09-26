@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Replace `@deepseek-ai/dsh-evolution-memory`'s free-text `agentLessons: string` with a `readonly LessonArtifact[]` carrying the structured provenance and quality metadata spec §2.2 requires, migrating every persisted record without data loss.
+**Goal:** Replace `@deepseek-ai/dsh-evolution-memory`'s free-text `agentLessons: string` with a `readonly LessonArtifact[]` carrying the structured source and quality metadata spec §2.2 requires, migrating every persisted record without data loss.
 
 **Architecture:** One new pure module (`lesson-artifact.ts`) owns the artifact vocabulary, its zod schema, and the sync legacy-text wrapper. The stored record schema admits both the legacy string and the new array through a zod transform, under a domain version bump to 2 declaring `compatibleVersions: [1]` — the procedure the [projection-cache cross-version note](../../../.agents/notes/implemented/architecture/2026-09-02-projcache-cross-version-read-compat.md) establishes, minus its `backup-and-skip` policy because evolution memory holds user-authored data that cannot be rebuilt. The three substring staged ops become three id-addressed ones; a new optional-embeddings merge step dedupes by meaning; a heartbeat task prunes by TTL/refutations and refines coarse migrated artifacts with an LLM. Phase 2 (structured extraction in `evolution-reviewer`) is a separate plan and is **not** in scope here.
 
@@ -120,7 +120,7 @@ Run: `pnpm exec vitest run packages/evolution/evolution-memory/tests/lesson-arti
 ```ts
 /**
  * Durable extracted-fact vocabulary for a scope's lessons: one artifact per
- * fact, with the provenance and quality metadata the evolutionary-harness
+ * fact, with the source and quality metadata the evolutionary-harness
  * specification requires of long-term memory.
  * @module @deepseek-ai/dsh-evolution-memory/lesson-artifact
  */
@@ -1233,7 +1233,7 @@ git commit -m "fix(evolution): read and project lesson artifacts across the rema
 
 - [ ] **Step 1: Update the evolution-memory README**
 
-Rewrite the config table to add `mergeSimilarityFloor` (`0.87`), `maintenanceIntervalHours` (`24`), `refutationFloor` (`3`), `defaultTtlDays` (`30`); replace the `addLesson`/`replaceLesson`/`removeLesson` prose (line 58) with the three artifact ops; replace the family-stamp sentence (64) naming `setLessons`/`addLesson`/`replaceLesson`/`removeLesson`; and replace the "One document per scope … no per-entry provenance, per-entry deletion, or memory history" limitation with the artifact model's new limits (merge is similarity-based and needs embeddings for paraphrase detection; refinement of a migrated document is best-effort).
+Rewrite the config table to add `mergeSimilarityFloor` (`0.87`), `maintenanceIntervalHours` (`24`), `refutationFloor` (`3`), `defaultTtlDays` (`30`); replace the `addLesson`/`replaceLesson`/`removeLesson` prose (line 58) with the three artifact ops; replace the family-stamp sentence (64) naming `setLessons`/`addLesson`/`replaceLesson`/`removeLesson`; and replace the "One document per scope … no per-entry source, per-entry deletion, or memory history" limitation with the artifact model's new limits (merge is similarity-based and needs embeddings for paraphrase detection; refinement of a migrated document is best-effort).
 
 - [ ] **Step 2: Mirror both READMEs into Chinese**
 

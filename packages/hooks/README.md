@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-The hooks group lets agent runs reuse shell hooks written for Claude Code or Codex. Point the matching integration at an existing `hooks.json` to run supported command hooks when sessions start, prompts arrive, tools run, or runs stop. These hooks can block prompts or tool calls with model-visible messages, add conversation context, or require the run to continue. Choose this group to preserve existing hook configurations; each integration supports only the command-hook subset documented by its source tool.
+The hooks group lets agent runs reuse shell hooks written for Claude Code or Codex. Point the matching integration at an existing `hooks.json` to run supported command and HTTP hooks when sessions start, prompts arrive, tools run, permissions are requested, or runs stop. These hooks can block prompts or tool calls with model-visible messages, add conversation context, force another step, or halt the run. Choose this group to preserve existing hook configurations; each integration supports only the hook subset documented by its source tool.
 
 ## Table of Contents
 

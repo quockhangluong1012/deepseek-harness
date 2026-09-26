@@ -69,6 +69,15 @@ interface ToolDefinition extends ToolSchema {
    */
   timeoutMs?: number
   /**
+   * Declares that this tool cooperates with cancellation via `exec.signal` on
+   * every path but has no natural time bound — it blocks on a human response,
+   * which carries no fixed budget — so `@deepseek-ai/dsh-tool-call-timeout-policy`
+   * arms no tool-call deadline for it and the caller's own signal reaches the
+   * tool unwrapped. The tool remains cancellable through caller-driven aborts
+   * (task cancellation, session teardown). Mutually exclusive with `timeoutMs`.
+   */
+  readonly unboundedTimeout?: boolean
+  /**
    * Declares that the runtime validates this definition's arguments against
    * `parameters` before the policy pipeline runs, so a call that cannot execute
    * never reaches a `tools/pre-execute` listener or an approval prompt
@@ -106,7 +115,7 @@ interface ToolDefinition extends ToolSchema {
    */
   parallelScopeKey?(args: unknown): string
   /**
-   * Provenance of this definition: which server contributed it and through
+   * Source of this definition: which server contributed it and through
    * which transport. Omitted by first-party tools. Never model-visible:
    * `schemas()` projects only `ToolSchema` fields.
    */

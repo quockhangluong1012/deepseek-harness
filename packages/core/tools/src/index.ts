@@ -225,7 +225,7 @@ export interface ToolOutputDefinition {
 export type ToolTransport = 'stdio' | 'http'
 
 /**
- * Provenance metadata carried by one tool definition: which server contributed
+ * Source reference carried by one tool definition: which server contributed
  * it and through which transport, keyed by a hash of the endpoint rather than
  * the secret-bearing endpoint itself. Policy slices key default-ask,
  * install/invoke separation, and taint decisions on this seam; the registry
@@ -292,10 +292,9 @@ export interface ToolDefinition extends ToolSchema {
    * Declares that this tool cooperates with cancellation via `exec.signal` on
    * every path but has no natural time bound — it blocks on a human response,
    * which carries no fixed budget — so `@deepseek-ai/dsh-tool-call-timeout-policy`
-   * must apply neither its own `timeoutMs` (there is none) nor the deployment
-   * `defaultTimeoutMs` fallback. The tool remains cancellable through caller-
-   * driven aborts (task cancellation, session teardown); this only exempts the
-   * deployment-level idle-safety fallback. Mutually exclusive with `timeoutMs`.
+   * arms no tool-call deadline for it and the caller's own signal reaches the
+   * tool unwrapped. The tool remains cancellable through caller-driven aborts
+   * (task cancellation, session teardown). Mutually exclusive with `timeoutMs`.
    */
   readonly unboundedTimeout?: boolean
   /**
@@ -336,7 +335,7 @@ export interface ToolDefinition extends ToolSchema {
    */
   parallelScopeKey?(args: unknown): string
   /**
-   * Provenance of this definition: which server contributed it and through
+   * Source of this definition: which server contributed it and through
    * which transport. Omitted by first-party tools. Never model-visible:
    * `schemas()` projects only `ToolSchema` fields.
    */
@@ -1869,9 +1868,10 @@ export class ToolRuntime extends Service {
    * to deny, and an unmount mid-session degrades the same way on the next ask.
    * An agent-less execution also degrades: without an agent there is no
    * session to audit to and no UI to route to. Otherwise the outcome maps
-   * one-to-one — `allowed-once` proceeds; the three non-grants deny with
-   * distinct reasons so the model can tell a human "no" from an absent
-   * approval channel.
+   * one-to-one — an `allowed-*` outcome proceeds (the two scoped grants also
+   * tell the asker's own memory layer that the decision outlives this call),
+   * and the three non-grants deny with distinct reasons so the model can tell a
+   * human "no" from an absent approval channel.
    */
   private async serviceAsk(
     exec: ToolExecution,
@@ -1899,6 +1899,10 @@ export class ToolRuntime extends Service {
     })
     switch (outcome) {
       case 'allowed-once': return { decision: { kind: 'allow' }, approvalCancelled: false }
+      // The scoped grants execute this call; the asker that can name a scope
+      // records the rule itself, and one that cannot still runs the call.
+      case 'allowed-session':
+      case 'allowed-always': return { decision: { kind: 'allow' }, approvalCancelled: false }
       case 'rejected': return {
         decision: { kind: 'deny', reason: `the user rejected tool "${exec.name}"` },
         approvalCancelled: false,

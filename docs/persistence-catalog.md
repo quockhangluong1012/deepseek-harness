@@ -20,19 +20,19 @@ The [format references](persistence-changes/historical-formats/README.md) cover 
 | `SessionHeader` | header | `22c6899a78214dd841c266348ae997027ef391174ddb21127f1b71dc1b362824` | [`SessionHeader`](#persistence-type-sha256-22c6899a78214dd841c266348ae997027ef391174ddb21127f1b71dc1b362824) |
 | `JsonlHeaderLine` | header | `18ee62b8900a4c3d046700f05d7a4d49d6cab2a660a020c87481d1603dd8bd4f` | [`HeaderLine`](#persistence-type-sha256-18ee62b8900a4c3d046700f05d7a4d49d6cab2a660a020c87481d1603dd8bd4f) |
 | `SessionEventEnvelope` | envelope | `5776e5553ff2dfe3f5bc202dbb1e7c9f93e35a531aebb7764c23b2b6153b2ccc` | [`union (3 variants)`](#persistence-type-sha256-5776e5553ff2dfe3f5bc202dbb1e7c9f93e35a531aebb7764c23b2b6153b2ccc) |
-| `event:action/committed` | event | `08d895c504e1796bea4577b2cfe10c42ca295531b7fa442bb4fe55a657209395` | [`{ type: "action/committed" }`](#persistence-type-sha256-08d895c504e1796bea4577b2cfe10c42ca295531b7fa442bb4fe55a657209395) |
-| `event:action/decided` | event | `ac2e1e7b6fdca29da06a4b0230fbc37c1f91ebc310e6a49b95714d5e417b6bc1` | [`{ type: "action/decided" }`](#persistence-type-sha256-ac2e1e7b6fdca29da06a4b0230fbc37c1f91ebc310e6a49b95714d5e417b6bc1) |
+| `event:action/committed` | event | `788842324fe206895d542955e48d3e1c480f8a55317f3b824edc740be5fc294f` | [`{ type: "action/committed" }`](#persistence-type-sha256-788842324fe206895d542955e48d3e1c480f8a55317f3b824edc740be5fc294f) |
+| `event:action/decided` | event | `3fee9a1d90c278ac83b5f58b461f85e672d72659f1bee65f33c2d853ee94ef9c` | [`{ type: "action/decided" }`](#persistence-type-sha256-3fee9a1d90c278ac83b5f58b461f85e672d72659f1bee65f33c2d853ee94ef9c) |
 | `event:agent-preset/selected` | event | `a10c17474eaf2ddab7095a099e0fe3d046fc18e56c3e344fc8894c05ff9ef97b` | [`{ type: "agent-preset/selected" }`](#persistence-type-sha256-a10c17474eaf2ddab7095a099e0fe3d046fc18e56c3e344fc8894c05ff9ef97b) |
-| `event:agent/inbox/spliced` | event | `39776a128196c7509f8ab932704e410408eae1646ab630a308c3b420fa407a32` | [`{ type: "agent/inbox/spliced" }`](#persistence-type-sha256-39776a128196c7509f8ab932704e410408eae1646ab630a308c3b420fa407a32) |
+| `event:agent/inbox/spliced` | event | `abb186d6c65aac1ee917798c2ebc5c5a1769d42827b979d659829e3bec6000cd` | [`{ type: "agent/inbox/spliced" }`](#persistence-type-sha256-abb186d6c65aac1ee917798c2ebc5c5a1769d42827b979d659829e3bec6000cd) |
 | `event:approval/asked` | event | `3bfeb47b58606f4661904bc723da612782214c463d01e6d61cd6d6193d7374e1` | [`{ type: "approval/asked" }`](#persistence-type-sha256-3bfeb47b58606f4661904bc723da612782214c463d01e6d61cd6d6193d7374e1) |
-| `event:approval/decided` | event | `bb1ab3d08f49a9f3b265f844cd78d5c49813062a7b34b54904b426f85d0ff6e3` | [`{ type: "approval/decided" }`](#persistence-type-sha256-bb1ab3d08f49a9f3b265f844cd78d5c49813062a7b34b54904b426f85d0ff6e3) |
+| `event:approval/decided` | event | `f45611453839a5e630b3b7e3e825a0e7ef3c99804c46985135217a8a6fa44cb7` | [`{ type: "approval/decided" }`](#persistence-type-sha256-f45611453839a5e630b3b7e3e825a0e7ef3c99804c46985135217a8a6fa44cb7) |
 | `event:approval/policy` | event | `26718e15e7e395bce9642dba5bbe09b3b1a4ce2213d20d566cd9207d7fc5fb78` | [`{ type: "approval/policy" }`](#persistence-type-sha256-26718e15e7e395bce9642dba5bbe09b3b1a4ce2213d20d566cd9207d7fc5fb78) |
 | `event:assistant/attempt` | event | `15d5dfdd822aa35e115afd74a8982825a493880457774e6850bc1520b50875e4` | [`{ type: "assistant/attempt" }`](#persistence-type-sha256-15d5dfdd822aa35e115afd74a8982825a493880457774e6850bc1520b50875e4) |
 | `event:assistant/message` | event | `1033093edd0db80ff410e00830b523405e00bb0c7684948e531ff65095799625` | [`{ type: "assistant/message" }`](#persistence-type-sha256-1033093edd0db80ff410e00830b523405e00bb0c7684948e531ff65095799625) |
-| `event:budget/exceeded` | event | `126afc36b0158f9df6867df64456aba351851dffb45cc647c934f5088a5f533b` | [`{ type: "budget/exceeded" }`](#persistence-type-sha256-126afc36b0158f9df6867df64456aba351851dffb45cc647c934f5088a5f533b) |
-| `event:checkpoint/created` | event | `3c5f3e46f62ba61c77e610a22fbcb4b68482fbeca5e65f2735b7b0d0192b60a2` | [`{ type: "checkpoint/created" }`](#persistence-type-sha256-3c5f3e46f62ba61c77e610a22fbcb4b68482fbeca5e65f2735b7b0d0192b60a2) |
-| `event:checkpoint/resumed` | event | `1d3846c9fee308677667ca395155354956b0f54dd4477ed00faaae619e7d94b4` | [`{ type: "checkpoint/resumed" }`](#persistence-type-sha256-1d3846c9fee308677667ca395155354956b0f54dd4477ed00faaae619e7d94b4) |
-| `event:claim/updated` | event | `f5d042eb7d11628306134346617f4dc992edc6e6a97cbbbbdd87521cb16702f2` | [`{ type: "claim/updated" }`](#persistence-type-sha256-f5d042eb7d11628306134346617f4dc992edc6e6a97cbbbbdd87521cb16702f2) |
+| `event:budget/exceeded` | event | `7bfeba009193fd2e97e8e5e95186510ce52530c78f0a345ca1ae859fea15d1a0` | [`{ type: "budget/exceeded" }`](#persistence-type-sha256-7bfeba009193fd2e97e8e5e95186510ce52530c78f0a345ca1ae859fea15d1a0) |
+| `event:checkpoint/created` | event | `26cba28f734f5249eac9288fe1ea64aacbb315d0a7306369f990201ceae3d2c4` | [`{ type: "checkpoint/created" }`](#persistence-type-sha256-26cba28f734f5249eac9288fe1ea64aacbb315d0a7306369f990201ceae3d2c4) |
+| `event:checkpoint/resumed` | event | `f2315a4fc9c732c99760eb1007ffac4464c20f6b63bff84ef5d326590a1c4e8b` | [`{ type: "checkpoint/resumed" }`](#persistence-type-sha256-f2315a4fc9c732c99760eb1007ffac4464c20f6b63bff84ef5d326590a1c4e8b) |
+| `event:claim/updated` | event | `7837be22b9ee7ae25cb9417ce34f9315fbdf07e68057c186bc2363b3e3cbb9de` | [`{ type: "claim/updated" }`](#persistence-type-sha256-7837be22b9ee7ae25cb9417ce34f9315fbdf07e68057c186bc2363b3e3cbb9de) |
 | `event:command/done` | event | `15196447222782e773eb943c92b18316ce96b9af0f0cfddb6e57ba8274ecc5ff` | [`{ type: "command/done" }`](#persistence-type-sha256-15196447222782e773eb943c92b18316ce96b9af0f0cfddb6e57ba8274ecc5ff) |
 | `event:command/run` | event | `37184378c6439257d105c4e2022d80fc9c3a3f7c7f6ac661b00bc9f18d871006` | [`{ type: "command/run" }`](#persistence-type-sha256-37184378c6439257d105c4e2022d80fc9c3a3f7c7f6ac661b00bc9f18d871006) |
 | `event:compaction/end` | event | `b0127044ab31a702bddfd785d345f5abd7a70876746e895ce443afa3e60ddf2d` | [`{ type: "compaction/end" }`](#persistence-type-sha256-b0127044ab31a702bddfd785d345f5abd7a70876746e895ce443afa3e60ddf2d) |
@@ -40,46 +40,52 @@ The [format references](persistence-changes/historical-formats/README.md) cover 
 | `event:compaction/start` | event | `db874d463b0fdec77e9da1c4568f37cb70bd6596781eb93800db44fb8a116965` | [`{ type: "compaction/start" }`](#persistence-type-sha256-db874d463b0fdec77e9da1c4568f37cb70bd6596781eb93800db44fb8a116965) |
 | `event:compaction/summary` | event | `6abc83b9140f3925e2ae6a6e533feae779bdd71e5a22bae6a1cf7ddf09a40c27` | [`{ type: "compaction/summary" }`](#persistence-type-sha256-6abc83b9140f3925e2ae6a6e533feae779bdd71e5a22bae6a1cf7ddf09a40c27) |
 | `event:context/compiled` | event | `df071df8f4fab579c0a91686c9560a27fa6dda38e1d594c525164d868ff14f79` | [`{ type: "context/compiled" }`](#persistence-type-sha256-df071df8f4fab579c0a91686c9560a27fa6dda38e1d594c525164d868ff14f79) |
-| `event:delegation/issued` | event | `120a02a8a7313c38a0b0bda63276548b8c1fc3afe756a116071eefa848f75dfc` | [`{ type: "delegation/issued" }`](#persistence-type-sha256-120a02a8a7313c38a0b0bda63276548b8c1fc3afe756a116071eefa848f75dfc) |
-| `event:delegation/received` | event | `5186002667d10869f1b5d16b8409ea314f39e1bb4be6211f9d4c38bee694fd14` | [`{ type: "delegation/received" }`](#persistence-type-sha256-5186002667d10869f1b5d16b8409ea314f39e1bb4be6211f9d4c38bee694fd14) |
+| `event:delegation/issued` | event | `7e296cc024dde413ce97348d62d0a018952cfe6022c0c53c19d38b257443fd5f` | [`{ type: "delegation/issued" }`](#persistence-type-sha256-7e296cc024dde413ce97348d62d0a018952cfe6022c0c53c19d38b257443fd5f) |
+| `event:delegation/received` | event | `6eb4513f91358e3dcb891350020ed6b749022fc4d51f71a10dcb8f146f902c11` | [`{ type: "delegation/received" }`](#persistence-type-sha256-6eb4513f91358e3dcb891350020ed6b749022fc4d51f71a10dcb8f146f902c11) |
 | `event:deliverables/presented` | event | `13d3d180f977bf78081d487ffa0ecb75857349bcab29a5a3fb48189fca2a6176` | [`{ type: "deliverables/presented" }`](#persistence-type-sha256-13d3d180f977bf78081d487ffa0ecb75857349bcab29a5a3fb48189fca2a6176) |
-| `event:developer/message` | event | `323b4364fa1e174cc346607f6e345c95dc12ef5f8562459c04bd91bf58e8efaf` | [`{ type: "developer/message" }`](#persistence-type-sha256-323b4364fa1e174cc346607f6e345c95dc12ef5f8562459c04bd91bf58e8efaf) |
-| `event:evidence/recorded` | event | `091b30fac1dbbfd89ca4ca0f05571b91f6e6e8d50a26b3a039752f90641beaf4` | [`{ type: "evidence/recorded" }`](#persistence-type-sha256-091b30fac1dbbfd89ca4ca0f05571b91f6e6e8d50a26b3a039752f90641beaf4) |
-| `event:failure/recorded` | event | `5b38ecbd24196b3c4b2469f5756c09f761101f19ade7013f581ed1ce74dfd0ad` | [`{ type: "failure/recorded" }`](#persistence-type-sha256-5b38ecbd24196b3c4b2469f5756c09f761101f19ade7013f581ed1ce74dfd0ad) |
+| `event:developer/message` | event | `f1647c900c8c9e22705e1eaf9aa862cb6bea6417f9c95de036bcaefac472125e` | [`{ type: "developer/message" }`](#persistence-type-sha256-f1647c900c8c9e22705e1eaf9aa862cb6bea6417f9c95de036bcaefac472125e) |
+| `event:evidence/recorded` | event | `9de379a1acc7647eb6c0c4411bbcc877b296b14374c248f88818afcf35f23992` | [`{ type: "evidence/recorded" }`](#persistence-type-sha256-9de379a1acc7647eb6c0c4411bbcc877b296b14374c248f88818afcf35f23992) |
+| `event:failure/diagnosed` | event | `f8c198d5fef348655e7c0884189e6de2ecc506b37461e62c4f66efc478479ccc` | [`{ type: "failure/diagnosed" }`](#persistence-type-sha256-f8c198d5fef348655e7c0884189e6de2ecc506b37461e62c4f66efc478479ccc) |
+| `event:failure/recorded` | event | `c7b18739ef4d3be874931ecb0e487fc063cc71225f97525013d6ff405421990a` | [`{ type: "failure/recorded" }`](#persistence-type-sha256-c7b18739ef4d3be874931ecb0e487fc063cc71225f97525013d6ff405421990a) |
 | `event:feedback/message-delete` | event | `3ee93b06f3a125850337602bcdf155d2538c43a5c944ec55b1b3c365152d6796` | [`{ type: "feedback/message-delete" }`](#persistence-type-sha256-3ee93b06f3a125850337602bcdf155d2538c43a5c944ec55b1b3c365152d6796) |
 | `event:feedback/message-put` | event | `b5086d249e8502e9ead1d39156bb8d559bde7951cac0f14ce150345b4e42a2bf` | [`{ type: "feedback/message-put" }`](#persistence-type-sha256-b5086d249e8502e9ead1d39156bb8d559bde7951cac0f14ce150345b4e42a2bf) |
 | `event:feedback/record` | event | `b54940ff095c17e874c5be03815f4c2145a256cf3a1d34dae4ab2f7769dfffe8` | [`{ type: "feedback/record" }`](#persistence-type-sha256-b54940ff095c17e874c5be03815f4c2145a256cf3a1d34dae4ab2f7769dfffe8) |
 | `event:goal/change` | event | `592ed1c602a431ef09b3da454efabb8b70db10e783013248dd37dc4baaa64fbd` | [`{ type: "goal/change" }`](#persistence-type-sha256-592ed1c602a431ef09b3da454efabb8b70db10e783013248dd37dc4baaa64fbd) |
+| `event:governor/decided` | event | `a233da3dc225028969d90a893b2f9e5352ffaa14e0c82dbc4aea1c7c33c8390f` | [`{ type: "governor/decided" }`](#persistence-type-sha256-a233da3dc225028969d90a893b2f9e5352ffaa14e0c82dbc4aea1c7c33c8390f) |
 | `event:hook/invoked` | event | `8a6e1ec9e8db346b0e02f027db73c07a94f067a26d40c1aef1abd09c47ce7ba0` | [`{ type: "hook/invoked" }`](#persistence-type-sha256-8a6e1ec9e8db346b0e02f027db73c07a94f067a26d40c1aef1abd09c47ce7ba0) |
 | `event:hook/result` | event | `e75916628f3f10c2d50658bd143052a46285fbf1a9a700ba54947614603d26b4` | [`{ type: "hook/result" }`](#persistence-type-sha256-e75916628f3f10c2d50658bd143052a46285fbf1a9a700ba54947614603d26b4) |
-| `event:hypothesis/updated` | event | `25ed756c00e9dbb833f3f41908ec79171f581500d205ccfdf29207d4c7a9800e` | [`{ type: "hypothesis/updated" }`](#persistence-type-sha256-25ed756c00e9dbb833f3f41908ec79171f581500d205ccfdf29207d4c7a9800e) |
+| `event:hypothesis/updated` | event | `1a92bddd99c323805870287a67b45f7d2f8153ffea5a13cab4ed5d1ff398f725` | [`{ type: "hypothesis/updated" }`](#persistence-type-sha256-1a92bddd99c323805870287a67b45f7d2f8153ffea5a13cab4ed5d1ff398f725) |
 | `event:image/offload` | event | `b222069eea2d768065161c1147b1f2c78c1b54328c84b3586ae5c8f91b8ed35e` | [`{ type: "image/offload" }`](#persistence-type-sha256-b222069eea2d768065161c1147b1f2c78c1b54328c84b3586ae5c8f91b8ed35e) |
 | `event:llm/fallback` | event | `1de196c2aba6d4bbba982cdb63ffa7f81328c9daca09bdc78fb933135c9317f3` | [`{ type: "llm/fallback" }`](#persistence-type-sha256-1de196c2aba6d4bbba982cdb63ffa7f81328c9daca09bdc78fb933135c9317f3) |
 | `event:llm/retry` | event | `525254db03b1d1e6b74cf55aced52817568331ac1f96c0818728910b6692e336` | [`{ type: "llm/retry" }`](#persistence-type-sha256-525254db03b1d1e6b74cf55aced52817568331ac1f96c0818728910b6692e336) |
 | `event:llm/retry-started` | event | `48e5c9861f16ac07e78cb7b5ae9dabdf7bb85c58baed5a51b4ad275050ea58e3` | [`{ type: "llm/retry-started" }`](#persistence-type-sha256-48e5c9861f16ac07e78cb7b5ae9dabdf7bb85c58baed5a51b4ad275050ea58e3) |
 | `event:model/selection` | event | `35203ba7ad5ef6f97d556b85df20ae98f04f09c65748cecdf8eefdb8b6405ffc` | [`{ type: "model/selection" }`](#persistence-type-sha256-35203ba7ad5ef6f97d556b85df20ae98f04f09c65748cecdf8eefdb8b6405ffc) |
 | `event:permission/preset` | event | `5c45bf4c544a7211dcd8ba6ba7e5f1bc39b49e7a9df9d5cbdc8e87c22771b37b` | [`{ type: "permission/preset" }`](#persistence-type-sha256-5c45bf4c544a7211dcd8ba6ba7e5f1bc39b49e7a9df9d5cbdc8e87c22771b37b) |
+| `event:permission/rules` | event | `8eab4641f9135b2a4e92a820dcd8824ae00c3b77e371cf2bfd5e776cca0c4df9` | [`{ type: "permission/rules" }`](#persistence-type-sha256-8eab4641f9135b2a4e92a820dcd8824ae00c3b77e371cf2bfd5e776cca0c4df9) |
 | `event:plan/mode` | event | `a7cf43ce7c2a4c038feed1885cd7a00d5c6ee2d90a7e0d56b46f78a3e1ca327f` | [`{ type: "plan/mode" }`](#persistence-type-sha256-a7cf43ce7c2a4c038feed1885cd7a00d5c6ee2d90a7e0d56b46f78a3e1ca327f) |
-| `event:recovery/decided` | event | `0b3422aaa8086c7f01ff5e619e28b95efe6ffec7528ecf3cbdb1cf95e48c9e60` | [`{ type: "recovery/decided" }`](#persistence-type-sha256-0b3422aaa8086c7f01ff5e619e28b95efe6ffec7528ecf3cbdb1cf95e48c9e60) |
-| `event:recovery/started` | event | `8f098954477517a8defbbbb818ecb82724e604952d1100d98c5d1df6bb19b208` | [`{ type: "recovery/started" }`](#persistence-type-sha256-8f098954477517a8defbbbb818ecb82724e604952d1100d98c5d1df6bb19b208) |
+| `event:recovery/decided` | event | `f6c87f95ff75f2e7a02eb9eba7d1b3bd97eef314b08f5554a2acc998459c080f` | [`{ type: "recovery/decided" }`](#persistence-type-sha256-f6c87f95ff75f2e7a02eb9eba7d1b3bd97eef314b08f5554a2acc998459c080f) |
+| `event:recovery/started` | event | `89b02d37ce3be862b20be6dc11509c77814bae1bce6e477a2695f7e699f5db21` | [`{ type: "recovery/started" }`](#persistence-type-sha256-89b02d37ce3be862b20be6dc11509c77814bae1bce6e477a2695f7e699f5db21) |
 | `event:request/context` | event | `37cbc9cf06d494cfe5c67f078af1605eacb8e4c2c853e9e26455b73de0ee7ccf` | [`{ type: "request/context" }`](#persistence-type-sha256-37cbc9cf06d494cfe5c67f078af1605eacb8e4c2c853e9e26455b73de0ee7ccf) |
 | `event:request/header` | event | `4208123b50df5006b181481ab45fcf1cde807b88d3fd4d340090bc2e202fac41` | [`{ type: "request/header" }`](#persistence-type-sha256-4208123b50df5006b181481ab45fcf1cde807b88d3fd4d340090bc2e202fac41) |
+| `event:review/report` | event | `f1d919a51f323ec6689944d818b9df2874403602d1733705f7c1a1c4ff399cec` | [`{ type: "review/report" }`](#persistence-type-sha256-f1d919a51f323ec6689944d818b9df2874403602d1733705f7c1a1c4ff399cec) |
 | `event:sandbox/mode` | event | `516da4cdd6d2f1e5ce488e648578ca51f40e458f707b803e5b24de870e799415` | [`{ type: "sandbox/mode" }`](#persistence-type-sha256-516da4cdd6d2f1e5ce488e648578ca51f40e458f707b803e5b24de870e799415) |
 | `event:schedule/change` | event | `2a7f86849ae54b3398ee49661a757c4fcb59a6192b7036ee2ff514617e13fb42` | [`{ type: "schedule/change" }`](#persistence-type-sha256-2a7f86849ae54b3398ee49661a757c4fcb59a6192b7036ee2ff514617e13fb42) |
 | `event:security/scan` | event | `d7398a9a37b2f88ae82945493ad8b6ebdba6c4fe3fea09044ce1bb2139b7d8f6` | [`{ type: "security/scan" }`](#persistence-type-sha256-d7398a9a37b2f88ae82945493ad8b6ebdba6c4fe3fea09044ce1bb2139b7d8f6) |
 | `event:session-log-deepseek/delivery-accepted` | event | `d63b8b8ffad9c02fd80c43a17df4f240c1fe8118ecca9de34f9d5871838ab5b9` | [`{ type: "session-log-deepseek/delivery-accepted" }`](#persistence-type-sha256-d63b8b8ffad9c02fd80c43a17df4f240c1fe8118ecca9de34f9d5871838ab5b9) |
 | `event:session/end-seed` | event | `5e6db6e24948d4a853c71cb9fabd252ad051ce93d4672c1266cf837c1c17b84e` | [`{ type: "session/end-seed" }`](#persistence-type-sha256-5e6db6e24948d4a853c71cb9fabd252ad051ce93d4672c1266cf837c1c17b84e) |
 | `event:session/title` | event | `1b912703e2d64f91c99c675b8f805b01076c8325b905c1218ad81ef0b24909d5` | [`{ type: "session/title" }`](#persistence-type-sha256-1b912703e2d64f91c99c675b8f805b01076c8325b905c1218ad81ef0b24909d5) |
-| `event:session/title-llm-request` | event | `c4907659735b456a834427fd1e3f794f76c02d3c6cb3a19e0e7b6c5258a331bb` | [`{ type: "session/title-llm-request" }`](#persistence-type-sha256-c4907659735b456a834427fd1e3f794f76c02d3c6cb3a19e0e7b6c5258a331bb) |
+| `event:session/title-llm-request` | event | `5d2a4200069dc806bb2354472f52e4496237f962f4287dabb64b40a171776549` | [`{ type: "session/title-llm-request" }`](#persistence-type-sha256-5d2a4200069dc806bb2354472f52e4496237f962f4287dabb64b40a171776549) |
 | `event:step/end` | event | `e0a787e6ec76c7c94fecbc501b489164ab0293db05bc947914077ad01e674f05` | [`{ type: "step/end" }`](#persistence-type-sha256-e0a787e6ec76c7c94fecbc501b489164ab0293db05bc947914077ad01e674f05) |
 | `event:step/start` | event | `4513e088d43e6c68425be30451b9f961cc264fe7318ca62681c41d4d78615986` | [`{ type: "step/start" }`](#persistence-type-sha256-4513e088d43e6c68425be30451b9f961cc264fe7318ca62681c41d4d78615986) |
 | `event:subagent/catalog` | event | `3abae7324356f155cb42450c00b806d134ec93bd6439d2063b8d724162d58604` | [`{ type: "subagent/catalog" }`](#persistence-type-sha256-3abae7324356f155cb42450c00b806d134ec93bd6439d2063b8d724162d58604) |
 | `event:subagent/descriptor` | event | `b79ada42962cad0190a9d465805260567621fa3a4abd757eb31e6016b52d5ab5` | [`{ type: "subagent/descriptor" }`](#persistence-type-sha256-b79ada42962cad0190a9d465805260567621fa3a4abd757eb31e6016b52d5ab5) |
 | `event:subagent/model-selection-policy` | event | `a6567ccb2e530606b775371eb4fa31468d72084339968e8b0440a516a23b39dc` | [`{ type: "subagent/model-selection-policy" }`](#persistence-type-sha256-a6567ccb2e530606b775371eb4fa31468d72084339968e8b0440a516a23b39dc) |
 | `event:system/message` | event | `69081694be231d56fd9580ba14645fd5e35373202605d5c5c841a9435b5fa3b1` | [`{ type: "system/message" }`](#persistence-type-sha256-69081694be231d56fd9580ba14645fd5e35373202605d5c5c841a9435b5fa3b1) |
-| `event:task/created` | event | `c2209d455f63782ee3f25e3d1ccfdee93d90faf3a0de93b5db04f94f4c394be7` | [`{ type: "task/created" }`](#persistence-type-sha256-c2209d455f63782ee3f25e3d1ccfdee93d90faf3a0de93b5db04f94f4c394be7) |
-| `event:task/plan` | event | `5fa943ba2fb6e5d8b3f8909d58a8b37458bed859f3533e64ff882739f5b30b63` | [`{ type: "task/plan" }`](#persistence-type-sha256-5fa943ba2fb6e5d8b3f8909d58a8b37458bed859f3533e64ff882739f5b30b63) |
-| `event:task/transitioned` | event | `75898e2317836bd990551de2d24451e84007eac5a26335c2e7637df591831040` | [`{ type: "task/transitioned" }`](#persistence-type-sha256-75898e2317836bd990551de2d24451e84007eac5a26335c2e7637df591831040) |
+| `event:task/created` | event | `c9d793a16fb037016aa63fa55528132441d3c899ae6ea322938423055b9c1650` | [`{ type: "task/created" }`](#persistence-type-sha256-c9d793a16fb037016aa63fa55528132441d3c899ae6ea322938423055b9c1650) |
+| `event:task/phase` | event | `7c6fb07720e9168e923c275f392f0328cbcc15cdccb3062c3db42a36f7b866d3` | [`{ type: "task/phase" }`](#persistence-type-sha256-7c6fb07720e9168e923c275f392f0328cbcc15cdccb3062c3db42a36f7b866d3) |
+| `event:task/plan` | event | `5b5bba4e18f3a7443f3d793351fe8130186b675c19286049c10759f1aa4503a6` | [`{ type: "task/plan" }`](#persistence-type-sha256-5b5bba4e18f3a7443f3d793351fe8130186b675c19286049c10759f1aa4503a6) |
+| `event:task/review` | event | `715ef1d225b50247bf84b4f81f3d96ef3474a8e753da9b1c220ed0358278f4ce` | [`{ type: "task/review" }`](#persistence-type-sha256-715ef1d225b50247bf84b4f81f3d96ef3474a8e753da9b1c220ed0358278f4ce) |
+| `event:task/transitioned` | event | `159c55ac98c2d613a3cfc5f90a5c579a1b9bf66ab5a1d7eb603a998b9bc04ec2` | [`{ type: "task/transitioned" }`](#persistence-type-sha256-159c55ac98c2d613a3cfc5f90a5c579a1b9bf66ab5a1d7eb603a998b9bc04ec2) |
 | `event:team/member` | event | `4fb59762612c3e3ac3a3bd4f84c9c148d3c3893bd422ba2b201cc039fabd49bc` | [`{ type: "team/member" }`](#persistence-type-sha256-4fb59762612c3e3ac3a3bd4f84c9c148d3c3893bd422ba2b201cc039fabd49bc) |
 | `event:team/message/delivered` | event | `48f9c19417a1abbedfa59f4667bba36b93ac2db407adf5e84cb3ba0de30942cb` | [`{ type: "team/message/delivered" }`](#persistence-type-sha256-48f9c19417a1abbedfa59f4667bba36b93ac2db407adf5e84cb3ba0de30942cb) |
 | `event:team/message/queued` | event | `21fb6a90d5068f6a0003b7ab316ed2f56342477146a65c00db0f13c4d8df667d` | [`{ type: "team/message/queued" }`](#persistence-type-sha256-21fb6a90d5068f6a0003b7ab316ed2f56342477146a65c00db0f13c4d8df667d) |
@@ -95,9 +101,9 @@ The [format references](persistence-changes/historical-formats/README.md) cover 
 | `event:tool/result` | event | `7c9f44e90a0058f4cc532ae20dad0c10afa6eba22e70a6c79fc79490bad64397` | [`{ type: "tool/result" }`](#persistence-type-sha256-7c9f44e90a0058f4cc532ae20dad0c10afa6eba22e70a6c79fc79490bad64397) |
 | `event:turn/end` | event | `85f15e198c730df32e4db6e51cae200d86685208b1eaabbf1bf6be555de3a92a` | [`{ type: "turn/end" }`](#persistence-type-sha256-85f15e198c730df32e4db6e51cae200d86685208b1eaabbf1bf6be555de3a92a) |
 | `event:turn/start` | event | `aa0957eca50aeb28bcd2e6930b95809926edacb550c8c340ba526ba6b861b3d8` | [`{ type: "turn/start" }`](#persistence-type-sha256-aa0957eca50aeb28bcd2e6930b95809926edacb550c8c340ba526ba6b861b3d8) |
-| `event:user/message` | event | `5b2f42e67ff7a6f45e13141c1383e19b1a9e99bb1545f3ce2da4ff16edccb942` | [`{ type: "user/message" }`](#persistence-type-sha256-5b2f42e67ff7a6f45e13141c1383e19b1a9e99bb1545f3ce2da4ff16edccb942) |
-| `event:verification/requested` | event | `8b12962106d94de745466a7e5d31fd9c6ebf9232c0cc9d470640dea5aa741295` | [`{ type: "verification/requested" }`](#persistence-type-sha256-8b12962106d94de745466a7e5d31fd9c6ebf9232c0cc9d470640dea5aa741295) |
-| `event:verification/result` | event | `f514b1a9c3bf4138691e4c77a6932b347579e0c127931266b208246911902356` | [`{ type: "verification/result" }`](#persistence-type-sha256-f514b1a9c3bf4138691e4c77a6932b347579e0c127931266b208246911902356) |
+| `event:user/message` | event | `c55d72f5bc892cf72efd23b2a0731091d35957d27750120361843f848db58fc8` | [`{ type: "user/message" }`](#persistence-type-sha256-c55d72f5bc892cf72efd23b2a0731091d35957d27750120361843f848db58fc8) |
+| `event:verification/requested` | event | `5fad90eaf2ce616482f11381ccad69db412c1d70b3ab7fe38af71607e99b22f7` | [`{ type: "verification/requested" }`](#persistence-type-sha256-5fad90eaf2ce616482f11381ccad69db412c1d70b3ab7fe38af71607e99b22f7) |
+| `event:verification/result` | event | `fc7b22272942d1ecb36a3b6efe4d04b02563056d06de27388a7fd01ce8149022` | [`{ type: "verification/result" }`](#persistence-type-sha256-fc7b22272942d1ecb36a3b6efe4d04b02563056d06de27388a7fd01ce8149022) |
 | `event:web/deepseek-search-llm-request` | event | `cf6e3aaf1e2de6480aa0157730a41b9a492108a55304100b0f7e112711dd4331` | [`{ type: "web/deepseek-search-llm-request" }`](#persistence-type-sha256-cf6e3aaf1e2de6480aa0157730a41b9a492108a55304100b0f7e112711dd4331) |
 | `event:workspace/changes` | event | `e308ccf867a5398e316e0af8cb6ce238a8d33a63b9b384c8250a686786285f72` | [`{ type: "workspace/changes" }`](#persistence-type-sha256-e308ccf867a5398e316e0af8cb6ce238a8d33a63b9b384c8250a686786285f72) |
 
@@ -196,7 +202,7 @@ Sources: [`packages/core/session/src/types.ts:437`](../packages/core/session/src
 'action/committed': KernelEventData<ActionCommittedEvent>
 ```
 
-Source: [`packages/runtime/agent-kernel/src/types.ts:1401`](../packages/runtime/agent-kernel/src/types.ts)
+Source: [`packages/runtime/agent-kernel/src/types.ts:1863`](../packages/runtime/agent-kernel/src/types.ts)
 
 <a id="actiondecided--log-only"></a>
 
@@ -210,7 +216,7 @@ Source: [`packages/runtime/agent-kernel/src/types.ts:1401`](../packages/runtime/
 'action/decided': KernelEventData<ActionDecidedEvent>
 ```
 
-Source: [`packages/runtime/agent-kernel/src/types.ts:1394`](../packages/runtime/agent-kernel/src/types.ts)
+Source: [`packages/runtime/agent-kernel/src/types.ts:1856`](../packages/runtime/agent-kernel/src/types.ts)
 
 ### `agent/*`
 
@@ -278,7 +284,7 @@ Source: [`packages/preset/agent-preset-registry/src/session.ts:28`](../packages/
 
 Types: [ToolCallId](subsystems/core.md)
 
-Source: [`packages/interaction/user-approval/src/types.ts:44`](../packages/interaction/user-approval/src/types.ts)
+Source: [`packages/interaction/user-approval/src/types.ts:54`](../packages/interaction/user-approval/src/types.ts)
 
 <a id="approvaldecided--log-only"></a>
 
@@ -296,7 +302,7 @@ Source: [`packages/interaction/user-approval/src/types.ts:44`](../packages/inter
 }
 ```
 
-Source: [`packages/interaction/user-approval/src/types.ts:55`](../packages/interaction/user-approval/src/types.ts)
+Source: [`packages/interaction/user-approval/src/types.ts:65`](../packages/interaction/user-approval/src/types.ts)
 
 <a id="approvalpolicy--log-only"></a>
 
@@ -375,16 +381,16 @@ Source: [`packages/core/session/src/types.ts:347`](../packages/core/session/src/
 
 ```ts persistence-catalog
 /**
- * One rejected step of a turn at a reached ceiling, written immediately
- * before the rejection. Log-only (never model surface): the cut is still
- * visible as the turn's `blocked` end, so this event only adds what that
- * reason and the host warning cannot carry into the log — the ceiling, the
- * observed value, and the limit.
+ * One rejected step at a reached ceiling, written immediately before the
+ * rejection. Log-only (never model surface): the cut is still visible as
+ * the turn's `blocked` end, so this event only adds what that reason and
+ * the host warning cannot carry into the log — the budget and ceiling, the
+ * observed value, the limit, and every other ceiling's configured state.
  */
 'budget/exceeded': BudgetExceededEventData
 ```
 
-Source: [`packages/guard/budgets/src/types.ts:37`](../packages/guard/budgets/src/types.ts)
+Source: [`packages/guard/budgets/src/types.ts:85`](../packages/guard/budgets/src/types.ts)
 
 ### `checkpoint/*`
 
@@ -400,7 +406,7 @@ Source: [`packages/guard/budgets/src/types.ts:37`](../packages/guard/budgets/src
 'checkpoint/created': KernelEventData<Checkpoint>
 ```
 
-Source: [`packages/runtime/agent-kernel/src/types.ts:1443`](../packages/runtime/agent-kernel/src/types.ts)
+Source: [`packages/runtime/agent-kernel/src/types.ts:1927`](../packages/runtime/agent-kernel/src/types.ts)
 
 <a id="checkpointresumed--log-only"></a>
 
@@ -411,7 +417,7 @@ Source: [`packages/runtime/agent-kernel/src/types.ts:1443`](../packages/runtime/
 'checkpoint/resumed': KernelEventData<CheckpointResumedRecord>
 ```
 
-Source: [`packages/runtime/agent-kernel/src/types.ts:1445`](../packages/runtime/agent-kernel/src/types.ts)
+Source: [`packages/runtime/agent-kernel/src/types.ts:1929`](../packages/runtime/agent-kernel/src/types.ts)
 
 ### `claim/*`
 
@@ -427,7 +433,7 @@ Source: [`packages/runtime/agent-kernel/src/types.ts:1445`](../packages/runtime/
 'claim/updated': KernelEventData<TaskClaim>
 ```
 
-Source: [`packages/runtime/agent-kernel/src/types.ts:1412`](../packages/runtime/agent-kernel/src/types.ts)
+Source: [`packages/runtime/agent-kernel/src/types.ts:1874`](../packages/runtime/agent-kernel/src/types.ts)
 
 ### `command/*`
 
@@ -606,7 +612,7 @@ Source: [`packages/compaction/compaction/src/types.ts:35`](../packages/compactio
 'context/compiled': ContextCompilationRecord
 ```
 
-Source: [`packages/runtime/agent-context/src/types.ts:151`](../packages/runtime/agent-context/src/types.ts)
+Source: [`packages/runtime/agent-context/src/types.ts:183`](../packages/runtime/agent-context/src/types.ts)
 
 ### `delegation/*`
 
@@ -623,7 +629,7 @@ Source: [`packages/runtime/agent-context/src/types.ts:151`](../packages/runtime/
 'delegation/issued': KernelEventData<DelegationReceipt>
 ```
 
-Source: [`packages/runtime/agent-kernel/src/types.ts:1458`](../packages/runtime/agent-kernel/src/types.ts)
+Source: [`packages/runtime/agent-kernel/src/types.ts:1942`](../packages/runtime/agent-kernel/src/types.ts)
 
 <a id="delegationreceived--log-only"></a>
 
@@ -639,7 +645,7 @@ Source: [`packages/runtime/agent-kernel/src/types.ts:1458`](../packages/runtime/
 'delegation/received': KernelEventData<DelegationReceipt>
 ```
 
-Source: [`packages/runtime/agent-kernel/src/types.ts:1452`](../packages/runtime/agent-kernel/src/types.ts)
+Source: [`packages/runtime/agent-kernel/src/types.ts:1936`](../packages/runtime/agent-kernel/src/types.ts)
 
 ### `deliverables/*`
 
@@ -690,9 +696,33 @@ Source: [`packages/core/session/src/types.ts:317`](../packages/core/session/src/
 'evidence/recorded': KernelEventData<Evidence>
 ```
 
-Source: [`packages/runtime/agent-kernel/src/types.ts:1407`](../packages/runtime/agent-kernel/src/types.ts)
+Source: [`packages/runtime/agent-kernel/src/types.ts:1869`](../packages/runtime/agent-kernel/src/types.ts)
 
 ### `failure/*`
+
+<a id="failurediagnosed--log-only"></a>
+
+#### `failure/diagnosed` — log-only
+
+```ts persistence-catalog
+/**
+ * The kernel's diagnosis of one classified failure, recorded before its
+ * recovery is decided: the family and severity, the task facts the failure
+ * is read against, and the recovery ladder the diagnosis recommends.
+ * Log-only.
+ * @param failureId - failure the diagnosis answers.
+ * @param category - family the failure belongs to.
+ * @param severity - how much the failure threatens the task.
+ * @param evidence - observations the task had recorded at diagnosis time.
+ * @param hypotheses - questions the task was testing at diagnosis time.
+ * @param recommendedActions - recoveries the diagnosis recommends, in preference order.
+ * @param detail - why the diagnosis reads this way.
+ * @param at - Unix epoch milliseconds the diagnosis was recorded.
+ */
+'failure/diagnosed': KernelEventData<FailureDiagnosis>
+```
+
+Source: [`packages/runtime/agent-kernel/src/types.ts:1908`](../packages/runtime/agent-kernel/src/types.ts)
 
 <a id="failurerecorded--log-only"></a>
 
@@ -706,7 +736,7 @@ Source: [`packages/runtime/agent-kernel/src/types.ts:1407`](../packages/runtime/
 'failure/recorded': KernelEventData<FailureRecord>
 ```
 
-Source: [`packages/runtime/agent-kernel/src/types.ts:1431`](../packages/runtime/agent-kernel/src/types.ts)
+Source: [`packages/runtime/agent-kernel/src/types.ts:1893`](../packages/runtime/agent-kernel/src/types.ts)
 
 ### `feedback/*`
 
@@ -761,6 +791,24 @@ Source: [`packages/feedback/command-feedback/src/types.ts:40`](../packages/feedb
 
 Source: [`packages/goal/goal/src/domain.ts:73`](../packages/goal/goal/src/domain.ts)
 
+### `governor/*`
+
+<a id="governordecided--log-only"></a>
+
+#### `governor/decided` — log-only
+
+```ts persistence-catalog
+/**
+ * One step boundary's measured movement and the governor's decision for the
+ * step that follows, with the reasons behind it. Log-only: it never enters
+ * model context, and a step that moved something resolves the loop and
+ * liveness failures recorded against the step that did not.
+ */
+'governor/decided': KernelEventData<GovernorDecisionRecord>
+```
+
+Source: [`packages/runtime/agent-kernel/src/types.ts:1922`](../packages/runtime/agent-kernel/src/types.ts)
+
 ### `hook/*`
 
 <a id="hookinvoked--log-only"></a>
@@ -795,8 +843,10 @@ Source: [`packages/hooks/hook-protocol/src/types.ts:19`](../packages/hooks/hook-
 ```ts persistence-catalog
 /**
  * Log-only outcome paired to `hook/invoked` by `handlerId`. Decision is the
- * parsed permission result, `stop` for `continue:false`, or `pass`; exit code
- * may be absent, stderr is bounded, and duration is wall-clock runtime.
+ * parsed permission result, `stop` for `continue:false`, `transport-error`
+ * for a failed HTTP hook transport (which fails closed), or `pass`; exit code
+ * may be absent (an HTTP hook never records one), stderr is bounded, and
+ * duration is wall-clock runtime.
  */
 'hook/result': {
   turn: number
@@ -809,7 +859,7 @@ Source: [`packages/hooks/hook-protocol/src/types.ts:19`](../packages/hooks/hook-
 }
 ```
 
-Source: [`packages/hooks/hook-protocol/src/types.ts:31`](../packages/hooks/hook-protocol/src/types.ts)
+Source: [`packages/hooks/hook-protocol/src/types.ts:33`](../packages/hooks/hook-protocol/src/types.ts)
 
 ### `hypothesis/*`
 
@@ -825,7 +875,7 @@ Source: [`packages/hooks/hook-protocol/src/types.ts:31`](../packages/hooks/hook-
 'hypothesis/updated': KernelEventData<TaskHypothesis>
 ```
 
-Source: [`packages/runtime/agent-kernel/src/types.ts:1417`](../packages/runtime/agent-kernel/src/types.ts)
+Source: [`packages/runtime/agent-kernel/src/types.ts:1879`](../packages/runtime/agent-kernel/src/types.ts)
 
 ### `image/*`
 
@@ -918,7 +968,24 @@ Source: [`packages/api/session-controller/src/types.ts:40`](../packages/api/sess
 'permission/preset': { preset: string }
 ```
 
-Source: [`packages/interaction/permission-presets/src/index.ts:62`](../packages/interaction/permission-presets/src/index.ts)
+Source: [`packages/interaction/permission-presets/src/index.ts:79`](../packages/interaction/permission-presets/src/index.ts)
+
+<a id="permissionrules--log-only"></a>
+
+#### `permission/rules` — log-only
+
+```ts persistence-catalog
+/**
+ * The complete set of rules the user chose to remember, in one log-only
+ * whole-value event: remembering one grant or revoking rules both append
+ * the resulting set, and the last event wins. The set is the durable home
+ * of an `allowed-session` or `allowed-always` approval outcome, so replay
+ * restores what the user stopped being asked about.
+ */
+'permission/rules': { rules: RememberedRule[] }
+```
+
+Source: [`packages/interaction/permission-presets/src/index.ts:87`](../packages/interaction/permission-presets/src/index.ts)
 
 ### `plan/*`
 
@@ -935,7 +1002,7 @@ Source: [`packages/interaction/permission-presets/src/index.ts:62`](../packages/
 'plan/mode': { active: boolean }
 ```
 
-Source: [`packages/plan/plan-mode/src/index.ts:56`](../packages/plan/plan-mode/src/index.ts)
+Source: [`packages/plan/plan-mode/src/index.ts:57`](../packages/plan/plan-mode/src/index.ts)
 
 ### `recovery/*`
 
@@ -951,7 +1018,7 @@ Source: [`packages/plan/plan-mode/src/index.ts:56`](../packages/plan/plan-mode/s
 'recovery/decided': KernelEventData<RecoveryDecision>
 ```
 
-Source: [`packages/runtime/agent-kernel/src/types.ts:1438`](../packages/runtime/agent-kernel/src/types.ts)
+Source: [`packages/runtime/agent-kernel/src/types.ts:1915`](../packages/runtime/agent-kernel/src/types.ts)
 
 <a id="recoverystarted--log-only"></a>
 
@@ -962,7 +1029,7 @@ Source: [`packages/runtime/agent-kernel/src/types.ts:1438`](../packages/runtime/
 'recovery/started': KernelEventData<RecoveryStartedRecord>
 ```
 
-Source: [`packages/runtime/agent-kernel/src/types.ts:1433`](../packages/runtime/agent-kernel/src/types.ts)
+Source: [`packages/runtime/agent-kernel/src/types.ts:1910`](../packages/runtime/agent-kernel/src/types.ts)
 
 ### `request/*`
 
@@ -1000,6 +1067,19 @@ Source: [`packages/core/session/src/types.ts:408`](../packages/core/session/src/
 ```
 
 Source: [`packages/core/session/src/types.ts:396`](../packages/core/session/src/types.ts)
+
+### `review/*`
+
+<a id="reviewreport--log-only"></a>
+
+#### `review/report` — log-only
+
+```ts persistence-catalog
+/** One settled independent review; log-only, with no surface effect. */
+'review/report': ReviewReportEvent
+```
+
+Source: [`packages/subagent/command-review/src/reviewer.ts:87`](../packages/subagent/command-review/src/reviewer.ts)
 
 ### `sandbox/*`
 
@@ -1275,7 +1355,23 @@ Source: [`packages/core/session/src/types.ts:336`](../packages/core/session/src/
 'task/created': KernelEventData<TaskContract>
 ```
 
-Source: [`packages/runtime/agent-kernel/src/types.ts:1377`](../packages/runtime/agent-kernel/src/types.ts)
+Source: [`packages/runtime/agent-kernel/src/types.ts:1839`](../packages/runtime/agent-kernel/src/types.ts)
+
+<a id="taskphase--log-only"></a>
+
+#### `task/phase` — log-only
+
+```ts persistence-catalog
+/**
+ * One phase entry of the coding lifecycle (§10.5). The fold of these
+ * events over `task/created` is the pipeline the task ran, including the
+ * repair returns a failed check took. Log-only: it never enters model
+ * context.
+ */
+'task/phase': KernelEventData<CodingPhaseRecord>
+```
+
+Source: [`packages/runtime/agent-kernel/src/coding-lifecycle.ts:658`](../packages/runtime/agent-kernel/src/coding-lifecycle.ts)
 
 <a id="taskplan--log-only"></a>
 
@@ -1289,7 +1385,21 @@ Source: [`packages/runtime/agent-kernel/src/types.ts:1377`](../packages/runtime/
 'task/plan': KernelEventData<PlanRevision>
 ```
 
-Source: [`packages/runtime/agent-kernel/src/types.ts:1389`](../packages/runtime/agent-kernel/src/types.ts)
+Source: [`packages/runtime/agent-kernel/src/types.ts:1851`](../packages/runtime/agent-kernel/src/types.ts)
+
+<a id="taskreview--log-only"></a>
+
+#### `task/review` — log-only
+
+```ts persistence-catalog
+/**
+ * The independent reviewer's structured report for one REVIEW entry
+ * (§10.6), recorded after the reviewer settled. Log-only.
+ */
+'task/review': KernelEventData<CodeReviewRecord>
+```
+
+Source: [`packages/runtime/agent-kernel/src/coding-lifecycle.ts:663`](../packages/runtime/agent-kernel/src/coding-lifecycle.ts)
 
 <a id="tasktransitioned--log-only"></a>
 
@@ -1305,7 +1415,7 @@ Source: [`packages/runtime/agent-kernel/src/types.ts:1389`](../packages/runtime/
 'task/transitioned': KernelEventData<StateTransition>
 ```
 
-Source: [`packages/runtime/agent-kernel/src/types.ts:1384`](../packages/runtime/agent-kernel/src/types.ts)
+Source: [`packages/runtime/agent-kernel/src/types.ts:1846`](../packages/runtime/agent-kernel/src/types.ts)
 
 ### `team/*`
 
@@ -1609,7 +1719,7 @@ Source: [`packages/core/session/src/types.ts:315`](../packages/core/session/src/
 'verification/requested': KernelEventData<VerificationRequest>
 ```
 
-Source: [`packages/runtime/agent-kernel/src/types.ts:1421`](../packages/runtime/agent-kernel/src/types.ts)
+Source: [`packages/runtime/agent-kernel/src/types.ts:1883`](../packages/runtime/agent-kernel/src/types.ts)
 
 <a id="verificationresult--log-only"></a>
 
@@ -1623,7 +1733,7 @@ Source: [`packages/runtime/agent-kernel/src/types.ts:1421`](../packages/runtime/
 'verification/result': KernelEventData<VerificationResult>
 ```
 
-Source: [`packages/runtime/agent-kernel/src/types.ts:1426`](../packages/runtime/agent-kernel/src/types.ts)
+Source: [`packages/runtime/agent-kernel/src/types.ts:1888`](../packages/runtime/agent-kernel/src/types.ts)
 
 ### `web/*`
 
@@ -1653,7 +1763,7 @@ Source: [`packages/web/web-search-deepseek/src/provider.ts:82`](../packages/web/
 'workspace/changes': { turn: number }
 ```
 
-Source: [`packages/deliverables/workspace-changes/src/types.ts:139`](../packages/deliverables/workspace-changes/src/types.ts)
+Source: [`packages/deliverables/workspace-changes/src/types.ts:183`](../packages/deliverables/workspace-changes/src/types.ts)
 
 ## Resolved persistence types
 
@@ -1707,6 +1817,14 @@ SHA-256: `5b232a9b9bfcc0fc6794dab7865bcf203a65785c5de5aa647a51228bff628413`
 
 `"after"`
 
+<a id="persistence-type-sha256-33d73b60d1d1bfc788176037ad7685b4de38b09495592088f1356d2273c7a3a3"></a>
+
+### `"agent"`
+
+SHA-256: `33d73b60d1d1bfc788176037ad7685b4de38b09495592088f1356d2273c7a3a3`
+
+`"agent"`
+
 <a id="persistence-type-sha256-fbd2c74b346a1595b376139c587fadd23e4a21acc9c0abce342975b6cfc60986"></a>
 
 ### `"agent-instructions"`
@@ -1755,6 +1873,14 @@ SHA-256: `74cccf61c33e3e6df361829e94662973b18ddca6f89666c9b243b6ae811fd177`
 
 `"allow"`
 
+<a id="persistence-type-sha256-6b28a7c13ed1c06c0175d3b97940b53e847d3f10ec1b08fee51f9ea0c78daf4a"></a>
+
+### `"allowed-always"`
+
+SHA-256: `6b28a7c13ed1c06c0175d3b97940b53e847d3f10ec1b08fee51f9ea0c78daf4a`
+
+`"allowed-always"`
+
 <a id="persistence-type-sha256-811229eedcec57979dbadca7dbea832a59f8580cff30cb217fca5e2da16314bd"></a>
 
 ### `"allowed-once"`
@@ -1762,6 +1888,14 @@ SHA-256: `74cccf61c33e3e6df361829e94662973b18ddca6f89666c9b243b6ae811fd177`
 SHA-256: `811229eedcec57979dbadca7dbea832a59f8580cff30cb217fca5e2da16314bd`
 
 `"allowed-once"`
+
+<a id="persistence-type-sha256-d1d57124b8994432350370b734b8598741ae2f98b2342331f5b9dfe86f3b86d6"></a>
+
+### `"allowed-session"`
+
+SHA-256: `d1d57124b8994432350370b734b8598741ae2f98b2342331f5b9dfe86f3b86d6`
+
+`"allowed-session"`
 
 <a id="persistence-type-sha256-142c37d302aa22a0a57915b5255939d3ca91c1811ca13fddcf84cf76ea00758a"></a>
 
@@ -1786,6 +1920,14 @@ SHA-256: `e438a9d4fb883b3e4a8d9fc8913aa1550ed50eb384bfbf943100a5605b537498`
 SHA-256: `c914163c995adf6f4ba3e6d488fa0a2869931475e951d068c2c62a45f231ba32`
 
 `"approval"`
+
+<a id="persistence-type-sha256-c1c068bfdd57781ecbc943e52ceb36c5f3f16ac2c6145c785a43af93ee0519bf"></a>
+
+### `"approval-decided"`
+
+SHA-256: `c1c068bfdd57781ecbc943e52ceb36c5f3f16ac2c6145c785a43af93ee0519bf`
+
+`"approval-decided"`
 
 <a id="persistence-type-sha256-dfb3e6da7a3be16ebd8057b6301b64f1a269e322c68f0d91bf6764729ccf2140"></a>
 
@@ -1850,6 +1992,14 @@ SHA-256: `9e07693fd7cd9babe0688c22c986e4d519ae1c0e40eeea13b2dc583bed2abc86`
 SHA-256: `57786f5fb8292d88d902090fad8634a494d0c3b12a43e79db1f93264f60ed7be`
 
 `"ask-user"`
+
+<a id="persistence-type-sha256-0697cf2567fa7b23798b9e1d1d72b184a3cca925a70ae694f45533f400aec739"></a>
+
+### `"ask_user"`
+
+SHA-256: `0697cf2567fa7b23798b9e1d1d72b184a3cca925a70ae694f45533f400aec739`
+
+`"ask_user"`
 
 <a id="persistence-type-sha256-131200d4edfd04d06a31af05fd84e52ee8b12f190f1f3a5c39253e8ca4b0faeb"></a>
 
@@ -1971,6 +2121,14 @@ SHA-256: `9c8c992e6230ac8327ec32809e4e2f2ba7cc38741c7eba143560d43181879340`
 
 `"both"`
 
+<a id="persistence-type-sha256-d6bca82d9b20462ee9ec86c30c4aee9b23e341ef5d75664d2e3d0065d95d92a0"></a>
+
+### `"browser"`
+
+SHA-256: `d6bca82d9b20462ee9ec86c30c4aee9b23e341ef5d75664d2e3d0065d95d92a0`
+
+`"browser"`
+
 <a id="persistence-type-sha256-b757c187f616cbdb31e0084c4474a59bd3c5bc32603d3df533bb5c2d8735a750"></a>
 
 ### `"browser.read"`
@@ -2067,6 +2225,14 @@ SHA-256: `c1eb24991a5ed52ba65eea9c33dc6c701effa05fcad9b9429b773e7edb92ca63`
 
 `"checkpoint/resumed"`
 
+<a id="persistence-type-sha256-53267174cc06b47e54274d748e6fde10f5e6c8b23dbda7fe83da3594a2c7187f"></a>
+
+### `"child-agent"`
+
+SHA-256: `53267174cc06b47e54274d748e6fde10f5e6c8b23dbda7fe83da3594a2c7187f`
+
+`"child-agent"`
+
 <a id="persistence-type-sha256-14230f9b8b5797bb7e8c621fa636531cfbde2ffba1ef5f1fd058216ff21952a0"></a>
 
 ### `"chunk"`
@@ -2098,6 +2264,14 @@ SHA-256: `aff60ef947c18b012644852bdd0d5bfe72065e061dd563787c76c646b4a10f6b`
 SHA-256: `e7e154d47d5fbc5366330fb4dade1f108c6dfe4335044d21ded14b7bf1dce084`
 
 `"clear"`
+
+<a id="persistence-type-sha256-d3002d14cc1c75e12e3a53da414b41d54e7c4501b57cbe7057bacc5898d8fb88"></a>
+
+### `"code"`
+
+SHA-256: `d3002d14cc1c75e12e3a53da414b41d54e7c4501b57cbe7057bacc5898d8fb88`
+
+`"code"`
 
 <a id="persistence-type-sha256-15495614ccfa9cbdeefb0ec2abd76406435f4c6ff3dae42acae8e09ef42025c9"></a>
 
@@ -2211,6 +2385,14 @@ SHA-256: `8af8ba099ebb45761da137118d504ee0c15eb8ccc62ddea0f635ef18ca0892f2`
 
 `"compressible"`
 
+<a id="persistence-type-sha256-9c7bba70285d8ec5a756bd25ac81724bfad7bd4fe5627bf73a281c4f041e0ede"></a>
+
+### `"context"`
+
+SHA-256: `9c7bba70285d8ec5a756bd25ac81724bfad7bd4fe5627bf73a281c4f041e0ede`
+
+`"context"`
+
 <a id="persistence-type-sha256-0173a47886b519e3044ee4583061ed58b28f10e2620ac835a716393b7e3c4936"></a>
 
 ### `"context/compiled"`
@@ -2226,6 +2408,22 @@ SHA-256: `0173a47886b519e3044ee4583061ed58b28f10e2620ac835a716393b7e3c4936`
 SHA-256: `e5d3828df1ec3e2a66879de0659e0f4866d9cfffc00825ee731a66f8a0c03d98`
 
 `"continuable"`
+
+<a id="persistence-type-sha256-bec89bc17f237198963ffdb68013d3f164f7842fa2c11c4015adef4e43a320a9"></a>
+
+### `"continue"`
+
+SHA-256: `bec89bc17f237198963ffdb68013d3f164f7842fa2c11c4015adef4e43a320a9`
+
+`"continue"`
+
+<a id="persistence-type-sha256-73f731c52c92244c5a701fdbbd6d9183de6a09c155f459389e405c33a64551a5"></a>
+
+### `"contract"`
+
+SHA-256: `73f731c52c92244c5a701fdbbd6d9183de6a09c155f459389e405c33a64551a5`
+
+`"contract"`
 
 <a id="persistence-type-sha256-5fb1e03512461a1ebc0814ab4ca23ee1770bb1a41f7fe17a727ca62f632ad4dc"></a>
 
@@ -2250,6 +2448,14 @@ SHA-256: `6b7e72fad5e0f0c0c66a7c48a802ec294803d6937388645fb9058af935ac3f0b`
 SHA-256: `c5687b1313206a6ff334066047b6a0681611467dc4df8c5a8e71d0b6df39311f`
 
 `"cordis-host-runner"`
+
+<a id="persistence-type-sha256-583093c91ca7a00ef35878c9e117f12b55f64629ebe80f30c709c1de995a7f96"></a>
+
+### `"counterexample"`
+
+SHA-256: `583093c91ca7a00ef35878c9e117f12b55f64629ebe80f30c709c1de995a7f96`
+
+`"counterexample"`
 
 <a id="persistence-type-sha256-7624ca28c61ca0eaa4f015140f3cea6e0c16cce2f2960fab5f531203d253903e"></a>
 
@@ -2282,6 +2488,14 @@ SHA-256: `187138657e53c570f8535958cf0fa540c2aa814c1b1fa1875b7558a9d9375c5f`
 SHA-256: `18fce9540bb20897a66275499faee6b8296c97e9901fa1ff45a191772448ad1a`
 
 `"danger-full-access"`
+
+<a id="persistence-type-sha256-704cfb211241da3c96a5785c1c167e371532a6e035f2da9241df5a26edbebbd3"></a>
+
+### `"delegate"`
+
+SHA-256: `704cfb211241da3c96a5785c1c167e371532a6e035f2da9241df5a26edbebbd3`
+
+`"delegate"`
 
 <a id="persistence-type-sha256-76632533f67879dcb346fcae640540dbc89b2472b0bce88c59f7e48fc5c0e668"></a>
 
@@ -2419,6 +2633,14 @@ SHA-256: `ad22a5ca5bbaab2e1440779cd3648e85ddfc6f73b5207394eda699555cf31430`
 
 `"edit"`
 
+<a id="persistence-type-sha256-8ffccd348e85d9a8cba8c7932c513cc3f9eab2e8357a647d7cfc26c0b4b9ed05"></a>
+
+### `"environment"`
+
+SHA-256: `8ffccd348e85d9a8cba8c7932c513cc3f9eab2e8357a647d7cfc26c0b4b9ed05`
+
+`"environment"`
+
 <a id="persistence-type-sha256-a2be0f0cb59f0d4a06557d45847d1938aced238baa77a6da416e590b8b958553"></a>
 
 ### `"error"`
@@ -2499,6 +2721,22 @@ SHA-256: `00d6bc972a699d18bd0c4441d9983656491685bd7774db0506384e0a3a2328eb`
 
 `"executing"`
 
+<a id="persistence-type-sha256-35669faabad70956260ce5382e747f0adca2a623b5f9f522baaf0ca5bef9e867"></a>
+
+### `"exercise"`
+
+SHA-256: `35669faabad70956260ce5382e747f0adca2a623b5f9f522baaf0ca5bef9e867`
+
+`"exercise"`
+
+<a id="persistence-type-sha256-8382a806a3cd6a94fa321741c8c0278961ece56928d66a94ae9c76a51adc37d1"></a>
+
+### `"explain"`
+
+SHA-256: `8382a806a3cd6a94fa321741c8c0278961ece56928d66a94ae9c76a51adc37d1`
+
+`"explain"`
+
 <a id="persistence-type-sha256-40d75cbad88519a8e5d957d0d5876d9835b80727c96ce4271028fc77c49a654f"></a>
 
 ### `"fail"`
@@ -2522,6 +2760,14 @@ SHA-256: `b4fb9754eccf2b33f1bbd20a6064be2280c6a10ec02a72a01f290957d545bb84`
 SHA-256: `b57a2889408de36e4516807194c73bdecd51a92f633ccd05db81bf049200f420`
 
 `"failed"`
+
+<a id="persistence-type-sha256-ec609d30408f6f8b2dc6808bf55a67fd335fba75dbbcbc27c601db9d178b95c9"></a>
+
+### `"failure/diagnosed"`
+
+SHA-256: `ec609d30408f6f8b2dc6808bf55a67fd335fba75dbbcbc27c601db9d178b95c9`
+
+`"failure/diagnosed"`
 
 <a id="persistence-type-sha256-2285466ab3ba74662865c1c4b0b0fc651fc3b3e8522a0e5c45e7d716cfe0e0f6"></a>
 
@@ -2659,6 +2905,14 @@ SHA-256: `237c004c73b6b288246816e0d7fde16e09c63a47aa3b1227383d7afe58666163`
 
 `"goal/change"`
 
+<a id="persistence-type-sha256-98e87e8c60236ef65d6692f091f814cb98d53bacd67860ebfda8723543868aba"></a>
+
+### `"governor/decided"`
+
+SHA-256: `98e87e8c60236ef65d6692f091f814cb98d53bacd67860ebfda8723543868aba`
+
+`"governor/decided"`
+
 <a id="persistence-type-sha256-6bbd45512fcaa936e6cebea05d3a97c80d8b8cc1fef4301c9ead583bcb7096ff"></a>
 
 ### `"graph-first"`
@@ -2674,6 +2928,14 @@ SHA-256: `6bbd45512fcaa936e6cebea05d3a97c80d8b8cc1fef4301c9ead583bcb7096ff`
 SHA-256: `1fa32cd1150b31a67bbda8755dca2d018774e4c107dc32c5c43965cb94ca7e5d`
 
 `"graphDepth"`
+
+<a id="persistence-type-sha256-437a1c86fb6f66449be77a2b71773ab83865d2d8ee7b82a8db1c08936000a004"></a>
+
+### `"high"`
+
+SHA-256: `437a1c86fb6f66449be77a2b71773ab83865d2d8ee7b82a8db1c08936000a004`
+
+`"high"`
 
 <a id="persistence-type-sha256-0a0d4748df50272653529f2e38a7f1f7853f8de5867c2bdf024bd08537ab0d56"></a>
 
@@ -2795,6 +3057,14 @@ SHA-256: `ebb768d85ec87fb68e42fc14fd7d8535b5ac11791b14d04c6770180f0a719bf8`
 
 `"image/webp"`
 
+<a id="persistence-type-sha256-ba885e06e4360089511538831d3f80cd49355ad8863263bd0a49ee48cbe9c651"></a>
+
+### `"implement"`
+
+SHA-256: `ba885e06e4360089511538831d3f80cd49355ad8863263bd0a49ee48cbe9c651`
+
+`"implement"`
+
 <a id="persistence-type-sha256-f311671e07bc7fa645a0b6597de9966b97147956565296ba76a36543801b66c5"></a>
 
 <a id="persistence-type-packagesllmllmsrctypestssystempromptupdate"></a>
@@ -2805,7 +3075,7 @@ SHA-256: `ebb768d85ec87fb68e42fc14fd7d8535b5ac11791b14d04c6770180f0a719bf8`
 
 SHA-256: `f311671e07bc7fa645a0b6597de9966b97147956565296ba76a36543801b66c5`
 
-Sources: [`packages/llm/llm/src/types.ts:397`](../packages/llm/llm/src/types.ts)
+Sources: [`packages/llm/llm/src/types.ts:425`](../packages/llm/llm/src/types.ts)
 
 `"in-history"`
 
@@ -2897,6 +3167,30 @@ SHA-256: `ad3b56aa2fc1ad4250e7399295d34a8eae592e1907e85852e2291b2e498a30bc`
 
 `"legacy"`
 
+<a id="persistence-type-sha256-c02046bc8bf87bdd0e457a9bae896c6b9501306d7185ab9855483a06aa35d723"></a>
+
+### `"lifecycle-started"`
+
+SHA-256: `c02046bc8bf87bdd0e457a9bae896c6b9501306d7185ab9855483a06aa35d723`
+
+`"lifecycle-started"`
+
+<a id="persistence-type-sha256-36e70a51de2a5d448ccf6ba8bf1e92a0b5e0588c99ddc57b6af072720f381c68"></a>
+
+### `"lint"`
+
+SHA-256: `36e70a51de2a5d448ccf6ba8bf1e92a0b5e0588c99ddc57b6af072720f381c68`
+
+`"lint"`
+
+<a id="persistence-type-sha256-36185d850af293d3bcab203911759953269ffc3e7af14d8e0f8ba5c094001ebc"></a>
+
+### `"liveness"`
+
+SHA-256: `36185d850af293d3bcab203911759953269ffc3e7af14d8e0f8ba5c094001ebc`
+
+`"liveness"`
+
 <a id="persistence-type-sha256-d8f1711d3fe4a5b7912bd9fbccc679427b852e6244f0338e8cd7c07df28ecb9b"></a>
 
 ### `"llm/fallback"`
@@ -2921,6 +3215,38 @@ SHA-256: `4ae007ed190a72c92138b22d059b83208079c7551ca13fb59ae8cf5e23693964`
 
 `"llm/retry-started"`
 
+<a id="persistence-type-sha256-b38264d535f49c694b9fb43ef08f54ae3d4c3e72b75ec25b8f7ea1f3f798f57c"></a>
+
+### `"local-verify"`
+
+SHA-256: `b38264d535f49c694b9fb43ef08f54ae3d4c3e72b75ec25b8f7ea1f3f798f57c`
+
+`"local-verify"`
+
+<a id="persistence-type-sha256-65f6a6e8bdce83766d022927b3a9ba4d05876b4aaa7e0c5f13648801e9286634"></a>
+
+### `"low"`
+
+SHA-256: `65f6a6e8bdce83766d022927b3a9ba4d05876b4aaa7e0c5f13648801e9286634`
+
+`"low"`
+
+<a id="persistence-type-sha256-e6d917b62e51cffe7c13041df7883184ef0728e910145fd8c85e48c90f6a0f77"></a>
+
+### `"lsp-post-edit-diagnostics"`
+
+SHA-256: `e6d917b62e51cffe7c13041df7883184ef0728e910145fd8c85e48c90f6a0f77`
+
+`"lsp-post-edit-diagnostics"`
+
+<a id="persistence-type-sha256-c06a305a74ac477b5b19beac5f434680eb1d61405ca6371e1d94b60176b68225"></a>
+
+### `"map"`
+
+SHA-256: `c06a305a74ac477b5b19beac5f434680eb1d61405ca6371e1d94b60176b68225`
+
+`"map"`
+
 <a id="persistence-type-sha256-c30923d2a8dcebaad5c9d79de2db5381b26e4f40c0214e30e49fc5a7b388e02b"></a>
 
 ### `"max-steps"`
@@ -2937,6 +3263,14 @@ SHA-256: `68141cbe3994a5ffcd064c07c75996538437fd9dbf77ce8a2927e89ec577fabe`
 
 `"max-tokens"`
 
+<a id="persistence-type-sha256-6c3d14626e6d9222ec174d113d866ec00f44b697d37c2cf015540cdc55936040"></a>
+
+### `"maxContextTokens"`
+
+SHA-256: `6c3d14626e6d9222ec174d113d866ec00f44b697d37c2cf015540cdc55936040`
+
+`"maxContextTokens"`
+
 <a id="persistence-type-sha256-f17d96a599222ef1220625e1d286ece59d5e8540e1083a0ea33da383da2d1942"></a>
 
 ### `"maxCostUsd"`
@@ -2944,6 +3278,70 @@ SHA-256: `68141cbe3994a5ffcd064c07c75996538437fd9dbf77ce8a2927e89ec577fabe`
 SHA-256: `f17d96a599222ef1220625e1d286ece59d5e8540e1083a0ea33da383da2d1942`
 
 `"maxCostUsd"`
+
+<a id="persistence-type-sha256-93bec12069dc562b6cf76fa82940b4461d485876e87d7cf292d907323b796ed0"></a>
+
+### `"maxInputTokens"`
+
+SHA-256: `93bec12069dc562b6cf76fa82940b4461d485876e87d7cf292d907323b796ed0`
+
+`"maxInputTokens"`
+
+<a id="persistence-type-sha256-9d41d26d9e3c0d05d342be44919a1a358c2b1eb85092fe2c631dbf7a7ae0d896"></a>
+
+### `"maxOutputTokens"`
+
+SHA-256: `9d41d26d9e3c0d05d342be44919a1a358c2b1eb85092fe2c631dbf7a7ae0d896`
+
+`"maxOutputTokens"`
+
+<a id="persistence-type-sha256-59b45ad18e60a4bca29f969b783114092a794bb1e399cb60aae64cc8c6453b6c"></a>
+
+### `"maxRunCost"`
+
+SHA-256: `59b45ad18e60a4bca29f969b783114092a794bb1e399cb60aae64cc8c6453b6c`
+
+`"maxRunCost"`
+
+<a id="persistence-type-sha256-a39734376439237a30aa0719b5771e28bbe0fe716d2bbc6205b70741c9f5ef40"></a>
+
+### `"maxRunTokens"`
+
+SHA-256: `a39734376439237a30aa0719b5771e28bbe0fe716d2bbc6205b70741c9f5ef40`
+
+`"maxRunTokens"`
+
+<a id="persistence-type-sha256-c0a2ad7712e62d01abfca098e9d6cdbc0274cc92ab93b48cc0585592a269b74d"></a>
+
+### `"maxRunWallTime"`
+
+SHA-256: `c0a2ad7712e62d01abfca098e9d6cdbc0274cc92ab93b48cc0585592a269b74d`
+
+`"maxRunWallTime"`
+
+<a id="persistence-type-sha256-1306fac4d116cc8c8b1a21fa6765240ba99308d999d818637c6e7abc99ab1451"></a>
+
+### `"maxSessionCost"`
+
+SHA-256: `1306fac4d116cc8c8b1a21fa6765240ba99308d999d818637c6e7abc99ab1451`
+
+`"maxSessionCost"`
+
+<a id="persistence-type-sha256-950c0b5ad7c522411e3114bb1c8339d6e7119d8d523cbe87bb8409dcf254d768"></a>
+
+### `"maxSessionTokens"`
+
+SHA-256: `950c0b5ad7c522411e3114bb1c8339d6e7119d8d523cbe87bb8409dcf254d768`
+
+`"maxSessionTokens"`
+
+<a id="persistence-type-sha256-bb2b9c29be00aeacc5da9a2640bbc04a1be555fd3add84e532e5925136e3fe1e"></a>
+
+### `"maxSessionWallTime"`
+
+SHA-256: `bb2b9c29be00aeacc5da9a2640bbc04a1be555fd3add84e532e5925136e3fe1e`
+
+`"maxSessionWallTime"`
 
 <a id="persistence-type-sha256-9ec6ed08ff5b1f0cac6c3abb4182830a68518d76ae8f82c3ee82e338ac33bfd6"></a>
 
@@ -2985,6 +3383,14 @@ SHA-256: `ad2e04658c8d70a4684354d6efef22cf096154a94a66af242f160fa0c1fdde5b`
 
 `"mcp.call"`
 
+<a id="persistence-type-sha256-8bb188be8ccbc2bd027b5d91bf7932180a7cf3d58832c026d01819f3d2623a39"></a>
+
+### `"medium"`
+
+SHA-256: `8bb188be8ccbc2bd027b5d91bf7932180a7cf3d58832c026d01819f3d2623a39`
+
+`"medium"`
+
 <a id="persistence-type-sha256-b5bd41ee90f80ef5b05008cebc95b5fbbb8f4f5424b45a7f4c3c613b137a4df7"></a>
 
 ### `"memory"`
@@ -3016,6 +3422,14 @@ SHA-256: `1f9078266e9d8e0882748c0830f7f9a26f1ac08472fa0333aeda77bb859799c9`
 SHA-256: `cb4af81a32a694ffdac95f2ad72574b0f984fe19564a90c9c7efece95ff19182`
 
 `"memoryScope"`
+
+<a id="persistence-type-sha256-f00e11b043c1bb6637e0d5d933d7f63fa0bc28827c6f59cee4edf91c30d4e575"></a>
+
+### `"mentor-loop"`
+
+SHA-256: `f00e11b043c1bb6637e0d5d933d7f63fa0bc28827c6f59cee4edf91c30d4e575`
+
+`"mentor-loop"`
 
 <a id="persistence-type-sha256-1e7347b658b0ca182fea927d86f2fdcba4ce97fe2526ab1087f379d8bd92c868"></a>
 
@@ -3081,6 +3495,14 @@ SHA-256: `b1f62380f6746fedd629e71065e3583cef83334875b499ac9665c2eb87acfbf5`
 
 `"negative"`
 
+<a id="persistence-type-sha256-1abe3f7b0521eedcb491feff9dffa8f04fb0cd782dfd879ccb9e43f54fcaeea6"></a>
+
+### `"network"`
+
+SHA-256: `1abe3f7b0521eedcb491feff9dffa8f04fb0cd782dfd879ccb9e43f54fcaeea6`
+
+`"network"`
+
 <a id="persistence-type-sha256-b14faafbf67c9678d642348f393115df2653a14cd3a369e7c0d14e584c31a4eb"></a>
 
 ### `"network.read"`
@@ -3104,6 +3526,14 @@ SHA-256: `ca60fc57993883ddf41903919b00145a32780b3c31375f6d696357d1ce8c2692`
 SHA-256: `1571525adc95a24e5d25b5a6440df401cd7cdd881b745178e85f5a333435cd1b`
 
 `"never"`
+
+<a id="persistence-type-sha256-3da393cecc9749d69b6ada4a19a2a1157bd8c840a31f86ca6275d611133b1e19"></a>
+
+### `"new-case"`
+
+SHA-256: `3da393cecc9749d69b6ada4a19a2a1157bd8c840a31f86ca6275d611133b1e19`
+
+`"new-case"`
 
 <a id="persistence-type-sha256-3e2ece4967cfebe95f450a93f45523dff99d6749f6269f2f60f84dfecfcf3693"></a>
 
@@ -3249,6 +3679,22 @@ SHA-256: `ae63d9d1080ed8945031594d93f8d96651d7101b848719cc3e1475875cd3d649`
 
 `"permission/preset"`
 
+<a id="persistence-type-sha256-9d9cc41d1c35ab0114bc2750c7d4d0fc01a050695fafba245c9a4923a4011106"></a>
+
+### `"permission/rules"`
+
+SHA-256: `9d9cc41d1c35ab0114bc2750c7d4d0fc01a050695fafba245c9a4923a4011106`
+
+`"permission/rules"`
+
+<a id="persistence-type-sha256-c3046a43d13fbd499da8dc042753630064d79a796a868a5489a9c5dc8664a220"></a>
+
+### `"persistence"`
+
+SHA-256: `c3046a43d13fbd499da8dc042753630064d79a796a868a5489a9c5dc8664a220`
+
+`"persistence"`
+
 <a id="persistence-type-sha256-18af71a52b52e6dbea37180e626492743a35e409ad16a7466c05fcb709ffa9e8"></a>
 
 ### `"persistence-failed"`
@@ -3257,6 +3703,22 @@ SHA-256: `18af71a52b52e6dbea37180e626492743a35e409ad16a7466c05fcb709ffa9e8`
 
 `"persistence-failed"`
 
+<a id="persistence-type-sha256-ad9264b0bafc9b15b747f51014d31c7516d9071dc91b33fa89f1cb59fb69a8c9"></a>
+
+### `"phase-advanced"`
+
+SHA-256: `ad9264b0bafc9b15b747f51014d31c7516d9071dc91b33fa89f1cb59fb69a8c9`
+
+`"phase-advanced"`
+
+<a id="persistence-type-sha256-8a698057cdce9cc36c664744b60452896a25b3e227be0e3831fd3e4f6c44b663"></a>
+
+### `"phase-repaired"`
+
+SHA-256: `8a698057cdce9cc36c664744b60452896a25b3e227be0e3831fd3e4f6c44b663`
+
+`"phase-repaired"`
+
 <a id="persistence-type-sha256-a52650126d512f287418a6691e22afeef590ce6a226d7b5098846f38c546a055"></a>
 
 ### `"plan"`
@@ -3264,6 +3726,14 @@ SHA-256: `18af71a52b52e6dbea37180e626492743a35e409ad16a7466c05fcb709ffa9e8`
 SHA-256: `a52650126d512f287418a6691e22afeef590ce6a226d7b5098846f38c546a055`
 
 `"plan"`
+
+<a id="persistence-type-sha256-0e75e232b95d0b87f2cbd5643bd50d7d23794ea60b98162eaf9f86cf4a178b88"></a>
+
+### `"plan-drift"`
+
+SHA-256: `0e75e232b95d0b87f2cbd5643bd50d7d23794ea60b98162eaf9f86cf4a178b88`
+
+`"plan-drift"`
 
 <a id="persistence-type-sha256-0fe52387f65052702ed9d7cd59db826468936595d1b3eec207e7a823adc719db"></a>
 
@@ -3417,6 +3887,14 @@ SHA-256: `ee0957941dd5f65560e09313d35bde0f4d3933941f1cccb2e1ed213123a590aa`
 
 `"queryExpansion"`
 
+<a id="persistence-type-sha256-f35369370732d3517cae1d8ecb6a00cddd1c43788597bdb1358247affc4ba6f6"></a>
+
+### `"read"`
+
+SHA-256: `f35369370732d3517cae1d8ecb6a00cddd1c43788597bdb1358247affc4ba6f6`
+
+`"read"`
+
 <a id="persistence-type-sha256-12a0cfa619ac4a5fc6c3e8e359c8dae15769edc61497a575935c78d5842f8e42"></a>
 
 ### `"read-only"`
@@ -3456,6 +3934,14 @@ SHA-256: `688e853dc149f0d30b31765c12ec7e3be74169bdf1a4c6463a10b945d50cc1b8`
 SHA-256: `6f091fe32ab24407236090ca9d710bbaf59bb57466e9f3b8f1f6e4862bc863c6`
 
 `"reasoning-delta"`
+
+<a id="persistence-type-sha256-37275efa9dd1c5f636c0a451898f0b910bfdc533dfe7914c590c5594868cd4fb"></a>
+
+### `"reassess"`
+
+SHA-256: `37275efa9dd1c5f636c0a451898f0b910bfdc533dfe7914c590c5594868cd4fb`
+
+`"reassess"`
 
 <a id="persistence-type-sha256-383cf73ae4748e5beb281ae74857ba1ffb92ae01075b9fbf51af78b666007a8f"></a>
 
@@ -3504,6 +3990,14 @@ SHA-256: `67cb0a9bbc92764624e92131e4611a6b557ed6bc6f789b2b92fec4aa244ce1b9`
 SHA-256: `42b97a928ec52947f60a746c70bf933b731e1204fb4b657b9c24d84fe5c224e8`
 
 `"refuted"`
+
+<a id="persistence-type-sha256-899268c87c2e145b0e829f466a9cedc6578663fc6fd033cec2885e7cf984e20d"></a>
+
+### `"regression"`
+
+SHA-256: `899268c87c2e145b0e829f466a9cedc6578663fc6fd033cec2885e7cf984e20d`
+
+`"regression"`
 
 <a id="persistence-type-sha256-fab35c4520883c0d69e42d079c9f543fc5ac7a2d15b537b5572fcd99059c7018"></a>
 
@@ -3560,6 +4054,14 @@ SHA-256: `da899806804708f1ac64d5d8fe17a99c8a8ba3bbbda43547c3160cfe0bd700d2`
 SHA-256: `2b6f396d4897beea02ba254b1d3af36a745adda2776bf58dd4af4bf445edcc16`
 
 `"repo"`
+
+<a id="persistence-type-sha256-65617e75a2248e048faa50d3fe2d1ea40f7a4a289672eccf6b5091d3d3e79015"></a>
+
+### `"repo-map"`
+
+SHA-256: `65617e75a2248e048faa50d3fe2d1ea40f7a4a289672eccf6b5091d3d3e79015`
+
+`"repo-map"`
 
 <a id="persistence-type-sha256-70b082fe78991edf13cf66e1b4d06cd2dcff9cacfd76f8cfb996bfb61939e7b2"></a>
 
@@ -3641,6 +4143,38 @@ SHA-256: `63ba8895cc09e4693cf0819fdcd18c084bef195febda5b6a23af279b3852be36`
 
 `"retry"`
 
+<a id="persistence-type-sha256-0e0c2e4d3cc973c306157134f073eb4b2ccaa96d3abbe722d30ea2fa0410d3f1"></a>
+
+### `"review"`
+
+SHA-256: `0e0c2e4d3cc973c306157134f073eb4b2ccaa96d3abbe722d30ea2fa0410d3f1`
+
+`"review"`
+
+<a id="persistence-type-sha256-0c0843fc7173e2b73ba554ec09d8d01a7d4b2879bf4cd315ebd2cfd06848c2ed"></a>
+
+### `"review/report"`
+
+SHA-256: `0c0843fc7173e2b73ba554ec09d8d01a7d4b2879bf4cd315ebd2cfd06848c2ed`
+
+`"review/report"`
+
+<a id="persistence-type-sha256-834b4f5a742ab63d106decc127051ef512e88fb8e786f45e136b36c56e2eabe1"></a>
+
+### `"routine"`
+
+SHA-256: `834b4f5a742ab63d106decc127051ef512e88fb8e786f45e136b36c56e2eabe1`
+
+`"routine"`
+
+<a id="persistence-type-sha256-44c9ab3bd3f550138137674ba5d7652365acf4f54bad423db744d466abd10f9e"></a>
+
+### `"run"`
+
+SHA-256: `44c9ab3bd3f550138137674ba5d7652365acf4f54bad423db744d466abd10f9e`
+
+`"run"`
+
 <a id="persistence-type-sha256-24b10f7cdae64928f89c49afc2eca0af9eb4a2f135e16f3416e6b8461fef1748"></a>
 
 ### `"runtime-context"`
@@ -3688,6 +4222,14 @@ SHA-256: `0e7b2a97f54f1afdb8cdfad1635abe9145327db539bfb69b4045c19d8c17755d`
 SHA-256: `e2105aac8a81490cf23a7204721120f3c6c86f6136b5a4637c88631f31176ef6`
 
 `"search-result"`
+
+<a id="persistence-type-sha256-e17cf2d7dc0b6d979a57bb452d0d6afd9f49966ef683337bbc159d768a732262"></a>
+
+### `"security"`
+
+SHA-256: `e17cf2d7dc0b6d979a57bb452d0d6afd9f49966ef683337bbc159d768a732262`
+
+`"security"`
 
 <a id="persistence-type-sha256-07eccc9ea2f9b5439d76cc77d5e062936677d43f07a23da749819b0a22ee36b7"></a>
 
@@ -3785,6 +4327,14 @@ SHA-256: `883739b1a0b3c06e3ca8687e45a401d220a43bdc9f976c36010db007d8b7b4ac`
 
 `"settle-child"`
 
+<a id="persistence-type-sha256-097d6dd70daedbace3a8c63f24d2c05d63753c85406791b809b840a2cb43bb6e"></a>
+
+### `"shell"`
+
+SHA-256: `097d6dd70daedbace3a8c63f24d2c05d63753c85406791b809b840a2cb43bb6e`
+
+`"shell"`
+
 <a id="persistence-type-sha256-6ebcc2dbec9f2dabca9f668ae6d39e877899b180740570f453409db339221df3"></a>
 
 ### `"skill-catalog"`
@@ -3880,6 +4430,54 @@ SHA-256: `2c64d4bc7264fd3f8bed47e96ab8a593bce05a1e4e1c436dcd244a3b7e0c2a9d`
 SHA-256: `57f3f606ff8b6c84d9c443faace9d1dd10cca0354f37a4f515ef075f7c351b90`
 
 `"stop"`
+
+<a id="persistence-type-sha256-62f123537fb250040aa054b731932c826787c78e14767a2154dee84dd65e9519"></a>
+
+### `"stop_budget"`
+
+SHA-256: `62f123537fb250040aa054b731932c826787c78e14767a2154dee84dd65e9519`
+
+`"stop_budget"`
+
+<a id="persistence-type-sha256-2e53d1ae1c12d904b9614fa38488fa069144af09bf28d25f27dd66ebd7601721"></a>
+
+### `"stop_failure"`
+
+SHA-256: `2e53d1ae1c12d904b9614fa38488fa069144af09bf28d25f27dd66ebd7601721`
+
+`"stop_failure"`
+
+<a id="persistence-type-sha256-098ab0b0ff3516d1f973c7679e4ca239778d88a4cf46e08ef6bb0df7b69abfc1"></a>
+
+### `"stop_loop"`
+
+SHA-256: `098ab0b0ff3516d1f973c7679e4ca239778d88a4cf46e08ef6bb0df7b69abfc1`
+
+`"stop_loop"`
+
+<a id="persistence-type-sha256-701c6b616c3fc68befc62ac12579caede3a23a0b8efb787f5df6ac9bfafeb298"></a>
+
+### `"stop_success"`
+
+SHA-256: `701c6b616c3fc68befc62ac12579caede3a23a0b8efb787f5df6ac9bfafeb298`
+
+`"stop_success"`
+
+<a id="persistence-type-sha256-9bab28fd91ac60838346f4cedcb7dba13f48ad050379cf679c6e56e90309874c"></a>
+
+### `"stop_timeout"`
+
+SHA-256: `9bab28fd91ac60838346f4cedcb7dba13f48ad050379cf679c6e56e90309874c`
+
+`"stop_timeout"`
+
+<a id="persistence-type-sha256-ae9f48f6044ff5e3e191c5088dbf7ee121a4d7e35f88f60c3189a8a0af5841e2"></a>
+
+### `"stream"`
+
+SHA-256: `ae9f48f6044ff5e3e191c5088dbf7ee121a4d7e35f88f60c3189a8a0af5841e2`
+
+`"stream"`
 
 <a id="persistence-type-sha256-aacda84a69739238aa782eea902d3073017d9d74b9808de2bf5a83c9738cbdc6"></a>
 
@@ -4017,6 +4615,14 @@ SHA-256: `a33ee6ae36b2b9d891313745153cefc5f272704c54e297f3ad84dcd9d076a4d0`
 
 `"task/created"`
 
+<a id="persistence-type-sha256-f0389da52a40899f359f27c29d12f4b3f746a9ce5b27eecdbf8bf7be457e6d09"></a>
+
+### `"task/phase"`
+
+SHA-256: `f0389da52a40899f359f27c29d12f4b3f746a9ce5b27eecdbf8bf7be457e6d09`
+
+`"task/phase"`
+
 <a id="persistence-type-sha256-952721c49492ba99221ce4a59f601877895605aea4484a3b73c7f779307abf5d"></a>
 
 ### `"task/plan"`
@@ -4024,6 +4630,14 @@ SHA-256: `a33ee6ae36b2b9d891313745153cefc5f272704c54e297f3ad84dcd9d076a4d0`
 SHA-256: `952721c49492ba99221ce4a59f601877895605aea4484a3b73c7f779307abf5d`
 
 `"task/plan"`
+
+<a id="persistence-type-sha256-a74bbdc450cf4b2ddcb0df9c915258d55ac7623668d571535f1accae11079300"></a>
+
+### `"task/review"`
+
+SHA-256: `a74bbdc450cf4b2ddcb0df9c915258d55ac7623668d571535f1accae11079300`
+
+`"task/review"`
 
 <a id="persistence-type-sha256-3beb09f7ab343a2ffe96523cab88ebaec717b14bdecfe73f2310939262255522"></a>
 
@@ -4337,6 +4951,14 @@ SHA-256: `570e85022434613394418ad33e77e9f1f7a05699b33d0b62eae0677a638c3833`
 
 `"tool/result"`
 
+<a id="persistence-type-sha256-99accc4c5b6b8951697d38d79f6012b5b5b325a4b82faa077ae57785ddb55a76"></a>
+
+### `"transport"`
+
+SHA-256: `99accc4c5b6b8951697d38d79f6012b5b5b325a4b82faa077ae57785ddb55a76`
+
+`"transport"`
+
 <a id="persistence-type-sha256-4345c8bd13b8e7b5ba04ceed90108a1f5d6b480ec7cb6bf9b09e0663081e8dcf"></a>
 
 ### `"trusted"`
@@ -4344,6 +4966,14 @@ SHA-256: `570e85022434613394418ad33e77e9f1f7a05699b33d0b62eae0677a638c3833`
 SHA-256: `4345c8bd13b8e7b5ba04ceed90108a1f5d6b480ec7cb6bf9b09e0663081e8dcf`
 
 `"trusted"`
+
+<a id="persistence-type-sha256-dee52eabfd27fde09fb473a12b5a193299c17c6b4fdd705d9b012d97ca2e9a05"></a>
+
+### `"turn"`
+
+SHA-256: `dee52eabfd27fde09fb473a12b5a193299c17c6b4fdd705d9b012d97ca2e9a05`
+
+`"turn"`
 
 <a id="persistence-type-sha256-56de870320f5af885bdf32585e8b551bfed2eb00c844b0606e6fc08cb38541e7"></a>
 
@@ -4377,6 +5007,14 @@ SHA-256: `0af3ecfb8c60d416fc40a7cc4fb2c4851a8e46608b2b38ab9e510670c971aa1f`
 
 `"turn/start"`
 
+<a id="persistence-type-sha256-c45968fdd41704be2cbd7f789fa957e1e380b001826ab38e25d0577a549cbf6f"></a>
+
+### `"typecheck"`
+
+SHA-256: `c45968fdd41704be2cbd7f789fa957e1e380b001826ab38e25d0577a549cbf6f`
+
+`"typecheck"`
+
 <a id="persistence-type-sha256-2c4c21f19f426a58f2dac914e34313aa43f8408972de857a486d1f086d5adb6c"></a>
 
 ### `"unavailable"`
@@ -4385,6 +5023,22 @@ SHA-256: `2c4c21f19f426a58f2dac914e34313aa43f8408972de857a486d1f086d5adb6c`
 
 `"unavailable"`
 
+<a id="persistence-type-sha256-30a3dabb1470062cdcf31007af3b7d17a5c09bc48ad2f5bb1827378386876df3"></a>
+
+### `"unbounded"`
+
+SHA-256: `30a3dabb1470062cdcf31007af3b7d17a5c09bc48ad2f5bb1827378386876df3`
+
+`"unbounded"`
+
+<a id="persistence-type-sha256-d505d1b0133681fb5843d527f19ef6bc3b5b98467876bf5e81e7f58ae099b4fb"></a>
+
+### `"understand"`
+
+SHA-256: `d505d1b0133681fb5843d527f19ef6bc3b5b98467876bf5e81e7f58ae099b4fb`
+
+`"understand"`
+
 <a id="persistence-type-sha256-05a2796621b1ee6c03ef7abe560b25116bb4da4d592312117242a78415a32b04"></a>
 
 ### `"unknown"`
@@ -4392,6 +5046,14 @@ SHA-256: `2c4c21f19f426a58f2dac914e34313aa43f8408972de857a486d1f086d5adb6c`
 SHA-256: `05a2796621b1ee6c03ef7abe560b25116bb4da4d592312117242a78415a32b04`
 
 `"unknown"`
+
+<a id="persistence-type-sha256-c2fa1c2cda6c9c5b78f946e9fe4e4a41d94295a57e60607528c005f089177cdc"></a>
+
+### `"unmeasurable"`
+
+SHA-256: `c2fa1c2cda6c9c5b78f946e9fe4e4a41d94295a57e60607528c005f089177cdc`
+
+`"unmeasurable"`
 
 <a id="persistence-type-sha256-0ac93d55d1e4e13b96fb3f1c5a2b5d360b1bf56b7da2d9e28f93911b547f6a6f"></a>
 
@@ -4433,6 +5095,14 @@ SHA-256: `de25352d2dc4196309bd84b5bac6319f6d5c898ea0e82bb5ae66c5738d0d426f`
 
 `"user/message"`
 
+<a id="persistence-type-sha256-719d2b25d03797cffba7acf14afe4fe2a15d7197aab7b7ef36ac5e601fe43108"></a>
+
+### `"verification"`
+
+SHA-256: `719d2b25d03797cffba7acf14afe4fe2a15d7197aab7b7ef36ac5e601fe43108`
+
+`"verification"`
+
 <a id="persistence-type-sha256-40b76795c365af893caaf5b427672966541648845629d8362c9bdf01a9038454"></a>
 
 ### `"verification-failed"`
@@ -4456,6 +5126,14 @@ SHA-256: `88a8a3364b0794a99c6d204de316a4d5453518d49dfd5bb657849fb260b24fa9`
 SHA-256: `111fa6f3458861c4bf39ebd39930932555f318148e7677ed176959b5f23f406c`
 
 `"verification-passed"`
+
+<a id="persistence-type-sha256-6fa14fedd7ae98cf9525ff93b6c1573bb83b59d50f96a6d9c5f08e544e065d06"></a>
+
+### `"verification-regressed"`
+
+SHA-256: `6fa14fedd7ae98cf9525ff93b6c1573bb83b59d50f96a6d9c5f08e544e065d06`
+
+`"verification-regressed"`
 
 <a id="persistence-type-sha256-925f0877bc39ef463b7645a1f6a09e8f30053d1f68be2cd6cfbfd4c9130e8607"></a>
 
@@ -4569,6 +5247,22 @@ SHA-256: `275a8f688bce0694964aa1581ce56b8fa1d032cd7f8739e6d9f8dcf0e531290f`
 
 `"workflow.start"`
 
+<a id="persistence-type-sha256-0ef2d589eb561712b9423e4679a80b2987d2ebc5b34d7befaffe1ae381452772"></a>
+
+### `"working-set"`
+
+SHA-256: `0ef2d589eb561712b9423e4679a80b2987d2ebc5b34d7befaffe1ae381452772`
+
+`"working-set"`
+
+<a id="persistence-type-sha256-93a3bf7dbca6fa6905cf6c7fb7da411444561bd9135489d9b6ea6af129007c3a"></a>
+
+### `"workspace"`
+
+SHA-256: `93a3bf7dbca6fa6905cf6c7fb7da411444561bd9135489d9b6ea6af129007c3a`
+
+`"workspace"`
+
 <a id="persistence-type-sha256-4b2ceca8a5ec9aad53c280e6041ed730504abc6ad5d604542bbeb9e61b599878"></a>
 
 ### `"workspace-memory"`
@@ -4576,14 +5270,6 @@ SHA-256: `275a8f688bce0694964aa1581ce56b8fa1d032cd7f8739e6d9f8dcf0e531290f`
 SHA-256: `4b2ceca8a5ec9aad53c280e6041ed730504abc6ad5d604542bbeb9e61b599878`
 
 `"workspace-memory"`
-
-<a id="persistence-type-sha256-92488f03a18f70e0f125d6c32b5fc1245ebd3fc45075114536ebab3daab50b55"></a>
-
-### `"workspace-memory-llm"`
-
-SHA-256: `92488f03a18f70e0f125d6c32b5fc1245ebd3fc45075114536ebab3daab50b55`
-
-`"workspace-memory-llm"`
 
 <a id="persistence-type-sha256-a3edd1efd1fef21b72c55e213c8a8b24196b091abde2b89db52be0b2aaae3cfa"></a>
 
@@ -4600,6 +5286,14 @@ SHA-256: `a3edd1efd1fef21b72c55e213c8a8b24196b091abde2b89db52be0b2aaae3cfa`
 SHA-256: `8e8155594e07812356b67d732196dda894b0f9c91a5969d51612cf490b0a016d`
 
 `"workspace/changes"`
+
+<a id="persistence-type-sha256-18ecff74ae9ce1a1b76d9eff9339b5c273d3aefbc4db31dca30c43b9cd3c5b0f"></a>
+
+### `"write"`
+
+SHA-256: `18ecff74ae9ce1a1b76d9eff9339b5c273d3aefbc4db31dca30c43b9cd3c5b0f`
+
+`"write"`
 
 <a id="persistence-type-sha256-93d38436347f67c9022aacbc4472e283d722bcab8eb73fc376aaf7b6a6b9fb35"></a>
 
@@ -4633,7 +5327,7 @@ SHA-256: `74fcbac234394b9c646b1a4cd1d0c089efaf6410097733ba57690361bc56e3b1`
 
 `5`
 
-<a id="persistence-type-sha256-b367871f7808c197fe4b408e5f7cdaaf59b18ce65602f0c228cf13f7e54d5a6e"></a>
+<a id="persistence-type-sha256-5961d8dcbf1f2cf828fcfd1f4ee0a65ce71b3e83de6278792e4b5eb3c3973922"></a>
 
 <a id="persistence-type-acceptancecriterion"></a>
 
@@ -4641,24 +5335,24 @@ SHA-256: `74fcbac234394b9c646b1a4cd1d0c089efaf6410097733ba57690361bc56e3b1`
 
 ### `AcceptanceCriterion`
 
-SHA-256: `b367871f7808c197fe4b408e5f7cdaaf59b18ce65602f0c228cf13f7e54d5a6e`
+SHA-256: `5961d8dcbf1f2cf828fcfd1f4ee0a65ce71b3e83de6278792e4b5eb3c3973922`
 
-Sources: [`packages/runtime/agent-kernel/src/types.ts:142`](../packages/runtime/agent-kernel/src/types.ts)
+Sources: [`packages/runtime/agent-kernel/src/types.ts:166`](../packages/runtime/agent-kernel/src/types.ts)
 
 | Property | Presence | Type |
 |---|---|---|
 | `description` | required | `string` |
 | `id` | required | `string` |
 | `required` | required | `boolean` |
-| `verifier` | required | [`union (6 variants)`](#persistence-type-sha256-7626c1b04d276ca0b353c6ab64960904de947bab55aeb8c0e66aad9e0f6196d0) |
+| `verifier` | required | [`union (11 variants)`](#persistence-type-sha256-932fa32c5f9f40eb94f744d748dee0f4b7bd64d2eb39fb83876178b52152d8db) |
 
-<a id="persistence-type-sha256-476d2fd2cc8cc5090318c053ea16c949ab5a80a055b4b2c1da4eb3c3436bc900"></a>
+<a id="persistence-type-sha256-d21bb685072db5f78b77d0e5c0eb169b232f2e298ad4101dfeb8a1861663bcb6"></a>
 
 ### `AcceptanceCriterion[]`
 
-SHA-256: `476d2fd2cc8cc5090318c053ea16c949ab5a80a055b4b2c1da4eb3c3436bc900`
+SHA-256: `d21bb685072db5f78b77d0e5c0eb169b232f2e298ad4101dfeb8a1861663bcb6`
 
-Array of [`AcceptanceCriterion`](#persistence-type-sha256-b367871f7808c197fe4b408e5f7cdaaf59b18ce65602f0c228cf13f7e54d5a6e).
+Array of [`AcceptanceCriterion`](#persistence-type-sha256-5961d8dcbf1f2cf828fcfd1f4ee0a65ce71b3e83de6278792e4b5eb3c3973922).
 
 <a id="persistence-type-sha256-92264e598ec8ea1bd43a4ee0cdb271a915d8d295df8daf7446e6ba1f2cef0e10"></a>
 
@@ -4670,7 +5364,7 @@ Array of [`AcceptanceCriterion`](#persistence-type-sha256-b367871f7808c197fe4b40
 
 SHA-256: `92264e598ec8ea1bd43a4ee0cdb271a915d8d295df8daf7446e6ba1f2cef0e10`
 
-Sources: [`packages/runtime/agent-kernel/src/types.ts:408`](../packages/runtime/agent-kernel/src/types.ts)
+Sources: [`packages/runtime/agent-kernel/src/types.ts:575`](../packages/runtime/agent-kernel/src/types.ts)
 
 | Property | Presence | Type |
 |---|---|---|
@@ -4711,7 +5405,7 @@ Sources: [`packages/context/active-memory-context/src/index.ts:51`](../packages/
 
 SHA-256: `75fd38f07654d916248db290f0f03417a0db24fe6d29253775c855bce41093d8`
 
-Sources: [`packages/runtime/agent-kernel/src/types.ts:64`](../packages/runtime/agent-kernel/src/types.ts)
+Sources: [`packages/runtime/agent-kernel/src/types.ts:71`](../packages/runtime/agent-kernel/src/types.ts)
 
 One of:
 
@@ -4778,7 +5472,7 @@ Array of [`AgentInstructionChange`](#persistence-type-sha256-83da72c6857601c75da
 
 SHA-256: `6f22a9d02b9a1f1157f3b0e7bdccd7e7b12b085c4efdb709dfc74a465cd4e590`
 
-Sources: [`packages/context/agent-instructions/src/state.ts:39`](../packages/context/agent-instructions/src/state.ts)
+Sources: [`packages/context/agent-instructions/src/state.ts:45`](../packages/context/agent-instructions/src/state.ts)
 
 | Property | Presence | Type |
 |---|---|---|
@@ -4831,7 +5525,7 @@ SHA-256: `3ef3eecd48c8ad3435fcc11358a5d8cf6e1cef8d370d06dd1340fadd78993424`
 
 Array of [`AppliedRetrievalDimension`](#persistence-type-sha256-97f92ff0e429c4d38ea4ed90b584beb63fa0ab4a58bde1bd6b6ea3b5e1e5372e).
 
-<a id="persistence-type-sha256-930c1cd289def119d443e19dd90008916bf035f0a4d23e07241e7f050f2b89b7"></a>
+<a id="persistence-type-sha256-3ce6cea2da7d3882fcdc3aeefdab5a4338c3cc11621ed43d76b5d8819a26d62a"></a>
 
 <a id="persistence-type-approvaloutcome"></a>
 
@@ -4839,13 +5533,15 @@ Array of [`AppliedRetrievalDimension`](#persistence-type-sha256-97f92ff0e429c4d3
 
 ### `ApprovalOutcome`
 
-SHA-256: `930c1cd289def119d443e19dd90008916bf035f0a4d23e07241e7f050f2b89b7`
+SHA-256: `3ce6cea2da7d3882fcdc3aeefdab5a4338c3cc11621ed43d76b5d8819a26d62a`
 
-Sources: [`packages/interaction/user-approval/src/types.ts:32`](../packages/interaction/user-approval/src/types.ts)
+Sources: [`packages/interaction/user-approval/src/types.ts:42`](../packages/interaction/user-approval/src/types.ts)
 
 One of:
 
+- `"allowed-always"`
 - `"allowed-once"`
+- `"allowed-session"`
 - `"cancelled"`
 - `"rejected"`
 - `"unavailable"`
@@ -4860,7 +5556,7 @@ One of:
 
 SHA-256: `05d2ae1e0c7f8770f83f9a09047afb39a335d8ac986df3193659aa1e581472cf`
 
-Sources: [`packages/interaction/user-approval/src/index.ts:67`](../packages/interaction/user-approval/src/index.ts)
+Sources: [`packages/interaction/user-approval/src/index.ts:69`](../packages/interaction/user-approval/src/index.ts)
 
 One of:
 
@@ -4942,7 +5638,7 @@ Sources: [`packages/schedule/schedule/src/types.ts:29`](../packages/schedule/sch
 
 SHA-256: `2da4dab8fa2c9dc0d52485812851df5a740e690c016f531625e5e55f3234d49a`
 
-Sources: [`packages/runtime/agent-kernel/src/types.ts:606`](../packages/runtime/agent-kernel/src/types.ts)
+Sources: [`packages/runtime/agent-kernel/src/types.ts:773`](../packages/runtime/agent-kernel/src/types.ts)
 
 | Property | Presence | Type |
 |---|---|---|
@@ -4954,7 +5650,7 @@ Sources: [`packages/runtime/agent-kernel/src/types.ts:606`](../packages/runtime/
 | `reasons` | required | [`string[]`](#persistence-type-sha256-93c33d9687613293f8c95d46c4d922fe9ceae83b84c384beff5c3315abe005f2) |
 | `sandbox` | required | [`SandboxExecutionPolicy`](#persistence-type-sha256-4f57aab1ffe7889f76269707cc11089fbe719716b2888d803ea8b025a6006a67) |
 
-<a id="persistence-type-sha256-6f52b33120a41293f1f8c08890a452bea9b66d74959c3bff6b6cfd31e0730e3e"></a>
+<a id="persistence-type-sha256-0c6ca2e0fa31ffbd56e74d91597568167ccfeafa3abd48a53af7d3194381aa80"></a>
 
 <a id="persistence-type-budgetexceededeventdata"></a>
 
@@ -4962,17 +5658,39 @@ Sources: [`packages/runtime/agent-kernel/src/types.ts:606`](../packages/runtime/
 
 ### `BudgetExceededEventData`
 
-SHA-256: `6f52b33120a41293f1f8c08890a452bea9b66d74959c3bff6b6cfd31e0730e3e`
+SHA-256: `0c6ca2e0fa31ffbd56e74d91597568167ccfeafa3abd48a53af7d3194381aa80`
 
-Sources: [`packages/guard/budgets/src/types.ts:15`](../packages/guard/budgets/src/types.ts)
+Sources: [`packages/guard/budgets/src/types.ts:53`](../packages/guard/budgets/src/types.ts)
 
 | Property | Presence | Type |
 |---|---|---|
+| `ceilings` | required | [`{ maxContextTokens, maxCostUsd, maxInputTokens, maxOutputTokens, … }`](#persistence-type-sha256-fb48a211b58d3d080f49bee80131d4905f52802f500331210ffcfbf7e1d5f5bb) |
 | `limit` | required | `number` |
-| `name` | required | [`CeilingName`](#persistence-type-sha256-62ef20221cb510eaa39d36ea25cd7db27993a8451d768266f6e048b2128554ff) |
+| `name` | required | [`CeilingName`](#persistence-type-sha256-f07ebfb1273d32696e82bbeefd4a0a41a2615f830e0e53a8cce05b315feb4a8e) |
 | `observed` | required | `number` |
+| `runId` | optional | `string` |
+| `scope` | required | [`BudgetScope`](#persistence-type-sha256-af45166cfe7d06e9b133c1b2974a89968d561a312946eafbc842ef14da4f4dae) |
 | `step` | required | `number` |
 | `turn` | required | `number` |
+
+<a id="persistence-type-sha256-af45166cfe7d06e9b133c1b2974a89968d561a312946eafbc842ef14da4f4dae"></a>
+
+<a id="persistence-type-budgetscope"></a>
+
+<a id="persistence-type-packagesguardbudgetssrctypestsbudgetscope"></a>
+
+### `BudgetScope`
+
+SHA-256: `af45166cfe7d06e9b133c1b2974a89968d561a312946eafbc842ef14da4f4dae`
+
+Sources: [`packages/guard/budgets/src/types.ts:9`](../packages/guard/budgets/src/types.ts)
+
+One of:
+
+- `"context"`
+- `"run"`
+- `"session"`
+- `"turn"`
 
 <a id="persistence-type-sha256-afbdd545b538bd17f07a5b8f06686d8502d05bb758fbce8326f2f5a0361ee42b"></a>
 
@@ -4984,7 +5702,7 @@ Sources: [`packages/guard/budgets/src/types.ts:15`](../packages/guard/budgets/sr
 
 SHA-256: `afbdd545b538bd17f07a5b8f06686d8502d05bb758fbce8326f2f5a0361ee42b`
 
-Sources: [`packages/runtime/agent-kernel/src/types.ts:172`](../packages/runtime/agent-kernel/src/types.ts)
+Sources: [`packages/runtime/agent-kernel/src/types.ts:252`](../packages/runtime/agent-kernel/src/types.ts)
 
 | Property | Presence | Type |
 |---|---|---|
@@ -5004,7 +5722,7 @@ Sources: [`packages/runtime/agent-kernel/src/types.ts:172`](../packages/runtime/
 
 SHA-256: `19f12f687c9dd21ca4237dfc0c59e54dd0c03e3d831f5ba06c96926fe35a0b78`
 
-Sources: [`packages/runtime/agent-kernel/src/types.ts:351`](../packages/runtime/agent-kernel/src/types.ts)
+Sources: [`packages/runtime/agent-kernel/src/types.ts:518`](../packages/runtime/agent-kernel/src/types.ts)
 
 One of:
 
@@ -5036,7 +5754,7 @@ One of:
 
 SHA-256: `2007a090dde7c8217a746dfb183c6579139b467d216a2efe3d80a5d1fc016717`
 
-Sources: [`packages/runtime/agent-kernel/src/types.ts:658`](../packages/runtime/agent-kernel/src/types.ts)
+Sources: [`packages/runtime/agent-kernel/src/types.ts:825`](../packages/runtime/agent-kernel/src/types.ts)
 
 | Property | Presence | Type |
 |---|---|---|
@@ -5061,7 +5779,7 @@ Array of [`CapabilityGrant`](#persistence-type-sha256-2007a090dde7c8217a746dfb18
 
 SHA-256: `789d687b8121b4f4bd50fa8e9568046b09408bdce519cb551e82c9e9640de12e`
 
-Sources: [`packages/runtime/agent-kernel/src/types.ts:370`](../packages/runtime/agent-kernel/src/types.ts)
+Sources: [`packages/runtime/agent-kernel/src/types.ts:537`](../packages/runtime/agent-kernel/src/types.ts)
 
 | Property | Presence | Type |
 |---|---|---|
@@ -5084,7 +5802,7 @@ SHA-256: `38a52afe1eedb478eb7e0787a0c077f12f7e63d7bda8fabefa2bcaa783543b09`
 
 Array of [`Capability`](#persistence-type-sha256-19f12f687c9dd21ca4237dfc0c59e54dd0c03e3d831f5ba06c96926fe35a0b78).
 
-<a id="persistence-type-sha256-62ef20221cb510eaa39d36ea25cd7db27993a8451d768266f6e048b2128554ff"></a>
+<a id="persistence-type-sha256-f07ebfb1273d32696e82bbeefd4a0a41a2615f830e0e53a8cce05b315feb4a8e"></a>
 
 <a id="persistence-type-ceilingname"></a>
 
@@ -5092,16 +5810,64 @@ Array of [`Capability`](#persistence-type-sha256-19f12f687c9dd21ca4237dfc0c59e54
 
 ### `CeilingName`
 
-SHA-256: `62ef20221cb510eaa39d36ea25cd7db27993a8451d768266f6e048b2128554ff`
+SHA-256: `f07ebfb1273d32696e82bbeefd4a0a41a2615f830e0e53a8cce05b315feb4a8e`
 
-Sources: [`packages/guard/budgets/src/types.ts:12`](../packages/guard/budgets/src/types.ts)
+Sources: [`packages/guard/budgets/src/types.ts:40`](../packages/guard/budgets/src/types.ts)
 
 One of:
 
+- `"maxContextTokens"`
 - `"maxCostUsd"`
 - `"maxToolCalls"`
 - `"maxTotalTokens"`
 - `"maxWallMs"`
+- `"maxInputTokens"`
+- `"maxOutputTokens"`
+- `"maxRunCost"`
+- `"maxRunTokens"`
+- `"maxRunWallTime"`
+- `"maxSessionCost"`
+- `"maxSessionTokens"`
+- `"maxSessionWallTime"`
+
+<a id="persistence-type-sha256-72bc1fdac54b445a27589c9ff04269c1b6c56f220743da2dcbe5e864e45a860a"></a>
+
+<a id="persistence-type-ceilingstate"></a>
+
+<a id="persistence-type-packagesguardbudgetssrctypestsceilingstate"></a>
+
+### `CeilingState`
+
+SHA-256: `72bc1fdac54b445a27589c9ff04269c1b6c56f220743da2dcbe5e864e45a860a`
+
+Sources: [`packages/guard/budgets/src/types.ts:50`](../packages/guard/budgets/src/types.ts)
+
+One of:
+
+- `"unbounded"`
+- `"unmeasurable"`
+- `number`
+
+<a id="persistence-type-sha256-d42029698c772ad4f38820d6ba2af38c0fc954f4f40e1800e42216f0cf98f17d"></a>
+
+<a id="persistence-type-changecontract"></a>
+
+<a id="persistence-type-packagesruntimeagent-kernelsrctypestschangecontract"></a>
+
+### `ChangeContract`
+
+SHA-256: `d42029698c772ad4f38820d6ba2af38c0fc954f4f40e1800e42216f0cf98f17d`
+
+Sources: [`packages/runtime/agent-kernel/src/types.ts:199`](../packages/runtime/agent-kernel/src/types.ts)
+
+| Property | Presence | Type |
+|---|---|---|
+| `allowedFiles` | required | [`string[]`](#persistence-type-sha256-93c33d9687613293f8c95d46c4d922fe9ceae83b84c384beff5c3315abe005f2) |
+| `expectedFiles` | required | [`string[]`](#persistence-type-sha256-93c33d9687613293f8c95d46c4d922fe9ceae83b84c384beff5c3315abe005f2) |
+| `expectedTests` | required | [`string[]`](#persistence-type-sha256-93c33d9687613293f8c95d46c4d922fe9ceae83b84c384beff5c3315abe005f2) |
+| `forbiddenChanges` | required | [`string[]`](#persistence-type-sha256-93c33d9687613293f8c95d46c4d922fe9ceae83b84c384beff5c3315abe005f2) |
+| `goal` | required | `string` |
+| `mustPreserve` | required | [`string[]`](#persistence-type-sha256-93c33d9687613293f8c95d46c4d922fe9ceae83b84c384beff5c3315abe005f2) |
 
 <a id="persistence-type-sha256-f610af9b83a745a9d067fbbfd7e2144113c62ebdb2a74455fd21791ca6781933"></a>
 
@@ -5113,7 +5879,7 @@ One of:
 
 SHA-256: `f610af9b83a745a9d067fbbfd7e2144113c62ebdb2a74455fd21791ca6781933`
 
-Sources: [`packages/runtime/agent-kernel/src/types.ts:1036`](../packages/runtime/agent-kernel/src/types.ts)
+Sources: [`packages/runtime/agent-kernel/src/types.ts:1365`](../packages/runtime/agent-kernel/src/types.ts)
 
 One of:
 
@@ -5122,6 +5888,96 @@ One of:
 - `"before-suspension"`
 - `"turn-boundary"`
 - `"verification-failure"`
+
+<a id="persistence-type-sha256-25960d2157b971c09b52bc0b9d85d481dbed093e4356878c28b4cee374de3232"></a>
+
+<a id="persistence-type-codereviewfinding"></a>
+
+<a id="persistence-type-packagesruntimeagent-kernelsrccoding-lifecycletscodereviewfinding"></a>
+
+<a id="persistence-type-packagessubagentcommand-reviewsrcreviewertsreviewfinding"></a>
+
+<a id="persistence-type-reviewfinding"></a>
+
+### `CodeReviewFinding`
+
+SHA-256: `25960d2157b971c09b52bc0b9d85d481dbed093e4356878c28b4cee374de3232`
+
+Sources: [`packages/runtime/agent-kernel/src/coding-lifecycle.ts:138`](../packages/runtime/agent-kernel/src/coding-lifecycle.ts) · [`packages/subagent/command-review/src/reviewer.ts:22`](../packages/subagent/command-review/src/reviewer.ts)
+
+| Property | Presence | Type |
+|---|---|---|
+| `file` | required | `string` |
+| `line` | optional | `string` |
+| `message` | required | `string` |
+| `severity` | required | [`ReviewSeverity`](#persistence-type-sha256-a49d1f78c32027e20f567158604dd21931d04937086affdd717231be7ac9f875) |
+
+<a id="persistence-type-sha256-553518341a88091e03d6adf4c56637a48c82c6e517014ccf4685f35fd8b58d70"></a>
+
+### `CodeReviewFinding[]`
+
+SHA-256: `553518341a88091e03d6adf4c56637a48c82c6e517014ccf4685f35fd8b58d70`
+
+Array of [`CodeReviewFinding`](#persistence-type-sha256-25960d2157b971c09b52bc0b9d85d481dbed093e4356878c28b4cee374de3232).
+
+<a id="persistence-type-sha256-cc1507c853dc16db418dc31e0c5732cd174760ee28ae0052e1cae61712b99c89"></a>
+
+<a id="persistence-type-codereviewreport"></a>
+
+<a id="persistence-type-packagesruntimeagent-kernelsrccoding-lifecycletscodereviewreport"></a>
+
+### `CodeReviewReport`
+
+SHA-256: `cc1507c853dc16db418dc31e0c5732cd174760ee28ae0052e1cae61712b99c89`
+
+Sources: [`packages/runtime/agent-kernel/src/coding-lifecycle.ts:150`](../packages/runtime/agent-kernel/src/coding-lifecycle.ts)
+
+| Property | Presence | Type |
+|---|---|---|
+| `findings` | required | [`CodeReviewFinding[]`](#persistence-type-sha256-553518341a88091e03d6adf4c56637a48c82c6e517014ccf4685f35fd8b58d70) |
+| `summary` | required | `string` |
+
+<a id="persistence-type-sha256-aa2d313265795cbd4a01b52661694a5f3b74096f0079ccf0074023b031074696"></a>
+
+<a id="persistence-type-codingphase"></a>
+
+<a id="persistence-type-packagesruntimeagent-kernelsrccoding-lifecycletscodingphase"></a>
+
+### `CodingPhase`
+
+SHA-256: `aa2d313265795cbd4a01b52661694a5f3b74096f0079ccf0074023b031074696`
+
+Sources: [`packages/runtime/agent-kernel/src/coding-lifecycle.ts:29`](../packages/runtime/agent-kernel/src/coding-lifecycle.ts)
+
+One of:
+
+- `"complete"`
+- `"contract"`
+- `"implement"`
+- `"local-verify"`
+- `"map"`
+- `"plan"`
+- `"regression"`
+- `"review"`
+- `"understand"`
+
+<a id="persistence-type-sha256-dc185bb78e2a02dbf1577efa2a088bc7f2f2b32333815bde5c29c41ae2df42e2"></a>
+
+<a id="persistence-type-codingphasetrigger"></a>
+
+<a id="persistence-type-packagesruntimeagent-kernelsrccoding-lifecycletscodingphasetrigger"></a>
+
+### `CodingPhaseTrigger`
+
+SHA-256: `dc185bb78e2a02dbf1577efa2a088bc7f2f2b32333815bde5c29c41ae2df42e2`
+
+Sources: [`packages/runtime/agent-kernel/src/coding-lifecycle.ts:109`](../packages/runtime/agent-kernel/src/coding-lifecycle.ts)
+
+One of:
+
+- `"lifecycle-started"`
+- `"phase-advanced"`
+- `"phase-repaired"`
 
 <a id="persistence-type-sha256-ada310bf0bdb8fed51f3b56ea63f6ea6b18bbd587f04fccb63a14ab0b2a24e05"></a>
 
@@ -5266,7 +6122,7 @@ Array of [`CompactionUnresolvedFailure`](#persistence-type-sha256-4e3ba1af64d1e7
 
 SHA-256: `78bfaf408876669384bbd9ae39f87e5059e8ae38ecca7e4f7ed7b616ba06adf3`
 
-Sources: [`packages/runtime/agent-kernel/src/types.ts:134`](../packages/runtime/agent-kernel/src/types.ts)
+Sources: [`packages/runtime/agent-kernel/src/types.ts:158`](../packages/runtime/agent-kernel/src/types.ts)
 
 | Property | Presence | Type |
 |---|---|---|
@@ -5343,7 +6199,7 @@ Array of [`ContentBlock`](#persistence-type-sha256-8064c03c87c357fd1575cb9395ce8
 
 SHA-256: `cb7e3941207b63b2eb81c61b293ac582800cd6a2edeb184323b66c7eb8dd84dd`
 
-Sources: [`packages/runtime/agent-context/src/types.ts:106`](../packages/runtime/agent-context/src/types.ts)
+Sources: [`packages/runtime/agent-context/src/types.ts:138`](../packages/runtime/agent-context/src/types.ts)
 
 | Property | Presence | Type |
 |---|---|---|
@@ -5372,7 +6228,7 @@ Array of [`ContextCompilationEntry`](#persistence-type-sha256-cb7e3941207b63b2eb
 
 SHA-256: `5e7632ca16cdbfa0887c489b787d29de91bfeebc78bdf8193a0cfdd2c03a27b1`
 
-Sources: [`packages/runtime/agent-context/src/types.ts:126`](../packages/runtime/agent-context/src/types.ts)
+Sources: [`packages/runtime/agent-context/src/types.ts:158`](../packages/runtime/agent-context/src/types.ts)
 
 | Property | Presence | Type |
 |---|---|---|
@@ -5394,7 +6250,7 @@ Sources: [`packages/runtime/agent-context/src/types.ts:126`](../packages/runtime
 
 SHA-256: `1d97997a901210e8700db1ff3d2dc4e1b4121f36562014f2fadf39336d48e1dd`
 
-Sources: [`packages/runtime/agent-context/src/types.ts:82`](../packages/runtime/agent-context/src/types.ts)
+Sources: [`packages/runtime/agent-context/src/types.ts:107`](../packages/runtime/agent-context/src/types.ts)
 
 | Property | Presence | Type |
 |---|---|---|
@@ -5419,7 +6275,7 @@ Array of [`ContextConflict`](#persistence-type-sha256-1d97997a901210e8700db1ff3d
 
 SHA-256: `c86f4255d7049c4050ee81646a72e16dd8af3db3ecdbdb1c0d5d3704441ca56a`
 
-Sources: [`packages/runtime/agent-context/src/types.ts:74`](../packages/runtime/agent-context/src/types.ts)
+Sources: [`packages/runtime/agent-context/src/types.ts:99`](../packages/runtime/agent-context/src/types.ts)
 
 | Property | Presence | Type |
 |---|---|---|
@@ -5516,7 +6372,7 @@ Sources: [`packages/subagent/subagent/src/descriptor.ts:72`](../packages/subagen
 
 SHA-256: `35bbba9e80fe877ce60a8b74a3ff92237934b366e9fb01106fa838bace6ba1dd`
 
-Sources: [`packages/runtime/agent-kernel/src/types.ts:852`](../packages/runtime/agent-kernel/src/types.ts)
+Sources: [`packages/runtime/agent-kernel/src/types.ts:1169`](../packages/runtime/agent-kernel/src/types.ts)
 
 | Property | Presence | Type |
 |---|---|---|
@@ -5551,7 +6407,7 @@ Sources: [`packages/web/web-search-deepseek/src/provider.ts:55`](../packages/web
 | `body` | required | [`{ max_tokens, messages, model, tools }`](#persistence-type-sha256-930a6567a10bb62ddd157bd8abdf4b182810c8c3b49d91309b3b009a5fed9731) |
 | `endpoint` | required | `string` |
 
-<a id="persistence-type-sha256-7420f4081593575dd0da2aaea99dc99e0e4ab1dd502927cab5c1e7a02803df40"></a>
+<a id="persistence-type-sha256-26c71ac078961d2c0a467ddebbe6397c906a010a9bd28c95ac9654baea0e9ecb"></a>
 
 <a id="persistence-type-developermessage"></a>
 
@@ -5559,7 +6415,7 @@ Sources: [`packages/web/web-search-deepseek/src/provider.ts:55`](../packages/web
 
 ### `DeveloperMessage`
 
-SHA-256: `7420f4081593575dd0da2aaea99dc99e0e4ab1dd502927cab5c1e7a02803df40`
+SHA-256: `26c71ac078961d2c0a467ddebbe6397c906a010a9bd28c95ac9654baea0e9ecb`
 
 Sources: [`packages/llm/llm/src/message.ts:165`](../packages/llm/llm/src/message.ts)
 
@@ -5568,11 +6424,11 @@ Sources: [`packages/llm/llm/src/message.ts:165`](../packages/llm/llm/src/message
 | `content` | required | [`ContentBlock[]`](#persistence-type-sha256-b52f215a6cd691058a3413c12f161fa3b563a2f4895adb3df6f744ec4b0a6ef1) |
 | `id` | required | `string` |
 | `role` | required | `"developer"` |
-| `source` | required | [`MessageSource`](#persistence-type-sha256-292ea0afb9d5c375ff69aabda09be411459589c7021b00135d10b1d24245f537) |
+| `source` | required | [`MessageSource`](#persistence-type-sha256-4c1bba67986b763f6bf12b195d57def600b74ae32ace6dc46cadf6304cc730c1) |
 
 Source compatibility: `source` — `session-source-attribution` v1; `session.developer-message.source`; `kind`; `preserve`.
 
-Attribution-only additions: `active-memory`, `agent-kernel`, `command-evolution`, `evolution-curator`, `evolution-graph`, `evolution-memory`, `evolution-optimizer`, `evolution-reviewer`, `tmux-context`, `workspace-memory`, `workspace-memory-llm`.
+Attribution-only additions: `active-memory`, `agent-kernel`, `command-evolution`, `evolution-curator`, `evolution-graph`, `evolution-memory`, `evolution-optimizer`, `evolution-reviewer`, `mentor-loop`, `tmux-context`, `workspace-memory`.
 
 <a id="persistence-type-sha256-51d668abbfef5572cf0253ca63147159f1c121e5eb5fca7a205422861e71d91a"></a>
 
@@ -5681,7 +6537,7 @@ Sources: [`packages/schedule/schedule/src/types.ts:41`](../packages/schedule/sch
 
 SHA-256: `651cf14a9b2c426b27b797defee488b1bdc60ac2465b5d260de125245c29c897`
 
-Sources: [`packages/runtime/agent-kernel/src/types.ts:876`](../packages/runtime/agent-kernel/src/types.ts)
+Sources: [`packages/runtime/agent-kernel/src/types.ts:1205`](../packages/runtime/agent-kernel/src/types.ts)
 
 One of:
 
@@ -5703,7 +6559,7 @@ One of:
 
 SHA-256: `92ce883855b7e776c262555588a7649cd2f9f4e12fd1a7f2d23e8bc57070c34e`
 
-Sources: [`packages/context/evolution-memory-context/src/index.ts:107`](../packages/context/evolution-memory-context/src/index.ts)
+Sources: [`packages/context/evolution-memory-context/src/index.ts:110`](../packages/context/evolution-memory-context/src/index.ts)
 
 | Property | Presence | Type |
 |---|---|---|
@@ -5714,7 +6570,31 @@ Sources: [`packages/context/evolution-memory-context/src/index.ts:107`](../packa
 | `sections` | required | [`ContextSnapshotSection[]`](#persistence-type-sha256-c748fb42c80a120038a8c587af80ec39924803c401364db11c8974d5bf6d0262) |
 | `supersedes` | optional | `true` |
 
-<a id="persistence-type-sha256-f084f1b55a26011ab116cf92d697d2f54244642f3f2f25067401bca7cfdf57b3"></a>
+<a id="persistence-type-sha256-375a579c4d7f6fba1c5daaa1458f03d663cee76dac89fd203ab2f12e3bd8acee"></a>
+
+<a id="persistence-type-failurecategory"></a>
+
+<a id="persistence-type-packagesruntimeagent-kernelsrctypestsfailurecategory"></a>
+
+### `FailureCategory`
+
+SHA-256: `375a579c4d7f6fba1c5daaa1458f03d663cee76dac89fd203ab2f12e3bd8acee`
+
+Sources: [`packages/runtime/agent-kernel/src/types.ts:1076`](../packages/runtime/agent-kernel/src/types.ts)
+
+One of:
+
+- `"approval"`
+- `"budget"`
+- `"environment"`
+- `"liveness"`
+- `"model"`
+- `"persistence"`
+- `"policy"`
+- `"tool"`
+- `"verification"`
+
+<a id="persistence-type-sha256-5cdfd0052851d5eba2c85146ce80e2284cd2a8df7b6f314c59533db9c5a664ba"></a>
 
 <a id="persistence-type-failurekind"></a>
 
@@ -5722,14 +6602,15 @@ Sources: [`packages/context/evolution-memory-context/src/index.ts:107`](../packa
 
 ### `FailureKind`
 
-SHA-256: `f084f1b55a26011ab116cf92d697d2f54244642f3f2f25067401bca7cfdf57b3`
+SHA-256: `5cdfd0052851d5eba2c85146ce80e2284cd2a8df7b6f314c59533db9c5a664ba`
 
-Sources: [`packages/runtime/agent-kernel/src/types.ts:720`](../packages/runtime/agent-kernel/src/types.ts)
+Sources: [`packages/runtime/agent-kernel/src/types.ts:887`](../packages/runtime/agent-kernel/src/types.ts)
 
 One of:
 
 - `"approval-rejected"`
 - `"budget-exhausted"`
+- `"sandbox-denied"`
 - `"stale-write"`
 - `"stalled"`
 - `"step-ceiling"`
@@ -5739,19 +6620,20 @@ One of:
 - `"tool-invalid-input"`
 - `"tool-policy-denied"`
 - `"tool-transient"`
-- `"unknown"`
 - `"model-auth"`
+- `"unknown"`
 - `"verification-failed"`
+- `"verification-regressed"`
 - `"workflow-failed"`
 - `"model-context-overflow"`
 - `"model-rate-limit"`
 - `"no-progress"`
 - `"output-truncated"`
 - `"persistence-failed"`
+- `"plan-drift"`
 - `"prompt-injection"`
-- `"sandbox-denied"`
 
-<a id="persistence-type-sha256-30fc85d890e3950d2db1ad2bba26eb4db23593be4263bc23abac95910d1e5087"></a>
+<a id="persistence-type-sha256-5bef8c1ba1b6ca40f768fe5c4112e4005f562de3d1422e7ce03cd2de4408a7ae"></a>
 
 <a id="persistence-type-failureref"></a>
 
@@ -5759,22 +6641,41 @@ One of:
 
 ### `FailureRef`
 
-SHA-256: `30fc85d890e3950d2db1ad2bba26eb4db23593be4263bc23abac95910d1e5087`
+SHA-256: `5bef8c1ba1b6ca40f768fe5c4112e4005f562de3d1422e7ce03cd2de4408a7ae`
 
-Sources: [`packages/runtime/agent-kernel/src/types.ts:763`](../packages/runtime/agent-kernel/src/types.ts)
+Sources: [`packages/runtime/agent-kernel/src/types.ts:936`](../packages/runtime/agent-kernel/src/types.ts)
 
 | Property | Presence | Type |
 |---|---|---|
 | `failureId` | required | `string` |
-| `kind` | required | [`FailureKind`](#persistence-type-sha256-f084f1b55a26011ab116cf92d697d2f54244642f3f2f25067401bca7cfdf57b3) |
+| `kind` | required | [`FailureKind`](#persistence-type-sha256-5cdfd0052851d5eba2c85146ce80e2284cd2a8df7b6f314c59533db9c5a664ba) |
 
-<a id="persistence-type-sha256-3c52830fd6f1c9df473aa41c2da094a26de781e55121e2a4bc50df7d63c75eda"></a>
+<a id="persistence-type-sha256-b07f08ba87ff0d7f3a765233ea20aac04a6c15cb4b9cff7dde8f74c86d0953d0"></a>
 
 ### `FailureRef[]`
 
-SHA-256: `3c52830fd6f1c9df473aa41c2da094a26de781e55121e2a4bc50df7d63c75eda`
+SHA-256: `b07f08ba87ff0d7f3a765233ea20aac04a6c15cb4b9cff7dde8f74c86d0953d0`
 
-Array of [`FailureRef`](#persistence-type-sha256-30fc85d890e3950d2db1ad2bba26eb4db23593be4263bc23abac95910d1e5087).
+Array of [`FailureRef`](#persistence-type-sha256-5bef8c1ba1b6ca40f768fe5c4112e4005f562de3d1422e7ce03cd2de4408a7ae).
+
+<a id="persistence-type-sha256-2f9e09f2493377fce73dabe7180f05c97e05ef6cf4c7d356921c7624296245c1"></a>
+
+<a id="persistence-type-failureseverity"></a>
+
+<a id="persistence-type-packagesruntimeagent-kernelsrctypestsfailureseverity"></a>
+
+### `FailureSeverity`
+
+SHA-256: `2f9e09f2493377fce73dabe7180f05c97e05ef6cf4c7d356921c7624296245c1`
+
+Sources: [`packages/runtime/agent-kernel/src/types.ts:1088`](../packages/runtime/agent-kernel/src/types.ts)
+
+One of:
+
+- `"critical"`
+- `"high"`
+- `"low"`
+- `"medium"`
 
 <a id="persistence-type-sha256-7d54a5a5e629e2e7783bfac72683bcc5e969e9f43426b9289826aaf294ff6344"></a>
 
@@ -6020,7 +6921,7 @@ Sources: [`packages/goal/goal/src/domain.ts:24`](../packages/goal/goal/src/domai
 | `updatedAt` | required | `number` |
 | `version` | required | `1` |
 
-<a id="persistence-type-sha256-369b57b483792fcad468527b2e6e4e60f310deaf25be4de8046fa09b110bac0a"></a>
+<a id="persistence-type-sha256-296bab1e26a606dec73a6b11ee921830d27bd584b6fc4b4b4c00b1c3f53838f5"></a>
 
 <a id="persistence-type-governancereceipt"></a>
 
@@ -6028,19 +6929,45 @@ Sources: [`packages/goal/goal/src/domain.ts:24`](../packages/goal/goal/src/domai
 
 ### `GovernanceReceipt`
 
-SHA-256: `369b57b483792fcad468527b2e6e4e60f310deaf25be4de8046fa09b110bac0a`
+SHA-256: `296bab1e26a606dec73a6b11ee921830d27bd584b6fc4b4b4c00b1c3f53838f5`
 
-Sources: [`packages/runtime/agent-kernel/src/types.ts:670`](../packages/runtime/agent-kernel/src/types.ts)
+Sources: [`packages/runtime/agent-kernel/src/types.ts:837`](../packages/runtime/agent-kernel/src/types.ts)
 
 | Property | Presence | Type |
 |---|---|---|
 | `actionId` | required | `string` |
-| `approvalOutcome` | optional | [`ApprovalOutcome`](#persistence-type-sha256-930c1cd289def119d443e19dd90008916bf035f0a4d23e07241e7f050f2b89b7) |
+| `approvalOutcome` | optional | [`ApprovalOutcome`](#persistence-type-sha256-3ce6cea2da7d3882fcdc3aeefdab5a4338c3cc11621ed43d76b5d8819a26d62a) |
 | `approver` | required | [`union (3 variants)`](#persistence-type-sha256-b543867f8545035dce2371aff76d94004ad927dbf8d867686edf4ee9641708ae) |
 | `at` | required | `number` |
 | `decisionId` | required | `string` |
 | `sandboxMode` | required | [`SandboxMode`](#persistence-type-sha256-fab2bb09bc5e3b9db0685e8f5500b029af1a2b33e70bc703c1d5d0f596fbc1fd) |
 | `workspaceRoot` | required | `string` |
+
+<a id="persistence-type-sha256-048c2b0a678057ddc50e8b6fd7216d6948275a16b14bd6afd0efcefdf8b22d56"></a>
+
+<a id="persistence-type-governordecision"></a>
+
+<a id="persistence-type-packagesruntimeagent-kernelsrctypestsgovernordecision"></a>
+
+### `GovernorDecision`
+
+SHA-256: `048c2b0a678057ddc50e8b6fd7216d6948275a16b14bd6afd0efcefdf8b22d56`
+
+Sources: [`packages/runtime/agent-kernel/src/types.ts:995`](../packages/runtime/agent-kernel/src/types.ts)
+
+One of:
+
+- `"ask_user"`
+- `"compact"`
+- `"stop_timeout"`
+- `"continue"`
+- `"delegate"`
+- `"replan"`
+- `"retry"`
+- `"stop_budget"`
+- `"stop_failure"`
+- `"stop_loop"`
+- `"stop_success"`
 
 <a id="persistence-type-sha256-18ee62b8900a4c3d046700f05d7a4d49d6cab2a660a020c87481d1603dd8bd4f"></a>
 
@@ -6079,7 +7006,7 @@ Sources: [`packages/session/session-persistence-jsonl/src/format.ts:83`](../pack
 
 SHA-256: `a6b41f5bede8094d7bf635be5d69b1bd7a25e006ca9cf9415bceb9322f1a7feb`
 
-Sources: [`packages/hooks/hook-protocol/src/types.ts:48`](../packages/hooks/hook-protocol/src/types.ts)
+Sources: [`packages/hooks/hook-protocol/src/types.ts:50`](../packages/hooks/hook-protocol/src/types.ts)
 
 One of:
 
@@ -6216,7 +7143,7 @@ SHA-256: `72ec79127a9c0d0241b1106a74cc2b24c81ce467170f1c3c93f7b71a9496d227`
 
 Array of [`JsonValue`](#persistence-type-sha256-c592ce75aab73fcab19c1d7845684c72cf402b78d2e1f2833a58ecf9f3598ed6).
 
-<a id="persistence-type-sha256-93a0a429e3d064749ffa891195a180d41f87fe0da58dd4f6ff52681c09740c18"></a>
+<a id="persistence-type-sha256-2740d3580ebc6b8acc39523f04e307d8d7ce3dcdf518eb60440a7f46ba4def9f"></a>
 
 <a id="persistence-type-kerneleventmetadata"></a>
 
@@ -6224,15 +7151,15 @@ Array of [`JsonValue`](#persistence-type-sha256-c592ce75aab73fcab19c1d7845684c72
 
 ### `KernelEventMetadata`
 
-SHA-256: `93a0a429e3d064749ffa891195a180d41f87fe0da58dd4f6ff52681c09740c18`
+SHA-256: `2740d3580ebc6b8acc39523f04e307d8d7ce3dcdf518eb60440a7f46ba4def9f`
 
-Sources: [`packages/runtime/agent-kernel/src/types.ts:89`](../packages/runtime/agent-kernel/src/types.ts)
+Sources: [`packages/runtime/agent-kernel/src/types.ts:96`](../packages/runtime/agent-kernel/src/types.ts)
 
 | Property | Presence | Type |
 |---|---|---|
 | `actor` | required | [`ActorKind`](#persistence-type-sha256-75fd38f07654d916248db290f0f03417a0db24fe6d29253775c855bce41093d8) |
-| `provenance` | required | [`Provenance`](#persistence-type-sha256-30f070791979c95939e5a45237145692908e3ae85774aa3a1ca3415f5461269c) |
 | `runId` | required | `string` |
+| `sourceRef` | required | [`SourceRef`](#persistence-type-sha256-30f070791979c95939e5a45237145692908e3ae85774aa3a1ca3415f5461269c) |
 | `taskId` | optional | `string` |
 | `timestamp` | required | `number` |
 | `version` | required | `1` |
@@ -6355,7 +7282,26 @@ Sources: [`packages/llm/llm-retry/src/types.ts:43`](../packages/llm/llm-retry/sr
 | `step` | required | `number` |
 | `turn` | required | `number` |
 
-<a id="persistence-type-sha256-f59d1801455960d1f0dd3dfa45c3ed4a9d0941ca98c6d7c786310d682a22589f"></a>
+<a id="persistence-type-sha256-c18851447ac42e7fa185ef233138ef583739e7b2175d5b8fbcc9d1a3a05a1213"></a>
+
+<a id="persistence-type-mentordirectivesource"></a>
+
+<a id="persistence-type-packagesmentormentor-loopsrctypestsmentordirectivesource"></a>
+
+### `MentorDirectiveSource`
+
+SHA-256: `c18851447ac42e7fa185ef233138ef583739e7b2175d5b8fbcc9d1a3a05a1213`
+
+Sources: [`packages/mentor/mentor-loop/src/types.ts:60`](../packages/mentor/mentor-loop/src/types.ts)
+
+| Property | Presence | Type |
+|---|---|---|
+| `digest` | required | `string` |
+| `kind` | required | `"mentor-loop"` |
+| `misconceptionId` | required | `string` |
+| `stage` | required | [`MisconceptionStage`](#persistence-type-sha256-4c90b12e5dad9fdf2befc7b80f0690e8092565fe5e454c207a1948873be270bb) |
+
+<a id="persistence-type-sha256-b76c742ebf73aacdce5dad42b0eca0faefcc98b607926077440a5ce1dae40c51"></a>
 
 <a id="persistence-type-message"></a>
 
@@ -6363,17 +7309,17 @@ Sources: [`packages/llm/llm-retry/src/types.ts:43`](../packages/llm/llm-retry/sr
 
 ### `Message`
 
-SHA-256: `f59d1801455960d1f0dd3dfa45c3ed4a9d0941ca98c6d7c786310d682a22589f`
+SHA-256: `b76c742ebf73aacdce5dad42b0eca0faefcc98b607926077440a5ce1dae40c51`
 
 Sources: [`packages/llm/llm/src/message.ts:204`](../packages/llm/llm/src/message.ts)
 
 One of:
 
-- [`ToolResultMessage`](#persistence-type-sha256-4b259f7f8f0a44ad5e90b70a73553ced1df27012d126921d397ff403b6c86731)
-- [`DeveloperMessage`](#persistence-type-sha256-7420f4081593575dd0da2aaea99dc99e0e4ab1dd502927cab5c1e7a02803df40)
-- [`UserMessage`](#persistence-type-sha256-1897a2957a44b3fbf125c159308ec3507560689f7c3c3ed34ad6413461da69bf)
+- [`UserMessage`](#persistence-type-sha256-dad818e1287d025d2f99dace6e394015028e130fd694452765502e53a7f49cfb)
 - [`AssistantMessage`](#persistence-type-sha256-fa87537f4a9c1e25602990a8bf686b383e9e00352ec8946e16ae24ba7c1625be)
 - [`SystemMessage`](#persistence-type-sha256-09f3f8dc417f278257202714132f98ba7b52957d7b558c4a04456603890eb363)
+- [`ToolResultMessage`](#persistence-type-sha256-4b259f7f8f0a44ad5e90b70a73553ced1df27012d126921d397ff403b6c86731)
+- [`DeveloperMessage`](#persistence-type-sha256-26c71ac078961d2c0a467ddebbe6397c906a010a9bd28c95ac9654baea0e9ecb)
 
 <a id="persistence-type-sha256-7c6129b6961cf4b2a030f36c78d2b0a5be38617651a9b81322e054ee512bee06"></a>
 
@@ -6448,7 +7394,7 @@ One of:
 - `"negative"`
 - `"positive"`
 
-<a id="persistence-type-sha256-292ea0afb9d5c375ff69aabda09be411459589c7021b00135d10b1d24245f537"></a>
+<a id="persistence-type-sha256-4c1bba67986b763f6bf12b195d57def600b74ae32ace6dc46cadf6304cc730c1"></a>
 
 <a id="persistence-type-messagesource"></a>
 
@@ -6456,7 +7402,7 @@ One of:
 
 ### `MessageSource`
 
-SHA-256: `292ea0afb9d5c375ff69aabda09be411459589c7021b00135d10b1d24245f537`
+SHA-256: `4c1bba67986b763f6bf12b195d57def600b74ae32ace6dc46cadf6304cc730c1`
 
 Sources: [`packages/llm/llm/src/message.ts:144`](../packages/llm/llm/src/message.ts)
 
@@ -6526,6 +7472,14 @@ Sources: [`packages/llm/llm/src/message.ts:144`](../packages/llm/llm/src/message
 | `hooks-codex` | `"relay"` | none | [`{ kind: "hooks-codex", form: "relay" }`](#persistence-type-sha256-1fdad624334d354820dfb3a26e28d0bc9fc1b62a33f87bab63f715b3f4391bfd) |
 | `hooks-codex` | `"snapshot"` | `sections`: [`ContextSnapshotSection[]`](#persistence-type-sha256-c748fb42c80a120038a8c587af80ec39924803c401364db11c8974d5bf6d0262) | [`{ kind: "hooks-codex", form: "snapshot" }`](#persistence-type-sha256-5f1a13f745b98de213a1bbfeacc6b250404e30bf094863d934142605902e53d4) |
 | `hooks-codex` | not declared | none | [`{ kind: "hooks-codex" }`](#persistence-type-sha256-b4ec0af39fd52ed971990e42f04e5be3204882e555c409eb330f8238eec21569) |
+| `lsp-post-edit-diagnostics` | `"catalog"` | none | [`{ kind: "lsp-post-edit-diagnostics", form: "catalog" }`](#persistence-type-sha256-571d0b82d664f85e22de993fdfca15ef286bfe0ce0abf112531f5e9aa4faeb06) |
+| `lsp-post-edit-diagnostics` | `"instructions"` | none | [`{ kind: "lsp-post-edit-diagnostics", form: "instructions" }`](#persistence-type-sha256-d22601bb0ee5e183ac364ad8b0271e36764dc35a3ac8564bdb46af5ae293943f) |
+| `lsp-post-edit-diagnostics` | `"notice"` | `summary`: `string` | [`{ kind: "lsp-post-edit-diagnostics", form: "notice" }`](#persistence-type-sha256-5103cb3ebc32ca7348568c7f53266da5e0c1fdd00a5319f191f51e00184eefb1) |
+| `lsp-post-edit-diagnostics` | `"recall"` | none | [`{ kind: "lsp-post-edit-diagnostics", form: "recall" }`](#persistence-type-sha256-c332bf6bd539a57565dcbbba021ce6b72c3fd4739faf9265025f5437a6b676d0) |
+| `lsp-post-edit-diagnostics` | `"relay"` | none | [`{ kind: "lsp-post-edit-diagnostics", form: "relay" }`](#persistence-type-sha256-d861661eaceb2e2b325221efb5f56f6340832b101bcac98c49aa397dfb9c9a36) |
+| `lsp-post-edit-diagnostics` | `"snapshot"` | `sections`: [`ContextSnapshotSection[]`](#persistence-type-sha256-c748fb42c80a120038a8c587af80ec39924803c401364db11c8974d5bf6d0262) | [`{ kind: "lsp-post-edit-diagnostics", form: "snapshot" }`](#persistence-type-sha256-d39fa8b3c7d34f96f61675ec5b7505a40aa401d0d8d9debf4199a3d4ceed94d7) |
+| `lsp-post-edit-diagnostics` | not declared | none | [`{ kind: "lsp-post-edit-diagnostics" }`](#persistence-type-sha256-0b749b3882f89d3d1c3f587e18ecbb43e1d57193ecbaaa219a6e83dbd6d13597) |
+| `mentor-loop` | not declared | `digest`: `string`; `misconceptionId`: `string`; `stage`: [`MisconceptionStage`](#persistence-type-sha256-4c90b12e5dad9fdf2befc7b80f0690e8092565fe5e454c207a1948873be270bb) | [`MentorDirectiveSource`](#persistence-type-sha256-c18851447ac42e7fa185ef233138ef583739e7b2175d5b8fbcc9d1a3a05a1213) |
 | `model` | not declared | `model`: `string`; `provider`: `string` | [`ModelMessageSource`](#persistence-type-sha256-719c51f67074f97034a6c94297fe1f4b5d3c8d392c57586dab732aa5398c7a91) |
 | `model-selection` | `"catalog"` | none | [`{ kind: "model-selection", form: "catalog" }`](#persistence-type-sha256-99135d8a3937977955eaac5f8f04f930dcd1562f8450a54a51cde9b921dd59a6) |
 | `model-selection` | `"instructions"` | none | [`{ kind: "model-selection", form: "instructions" }`](#persistence-type-sha256-f6605d6c57933aeaaf10911b5fbd6c61e655baa181af7192d3240f49d255b90d) |
@@ -6549,6 +7503,14 @@ Sources: [`packages/llm/llm/src/message.ts:144`](../packages/llm/llm/src/message
 | `repeat-tool-reminder` | `"relay"` | none | [`{ kind: "repeat-tool-reminder", form: "relay" }`](#persistence-type-sha256-4991dfc415c9efebc36fa6969e1798c7d2e42396cc1e6e0ac7d7c89c5c5c4aea) |
 | `repeat-tool-reminder` | `"snapshot"` | `sections`: [`ContextSnapshotSection[]`](#persistence-type-sha256-c748fb42c80a120038a8c587af80ec39924803c401364db11c8974d5bf6d0262) | [`{ kind: "repeat-tool-reminder", form: "snapshot" }`](#persistence-type-sha256-9733783979049adfebd94bbdf0f20a70265e59300e5c5b332bc01d005b2065ed) |
 | `repeat-tool-reminder` | not declared | none | [`{ kind: "repeat-tool-reminder" }`](#persistence-type-sha256-b062078e899958f99ae464514578b8c093924dfe34bd9a835932b420ff2150b1) |
+| `repo-map` | `"catalog"` | none | [`{ kind: "repo-map", form: "catalog" }`](#persistence-type-sha256-48c1a8af942d9fa6dc3a388ff6c6343493aed23b47c031553212dd345370781d) |
+| `repo-map` | `"instructions"` | none | [`{ kind: "repo-map", form: "instructions" }`](#persistence-type-sha256-44e7b51a62407122907db3d4a2525f06cc5b674b03d6c24f66e199d2dd14c062) |
+| `repo-map` | `"notice"` | `summary`: `string` | [`{ kind: "repo-map", form: "notice" }`](#persistence-type-sha256-15d00a204e034f2c890d7f688731d8c6459d7f9786051c1c7fb857731e1eeee1) |
+| `repo-map` | `"recall"` | none | [`{ kind: "repo-map", form: "recall" }`](#persistence-type-sha256-352db22de85efed99267d9eeb2ede799b5443936d3ca7bdfec3cff81dc6df57e) |
+| `repo-map` | `"relay"` | none | [`{ kind: "repo-map", form: "relay" }`](#persistence-type-sha256-f2afb563a198e9d752cc81644972c5375b64421ea70fe51cd1c2bfbb0f2c3248) |
+| `repo-map` | `"snapshot"` | `sections`: [`ContextSnapshotSection[]`](#persistence-type-sha256-c748fb42c80a120038a8c587af80ec39924803c401364db11c8974d5bf6d0262) | [`{ kind: "repo-map", form: "snapshot" }`](#persistence-type-sha256-9874e521b02d593272888ac661448440b9eb02073cb179e0778690dc30ba8f4a) |
+| `repo-map` | not declared | none | [`{ kind: "repo-map" }`](#persistence-type-sha256-cac8a511744177fdae5878d1f6a561101e922fef1f4821612bd188c8e7d76ba2) |
+| `routine` | `"notice"` | `routineId`: `string`; `summary`: `string` | [`{ kind: "routine", form: "notice" }`](#persistence-type-sha256-522b4027fdea38f6b4860221aad8495d7a193e602d7d37dd61d6a8faf801b537) |
 | `runtime-context` | `"catalog"` | none | [`{ kind: "runtime-context", form: "catalog" }`](#persistence-type-sha256-58015da1c1950a66daf66ae24913d6a1fc6d1d9ac441b155f8847f7f8584ba8e) |
 | `runtime-context` | `"instructions"` | none | [`{ kind: "runtime-context", form: "instructions" }`](#persistence-type-sha256-0eeb17e1df89b1ebc2902116fe7145e0d321ef0db26e6bdebc802cb8513a01c1) |
 | `runtime-context` | `"notice"` | `summary`: `string` | [`{ kind: "runtime-context", form: "notice" }`](#persistence-type-sha256-cda2345a9be9d139df49ccbd16dcba716f3440178bf20ff8b801fda1f5eb77dc) |
@@ -6609,22 +7571,43 @@ Sources: [`packages/llm/llm/src/message.ts:144`](../packages/llm/llm/src/message
 | `user-approval` | `"snapshot"` | `sections`: [`ContextSnapshotSection[]`](#persistence-type-sha256-c748fb42c80a120038a8c587af80ec39924803c401364db11c8974d5bf6d0262) | [`{ kind: "user-approval", form: "snapshot" }`](#persistence-type-sha256-8a0492f99b36b02079fb5cf1a83b94794027b424d61a08be5301efcf30782bbb) |
 | `user-approval` | not declared | none | [`{ kind: "user-approval" }`](#persistence-type-sha256-6292bcbedaa97feaec5b48a03bb8144b581b93309d9d6c905f26da7a6a7a0a4f) |
 | `webhook` | `"notice"` | `deliveryId`: `string`; `provider`: `string`; `ruleId`: `string`; `source`: `string`; `summary`: `string` | [`{ kind: "webhook", form: "notice" }`](#persistence-type-sha256-9edc162949abf93bd5ff049191b345454ba104f583937ce5580fb50f067d2b94) |
+| `working-set` | `"catalog"` | none | [`{ kind: "working-set", form: "catalog" }`](#persistence-type-sha256-737db940141546ee61ac44ed7c552248c8d7018dbf505801c8cc7000255105d6) |
+| `working-set` | `"instructions"` | none | [`{ kind: "working-set", form: "instructions" }`](#persistence-type-sha256-93add3f44970dbc59ba83d984e55c1e9d38a7b135eed540a7a32a7926154e8f4) |
+| `working-set` | `"notice"` | `summary`: `string` | [`{ kind: "working-set", form: "notice" }`](#persistence-type-sha256-7c75bccda3576b83eed9029189753e3e41e1e684250a448d25041282feb9fae7) |
+| `working-set` | `"recall"` | none | [`{ kind: "working-set", form: "recall" }`](#persistence-type-sha256-2213bba7d2e044d4b5d1355435cf9b9768b3b5ab0a8139a85d7a39229fe52059) |
+| `working-set` | `"relay"` | none | [`{ kind: "working-set", form: "relay" }`](#persistence-type-sha256-f1f134c98dca97bf847d9ef9248fe24d0b828bae6991181af79ed34dcb4c38c3) |
+| `working-set` | `"snapshot"` | `sections`: [`ContextSnapshotSection[]`](#persistence-type-sha256-c748fb42c80a120038a8c587af80ec39924803c401364db11c8974d5bf6d0262) | [`{ kind: "working-set", form: "snapshot" }`](#persistence-type-sha256-e683e55964b14b456d6c8a843ab69595bc557039c7bba5f750923c18515edaf5) |
+| `working-set` | not declared | none | [`{ kind: "working-set" }`](#persistence-type-sha256-7fdae3d73eb0107d5a9b25278dbc5ab29a94ed7b416fb1b6346aad04575d608f) |
 | `workspace-memory` | `"instructions"` | `digest`: `string`; `workspaceId`: `string` | [`WorkspaceMemorySource`](#persistence-type-sha256-c02daf27b42aaf44b51da46daab4506eff8e14fc64bfc7cdfaacc541629eddb3) |
-| `workspace-memory-llm` | `"catalog"` | none | [`{ kind: "workspace-memory-llm", form: "catalog" }`](#persistence-type-sha256-26b2989b07c51b3f44852ac361d766fa5a5b343e3b808d51c078a751fa7d6e62) |
-| `workspace-memory-llm` | `"instructions"` | none | [`{ kind: "workspace-memory-llm", form: "instructions" }`](#persistence-type-sha256-647dd612ff1ff222aa7181116d71658497905531b11ccc381c7eca89bfb838c5) |
-| `workspace-memory-llm` | `"notice"` | `summary`: `string` | [`{ kind: "workspace-memory-llm", form: "notice" }`](#persistence-type-sha256-957354d09baa5e09b3d87a15be92c13521b5a4a95470ff39a7b809436aba9ff8) |
-| `workspace-memory-llm` | `"recall"` | none | [`{ kind: "workspace-memory-llm", form: "recall" }`](#persistence-type-sha256-ecee71e5b2d97eaa43bd23380a7a1168554277bcb9a0bf5866aa365337f3504a) |
-| `workspace-memory-llm` | `"relay"` | none | [`{ kind: "workspace-memory-llm", form: "relay" }`](#persistence-type-sha256-ece35d8bc83f00edab944dcb6113e6a093af70395b2b18f61ee37dc686507c1a) |
-| `workspace-memory-llm` | `"snapshot"` | `sections`: [`ContextSnapshotSection[]`](#persistence-type-sha256-c748fb42c80a120038a8c587af80ec39924803c401364db11c8974d5bf6d0262) | [`{ kind: "workspace-memory-llm", form: "snapshot" }`](#persistence-type-sha256-4fcdb94058bf7d044356ba62808f430373dd63e52e1102a054d3429124969afb) |
-| `workspace-memory-llm` | not declared | none | [`{ kind: "workspace-memory-llm" }`](#persistence-type-sha256-ef06de2b301840b48622d0e6bee01cdca340c19d8b247291a0fc1bc6f4afe9ef) |
 
-<a id="persistence-type-sha256-1e30a9a4338e5b30e0b02d73b38bbd4c55fe898260a7590b518156818e43b546"></a>
+<a id="persistence-type-sha256-b1742bda539e264eec1e8238ef6087f57fad3ead2b45431ca0e6315309555023"></a>
 
 ### `Message[]`
 
-SHA-256: `1e30a9a4338e5b30e0b02d73b38bbd4c55fe898260a7590b518156818e43b546`
+SHA-256: `b1742bda539e264eec1e8238ef6087f57fad3ead2b45431ca0e6315309555023`
 
-Array of [`Message`](#persistence-type-sha256-f59d1801455960d1f0dd3dfa45c3ed4a9d0941ca98c6d7c786310d682a22589f).
+Array of [`Message`](#persistence-type-sha256-b76c742ebf73aacdce5dad42b0eca0faefcc98b607926077440a5ce1dae40c51).
+
+<a id="persistence-type-sha256-4c90b12e5dad9fdf2befc7b80f0690e8092565fe5e454c207a1948873be270bb"></a>
+
+<a id="persistence-type-misconceptionstage"></a>
+
+<a id="persistence-type-packagesmentormisconceptionsrctypestsmisconceptionstage"></a>
+
+### `MisconceptionStage`
+
+SHA-256: `4c90b12e5dad9fdf2befc7b80f0690e8092565fe5e454c207a1948873be270bb`
+
+Sources: [`packages/mentor/misconception/src/types.ts:41`](../packages/mentor/misconception/src/types.ts)
+
+One of:
+
+- `"complete"`
+- `"counterexample"`
+- `"exercise"`
+- `"explain"`
+- `"new-case"`
+- `"reassess"`
 
 <a id="persistence-type-sha256-719c51f67074f97034a6c94297fe1f4b5d3c8d392c57586dab732aa5398c7a91"></a>
 
@@ -6734,6 +7717,32 @@ One of:
 - `null`
 - `number`
 
+<a id="persistence-type-sha256-02f79965d4939c27f83468d32c0efd2b9d799f4c7a1915fe077ed28edae24f33"></a>
+
+<a id="persistence-type-packagesruntimeagent-kernelsrctypestspolicyaction"></a>
+
+<a id="persistence-type-policyaction"></a>
+
+### `PolicyAction`
+
+SHA-256: `02f79965d4939c27f83468d32c0efd2b9d799f4c7a1915fe077ed28edae24f33`
+
+Sources: [`packages/runtime/agent-kernel/src/types.ts:595`](../packages/runtime/agent-kernel/src/types.ts)
+
+One of:
+
+- `"browser"`
+- `"delegate"`
+- `"write"`
+- `"edit"`
+- `"mcp"`
+- `"memory"`
+- `"network"`
+- `"policy"`
+- `"read"`
+- `"shell"`
+- `"workflow"`
+
 <a id="persistence-type-sha256-c79611bcc5511316aaeafe84f9b5ddebc34fcdc56d4eacc53dfd3039cafdb3cb"></a>
 
 <a id="persistence-type-packagesruntimeagent-kernelsrctypestspolicydecision"></a>
@@ -6744,7 +7753,7 @@ One of:
 
 SHA-256: `c79611bcc5511316aaeafe84f9b5ddebc34fcdc56d4eacc53dfd3039cafdb3cb`
 
-Sources: [`packages/runtime/agent-kernel/src/types.ts:587`](../packages/runtime/agent-kernel/src/types.ts)
+Sources: [`packages/runtime/agent-kernel/src/types.ts:754`](../packages/runtime/agent-kernel/src/types.ts)
 
 | Property | Presence | Type |
 |---|---|---|
@@ -6765,7 +7774,7 @@ Sources: [`packages/runtime/agent-kernel/src/types.ts:587`](../packages/runtime/
 
 SHA-256: `389ae5e23e4439576a4c4bc3e52ab31550ac428927097e7c7e50969f96b26675`
 
-Sources: [`packages/runtime/agent-kernel/src/types.ts:442`](../packages/runtime/agent-kernel/src/types.ts)
+Sources: [`packages/runtime/agent-kernel/src/types.ts:609`](../packages/runtime/agent-kernel/src/types.ts)
 
 One of:
 
@@ -6783,7 +7792,7 @@ One of:
 
 SHA-256: `c088d833ad3c9c7fadc3ac292e1cb1e94209d4c7ee4a2b2857d8ad8d8709929d`
 
-Sources: [`packages/runtime/agent-kernel/src/types.ts:285`](../packages/runtime/agent-kernel/src/types.ts)
+Sources: [`packages/runtime/agent-kernel/src/types.ts:426`](../packages/runtime/agent-kernel/src/types.ts)
 
 | Property | Presence | Type |
 |---|---|---|
@@ -6823,24 +7832,6 @@ Sources: [`packages/deliverables/tool-present/src/types.ts:5`](../packages/deliv
 SHA-256: `1d9cb3caa96100b18b1911fa3ff8c751ef6992971a03c5f4d9aefc1a0004a345`
 
 Array of [`PresentedFile`](#persistence-type-sha256-b8fc636a2121df9d8423c242e03c9d23b7ab7c6fdce00e45746932c60b730f97).
-
-<a id="persistence-type-sha256-30f070791979c95939e5a45237145692908e3ae85774aa3a1ca3415f5461269c"></a>
-
-<a id="persistence-type-packagesruntimeagent-kernelsrctypestsprovenance"></a>
-
-<a id="persistence-type-provenance"></a>
-
-### `Provenance`
-
-SHA-256: `30f070791979c95939e5a45237145692908e3ae85774aa3a1ca3415f5461269c`
-
-Sources: [`packages/runtime/agent-kernel/src/types.ts:79`](../packages/runtime/agent-kernel/src/types.ts)
-
-| Property | Presence | Type |
-|---|---|---|
-| `digest` | optional | `string` |
-| `locator` | optional | `string` |
-| `source` | required | [`union (9 variants)`](#persistence-type-sha256-a668c7667e9116693be30140898679c75a3f3f1ac1ad70c7a50b56f98dfa938f) |
 
 <a id="persistence-type-sha256-0ee52de154f8955c7abc82cffebc57452dcc8c44dccbdb6ad16c71a11305ead8"></a>
 
@@ -6912,7 +7903,7 @@ Sources: [`packages/llm/llm/src/types.ts:68`](../packages/llm/llm/src/types.ts)
 
 SHA-256: `e9e1df96d8f99e23351d0acc5b17e254a2246a1cec041aef088b9bef6e12afa5`
 
-Sources: [`packages/runtime/agent-kernel/src/types.ts:771`](../packages/runtime/agent-kernel/src/types.ts)
+Sources: [`packages/runtime/agent-kernel/src/types.ts:944`](../packages/runtime/agent-kernel/src/types.ts)
 
 One of:
 
@@ -6927,6 +7918,57 @@ One of:
 - `"retry"`
 - `"settle-child"`
 
+<a id="persistence-type-sha256-4916840443523e6ff4282d169b1cd4166ee1b441fb0382d22171448322ea3ab7"></a>
+
+### `RecoveryAction[]`
+
+SHA-256: `4916840443523e6ff4282d169b1cd4166ee1b441fb0382d22171448322ea3ab7`
+
+Array of [`RecoveryAction`](#persistence-type-sha256-e9e1df96d8f99e23351d0acc5b17e254a2246a1cec041aef088b9bef6e12afa5).
+
+<a id="persistence-type-sha256-cf7420c7a203ee14712872f0cb479958c901799fa47ae0a666047ccf490f1e61"></a>
+
+<a id="persistence-type-packagesinteractionpermission-presetssrcindextsrememberedrule"></a>
+
+<a id="persistence-type-rememberedrule"></a>
+
+### `RememberedRule`
+
+SHA-256: `cf7420c7a203ee14712872f0cb479958c901799fa47ae0a666047ccf490f1e61`
+
+Sources: [`packages/interaction/permission-presets/src/index.ts:277`](../packages/interaction/permission-presets/src/index.ts)
+
+| Property | Presence | Type |
+|---|---|---|
+| `action` | required | [`PolicyAction`](#persistence-type-sha256-02f79965d4939c27f83468d32c0efd2b9d799f4c7a1915fe077ed28edae24f33) |
+| `resource` | required | `string` |
+| `scope` | required | [`RememberedRuleScope`](#persistence-type-sha256-f87a9a07538a1858d1589e92a364f89f22a1566c8fa293e0f19ac49551a3b3df) |
+
+<a id="persistence-type-sha256-f87a9a07538a1858d1589e92a364f89f22a1566c8fa293e0f19ac49551a3b3df"></a>
+
+<a id="persistence-type-packagesinteractionpermission-presetssrcindextsrememberedrulescope"></a>
+
+<a id="persistence-type-rememberedrulescope"></a>
+
+### `RememberedRuleScope`
+
+SHA-256: `f87a9a07538a1858d1589e92a364f89f22a1566c8fa293e0f19ac49551a3b3df`
+
+Sources: [`packages/interaction/permission-presets/src/index.ts:269`](../packages/interaction/permission-presets/src/index.ts)
+
+One of:
+
+- `"session"`
+- `"workspace"`
+
+<a id="persistence-type-sha256-55529c12f530c8fea38495f7b4205ed39bbe99d5b557e53780e6bf4779ab2c31"></a>
+
+### `RememberedRule[]`
+
+SHA-256: `55529c12f530c8fea38495f7b4205ed39bbe99d5b557e53780e6bf4779ab2c31`
+
+Array of [`RememberedRule`](#persistence-type-sha256-cf7420c7a203ee14712872f0cb479958c901799fa47ae0a666047ccf490f1e61).
+
 <a id="persistence-type-sha256-0acd94fe8794574c9ae72c7855ee16d29c546096d4af760d16d1225385764555"></a>
 
 <a id="persistence-type-packagesllmllmsrctypestsreplayenvelope"></a>
@@ -6937,7 +7979,7 @@ One of:
 
 SHA-256: `0acd94fe8794574c9ae72c7855ee16d29c546096d4af760d16d1225385764555`
 
-Sources: [`packages/llm/llm/src/types.ts:418`](../packages/llm/llm/src/types.ts)
+Sources: [`packages/llm/llm/src/types.ts:448`](../packages/llm/llm/src/types.ts)
 
 | Property | Presence | Type |
 |---|---|---|
@@ -6992,7 +8034,7 @@ One of:
 
 SHA-256: `9e5ce2429b576636e738ed90c93c78d7ff7751ee1c7bd5fc10b48ed71d31f3f1`
 
-Sources: [`packages/runtime/agent-kernel/src/types.ts:154`](../packages/runtime/agent-kernel/src/types.ts)
+Sources: [`packages/runtime/agent-kernel/src/types.ts:234`](../packages/runtime/agent-kernel/src/types.ts)
 
 | Property | Presence | Type |
 |---|---|---|
@@ -7063,6 +8105,61 @@ Sources: [`packages/context/active-memory-context/src/policy.ts:73`](../packages
 | `effective` | required | [`{ escalation, graphDepth, threshold }`](#persistence-type-sha256-7dcd71c754711f915a6dc5f80130ca4f76875390f71cc5ed80f00c4332685b1f) |
 | `taskClass` | required | `string` |
 | `unapplied` | required | [`UnappliedRetrievalDimension[]`](#persistence-type-sha256-7b2ff3368f16f1f1b6e00db73da2e5d2afe2083f2975d977c6b1e228d52d6f5f) |
+
+<a id="persistence-type-sha256-034fa703b35fa5455bc5774a9e7272e38ff491e84816cdc63cfa194550c6c871"></a>
+
+<a id="persistence-type-packagessubagentcommand-reviewsrcreviewertsreviewkind"></a>
+
+<a id="persistence-type-reviewkind"></a>
+
+### `ReviewKind`
+
+SHA-256: `034fa703b35fa5455bc5774a9e7272e38ff491e84816cdc63cfa194550c6c871`
+
+Sources: [`packages/subagent/command-review/src/reviewer.ts:16`](../packages/subagent/command-review/src/reviewer.ts)
+
+One of:
+
+- `"code"`
+- `"security"`
+
+<a id="persistence-type-sha256-7f17c67cf5eb03c67b675f7d7351190594157faf816a91151e393f92e6867624"></a>
+
+<a id="persistence-type-packagessubagentcommand-reviewsrcreviewertsreviewreportevent"></a>
+
+<a id="persistence-type-reviewreportevent"></a>
+
+### `ReviewReportEvent`
+
+SHA-256: `7f17c67cf5eb03c67b675f7d7351190594157faf816a91151e393f92e6867624`
+
+Sources: [`packages/subagent/command-review/src/reviewer.ts:71`](../packages/subagent/command-review/src/reviewer.ts)
+
+| Property | Presence | Type |
+|---|---|---|
+| `commandId` | required | `string` |
+| `findings` | required | [`CodeReviewFinding[]`](#persistence-type-sha256-553518341a88091e03d6adf4c56637a48c82c6e517014ccf4685f35fd8b58d70) |
+| `kind` | required | [`ReviewKind`](#persistence-type-sha256-034fa703b35fa5455bc5774a9e7272e38ff491e84816cdc63cfa194550c6c871) |
+| `summary` | required | `string` |
+| `target` | required | `string` |
+
+<a id="persistence-type-sha256-a49d1f78c32027e20f567158604dd21931d04937086affdd717231be7ac9f875"></a>
+
+<a id="persistence-type-packagessubagentcommand-reviewsrcreviewertsreviewseverity"></a>
+
+<a id="persistence-type-reviewseverity"></a>
+
+### `ReviewSeverity`
+
+SHA-256: `a49d1f78c32027e20f567158604dd21931d04937086affdd717231be7ac9f875`
+
+Sources: [`packages/subagent/command-review/src/reviewer.ts:19`](../packages/subagent/command-review/src/reviewer.ts)
+
+One of:
+
+- `"high"`
+- `"low"`
+- `"medium"`
 
 <a id="persistence-type-sha256-4f57aab1ffe7889f76269707cc11089fbe719716b2888d803ea8b025a6006a67"></a>
 
@@ -7261,7 +8358,7 @@ Sources: [`packages/session/session-title/src/types.ts:41`](../packages/session/
 | `source` | required | [`SessionTitleSource`](#persistence-type-sha256-30d5a537b296685770b1241c4b4bbde19d5a31ff81aa23df73fab5e90b8fc65f) |
 | `title` | required | `string` |
 
-<a id="persistence-type-sha256-1754969b3e2ef4bbddf2a2bbff17cf20e956c83f61e0181072518cfe8f952fac"></a>
+<a id="persistence-type-sha256-fd955075680855854ab1403fdd37fdd8e34bd9b8fd0652fe21a0c9adfcaf8da3"></a>
 
 <a id="persistence-type-packagessessionsession-title-llmsrcindextssessiontitlellmrequesteventdata"></a>
 
@@ -7269,7 +8366,7 @@ Sources: [`packages/session/session-title/src/types.ts:41`](../packages/session/
 
 ### `SessionTitleLlmRequestEventData`
 
-SHA-256: `1754969b3e2ef4bbddf2a2bbff17cf20e956c83f61e0181072518cfe8f952fac`
+SHA-256: `fd955075680855854ab1403fdd37fdd8e34bd9b8fd0652fe21a0c9adfcaf8da3`
 
 Sources: [`packages/session/session-title-llm/src/index.ts:34`](../packages/session/session-title-llm/src/index.ts)
 
@@ -7277,7 +8374,7 @@ Sources: [`packages/session/session-title-llm/src/index.ts:34`](../packages/sess
 |---|---|---|
 | `maxTokens` | required | `number` |
 | `messageSeqs` | required | [`number[]`](#persistence-type-sha256-5d03ba38734809bcbd2a55221bd938b3b3fc34b49bb686c6113e9e4931e3aa78) |
-| `messages` | required | [`Message[]`](#persistence-type-sha256-1e30a9a4338e5b30e0b02d73b38bbd4c55fe898260a7590b518156818e43b546) |
+| `messages` | required | [`Message[]`](#persistence-type-sha256-b1742bda539e264eec1e8238ef6087f57fad3ead2b45431ca0e6315309555023) |
 | `route` | required | [`SessionTitleModelIdentity`](#persistence-type-sha256-07e1a58c58b593f507b8e7f25723bb0aa42baae6e00f5ecfddf28cb1e64d3235) |
 | `system` | required | `string` |
 | `titleProvider` | required | `string` |
@@ -7366,6 +8463,24 @@ Sources: [`packages/skill/skill/src/index.ts:223`](../packages/skill/skill/src/i
 | `kind` | required | `"skill-invocation"` |
 | `name` | required | `string` |
 
+<a id="persistence-type-sha256-30f070791979c95939e5a45237145692908e3ae85774aa3a1ca3415f5461269c"></a>
+
+<a id="persistence-type-packagesruntimeagent-kernelsrctypestssourceref"></a>
+
+<a id="persistence-type-sourceref"></a>
+
+### `SourceRef`
+
+SHA-256: `30f070791979c95939e5a45237145692908e3ae85774aa3a1ca3415f5461269c`
+
+Sources: [`packages/runtime/agent-kernel/src/types.ts:86`](../packages/runtime/agent-kernel/src/types.ts)
+
+| Property | Presence | Type |
+|---|---|---|
+| `digest` | optional | `string` |
+| `locator` | optional | `string` |
+| `source` | required | [`union (9 variants)`](#persistence-type-sha256-a668c7667e9116693be30140898679c75a3f3f1ac1ad70c7a50b56f98dfa938f) |
+
 <a id="persistence-type-sha256-c802474347f30f6b1466cd14782df0330501992e9d65913c84206f1cfba60d0f"></a>
 
 <a id="persistence-type-packagesruntimeagent-kernelsrctypestsstateeffect"></a>
@@ -7376,7 +8491,7 @@ Sources: [`packages/skill/skill/src/index.ts:223`](../packages/skill/skill/src/i
 
 SHA-256: `c802474347f30f6b1466cd14782df0330501992e9d65913c84206f1cfba60d0f`
 
-Sources: [`packages/runtime/agent-kernel/src/types.ts:295`](../packages/runtime/agent-kernel/src/types.ts)
+Sources: [`packages/runtime/agent-kernel/src/types.ts:436`](../packages/runtime/agent-kernel/src/types.ts)
 
 | Property | Presence | Type |
 |---|---|---|
@@ -7391,6 +8506,27 @@ SHA-256: `6deef192ed365c896d700d786d99a87b7e4ab37f133bc4e393de550091a400c6`
 
 Array of [`StateEffect`](#persistence-type-sha256-c802474347f30f6b1466cd14782df0330501992e9d65913c84206f1cfba60d0f).
 
+<a id="persistence-type-sha256-ca663bb959bea272d97c93ae7b25e9aaa4654795379f3560a542932f3973d694"></a>
+
+<a id="persistence-type-packagesruntimeagent-kernelsrctypestsstepdelta"></a>
+
+<a id="persistence-type-stepdelta"></a>
+
+### `StepDelta`
+
+SHA-256: `ca663bb959bea272d97c93ae7b25e9aaa4654795379f3560a542932f3973d694`
+
+Sources: [`packages/runtime/agent-kernel/src/types.ts:1017`](../packages/runtime/agent-kernel/src/types.ts)
+
+| Property | Presence | Type |
+|---|---|---|
+| `errorReduction` | required | `number` |
+| `evidenceGain` | required | `number` |
+| `goalProgress` | required | `number` |
+| `planProgress` | required | `number` |
+| `stateDelta` | required | `number` |
+| `toolNovelty` | required | `number` |
+
 <a id="persistence-type-sha256-47e9095591ae36e7c39ee62553097772f2bfa16304536a72dbbc3f691f605180"></a>
 
 <a id="persistence-type-packagesllmllmsrctypestsstreamchunk"></a>
@@ -7401,7 +8537,7 @@ Array of [`StateEffect`](#persistence-type-sha256-c802474347f30f6b1466cd14782df0
 
 SHA-256: `47e9095591ae36e7c39ee62553097772f2bfa16304536a72dbbc3f691f605180`
 
-Sources: [`packages/llm/llm/src/types.ts:440`](../packages/llm/llm/src/types.ts)
+Sources: [`packages/llm/llm/src/types.ts:470`](../packages/llm/llm/src/types.ts)
 
 One of:
 
@@ -7531,7 +8667,7 @@ Sources: [`packages/llm/llm/src/message.ts:35`](../packages/llm/llm/src/message.
 
 SHA-256: `6daab4c0a7637fc040fe296ebd0aa6b6c254e2a9dcffcfa49563e11853013a50`
 
-Sources: [`packages/runtime/agent-kernel/src/types.ts:901`](../packages/runtime/agent-kernel/src/types.ts)
+Sources: [`packages/runtime/agent-kernel/src/types.ts:1230`](../packages/runtime/agent-kernel/src/types.ts)
 
 One of:
 
@@ -7540,6 +8676,25 @@ One of:
 - `"rejected"`
 - `"stale"`
 - `"supported"`
+
+<a id="persistence-type-sha256-60c1556ea97c74a8b7a3d53203234dcae370763d7ad7318c20ae790eb80e6e68"></a>
+
+<a id="persistence-type-packagesruntimeagent-kernelsrctypeststaskclass"></a>
+
+<a id="persistence-type-taskclass"></a>
+
+### `TaskClass`
+
+SHA-256: `60c1556ea97c74a8b7a3d53203234dcae370763d7ad7318c20ae790eb80e6e68`
+
+Sources: [`packages/runtime/agent-kernel/src/types.ts:80`](../packages/runtime/agent-kernel/src/types.ts)
+
+One of:
+
+- `"coding"`
+- `"conversational"`
+- `"operations"`
+- `"research"`
 
 <a id="persistence-type-sha256-56ca742ff6d994369484277a40eec7cd24317fd44c8e243d7d4b4b79fdd1e7a1"></a>
 
@@ -7551,7 +8706,7 @@ One of:
 
 SHA-256: `56ca742ff6d994369484277a40eec7cd24317fd44c8e243d7d4b4b79fdd1e7a1`
 
-Sources: [`packages/runtime/agent-kernel/src/types.ts:922`](../packages/runtime/agent-kernel/src/types.ts)
+Sources: [`packages/runtime/agent-kernel/src/types.ts:1251`](../packages/runtime/agent-kernel/src/types.ts)
 
 One of:
 
@@ -7570,7 +8725,7 @@ One of:
 
 SHA-256: `9beb38fe658549e5c944f39b1676385ffdac8caddeb4157bf94dd3c486bb6715`
 
-Sources: [`packages/runtime/agent-kernel/src/types.ts:118`](../packages/runtime/agent-kernel/src/types.ts)
+Sources: [`packages/runtime/agent-kernel/src/types.ts:125`](../packages/runtime/agent-kernel/src/types.ts)
 
 One of:
 
@@ -7854,7 +9009,7 @@ Sources: [`packages/llm/llm/src/types.ts:127`](../packages/llm/llm/src/types.ts)
 
 SHA-256: `3cfc3a56502da1f8c6153c2c56657bab4b749056968634dd0991d325ec1c919f`
 
-Sources: [`packages/core/tools/src/index.ts:822`](../packages/core/tools/src/index.ts)
+Sources: [`packages/core/tools/src/index.ts:821`](../packages/core/tools/src/index.ts)
 
 | Property | Presence | Type |
 |---|---|---|
@@ -7892,7 +9047,7 @@ Sources: [`packages/llm/llm/src/message.ts:181`](../packages/llm/llm/src/message
 
 SHA-256: `66ba70f6f068da443f969a0b947a013c3addd776b9b60a0a393759c19825e9a2`
 
-Sources: [`packages/llm/llm/src/types.ts:461`](../packages/llm/llm/src/types.ts)
+Sources: [`packages/llm/llm/src/types.ts:491`](../packages/llm/llm/src/types.ts)
 
 | Property | Presence | Type |
 |---|---|---|
@@ -7981,7 +9136,7 @@ Sources: [`packages/workflow/tool-workflow/src/types.ts:14`](../packages/workflo
 | `name` | required | `string` |
 | `runId` | required | `string` |
 
-<a id="persistence-type-sha256-3e5f8b7509245fc07f7ca2538d9d4f386f2d0dca604986241e14c78cfaf32af4"></a>
+<a id="persistence-type-sha256-5ca5c11dc380980dbb234f418b59afc58ac7f98eb201012ed8661c2c92633b2b"></a>
 
 <a id="persistence-type-packagesruntimeagent-kernelsrctypeststransitionkind"></a>
 
@@ -7989,18 +9144,20 @@ Sources: [`packages/workflow/tool-workflow/src/types.ts:14`](../packages/workflo
 
 ### `TransitionKind`
 
-SHA-256: `3e5f8b7509245fc07f7ca2538d9d4f386f2d0dca604986241e14c78cfaf32af4`
+SHA-256: `5ca5c11dc380980dbb234f418b59afc58ac7f98eb201012ed8661c2c92633b2b`
 
-Sources: [`packages/runtime/agent-kernel/src/types.ts:268`](../packages/runtime/agent-kernel/src/types.ts)
+Sources: [`packages/runtime/agent-kernel/src/types.ts:408`](../packages/runtime/agent-kernel/src/types.ts)
 
 One of:
 
+- `"approval-decided"`
 - `"budget-exhausted"`
-- `"cancelled"`
+- `"task-intake"`
 - `"turn-ended"`
 - `"verification-failed"`
 - `"verification-passed"`
 - `"verification-requested"`
+- `"cancelled"`
 - `"human-required"`
 - `"paused"`
 - `"plan-mode-entered"`
@@ -8008,9 +9165,8 @@ One of:
 - `"plan-recorded"`
 - `"recovery-started"`
 - `"step-admitted"`
-- `"task-intake"`
 
-<a id="persistence-type-sha256-bdd4ccf6dfc90bb419295761023eef412698146f8846db7bd5d9bb2296fabf38"></a>
+<a id="persistence-type-sha256-10159db6bb6e155c32803b91f1c6209d9aa7a28b81e21d0adb7b5312d267f981"></a>
 
 <a id="persistence-type-packagesruntimeagent-kernelsrctypeststransitiontrigger"></a>
 
@@ -8018,14 +9174,14 @@ One of:
 
 ### `TransitionTrigger`
 
-SHA-256: `bdd4ccf6dfc90bb419295761023eef412698146f8846db7bd5d9bb2296fabf38`
+SHA-256: `10159db6bb6e155c32803b91f1c6209d9aa7a28b81e21d0adb7b5312d267f981`
 
-Sources: [`packages/runtime/agent-kernel/src/types.ts:260`](../packages/runtime/agent-kernel/src/types.ts)
+Sources: [`packages/runtime/agent-kernel/src/types.ts:400`](../packages/runtime/agent-kernel/src/types.ts)
 
 | Property | Presence | Type |
 |---|---|---|
 | `detail` | optional | `string` |
-| `kind` | required | [`TransitionKind`](#persistence-type-sha256-3e5f8b7509245fc07f7ca2538d9d4f386f2d0dca604986241e14c78cfaf32af4) |
+| `kind` | required | [`TransitionKind`](#persistence-type-sha256-5ca5c11dc380980dbb234f418b59afc58ac7f98eb201012ed8661c2c92633b2b) |
 
 <a id="persistence-type-sha256-8f39ae8e9b24341ceb980b46cb9db19049234cf867f520496ac664ddbdc2a5c8"></a>
 
@@ -8037,7 +9193,7 @@ Sources: [`packages/runtime/agent-kernel/src/types.ts:260`](../packages/runtime/
 
 SHA-256: `8f39ae8e9b24341ceb980b46cb9db19049234cf867f520496ac664ddbdc2a5c8`
 
-Sources: [`packages/runtime/agent-kernel/src/types.ts:61`](../packages/runtime/agent-kernel/src/types.ts)
+Sources: [`packages/runtime/agent-kernel/src/types.ts:68`](../packages/runtime/agent-kernel/src/types.ts)
 
 One of:
 
@@ -8114,7 +9270,7 @@ SHA-256: `7b2ff3368f16f1f1b6e00db73da2e5d2afe2083f2975d977c6b1e228d52d6f5f`
 
 Array of [`UnappliedRetrievalDimension`](#persistence-type-sha256-fd2606aa255a60024c2aad9cc2f91c6263f615c13bdb922eec10d23fced1f7e7).
 
-<a id="persistence-type-sha256-1897a2957a44b3fbf125c159308ec3507560689f7c3c3ed34ad6413461da69bf"></a>
+<a id="persistence-type-sha256-dad818e1287d025d2f99dace6e394015028e130fd694452765502e53a7f49cfb"></a>
 
 <a id="persistence-type-packagesllmllmsrcmessagetsusermessage"></a>
 
@@ -8122,7 +9278,7 @@ Array of [`UnappliedRetrievalDimension`](#persistence-type-sha256-fd2606aa255a60
 
 ### `UserMessage`
 
-SHA-256: `1897a2957a44b3fbf125c159308ec3507560689f7c3c3ed34ad6413461da69bf`
+SHA-256: `dad818e1287d025d2f99dace6e394015028e130fd694452765502e53a7f49cfb`
 
 Sources: [`packages/llm/llm/src/message.ts:170`](../packages/llm/llm/src/message.ts)
 
@@ -8131,21 +9287,21 @@ Sources: [`packages/llm/llm/src/message.ts:170`](../packages/llm/llm/src/message
 | `content` | required | [`ContentBlock[]`](#persistence-type-sha256-b52f215a6cd691058a3413c12f161fa3b563a2f4895adb3df6f744ec4b0a6ef1) |
 | `id` | required | `string` |
 | `role` | required | `"user"` |
-| `source` | required | [`MessageSource`](#persistence-type-sha256-292ea0afb9d5c375ff69aabda09be411459589c7021b00135d10b1d24245f537) |
+| `source` | required | [`MessageSource`](#persistence-type-sha256-4c1bba67986b763f6bf12b195d57def600b74ae32ace6dc46cadf6304cc730c1) |
 
 Source compatibility: `source` — `session-source-attribution` v1; `session.user-message.source`; `kind`; `preserve`.
 
-Attribution-only additions: `active-memory`, `agent-kernel`, `command-evolution`, `evolution-curator`, `evolution-graph`, `evolution-memory`, `evolution-optimizer`, `evolution-reviewer`, `tmux-context`, `workspace-memory`, `workspace-memory-llm`.
+Attribution-only additions: `active-memory`, `agent-kernel`, `command-evolution`, `evolution-curator`, `evolution-graph`, `evolution-memory`, `evolution-optimizer`, `evolution-reviewer`, `mentor-loop`, `tmux-context`, `workspace-memory`.
 
-<a id="persistence-type-sha256-912c266a473d8015258146966986d07252a8a4762bd1523ef4d597add0a34750"></a>
+<a id="persistence-type-sha256-f18c7f976a904f2fd39798d03921d73df2c3190e52efa0f47bf40d518d0d999a"></a>
 
 ### `UserMessage[]`
 
-SHA-256: `912c266a473d8015258146966986d07252a8a4762bd1523ef4d597add0a34750`
+SHA-256: `f18c7f976a904f2fd39798d03921d73df2c3190e52efa0f47bf40d518d0d999a`
 
-Array of [`UserMessage`](#persistence-type-sha256-1897a2957a44b3fbf125c159308ec3507560689f7c3c3ed34ad6413461da69bf).
+Array of [`UserMessage`](#persistence-type-sha256-dad818e1287d025d2f99dace6e394015028e130fd694452765502e53a7f49cfb).
 
-<a id="persistence-type-sha256-4d01ac0b1158cbc70b3dd1248fc36b5b1af6a960b06d9a30d64065cb33fc93f8"></a>
+<a id="persistence-type-sha256-f4e16939a398c8ca5eab0f9e008fd6f984f113c6a7326240ea2feae198620632"></a>
 
 <a id="persistence-type-packagesruntimeagent-kernelsrctypestsverificationrequest"></a>
 
@@ -8153,24 +9309,26 @@ Array of [`UserMessage`](#persistence-type-sha256-1897a2957a44b3fbf125c159308ec3
 
 ### `VerificationRequest`
 
-SHA-256: `4d01ac0b1158cbc70b3dd1248fc36b5b1af6a960b06d9a30d64065cb33fc93f8`
+SHA-256: `f4e16939a398c8ca5eab0f9e008fd6f984f113c6a7326240ea2feae198620632`
 
-Sources: [`packages/runtime/agent-kernel/src/types.ts:864`](../packages/runtime/agent-kernel/src/types.ts)
+Sources: [`packages/runtime/agent-kernel/src/types.ts:1181`](../packages/runtime/agent-kernel/src/types.ts)
 
 | Property | Presence | Type |
 |---|---|---|
+| `changeContract` | optional | [`ChangeContract`](#persistence-type-sha256-d42029698c772ad4f38820d6ba2af38c0fc954f4f40e1800e42216f0cf98f17d) |
 | `changedScopes` | required | [`string[]`](#persistence-type-sha256-93c33d9687613293f8c95d46c4d922fe9ceae83b84c384beff5c3315abe005f2) |
-| `criteria` | required | [`AcceptanceCriterion[]`](#persistence-type-sha256-476d2fd2cc8cc5090318c053ea16c949ab5a80a055b4b2c1da4eb3c3436bc900) |
+| `criteria` | required | [`AcceptanceCriterion[]`](#persistence-type-sha256-d21bb685072db5f78b77d0e5c0eb169b232f2e298ad4101dfeb8a1861663bcb6) |
+| `repositoryDigest` | required | `string` |
 | `revision` | required | `number` |
 | `taskId` | required | `string` |
 
-<a id="persistence-type-sha256-eae4ed154ad8dfd93ec3bcce4d15f66a752566027fa132da1b0780e939184bac"></a>
+<a id="persistence-type-sha256-cf6322432d8c3a30a155a3f69c1313d03b3973c22967f3c0b4900fc2ce67d5c0"></a>
 
 ### `VerificationRequest[]`
 
-SHA-256: `eae4ed154ad8dfd93ec3bcce4d15f66a752566027fa132da1b0780e939184bac`
+SHA-256: `cf6322432d8c3a30a155a3f69c1313d03b3973c22967f3c0b4900fc2ce67d5c0`
 
-Array of [`VerificationRequest`](#persistence-type-sha256-4d01ac0b1158cbc70b3dd1248fc36b5b1af6a960b06d9a30d64065cb33fc93f8).
+Array of [`VerificationRequest`](#persistence-type-sha256-f4e16939a398c8ca5eab0f9e008fd6f984f113c6a7326240ea2feae198620632).
 
 <a id="persistence-type-sha256-c2deb7c9183735d4e0fffddf5c623f4e34daa1c8e96b111982e957dfcbbcf896"></a>
 
@@ -8237,7 +9395,7 @@ Sources: [`packages/context/workspace-memory-context/src/index.ts:34`](../packag
 
 SHA-256: `9666d0cf25f1bfc7d23cef91307c922d0bbdd63818355f7f664a4c11b63c386f`
 
-Sources: [`packages/runtime/agent-kernel/src/types.ts:186`](../packages/runtime/agent-kernel/src/types.ts)
+Sources: [`packages/runtime/agent-kernel/src/types.ts:290`](../packages/runtime/agent-kernel/src/types.ts)
 
 | Property | Presence | Type |
 |---|---|---|
@@ -8455,7 +9613,7 @@ Array of `number`.
 
 SHA-256: `4cd48f3e5108bd6ebedf7301c3638839b8b2b9db8dbd493974177fbdeb91a01b`
 
-Sources: [`packages/api/session-controller/src/types.ts:396`](../packages/api/session-controller/src/types.ts) · [`packages/attachment/attachment/src/brand.ts:6`](../packages/attachment/attachment/src/brand.ts) · [`packages/compaction/compaction/src/brand.ts:4`](../packages/compaction/compaction/src/brand.ts) · [`packages/core/session/src/types.ts:20`](../packages/core/session/src/types.ts) · [`packages/evolution/evolution-memory/src/index.ts:134`](../packages/evolution/evolution-memory/src/index.ts) · [`packages/evolution/evolution-memory/src/types.ts:42`](../packages/evolution/evolution-memory/src/types.ts) · [`packages/experimental/agent-team/src/types.ts:20`](../packages/experimental/agent-team/src/types.ts) · [`packages/experimental/agent-team/src/types.ts:32`](../packages/experimental/agent-team/src/types.ts) · [`packages/experimental/agent-team/src/types.ts:8`](../packages/experimental/agent-team/src/types.ts) · [`packages/feedback/message-feedback/src/types.ts:14`](../packages/feedback/message-feedback/src/types.ts) · [`packages/goal/goal/src/types.ts:17`](../packages/goal/goal/src/types.ts) · [`packages/interaction/commands/src/brand.ts:31`](../packages/interaction/commands/src/brand.ts) · [`packages/interaction/user-approval/src/types.ts:17`](../packages/interaction/user-approval/src/types.ts) · [`packages/llm/llm-fallback/src/brand.ts:9`](../packages/llm/llm-fallback/src/brand.ts) · [`packages/llm/llm-retry/src/brand.ts:4`](../packages/llm/llm-retry/src/brand.ts) · [`packages/llm/llm/src/brand.ts:16`](../packages/llm/llm/src/brand.ts) · [`packages/llm/llm/src/brand.ts:31`](../packages/llm/llm/src/brand.ts) · [`packages/llm/llm/src/brand.ts:43`](../packages/llm/llm/src/brand.ts) · [`packages/llm/llm/src/brand.ts:67`](../packages/llm/llm/src/brand.ts) · [`packages/runtime/agent-kernel/src/types.ts:25`](../packages/runtime/agent-kernel/src/types.ts) · [`packages/runtime/agent-kernel/src/types.ts:28`](../packages/runtime/agent-kernel/src/types.ts) · [`packages/runtime/agent-kernel/src/types.ts:31`](../packages/runtime/agent-kernel/src/types.ts) · [`packages/runtime/agent-kernel/src/types.ts:34`](../packages/runtime/agent-kernel/src/types.ts) · [`packages/runtime/agent-kernel/src/types.ts:37`](../packages/runtime/agent-kernel/src/types.ts) · [`packages/runtime/agent-kernel/src/types.ts:40`](../packages/runtime/agent-kernel/src/types.ts) · [`packages/runtime/agent-kernel/src/types.ts:43`](../packages/runtime/agent-kernel/src/types.ts) · [`packages/runtime/agent-kernel/src/types.ts:46`](../packages/runtime/agent-kernel/src/types.ts) · [`packages/runtime/agent-kernel/src/types.ts:49`](../packages/runtime/agent-kernel/src/types.ts) · [`packages/runtime/agent-kernel/src/types.ts:52`](../packages/runtime/agent-kernel/src/types.ts) · [`packages/runtime/agent-kernel/src/types.ts:55`](../packages/runtime/agent-kernel/src/types.ts) · [`packages/schedule/schedule/src/types.ts:12`](../packages/schedule/schedule/src/types.ts) · [`packages/session/session-title/src/index.ts:42`](../packages/session/session-title/src/index.ts) · [`packages/session/session-title/src/types.ts:17`](../packages/session/session-title/src/types.ts) · [`packages/webhook/webhook/src/brand.ts:12`](../packages/webhook/webhook/src/brand.ts) · [`packages/webhook/webhook/src/brand.ts:6`](../packages/webhook/webhook/src/brand.ts) · [`packages/webhook/webhook/src/brand.ts:9`](../packages/webhook/webhook/src/brand.ts) · [`packages/workflow/workflow/src/types.ts:13`](../packages/workflow/workflow/src/types.ts) · [`packages/workspace/workspace/src/types.ts:16`](../packages/workspace/workspace/src/types.ts)
+Sources: [`packages/api/session-controller/src/types.ts:396`](../packages/api/session-controller/src/types.ts) · [`packages/attachment/attachment/src/brand.ts:6`](../packages/attachment/attachment/src/brand.ts) · [`packages/compaction/compaction/src/brand.ts:4`](../packages/compaction/compaction/src/brand.ts) · [`packages/core/session/src/types.ts:20`](../packages/core/session/src/types.ts) · [`packages/evolution/evolution-memory/src/index.ts:150`](../packages/evolution/evolution-memory/src/index.ts) · [`packages/evolution/evolution-memory/src/types.ts:46`](../packages/evolution/evolution-memory/src/types.ts) · [`packages/experimental/agent-team/src/types.ts:20`](../packages/experimental/agent-team/src/types.ts) · [`packages/experimental/agent-team/src/types.ts:32`](../packages/experimental/agent-team/src/types.ts) · [`packages/experimental/agent-team/src/types.ts:8`](../packages/experimental/agent-team/src/types.ts) · [`packages/feedback/message-feedback/src/types.ts:14`](../packages/feedback/message-feedback/src/types.ts) · [`packages/goal/goal/src/types.ts:17`](../packages/goal/goal/src/types.ts) · [`packages/interaction/commands/src/brand.ts:31`](../packages/interaction/commands/src/brand.ts) · [`packages/interaction/user-approval/src/types.ts:17`](../packages/interaction/user-approval/src/types.ts) · [`packages/llm/llm-fallback/src/brand.ts:9`](../packages/llm/llm-fallback/src/brand.ts) · [`packages/llm/llm-retry/src/brand.ts:4`](../packages/llm/llm-retry/src/brand.ts) · [`packages/llm/llm/src/brand.ts:16`](../packages/llm/llm/src/brand.ts) · [`packages/llm/llm/src/brand.ts:31`](../packages/llm/llm/src/brand.ts) · [`packages/llm/llm/src/brand.ts:43`](../packages/llm/llm/src/brand.ts) · [`packages/llm/llm/src/brand.ts:67`](../packages/llm/llm/src/brand.ts) · [`packages/runtime/agent-kernel/src/types.ts:29`](../packages/runtime/agent-kernel/src/types.ts) · [`packages/runtime/agent-kernel/src/types.ts:32`](../packages/runtime/agent-kernel/src/types.ts) · [`packages/runtime/agent-kernel/src/types.ts:35`](../packages/runtime/agent-kernel/src/types.ts) · [`packages/runtime/agent-kernel/src/types.ts:38`](../packages/runtime/agent-kernel/src/types.ts) · [`packages/runtime/agent-kernel/src/types.ts:41`](../packages/runtime/agent-kernel/src/types.ts) · [`packages/runtime/agent-kernel/src/types.ts:44`](../packages/runtime/agent-kernel/src/types.ts) · [`packages/runtime/agent-kernel/src/types.ts:47`](../packages/runtime/agent-kernel/src/types.ts) · [`packages/runtime/agent-kernel/src/types.ts:50`](../packages/runtime/agent-kernel/src/types.ts) · [`packages/runtime/agent-kernel/src/types.ts:56`](../packages/runtime/agent-kernel/src/types.ts) · [`packages/runtime/agent-kernel/src/types.ts:59`](../packages/runtime/agent-kernel/src/types.ts) · [`packages/runtime/agent-kernel/src/types.ts:62`](../packages/runtime/agent-kernel/src/types.ts) · [`packages/schedule/schedule/src/types.ts:12`](../packages/schedule/schedule/src/types.ts) · [`packages/session/session-title/src/index.ts:42`](../packages/session/session-title/src/index.ts) · [`packages/session/session-title/src/types.ts:17`](../packages/session/session-title/src/types.ts) · [`packages/webhook/webhook/src/brand.ts:12`](../packages/webhook/webhook/src/brand.ts) · [`packages/webhook/webhook/src/brand.ts:6`](../packages/webhook/webhook/src/brand.ts) · [`packages/webhook/webhook/src/brand.ts:9`](../packages/webhook/webhook/src/brand.ts) · [`packages/workflow/workflow/src/types.ts:13`](../packages/workflow/workflow/src/types.ts) · [`packages/workspace/workspace/src/types.ts:16`](../packages/workspace/workspace/src/types.ts)
 
 `string`
 
@@ -8504,6 +9662,26 @@ SHA-256: `b993441f8ce7d27b80e619e113e232ae8e62d3d5a8340f6bfe12d8c4c018e62f`
 | Position | Presence | Type |
 |---|---|---|
 | 0 | required | [`{ role: "user" }`](#persistence-type-sha256-9a2a9029f8d7ede05336980d8342737557f487b913bfd28853d0ab5214600ab5) |
+
+<a id="persistence-type-sha256-932fa32c5f9f40eb94f744d748dee0f4b7bd64d2eb39fb83876178b52152d8db"></a>
+
+### `union (11 variants)`
+
+SHA-256: `932fa32c5f9f40eb94f744d748dee0f4b7bd64d2eb39fb83876178b52152d8db`
+
+One of:
+
+- `"assertion"`
+- `"browser"`
+- `"typecheck"`
+- `"build"`
+- `"diff"`
+- `"human"`
+- `"lint"`
+- `"research"`
+- `"review"`
+- `"security"`
+- `"test"`
 
 <a id="persistence-type-sha256-120b2692fbe6c54d08ab1f6ee26c7273b0d6a0fadd7d752586c1f61862eb7d85"></a>
 
@@ -8647,18 +9825,19 @@ One of:
 - `"user"`
 - `"workflow"`
 
-<a id="persistence-type-sha256-60c1556ea97c74a8b7a3d53203234dcae370763d7ad7318c20ae790eb80e6e68"></a>
+<a id="persistence-type-sha256-57f1cbbb1c1c352e99c8e632c79435bf886fd32e27693e2e9b1e8bfd49a5188f"></a>
 
-### `union (4 variants)`
+### `union (5 variants)`
 
-SHA-256: `60c1556ea97c74a8b7a3d53203234dcae370763d7ad7318c20ae790eb80e6e68`
+SHA-256: `57f1cbbb1c1c352e99c8e632c79435bf886fd32e27693e2e9b1e8bfd49a5188f`
 
 One of:
 
-- `"coding"`
-- `"conversational"`
-- `"operations"`
-- `"research"`
+- `"agent"`
+- `"child-agent"`
+- `"stream"`
+- `"tool"`
+- `"transport"`
 
 <a id="persistence-type-sha256-dffb58fb304bcf97a2d910955f3706341c66dc34d626d417e47c89c2c0f90a89"></a>
 
@@ -8688,21 +9867,6 @@ One of:
 - `"edit"`
 - `"pause"`
 - `"resume"`
-
-<a id="persistence-type-sha256-7626c1b04d276ca0b353c6ab64960904de947bab55aeb8c0e66aad9e0f6196d0"></a>
-
-### `union (6 variants)`
-
-SHA-256: `7626c1b04d276ca0b353c6ab64960904de947bab55aeb8c0e66aad9e0f6196d0`
-
-One of:
-
-- `"assertion"`
-- `"build"`
-- `"diff"`
-- `"human"`
-- `"research"`
-- `"test"`
 
 <a id="persistence-type-sha256-3305a4bb6b6c29b482ba91d59c60b47e8f98282d3dacc8c29e4a4c2712209bdd"></a>
 
@@ -8754,38 +9918,41 @@ SHA-256: `b1664fa89f8eab49a14e7e3168d8bc4da4aa9fd76332f6c4a053d839e5276ae7`
 
 Array of `unknown` (opaque).
 
-<a id="persistence-type-sha256-b683cd777222d520e0666c577623ab6356fe04e0f89491a16c158432d7cc8a27"></a>
+<a id="persistence-type-sha256-c98850ad20a50dc259c67244c5d6fce75cfb20759839c7f8df1bbf9deda525cb"></a>
 
-### `{ acceptance, agentProfile, budget, constraints, … }`
+### `{ acceptance, agentProfile, budget, changeContract?, … }`
 
-SHA-256: `b683cd777222d520e0666c577623ab6356fe04e0f89491a16c158432d7cc8a27`
+SHA-256: `c98850ad20a50dc259c67244c5d6fce75cfb20759839c7f8df1bbf9deda525cb`
 
-Sources: [`packages/runtime/agent-kernel/src/types.ts:105`](../packages/runtime/agent-kernel/src/types.ts)
+Sources: [`packages/runtime/agent-kernel/src/types.ts:112`](../packages/runtime/agent-kernel/src/types.ts)
 
 | Property | Presence | Type |
 |---|---|---|
-| `acceptance` | required | [`AcceptanceCriterion[]`](#persistence-type-sha256-476d2fd2cc8cc5090318c053ea16c949ab5a80a055b4b2c1da4eb3c3436bc900) |
+| `acceptance` | required | [`AcceptanceCriterion[]`](#persistence-type-sha256-d21bb685072db5f78b77d0e5c0eb169b232f2e298ad4101dfeb8a1861663bcb6) |
 | `agentProfile` | required | `string` |
 | `budget` | required | [`ResourceBudget`](#persistence-type-sha256-9e5ce2429b576636e738ed90c93c78d7ff7751ee1c7bd5fc10b48ed71d31f3f1) |
+| `changeContract` | optional | [`ChangeContract`](#persistence-type-sha256-d42029698c772ad4f38820d6ba2af38c0fc954f4f40e1800e42216f0cf98f17d) |
 | `constraints` | required | [`Constraint[]`](#persistence-type-sha256-d9a497adb3462ff2a3931f2bd0703bfacbaed57bbc5d382d00027088cf6fcbc2) |
-| `metadata` | optional | [`KernelEventMetadata`](#persistence-type-sha256-93a0a429e3d064749ffa891195a180d41f87fe0da58dd4f6ff52681c09740c18) |
+| `dependencies` | required | [`string[]`](#persistence-type-sha256-93c33d9687613293f8c95d46c4d922fe9ceae83b84c384beff5c3315abe005f2) |
+| `evidence` | required | [`string[]`](#persistence-type-sha256-93c33d9687613293f8c95d46c4d922fe9ceae83b84c384beff5c3315abe005f2) |
+| `metadata` | optional | [`KernelEventMetadata`](#persistence-type-sha256-2740d3580ebc6b8acc39523f04e307d8d7ce3dcdf518eb60440a7f46ba4def9f) |
 | `objective` | required | `string` |
 | `parentTaskId` | optional | `string` |
 | `policyProfile` | required | `string` |
 | `revision` | required | `number` |
 | `runId` | required | `string` |
 | `status` | required | [`TaskStatus`](#persistence-type-sha256-9beb38fe658549e5c944f39b1676385ffdac8caddeb4157bf94dd3c486bb6715) |
-| `taskClass` | optional | [`union (4 variants)`](#persistence-type-sha256-60c1556ea97c74a8b7a3d53203234dcae370763d7ad7318c20ae790eb80e6e68) |
+| `taskClass` | optional | [`TaskClass`](#persistence-type-sha256-60c1556ea97c74a8b7a3d53203234dcae370763d7ad7318c20ae790eb80e6e68) |
 | `taskId` | required | `string` |
 | `workspace` | optional | [`WorkspaceRef`](#persistence-type-sha256-9666d0cf25f1bfc7d23cef91307c922d0bbdd63818355f7f664a4c11b63c386f) |
 
-<a id="persistence-type-sha256-934641232eda397bb880eedd15f21e1295fadfa59a4eb6a5ab06016a61ffa3a2"></a>
+<a id="persistence-type-sha256-fe27d36da256f2d3728fdd7ee054e68bdf61bc3d0fc8d874a1b6fbeb8082e7fb"></a>
 
 ### `{ action, at, attemptsRemaining, checkpointRequired, … }`
 
-SHA-256: `934641232eda397bb880eedd15f21e1295fadfa59a4eb6a5ab06016a61ffa3a2`
+SHA-256: `fe27d36da256f2d3728fdd7ee054e68bdf61bc3d0fc8d874a1b6fbeb8082e7fb`
 
-Sources: [`packages/runtime/agent-kernel/src/types.ts:105`](../packages/runtime/agent-kernel/src/types.ts)
+Sources: [`packages/runtime/agent-kernel/src/types.ts:112`](../packages/runtime/agent-kernel/src/types.ts)
 
 | Property | Presence | Type |
 |---|---|---|
@@ -8794,17 +9961,17 @@ Sources: [`packages/runtime/agent-kernel/src/types.ts:105`](../packages/runtime/
 | `attemptsRemaining` | required | `number` |
 | `checkpointRequired` | required | `boolean` |
 | `failureId` | required | `string` |
-| `metadata` | optional | [`KernelEventMetadata`](#persistence-type-sha256-93a0a429e3d064749ffa891195a180d41f87fe0da58dd4f6ff52681c09740c18) |
+| `metadata` | optional | [`KernelEventMetadata`](#persistence-type-sha256-2740d3580ebc6b8acc39523f04e307d8d7ce3dcdf518eb60440a7f46ba4def9f) |
 | `reason` | required | `string` |
 | `retryable` | required | `boolean` |
 
-<a id="persistence-type-sha256-dddc3d6408bde303227125af8f56a0a21305fc0df9cc1dcf5ba904afd7c67a20"></a>
+<a id="persistence-type-sha256-d10b1073fc7acb169ccac5e8722cbe91f32f2998feb164ec2d0b1c960a92d5b8"></a>
 
 ### `{ actionId, committedAt, decisionId, failureId?, … }`
 
-SHA-256: `dddc3d6408bde303227125af8f56a0a21305fc0df9cc1dcf5ba904afd7c67a20`
+SHA-256: `d10b1073fc7acb169ccac5e8722cbe91f32f2998feb164ec2d0b1c960a92d5b8`
 
-Sources: [`packages/runtime/agent-kernel/src/types.ts:105`](../packages/runtime/agent-kernel/src/types.ts)
+Sources: [`packages/runtime/agent-kernel/src/types.ts:112`](../packages/runtime/agent-kernel/src/types.ts)
 
 | Property | Presence | Type |
 |---|---|---|
@@ -8812,20 +9979,20 @@ Sources: [`packages/runtime/agent-kernel/src/types.ts:105`](../packages/runtime/
 | `committedAt` | required | `number` |
 | `decisionId` | required | `string` |
 | `failureId` | optional | `string` |
-| `governance` | optional | [`GovernanceReceipt`](#persistence-type-sha256-369b57b483792fcad468527b2e6e4e60f310deaf25be4de8046fa09b110bac0a) |
-| `metadata` | optional | [`KernelEventMetadata`](#persistence-type-sha256-93a0a429e3d064749ffa891195a180d41f87fe0da58dd4f6ff52681c09740c18) |
+| `governance` | optional | [`GovernanceReceipt`](#persistence-type-sha256-296bab1e26a606dec73a6b11ee921830d27bd584b6fc4b4b4c00b1c3f53838f5) |
+| `metadata` | optional | [`KernelEventMetadata`](#persistence-type-sha256-2740d3580ebc6b8acc39523f04e307d8d7ce3dcdf518eb60440a7f46ba4def9f) |
 | `outcome` | required | [`union (3 variants)`](#persistence-type-sha256-9fe94b6d0736e3e43e4b86d93ccc72e2a31dddd2be7a5dfb30e4559285d0306c) |
 | `resultDigest` | optional | `string` |
 | `revoked` | required | [`CapabilityGrant[]`](#persistence-type-sha256-53e749118c26cc5fc5f6fdc2876d9231d9b2f8ce9f612c5cd16a18fd6aef54a4) |
 | `toolName` | required | `string` |
 
-<a id="persistence-type-sha256-0f5f48c4d84f2956954355fd5a29080904328e5092ea41c18fb67a0046c1d0fb"></a>
+<a id="persistence-type-sha256-d03967f0d63fc1dfbd84bee2413996540264d1322e274242202b3eb82ac929f4"></a>
 
 ### `{ actionId?, at, detail, failureId, … }`
 
-SHA-256: `0f5f48c4d84f2956954355fd5a29080904328e5092ea41c18fb67a0046c1d0fb`
+SHA-256: `d03967f0d63fc1dfbd84bee2413996540264d1322e274242202b3eb82ac929f4`
 
-Sources: [`packages/runtime/agent-kernel/src/types.ts:105`](../packages/runtime/agent-kernel/src/types.ts)
+Sources: [`packages/runtime/agent-kernel/src/types.ts:112`](../packages/runtime/agent-kernel/src/types.ts)
 
 | Property | Presence | Type |
 |---|---|---|
@@ -8833,8 +10000,8 @@ Sources: [`packages/runtime/agent-kernel/src/types.ts:105`](../packages/runtime/
 | `at` | required | `number` |
 | `detail` | required | `string` |
 | `failureId` | required | `string` |
-| `kind` | required | [`FailureKind`](#persistence-type-sha256-f084f1b55a26011ab116cf92d697d2f54244642f3f2f25067401bca7cfdf57b3) |
-| `metadata` | optional | [`KernelEventMetadata`](#persistence-type-sha256-93a0a429e3d064749ffa891195a180d41f87fe0da58dd4f6ff52681c09740c18) |
+| `kind` | required | [`FailureKind`](#persistence-type-sha256-5cdfd0052851d5eba2c85146ce80e2284cd2a8df7b6f314c59533db9c5a664ba) |
+| `metadata` | optional | [`KernelEventMetadata`](#persistence-type-sha256-2740d3580ebc6b8acc39523f04e307d8d7ce3dcdf518eb60440a7f46ba4def9f) |
 | `toolName` | optional | `string` |
 
 <a id="persistence-type-sha256-20a57544bbf204dacd1ae6beb2ab29444365c3c869f2afdf489dcdcbc3d9c8c5"></a>
@@ -8843,27 +10010,28 @@ Sources: [`packages/runtime/agent-kernel/src/types.ts:105`](../packages/runtime/
 
 SHA-256: `20a57544bbf204dacd1ae6beb2ab29444365c3c869f2afdf489dcdcbc3d9c8c5`
 
-Sources: [`packages/plan/plan-mode/src/index.ts:56`](../packages/plan/plan-mode/src/index.ts)
+Sources: [`packages/plan/plan-mode/src/index.ts:57`](../packages/plan/plan-mode/src/index.ts)
 
 | Property | Presence | Type |
 |---|---|---|
 | `active` | required | `boolean` |
 
-<a id="persistence-type-sha256-f7eb94de16ec8f98ad1b0ce94a789e313066464cca52bc61e49b63bb5fdfe219"></a>
+<a id="persistence-type-sha256-40fb9a120d8d2fc2b7278db987982b583e3d9d873bb5cdd27454a136e9e7a2eb"></a>
 
-### `{ actor, at, effects, from, … }`
+### `{ actor, at, effects, evidence, … }`
 
-SHA-256: `f7eb94de16ec8f98ad1b0ce94a789e313066464cca52bc61e49b63bb5fdfe219`
+SHA-256: `40fb9a120d8d2fc2b7278db987982b583e3d9d873bb5cdd27454a136e9e7a2eb`
 
-Sources: [`packages/runtime/agent-kernel/src/types.ts:105`](../packages/runtime/agent-kernel/src/types.ts)
+Sources: [`packages/runtime/agent-kernel/src/types.ts:112`](../packages/runtime/agent-kernel/src/types.ts)
 
 | Property | Presence | Type |
 |---|---|---|
 | `actor` | required | [`ActorKind`](#persistence-type-sha256-75fd38f07654d916248db290f0f03417a0db24fe6d29253775c855bce41093d8) |
 | `at` | required | `number` |
 | `effects` | required | [`StateEffect[]`](#persistence-type-sha256-6deef192ed365c896d700d786d99a87b7e4ab37f133bc4e393de550091a400c6) |
+| `evidence` | required | [`string[]`](#persistence-type-sha256-93c33d9687613293f8c95d46c4d922fe9ceae83b84c384beff5c3315abe005f2) |
 | `from` | required | [`TaskStatus`](#persistence-type-sha256-9beb38fe658549e5c944f39b1676385ffdac8caddeb4157bf94dd3c486bb6715) |
-| `metadata` | optional | [`KernelEventMetadata`](#persistence-type-sha256-93a0a429e3d064749ffa891195a180d41f87fe0da58dd4f6ff52681c09740c18) |
+| `metadata` | optional | [`KernelEventMetadata`](#persistence-type-sha256-2740d3580ebc6b8acc39523f04e307d8d7ce3dcdf518eb60440a7f46ba4def9f) |
 | `policyDecisionId` | optional | `string` |
 | `preconditions` | required | [`Predicate[]`](#persistence-type-sha256-06e1a23e37820d2b4624eb515dc377d820decfe34c297f9c5acd38a3dc146537) |
 | `revision` | required | `number` |
@@ -8871,7 +10039,7 @@ Sources: [`packages/runtime/agent-kernel/src/types.ts:105`](../packages/runtime/
 | `taskRevision` | required | `number` |
 | `to` | required | [`TaskStatus`](#persistence-type-sha256-9beb38fe658549e5c944f39b1676385ffdac8caddeb4157bf94dd3c486bb6715) |
 | `transitionId` | required | `string` |
-| `trigger` | required | [`TransitionTrigger`](#persistence-type-sha256-bdd4ccf6dfc90bb419295761023eef412698146f8846db7bd5d9bb2296fabf38) |
+| `trigger` | required | [`TransitionTrigger`](#persistence-type-sha256-10159db6bb6e155c32803b91f1c6209d9aa7a28b81e21d0adb7b5312d267f981) |
 
 <a id="persistence-type-sha256-6e52dd55a1d48954ed5464ec46fe34d9eb65f709baabc9561e7a279910b0c406"></a>
 
@@ -8885,13 +10053,13 @@ Sources: [`packages/preset/agent-preset-registry/src/session.ts:28`](../packages
 |---|---|---|
 | `agentPreset` | required | `string` |
 
-<a id="persistence-type-sha256-5f278e3150e80bca6935ea859097812f1a9c7d5cf9a325560bd3d3590f58e5fc"></a>
+<a id="persistence-type-sha256-2fbc25edf29e0b913260bf22c640eaf398d8877a5ce27e070bddc0466d0bf99a"></a>
 
 ### `{ agentSessionId, budgets, checkpointId, createdAt, … }`
 
-SHA-256: `5f278e3150e80bca6935ea859097812f1a9c7d5cf9a325560bd3d3590f58e5fc`
+SHA-256: `2fbc25edf29e0b913260bf22c640eaf398d8877a5ce27e070bddc0466d0bf99a`
 
-Sources: [`packages/runtime/agent-kernel/src/types.ts:105`](../packages/runtime/agent-kernel/src/types.ts)
+Sources: [`packages/runtime/agent-kernel/src/types.ts:112`](../packages/runtime/agent-kernel/src/types.ts)
 
 | Property | Presence | Type |
 |---|---|---|
@@ -8899,7 +10067,7 @@ Sources: [`packages/runtime/agent-kernel/src/types.ts:105`](../packages/runtime/
 | `budgets` | required | [`BudgetSnapshot`](#persistence-type-sha256-afbdd545b538bd17f07a5b8f06686d8502d05bb758fbce8326f2f5a0361ee42b) |
 | `checkpointId` | required | `string` |
 | `createdAt` | required | `number` |
-| `metadata` | optional | [`KernelEventMetadata`](#persistence-type-sha256-93a0a429e3d064749ffa891195a180d41f87fe0da58dd4f6ff52681c09740c18) |
+| `metadata` | optional | [`KernelEventMetadata`](#persistence-type-sha256-2740d3580ebc6b8acc39523f04e307d8d7ce3dcdf518eb60440a7f46ba4def9f) |
 | `openActionIds` | required | [`string[]`](#persistence-type-sha256-93c33d9687613293f8c95d46c4d922fe9ceae83b84c384beff5c3315abe005f2) |
 | `reason` | required | [`CheckpointReason`](#persistence-type-sha256-f610af9b83a745a9d067fbbfd7e2144113c62ebdb2a74455fd21791ca6781933) |
 | `revision` | required | `number` |
@@ -8907,31 +10075,31 @@ Sources: [`packages/runtime/agent-kernel/src/types.ts:105`](../packages/runtime/
 | `sessionSeq` | required | `number` |
 | `status` | required | [`TaskStatus`](#persistence-type-sha256-9beb38fe658549e5c944f39b1676385ffdac8caddeb4157bf94dd3c486bb6715) |
 | `taskId` | required | `string` |
-| `unresolvedFailures` | required | [`FailureRef[]`](#persistence-type-sha256-3c52830fd6f1c9df473aa41c2da094a26de781e55121e2a4bc50df7d63c75eda) |
+| `unresolvedFailures` | required | [`FailureRef[]`](#persistence-type-sha256-b07f08ba87ff0d7f3a765233ea20aac04a6c15cb4b9cff7dde8f74c86d0953d0) |
 
-<a id="persistence-type-sha256-101cd8e9f742a45722d85fdde0e49d1c6aee71c2663d2f82ce5611e4ad54120c"></a>
+<a id="persistence-type-sha256-18079fd1a0a661045c51c9f7a03eb5a7729fe9c5335fc0a474f5deda52031295"></a>
 
 ### `{ agentSessionId, checkpointId, metadata?, resumedAt, … }`
 
-SHA-256: `101cd8e9f742a45722d85fdde0e49d1c6aee71c2663d2f82ce5611e4ad54120c`
+SHA-256: `18079fd1a0a661045c51c9f7a03eb5a7729fe9c5335fc0a474f5deda52031295`
 
-Sources: [`packages/runtime/agent-kernel/src/types.ts:105`](../packages/runtime/agent-kernel/src/types.ts)
+Sources: [`packages/runtime/agent-kernel/src/types.ts:112`](../packages/runtime/agent-kernel/src/types.ts)
 
 | Property | Presence | Type |
 |---|---|---|
 | `agentSessionId` | required | `string` |
 | `checkpointId` | required | `string` |
-| `metadata` | optional | [`KernelEventMetadata`](#persistence-type-sha256-93a0a429e3d064749ffa891195a180d41f87fe0da58dd4f6ff52681c09740c18) |
+| `metadata` | optional | [`KernelEventMetadata`](#persistence-type-sha256-2740d3580ebc6b8acc39523f04e307d8d7ce3dcdf518eb60440a7f46ba4def9f) |
 | `resumedAt` | required | `number` |
 | `sessionSeq` | required | `number` |
 
-<a id="persistence-type-sha256-7536385f1e521003aca0545589527f6bb66175815d128791d9852ca1967c327f"></a>
+<a id="persistence-type-sha256-de57f063928ef8779a7c38386885257b06c4598d86bda48be23fbafcc67d9a9b"></a>
 
 ### `{ allowedCapabilities, at, childRunId, delegationId, … }`
 
-SHA-256: `7536385f1e521003aca0545589527f6bb66175815d128791d9852ca1967c327f`
+SHA-256: `de57f063928ef8779a7c38386885257b06c4598d86bda48be23fbafcc67d9a9b`
 
-Sources: [`packages/runtime/agent-kernel/src/types.ts:105`](../packages/runtime/agent-kernel/src/types.ts)
+Sources: [`packages/runtime/agent-kernel/src/types.ts:112`](../packages/runtime/agent-kernel/src/types.ts)
 
 | Property | Presence | Type |
 |---|---|---|
@@ -8942,7 +10110,7 @@ Sources: [`packages/runtime/agent-kernel/src/types.ts:105`](../packages/runtime/
 | `depth` | required | `number` |
 | `inheritedPolicyDigest` | required | `string` |
 | `maxDepth` | optional | `number` |
-| `metadata` | optional | [`KernelEventMetadata`](#persistence-type-sha256-93a0a429e3d064749ffa891195a180d41f87fe0da58dd4f6ff52681c09740c18) |
+| `metadata` | optional | [`KernelEventMetadata`](#persistence-type-sha256-2740d3580ebc6b8acc39523f04e307d8d7ce3dcdf518eb60440a7f46ba4def9f) |
 | `parentRunId` | optional | `string` |
 | `parentSessionId` | required | `string` |
 | `parentTaskId` | optional | `string` |
@@ -8992,6 +10160,82 @@ Sources: [`packages/core/session/src/types.ts:367`](../packages/core/session/src
 | `step` | required | `number` |
 | `turn` | required | `number` |
 
+<a id="persistence-type-sha256-5fe04271d2a84abbe6049415356c02b0df7753c82b5624c40f7feb4dad2d676f"></a>
+
+### `{ at, category, detail, evidence, … }`
+
+SHA-256: `5fe04271d2a84abbe6049415356c02b0df7753c82b5624c40f7feb4dad2d676f`
+
+Sources: [`packages/runtime/agent-kernel/src/types.ts:112`](../packages/runtime/agent-kernel/src/types.ts)
+
+| Property | Presence | Type |
+|---|---|---|
+| `at` | required | `number` |
+| `category` | required | [`FailureCategory`](#persistence-type-sha256-375a579c4d7f6fba1c5daaa1458f03d663cee76dac89fd203ab2f12e3bd8acee) |
+| `detail` | required | `string` |
+| `evidence` | required | [`string[]`](#persistence-type-sha256-93c33d9687613293f8c95d46c4d922fe9ceae83b84c384beff5c3315abe005f2) |
+| `failureId` | required | `string` |
+| `hypotheses` | required | [`string[]`](#persistence-type-sha256-93c33d9687613293f8c95d46c4d922fe9ceae83b84c384beff5c3315abe005f2) |
+| `metadata` | optional | [`KernelEventMetadata`](#persistence-type-sha256-2740d3580ebc6b8acc39523f04e307d8d7ce3dcdf518eb60440a7f46ba4def9f) |
+| `recommendedActions` | required | [`RecoveryAction[]`](#persistence-type-sha256-4916840443523e6ff4282d169b1cd4166ee1b441fb0382d22171448322ea3ab7) |
+| `severity` | required | [`FailureSeverity`](#persistence-type-sha256-2f9e09f2493377fce73dabe7180f05c97e05ef6cf4c7d356921c7624296245c1) |
+
+<a id="persistence-type-sha256-180d517724decd7017647473a74c602a21a5b25d5c9a4a754b5173e5c0336d22"></a>
+
+### `{ at, decision, delta, metadata?, … }`
+
+SHA-256: `180d517724decd7017647473a74c602a21a5b25d5c9a4a754b5173e5c0336d22`
+
+Sources: [`packages/runtime/agent-kernel/src/types.ts:112`](../packages/runtime/agent-kernel/src/types.ts)
+
+| Property | Presence | Type |
+|---|---|---|
+| `at` | required | `number` |
+| `decision` | required | [`GovernorDecision`](#persistence-type-sha256-048c2b0a678057ddc50e8b6fd7216d6948275a16b14bd6afd0efcefdf8b22d56) |
+| `delta` | required | [`StepDelta`](#persistence-type-sha256-ca663bb959bea272d97c93ae7b25e9aaa4654795379f3560a542932f3973d694) |
+| `metadata` | optional | [`KernelEventMetadata`](#persistence-type-sha256-2740d3580ebc6b8acc39523f04e307d8d7ce3dcdf518eb60440a7f46ba4def9f) |
+| `progressScore` | required | `number` |
+| `reasons` | required | [`string[]`](#persistence-type-sha256-93c33d9687613293f8c95d46c4d922fe9ceae83b84c384beff5c3315abe005f2) |
+| `step` | required | `number` |
+| `timeout` | optional | [`union (5 variants)`](#persistence-type-sha256-57f1cbbb1c1c352e99c8e632c79435bf886fd32e27693e2e9b1e8bfd49a5188f) |
+| `turn` | required | `number` |
+
+<a id="persistence-type-sha256-ed43addf981fa2cfe0dcb75cf78c17accc1b2dcd338ee851e0524a681fda926a"></a>
+
+### `{ at, detail?, from?, metadata?, … }`
+
+SHA-256: `ed43addf981fa2cfe0dcb75cf78c17accc1b2dcd338ee851e0524a681fda926a`
+
+Sources: [`packages/runtime/agent-kernel/src/types.ts:112`](../packages/runtime/agent-kernel/src/types.ts)
+
+| Property | Presence | Type |
+|---|---|---|
+| `at` | required | `number` |
+| `detail` | optional | `string` |
+| `from` | optional | [`CodingPhase`](#persistence-type-sha256-aa2d313265795cbd4a01b52661694a5f3b74096f0079ccf0074023b031074696) |
+| `metadata` | optional | [`KernelEventMetadata`](#persistence-type-sha256-2740d3580ebc6b8acc39523f04e307d8d7ce3dcdf518eb60440a7f46ba4def9f) |
+| `ordinal` | required | `number` |
+| `phase` | required | [`CodingPhase`](#persistence-type-sha256-aa2d313265795cbd4a01b52661694a5f3b74096f0079ccf0074023b031074696) |
+| `taskClass` | required | [`TaskClass`](#persistence-type-sha256-60c1556ea97c74a8b7a3d53203234dcae370763d7ad7318c20ae790eb80e6e68) |
+| `taskRevision` | required | `number` |
+| `trigger` | required | [`CodingPhaseTrigger`](#persistence-type-sha256-dc185bb78e2a02dbf1577efa2a088bc7f2f2b32333815bde5c29c41ae2df42e2) |
+
+<a id="persistence-type-sha256-8e01fca104e1a703a48031992e2ac888861a2350387042468a54a200da5540e4"></a>
+
+### `{ at, metadata?, ref, report, … }`
+
+SHA-256: `8e01fca104e1a703a48031992e2ac888861a2350387042468a54a200da5540e4`
+
+Sources: [`packages/runtime/agent-kernel/src/types.ts:112`](../packages/runtime/agent-kernel/src/types.ts)
+
+| Property | Presence | Type |
+|---|---|---|
+| `at` | required | `number` |
+| `metadata` | optional | [`KernelEventMetadata`](#persistence-type-sha256-2740d3580ebc6b8acc39523f04e307d8d7ce3dcdf518eb60440a7f46ba4def9f) |
+| `ref` | required | `string` |
+| `report` | required | [`CodeReviewReport`](#persistence-type-sha256-cc1507c853dc16db418dc31e0c5732cd174760ee28ae0052e1cae61712b99c89) |
+| `taskRevision` | required | `number` |
+
 <a id="persistence-type-sha256-1528539c63db8b23506f0209a99ce77d8ad138adfbfcee3d4769b7382d93756c"></a>
 
 ### `{ callId, files, turn }`
@@ -9012,7 +10256,7 @@ Sources: [`packages/deliverables/tool-present/src/types.ts:15`](../packages/deli
 
 SHA-256: `45f2a07ea94573123b6ae14db787a40062dec3834f36d8be92c523d40ba28448`
 
-Sources: [`packages/interaction/user-approval/src/types.ts:44`](../packages/interaction/user-approval/src/types.ts)
+Sources: [`packages/interaction/user-approval/src/types.ts:54`](../packages/interaction/user-approval/src/types.ts)
 
 | Property | Presence | Type |
 |---|---|---|
@@ -9051,19 +10295,21 @@ SHA-256: `df843efd87c78cf8de98f8e0d0216956cd568d0d0e56a22c853663e274aa1a18`
 
 Array of [`{ capturedFormatVersion?, capturedThroughSeq, compacted, inputIndex, … }`](#persistence-type-sha256-4f91f187baeabef5c7950c4780d31bbe39f3345dff591a6cf26ac7e135ac1cf4).
 
-<a id="persistence-type-sha256-34672264b529b6d339dee1f122696a7e9d2dce7acdb0656a9a858a3869a9deca"></a>
+<a id="persistence-type-sha256-b54f000e67bdcccf891aea4c179aedf012af0ec42d5d2a9c874df24c9a471240"></a>
 
-### `{ changedScopes, criteria, metadata?, revision, … }`
+### `{ changeContract?, changedScopes, criteria, metadata?, … }`
 
-SHA-256: `34672264b529b6d339dee1f122696a7e9d2dce7acdb0656a9a858a3869a9deca`
+SHA-256: `b54f000e67bdcccf891aea4c179aedf012af0ec42d5d2a9c874df24c9a471240`
 
-Sources: [`packages/runtime/agent-kernel/src/types.ts:105`](../packages/runtime/agent-kernel/src/types.ts)
+Sources: [`packages/runtime/agent-kernel/src/types.ts:112`](../packages/runtime/agent-kernel/src/types.ts)
 
 | Property | Presence | Type |
 |---|---|---|
+| `changeContract` | optional | [`ChangeContract`](#persistence-type-sha256-d42029698c772ad4f38820d6ba2af38c0fc954f4f40e1800e42216f0cf98f17d) |
 | `changedScopes` | required | [`string[]`](#persistence-type-sha256-93c33d9687613293f8c95d46c4d922fe9ceae83b84c384beff5c3315abe005f2) |
-| `criteria` | required | [`AcceptanceCriterion[]`](#persistence-type-sha256-476d2fd2cc8cc5090318c053ea16c949ab5a80a055b4b2c1da4eb3c3436bc900) |
-| `metadata` | optional | [`KernelEventMetadata`](#persistence-type-sha256-93a0a429e3d064749ffa891195a180d41f87fe0da58dd4f6ff52681c09740c18) |
+| `criteria` | required | [`AcceptanceCriterion[]`](#persistence-type-sha256-d21bb685072db5f78b77d0e5c0eb169b232f2e298ad4101dfeb8a1861663bcb6) |
+| `metadata` | optional | [`KernelEventMetadata`](#persistence-type-sha256-2740d3580ebc6b8acc39523f04e307d8d7ce3dcdf518eb60440a7f46ba4def9f) |
+| `repositoryDigest` | required | `string` |
 | `revision` | required | `number` |
 | `taskId` | required | `string` |
 
@@ -9180,39 +10426,39 @@ SHA-256: `b6896938660a1dfe4ddd100fb3164d9f8fa57feeabfe37441a80106c9942697a`
 | `mode` | required | `"one-shot"` |
 | `version` | required | `1` |
 
-<a id="persistence-type-sha256-c7985431770f05755e15d17c6a9eb1b8c51d425a1939061b66fdcaee4b0bd9ec"></a>
+<a id="persistence-type-sha256-21361ebe126e5ca77f540bf69aac81dc11c0f6ec61fc369968baea94b2375ea0"></a>
 
 ### `{ claimId, confidence, evidence, metadata?, … }`
 
-SHA-256: `c7985431770f05755e15d17c6a9eb1b8c51d425a1939061b66fdcaee4b0bd9ec`
+SHA-256: `21361ebe126e5ca77f540bf69aac81dc11c0f6ec61fc369968baea94b2375ea0`
 
-Sources: [`packages/runtime/agent-kernel/src/types.ts:105`](../packages/runtime/agent-kernel/src/types.ts)
+Sources: [`packages/runtime/agent-kernel/src/types.ts:112`](../packages/runtime/agent-kernel/src/types.ts)
 
 | Property | Presence | Type |
 |---|---|---|
 | `claimId` | required | `string` |
 | `confidence` | required | `number` |
 | `evidence` | required | [`string[]`](#persistence-type-sha256-93c33d9687613293f8c95d46c4d922fe9ceae83b84c384beff5c3315abe005f2) |
-| `metadata` | optional | [`KernelEventMetadata`](#persistence-type-sha256-93a0a429e3d064749ffa891195a180d41f87fe0da58dd4f6ff52681c09740c18) |
+| `metadata` | optional | [`KernelEventMetadata`](#persistence-type-sha256-2740d3580ebc6b8acc39523f04e307d8d7ce3dcdf518eb60440a7f46ba4def9f) |
 | `statement` | required | `string` |
 | `status` | required | [`TaskClaimStatus`](#persistence-type-sha256-6daab4c0a7637fc040fe296ebd0aa6b6c254e2a9dcffcfa49563e11853013a50) |
 
-<a id="persistence-type-sha256-7b82269b10a14327898dee71de6fff5f654bbbd8fdc84fce0c5130adb18ff975"></a>
+<a id="persistence-type-sha256-33695ae1a9c4c731f436f7c5a185b30842767a3095770bc351eba357986a5c13"></a>
 
 ### `{ claims, hypothesisId, metadata?, question, … }`
 
-SHA-256: `7b82269b10a14327898dee71de6fff5f654bbbd8fdc84fce0c5130adb18ff975`
+SHA-256: `33695ae1a9c4c731f436f7c5a185b30842767a3095770bc351eba357986a5c13`
 
-Sources: [`packages/runtime/agent-kernel/src/types.ts:105`](../packages/runtime/agent-kernel/src/types.ts)
+Sources: [`packages/runtime/agent-kernel/src/types.ts:112`](../packages/runtime/agent-kernel/src/types.ts)
 
 | Property | Presence | Type |
 |---|---|---|
 | `claims` | required | [`string[]`](#persistence-type-sha256-93c33d9687613293f8c95d46c4d922fe9ceae83b84c384beff5c3315abe005f2) |
 | `hypothesisId` | required | `string` |
-| `metadata` | optional | [`KernelEventMetadata`](#persistence-type-sha256-93a0a429e3d064749ffa891195a180d41f87fe0da58dd4f6ff52681c09740c18) |
+| `metadata` | optional | [`KernelEventMetadata`](#persistence-type-sha256-2740d3580ebc6b8acc39523f04e307d8d7ce3dcdf518eb60440a7f46ba4def9f) |
 | `question` | required | `string` |
 | `status` | required | [`TaskHypothesisStatus`](#persistence-type-sha256-56ca742ff6d994369484277a40eec7cd24317fd44c8e243d7d4b4b79fdd1e7a1) |
-| `tests` | required | [`VerificationRequest[]`](#persistence-type-sha256-eae4ed154ad8dfd93ec3bcce4d15f66a752566027fa132da1b0780e939184bac) |
+| `tests` | required | [`VerificationRequest[]`](#persistence-type-sha256-cf6322432d8c3a30a155a3f69c1313d03b3973c22967f3c0b4900fc2ce67d5c0) |
 
 <a id="persistence-type-sha256-a81059ca06999da1e712414520c2c65e491d052fcf9640fae20aa38f0a5dc735"></a>
 
@@ -9243,19 +10489,19 @@ Sources: [`packages/interaction/commands/src/types.ts:112`](../packages/interact
 | `sourceEventSeq` | optional | `number` |
 | `text` | optional | `string` |
 
-<a id="persistence-type-sha256-fb2c9329f1646e6f7290a3902af8f2ebf6deeaa8082f1b233ee4ffca31cf0236"></a>
+<a id="persistence-type-sha256-6e3f96d18c547b40080d614aeec8cb4b2e5527fb5df8970d029bf5e016ceb8e3"></a>
 
 ### `{ commands, criterionResults, metadata?, revision, … }`
 
-SHA-256: `fb2c9329f1646e6f7290a3902af8f2ebf6deeaa8082f1b233ee4ffca31cf0236`
+SHA-256: `6e3f96d18c547b40080d614aeec8cb4b2e5527fb5df8970d029bf5e016ceb8e3`
 
-Sources: [`packages/runtime/agent-kernel/src/types.ts:105`](../packages/runtime/agent-kernel/src/types.ts)
+Sources: [`packages/runtime/agent-kernel/src/types.ts:112`](../packages/runtime/agent-kernel/src/types.ts)
 
 | Property | Presence | Type |
 |---|---|---|
 | `commands` | required | [`string[]`](#persistence-type-sha256-93c33d9687613293f8c95d46c4d922fe9ceae83b84c384beff5c3315abe005f2) |
 | `criterionResults` | required | [`CriterionResult[]`](#persistence-type-sha256-3c33ab131cd74e4d04aba1f197f6184caaebc7a48745280d625f9bedd5ef87fb) |
-| `metadata` | optional | [`KernelEventMetadata`](#persistence-type-sha256-93a0a429e3d064749ffa891195a180d41f87fe0da58dd4f6ff52681c09740c18) |
+| `metadata` | optional | [`KernelEventMetadata`](#persistence-type-sha256-2740d3580ebc6b8acc39523f04e307d8d7ce3dcdf518eb60440a7f46ba4def9f) |
 | `revision` | required | `number` |
 | `status` | required | [`union (3 variants)`](#persistence-type-sha256-3ac02f70e2c5108925c7982dc545ce927808abf348067f4034ce900873f2a23f) |
 | `taskId` | required | `string` |
@@ -9290,13 +10536,13 @@ Sources: [`packages/compaction/compaction/src/types.ts:25`](../packages/compacti
 | `sourceCommandId` | optional | `string` |
 | `turn` | required | [`OptionalSessionSeq`](#persistence-type-sha256-3bd652ebfa8726b3ce3937a4f1bd2759e02f86b3a08a20f9e41a8513656fbc5f) |
 
-<a id="persistence-type-sha256-795844c92d147c9fd9cbfa7b2444d13f72b3ce7e7ebedbc31295982664fe4848"></a>
+<a id="persistence-type-sha256-7cabd6ea921a9133c349a4b8ce95673cf34507cb5be9eb2e1bcea98a79bf9697"></a>
 
 ### `{ contentRef, digest?, evidenceId, kind, … }`
 
-SHA-256: `795844c92d147c9fd9cbfa7b2444d13f72b3ce7e7ebedbc31295982664fe4848`
+SHA-256: `7cabd6ea921a9133c349a4b8ce95673cf34507cb5be9eb2e1bcea98a79bf9697`
 
-Sources: [`packages/runtime/agent-kernel/src/types.ts:105`](../packages/runtime/agent-kernel/src/types.ts)
+Sources: [`packages/runtime/agent-kernel/src/types.ts:112`](../packages/runtime/agent-kernel/src/types.ts)
 
 | Property | Presence | Type |
 |---|---|---|
@@ -9304,24 +10550,24 @@ Sources: [`packages/runtime/agent-kernel/src/types.ts:105`](../packages/runtime/
 | `digest` | optional | `string` |
 | `evidenceId` | required | `string` |
 | `kind` | required | [`EvidenceKind`](#persistence-type-sha256-651cf14a9b2c426b27b797defee488b1bdc60ac2465b5d260de125245c29c897) |
-| `metadata` | optional | [`KernelEventMetadata`](#persistence-type-sha256-93a0a429e3d064749ffa891195a180d41f87fe0da58dd4f6ff52681c09740c18) |
+| `metadata` | optional | [`KernelEventMetadata`](#persistence-type-sha256-2740d3580ebc6b8acc39523f04e307d8d7ce3dcdf518eb60440a7f46ba4def9f) |
 | `observedAt` | required | `number` |
-| `provenance` | required | [`Provenance`](#persistence-type-sha256-30f070791979c95939e5a45237145692908e3ae85774aa3a1ca3415f5461269c) |
+| `sourceRef` | required | [`SourceRef`](#persistence-type-sha256-30f070791979c95939e5a45237145692908e3ae85774aa3a1ca3415f5461269c) |
 | `trust` | required | [`TrustLabel`](#persistence-type-sha256-8f39ae8e9b24341ceb980b46cb9db19049234cf867f520496ac664ddbdc2a5c8) |
 
-<a id="persistence-type-sha256-694740deb8eb30d5974b6ab8f0704d1c0393a3f8a9fdd3a4614495a82f373811"></a>
+<a id="persistence-type-sha256-b2b879aa67bd62b5eab885d5caa05258644bae8af030ad4958115b101e97de54"></a>
 
 ### `{ createdAt, failureId?, metadata?, revision, … }`
 
-SHA-256: `694740deb8eb30d5974b6ab8f0704d1c0393a3f8a9fdd3a4614495a82f373811`
+SHA-256: `b2b879aa67bd62b5eab885d5caa05258644bae8af030ad4958115b101e97de54`
 
-Sources: [`packages/runtime/agent-kernel/src/types.ts:105`](../packages/runtime/agent-kernel/src/types.ts)
+Sources: [`packages/runtime/agent-kernel/src/types.ts:112`](../packages/runtime/agent-kernel/src/types.ts)
 
 | Property | Presence | Type |
 |---|---|---|
 | `createdAt` | required | `number` |
 | `failureId` | optional | `string` |
-| `metadata` | optional | [`KernelEventMetadata`](#persistence-type-sha256-93a0a429e3d064749ffa891195a180d41f87fe0da58dd4f6ff52681c09740c18) |
+| `metadata` | optional | [`KernelEventMetadata`](#persistence-type-sha256-2740d3580ebc6b8acc39523f04e307d8d7ce3dcdf518eb60440a7f46ba4def9f) |
 | `revision` | required | `number` |
 | `steps` | required | [`string[]`](#persistence-type-sha256-93c33d9687613293f8c95d46c4d922fe9ceae83b84c384beff5c3315abe005f2) |
 
@@ -9331,7 +10577,7 @@ Sources: [`packages/runtime/agent-kernel/src/types.ts:105`](../packages/runtime/
 
 SHA-256: `8ad45ad053b4d89f8865c17cc9ff3b8748e86045f3f0fb816269a34af2619141`
 
-Sources: [`packages/hooks/hook-protocol/src/types.ts:31`](../packages/hooks/hook-protocol/src/types.ts)
+Sources: [`packages/hooks/hook-protocol/src/types.ts:33`](../packages/hooks/hook-protocol/src/types.ts)
 
 | Property | Presence | Type |
 |---|---|---|
@@ -9343,18 +10589,18 @@ Sources: [`packages/hooks/hook-protocol/src/types.ts:31`](../packages/hooks/hook
 | `stderrSummary` | optional | `string` |
 | `turn` | required | `number` |
 
-<a id="persistence-type-sha256-babdb72cb71d76fb5f2c83736eb5afc9d4a051662ab8eb2ce8473d125f802c91"></a>
+<a id="persistence-type-sha256-aff68b7108d6bcb7b69b0498ae43defffa5772e07d11da2c003ab994b15adf86"></a>
 
 ### `{ decision, metadata?, policy, proposal }`
 
-SHA-256: `babdb72cb71d76fb5f2c83736eb5afc9d4a051662ab8eb2ce8473d125f802c91`
+SHA-256: `aff68b7108d6bcb7b69b0498ae43defffa5772e07d11da2c003ab994b15adf86`
 
-Sources: [`packages/runtime/agent-kernel/src/types.ts:105`](../packages/runtime/agent-kernel/src/types.ts)
+Sources: [`packages/runtime/agent-kernel/src/types.ts:112`](../packages/runtime/agent-kernel/src/types.ts)
 
 | Property | Presence | Type |
 |---|---|---|
 | `decision` | required | [`AuthorizationDecision`](#persistence-type-sha256-2da4dab8fa2c9dc0d52485812851df5a740e690c016f531625e5e55f3234d49a) |
-| `metadata` | optional | [`KernelEventMetadata`](#persistence-type-sha256-93a0a429e3d064749ffa891195a180d41f87fe0da58dd4f6ff52681c09740c18) |
+| `metadata` | optional | [`KernelEventMetadata`](#persistence-type-sha256-2740d3580ebc6b8acc39523f04e307d8d7ce3dcdf518eb60440a7f46ba4def9f) |
 | `policy` | required | [`PolicyDecision`](#persistence-type-sha256-c79611bcc5511316aaeafe84f9b5ddebc34fcdc56d4eacc53dfd3039cafdb3cb) |
 | `proposal` | required | [`ActionProposal`](#persistence-type-sha256-92264e598ec8ea1bd43a4ee0cdb271a915d8d295df8daf7446e6ba1f2cef0e10) |
 
@@ -9550,19 +10796,19 @@ Sources: [`packages/llm/llm/src/types.ts:162`](../packages/llm/llm/src/types.ts)
 | `failure` | required | [`LlmFailure`](#persistence-type-sha256-5f2117d1856a5ab43c28371faa978ebfaa48f8c7d734ea3fc94842210df83dca) |
 | `kind` | required | `"error"` |
 
-<a id="persistence-type-sha256-4a8597f9c6b714d72b6401ff48c346a4888ed5a913f53ba889b3e9285ca2fff4"></a>
+<a id="persistence-type-sha256-36dc6b40bb61f7bb77e953e00f63f0a6d380fb33f7e0141d25045dca8e669f74"></a>
 
 ### `{ failureId, kind, metadata?, startedAt }`
 
-SHA-256: `4a8597f9c6b714d72b6401ff48c346a4888ed5a913f53ba889b3e9285ca2fff4`
+SHA-256: `36dc6b40bb61f7bb77e953e00f63f0a6d380fb33f7e0141d25045dca8e669f74`
 
-Sources: [`packages/runtime/agent-kernel/src/types.ts:105`](../packages/runtime/agent-kernel/src/types.ts)
+Sources: [`packages/runtime/agent-kernel/src/types.ts:112`](../packages/runtime/agent-kernel/src/types.ts)
 
 | Property | Presence | Type |
 |---|---|---|
 | `failureId` | required | `string` |
-| `kind` | required | [`FailureKind`](#persistence-type-sha256-f084f1b55a26011ab116cf92d697d2f54244642f3f2f25067401bca7cfdf57b3) |
-| `metadata` | optional | [`KernelEventMetadata`](#persistence-type-sha256-93a0a429e3d064749ffa891195a180d41f87fe0da58dd4f6ff52681c09740c18) |
+| `kind` | required | [`FailureKind`](#persistence-type-sha256-5cdfd0052851d5eba2c85146ce80e2284cd2a8df7b6f314c59533db9c5a664ba) |
+| `metadata` | optional | [`KernelEventMetadata`](#persistence-type-sha256-2740d3580ebc6b8acc39523f04e307d8d7ce3dcdf518eb60440a7f46ba4def9f) |
 | `startedAt` | required | `number` |
 
 <a id="persistence-type-sha256-ad0c38a0adb82a94c925456df41586d9b5f9202fca18593eae2213d4445b4585"></a>
@@ -9579,18 +10825,18 @@ Sources: [`packages/core/session/src/types.ts:396`](../packages/core/session/src
 | `reason` | required | [`RequestHeaderReason`](#persistence-type-sha256-530da6c0267813bb4511af72883cc518834e624e3b3220a7062955fd57a788a6) |
 | `startsSeries` | optional | `true` |
 
-<a id="persistence-type-sha256-8d59ca91b56591ee9c2f1ce5b66924d43923eaa385d305d8eca011b0ed9e76bc"></a>
+<a id="persistence-type-sha256-e97c7380401d3d75b5548a8e29a6cd7287b2d1d2a0ad684dd4ca2f7a80ce63c0"></a>
 
 ### `{ headerSeq?, message, step, turn }`
 
-SHA-256: `8d59ca91b56591ee9c2f1ce5b66924d43923eaa385d305d8eca011b0ed9e76bc`
+SHA-256: `e97c7380401d3d75b5548a8e29a6cd7287b2d1d2a0ad684dd4ca2f7a80ce63c0`
 
 Sources: [`packages/core/session/src/types.ts:317`](../packages/core/session/src/types.ts)
 
 | Property | Presence | Type |
 |---|---|---|
 | `headerSeq` | optional | `number` |
-| `message` | required | [`DeveloperMessage`](#persistence-type-sha256-7420f4081593575dd0da2aaea99dc99e0e4ab1dd502927cab5c1e7a02803df40) |
+| `message` | required | [`DeveloperMessage`](#persistence-type-sha256-26c71ac078961d2c0a467ddebbe6397c906a010a9bd28c95ac9654baea0e9ecb) |
 | `step` | required | `number` |
 | `turn` | required | `number` |
 
@@ -9607,18 +10853,18 @@ Sources: [`packages/attachment/attachment/src/types.ts:28`](../packages/attachme
 | `height` | required | `number` |
 | `width` | required | `number` |
 
-<a id="persistence-type-sha256-93cbbc5a7fd0b1aa1ff1b9a6bb5ec52b073f48e5a5200365c45c0cd54059e1b9"></a>
+<a id="persistence-type-sha256-3e7909ee83aaa7cca93204a1f498a4828943b2e35a87b9b7b395d899fac77183"></a>
 
 ### `{ id, outcome }`
 
-SHA-256: `93cbbc5a7fd0b1aa1ff1b9a6bb5ec52b073f48e5a5200365c45c0cd54059e1b9`
+SHA-256: `3e7909ee83aaa7cca93204a1f498a4828943b2e35a87b9b7b395d899fac77183`
 
-Sources: [`packages/interaction/user-approval/src/types.ts:55`](../packages/interaction/user-approval/src/types.ts)
+Sources: [`packages/interaction/user-approval/src/types.ts:65`](../packages/interaction/user-approval/src/types.ts)
 
 | Property | Presence | Type |
 |---|---|---|
 | `id` | required | `string` |
-| `outcome` | required | [`ApprovalOutcome`](#persistence-type-sha256-930c1cd289def119d443e19dd90008916bf035f0a4d23e07241e7f050f2b89b7) |
+| `outcome` | required | [`ApprovalOutcome`](#persistence-type-sha256-3ce6cea2da7d3882fcdc3aeefdab5a4338c3cc11621ed43d76b5d8819a26d62a) |
 
 <a id="persistence-type-sha256-998f22585a5d73ec005365e203f07fc3b3a029e82323fdda3fd7f13b0a9639d0"></a>
 
@@ -9674,17 +10920,17 @@ Sources: [`packages/core/session/src/types.ts:433`](../packages/core/session/src
 |---|---|---|
 | `inherited` | optional | `true` |
 
-<a id="persistence-type-sha256-d97df4fee40114da9a1443cdfdb93c1e6201bc3ffce7b6f3671ef375d0432c47"></a>
+<a id="persistence-type-sha256-eea442bd20861554b1bd20a947bbe9fbd63bc3d05ae6d94fe29a08d7eb36df6b"></a>
 
 ### `{ inserted, outcome?, removedCount?, start, … }`
 
-SHA-256: `d97df4fee40114da9a1443cdfdb93c1e6201bc3ffce7b6f3671ef375d0432c47`
+SHA-256: `eea442bd20861554b1bd20a947bbe9fbd63bc3d05ae6d94fe29a08d7eb36df6b`
 
 Sources: [`packages/core/agent/src/types.ts:96`](../packages/core/agent/src/types.ts)
 
 | Property | Presence | Type |
 |---|---|---|
-| `inserted` | required | [`UserMessage[]`](#persistence-type-sha256-912c266a473d8015258146966986d07252a8a4762bd1523ef4d597add0a34750) |
+| `inserted` | required | [`UserMessage[]`](#persistence-type-sha256-f18c7f976a904f2fd39798d03921d73df2c3190e52efa0f47bf40d518d0d999a) |
 | `outcome` | optional | `"canceled"` |
 | `removedCount` | optional | `number` |
 | `start` | required | `number` |
@@ -9726,7 +10972,7 @@ Sources: [`packages/core/session/src/types.ts:204`](../packages/core/session/src
 
 SHA-256: `7e38c4aa997bea5a682b169e6e18cc233d6d4c04c3225acb8da8cbffe0976aee`
 
-Sources: [`packages/runtime/agent-kernel/src/index.ts:319`](../packages/runtime/agent-kernel/src/index.ts)
+Sources: [`packages/runtime/agent-kernel/src/index.ts:500`](../packages/runtime/agent-kernel/src/index.ts)
 
 | Property | Presence | Type |
 |---|---|---|
@@ -10473,6 +11719,85 @@ Sources: [`packages/core/session/src/types.ts:196`](../packages/core/session/src
 |---|---|---|
 | `kind` | required | `"legacy"` |
 
+<a id="persistence-type-sha256-0b749b3882f89d3d1c3f587e18ecbb43e1d57193ecbaaa219a6e83dbd6d13597"></a>
+
+### `{ kind: "lsp-post-edit-diagnostics" }`
+
+SHA-256: `0b749b3882f89d3d1c3f587e18ecbb43e1d57193ecbaaa219a6e83dbd6d13597`
+
+| Property | Presence | Type |
+|---|---|---|
+| `kind` | required | `"lsp-post-edit-diagnostics"` |
+
+<a id="persistence-type-sha256-571d0b82d664f85e22de993fdfca15ef286bfe0ce0abf112531f5e9aa4faeb06"></a>
+
+### `{ kind: "lsp-post-edit-diagnostics", form: "catalog" }`
+
+SHA-256: `571d0b82d664f85e22de993fdfca15ef286bfe0ce0abf112531f5e9aa4faeb06`
+
+| Property | Presence | Type |
+|---|---|---|
+| `form` | required | `"catalog"` |
+| `kind` | required | `"lsp-post-edit-diagnostics"` |
+
+<a id="persistence-type-sha256-d22601bb0ee5e183ac364ad8b0271e36764dc35a3ac8564bdb46af5ae293943f"></a>
+
+### `{ kind: "lsp-post-edit-diagnostics", form: "instructions" }`
+
+SHA-256: `d22601bb0ee5e183ac364ad8b0271e36764dc35a3ac8564bdb46af5ae293943f`
+
+| Property | Presence | Type |
+|---|---|---|
+| `form` | required | `"instructions"` |
+| `kind` | required | `"lsp-post-edit-diagnostics"` |
+
+<a id="persistence-type-sha256-5103cb3ebc32ca7348568c7f53266da5e0c1fdd00a5319f191f51e00184eefb1"></a>
+
+### `{ kind: "lsp-post-edit-diagnostics", form: "notice" }`
+
+SHA-256: `5103cb3ebc32ca7348568c7f53266da5e0c1fdd00a5319f191f51e00184eefb1`
+
+| Property | Presence | Type |
+|---|---|---|
+| `form` | required | `"notice"` |
+| `kind` | required | `"lsp-post-edit-diagnostics"` |
+| `summary` | required | `string` |
+
+<a id="persistence-type-sha256-c332bf6bd539a57565dcbbba021ce6b72c3fd4739faf9265025f5437a6b676d0"></a>
+
+### `{ kind: "lsp-post-edit-diagnostics", form: "recall" }`
+
+SHA-256: `c332bf6bd539a57565dcbbba021ce6b72c3fd4739faf9265025f5437a6b676d0`
+
+| Property | Presence | Type |
+|---|---|---|
+| `form` | required | `"recall"` |
+| `kind` | required | `"lsp-post-edit-diagnostics"` |
+
+<a id="persistence-type-sha256-d861661eaceb2e2b325221efb5f56f6340832b101bcac98c49aa397dfb9c9a36"></a>
+
+### `{ kind: "lsp-post-edit-diagnostics", form: "relay" }`
+
+SHA-256: `d861661eaceb2e2b325221efb5f56f6340832b101bcac98c49aa397dfb9c9a36`
+
+| Property | Presence | Type |
+|---|---|---|
+| `form` | required | `"relay"` |
+| `kind` | required | `"lsp-post-edit-diagnostics"` |
+
+<a id="persistence-type-sha256-d39fa8b3c7d34f96f61675ec5b7505a40aa401d0d8d9debf4199a3d4ceed94d7"></a>
+
+### `{ kind: "lsp-post-edit-diagnostics", form: "snapshot" }`
+
+SHA-256: `d39fa8b3c7d34f96f61675ec5b7505a40aa401d0d8d9debf4199a3d4ceed94d7`
+
+| Property | Presence | Type |
+|---|---|---|
+| `form` | required | `"snapshot"` |
+| `kind` | required | `"lsp-post-edit-diagnostics"` |
+| `sections` | required | [`ContextSnapshotSection[]`](#persistence-type-sha256-c748fb42c80a120038a8c587af80ec39924803c401364db11c8974d5bf6d0262) |
+| `supersedes` | optional | `true` |
+
 <a id="persistence-type-sha256-0d3feda2a5fb9983914430c945b4a789b6d482510b646f4e35a51aa2ea278aa4"></a>
 
 ### `{ kind: "max-steps" }`
@@ -10771,6 +12096,100 @@ SHA-256: `9733783979049adfebd94bbdf0f20a70265e59300e5c5b332bc01d005b2065ed`
 | `kind` | required | `"repeat-tool-reminder"` |
 | `sections` | required | [`ContextSnapshotSection[]`](#persistence-type-sha256-c748fb42c80a120038a8c587af80ec39924803c401364db11c8974d5bf6d0262) |
 | `supersedes` | optional | `true` |
+
+<a id="persistence-type-sha256-cac8a511744177fdae5878d1f6a561101e922fef1f4821612bd188c8e7d76ba2"></a>
+
+### `{ kind: "repo-map" }`
+
+SHA-256: `cac8a511744177fdae5878d1f6a561101e922fef1f4821612bd188c8e7d76ba2`
+
+| Property | Presence | Type |
+|---|---|---|
+| `kind` | required | `"repo-map"` |
+
+<a id="persistence-type-sha256-48c1a8af942d9fa6dc3a388ff6c6343493aed23b47c031553212dd345370781d"></a>
+
+### `{ kind: "repo-map", form: "catalog" }`
+
+SHA-256: `48c1a8af942d9fa6dc3a388ff6c6343493aed23b47c031553212dd345370781d`
+
+| Property | Presence | Type |
+|---|---|---|
+| `form` | required | `"catalog"` |
+| `kind` | required | `"repo-map"` |
+
+<a id="persistence-type-sha256-44e7b51a62407122907db3d4a2525f06cc5b674b03d6c24f66e199d2dd14c062"></a>
+
+### `{ kind: "repo-map", form: "instructions" }`
+
+SHA-256: `44e7b51a62407122907db3d4a2525f06cc5b674b03d6c24f66e199d2dd14c062`
+
+| Property | Presence | Type |
+|---|---|---|
+| `form` | required | `"instructions"` |
+| `kind` | required | `"repo-map"` |
+
+<a id="persistence-type-sha256-15d00a204e034f2c890d7f688731d8c6459d7f9786051c1c7fb857731e1eeee1"></a>
+
+### `{ kind: "repo-map", form: "notice" }`
+
+SHA-256: `15d00a204e034f2c890d7f688731d8c6459d7f9786051c1c7fb857731e1eeee1`
+
+| Property | Presence | Type |
+|---|---|---|
+| `form` | required | `"notice"` |
+| `kind` | required | `"repo-map"` |
+| `summary` | required | `string` |
+
+<a id="persistence-type-sha256-352db22de85efed99267d9eeb2ede799b5443936d3ca7bdfec3cff81dc6df57e"></a>
+
+### `{ kind: "repo-map", form: "recall" }`
+
+SHA-256: `352db22de85efed99267d9eeb2ede799b5443936d3ca7bdfec3cff81dc6df57e`
+
+| Property | Presence | Type |
+|---|---|---|
+| `form` | required | `"recall"` |
+| `kind` | required | `"repo-map"` |
+
+<a id="persistence-type-sha256-f2afb563a198e9d752cc81644972c5375b64421ea70fe51cd1c2bfbb0f2c3248"></a>
+
+### `{ kind: "repo-map", form: "relay" }`
+
+SHA-256: `f2afb563a198e9d752cc81644972c5375b64421ea70fe51cd1c2bfbb0f2c3248`
+
+| Property | Presence | Type |
+|---|---|---|
+| `form` | required | `"relay"` |
+| `kind` | required | `"repo-map"` |
+
+<a id="persistence-type-sha256-9874e521b02d593272888ac661448440b9eb02073cb179e0778690dc30ba8f4a"></a>
+
+### `{ kind: "repo-map", form: "snapshot" }`
+
+SHA-256: `9874e521b02d593272888ac661448440b9eb02073cb179e0778690dc30ba8f4a`
+
+| Property | Presence | Type |
+|---|---|---|
+| `form` | required | `"snapshot"` |
+| `kind` | required | `"repo-map"` |
+| `sections` | required | [`ContextSnapshotSection[]`](#persistence-type-sha256-c748fb42c80a120038a8c587af80ec39924803c401364db11c8974d5bf6d0262) |
+| `supersedes` | optional | `true` |
+
+<a id="persistence-type-sha256-522b4027fdea38f6b4860221aad8495d7a193e602d7d37dd61d6a8faf801b537"></a>
+
+### `{ kind: "routine", form: "notice" }`
+
+SHA-256: `522b4027fdea38f6b4860221aad8495d7a193e602d7d37dd61d6a8faf801b537`
+
+Sources: [`packages/schedule/schedule-routines/src/index.ts:86`](../packages/schedule/schedule-routines/src/index.ts)
+
+| Property | Presence | Type |
+|---|---|---|
+| `form` | required | `"notice"` |
+| `kind` | required | `"routine"` |
+| `routineId` | required | `string` |
+| `summary` | required | `string` |
 
 <a id="persistence-type-sha256-0203243b72fc867afc81aff5f4cf2167e564ed342534eb612fc92f295cf07789"></a>
 
@@ -11393,84 +12812,106 @@ Sources: [`packages/webhook/webhook/src/types.ts:74`](../packages/webhook/webhoo
 | `source` | required | `string` |
 | `summary` | required | `string` |
 
-<a id="persistence-type-sha256-ef06de2b301840b48622d0e6bee01cdca340c19d8b247291a0fc1bc6f4afe9ef"></a>
+<a id="persistence-type-sha256-7fdae3d73eb0107d5a9b25278dbc5ab29a94ed7b416fb1b6346aad04575d608f"></a>
 
-### `{ kind: "workspace-memory-llm" }`
+### `{ kind: "working-set" }`
 
-SHA-256: `ef06de2b301840b48622d0e6bee01cdca340c19d8b247291a0fc1bc6f4afe9ef`
+SHA-256: `7fdae3d73eb0107d5a9b25278dbc5ab29a94ed7b416fb1b6346aad04575d608f`
 
 | Property | Presence | Type |
 |---|---|---|
-| `kind` | required | `"workspace-memory-llm"` |
+| `kind` | required | `"working-set"` |
 
-<a id="persistence-type-sha256-26b2989b07c51b3f44852ac361d766fa5a5b343e3b808d51c078a751fa7d6e62"></a>
+<a id="persistence-type-sha256-737db940141546ee61ac44ed7c552248c8d7018dbf505801c8cc7000255105d6"></a>
 
-### `{ kind: "workspace-memory-llm", form: "catalog" }`
+### `{ kind: "working-set", form: "catalog" }`
 
-SHA-256: `26b2989b07c51b3f44852ac361d766fa5a5b343e3b808d51c078a751fa7d6e62`
+SHA-256: `737db940141546ee61ac44ed7c552248c8d7018dbf505801c8cc7000255105d6`
 
 | Property | Presence | Type |
 |---|---|---|
 | `form` | required | `"catalog"` |
-| `kind` | required | `"workspace-memory-llm"` |
+| `kind` | required | `"working-set"` |
 
-<a id="persistence-type-sha256-647dd612ff1ff222aa7181116d71658497905531b11ccc381c7eca89bfb838c5"></a>
+<a id="persistence-type-sha256-93add3f44970dbc59ba83d984e55c1e9d38a7b135eed540a7a32a7926154e8f4"></a>
 
-### `{ kind: "workspace-memory-llm", form: "instructions" }`
+### `{ kind: "working-set", form: "instructions" }`
 
-SHA-256: `647dd612ff1ff222aa7181116d71658497905531b11ccc381c7eca89bfb838c5`
+SHA-256: `93add3f44970dbc59ba83d984e55c1e9d38a7b135eed540a7a32a7926154e8f4`
 
 | Property | Presence | Type |
 |---|---|---|
 | `form` | required | `"instructions"` |
-| `kind` | required | `"workspace-memory-llm"` |
+| `kind` | required | `"working-set"` |
 
-<a id="persistence-type-sha256-957354d09baa5e09b3d87a15be92c13521b5a4a95470ff39a7b809436aba9ff8"></a>
+<a id="persistence-type-sha256-7c75bccda3576b83eed9029189753e3e41e1e684250a448d25041282feb9fae7"></a>
 
-### `{ kind: "workspace-memory-llm", form: "notice" }`
+### `{ kind: "working-set", form: "notice" }`
 
-SHA-256: `957354d09baa5e09b3d87a15be92c13521b5a4a95470ff39a7b809436aba9ff8`
+SHA-256: `7c75bccda3576b83eed9029189753e3e41e1e684250a448d25041282feb9fae7`
 
 | Property | Presence | Type |
 |---|---|---|
 | `form` | required | `"notice"` |
-| `kind` | required | `"workspace-memory-llm"` |
+| `kind` | required | `"working-set"` |
 | `summary` | required | `string` |
 
-<a id="persistence-type-sha256-ecee71e5b2d97eaa43bd23380a7a1168554277bcb9a0bf5866aa365337f3504a"></a>
+<a id="persistence-type-sha256-2213bba7d2e044d4b5d1355435cf9b9768b3b5ab0a8139a85d7a39229fe52059"></a>
 
-### `{ kind: "workspace-memory-llm", form: "recall" }`
+### `{ kind: "working-set", form: "recall" }`
 
-SHA-256: `ecee71e5b2d97eaa43bd23380a7a1168554277bcb9a0bf5866aa365337f3504a`
+SHA-256: `2213bba7d2e044d4b5d1355435cf9b9768b3b5ab0a8139a85d7a39229fe52059`
 
 | Property | Presence | Type |
 |---|---|---|
 | `form` | required | `"recall"` |
-| `kind` | required | `"workspace-memory-llm"` |
+| `kind` | required | `"working-set"` |
 
-<a id="persistence-type-sha256-ece35d8bc83f00edab944dcb6113e6a093af70395b2b18f61ee37dc686507c1a"></a>
+<a id="persistence-type-sha256-f1f134c98dca97bf847d9ef9248fe24d0b828bae6991181af79ed34dcb4c38c3"></a>
 
-### `{ kind: "workspace-memory-llm", form: "relay" }`
+### `{ kind: "working-set", form: "relay" }`
 
-SHA-256: `ece35d8bc83f00edab944dcb6113e6a093af70395b2b18f61ee37dc686507c1a`
+SHA-256: `f1f134c98dca97bf847d9ef9248fe24d0b828bae6991181af79ed34dcb4c38c3`
 
 | Property | Presence | Type |
 |---|---|---|
 | `form` | required | `"relay"` |
-| `kind` | required | `"workspace-memory-llm"` |
+| `kind` | required | `"working-set"` |
 
-<a id="persistence-type-sha256-4fcdb94058bf7d044356ba62808f430373dd63e52e1102a054d3429124969afb"></a>
+<a id="persistence-type-sha256-e683e55964b14b456d6c8a843ab69595bc557039c7bba5f750923c18515edaf5"></a>
 
-### `{ kind: "workspace-memory-llm", form: "snapshot" }`
+### `{ kind: "working-set", form: "snapshot" }`
 
-SHA-256: `4fcdb94058bf7d044356ba62808f430373dd63e52e1102a054d3429124969afb`
+SHA-256: `e683e55964b14b456d6c8a843ab69595bc557039c7bba5f750923c18515edaf5`
 
 | Property | Presence | Type |
 |---|---|---|
 | `form` | required | `"snapshot"` |
-| `kind` | required | `"workspace-memory-llm"` |
+| `kind` | required | `"working-set"` |
 | `sections` | required | [`ContextSnapshotSection[]`](#persistence-type-sha256-c748fb42c80a120038a8c587af80ec39924803c401364db11c8974d5bf6d0262) |
 | `supersedes` | optional | `true` |
+
+<a id="persistence-type-sha256-fb48a211b58d3d080f49bee80131d4905f52802f500331210ffcfbf7e1d5f5bb"></a>
+
+### `{ maxContextTokens, maxCostUsd, maxInputTokens, maxOutputTokens, … }`
+
+SHA-256: `fb48a211b58d3d080f49bee80131d4905f52802f500331210ffcfbf7e1d5f5bb`
+
+| Property | Presence | Type |
+|---|---|---|
+| `maxContextTokens` | required | [`CeilingState`](#persistence-type-sha256-72bc1fdac54b445a27589c9ff04269c1b6c56f220743da2dcbe5e864e45a860a) |
+| `maxCostUsd` | required | [`CeilingState`](#persistence-type-sha256-72bc1fdac54b445a27589c9ff04269c1b6c56f220743da2dcbe5e864e45a860a) |
+| `maxInputTokens` | required | [`CeilingState`](#persistence-type-sha256-72bc1fdac54b445a27589c9ff04269c1b6c56f220743da2dcbe5e864e45a860a) |
+| `maxOutputTokens` | required | [`CeilingState`](#persistence-type-sha256-72bc1fdac54b445a27589c9ff04269c1b6c56f220743da2dcbe5e864e45a860a) |
+| `maxRunCost` | required | [`CeilingState`](#persistence-type-sha256-72bc1fdac54b445a27589c9ff04269c1b6c56f220743da2dcbe5e864e45a860a) |
+| `maxRunTokens` | required | [`CeilingState`](#persistence-type-sha256-72bc1fdac54b445a27589c9ff04269c1b6c56f220743da2dcbe5e864e45a860a) |
+| `maxRunWallTime` | required | [`CeilingState`](#persistence-type-sha256-72bc1fdac54b445a27589c9ff04269c1b6c56f220743da2dcbe5e864e45a860a) |
+| `maxSessionCost` | required | [`CeilingState`](#persistence-type-sha256-72bc1fdac54b445a27589c9ff04269c1b6c56f220743da2dcbe5e864e45a860a) |
+| `maxSessionTokens` | required | [`CeilingState`](#persistence-type-sha256-72bc1fdac54b445a27589c9ff04269c1b6c56f220743da2dcbe5e864e45a860a) |
+| `maxSessionWallTime` | required | [`CeilingState`](#persistence-type-sha256-72bc1fdac54b445a27589c9ff04269c1b6c56f220743da2dcbe5e864e45a860a) |
+| `maxToolCalls` | required | [`CeilingState`](#persistence-type-sha256-72bc1fdac54b445a27589c9ff04269c1b6c56f220743da2dcbe5e864e45a860a) |
+| `maxTotalTokens` | required | [`CeilingState`](#persistence-type-sha256-72bc1fdac54b445a27589c9ff04269c1b6c56f220743da2dcbe5e864e45a860a) |
+| `maxWallMs` | required | [`CeilingState`](#persistence-type-sha256-72bc1fdac54b445a27589c9ff04269c1b6c56f220743da2dcbe5e864e45a860a) |
 
 <a id="persistence-type-sha256-930a6567a10bb62ddd157bd8abdf4b182810c8c3b49d91309b3b009a5fed9731"></a>
 
@@ -11576,7 +13017,7 @@ Sources: [`packages/interaction/user-approval/src/index.ts:40`](../packages/inte
 
 SHA-256: `8a9c990773f798eac10ca8878e6bcc531ee080bc589cac956730e462cc6a09ad`
 
-Sources: [`packages/interaction/permission-presets/src/index.ts:62`](../packages/interaction/permission-presets/src/index.ts)
+Sources: [`packages/interaction/permission-presets/src/index.ts:79`](../packages/interaction/permission-presets/src/index.ts)
 
 | Property | Presence | Type |
 |---|---|---|
@@ -11607,6 +13048,18 @@ Sources: [`packages/web/web-search-deepseek/src/provider.ts:64`](../packages/web
 |---|---|---|
 | `content` | required | [`tuple (1 positions)`](#persistence-type-sha256-8f6d609794bf5afc01d7ccf3e03811d32f4b8047f58a2c9a98db0154c2ad7cb9) |
 | `role` | required | `"user"` |
+
+<a id="persistence-type-sha256-2da6f9f352d600764a4689597aea59ab7f87ffc39c598a6507b283cf9b8c54c7"></a>
+
+### `{ rules }`
+
+SHA-256: `2da6f9f352d600764a4689597aea59ab7f87ffc39c598a6507b283cf9b8c54c7`
+
+Sources: [`packages/interaction/permission-presets/src/index.ts:87`](../packages/interaction/permission-presets/src/index.ts)
+
+| Property | Presence | Type |
+|---|---|---|
+| `rules` | required | [`RememberedRule[]`](#persistence-type-sha256-55529c12f530c8fea38495f7b4205ed39bbe99d5b557e53780e6bf4779ab2c31) |
 
 <a id="persistence-type-sha256-8bb8c3751a6ce64b61aba1ec7ae798c00a5803c4d868a0430873216c6569ed52"></a>
 
@@ -11707,39 +13160,39 @@ Sources: [`packages/todo/tool-todo/src/types.ts:31`](../packages/todo/tool-todo/
 
 SHA-256: `f90eb4ab2d3897bc20c521a038e3119d581f791ec974b1a0004f63a8ab9e232d`
 
-Sources: [`packages/core/session/src/types.ts:294`](../packages/core/session/src/types.ts) · [`packages/deliverables/workspace-changes/src/types.ts:139`](../packages/deliverables/workspace-changes/src/types.ts)
+Sources: [`packages/core/session/src/types.ts:294`](../packages/core/session/src/types.ts) · [`packages/deliverables/workspace-changes/src/types.ts:183`](../packages/deliverables/workspace-changes/src/types.ts)
 
 | Property | Presence | Type |
 |---|---|---|
 | `turn` | required | `number` |
 
-<a id="persistence-type-sha256-08d895c504e1796bea4577b2cfe10c42ca295531b7fa442bb4fe55a657209395"></a>
+<a id="persistence-type-sha256-788842324fe206895d542955e48d3e1c480f8a55317f3b824edc740be5fc294f"></a>
 
 <a id="persistence-type-eventactioncommitted"></a>
 
 ### `{ type: "action/committed" }`
 
-SHA-256: `08d895c504e1796bea4577b2cfe10c42ca295531b7fa442bb4fe55a657209395`
+SHA-256: `788842324fe206895d542955e48d3e1c480f8a55317f3b824edc740be5fc294f`
 
 | Property | Presence | Type |
 |---|---|---|
-| `data` | required | [`{ actionId, committedAt, decisionId, failureId?, … }`](#persistence-type-sha256-dddc3d6408bde303227125af8f56a0a21305fc0df9cc1dcf5ba904afd7c67a20) |
+| `data` | required | [`{ actionId, committedAt, decisionId, failureId?, … }`](#persistence-type-sha256-d10b1073fc7acb169ccac5e8722cbe91f32f2998feb164ec2d0b1c960a92d5b8) |
 | `ignorable` | optional | `true` |
 | `seq` | required | `number` |
 | `time` | required | `number` |
 | `type` | required | `"action/committed"` |
 
-<a id="persistence-type-sha256-ac2e1e7b6fdca29da06a4b0230fbc37c1f91ebc310e6a49b95714d5e417b6bc1"></a>
+<a id="persistence-type-sha256-3fee9a1d90c278ac83b5f58b461f85e672d72659f1bee65f33c2d853ee94ef9c"></a>
 
 <a id="persistence-type-eventactiondecided"></a>
 
 ### `{ type: "action/decided" }`
 
-SHA-256: `ac2e1e7b6fdca29da06a4b0230fbc37c1f91ebc310e6a49b95714d5e417b6bc1`
+SHA-256: `3fee9a1d90c278ac83b5f58b461f85e672d72659f1bee65f33c2d853ee94ef9c`
 
 | Property | Presence | Type |
 |---|---|---|
-| `data` | required | [`{ decision, metadata?, policy, proposal }`](#persistence-type-sha256-babdb72cb71d76fb5f2c83736eb5afc9d4a051662ab8eb2ce8473d125f802c91) |
+| `data` | required | [`{ decision, metadata?, policy, proposal }`](#persistence-type-sha256-aff68b7108d6bcb7b69b0498ae43defffa5772e07d11da2c003ab994b15adf86) |
 | `ignorable` | optional | `true` |
 | `seq` | required | `number` |
 | `time` | required | `number` |
@@ -11761,17 +13214,17 @@ SHA-256: `a10c17474eaf2ddab7095a099e0fe3d046fc18e56c3e344fc8894c05ff9ef97b`
 | `time` | required | `number` |
 | `type` | required | `"agent-preset/selected"` |
 
-<a id="persistence-type-sha256-39776a128196c7509f8ab932704e410408eae1646ab630a308c3b420fa407a32"></a>
+<a id="persistence-type-sha256-abb186d6c65aac1ee917798c2ebc5c5a1769d42827b979d659829e3bec6000cd"></a>
 
 <a id="persistence-type-eventagentinboxspliced"></a>
 
 ### `{ type: "agent/inbox/spliced" }`
 
-SHA-256: `39776a128196c7509f8ab932704e410408eae1646ab630a308c3b420fa407a32`
+SHA-256: `abb186d6c65aac1ee917798c2ebc5c5a1769d42827b979d659829e3bec6000cd`
 
 | Property | Presence | Type |
 |---|---|---|
-| `data` | required | [`{ inserted, outcome?, removedCount?, start, … }`](#persistence-type-sha256-d97df4fee40114da9a1443cdfdb93c1e6201bc3ffce7b6f3671ef375d0432c47) |
+| `data` | required | [`{ inserted, outcome?, removedCount?, start, … }`](#persistence-type-sha256-eea442bd20861554b1bd20a947bbe9fbd63bc3d05ae6d94fe29a08d7eb36df6b) |
 | `ignorable` | optional | `true` |
 | `seq` | required | `number` |
 | `time` | required | `number` |
@@ -11793,17 +13246,17 @@ SHA-256: `3bfeb47b58606f4661904bc723da612782214c463d01e6d61cd6d6193d7374e1`
 | `time` | required | `number` |
 | `type` | required | `"approval/asked"` |
 
-<a id="persistence-type-sha256-bb1ab3d08f49a9f3b265f844cd78d5c49813062a7b34b54904b426f85d0ff6e3"></a>
+<a id="persistence-type-sha256-f45611453839a5e630b3b7e3e825a0e7ef3c99804c46985135217a8a6fa44cb7"></a>
 
 <a id="persistence-type-eventapprovaldecided"></a>
 
 ### `{ type: "approval/decided" }`
 
-SHA-256: `bb1ab3d08f49a9f3b265f844cd78d5c49813062a7b34b54904b426f85d0ff6e3`
+SHA-256: `f45611453839a5e630b3b7e3e825a0e7ef3c99804c46985135217a8a6fa44cb7`
 
 | Property | Presence | Type |
 |---|---|---|
-| `data` | required | [`{ id, outcome }`](#persistence-type-sha256-93cbbc5a7fd0b1aa1ff1b9a6bb5ec52b073f48e5a5200365c45c0cd54059e1b9) |
+| `data` | required | [`{ id, outcome }`](#persistence-type-sha256-3e7909ee83aaa7cca93204a1f498a4828943b2e35a87b9b7b395d899fac77183) |
 | `ignorable` | optional | `true` |
 | `seq` | required | `number` |
 | `time` | required | `number` |
@@ -11864,7 +13317,7 @@ SHA-256: `1033093edd0db80ff410e00830b523405e00bb0c7684948e531ff65095799625`
 
 SHA-256: `d4b739491689cc6bb13d07ffac1a32239875abda364c0d5edd8f74faf5e9c00d`
 
-Sources: [`packages/llm/llm/src/types.ts:445`](../packages/llm/llm/src/types.ts)
+Sources: [`packages/llm/llm/src/types.ts:475`](../packages/llm/llm/src/types.ts)
 
 | Property | Presence | Type |
 |---|---|---|
@@ -11878,7 +13331,7 @@ Sources: [`packages/llm/llm/src/types.ts:445`](../packages/llm/llm/src/types.ts)
 
 SHA-256: `3bec87f9e6ab3da03346f49923d3c51621debc0159df68605e543c3b2a026f90`
 
-Sources: [`packages/llm/llm/src/types.ts:441`](../packages/llm/llm/src/types.ts)
+Sources: [`packages/llm/llm/src/types.ts:471`](../packages/llm/llm/src/types.ts)
 
 | Property | Presence | Type |
 |---|---|---|
@@ -11886,49 +13339,49 @@ Sources: [`packages/llm/llm/src/types.ts:441`](../packages/llm/llm/src/types.ts)
 | `index` | required | `number` |
 | `type` | required | `"block-start"` |
 
-<a id="persistence-type-sha256-126afc36b0158f9df6867df64456aba351851dffb45cc647c934f5088a5f533b"></a>
+<a id="persistence-type-sha256-7bfeba009193fd2e97e8e5e95186510ce52530c78f0a345ca1ae859fea15d1a0"></a>
 
 <a id="persistence-type-eventbudgetexceeded"></a>
 
 ### `{ type: "budget/exceeded" }`
 
-SHA-256: `126afc36b0158f9df6867df64456aba351851dffb45cc647c934f5088a5f533b`
+SHA-256: `7bfeba009193fd2e97e8e5e95186510ce52530c78f0a345ca1ae859fea15d1a0`
 
 | Property | Presence | Type |
 |---|---|---|
-| `data` | required | [`BudgetExceededEventData`](#persistence-type-sha256-6f52b33120a41293f1f8c08890a452bea9b66d74959c3bff6b6cfd31e0730e3e) |
+| `data` | required | [`BudgetExceededEventData`](#persistence-type-sha256-0c6ca2e0fa31ffbd56e74d91597568167ccfeafa3abd48a53af7d3194381aa80) |
 | `ignorable` | optional | `true` |
 | `seq` | required | `number` |
 | `time` | required | `number` |
 | `type` | required | `"budget/exceeded"` |
 
-<a id="persistence-type-sha256-3c5f3e46f62ba61c77e610a22fbcb4b68482fbeca5e65f2735b7b0d0192b60a2"></a>
+<a id="persistence-type-sha256-26cba28f734f5249eac9288fe1ea64aacbb315d0a7306369f990201ceae3d2c4"></a>
 
 <a id="persistence-type-eventcheckpointcreated"></a>
 
 ### `{ type: "checkpoint/created" }`
 
-SHA-256: `3c5f3e46f62ba61c77e610a22fbcb4b68482fbeca5e65f2735b7b0d0192b60a2`
+SHA-256: `26cba28f734f5249eac9288fe1ea64aacbb315d0a7306369f990201ceae3d2c4`
 
 | Property | Presence | Type |
 |---|---|---|
-| `data` | required | [`{ agentSessionId, budgets, checkpointId, createdAt, … }`](#persistence-type-sha256-5f278e3150e80bca6935ea859097812f1a9c7d5cf9a325560bd3d3590f58e5fc) |
+| `data` | required | [`{ agentSessionId, budgets, checkpointId, createdAt, … }`](#persistence-type-sha256-2fbc25edf29e0b913260bf22c640eaf398d8877a5ce27e070bddc0466d0bf99a) |
 | `ignorable` | optional | `true` |
 | `seq` | required | `number` |
 | `time` | required | `number` |
 | `type` | required | `"checkpoint/created"` |
 
-<a id="persistence-type-sha256-1d3846c9fee308677667ca395155354956b0f54dd4477ed00faaae619e7d94b4"></a>
+<a id="persistence-type-sha256-f2315a4fc9c732c99760eb1007ffac4464c20f6b63bff84ef5d326590a1c4e8b"></a>
 
 <a id="persistence-type-eventcheckpointresumed"></a>
 
 ### `{ type: "checkpoint/resumed" }`
 
-SHA-256: `1d3846c9fee308677667ca395155354956b0f54dd4477ed00faaae619e7d94b4`
+SHA-256: `f2315a4fc9c732c99760eb1007ffac4464c20f6b63bff84ef5d326590a1c4e8b`
 
 | Property | Presence | Type |
 |---|---|---|
-| `data` | required | [`{ agentSessionId, checkpointId, metadata?, resumedAt, … }`](#persistence-type-sha256-101cd8e9f742a45722d85fdde0e49d1c6aee71c2663d2f82ce5611e4ad54120c) |
+| `data` | required | [`{ agentSessionId, checkpointId, metadata?, resumedAt, … }`](#persistence-type-sha256-18079fd1a0a661045c51c9f7a03eb5a7729fe9c5335fc0a474f5deda52031295) |
 | `ignorable` | optional | `true` |
 | `seq` | required | `number` |
 | `time` | required | `number` |
@@ -11948,17 +13401,17 @@ Sources: [`packages/llm/llm/src/assistant-stream.ts:44`](../packages/llm/llm/src
 | `time` | required | `number` |
 | `type` | required | `"chunk"` |
 
-<a id="persistence-type-sha256-f5d042eb7d11628306134346617f4dc992edc6e6a97cbbbbdd87521cb16702f2"></a>
+<a id="persistence-type-sha256-7837be22b9ee7ae25cb9417ce34f9315fbdf07e68057c186bc2363b3e3cbb9de"></a>
 
 <a id="persistence-type-eventclaimupdated"></a>
 
 ### `{ type: "claim/updated" }`
 
-SHA-256: `f5d042eb7d11628306134346617f4dc992edc6e6a97cbbbbdd87521cb16702f2`
+SHA-256: `7837be22b9ee7ae25cb9417ce34f9315fbdf07e68057c186bc2363b3e3cbb9de`
 
 | Property | Presence | Type |
 |---|---|---|
-| `data` | required | [`{ claimId, confidence, evidence, metadata?, … }`](#persistence-type-sha256-c7985431770f05755e15d17c6a9eb1b8c51d425a1939061b66fdcaee4b0bd9ec) |
+| `data` | required | [`{ claimId, confidence, evidence, metadata?, … }`](#persistence-type-sha256-21361ebe126e5ca77f540bf69aac81dc11c0f6ec61fc369968baea94b2375ea0) |
 | `ignorable` | optional | `true` |
 | `seq` | required | `number` |
 | `time` | required | `number` |
@@ -12076,33 +13529,33 @@ SHA-256: `df071df8f4fab579c0a91686c9560a27fa6dda38e1d594c525164d868ff14f79`
 | `time` | required | `number` |
 | `type` | required | `"context/compiled"` |
 
-<a id="persistence-type-sha256-120a02a8a7313c38a0b0bda63276548b8c1fc3afe756a116071eefa848f75dfc"></a>
+<a id="persistence-type-sha256-7e296cc024dde413ce97348d62d0a018952cfe6022c0c53c19d38b257443fd5f"></a>
 
 <a id="persistence-type-eventdelegationissued"></a>
 
 ### `{ type: "delegation/issued" }`
 
-SHA-256: `120a02a8a7313c38a0b0bda63276548b8c1fc3afe756a116071eefa848f75dfc`
+SHA-256: `7e296cc024dde413ce97348d62d0a018952cfe6022c0c53c19d38b257443fd5f`
 
 | Property | Presence | Type |
 |---|---|---|
-| `data` | required | [`{ allowedCapabilities, at, childRunId, delegationId, … }`](#persistence-type-sha256-7536385f1e521003aca0545589527f6bb66175815d128791d9852ca1967c327f) |
+| `data` | required | [`{ allowedCapabilities, at, childRunId, delegationId, … }`](#persistence-type-sha256-de57f063928ef8779a7c38386885257b06c4598d86bda48be23fbafcc67d9a9b) |
 | `ignorable` | optional | `true` |
 | `seq` | required | `number` |
 | `time` | required | `number` |
 | `type` | required | `"delegation/issued"` |
 
-<a id="persistence-type-sha256-5186002667d10869f1b5d16b8409ea314f39e1bb4be6211f9d4c38bee694fd14"></a>
+<a id="persistence-type-sha256-6eb4513f91358e3dcb891350020ed6b749022fc4d51f71a10dcb8f146f902c11"></a>
 
 <a id="persistence-type-eventdelegationreceived"></a>
 
 ### `{ type: "delegation/received" }`
 
-SHA-256: `5186002667d10869f1b5d16b8409ea314f39e1bb4be6211f9d4c38bee694fd14`
+SHA-256: `6eb4513f91358e3dcb891350020ed6b749022fc4d51f71a10dcb8f146f902c11`
 
 | Property | Presence | Type |
 |---|---|---|
-| `data` | required | [`{ allowedCapabilities, at, childRunId, delegationId, … }`](#persistence-type-sha256-7536385f1e521003aca0545589527f6bb66175815d128791d9852ca1967c327f) |
+| `data` | required | [`{ allowedCapabilities, at, childRunId, delegationId, … }`](#persistence-type-sha256-de57f063928ef8779a7c38386885257b06c4598d86bda48be23fbafcc67d9a9b) |
 | `ignorable` | optional | `true` |
 | `seq` | required | `number` |
 | `time` | required | `number` |
@@ -12124,17 +13577,17 @@ SHA-256: `13d3d180f977bf78081d487ffa0ecb75857349bcab29a5a3fb48189fca2a6176`
 | `time` | required | `number` |
 | `type` | required | `"deliverables/presented"` |
 
-<a id="persistence-type-sha256-323b4364fa1e174cc346607f6e345c95dc12ef5f8562459c04bd91bf58e8efaf"></a>
+<a id="persistence-type-sha256-f1647c900c8c9e22705e1eaf9aa862cb6bea6417f9c95de036bcaefac472125e"></a>
 
 <a id="persistence-type-eventdevelopermessage"></a>
 
 ### `{ type: "developer/message" }`
 
-SHA-256: `323b4364fa1e174cc346607f6e345c95dc12ef5f8562459c04bd91bf58e8efaf`
+SHA-256: `f1647c900c8c9e22705e1eaf9aa862cb6bea6417f9c95de036bcaefac472125e`
 
 | Property | Presence | Type |
 |---|---|---|
-| `data` | required | [`{ headerSeq?, message, step, turn }`](#persistence-type-sha256-8d59ca91b56591ee9c2f1ce5b66924d43923eaa385d305d8eca011b0ed9e76bc) |
+| `data` | required | [`{ headerSeq?, message, step, turn }`](#persistence-type-sha256-e97c7380401d3d75b5548a8e29a6cd7287b2d1d2a0ad684dd4ca2f7a80ce63c0) |
 | `ignorable` | optional | `true` |
 | `seq` | required | `number` |
 | `sourceEventSeqs` | optional | [`number[]`](#persistence-type-sha256-5d03ba38734809bcbd2a55221bd938b3b3fc34b49bb686c6113e9e4931e3aa78) |
@@ -12142,33 +13595,49 @@ SHA-256: `323b4364fa1e174cc346607f6e345c95dc12ef5f8562459c04bd91bf58e8efaf`
 | `time` | required | `number` |
 | `type` | required | `"developer/message"` |
 
-<a id="persistence-type-sha256-091b30fac1dbbfd89ca4ca0f05571b91f6e6e8d50a26b3a039752f90641beaf4"></a>
+<a id="persistence-type-sha256-9de379a1acc7647eb6c0c4411bbcc877b296b14374c248f88818afcf35f23992"></a>
 
 <a id="persistence-type-eventevidencerecorded"></a>
 
 ### `{ type: "evidence/recorded" }`
 
-SHA-256: `091b30fac1dbbfd89ca4ca0f05571b91f6e6e8d50a26b3a039752f90641beaf4`
+SHA-256: `9de379a1acc7647eb6c0c4411bbcc877b296b14374c248f88818afcf35f23992`
 
 | Property | Presence | Type |
 |---|---|---|
-| `data` | required | [`{ contentRef, digest?, evidenceId, kind, … }`](#persistence-type-sha256-795844c92d147c9fd9cbfa7b2444d13f72b3ce7e7ebedbc31295982664fe4848) |
+| `data` | required | [`{ contentRef, digest?, evidenceId, kind, … }`](#persistence-type-sha256-7cabd6ea921a9133c349a4b8ce95673cf34507cb5be9eb2e1bcea98a79bf9697) |
 | `ignorable` | optional | `true` |
 | `seq` | required | `number` |
 | `time` | required | `number` |
 | `type` | required | `"evidence/recorded"` |
 
-<a id="persistence-type-sha256-5b38ecbd24196b3c4b2469f5756c09f761101f19ade7013f581ed1ce74dfd0ad"></a>
+<a id="persistence-type-sha256-f8c198d5fef348655e7c0884189e6de2ecc506b37461e62c4f66efc478479ccc"></a>
+
+<a id="persistence-type-eventfailurediagnosed"></a>
+
+### `{ type: "failure/diagnosed" }`
+
+SHA-256: `f8c198d5fef348655e7c0884189e6de2ecc506b37461e62c4f66efc478479ccc`
+
+| Property | Presence | Type |
+|---|---|---|
+| `data` | required | [`{ at, category, detail, evidence, … }`](#persistence-type-sha256-5fe04271d2a84abbe6049415356c02b0df7753c82b5624c40f7feb4dad2d676f) |
+| `ignorable` | optional | `true` |
+| `seq` | required | `number` |
+| `time` | required | `number` |
+| `type` | required | `"failure/diagnosed"` |
+
+<a id="persistence-type-sha256-c7b18739ef4d3be874931ecb0e487fc063cc71225f97525013d6ff405421990a"></a>
 
 <a id="persistence-type-eventfailurerecorded"></a>
 
 ### `{ type: "failure/recorded" }`
 
-SHA-256: `5b38ecbd24196b3c4b2469f5756c09f761101f19ade7013f581ed1ce74dfd0ad`
+SHA-256: `c7b18739ef4d3be874931ecb0e487fc063cc71225f97525013d6ff405421990a`
 
 | Property | Presence | Type |
 |---|---|---|
-| `data` | required | [`{ actionId?, at, detail, failureId, … }`](#persistence-type-sha256-0f5f48c4d84f2956954355fd5a29080904328e5092ea41c18fb67a0046c1d0fb) |
+| `data` | required | [`{ actionId?, at, detail, failureId, … }`](#persistence-type-sha256-d03967f0d63fc1dfbd84bee2413996540264d1322e274242202b3eb82ac929f4) |
 | `ignorable` | optional | `true` |
 | `seq` | required | `number` |
 | `time` | required | `number` |
@@ -12228,7 +13697,7 @@ SHA-256: `b54940ff095c17e874c5be03815f4c2145a256cf3a1d34dae4ab2f7769dfffe8`
 
 SHA-256: `a2b49331716ba0a7078b026d145306a70eae64b7313c3e6204bd931e75ec3bb1`
 
-Sources: [`packages/llm/llm/src/types.ts:447`](../packages/llm/llm/src/types.ts)
+Sources: [`packages/llm/llm/src/types.ts:477`](../packages/llm/llm/src/types.ts)
 
 | Property | Presence | Type |
 |---|---|---|
@@ -12251,6 +13720,22 @@ SHA-256: `592ed1c602a431ef09b3da454efabb8b70db10e783013248dd37dc4baaa64fbd`
 | `seq` | required | `number` |
 | `time` | required | `number` |
 | `type` | required | `"goal/change"` |
+
+<a id="persistence-type-sha256-a233da3dc225028969d90a893b2f9e5352ffaa14e0c82dbc4aea1c7c33c8390f"></a>
+
+<a id="persistence-type-eventgovernordecided"></a>
+
+### `{ type: "governor/decided" }`
+
+SHA-256: `a233da3dc225028969d90a893b2f9e5352ffaa14e0c82dbc4aea1c7c33c8390f`
+
+| Property | Presence | Type |
+|---|---|---|
+| `data` | required | [`{ at, decision, delta, metadata?, … }`](#persistence-type-sha256-180d517724decd7017647473a74c602a21a5b25d5c9a4a754b5173e5c0336d22) |
+| `ignorable` | optional | `true` |
+| `seq` | required | `number` |
+| `time` | required | `number` |
+| `type` | required | `"governor/decided"` |
 
 <a id="persistence-type-sha256-8a6e1ec9e8db346b0e02f027db73c07a94f067a26d40c1aef1abd09c47ce7ba0"></a>
 
@@ -12284,17 +13769,17 @@ SHA-256: `e75916628f3f10c2d50658bd143052a46285fbf1a9a700ba54947614603d26b4`
 | `time` | required | `number` |
 | `type` | required | `"hook/result"` |
 
-<a id="persistence-type-sha256-25ed756c00e9dbb833f3f41908ec79171f581500d205ccfdf29207d4c7a9800e"></a>
+<a id="persistence-type-sha256-1a92bddd99c323805870287a67b45f7d2f8153ffea5a13cab4ed5d1ff398f725"></a>
 
 <a id="persistence-type-eventhypothesisupdated"></a>
 
 ### `{ type: "hypothesis/updated" }`
 
-SHA-256: `25ed756c00e9dbb833f3f41908ec79171f581500d205ccfdf29207d4c7a9800e`
+SHA-256: `1a92bddd99c323805870287a67b45f7d2f8153ffea5a13cab4ed5d1ff398f725`
 
 | Property | Presence | Type |
 |---|---|---|
-| `data` | required | [`{ claims, hypothesisId, metadata?, question, … }`](#persistence-type-sha256-7b82269b10a14327898dee71de6fff5f654bbbd8fdc84fce0c5130adb18ff975) |
+| `data` | required | [`{ claims, hypothesisId, metadata?, question, … }`](#persistence-type-sha256-33695ae1a9c4c731f436f7c5a185b30842767a3095770bc351eba357986a5c13) |
 | `ignorable` | optional | `true` |
 | `seq` | required | `number` |
 | `time` | required | `number` |
@@ -12396,6 +13881,22 @@ SHA-256: `5c45bf4c544a7211dcd8ba6ba7e5f1bc39b49e7a9df9d5cbdc8e87c22771b37b`
 | `time` | required | `number` |
 | `type` | required | `"permission/preset"` |
 
+<a id="persistence-type-sha256-8eab4641f9135b2a4e92a820dcd8824ae00c3b77e371cf2bfd5e776cca0c4df9"></a>
+
+<a id="persistence-type-eventpermissionrules"></a>
+
+### `{ type: "permission/rules" }`
+
+SHA-256: `8eab4641f9135b2a4e92a820dcd8824ae00c3b77e371cf2bfd5e776cca0c4df9`
+
+| Property | Presence | Type |
+|---|---|---|
+| `data` | required | [`{ rules }`](#persistence-type-sha256-2da6f9f352d600764a4689597aea59ab7f87ffc39c598a6507b283cf9b8c54c7) |
+| `ignorable` | optional | `true` |
+| `seq` | required | `number` |
+| `time` | required | `number` |
+| `type` | required | `"permission/rules"` |
+
 <a id="persistence-type-sha256-a7cf43ce7c2a4c038feed1885cd7a00d5c6ee2d90a7e0d56b46f78a3e1ca327f"></a>
 
 <a id="persistence-type-eventplanmode"></a>
@@ -12434,7 +13935,7 @@ Sources: [`packages/llm/llm/src/assistant-stream.ts:28`](../packages/llm/llm/src
 
 SHA-256: `2abb711460e6238d851c30f3e4bdd87a2aa1887ee70575b3d3b7b25610673095`
 
-Sources: [`packages/llm/llm/src/types.ts:443`](../packages/llm/llm/src/types.ts)
+Sources: [`packages/llm/llm/src/types.ts:473`](../packages/llm/llm/src/types.ts)
 
 | Property | Presence | Type |
 |---|---|---|
@@ -12442,33 +13943,33 @@ Sources: [`packages/llm/llm/src/types.ts:443`](../packages/llm/llm/src/types.ts)
 | `text` | required | `string` |
 | `type` | required | `"reasoning-delta"` |
 
-<a id="persistence-type-sha256-0b3422aaa8086c7f01ff5e619e28b95efe6ffec7528ecf3cbdb1cf95e48c9e60"></a>
+<a id="persistence-type-sha256-f6c87f95ff75f2e7a02eb9eba7d1b3bd97eef314b08f5554a2acc998459c080f"></a>
 
 <a id="persistence-type-eventrecoverydecided"></a>
 
 ### `{ type: "recovery/decided" }`
 
-SHA-256: `0b3422aaa8086c7f01ff5e619e28b95efe6ffec7528ecf3cbdb1cf95e48c9e60`
+SHA-256: `f6c87f95ff75f2e7a02eb9eba7d1b3bd97eef314b08f5554a2acc998459c080f`
 
 | Property | Presence | Type |
 |---|---|---|
-| `data` | required | [`{ action, at, attemptsRemaining, checkpointRequired, … }`](#persistence-type-sha256-934641232eda397bb880eedd15f21e1295fadfa59a4eb6a5ab06016a61ffa3a2) |
+| `data` | required | [`{ action, at, attemptsRemaining, checkpointRequired, … }`](#persistence-type-sha256-fe27d36da256f2d3728fdd7ee054e68bdf61bc3d0fc8d874a1b6fbeb8082e7fb) |
 | `ignorable` | optional | `true` |
 | `seq` | required | `number` |
 | `time` | required | `number` |
 | `type` | required | `"recovery/decided"` |
 
-<a id="persistence-type-sha256-8f098954477517a8defbbbb818ecb82724e604952d1100d98c5d1df6bb19b208"></a>
+<a id="persistence-type-sha256-89b02d37ce3be862b20be6dc11509c77814bae1bce6e477a2695f7e699f5db21"></a>
 
 <a id="persistence-type-eventrecoverystarted"></a>
 
 ### `{ type: "recovery/started" }`
 
-SHA-256: `8f098954477517a8defbbbb818ecb82724e604952d1100d98c5d1df6bb19b208`
+SHA-256: `89b02d37ce3be862b20be6dc11509c77814bae1bce6e477a2695f7e699f5db21`
 
 | Property | Presence | Type |
 |---|---|---|
-| `data` | required | [`{ failureId, kind, metadata?, startedAt }`](#persistence-type-sha256-4a8597f9c6b714d72b6401ff48c346a4888ed5a913f53ba889b3e9285ca2fff4) |
+| `data` | required | [`{ failureId, kind, metadata?, startedAt }`](#persistence-type-sha256-36dc6b40bb61f7bb77e953e00f63f0a6d380fb33f7e0141d25045dca8e669f74) |
 | `ignorable` | optional | `true` |
 | `seq` | required | `number` |
 | `time` | required | `number` |
@@ -12505,6 +14006,22 @@ SHA-256: `4208123b50df5006b181481ab45fcf1cde807b88d3fd4d340090bc2e202fac41`
 | `seq` | required | `number` |
 | `time` | required | `number` |
 | `type` | required | `"request/header"` |
+
+<a id="persistence-type-sha256-f1d919a51f323ec6689944d818b9df2874403602d1733705f7c1a1c4ff399cec"></a>
+
+<a id="persistence-type-eventreviewreport"></a>
+
+### `{ type: "review/report" }`
+
+SHA-256: `f1d919a51f323ec6689944d818b9df2874403602d1733705f7c1a1c4ff399cec`
+
+| Property | Presence | Type |
+|---|---|---|
+| `data` | required | [`ReviewReportEvent`](#persistence-type-sha256-7f17c67cf5eb03c67b675f7d7351190594157faf816a91151e393f92e6867624) |
+| `ignorable` | optional | `true` |
+| `seq` | required | `number` |
+| `time` | required | `number` |
+| `type` | required | `"review/report"` |
 
 <a id="persistence-type-sha256-516da4cdd6d2f1e5ce488e648578ca51f40e458f707b803e5b24de870e799415"></a>
 
@@ -12602,17 +14119,17 @@ SHA-256: `1b912703e2d64f91c99c675b8f805b01076c8325b905c1218ad81ef0b24909d5`
 | `time` | required | `number` |
 | `type` | required | `"session/title"` |
 
-<a id="persistence-type-sha256-c4907659735b456a834427fd1e3f794f76c02d3c6cb3a19e0e7b6c5258a331bb"></a>
+<a id="persistence-type-sha256-5d2a4200069dc806bb2354472f52e4496237f962f4287dabb64b40a171776549"></a>
 
 <a id="persistence-type-eventsessiontitle-llm-request"></a>
 
 ### `{ type: "session/title-llm-request" }`
 
-SHA-256: `c4907659735b456a834427fd1e3f794f76c02d3c6cb3a19e0e7b6c5258a331bb`
+SHA-256: `5d2a4200069dc806bb2354472f52e4496237f962f4287dabb64b40a171776549`
 
 | Property | Presence | Type |
 |---|---|---|
-| `data` | required | [`SessionTitleLlmRequestEventData`](#persistence-type-sha256-1754969b3e2ef4bbddf2a2bbff17cf20e956c83f61e0181072518cfe8f952fac) |
+| `data` | required | [`SessionTitleLlmRequestEventData`](#persistence-type-sha256-fd955075680855854ab1403fdd37fdd8e34bd9b8fd0652fe21a0c9adfcaf8da3) |
 | `ignorable` | optional | `true` |
 | `seq` | required | `number` |
 | `time` | required | `number` |
@@ -12716,49 +14233,81 @@ SHA-256: `69081694be231d56fd9580ba14645fd5e35373202605d5c5c841a9435b5fa3b1`
 | `time` | required | `number` |
 | `type` | required | `"system/message"` |
 
-<a id="persistence-type-sha256-c2209d455f63782ee3f25e3d1ccfdee93d90faf3a0de93b5db04f94f4c394be7"></a>
+<a id="persistence-type-sha256-c9d793a16fb037016aa63fa55528132441d3c899ae6ea322938423055b9c1650"></a>
 
 <a id="persistence-type-eventtaskcreated"></a>
 
 ### `{ type: "task/created" }`
 
-SHA-256: `c2209d455f63782ee3f25e3d1ccfdee93d90faf3a0de93b5db04f94f4c394be7`
+SHA-256: `c9d793a16fb037016aa63fa55528132441d3c899ae6ea322938423055b9c1650`
 
 | Property | Presence | Type |
 |---|---|---|
-| `data` | required | [`{ acceptance, agentProfile, budget, constraints, … }`](#persistence-type-sha256-b683cd777222d520e0666c577623ab6356fe04e0f89491a16c158432d7cc8a27) |
+| `data` | required | [`{ acceptance, agentProfile, budget, changeContract?, … }`](#persistence-type-sha256-c98850ad20a50dc259c67244c5d6fce75cfb20759839c7f8df1bbf9deda525cb) |
 | `ignorable` | optional | `true` |
 | `seq` | required | `number` |
 | `time` | required | `number` |
 | `type` | required | `"task/created"` |
 
-<a id="persistence-type-sha256-5fa943ba2fb6e5d8b3f8909d58a8b37458bed859f3533e64ff882739f5b30b63"></a>
+<a id="persistence-type-sha256-7c6fb07720e9168e923c275f392f0328cbcc15cdccb3062c3db42a36f7b866d3"></a>
+
+<a id="persistence-type-eventtaskphase"></a>
+
+### `{ type: "task/phase" }`
+
+SHA-256: `7c6fb07720e9168e923c275f392f0328cbcc15cdccb3062c3db42a36f7b866d3`
+
+| Property | Presence | Type |
+|---|---|---|
+| `data` | required | [`{ at, detail?, from?, metadata?, … }`](#persistence-type-sha256-ed43addf981fa2cfe0dcb75cf78c17accc1b2dcd338ee851e0524a681fda926a) |
+| `ignorable` | optional | `true` |
+| `seq` | required | `number` |
+| `time` | required | `number` |
+| `type` | required | `"task/phase"` |
+
+<a id="persistence-type-sha256-5b5bba4e18f3a7443f3d793351fe8130186b675c19286049c10759f1aa4503a6"></a>
 
 <a id="persistence-type-eventtaskplan"></a>
 
 ### `{ type: "task/plan" }`
 
-SHA-256: `5fa943ba2fb6e5d8b3f8909d58a8b37458bed859f3533e64ff882739f5b30b63`
+SHA-256: `5b5bba4e18f3a7443f3d793351fe8130186b675c19286049c10759f1aa4503a6`
 
 | Property | Presence | Type |
 |---|---|---|
-| `data` | required | [`{ createdAt, failureId?, metadata?, revision, … }`](#persistence-type-sha256-694740deb8eb30d5974b6ab8f0704d1c0393a3f8a9fdd3a4614495a82f373811) |
+| `data` | required | [`{ createdAt, failureId?, metadata?, revision, … }`](#persistence-type-sha256-b2b879aa67bd62b5eab885d5caa05258644bae8af030ad4958115b101e97de54) |
 | `ignorable` | optional | `true` |
 | `seq` | required | `number` |
 | `time` | required | `number` |
 | `type` | required | `"task/plan"` |
 
-<a id="persistence-type-sha256-75898e2317836bd990551de2d24451e84007eac5a26335c2e7637df591831040"></a>
+<a id="persistence-type-sha256-715ef1d225b50247bf84b4f81f3d96ef3474a8e753da9b1c220ed0358278f4ce"></a>
+
+<a id="persistence-type-eventtaskreview"></a>
+
+### `{ type: "task/review" }`
+
+SHA-256: `715ef1d225b50247bf84b4f81f3d96ef3474a8e753da9b1c220ed0358278f4ce`
+
+| Property | Presence | Type |
+|---|---|---|
+| `data` | required | [`{ at, metadata?, ref, report, … }`](#persistence-type-sha256-8e01fca104e1a703a48031992e2ac888861a2350387042468a54a200da5540e4) |
+| `ignorable` | optional | `true` |
+| `seq` | required | `number` |
+| `time` | required | `number` |
+| `type` | required | `"task/review"` |
+
+<a id="persistence-type-sha256-159c55ac98c2d613a3cfc5f90a5c579a1b9bf66ab5a1d7eb603a998b9bc04ec2"></a>
 
 <a id="persistence-type-eventtasktransitioned"></a>
 
 ### `{ type: "task/transitioned" }`
 
-SHA-256: `75898e2317836bd990551de2d24451e84007eac5a26335c2e7637df591831040`
+SHA-256: `159c55ac98c2d613a3cfc5f90a5c579a1b9bf66ab5a1d7eb603a998b9bc04ec2`
 
 | Property | Presence | Type |
 |---|---|---|
-| `data` | required | [`{ actor, at, effects, from, … }`](#persistence-type-sha256-f7eb94de16ec8f98ad1b0ce94a789e313066464cca52bc61e49b63bb5fdfe219) |
+| `data` | required | [`{ actor, at, effects, evidence, … }`](#persistence-type-sha256-40fb9a120d8d2fc2b7278db987982b583e3d9d873bb5cdd27454a136e9e7a2eb) |
 | `ignorable` | optional | `true` |
 | `seq` | required | `number` |
 | `time` | required | `number` |
@@ -12850,7 +14399,7 @@ Sources: [`packages/llm/llm/src/assistant-stream.ts:21`](../packages/llm/llm/src
 
 SHA-256: `95080295115fbd83544520ba247b68a03790131f6a2eac323d388758cb542f65`
 
-Sources: [`packages/llm/llm/src/types.ts:442`](../packages/llm/llm/src/types.ts)
+Sources: [`packages/llm/llm/src/types.ts:472`](../packages/llm/llm/src/types.ts)
 
 | Property | Presence | Type |
 |---|---|---|
@@ -12898,7 +14447,7 @@ Sources: [`packages/llm/llm/src/assistant-stream.ts:35`](../packages/llm/llm/src
 
 SHA-256: `88a610b831be6d92612a464be5c7d0b88ec24d97bd299837bf74bf7672183c9a`
 
-Sources: [`packages/llm/llm/src/types.ts:444`](../packages/llm/llm/src/types.ts)
+Sources: [`packages/llm/llm/src/types.ts:474`](../packages/llm/llm/src/types.ts)
 
 | Property | Presence | Type |
 |---|---|---|
@@ -13076,24 +14625,24 @@ SHA-256: `aa0957eca50aeb28bcd2e6930b95809926edacb550c8c340ba526ba6b861b3d8`
 
 SHA-256: `f1a96afe7503ac1817de769cd0ba13d9b80111c7034c50106b3344ecc14cc515`
 
-Sources: [`packages/llm/llm/src/types.ts:446`](../packages/llm/llm/src/types.ts)
+Sources: [`packages/llm/llm/src/types.ts:476`](../packages/llm/llm/src/types.ts)
 
 | Property | Presence | Type |
 |---|---|---|
 | `type` | required | `"usage"` |
 | `usage` | required | [`TokenUsage`](#persistence-type-sha256-fec5442b9ee4122e10514d81d5a43648003fe8bfb7ee2ba50c0cdbdd383ed394) |
 
-<a id="persistence-type-sha256-5b2f42e67ff7a6f45e13141c1383e19b1a9e99bb1545f3ce2da4ff16edccb942"></a>
+<a id="persistence-type-sha256-c55d72f5bc892cf72efd23b2a0731091d35957d27750120361843f848db58fc8"></a>
 
 <a id="persistence-type-eventusermessage"></a>
 
 ### `{ type: "user/message" }`
 
-SHA-256: `5b2f42e67ff7a6f45e13141c1383e19b1a9e99bb1545f3ce2da4ff16edccb942`
+SHA-256: `c55d72f5bc892cf72efd23b2a0731091d35957d27750120361843f848db58fc8`
 
 | Property | Presence | Type |
 |---|---|---|
-| `data` | required | [`UserMessage`](#persistence-type-sha256-1897a2957a44b3fbf125c159308ec3507560689f7c3c3ed34ad6413461da69bf) |
+| `data` | required | [`UserMessage`](#persistence-type-sha256-dad818e1287d025d2f99dace6e394015028e130fd694452765502e53a7f49cfb) |
 | `ignorable` | optional | `true` |
 | `seq` | required | `number` |
 | `sourceEventSeqs` | optional | [`number[]`](#persistence-type-sha256-5d03ba38734809bcbd2a55221bd938b3b3fc34b49bb686c6113e9e4931e3aa78) |
@@ -13101,33 +14650,33 @@ SHA-256: `5b2f42e67ff7a6f45e13141c1383e19b1a9e99bb1545f3ce2da4ff16edccb942`
 | `time` | required | `number` |
 | `type` | required | `"user/message"` |
 
-<a id="persistence-type-sha256-8b12962106d94de745466a7e5d31fd9c6ebf9232c0cc9d470640dea5aa741295"></a>
+<a id="persistence-type-sha256-5fad90eaf2ce616482f11381ccad69db412c1d70b3ab7fe38af71607e99b22f7"></a>
 
 <a id="persistence-type-eventverificationrequested"></a>
 
 ### `{ type: "verification/requested" }`
 
-SHA-256: `8b12962106d94de745466a7e5d31fd9c6ebf9232c0cc9d470640dea5aa741295`
+SHA-256: `5fad90eaf2ce616482f11381ccad69db412c1d70b3ab7fe38af71607e99b22f7`
 
 | Property | Presence | Type |
 |---|---|---|
-| `data` | required | [`{ changedScopes, criteria, metadata?, revision, … }`](#persistence-type-sha256-34672264b529b6d339dee1f122696a7e9d2dce7acdb0656a9a858a3869a9deca) |
+| `data` | required | [`{ changeContract?, changedScopes, criteria, metadata?, … }`](#persistence-type-sha256-b54f000e67bdcccf891aea4c179aedf012af0ec42d5d2a9c874df24c9a471240) |
 | `ignorable` | optional | `true` |
 | `seq` | required | `number` |
 | `time` | required | `number` |
 | `type` | required | `"verification/requested"` |
 
-<a id="persistence-type-sha256-f514b1a9c3bf4138691e4c77a6932b347579e0c127931266b208246911902356"></a>
+<a id="persistence-type-sha256-fc7b22272942d1ecb36a3b6efe4d04b02563056d06de27388a7fd01ce8149022"></a>
 
 <a id="persistence-type-eventverificationresult"></a>
 
 ### `{ type: "verification/result" }`
 
-SHA-256: `f514b1a9c3bf4138691e4c77a6932b347579e0c127931266b208246911902356`
+SHA-256: `fc7b22272942d1ecb36a3b6efe4d04b02563056d06de27388a7fd01ce8149022`
 
 | Property | Presence | Type |
 |---|---|---|
-| `data` | required | [`{ commands, criterionResults, metadata?, revision, … }`](#persistence-type-sha256-fb2c9329f1646e6f7290a3902af8f2ebf6deeaa8082f1b233ee4ffca31cf0236) |
+| `data` | required | [`{ commands, criterionResults, metadata?, revision, … }`](#persistence-type-sha256-6e3f96d18c547b40080d614aeec8cb4b2e5527fb5df8970d029bf5e016ceb8e3) |
 | `ignorable` | optional | `true` |
 | `seq` | required | `number` |
 | `time` | required | `number` |

@@ -1,12 +1,15 @@
 /**
- * Model-facing research recording: the two tools a task uses to state what it
- * observed and what it now asserts, so the knowledge plane is written through
- * the kernel's own API instead of being inferred from transcript text.
+ * Model-facing research recording: the three tools a task uses to state what it
+ * observed, what it now asserts, and what it is still testing, so the knowledge
+ * plane is written through the kernel's own API instead of being inferred from
+ * transcript text.
  *
  * `record_evidence` writes one {@link EvidenceInput}; `record_claim` writes one
- * {@link TaskClaimInput} citing the evidence this session already recorded. Both
- * are refused when no kernel is mounted or the caller names no task, because a
- * record nobody owns would be a durable fact without a task to answer to.
+ * {@link TaskClaimInput} citing the evidence this session already recorded;
+ * `record_hypothesis` writes one {@link TaskHypothesisInput} citing the claims
+ * that bear on its question. All are refused when no kernel is mounted or the
+ * caller names no task, because a record nobody owns would be a durable fact
+ * without a task to answer to.
  *
  * @module @deepseek-ai/dsh-tool-evidence
  */
@@ -14,7 +17,9 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { brandString } from '@deepseek-ai/dsh-brand'
-import type { EvidenceId, EvidenceKind, TaskClaimStatus, TrustLabel } from '@deepseek-ai/dsh-agent-kernel'
+import type {
+  EvidenceId, EvidenceKind, TaskClaimId,
+} from '@deepseek-ai/dsh-agent-kernel'
 
 export const name = 'tool-evidence'
 export const inject = ['tools']
@@ -23,12 +28,14 @@ export const inject = ['tools']
 const EVIDENCE_KINDS = ['file', 'tool-result', 'web', 'mcp', 'test', 'user', 'model'] as const
 /** The claim statuses a model may state. */
 const CLAIM_STATUSES = ['proposed', 'supported', 'contradicted', 'stale', 'rejected'] as const
+/** The hypothesis statuses a model may state. */
+const HYPOTHESIS_STATUSES = ['open', 'supported', 'refuted', 'inconclusive'] as const
 /** The trust labels a model may attach to what it read. */
 const TRUST_LABELS = ['trusted', 'untrusted', 'unknown'] as const
 
 /** Model-facing research tool configuration. */
 export interface Config {
-  /** Maximum characters accepted in one evidence locator or claim statement. */
+  /** Maximum characters accepted in one evidence locator, claim statement, or hypothesis question. */
   maxTextChars?: number
 }
 
@@ -65,10 +72,10 @@ export function apply(ctx: Context, config: Config = {}): void {
         kind: args.kind as EvidenceKind,
         contentRef,
         ...args.digest === undefined ? {} : { digest: bounded(args.digest, maxTextChars) },
-        provenance: { source: 'model', locator: String(exec.callId) },
-        trust: (args.trust ?? 'unknown') as TrustLabel,
+        sourceRef: { source: 'model', locator: String(exec.callId) },
+        trust: (args.trust ?? 'unknown'),
       })
-      return { evidenceId: String(evidence.evidenceId), kind: evidence.kind, contentRef: evidence.contentRef }
+      return await Promise.resolve({ evidenceId: String(evidence.evidenceId), kind: evidence.kind, contentRef: evidence.contentRef })
     },
   }))
 
@@ -97,9 +104,40 @@ export function apply(ctx: Context, config: Config = {}): void {
         statement: bounded(args.statement, maxTextChars),
         ...args.evidenceIds === undefined ? {} : { evidence: args.evidenceIds.map(id => brandString<EvidenceId>(id)) },
         confidence: clampConfidence(args.confidence),
-        ...args.status === undefined ? {} : { status: args.status as TaskClaimStatus },
+        ...args.status === undefined ? {} : { status: args.status },
       })
-      return { claimId: String(claim.claimId), statement: claim.statement, status: claim.status }
+      return await Promise.resolve({ claimId: String(claim.claimId), statement: claim.statement, status: claim.status })
+    },
+  }))
+
+  ctx.tools.register(defineTool({
+    name: 'record_hypothesis',
+    description:
+      'Record the question the task is testing, citing the claims that bear on it and how far they have settled it. '
+      + 'Record a hypothesis when the task is investigating rather than asserting, so the question it is still answering stays durable.',
+    parameters: {
+      question: { type: 'string', required: true, description: 'The question being tested.' },
+      claimIds: { type: 'array', items: { type: 'string' }, description: 'Claim identities that bear on the question.' },
+      status: { type: 'string', description: 'How far the recorded claims have settled the question.', enum: [...HYPOTHESIS_STATUSES] },
+    },
+    output: {
+      schema: { type: 'object', additionalProperties: false, properties: { hypothesisId: { type: 'string' }, question: { type: 'string' }, status: { type: 'string' } } },
+      render: (_args, value) => [{ type: 'text', text: `Recorded hypothesis ${value.hypothesisId} (${value.status}): ${value.question}` }],
+    },
+    async execute(args, exec) {
+      const kernel = ctx.get('agentKernel')
+      const agent = exec.agent
+      if (kernel === undefined || agent === undefined) {
+        throw new Error('record_hypothesis requires an agent running under an agent kernel')
+      }
+      const hypothesis = kernel.recordHypothesis(agent, {
+        question: bounded(args.question, maxTextChars),
+        ...args.claimIds === undefined ? {} : { claims: args.claimIds.map(id => brandString<TaskClaimId>(id)) },
+        ...args.status === undefined ? {} : { status: args.status },
+      })
+      return await Promise.resolve({
+        hypothesisId: String(hypothesis.hypothesisId), question: hypothesis.question, status: hypothesis.status,
+      })
     },
   }))
 }

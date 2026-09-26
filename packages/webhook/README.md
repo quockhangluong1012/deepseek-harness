@@ -25,7 +25,7 @@ The Webhook family receives authenticated provider events and runs trusted progr
 | Package | Role | ctx key |
 |---|---|---|
 | [`webhook/`](webhook/README.md) | Rule registry, callback lifecycle, and Workspace-backed Session creation | `ctx.webhookRuntime` |
-| [`webhook-github/`](webhook-github/README.md) | Signed GitHub HTTP adapter | consumes `ctx.webhookRuntime` and `ctx.webServer` |
+| [`webhook-github/`](webhook-github/README.md) | Signed GitHub HTTP adapter plus the pull-request/issue Session rules | consumes `ctx.webhookRuntime` and `ctx.webServer` |
 
 <a id="related-documentation"></a>
 ## Related documentation

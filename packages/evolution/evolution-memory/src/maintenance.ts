@@ -60,6 +60,18 @@ export function demotable(artifact: LessonArtifact, minUtility: number, minSurfa
 }
 
 /**
+ * Whether one artifact has outlived the ttl it was given, measured from the
+ * last write that touched it. A fact with no ttl never expires by age.
+ * @param artifact - the artifact to judge.
+ * @param now - epoch milliseconds to judge at.
+ * @returns true when the artifact's ttl window has elapsed.
+ */
+export function ttlElapsed(artifact: Pick<LessonArtifact, 'ttlDays' | 'updatedAt'>, now: number): boolean {
+  if (artifact.ttlDays === undefined) return false
+  return now - Date.parse(artifact.updatedAt) > artifact.ttlDays * 86_400_000
+}
+
+/**
  * Whether decay should drop one artifact: condemned by refutations, or past
  * its ttl measured from the last validation, refutation, or edit. An artifact
  * with no ttl never expires by age, so only the refutation floor can drop it.
@@ -70,6 +82,5 @@ export function demotable(artifact: LessonArtifact, minUtility: number, minSurfa
  */
 export function prunable(artifact: LessonArtifact, now: number, refutationFloor: number): boolean {
   if (artifact.refutationCount >= refutationFloor) return true
-  if (artifact.ttlDays === undefined) return false
-  return now - Date.parse(artifact.updatedAt) > artifact.ttlDays * 86_400_000
+  return ttlElapsed(artifact, now)
 }

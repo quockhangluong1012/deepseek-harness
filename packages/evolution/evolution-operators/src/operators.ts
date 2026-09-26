@@ -10,17 +10,57 @@
 import { instructionAdjustment } from './instructions.ts'
 import type { MutationOperator, OperatorInstruction, OperatorOutcome, OperatorRanking, OperatorStats } from './types.ts'
 
-/** The eight §8 mutation operators, in canonical order. */
-export const MUTATION_OPERATORS: readonly MutationOperator[] = [
-  'rewrite',
-  'add-step',
-  'remove-step',
-  'change-tool',
-  'change-retrieval',
-  'change-evaluator',
-  'merge-candidates',
-  'adversarial-patch',
+/**
+ * One operator of the canonical vocabulary: the stable id a deployment selects
+ * in Config and the instruction line a request opened with it carries.
+ */
+export interface MutationOperatorSpec {
+  /** Stable id a deployment selects in Config. */
+  id: MutationOperator
+  /** Instruction line appended to the mutation request header. */
+  instruction: string
+}
+
+/**
+ * The canonical mutation-operator vocabulary, in canonical order: the
+ * single-body repairs a run may draw a candidate from. It is the one list both
+ * consumers read — this store ranks the outcomes it records under these ids,
+ * and `@deepseek-ai/dsh-evolution-optimizer` sends the instruction its
+ * portfolio holds — so an operator the ranking credits is an operator a run can
+ * actually select.
+ *
+ * Selection guide: `rewrite` clarifies without changing behavior; `compress`
+ * shortens a body the evidence shows is ignored for length; `guard` adds the
+ * missing precondition, refusal, or validation; `exemplify` teaches by example;
+ * `generalize` widens a rule that only covers the failing instance;
+ * `decompose` splits an uncheckable procedure into steps; `compose` merges
+ * overlapping rules; `reorder` moves the implicated check earlier without
+ * touching rule text; `remove-step` deletes a step the evidence shows never
+ * fires; `change-tool` swaps the implicated tool call; `change-retrieval`
+ * changes only what the body looks up; `change-evaluator` changes only how the
+ * body checks its own result. Three members of the evolutionary-harness
+ * specification's portfolio stay out: `merge-two-candidates` needs two input
+ * bodies and a request frame carries one, `adversarial-patch` belongs to the
+ * contamination review rather than to repair mutation, and `specialize` has no
+ * instruction here.
+ */
+export const MUTATION_OPERATOR_CATALOG: readonly MutationOperatorSpec[] = [
+  { id: 'rewrite', instruction: 'Rewrite the body for clarity and ordering; change only what the evidence implicates.' },
+  { id: 'compress', instruction: 'Cut the body to the shortest text that still states every rule the evidence shows matters.' },
+  { id: 'guard', instruction: 'Add the precondition, refusal, or validation the evidence implicates, and nothing else.' },
+  { id: 'exemplify', instruction: 'Add one worked example per rule the evidence implicates; drop nothing that already works.' },
+  { id: 'generalize', instruction: 'Widen each rule the evidence implicates so it covers the failure class, not just the failing instance.' },
+  { id: 'decompose', instruction: 'Split the procedure the evidence implicates into separately checkable steps; keep every existing rule.' },
+  { id: 'compose', instruction: 'Merge duplicated or overlapping rules the evidence implicates into one rule that states both.' },
+  { id: 'reorder', instruction: 'Move the check the evidence implicates earlier in the procedure; change no rule text.' },
+  { id: 'remove-step', instruction: 'Delete the step the evidence shows never fires or always passes; keep everything else byte-identical.' },
+  { id: 'change-tool', instruction: 'Replace the tool call the evidence implicates with the tool that actually answers the question.' },
+  { id: 'change-retrieval', instruction: 'Change only what the body retrieves — queries, sources, or lookup order — as the evidence implicates.' },
+  { id: 'change-evaluator', instruction: 'Change only how the body checks its own result — thresholds, assertions, or verification steps — as the evidence implicates.' },
 ]
+
+/** The canonical operator ids of {@link MUTATION_OPERATOR_CATALOG}, in canonical order. */
+export const MUTATION_OPERATORS: readonly MutationOperator[] = MUTATION_OPERATOR_CATALOG.map(spec => spec.id)
 
 /**
  * The storage key of one operator's statistics: operator and class joined.
@@ -94,10 +134,11 @@ export interface RankOptions {
 /**
  * Rank every operator for one artifact class by its exploration-adjusted
  * score, score descending with canonical-order and then identity tie-breaks.
- * The eight canonical operators always enter the ranking with their prior
- * score when untried, and any observed non-canonical operator joins the
- * ranking with its real statistics, so the ranking always names a next
- * operator to try and never hides an operator a deployment actually uses.
+ * The canonical operators of {@link MUTATION_OPERATOR_CATALOG} always enter the
+ * ranking with their prior score when untried, and any observed non-canonical
+ * operator joins the ranking with its real statistics, so the ranking always
+ * names a next operator to try and never hides an operator a deployment
+ * actually uses.
  * Recorded instruction verdicts nudge the score by a bounded amount, which is
  * what lets a mutation strategy move: an operator whose proposed instruction
  * was rejected yields to one whose proposal held.

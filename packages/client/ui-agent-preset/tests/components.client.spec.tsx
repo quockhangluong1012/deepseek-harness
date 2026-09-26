@@ -55,20 +55,19 @@ function renderSeat(
   select: () => Promise<string | undefined> = () => Promise.resolve(undefined),
   session?: { id: string; retainInfo: SessionRetainInfo | undefined },
 ) {
-  const store = createSnapshotStore<AgentPresetSeatState>({ ...SEAT_READY, ...state })
-  const developerTools = createSnapshotStore(true)
+  const initial = { ...SEAT_READY, ...state }
+  const store = createSnapshotStore<AgentPresetSeatState>(initial)
   const actions = { load: vi.fn(() => Promise.resolve()), select: vi.fn(select), introduced: vi.fn() }
   render(<AgentPresetSeat {...({
     ...actions,
     sessionId: session === undefined ? undefined : SessionId(session.id),
-    useShowPresetPicker: bindSnapshotSelector(developerTools),
     useAgentPresetSeat: bindSnapshotSelector(store),
     useSessionRetainInfo: session === undefined
       ? useSessionRetainInfo
       : <Selected,>(selector: (value: SessionRetainInfo | undefined) => Selected) => selector(session.retainInfo),
     t: translate,
   } as unknown as AgentPresetSeatProps)} />)
-  return { ...actions, developerTools }
+  return { ...actions, initial, store }
 }
 
 function renderLabel(
@@ -131,15 +130,15 @@ describe('the new-session chip', () => {
     expect(screen.getByText('mine')).toBeTruthy()
   })
 
-  it('closes the picker immediately when developer tools turn off without changing the staged preset', () => {
+  it('closes the picker immediately when the host policy hides selection without changing the staged preset', () => {
     const actions = renderSeat()
     fireEvent.click(screen.getByRole('button'))
     expect(screen.getByText(en.presetStandardDescription)).toBeTruthy()
-    act(() => { actions.developerTools.set(false) })
+    act(() => { actions.store.set({ ...actions.initial, showPicker: false }) })
     expect(screen.queryByRole('button')).toBeNull()
     expect(screen.queryByText(en.presetStandardDescription)).toBeNull()
     expect(actions.select).not.toHaveBeenCalled()
-    act(() => { actions.developerTools.set(true) })
+    act(() => { actions.store.set({ ...actions.initial, showPicker: true }) })
     expect(screen.getByRole('button').getAttribute('aria-expanded')).toBe('false')
     expect(screen.getByRole('button').textContent).toContain(en.presetStandardName)
   })

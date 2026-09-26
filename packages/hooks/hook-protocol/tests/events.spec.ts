@@ -121,3 +121,31 @@ describe('summarizeStderr', () => {
     expect(summarizeStderr('x'.repeat(600), 500)).toBe('x'.repeat(500) + '…')
   })
 })
+
+describe('appendHookResult — HTTP transport faults', () => {
+  it('records a transport fault as decision "transport-error" with its text as the summary', () => {
+    const session = Session.create(SessionId('s1'))
+    appendHookResult(session, {
+      turn: 1, point: 'PreToolUse', handlerId: 'h1', stderrSummaryMaxChars: 500, durationMs: 3,
+      output: {
+        exitCode: undefined, stderr: 'http hook request to http://x/hook failed: connect ECONNREFUSED',
+        stdout: '', decision: 'deny', reason: 'failed', transportError: 'failed',
+      },
+    })
+    const event = session.snapshotEvents().find(e => e.type === 'hook/result')
+    expect(event?.type === 'hook/result' && event.data.decision).toBe('transport-error')
+    expect(event?.type === 'hook/result' && event.data.exitCode).toBeUndefined()
+    expect(event?.type === 'hook/result' && event.data.stderrSummary).toContain('ECONNREFUSED')
+  })
+
+  it('prefers recorded stderr over the transport marker for the summary', () => {
+    const session = Session.create(SessionId('s1'))
+    appendHookResult(session, {
+      turn: 1, point: 'Stop', handlerId: 'h2', stderrSummaryMaxChars: 500, durationMs: 1,
+      output: { exitCode: 1, stderr: 'detailed stderr', stdout: '', transportError: 'brief' },
+    })
+    const event = session.snapshotEvents().find(e => e.type === 'hook/result')
+    expect(event?.type === 'hook/result' && event.data.stderrSummary).toBe('detailed stderr')
+    expect(event?.type === 'hook/result' && event.data.decision).toBe('transport-error')
+  })
+})

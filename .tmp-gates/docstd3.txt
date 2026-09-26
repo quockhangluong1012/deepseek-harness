@@ -1,0 +1,44 @@
+The plugin "vite-tsconfig-paths" is detected. Vite now supports tsconfig paths resolution natively via the resolve.tsconfigPaths option. You can remove the plugin and set resolve.tsconfigPaths: true in your Vite config instead.
+The plugin "vite-tsconfig-paths" is detected. Vite now supports tsconfig paths resolution natively via the resolve.tsconfigPaths option. You can remove the plugin and set resolve.tsconfigPaths: true in your Vite config instead.
+The plugin "vite-tsconfig-paths" is detected. Vite now supports tsconfig paths resolution natively via the resolve.tsconfigPaths option. You can remove the plugin and set resolve.tsconfigPaths: true in your Vite config instead.
+
+ RUN  v4.1.8 C:/project/.NET/deepseek-harness
+
+ ❯ |thread-safe| scripts/doc-standard.spec.ts (22 tests | 2 failed) 64771ms
+     × maps package README kinds to their documentation standards 35705ms
+     × keeps every package README on the summary, contents, and Dev Note skeleton 22565ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |thread-safe| scripts/doc-standard.spec.ts > dsh-doc skill consolidation > maps package README kinds to their documentation standards
+Error: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ scripts/doc-standard.spec.ts:345:3
+    343|   })
+    344|
+    345|   it('maps package README kinds to their documentation standards', () …
+       |   ^
+    346|     const files = packageReadmes()
+    347|     expect(files.length).toBeGreaterThan(0)
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  |thread-safe| scripts/doc-standard.spec.ts > dsh-doc skill consolidation > keeps every package README on the summary, contents, and Dev Note skeleton
+Error: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ scripts/doc-standard.spec.ts:398:3
+    396|   })
+    397|
+    398|   it('keeps every package README on the summary, contents, and Dev Not…
+       |   ^
+    399|     for (const file of packageReadmes().filter(file => file.split('/')…
+    400|       const source = readFileSync(resolve(root, file), 'utf8')
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 20 passed (22)
+   Start at  11:27:26
+   Duration  77.32s (transform 5.71s, setup 5.49s, import 1.09s, tests 64.77s, environment 0ms)
+

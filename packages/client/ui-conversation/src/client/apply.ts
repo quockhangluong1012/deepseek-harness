@@ -2,7 +2,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type { ISessions, SessionBinding } from '@deepseek-ai/dsh-api-session-controller/client'
-import { IconPaperclipOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconNewChatOutlineRegular, IconPaperclipOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import { createSnapshotStore, type BoundActions } from '@deepseek-ai/dsh-client-store'
 import { resolveSlotLabel } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
@@ -111,6 +111,8 @@ interface WorkspaceNavigation {
     workspaceId: Parameters<ConversationInjected['selectWorkspace']>[0],
     beforeOpen: (sessionId: SessionId) => void,
   ): Promise<void>
+  /** Start a fresh Session in the current (or most recent) workspace. */
+  startSession(): void
 }
 
 /** Action registration used by the composer without importing its command-UI consumer. */
@@ -237,6 +239,15 @@ export function apply(ctx: Context, config: Config = Config({})): void {
       available: session => inputHub.canPickFiles(session.sessionId),
       ui: { kind: 'action', run: (session) => { inputHub.pickFiles(session.sessionId) } },
     }), 'ui-conversation: File action')
+    scope.effect(() => commands.register({
+      name: 'clear',
+      label: () => t('input.clear'),
+      icon: IconNewChatOutlineRegular,
+      available: () => true,
+      // Leaving is the whole effect: the blank Session opens in the current
+      // workspace, so the conversation this command was typed in is untouched.
+      ui: { kind: 'action', run: () => { workspaceNavigation.startSession() } },
+    }), 'ui-conversation: Clear action')
   })
 
   // Conversation assembly and input share the Session binding lifecycle. The

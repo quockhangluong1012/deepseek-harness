@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-evolution-skill-telemetry",
-  "description": "Per-skill use/view/patch telemetry with provenance, pin, and lifecycle state (ctx.evolutionSkillTelemetry)",
+  "description": "Per-skill use/view/patch telemetry with a creation record, pin, and lifecycle state (ctx.evolutionSkillTelemetry)",
   "version": "0.1.5-rc.2",
   "publishConfig": {
     "access": "public"

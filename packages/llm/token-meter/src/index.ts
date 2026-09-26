@@ -49,6 +49,14 @@ export type * from './usage-projection.ts'
 export type * from './breakdown-projection.ts'
 
 /**
+ * The context-occupancy projection unit, as a value. A consumer that measures a
+ * recorded log without a live session handle — the evolution benchmark run
+ * pass, which folds its harvested logs — folds this unit directly; the meter's
+ * own registry keeps the same unit registered under `contextPressure`.
+ */
+export { contextPressureProjectionDefinition } from './usage-projection.ts'
+
+/**
  * Raw anchor facts captured at the latest successful call; the baseline is
  * derived per measurement so the anchored surface reprices under the same
  * route pricing as the current surface it is compared with.

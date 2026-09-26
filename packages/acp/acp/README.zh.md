@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-`dsh-acp` 让受信程序通过标准 [ACP](https://agentclientprotocol.com) 自动操作持久 DeepSeek Harness agent：创建或恢复会话、选择模型与推理强度、挂载 MCP 服务器、提交或取消工作、接收语义更新，并独立关闭会话。进程外 subagent、测试运行器与脚本化控制器适合选择它；它刻意不提供 DSH 专用呈现数据与交互式 UI 功能。持久化支持跨进程重启列出、恢复与关闭会话，但不支持删除、fork、transcript（文本记录）回放与附加目录。运行 `pnpm dsh --profile acp` 可启动服务器；仓库客户端使用 `dsh-subagent-acp`。
+`dsh-acp` 让受信程序通过标准 [ACP](https://agentclientprotocol.com) 自动操作持久 DeepSeek Harness agent：创建、恢复或 fork 会话、选择模型与推理强度、挂载 MCP 服务器、提交或取消工作、接收语义更新，并独立关闭会话。进程外 subagent、测试运行器与脚本化控制器适合选择它；它刻意不提供 DSH 专用呈现数据与交互式 UI 功能。持久化支持跨进程重启列出、恢复与关闭会话，但不支持删除、transcript（文本记录）回放与附加目录。运行 `pnpm dsh --profile acp` 可启动服务器；仓库客户端使用 `dsh-subagent-acp`。
 
 ## 目录
 
@@ -52,7 +52,7 @@ kind: "package-reference"
 
 ### 启动服务器
 
-`pnpm dsh --profile acp` 会启动随附的 stdio 服务器。`acp` profile 会挂载会话持久化，因此客户端可以列出、恢复和关闭持久会话。[`@deepseek-ai/dsh-subagent-acp`](../../subagent/subagent-acp/README.zh.md) 会启动同一 profile 来执行进程外委派。
+`pnpm dsh --profile acp` 会启动随附的 stdio 服务器。`acp` profile 会挂载会话持久化，因此客户端可以列出、恢复、fork 和关闭持久会话。[`@deepseek-ai/dsh-subagent-acp`](../../subagent/subagent-acp/README.zh.md) 会启动同一 profile 来执行进程外委派。
 
 <a id="protocol-contract"></a><a id="standard-acp-v1-surface"></a>
 ### 协议约定
@@ -61,19 +61,20 @@ kind: "package-reference"
 
 | 调用 | 你会得到什么 |
 |---|---|
-| `initialize` | 稳定 ACP v1，以及 `session/list`、`session/resume`、`session/close` 与 Streamable HTTP MCP 支持；图片提示词只在持久附件存储和配置的确切路由支持时公布。 |
+| `initialize` | 稳定 ACP v1，以及 `session/list`、`session/resume`、`session/close`、`session/fork` 与 Streamable HTTP MCP 支持；图片提示词只在持久附件存储和配置的确切路由支持时公布。 |
 | `authenticate` | 立即成功；服务器不需要身份验证。 |
 | `session/new` | 全新持久 agent；其绝对工作区与 stdio 或 HTTP MCP 服务器会在发布前通过校验，并返回完整配置选项状态。 |
 | `session/list` | 按确定的新到旧顺序分页返回已持久化、可恢复的根会话；可选绝对 `cwd` 筛选会尽可能使用物理目录标识。 |
 | `session/resume` | 恢复一个已持久化且非活跃的会话；组合前校验其规范工作区，并恢复日志但不回放旧更新。 |
+| `session/fork` | 从源会话的完整事件日志播种出一个新的独立会话——源会话可以仍在此活跃，也可以已被存储——拥有自己的 id 与配置状态；源会话继续运行。SDK 仍将该调用标记为 unstable。 |
 | `session/close` | 停稳式取消、更新 drain、后代释放、持久化 flush，并且只释放指定 Agent 作用域。 |
 | `session/set_config_option` | 串行更新公布的 `model` 或 `reasoning_effort`，并返回完整结果状态。 |
 | `session/prompt` | 有序文本、资源链接与受支持图片，每个会话一次一个提示词；Agent 空闲且有序更新交付后才结算。 |
 | `session/cancel` / `$/cancel_request` | 提示词所拥有的取消路径；没有进行中的 ACP 提示词时取消自主工作，未知会话 id 则为空操作。 |
-| `session/update` | 已提交 assistant 消息与 thought、通用工具生命周期、挂载 agent kernel 时的持久计划修订、配置变化与上下文用量，按会话串行交付。 |
+| `session/update` | 已提交 assistant 消息与 thought、通用工具生命周期、挂载 agent kernel 时的持久计划修订、命令注册表每次变化时的完整命令列表、配置变化与上下文用量，按会话串行交付。 |
 | `session/request_permission` | 带一次性允许／拒绝选项的权限提示；你的客户端可以自动回答。 |
 
-会话配置从实时 LLM（大语言模型）服务目录提供不透明的提供方／模型选项，并在确切模型声明推理选项时提供 `reasoning_effort`。提示词会在异步图片准入前快照该选择，并在该轮次的每个模型步骤中固定它；并发选项变更从下一轮次开始生效。ACP 客户端是受信控制器：stdio MCP 条目授权其绝对命令与环境，HTTP 条目授权其绝对 HTTP(S) URL 与 header；初始连接或发现失败会回滚尚未发布的 Agent。不支持的界面会被省略或拒绝：`session/load`、删除、fork、附加目录、SSE（Server-Sent Events）或 ACP 传输 MCP、mode、命令、计划、终端、客户端文件系统操作与 elicitation。
+会话配置从实时 LLM（大语言模型）服务目录提供不透明的提供方／模型选项，并在确切模型声明推理选项时提供 `reasoning_effort`。提示词会在异步图片准入前快照该选择，并在该轮次的每个模型步骤中固定它；并发选项变更从下一轮次开始生效。ACP 客户端是受信控制器：stdio MCP 条目授权其绝对命令与环境，HTTP 条目授权其绝对 HTTP(S) URL 与 header；初始连接或发现失败会回滚尚未发布的 Agent。不支持的界面会被省略或拒绝：`session/load`、删除、附加目录、SSE（Server-Sent Events）或 ACP 传输 MCP、mode、计划与 elicitation。只包含一个文本块的提示词若是命令行（`/name [input]`），就不会启动轮次：桥接会针对已挂载的命令注册表执行它，并把处理方启动的模型工作等待到停稳后才按完成的轮次结算；无法解析为任何命令的行、以及未组合命令注册表的主机上的命令行，都让请求显式失败，而不会被当作聊天提交；携带媒体的提示词永远不是命令调用。除非部署额外挂载本包可选的 [`./client-fs`](src/client-fs.ts) 与 [`./client-shell`](src/client-shell.ts) provider，模型的文件与命令调用都留在 harness 内；这两个 provider 会在客户端公布 `fs/*` 或 `terminal/*` 时把已路由的调用交给客户端，而客户端执行的命令不受 harness 沙箱约束。
 
 -----
 
@@ -89,7 +90,7 @@ kind: "package-reference"
 
 服务器是刻意采用标准公开协议的自动化传输。三项承诺塑造了它：
 
-- **只发送标准语义更新。** 协议承载已提交消息与 thought、通用工具生命周期、配置与上下文用量；原始提供方增量、重试尝试、DSH 呈现数据与不受支持内容不会进入协议。
+- **只发送标准语义更新。** 协议承载已提交消息与 thought、通用工具生命周期、公布的命令列表、配置与上下文用量；原始提供方增量、重试尝试、DSH 呈现数据与不受支持内容不会进入协议。
 - **诚实的能力与配置状态。** `initialize` 只公布已挂载支持，拓扑变化会发布完整配置选项，提示词则固定其准入时的确切路由。
 - **停稳后才结算。** 提示词与关闭操作只在其拥有的准入、Agent 活动、有序更新、后代、持久化与释放达到所需终态后才结算。
 
@@ -99,9 +100,14 @@ kind: "package-reference"
 
 | 文件 | 职责 |
 |---|---|
-| [`src/index.ts`](src/index.ts) | 插件入口：`Config` schema、`AgentSideConnection` 接线、按会话记录、准入与结算、清理 |
+| [`src/index.ts`](src/index.ts) | 插件入口：`Config` schema、SDK `agent` app 接线、按会话记录、准入与结算、清理 |
+| [`src/session.ts`](src/session.ts) | 单个会话的 Agent、配置、提示词准入、有序更新与停稳式关闭 |
 | [`src/content.ts`](src/content.ts) | 协议内容准入与投影：图片校验、路由重查、提示词重建、assistant 块转换 |
 | [`src/codec.ts`](src/codec.ts) | 轮次结束到 ACP `stopReason` 的纯映射 |
+| [`src/commands.ts`](src/commands.ts) | 命令公布与派发：把实时命令注册表投影为 `available_commands_update`，并让提交的命令行成为一次命令执行 |
+| [`src/client.ts`](src/client.ts) | 客户端能力桥：实时连接、客户端公布的 `fs/*`／`terminal/*` 能力、带类型的客户端调用与会话路由 |
+| [`src/client-fs.ts`](src/client-fs.ts) | 可选 `ctx.fs` provider：已路由的文本读取与非守卫写入经 `fs/read_text_file`／`fs/write_text_file` 执行 |
+| [`src/client-shell.ts`](src/client-shell.ts) | 可选 `ctx.shell` provider：已路由的命令经 `terminal/create` 及其 output、wait、kill、release 方法执行 |
 | — | 不发布运行时不变式伴生入口；本传输不拥有持久包内事件流；协议与生命周期测试覆盖其映射。 |
 
 ### 准入与提示词结算
@@ -169,7 +175,9 @@ kind: "package-reference"
 - **仅一个主 workspace**——附加目录仍不支持。
 - **仅光栅提示词图片**——PNG、JPEG、WebP 与 GIF 要求持久附件存储及确切的图片能力路由。
 - **仅 MCP 工具**——MCP resource 与 prompt 没有 DSH 消费方。
-- **没有 transcript 回放或交互式扩展**——会话删除、fork、`session/load`、mode、命令、终端、客户端文件系统操作与 elicitation 仍不属于此自动化界面。计划只从 [agent kernel](../../runtime/agent-kernel/README.zh.md) 的持久修订投影而来；本包自身不运行任何规划器。
+- **没有 transcript 回放或交互式扩展**——会话删除、`session/load`、mode 与 elicitation 仍不属于此自动化界面。计划只从 [agent kernel](../../runtime/agent-kernel/README.zh.md) 的持久修订投影而来；本包自身不运行任何规划器。
+- **客户端文件与终端是可选能力**——随附服务器组合的是本地 provider；部署若额外挂载 [`./client-fs`](src/client-fs.ts) 或 [`./client-shell`](src/client-shell.ts)，就会在客户端公布 `fs/*` 或 `terminal/*` 时把已路由的模型调用交给客户端，而客户端执行的命令不受 harness 沙箱约束。
+- **派发的命令没有结果更新**——协议词汇只携带命令列表，不携带命令结果。客户端能看到命令启动的模型工作与会话日志中持久的 `command/run`／`command/done` 记录，但处理方自身的结果文本只留在会话日志中。
 
 <a id="dev-note"></a>
 ### 开发备注

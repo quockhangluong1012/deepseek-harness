@@ -32,7 +32,7 @@ import { conceptOverlap, countConcepts, scoreCandidate } from './signals.ts'
 import {
   decidePromotion,
   evolveNarratives,
-  mergeProvenance,
+  mergeAttribution,
   narrativeId,
 } from './narrative.ts'
 import type { QualifiedCandidate } from './narrative.ts'
@@ -44,7 +44,7 @@ import type {
   DreamPhase,
   DreamPhaseReport,
   DreamPromotion,
-  DreamProvenance,
+  DreamAttribution,
   DreamRefusalReason,
   DreamReport,
   DreamRollbackReport,
@@ -95,6 +95,13 @@ export interface Config {
   maxRestatements?: number
   /** Promotion passes retained per scope for rollback. */
   maxLedgerEntries?: number
+  /**
+   * Scope-identity namespace placed before the workspace key, shared with the
+   * memory-context brief injector, the reviewer, the graph, and the controller
+   * so the automatic cycle writes the scopes they read
+   * (`profile: default` in `packages/bundle/web-app/cordis.patch.yml`).
+   */
+  profile?: string
 }
 
 /** Validated deployment choices. */
@@ -112,6 +119,10 @@ export const Config: z<Config> = z.object({
   supersedeOverlap: z.number().min(0).max(1).default(0.3),
   maxRestatements: z.number().step(1).min(1).default(5),
   maxLedgerEntries: z.number().step(1).min(1).default(10),
+  // `EvolutionScopeId` builds `<profile>:<workspace>`, so a profile that is
+  // empty or holds ':' can never name a scope. Refuse it at load: accepted at
+  // load, it would instead empty the reader's dreams every time.
+  profile: z.string().pattern(/^[^:]+$/).default('default'),
 })
 
 /** Normalized configuration used by the cycle. */
@@ -129,12 +140,14 @@ export interface ResolvedConfig {
   supersedeOverlap: number
   maxRestatements: number
   maxLedgerEntries: number
+  profile: string
 }
 
 /**
  * Apply defaults for the optional fields. A supersede threshold above the merge
- * threshold fails loudly: every related candidate would restate its narrative,
- * and no correction could ever retire one.
+ * threshold fails loudly, and so does a profile that cannot name a scope: every
+ * candidate would restate its narrative, or every read would key a scope that
+ * can never exist.
  * @param config - user-facing plugin configuration.
  * @returns normalized runtime configuration.
  */
@@ -153,11 +166,18 @@ export function resolveConfig(config: Config): ResolvedConfig {
     supersedeOverlap = 0.3,
     maxRestatements = 5,
     maxLedgerEntries = 10,
+    profile = 'default',
   } = config
   if (supersedeOverlap > mergeOverlap) {
     throw new Error(
       `evolution-dreaming: supersedeOverlap (${supersedeOverlap}) must not exceed mergeOverlap (${mergeOverlap})`,
     )
+  }
+  // `EvolutionScopeId` builds `<profile>:<workspace>` and refuses both forms,
+  // so a mount that accepted one here would fail every scope it built instead.
+  if (profile.length === 0) throw new Error('evolution-dreaming: profile must be non-empty')
+  if (profile.includes(':')) {
+    throw new Error(`evolution-dreaming: profile must not contain ':', got ${JSON.stringify(profile)}`)
   }
   return {
     minScore,
@@ -173,7 +193,18 @@ export function resolveConfig(config: Config): ResolvedConfig {
     supersedeOverlap,
     maxRestatements,
     maxLedgerEntries,
+    profile,
   }
+}
+
+/**
+ * A scope that has never dreamed; the seed of its first record and the record
+ * a read answers with when the scope holds none.
+ * @returns an empty record, stamped at the epoch so it is never mistaken for
+ * a pass instant.
+ */
+function emptyDreams(): DreamsRecord {
+  return { narratives: [], promotions: [], ledger: [], updatedAt: new Date(0).toISOString() }
 }
 
 /**
@@ -271,22 +302,26 @@ export class EvolutionDreaming extends Service {
     const restored = entry.before
       .filter(promotion => promotion.supersededBy === null && !answering.has(promotion.id))
       .map(promotion => ({ id: promotion.id, statement: promotion.statement }))
-    const reversal: DreamLedgerEntry = {
-      id: randomUUID(),
-      at: now,
-      actor: 'operator',
-      action: 'rollback',
-      evidence: { promoted: 0, merged: 0, superseded: 0, pruned: 0, rollbackOf: label },
-      before: structuredClone(record.promotions),
-      after: structuredClone(entry.before),
-    }
-    await this.write(scopeId, {
-      ...record,
-      promotions: structuredClone(entry.before),
-      ledger: [reversal, ...record.ledger].slice(0, this.resolved.maxLedgerEntries),
-      updatedAt: now,
+    let reversalId = ''
+    await this.write(scopeId, (current) => {
+      const reversal: DreamLedgerEntry = {
+        id: randomUUID(),
+        at: now,
+        actor: 'operator',
+        action: 'rollback',
+        evidence: { promoted: 0, merged: 0, superseded: 0, pruned: 0, rollbackOf: label },
+        before: structuredClone(current.promotions),
+        after: structuredClone(entry.before),
+      }
+      reversalId = reversal.id
+      return {
+        ...current,
+        promotions: structuredClone(entry.before),
+        ledger: [reversal, ...current.ledger].slice(0, this.resolved.maxLedgerEntries),
+        updatedAt: now,
+      }
     })
-    return { at: now, label, restored, preRollback: reversal.id }
+    return { at: now, label, restored, preRollback: reversalId }
   }
 
   /**
@@ -368,12 +403,16 @@ export class EvolutionDreaming extends Service {
    */
   async dreamAll(signal?: AbortSignal): Promise<void> {
     const registry = this.ctx.get('workspaceRegistry')
-    const profile = this.ctx.get('evolutionMemory') === undefined ? undefined : 'workspace'
+    const profile: string | undefined = this.ctx.get('evolutionMemory') === undefined
+      ? undefined
+      : this.resolved.profile
     if (registry === undefined || profile === undefined) return
     for (const workspace of registry.list()) {
       if (signal?.aborted === true) return
       await this.dream(
-        // The scope namespace matches what the memory-context plugin composes.
+        // The scope namespace matches what the memory-context plugin, the
+        // reviewer, and the controller compose, so `/dream <phase>` and the
+        // automatic cycle read and write one scope.
         `${profile}:${String(workspace.id)}` as EvolutionScopeId,
         workspace.sessionIds.map(id => String(id)),
       )
@@ -395,13 +434,13 @@ export class EvolutionDreaming extends Service {
       sessions: number,
       firstAt: string,
       lastAt: string,
-      provenance: DreamProvenance,
+      attribution: DreamAttribution,
     ): void => {
       const id = narrativeId(statement)
       if (id.length === 0) return
       const existing = byId.get(id)
       if (existing === undefined) {
-        byId.set(id, { id, statement, tool, count, sessions, firstAt, lastAt, provenance })
+        byId.set(id, { id, statement, tool, count, sessions, firstAt, lastAt, attribution })
         return
       }
       byId.set(id, {
@@ -410,7 +449,7 @@ export class EvolutionDreaming extends Service {
         sessions: Math.max(existing.sessions, sessions),
         firstAt: existing.firstAt < firstAt ? existing.firstAt : firstAt,
         lastAt: existing.lastAt > lastAt ? existing.lastAt : lastAt,
-        provenance: mergeProvenance(existing.provenance, provenance),
+        attribution: mergeAttribution(existing.attribution, attribution),
       })
     }
     const feedback = this.ctx.get('evolutionFeedback')
@@ -480,12 +519,11 @@ export class EvolutionDreaming extends Service {
       promoted: 0,
       pruned: 0,
     }
-    const record = this.current(scopeId)
-    await this.write(scopeId, {
-      ...record,
-      narratives: [narrative, ...record.narratives].slice(0, this.resolved.maxNarratives),
+    await this.write(scopeId, current => ({
+      ...current,
+      narratives: [narrative, ...current.narratives].slice(0, this.resolved.maxNarratives),
       updatedAt: now,
-    })
+    }))
     return this.phaseReport('rem', scopeId, staged, {})
   }
 
@@ -495,13 +533,12 @@ export class EvolutionDreaming extends Service {
     staged: readonly DreamCandidate[],
     now: string,
   ): Promise<DreamPhaseReport> {
-    const record = this.current(scopeId)
     const refused = new Map<DreamRefusalReason, number>()
     const qualified: QualifiedCandidate[] = []
     for (const candidate of staged) {
       const { score, signals } = this.score(candidate, scopeId, now)
       const decision = decidePromotion({
-        provenance: candidate.provenance,
+        attribution: candidate.attribution,
         score,
         count: candidate.count,
         sessions: candidate.sessions,
@@ -512,15 +549,35 @@ export class EvolutionDreaming extends Service {
       }
       qualified.push({ candidate, score, signals })
     }
-    const outcome = evolveNarratives(record.promotions, qualified, this.resolved, now)
-    // The cycle prunes stale promotions on every pass, and the capacity ratio
-    // additionally trims the survivors to the hard bound when it is crossed.
-    const staleBefore = Date.parse(now) - this.resolved.staleAfterDays * 86_400_000
-    const fresh = outcome.promotions.filter(promotion => Date.parse(promotion.promotedAt) >= staleBefore)
-    const overCapacity = outcome.promotions.length > this.resolved.maxPromotions * this.resolved.capacityTriggerRatio
-    const kept = overCapacity ? fresh.slice(0, this.resolved.maxPromotions) : fresh
-    const pruned = outcome.promotions.length - kept.length
-    if (outcome.promoted + outcome.merged + outcome.superseded + pruned > 0) {
+    let counts: Pick<DreamPhaseReport, 'promoted' | 'merged' | 'superseded' | 'pruned'> = {
+      promoted: 0,
+      merged: 0,
+      superseded: 0,
+      pruned: 0,
+    }
+    await this.write(scopeId, (current) => {
+      const outcome = evolveNarratives(current.promotions, qualified, this.resolved, now)
+      // The cycle prunes stale promotions on every pass, and the capacity ratio
+      // additionally trims the survivors to the hard bound when it is crossed.
+      const staleBefore = Date.parse(now) - this.resolved.staleAfterDays * 86_400_000
+      const fresh = outcome.promotions.filter(promotion => Date.parse(promotion.promotedAt) >= staleBefore)
+      const overCapacity = outcome.promotions.length > this.resolved.maxPromotions * this.resolved.capacityTriggerRatio
+      const kept = overCapacity ? fresh.slice(0, this.resolved.maxPromotions) : fresh
+      const pruned = outcome.promotions.length - kept.length
+      counts = {
+        promoted: outcome.promoted,
+        merged: outcome.merged,
+        superseded: outcome.superseded,
+        pruned,
+      }
+      const moved = outcome.promoted + outcome.merged + outcome.superseded + pruned
+      // A pass that only refreshed a sighting instant stores the record — the
+      // narrative is current again, and the decay rule must see that — but
+      // ledgers nothing, because it folded, retired, and dropped nothing.
+      const touched = kept.length !== current.promotions.length
+        || kept.some((promotion, index) => promotion !== current.promotions[index])
+      if (moved === 0 && !touched) return undefined
+      if (moved === 0) return { ...current, promotions: kept, updatedAt: now }
       // The preimage is what this pass replaced, so a rollback restores the
       // narratives the pass folded, retired, or dropped.
       const entry: DreamLedgerEntry = {
@@ -535,21 +592,18 @@ export class EvolutionDreaming extends Service {
           pruned,
           rollbackOf: null,
         },
-        before: structuredClone(record.promotions),
+        before: structuredClone(current.promotions),
         after: structuredClone(kept),
       }
-      await this.write(scopeId, {
-        ...record,
+      return {
+        ...current,
         promotions: kept,
-        ledger: [entry, ...record.ledger].slice(0, this.resolved.maxLedgerEntries),
+        ledger: [entry, ...current.ledger].slice(0, this.resolved.maxLedgerEntries),
         updatedAt: now,
-      })
-    }
+      }
+    })
     return this.phaseReport('deep', scopeId, staged, {
-      promoted: outcome.promoted,
-      merged: outcome.merged,
-      superseded: outcome.superseded,
-      pruned,
+      ...counts,
       refused: [...refused.entries()]
         .map(([reason, count]) => ({ reason, count }))
         .sort((left, right) => left.reason.localeCompare(right.reason)),
@@ -586,19 +640,35 @@ export class EvolutionDreaming extends Service {
 
   /** The scope's record, or an empty one. */
   private current(scopeId: EvolutionScopeId): DreamsRecord {
-    return this.requireTable().get(storageKey(scopeId))
-      ?? { narratives: [], promotions: [], ledger: [], updatedAt: new Date(0).toISOString() }
+    return this.requireTable().get(storageKey(scopeId)) ?? emptyDreams()
   }
 
-  /** Persist one scope's record, inserting the first one and updating after. */
-  private async write(scopeId: EvolutionScopeId, record: DreamsRecord): Promise<void> {
+  /**
+   * Store one merge of a scope's record, creating the record on its first
+   * write. `merge` is pure and is evaluated on the record this call can see,
+   * then again inside the domain's write chain, on the record current at that
+   * slot: a pass whose read predates another pass's commit merges into that
+   * pass's record instead of replacing it with its own snapshot. A merge that
+   * returns `undefined` stores nothing.
+   * @param scopeId - scope identity.
+   * @param merge - transform from the record current at the write to the next one.
+   */
+  private async write(
+    scopeId: EvolutionScopeId,
+    merge: (current: DreamsRecord) => DreamsRecord | undefined,
+  ): Promise<void> {
     const table = this.requireTable()
     const key = storageKey(scopeId)
-    if (table.get(key) === undefined) {
-      await table.put(key, structuredClone(record))
-      return
+    const current = table.get(key)
+    // The decision to write at all is taken on the record this call can see;
+    // the value that reaches the medium is merged at the chain slot below.
+    if (merge(current ?? emptyDreams()) === undefined) return
+    if (current === undefined) {
+      // Seeded before that merge runs, so a peer creating the same scope in
+      // between is merged into rather than overwritten.
+      await table.put(key, emptyDreams())
     }
-    await table.update(key, () => structuredClone(record))
+    await table.update(key, live => merge(live) ?? live)
   }
 
   private requireTable(): KvTable<string, DreamsRecord> {

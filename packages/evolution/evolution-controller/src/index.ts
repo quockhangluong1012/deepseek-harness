@@ -278,7 +278,10 @@ export class EvolutionController extends TypertRemoteService {
    * Replace the scope's lesson artifacts wholesale. This is the document-level
    * verb the editor drives: the supplied list becomes the whole lessons
    * document, so an artifact the caller omits is dropped rather than kept
-   * beside the new ones.
+   * beside the new ones. A supplied artifact that restates one the scope
+   * already holds updates that record — its counters, creation instant,
+   * creation record, and expiry survive — instead of being replaced by a fresh one,
+   * so re-saving a document does not reset what later extractions recorded.
    * @param request - scope identity and the complete artifact list.
    * @returns the updated projection.
    */

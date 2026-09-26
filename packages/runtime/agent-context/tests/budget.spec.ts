@@ -5,7 +5,7 @@ import type { CompiledSource, ContextSource, ContextSourceKind, RetentionClass }
 
 /** One envelope fixture of a given kind. */
 function source(id: string, kind: ContextSourceKind = 'tool', content = id, retention: RetentionClass = 'compressible'): ContextSource {
-  return { id, kind, content, trust: 'trusted', provenance: { source: 'kernel', locator: id }, retention }
+  return { id, kind, content, trust: 'trusted', sourceRef: { source: 'kernel', locator: id }, retention }
 }
 
 /** One priced fixture at an explicit price. */

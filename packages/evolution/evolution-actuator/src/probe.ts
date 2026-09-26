@@ -8,6 +8,7 @@
 import { createHash } from 'node:crypto'
 import type { AdversarialCategory, ProbeInput } from '@deepseek-ai/dsh-evolution-adversary'
 import type { BenchmarkInput } from '@deepseek-ai/dsh-evolution-benchmark'
+import { MINED_TASK } from '@deepseek-ai/dsh-evolution-benchmark'
 import type { RegressionDebt } from '@deepseek-ai/dsh-evolution-curator'
 import type { UncertaintyKind, UncertaintySignal } from '@deepseek-ai/dsh-evolution-uncertainty'
 
@@ -112,5 +113,6 @@ export function probeTask(probe: GeneratedProbe): BenchmarkInput {
     task: probe.probe.probe,
     gists: [probe.evidence],
     sourceSessions: [],
+    ...MINED_TASK,
   }
 }

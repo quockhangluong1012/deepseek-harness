@@ -33,6 +33,10 @@ import { gatherSweepRoots } from '../src/cleanup.ts'
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
+// A directory link that a stock Windows account can create: a junction needs no
+// Developer Mode, which a bare (POSIX-style) symlink does.
+const DIRECTORY_LINK = process.platform === 'win32' ? 'junction' : 'dir'
+
 const openFailure = vi.hoisted(() => ({
   code: undefined as string | undefined,
   /** How many `open` calls fail before passing through; infinity fails all. */
@@ -340,17 +344,18 @@ describe('startup cleanup sweep', () => {
   it('skips a symlink INSIDE a session dir and non-session siblings', async () => {
     const dir = sessionDir(root, 'sess-1')
     mkdirSync(dir, { recursive: true })
-    // A symlink pointing at an old target must NOT be followed or deleted.
-    const target = join(root, 'target.txt'); writeAged(target, 'keep', 40)
-    const link = join(dir, 'link.txt'); symlinkSync(target, link)
+    // A directory link at an old path must NOT be followed or deleted.
+    const target = join(root, 'target'); mkdirSync(target)
+    const targetOld = join(target, 'old.txt'); writeAged(targetOld, 'keep', 40)
+    const link = join(dir, 'link'); symlinkSync(target, link, DIRECTORY_LINK)
     // A non-session sibling directory under a shared root is untouched.
     const unrelated = join(root, 'not-a-session'); mkdirSync(unrelated)
     const unrelatedOld = join(unrelated, 'old.txt'); writeAged(unrelatedOld, 'x', 40)
     await runSweep([active(root)])
-    // The symlink itself survives (lstat sees a link, not a file), so its dir is
-    // not empty and is not pruned; the link target survives too.
+    // The link itself survives (lstat sees a link, not a file), so its dir is
+    // not pruned; the link target's own aged file survives too.
     expect(existsSync(link)).toBe(true)
-    expect(existsSync(target)).toBe(true)
+    expect(existsSync(targetOld)).toBe(true)
     expect(existsSync(unrelatedOld)).toBe(true)
   })
 
@@ -361,7 +366,7 @@ describe('startup cleanup sweep', () => {
     const victimDir = join(root, 'victim'); mkdirSync(victimDir, { recursive: true })
     const victimOld = join(victimDir, 'old.txt'); writeAged(victimOld, 'x', 40)
     const linkName = `session-${'a'.repeat(12)}`
-    const link = join(root, linkName); symlinkSync(victimDir, link)
+    const link = join(root, linkName); symlinkSync(victimDir, link, DIRECTORY_LINK)
     await runSweep([active(root)])
     expect(existsSync(victimOld)).toBe(true)
     expect(existsSync(link)).toBe(true)
@@ -502,7 +507,7 @@ describe('startup cleanup sweep', () => {
     const fakeTmp = mkdtempSync(join(tmpdir(), 'dsh-faketmp-'))
     const activeDefault = mkdtempSync(join(fakeTmp, DEFAULT_ROOT_PREFIX))
     const alias = join(root, 'configured-root')
-    symlinkSync(activeDefault, alias, process.platform === 'win32' ? 'junction' : 'dir')
+    symlinkSync(activeDefault, alias, DIRECTORY_LINK)
     const dir = sessionDir(activeDefault, 'sess-1')
     mkdirSync(dir, { recursive: true })
     const old = join(dir, 'old.txt'); writeAged(old, 'x', 40)
@@ -597,7 +602,7 @@ describe('discoverDefaultRoots', () => {
       // Names of the EXACT default shape that must still be excluded because they
       // are not real directories the backend could have created.
       writeFileSync(join(base, `${DEFAULT_ROOT_PREFIX}file01`), 'x') // matches shape but is a file
-      symlinkSync(realRoot, join(base, `${DEFAULT_ROOT_PREFIX}link01`)) // matches shape but is a symlink
+      symlinkSync(realRoot, join(base, `${DEFAULT_ROOT_PREFIX}link01`), DIRECTORY_LINK) // matches shape but is a symlink
       const found = await discoverDefaultRoots(() => {}, base)
       expect(found).toEqual([await realpath(realRoot)])
     } finally {

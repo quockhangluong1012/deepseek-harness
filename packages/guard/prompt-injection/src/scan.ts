@@ -111,7 +111,7 @@ export function scanContent(request: ScanRequest, maxScanBytes: number): Content
     source: request.source,
     trust,
     tainted: trust !== 'trusted' || findings.length > 0,
-    provenance: request.provenance,
+    sourceRef: request.sourceRef,
     findings,
     digest: digestOf(request.content),
   }

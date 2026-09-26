@@ -37,6 +37,19 @@ The first request includes one durable baseline message with the user-global `$D
 
 The defaults suit a typical checkout: `.git` marks the project root, `AGENTS.md` and `CLAUDE.md` are the base candidates, and `AGENTS.local.md` and `CLAUDE.local.md` are additive local overlays. Only `maxBytes` is required — it caps the complete rendered baseline so each deployment chooses its prompt budget explicitly.
 
+An instruction file may inline other files with an `@path` reference: `See @docs/testing.md` renders that file's content in place, resolved against the referencing file's directory and expanded recursively up to `maxImportDepth`. Only a reference naming an existing file inside the same trust root (the project root, or `$DSH_HOME` for the user-global file) expands; prose mentions such as a scoped package name, a fenced code block, and an inline code span stay byte-identical. Because expansion happens before hashing, editing an imported file refreshes the instruction message that inlined it.
+
+Path-scoped rules live under `ruleDirectory` (default `.dsh/rules`), read recursively for `*.md`. A rule whose leading YAML frontmatter declares `paths:` globs loads once a successful `read`, `write`, or `edit` touches a matching project-relative path, and stays for the session; a rule that declares no `paths` joins the baseline chain. Frontmatter itself never reaches the model, and each rule file's body expands `@path` imports like any other instruction file.
+
+```yaml
+---
+paths:
+  - packages/llm/**
+---
+Provider calls go through `ctx.llm`; never add a second HTTP client.
+```
+
+
 Root discovery climbs only when a marker probe confirms that the marker is absent. A permission or I/O failure stops discovery and surfaces the host or filesystem-provider error instead of selecting an ancestor project. The [root-marker metadata decision](../../../.agents/notes/implemented/bug-fix/2026-09-03-root-marker-metadata-failures.md) records why discovery fails instead of substituting another root.
 
 ```yaml
@@ -56,6 +69,8 @@ export interface Config {
   maxTotalSourceBytes?: number
   instructionFileCandidates?: string[]
   localInstructionFileCandidates?: string[]
+  maxImportDepth?: number
+  ruleDirectory?: string
 }
 ```
 
@@ -67,6 +82,8 @@ export interface Config {
 | `projectRootMarkers` | `['.git']` | Directory names that mark the project root |
 | `instructionFileCandidates` | `['AGENTS.md', 'CLAUDE.md']` | Base file names loaded in each project directory |
 | `localInstructionFileCandidates` | `['AGENTS.local.md', 'CLAUDE.local.md']` | Local overlay file names loaded after the base files |
+| `maxImportDepth` | `5` | Maximum nesting of `@path` import expansion; `0` disables imports |
+| `ruleDirectory` | `'.dsh/rules'` | Project-relative directory of path-scoped rule files, read recursively for `*.md`; an empty value disables rules |
 | `dshHome` | `$DSH_HOME` or `~/.dsh` | Directory containing the user-global `AGENTS.md` |
 
 The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-agent-instructions) is the exhaustive source for every accepted field and its JSDoc.
@@ -134,7 +151,7 @@ Read these pages when the package-level contract is not enough. They move from t
 
 #### What the model sees
 
-At the first request, derived history contains one durable user-role message with the bounded user-global and project instruction chain in broad-to-specific order. Resume reuses that message when its visible baseline is compatible.
+At the first request, derived history contains one durable user-role message with the bounded user-global and project instruction chain in broad-to-specific order, with every expanding `@path` reference replaced by the referenced file's content and every unconditional rule appended after the chain. Resume reuses that message when its visible baseline is compatible.
 
 ##### Baseline instruction template
 
@@ -164,7 +181,7 @@ Append-only after the existing reusable prefix. Resume preserves reuse when the 
 
 #### What the model sees
 
-After a successful first-party filesystem call reaches a deeper directory, the next request includes one retained sourced `user/message` with the newly applicable instruction file.
+After a successful first-party filesystem call reaches a deeper directory, the next request includes one retained sourced `user/message` with the newly applicable instruction file. The same message carries a path-scoped rule when the touched path matches the globs its frontmatter declares.
 
 ##### Additional instruction template
 
@@ -219,7 +236,9 @@ These limits define when instruction loading is a poor fit or needs operational 
 
 - **Discovery follows structured fs tools, not shell navigation** — a `bash` command that changes directories does not trigger nested instruction discovery because shell syntax and per-call shell state are not a reliable filesystem seam.
 - **Refresh is touch-driven** — there is no watcher; external edits become visible on the next successful first-party `read`, `write`, or `edit`, when resume reconciles a visible baseline, or when an entering pre-step restores a shadowed baseline.
-- **Candidate semantics stay intentionally small** — lowercase names, `.claude/rules/`, and `@path` imports are not interpreted; project scopes load `AGENTS.local.md`/`CLAUDE.local.md` overlays by default, but the user-global `$DSH_HOME` scope has no local overlay and other custom names require explicit candidate configuration.
+- **Candidate semantics stay intentionally small** — lowercase names and `.claude/rules/` are not interpreted; rule files come from `ruleDirectory` alone, `@path` imports are the only inline syntax, project scopes load `AGENTS.local.md`/`CLAUDE.local.md` overlays by default, and other custom candidate names require explicit configuration.
+- **Imports stay inside their trust root** — an `@path` reference that resolves outside the project root (or `$DSH_HOME`, for the user-global file), repeats a file already on its own chain, or exceeds `maxImportDepth` stays literal and is logged as an unresolved import. A mention that names no existing file is ignored silently, because scoped package names and other prose `@tokens` must survive unchanged.
+- **Rules are re-read once per pass over touched paths** — each touching pass lists the rule directory and reads the frontmatter of rules it has not already reconciled, so a large rules tree adds that per-pass read cost; a rendered rule is validated afterwards through the same version cache as any other instruction scope.
 - **Per-directory dedup is content-based** — sibling candidates collapse only when byte-identical after trimming leading and trailing whitespace; a `CLAUDE.md` that symlinks its sibling `AGENTS.md` resolves to the same content and collapses like any duplicate, while a distinct real copy that has drifted from `AGENTS.md` loads in full alongside it.
 - **Symlinked instruction files are followed across the trust boundary** — a candidate whose final component is a symlink is resolved and its target loaded, so a cloned repository can surface off-tree file content as lower-authority workspace guidance (it never overrides system, developer, or direct user instructions). Confine `ctx.fs` with the filesystem policy gate or an OS sandbox when loading untrusted repositories.
 - **Instruction content is bounded, not summarized** — over-budget broad files are omitted and the most-specific file may be truncated; the plugin never asks a model to compress instruction prose.

@@ -37,6 +37,18 @@ kind: "package-reference"
 
 默认设置适合典型检出：`.git` 标记项目根目录，`AGENTS.md` 与 `CLAUDE.md` 是基础候选，`AGENTS.local.md` 与 `CLAUDE.local.md` 是叠加的本地 overlay。只有 `maxBytes` 必填——它限制完整渲染后的基线，让每个部署显式选择自己的提示词预算。
 
+指令文件可以用 `@path` 引用内联其他文件：`See @docs/testing.md` 会就地渲染该文件的内容，按引用文件所在目录解析，并递归展开至 `maxImportDepth`。只有指向同一信任根内（项目根，或用户全局文件对应的 `$DSH_HOME`）已存在文件的引用才会展开；scoped 包名等散文式提及、围栏代码块与行内代码段都保持逐字节不变。由于展开发生在哈希之前，修改被引用文件会刷新内联它的那条指令消息。
+
+按路径生效的 rule 位于 `ruleDirectory`（默认 `.dsh/rules`）之下，递归读取 `*.md`。开头 YAML frontmatter 声明了 `paths:` glob 的 rule，会在一次成功的 `read`、`write` 或 `edit` 触及匹配的项目相对路径后加载，并在本次会话中保留；未声明 `paths` 的 rule 会随基线链一起加载。frontmatter 本身绝不进入模型，每个 rule 文件的正文与普通指令文件一样会展开 `@path` 引用。
+
+```yaml
+---
+paths:
+  - packages/llm/**
+---
+Provider calls go through `ctx.llm`; never add a second HTTP client.
+```
+
 只有确认项目根标记不存在时，项目根发现才会继续上溯。权限或 I/O 失败会停止发现，并抛出宿主或文件系统提供方的原始错误，而不会选择祖先项目。[根标记元数据决策](../../../.agents/notes/implemented/bug-fix/2026-09-03-root-marker-metadata-failures.zh.md)说明发现为何必须失败，而不能替换为其他根目录。
 
 ```yaml
@@ -56,6 +68,8 @@ export interface Config {
   maxTotalSourceBytes?: number
   instructionFileCandidates?: string[]
   localInstructionFileCandidates?: string[]
+  maxImportDepth?: number
+  ruleDirectory?: string
 }
 ```
 
@@ -67,6 +81,8 @@ export interface Config {
 | `projectRootMarkers` | `['.git']` | 标记项目根目录的目录名 |
 | `instructionFileCandidates` | `['AGENTS.md', 'CLAUDE.md']` | 每个项目目录中加载的基础文件名 |
 | `localInstructionFileCandidates` | `['AGENTS.local.md', 'CLAUDE.local.md']` | 在基础文件之后加载的本地 overlay 文件名 |
+| `maxImportDepth` | `5` | `@path` import 展开的最大嵌套层数；`0` 关闭 import |
+| `ruleDirectory` | `'.dsh/rules'` | 按路径生效的 rule 文件所在的项目相对目录，递归读取 `*.md`；空值关闭 rule |
 | `dshHome` | `$DSH_HOME` 或 `~/.dsh` | 存放用户全局 `AGENTS.md` 的目录 |
 
 生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-agent-instructions)是每个受支持字段及其 JSDoc 的穷尽式真源。
@@ -134,7 +150,7 @@ export interface Config {
 
 #### 模型看到的内容
 
-第一次请求的派生历史中包含一条持久 user 角色消息，其中按从宽泛到具体的顺序包含有界用户全局指令与项目指令链。可见基线兼容时，恢复会复用该消息。
+第一次请求的派生历史中包含一条持久 user 角色消息，其中按从宽泛到具体的顺序包含有界用户全局指令与项目指令链，每个可展开的 `@path` 引用都会被替换为被引用文件的内容，每个无条件 rule 都会追加在该链之后。可见基线兼容时，恢复会复用该消息。
 
 ##### 基线指令模板
 
@@ -164,7 +180,7 @@ Instructions from: AGENTS.md
 
 #### 模型看到的内容
 
-成功的第一方文件系统调用到达更深目录后，下一次请求会包含一条保留的带来源 `user/message`，其中包含新适用的指令文件。
+成功的第一方文件系统调用到达更深目录后，下一次请求会包含一条保留的带来源 `user/message`，其中包含新适用的指令文件。当被触及路径匹配某个 rule 的 frontmatter 所声明的 glob 时，同一条消息也会携带该按路径生效的 rule。
 
 ##### 附加指令模板
 
@@ -219,7 +235,9 @@ The previously loaded instructions from this file no longer apply.
 
 - **发现跟随结构化 fs 工具，而非 shell 导航**：更改目录的 `bash` 命令不会触发嵌套指令发现，因为 shell 语法与每次调用的 shell 状态不是可靠的文件系统 seam。
 - **刷新由 touch 驱动**：没有 watcher；外部编辑会在下一次成功的第一方 `read`、`write` 或 `edit` 时、恢复对账可见基线时，或进入步骤的 pre-step 恢复被遮蔽基线时可见。
-- **候选语义有意保持简单**：不解释小写名称、`.claude/rules/` 与 `@path` import；项目 scope 默认加载 `AGENTS.local.md`／`CLAUDE.local.md` overlay，但用户全局 `$DSH_HOME` scope 没有本地 overlay，其他自定义名称需要显式候选配置。
+- **候选语义有意保持简单**：不解释小写名称与 `.claude/rules/`；rule 文件只来自 `ruleDirectory`，`@path` import 是唯一的内联语法；项目 scope 默认加载 `AGENTS.local.md`／`CLAUDE.local.md` overlay，其他自定义名称需要显式候选配置。
+- **import 不得越出自身信任根**：解析到项目根之外（用户全局文件则为 `$DSH_HOME` 之外）、重复链上已有文件、或超过 `maxImportDepth` 的 `@path` 引用会保持字面文本，并记录为未解析 import。指向不存在文件的提及会被静默忽略，因为 scoped 包名和其他散文式 `@token` 必须原样保留。
+- **rule 在每次触及路径的遍历中各读一次**：每次触及遍历都会列出 rule 目录，并读取尚未参与协调的 rule 的 frontmatter，因此庞大的 rule 树会增加这部分逐次读取成本；已渲染的 rule 之后与其他指令 scope 一样通过版本缓存校验。
 - **每目录去重基于内容**：同级候选只有在去除首尾空白后字节完全一致时才折叠。`CLAUDE.md` 若 symlink 到同级 `AGENTS.md`，会解析为相同内容并像任何重复项一样折叠；从 `AGENTS.md` 漂移的独立副本则会与它一起完整加载。
 - **Symlink 指令文件会跨越信任边界跟随**：最终组件是 symlink 的候选文件会被解析并加载其目标，因此克隆仓库可以将树外文件内容呈现为较低优先级的工作区指引（它绝不覆盖 system、developer 或用户直接下达的指令）。加载不受信任仓库时，请用文件系统策略门禁或 OS 沙箱限制 `ctx.fs`。
 - **指令内容受限但不会被摘要**：超出预算的宽泛文件会被省略，最具体文件可能被截断；该插件绝不请求模型压缩指令文本。

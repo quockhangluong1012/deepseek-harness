@@ -23,6 +23,25 @@ function isExcluded(file: string): boolean {
     // Release snapshots retain the identifiers present in their pinned source.
     || /^docs\/persistence-changes\/releases\/dsh-v\d+\.\d+\.\d+-(?:alpha|rc)\.\d+\.schema\.json$/u.test(file)
     || /^docs\/persistence-changes\/historical-formats\/v(?:0|[1-9]\d*)\.schema\.json$/u.test(file)
+    // A finalized change record is a byte-preserved capture of what a released
+    // format actually declared, and the per-root digests in its accepted
+    // acknowledgement attest that capture. Editing a field inside one would make
+    // the record misdescribe what shipped while its digests still claim it did
+    // not, so the retired token stays where the evidence is.
+    || /^docs\/persistence-changes\/finalized\/[\w.-]+\.json$/u.test(file)
+    || /^docs\/persistence-changes\/\d{4}-\d{2}-\d{2}-[\w-]+\.schema\.json$/u.test(file)
+}
+
+/**
+ * Whether a tracked file is a binary payload rather than maintained text. A NUL
+ * byte in the first kilobyte is the standard signal: the gate polices declarations
+ * and prose, and a byte sequence inside a database, image or archive is not a
+ * declaration of anything.
+ * @param source - the tracked file's raw bytes.
+ * @returns true when the file is binary and carries no policed text.
+ */
+export function isBinaryPayload(source: Buffer): boolean {
+  return source.subarray(0, 1024).includes(0)
 }
 
 function containsBlockedTerm(value: string): boolean {
@@ -79,6 +98,13 @@ export function readTrackedSource(repoRoot: string, file: string): string | unde
 function scanRepository(repoRoot: string): ConcreteTermViolation[] {
   const violations: ConcreteTermViolation[] = []
   for (const file of trackedFiles(repoRoot)) {
+    const path = resolve(repoRoot, file)
+    const stat = lstatSync(path, { throwIfNoEntry: false })
+    // A binary payload declares nothing: a byte sequence inside a database,
+    // image or archive is not maintained text, so the term in one is not a
+    // label this gate polices. Its PATH is still checked, so a binary file
+    // named after the retired term still fails.
+    if (stat !== undefined && stat.isFile() && isBinaryPayload(readFileSync(path))) continue
     const source = readTrackedSource(repoRoot, file)
     if (source === undefined) continue
     violations.push(...findConcreteTermViolations(file, source))

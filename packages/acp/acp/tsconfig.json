@@ -27,6 +27,15 @@
       "path": "../../attachment/attachment"
     },
     {
+      "path": "../../fs/fs"
+    },
+    {
+      "path": "../../fs/fs-local"
+    },
+    {
+      "path": "../../interaction/commands"
+    },
+    {
       "path": "../../llm/llm"
     },
     {
@@ -37,6 +46,12 @@
     },
     {
       "path": "../../session/session-persistence"
+    },
+    {
+      "path": "../../shell/bash-local"
+    },
+    {
+      "path": "../../shell/shell"
     },
     {
       "path": "../../interaction/user-approval"

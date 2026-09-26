@@ -4,14 +4,14 @@ import { Context } from '@deepseek-ai/cordis'
 import Storage from '@deepseek-ai/dsh-storage'
 import { DomainFacility } from '@deepseek-ai/dsh-storage-domain'
 import EvolutionHeartbeat from '@deepseek-ai/dsh-evolution-heartbeat'
-import EvolutionRouter from '@deepseek-ai/dsh-evolution-router'
+import EvolutionModelRoutes from '@deepseek-ai/dsh-evolution-model-routes'
 import { MemoryMediaPool, MemoryStorageBackend } from '../../../storage/storage-domain/tests/helpers/memory-backend.ts'
 import EvolutionSleeptime, { ANTICIPATION_TASK_NAME } from '../src/index.ts'
 
 /** The recorded-evidence seams a case mounts, `false` leaving one unmounted. */
 interface Sources {
   /** The routing store whose measured outcomes are the route occurrences. */
-  router?: boolean
+  routes?: boolean
   /** The skill-telemetry store naming the skills and their sessions. */
   telemetry?: readonly { name: string; sessionIds: readonly string[] }[]
   /** Learning-trace rows by session id; a null entry records no updated instant. */
@@ -43,33 +43,30 @@ async function boot(sources: Sources = {}, config?: Record<string, unknown>) {
   ctx.provide('storageDomain', facility)
   // Disabled so no timer starts: the case drives the pass through `runTask`.
   await ctx.plugin(EvolutionHeartbeat, { enabled: false })
-  if (sources.router !== false) await ctx.plugin(EvolutionRouter, {})
+  if (sources.routes !== false) await ctx.plugin(EvolutionModelRoutes, {})
   stubSources(ctx, sources)
   const fiber = await ctx.plugin(EvolutionSleeptime, config ?? {})
-  return { ctx, fiber, store: ctx.evolutionSleeptime, router: ctx.evolutionRouter, heartbeat: ctx.evolutionHeartbeat }
+  return { ctx, fiber, store: ctx.evolutionSleeptime, routes: ctx.evolutionModelRoutes, heartbeat: ctx.evolutionHeartbeat }
 }
 
 /** Record one measured route outcome of `taskClass` now, the recurrence evidence. */
-async function observe(router: EvolutionRouter, taskClass: string, tokens = 4000): Promise<string> {
-  const outcome = await router.observe({
+async function observe(routes: EvolutionModelRoutes, taskClass: string, tokens = 4000): Promise<string> {
+  const row = await routes.observe({
     taskClass,
     role: 'task-execution',
-    provider: 'deepseek',
-    model: 'chat',
-    pass: true,
-    tokens,
-    wallTimeMs: 1000,
+    route: { provider: 'deepseek', model: 'chat' },
+    triple: { pass: true, tokens, wallTimeMs: 1000 },
   })
-  return outcome.at
+  return row.at
 }
 
 const hoursAgo = (hours: number): string => new Date(Date.now() - hours * 3_600_000).toISOString()
 
 describe('evolution sleeptime anticipation pass', () => {
-  it('anticipates the class the router recorded and precomputes its artifact once', async () => {
-    const { fiber, store, router, heartbeat } = await boot({ router: true })
+  it('anticipates the class the route store recorded and precomputes its artifact once', async () => {
+    const { fiber, store, routes, heartbeat } = await boot({ routes: true })
     try {
-      for (let i = 0; i < 3; i += 1) await observe(router, 'writer')
+      for (let i = 0; i < 3; i += 1) await observe(routes, 'writer')
       await heartbeat.runTask(ANTICIPATION_TASK_NAME)
       const tasks = store.tasks()
       expect(tasks).toHaveLength(1)
@@ -101,9 +98,9 @@ describe('evolution sleeptime anticipation pass', () => {
   })
 
   it('records neither a second task nor a second artifact on the next pass', async () => {
-    const { fiber, store, router, heartbeat } = await boot({ router: true })
+    const { fiber, store, routes, heartbeat } = await boot({ routes: true })
     try {
-      for (let i = 0; i < 3; i += 1) await observe(router, 'writer')
+      for (let i = 0; i < 3; i += 1) await observe(routes, 'writer')
       await heartbeat.runTask(ANTICIPATION_TASK_NAME)
       const first = store.artifacts()[0]
       await heartbeat.runTask(ANTICIPATION_TASK_NAME)
@@ -117,7 +114,7 @@ describe('evolution sleeptime anticipation pass', () => {
   })
 
   it('records nothing when no source recorded recurrence', async () => {
-    const { fiber, store, heartbeat } = await boot({ router: true })
+    const { fiber, store, heartbeat } = await boot({ routes: true })
     try {
       await heartbeat.runTask(ANTICIPATION_TASK_NAME)
       expect(store.tasks()).toEqual([])
@@ -128,12 +125,12 @@ describe('evolution sleeptime anticipation pass', () => {
   })
 
   it('records a hit when a later recorded occurrence consumes the artifact', async () => {
-    const { fiber, store, router, heartbeat } = await boot({ router: true })
+    const { fiber, store, routes, heartbeat } = await boot({ routes: true })
     try {
-      for (let i = 0; i < 3; i += 1) await observe(router, 'writer')
+      for (let i = 0; i < 3; i += 1) await observe(routes, 'writer')
       await heartbeat.runTask(ANTICIPATION_TASK_NAME)
       await delay(5)
-      const consumedAt = await observe(router, 'writer', 900)
+      const consumedAt = await observe(routes, 'writer', 900)
       await delay(5)
       await heartbeat.runTask(ANTICIPATION_TASK_NAME)
       const accounted = store.artifacts()[0]
@@ -170,7 +167,7 @@ describe('evolution sleeptime anticipation pass', () => {
 
   it('derives recurrence from skill telemetry token-accounted by the trace store', async () => {
     const { fiber, store, heartbeat } = await boot({
-      router: false,
+      routes: false,
       telemetry: [
         { name: 'pdf-extract', sessionIds: ['s1', 's2', 's3', 's4'] },
         { name: 'never-loaded', sessionIds: [] },
@@ -197,7 +194,7 @@ describe('evolution sleeptime anticipation pass', () => {
 
   it('anticipates nothing from telemetry while the trace store is unmounted', async () => {
     const { fiber, store, heartbeat } = await boot({
-      router: false,
+      routes: false,
       telemetry: [{ name: 'pdf-extract', sessionIds: ['s1', 's2', 's3'] }],
     })
     try {
@@ -210,8 +207,8 @@ describe('evolution sleeptime anticipation pass', () => {
   })
 
   it('stops before the skill sources when the pass is aborted', async () => {
-    const { fiber, store, router } = await boot({
-      router: true,
+    const { fiber, store, routes } = await boot({
+      routes: true,
       telemetry: [{ name: 'pdf-extract', sessionIds: ['s1', 's2', 's3'] }],
       traces: {
         s1: { tokens: 100, updatedAt: hoursAgo(3) },
@@ -220,7 +217,7 @@ describe('evolution sleeptime anticipation pass', () => {
       },
     })
     try {
-      for (let i = 0; i < 3; i += 1) await observe(router, 'writer')
+      for (let i = 0; i < 3; i += 1) await observe(routes, 'writer')
       const controller = new AbortController()
       controller.abort()
       await store.anticipateAll(controller.signal)
@@ -232,7 +229,7 @@ describe('evolution sleeptime anticipation pass', () => {
   })
 
   it('honors explicit recurrence and cadence choices', async () => {
-    const { fiber, store, router, heartbeat } = await boot({ router: true }, {
+    const { fiber, store, routes, heartbeat } = await boot({ routes: true }, {
       minRecurrences: 2,
       recurrenceWindowHours: 1,
       maxPerPass: 1,
@@ -241,9 +238,9 @@ describe('evolution sleeptime anticipation pass', () => {
     try {
       // Two occurrences inside the window recur under `minRecurrences: 2`, and
       // the likelier class is the one the pass takes.
-      await observe(router, 'reader', 8000)
-      await observe(router, 'reader', 8000)
-      for (let i = 0; i < 3; i += 1) await observe(router, 'writer')
+      await observe(routes, 'reader', 8000)
+      await observe(routes, 'reader', 8000)
+      for (let i = 0; i < 3; i += 1) await observe(routes, 'writer')
       await heartbeat.runTask(ANTICIPATION_TASK_NAME)
       expect(store.tasks().map(task => task.taskId)).toEqual(['route:writer'])
       expect(store.artifacts().map(artifact => artifact.artifactId)).toEqual(['route:writer'])
@@ -255,7 +252,7 @@ describe('evolution sleeptime anticipation pass', () => {
 
   it('ignores recorded occurrences older than the recurrence window', async () => {
     const { fiber, store, heartbeat } = await boot({
-      router: false,
+      routes: false,
       telemetry: [{ name: 'pdf-extract', sessionIds: ['s1', 's2', 's3'] }],
       traces: {
         s1: { tokens: 100, updatedAt: hoursAgo(300) },

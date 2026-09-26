@@ -55,7 +55,7 @@ describe('optimization trigger', () => {
     // The tool-load counters show no failures, but the curator's own
     // session-outcome grading (verification/feedback per task) says 7 of 21
     // graded sessions failed — over threshold, so this decides.
-    const graded = [...Array(14).fill('ok'), ...Array(7).fill('failed')] as ('ok' | 'failed')[]
+    const graded = [...Array.from({ length: 14 }, () => 'ok' as const), ...Array.from({ length: 7 }, () => 'failed' as const)]
     expect(shouldOptimize(usage(21, 0, graded), THRESHOLDS)).toBe(true)
     expect(shouldOptimize(usage(21), THRESHOLDS)).toBe(false)
   })

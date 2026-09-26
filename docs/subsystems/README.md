@@ -49,7 +49,7 @@ One page per subsystem of the DeepSeek Harness: what it is, the data structures 
 | [voice-input.md](voice-input.md) | experimental named recognizers, transient audio and revision-guarded draft insertion |
 | [agent-team.md](agent-team.md) | Agent Teams: implicit Lead identity, named continuable teammates, durable peer mailbox, and shared task DAG |
 | [web.md](web.md) | the web access seam: `WebSearchRequest`/`Result`, `WebFetchRequest`/`Result`, `WebFetchBody`, provider availability, `WebError` |
-| [spill.md](spill.md) | the spill storage seam: `SaveTextSpill`, `SpillOwner`/`SpillSource`, `SpillRef`, the branded `SpillLocator` |
+| [spill.md](spill.md) | the spill storage seam: `SaveTextSpill`, `SpillOwner`/`SpillSource`, `SpillRef`, the branded `SpillLocator`, and the read-only `ArtifactStore` retrieval operations |
 | [workflow.md](workflow.md) | the workflow seam: `WorkflowStartRequest`, `WorkflowMeta`, `WorkflowRun`/`Result`, the `workflow/*` event payloads, `WorkflowError` fatality |
 | [jobs.md](jobs.md) | the background-job runtime: branded `JobId`s, the producer contract, consumer views, and `ctx.jobs` service behavior |
 | [permission-presets.md](permission-presets.md) | the permission-preset layer: `PresetSpec`/`PresetOption`, the derived `custom` state, the log-only `permission/preset` event |
@@ -73,5 +73,6 @@ One page per subsystem of the DeepSeek Harness: what it is, the data structures 
 | [agent-kernel.md](agent-kernel.md) | the control plane over the existing loop and tool seams: the task contract, the action ledger, the permission document, the completion gate, and the durable `task/*`, `action/*`, `policy/*`, and `checkpoint/*` families |
 | [agent-context.md](agent-context.md) | the context compiler over the assembled prompt and the kernel view: the source envelope, the total placement order, the token-budget cut, the conflict report, the placement digest, and the log-only `context/compiled` record |
 | [product-telemetry.md](product-telemetry.md) | Explicit product analytics submission and OTLP/HTTP transport |
+| [research.md](research.md) | the research quality-control loop: its ten ordered stages, the durable run record in the `research` domain, the stage-provider seam, and the six-bucket answer contract |
 
 > Type declarations and their JSDoc on these pages are source-equivalent and drift-checked by `pnpm run verify-type-equiv` (see [development.md](../development.md#documenting-types-verbatim-ts-type-equiv)). Ordinary blocks preserve complete declarations; `public-api` blocks preserve body-stripped public class declarations. Cordis services and events use each page's generated **Cordis API** section.

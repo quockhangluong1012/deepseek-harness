@@ -15,17 +15,37 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
+import type { TrustLabel } from '@deepseek-ai/dsh-agent-kernel'
 import { scopeOf } from '@deepseek-ai/dsh-scope'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import { DEFAULT_MAX_INSTRUCTION_BYTES, RECONNECT_DEFAULTS, resolveReconnectPolicy, startConnection } from './connection.ts'
-import type { ReconnectConfig } from './connection.ts'
+import type { McpConnectionStatusChange, ReconnectConfig } from './connection.ts'
+import { resolveOAuthSettings, startOAuth } from './oauth.ts'
 import { registerServerContext } from './server-context.ts'
 // Side-effect type import: declaration-merges `ctx.tools` onto Context.
 import type {} from '@deepseek-ai/dsh-tools'
+// Side-effect type import: declaration-merges `ctx.commands` onto Context.
+import type {} from '@deepseek-ai/dsh-commands'
 
 export { createMcpToolDefinition } from './tools.ts'
 export type { McpResult, McpToolDefinitionOptions } from './tools.ts'
-export type { ReconnectConfig, ResolvedReconnectPolicy } from './connection.ts'
+export type {
+  ConnectionOutcome, McpConnectionStatus, McpConnectionStatusChange, ReconnectConfig, ResolvedReconnectPolicy,
+} from './connection.ts'
+
+declare module '@deepseek-ai/cordis' {
+  interface Events {
+    /**
+     * One mounted instance's connection state changed, including an initial
+     * notification of the state at subscription time. The plugin that mounts
+     * the instances reads this to report status; a mount owner subscribes
+     * before mounting so it never misses a server's first state.
+     * @mode emit
+     * @param change - the server and the state it is in after the transition.
+     */
+    'mcp-client/status'(change: McpConnectionStatusChange): void
+  }
+}
 
 /** Cordis plugin name used by loader diagnostics. */
 export const name = 'mcp-client'
@@ -47,6 +67,18 @@ const SERVER_NAME_PATTERN = /^[A-Za-z0-9_-]{1,32}$/
 const activeServerNames = new WeakMap<object, Set<string>>()
 
 // ---- Config ----
+
+/** OAuth 2.1 authorization-code settings for one URL-transported server. */
+export interface McpAuthConfig {
+  /**
+   * Redirect URI the authorization server sends the browser back to. Register
+   * it with that server; a loopback URL needs no listener, because the
+   * authorization flow accepts the full callback URL pasted from the browser.
+   */
+  redirectUrl: string
+  /** Scope to request; omission lets the authorization server decide. */
+  scope?: string
+}
 
 /** Config for connecting to an MCP server via a spawned child process over stdio. */
 export interface StdioConfig {
@@ -70,6 +102,13 @@ export interface StdioConfig {
   toolCallTimeoutMs: number
   /** Fail plugin activation when the initial connection or tool synchronization fails. */
   failOnStartupError: boolean
+  /**
+   * How far this server's content may be trusted. `untrusted` (the default)
+   * keeps an MCP server outside the trust boundary, so a deployment that
+   * quarantines untrusted content requires a human answer before one of its
+   * tools runs.
+   */
+  trust: TrustLabel
   /** Maximum UTF-8 bytes of attributed server instructions (default 32768). */
   maxInstructionBytes?: number
   /** Automatic reconnect policy after a lost connection; omission uses the defaults. */
@@ -94,20 +133,64 @@ export interface StreamableHttpConfig {
   toolCallTimeoutMs: number
   /** Fail plugin activation when the initial connection or tool synchronization fails. */
   failOnStartupError: boolean
+  /**
+   * How far this server's content may be trusted. `untrusted` (the default)
+   * keeps an MCP server outside the trust boundary, so a deployment that
+   * quarantines untrusted content requires a human answer before one of its
+   * tools runs.
+   */
+  trust: TrustLabel
+  /** OAuth 2.1 authorization-code access; omission sends no auth header. */
+  auth?: McpAuthConfig
   /** Maximum UTF-8 bytes of attributed server instructions (default 32768). */
   maxInstructionBytes?: number
   /** Automatic reconnect policy after a lost connection; omission uses the defaults. */
   reconnect?: ReconnectConfig
 }
 
-/** Configuration for one stdio or Streamable HTTP MCP server. */
-export type Config = StdioConfig | StreamableHttpConfig
+/** Config for connecting to an MCP server over the legacy HTTP+SSE transport. */
+export interface SseConfig {
+  /** Selects the legacy HTTP+SSE transport. */
+  transport: 'sse'
+  /**
+   * Stable local namespace for this server's model-facing tool names
+   * (`mcp__<serverName>__<rawName>`). Must match `[A-Za-z0-9_-]{1,32}` and be
+   * unique across live mcp-client instances.
+   */
+  serverName: string
+  /** Legacy SSE endpoint URL. */
+  url: string
+  /** Additional headers attached to MCP requests. */
+  headers: Record<string, string>
+  /** Timeout per tool call or resource request in milliseconds. */
+  toolCallTimeoutMs: number
+  /** Fail plugin activation when the initial connection or tool synchronization fails. */
+  failOnStartupError: boolean
+  /**
+   * How far this server's content may be trusted. `untrusted` (the default)
+   * keeps an MCP server outside the trust boundary, so a deployment that
+   * quarantines untrusted content requires a human answer before one of its
+   * tools runs.
+   */
+  trust: TrustLabel
+  /** OAuth 2.1 authorization-code access; omission sends no auth header. */
+  auth?: McpAuthConfig
+  /** Maximum UTF-8 bytes of attributed server instructions (default 32768). */
+  maxInstructionBytes?: number
+  /** Automatic reconnect policy after a lost connection; omission uses the defaults. */
+  reconnect?: ReconnectConfig
+}
 
-type StdioConfigInput = Omit<StdioConfig, 'args' | 'env' | 'cwd' | 'toolCallTimeoutMs' | 'failOnStartupError'>
-  & Partial<Pick<StdioConfig, 'args' | 'env' | 'cwd' | 'toolCallTimeoutMs' | 'failOnStartupError'>>
-type StreamableHttpConfigInput = Omit<StreamableHttpConfig, 'headers' | 'toolCallTimeoutMs' | 'failOnStartupError'>
-  & Partial<Pick<StreamableHttpConfig, 'headers' | 'toolCallTimeoutMs' | 'failOnStartupError'>>
-type ConfigInput = StdioConfigInput | StreamableHttpConfigInput
+/** Configuration for one stdio, Streamable HTTP, or legacy SSE MCP server. */
+export type Config = StdioConfig | StreamableHttpConfig | SseConfig
+
+type StdioConfigInput = Omit<StdioConfig, 'args' | 'env' | 'cwd' | 'toolCallTimeoutMs' | 'failOnStartupError' | 'trust'>
+  & Partial<Pick<StdioConfig, 'args' | 'env' | 'cwd' | 'toolCallTimeoutMs' | 'failOnStartupError' | 'trust'>>
+type StreamableHttpConfigInput = Omit<StreamableHttpConfig, 'headers' | 'toolCallTimeoutMs' | 'failOnStartupError' | 'trust'>
+  & Partial<Pick<StreamableHttpConfig, 'headers' | 'toolCallTimeoutMs' | 'failOnStartupError' | 'trust'>>
+type SseConfigInput = Omit<SseConfig, 'headers' | 'toolCallTimeoutMs' | 'failOnStartupError' | 'trust'>
+  & Partial<Pick<SseConfig, 'headers' | 'toolCallTimeoutMs' | 'failOnStartupError' | 'trust'>>
+type ConfigInput = StdioConfigInput | StreamableHttpConfigInput | SseConfigInput
 
 const Reconnect: z<ReconnectConfig> = z.object({
   enabled: z.boolean().default(RECONNECT_DEFAULTS.enabled),
@@ -115,6 +198,15 @@ const Reconnect: z<ReconnectConfig> = z.object({
   maxDelayMs: z.number().min(1).max(MAX_TIMER_DELAY_MS).default(RECONNECT_DEFAULTS.maxDelayMs),
   maxAttempts: z.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER).default(RECONNECT_DEFAULTS.maxAttempts),
 })
+
+/** The per-server trust decision, defaulting to the untrusted boundary. */
+const Trust = z.union(['trusted', 'untrusted', 'unknown'] as const).default('untrusted') as z<TrustLabel>
+
+/** OAuth 2.1 authorization-code settings; the URL shape is re-checked at load. */
+const Auth = z.object({
+  redirectUrl: z.string().required(),
+  scope: z.string(),
+}) as z<McpAuthConfig>
 
 export const Config = z.union([
   z.object({
@@ -126,6 +218,7 @@ export const Config = z.union([
     cwd: z.string().default(''),
     toolCallTimeoutMs: z.number().default(DEFAULT_TOOL_CALL_TIMEOUT_MS),
     failOnStartupError: z.boolean().default(false),
+    trust: Trust,
     maxInstructionBytes: z.number().step(1).min(1).default(DEFAULT_MAX_INSTRUCTION_BYTES),
     reconnect: Reconnect,
   }),
@@ -136,6 +229,20 @@ export const Config = z.union([
     headers: z.dict(String).default({}),
     toolCallTimeoutMs: z.number().default(DEFAULT_TOOL_CALL_TIMEOUT_MS),
     failOnStartupError: z.boolean().default(false),
+    trust: Trust,
+    auth: z.union([Auth, z.const(undefined)]),
+    maxInstructionBytes: z.number().step(1).min(1).default(DEFAULT_MAX_INSTRUCTION_BYTES),
+    reconnect: Reconnect,
+  }),
+  z.object({
+    transport: z.const('sse'),
+    serverName: z.string().required().pattern(SERVER_NAME_PATTERN),
+    url: z.string().required(),
+    headers: z.dict(String).default({}),
+    toolCallTimeoutMs: z.number().default(DEFAULT_TOOL_CALL_TIMEOUT_MS),
+    failOnStartupError: z.boolean().default(false),
+    trust: Trust,
+    auth: z.union([Auth, z.const(undefined)]),
     maxInstructionBytes: z.number().step(1).min(1).default(DEFAULT_MAX_INSTRUCTION_BYTES),
     reconnect: Reconnect,
   }),
@@ -156,6 +263,12 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   // construction that bypassed Schemastery) rejects THIS instance before any
   // effect registers.
   const reconnect = resolveReconnectPolicy(config.reconnect, `mcp-client(${config.serverName}): reconnect`)
+
+  // Same fail-loud rule for the auth block: an invalid redirect URL, or a
+  // configured `auth` without the credentials service that stores its tokens,
+  // rejects this instance instead of silently connecting unauthenticated.
+  const oauth = resolveOAuthSettings(config, `mcp-client(${config.serverName})`)
+  const oauthProvider = oauth === undefined ? undefined : startOAuth(ctx, config.serverName, oauth)
 
   // Reserve the namespace next: a duplicate `serverName` fails THIS instance
   // at load with an actionable error and leaves the earlier instance intact.
@@ -178,8 +291,15 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   // The supervisor owns the client/transport generations, the reconnect
   // loop, and the live tool registrations; disposal stops reconnection,
   // quiesces in-flight work, and unregisters the current generation.
-  const connection = startConnection(ctx, config, reconnect)
+  const connection = startConnection(ctx, config, reconnect, oauthProvider)
   registerServerContext(ctx, config.serverName, connection)
+  // Report every transition, including the current state once, so the plugin
+  // that mounted this instance can show status without reaching into it. The
+  // subscription leaves with this instance's fiber, like the connection.
+  ctx.effect(
+    () => connection.onStatusChange((change) => { ctx.emit('mcp-client/status', change) }),
+    'mcp-client.status',
+  )
   let stopping: Promise<void> | undefined
   const dispose = (): Promise<void> => stopping ??= connection.dispose()
   // Cordis announces unload before awaiting an unfinished apply(). Closing

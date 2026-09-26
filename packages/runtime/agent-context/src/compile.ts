@@ -16,6 +16,7 @@ import type { BudgetHysteresis } from './budget.ts'
 import { contentDigest, digestPlacement } from './digest.ts'
 import { compareCompiled, compareText, scoreSources } from './rank.ts'
 import { sourcesFromAssembly } from './sources.ts'
+import { admitSources } from './tiers.ts'
 import type {
   CompiledContext,
   CompiledSource,
@@ -24,6 +25,8 @@ import type {
   ContextConflict,
   ContextOmission,
   ContextSource,
+  ContextTier,
+  ContextTierDemand,
 } from './types.ts'
 
 /** The version of the placement rules a digest is attributable to. */
@@ -41,6 +44,10 @@ export interface ContextCompileInput {
   readonly maxTokens?: number | null
   /** The prior compile's budget decision in this request series (S1 point 5), or absent at a series boundary. */
   readonly hysteresis?: BudgetHysteresis
+  /** Tiers whose sources this compile withholds until `demand` admits them; absent withholds nothing. */
+  readonly onDemandTiers?: readonly ContextTier[]
+  /** What this compile asks for beyond the tiers it always places. */
+  readonly demand?: ContextTierDemand
 }
 
 /** Compiles one model step's context from its contributors. */
@@ -73,9 +80,10 @@ export class DefaultContextCompiler implements ContextCompiler {
  * @throws When two sources share an id or a source carries no content.
  */
 function place(input: ContextCompileInput): CompiledContext {
-  const sources = [...sourcesFromAssembly(input.assembly), ...input.sources ?? []]
-  assertSources(sources)
-  const priced = priceSources(scoreSources(sources, input.objective ?? '')).sort(compareCompiled)
+  const candidates = [...sourcesFromAssembly(input.assembly), ...input.sources ?? []]
+  assertSources(candidates)
+  const admission = admitSources(candidates, input.onDemandTiers ?? [], input.demand)
+  const priced = priceSources(scoreSources(admission.admitted, input.objective ?? '')).sort(compareCompiled)
   const deduplicated = deduplicate(priced)
   const maxTokens = input.maxTokens ?? null
   const placement = fitBudget(deduplicated.kept, maxTokens, input.hysteresis)
@@ -84,6 +92,7 @@ function place(input: ContextCompileInput): CompiledContext {
   return {
     included: placement.included,
     omitted,
+    deferred: admission.deferred,
     conflicts,
     tokenEstimate: placement.tokenEstimate,
     digest: digestPlacement(CONTEXT_COMPILER_VERSION, maxTokens, placement.included, omitted, conflicts),

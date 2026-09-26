@@ -179,7 +179,7 @@ function emitServerRequest(kind: string): void {
   }
   if (kind === 'diagnostics') {
     const uri = process.env.LSP_FAKE_DIAGNOSTICS_URI ?? openedDocumentUri ?? 'file:///unset'
-    const diagnostics = process.env.LSP_FAKE_DIAGNOSTICS !== undefined ? JSON.parse(process.env.LSP_FAKE_DIAGNOSTICS) : []
+    const diagnostics: unknown = process.env.LSP_FAKE_DIAGNOSTICS !== undefined ? JSON.parse(process.env.LSP_FAKE_DIAGNOSTICS) : []
     const publish = (): void => { send({ method: 'textDocument/publishDiagnostics', params: { uri, diagnostics } }) }
     const delayMs = Number(process.env.LSP_FAKE_DIAGNOSTICS_DELAY_MS ?? 0)
     if (delayMs > 0) setTimeout(publish, delayMs)

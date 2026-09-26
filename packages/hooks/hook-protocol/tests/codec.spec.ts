@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseHookOutput } from '@deepseek-ai/dsh-hook-protocol'
+import { parseHookBody, parseHookOutput } from '@deepseek-ai/dsh-hook-protocol'
 
 describe('parseHookOutput — exit code semantics', () => {
   it('exit 0 with no stdout is a neutral success', () => {
@@ -189,5 +189,88 @@ describe('parseHookOutput — structured stdout (exit 0 only)', () => {
     // exit 2 forces block regardless of what stdout claims
     expect(out.decision).toBe('block')
     expect(out.reason).toBe('blocked')
+  })
+})
+
+describe('parseHookBody — transport responses have no exit code', () => {
+  it('decodes a structured body like a clean-exit stdout', () => {
+    const out = parseHookBody(JSON.stringify({
+      continue: false, stopReason: 'stop', hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny' },
+    }), 'PreToolUse')
+    expect(out.exitCode).toBeUndefined()
+    expect(out.continue).toBe(false)
+    expect(out.decision).toBe('deny')
+    expect(out.stdout).toContain('continue')
+  })
+
+  it('keeps a plain-text body as stdout with no decision', () => {
+    const out = parseHookBody('  plain response  ')
+    expect(out.stdout).toBe('plain response')
+    expect(out.decision).toBeUndefined()
+    expect(out.stderr).toBe('')
+  })
+
+  it('an empty body is neutral', () => {
+    const out = parseHookBody('')
+    expect(out.stdout).toBe('')
+    expect(out.decision).toBeUndefined()
+  })
+})
+
+describe('parseHookOutput — model-level hook fields', () => {
+  it('parses a valid request patch', () => {
+    const out = parseHookOutput(0, JSON.stringify({
+      hookSpecificOutput: {
+        hookEventName: 'BeforeModel',
+        request: { provider: 'deepseek', model: 'x', reasoningEffort: 'high', maxTokens: 4096 },
+      },
+    }), '', 'BeforeModel')
+    expect(out.requestPatch).toEqual({ provider: 'deepseek', model: 'x', reasoningEffort: 'high', maxTokens: 4096 })
+  })
+
+  it('drops invalid values and unknown keys from a request patch', () => {
+    const out = parseHookOutput(0, JSON.stringify({
+      hookSpecificOutput: {
+        hookEventName: 'BeforeModel',
+        request: { provider: '', model: 42, reasoningEffort: 'low', maxTokens: 0, temperature: 0.5 },
+      },
+    }), '', 'BeforeModel')
+    // Only the two valid values survive; a non-positive cap and a foreign key do not.
+    expect(out.requestPatch).toEqual({ reasoningEffort: 'low' })
+  })
+
+  it('leaves requestPatch absent when every value was invalid', () => {
+    const out = parseHookOutput(0, JSON.stringify({
+      hookSpecificOutput: { hookEventName: 'BeforeModel', request: { maxTokens: Number.MAX_SAFE_INTEGER + 2 } },
+    }), '', 'BeforeModel')
+    expect(out.requestPatch).toBeUndefined()
+  })
+
+  it('ignores a request patch that is not an object', () => {
+    const out = parseHookOutput(0, JSON.stringify({
+      hookSpecificOutput: { hookEventName: 'BeforeModel', request: 'nope' },
+    }), '', 'BeforeModel')
+    expect(out.requestPatch).toBeUndefined()
+  })
+
+  it('parses an allowTools list of names', () => {
+    const out = parseHookOutput(0, JSON.stringify({
+      hookSpecificOutput: { hookEventName: 'BeforeToolSelection', allowTools: ['read', 'grep'] },
+    }), '', 'BeforeToolSelection')
+    expect(out.allowTools).toEqual(['read', 'grep'])
+  })
+
+  it('ignores an allowTools list holding a non-name entry', () => {
+    const out = parseHookOutput(0, JSON.stringify({
+      hookSpecificOutput: { hookEventName: 'BeforeToolSelection', allowTools: ['read', 7] },
+    }), '', 'BeforeToolSelection')
+    expect(out.allowTools).toBeUndefined()
+  })
+
+  it('ignores an allowTools value that is not an array', () => {
+    const out = parseHookOutput(0, JSON.stringify({
+      hookSpecificOutput: { hookEventName: 'BeforeToolSelection', allowTools: 'read' },
+    }), '', 'BeforeToolSelection')
+    expect(out.allowTools).toBeUndefined()
   })
 })

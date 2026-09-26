@@ -52,9 +52,9 @@ export const accessZh = {
   'confirm.enable': '启用完全权限',
   'auto.label': 'Auto review',
   'auto.badge': 'EXP',
-  'auto.description': '无沙箱运行；每次原生工具调用和 PTC 内层调用前由同一模型进行实验性审查。',
+  'auto.description': '在 workspace-write 沙箱内运行；由一个更便宜的模型审查每次原生工具调用和 PTC 内层调用，常规操作自动放行，有风险的操作转交你确认。',
   'auto.confirm.title': '确认启用 Auto review（实验）？',
-  'auto.confirm.description': 'Auto review 不使用沙箱。每次原生工具调用和 PTC 内层调用前，都会由与当前 agent 相同的模型进行审查。此功能仍属实验性，可能误放行或误拒绝，并会消耗额外 token。',
+  'auto.confirm.description': 'Auto review 在 workspace-write 沙箱内运行。每次原生工具调用和 PTC 内层调用前，都会由一个更便宜的模型（默认使用部署的默认模型）审查：沙箱内的常规操作自动放行，有风险的操作转为向你请求批准。此功能仍属实验性，可能误放行或误拒绝，并会消耗额外 token。',
   'auto.confirm.acknowledge': '我已了解这些风险，并愿意继续',
   'auto.confirm.enable': '启用 Auto review',
 } satisfies Record<string, string>
@@ -76,9 +76,9 @@ export const accessEn = {
   'confirm.enable': 'Enable Full access',
   'auto.label': 'Auto review',
   'auto.badge': 'EXP',
-  'auto.description': 'Run without a sandbox after an experimental same-model review of every native tool call and PTC inner call.',
+  'auto.description': 'Run inside a workspace-write sandbox, with a cheaper model reviewing every native tool call and PTC inner call: routine work is approved, risky work is sent to you.',
   'auto.confirm.title': 'Enable Auto review (experimental)?',
-  'auto.confirm.description': 'Auto review runs without a sandbox. Before every native tool call and PTC inner call, the same model as the current agent reviews whether to allow it. This feature is experimental, can falsely allow or deny actions, and uses additional tokens.',
+  'auto.confirm.description': 'Auto review runs inside a workspace-write sandbox. Before every native tool call and PTC inner call, a cheaper model (the deployment default model by default) reviews the action: routine work inside the sandbox is approved automatically, and risky work becomes a request for your approval. This feature is experimental, can falsely allow or deny actions, and uses additional tokens.',
   'auto.confirm.acknowledge': 'I understand these risks and want to continue',
   'auto.confirm.enable': 'Enable Auto review',
 } satisfies Record<PermissionAccessKey, string>

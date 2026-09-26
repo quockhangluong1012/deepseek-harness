@@ -23,9 +23,12 @@ const STEP = {
   interrupted: false,
   retries: 0,
   usage: null,
+  estimatedCostUsd: null,
   context: null,
   calls: [],
   failures: 0,
+  stateDelta: [],
+  subagentUsage: { count: 0, runIds: [] },
 }
 
 describe('evolution trace summary', () => {

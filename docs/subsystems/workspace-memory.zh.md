@@ -11,17 +11,18 @@ DeepSeek Harness 中的 Workspace（工作区）是用户所用目录的持久�
 | 部分 | 编写者 | 到达模型 | 计入容量 |
 |---|---|---|---|
 | **指令** | 用户 | 是 | 是 |
-| **记忆** | 模型依据该 Workspace 自身的聊天历史编写；用户可编辑或重新生成 | 是 | 是 |
+| **记忆** | 用户 | 是 | 是 |
 | **上下文** | 用户，以附加的工作区文件或粘贴文本形式提供 | 是 | 是 |
 | **描述** | 用户 | 否——页面元数据 | 否 |
-| **产出** | 由成功的修改类工具调用派生 | 否——一个导航索引 | 否 |
+| **产出** | ——存储保留该字段；没有任何随附 profile 写入它 | 否——一个导航索引 | 否 |
+
+本存储不挂载按轮次的 LLM 提取，因为 evolution 评审器已承担每轮唯一一次读取转录的提取；因此记录只保存用户写入的内容。
 
 ## 包
 
 | 包 | 作用 | ctx 键 |
 |---|---|---|
 | [`workspace-memory`](../../packages/workspace/workspace-memory/README.zh.md) | 持久的按 Workspace 记录、上限与容量核算 | `ctx.workspaceMemory` |
-| [`workspace-memory-llm`](../../packages/workspace/workspace-memory-llm/README.zh.md) | 按轮次的产出索引、按轮次的提取、按需重建 | `ctx.workspaceMemoryExtractor` |
 | [`workspace-memory-context`](../../packages/context/workspace-memory-context/README.zh.md) | 渲染 brief 并将其拼接进 `agent/pre-step` | — |
 | [`ui-workspace-memory`](../../packages/client/ui-workspace-memory/README.zh.md) | Host `workspaceMemory` Remote 命名空间与浏览器 Workspace 页面 | `ctx.workspaceMemoryController` |
 
@@ -87,7 +88,7 @@ async setInstructions(id: WorkspaceId, instructions: string): Promise<WorkspaceM
  * Replace the memory document by hand or from extraction.
  * @param id - Workspace identity.
  * @param memory - replacement document.
- * @param extraction - provenance when model-written.
+ * @param extraction - the extraction record when model-written.
  * @returns the stored record.
  */
 async setMemory(id: WorkspaceId, memory: string, extraction?: WorkspaceMemoryExtraction): Promise<WorkspaceMemoryRecord>
@@ -127,7 +128,7 @@ Source: [`packages/workspace/workspace-memory/src/index.ts`](../../packages/work
 
 ### `ctx.workspaceMemoryController` — `WorkspaceMemoryController`
 
-Host Remote service delegating memory verbs to the store and extractor.
+Host Remote service delegating memory verbs to the durable store.
 
 ```ts cordis-catalog
 /**
@@ -181,14 +182,6 @@ Host Remote service delegating memory verbs to the store and extractor.
 @Remote('listContextFiles') async listContextFiles(request: WorkspaceMemoryListContextFilesRequest, signal: AbortSignal): Promise<WorkspaceMemoryContextFilesValue>
 
 /**
- * Rebuild the document from the Workspace's chat history.
- * @param request - Workspace identity.
- * @param signal - caller cancellation.
- * @returns the updated projection.
- */
-@Remote('rebuildMemory') async rebuildMemory(request: WorkspaceMemoryRebuildRequest, signal: AbortSignal): Promise<WorkspaceMemoryValue>
-
-/**
  * Stream a complete memory baseline followed by ordered upserts.
  * @param signal - generation cancellation.
  * @returns baseline followed by ordered memory increments.
@@ -197,24 +190,4 @@ Host Remote service delegating memory verbs to the store and extractor.
 ```
 
 Source: [`packages/client/ui-workspace-memory/src/index.ts`](../../packages/client/ui-workspace-memory/src/index.ts)
-
-<a id="ctxworkspacememoryextractor--workspacememoryextractor"></a>
-
-### `ctx.workspaceMemoryExtractor` — `WorkspaceMemoryExtractor`
-
-Background extractor. One Workspace never runs two extractions at once; a turn is never blocked by one.
-
-```ts cordis-catalog
-/**
- * Rebuild the document from the Workspace's chat history.
- * @param workspaceId - Workspace identity.
- * @param signal - caller cancellation.
- * @returns resolution after the store write.
- */
-async rebuild(workspaceId: WorkspaceId, signal: AbortSignal): Promise<void>
-```
-
-Types: [WorkspaceId](workspace.zh.md)
-
-Source: [`packages/workspace/workspace-memory-llm/src/index.ts`](../../packages/workspace/workspace-memory-llm/src/index.ts)
 <!-- END GENERATED cordis-surface -->

@@ -17,12 +17,39 @@ export const experimentTripleSchema = z.object({
   wallTimeMs: z.number().nonnegative(),
 })
 
+/** The shared evaluation context a promotion proved, at the durable boundary. */
+export const evaluationContextSchema = z.object({
+  benchmark: z.string(),
+  model: z.string(),
+  budget: z.object({
+    tokens: z.number().nonnegative(),
+    wallTimeMs: z.number().nonnegative(),
+  }),
+  tasks: z.array(z.string()),
+  attempts: z.object({
+    baseline: z.number().int().nonnegative(),
+    winner: z.number().int().nonnegative(),
+  }),
+})
+
+/** The paired significance comparison a promotion decision rests on, at the durable boundary. */
+export const pairedSignificanceSchema = z.object({
+  method: z.literal('paired-sign-test'),
+  confidence: z.number().gt(0).lt(1),
+  wins: z.number().int().nonnegative(),
+  losses: z.number().int().nonnegative(),
+  ties: z.number().int().nonnegative(),
+  pValue: z.number().min(0).max(1),
+  significant: z.boolean(),
+})
+
 /** Durability and searchability facts about one optimization run. */
 export const experimentRecordSchema = z.object({
   id: z.string(),
   at: z.string(),
   scope: z.string(),
   skill: z.string(),
+  hypothesis: z.string().nullable().default(null),
   evidence: z.string(),
   operators: z.array(z.string()),
   portfolio: z.array(z.string()),
@@ -35,6 +62,8 @@ export const experimentRecordSchema = z.object({
     runs: z.number().int().nonnegative(),
     wins: z.number().int().nonnegative(),
   }).nullable(),
+  evaluation: evaluationContextSchema.nullable().default(null),
+  significance: pairedSignificanceSchema.nullable().default(null),
   samples: z.number().int().nonnegative(),
   outcome: z.enum(['staged', 'regressed', 'unconfirmed', 'holdout-rejected', 'no-improvement', 'skipped']),
   reason: z.string().nullable(),
@@ -57,21 +86,45 @@ export const experimentRecordSchema = z.object({
 /** One stored experiment row, inferred from {@link experimentRecordSchema}. */
 export type ExperimentRecordRow = z.infer<typeof experimentRecordSchema>
 
+/** One mined holdout candidate at the durable boundary. */
+export const minedScenarioSchema = z.object({
+  /** Scope the signals came from. */
+  scope: z.string(),
+  scenario: z.string(),
+  sources: z.array(z.object({
+    kind: z.enum(['trace', 'feedback']),
+    tool: z.string().nullable(),
+    detail: z.string(),
+  })),
+  occurrences: z.number().int().nonnegative(),
+  sessions: z.number().int().nonnegative(),
+  firstAt: z.string(),
+  lastAt: z.string(),
+})
+
+/** One stored mined row, inferred from {@link minedScenarioSchema}. */
+export type MinedScenarioRow = z.infer<typeof minedScenarioSchema>
+
 /**
- * The evolution-optimizer domain spec: one `records` table keyed by
- * experiment id. Invalid records fail the domain open loudly: a dropped
- * outcome would hide a promotion the ledger claims happened.
+ * The evolution-optimizer domain spec: a `records` table keyed by experiment id
+ * and a `mined` table keyed by scope and candidate scenario. Invalid records
+ * fail the domain open loudly: a dropped outcome would hide a promotion the
+ * ledger claims happened, and a dropped candidate would silently shrink the
+ * holdout corpus.
  */
 export const optimizerDomainSpec = defineDomain({
   name: 'evolution_experiments',
-  version: 2,
-  // Version 1 recorded no archive novelty for the promoted body; the field
-  // defaults to null, which reads as never measured, so vouched-for v1 rows
-  // open unchanged.
-  compatibleVersions: [1],
+  version: 5,
+  // Version 1 recorded no archive novelty for the promoted body, version 2 no
+  // hypothesis or evaluated pair, version 3 no paired significance, and version
+  // 4 no mined holdout corpus; every added field defaults to null, which reads
+  // as never recorded, and an added table is simply absent on an older medium,
+  // so vouched-for rows open unchanged.
+  compatibleVersions: [1, 2, 3, 4],
   layout: 'per-record',
   tables: {
     records: domainTable<string, ExperimentRecord>(experimentRecordSchema),
+    mined: domainTable<string, MinedScenarioRow>(minedScenarioSchema),
   },
 })
 

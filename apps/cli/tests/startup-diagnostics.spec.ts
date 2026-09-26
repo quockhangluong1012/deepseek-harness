@@ -109,6 +109,25 @@ describe('startup diagnostic files', () => {
     }
   })
 
+  it('saves the startup doctor checks with each missing referent named', async () => {
+    const dir = await home()
+    await reportStartupFailure(startupError('failed'), { home: dir, version: '1.2.3', profile: 'web' }, () => {})
+    const files = await readdir(join(dir, 'logs'))
+    expect(files).toHaveLength(1)
+    const report = await readFile(join(dir, 'logs', files[0]!), 'utf8')
+
+    for (const [id, service] of [
+      ['sandbox', 'sandboxPolicy'],
+      ['provider-keys', 'the llm registry'],
+      ['mcp', 'the tool registry'],
+      ['lsp', 'the lsp service'],
+    ] as const) {
+      expect(report).toContain(`id: '${id}'`)
+      expect(report).toContain(`no plugin tree: startup failed before ${service} was reachable`)
+    }
+    expect(report).toMatch(/id: 'disk',\n\s+status: 'ok',\n\s+detail: '\d+ bytes free on /u)
+  })
+
   it('creates distinct files for concurrent failures without replacing earlier reports', async () => {
     const dir = await home()
     await Promise.all(['first', 'second'].map(reason => reportStartupFailure(

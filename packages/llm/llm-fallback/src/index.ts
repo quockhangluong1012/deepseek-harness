@@ -8,16 +8,19 @@
  *
  * Breaker state is process-local: each observed failure counts against its
  * route, and a route that reaches the failure threshold stays out of rotation
- * until its cooldown elapses. The key rotation hook runs before the switch;
- * a throwing hook warns and the switch proceeds.
+ * until its cooldown elapses or a later success on that route clears it. A
+ * stashed switch serves only the step that opened it. The key rotation hook
+ * runs before the switch; a throwing hook warns and the switch proceeds.
  * @module @deepseek-ai/dsh-llm-fallback
  */
 
 import { randomUUID } from 'node:crypto'
 import type { Context, Events } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
-import type { Agent, RequestErrorAction } from '@deepseek-ai/dsh-agent'
+import type { RequestErrorAction } from '@deepseek-ai/dsh-agent'
+import { DEFAULT_RETRYABLE_CODES } from '@deepseek-ai/dsh-llm'
 import type { LlmCallConfig, LlmFailure } from '@deepseek-ai/dsh-llm'
+import type { Session } from '@deepseek-ai/dsh-session'
 import { FallbackId } from './brand.ts'
 import type { LlmFallbackEventData } from './types.ts'
 
@@ -64,7 +67,7 @@ export interface Config {
     /** Milliseconds an open route stays out of rotation. */
     coolMs?: number
   }
-  /** Failure codes eligible for fallback; omission admits every code. */
+  /** Failure codes eligible for fallback; omission admits the transient codes `DEFAULT_RETRYABLE_CODES`. */
   eligibleCodes?: string[]
 }
 
@@ -86,7 +89,8 @@ export interface ResolvedConfig {
   fallbackRoutes: LlmRoute[]
   failureThreshold: number
   coolMs: number
-  eligibleCodes: string[] | undefined
+  /** Failure codes eligible for fallback; the resolved default admits transient codes only. */
+  eligibleCodes: string[]
 }
 
 /**
@@ -99,7 +103,7 @@ export function resolveConfig(config: Config): ResolvedConfig {
   const {
     fallbackRoutes = [],
     breaker: { failureThreshold = 3, coolMs = 60000 } = {},
-    eligibleCodes,
+    eligibleCodes = [...DEFAULT_RETRYABLE_CODES],
   } = config
   for (const route of fallbackRoutes) {
     if (route.provider.length === 0 || route.model.length === 0) {
@@ -116,7 +120,7 @@ export function resolveConfig(config: Config): ResolvedConfig {
     fallbackRoutes: fallbackRoutes.map(route => ({ provider: route.provider, model: route.model })),
     failureThreshold,
     coolMs,
-    eligibleCodes,
+    eligibleCodes: [...eligibleCodes],
   }
 }
 
@@ -156,8 +160,8 @@ export function apply(ctx: Context, config: Config = {}): void {
     return tracked
   }
 
-  function routeKey(agent: Agent, turn: number, step: number): string {
-    return `${agent.id}:${turn}:${step}`
+  function stepKey(session: Session, turn: number, step: number): string {
+    return `${session.id}:${turn}:${step}`
   }
 
   function breakerKey(provider: string): string {
@@ -181,7 +185,7 @@ export function apply(ctx: Context, config: Config = {}): void {
 
   const disposeRequest = ctx.on('agent/request', async (payload, next): Promise<LlmCallConfig> => {
     const settled = await next()
-    const stashed = pending.get(routeKey(payload.agent, payload.turn, payload.step))
+    const stashed = pending.get(stepKey(payload.agent.session, payload.turn, payload.step))
     if (stashed === undefined) return settled
     // A different adapter may reject inherited effort knobs, so the switch
     // carries only the route; adapter defaults fill the rest per attempt.
@@ -199,7 +203,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     if (payload.signal.aborted) return downstream
     if (downstream?.kind === 'retry') return downstream
     const { agent, turn, step, provider, failure } = payload
-    if (resolved.eligibleCodes !== undefined && !resolved.eligibleCodes.includes(failure.code)) return downstream
+    if (!resolved.eligibleCodes.includes(failure.code)) return downstream
     const now = Date.now()
     recordFailure(provider, now)
     const route = pickRoute(provider, now)
@@ -213,7 +217,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     // loop's post-waterfall throwIfAborted, so at most one stray event lands
     // on a dying turn. A check here would be untestable without warping the
     // hook signature around cancellation.
-    const key = routeKey(agent, turn, step)
+    const key = stepKey(agent.session, turn, step)
     const previous = pending.get(key)
     const attempt = (previous?.attempt ?? 0) + 1
     const fallbackId = previous?.fallbackId ?? FallbackId(randomUUID())
@@ -241,9 +245,25 @@ export function apply(ctx: Context, config: Config = {}): void {
     return track(recover(payload, next))
   })
 
+  // Step close ends the stash's life: a switch serves only the attempts of the
+  // step that opened it, so a later turn or agent that reuses the same session,
+  // turn, and step starts from its own route. A committed assistant message
+  // proves the route that produced it answered, so it clears that route's
+  // failures; an interrupted message carries its delivered prefix, and a turn
+  // cancellation is no route fault.
+  const disposeSessionEvents = ctx.on('session/event', (session, event) => {
+    if (event.type === 'step/end') {
+      pending.delete(stepKey(session, event.data.turn, event.data.step))
+      return
+    }
+    if (event.type !== 'assistant/message') return
+    breaker.delete(breakerKey(event.data.message.source.provider))
+  })
+
   ctx.effect(() => async () => {
     disposeRequest()
     disposeError()
+    disposeSessionEvents()
     lifetime.abort(new Error('llm-fallback plugin disposed'))
     pending.clear()
     await Promise.allSettled([...active])

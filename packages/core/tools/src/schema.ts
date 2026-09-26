@@ -513,9 +513,9 @@ export interface DefineToolOptions<S extends ParameterSchemaSpec, O extends Valu
   /** Optional positive cooperative timeout budget in milliseconds. */
   readonly timeoutMs?: number
   /**
-   * Declares this tool has no natural time bound (blocks on a human
-   * response) and must be exempt from the deployment default fallback in
-   * `@deepseek-ai/dsh-tool-call-timeout-policy`. Mutually exclusive with `timeoutMs`.
+   * Declares this tool has no natural time bound (blocks on a human response),
+   * so `@deepseek-ai/dsh-tool-call-timeout-policy` arms no deadline for it.
+   * Mutually exclusive with `timeoutMs`.
    */
   readonly unboundedTimeout?: boolean
   /**
@@ -587,7 +587,6 @@ export function defineTool<const S extends ParameterSchemaSpec, const O extends 
   const userFinalizeContent = options.finalizeContent
   // oxlint-disable-next-line typescript/unbound-method
   const userProjectContent = options.projectContent
-  // oxlint-disable-next-line typescript/unbound-method
   const userRender = options.output.render
   const userPresentationMeta = options.output.presentationMeta
   const userPresentCall = options.presentCall

@@ -13,7 +13,8 @@ import type {
   ResumeAgentOptions,
 } from '@deepseek-ai/dsh-agent'
 import AgentDefaultModelConfig from '@deepseek-ai/dsh-agent-default-model'
-import { LlmAttemptId, ToolCallId, createAssistantMessage, createToolResultMessage, type MessageId, type StreamChunk } from '@deepseek-ai/dsh-llm'
+import { CommandRuntime } from '@deepseek-ai/dsh-commands'
+import { LlmAttemptId, ToolCallId, createAssistantMessage, createToolResultMessage, createUserMessage, type MessageId, type StreamChunk } from '@deepseek-ai/dsh-llm'
 import SessionStore from '@deepseek-ai/dsh-session'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import type { Session, SessionId, UserMessage } from '@deepseek-ai/dsh-session'
@@ -1048,5 +1049,90 @@ describe('headless runner', () => {
     expect(new Config({})).toEqual({})
     expect(new Config({ task: 'x', sessionId: 'session-x', json: true }))
       .toEqual({ task: 'x', sessionId: 'session-x', json: true })
+  })
+})
+
+describe('headless command dispatch', () => {
+  it('dispatches a leading command line instead of submitting it as a task', async () => {
+    const test = await bench({
+      afterPrompt() { throw new Error('a command line must not be submitted as a task') },
+    }, { task: '/deploy staging' })
+    try {
+      await test.ctx.plugin(CommandRuntime)
+      const inputs: string[] = []
+      test.ctx.commands.register({
+        name: 'deploy',
+        description: 'Deploy the service',
+        handler: (invocation) => {
+          inputs.push(invocation.rawInput)
+          return { kind: 'success', text: 'deployed staging' }
+        },
+      })
+
+      // The command scheduled no model work, so its own result is the run's
+      // answer, and the exit code reflects the command's success.
+      expect(await test.run()).toMatchObject({ code: 0, out: 'deployed staging\n' })
+      expect(inputs).toEqual([' staging'])
+    } finally { await test.ctx.fiber.dispose() }
+  })
+
+  it('prints the answering turn of a command that submits a message', async () => {
+    const test = await bench({
+      afterPrompt(session, message) { appendTurn(session, 1, message, 'deployed by the model', true) },
+    }, { task: '/deploy' })
+    try {
+      await test.ctx.plugin(CommandRuntime)
+      test.ctx.commands.register({
+        name: 'deploy',
+        description: 'Deploy the service',
+        handler: (invocation) => {
+          invocation.agent.followup(createUserMessage({
+            content: [{ type: 'text', text: 'Deploy the service.' }],
+            source: { kind: 'user' },
+          }))
+          return { kind: 'success', text: 'Submitted /deploy' }
+        },
+      })
+
+      expect(await test.run()).toMatchObject({ code: 0, out: 'deployed by the model\n' })
+    } finally { await test.ctx.fiber.dispose() }
+  })
+
+  it('fails an unknown command and a command line without a registry', async () => {
+    const test = await bench({
+      afterPrompt() { throw new Error('an unresolvable command line must not be submitted as a task') },
+    }, { task: '/missing' })
+    try {
+      await test.ctx.plugin(CommandRuntime)
+      test.ctx.commands.register({ name: 'help', description: 'List commands', handler: () => ({ kind: 'success' }) })
+
+      expect(await test.run()).toMatchObject({ code: 1, err: 'dsh: unknown or malformed command: /missing\n' })
+    } finally { await test.ctx.fiber.dispose() }
+
+    // Without the registry the runner names the missing composition instead of
+    // sending the line to the model.
+    const bare = await bench({
+      afterPrompt() { throw new Error('a command line must not be submitted as a task') },
+    }, { task: '/help' })
+    try {
+      expect(await bare.run()).toMatchObject({ code: 1 })
+      expect(bare.output().err).toContain('composes no command registry')
+    } finally { await bare.ctx.fiber.dispose() }
+  })
+
+  it('leaves a task that is not a command line to the model', async () => {
+    const test = await bench({
+      afterPrompt(session, message) { appendTurn(session, 1, message, 'answered', true) },
+    }, { task: '/tmp/report is stale' })
+    try {
+      await test.ctx.plugin(CommandRuntime)
+      let calls = 0
+      test.ctx.commands.register({ name: 'tmp', description: 'Never dispatched', handler: () => { calls += 1; return { kind: 'success' } } })
+
+      // `/tmp` is not a command name followed by end-of-input or whitespace, so
+      // the line is an ordinary task.
+      expect(await test.run()).toMatchObject({ code: 0, out: 'answered\n' })
+      expect(calls).toBe(0)
+    } finally { await test.ctx.fiber.dispose() }
   })
 })

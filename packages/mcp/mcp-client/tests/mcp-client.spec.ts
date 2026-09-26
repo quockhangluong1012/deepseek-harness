@@ -277,13 +277,14 @@ describe('syncTools', () => {
     await ctx.plugin(AgentKernel, {})
     const kernel = ctx.agentKernel
     const client = createMockClient([{ name: 'greet', inputSchema: { type: 'object' } }])
-    const capabilities = createMcpCapabilityPublisher(ctx, 'srv')
+    const capabilities = createMcpCapabilityPublisher(ctx, 'srv', 'untrusted')
     const opts = { ...defaultOpts, capabilities }
     const first = await syncTools(client as never, ctx, opts, new Map())
 
     expect(kernel.capabilities.resolve('mcp__srv__greet', {})).toEqual([
       { capability: 'mcp.call', resource: 'mcp:srv/greet' },
     ])
+    expect(kernel.capabilities.trustOf('mcp__srv__greet')).toBe('untrusted')
 
     client.listTools.mockResolvedValue({ tools: [{ name: 'add', inputSchema: { type: 'object' } }], nextCursor: undefined })
     await syncTools(client as never, ctx, opts, first)
@@ -296,7 +297,7 @@ describe('syncTools', () => {
 
   it('publishes the synced generation when the kernel mounts afterwards', async () => {
     const client = createMockClient([{ name: 'greet', inputSchema: { type: 'object' } }])
-    const capabilities = createMcpCapabilityPublisher(ctx, 'srv')
+    const capabilities = createMcpCapabilityPublisher(ctx, 'srv', 'trusted')
     await syncTools(client as never, ctx, { ...defaultOpts, capabilities }, new Map())
     expect(ctx.get('agentKernel')).toBeUndefined()
 
@@ -305,6 +306,8 @@ describe('syncTools', () => {
     expect(ctx.agentKernel.capabilities.resolve('mcp__srv__greet', {})).toEqual([
       { capability: 'mcp.call', resource: 'mcp:srv/greet' },
     ])
+    // A deployment that owns the server declares its own trust decision.
+    expect(ctx.agentKernel.capabilities.trustOf('mcp__srv__greet')).toBe('trusted')
   })
 
   it('unregisters previous tools before re-syncing', async () => {
@@ -1132,6 +1135,7 @@ describe('createTransport', () => {
       cwd: '/tmp',
       toolCallTimeoutMs: 60_000,
       failOnStartupError: false,
+      trust: 'untrusted',
     }
     const transport = createTransport(config)
     expect(transport).toBeDefined()
@@ -1147,6 +1151,7 @@ describe('createTransport', () => {
       headers: {},
       toolCallTimeoutMs: 60_000,
       failOnStartupError: false,
+      trust: 'untrusted',
     }
     const transport = createTransport(config)
     expect(transport).toBeDefined()
@@ -1162,6 +1167,7 @@ describe('createTransport', () => {
       headers: { Authorization: 'Bearer token' },
       toolCallTimeoutMs: 60_000,
       failOnStartupError: false,
+      trust: 'untrusted',
     }
     const transport = createTransport(config)
     expect(transport).toBeDefined()
@@ -1186,6 +1192,7 @@ describe('createTransport', () => {
         cwd: '',
         toolCallTimeoutMs: 60_000,
         failOnStartupError: false,
+        trust: 'untrusted',
       }
       // StdioClientTransport keeps its env private; the observable contract is
       // that createTransport(config) returns a transport without throwing.
@@ -1212,6 +1219,7 @@ describe('createTransport', () => {
       cwd: '',
       toolCallTimeoutMs: 60_000,
       failOnStartupError: false,
+      trust: 'untrusted',
     }
     const transport = createTransport(config)
     expect(transport).toBeDefined()

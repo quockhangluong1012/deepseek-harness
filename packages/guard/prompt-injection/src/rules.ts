@@ -38,7 +38,11 @@ export const GUARD_RULES: readonly GuardRule[] = [
     family: 'injection',
     severity: 'critical',
     detail: 'content instructs the reader to ignore its existing instructions',
-    pattern: /\b(?:ignore|disregard|forget)\s+(?:all\s+|any\s+|the\s+)?(?:previous|prior|earlier|above|preceding)?\s*(?:instructions?|prompts?|rules?|directions?)\b/gi,
+    pattern: new RegExp(
+      String.raw`\b(?:ignore|disregard|forget)\s+(?:all\s+|any\s+|the\s+)?(?:previous|prior|earlier|above|preceding)?\s*`
+        + String.raw`(?:instructions?|prompts?|rules?|directions?)\b`,
+      'gi',
+    ),
   },
   {
     id: 'chat-control-token',

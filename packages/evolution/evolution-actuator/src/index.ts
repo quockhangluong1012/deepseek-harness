@@ -20,6 +20,7 @@ import z from '@deepseek-ai/schemastery'
 import type { EvolutionAdversary } from '@deepseek-ai/dsh-evolution-adversary'
 import { ladderAdvance } from '@deepseek-ai/dsh-evolution-benchmark'
 import type { BenchmarkInput, EvolutionBenchmark, ExposureEvidence } from '@deepseek-ai/dsh-evolution-benchmark'
+import { MINED_TASK } from '@deepseek-ai/dsh-evolution-benchmark'
 import { withinAllocation } from '@deepseek-ai/dsh-evolution-budget'
 import type { EvolutionBudget } from '@deepseek-ai/dsh-evolution-budget'
 import { assessRisk } from '@deepseek-ai/dsh-evolution-canary'
@@ -472,6 +473,7 @@ async function runAdmission(ctx: Context, resolved: ResolvedConfig): Promise<voi
         task: proposal.task,
         gists: [...proposal.gists],
         sourceSessions: [...proposal.sourceSessions],
+        ...MINED_TASK,
       }])
     })
   }

@@ -22,10 +22,20 @@ type ApprovalRequestId = Branded<'ApprovalRequestId'>
 
 ```ts type-equiv
 /**
- * Closed approval outcomes: a one-shot grant, explicit rejection, withdrawn
- * request, or unavailable answerer. Callers fail closed on `unavailable`.
+ * Closed approval outcomes: three grants, an explicit rejection, a withdrawn
+ * request, or an unavailable answerer.
+ *
+ * `allowed-once` grants only the asked-about action. `allowed-session` and
+ * `allowed-always` grant it too and tell the asker that the human allowed the
+ * decision to outlive this call — for the rest of the live session, and as a
+ * durable rule respectively. Remembering is the asker's decision and needs a
+ * scope it can name; an asker that cannot name one still executes the grant for
+ * the current action and remembers nothing, so a broken rule store can never
+ * turn a human "yes" into a denial. Callers fail closed on `unavailable`, and
+ * the two grants never widen what the permission document allows: a later call
+ * outside the remembered scope asks again.
  */
-type ApprovalOutcome = 'allowed-once' | 'rejected' | 'cancelled' | 'unavailable'
+type ApprovalOutcome = 'allowed-once' | 'allowed-session' | 'allowed-always' | 'rejected' | 'cancelled' | 'unavailable'
 ```
 
 ## Per-session policy
@@ -125,7 +135,8 @@ setPolicy(agent: Agent, policy: ApprovalPolicy): void
  * authoritative append cannot reject the request or suppress its matching
  * audit event.
  * @param req - the pending decision (agent, tool identity, reason, signal).
- * @returns the closed outcome; `'allowed-once'` is the only grant.
+ * @returns the closed outcome; the three `allowed-*` values are grants, and
+ *   remembering either scoped grant belongs to the asker.
  * @throws when no turn is open or either audit event fails before the session
  *   append commit point.
  */

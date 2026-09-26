@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { mkdtemp, readFile, realpath, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import type { Agent } from '@deepseek-ai/dsh-agent'
@@ -14,16 +15,18 @@ import { EvolutionScopeId } from '@deepseek-ai/dsh-evolution-memory'
 import type { EvolutionMemoryRecord, EvolutionScopeId as ScopeId, LessonArtifactInput, LessonDecision } from '@deepseek-ai/dsh-evolution-memory'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import EvolutionGraph from '@deepseek-ai/dsh-evolution-graph'
+import EvolutionLineage from '@deepseek-ai/dsh-evolution-lineage'
 import type {} from '@deepseek-ai/dsh-evolution-reviewer'
 import type { ConsolidationReport, PassSummary, PendingConsolidation, PurgeReport, RollbackReport, StagedCandidate, StagedSkill } from '@deepseek-ai/dsh-evolution-curator'
 import type { SkillUsageRecord, SkillVersion } from '@deepseek-ai/dsh-evolution-skill-telemetry'
 import type { TraceRecord } from '@deepseek-ai/dsh-evolution-trace'
 import type { CurriculumProposal } from '@deepseek-ai/dsh-evolution-curriculum'
+import { MINED_TASK } from '@deepseek-ai/dsh-evolution-benchmark'
 import type { BenchmarkInput, BenchmarkState, BenchmarkTask } from '@deepseek-ai/dsh-evolution-benchmark'
 import type { EvaluatorHealthSummary, EvaluatorRun } from '@deepseek-ai/dsh-evolution-evaluator-health'
 import type { PopulationCandidate, PopulationStatus } from '@deepseek-ai/dsh-evolution-population'
 import { separationOfDuties } from '@deepseek-ai/dsh-evolution-model-routes'
-import type { DutyDecision, DutyRecord, ModelRoute, RouteEvidence, RouteRow, RouteSummary } from '@deepseek-ai/dsh-evolution-model-routes'
+import type { DutyDecision, DutyRecord, ModelRoute, RouteEffectiveness, RouteEvidence, RouteRankingEntry, RouteRow, RouteSummary } from '@deepseek-ai/dsh-evolution-model-routes'
 import type { DeploymentRecord, DeploymentState } from '@deepseek-ai/dsh-evolution-canary'
 import type { NoveltyArchiveEntry } from '@deepseek-ai/dsh-evolution-novelty-search'
 import type { StagnationRun, StagnationStatus } from '@deepseek-ai/dsh-evolution-stagnation'
@@ -31,7 +34,6 @@ import type { BudgetAllocation, SpendRecord } from '@deepseek-ai/dsh-evolution-b
 import type { ConfigRecommendation, ConfigSummary, EngineRun } from '@deepseek-ai/dsh-evolution-meta'
 import EvolutionMetrics from '@deepseek-ai/dsh-evolution-metrics'
 import type { OperatorRanking, OperatorStats } from '@deepseek-ai/dsh-evolution-operators'
-import type { RouteEffectiveness, RouteRankingEntry, RoutingRole } from '@deepseek-ai/dsh-evolution-router'
 import type { EvaluatorStrategy, StrategyRanking } from '@deepseek-ai/dsh-evolution-evaluator-strategy'
 import type { IslandInput, IslandSchedule, Migration, MigrationInput } from '@deepseek-ai/dsh-evolution-islands'
 import { dayKeyUTC7 } from '@deepseek-ai/dsh-usage-ledger'
@@ -112,11 +114,12 @@ interface HarnessExtras {
   uncertainty?: boolean
   adversary?: boolean
   lineage?: boolean
+  /** Mount the package's own lineage store instead of a stub, for promotion and rollback fixtures. */
+  lineageStore?: boolean
   sleeptime?: boolean
   budget?: boolean
   meta?: boolean
   operators?: boolean
-  router?: boolean
   evaluatorStrategy?: boolean
   metrics?: boolean
   reflection?: boolean
@@ -221,6 +224,10 @@ interface RoutesStub {
   pins: { role: string; provider: string; model: string }[]
   /** Recommendation `recommend` reports per role. */
   recommend?: (role: string) => ModelRoute | undefined
+  /** Per-task-class effectiveness rows `effectiveness` lists. */
+  effectiveness: RouteEffectiveness[]
+  /** Recommendations `recommend` reports per `<taskClass>/<role>`. */
+  recommendations: Record<string, RouteRankingEntry>
   /** When set, `pin` rejects with this value. */
   pinError?: unknown
   /** §53 role fills recorded through `recordDuty`, newest fill per run and role. */
@@ -359,14 +366,6 @@ interface OperatorsStub {
   rankings: Record<string, OperatorRanking[]>
 }
 
-/** Router state the `/router` command reads, when provided. */
-interface RouterStub {
-  /** Effectiveness rows `effectiveness` lists. */
-  effectiveness: RouteEffectiveness[]
-  /** Recommendations `recommend` reports by `<taskClass>/<role>`. */
-  recommendations: Record<string, RouteRankingEntry>
-}
-
 /** Evaluator-strategy state the `/evaluator-strategy` command reads, when provided. */
 interface EvaluatorStrategyStub {
   /** Strategy rows `strategies` lists. */
@@ -378,7 +377,7 @@ interface EvaluatorStrategyStub {
 /** Skill-catalog state the `/suggestions` command reads, when provided. */
 interface SkillsStub {
   /** Summaries `list` reports, in order. */
-  summaries: { name: string; description: string }[]
+  summaries: { name: string; description: string; path?: string; source?: string }[]
   /** Definitions `get` reports by name; a missing name reads as undefined. */
   definitions: Record<string, unknown>
   /** Lookup options `list` received, in call order. */
@@ -421,7 +420,6 @@ interface Harness {
   budget: BudgetStub
   meta: MetaStub
   operators: OperatorsStub
-  router: RouterStub
   evaluatorStrategy: EvaluatorStrategyStub
   skills: SkillsStub
   dream: DreamingStub
@@ -436,6 +434,8 @@ async function harness(
   extra: HarnessExtras = {},
 ): Promise<Harness> {
   const dir = await realpath(await mkdtemp(join(tmpdir(), 'evc-')))
+  // Scope locks must never land in the developer's real harness home.
+  const lockDirectory = await mkdtemp(join(tmpdir(), 'dsh-evolution-memory-locks-'))
   const ctx = new Context()
   await ctx.plugin(CommandRuntime)
   await ctx.plugin(Storage)
@@ -444,7 +444,7 @@ async function harness(
   ctx.storage.mount('domain', facility)
   ctx.provide('storageDomain', facility)
   const { default: EvolutionMemoryStore } = await import('@deepseek-ai/dsh-evolution-memory')
-  await ctx.plugin(EvolutionMemoryStore, { capacityBytes: 65536 })
+  await ctx.plugin(EvolutionMemoryStore, { capacityBytes: 65536, lockDirectory })
   await ctx.plugin(SessionStore)
   const workspaces = new Map<string, { id: WorkspaceId; title: string; path: string; sessionIds: SessionId[] }>()
   ctx.provide('workspaceRegistry', {
@@ -578,7 +578,7 @@ async function harness(
       transition: async (id: string, to: BenchmarkState) => {
         benchmark.transitions.push({ id, to })
         if (benchmark.transitionError !== undefined) throw benchmark.transitionError
-        return { id, hash: 'h', capability: 'x', task: 't', gists: [], sourceSessions: [], at: 't', state: to } as BenchmarkTask
+        return { id, hash: 'h', capability: 'x', task: 't', gists: [], sourceSessions: [], ...MINED_TASK, at: 't', state: to } as BenchmarkTask
       },
     } as never)
   }
@@ -620,7 +620,7 @@ async function harness(
       },
     } as never)
   }
-  const routes: RoutesStub = { summaries: [], evidence: [], pins: [], duties: [] }
+  const routes: RoutesStub = { summaries: [], evidence: [], pins: [], duties: [], effectiveness: [], recommendations: {} }
   if (extra.routes === true) {
     ctx.provide('evolutionModelRoutes', {
       routes: (role?: string) => role === undefined
@@ -634,7 +634,14 @@ async function harness(
         if (routes.pinError !== undefined) throw routes.pinError
         return { role: role as RouteRow['role'], provider, model, origin: 'pinned', at: '2026-09-12T00:00:00.000Z' }
       },
-      recommend: (role: string) => routes.recommend?.(role),
+      // One `recommend` answers both commands: a role-wide reading and a
+      // per-task-class reading name the same store.
+      recommend: (role: string, taskClass?: string) => taskClass === undefined
+        ? routes.recommend?.(role)
+        : routes.recommendations[`${taskClass}/${role}`],
+      effectiveness: (taskClass?: string, role?: string) => routes.effectiveness.filter(row =>
+        (taskClass === undefined || row.taskClass === taskClass)
+        && (role === undefined || row.role === role)),
       // §53's two calls over the same stub state, with the package's own rule
       // answering the check so the stub records fills without restating policy.
       recordDuty: async (input: { runId: string; role: DutyRecord['role']; identity: string }) => {
@@ -767,6 +774,9 @@ async function harness(
     } as never)
   }
   const lineage: LineageStub = { experiments: [], comparisons: {}, replays: {}, amendments: [] }
+  if (extra.lineageStore === true) {
+    await ctx.plugin(EvolutionLineage, {})
+  }
   if (extra.lineage === true) {
     ctx.provide('evolutionLineage', {
       experiments: (skill?: string) => lineage.experiments.filter(envelope =>
@@ -815,15 +825,6 @@ async function harness(
       stats: (artifactClass?: string) => operators.stats.filter(row =>
         (artifactClass === undefined || row.artifactClass === artifactClass)),
       ranking: (artifactClass: string) => operators.rankings[artifactClass] ?? [],
-    } as never)
-  }
-  const router: RouterStub = { effectiveness: [], recommendations: {} }
-  if (extra.router === true) {
-    ctx.provide('evolutionRouter', {
-      effectiveness: (taskClass?: string, role?: RoutingRole) => router.effectiveness.filter(row =>
-        (taskClass === undefined || row.taskClass === taskClass)
-        && (role === undefined || row.role === role)),
-      recommend: (taskClass: string, role: RoutingRole) => router.recommendations[`${taskClass}/${role}`],
     } as never)
   }
   const evaluatorStrategy: EvaluatorStrategyStub = { strategies: [], rankings: {} }
@@ -907,7 +908,6 @@ async function harness(
     budget,
     meta,
     operators,
-    router,
     evaluatorStrategy,
     dream,
     skills,
@@ -1059,7 +1059,7 @@ describe('@deepseek-ai/dsh-command-evolution registration', () => {
         definitionId: '@deepseek-ai/dsh-command-evolution/memory',
         name: 'memory',
         description: 'Review staged evolution memory writes',
-        input: { hint: 'pending | approve <id> | reject <id>' },
+        input: { hint: 'pending | add <text> | approve <id> | reject <id>' },
       })
       expect(test.ctx.commands.list(agent)).toContainEqual({
         definitionId: '@deepseek-ai/dsh-command-evolution/refine',
@@ -1114,8 +1114,8 @@ describe('@deepseek-ai/dsh-command-evolution registration', () => {
       expect(test.ctx.commands.list(agent)).toContainEqual({
         definitionId: '@deepseek-ai/dsh-command-evolution/benchmark',
         name: 'benchmark',
-        description: 'Manage the evaluation-task benchmark: admit curriculum proposals and promote tasks along the learning ladder',
-        input: { hint: '[admit | promote <id> [state] | retire <id>]' },
+        description: 'Manage the evaluation-task benchmark: admit curriculum proposals or a dataset corpus and promote tasks along the learning ladder',
+        input: { hint: '[admit | admit-datasets <dir> | promote <id> [state] | retire <id>]' },
       })
       expect(test.ctx.commands.list(agent)).toContainEqual({
         definitionId: '@deepseek-ai/dsh-command-evolution/evaluators',
@@ -1244,9 +1244,10 @@ describe('/memory human command', () => {
     try {
       const session = sessionIn(test.ctx, test.dir, 'usage')
       test.workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: test.dir, sessionIds: [session.id] })
-      const usage = { kind: 'error', text: 'Usage: /memory pending | approve <id> | reject <id>' } as const
+      const usage = { kind: 'error', text: 'Usage: /memory pending | add <text> | approve <id> | reject <id>' } as const
       expect((await run(test, session, '/memory frobnicate')).result).toEqual(usage)
       expect((await run(test, session, '/memory pending extra')).result).toEqual(usage)
+      expect((await run(test, session, '/memory add')).result).toEqual(usage)
       expect((await run(test, session, '/memory approve')).result).toEqual(usage)
       expect((await run(test, session, '/memory approve a b')).result).toEqual(usage)
       expect((await run(test, session, '/memory reject')).result).toEqual(usage)
@@ -1331,6 +1332,37 @@ describe('/memory human command', () => {
         kind: 'success',
         text: `2 pending writes:\n- ${first.id} [memory:replaceArtifacts] lessons from turn 1 (session 's1', ${first.createdAt})\n- ${second.id} [skill:create] new skill polish (session 's2', ${second.createdAt})`,
       })
+    } finally {
+      await shutdown(test)
+    }
+  })
+
+  it('stages a quick-add remember and applies it on approval', async () => {
+    const test = await harness()
+    try {
+      const session = sessionIn(test.ctx, test.dir, 'quick-add')
+      const id = test.scope('ws-1')
+      test.workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: test.dir, sessionIds: [session.id] })
+
+      const added = await run(test, session, '/memory add always run pnpm run lint')
+      const stagedId = /'([0-9a-f-]+)'/.exec(added.result.kind === 'success' ? added.result.text ?? '' : '')?.[1]
+      if (stagedId === undefined) throw new Error(`quick add staged no entry: ${JSON.stringify(added.result)}`)
+      expect(added.result).toEqual({
+        kind: 'success',
+        text: `Staged remember '${stagedId}' (always run pnpm run lint). Approve it with '/memory approve ${stagedId}'.`,
+      })
+      expect(test.ctx.evolutionMemory.read(id)?.instructions).toBe('')
+
+      // Re-adding the same text while pending bumps the entry instead of parking a copy.
+      await run(test, session, '/memory add always run pnpm run lint')
+      expect(test.ctx.evolutionMemory.read(id)?.staged.map(entry => entry.id)).toEqual([stagedId])
+
+      expect((await run(test, session, `/memory approve ${stagedId}`)).result).toEqual({
+        kind: 'success',
+        text: 'Approved staged appendInstructions (always run pnpm run lint).',
+      })
+      expect(test.ctx.evolutionMemory.read(id)?.instructions).toBe('always run pnpm run lint')
+      expect(test.ctx.evolutionMemory.read(id)?.staged).toEqual([])
     } finally {
       await shutdown(test)
     }
@@ -1705,49 +1737,33 @@ describe('/graph human command', () => {
 })
 
 describe('/claims human command', () => {
-  it('says so when the graph is not mounted', async () => {
+  it('lists standing claims most believed first and drops a corrected one', async () => {
     const test = await harness()
-    try {
-      const session = sessionIn(test.ctx, test.dir, 'claims-unmounted')
-      test.workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: test.dir, sessionIds: [session.id] })
-      expect((await run(test, session, '/claims')).result).toEqual({
-        kind: 'error',
-        text: 'The knowledge graph is not mounted.',
-      })
-    } finally {
-      await shutdown(test)
-    }
-  })
-
-  it('lists active claims most believed first and drops a retired one', async () => {
-    const test = await harness(true, undefined, { graph: true })
     try {
       const session = sessionIn(test.ctx, test.dir, 'claims')
       test.workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: test.dir, sessionIds: [session.id] })
       const scope = test.scope('ws-1')
-      await test.ctx.evolutionGraph.recordClaims(scope, [
-        { statement: 'The build is green', supportedBy: [{ source: 's1', quality: 0.9, reliability: 0.9 }] },
-        { statement: 'The build is green', supportedBy: [{ source: 's2', quality: 0.9, reliability: 0.9 }] },
-        { statement: 'The build is red', supportedBy: [{ source: 's3', quality: 0.2, reliability: 0.2 }] },
+      await test.ctx.evolutionMemory.replaceArtifacts(scope, [
+        { ...candidate('The build is green'), confidence: 0.9 },
+        { ...candidate('The build is red'), confidence: 0.2 },
       ])
+      // A confirmed fact is listed before a weakly believed one, and the
+      // confirmations behind it are counted.
+      await test.ctx.evolutionMemory.applyExtractionDecisions(scope, [
+        { kind: 'confirms', artifactId: 'the build is green' },
+      ], { at: '2026-09-22T00:00:00.000Z', sessionId: 's1', provider: 'stub', model: 'stub', origin: 'background_review', inputBytes: 10, truncated: false })
       const listed = await run(test, session, '/claims build')
       if (listed.result.kind !== 'success' || listed.result.text === undefined) {
         throw new Error(`expected a successful claim listing, got ${JSON.stringify(listed.result)}`)
       }
       const text = listed.result.text
-      // Two independent sources beat one weak source, so the supported claim
-      // is listed first with its support counted.
       expect(text.indexOf('The build is green')).toBeLessThan(text.indexOf('The build is red'))
-      expect(text).toContain('2 supporting / 0 contradicting source(s)')
-      // A retired claim stops answering, and the query says so rather than
-      // reporting an empty scope.
-      await test.ctx.evolutionGraph.recordClaims(scope, [
-        {
-          statement: 'The build is red today',
-          supportedBy: [{ source: 's4', quality: 0.5, reliability: 0.5 }],
-          supersedes: ['The build is green'],
-        },
-      ])
+      expect(text).toContain('1 confirming / 0 contradicting check(s)')
+      // A correction replaces the wording, so the superseded claim stops
+      // answering, and the query says so rather than reporting an empty scope.
+      await test.ctx.evolutionMemory.applyExtractionDecisions(scope, [
+        { kind: 'contradicts', artifactId: 'the build is green', statement: 'The build is red today' },
+      ], { at: '2026-09-22T01:00:00.000Z', sessionId: 's2', provider: 'stub', model: 'stub', origin: 'background_review', inputBytes: 10, truncated: false })
       expect((await run(test, session, '/claims green')).result).toEqual({
         kind: 'success',
         text: "No active claim matching 'green' in this scope.",
@@ -1950,7 +1966,7 @@ describe('/skills human command', () => {
     try {
       const session = sessionIn(test.ctx, test.dir, 'skills-usage')
       test.workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: test.dir, sessionIds: [session.id] })
-      const usage = { kind: 'error', text: 'Usage: /skills pending | approve <id>' } as const
+      const usage = { kind: 'error', text: 'Usage: /skills pending | approve <id> | rollback <name>' } as const
       expect((await run(test, session, '/skills pending extra')).result).toEqual(usage)
       expect((await run(test, session, '/skills approve')).result).toEqual(usage)
       expect((await run(test, session, '/skills approve a b')).result).toEqual(usage)
@@ -2019,7 +2035,7 @@ describe('/skills human command', () => {
       })
       expect((await run(test, session, `/skills approve ${staged.id}`)).result).toEqual({
         kind: 'success',
-        text: 'Approved staged skill create (new skill polish). The skill file itself is written by skill_manage; approve only after that write landed.',
+        text: 'Approved staged skill create (new skill polish). A new skill is written by skill_manage; approve only after that write landed.',
       })
       expect(test.ctx.evolutionMemory.read(id)?.staged).toEqual([])
     } finally {
@@ -2027,7 +2043,7 @@ describe('/skills human command', () => {
     }
   })
 
-  it('approves a staged patch, whose evidence is the measurement it carries', async () => {
+  it('refuses to promote a staged patch without the seams that record its preimage', async () => {
     const test = await harness()
     try {
       const session = sessionIn(test.ctx, test.dir, 'skills-approve-patch')
@@ -2045,10 +2061,102 @@ describe('/skills human command', () => {
         originSessionId: 's1', gist: "optimizer patch for 'writer' by rewrite: pass true, 3 tokens",
       })
       expect((await run(test, session, `/skills approve ${staged.id}`)).result).toEqual({
-        kind: 'success',
-        text: "Approved staged skill patch (optimizer patch for 'writer' by rewrite: pass true, 3 tokens). The skill file itself is written by skill_manage; approve only after that write landed.",
+        kind: 'error',
+        text: `Cannot promote '${staged.id}': the skill catalog is not mounted.`,
       })
+      expect(test.ctx.evolutionMemory.read(id)?.staged).toHaveLength(1)
+    } finally {
+      await shutdown(test)
+    }
+  })
+
+  it('promotes a staged patch: writes the body, records the preimage, and resolves the entry', async () => {
+    const test = await harness(true, undefined, { skills: true, lineageStore: true })
+    try {
+      const session = sessionIn(test.ctx, test.dir, 'skills-promote')
+      const id = test.scope('ws-1')
+      test.workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: test.dir, sessionIds: [session.id] })
+      const before = '---\nname: writer\ndescription: writer.\n---\n# writer v1'
+      const after = '---\nname: writer\ndescription: writer.\n---\n# writer v2'
+      const dir = join(test.dir, 'skills', 'writer')
+      await mkdir(dir, { recursive: true })
+      const file = join(dir, 'SKILL.md')
+      await writeFile(file, before, 'utf8')
+      test.skills.summaries.push({ name: 'writer', description: 'writer.', path: file, source: 'workspace' })
+      const staged = await test.ctx.evolutionMemory.stageWrite({
+        scopeId: id, kind: 'skill', op: 'patch',
+        payload: {
+          skill: 'writer',
+          body: after,
+          operator: 'rewrite',
+          baseline: { pass: true, tokens: 10, wallTimeMs: 5 },
+          winner: { pass: true, tokens: 3, wallTimeMs: 5 },
+        },
+        originSessionId: 's1', gist: "optimizer patch for 'writer' by rewrite: pass true, 3 tokens",
+      })
+
+      expect((await run(test, session, `/skills approve ${staged.id}`)).result).toEqual({
+        kind: 'success',
+        text: `Promoted staged skill patch (optimizer patch for 'writer' by rewrite: pass true, 3 tokens): wrote ${file}`
+          + " and recorded the preimage it replaces. Roll back with '/skills rollback writer'.",
+      })
+      expect(await readFile(file, 'utf8')).toBe(after)
+      // The chain holds the body that was replaced, then the promoted body.
+      expect(test.ctx.evolutionLineage.revisions('skill:writer').map(revision => revision.body)).toEqual([before, after])
       expect(test.ctx.evolutionMemory.read(id)?.staged).toEqual([])
+    } finally {
+      await shutdown(test)
+    }
+  })
+
+  it('rolls a promoted skill back to its recorded preimage', async () => {
+    const test = await harness(true, undefined, { skills: true, lineageStore: true })
+    try {
+      const session = sessionIn(test.ctx, test.dir, 'skills-rollback')
+      const id = test.scope('ws-1')
+      test.workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: test.dir, sessionIds: [session.id] })
+      const before = '---\nname: writer\ndescription: writer.\n---\n# writer v1'
+      const after = '---\nname: writer\ndescription: writer.\n---\n# writer v2'
+      const dir = join(test.dir, 'skills', 'writer')
+      await mkdir(dir, { recursive: true })
+      const file = join(dir, 'SKILL.md')
+      await writeFile(file, before, 'utf8')
+      test.skills.summaries.push({ name: 'writer', description: 'writer.', path: file, source: 'workspace' })
+      await test.ctx.evolutionMemory.stageWrite({
+        scopeId: id, kind: 'skill', op: 'patch',
+        payload: { skill: 'writer', body: after, operator: 'rewrite', baseline: { pass: true, tokens: 10, wallTimeMs: 5 }, winner: { pass: true, tokens: 3, wallTimeMs: 5 } },
+        originSessionId: 's1', gist: 'patch',
+      })
+      const entry = test.ctx.evolutionMemory.read(id)?.staged[0]
+      await run(test, session, `/skills approve ${entry?.id ?? ''}`)
+      expect(await readFile(file, 'utf8')).toBe(after)
+
+      expect((await run(test, session, '/skills rollback writer')).result).toEqual({
+        kind: 'success',
+        text: "Rolled 'writer' back to revision 1, recorded as a new revision.",
+      })
+      expect(await readFile(file, 'utf8')).toBe(before)
+      // The revert lands as a new revision rather than rewriting history.
+      expect(test.ctx.evolutionLineage.revisions('skill:writer').map(revision => revision.body)).toEqual([before, after, before])
+    } finally {
+      await shutdown(test)
+    }
+  })
+
+  it('refuses to roll back a body no revision recorded', async () => {
+    const test = await harness(true, undefined, { skills: true, lineageStore: true })
+    try {
+      const session = sessionIn(test.ctx, test.dir, 'skills-rollback-unknown')
+      test.workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: test.dir, sessionIds: [session.id] })
+      const dir = join(test.dir, 'skills', 'writer')
+      await mkdir(dir, { recursive: true })
+      const file = join(dir, 'SKILL.md')
+      await writeFile(file, '---\nname: writer\ndescription: writer.\n---\n# hand edited', 'utf8')
+      test.skills.summaries.push({ name: 'writer', description: 'writer.', path: file, source: 'workspace' })
+      expect((await run(test, session, '/skills rollback writer')).result).toEqual({
+        kind: 'error',
+        text: "Cannot roll back 'writer': no recorded revision matches its current body.",
+      })
     } finally {
       await shutdown(test)
     }
@@ -2098,7 +2206,7 @@ describe('/skills human command', () => {
       })
       expect((await run(test, session, `/skills diff ${memory.id}`)).result).toEqual({
         kind: 'error',
-        text: 'Usage: /skills pending | approve <id>',
+        text: 'Usage: /skills pending | approve <id> | rollback <name>',
       })
     } finally {
       await shutdown(test)
@@ -2725,7 +2833,7 @@ describe('/curator human command', () => {
       report = { status: 'staged', stagedId: 'staged-9', holdout: null }
       expect((await run(test, session, '/curator optimize writer s1')).result).toEqual({
         kind: 'success',
-        text: 'Optimized \'writer\': staged skill patch staged-9. Write the skill with skill_manage, then \'/skills approve staged-9\' to drop the entry.',
+        text: 'Optimized \'writer\': staged skill patch staged-9. Approve it with \'/skills approve staged-9\' to write the body and record the preimage it replaces in one transaction.',
       })
       report = {
         status: 'staged',
@@ -2734,7 +2842,7 @@ describe('/curator human command', () => {
       }
       expect((await run(test, session, '/curator optimize writer s1')).result).toEqual({
         kind: 'success',
-        text: 'Optimized \'writer\': staged skill patch staged-9. Holdout: true pass at 4 tokens vs baseline true pass at 10 tokens. Write the skill with skill_manage, then \'/skills approve staged-9\' to drop the entry.',
+        text: 'Optimized \'writer\': staged skill patch staged-9. Holdout: true pass at 4 tokens vs baseline true pass at 10 tokens. Approve it with \'/skills approve staged-9\' to write the body and record the preimage it replaces in one transaction.',
       })
       report = { status: 'no-improvement', reason: 'no variant beats' }
       expect((await run(test, session, '/curator optimize writer s1')).result).toEqual({
@@ -3179,12 +3287,15 @@ describe('/trace human command', () => {
             interrupted: false,
             retries: 1,
             usage: null,
+            estimatedCostUsd: null,
             context: null,
             calls: [
               { callId: 'c1', name: 'bash', ok: true, errorName: null, errorCode: null, message: null, snapshot: null, at },
               { callId: 'c2', name: 'bash', ok: false, errorName: 'bash', errorCode: 'EXIT_1', message: 'boom', snapshot: null, at },
             ],
             failures: 1,
+            stateDelta: [],
+            subagentUsage: { count: 0, runIds: [] },
           }],
           failures: [{
             callId: 'c2',
@@ -3333,7 +3444,7 @@ describe('/benchmark human command', () => {
       const session = sessionIn(mounted.ctx, mounted.dir, 'benchmark-extra')
       expect((await run(mounted, session, '/benchmark nope')).result).toEqual({
         kind: 'error',
-        text: 'Usage: /benchmark [admit | promote <id> [state] | retire <id>]',
+        text: 'Usage: /benchmark [admit | admit-datasets <dir> | promote <id> [state] | retire <id>]',
       })
     } finally {
       await shutdown(mounted)
@@ -3350,6 +3461,7 @@ describe('/benchmark human command', () => {
         task: 'Recover from boom',
         gists: ['boom'],
         sourceSessions: ['s1'],
+        ...MINED_TASK,
         at: '2026-09-12T00:00:00.000Z',
         state: 'fresh',
       }, {
@@ -3359,6 +3471,7 @@ describe('/benchmark human command', () => {
         task: 'Recover from stale',
         gists: ['stale'],
         sourceSessions: ['s1'],
+        ...MINED_TASK,
         at: '2026-09-12T00:00:00.000Z',
         state: 'retired',
       }]
@@ -3409,6 +3522,61 @@ describe('/benchmark human command', () => {
     }
   })
 
+  it('admits the §5.3 dataset corpus it is pointed at', async () => {
+    const test = await harness(true, undefined, { benchmark: true })
+    try {
+      const corpus = fileURLToPath(new URL('../../evolution-benchmark/datasets/', import.meta.url))
+      test.benchmark.admittedCount = 3
+      test.benchmark.duplicates = ['dup']
+      const session = sessionIn(test.ctx, test.dir, 'benchmark-datasets')
+      expect((await run(test, session, `/benchmark admit-datasets ${corpus}`)).result).toEqual({
+        kind: 'success',
+        text: 'Admitted 3 benchmark tasks from 5 datasets, 1 duplicate skipped.',
+      })
+      // One input per task of the shipped corpus: every §5.3 family is offered,
+      // each task carries the family its file declares and the authored
+      // observable, and none cites mined evidence.
+      const inputs = test.benchmark.admitted[0] ?? []
+      expect(new Set(inputs.map(input => input.family))).toEqual(
+        new Set(['coding', 'research', 'mentor-ict', 'long-horizon', 'loop-recovery']),
+      )
+      expect(inputs.every(input => input.gists.length === 0 && input.sourceSessions.length === 0)).toBe(true)
+      expect(inputs.every(input => (input.acceptance ?? '') !== '')).toBe(true)
+      expect(inputs.find(input => input.family === 'long-horizon')).toBeDefined()
+      // The long-horizon file reaches the 100+ horizon tier and classifies its tasks.
+      const longHorizon = inputs.filter(input => input.family === 'long-horizon')
+      expect(longHorizon.some(input => (input.stepSpan ?? 0) >= 100)).toBe(true)
+      expect(longHorizon.every(input => input.profile !== null)).toBe(true)
+    } finally {
+      await shutdown(test)
+    }
+  })
+
+  it('reports an empty corpus as no datasets and an absent one as an error', async () => {
+    const test = await harness(true, undefined, { benchmark: true })
+    const empty = await mkdtemp(join(tmpdir(), 'benchmark-corpus-'))
+    try {
+      const session = sessionIn(test.ctx, test.dir, 'benchmark-datasets-empty')
+      expect((await run(test, session, `/benchmark admit-datasets ${empty}`)).result).toEqual({
+        kind: 'success',
+        text: 'Admitted 0 benchmark tasks from 0 datasets, 0 duplicates skipped.',
+      })
+      expect(test.benchmark.admitted[0]).toEqual([])
+      const usage = sessionIn(test.ctx, test.dir, 'benchmark-datasets-usage')
+      expect((await run(test, usage, '/benchmark admit-datasets')).result).toEqual({
+        kind: 'error',
+        text: 'Usage: /benchmark [admit | admit-datasets <dir> | promote <id> [state] | retire <id>]',
+      })
+      const absent = sessionIn(test.ctx, test.dir, 'benchmark-datasets-absent')
+      const failure = (await run(test, absent, `/benchmark admit-datasets ${join(empty, 'not-there')}`)).result
+      if (failure.kind !== 'error') throw new Error(`expected an error, got ${failure.kind}`)
+      expect(failure.text).toContain('ENOENT')
+    } finally {
+      await rm(empty, { recursive: true, force: true })
+      await shutdown(test)
+    }
+  })
+
   it('requires the curriculum store for admit and promotes along the ladder', async () => {
     const test = await harness(true, undefined, { benchmark: true })
     try {
@@ -3424,6 +3592,7 @@ describe('/benchmark human command', () => {
         task: 'Recover from boom',
         gists: ['boom'],
         sourceSessions: ['s1'],
+        ...MINED_TASK,
         at: '2026-09-12T00:00:00.000Z',
         state: 'fresh',
       }, {
@@ -3433,6 +3602,7 @@ describe('/benchmark human command', () => {
         task: 'Recover from stale',
         gists: ['stale'],
         sourceSessions: ['s1'],
+        ...MINED_TASK,
         at: '2026-09-12T00:00:00.000Z',
         state: 'holdout',
       }]
@@ -3761,8 +3931,8 @@ describe('/routes human command', () => {
     const test = await harness(true, undefined, { routes: true })
     try {
       test.routes.summaries = [
-        { role: 'candidate-generation', provider: 'deepseek', model: 'deepseek-chat', origin: 'observed', runs: 2, passRate: 1, meanTokens: 3, lastAt: '2026-09-12T00:00:00.000Z' },
-        { role: 'evaluation', provider: 'deepseek', model: 'deepseek-reasoner', origin: 'pinned', runs: 0, passRate: 0, meanTokens: 0, lastAt: null },
+        { role: 'candidate-generation', provider: 'deepseek', model: 'deepseek-chat', origin: 'observed', runs: 2, passes: 2, passRate: 1, meanTokens: 3, meanWallTimeMs: 5, lastAt: '2026-09-12T00:00:00.000Z' },
+        { role: 'evaluation', provider: 'deepseek', model: 'deepseek-reasoner', origin: 'pinned', runs: 0, passes: 0, passRate: 0, meanTokens: 0, meanWallTimeMs: 0, lastAt: null },
       ]
       test.routes.recommend = role => role === 'candidate-generation'
         ? { provider: 'deepseek', model: 'deepseek-chat' }
@@ -4865,7 +5035,7 @@ describe('/learn human command', () => {
       })
       expect(test.followups).toEqual([{
         role: 'user',
-        source: { kind: 'plugin', plugin: 'command-evolution' },
+        source: { kind: 'command-evolution' },
         content: [{ type: 'text', text: buildLearnPrompt('Rust async traits') }],
         id: expect.any(String) as unknown,
       }])
@@ -5676,12 +5846,12 @@ describe('/router human command', () => {
       const session = sessionIn(test.ctx, test.dir, 'router-unmounted')
       expect((await run(test, session, '/router')).result).toEqual({
         kind: 'error',
-        text: 'The evolution router store is not mounted.',
+        text: 'The evolution model-routes store is not mounted.',
       })
     } finally {
       await shutdown(test)
     }
-    const mounted = await harness(true, undefined, { router: true })
+    const mounted = await harness(true, undefined, { routes: true })
     try {
       const session = sessionIn(mounted.ctx, mounted.dir, 'router-grammar')
       const usage = 'Usage: /router [effectiveness [<taskClass>] [<role>] | recommend <taskClass> <role>]'
@@ -5695,15 +5865,16 @@ describe('/router human command', () => {
   })
 
   it('lists measured effectiveness and names the recommended route', async () => {
-    const test = await harness(true, undefined, { router: true })
+    const test = await harness(true, undefined, { routes: true })
     try {
-      test.router.effectiveness = [
+      test.routes.effectiveness = [
         {
           taskClass: 'writer',
           role: 'evaluation',
           provider: 'deepseek',
           model: 'chat',
-          samples: 5,
+          origin: 'observed',
+          runs: 5,
           passes: 4,
           passRate: 0.8,
           meanTokens: 1000,
@@ -5711,15 +5882,16 @@ describe('/router human command', () => {
           lastAt: '2026-09-12T00:00:00.000Z',
         },
       ]
-      test.router.recommendations['writer/evaluation'] = {
+      test.routes.recommendations['writer/evaluation'] = {
         provider: 'deepseek',
         model: 'chat',
-        samples: 5,
+        origin: 'observed',
+        runs: 5,
         passRate: 0.8,
         meanTokens: 1000,
         meanWallTimeMs: 2000,
         score: 0.75,
-        reason: '4 of 5 outcomes passed; samples 5 ≥ minimum 3',
+        reason: '4 of 5 outcomes passed; runs 5 ≥ minimum 3',
       }
       const session = sessionIn(test.ctx, test.dir, 'router-read')
       expect((await run(test, session, '/router effectiveness')).result).toEqual({
@@ -5733,7 +5905,7 @@ describe('/router human command', () => {
         kind: 'success',
         text: [
           "Recommended route for evaluation on 'writer': deepseek/chat",
-          '4 of 5 outcomes passed; samples 5 ≥ minimum 3',
+          '4 of 5 outcomes passed; runs 5 ≥ minimum 3',
         ].join('\n'),
       })
     } finally {
@@ -5742,7 +5914,7 @@ describe('/router human command', () => {
   })
 
   it('reports the empty state and an under-sampled recommendation', async () => {
-    const test = await harness(true, undefined, { router: true })
+    const test = await harness(true, undefined, { routes: true })
     try {
       const session = sessionIn(test.ctx, test.dir, 'router-empty')
       expect((await run(test, session, '/router')).result).toEqual({
@@ -5894,8 +6066,8 @@ describe('/metrics human command', () => {
       expect(text).toContain('- learning-velocity: 4')
       // A store left unmounted is a reason, not an absent entry.
       expect(text).toContain('- rollback-rate: not measured — the evolution canary store is not mounted')
-      // A metric no store can answer names the missing record instead.
-      expect(text).toContain('- benchmark-robustness: not measured — no record scores a benchmark task')
+      // The benchmark store is unmounted here too, so the share names it.
+      expect(text).toContain('- benchmark-robustness: not measured — the benchmark store is not mounted')
     } finally {
       await shutdown(test)
     }

@@ -42,7 +42,7 @@ class MemoryProvider implements SkillProvider {
 async function mounted(candidates: SkillCandidate[]): Promise<{ ctx: Context; quarantined: number[] }> {
   const ctx = new Context()
   const quarantined: number[] = []
-  ctx.on('skills/change', payload => { quarantined.push(payload.quarantinedCount) })
+  ctx.on('skills/change', (payload) => { quarantined.push(payload.quarantinedCount) })
   await ctx.plugin(SkillRegistry, {})
   ctx.skills.registerProvider(() => new MemoryProvider(candidates))
   return { ctx, quarantined }

@@ -32,6 +32,14 @@ interface SubagentCapabilities {
   readonly depthLimit: boolean
   readonly toolFilter: boolean
   readonly persona: boolean
+  /**
+   * Whether the provider composes the child in this process, so
+   * {@link SubagentStartRequest.workerLimits} can be enforced inside the
+   * child's own scope. A provider that runs the child out of process cannot
+   * observe its steps and must declare `false`: a worker ceiling it accepted
+   * and never applied would be a promise it cannot keep.
+   */
+  readonly workerLimits: boolean
 }
 ```
 
@@ -103,6 +111,13 @@ interface SubagentStartRequest {
    * persona (strict `{{…}}` interpolation against the registered variables).
    */
   readonly persona?: string
+  /**
+   * Optional ceilings the child enforces on itself. Requires
+   * {@link SubagentCapabilities.workerLimits}; rejected at start otherwise.
+   * In-process backends install them in the child's creation window, before
+   * its first step.
+   */
+  readonly workerLimits?: WorkerLimits
 }
 ```
 
@@ -314,6 +329,14 @@ interface SubagentResult {
    * schema-agnostic.
    */
   readonly structured?: unknown
+  /**
+   * The child's settled result read as the {@link AgentResult} contract: the
+   * status the child reported when it returned that shape, otherwise the status
+   * its stop reason classifies to. Present on every result a one-shot run
+   * resolves through `ctx.subagents.start`, which attaches it; a provider-built
+   * result may omit it and consumers derive it with `agentResultOf`.
+   */
+  readonly agentResult?: AgentResult
   /**
    * Provider-authored, non-assistant failure detail for a non-`completed`
    * result. Providers keep this text free of tool inputs, file contents,

@@ -29,6 +29,8 @@ import {
   type CancelNotification,
   type CloseSessionRequest,
   type CloseSessionResponse,
+  type ForkSessionRequest,
+  type ForkSessionResponse,
   type InitializeRequest,
   type InitializeResponse,
   type ListSessionsRequest,
@@ -46,10 +48,12 @@ import {
   type Stream,
 } from '@agentclientprotocol/sdk'
 import type { ModelSelection } from '@deepseek-ai/dsh-agent'
-import type { SessionId } from '@deepseek-ai/dsh-session'
+import { SessionLogOffset, SessionSeq, type SessionEvent, type SessionId } from '@deepseek-ai/dsh-session'
+import { buildForkSeed } from '@deepseek-ai/dsh-session/fork'
 import type {} from '@deepseek-ai/dsh-session-persistence'
 // Side-effect type import: declaration-merges the approval waterfall answered below.
 import type {} from '@deepseek-ai/dsh-user-approval'
+import { AcpClient } from './client.ts'
 import { supportsAcpImagePrompts } from './content.ts'
 import { AcpMcpConfigError } from './mcp.ts'
 import { AcpModelConfigError } from './model-control.ts'
@@ -100,6 +104,9 @@ export function apply(ctx: Context, config: AcpConfig): void {
   const persistence = ctx.sessionPersistence
   const logger = ctx.logger
   const sessionListPageSize = resolveSessionListPageSize(config.sessionListPageSize)
+  // The capability-seam bridge: this plugin owns the connected client's
+  // capabilities and the routing table the shell/filesystem providers read.
+  const client = new AcpClient(ctx)
   const sessions = new Map<SessionId, AcpSession>()
   const activating = new Set<SessionId>()
   let closed = false
@@ -119,6 +126,27 @@ export function apply(ctx: Context, config: AcpConfig): void {
     const record = sessions.get(sessionId)
     if (record === undefined) throw invalidParams(`unknown session: ${sessionId}`)
     return record
+  }
+
+  /**
+   * Read one fork source's complete event log through an explicit storage read.
+   * A live source is flushed first, so the durable prefix the seed copies
+   * already contains every committed event; a client-visible root session that
+   * was never active here forks from its stored history unchanged.
+   */
+  const forkSourceEvents = async (sourceId: SessionId, signal: AbortSignal): Promise<readonly SessionEvent[]> => {
+    const live = sessions.get(sourceId)
+    if (live !== undefined) await ctx.sessions.flush(live.agent.session)
+    const stored = await persistence.stat(sourceId, { signal })
+    if (stored === undefined || stored.header.origin === 'subagent') {
+      throw invalidParams(`session is not forkable: ${sourceId}`)
+    }
+    const handle = await persistence.open(sourceId, 'read', { signal })
+    try {
+      return (await handle.read(0, undefined, { signal })).events
+    } finally {
+      await handle.close()
+    }
   }
 
   /** Send one ordered protocol update while containing transport-only failure. */
@@ -149,6 +177,12 @@ export function apply(ctx: Context, config: AcpConfig): void {
     for (const record of sessions.values()) record.topologyChanged()
   })
 
+  // A registry change may add, remove, or rescope any command, so every live
+  // session republishes its complete view; the client replaces the whole list.
+  ctx.on('commands/change', () => {
+    for (const record of sessions.values()) record.advertiseCommands()
+  })
+
   // Permission requests are a machine policy channel for ACP clients such as
   // dsh-subagent-acp. The bridge offers one-shot choices only and never infers a
   // durable grant from an unknown client response.
@@ -173,17 +207,26 @@ export function apply(ctx: Context, config: AcpConfig): void {
   })
 
   const implementation = {
-    async initialize(_params: InitializeRequest): Promise<InitializeResponse> {
+    async initialize(params: InitializeRequest): Promise<InitializeResponse> {
       // Single-version agent: the spec's "same version if supported, else
       // the latest supported" both resolve to this server's one version.
       imagePromptEnabled = await supportsAcpImagePrompts(ctx, config.provider, config.model)
+      // The capability-seam providers read this binding instead of holding a
+      // connection of their own, so a client that advertises nothing simply
+      // keeps the composition's local execution and file behavior.
+      const advertised = params.clientCapabilities
+      client.bind(conn, {
+        terminal: advertised?.terminal === true,
+        readTextFile: advertised?.fs?.readTextFile === true,
+        writeTextFile: advertised?.fs?.writeTextFile === true,
+      })
       return {
         protocolVersion: PROTOCOL_VERSION,
         agentInfo: { name: 'deepseek-harness-acp', version: '0.0.1' },
         agentCapabilities: {
           mcpCapabilities: { http: true },
           promptCapabilities: { image: imagePromptEnabled, audio: false, embeddedContext: false },
-          sessionCapabilities: { close: {}, list: {}, resume: {} },
+          sessionCapabilities: { close: {}, list: {}, resume: {}, fork: {} },
         },
         authMethods: [],
       }
@@ -222,15 +265,18 @@ export function apply(ctx: Context, config: AcpConfig): void {
         throw internalError('connection closed during session/new')
       }
       sessions.set(sessionId, record)
+      client.track(sessionId, params.cwd)
       try {
         const configOptions = await record.configOptions(signal)
         assertOpen()
         // The attached log writer's flush materializes an empty session durably.
         await ctx.sessions.flush(record.agent.session)
         assertOpen()
+        record.advertiseCommands()
         return { sessionId, configOptions }
       } catch (error: unknown) {
         sessions.delete(sessionId)
+        client.untrack(sessionId)
         await record.close('session/new activation failed')
         throw error
       }
@@ -279,14 +325,73 @@ export function apply(ctx: Context, config: AcpConfig): void {
           throw internalError('connection closed during session/resume')
         }
         sessions.set(sessionId, record)
+        client.track(sessionId, params.cwd)
         try {
-          return { configOptions: await record.configOptions(signal) }
+          const configOptions = await record.configOptions(signal)
+          record.advertiseCommands()
+          return { configOptions }
         } catch (error: unknown) {
           sessions.delete(sessionId)
+          client.untrack(sessionId)
           await record.close('session/resume option discovery failed')
           throw error
         }
       })().finally(() => { activating.delete(sessionId) })
+    },
+
+    async forkSession(params: ForkSessionRequest, signal: AbortSignal): Promise<ForkSessionResponse> {
+      assertOpen()
+      validateWorkspaceParams(params)
+      const sourceId = brandString<SessionId>(params.sessionId)
+      let events: readonly SessionEvent[]
+      try {
+        events = await forkSourceEvents(sourceId, signal)
+      } catch (error: unknown) {
+        if (error instanceof RequestError) throw error
+        throw internalError(`failed to read the fork source: ${errorChain(error)}`)
+      }
+      const sessionId = brandString<SessionId>(randomUUID())
+      // `dsh-session` owns the one fork-seed implementation (the same builder
+      // `SessionStore.fork` calls); the Agent factory is the only owner that
+      // can attach a live Agent to that prefix, so the seed goes there rather
+      // than through a store-created session no Agent owns.
+      const boundary = events.length === 0 ? undefined : SessionSeq(events.length - 1)
+      const seed = boundary === undefined ? [] : buildForkSeed(events, boundary)
+      let record: AcpSession
+      try {
+        record = await AcpSession.fork(ctx, {
+          sessionId,
+          cwd: params.cwd,
+          mcpServers: params.mcpServers ?? [],
+          agentOptions: agentOptions(config),
+          fallbackSelection: initialSelection(config),
+          signal,
+          notify,
+          seed,
+          inheritedEventCount: SessionLogOffset(boundary === undefined ? 0 : boundary + 1),
+          parentSession: sourceId,
+        })
+      } catch (error: unknown) {
+        if (error instanceof AcpMcpConfigError) throw invalidParams(error.message)
+        throw error
+      }
+      /* v8 ignore next 4 -- a real stdio close can race an in-flight fork. */
+      if (closed) {
+        await record.close('connection closed during session/fork')
+        throw internalError('connection closed during session/fork')
+      }
+      sessions.set(sessionId, record)
+      client.track(sessionId, params.cwd)
+      try {
+        const configOptions = await record.configOptions(signal)
+        record.advertiseCommands()
+        return { sessionId, configOptions }
+      } catch (error: unknown) {
+        sessions.delete(sessionId)
+        client.untrack(sessionId)
+        await record.close('session/fork option discovery failed')
+        throw error
+      }
     },
 
     async listSessions(params: ListSessionsRequest, signal: AbortSignal): Promise<ListSessionsResponse> {
@@ -354,6 +459,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
         throw internalError(`session close failed: ${errorChain(error)}`)
       } finally {
         if (sessions.get(sessionId) === record) sessions.delete(sessionId)
+        client.untrack(sessionId)
       }
       return {}
     },
@@ -383,6 +489,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
     })
     .onRequest(methods.agent.session.new, ({ params, signal }) => implementation.newSession(params, signal))
     .onRequest(methods.agent.session.list, ({ params, signal }) => implementation.listSessions(params, signal))
+    .onRequest(methods.agent.session.fork, ({ params, signal }) => implementation.forkSession(params, signal))
     .onRequest(methods.agent.session.resume, ({ params, signal }) => implementation.resumeSession(params, signal))
     .onRequest(methods.agent.session.close, ({ params }) => implementation.closeSession(params))
     .onRequest(methods.agent.session.setConfigOption, ({ params, signal }) => implementation.setSessionConfigOption(params, signal))
@@ -403,6 +510,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
       for (const record of records) {
         /* v8 ignore next -- closed blocks concurrent handlers; each captured record remains mapped until this loop. */
         if (sessions.get(record.agent.session.id) === record) sessions.delete(record.agent.session.id)
+        client.untrack(record.agent.session.id)
       }
       const failures: unknown[] = []
       for (const result of disposals) {

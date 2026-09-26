@@ -8,6 +8,7 @@
 
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { JobOutcome } from '@deepseek-ai/dsh-jobs'
+import { NO_FOLLOW_UP, agentResultOf, gateAgentResult } from './agent-result.ts'
 import type { SubagentResult, SubagentRun } from './types.ts'
 
 /** Flatten a child's final output blocks to the task's final text. */
@@ -31,13 +32,23 @@ function failureDetail(result: SubagentResult): string {
  * cancellation (`aborted` without a diagnostic) is killed, and provider-
  * diagnosed remote aborts plus every other reason are failed without partial
  * output.
+ *
+ * A `completed` run still passes the result gate: a child that finished its
+ * turn but reported a status the parent must not consume as success fails the
+ * job with the gate's reason instead of announcing a result. This path starts
+ * no follow-up run — the parent collects the outcome and decides whether to
+ * delegate again.
  * @param result - child terminal result.
  * @returns outcome for the `ctx.jobs` registration.
  */
 function runOutcome(result: SubagentResult): JobOutcome {
   switch (result.stopReason) {
-    case 'completed':
-      return { status: 'completed', result: finalText(result.output) }
+    case 'completed': {
+      const gate = gateAgentResult(agentResultOf(result), NO_FOLLOW_UP)
+      return gate.kind === 'rejected'
+        ? { status: 'failed', detail: gate.reason }
+        : { status: 'completed', result: finalText(result.output) }
+    }
     case 'aborted':
       return result.diagnostic === undefined
         ? { status: 'killed' }

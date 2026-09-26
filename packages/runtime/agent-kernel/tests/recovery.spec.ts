@@ -22,6 +22,9 @@ const EXPECTED: Readonly<Record<FailureKind, RecoveryAction>> = {
   'budget-exhausted': 'checkpoint-pause',
   'stale-write': 'reread',
   'verification-failed': 'diagnose',
+  // §8.5: a repair that broke a criterion an earlier verification passed is
+  // diagnosed, and counts against the same repair budget.
+  'verification-regressed': 'diagnose',
   'subagent-failed': 'settle-child',
   'workflow-failed': 'diagnose',
   'persistence-failed': 'fail-closed',
@@ -32,6 +35,7 @@ const EXPECTED: Readonly<Record<FailureKind, RecoveryAction>> = {
   'no-progress': 'ask-user',
   stalled: 'retry',
   'step-ceiling': 'checkpoint-pause',
+  'plan-drift': 'replan',
   unknown: 'diagnose',
 }
 

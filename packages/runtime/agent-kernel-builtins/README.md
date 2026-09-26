@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Mount this package beside the agent kernel so `mode: 'enforce'` governs real traffic. It declares every shipped product tool's capabilities and the resource projection each capability applies to, registering them with the kernel once the kernel service exists, in any mount order. It owns no policy and no execution: the kernel's permission document still decides every action, and unloading the plugin removes exactly the declarations it added.
+Mount this package beside the agent kernel so `mode: 'enforce'` governs real traffic. It declares every shipped product tool's capabilities and the resource projection each capability applies to, registering them with the kernel once the kernel service exists, in any mount order, and it registers the product's independent reviewer on the kernel's coding-lifecycle port (§10.6). It owns no policy and no execution: the kernel's permission document still decides every action, and unloading the plugin removes exactly what it registered.
 
 ## Table of Contents
 
@@ -25,7 +25,7 @@ Mount this package beside the agent kernel so `mode: 'enforce'` governs real tra
 <a id="use-this-package"></a>
 ## Use this package
 
-Load this plugin alongside `@deepseek-ai/dsh-agent-kernel` when a deployment turns on `mode: 'enforce'`. The plugin needs no configuration and injects no service; it only registers declarations. Mount order never matters: the registrations wait on the injected `agentKernel` service.
+Load this plugin alongside `@deepseek-ai/dsh-agent-kernel` when a deployment turns on `mode: 'enforce'` or wants the kernel's §10.5 REVIEW phase to have an implementer. It injects no service; it only registers. Mount order never matters: the registrations wait on the injected `agentKernel` service.
 
 ### Minimal composition
 
@@ -43,13 +43,21 @@ Load this plugin alongside `@deepseek-ai/dsh-agent-kernel` when a deployment tur
 - name: '@deepseek-ai/dsh-agent-kernel-builtins'
 ```
 
+### Configuration
+
+| Field | Default | Meaning |
+|---|---|---|
+| `reviewer` | `true` | Whether this plugin registers the shipped independent reviewer on `ctx.agentKernel.lifecycle`. Switch it off when the deployment registers its own reviewer, because the kernel refuses a second registration. |
+
+The registered reviewer stays dormant until the kernel's own `Config.codingLifecycle.review.enabled` is set: a deployment that never enables the REVIEW phase spawns nothing, and this plugin's registration changes no behavior.
+
 ### When to choose it
 
 Choose it when enforce mode must govern the shipped tools: an unattended run where every tool call needs a recorded decision, or a deployment whose permission document names action families rather than tools. Avoid it when a deployment declares its own surface instead — a renamed tool, a private tool package, or dynamically minted `mcp__*` names each need their own declaration, and an undeclared tool stays denied.
 
 ### What you get
 
-One declaration per shipped product tool, each naming the capabilities one invocation needs and projecting the call's parsed arguments to the resource each capability applies to. Filesystem tools project paths, shell tools project commands, network tools project queries and URLs, delegation tools project descriptions and agent ids, and the remaining tools project the identifier their family is governed by. Every projection is total and never empty: an absent or malformed argument falls back to a constant naming the tool's domain, so an unknown resource matches only broad rules and can never slip past a narrow one. The complete table lives in [`src/declarations.ts`](src/declarations.ts), and a spec asserts it names exactly the tools the generated [tool catalog](../../../docs/tool-catalog.md) lists — a new shipped tool fails that spec until it is declared.
+One declaration per shipped product tool, each naming the capabilities one invocation needs and projecting the call's parsed arguments to the resource each capability applies to, plus the §10.6 independent reviewer: the coding lifecycle's REVIEW phase spawns it as a fresh child of the task's agent through the shipped reviewer seam (`@deepseek-ai/dsh-command-review`), and it answers with the structured report the phase consumes. The reviewer prompt names the diff to inspect, the objective the change was supposed to accomplish, and the schema its final turn must satisfy. Filesystem tools project paths, shell tools project commands, network tools project queries and URLs, delegation tools project descriptions and agent ids, and the remaining tools project the identifier their family is governed by. Every projection is total and never empty: an absent or malformed argument falls back to a constant naming the tool's domain, so an unknown resource matches only broad rules and can never slip past a narrow one. The complete table lives in [`src/declarations.ts`](src/declarations.ts), and a spec asserts it names exactly the tools the generated [tool catalog](../../../docs/tool-catalog.md) lists — a new shipped tool fails that spec until it is declared.
 
 ### Where declarations belong
 
@@ -63,18 +71,23 @@ The declarations live here rather than in the tool packages because only the pol
 <details>
 <summary>Implementation internals — click to expand</summary>
 
-This section explains how the declarations reach the kernel; the observable behavior is fully covered in [Use this package](#use-this-package).
+This section explains how the declarations and the reviewer reach the kernel; the observable behavior is fully covered in [Use this package](#use-this-package).
 
 ### Design concept
 
 The kernel's registry starts empty and fails closed. This plugin fills it for the shipped surface and nothing else: `apply()` registers the whole table through one Cordis effect, so unloading the plugin disposes every registration it made and leaves foreign declarations alone. The injected `agentKernel` service makes mount order irrelevant — a composition may list this plugin before or after the kernel.
 
+### The reviewer adapter
+
+`registerCodingReviewer(ctx, config)` adapts the shipped reviewer seam to the kernel's `IndependentReviewer` port: it calls `runReviewer(ctx, config, task, caller)` from `@deepseek-ai/dsh-command-review` with the code-review prompt and `REVIEW_OUTPUT_SCHEMA`, hands the reviewer child the task agent as parent and the turn's cancellation, and returns the settled structured report — or throws when the reviewer stopped for any other reason or answered without one, which the kernel records as a `workflow-failed` failure before it parks the task. One spawn path therefore serves `/review`, `/security-review`, and the lifecycle's REVIEW phase.
+
 ### Source map
 
 | File | Role |
 |---|---|
-| [`src/index.ts`](src/index.ts) | Plugin entry: `name`, the `agentKernel` injection, and the registering effect |
+| [`src/index.ts`](src/index.ts) | Plugin entry: `name`, `Config`, the `agentKernel` injection, and the registering effects |
 | [`src/declarations.ts`](src/declarations.ts) | The declaration table and the total resource projections |
+| [`src/reviewer.ts`](src/reviewer.ts) | The §10.6 adapter from the shipped reviewer seam to the kernel's coding-lifecycle port |
 | — | No runtime invariant companion is published; the table is a static registration whose coverage spec re-derives the tool inventory from the generated catalog, so a second observation could not diverge from it. |
 
 </details>
@@ -120,6 +133,8 @@ These limits define when the plugin is a poor fit. They are current package cons
 - **One tool, one declaration** — `bash` and `pwsh` each ship twice under one name (one-shot and persistent variants); the single declaration covers the name, so both variants share the `process.exec` capability.
 - **Mixed commands share one declaration** — `str_replace_editor` declares `fs.read` and `fs.edit` for every command, so a `view` carries an edit request it never uses. A deny on the `edit` family therefore denies views as well as mutations of that path.
 - **Some mappings are closest-fit, not exact** — the fixed vocabulary has no member for reading skill bodies, session records, or background-job output (`fs.read` and `memory.read` stand in), nor for schedules and team tasks (`workflow.start` and task memory stand in). The table comment on each family records the rationale.
+- **The shipped reviewer inherits the session's route** — `apply()` registers the adapter with no provider or model override, so the reviewer child runs on the invoking agent's route; `registerCodingReviewer(ctx, { provider, model, subagentProvider })` is the seam for a deployment that wants an independent backend, and §10.6's separate-model topology is a composition choice this plugin does not make for the deployment.
+- **One reviewer per kernel** — the kernel refuses a second registration, so a deployment that composes its own `IndependentReviewer` sets `reviewer: false` here rather than mounting both.
 
 <a id="dev-note"></a>
 ### Dev Note

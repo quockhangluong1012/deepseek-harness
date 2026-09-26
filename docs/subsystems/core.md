@@ -744,6 +744,43 @@ roots(): Agent[]
 
 Source: [`packages/core/agent/src/index.ts`](../../packages/core/agent/src/index.ts)
 
+<a id="ctxanalystprofiles--analystprofiles"></a>
+
+### `ctx.analystProfiles` — `AnalystProfiles`
+
+Directory of the analyst profiles one deployment can install as presets.
+
+```ts cordis-catalog
+/** Read every declared profile id.
+ * @returns The ids `get`, `outputSchema`, and `validate` accept.
+ */
+list(): readonly string[]
+
+/** Resolve one profile by id.
+ * @param id - profile id to resolve.
+ * @returns The declared contract.
+ * @throws When no profile declares that id, naming the declared ids.
+ */
+get(id: string): AnalystProfile
+
+/** Read one profile's structured-output schema, to pass as a delegation's `outputSchema`.
+ * @param id - profile id to resolve.
+ * @returns An object-rooted schema enumerating the profile id, headings, and claim bases.
+ */
+outputSchema(id: string): ObjectJsonSchema
+
+/** Validate one produced artifact against a profile's section contract.
+ * @param id - profile id the artifact must name and satisfy.
+ * @param artifact - the parsed answer from the run that produced it.
+ * @returns `{ ok: true }`, or every contract the artifact broke.
+ */
+validate(id: string, artifact: unknown): ProfileVerdict
+```
+
+Types: [ObjectJsonSchema](tools.md)
+
+Source: [`packages/preset/analyst-profiles/src/index.ts`](../../packages/preset/analyst-profiles/src/index.ts)
+
 <a id="agent-events"></a>
 
 ### `agent/*` events

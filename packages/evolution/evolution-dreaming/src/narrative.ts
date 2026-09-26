@@ -11,7 +11,7 @@ import type { DreamSignals } from './signals.ts'
 import type {
   DreamCandidate,
   DreamPromotion,
-  DreamProvenance,
+  DreamAttribution,
   DreamRefusalReason,
 } from './types.ts'
 
@@ -27,22 +27,22 @@ export function narrativeId(statement: string): string {
 }
 
 /**
- * Provenance of a candidate two sources contributed sightings to. One sighting
+ * Attribution of a candidate two sources contributed sightings to. One sighting
  * the harness observed vouches for the candidate, so `attributed` absorbs: a
- * failure recorded by the feedback seam keeps its provenance when an episodic
+ * failure recorded by the feedback seam keeps its attribution when an episodic
  * note restates it.
- * @param left - provenance already held.
- * @param right - provenance arriving.
- * @returns the provenance the candidate carries.
+ * @param left - attribution already held.
+ * @param right - attribution arriving.
+ * @returns the attribution the candidate carries.
  */
-export function mergeProvenance(left: DreamProvenance, right: DreamProvenance): DreamProvenance {
+export function mergeAttribution(left: DreamAttribution, right: DreamAttribution): DreamAttribution {
   return left === 'attributed' || right === 'attributed' ? 'attributed' : 'unattributed'
 }
 
 /** The evidence the promotion gate judges. */
 export interface PromotionGateInput {
   /** Where the candidate's sightings came from. */
-  provenance: DreamProvenance
+  attribution: DreamAttribution
   /** Composite the six signals produced for it. */
   score: number
   /** Sightings it carries. */
@@ -66,14 +66,14 @@ export type PromotionDecision = { promote: true } | { promote: false; reason: Dr
 
 /**
  * Decide whether one candidate may reach the durable promotion path. The
- * provenance gate runs first, so a candidate the cycle cannot attribute is
- * refused by name however high it scores.
- * @param input - the candidate's provenance and scored observations.
+ * attribution gate runs first, so a candidate the cycle cannot credit to a
+ * recorded source is refused by name however high it scores.
+ * @param input - the candidate's attribution and scored observations.
  * @param gate - the thresholds to compare against.
  * @returns whether it may promote, or the named gate that refused it.
  */
 export function decidePromotion(input: PromotionGateInput, gate: PromotionGate): PromotionDecision {
-  if (input.provenance !== 'attributed') return { promote: false, reason: 'unattributed-provenance' }
+  if (input.attribution !== 'attributed') return { promote: false, reason: 'unattributed-sighting' }
   if (input.score < gate.minScore) return { promote: false, reason: 'below-score' }
   if (input.count < gate.minRecallCount) return { promote: false, reason: 'below-recall' }
   if (input.sessions < gate.minUniqueQueries) return { promote: false, reason: 'below-diversity' }
@@ -169,7 +169,7 @@ function newNarrative(qualified: QualifiedCandidate, now: string): DreamPromotio
     signals,
     promotedAt: now,
     evidence: {
-      provenance: candidate.provenance,
+      attribution: candidate.attribution,
       count: candidate.count,
       sessions: candidate.sessions,
     },
@@ -188,7 +188,10 @@ function newNarrative(qualified: QualifiedCandidate, now: string): DreamPromotio
  *
  * Every candidate is related against the narratives this pass has already
  * written, so two candidates that restate each other fold in one pass however
- * the scope stood before it.
+ * the scope stood before it. A candidate the scope already answers to adds no
+ * narrative, but it does move that narrative's promotion instant — the decay
+ * rule measures from it — so a recurring narrative stays durable while it is
+ * seen.
  * @param held - the scope's promotions before the pass.
  * @param qualified - gate survivors with their scores, in scan order.
  * @param limits - the overlap thresholds and the fold bound.
@@ -213,7 +216,13 @@ export function evolveNarratives(
       promoted += 1
       continue
     }
-    if (relation.kind === 'identical') continue
+    if (relation.kind === 'identical') {
+      // The narrative is still being sighted, so its promotion instant moves:
+      // `staleAfterDays` measures from that instant, and a recurring narrative
+      // must not be decay-pruned for a sighting that did reach this pass.
+      promotions = promotions.map(entry => entry.id === relation.id ? { ...entry, promotedAt: now } : entry)
+      continue
+    }
     if (relation.kind === 'restates') {
       promotions = promotions.map(entry => entry.id === relation.id
         ? {

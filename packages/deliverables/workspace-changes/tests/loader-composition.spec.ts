@@ -14,7 +14,7 @@ import Include from '@deepseek-ai/cordis-plugin-include'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
 import * as WorkspaceChangesPlugin from '@deepseek-ai/dsh-workspace-changes'
-import { changes, endTurn, git, startTurn, toolCall } from './support.ts'
+import { changes, endTurn, git, startTurn, SUBPROCESS_TEST_TIMEOUT_MS, toolCall } from './support.ts'
 
 let root: string | undefined
 let context: Context | undefined
@@ -26,7 +26,7 @@ afterEach(async () => {
   root = undefined
 })
 
-describe('real Loader composition', () => {
+describe('real Loader composition', { timeout: SUBPROCESS_TEST_TIMEOUT_MS }, () => {
   it('loads the shipped rows and records a turn’s changes', async () => {
     root = await mkdtemp(join(tmpdir(), 'dsh-workspace-changes-loader-'))
     const cwd = join(root, 'ws')

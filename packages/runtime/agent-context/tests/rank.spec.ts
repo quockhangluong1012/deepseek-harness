@@ -4,7 +4,7 @@ import type { CompiledSource, ContextSource, ContextSourceKind, RetentionClass }
 
 /** One envelope fixture; every field is overridable so a spec states only what it orders by. */
 function source(id: string, kind: ContextSourceKind, trust: ContextSource['trust'], retention: RetentionClass = 'compressible'): ContextSource {
-  return { id, kind, content: id, trust, provenance: { source: 'kernel', locator: id }, retention }
+  return { id, kind, content: id, trust, sourceRef: { source: 'kernel', locator: id }, retention }
 }
 
 /** One priced fixture. */

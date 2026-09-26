@@ -56,7 +56,7 @@ interface TestHarness {
 interface HarnessOptions {
   readonly rootEvents: readonly object[]
   readonly children?: readonly object[]
-  readonly sessions?: ReadonlyMap<string, ReturnType<typeof snapshot>>
+  readonly sessions?: ReadonlyMap<string, object>
   readonly cost: LlmModelCost | undefined
 }
 
@@ -69,9 +69,12 @@ async function harness(options: HarnessOptions): Promise<TestHarness> {
     resolveModelInfo: vi.fn(() => Promise.resolve({ provider: 'test', id: 'model', name: 'Test', cost: options.cost })),
   } as never)
   ctx.provide('sessionQuery', {
-    readSession: (id: string) => Promise.resolve(id === 'root'
-      ? snapshot('root', options.rootEvents)
-      : options.sessions?.get(id) ?? snapshot(id, [])),
+    readSession: async (id: string) => {
+      if (id === 'root') return snapshot('root', options.rootEvents)
+      const recorded = options.sessions?.get(id)
+      if (recorded !== undefined) return recorded
+      return snapshot(id, [])
+    },
   } as never)
   ctx.provide('subagents', { listDescendants: () => Promise.resolve([...(options.children ?? [])]) } as never)
   const plugin = await ctx.plugin(commandCost)

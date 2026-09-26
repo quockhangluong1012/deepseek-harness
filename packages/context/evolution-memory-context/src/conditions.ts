@@ -11,8 +11,7 @@
 
 import type { BenchmarkState, BenchmarkTask, EvolutionBenchmark } from '@deepseek-ai/dsh-evolution-benchmark'
 import type { EvolutionFeedback, FeedbackSignal } from '@deepseek-ai/dsh-evolution-feedback'
-import type { Claim, EvolutionGraph } from '@deepseek-ai/dsh-evolution-graph'
-import type { EvolutionMemoryRecord, EvolutionScopeId, StagedWrite } from '@deepseek-ai/dsh-evolution-memory'
+import type { EvolutionMemoryRecord, EvolutionScopeId, LessonArtifact, StagedWrite } from '@deepseek-ai/dsh-evolution-memory'
 import type { EvolutionSkillTelemetry, SkillUsageRecord } from '@deepseek-ai/dsh-evolution-skill-telemetry'
 
 /** The nudge sections a condition can render into. */
@@ -41,7 +40,7 @@ export interface NudgeCondition {
 /** Every recorded condition, in the order an assembly evaluates them. */
 export const NUDGE_CONDITIONS: readonly NudgeCondition[] = [
   { id: 'staged-writes', section: 'memory', store: 'evolutionMemory', subject: 'staged writes' },
-  { id: 'contradicted-claims', section: 'memory', store: 'evolutionGraph', subject: 'contradicted claims' },
+  { id: 'contradicted-claims', section: 'memory', store: 'evolutionMemory', subject: 'contradicted claims' },
   { id: 'skill-trust', section: 'skills', store: 'evolutionSkillTelemetry', subject: 'skill trust' },
   { id: 'failure-signals', section: 'skills', store: 'evolutionFeedback', subject: 'failure signals' },
   { id: 'holdout-gaps', section: 'skills', store: 'evolutionBenchmark', subject: 'benchmark holdout coverage' },
@@ -61,8 +60,6 @@ export interface NudgeEvidence {
 export interface NudgeDeps {
   /** The scope's memory record, undefined outside a scope or before its first write. */
   readonly record: EvolutionMemoryRecord | undefined
-  /** Knowledge-graph store, or undefined when it is unmounted. */
-  readonly graph: EvolutionGraph | undefined
   /** Failure-observation store, or undefined when it is unmounted. */
   readonly feedback: EvolutionFeedback | undefined
   /** Skill-usage store, or undefined when it is unmounted. */
@@ -105,12 +102,17 @@ export function stagedWriteLine(staged: readonly StagedWrite[], waitMinutes: num
 }
 
 /**
- * Render the contradicted-claim line.
- * @param claims - the scope's active claims.
- * @returns the line, or undefined while no active claim is contradicted.
+ * Render the contradicted-claim line. A fact is contradicted when a later
+ * extraction refuted it without correcting it, and only while it still stands:
+ * a corrected fact carries fresh counters and an invalidated one is no longer
+ * an active claim.
+ * @param artifacts - the scope's lesson artifacts.
+ * @returns the line, or undefined while no standing fact is contradicted.
  */
-export function contradictedClaimLine(claims: readonly Claim[]): string | undefined {
-  const contradicted = claims.filter(claim => claim.contradictionCount > 0).length
+export function contradictedClaimLine(artifacts: readonly LessonArtifact[]): string | undefined {
+  const contradicted = artifacts.filter(artifact => (
+    artifact.lifecycle !== 'invalidated' && artifact.refutationCount > 0
+  )).length
   if (contradicted === 0) return undefined
   return `Contradicted claims: ${contradicted} active claim${contradicted === 1 ? '' : 's'} with contradicting evidence; run /claims.`
 }
@@ -177,10 +179,9 @@ export const NUDGE_EVALUATORS: Readonly<Record<NudgeConditionId, NudgeEvaluator>
   'staged-writes': (_condition, evidence, deps) => evidence.scope === undefined
     ? undefined
     : stagedWriteLine(deps.record?.staged ?? [], deps.stagedWriteWaitMinutes, evidence.now),
-  'contradicted-claims': (condition, evidence, deps) => {
-    if (deps.graph === undefined) return unevaluableLine(condition)
-    return evidence.scope === undefined ? undefined : contradictedClaimLine(deps.graph.claims(evidence.scope))
-  },
+  'contradicted-claims': (_condition, evidence, deps) => evidence.scope === undefined
+    ? undefined
+    : contradictedClaimLine(deps.record?.agentLessons ?? []),
   'skill-trust': (condition, _evidence, deps) => deps.telemetry === undefined
     ? unevaluableLine(condition)
     : skillTrustLine(deps.telemetry.entries()),

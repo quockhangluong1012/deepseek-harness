@@ -299,6 +299,34 @@ describe('evolution budget', () => {
     }
   })
 
+  it('sums what background work spent across every recorded batch', async () => {
+    const { fiber, store } = await boot(undefined, { baseMaxCost: 10 })
+    try {
+      expect(store.backgroundSpend()).toEqual({ tokens: 0, wallMs: 0 })
+      await store.allocate(allocate())
+      await store.spend('b1', spend({ tokens: 6000, wallTimeMs: 120000, cost: 3 }))
+      await store.allocate(allocate({ batchId: 'b2', taskClass: 'reviewer' }))
+      await store.spend('b2', spend({ tokens: 4000, wallTimeMs: 30000, cost: 1 }))
+      expect(store.backgroundSpend()).toEqual({ tokens: 10000, wallMs: 150000, cost: 4 })
+    } finally {
+      await fiber.dispose()
+    }
+  })
+
+  it('reads the background cost as unmeasured when any recorded spend states none', async () => {
+    const { fiber, store } = await boot(undefined, { baseMaxCost: 10 })
+    try {
+      await store.allocate(allocate())
+      await store.spend('b1', spend({ tokens: 6000, cost: 3 }))
+      await store.allocate(allocate({ batchId: 'b2', taskClass: 'reviewer' }))
+      await store.spend('b2', spend({ tokens: 4000 }))
+      // A partial sum would read as what all of background work cost.
+      expect(store.backgroundSpend()).toEqual({ tokens: 10000, wallMs: 120000 })
+    } finally {
+      await fiber.dispose()
+    }
+  })
+
   it('survives a restart through the zod spec', async () => {
     const backend = new MemoryStorageBackend(new MemoryMediaPool())
     const first = await boot(backend)
@@ -332,5 +360,8 @@ describe('evolution budget', () => {
     expect(() => store.schedule('b1')).toThrow('not started yet')
     expect(() => store.objectives('b1')).toThrow('not started yet')
     await expect(store.allocateForCandidate('b1', 'c1')).rejects.toThrow('not started yet')
+    // The kernel reads this projection on its own observation path, so an
+    // unstarted store reads as nothing spent rather than refusing the read.
+    expect(store.backgroundSpend()).toEqual({ tokens: 0, wallMs: 0 })
   })
 })

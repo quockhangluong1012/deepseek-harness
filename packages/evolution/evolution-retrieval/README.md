@@ -87,7 +87,7 @@ A deployment that grades sessions elsewhere — a second outcome store, or a cla
 
 Attributions are durable per-record rows in the `evolution_retrieval` domain (v1, one `attributions` table keyed by the configuration key and the session id joined): `{ configKey, configuration, sessionId, at }`. The configuration key is every §39 dimension in a fixed order, so two callers that build the same configuration in different key order record one configuration, and a session recorded twice upserts its row and keeps its first instant.
 
-Effectiveness is derived at read time, never stored. `gradesOf(sessions, skills, failed)` joins the two evidence stores that already grade sessions: the skill-telemetry store names the task class a session served and its graded outcome, and the feedback store fails a session on the classes it loaded when one of its signals grades `complete` — a tool-attributed failure rather than an observed one. `effectivenessRows` folds those grades into one row per configuration and class, and `rankConfigurations` scores each by `scoreOf`, the same beta-prior smoothed rate scaled by sample confidence that `dsh-evolution-router` uses for routes. A configuration is therefore judged by what its sessions achieved, and a retrieval change that improves similarity scores while its sessions fail ranks below one that does not.
+Effectiveness is derived at read time, never stored. `gradesOf(sessions, skills, failed)` joins the two evidence stores that already grade sessions: the skill-telemetry store names the task class a session served and its graded outcome, and the feedback store fails a session on the classes it loaded when one of its signals grades `complete` — a tool-attributed failure rather than an observed one. `effectivenessRows` folds those grades into one row per configuration and class, and `rankConfigurations` scores each by `scoreOf`, the same beta-prior smoothed rate scaled by sample confidence that `dsh-evolution-model-routes` uses for routes. A configuration is therefore judged by what its sessions achieved, and a retrieval change that improves similarity scores while its sessions fail ranks below one that does not.
 
 Nothing in this package measures retrieval precision, and nothing ranks on it: similarity is an input the recall implementation chooses, and a configuration's rank is what its sessions achieved.
 
@@ -116,7 +116,7 @@ No invariant companion is published because the attribution table is the only co
 - [Evolution package map](../README.md) — the group's packages and their repository position.
 - [`dsh-active-memory-context`](../../context/active-memory-context/README.md) — the producer: it records the retrieval configuration in force for every session it briefs.
 - [`dsh-evolution-skill-telemetry`](../../skill/evolution-skill-telemetry/README.md) and [`dsh-evolution-feedback`](../evolution-feedback/README.md) — the two stores whose graded session evidence this package joins.
-- [`dsh-evolution-router`](../evolution-router/README.md) — the sibling that learns routes from measured outcomes with the same scoring shape.
+- [`dsh-evolution-model-routes`](../evolution-model-routes/README.md) — the sibling that learns routes from measured outcomes with the same scoring shape.
 
 -----
 

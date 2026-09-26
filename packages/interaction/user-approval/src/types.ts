@@ -26,10 +26,20 @@ export function ApprovalRequestId(id: string): ApprovalRequestId {
 }
 
 /**
- * Closed approval outcomes: a one-shot grant, explicit rejection, withdrawn
- * request, or unavailable answerer. Callers fail closed on `unavailable`.
+ * Closed approval outcomes: three grants, an explicit rejection, a withdrawn
+ * request, or an unavailable answerer.
+ *
+ * `allowed-once` grants only the asked-about action. `allowed-session` and
+ * `allowed-always` grant it too and tell the asker that the human allowed the
+ * decision to outlive this call — for the rest of the live session, and as a
+ * durable rule respectively. Remembering is the asker's decision and needs a
+ * scope it can name; an asker that cannot name one still executes the grant for
+ * the current action and remembers nothing, so a broken rule store can never
+ * turn a human "yes" into a denial. Callers fail closed on `unavailable`, and
+ * the two grants never widen what the permission document allows: a later call
+ * outside the remembered scope asks again.
  */
-export type ApprovalOutcome = 'allowed-once' | 'rejected' | 'cancelled' | 'unavailable'
+export type ApprovalOutcome = 'allowed-once' | 'allowed-session' | 'allowed-always' | 'rejected' | 'cancelled' | 'unavailable'
 
 declare module '@deepseek-ai/dsh-session/types' {
   interface SessionEventMap {

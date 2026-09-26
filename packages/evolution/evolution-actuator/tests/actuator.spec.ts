@@ -3,7 +3,7 @@ import { Context, type Fiber } from '@deepseek-ai/cordis'
 import Storage from '@deepseek-ai/dsh-storage'
 import { DomainFacility } from '@deepseek-ai/dsh-storage-domain'
 import EvolutionAdversary from '@deepseek-ai/dsh-evolution-adversary'
-import EvolutionBenchmark, { benchmarkHash } from '@deepseek-ai/dsh-evolution-benchmark'
+import EvolutionBenchmark, { benchmarkHash, MINED_TASK } from '@deepseek-ai/dsh-evolution-benchmark'
 import EvolutionBudget from '@deepseek-ai/dsh-evolution-budget'
 import EvolutionCanary from '@deepseek-ai/dsh-evolution-canary'
 import EvolutionCurriculum from '@deepseek-ai/dsh-evolution-curriculum'
@@ -315,6 +315,10 @@ describe('evolution actuator', () => {
       task: "Probe writer for the recorded edge-case weakness: 'flaky on empty input'.",
       gists: ['flaky on empty input'],
       sourceSessions: [],
+      profile: null,
+      family: 'loop-recovery',
+      stepSpan: null,
+      acceptance: null,
     })
   })
 
@@ -344,6 +348,10 @@ describe('evolution actuator', () => {
       task: 'strong note',
       gists: ['strong note', 'weak note'],
       sourceSessions: [],
+      profile: null,
+      family: 'loop-recovery',
+      stepSpan: null,
+      acceptance: null,
     })
     expect(() => benchmarkInput(queued(), [])).toThrow("evaluation task 'writer' has no signal")
   })
@@ -358,6 +366,10 @@ describe('evolution actuator', () => {
       task: "Recover from the recurring failure: 'command not found' — bash was in play.",
       gists: ['command not found'],
       sourceSessions: [],
+      profile: null,
+      family: 'loop-recovery',
+      stepSpan: null,
+      acceptance: null,
     }])
     // The task text carries no observation count, so one more sighting of the
     // same failure content-addresses to the task already admitted for it.
@@ -372,6 +384,10 @@ describe('evolution actuator', () => {
       task: "Recover from the recurring failure: 'stuck' — writer was in play.",
       gists: ['stuck'],
       sourceSessions: [],
+      profile: null,
+      family: 'loop-recovery',
+      stepSpan: null,
+      acceptance: null,
     }])
     expect(debtInputs([])).toEqual([])
   })
@@ -422,6 +438,7 @@ describe('evolution actuator', () => {
         task: 'protect me',
         gists: [],
         sourceSessions: [],
+        ...MINED_TASK,
       }])
       const protectedTask = ctx.evolutionBenchmark.tasks('fresh')[0]
       if (protectedTask === undefined) throw new Error('fixture requires an admitted task')
@@ -683,6 +700,7 @@ describe('evolution actuator', () => {
         task: 'recover from the recurring failure',
         gists: ['g1'],
         sourceSessions: [],
+        ...MINED_TASK,
       }])
       expect(admitted).toHaveLength(1)
       const states = (): string[] => ctx.evolutionBenchmark.tasks().map(task => task.state)
@@ -874,6 +892,7 @@ describe('evolution actuator', () => {
         task: 'recover from the recurring failure',
         gists: ['g1'],
         sourceSessions: [],
+        ...MINED_TASK,
       }])
       await ctx.evolutionHeartbeat.runTask(LOOP_TASK_NAMES.growth)
       expect(ctx.evolutionBenchmark.tasks().map(task => task.state)).toEqual(['fresh'])
@@ -1000,6 +1019,7 @@ describe('evolution actuator', () => {
         task: 'an existing task for the capability',
         gists: [],
         sourceSessions: [],
+        ...MINED_TASK,
       }])
       await ctx.evolutionUncertainty.record({
         signalId: 's1',
@@ -1046,6 +1066,7 @@ describe('evolution actuator', () => {
         task: 'an existing task for the capability',
         gists: [],
         sourceSessions: [],
+        ...MINED_TASK,
       }])
       ctx.provide('evolutionCurator', { debt: () => [owed()] })
       await ctx.evolutionHeartbeat.runTask(LOOP_TASK_NAMES.adversary)

@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-22-evolution-actuator.md
-2026-09-22-evolution-actuator.md: cc92fc334c09c92fdd082824bcb6784a52652ec4
-2026-09-22-evolution-actuator.zh.md: 5669e9de55bf8bec249cc18a85bb68c826b0e789
+2026-09-22-evolution-actuator.md: c6979e2af1b58c83d8e9bff64a27150c7aa34045
+2026-09-22-evolution-actuator.zh.md: bfda4e6f0b9d57d78b4a102e2353e24238caf0d8

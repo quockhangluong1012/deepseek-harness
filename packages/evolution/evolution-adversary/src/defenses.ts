@@ -33,7 +33,7 @@ export interface DefenseFacts {
   strategies: readonly { evaluator: string; taskClass: string; independentSamples: number }[] | null
   /** Capabilities holding a protected `evolution-benchmark` holdout task, or null when unmounted. */
   holdouts: readonly string[] | null
-  /** `evolution-router` effectiveness rows for the `evaluation` role, or null when unmounted. */
+  /** `evolution-model-routes` effectiveness rows for the `evaluation` role, or null when unmounted. */
   evaluationRoutes: readonly { taskClass: string; provider: string; model: string }[] | null
   /** This store's own recorded probes. */
   probes: readonly AdversarialProbe[]

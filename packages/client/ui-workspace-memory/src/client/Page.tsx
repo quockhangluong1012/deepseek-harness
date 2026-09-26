@@ -11,7 +11,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
   Button, IconChevronLeftOutlineRegular, IconChevronRightOutlineRegular, IconEditOutlineRegular,
-  IconRefreshOutlineRegular, IconTrashOutlineRegular,
+  IconTrashOutlineRegular,
   Input, MarkdownText, Modal, Pill, relativeTime,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
@@ -139,7 +139,6 @@ export function WorkspaceMemoryPage({
   const [memEditing, setMemEditing] = useState(false)
   const [memDraft, setMemDraft] = useState('')
   const [memError, setMemError] = useState<string | null>(null)
-  const [regenerating, setRegenerating] = useState(false)
   const [addMode, setAddMode] = useState<AddMode>(null)
   const [textLabel, setTextLabel] = useState('')
   const [textDraft, setTextDraft] = useState('')
@@ -307,23 +306,6 @@ export function WorkspaceMemoryPage({
       },
       (reason: unknown) => {
         setMemError(tooLargeCopy(reason, t) ?? messageOf(reason))
-      },
-    )
-  }
-
-  const regenerate = (): void => {
-    if (regenerating) return
-    setRegenerating(true)
-    setMemError(null)
-    const controller = new AbortController()
-    void remote.rebuildMemory(workspace.workspaceId as WorkspaceId, controller.signal).then(
-      (next) => {
-        setValue(next)
-        setRegenerating(false)
-      },
-      (reason: unknown) => {
-        setMemError(messageOf(reason))
-        setRegenerating(false)
       },
     )
   }
@@ -586,12 +568,8 @@ export function WorkspaceMemoryPage({
             )}
             <div className={css.cardFoot}>
               <Button variant="outline" size="sm" onClick={() => { setMemPreview(true) }}>{t('card.preview')}</Button>
-              <Button variant="outline" size="sm" icon={<IconRefreshOutlineRegular />} onClick={regenerate}>
-                {regenerating ? t('card.regenerating') : t('card.regenerate')}
-              </Button>
             </div>
             {memError !== null && <p role="alert" className={css.error}>{memError}</p>}
-            {regenerating && <p role="status" className={css.status}>{t('card.regenerating')}</p>}
           </section>
 
           <section aria-label={t('card.context')} className={css.card}>

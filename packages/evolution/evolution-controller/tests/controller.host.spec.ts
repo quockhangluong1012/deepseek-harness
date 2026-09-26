@@ -62,7 +62,9 @@ async function harness(options: { reviewer?: boolean; profile?: string } = {}) {
   ctx.provide('storageDomain', storageDomain)
   ctx.provide('sessionPersistence', { list: () => Promise.resolve([]) } as never)
   await ctx.plugin(WorkspaceRegistry)
-  await ctx.plugin(EvolutionMemoryStore, { capacityBytes: 65536 })
+  // Scope locks must never land in the developer's real harness home.
+  const lockDirectory = await mkdtemp(join(tmpdir(), 'dsh-evolution-memory-locks-'))
+  await ctx.plugin(EvolutionMemoryStore, { capacityBytes: 65536, lockDirectory })
   const rebuild = vi.fn(async () => {})
   if (options.reviewer !== false) {
     ctx.provide('evolutionReviewer', { rebuild } as never)
@@ -156,7 +158,7 @@ describe('EvolutionController', () => {
     })
     expect(replaced.lessons.map(artifact => artifact.statement)).toEqual(['replacement'])
 
-    // Model provenance from a store-level write projects onto the Remote face.
+    // A model-written record from a store-level write projects onto the Remote face.
     await ctx.evolutionMemory.replaceArtifacts(
       EvolutionScopeId('test', String(workspace.id)),
       [candidate('derived')],
@@ -180,6 +182,45 @@ describe('EvolutionController', () => {
       () => controller.setProfile({ scopeId: 'missing' as WorkspaceId, profile: 'x' }),
     ]) {
       await expect(call()).rejects.toMatchObject({ code: 'workspace/not-found' })
+    }
+  })
+
+  it('merges a re-supplied lesson instead of resetting its counters and creation instant', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    try {
+      vi.setSystemTime(new Date('2026-01-01T00:00:00.000Z'))
+      const { controller, ctx, workspace } = await harness()
+      const scope = EvolutionScopeId('test', String(workspace.id))
+      const written = await controller.setLessons({ scopeId: workspace.id, artifacts: [candidate('prefer pnpm')] })
+      const stored = written.lessons[0]!
+
+      // Later extractions confirm the fact twice, so the record carries
+      // counters a re-saved document must not reset.
+      await ctx.evolutionMemory.applyExtractionDecisions(scope, [{ kind: 'confirms', artifactId: stored.id }])
+      await ctx.evolutionMemory.applyExtractionDecisions(scope, [{ kind: 'confirms', artifactId: stored.id }])
+      expect(ctx.evolutionMemory.read(scope)?.agentLessons[0]?.validationCount).toBe(2)
+
+      // The editor re-saves the document at a later instant, the same fact
+      // beside a new one.
+      vi.setSystemTime(new Date('2026-02-01T00:00:00.000Z'))
+      const resaved = await controller.setLessons({
+        scopeId: workspace.id,
+        artifacts: [candidate('prefer pnpm'), candidate('always run the focused spec')],
+      })
+      expect(resaved.lessons.map(artifact => artifact.statement)).toEqual(['prefer pnpm', 'always run the focused spec'])
+      expect(resaved.lessons[0]).toMatchObject({
+        id: stored.id,
+        validationCount: 2,
+        refutationCount: 0,
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-02-01T00:00:00.000Z',
+      })
+      expect(resaved.lessons[1]).toMatchObject({
+        validationCount: 0,
+        createdAt: '2026-02-01T00:00:00.000Z',
+      })
+    } finally {
+      vi.useRealTimers()
     }
   })
 

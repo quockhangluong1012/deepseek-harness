@@ -675,7 +675,7 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
               : t('deleteDescriptionWithCredential'),
             deleteTarget,
           )}
-        className={styles['deleteDialog'] as string}
+        className={styles['deleteDialog']}
         footer={(
           <>
             <Button variant="outline" autoFocus disabled={deleting} onClick={closeDelete}>

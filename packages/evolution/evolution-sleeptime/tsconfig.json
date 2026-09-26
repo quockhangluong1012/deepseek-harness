@@ -11,7 +11,7 @@
     { "path": "../../skill/evolution-skill-telemetry" },
     { "path": "../../storage/storage-domain" },
     { "path": "../evolution-heartbeat" },
-    { "path": "../evolution-router" },
+    { "path": "../evolution-model-routes" },
     { "path": "../evolution-trace" }
   ]
 }

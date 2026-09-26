@@ -45,6 +45,9 @@
       "path": "../../workspace/workspace"
     },
     {
+      "path": "../../workspace/workspace-session"
+    },
+    {
       "path": "../../runtime-diagnostics/invariants"
     }
   ]

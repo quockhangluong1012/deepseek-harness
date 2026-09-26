@@ -146,7 +146,7 @@ describe('PermissionSelect', () => {
     fireEvent.click(screen.getByRole('menuitem', { name: 'Auto review EXP' }))
 
     const dialog = screen.getByRole('dialog', { name: '确认启用 Auto review（实验）？' })
-    expect(dialog.textContent).toContain('不使用沙箱')
+    expect(dialog.textContent).toContain('workspace-write 沙箱内运行')
     expect(dialog.textContent).toContain('误放行或误拒绝')
     fireEvent.click(screen.getByRole('checkbox', { name: '我已了解这些风险，并愿意继续' }))
     fireEvent.click(screen.getByRole('button', { name: '启用 Auto review' }))
@@ -156,7 +156,7 @@ describe('PermissionSelect', () => {
 
     expect(trigger().getAttribute('aria-label')).toBe('访问模式，当前：Auto review EXP')
     expect(trigger().querySelector('sup')?.textContent).toBe('EXP')
-    expect(trigger().getAttribute('title')).toBe('无沙箱运行；每次原生工具调用和 PTC 内层调用前由同一模型进行实验性审查。')
+    expect(trigger().getAttribute('title')).toBe('在 workspace-write 沙箱内运行；由一个更便宜的模型审查每次原生工具调用和 PTC 内层调用，常规操作自动放行，有风险的操作转交你确认。')
   })
 
   it('revokes open UI when locked or either source disappears', () => {

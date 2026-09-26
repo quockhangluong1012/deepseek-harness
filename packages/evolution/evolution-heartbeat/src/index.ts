@@ -3,13 +3,15 @@
  * generic autonomous-maintenance engine behind the Evolutionary Harness.
  *
  * The plugin is mounted once per host and owns a single timer: it observes
- * host-wide session activity, runs one awaited start-time due-check, and then
- * ticks every `tickMinutes`. A registered task runs only once its interval
- * elapsed since its last attempt and the host stayed idle long enough. The
- * first due-check of a task seeds its bookkeeping and defers one interval, so
- * mounting the engine never fires every task at once. A failing task is
- * recorded and never stops the other tasks in the same pass. Stored objects
- * never leak by reference.
+ * host-wide session activity, schedules one start-time due-check for after
+ * the mounting turn, and then ticks every `tickMinutes`. A registered task
+ * runs only once its interval elapsed since its last attempt and the host
+ * stayed idle long enough. The first due-check of a task seeds its
+ * bookkeeping and defers one interval, so mounting the engine never fires
+ * every task at once. One pass runs at a time: a due-check requested while a
+ * pass is still running returns that pass's report instead of starting a
+ * second. A failing task is recorded and never stops the other tasks in the
+ * same pass. Stored objects never leak by reference.
  * @module @deepseek-ai/dsh-evolution-heartbeat
  */
 
@@ -115,6 +117,8 @@ export class EvolutionHeartbeat extends Service {
   private readonly active = new Map<ResolvedTask, Set<ActiveAttempt>>()
   /** Scheduling passes and direct task runs still owned by this service. */
   private readonly inFlight = new Set<Promise<unknown>>()
+  /** The due-check pass in flight, or undefined when none runs. */
+  private duePass: Promise<HeartbeatReport> | undefined
   /** Set before teardown aborts work, so no new work starts. */
   private stopping = false
 
@@ -130,10 +134,11 @@ export class EvolutionHeartbeat extends Service {
   /**
    * Open the domain, observe host-wide activity, and own the maintenance
    * schedule. No task can be registered before this method's `ctx.provide`
-   * takes effect, so the start-time due-check always finds an empty task
-   * table; it runs fire-and-forget, matching the interval tick, so plugin
-   * startup never waits on a background pass. The repeating tick is
-   * `unref()`ed and disposed through `ctx.effect`.
+   * takes effect; the start-time due-check is scheduled on a zero-delay timer
+   * so it runs after the mounting turn — registrations made by plugins in
+   * their own init are visible to it — and never inside this method, so
+   * plugin startup never waits on a background pass. The repeating tick is
+   * `unref()`ed, and both handles are disposed through `ctx.effect`.
    */
   protected async [Service.init](): Promise<void> {
     const domain = await this.ctx.storageDomain.open(heartbeatDomainSpec)
@@ -141,8 +146,12 @@ export class EvolutionHeartbeat extends Service {
     this.ctx.on('session/event', () => {
       this.lastActivityAt = Date.now()
     })
-    const timer: { handle?: ReturnType<typeof setInterval> } = {}
+    const timer: {
+      start?: ReturnType<typeof setTimeout>
+      handle?: ReturnType<typeof setInterval>
+    } = {}
     this.ctx.effect(() => async () => {
+      clearTimeout(timer.start)
       clearInterval(timer.handle)
       await this.drain()
       await domain.close()
@@ -153,7 +162,9 @@ export class EvolutionHeartbeat extends Service {
         this.ctx.logger.warn(`evolution heartbeat scheduled pass failed: ${String(error)}`)
       })
     }
-    runScheduledPass()
+    const start = setTimeout(runScheduledPass, 0)
+    start.unref()
+    timer.start = start
     const handle = setInterval(runScheduledPass, this.resolved.tickMinutes * 60_000)
     timer.handle = handle
     handle.unref()
@@ -242,12 +253,20 @@ export class EvolutionHeartbeat extends Service {
    * bookkeeping is absent is seeded and deferred; a task whose interval has
    * not elapsed, or whose idle gate is unsatisfied, is deferred. Tasks run
    * sequentially, and a failing task is recorded without stopping the pass.
+   * One pass runs at a time: a call arriving while a pass is in flight returns
+   * that pass's report instead of starting a second, so a tick that lands
+   * during a long pass cannot run the same tasks twice.
    * @param options - clock, idleness, and force overrides.
    * @returns entries for tasks reached before teardown stops the pass.
    */
   runDue(options: HeartbeatRunOptions = {}): Promise<HeartbeatReport> {
     if (this.stopping) return Promise.reject(new Error('evolution-heartbeat: service is disposing'))
-    return this.track(this.runDuePass(options))
+    if (this.duePass !== undefined) return this.duePass
+    const pass = this.track(this.runDuePass(options)).finally(() => {
+      this.duePass = undefined
+    })
+    this.duePass = pass
+    return pass
   }
 
   private async runDuePass(options: HeartbeatRunOptions): Promise<HeartbeatReport> {

@@ -149,6 +149,18 @@ The usage-ledger service. Opens the `usage_dashboard` domain at init, backfills 
  * @returns totals, per-day buckets, and the per-model table.
  */
 summary(range: UsageRange, signal: AbortSignal): Promise<UsageSummary>
+
+/**
+ * Estimated spend per session for one filter range: the invoking agents and
+ * every subagent, each with the money its own committed attempts cost.
+ * Sessions with no priced attempt report `usd` as `undefined` and name the
+ * routes no declared price covered, so an unmeasurable total is never
+ * reported as a spend of zero.
+ * @param range - the requested window (`today` by dashboard default).
+ * @param signal - caller cancellation.
+ * @returns one row per billing session, busiest first.
+ */
+async sessionCosts(range: UsageRange, signal: AbortSignal): Promise<readonly UsageSessionCost[]>
 ```
 
 Source: [`packages/session/usage-ledger/src/index.ts`](../../packages/session/usage-ledger/src/index.ts)

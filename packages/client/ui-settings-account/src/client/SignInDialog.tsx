@@ -57,7 +57,7 @@ export function SignInDialog({ account, colorScheme, start, cancel, close, useAp
     } catch { setCopyResult({ messageKey: 'copyFailed' }) }
   }
   const title = error ? t('failureTitle') : active ? t('browserTitle') : expired ? t('timeoutTitle') : t('loginTitle')
-  return <Modal open headless title={title} onClose={dismiss} className={css.dialog as string}>
+  return <Modal open headless title={title} onClose={dismiss} className={css.dialog}>
     <div className={css.content}>
       <div className={css.header}>
         <h2 className={css.title}>{title}</h2>

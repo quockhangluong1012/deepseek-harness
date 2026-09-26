@@ -1,12 +1,11 @@
 import { mkdtemp, mkdir, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, sep } from 'node:path'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import Storage from '@deepseek-ai/dsh-storage'
 import { DomainFacility } from '@deepseek-ai/dsh-storage-domain'
 import type { DomainChanged } from '@deepseek-ai/dsh-storage-domain'
-import { RemoteError } from '@deepseek-ai/dsh-typert-protocol'
 import WorkspaceRegistry from '@deepseek-ai/dsh-workspace'
 import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
 import WorkspaceMemoryStore from '@deepseek-ai/dsh-workspace-memory'
@@ -22,7 +21,7 @@ afterEach(async () => {
   for (const dir of tempDirs.splice(0)) await rm(dir, { recursive: true, force: true })
 })
 
-async function harness(options: { extractor?: boolean } = {}) {
+async function harness() {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'dsh-workspace-memory-ctl-')))
   tempDirs.push(root)
   const ctx = new Context()
@@ -35,10 +34,6 @@ async function harness(options: { extractor?: boolean } = {}) {
   ctx.provide('sessionPersistence', { list: () => Promise.resolve([]) } as never)
   await ctx.plugin(WorkspaceRegistry)
   await ctx.plugin(WorkspaceMemoryStore, { capacityBytes: 65536 })
-  const rebuild = vi.fn(async () => {})
-  if (options.extractor !== false) {
-    ctx.provide('workspaceMemoryExtractor', { rebuild } as never)
-  }
   ctx.provide('typert', {
     lookups: { configure: () => () => {} },
     contexts: { configureHost: () => () => {} },
@@ -47,7 +42,7 @@ async function harness(options: { extractor?: boolean } = {}) {
   const projectDir = join(root, 'project')
   await mkdir(projectDir, { recursive: true })
   const workspace = await ctx.workspaceRegistry.create(projectDir)
-  return { controller, ctx, root, workspace, rebuild }
+  return { controller, ctx, root, workspace }
 }
 
 async function nextFrame(
@@ -90,7 +85,7 @@ describe('WorkspaceMemoryController', () => {
       controller.setInstructions({ workspaceId: workspace.id, instructions: 'x'.repeat(70000) }),
     ).rejects.toMatchObject({ code: 'workspace-memory/too-large' })
 
-    // Model-written documents project their extraction provenance.
+    // Model-written documents project their extraction record.
     await ctx.workspaceMemory.setMemory(workspace.id, 'derived', {
       at: '2026-01-01T00:00:00.000Z',
       sessionId: 's1',
@@ -259,45 +254,6 @@ describe('WorkspaceMemoryController', () => {
     await expect(
       controller.listContextFiles({ workspaceId: workspace.id, query: '' }, AbortSignal.abort()),
     ).rejects.toThrow()
-  })
-
-  it('rebuilds through the extractor and maps its failures', async () => {
-    const { controller, workspace, rebuild } = await harness()
-    const signal = new AbortController().signal
-    const value = await controller.rebuildMemory({ workspaceId: workspace.id }, signal)
-    expect(value.workspaceId).toBe(workspace.id)
-    expect(rebuild).toHaveBeenCalledWith(workspace.id, signal)
-    await expect(
-      controller.rebuildMemory({ workspaceId: 'missing' as WorkspaceId }, signal),
-    ).rejects.toMatchObject({ code: 'workspace/not-found' })
-  })
-
-  it('rejects rebuilds without an extractor', async () => {
-    const { controller, workspace } = await harness({ extractor: false })
-    await expect(
-      controller.rebuildMemory({ workspaceId: workspace.id }, new AbortController().signal),
-    ).rejects.toMatchObject({ code: 'workspace-memory/extraction-failed' })
-  })
-
-  it('passes extractor RemoteErrors through and wraps plain failures', async () => {
-    const { controller, workspace, rebuild } = await harness()
-    const signal = new AbortController().signal
-    rebuild.mockRejectedValueOnce(
-      new RemoteError('workspace-memory/extraction-failed', 'no route', { workspaceId: String(workspace.id) }),
-    )
-    await expect(controller.rebuildMemory({ workspaceId: workspace.id }, signal)).rejects.toMatchObject({
-      code: 'workspace-memory/extraction-failed',
-      message: 'no route',
-    })
-    rebuild.mockRejectedValueOnce(new Error('lost model'))
-    await expect(controller.rebuildMemory({ workspaceId: workspace.id }, signal)).rejects.toMatchObject({
-      code: 'workspace-memory/extraction-failed',
-    })
-    rebuild.mockRejectedValueOnce('string failure')
-    const failure = await controller.rebuildMemory({ workspaceId: workspace.id }, signal).catch((error: unknown) => error)
-    expect(failure).toMatchObject({ code: 'workspace-memory/extraction-failed' })
-    const message = failure instanceof Error ? failure.message : String(failure)
-    expect(message).toContain('string failure')
   })
 
   it('streams baselines and upserts while ignoring foreign changes', async () => {

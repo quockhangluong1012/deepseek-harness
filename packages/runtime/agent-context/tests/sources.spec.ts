@@ -26,11 +26,11 @@ describe('assembly facade', () => {
       kind: 'tool',
       content: 'Read files.',
       trust: 'trusted',
-      provenance: { source: 'tool', locator: 'tool:read' },
+      sourceRef: { source: 'tool', locator: 'tool:read' },
       retention: 'compressible',
     })
     expect(sources[1]).toMatchObject({ kind: 'policy', trust: 'trusted', retention: 'required' })
-    expect(sources[2]).toMatchObject({ kind: 'policy', provenance: { source: 'policy', locator: 'sandbox:policy' } })
+    expect(sources[2]).toMatchObject({ kind: 'policy', sourceRef: { source: 'policy', locator: 'sandbox:policy' } })
   })
 
   it('treats an unlisted contribution family as droppable data', () => {
@@ -82,11 +82,47 @@ describe('kernel view facade', () => {
     expect(sources[5]).toMatchObject({ kind: 'plan', content: 'read the spec\nwrite the parser', subject: 'plan' })
     expect(sources[6]).toMatchObject({ kind: 'tool', content: 'unsettled action: call-1', retention: 'required' })
     expect(sources[7]).toMatchObject({ content: 'unresolved failure: verification-failed' })
-    expect(sources.every(source => source.provenance.source === 'kernel')).toBe(true)
+    expect(sources.every(source => source.sourceRef.source === 'kernel')).toBe(true)
   })
 
   it('omits the objective when the contract states none and the plan when there is none', () => {
     const view = viewOf({ task: { ...viewOf().task, objective: '' } })
     expect(sourcesFromView(view).map(source => source.id)).toEqual([])
+  })
+
+  it('projects the declared change contract as the boundary the change must stay inside', () => {
+    const view = viewOf({
+      task: {
+        ...viewOf().task,
+        objective: 'extract the boundary check',
+        changeContract: {
+          goal: 'extract the boundary check',
+          expectedFiles: ['src/a.ts'],
+          allowedFiles: ['src/**'],
+          mustPreserve: ['packages/api/src/public.ts'],
+          forbiddenChanges: [],
+          expectedTests: [],
+        },
+      },
+    })
+
+    const declared = sourcesFromView(view).find(source => source.id === 'task:change-contract')
+    expect(declared).toMatchObject({
+      kind: 'task',
+      trust: 'trusted',
+      retention: 'required',
+      sourceRef: { source: 'kernel', locator: 'task/task-1/change-contract' },
+    })
+    expect(declared?.content).toBe([
+      'change contract: extract the boundary check',
+      'expected files: src/a.ts',
+      'allowed files: src/**',
+      'must preserve: packages/api/src/public.ts',
+    ].join('\n'))
+  })
+
+  it('projects no contract source for a task that declares none', () => {
+    const view = viewOf({ task: { ...viewOf().task, objective: 'answer a question' } })
+    expect(sourcesFromView(view).map(source => source.id)).toEqual(['task:objective'])
   })
 })

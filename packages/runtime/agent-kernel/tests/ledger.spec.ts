@@ -36,7 +36,7 @@ const EVIDENCE: EvidenceInput = {
   kind: 'test',
   contentRef: 'packages/runtime/agent-kernel/tests/ledger.spec.ts',
   digest: 'digest-of-the-reader-spec',
-  provenance: { source: 'tool', locator: 'probe' },
+  sourceRef: { source: 'tool', locator: 'probe' },
   trust: 'trusted',
 }
 

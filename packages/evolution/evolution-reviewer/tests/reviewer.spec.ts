@@ -80,6 +80,8 @@ async function harness(
   search?: Partial<SearchSeam>,
 ): Promise<Harness> {
   const dir = await realpath(await mkdtemp(join(tmpdir(), 'evr-')))
+  // Scope locks must never land in the developer's real harness home.
+  const lockDirectory = await mkdtemp(join(tmpdir(), 'dsh-evolution-memory-locks-'))
   const ctx = new Context()
   await ctx.plugin(Storage)
   ctx.storage.backend.register('memory', new MemoryStorageBackend(new MemoryMediaPool()))
@@ -87,7 +89,7 @@ async function harness(
   ctx.storage.mount('domain', facility)
   ctx.provide('storageDomain', facility)
   const { default: EvolutionMemoryStore } = await import('@deepseek-ai/dsh-evolution-memory')
-  await ctx.plugin(EvolutionMemoryStore, { capacityBytes: 1 << 20 })
+  await ctx.plugin(EvolutionMemoryStore, { capacityBytes: 1 << 20, lockDirectory })
   await ctx.plugin(SessionStore)
   const calls: GenerateOptions[] = []
   const harnessRef: { streamImpl: (options: GenerateOptions) => AsyncIterable<StreamChunk> } = {
@@ -482,7 +484,7 @@ describe('evolution reviewer', () => {
     }
   })
 
-  it('extracts lessons with provenance through the configured route', async () => {
+  it('extracts lessons with an extraction record through the configured route', async () => {
     const h = await harness({ provider: 'deepseek', model: 'chat' })
     dirs.push(h.dir)
     try {
@@ -570,7 +572,7 @@ describe('evolution reviewer', () => {
       })
       const record = h.ctx.evolutionMemory.read(id)
       // Every candidate field comes from the decision, `source` from the
-      // extracting session: the model's decision carries no provenance.
+      // extracting session: the model's decision names no writer.
       expect(record?.agentLessons).toHaveLength(2)
       expect(record?.agentLessons.find(artifact => artifact.id === artifactKey('Work'))).toMatchObject({
         statement: 'Work',
@@ -685,7 +687,7 @@ describe('evolution reviewer', () => {
     }
   })
 
-  it('records provenance without staging when the model reports nothing', async () => {
+  it('records the extraction without staging when the model reports nothing', async () => {
     const h = await harness({ provider: 'p', model: 'm', writeApproval: true })
     dirs.push(h.dir)
     try {
@@ -697,7 +699,7 @@ describe('evolution reviewer', () => {
       await vi.waitFor(() => {
         expect(h.ctx.evolutionMemory.read(id)?.lastExtraction).toMatchObject({ origin: 'background_review' })
       })
-      // An empty batch carries nothing to approve: the call's provenance is
+      // An empty batch carries nothing to approve: the call's extraction record is
       // recorded and nothing is left waiting on a human.
       expect(h.ctx.evolutionMemory.read(id)?.staged).toEqual([])
       expect(h.ctx.evolutionMemory.read(id)?.agentLessons).toEqual([])
@@ -873,24 +875,28 @@ describe('evolution reviewer', () => {
     }
   })
 
-  it('coalesces queued turns into one extraction of the newest snapshot', async () => {
+  it('accumulates every queued turn into the one extraction its deadline flushes', async () => {
     const h = await harness({ provider: 'p', model: 'm', defer: 'auto', deferMaxAgeMs: 0 })
     dirs.push(h.dir)
     try {
-      h.streamImpl = immediate(answer(newDecision('Coalesced')))
+      h.streamImpl = immediate(answer(newDecision('Accumulated')))
       const session = sessionIn(h.ctx, h.dir, 's1')
       const id = h.scope('ws-1')
       h.workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: h.dir, sessionIds: [session.id] })
       appendTurn(session, 1, { user: 'remember the alpha detail', assistant: 'alpha acknowledged' })
       appendTurn(session, 2, { user: 'remember the beta detail', assistant: 'beta acknowledged' })
       await vi.waitFor(() => {
-        expect(lessonsOf(h.ctx.evolutionMemory.read(id))).toContain('Coalesced')
+        expect(lessonsOf(h.ctx.evolutionMemory.read(id))).toContain('Accumulated')
       })
+      // Both turns closed before the deadline, so the single flushed call
+      // carries both turns' rows, in turn order.
       expect(h.calls).toHaveLength(1)
-      const framed = framedText(h.calls[0])
-      expect(framed).toContain('beta acknowledged')
-      expect(framed).not.toContain('alpha acknowledged')
-      expect(framed).not.toContain('alpha detail')
+      expect(framedRows(h.calls[0])).toEqual([
+        { role: 'user', text: 'remember the alpha detail' },
+        { role: 'assistant', text: 'alpha acknowledged' },
+        { role: 'user', text: 'remember the beta detail' },
+        { role: 'assistant', text: 'beta acknowledged' },
+      ])
       await new Promise(resolve => setTimeout(resolve, 20))
       expect(h.calls).toHaveLength(1)
     } finally {
@@ -914,29 +920,40 @@ describe('evolution reviewer', () => {
     expect(h.ctx.evolutionMemory.read(id)).toBeUndefined()
   })
 
-  it('ignores an armed timer whose session was disposed before the flush', async () => {
+  it("flushes a disposed session's queued rows exactly once", async () => {
     const h = await harness({ provider: 'p', model: 'm', defer: 'auto', deferMaxAgeMs: 0 })
     dirs.push(h.dir)
     // Disposal and the armed timer race in the same tick here: neutralizing
-    // clearTimeout leaves the timer to fire, so only the flush's own re-check
-    // can keep the aborted turn from extracting.
+    // clearTimeout leaves the timer to fire after the disposal flush.
     const cleared = vi.spyOn(globalThis, 'clearTimeout').mockImplementation(() => {})
     try {
-      h.streamImpl = immediate(answer(newDecision('Dropped')))
+      h.streamImpl = immediate(answer(newDecision('Flushed')))
       const session = sessionIn(h.ctx, h.dir, 's1')
       const id = h.scope('ws-1')
       h.workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: h.dir, sessionIds: [session.id] })
-      const disposed = new Promise<void>((resolve) => {
-        setTimeout(() => {
-          h.ctx.emit('session/disposed', session)
-          resolve()
-        }, 0)
+      const disposed = Promise.withResolvers<undefined>()
+      setTimeout(() => {
+        h.ctx.emit('session/disposed', session)
+        disposed.resolve(undefined)
+      }, 0)
+      appendTurn(session, 1, { user: 'remember the alpha detail', assistant: 'alpha acknowledged' })
+      appendTurn(session, 2, { user: 'remember the beta detail', assistant: 'beta acknowledged' })
+      await disposed.promise
+      await vi.waitFor(() => {
+        expect(lessonsOf(h.ctx.evolutionMemory.read(id))).toContain('Flushed')
       })
-      appendTurn(session, 1, { user: `remember ${'d'.repeat(300)}`, assistant: 'ok' })
-      await disposed
+      // Disposal flushes both queued turns' rows in the one call it starts.
+      expect(h.calls).toHaveLength(1)
+      expect(framedRows(h.calls[0])).toEqual([
+        { role: 'user', text: 'remember the alpha detail' },
+        { role: 'assistant', text: 'alpha acknowledged' },
+        { role: 'user', text: 'remember the beta detail' },
+        { role: 'assistant', text: 'beta acknowledged' },
+      ])
+      // The armed timer the neutralized clearTimeout left behind finds no
+      // entry: disposal flushed the queued rows once.
       await new Promise(resolve => setTimeout(resolve, 20))
-      expect(h.calls).toHaveLength(0)
-      expect(h.ctx.evolutionMemory.read(id)).toBeUndefined()
+      expect(h.calls).toHaveLength(1)
     } finally {
       cleared.mockRestore()
       await h.fiber.dispose()
@@ -956,7 +973,7 @@ describe('evolution reviewer', () => {
       }])
 
       // A truncated answer that is still a readable batch applies, and says
-      // so through the stored provenance.
+      // so through the stored extraction record.
       h.streamImpl = immediate(answer(newDecision('partial doc')), { kind: 'max-tokens' })
       appendTurn(session, 1, { user: `remember ${'a'.repeat(300)}`, assistant: 'ok' })
       await vi.waitFor(() => {
@@ -1828,7 +1845,7 @@ describe('evolution reviewer', () => {
       const id = h.scope('ws-1')
       h.workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: h.dir, sessionIds: [session.id] })
       appendTurn(session, 1, { user: 'fix the parser', assistant: 'ok' })
-      // The turn's own extraction lands with provenance, binding the recall
+      // The turn's own extraction lands with its record, binding the recall
       // still awaiting one to this asking session's decision batch.
       await vi.waitFor(() => {
         expect(h.ctx.evolutionMemory.read(id)?.recalls[0]).toMatchObject({
@@ -2021,7 +2038,11 @@ describe('evolution reviewer', () => {
       await vi.waitFor(() => {
         expect(warn).toHaveBeenCalledWith(expect.stringContaining('recall failed'))
       })
-      expect(h.ctx.evolutionMemory.read(id)?.contextItems).toEqual([])
+      // The extraction is queued independently of recall: wait for its write
+      // before reading the scope, then assert it holds no context item.
+      await vi.waitFor(() => {
+        expect(h.ctx.evolutionMemory.read(id)?.contextItems).toEqual([])
+      })
     } finally {
       warn.mockRestore()
       await h.fiber.dispose()
@@ -2513,5 +2534,125 @@ describe('evolution reviewer', () => {
     } finally {
       await h.fiber.dispose()
     }
+  })
+})
+
+describe('evolution reviewer budget gate', () => {
+  /** Harness directories this block created, removed after each test. */
+  const dirs: string[] = []
+
+  afterEach(async () => {
+    for (const dir of dirs.splice(0)) await rm(dir, { recursive: true, force: true })
+  })
+
+  /** One settled spend, as the stub records it. */
+  interface Spend {
+    batchId: string
+    tokens: number
+    wallTimeMs: number
+    rollouts: number
+  }
+
+  /** The same chunks with a provider usage report before the finish, when one is given. */
+  function withUsage(
+    chunks: StreamChunk[],
+    usage?: { inputTokens: number; outputTokens: number; totalTokens?: number },
+  ): StreamChunk[] {
+    if (usage === undefined) return chunks
+    return [...chunks.slice(0, -1), { type: 'usage', usage }, ...chunks.slice(-1)]
+  }
+
+  /** A stream implementation over fixed chunks. */
+  function streamOf(chunks: StreamChunk[]) {
+    return async function* (): AsyncIterable<StreamChunk> {
+      yield* chunks
+    }
+  }
+
+  /** Provide a budget-store stub whose ceilings follow `ceiling` and that records every spend. */
+  function mountBudget(ctx: Context, ceiling: { exceeded: boolean }, spends: Spend[]): void {
+    ctx.provide('evolutionBudget', {
+      batches: () => [],
+      allocate: async () => ({}),
+      withinBudget: () => !ceiling.exceeded,
+      spend: async (batchId: string, input: Spend) => {
+        spends.push({ ...input, batchId })
+        return {}
+      },
+    } as never)
+  }
+
+  it('refuses the extraction before the model once the scope ceiling is spent', async () => {
+    const h = await harness({ provider: 'p', model: 'm' })
+    dirs.push(h.dir)
+    try {
+      h.streamImpl = streamOf(textChunks(answer(newDecision('Work'))))
+      const session = sessionIn(h.ctx, h.dir, 's1')
+      const id = h.scope('ws-1')
+      h.workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: h.dir, sessionIds: [session.id] })
+      mountBudget(h.ctx, { exceeded: true }, [])
+      appendTurn(session, 1, { user: 'remember that the sky is blue', assistant: 'noted' })
+
+      await new Promise(resolve => setTimeout(resolve, 50))
+
+      expect(h.calls).toHaveLength(0)
+      expect(lessonsOf(h.ctx.evolutionMemory.read(id))).toBe('')
+    } finally {
+      await h.fiber.dispose()
+    }
+  })
+
+  it('settles the extraction against both ceiling batches with the tokens it reported', async () => {
+    const spends: Spend[] = []
+    const h = await harness({ provider: 'p', model: 'm' })
+    dirs.push(h.dir)
+    try {
+      h.streamImpl = streamOf(withUsage(textChunks(answer(newDecision('Work'))), { inputTokens: 40, outputTokens: 2 }))
+      const session = sessionIn(h.ctx, h.dir, 's1')
+      const id = h.scope('ws-1')
+      h.workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: h.dir, sessionIds: [session.id] })
+      mountBudget(h.ctx, { exceeded: false }, spends)
+      appendTurn(session, 1, { user: 'remember that the sky is blue', assistant: 'noted' })
+      await vi.waitFor(() => {
+        expect(lessonsOf(h.ctx.evolutionMemory.read(id))).toContain('Work')
+      })
+
+      expect(spends.map(row => row.batchId)).toEqual([
+        expect.stringContaining('evolution-reviewer:test:ws-1:daily:'),
+        expect.stringContaining('evolution-reviewer:test:ws-1:weekly:'),
+      ])
+      expect(spends.map(row => [row.tokens, row.rollouts])).toEqual([[42, 0], [42, 0]])
+    } finally {
+      await h.fiber.dispose()
+    }
+  })
+
+  it('bills a reported total, computes one from input and output, and bills nothing when none is reported', async () => {
+    const usages: ({ inputTokens: number; outputTokens: number; totalTokens?: number } | undefined)[] = [
+      { inputTokens: 40, outputTokens: 2, totalTokens: 99 },
+      { inputTokens: 40, outputTokens: 2 },
+      undefined,
+    ]
+    const billed: number[] = []
+    for (const usage of usages) {
+      const spends: Spend[] = []
+      const h = await harness({ provider: 'p', model: 'm' })
+      dirs.push(h.dir)
+      try {
+        h.streamImpl = streamOf(withUsage(textChunks(answer(newDecision('Work'))), usage))
+        const session = sessionIn(h.ctx, h.dir, 's1')
+        const id = h.scope('ws-1')
+        h.workspaces.set('ws-1', { id: WorkspaceId('ws-1'), title: 'Project', path: h.dir, sessionIds: [session.id] })
+        mountBudget(h.ctx, { exceeded: false }, spends)
+        appendTurn(session, 1, { user: 'remember that the sky is blue', assistant: 'noted' })
+        await vi.waitFor(() => {
+          expect(lessonsOf(h.ctx.evolutionMemory.read(id))).toContain('Work')
+        })
+        billed.push(spends[0]?.tokens ?? -1)
+      } finally {
+        await h.fiber.dispose()
+      }
+    }
+    expect(billed).toEqual([99, 42, 0])
   })
 })

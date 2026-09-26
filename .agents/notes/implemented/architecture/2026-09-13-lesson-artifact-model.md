@@ -6,7 +6,7 @@ English | [中文](2026-09-13-lesson-artifact-model.zh.md)
 
 ## Problem
 
-The evolutionary-harness specification requires every long-term memory artifact to carry structured provenance and quality metadata — statement, source, conditions, evidence, confidence, validation and refutation counts, scope, ttl. `@deepseek-ai/dsh-evolution-memory` stored the whole of `agentLessons` as one markdown string, edited by substring surgery: `addLesson` appended text behind an `includes()` check, and `replaceLesson`/`removeLesson` located an exact substring expected to occur once. There was no per-fact identity, no confidence, no provenance, and no way to say "this fact was contradicted three times" — so nothing could decay, rank, or be checked, and a model editing one sentence had to rewrite a document.
+The evolutionary-harness specification requires every long-term memory artifact to carry structured source and quality metadata — statement, source, conditions, evidence, confidence, validation and refutation counts, scope, ttl. `@deepseek-ai/dsh-evolution-memory` stored the whole of `agentLessons` as one markdown string, edited by substring surgery: `addLesson` appended text behind an `includes()` check, and `replaceLesson`/`removeLesson` located an exact substring expected to occur once. There was no per-fact identity, no confidence, no recorded source, and no way to say "this fact was contradicted three times" — so nothing could decay, rank, or be checked, and a model editing one sentence had to rewrite a document.
 
 Phase 1 of the artifact model is that reshape for lessons. The question this Agent Note answers is the one the code alone cannot: which of the several defensible reshapes was taken, and what each one costs when it is wrong.
 
@@ -16,7 +16,7 @@ Phase 1 of the artifact model is that reshape for lessons. The question this Age
 
 ### Only `agentLessons` becomes an artifact set
 
-`instructions` stays free text because the user authors it: there is no inference to score, nothing to validate, and a confidence number on a direct instruction is noise. `userProfile` stays free text because it is a narrative about a person, not a set of discrete facts — splitting it would be a summarization decision, not a provenance one. The artifact shape describes a model-inferred fact that may be wrong and needs a confidence score, which is exactly `agentLessons`. Bounding the change there also bounds the blast radius: the profile and instruction write paths, their caps, and their stamps are untouched.
+`instructions` stays free text because the user authors it: there is no inference to score, nothing to validate, and a confidence number on a direct instruction is noise. `userProfile` stays free text because it is a narrative about a person, not a set of discrete facts — splitting it would be a summarization decision, not a source one. The artifact shape describes a model-inferred fact that may be wrong and needs a confidence score, which is exactly `agentLessons`. Bounding the change there also bounds the blast radius: the profile and instruction write paths, their caps, and their stamps are untouched.
 
 ### Admission is `version: 2` with `compatibleVersions: [1]`
 
@@ -55,7 +55,7 @@ The markdown extraction pipeline used to rewrite a scope's lessons as one docume
 
 ## Consequences
 
-- Every artifact carries provenance, confidence, and counters that a later extraction can move, and the store can rank and prune facts instead of treating a scope's lessons as one opaque blob. The renderer already spends that: the brief orders artifacts strongest-first.
+- Every artifact carries its source, confidence, and counters that a later extraction can move, and the store can rank and prune facts instead of treating a scope's lessons as one opaque blob. The renderer already spends that: the brief orders artifacts strongest-first.
 - `maxAgentBytes` changed meaning. It was a cap on one markdown document; it is now the cap on the sum of the serialized artifacts, each of which carries its statement twice — once as `statement`, once as the normalized `id` that names it — plus a fixed envelope. A deployment that tuned it against a document now budgets a JSON array, which is why the reviewer's byte budget was documented against the new measure until [structured lesson extraction](../architecture/2026-09-14-structured-lesson-extraction.md) removed that budget along with the markdown pipeline.
 - The counters move once an extraction writes a decision batch: a `confirms` bumps `validationCount`, a `contradicts` bumps `refutationCount`. Decay is still driven by `defaultTtlDays` — every artifact admitted through the ordinary write paths is given one, a real behavioural change rather than a dormant one — but a confirmation now refreshes the `updatedAt` that ttl is measured from, so only a fact no later turn's window shows the model ages unattended.
 - A migrated scope stays coarse: one artifact whose statement is the whole old document, rendering as one line in the brief and counted as one fact by anything that counts facts. It is a correct permanent fallback, not a broken state, and `refined` says `0` while that is true, because the extraction folds decisions into the artifacts it reads rather than refining them.

@@ -14,6 +14,7 @@
     { "path": "../../runtime/agent-context" },
     { "path": "../../runtime/agent-kernel" },
     { "path": "../../session/session-persistence" },
+    { "path": "../../session/usage-ledger" },
     { "path": "../../todo/tool-todo" },
     { "path": "../evolution-memory" }
   ]

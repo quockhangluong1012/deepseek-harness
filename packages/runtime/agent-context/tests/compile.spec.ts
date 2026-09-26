@@ -14,7 +14,7 @@ function source(
     kind: options.kind ?? 'task',
     content,
     trust: options.trust ?? 'trusted',
-    provenance: { source: 'kernel', locator: id },
+    sourceRef: { source: 'kernel', locator: id },
     retention: options.retention ?? 'required',
     ...options.subject === undefined ? {} : { subject: options.subject },
   }

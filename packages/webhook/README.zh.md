@@ -25,7 +25,7 @@ Webhook 系列接收通过身份验证的提供方事件，并运行受信任的
 | 包 | 角色 | ctx key |
 |---|---|---|
 | [`webhook/`](webhook/README.zh.md) | 规则注册表、回调生命周期与基于 Workspace 的会话创建 | `ctx.webhookRuntime` |
-| [`webhook-github/`](webhook-github/README.zh.md) | GitHub HTTP 签名验证适配器 | 消费 `ctx.webhookRuntime` 与 `ctx.webServer` |
+| [`webhook-github/`](webhook-github/README.zh.md) | GitHub HTTP 签名验证适配器，以及拉取请求/issue 会话规则 | 消费 `ctx.webhookRuntime` 与 `ctx.webServer` |
 
 <a id="related-documentation"></a>
 ## 相关文档

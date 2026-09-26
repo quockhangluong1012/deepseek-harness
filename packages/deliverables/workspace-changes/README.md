@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-This plugin summarizes which files each top-level turn changed, with per-file line counts, and serves each listed file's turn-start and turn-end comparison; it can also rewind a working directory's code to any turn's start. Git snapshots of the working tree at turn start and turn end are diffed; every file a file tool edits is copied whole before its first edit and again at turn end, covering the files git does not. Without a repository or git, only file-tool edits are listed. The Session log receives one `workspace/changes` event naming the turn; summaries, comparisons, and rewind stay on the Host until the Session is disposed. The Web changed-files card renders the summaries and comparisons; [`dsh-command-rewind`](../command-rewind/README.md) exposes the rewind directly to the user.
+Mount `dsh-workspace-changes` to see, for every top-level turn, which files changed with per-file line counts, to open any listed file's turn-start and turn-end comparison, and to rewind the working directory's code to any turn's start. It diffs git snapshots of the work tree at turn start and turn end and copies whole every file a file tool edits, so files git ignores still count; without a repository or git, only file-tool edits are listed. Summaries, comparisons, and rewind stay on the Host until the Session is disposed; the Web changed-files card and `/rewind` read them.
 
 ## Table of Contents
 

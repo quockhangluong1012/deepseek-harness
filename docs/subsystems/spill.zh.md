@@ -91,6 +91,14 @@ type SpillLocator = Branded<'SpillLocator'>
 
 本地后端（[dsh-spill-local](../../packages/spill/spill-local)）写入 `<root>/session-<hash>/<random>-<safeName>`：根目录是已配置或延迟创建的私有（0700）目录，会话子目录采用 `sha256(sessionId)`，并通过排他且仅所有者可访问的写入（`open(path, 'wx', 0o600)`）防止预先植入的符号链接重定向写入。其 `locator` 是本地路径，`retrievalHint` 则告知模型在该路径上使用 `read` 或 `grep`。策略消费方（[dsh-spill-policy](../../packages/spill/spill-policy)）会把超过 `maxInlineTokens` 的图文结果替换为按原顺序保留的首尾内容和 spill 地址；该过程尽力而为：保存失败时保留原始内联结果，而不会把成功的调用变成 `isError`。
 
+## 产物取回
+
+`ArtifactStore`（`ctx.artifacts`，定义于 [`packages/spill/spill/src/artifacts.ts`](../../packages/spill/spill/src/artifacts.ts)）是 `SpillStore` 后端所存产物之上的只读取回 seam，暴露演化规范命名的产物 API。它的五个操作是 `search`——按最新优先列出某会话的产物，可选按存储名子串匹配——`read`——返回存储文本或其中一个行窗口——`extract`——投影出匹配正则表达式的行——`diff`——把两个产物比较为统一补丁——以及 `summarize`——在字节预算内保留产物的首尾并报告精确的省略字节数。
+
+定位信息仍是 `saveText` 返回的不透明句柄。除 `search` 外每个操作都接受它们，而后端未曾存储的定位信息——外部路径、未知名称、不是常规文件的条目——会以 `ArtifactLocatorError` 拒绝，而不是读取任意文件。取回绝不写入、替换、导出或删除产物，也绝不改变模型请求，因此无法绕过[工具结果策略](../../packages/spill/spill-policy)：模型能看到超大结果中的哪些内容仍由保留策略决定，而取回操作恢复的正是其提示所指的完整文本。`summarize` 组合该策略使用的字节导向保留库，因此调用方可以用其 `omittedBytes` 渲染既有的提示。
+
+[dsh-spill-local](../../packages/spill/spill-local) 在同一个插件 fiber、同一个根目录上注册两个服务：本地实现读取的正是其 `saveText` 写入的文件，一次 dispose 同时释放两者。
+
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 
 <a id="cordis-surface"></a>
@@ -98,6 +106,59 @@ type SpillLocator = Branded<'SpillLocator'>
 ## Cordis API
 
 Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — the language sides differ only in locale-specific paired document paths. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.zh.md#dispatch-modes), and the framework-inherited `ctx` API lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
+
+<a id="ctxartifacts--artifactstore-abstract-seam"></a>
+
+### `ctx.artifacts` — `ArtifactStore` (abstract seam)
+
+Abstract artifact retrieval service over the artifacts of one `SpillStore` backend. Subclass, implement every operation, and load the subclass as a plugin — it registers as `ctx.artifacts` (one implementation per context; loading a second throws, cordis' standard duplicate-service behavior).
+
+Semantics every implementation must honor:
+
+- Retrieval is READ-ONLY. No operation writes, replaces, exports, or deletes an artifact, and none changes what a model request contains; the writing seam is `SpillStore`, and model-facing preview policy stays in `@deepseek-ai/dsh-spill-policy`.
+- read, extract, diff, and summarize accept only locators this backend stored. Another backend's locator, an unknown name, or a non-artifact entry REJECTS with ArtifactLocatorError rather than reading an arbitrary file.
+- Search is scoped to the request's SearchArtifacts.owner session, like storage, and never reaches another session's artifacts.
+- summarize retains the artifact's head and tail under the request's byte budget with the same byte-oriented retention the spill policy composes, so its exact `omittedBytes` is what the shipped notice formatter consumes.
+
+```ts cordis-catalog
+/**
+ * List artifacts of the owner session, newest first, filtered by the request's
+ * criteria. A session with no stored artifact returns an empty list.
+ * @param request - the owner session scope, optional stored-name substring, and match limit.
+ * @returns the matching artifacts, newest first; empty when none match.
+ */
+abstract search(request: SearchArtifacts): Promise<ArtifactMatch[]>
+
+/**
+ * Read one line window of a stored artifact, defaulting to all of it.
+ * @param request - the artifact locator and the optional 1-based line window.
+ * @returns the window text and both the window's and the artifact's sizes.
+ */
+abstract read(request: ReadArtifact): Promise<ArtifactText>
+
+/**
+ * Project the artifact lines matching a regular expression, in artifact order.
+ * @param request - the artifact locator, the pattern source, and the optional match limit.
+ * @returns the matching lines with their line numbers and the complete match count.
+ */
+abstract extract(request: ExtractArtifact): Promise<ArtifactExtract>
+
+/**
+ * Compare two stored artifacts line by line.
+ * @param request - the two artifact locators and the optional unchanged-line context.
+ * @returns the unified patch and the added/deleted line counts.
+ */
+abstract diff(request: DiffArtifacts): Promise<ArtifactDiff>
+
+/**
+ * Retain an artifact's head and tail under a byte budget.
+ * @param request - the artifact locator and the maximum returned UTF-8 bytes.
+ * @returns the retained ends and the exact omitted byte count.
+ */
+abstract summarize(request: SummarizeArtifact): Promise<ArtifactSummary>
+```
+
+Source: [`packages/spill/spill/src/artifacts.ts`](../../packages/spill/spill/src/artifacts.ts)
 
 <a id="ctxspillstore--spillstore-abstract-seam"></a>
 

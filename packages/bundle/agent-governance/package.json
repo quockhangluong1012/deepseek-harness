@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-agent-governance",
-  "description": "The control-plane layer as a profile bundle: the agent kernel with its built-in capability declarations and the prompt-injection guard, inserted in shadow mode so a deployment can measure before it enforces",
+  "description": "The control-plane layer as a profile bundle: the agent kernel with its built-in capability declarations and criterion verifiers, plus the prompt-injection guard, inserted in shadow mode so a deployment can measure before it enforces",
   "version": "0.1.7-alpha.2",
   "publishConfig": {
     "access": "public"
@@ -34,8 +34,11 @@
     }
   },
   "dependencies": {
+    "@deepseek-ai/dsh-agent-context": "workspace:*",
     "@deepseek-ai/dsh-agent-kernel": "workspace:*",
     "@deepseek-ai/dsh-agent-kernel-builtins": "workspace:*",
+    "@deepseek-ai/dsh-agent-verifiers": "workspace:*",
+    "@deepseek-ai/dsh-command-verifiers": "workspace:*",
     "@deepseek-ai/dsh-prompt-injection": "workspace:*",
     "@deepseek-ai/dsh-tool-evidence": "workspace:*"
   },

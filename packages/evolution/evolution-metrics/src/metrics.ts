@@ -139,3 +139,28 @@ export function gainPerComputeHour(gain: number, wallTimeMs: number): number | u
 export function gainPerDay(gain: number, elapsed: number): number | undefined {
   return elapsed <= 0 ? undefined : gain / elapsed
 }
+
+/**
+ * One rate over a part and the whole it is a part of. An empty population is
+ * not a zero: the reading names the record that would have populated it.
+ * @param id - the metric reported.
+ * @param unit - how to read the number.
+ * @param part - the numerator.
+ * @param whole - the denominator.
+ * @param inputs - the records the two numbers were read from.
+ * @param missing - what the absent denominator means.
+ * @param caveat - what the number does not tell you; null when it is complete.
+ * @returns the measured rate, or the reading naming the missing record.
+ */
+export function rate(
+  id: MetricId,
+  unit: MetricUnit,
+  part: number,
+  whole: number,
+  inputs: readonly string[],
+  missing: string,
+  caveat: string | null,
+): MetricValue {
+  const value = share(part, whole)
+  return value === undefined ? unavailable(id, unit, inputs, missing) : metric(id, value, unit, inputs, caveat)
+}

@@ -402,6 +402,19 @@ describe('--json projection', () => {
     expect(test.parsed().at(-1)).toEqual({ type: 'final', text: 'abcdefgh' })
   })
 
+  it('carries the schema-constrained result on the terminal final event', () => {
+    const test = harness({ maxStringBytes: 4 })
+    test.projection.finish('abcdefgh', { answer: 42 })
+    expect(test.parsed().at(-1)).toEqual({ type: 'final', text: 'abcdefgh', structured: { answer: 42 } })
+  })
+
+  it('omits the structured field when the run declared no schema', () => {
+    const test = harness()
+    test.projection.finish('done')
+    expect(test.parsed().at(-1)).toEqual({ type: 'final', text: 'done' })
+    expect(Object.hasOwn(test.parsed().at(-1) as object, 'structured')).toBe(false)
+  })
+
   it('ignores events from another Session and stops writing after dispose', () => {
     const test = harness()
     test.emitRawSession({}, assistantMessage([{ type: 'text', text: 'foreign' }]))

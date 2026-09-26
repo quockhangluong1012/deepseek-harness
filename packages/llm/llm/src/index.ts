@@ -236,6 +236,19 @@ export abstract class LlmAdapter {
   }
 
   /**
+   * Resolve provider-declared USD prices for one exact model route. The
+   * default declares none, so consumers read the absence as unknown, never
+   * as free. Implementations must answer synchronously without I/O; the
+   * usage ledger prices every billed sample with this.
+   * @param _provider - a route passed to `registerAdapter()` for this instance.
+   * @param _model - exact model id passed to {@link GenerateOptions.model}.
+   * @returns detached route pricing, or `undefined` when the route declares none.
+   */
+  modelCost(_provider: string, _model: string): LlmModelCost | undefined {
+    return undefined
+  }
+
+  /**
    * List models this adapter can currently advertise for one owned provider.
    * The result is advisory: an adapter may accept unlisted model ids, and
    * consumers must not turn absence into request rejection.
@@ -672,6 +685,24 @@ export class LlmRuntime extends TypertRemoteService {
    */
   imageRequestPricing(provider: string, model: string): LlmImageRequestPricing | undefined {
     return this.adapters.get(provider)?.adapter.imageRequestPricing(provider, model)
+  }
+
+  /**
+   * Resolve provider-declared USD prices for one exact route, or `undefined`
+   * when the provider is unregistered or declares none. Unknown providers
+   * degrade to `undefined` rather than throwing because callers price durable
+   * history whose route may no longer be mounted. Detached rates reach money
+   * arithmetic, so an adapter-declared non-finite or negative value rejects
+   * here instead of poisoning a later total.
+   * @param provider - registered provider route to inspect.
+   * @param model - exact model id passed to the adapter.
+   * @returns detached route pricing for the route, when declared.
+   */
+  modelCost(provider: string, model: string): LlmModelCost | undefined {
+    const adapter = this.adapters.get(provider)?.adapter
+    return adapter === undefined
+      ? undefined
+      : this.detachedCost(provider, model, adapter.modelCost(provider, model))
   }
 
   /**

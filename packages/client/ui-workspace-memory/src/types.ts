@@ -24,7 +24,7 @@ export interface WorkspaceOutput {
   at: string
 }
 
-/** Extraction provenance, mirrored from the store. */
+/** The extraction that wrote the document, mirrored from the store. */
 export interface WorkspaceMemoryExtraction {
   at: string
   sessionId: string
@@ -101,11 +101,6 @@ export interface WorkspaceMemoryListContextFilesRequest {
 /** Candidate workspace-relative paths. */
 export interface WorkspaceMemoryContextFilesValue {
   readonly paths: readonly string[]
-}
-
-/** Rebuild the document from chat history. */
-export interface WorkspaceMemoryRebuildRequest {
-  readonly workspaceId: WorkspaceId
 }
 
 /** Memory state stream; every generation starts with exactly one baseline. */

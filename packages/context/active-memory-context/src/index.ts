@@ -31,7 +31,7 @@ import {
 } from './policy.ts'
 import { renderActiveMemoryBrief } from './render.ts'
 
-export { escapeFrameBody, renderActiveMemoryBrief } from './render.ts'
+export { quoteRecalledText, renderActiveMemoryBrief } from './render.ts'
 export { applyRetrievalPolicy } from './policy.ts'
 export type {
   AppliedRetrievalDimension,
@@ -704,7 +704,7 @@ export function apply(ctx: Context, config: Config): void {
     return [...items.values()]
   }
 
-  ctx.inject(['agentContext'], compilerCtx => {
+  ctx.inject(['agentContext'], (compilerCtx) => {
     compilerCtx.effect(() => compilerCtx.agentContext.register({
       producer: 'active-memory',
       kind: 'memory',

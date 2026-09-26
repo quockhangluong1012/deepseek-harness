@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-`dsh-mcp-project-config` 从项目文件与用户级文件读取与 Claude Code 兼容的 `.mcp.json` 格式，并为每条被接受的服务器声明挂载一个 [`dsh-mcp-client`](../mcp-client/README.zh.md) 实例。交付的 profile 默认挂载本包；两个文件都不存在是最常见的情形，此时不挂载任何东西。项目条目会覆盖同名的用户条目。一条格式错误的条目只会带着警告被跳过，不会连累其他已配置的服务器；缺失或无法解析的文件也是同样的处理方式——profile 总能完成启动。
+`dsh-mcp-project-config` 从项目文件与用户级文件读取与 Claude Code 兼容的 `.mcp.json` 格式，为每条被接受的服务器声明挂载一个 [`dsh-mcp-client`](../mcp-client/README.zh.md) 实例，并提供 `mcpServers` Remote，供 Desktop 的 MCP 设置页列出、写入与删除这些声明。交付的 profile 默认挂载本包；两个文件都不存在是最常见的情形，此时不挂载任何东西。项目条目会覆盖同名的用户条目。一条格式错误的条目只会带着警告被跳过，不会连累其他已配置的服务器；缺失或无法解析的文件也是同样的处理方式——profile 总能完成启动。
 
 ## 目录
 
@@ -25,7 +25,7 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用本包
 
-交付的 profile 已经挂载了本包一次。把你的 MCP 服务器写进项目根目录的 `.mcp.json`，或写进用户级文件，profile 下次启动时就会连接它们。
+交付的 profile 已经挂载了本包一次。把你的 MCP 服务器写进项目根目录的 `.mcp.json`，或写进用户级文件，profile 下次启动时就会连接它们；Desktop 的 **设置 → MCP** 页面会列出它们，并编辑同一批文件。
 
 ### `.mcp.json` 格式
 
@@ -45,6 +45,8 @@ kind: "package-reference"
   }
 }
 ```
+
+条目可以携带 `trust` 标签——`trusted`、`untrusted`（字段缺省时的默认值）或 `unknown`——该服务器每个工具的声明都会把它传给 agent kernel；取值超出该范围的条目会像其他格式错误的字段一样被跳过。
 
 没有 `type` 字段的 `command` 条目是 stdio 服务器。`args` 与 `env` 默认为空。`"type": "http"` 条目需要绝对的 `http://` 或 `https://` `url`；`headers` 默认为空。其他任何声明的类型（`sse`、`websocket` 及其他）都不受支持，会被跳过。
 
@@ -81,9 +83,9 @@ kind: "package-reference"
   name: '@deepseek-ai/dsh-mcp-project-config'
 ```
 
-### 解析是纯函数；挂载是唯一带副作用的步骤
+### 解析是纯函数；挂载由管理服务负责
 
-[`src/parse.ts`](src/parse.ts) 把一份已经 JSON 解码的 `.mcp.json` 文档解析为已接受服务器的映射，外加一份带原因的跳过条目列表——不访问文件系统、不涉及 Cordis，可独立做单元测试。[`src/index.ts`](src/index.ts) 读取两个文件（缺失文件视为空，不算错误），以项目优先的规则合并它们，并按顺序为每个被接受的服务器调用一次 `ctx.plugin(McpClient, config)`——与 [ACP bridge](../../acp/acp/README.zh.md) 自己的 `mountAcpMcpServers` 一致，只是后者从协议参数而非文件转换同样的形态。
+[`src/parse.ts`](src/parse.ts) 把一份已经 JSON 解码的 `.mcp.json` 文档解析为已接受服务器的映射，外加一份带原因的跳过条目列表——不访问文件系统、不涉及 Cordis，可独立做单元测试。[`src/mcp-servers.ts`](src/mcp-servers.ts) 负责合并后的视图：读取两个文件（缺失文件视为空，不算错误），以项目优先的规则合并它们，并按顺序为每个被接受的服务器调用一次 `ctx.plugin(McpClient, config)`——与 [ACP bridge](../../acp/acp/README.zh.md) 自己的 `mountAcpMcpServers` 一致，只是后者从协议参数而非文件转换同样的形态。每次管理写入都会重新读取两个文件并调和运行中的实例，因此 Remote 报告的正是实际运行的内容。
 
 ### 服务器名规范化
 
@@ -91,10 +93,13 @@ kind: "package-reference"
 
 | 文件 | 职责 |
 |---|---|
-| [`src/index.ts`](src/index.ts) | 插件入口：配置 schema、读文件、项目/用户合并、按顺序挂载 |
-| [`src/parse.ts`](src/parse.ts) | 纯 `.mcp.json` 解析、条目校验与服务器名规范化 |
+| [`src/index.ts`](src/index.ts) | 插件入口：配置 schema，以及构建审批通道的 Host 接线 |
+| [`src/mcp-servers.ts`](src/mcp-servers.ts) | `mcpServers` Remote 服务：合并视图、挂载调和、需审批的写入 |
+| [`src/config-file.ts`](src/config-file.ts) | 读取并重写单份 `.mcp.json` 文档，不动其中的其他键 |
+| [`src/types.ts`](src/types.ts) | Remote 线上类型：合并视图、写入请求与拒绝词汇 |
+| [`src/parse.ts`](src/parse.ts) | 纯 `.mcp.json` 解析、条目校验、声明的信任级别与服务器名规范化 |
 
-不发布运行时不变式伴生入口：`apply()` 返回后本包不持有任何状态——每个已挂载服务器的生命周期、重连与工具注册都归属于它自己的 `dsh-mcp-client` 实例。
+不发布运行时不变式伴生入口：服务的视图来自两个文件、解析器，以及已挂载子实例报告的状态，没有第二个观察者独立记录这些事实。
 
 </details>
 
@@ -106,6 +111,7 @@ kind: "package-reference"
 - [MCP 客户端](../mcp-client/README.zh.md)——为每个已配置服务器挂载一次的插件：传输、指令与连接生命周期。
 - [MCP 资源](../mcp-resources/README.zh.md)——任一服务器一旦配置即可用的共享资源发现工具。
 - [ACP MCP bridge](../../acp/acp/README.zh.md)——由已连接编辑器提供 MCP 服务器时的兄弟挂载路径，而非来自文件。
+- [MCP 设置页](../../client/ui-settings-mcp/README.zh.md)——列出这些服务器并通过 `mcpServers` Remote 写入声明的 Desktop 页面。
 - [生成的配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-mcp-project-config)——每个受支持配置字段及其源声明。
 
 -----
@@ -123,8 +129,8 @@ kind: "package-reference"
 
 <a id="known-limitations-and-deferred-work"></a>
 
-- **两个文件只在进程启动时读取一次**——启动后创建、编辑或删除的 `.mcp.json` 不会被感知，直到 profile 重启；没有文件监视器。
-- **没有 Desktop 管理界面**——服务器需要手工编辑 `.mcp.json` 文件；没有应用内列表、添加、移除或连接状态视图。
+- **管理写入需要审批通道**——在没有会话持有打开的回合时，新增声明、替换声明，或删除会暴露同名用户层声明的项目层声明都会被拒绝，因为 `user-approval` 只在回合内作答。
+- **文件在启动时以及每次管理写入后读取**——在 Host 之外修改的 `.mcp.json` 要等 profile 重启才会被感知；没有文件监视器。
 - **不支持 OAuth、旧版 SSE 或 MCP 提示词模板**——只有 `dsh-mcp-client` 支持的子集（stdio、Streamable HTTP）能到达已挂载服务器；其他任何声明的类型都会被跳过。
 - **按顺序挂载**——服务器逐个挂载，因此 `dsh-mcp-client` 自身阻塞式的初始连接行为意味着 N 个已配置服务器可能累加各自最坏情况下的启动延迟；这与 ACP bridge 既有的挂载方式一致，而非引入第二种并发约定。
 

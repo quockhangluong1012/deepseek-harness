@@ -26,7 +26,7 @@ workspace 家族让宿主产品持久保存命名且有序的项目列表，并�
 |---|---|---|
 | [`workspace`](workspace/README.zh.md) | 提供命名且有序的项目，并按目录归组在其中运行的会话 | `ctx.workspaceRegistry` |
 | [`workspace-memory`](workspace-memory/README.zh.md) | 提供每个工作区的持久记忆记录、容量上限与用量核算 | `ctx.workspaceMemory` |
-| [`workspace-memory-llm`](workspace-memory-llm/README.zh.md) | 从聊天记录推导记忆文档，并索引产出文件 | `ctx.workspaceMemoryExtractor` |
+| [`workspace-session`](workspace-session/README.zh.md) | 为发布无人值守会话的生产者在 Workspace 中创建、挂接、命名并启动一个根会话 | 库——无 ctx 键 |
 
 -----
 

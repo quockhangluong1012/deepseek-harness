@@ -52,6 +52,8 @@ interface GoalSnapshot extends GoalRef {
   readonly blockedReason?: GoalBlockReason
   /** Total admitted goal-round cap. */
   readonly maxGoalRounds: number
+  /** Optional total-token spend ceiling since creation; absent means no token budget. */
+  readonly maxGoalTokens?: number
 }
 ```
 
@@ -60,6 +62,8 @@ interface GoalSnapshot extends GoalRef {
 interface GoalView extends GoalSnapshot {
   /** Highest admitted round number for this goal. */
   readonly roundsStarted: number
+  /** Cumulative billed tokens observed since creation. */
+  readonly tokensUsed: number
   /** Epoch milliseconds of the create mutation. */
   readonly createdAt: number
   /** Epoch milliseconds of the latest mutation. */
@@ -100,6 +104,13 @@ interface GoalSnapshotChangeMeta {
   readonly operation: Exclude<GoalOperation, 'clear'>
   readonly goal: GoalSnapshot
   readonly roundsStarted: number
+  /**
+   * Cumulative billed tokens observed since creation; folded from
+   * `assistant/message` samples, never set by a caller. Optional because an
+   * event committed before token tracking existed has no such field on disk;
+   * a reader defaults its absence to zero. Every write populates it.
+   */
+  readonly tokensUsed?: number
   readonly createdAt: number
   readonly updatedAt: number
 }
@@ -138,6 +149,8 @@ interface GoalMessageSource {
 interface CreateGoalRequest {
   readonly objective: string
   readonly maxGoalRounds?: number
+  /** Optional total-token spend ceiling since creation; unset means no token budget. */
+  readonly maxGoalTokens?: number
 }
 ```
 
@@ -146,6 +159,8 @@ interface CreateGoalRequest {
 interface EditGoalRequest {
   readonly objective?: string
   readonly maxGoalRounds?: number
+  /** Replace the token budget; use `null` semantics are not supported, pass a new positive value. */
+  readonly maxGoalTokens?: number
 }
 ```
 

@@ -42,6 +42,13 @@ interface CommandDefinition {
   /** Optional free-form input hint advertised to capable clients. */
   readonly input?: CommandInputDescriptor
   /**
+   * Exact model id the command's source declared for the run its handler starts.
+   * The registry only carries the value; the handler that submits that run owns
+   * applying it, because only it knows whether the invocation schedules model
+   * work at all.
+   */
+  readonly model?: string
+  /**
    * Whether `command/run` records `rawInput`. Defaults to true. A command
    * whose domain event owns the payload sets this false to avoid duplicating
    * that payload in the session log.

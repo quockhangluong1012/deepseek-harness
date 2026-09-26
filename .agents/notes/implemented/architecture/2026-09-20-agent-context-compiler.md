@@ -28,7 +28,7 @@ Required facts are re-derived per assembly rather than copied into a compaction 
 
 **Copy required facts into a `CompactionCheckpoint`.** Rejected: the specification's sketch predates the kernel's fold. A second copy inside the compaction record would need its own retention and staleness rules, could disagree with the view it was copied from, and would be the copy that goes missing when a summarizer truncates its output. Reading the fold on each assembly has one authority.
 
-**Emit `messages` in the compiled context.** Rejected: `deriveMessages()` is the model-history projection and the loop renders the request from the assembly. A second projection would be a competing model history, and the compiler's job is provenance over the assembly, not a request of its own.
+**Emit `messages` in the compiled context.** Rejected: `deriveMessages()` is the model-history projection and the loop renders the request from the assembly. A second projection would be a competing model history, and the compiler's job is to record where each contribution came from, not to issue a request of its own.
 
 **Rebuild prompt order inside the compiler.** Rejected: `core/system-prompt` owns contribution registration, layer shadowing, ordering, and rendering. A compiler that reordered sections would become a second assembler, and every prompt contributor would have to decide which one to register with.
 

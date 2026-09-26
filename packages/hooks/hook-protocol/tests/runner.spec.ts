@@ -1,6 +1,7 @@
 import { describe, expect, expectTypeOf, it } from 'vitest'
+import { createServer, type ServerResponse } from 'node:http'
 import type { ShellExecRequest, ShellExecSpec, ShellExecution, ShellExecutor, ShellRunResult } from '@deepseek-ai/dsh-shell'
-import { DEFAULT_HOOK_TIMEOUT_MS, runHook } from '@deepseek-ai/dsh-hook-protocol'
+import { DEFAULT_HOOK_TIMEOUT_MS, isHttpHook, runHook } from '@deepseek-ai/dsh-hook-protocol'
 import type { RunHookOptions } from '@deepseek-ai/dsh-hook-protocol'
 
 /**
@@ -170,5 +171,189 @@ describe('runHook — outcome decoding + duration', () => {
     // A PreToolUse block on a Stop hook is malformed → its decision is discarded.
     expect(output.hookEventName).toBe('PreToolUse')
     expect(output.decision).toBeUndefined()
+  })
+})
+
+/**
+ * Real HTTP endpoint for the transport tests. The HTTP hook transport speaks to
+ * a listening socket, so these cases start one, record what it received, and
+ * answer — no shell and no platform-specific executable is involved.
+ */
+interface Endpoint {
+  readonly url: string
+  readonly requests: { body: string; contentType: string | undefined }[]
+  close(): Promise<void>
+}
+
+async function startEndpoint(handler: (res: ServerResponse) => void): Promise<Endpoint> {
+  const requests: Endpoint['requests'] = []
+  const server = createServer((req, res) => {
+    const chunks: Buffer[] = []
+    req.on('data', (chunk: Buffer) => chunks.push(chunk))
+    req.on('end', () => {
+      requests.push({ body: Buffer.concat(chunks).toString('utf8'), contentType: req.headers['content-type'] })
+      handler(res)
+    })
+  })
+  await new Promise<void>((resolve) => { server.listen(0, '127.0.0.1', resolve) })
+  const address = server.address()
+  /* v8 ignore next -- a listening server always reports an object address */
+  const port = typeof address === 'object' && address !== null ? address.port : 0
+  return {
+    url: `http://127.0.0.1:${port}/hook`,
+    requests,
+    close: () => new Promise<void>((resolve) => {
+      server.closeAllConnections()
+      server.close(() => { resolve() })
+    }),
+  }
+}
+
+/** A local port nothing listens on, for the unreachable-endpoint case. */
+async function closedPort(): Promise<number> {
+  const probe = await startEndpoint(() => undefined)
+  const port = Number(new URL(probe.url).port)
+  await probe.close()
+  return port
+}
+
+const httpOptions = (over: Partial<RunHookOptions> = {}): RunHookOptions => ({
+  payload: { hook_event_name: 'PreToolUse', tool_name: 'Bash' },
+  signal: testSignal(),
+  defaultTimeoutMs: 5000,
+  trailingNewline: true,
+  ...over,
+})
+
+describe('runHook — HTTP transport', () => {
+  it('POSTs the payload as JSON and decodes a structured 200 body', async () => {
+    const endpoint = await startEndpoint((res) => {
+      res.writeHead(200, { 'content-type': 'application/json' })
+      res.end(JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: 'no' } }))
+    })
+    try {
+      const { output } = await runHook(recordingBash(async () => result()).bash, { url: endpoint.url }, httpOptions({ expectedEventName: 'PreToolUse' }), clock())
+      expect(endpoint.requests[0]!.body).toBe(JSON.stringify({ hook_event_name: 'PreToolUse', tool_name: 'Bash' }) + '\n')
+      expect(endpoint.requests[0]!.contentType).toBe('application/json')
+      expect(output.decision).toBe('deny')
+      expect(output.reason).toBe('no')
+      // An HTTP hook has no process, so no exit code is ever recorded.
+      expect(output.exitCode).toBeUndefined()
+      expect(output.transportError).toBeUndefined()
+    } finally {
+      await endpoint.close()
+    }
+  })
+
+  it('posts without a trailing newline when the dialect does not frame one', async () => {
+    const endpoint = await startEndpoint((res) => { res.writeHead(200); res.end('') })
+    try {
+      await runHook(recordingBash(async () => result()).bash, { url: endpoint.url }, httpOptions({ trailingNewline: false }), clock())
+      expect(endpoint.requests[0]!.body).toBe('{"hook_event_name":"PreToolUse","tool_name":"Bash"}')
+    } finally {
+      await endpoint.close()
+    }
+  })
+
+  it('sends configured headers and honors the per-hook timeout', async () => {
+    const endpoint = await startEndpoint((res) => { res.writeHead(200); res.end('') })
+    const seen: string[] = []
+    const bash = recordingBash(async (spec) => { seen.push(String(spec.timeoutMs)); return result() }).bash
+    try {
+      await runHook(bash, { url: endpoint.url, headers: { authorization: 'Bearer test' }, timeoutSec: 2 }, httpOptions(), clock())
+      // The command transport is never touched for an HTTP hook.
+      expect(seen).toEqual([])
+    } finally {
+      await endpoint.close()
+    }
+  })
+
+  it('keeps plain (non-JSON) response bodies as stdout', async () => {
+    const endpoint = await startEndpoint((res) => { res.writeHead(200); res.end('just text') })
+    try {
+      const { output } = await runHook(recordingBash(async () => result()).bash, { url: endpoint.url }, httpOptions(), clock())
+      expect(output.stdout).toBe('just text')
+      expect(output.decision).toBeUndefined()
+    } finally {
+      await endpoint.close()
+    }
+  })
+
+  it('discards a hookSpecificOutput block naming a different event', async () => {
+    const endpoint = await startEndpoint((res) => {
+      res.writeHead(200)
+      res.end(JSON.stringify({ hookSpecificOutput: { hookEventName: 'Stop', permissionDecision: 'deny' } }))
+    })
+    try {
+      const { output } = await runHook(recordingBash(async () => result()).bash, { url: endpoint.url }, httpOptions({ expectedEventName: 'PreToolUse' }), clock())
+      expect(output.hookEventName).toBe('Stop')
+      expect(output.decision).toBeUndefined()
+    } finally {
+      await endpoint.close()
+    }
+  })
+
+  it('FAILS CLOSED on a non-2xx status (deny + transportError, no exit code)', async () => {
+    const endpoint = await startEndpoint((res) => { res.writeHead(503); res.end('unavailable') })
+    try {
+      const { output } = await runHook(recordingBash(async () => result()).bash, { url: endpoint.url }, httpOptions(), clock())
+      expect(output.decision).toBe('deny')
+      expect(output.transportError).toMatch(/HTTP 503/)
+      expect(output.reason).toBe(output.transportError)
+      expect(output.exitCode).toBeUndefined()
+    } finally {
+      await endpoint.close()
+    }
+  })
+
+  it('FAILS CLOSED when the endpoint cannot be reached', async () => {
+    const port = await closedPort()
+    const { output } = await runHook(recordingBash(async () => result()).bash, { url: `http://127.0.0.1:${port}/hook` }, httpOptions(), clock())
+    expect(output.decision).toBe('deny')
+    expect(output.transportError).toContain('failed')
+  })
+
+  it('FAILS CLOSED on a timeout, bounded by the per-hook seconds value', async () => {
+    // The endpoint accepts the request and never answers: only the transport's
+    // own bound can end the exchange.
+    const endpoint = await startEndpoint(() => undefined)
+    try {
+      const started = Date.now()
+      const { output } = await runHook(
+        recordingBash(async () => result()).bash,
+        { url: endpoint.url, timeoutSec: 0.15 },
+        httpOptions({ defaultTimeoutMs: 60_000 }),
+        clock(),
+      )
+      expect(output.decision).toBe('deny')
+      expect(output.transportError).toContain('failed')
+      expect(Date.now() - started).toBeLessThan(30_000)
+    } finally {
+      await endpoint.close()
+    }
+  })
+
+  it('an aborted CALLER is not a transport fault (no deny, no transportError)', async () => {
+    const endpoint = await startEndpoint(() => undefined)
+    const controller = new AbortController()
+    try {
+      const pending = runHook(
+        recordingBash(async () => result()).bash,
+        { url: endpoint.url },
+        httpOptions({ signal: controller.signal }),
+        clock(),
+      )
+      controller.abort(new Error('turn cancelled'))
+      const { output } = await pending
+      expect(output.decision).toBeUndefined()
+      expect(output.transportError).toBeUndefined()
+    } finally {
+      await endpoint.close()
+    }
+  })
+
+  it('isHttpHook distinguishes the two transports', () => {
+    expect(isHttpHook({ url: 'http://x/hook' })).toBe(true)
+    expect(isHttpHook({ command: 'h' })).toBe(false)
   })
 })

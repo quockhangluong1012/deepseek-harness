@@ -98,3 +98,43 @@ describe('mergeHookOutputs — reasons, stop, context, systemMessages accumulate
     expect(m.systemMessages).toEqual(['warn-A', 'warn-B'])
   })
 })
+
+describe('mergeHookOutputs — model-level folds', () => {
+  it('later hooks win per request-patch field, keeping earlier fields', () => {
+    const merged = mergeHookOutputs([
+      { exitCode: 0, stderr: '', stdout: '', requestPatch: { provider: 'a', model: 'm1' } },
+      { exitCode: 0, stderr: '', stdout: '', requestPatch: { model: 'm2', maxTokens: 8 } },
+    ])
+    expect(merged.requestPatch).toEqual({ provider: 'a', model: 'm2', maxTokens: 8 })
+  })
+
+  it('leaves requestPatch absent when no hook asked for one', () => {
+    expect(mergeHookOutputs([{ exitCode: 0, stderr: '', stdout: '' }]).requestPatch).toBeUndefined()
+  })
+
+  it('intersects allow-lists so a hook can only narrow', () => {
+    const merged = mergeHookOutputs([
+      { exitCode: 0, stderr: '', stdout: '', allowTools: ['read', 'grep', 'bash'] },
+      { exitCode: 0, stderr: '', stdout: '', allowTools: ['grep', 'bash'] },
+      { exitCode: 0, stderr: '', stdout: '', allowTools: ['bash'] },
+    ])
+    expect(merged.allowTools).toEqual(['bash'])
+  })
+
+  it('an un-narrowing hook does not constrain the set', () => {
+    const merged = mergeHookOutputs([
+      { exitCode: 0, stderr: '', stdout: '' },
+      { exitCode: 0, stderr: '', stdout: '', allowTools: ['read'] },
+    ])
+    expect(merged.allowTools).toEqual(['read'])
+  })
+
+  it('an empty allow-list survives the fold and means no tools', () => {
+    const merged = mergeHookOutputs([{ exitCode: 0, stderr: '', stdout: '', allowTools: [] }])
+    expect(merged.allowTools).toEqual([])
+  })
+
+  it('leaves allowTools absent when no hook narrowed', () => {
+    expect(mergeHookOutputs([{ exitCode: 0, stderr: '', stdout: '' }]).allowTools).toBeUndefined()
+  })
+})

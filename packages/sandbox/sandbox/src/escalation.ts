@@ -108,9 +108,12 @@ export function escalationHintMarker(subject: string): string {
 /**
  * The closed outcome vocabulary of one escalation ask — structurally identical
  * to the approval seam's `ApprovalOutcome` so an `ApprovalService.request`
- * return is assignable without this package importing it.
+ * return is assignable without this package importing it. `allowed-session`
+ * and `allowed-always` differ only in how long the approval answerer
+ * remembers the grant; for this one call they resolve exactly like
+ * `allowed-once`.
  */
-export type EscalationOutcome = 'allowed-once' | 'rejected' | 'cancelled' | 'unavailable'
+export type EscalationOutcome = 'allowed-once' | 'allowed-session' | 'allowed-always' | 'rejected' | 'cancelled' | 'unavailable'
 
 /**
  * The minimal approval-request shape {@link approveEscalation} needs —
@@ -197,7 +200,7 @@ export async function approveEscalation<A, C>(request: EscalationRequest, approv
   switch (outcome) {
     // The schema enum already pinned `mode` to the closed target vocabulary;
     // the check above proved it is strictly wider.
-    case 'allowed-once': return mode as SandboxMode
+    case 'allowed-once': case 'allowed-session': case 'allowed-always': return mode as SandboxMode
     case 'rejected': throw new HarnessError(`the user rejected escalating this ${subject} to "${mode}"`, 'SANDBOX_ESCALATION_REJECTED')
     case 'cancelled': throw new HarnessError(`approval for escalating to "${mode}" was cancelled`, 'SANDBOX_ESCALATION_CANCELLED')
     case 'unavailable': throw new HarnessError(`sandbox escalation to "${mode}" requires approval, but no approval channel is available`, 'SANDBOX_ESCALATION_UNAVAILABLE')

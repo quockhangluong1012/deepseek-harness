@@ -49,11 +49,13 @@ kind: "package-reference"
 |---|---|
 | `/memory`、`/memory pending` | 以 `- <id> [<kind>:<op>] <gist> (session '<origin>', <instant>)` 列出作用域的暂存条目；无待审批项时返回 `No pending writes.`。`applyDecisions` 条目之下还会为每个决策各列一行缩进明细。裸 `/memory` 报告同一列表。 |
 | `/memory approve <id>` | 应用一条记忆类条目并报告 `Approved staged <op> (<gist>).`；未知 id 报告 `No staged write '<id>'.`；技能类 id 会被重定向到 `/skills approve`。 |
+| `/memory add <text>` | 把给定文本暂存为一条 `appendInstructions` 写入并报告 `Staged remember '<id>' (<gist>). Approve it with '/memory approve <id>'.`；重复添加仍在待审批的同一文本会累加该条目而不是堆放重复项。空白文本是用法错误。 |
 | `/memory reject <id>` | 不应用而丢弃一条并报告 `Rejected staged write '<id>'.`。 |
-| `/memory <anything-else>` | `Usage: /memory pending \| approve <id> \| reject <id>`——文法固定。 |
+| `/memory <anything-else>` | `Usage: /memory pending \| add <text> \| approve <id> \| reject <id>`——文法固定。 |
 | `/skills`、`/skills pending` | 列出作用域的暂存技能条目，或给出指明提案来源的空状态。裸 `/skills` 报告同一列表。 |
-| `/skills approve <id>` | 丢弃技能写入已落地的暂存技能条目，并在批准时附带该提醒；不是暂存技能的 id 报告 `No staged skill '<id>'.`。缺少有效捕获契约的**新建**提案保持暂存，并报告缺失的证据；`patch` 仅凭批准即可通过。 |
-| `/skills <anything-else>` | `Usage: /skills pending \| approve <id>`。 |
+| `/skills approve <id>` | 以一次事务完成 patch 的晋级：把其正文写入技能文件、把被替换的 preimage 记入该技能的策略链，并结掉该条目（`Promoted staged skill patch (<gist>): wrote <file> and recorded the preimage it replaces. Roll back with '/skills rollback <skill>'.`）。正文无法解析为该技能的文件，或挂载缺少技能目录或血缘存储时，会带原因拒绝且不写入任何内容；**新建**提案仍照原样丢弃，因为尚不存在的技能由受把关的 `skill_manage` 写入；不是暂存技能的 id 报告 `No staged skill '<id>'.`。 |
+| `/skills rollback <skill>` | 恢复已晋级正文所记录的 preimage（`Rolled '<skill>' back to revision <n>, recorded as a new revision.`）；当文件当前字节与任何已记录修订都不匹配，或该修订没有 preimage 时拒绝。 |
+| `/skills <anything-else>` | `Usage: /skills pending \| approve <id> \| rollback <name>`。 |
 | `/journey [today\|7d\|30d\|all]` | 渲染作用域时间线：窗口标题、每个活跃日一行、容量与摘要，以及暂存计数。裸 `/journey` 报告 `7d`。 |
 | `/journey export [today\|7d\|30d\|all] [--out <path>]` | 把时间线加当前会话日志打包为 zip 归档并报告 `Journey exported to <path>`；路径默认为 `$DSH_HOME/exports/journey-<scope>-<range>.zip`。解析器拒绝的文法会报告 `Usage: /journey export [today \| 7d \| 30d \| all] [--out <path>]`。 |
 | `/journey <anything-else>` | `Usage: /journey [today \| 7d \| 30d \| all]`。 |
@@ -106,7 +108,7 @@ kind: "package-reference"
 | `/graph <entity>` | 列出该实体的直接连接：先给 `<label>:`，再为每一跳可达的邻居各列一行 `- <path> → <label>`；本作用域图谱中不存在的实体会报告 `No entity matching '<entity>' in this scope's graph.`。未挂载图谱时报告 `The knowledge graph is not mounted.` |
 | `/graph <entity> <relation>` | 沿一条关系向外遍历并渲染 `<subject> —<relation>→ <object>, <object>`；主体没有该关系时报告 `<subject> has no '<relation>' relation.`，实体不存在时给同样的 `No entity matching` 消息。双引号参数会保留其中的空格。 |
 | `/graph <anything-else>` | `Usage: /graph <entity> [relation]` |
-| `/claims [query]` | 按可信度从高到低列出作用域的活跃主张：`<n> active claim(s):`，随后每行 `- <statement> [confidence <x.xx>, <n> supporting / <n> contradicting source(s), evidence <x.xx>, source <x.xx>, newest <instant>]`；查询无匹配时报告 `No active claim matching '<query>' in this scope.`，已退役的主张永不出现。 |
+| `/claims [query]` | 按可信度从高到低列出作用域仍然成立的经验事实：`<n> active claim(s):`，随后每行 `- <statement> [confidence <x.xx>, <n> confirming / <n> contradicting check(s), evidence <fact/observation/inference>, newest <instant>]`；查询无匹配时报告 `No active claim matching '<query>' in this scope.`，被改正的事实以新措辞作答，已作废的事实永不出现。 |
 | `/claims <anything-else>` | `Usage: /claims [query]`——只接受一个查询词，含空格时加引号。 |
 | `/reflection [limit]` | 按最新优先列出本作用域会话已存的反思：`<n> reflection(s) (newest first):`，随后每行一块：`- <symptom> (confidence <x.xx>)`、`  expected: <…>`，以及记录在案的 `  cause:`、`  avoid:`、`  instead:`、`  check:`。上限默认为 5；无记录时报告 `No reflections stored for this scope.`。未挂载反馈存储时报告 `The evolution feedback store is not mounted.` |
 | `/reflection <anything-else>` | `Usage: /reflection [limit]`——上限为不小于 1 的整数。 |
@@ -117,9 +119,10 @@ kind: "package-reference"
 | `/curriculum <anything-else>` | `Usage: /curriculum [retire <id>]` |
 | `/benchmark` | 按状态汇总存储：`Benchmark: <n> fresh, <n> search, <n> validation, <n> holdout, <n> contaminated, <n> retired.`，并至多列出十个 fresh 任务 `- <id> <capability>: <task>`。未挂载基准存储时报告 `The evolution benchmark store is not mounted.` |
 | `/benchmark admit` | 把课程中开放的提案收为 fresh 任务并报告 `Admitted <n> benchmark task(s), <n> duplicate(s) skipped.`；未挂载课程存储时报告 `The evolution curriculum store is not mounted; admit needs open proposals.` |
+| `/benchmark admit-datasets <dir>` | 把 `<dir>` 处的 §5.3 数据集语料收为 fresh 任务并报告 `Admitted <n> benchmark task(s) from <n> dataset(s), <n> duplicate(s) skipped.`；目录中没有数据集文件时不收录任何任务，目录不可读时报告加载器自身的错误。 |
 | `/benchmark promote <id> [state]` | 把一个任务沿学习阶梯上移一级（或移到具名状态）并报告 `Promoted '<id>' to '<state>'.`；已在阶梯顶端时报告 `No promotion from '<state>' for '<id>'`，未知 id 报告 `evolution-benchmark: unknown task '<id>'`。 |
 | `/benchmark retire <id>` | 退役一个任务并报告 `Retired '<id>'.` |
-| `/benchmark <anything-else>` | `Usage: /benchmark [admit \| promote <id> [state] \| retire <id>]` |
+| `/benchmark <anything-else>` | `Usage: /benchmark [admit \| admit-datasets <dir> \| promote <id> [state] \| retire <id>]` |
 | `/evaluators` | 汇总评估器集成健康度：`Evaluator health: <n> verdict(s), approved <pct>% (recent <pct>%, drift ±<n> points), unanimous <pct>%, false positives <pct>% of approvals.` 与 `Channels: <channel> <pct>%, …`。未挂载存储时报告 `The evaluator-health store is not mounted.` |
 | `/evaluators runs [<skill>]` | 按最新优先列出十条已记录判定：`<n> verdict(s):`，随后 `- <id8> <skill>: <status>[ approved][ unanimous\| (split: <evaluators>)] at <instant>`；无记录时报告 `No recorded evaluator verdicts.` |
 | `/evaluators <anything-else>` | `Usage: /evaluators [runs [<skill>]]`——至多一个技能。 |
@@ -185,7 +188,7 @@ kind: "package-reference"
 | 情形 | 你看到的消息 |
 |---|---|
 | 会话不在任何 workspace 内（作用域命令） | `This session is outside any workspace scope.` |
-| 经由 `/memory` 批准技能类条目 | `Staged skill '<id>' (<op>) is decided by '/skills approve <id>': write the skill with skill_manage first, then approve there to drop the entry.`——条目保持暂存。 |
+| 经由 `/memory` 批准技能类条目 | `Staged skill '<id>' (<op>) is decided by '/skills approve <id>': write the skill with skill_manage first, then approve there to drop the entry.`——条目保持暂存；而暂存的 `patch` 改为由 `/skills approve` 晋级。 |
 | 批准时触发上限或子串拒绝 | `Cannot approve '<id>' (<code>): <detail>. The entry stays staged.` |
 | 批准缺少准入证据的新建提案 | `Cannot approve '<id>' (evolution/staged-blocked): staged evolution write '<id>' is blocked: <needed evidence>. The entry stays staged.` |
 | 批准或拒绝未知 id | `No staged write '<id>'.` |
@@ -245,7 +248,7 @@ kind: "package-reference"
 该命令建立在五项承诺之上：
 
 - **治理不新增持久状态。** 插件不拥有任何域：待审批列表与时间线读取作用域记录（整理器则经由整理器服务读取自己的台账），变更委托 `approveStaged` / `rejectStaged`，重建把作用域加信号转发给 `evolutionReviewer.rebuild`，导出把会话或作用域转发给轨迹服务，建议读取技能目录。存储仍是唯一权威。
-- **批准者先执行技能写入。** 批准技能类条目在存储中只会丢弃它，因此 `/skills approve` 也这么说：人类先写入技能（经由 `skill_manage`），再批准以丢弃条目，而 `/memory approve` 会把技能类 id 重定向到那里。没有任何内容被静默丢弃或静默应用。
+- **晋级是一次事务，提案仍等待模型的写入。** 批准暂存的 `patch` 会把正文写入、把被替换的 preimage 记入，并结掉该条目；写入之后的任何失败都会恢复 preimage，因此文件与已记录链永不矛盾（S9 修订）。批准**新建**提案在存储中只会丢弃它，因为尚不存在的技能没有正文可写：人类通过受把关的 `skill_manage` 促使写入，再批准，而 `/memory approve` 会把技能类 id 重定向到 `/skills approve`。没有任何内容被静默丢弃或静默应用。
 - **读取只报告记录能证明的内容。** `/journey` 按仪表盘的 UTC+7 日历，为记录携带的每项事实各输出一个增量——每个文档族都来自它自己的写入时间戳、每个上下文条目、每个已索引产出、每条暂存条目——并在裁决落地当天计入该裁决；它绝不猜测一次无法解释的 `updatedAt` 移动的是哪个字段。
 - **排队不等于写入。** `/learn` 构建提示词并排队一个普通回合；命令自身不写任何内容，因此唯一的保存路径是受提案门控的 `skill_manage`。`/suggestions` 只读取 blueprint，不调度任何内容。
 - **完全停稳的拆除。** 生命周期 effect 先注销这些命令，再排空已开始的处理器，因此根拆除不会越过一次进行中的重建——正如 `/compact` 不会越过一次中止的压缩。
@@ -302,7 +305,7 @@ kind: "package-reference"
 
 这些限制说明该命令何时不合适；它们是当前包约束。
 
-- **不应用技能写入**——`/skills approve` 丢弃暂存技能条目；技能文件由 `skill_manage` 写入，命令本身从不写技能文件。`/canary reject`/`rollback` 会改写匹配的血缘结果，使记录的结论贴合现实，但没有任何 `/canary` 动词会对照暂存正文核验实际技能文件，也没有一个会写入它：这两者任一都会推翻这一刻意的人工写入把关，以及这个包里每个姊妹存储都记录在案的、组级的 §58.12「只记录、不强制」边界——不是一条命令能单独改动的事。
+- **晋级只写 patch，从不新建技能**——`/skills approve` 把暂存 patch 的正文写入既有技能文件并记录其 preimage；**新建**提案仍只丢弃条目，因为尚不存在的技能由受把关的 `skill_manage` 写入。`/canary reject`/`rollback` 会改写匹配的血缘结果，使记录的结论贴合现实，但没有任何 `/canary` 动词会对照暂存正文核验实际技能文件，也没有一个会写入它（S9 修订）。
 - **`/learn` 依赖受门控的写入器**——命令只排队一个回合；如果组合出的 agent 没有 `skill_manage`（或没有收集工具），该回合无法保存任何内容，提示词也会如实说明，而不是假装技能已落地。
 - **`/suggestions` 只是建议**——它读取 blueprint 且不调度任何内容；安装 blueprint 所命名的 cron 条目仍是人类单独且审慎的行动。
 - **blueprint 读取兼容两种表面**——技能的 blueprint 从解析后的 frontmatter 字段读取，或从它被解析自的 frontmatter 袋读取，因为发现层只发布其中一种；未被接受的形状只是不被建议。

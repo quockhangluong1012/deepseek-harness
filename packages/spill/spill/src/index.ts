@@ -1,15 +1,18 @@
 /**
- * Service Definition for the spill storage capability seam (`ctx.spillStore`): an abstract service defining WHAT a
- * spill backend does — persist oversized text and return a model-facing
- * locator plus retrieval guidance — without saying HOW. Implementations
- * subclass {@link SpillStore} and register as the `spillStore` service;
- * `@deepseek-ai/dsh-spill-local` (host filesystem) is the first.
+ * Service Definitions for two capability seams over one artifact store: storage
+ * (`ctx.spillStore`) defines WHAT a backend persists — the caller's text plus a
+ * model-facing locator and retrieval guidance — and retrieval (`ctx.artifacts`)
+ * defines how a caller reads the SAME artifacts back. Implementations subclass
+ * {@link SpillStore} and {@link ArtifactStore} and register as the `spillStore`
+ * and `artifacts` services; `@deepseek-ai/dsh-spill-local` (host filesystem)
+ * implements both over one root.
  *
- * The Service Definition is deliberately minimal: `saveText` and nothing else. It owns NO
+ * {@link SpillStore} is deliberately minimal: `saveText` and nothing else. It owns NO
  * retention policy (that is `@deepseek-ai/dsh-output-retention`), NO tool-result
  * replacement (that is `@deepseek-ai/dsh-spill-policy`), and NO retrieval or
  * search API. The backend supplies the locator and retrieval hint appropriate
- * for its storage substrate.
+ * for its storage substrate; {@link ArtifactStore} reads those locators back and
+ * never writes.
  *
  * @module @deepseek-ai/dsh-spill
  */
@@ -17,8 +20,13 @@
 import { Context, Service } from '@deepseek-ai/cordis'
 import type { SaveTextSpill, SpillRef } from './types.ts'
 
+export { ArtifactLocatorError, ArtifactStore } from './artifacts.ts'
 export { SpillLocator } from './types.ts'
 export type { SaveTextSpill, SpillOwner, SpillRef, SpillSource } from './types.ts'
+export type {
+  ArtifactDiff, ArtifactExtract, ArtifactLine, ArtifactMatch, ArtifactSummary, ArtifactText,
+  DiffArtifacts, ExtractArtifact, ReadArtifact, SearchArtifacts, SummarizeArtifact,
+} from './types.ts'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {

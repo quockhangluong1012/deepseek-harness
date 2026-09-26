@@ -43,10 +43,11 @@ const settlement = await ctx.evolutionBudget.spend('run-42', {
 })
 const schedule = ctx.evolutionBudget.schedule('run-42')
 const objectives = ctx.evolutionBudget.objectives('run-42')
+const background = ctx.evolutionBudget.backgroundSpend()
 const rounds = halvingRounds(100, 0.5, 3)
 ```
 
-`recordPool(input)` 按候选标识幂等更新该批的候选并返回该池；`allocateForCandidate(batchId, candidateId)` 按 §37 策略从该候选的记录证据判定的类别定价，并把所在分支写进分配的原因；`allocate(input)` 按调用者指定的类别定价；`spend(batchId, input)` 记录一次支出并返回跨该批全部支出的累计结算；`pool(batchId)` 按候选标识顺序列出记录在案的池；`schedule(batchId)` 由该池推导 §38 的各轮；`objectives(batchId)` 读取 §27 的目标；`batches(taskClass?)` 按批次标识顺序列出分配；`spends(batchId?)` 按最新优先列出支出记录；`withinBudget(batchId)` 报告累计支出是否仍在每个已测量的上限之内。纯助手 `multiplierFor`、`buildAllocation`、`dimensionCeilings`、`poolKey`、`recordedTotal`、`settle`、`withinAllocation`、`halvingRounds`、`screeningSchedule`、`policyFor` 与 `objectiveReadings` 已导出，供需要在存储之外使用这些算式的调用者。
+`recordPool(input)` 按候选标识幂等更新该批的候选并返回该池；`allocateForCandidate(batchId, candidateId)` 按 §37 策略从该候选的记录证据判定的类别定价，并把所在分支写进分配的原因；`allocate(input)` 按调用者指定的类别定价；`spend(batchId, input)` 记录一次支出并返回跨该批全部支出的累计结算；`pool(batchId)` 按候选标识顺序列出记录在案的池；`schedule(batchId)` 由该池推导 §38 的各轮；`objectives(batchId)` 读取 §27 的目标；`batches(taskClass?)` 按批次标识顺序列出分配；`spends(batchId?)` 按最新优先列出支出记录；`withinBudget(batchId)` 报告累计支出是否仍在每个已测量的上限之内；`backgroundSpend()` 汇总每个已记录批次花掉的量，内核的 `BudgetGovernor` 正是读它，才会在会话自身的用量旁边报告后台开销。纯助手 `multiplierFor`、`buildAllocation`、`dimensionCeilings`、`poolKey`、`recordedTotal`、`settle`、`withinAllocation`、`halvingRounds`、`screeningSchedule`、`policyFor` 与 `objectiveReadings` 已导出，供需要在存储之外使用这些算式的调用者。
 
 ### 配置
 

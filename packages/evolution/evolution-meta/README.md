@@ -99,7 +99,7 @@ The specification's §26 ladder has five levels, and the package family implemen
 | 2 — workflows | The sequence the engine runs: which operator, which evaluator, which budget class, in what order | `evolution-meta` (this store) — `workflow` and `workflowId` on every run, summary, and recommendation | Implemented and inspectable; **unreachable** until a run records a sequence, because the optimizer's recorder seam is the only writer |
 | 3 — mutation strategy | Which mutation operator works for which artifact class | `evolution-operators` — operator portfolios ranked per artifact class | Same gate; levels 3–5 stay records, not policies (§26's governance cap) |
 | 4 — evaluation strategy | Which evaluator catches regressions, and how much benchmark is enough | `evolution-evaluator-strategy`, with `evolution-evaluator-health` and `evolution-benchmark` supplying its evidence | Same gate |
-| 5 — resource allocation | How much search budget to allocate, when to exploit versus explore, and which route to take | `evolution-budget` and `evolution-router` | Same gate |
+| 5 — resource allocation | How much search budget to allocate, when to exploit versus explore, and which route to take | `evolution-budget` and `evolution-model-routes` | Same gate |
 
 Two consequences follow, and the package READMEs state them rather than papering over them:
 
@@ -114,7 +114,7 @@ Two consequences follow, and the package READMEs state them rather than papering
 - [Evolutionary Harness specification](../../../specs/evolutionary-harness-v11-deep-research.md) §26 — the meta-evolution ladder this package implements level 2 of, on the §9 foundation.
 - [Evolution package map](../README.md) — the group's packages and their repository position.
 - [`dsh-evolution-optimizer`](../evolution-optimizer/README.md) — the consumer that records each staged write's engine run and workflow through the optional recorder seam, and the row that ships disabled.
-- [`dsh-evolution-operators`](../evolution-operators/README.md), [`dsh-evolution-evaluator-strategy`](../evolution-evaluator-strategy/README.md), [`dsh-evolution-budget`](../evolution-budget/README.md), and [`dsh-evolution-router`](../evolution-router/README.md) — the four component learners this package composes into one engine configuration.
+- [`dsh-evolution-operators`](../evolution-operators/README.md), [`dsh-evolution-evaluator-strategy`](../evolution-evaluator-strategy/README.md), [`dsh-evolution-budget`](../evolution-budget/README.md), and [`dsh-evolution-model-routes`](../evolution-model-routes/README.md) — the four component learners this package composes into one engine configuration.
 
 -----
 

@@ -62,6 +62,7 @@ The kernel packages boot and serve the page; the UI feature packages present it.
 | [`ui-kernel-task/`](ui-kernel-task/README.md) | Renders one agent-kernel task record as a Chat node | — |
 | [`ui-trajectory/`](ui-trajectory/README.md) | Presents alternate views of agent activity | — |
 | [`ui-commands/`](ui-commands/README.md) | Provides session-aware command discovery and dispatch | — |
+| [`ui-keybindings/`](ui-keybindings/README.md) | Configurable window keymap: the command palette and composer-focus chords | — |
 | [`ui-input-trigger/`](ui-input-trigger/README.md) | Coordinates inline command and reference suggestions | — |
 | [`ui-skill/`](ui-skill/README.md) | Adds skill references to inline suggestions | — |
 | [`ui-reference/`](ui-reference/README.md) | Unified Web `@file` / `@session` reference source | — |

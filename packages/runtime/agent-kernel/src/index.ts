@@ -23,35 +23,61 @@ import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { isAbsolute } from 'node:path'
 import { Context, Service } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
-import type { Agent } from '@deepseek-ai/dsh-agent'
+import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import type { UserMessage } from '@deepseek-ai/dsh-llm/types'
 import type { SandboxExecutionPolicy } from '@deepseek-ai/dsh-sandbox'
 // Type-only: activates the `ctx.sandboxPolicy` Context declaration.
 import type {} from '@deepseek-ai/dsh-sandbox-policy'
-import type { Session, SessionId } from '@deepseek-ai/dsh-session'
+import type { Session, SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 // Type-only: declares the `compaction/start` Session event.
 import type {} from '@deepseek-ai/dsh-compaction'
 // Type-only: declares the `workspace/changes` Session event and `ctx.workspaceChanges`.
 import type {} from '@deepseek-ai/dsh-workspace-changes'
-import type { PreToolDecision, ToolExecution, ToolResult } from '@deepseek-ai/dsh-tools'
+import type { PreToolDecision, ToolExecution, ToolExecutionResult, ToolResult } from '@deepseek-ai/dsh-tools'
+// Type-only: declares the `approval/asked` and `approval/decided` Session events.
+import type { ApprovalRequestId } from '@deepseek-ai/dsh-user-approval/types'
+// Type-only: activates the `ctx.evolutionBudget` Context declaration the
+// background budget owner publishes. The kernel reads that owner through
+// `ctx.get` and never imports its code, so a deployment that mounts no
+// background budget owner pays nothing for the seam and no package cycle
+// exists: `evolution-budget` depends on no kernel package.
+import type {} from '@deepseek-ai/dsh-evolution-budget'
 import { ToolCapabilityRegistry } from './capabilities.ts'
-import { delegationReceipt, policyDigest } from './delegation.ts'
+import { resolveChangeContract } from './change-contract.ts'
+import { CodingLifecycle, CODING_PHASES, resolveCodingLifecycle } from './coding-lifecycle.ts'
+import type { CodeReviewRecord, CodeReviewReport, CodingLifecycleConfig, CodingPhaseBudget, CodingPhaseRecord } from './coding-lifecycle.ts'
+import { delegableBudget, delegationReceipt, policyDigest } from './delegation.ts'
+import {
+  countersOf,
+  EXPECTS_PROGRESS,
+  type GovernorThresholds,
+  isStopDecision,
+  livenessCheckMs,
+  REPEATED_CALLS,
+  resolveGovernorThresholds,
+  SessionGovernor,
+} from './governor.ts'
 import { actionIdOf, KernelLedger, type LedgerEntry } from './ledger.ts'
+import { planDriftRun } from './plan-drift.ts'
 import { admittedCapabilities, CAPABILITY_VOCABULARY, compilePolicy, composeAuthorization, insideWorkspace, PermissionPolicyEngine, POLICY_ACTIONS, POLICY_EFFECTS } from './policy.ts'
 import { KernelProfileRegistry } from './profiles.ts'
 import { DefaultRecoveryEngine } from './recovery.ts'
 import { scanForRecovery } from './recovery-scan.ts'
+import { regressedCriteria, regressionDetail } from './regression.ts'
 import { applyTransition, canTransition, isActive } from './state-machine.ts'
+import { KernelTaskGraph } from './task-graph.ts'
 import { TASK_CLASSES } from './types.ts'
 import type {
   AgentKernel,
   BudgetGovernor,
   AcceptanceCriterion,
+  ActionId,
   ActionProposal,
   ActionReceipt,
   ActorKind,
   AuthorizationDecision,
+  BudgetReservationId,
   Capability,
   CapabilityGrant,
   CapabilityRegistry,
@@ -69,12 +95,15 @@ import type {
   FailureId,
   FailureKind,
   FailureRecord,
+  PlanOptions,
+  Predicate,
+  RecoveryInput,
   RecoveryScanEntry,
   TaskHypothesis,
   TaskHypothesisId,
   TaskHypothesisInput,
   KernelEventMetadata,
-  Provenance,
+  SourceRef,
   GovernanceReceipt,
   AgentProfileConfig,
   AgentProfileRegistry,
@@ -104,10 +133,42 @@ import type {
 import { CriterionVerifierRegistry, DefaultVerificationGate } from './verification.ts'
 
 export type * from './types.ts'
+export type * from './coding-lifecycle.ts'
+export { assertPhaseTransition, canAdvancePhase, CodingLifecycle, CODING_PHASES, REPAIR_PHASE, resolveCodingLifecycle } from './coding-lifecycle.ts'
+export { resolveChangeContract } from './change-contract.ts'
 export { readKernelRecord, type KernelRecord } from './ledger.ts'
+export { planDriftRun } from './plan-drift.ts'
+export { KernelTaskGraph, readTaskGraph } from './task-graph.ts'
 export { readKernelMetrics, type KernelMetrics } from './metrics.ts'
 export { scanForRecovery, TERMINAL_TASK_STATUSES } from './recovery-scan.ts'
 export { CAPABILITY_VOCABULARY, compilePolicy, POLICY_ACTIONS, POLICY_EFFECTS } from './policy.ts'
+export {
+  DELEGATION_POLICY_DEFAULTS,
+  NO_DELEGATION_CEILING,
+  delegatedWorkerBudget,
+  delegationPolicyRefusal,
+  delegationPolicySchema,
+  resolveDelegationPolicy,
+} from './delegation-policy.ts'
+export type {
+  DelegatedWorkerBudget,
+  DelegationAdmission,
+  DelegationHistory,
+  DelegationPolicy,
+  DelegationPolicyConfig,
+} from './delegation-policy.ts'
+export {
+  TASK_OVERLAP_REUSE_THRESHOLD,
+  TASK_OVERLAP_SHARED_THRESHOLD,
+  objectiveOverlap,
+  taskOverlapDecision,
+} from './task-overlap.ts'
+export type {
+  ActiveChildTask,
+  CompletedChildTask,
+  TaskOverlapDecision,
+  TaskOverlapInput,
+} from './task-overlap.ts'
 
 /** Plugin name used by loader diagnostics. */
 export const name = 'agent-kernel'
@@ -134,9 +195,11 @@ export interface Config {
    */
   acceptance?: AcceptanceCriterion[]
   /**
-   * Criteria a task of one class starts with, overriding {@link acceptance} for
-   * that class. Declaring `conversational` here is the only way a conversational
-   * task gets a criterion.
+   * Criteria a task of one class starts with. A class named here replaces the
+   * shipped default for that class ({@link DEFAULT_ACCEPTANCE_BY_CLASS}: the
+   * typecheck, lint, test and diff criteria for `coding`, a citation criterion
+   * for `research`, none for `conversational` and `operations`); a class left
+   * out falls back to {@link acceptance}, then to its shipped default.
    */
   acceptanceByClass?: Partial<Record<TaskClass, AcceptanceCriterion[]>>
   /** Class of work a task defaults to when neither the caller nor its role names one. */
@@ -187,15 +250,121 @@ export interface Config {
    * authority, which is the pre-existing behavior.
    */
   untrustedContent?: 'allow' | 'quarantine'
+  /**
+   * How many actions in a row may match no step of the task's recorded plan
+   * before the kernel records a `plan-drift` failure. A drift episode is
+   * recorded once and stays unresolved until a new plan revision or a passing
+   * verification answers it, so the count is a tolerance, not a rate. Zero
+   * escalates on the first action that leaves the plan.
+   */
+  planDriftTolerance?: number
+  /**
+   * The §10.5 coding lifecycle a task of class `coding` runs: which phases, the
+   * step ceiling of each phase, and whether the REVIEW phase spawns an
+   * independent reviewer. A task of any other class runs no pipeline.
+   */
+  codingLifecycle?: CodingLifecycleConfig
+  /**
+   * Alternating tool calls (an A-B-A-B run) at which the governor reads the run
+   * as oscillating. A loop is recorded once per episode and answers with
+   * `stop_loop`, which refuses the next step in `mode: 'enforce'`.
+   */
+  loopOscillationRun?: number
+  /**
+   * Consecutive near-duplicate call pairs at which the governor reads the run
+   * as repeating itself with different words. A pair counts when both calls
+   * name the same tool and their arguments are at least
+   * {@link loopSemanticSimilarity} alike.
+   */
+  loopSemanticDuplicateRun?: number
+  /** Argument similarity, in `(0, 1]`, at which two calls repeat one intent. */
+  loopSemanticSimilarity?: number
+  /**
+   * Consecutive steps that moved nothing before the governor reads the run as a
+   * no-progress loop. A step moves something when any axis of its
+   * {@link StepDelta} is nonzero.
+   */
+  loopStagnantStepRun?: number
+  /**
+   * Consecutive steps that produced no tool call and no state change before the
+   * governor reads the run as a narration-only loop.
+   */
+  loopNarrationStepRun?: number
+  /** Recordings of one unresolved failure kind that make the run a failure loop. */
+  loopFailureRun?: number
+  /**
+   * Share of the task's `maxTokens` ceiling at which the governor asks for
+   * compaction instead of another step. A task with no ceiling never reaches it.
+   */
+  contextPressureRatio?: number
+  /**
+   * Milliseconds without progress and without activity after which the liveness
+   * monitor records a `stalled` failure, classified by the layer that went
+   * quiet. A run the deployment does not want monitored sets a window larger
+   * than its longest model call.
+   */
+  livenessWindowMs?: number
+  /**
+   * Output-token limit the step after a truncated turn is requested under. The
+   * retry is granted once per truncation; a retried turn that truncates again
+   * steers the model to split the work instead of raising the limit again. The
+   * value is a floor: a request that already declares a larger limit keeps it.
+   */
+  outputTruncatedRetryTokens?: number
+  /**
+   * Criterion results the completion gate retains, keyed by criterion id and
+   * repository digest, so a repeated pass over an unchanged repository reuses
+   * the decision instead of running the verifier again.
+   */
+  verificationCacheSize?: number
+  /** Milliseconds a retained criterion result stays reusable. */
+  verificationCacheTtlMs?: number
 }
 
 /** The shape every configured acceptance criterion takes, in `Config` and per class. */
 const CRITERIA_SCHEMA = z.object({
   id: z.string(),
   description: z.string(),
-  verifier: z.union(['test', 'build', 'diff', 'assertion', 'human', 'research'] as const),
+  verifier: z.union(['test', 'build', 'diff', 'assertion', 'human', 'research', 'typecheck', 'lint', 'security', 'browser', 'review'] as const),
   required: z.boolean(),
 })
+
+/**
+ * Criteria a coding task starts from when the deployment configures none: the
+ * three workspace checks a coding change is answerable by, claimed by criterion
+ * id, plus a scope check that binds once the deployment declares a `diff`
+ * target for it. A criterion no registered verifier claims leaves the task
+ * incomplete until the deployment maps it to a command.
+ */
+const DEFAULT_CODING_CRITERIA: readonly AcceptanceCriterion[] = [
+  { id: 'typecheck', description: 'the changed code typechecks', verifier: 'typecheck', required: true },
+  { id: 'lint', description: 'the changed code passes lint', verifier: 'lint', required: true },
+  { id: 'test', description: 'the tests covering the change pass', verifier: 'test', required: true },
+  { id: 'diff', description: 'the change stays inside the files the task declared', verifier: 'diff', required: true },
+]
+
+/** Criterion a research task starts from when the deployment configures none. */
+const DEFAULT_RESEARCH_CRITERIA: readonly AcceptanceCriterion[] = [
+  {
+    id: 'citations',
+    description: 'every claim in the final answer cites evidence the task recorded',
+    verifier: 'research',
+    required: true,
+  },
+]
+
+/**
+ * The criteria each task class starts from when the deployment configures
+ * neither the class nor a global list. These are the defaults of
+ * {@link Config.acceptanceByClass}: a deployment overrides them per class, and
+ * its global {@link Config.acceptance} list overrides them for every class.
+ */
+const DEFAULT_ACCEPTANCE_BY_CLASS: Readonly<Record<TaskClass, readonly AcceptanceCriterion[]>> = {
+  conversational: [],
+  coding: DEFAULT_CODING_CRITERIA,
+  research: DEFAULT_RESEARCH_CRITERIA,
+  operations: [],
+}
 
 /** Runtime configuration schema for the agent-kernel plugin. */
 export const Config: z<Config> = z.object({
@@ -221,12 +390,12 @@ export const Config: z<Config> = z.object({
   }),
   acceptance: z.array(CRITERIA_SCHEMA),
   taskClass: z.union(TASK_CLASSES),
-  acceptanceByClass: z.object({
-    conversational: z.array(CRITERIA_SCHEMA),
-    coding: z.array(CRITERIA_SCHEMA),
-    research: z.array(CRITERIA_SCHEMA),
-    operations: z.array(CRITERIA_SCHEMA),
-  }),
+  /**
+   * A class left out keeps the deployment's global {@link acceptance} list, then
+   * the shipped default for the class; a class present with an empty array
+   * declares that tasks of the class start from no criterion.
+   */
+  acceptanceByClass: z.dict(z.array(CRITERIA_SCHEMA)),
   requireAcceptanceCriteria: z.boolean().default(false),
   requireAcceptanceCriteriaByClass: z.object({
     conversational: z.boolean(),
@@ -256,6 +425,36 @@ export const Config: z<Config> = z.object({
   checkpointBeforeRetry: z.boolean().default(true),
   maxPlanRevisions: z.number().default(32),
   untrustedContent: z.union(['allow', 'quarantine'] as const).default('quarantine'),
+  planDriftTolerance: z.number().default(3),
+  codingLifecycle: z.object({
+    phases: z.array(z.union(CODING_PHASES)).default([...CODING_PHASES]),
+    budgets: z.object({
+      understand: z.number(),
+      map: z.number(),
+      plan: z.number(),
+      contract: z.number(),
+      implement: z.number(),
+      'local-verify': z.number(),
+      review: z.number(),
+      regression: z.number(),
+      complete: z.number(),
+    }),
+    review: z.object({
+      enabled: z.boolean().default(false),
+      ref: z.string().default(''),
+    }),
+  }),
+  loopOscillationRun: z.number().default(4),
+  loopSemanticDuplicateRun: z.number().default(3),
+  loopSemanticSimilarity: z.number().default(0.8),
+  loopStagnantStepRun: z.number().default(3),
+  loopNarrationStepRun: z.number().default(3),
+  loopFailureRun: z.number().default(3),
+  contextPressureRatio: z.number().default(0.8),
+  livenessWindowMs: z.number().default(180_000),
+  outputTruncatedRetryTokens: z.number().default(16_000),
+  verificationCacheSize: z.number().default(256),
+  verificationCacheTtlMs: z.number().default(600_000),
 })
 
 /** The permission document a deployment that configures none evaluates under: ask before anything. */
@@ -276,32 +475,19 @@ function REPAIR_PROMPT(reasons: readonly string[]): string {
   ].join('\n')
 }
 
-/** One session's run of identical calls with identical results. */
-interface ProgressTally {
-  /** `toolName:argumentsDigest` of the run. */
-  readonly signature: string
-  /** Digest of the result the run kept returning. */
-  readonly digest: string | undefined
-  /** How many calls the run covers. */
-  readonly count: number
-  /** Whether this run was already reported as a `no-progress` failure. */
-  readonly refused?: boolean
-}
-
 /**
- * One step of the no-progress tally: a call that repeats the tracked tool and
- * arguments extends the run only while it also returns the same digest.
- * @param tracked - the tally so far, when this session has one.
- * @param exec - the call that settled.
- * @param receipt - its receipt, carrying the outcome digest.
- * @returns the tally after this call.
+ * The facts a recorded transition carries beside the edge it took: the
+ * preconditions the caller evaluated for the move, and the action whose outcome
+ * caused it.
  */
-function nextProgress(tracked: ProgressTally | undefined, exec: ToolExecution, receipt: ActionReceipt): ProgressTally {
-  const signature = `${exec.name}:${digestOf(exec.arguments)}`
-  if (tracked === undefined || tracked.signature !== signature || tracked.digest !== receipt.resultDigest) {
-    return { signature, digest: receipt.resultDigest, count: 1 }
-  }
-  return { ...tracked, count: tracked.count + 1 }
+interface TransitionReason {
+  /** Preconditions the caller evaluated, recorded after the kernel's own edge and revision checks. */
+  readonly preconditions?: readonly Predicate[]
+  /**
+   * Action whose outcome caused the transition. The transition cites the policy
+   * decision the log recorded for that action, when it has one.
+   */
+  readonly actionId?: ActionId
 }
 
 /**
@@ -310,7 +496,8 @@ function nextProgress(tracked: ProgressTally | undefined, exec: ToolExecution, r
  * @returns the hex digest.
  */
 function digestOf(value: unknown): string {
-  return createHash('sha256').update(JSON.stringify(value) ?? 'undefined').digest('hex')
+  const serialized = JSON.stringify(value) as string | undefined
+  return createHash('sha256').update(serialized ?? 'undefined').digest('hex')
 }
 
 declare module '@deepseek-ai/dsh-llm' {
@@ -336,9 +523,10 @@ interface ResolvedConfig {
   readonly policyProfile: string
   /** Ceilings recorded on created task contracts. */
   readonly budgets: ResourceBudget
-  /** Criteria recorded on created task contracts. */
-  readonly acceptance: AcceptanceCriterion[]
-  /** Criteria a task of one class starts with instead, when configured. */
+  /**
+   * Criteria a task of one class starts with: the class's configured entry, the
+   * deployment's global list, or the shipped default for the class.
+   */
   readonly acceptanceByClass: Partial<Record<TaskClass, AcceptanceCriterion[]>>
   /** Class of work a task defaults to. */
   readonly taskClass: TaskClass
@@ -350,6 +538,10 @@ interface ResolvedConfig {
   readonly maxAttemptsPerAction: number
   /** Plan revisions allowed per task. */
   readonly maxPlanRevisions: number
+  /** Consecutive actions matching no plan step that the kernel tolerates. */
+  readonly planDriftTolerance: number
+  /** Output-token limit a truncated turn's retry is requested under. */
+  readonly outputTruncatedRetryTokens: number
   /** How a proposal from content the declaring package marked untrusted is decided. */
   readonly untrustedContent: 'allow' | 'quarantine'
 }
@@ -416,10 +608,14 @@ export class AgentKernelService extends Service implements AgentKernel {
   readonly recovery: DefaultRecoveryEngine
   /** Read-only persisted-session classifications from the one startup scan. */
   readonly startupRecovery: Promise<readonly RecoveryScanEntry[]>
-  /** The read model and budget observer over session logs. */
+  /** Read model and budget observer over session logs. */
   readonly state: KernelLedger
-  /** Budget observer over the current session ledger. */
+  /** Budget observer and reservation ledger over the current session logs. */
   readonly budgets: BudgetGovernor
+  /** Task-graph read model over the same session logs. */
+  readonly taskGraph: KernelTaskGraph
+  /** The §10.5 coding lifecycle: the phases a coding task runs, and its reviewer. */
+  readonly lifecycle: CodingLifecycle
   private readonly config: ResolvedConfig
   /** Capabilities the deployment's document admits at all, handed to a root parent's children. */
   private readonly admitted: readonly Capability[]
@@ -428,12 +624,41 @@ export class AgentKernelService extends Service implements AgentKernel {
   private policyProfileProvider: PolicyProfileProvider | undefined
   private readonly profilePolicyEngines = new WeakMap<PolicyDocument, PermissionPolicyEngine>()
   /**
-   * Per-session tally of the current run of identical calls with identical
-   * results. The tally is process state on purpose: the durable record of a
-   * refusal is the `no-progress` failure, and a resumed process starts a fresh
-   * run rather than refusing a call for a history it no longer counts.
+   * Per-session governor state: the recent call history the loop detectors and
+   * the repetition refusal read, the counters the previous step was measured
+   * at, and the liveness stamps. The state is process state on purpose: its
+   * durable halves are the failures and `governor/decided` records it causes, so
+   * a resumed process starts a fresh window instead of refusing a step for a
+   * history it no longer counts.
    */
-  private readonly progress = new Map<SessionId, ProgressTally>()
+  private readonly governors = new Map<SessionId, SessionGovernor>()
+  /** Validated governor thresholds, resolved once so a bad value fails load. */
+  private readonly thresholds: GovernorThresholds
+
+  /**
+   * The budget hold each delegated child session is running under, by the
+   * child's session id, so its settlement can find the hold when the child is
+   * disposed. A hold is released rather than settled when the child never
+   * started a task, because nothing was spent.
+   */
+  private readonly childGrants = new Map<SessionId, BudgetReservationId>()
+
+  /**
+   * Each task whose one final tool-free step at its step ceiling was already
+   * granted. Process state on purpose: its durable halves are the `step-ceiling`
+   * failure, the checkpoint, and the `paused` transition it causes, so a
+   * resumed process grants the task one more final step instead of refusing it
+   * over a ceiling the log already records.
+   */
+  private readonly finalSteps = new Set<TaskId>()
+
+  /**
+   * The truncation failure each session's one retry was granted for, so a
+   * truncation that repeats after the retry steers the model to split its work
+   * instead of raising the output limit again. Its durable half is the raised
+   * limit recorded in the `request/header` the loop logs.
+   */
+  private readonly truncationRetries = new Map<SessionId, FailureId>()
 
   private readonly attachments = new Set<KernelTaskAttachment>()
 
@@ -448,13 +673,14 @@ export class AgentKernelService extends Service implements AgentKernel {
       agentProfile: config.agentProfile ?? 'default',
       policyProfile: config.policyProfile ?? 'default',
       budgets: config.budgets ?? {},
-      acceptance: config.acceptance ?? [],
-      acceptanceByClass: config.acceptanceByClass ?? {},
+      acceptanceByClass: resolveAcceptanceByClass(config),
       taskClass: config.taskClass ?? 'conversational',
       requireAcceptanceCriteria: requireCriteriaByClass(config),
       maxRepairAttempts: config.maxRepairAttempts ?? 3,
       maxAttemptsPerAction: config.maxAttemptsPerAction ?? 2,
       maxPlanRevisions: config.maxPlanRevisions ?? 32,
+      planDriftTolerance: resolvePlanDriftTolerance(config.planDriftTolerance),
+      outputTruncatedRetryTokens: config.outputTruncatedRetryTokens ?? 16_000,
       untrustedContent: config.untrustedContent ?? 'quarantine',
     }
     const document = config.policy ?? DEFAULT_POLICY_DOCUMENT
@@ -467,14 +693,17 @@ export class AgentKernelService extends Service implements AgentKernel {
       requireAcceptanceCriteria: this.config.requireAcceptanceCriteria,
       allowHumanOnlyCompletion: config.allowHumanOnlyCompletion ?? false,
     })
-    this.verifiers = new CriterionVerifierRegistry(config.verifierTimeoutMs ?? 60_000)
+    this.verifiers = new CriterionVerifierRegistry(config.verifierTimeoutMs ?? 60_000, {
+      maxEntries: config.verificationCacheSize ?? 256,
+      ttlMs: config.verificationCacheTtlMs ?? 600_000,
+    })
     this.recovery = new DefaultRecoveryEngine({ checkpointBeforeRetry: config.checkpointBeforeRetry ?? true })
     const startupRecovery = Promise.withResolvers<readonly RecoveryScanEntry[]>()
     this.startupRecovery = startupRecovery.promise
-    void this.startupRecovery.catch(error => {
+    void this.startupRecovery.catch((error: unknown) => {
       ctx.logger.warn(`agent-kernel: startup recovery scan failed: ${String(error)}`)
     })
-    ctx.inject(['sessionPersistence'], async inner => {
+    ctx.inject(['sessionPersistence'], async (inner) => {
       try {
         const entries = await scanForRecovery(inner.sessionPersistence)
         for (const entry of entries) {
@@ -486,38 +715,96 @@ export class AgentKernelService extends Service implements AgentKernel {
         startupRecovery.reject(error)
       }
     })
-    this.state = new KernelLedger()
+    // The background budget owner is read per observation rather than captured
+    // here, so a deployment that mounts it after the kernel still has its spend
+    // reported, and one that mounts none reports no background spend at all.
+    this.state = new KernelLedger(() => ctx.get('evolutionBudget')?.backgroundSpend())
     this.budgets = this.state
+    this.taskGraph = new KernelTaskGraph()
+    this.thresholds = resolveGovernorThresholds(config)
+    this.lifecycle = new CodingLifecycle({
+      view: session => this.state.view(session),
+      appendPhase: (session, record) => { this.recordLifecycle(session, record) },
+      appendReview: (session, record) => { this.recordLifecycle(session, record) },
+    }, resolveCodingLifecycle(config.codingLifecycle))
 
     // `agent/inbox/claimed` fires before prompt assembly, so the first request's
     // context compiler can read the task and required criteria from the log.
-    ctx.on('agent/inbox/claimed', ({ agent, message }) => this.openClaimedTask(agent, message))
+    ctx.on('agent/inbox/claimed', ({ agent, message }) =>{  this.openClaimedTask(agent, message) })
     ctx.on('agent/created', (payload) => {
       this.delegate(payload.agent)
       if (payload.source === 'resume') this.recordCheckpointResume(payload.agent)
     })
+    ctx.on('agent/disposed', ({ agent }) =>{  this.settleChild(agent) })
     ctx.on('agent/pre-step', (payload, next) => {
-      this.openOrAdvance(payload.agent, payload.messages, payload.turn, payload.step)
-      return next()
+      const decision = this.openOrAdvance(payload.agent, payload.messages, payload.turn, payload.step)
+      return decision === undefined ? next() : Promise.resolve(decision)
     })
-    ctx.on('agent/turn-stopping', payload => this.closeTurn(payload.agent, payload.turn))
+    ctx.on('agent/turn-stopping', payload => this.closeTurn(payload.agent, payload.turn, payload.signal))
+    // The governor's liveness monitor reads model frames: a frame is the one
+    // signal that the provider is still delivering, so frames that stop say the
+    // stream stalled while a request is in flight.
+    ctx.on('agent/assistant-stream', ({ agent, frame }) => {
+      if (frame.type === 'chunk') this.governorOf(agent.session).noteFrame()
+    })
+    // The monitor runs on its own clock because nothing else fires while a
+    // request is hung; `unref` keeps a passive monitor from holding the process
+    // open. The interval is scoped to this context, so unload stops it.
+    ctx.effect(() => {
+      const handle = setInterval(() => { this.checkLiveness() }, livenessCheckMs(this.thresholds.livenessWindowMs))
+      handle.unref()
+      return () => { clearInterval(handle) }
+    }, 'agent-kernel.liveness')
     // §17.1: compaction may rewrite or drop the log tail a resume would
     // otherwise replay from, so the kernel checkpoints before it runs.
     ctx.on('session/event', (session, event) => {
-      if (event.type !== 'compaction/start') return
-      // `session.append` refuses to reenter while `compaction/start`'s own
-      // append is still publishing, so the checkpoint runs on the next
-      // microtask instead of inline in this listener.
-      queueMicrotask(() => {
-        const agent = ctx.get('agents')?.get(session.id)
-        if (agent !== undefined) this.checkpoint(agent, 'before-compaction')
-      })
+      if (event.type === 'compaction/start') {
+        // `session.append` refuses to reenter while `compaction/start`'s own
+        // append is still publishing, so the checkpoint runs on the next
+        // microtask instead of inline in this listener.
+        queueMicrotask(() => {
+          const agent = ctx.get('agents')?.get(session.id)
+          if (agent !== undefined) this.checkpoint(agent, 'before-compaction')
+        })
+        return
+      }
+      // S7: the approval path is the producer of `awaiting-approval`. A question
+      // put to the human parks the task; the recorded answer resumes it. The
+      // observer runs inside the append that published the approval event, and
+      // `session.append` refuses to reenter while one is publishing, so the
+      // transition runs on the next microtask.
+      if (event.type === 'approval/asked') {
+        queueMicrotask(() => { this.enterAwaitingApproval(session, event.data) })
+        return
+      }
+      if (event.type === 'approval/decided') {
+        const approvalId = event.data.id
+        queueMicrotask(() => { this.leaveAwaitingApproval(session, approvalId) })
+      }
+    })
+    // S4: the retry a truncated turn is answered with. The request header the
+    // loop logs records the raised limit, so a replay reconstructs what the
+    // model was actually asked for.
+    ctx.on('agent/request', async (payload, next) => {
+      const config = await next()
+      const session = payload.agent.session
+      const pending = this.truncationAwaitingRetry(session)
+      if (pending === undefined) return config
+      this.truncationRetries.set(session.id, pending)
+      return {
+        ...config,
+        maxTokens: Math.max(config.maxTokens ?? 0, this.config.outputTruncatedRetryTokens),
+      }
     })
     ctx.on('tools/pre-execute', (exec, next) => this.authorize(exec, next))
     ctx.on('tools/post-execute', (exec, result, next) => {
       this.commit(exec, result.isError, result)
       return next()
     })
+    // S4: the argument violation is reported by the registry before any
+    // approval, so the kernel classifies it from the outcome that reached the
+    // model rather than from the tool body.
+    ctx.on('tools/result', (exec, result) => { this.classifyToolArguments(exec, result) })
     ctx.effect(() => async () => {
       await Promise.all([...this.attachments].map(attachment => attachment.dispose()))
     }, 'agent-kernel.attachments')
@@ -639,19 +926,24 @@ export class AgentKernelService extends Service implements AgentKernel {
   }
 
   /**
-   * Record an initial plan or a recovery amendment tied to one unresolved failure.
+   * Record an initial plan or an amendment tied to one unresolved failure. A
+   * revision a human approved is legal without a failure reference, because the
+   * review is the justification the model's own rewrite lacks.
    * @param agent - the live agent whose task owns the plan.
    * @param steps - ordered work items in the new plan revision.
    * @param failureId - unresolved failure that justifies an amendment.
+   * @param options - who approved the revision and which action recorded it.
    * @returns the durable plan revision.
-   * @throws When the session has no task, or an amendment is not linked to an unresolved failure.
+   * @throws When the session has no task, a model-recorded amendment is not
+   *   linked to an unresolved failure, or the task reached its revision cap.
    */
-  recordPlan(agent: Agent, steps: readonly string[], failureId?: FailureId): PlanRevision {
+  recordPlan(agent: Agent, steps: readonly string[], failureId?: FailureId, options: PlanOptions = {}): PlanRevision {
     const session = agent.session
     const entry = this.state.entryOf(session)
     const task = entry.task
     if (task === undefined) throw new Error('agent-kernel: cannot record a plan without a task')
-    if (entry.plan !== undefined && failureId === undefined) {
+    const approvedByUser = options.approvedBy === 'user'
+    if (entry.plan !== undefined && failureId === undefined && !approvedByUser) {
       throw new Error('agent-kernel: a plan amendment requires a failure reference')
     }
     if (failureId !== undefined && !entry.failures.has(failureId)) {
@@ -660,9 +952,11 @@ export class AgentKernelService extends Service implements AgentKernel {
     // Read the plan's ordinal before the append: the fold mutates this entry.
     const firstPlan = entry.plan === undefined
     const revision = (entry.plan?.revision ?? 0) + 1
-    if (revision > this.config.maxPlanRevisions) {
+    const withinCap = revision <= this.config.maxPlanRevisions
+    if (!withinCap) {
       throw new Error(`agent-kernel: task ${task.taskId} reached its ${String(this.config.maxPlanRevisions)}-revision plan cap; the objective or the acceptance criteria need a human decision`)
     }
+    const actor: ActorKind = approvedByUser ? 'user' : 'model'
     const plan: PlanRevision = {
       revision,
       steps: [...steps],
@@ -671,15 +965,24 @@ export class AgentKernelService extends Service implements AgentKernel {
     }
     session.append('task/plan', {
       ...plan,
-      metadata: kernelEventMetadata(task.runId, task.taskId, 'model', {
-        source: 'model', locator: String(task.taskId),
+      metadata: kernelEventMetadata(task.runId, task.taskId, actor, {
+        source: actor === 'user' ? 'user' : 'model', locator: String(task.taskId),
       }, plan.createdAt),
     })
     // The first plan is the other producer of `planning`: the task has stated
     // how it intends to work, and the next admitted step leaves the status.
     const current = this.state.ledgerTask(session)
+    // §10.5: a recorded plan revision is the PLAN phase's producer.
+    this.lifecycle.advance(session, 'plan', `plan revision ${String(revision)}`)
     if (firstPlan && canTransition(current.status, 'planning')) {
-      this.transition(session, current, 'planning', { kind: 'plan-recorded' }, 'model')
+      this.transition(session, current, 'planning', { kind: 'plan-recorded' }, actor, [], {
+        preconditions: [{
+          kind: 'plan-revision-cap',
+          satisfied: withinCap,
+          detail: `revision ${String(revision)} of ${String(this.config.maxPlanRevisions)}`,
+        }],
+        ...options.callId === undefined ? {} : { actionId: actionIdOf(options.callId) },
+      })
     }
     return plan
   }
@@ -704,13 +1007,13 @@ export class AgentKernelService extends Service implements AgentKernel {
       kind: input.kind,
       contentRef: input.contentRef,
       ...input.digest === undefined ? {} : { digest: input.digest },
-      provenance: input.provenance,
+      sourceRef: input.sourceRef,
       trust: input.trust,
       observedAt: Date.now(),
     }
     session.append('evidence/recorded', {
       ...evidence,
-      metadata: kernelEventMetadata(task.runId, task.taskId, 'model', input.provenance, evidence.observedAt),
+      metadata: kernelEventMetadata(task.runId, task.taskId, 'model', input.sourceRef, evidence.observedAt),
     })
     return evidence
   }
@@ -864,13 +1167,15 @@ export class AgentKernelService extends Service implements AgentKernel {
 
   /**
    * Create the task contract on a session's first admitted step, then move it to
-   * `executing` for the step the loop is about to run.
+   * `executing` for the step the loop is about to run, then compose the one
+   * governor decision this boundary produces.
    * @param agent - the agent proposing the step.
    * @param messages - the messages this step claims.
    * @param turn - the turn that will own the step.
    * @param step - the step the loop proposed.
+   * @returns the refusal the governor composed, or undefined to admit the step.
    */
-  private openOrAdvance(agent: Agent, messages: readonly UserMessage[], turn: number, step: number): void {
+  private openOrAdvance(agent: Agent, messages: readonly UserMessage[], turn: number, step: number): PreStepDecision | undefined {
     const session = agent.session
     const current = this.state.entryOf(session).task
     // A step admitted after the previous task ended is the next request in the
@@ -880,31 +1185,173 @@ export class AgentKernelService extends Service implements AgentKernel {
       ? current ?? this.intakeFromMessages(session, messages)
       : this.intakeFromMessages(session, messages, { parentTaskId: current.taskId })
     // S4's truncation detector: the turn before this one ended because the
-    // model reached its output limit, so the task carries that failure. The
-    // retry mechanics stay with the loop; the kernel records what happened.
-    if (turn > 1 && this.truncatedTurn(session, turn - 1)) {
-      this.recordFailure(session, 'output-truncated', `the model reached its output limit in turn ${String(turn - 1)}`)
+    // model reached its output limit. The first truncation is answered with one
+    // retry under a larger output limit, granted by the request listener from
+    // the failure recorded here; a truncation that repeats after that retry is
+    // answered by steering the model to split its work, because the larger
+    // limit did not help. A turn that ended for another reason clears the
+    // retry, so a later truncation is retried again.
+    if (turn > 1) {
+      if (!this.truncatedTurn(session, turn - 1)) this.truncationRetries.delete(session.id)
+      else if (this.truncationRetries.has(session.id)) this.steerToSplitWork(agent, turn)
+      else this.recordFailure(session, 'output-truncated', `the model reached its output limit in turn ${String(turn - 1)}`)
     }
-    // S4's step-ceiling detector: a task that reached its step ceiling must not
-    // be admitted another step silently. The failure is recorded once and the
-    // task pauses, which is the recovery the classifier chooses for it.
+    // S4's step-ceiling detector: the task is granted one final step without
+    // tools so the model can answer from what it has, and the turn that step
+    // belongs to checkpoints and pauses the task. The failure is recorded once
+    // per task, when that final step is granted.
     const ceiling = task.budget.maxSteps
-    if (ceiling !== undefined && this.state.entryOf(session).steps >= ceiling && task.status !== 'paused') {
-      this.recordFailure(session, 'step-ceiling', `the task reached its ${String(ceiling)}-step ceiling`)
-      const reached = this.state.ledgerTask(session)
-      if (canTransition(reached.status, 'paused')) {
-        // §17.1: index the state a resume would restart from before the
-        // pause takes effect.
-        this.checkpoint(agent, 'before-pause')
-        this.transition(session, reached, 'paused', { kind: 'budget-exhausted', detail: `turn ${turn} step ${step}` }, 'kernel')
+    const spent = this.state.entryOf(session).steps
+    if (ceiling !== undefined && spent >= ceiling) {
+      if (!this.finalSteps.has(task.taskId)) {
+        this.finalSteps.add(task.taskId)
+        this.recordFailure(session, 'step-ceiling', `the task reached its ${String(ceiling)}-step ceiling`)
+        return undefined
       }
-      return
+      this.pauseAtCeiling(agent, `turn ${turn} step ${step}`, ceiling, spent)
+      // A paused task runs no further step: `enforce` refuses it, while shadow
+      // mode records the pause and admits the step because it changes no
+      // behavior.
+      return this.config.mode === 'enforce' ? { kind: 'reject' } : undefined
     }
     if (canTransition(task.status, 'ready')) {
       task = this.transition(session, task, 'ready', { kind: 'task-intake' }, 'kernel')
     }
     if (canTransition(task.status, 'executing')) {
-      this.transition(session, task, 'executing', { kind: 'step-admitted', detail: `turn ${turn} step ${step}` }, 'kernel')
+      task = this.transition(session, task, 'executing', { kind: 'step-admitted', detail: `turn ${turn} step ${step}` }, 'kernel')
+    }
+    // §10.5: an admitted step is the task reading the repository, which is the
+    // MAP phase; it is a no-op once the pipeline has moved past it.
+    this.lifecycle.advance(session, 'map', `turn ${turn} step ${step}`)
+    return this.govern(agent, task, turn, step)
+  }
+
+  /**
+   * Park a task that spent its step ceiling: index the state a resume would
+   * restart from, then move the task to `paused`. The transition is recorded
+   * once per task, so a driver that keeps proposing steps cannot pause twice.
+   * @param agent - the agent whose task is parked.
+   * @param detail - the turn and step the pause answers.
+   * @param ceiling - the task's configured step ceiling.
+   * @param spent - steps the session already started.
+   */
+  private pauseAtCeiling(agent: Agent, detail: string, ceiling: number, spent: number): void {
+    const session = agent.session
+    const current = this.state.ledgerTask(session)
+    if (current.status === 'paused' || !canTransition(current.status, 'paused')) return
+    // §17.1: index the state a resume would restart from before the pause takes
+    // effect.
+    this.checkpoint(agent, 'before-pause')
+    this.transition(session, current, 'paused', { kind: 'budget-exhausted', detail }, 'kernel', [], {
+      preconditions: [{
+        kind: 'step-ceiling',
+        satisfied: spent < ceiling,
+        detail: `${String(spent)} of ${String(ceiling)} steps spent`,
+      }],
+    })
+  }
+
+  /**
+   * Compose and record the governor's decision for one step, and refuse the
+   * step when the decision ends the run.
+   *
+   * The decision is recorded before it is acted on, like every other kernel
+   * decision, so a replay sees the same answer a live run made. Only the five
+   * `stop_*` decisions change behavior, and only in `mode: 'enforce'`: a
+   * refusal ends the turn as blocked, which parks the inbox until the next
+   * wake instead of discarding it.
+   * @param agent - the agent proposing the step.
+   * @param task - the contract after this boundary's transitions.
+   * @param turn - the turn that owns the step.
+   * @param step - the step the loop proposed.
+   * @returns the refusal to return to the loop, or undefined to admit the step.
+   */
+  private govern(agent: Agent, task: TaskContract, turn: number, step: number): PreStepDecision | undefined {
+    const session = agent.session
+    const entry = this.state.entryOf(session)
+    const governor = this.governorOf(session)
+    const snapshot = this.state.measure(task, session)
+    const receipt = entry.delegation
+    const depth = receipt?.depth ?? 0
+    const maxDepth = receipt?.maxDepth ?? task.budget.maxSubagentDepth
+    const evaluation = governor.evaluate({
+      turn,
+      step,
+      counters: countersOf(entry),
+      status: task.status,
+      remaining: snapshot.remaining,
+      failures: [...entry.failures.values()],
+      recoveries: entry.recoveries,
+      tokens: snapshot.tokens,
+      ...task.budget.maxTokens === undefined ? {} : { maxTokens: task.budget.maxTokens },
+      delegationAllowed: maxDepth === undefined || depth < maxDepth,
+      at: Date.now(),
+    }, this.thresholds)
+    if (evaluation.loop !== undefined && ![...entry.failures.values()].some(failure => failure.kind === 'no-progress')) {
+      // One failure per loop episode, like plan drift: the episode ends when a
+      // step moves something, which is what resolves it.
+      this.recordFailure(session, 'no-progress', evaluation.loop)
+    }
+    session.append('governor/decided', {
+      ...evaluation.record,
+      metadata: kernelEventMetadata(task.runId, task.taskId, 'kernel', { source: 'kernel', locator: 'governor' }, evaluation.record.at),
+    })
+    if (this.config.mode !== 'enforce' || !isStopDecision(evaluation.record.decision)) {
+      governor.openStep()
+      return undefined
+    }
+    governor.closeStep()
+    return { kind: 'reject' }
+  }
+
+  /**
+   * The process-local governor state of one session, created on first use.
+   * @param session - the session whose state is read.
+   * @returns the session's governor state.
+   */
+  private governorOf(session: Session): SessionGovernor {
+    const existing = this.governors.get(session.id)
+    if (existing !== undefined) return existing
+    const created = new SessionGovernor()
+    this.governors.set(session.id, created)
+    return created
+  }
+
+  /**
+   * Report one stall per tracked session whose liveness window elapsed with no
+   * progress and no activity, and drop the state of sessions that are gone.
+   *
+   * Only a running agent can stall, and only a task that expects progress on
+   * its own can be stalled: a task waiting on a human answer, or parked by a
+   * stop, is not asked to move.
+   */
+  private checkLiveness(): void {
+    const at = Date.now()
+    const agents = this.ctx.get('agents')
+    for (const [sessionId, governor] of this.governors) {
+      const agent = agents?.get(sessionId)
+      if (agent === undefined) {
+        this.governors.delete(sessionId)
+        continue
+      }
+      if (agent.status !== 'running') continue
+      const session = agent.session
+      const entry = this.state.entryOf(session)
+      const task = entry.task
+      if (task === undefined || !EXPECTS_PROGRESS[task.status]) continue
+      const kind = governor.stall({
+        at,
+        windowMs: this.thresholds.livenessWindowMs,
+        openActions: entry.openActions.size,
+        child: entry.delegation !== undefined,
+      })
+      if (kind === undefined) continue
+      governor.markStall(kind)
+      this.recordFailure(
+        session,
+        'stalled',
+        `nothing moved for the ${String(this.thresholds.livenessWindowMs)}ms liveness window (${kind} timeout)`,
+      )
     }
   }
 
@@ -951,17 +1398,25 @@ export class AgentKernelService extends Service implements AgentKernel {
     if (this.state.entryOf(session).delegation !== undefined) return
     const parentSession = this.ctx.get('sessions')?.get(parentSessionId)
     const parent = parentSession === undefined ? undefined : this.state.view(parentSession)
+    const delegationId = brandString<DelegationId>(randomUUID())
+    const childRunId = brandString<RunId>(randomUUID())
+    // The child's grant is reserved before the child spends: what the parent can
+    // still promise now excludes what its other in-flight children hold and what
+    // its settled children already spent, so two children created before either
+    // finishes are never both promised the same allowance.
+    const reservation = parent === undefined || parentSession === undefined
+      ? undefined
+      : this.budgets.reserve(parentSession, this.budgets.available(parentSession), childRunId)
+    if (reservation !== undefined) this.childGrants.set(session.id, reservation.reservationId)
     const receipt = delegationReceipt({
-      delegationId: brandString<DelegationId>(randomUUID()),
-      childRunId: brandString<RunId>(randomUUID()),
+      delegationId,
+      childRunId,
       parentSessionId,
       ...parent === undefined ? {} : { parent },
       admitted: this.admitted,
       sandbox: this.sandboxOf(session),
       inheritedPolicyDigest: this.permissionDigest,
-      // The parent's remaining allowance is the child's ceiling; a parent whose
-      // task is not resolvable hands down the deployment's own budget.
-      resourceLimits: parent?.budgets.remaining ?? this.config.budgets,
+      resourceLimits: delegableBudget(parent, reservation, this.config.budgets),
       at: Date.now(),
     })
     const metadata = kernelEventMetadata(receipt.childRunId, receipt.parentTaskId, 'system', {
@@ -969,6 +1424,32 @@ export class AgentKernelService extends Service implements AgentKernel {
     }, receipt.at)
     session.append('delegation/received', { ...receipt, metadata })
     parentSession?.append('delegation/issued', { ...receipt, metadata })
+  }
+
+  /**
+   * Settle the budget the child's grant held. The child's own log is the
+   * measurement: a child that opened no task never spent anything and its hold
+   * is released, while a child that ran reports the steps, tool calls, tokens,
+   * and wall-clock it used, which are debited from the parent's available
+   * allowance so a later child is not promised them again.
+   * @param agent - the agent that is being disposed.
+   */
+  private settleChild(agent: Agent): void {
+    const session = agent.session
+    const reservationId = this.childGrants.get(session.id)
+    if (reservationId === undefined) return
+    this.childGrants.delete(session.id)
+    const view = this.state.view(session)
+    if (view === undefined) {
+      this.budgets.release(reservationId)
+      return
+    }
+    this.budgets.commit(reservationId, {
+      maxSteps: view.budgets.steps,
+      maxToolCalls: view.budgets.toolCalls,
+      maxTokens: view.budgets.tokens,
+      maxWallMs: view.budgets.wallMs,
+    })
   }
 
   /**
@@ -981,9 +1462,65 @@ export class AgentKernelService extends Service implements AgentKernel {
    * @returns true when that turn was truncated.
    */
   private truncatedTurn(session: Session, turn: number): boolean {
+    // oxlint-disable-next-line typescript/no-deprecated -- Existing Session history read; migration deferred.
     return session.snapshotEvents().some(event =>
-      event.type === 'turn/end' && event.data.turn === turn && event.data.reason.kind === 'max-tokens'
+      event.type === 'turn/end' && event.data.turn === turn && event.data.reason.kind === 'max-tokens',
     )
+  }
+
+  /**
+   * The truncation failure this session still owes a retry, so the request that
+   * follows it is issued under a larger output limit. A truncation the session
+   * already retried is not owed another one, and the failure the retried turn
+   * resolved by ending otherwise is gone from the unresolved set.
+   * @param session - the session whose unresolved failures are read.
+   * @returns the failure awaiting its retry, or undefined when none is.
+   */
+  private truncationAwaitingRetry(session: Session): FailureId | undefined {
+    const retried = this.truncationRetries.get(session.id)
+    for (const failure of this.state.entryOf(session).failures.values()) {
+      if (failure.kind !== 'output-truncated' || failure.failureId === retried) continue
+      return failure.failureId
+    }
+    return undefined
+  }
+
+  /**
+   * Steer the model to split its work after a truncation that repeated despite
+   * the retry under a larger output limit: another raise cannot answer a model
+   * that produces more output than one response holds.
+   * @param agent - the agent whose step is admitted.
+   * @param turn - the turn whose previous turn was truncated.
+   */
+  private steerToSplitWork(agent: Agent, turn: number): void {
+    agent.steer(createUserMessage({
+      content: [{
+        type: 'text',
+        text: [
+          `The previous turn reached the model's output limit again (turn ${String(turn - 1)}, already retried under a larger output limit).`,
+          'Split the work: write one file, one section, or one tool call at a time instead of one large output.',
+        ].join(' '),
+      }],
+      source: { kind: 'agent-kernel', form: 'notice', summary: 'output limit reached; split the work' },
+    }))
+  }
+
+  /**
+   * The workspace-change summary the recorder published for one turn, which
+   * names both the scopes the turn changed and the git tree id of its end
+   * state.
+   * @param session - the session whose log is read.
+   * @param turn - the turn to read; omitted reads the latest summary.
+   * @returns the summary, or undefined when the turn published none.
+   */
+  private changesSummary(session: Session, turn?: number) {
+    const changes = this.ctx.get('workspaceChanges')
+    if (changes === undefined) return undefined
+    // oxlint-disable-next-line typescript/no-deprecated -- Existing Session history read; migration deferred.
+    const latest = session.snapshotEvents().findLast(event =>
+      event.type === 'workspace/changes' && (turn === undefined || event.data.turn === turn),
+    )
+    return latest === undefined ? undefined : changes.summary(session.id, latest.seq)
   }
 
   /**
@@ -995,12 +1532,67 @@ export class AgentKernelService extends Service implements AgentKernel {
    * @returns the changed paths, in the recorder's display order.
    */
   private changedScopes(session: Session, turn: number): readonly string[] {
-    const changes = this.ctx.get('workspaceChanges')
-    if (changes === undefined) return []
-    const latest = session.snapshotEvents()
-      .findLast(event => event.type === 'workspace/changes' && event.data.turn === turn)
-    if (latest === undefined) return []
-    return changes.summary(session.id, latest.seq)?.files.map(file => file.path) ?? []
+    return this.changesSummary(session, turn)?.files.map(file => file.path) ?? []
+  }
+
+  /**
+   * The digest of the repository state a verification reads, so a criterion
+   * result is retained against exactly the state the verifier saw. A turn's own
+   * summary supplies the git tree id of its end state; a repository the recorder
+   * could not snapshot is digested from the recorded change list together with
+   * the session, because two sessions that recorded no summary never saw the
+   * same repository.
+   * @param session - the session whose repository state is digested.
+   * @param turn - the turn to read; omitted reads the latest summary.
+   * @returns the repository digest.
+   */
+  private repositoryDigest(session: Session, turn?: number): string {
+    const summary = this.changesSummary(session, turn)
+    // No recorded change summary means the kernel cannot name the repository
+    // state a verifier read. The digest then names this pass alone, so no
+    // earlier result can answer for a repository nothing observed.
+    if (summary === undefined) return digestOf({ session: session.id, seq: session.seq })
+    // A turn's git tree id is a content digest of the whole working directory;
+    // without one, the recorded change list is the closest observed state.
+    return summary.snapshot?.after ?? digestOf({
+      session: session.id,
+      turn: summary.turn,
+      files: summary.files.map(file => [file.path, file.added, file.deleted]),
+    })
+  }
+
+  /**
+   * Park the session's task while a question is outstanding with the human.
+   * The approval path is the producer of `awaiting-approval`: the task is not
+   * running work while the answer is pending, and the recorded answer moves it
+   * back.
+   * @param session - the session whose task is parked.
+   * @param approval - the recorded approval request.
+   */
+  private enterAwaitingApproval(session: Session, approval: { id: ApprovalRequestId; toolName: string }): void {
+    const task = this.state.entryOf(session).task
+    if (task === undefined || !isActive(task.status)) return
+    if (!canTransition(task.status, 'awaiting-approval')) return
+    this.transition(session, task, 'awaiting-approval', {
+      kind: 'human-required',
+      detail: `approval ${approval.id} for ${approval.toolName}`,
+    }, 'user')
+  }
+
+  /**
+   * Return the parked task to work once the human answered the question: the
+   * step that asked continues with the decision on its log.
+   * @param session - the session whose task resumes.
+   * @param approvalId - the answered request's identity.
+   */
+  private leaveAwaitingApproval(session: Session, approvalId: ApprovalRequestId): void {
+    const task = this.state.entryOf(session).task
+    if (task === undefined || task.status !== 'awaiting-approval') return
+    if (!canTransition(task.status, 'executing')) return
+    this.transition(session, task, 'executing', {
+      kind: 'approval-decided',
+      detail: `approval ${approvalId} answered`,
+    }, 'user')
   }
 
   /**
@@ -1059,7 +1651,6 @@ export class AgentKernelService extends Service implements AgentKernel {
     const actor: ActorKind = hasHumanMessage ? 'user' : 'kernel'
     const task = this.createTask(session, {
       objective: humanObjective(messages),
-      acceptance: this.config.acceptance,
       agentProfile: this.config.agentProfile,
       budget: this.config.budgets,
       ...override,
@@ -1102,7 +1693,7 @@ export class AgentKernelService extends Service implements AgentKernel {
     session: Session,
     input: TaskInput,
     actor: ActorKind,
-    provenance: Provenance,
+    sourceRef: SourceRef,
   ): TaskContract {
     const current = this.state.entryOf(session).task
     if (current !== undefined && isActive(current.status)) {
@@ -1127,12 +1718,23 @@ export class AgentKernelService extends Service implements AgentKernel {
     // its policy profile and ceilings apply unless the caller named their own.
     const policyProfile = input.policyProfile ?? profile?.policyProfile ?? this.config.policyProfile
     const taskClass = this.classOf(session, input.agentProfile, input.taskClass)
+    const taskId = brandString<TaskId>(randomUUID())
+    const dependencies = input.dependencies ?? []
+    if (new Set(dependencies).size !== dependencies.length) {
+      throw new Error('agent-kernel: a task dependency is named twice')
+    }
+    const changeContract = resolveChangeContract(input.changeContract)
     const task: TaskContract = {
-      taskId: brandString<TaskId>(randomUUID()),
+      taskId,
       runId: delegation?.childRunId ?? brandString<RunId>(randomUUID()),
       objective: input.objective,
       constraints: input.constraints ?? [],
-      acceptance: input.acceptance ?? this.config.acceptanceByClass[taskClass] ?? this.config.acceptance,
+      acceptance: input.acceptance ?? this.config.acceptanceByClass[taskClass] ?? [],
+      ...changeContract === undefined ? {} : { changeContract },
+      dependencies: [...dependencies],
+      // A contract starts with no observation: evidence is recorded against a
+      // task that already exists.
+      evidence: [],
       ...workspace === undefined ? {} : { workspace },
       ...parentTaskId === undefined ? {} : { parentTaskId },
       agentProfile: input.agentProfile,
@@ -1149,7 +1751,7 @@ export class AgentKernelService extends Service implements AgentKernel {
     }
     session.append('task/created', {
       ...task,
-      metadata: kernelEventMetadata(task.runId, task.taskId, actor, provenance),
+      metadata: kernelEventMetadata(task.runId, task.taskId, actor, sourceRef),
     })
     return task
   }
@@ -1164,6 +1766,7 @@ export class AgentKernelService extends Service implements AgentKernel {
    * @param trigger - why the task moved.
    * @param actor - who caused the move.
    * @param effects - side effects the transition commits.
+   * @param reason - the preconditions the caller evaluated and the action that caused the move.
    * @returns the contract at the transition's resulting status and revision.
    */
   private transition(
@@ -1173,17 +1776,31 @@ export class AgentKernelService extends Service implements AgentKernel {
     trigger: TransitionTrigger,
     actor: ActorKind,
     effects: readonly StateEffect[] = [],
+    reason: TransitionReason = {},
   ): TaskContract {
+    const enrolled = this.state.ledgerTask(session)
+    const authorizing = reason.actionId === undefined
+      ? undefined
+      : this.state.entryOf(session).policies.get(reason.actionId)?.decisionId
     const transition: StateTransition = {
       transitionId: brandString<TransitionId>(randomUUID()),
       taskId: task.taskId,
       from: task.status,
       to,
       trigger,
-      preconditions: [],
+      // The edge table and the revision compare-and-set are evaluated here, so
+      // the durable record states which checks admitted the move beside the
+      // preconditions the caller evaluated.
+      preconditions: [
+        { kind: 'legal-edge', satisfied: canTransition(task.status, to), detail: `${task.status} -> ${to}` },
+        { kind: 'task-revision', satisfied: enrolled.revision === task.revision, detail: `evaluated against revision ${String(task.revision)}` },
+        ...reason.preconditions ?? [],
+      ],
       effects,
+      evidence: [...task.evidence],
       taskRevision: task.revision,
       revision: task.revision + 1,
+      ...authorizing === undefined ? {} : { policyDecisionId: authorizing },
       actor,
       at: Date.now(),
     }
@@ -1192,7 +1809,7 @@ export class AgentKernelService extends Service implements AgentKernel {
     const next = applyTransition(task, transition)
     session.append('task/transitioned', {
       ...transition,
-      metadata: kernelEventMetadata(task.runId, task.taskId, actor, provenanceForActor(actor, trigger.kind), transition.at),
+      metadata: kernelEventMetadata(task.runId, task.taskId, actor, sourceRefForActor(actor, trigger.kind), transition.at),
     })
     return next
   }
@@ -1235,21 +1852,25 @@ export class AgentKernelService extends Service implements AgentKernel {
     const agent = exec.agent
     if (agent === undefined) return undefined
     const session = agent.session
-    const tracked = this.progress.get(session.id)
-    if (tracked === undefined || tracked.signature !== `${exec.name}:${digestOf(exec.arguments)}`) return undefined
-    if (tracked.count < 2) return undefined
-    if (tracked.refused !== true) {
+    // A call the kernel cannot account for under a task is not refused here:
+    // `authorize` answers it, and a failure needs a task to belong to.
+    if (this.state.entryOf(session).task === undefined) return undefined
+    const governor = this.governorOf(session)
+    const signature = `${exec.name}:${digestOf(exec.arguments)}`
+    const run = governor.runOf(signature)
+    if (run.count < REPEATED_CALLS) return undefined
+    if (!governor.alreadyReported(signature, run.digest)) {
       this.recordFailure(
         session,
         'no-progress',
-        `${String(tracked.count)} identical ${exec.name} calls returned the same result`,
+        `${String(run.count)} identical ${exec.name} calls returned the same result`,
       )
-      this.progress.set(session.id, { ...tracked, refused: true })
+      governor.markReported(signature, run.digest)
     }
     if (this.config.mode !== 'enforce') return undefined
     return {
       kind: 'deny',
-      reason: `no progress: ${exec.name} was called ${String(tracked.count)} times with the same arguments and the same result; consolidate what you have or change approach`,
+      reason: `no progress: ${exec.name} was called ${String(run.count)} times with the same arguments and the same result; consolidate what you have or change approach`,
     }
   }
 
@@ -1263,6 +1884,7 @@ export class AgentKernelService extends Service implements AgentKernel {
         : next()
     }
     const session = agent.session
+    this.governorOf(session).noteToolEvent()
     const entry = this.state.entryOf(session)
     const task = entry.task
     if (task === undefined) {
@@ -1291,7 +1913,15 @@ export class AgentKernelService extends Service implements AgentKernel {
       ? baseDecision
       : this.intersectPolicyDecisions(baseDecision, profileDecision, profile.profile)
     const enforced = this.config.mode === 'enforce'
-    const decision = this.quarantineUntrusted(proposal, composed)
+    const decision = this.finalStepCeiling(
+      this.actionCeiling(
+        this.quarantineUntrusted(proposal, composed),
+        entry.openActions.size,
+        task.budget.maxConcurrentActions,
+      ),
+      task,
+      entry.steps,
+    )
     const authorization = composeAuthorization(decision, proposal, context, enforced)
     // One record carries the proposal, the rule decision, the composed
     // authorization (an `allow`, or an `ask` whose human outcome the commit's
@@ -1321,6 +1951,72 @@ export class AgentKernelService extends Service implements AgentKernel {
   }
 
   /**
+   * Cap a composed rule decision at `deny` when the task already has as many
+   * actions in flight as its concurrency ceiling allows. The count is the
+   * session's own ledger — actions proposed and not yet committed — so a
+   * parallel call beyond the ceiling is refused before this action opens a
+   * further in-flight slot. Shadow mode records the denial and lets the call
+   * run; enforce mode returns it.
+   * @param decision - the composed rule decision.
+   * @param inFlight - actions the task has proposed and not yet committed.
+   * @param ceiling - the task's configured concurrency ceiling, when it has one.
+   * @returns the decision, denied when the ceiling is already reached.
+   */
+  private actionCeiling(decision: PolicyDecision, inFlight: number, ceiling: number | undefined): PolicyDecision {
+    if (ceiling === undefined || inFlight < ceiling) return decision
+    return {
+      ...decision,
+      effect: 'deny',
+      reasons: [...decision.reasons, `the task already has ${String(inFlight)} of ${String(ceiling)} actions in flight`],
+    }
+  }
+
+  /**
+   * Classify a settled tool outcome whose arguments were rejected. The registry
+   * reports the violation before any approval prompt, so no human decided this
+   * call; the kernel records the failure kind whose recovery answers the model
+   * with the parse or schema error.
+   * @param exec - the call that settled.
+   * @param result - the outcome the registry produced.
+   */
+  private classifyToolArguments(exec: ToolExecution, result: ToolExecutionResult): void {
+    const agent = exec.agent
+    if (agent === undefined) return
+    const failure = result.error
+    const info = failure?.info
+    if (failure === undefined || info === undefined) return
+    if (info.name !== 'ToolArgsError' && info.code !== 'INVALID_ARGS') return
+    const session = agent.session
+    // A call the kernel cannot account for under a task is not classified here:
+    // a failure needs a task to belong to.
+    if (this.state.entryOf(session).task === undefined) return
+    this.recordFailure(session, 'tool-args-malformed', `tool "${exec.name}" rejected its arguments: ${failure.message}`)
+  }
+
+  /**
+   * Cap a composed rule decision at `deny` during the one final, tool-free step
+   * a task at its step ceiling was granted: the model answers from the results
+   * it already has instead of starting work the task has no allowance left to
+   * verify or checkpoint. Shadow mode records the denial and lets the call run.
+   * @param decision - the composed rule decision.
+   * @param task - the task the call is proposed against.
+   * @param steps - steps the session already started.
+   * @returns the decision, denied once the task is past its ceiling.
+   */
+  private finalStepCeiling(decision: PolicyDecision, task: TaskContract, steps: number): PolicyDecision {
+    const ceiling = task.budget.maxSteps
+    if (!this.finalSteps.has(task.taskId) || ceiling === undefined || steps < ceiling) return decision
+    return {
+      ...decision,
+      effect: 'deny',
+      reasons: [
+        ...decision.reasons,
+        `the task reached its ${String(ceiling)}-step ceiling: this is the final step, no tool may run, answer from the results you already have`,
+      ],
+    }
+  }
+
+  /**
    * Commit the observation for one settled call.
    * @param exec - the call that settled.
    * @param isError - whether the tool reported a failure.
@@ -1344,9 +2040,17 @@ export class AgentKernelService extends Service implements AgentKernel {
       resultDigest: digestOf(result.content),
       committedAt,
     }
-    // The no-progress detector counts a run of calls that asked the same
-    // question and got the same answer back.
-    this.progress.set(session.id, nextProgress(this.progress.get(session.id), exec, receipt))
+    // The loop detectors and the no-progress refusal read this history, so the
+    // settle appends the call with the digest of what it returned.
+    const governor = this.governorOf(session)
+    governor.noteToolEvent()
+    const argumentsJson = JSON.stringify(exec.arguments) as string | undefined
+    governor.noteCall({
+      tool: exec.name,
+      signature: `${exec.name}:${digestOf(exec.arguments)}`,
+      arguments: argumentsJson ?? '',
+      digest: receipt.resultDigest,
+    })
     // The grants a settled action held end with it; the settle record says so
     // rather than a separate revocation event.
     const revoked: CapabilityGrant[] = authorization.enforced && authorization.capabilityGrants.length > 0
@@ -1357,6 +2061,61 @@ export class AgentKernelService extends Service implements AgentKernel {
       revoked,
       metadata: kernelEventMetadata(task.runId, task.taskId, 'tool', { source: 'tool', locator: String(exec.callId) }, committedAt),
     })
+    // §7.4: the settled action is the observation the plan comparison reads, so
+    // the drift check runs once the receipt it answers is durable.
+    this.detectPlanDrift(session)
+    // §10.5: a settled write is the task changing the code, which is the
+    // CONTRACT/IMPLEMENT boundary; a write that failed changed nothing.
+    const declared = this.capabilities.resolve(exec.name, exec.arguments)
+    if (!isError && declared?.some(request => request.capability === 'fs.write' || request.capability === 'fs.edit')) {
+      this.lifecycle.advance(session, 'implement', `${exec.name} changed the workspace`)
+    }
+  }
+
+  /**
+   * Compare the task's observed actions with the plan it recorded, and escalate
+   * when the trailing run of actions matching no plan step reaches the
+   * configured tolerance.
+   *
+   * The comparison reads the log rather than a counter: `tool/call` events after
+   * the latest `task/plan` are the observed action sequence, so a replay
+   * computes the same drift. One escalation is recorded per episode — the
+   * failure stays unresolved until a new plan revision or a passing verification
+   * answers it — and the escalation is the recorded failure and its recovery
+   * decision, which the completion gate then reads.
+   * @param session - the session whose actions are compared with its plan.
+   */
+  private detectPlanDrift(session: Session): void {
+    const entry = this.state.entryOf(session)
+    const plan = entry.plan
+    if (plan === undefined) return
+    for (const failure of entry.failures.values()) {
+      if (failure.kind === 'plan-drift') return
+    }
+    const drifting = planDriftRun(plan.steps, this.actionsSincePlan(session))
+    if (drifting < this.config.planDriftTolerance) return
+    this.recordFailure(
+      session,
+      'plan-drift',
+      `${String(drifting)} consecutive actions match no step of plan revision ${String(plan.revision)}`,
+    )
+  }
+
+  /**
+   * The observed action sequence since the latest recorded plan revision, as
+   * the text the drift comparison reads. `tool/call` is the durable record of
+   * what was proposed to run, so a denied call is observed here too.
+   * @param session - the session whose log is read.
+   * @returns `"<tool> <arguments>"` per call after that revision, in log order.
+   */
+  private actionsSincePlan(session: Session): readonly string[] {
+    // oxlint-disable-next-line typescript/no-deprecated -- Existing Session history read; migration deferred.
+    const events = session.snapshotEvents()
+    const latest = events.findLastIndex(event => event.type === 'task/plan')
+    if (latest < 0) return []
+    return events.slice(latest + 1)
+      .filter((event): event is SessionEvent<'tool/call'> => event.type === 'tool/call')
+      .map(event => `${event.data.name} ${event.data.arguments}`)
   }
 
   /**
@@ -1372,32 +2131,58 @@ export class AgentKernelService extends Service implements AgentKernel {
 
   /**
    * Close one turn: record the observation edge, then run the completion gate
-   * when the task declares a required acceptance criterion.
-   * @param session - the agent's session.
+   * when the task declares a required acceptance criterion. A coding task's
+   * lifecycle records LOCAL VERIFY here and its REVIEW, REGRESSION, COMPLETE or
+   * repair return as the attempt settles.
+   * @param agent - the agent whose turn is stopping.
    * @param turn - the turn that is stopping.
+   * @param signal - the turn's cancellation, handed to the independent reviewer.
    */
-  private async closeTurn(agent: Agent, turn: number): Promise<void> {
+  private async closeTurn(agent: Agent, turn: number, signal: AbortSignal): Promise<void> {
     const session = agent.session
+    // The turn closed, so no step is in flight and a stall from here on is an
+    // agent-level one rather than a step that never finished.
+    this.governorOf(session).closeStep()
     const view = this.state.view(session)
     if (view === undefined) return
     if (!isActive(view.task.status)) return
+    // S4: a task that reached its step ceiling already spent the one final,
+    // tool-free step the ceiling grants, so this turn is its last: index the
+    // state a resume would restart from and park it.
+    const ceiling = view.task.budget.maxSteps
+    const spent = this.state.entryOf(session).steps
+    if (ceiling !== undefined && spent >= ceiling && this.finalSteps.has(view.task.taskId)) {
+      this.pauseAtCeiling(agent, `turn ${turn} (final step)`, ceiling, spent)
+      return
+    }
     // §17.1: index the observed state before it advances toward
     // verification, so a resume never replays past this turn's boundary.
     this.checkpoint(agent, 'turn-boundary')
     const observed = canTransition(view.task.status, 'observing')
       ? this.transition(session, view.task, 'observing', { kind: 'turn-ended', detail: `turn ${turn}` }, 'kernel')
       : view.task
+    // §10.5: the turn's end is where LOCAL VERIFY runs. A phase that already
+    // spent its step ceiling parks the task for a human instead of verifying
+    // the same failing change again.
+    const check = this.lifecycle.advance(session, 'local-verify', `turn ${turn}`)
+    if (check.exhausted !== undefined) {
+      this.parkForLifecycleBudget(agent, check.exhausted)
+      return
+    }
     if (observed.acceptance.length === 0 && !this.verification.requiredFor(observed)) {
       // Nothing to verify: a task of this class answers without a criterion, so
       // its completion is vacuous rather than unproven, and the log records no
       // verification pair to fold.
       const detail = `a ${observed.taskClass ?? 'conversational'} task requires no acceptance criterion`
+      const preconditions: readonly Predicate[] = [{
+        kind: 'acceptance-criteria',
+        satisfied: this.verification.requiredFor(observed),
+        detail,
+      }]
       const verifying = canTransition(observed.status, 'verifying')
-        ? this.transition(session, observed, 'verifying', { kind: 'verification-requested', detail }, 'kernel')
+        ? this.transition(session, observed, 'verifying', { kind: 'verification-requested', detail }, 'kernel', [], { preconditions })
         : observed
-      if (canTransition(verifying.status, 'completed')) {
-        this.transition(session, verifying, 'completed', { kind: 'verification-passed', detail }, 'kernel')
-      }
+      await this.completeWithLifecycle(agent, signal, verifying, detail, preconditions)
       return
     }
     const changed = this.changedScopes(session, turn)
@@ -1407,43 +2192,199 @@ export class AgentKernelService extends Service implements AgentKernel {
     const passed = entry.passingVerification
     if (changed.length === 0 && passed !== undefined && passed.taskId === observed.taskId) {
       const detail = `no scope changed since the passing verification at revision ${String(passed.revision)}`
+      const preconditions: readonly Predicate[] = [{
+        kind: 'changed-scopes',
+        satisfied: false,
+        detail,
+      }]
       const verifying = canTransition(observed.status, 'verifying')
-        ? this.transition(session, observed, 'verifying', { kind: 'verification-requested', detail }, 'kernel')
+        ? this.transition(session, observed, 'verifying', { kind: 'verification-requested', detail }, 'kernel', [], { preconditions })
         : observed
-      if (canTransition(verifying.status, 'completed')) {
-        this.transition(session, verifying, 'completed', { kind: 'verification-passed', detail }, 'kernel')
-      }
+      await this.completeWithLifecycle(agent, signal, verifying, detail, preconditions)
       return
     }
-    const decision = await this.verifyTask(session, observed, changed)
+    const decision = await this.verifyTask(session, observed, changed, turn)
     const current = this.state.ledgerTask(session)
     if (decision.allowed && canTransition(current.status, 'completed')) {
-      this.transition(session, current, 'completed', { kind: 'verification-passed', detail: decision.reasons.join('; ') }, 'kernel')
+      const detail = decision.reasons.join('; ')
+      await this.completeWithLifecycle(agent, signal, current, detail, [{
+        kind: 'completion-gate',
+        satisfied: decision.allowed,
+        detail,
+      }])
       return
     }
-    this.recordFailure(session, 'verification-failed', decision.reasons.join('; '))
+    this.repairOrAskUser(agent, decision.reasons)
+  }
+
+  /**
+   * Run the coding lifecycle's tail around a passing check: enter REVIEW, run
+   * the deployment's independent reviewer once, record REGRESSION and COMPLETE,
+   * and let the completion transition cite the phase log.
+   *
+   * A review that found defects is not a passing check, so the task returns to
+   * IMPLEMENT through the kernel's repair path rather than completing. A
+   * deployment that enabled the review without supplying a reviewer never
+   * completes silently: the misconfiguration is recorded and the task asks the
+   * user.
+   * @param agent - the agent whose task is completing.
+   * @param signal - the turn's cancellation, handed to the reviewer.
+   * @param verifying - the contract at its verifying status.
+   * @param detail - why the check passed.
+   * @param preconditions - the preconditions the caller already evaluated.
+   */
+  private async completeWithLifecycle(
+    agent: Agent,
+    signal: AbortSignal,
+    verifying: TaskContract,
+    detail: string,
+    preconditions: readonly Predicate[],
+  ): Promise<void> {
+    const session = agent.session
+    if (this.lifecycle.phasesFor(verifying.taskClass).length > 0) {
+      const review = this.lifecycle.advance(session, 'review', detail)
+      if (review.exhausted !== undefined) {
+        this.parkForLifecycleBudget(agent, review.exhausted)
+        return
+      }
+      let report: CodeReviewReport | undefined
+      try {
+        report = await this.lifecycle.review(agent, signal)
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : String(error)
+        this.recordFailure(session, 'workflow-failed', message)
+        this.parkTask(session, message)
+        return
+      }
+      if (report !== undefined && report.findings.length > 0) {
+        this.repairOrAskUser(agent, [
+          `the independent reviewer found ${String(report.findings.length)} defect(s): ${report.summary}`,
+          ...report.findings.map(finding =>
+            `${finding.severity} ${finding.file}${finding.line === undefined ? '' : `:${finding.line}`} — ${finding.message}`,
+          ),
+        ])
+        return
+      }
+      const regression = this.lifecycle.advance(session, 'regression', detail)
+      if (regression.exhausted !== undefined) {
+        this.parkForLifecycleBudget(agent, regression.exhausted)
+        return
+      }
+    }
+    const complete = this.lifecycle.advance(session, 'complete', detail)
+    if (complete.exhausted !== undefined) {
+      this.parkForLifecycleBudget(agent, complete.exhausted)
+      return
+    }
+    if (canTransition(verifying.status, 'completed')) {
+      this.transition(session, verifying, 'completed', { kind: 'verification-passed', detail }, 'kernel', [], {
+        preconditions: [...preconditions, this.lifecycle.completionPredicate(session)],
+      })
+    }
+  }
+
+  /**
+   * Route a failed check into the kernel's repair path: record the failure, let
+   * the recovery engine decide, steer the model back into work while repair
+   * attempts remain, and hand the decision to the user once they run out. The
+   * coding lifecycle records the repair return to IMPLEMENT on the way, so a
+   * failed LOCAL VERIFY, REVIEW, or REGRESSION is one repair, never a loop.
+   * @param agent - the agent whose task is being repaired.
+   * @param reasons - what failed, one reason per line for the model.
+   */
+  private repairOrAskUser(agent: Agent, reasons: readonly string[]): void {
+    const session = agent.session
+    // §8.5 regression verify: the criteria an earlier verification of this task
+    // passed must still pass after the repair. The verifier registry already
+    // re-ran every criterion the S6 result cache could not answer for the
+    // current repository digest, so this leg starts no verifier of its own — it
+    // attributes a repair that broke previously verified behaviour, and the
+    // failure it records counts against the same repair budget.
+    const { priorVerification, latestVerification } = this.state.entryOf(session)
+    const regressed = latestVerification === undefined ? [] : regressedCriteria(priorVerification, latestVerification)
+    const regression = regressionDetail(regressed)
+    const failureKind: FailureKind = regression === undefined ? 'verification-failed' : 'verification-regressed'
+    const steered = regression === undefined ? reasons : [regression, ...reasons]
+    const detail = steered.join('; ')
+    this.recordFailure(session, failureKind, detail)
     const failed = this.state.ledgerTask(session)
+    const repair = this.lifecycle.repair(session, detail)
+    if (repair.exhausted !== undefined) {
+      this.parkForLifecycleBudget(agent, repair.exhausted)
+      return
+    }
     // The gate keeps the turn open through a steering message while repairs
     // remain; past the cap the decision belongs to the user.
-    if (this.verificationFailures(session, failed.taskId) < this.config.maxRepairAttempts) {
+    const repairs = this.verificationFailures(session, failed.taskId)
+    const preconditions: readonly Predicate[] = [{
+      kind: 'repair-attempts',
+      satisfied: repairs < this.config.maxRepairAttempts,
+      detail: `${String(repairs)} of ${String(this.config.maxRepairAttempts)}`,
+    }]
+    if (repairs < this.config.maxRepairAttempts) {
       if (canTransition(failed.status, 'recovering')) {
-        this.transition(session, failed, 'recovering', { kind: 'verification-failed', detail: decision.reasons.join('; ') }, 'kernel')
+        this.transition(session, failed, 'recovering', { kind: 'verification-failed', detail }, 'kernel', [], { preconditions })
       }
       // §17.1: index the failing state before the repair steer changes it.
       this.checkpoint(agent, 'verification-failure')
       agent.steer(createUserMessage({
-        content: [{ type: 'text', text: REPAIR_PROMPT(decision.reasons) }],
-        source: { kind: 'agent-kernel', form: 'notice', summary: 'verification failed; repair the task' },
+        content: [{ type: 'text', text: REPAIR_PROMPT(steered) }],
+        source: {
+          kind: 'agent-kernel',
+          form: 'notice',
+          summary: regression === undefined ? 'verification failed; repair the task' : 'a repair regressed previously passing criteria',
+        },
       }))
       return
     }
     const exhausted = this.state.ledgerTask(session)
     if (canTransition(exhausted.status, 'awaiting-user')) {
-      this.transition(session, exhausted, 'awaiting-user', {
-        kind: 'human-required',
-        detail: decision.reasons.join('; '),
-      }, 'kernel')
+      this.transition(session, exhausted, 'awaiting-user', { kind: 'human-required', detail }, 'kernel', [], { preconditions })
     }
+  }
+
+  /**
+   * Park a coding task whose phase reached its configured step ceiling: the
+   * failure is recorded, the recovery engine decides, and the task waits for a
+   * human instead of running the same phase again.
+   * @param agent - the agent whose task is parked.
+   * @param budget - the phase ceiling the pipeline reached.
+   */
+  private parkForLifecycleBudget(agent: Agent, budget: CodingPhaseBudget): void {
+    const session = agent.session
+    const detail = `the coding lifecycle ${budget.phase} phase spent its ${String(budget.budget)}-step ceiling`
+    this.recordFailure(session, 'budget-exhausted', detail)
+    this.parkTask(session, detail)
+  }
+
+  /**
+   * Move a task to `awaiting-user`: the kernel cannot advance it on its own, so
+   * the decision belongs to a human.
+   * @param session - the session whose task waits.
+   * @param detail - why the kernel stopped.
+   */
+  private parkTask(session: Session, detail: string): void {
+    const task = this.state.ledgerTask(session)
+    if (canTransition(task.status, 'awaiting-user')) {
+      this.transition(session, task, 'awaiting-user', { kind: 'human-required', detail }, 'kernel')
+    }
+  }
+
+  /**
+   * Append one coding-lifecycle record with the kernel's audit metadata.
+   * @param session - the session the record belongs to.
+   * @param record - the phase entry or reviewer report to append.
+   * @throws When the session holds no task.
+   */
+  private recordLifecycle(session: Session, record: CodingPhaseRecord | CodeReviewRecord): void {
+    const task = this.state.entryOf(session).task
+    if (task === undefined) throw new Error('agent-kernel: cannot record a coding-lifecycle entry without a task')
+    const metadata = kernelEventMetadata(task.runId, task.taskId, 'kernel', {
+      source: 'kernel',
+      locator: 'coding-lifecycle',
+    }, record.at)
+    if ('phase' in record) session.append('task/phase', { ...record, metadata })
+    else session.append('task/review', { ...record, metadata })
   }
 
   /**
@@ -1454,10 +2395,11 @@ export class AgentKernelService extends Service implements AgentKernel {
    * @returns the recorded count.
    */
   private verificationFailures(session: Session, taskId: TaskId): number {
+    // oxlint-disable-next-line typescript/no-deprecated -- Existing Session history read; migration deferred.
     return session.snapshotEvents().filter(event =>
       event.type === 'failure/recorded'
-      && event.data.kind === 'verification-failed'
-      && event.data.metadata?.taskId === taskId
+      && (event.data.kind === 'verification-failed' || event.data.kind === 'verification-regressed')
+      && event.data.metadata?.taskId === taskId,
     ).length
   }
 
@@ -1466,14 +2408,20 @@ export class AgentKernelService extends Service implements AgentKernel {
    * @param session - the session whose task is verified.
    * @param task - the contract the verification is requested for.
    * @param changedScopes - scopes the task changed, for `diff` verifiers.
+   * @param turn - the turn the request belongs to; omitted digests the latest recorded repository state.
    * @returns the completion decision.
    */
-  private async verifyTask(session: Session, task: TaskContract, changedScopes: readonly string[]): Promise<CompletionDecision> {
+  private async verifyTask(
+    session: Session,
+    task: TaskContract,
+    changedScopes: readonly string[],
+    turn?: number,
+  ): Promise<CompletionDecision> {
     if (canTransition(task.status, 'verifying')) {
       this.transition(session, task, 'verifying', { kind: 'verification-requested' }, 'kernel')
     }
     const current = this.state.ledgerTask(session)
-    const request = this.verification.request(current, changedScopes)
+    const request = this.verification.request(current, changedScopes, this.repositoryDigest(session, turn))
     session.append('verification/requested', {
       ...request,
       metadata: kernelEventMetadata(current.runId, current.taskId, 'kernel', { source: 'kernel', locator: 'verification' }),
@@ -1490,14 +2438,17 @@ export class AgentKernelService extends Service implements AgentKernel {
   }
 
   /**
-   * Record one classified failure and the recovery chosen for it.
+   * Record one classified failure, diagnose it, and record the recovery chosen
+   * for it. The diagnosis is committed between the failure and its decision, so
+   * the decision answers a diagnosed failure rather than a bare classification.
    * @param session - the session that observed it.
    * @param kind - its classification.
    * @param detail - human- and model-readable detail.
    * @returns the recorded failure.
    */
   private recordFailure(session: Session, kind: FailureKind, detail: string): FailureRecord {
-    const task = this.state.entryOf(session).task
+    const entry = this.state.entryOf(session)
+    const task = entry.task
     if (task === undefined) throw new Error('agent-kernel: cannot record a failure without a task')
     const failureAt = Date.now()
     const failure: FailureRecord = {
@@ -1517,13 +2468,69 @@ export class AgentKernelService extends Service implements AgentKernel {
       startedAt: recoveryStartedAt,
       metadata: kernelEventMetadata(task.runId, task.taskId, 'kernel', { source: 'kernel' }, recoveryStartedAt),
     })
-    const decision = this.recovery.classify({ failure, attempts: 0, maxAttemptsPerAction: this.config.maxAttemptsPerAction })
+    const input: RecoveryInput = {
+      failure,
+      attempts: 0,
+      maxAttemptsPerAction: this.config.maxAttemptsPerAction,
+    }
+    const diagnosis = this.recovery.diagnose(input, {
+      evidence: [...entry.evidence.keys()],
+      hypotheses: [...entry.hypotheses.keys()],
+    })
+    session.append('failure/diagnosed', {
+      ...diagnosis,
+      metadata: kernelEventMetadata(task.runId, task.taskId, 'kernel', { source: 'kernel' }, diagnosis.at),
+    })
+    const decision = this.recovery.classify(input)
     session.append('recovery/decided', {
       ...decision,
       metadata: kernelEventMetadata(task.runId, task.taskId, 'kernel', { source: 'kernel' }, decision.at),
     })
     return failure
   }
+}
+
+/**
+ * Resolve the plan-drift tolerance. The value is a count of actions, so a
+ * negative or fractional tolerance is a configuration defect: it would either
+ * escalate before any action ran or never compare as intended. A self-contained
+ * defect fails plugin load rather than surfacing as a run-time surprise.
+ * @param configured - the value the deployment supplied, when it supplied one.
+ * @returns the tolerance the kernel runs under.
+ * @throws When the supplied value is not a non-negative integer.
+ */
+function resolvePlanDriftTolerance(configured: number | undefined): number {
+  if (configured === undefined) return 3
+  if (!Number.isInteger(configured) || configured < 0) {
+    throw new Error(`agent-kernel: planDriftTolerance must be a non-negative integer, got ${String(configured)}`)
+  }
+  return configured
+}
+
+/**
+ * Resolve the criteria a task of one class starts from: the class's own
+ * configured entry, else the deployment's global list, else the shipped default
+ * for the class. The precedence lives here rather than in task creation, so one
+ * place states what a task starts from and a caller-supplied contract is the
+ * only other source.
+ * @param config - the validated plugin configuration.
+ * @returns the criteria every task class starts from.
+ * @throws When a configured class key is not a task class.
+ */
+function resolveAcceptanceByClass(config: Config): Partial<Record<TaskClass, AcceptanceCriterion[]>> {
+  const configured = config.acceptanceByClass ?? {}
+  for (const taskClass of Object.keys(configured)) {
+    if (!TASK_CLASSES.includes(taskClass as TaskClass)) {
+      throw new Error(`agent-kernel: acceptanceByClass names unknown task class "${taskClass}"`)
+    }
+  }
+  const global = config.acceptance ?? []
+  const resolved: Partial<Record<TaskClass, AcceptanceCriterion[]>> = {}
+  for (const taskClass of TASK_CLASSES) {
+    resolved[taskClass] = configured[taskClass]
+      ?? (global.length > 0 ? global : [...DEFAULT_ACCEPTANCE_BY_CLASS[taskClass]])
+  }
+  return resolved
 }
 
 /**
@@ -1563,20 +2570,20 @@ function intersectBudgets(...budgets: readonly ResourceBudget[]): ResourceBudget
   return result
 }
 
-const PROVENANCE_SOURCE_BY_ACTOR = {
+const SOURCE_KIND_BY_ACTOR = {
   user: 'user',
   model: 'model',
   kernel: 'kernel',
   tool: 'tool',
   system: 'kernel',
-} as const satisfies Readonly<Record<ActorKind, Provenance['source']>>
+} as const satisfies Readonly<Record<ActorKind, SourceRef['source']>>
 
 /**
  * Build the versioned audit fields attached to a new kernel event.
  * @param runId - the execution run this record belongs to.
  * @param taskId - the task this record belongs to, when one exists.
  * @param actor - the actor that caused the record.
- * @param provenance - the source and locator of the recorded fact.
+ * @param sourceRef - the source and locator of the recorded fact.
  * @param timestamp - the time the record was committed.
  * @returns the event's audit metadata.
  */
@@ -1584,7 +2591,7 @@ function kernelEventMetadata(
   runId: RunId,
   taskId: TaskId | undefined,
   actor: ActorKind,
-  provenance: Provenance,
+  sourceRef: SourceRef,
   timestamp = Date.now(),
 ): KernelEventMetadata {
   return {
@@ -1593,18 +2600,18 @@ function kernelEventMetadata(
     ...taskId === undefined ? {} : { taskId },
     actor,
     timestamp,
-    provenance,
+    sourceRef,
   }
 }
 
 /**
- * Derive an event's provenance source from its actor.
+ * Derive an event's source kind from its actor.
  * @param actor - the actor that caused the event.
  * @param locator - the state-transition trigger.
- * @returns the provenance record.
+ * @returns the source reference.
  */
-function provenanceForActor(actor: ActorKind, locator: string): Provenance {
-  return { source: PROVENANCE_SOURCE_BY_ACTOR[actor], locator }
+function sourceRefForActor(actor: ActorKind, locator: string): SourceRef {
+  return { source: SOURCE_KIND_BY_ACTOR[actor], locator }
 }
 /**
  * Hash one parsed tool-argument value without retaining its text.
@@ -1613,7 +2620,7 @@ function provenanceForActor(actor: ActorKind, locator: string): Provenance {
  * @throws When the value cannot be serialized as JSON.
  */
 function digestArguments(arguments_: ActionProposal['arguments']): string {
-  const serialized = JSON.stringify(arguments_)
+  const serialized = JSON.stringify(arguments_) as string | undefined
   if (serialized === undefined) throw new Error('agent-kernel: action arguments are not JSON')
   return createHash('sha256').update(serialized, 'utf8').digest('hex')
 }
@@ -1628,7 +2635,13 @@ function digestArguments(arguments_: ActionProposal['arguments']): string {
  * @param trust - the trust the declaring package recorded for this tool's content.
  * @returns the proposal with digest-only argument content.
  */
-function proposalOf(exec: ToolExecution, agent: Agent, task: TaskContract, argumentsDigest: string, trust: TrustLabel | undefined): ActionProposal {
+function proposalOf(
+  exec: ToolExecution,
+  agent: Agent,
+  task: TaskContract,
+  argumentsDigest: string,
+  trust: TrustLabel | undefined,
+): ActionProposal {
   return {
     actionId: actionIdOf(exec.callId),
     agentId: agent.id,

@@ -1,7 +1,7 @@
 /**
  * Public type vocabulary of the workspace-memory store: the durable
  * per-workspace document, its context items, produced-file index, and
- * extraction provenance. Types only — no runtime code.
+ * the extraction that wrote it. Types only — no runtime code.
  * @module @deepseek-ai/dsh-workspace-memory/src/types
  */
 
@@ -44,7 +44,7 @@ export interface WorkspaceOutput {
   at: string
 }
 
-/** Provenance of the last model-written memory document. */
+/** The extraction that last wrote the memory document. */
 export interface WorkspaceMemoryExtraction {
   at: string
   sessionId: string
@@ -68,7 +68,7 @@ export interface WorkspaceMemoryRecord {
   contextItems: readonly WorkspaceContextItem[]
   /** Produced-file index, newest first. */
   outputs: readonly WorkspaceOutput[]
-  /** Provenance of the last model-written memory, or null. */
+  /** The extraction that last wrote the memory, or null. */
   lastExtraction: WorkspaceMemoryExtraction | null
   /** ISO-8601 instant of the last durable mutation. */
   updatedAt: string

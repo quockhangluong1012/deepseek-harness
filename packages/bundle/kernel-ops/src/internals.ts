@@ -12,6 +12,6 @@ export const internals: {
   /** Write one command's failure text. */
   writeError: (text: string) => void
 } = {
-  write: text => { process.stdout.write(text) },
-  writeError: text => { process.stderr.write(text) },
+  write: (text) => { process.stdout.write(text) },
+  writeError: (text) => { process.stderr.write(text) },
 }

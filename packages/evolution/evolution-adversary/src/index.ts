@@ -17,7 +17,7 @@ import { Context, Service } from '@deepseek-ai/cordis'
 import type { KvTable } from '@deepseek-ai/dsh-storage-domain'
 import type { EvolutionBenchmark } from '@deepseek-ai/dsh-evolution-benchmark'
 import type { EvolutionEvaluatorStrategy } from '@deepseek-ai/dsh-evolution-evaluator-strategy'
-import type { EvolutionRouter } from '@deepseek-ai/dsh-evolution-router'
+import type { EvolutionModelRoutes } from '@deepseek-ai/dsh-evolution-model-routes'
 import z from 'zod'
 import { GAMING_DEFENSES, defenseGaps as openGaps, nextChallenge } from './adversary.ts'
 import { observeDefenses } from './defenses.ts'
@@ -195,7 +195,7 @@ export class EvolutionAdversary extends Service {
   /**
    * The §46 checklist as the recorded stores show it, rather than as an
    * operator set it: each defense reads `observed-satisfied`, `observed-open`,
-   * or `unobserved` from the evaluator-strategy, benchmark, and router stores
+   * or `unobserved` from the evaluator-strategy, benchmark, and model-routes stores
    * plus this store's own probes. A defense no store answers from is
    * `unobserved`, never reported open on nobody's evidence. Read-only: this
    * neither writes to those stores nor starts a run (§58.12).
@@ -204,13 +204,13 @@ export class EvolutionAdversary extends Service {
   observedDefenses(): readonly DefenseObservation[] {
     const strategies: EvolutionEvaluatorStrategy | undefined = this.ctx.get('evolutionEvaluatorStrategy')
     const benchmark: EvolutionBenchmark | undefined = this.ctx.get('evolutionBenchmark')
-    const router: EvolutionRouter | undefined = this.ctx.get('evolutionRouter')
+    const routes: EvolutionModelRoutes | undefined = this.ctx.get('evolutionModelRoutes')
     const facts: DefenseFacts = {
       strategies: strategies === undefined ? null : strategies.strategies(),
       holdouts: benchmark === undefined
         ? null
         : [...new Set(benchmark.tasks('holdout').map(task => task.capability))],
-      evaluationRoutes: router === undefined ? null : router.effectiveness(undefined, 'evaluation'),
+      evaluationRoutes: routes === undefined ? null : routes.effectiveness(undefined, 'evaluation'),
       probes: [...this.requireProbes().entries()].map(([, probe]) => structuredClone(probe)),
       minProbesPerCategory: this.resolved.minProbesPerCategory,
     }

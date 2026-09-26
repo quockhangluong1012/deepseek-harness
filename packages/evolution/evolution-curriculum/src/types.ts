@@ -1,9 +1,25 @@
 /**
  * Public type vocabulary of the evolution curriculum: the measured capability
- * gap a task is derived from, the proposed task, and the durable proposal
- * record. Types only — no runtime code.
+ * gap a task is derived from, the proposed task, the durable proposal record,
+ * and the profile/family vocabulary every task and baseline dataset is
+ * classified with. Types only — no runtime code.
  * @module @deepseek-ai/dsh-evolution-curriculum/src/types
  */
+
+/**
+ * Agent profile a task is authored for (SPEC-2.0 §3, §12.6): the coding,
+ * research, mentor, or ICT/analyst loop and output contract the task
+ * exercises.
+ */
+export type TaskProfile = 'coding' | 'research' | 'mentor' | 'ict'
+
+/**
+ * Scenario family a task belongs to (§5.3 baseline datasets): coding,
+ * research, mentor/ICT analysis, long-horizon execution, or loop/recovery.
+ * The family names the dataset, not the agent: the long-horizon and
+ * loop/recovery corpora draw tasks from every profile.
+ */
+export type TaskFamily = 'coding' | 'research' | 'mentor-ict' | 'long-horizon' | 'loop-recovery'
 
 /** One measured capability gap: the failure evidence a task is derived from. */
 export interface CurriculumGap {

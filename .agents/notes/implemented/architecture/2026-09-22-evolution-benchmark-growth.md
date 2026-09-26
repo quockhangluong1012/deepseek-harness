@@ -50,7 +50,7 @@ English | [中文](2026-09-22-evolution-benchmark-growth.zh.md)
 
 §15's partition could not be derived from task-level evidence, because no store binds a candidate evaluation to a benchmark task identity — `evolutionPopulation` records candidates per skill, `evolutionOptimizer`'s ledger records runs per skill, and `evolutionLineage`'s experiment envelopes carry `tasks: string[]` that nothing populates (the optimizer records them empty). The honest rule therefore reads the exposure recorded for a task's *capability* and applies it to that capability's learnable tasks. The consequence, stated in both READMEs, is that a task admitted into a well-evaluated capability reaches `holdout` without the search ever having used it, and two tasks of one capability advance together. Deriving task-level exposure needs a record the harness does not have: the shape would be a task identity on the population candidate or on the lineage envelope, written by whatever runs the task — and nothing runs a benchmark task yet, so the record would have no writer even if the field existed.
 
-§15's second half — "production-replay, adversarial, never-seen holdout" for long-lived agents — is not derivable either: `evolution-trace` projects committed sessions into learning traces but records no replay corpus, and the benchmark store's states have no second axis for dataset provenance. Both remain open.
+§15's second half — "production-replay, adversarial, never-seen holdout" for long-lived agents — is not derivable either: `evolution-trace` projects committed sessions into learning traces but records no replay corpus, and the benchmark store's states have no second axis for which dataset they came from. Both remain open.
 
 ## Testing
 

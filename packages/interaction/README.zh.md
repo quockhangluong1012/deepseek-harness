@@ -31,6 +31,7 @@ kind: "package-group"
 | [`permission-presets/`](permission-presets/README.zh.md) | 把沙箱模式与审批策略捆绑为一个面向用户的权限选择器 | `ctx.permissionPresets` |
 | [`user-questions/`](user-questions/README.zh.md) | 定义经过校验的问题 schema 与作用域 answerer waterfall，agent 可暂停等待 | `ctx.userQuestions` |
 | [`tool-ask-user/`](tool-ask-user/README.zh.md) | 暴露 `ask_user_question` 工具，让模型可以向用户提问并请求其作出决定 | 注册到 `ctx.tools` |
+| [`command-inspect/`](command-inspect/README.zh.md) | 报告当前部署拥有什么：命令目录、环境事实，以及 MCP、agent 与 hook 表面 | 注册到 `ctx.commands` |
 
 -----
 

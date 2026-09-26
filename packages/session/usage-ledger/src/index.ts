@@ -1,7 +1,8 @@
 /**
  * Usage ledger (`ctx.usageLedger`): folds every live session's billed LLM
- * attempts into durable per-day and per-day-per-model counters and serves
- * range summaries to the dashboard's Remote face.
+ * attempts into durable per-day, per-day-per-model, and per-day-per-session
+ * counters and serves range summaries and per-session spend to the
+ * dashboard's Remote face.
  *
  * One billed attempt is one provider usage sample on an
  * `assistant/message` or `assistant/attempt` event — retries count, because
@@ -9,6 +10,11 @@
  * route arrives with its settled message, possibly after earlier attempts,
  * so per-step buckets hold samples until `step/end` and re-attribute
  * unknown-routed samples when the message lands.
+ *
+ * Each sample is also priced against the mounted LLM service's declared
+ * route rates and credited to the session that committed it, so the invoking
+ * agent and every subagent keep their own money; a route that declares no
+ * price counts as unmeasurable rather than free.
  *
  * The ledger is disposable derived data over the durable session logs: the
  * whole state (counters plus per-session fold cursors) persists as one
@@ -21,26 +27,31 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { Service } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
+import type { LlmModelCost } from '@deepseek-ai/dsh-llm'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import type { KvTable } from '@deepseek-ai/dsh-storage-domain'
 import { RemoteError } from '@deepseek-ai/dsh-typert-protocol'
 import {
+  MODEL_KEY_SEPARATOR,
   UNKNOWN_ROUTE,
   addSample,
+  addSessionSample,
   cacheHitAvg,
   dayKeyUTC7,
   isUsageRange,
   messageRoute,
   moveSample,
+  moveSessionSample,
   normalizeSample,
   sampleOfAttempt,
   sampleOfMessage,
   summarizeLedger,
+  summarizeSessionCosts,
   sweepRetention,
   type NormalizedSample,
 } from './aggregate.ts'
-import { LEDGER_KEY, usageDashboardDomainSpec, type UsageLedgerState } from './spec.ts'
-import type { UsageRange, UsageSummary } from './types.ts'
+import { EMPTY_LEDGER, LEDGER_KEY, usageDashboardDomainSpec, type UsageLedgerState } from './spec.ts'
+import type { UsageRange, UsageSessionCost, UsageSummary } from './types.ts'
 
 export type * from './types.ts'
 // The UTC+7 calendar and window math surfaces beside the ledger so other
@@ -147,8 +158,10 @@ export class UsageLedger extends Service {
   static Config: z<Config> = Config
 
   private table?: KvTable<string, UsageLedgerState>
-  private ledger: UsageLedgerState = { cursors: {}, daily: {}, models: {} }
+  private ledger: UsageLedgerState = structuredClone(EMPTY_LEDGER)
   private readonly steps = new Map<Session, Map<string, StepBucket>>()
+  /** Routes whose declared prices failed validation; the first failure warns, later samples stay quiet. */
+  private readonly rejectedRoutes = new Set<string>()
   private pendingEvents = 0
   private timer: ReturnType<typeof setTimeout> | undefined
   /** Day the alert last checked; a new day starts healthy until proven otherwise. */
@@ -178,7 +191,7 @@ export class UsageLedger extends Service {
     this.ctx.effect(() => () => domain.close(), 'usage-ledger: domain close')
     this.table = domain.table('ledger')
     const stored = this.table.get(LEDGER_KEY)
-    this.ledger = stored === undefined ? { cursors: {}, daily: {}, models: {} } : structuredClone(stored)
+    this.ledger = structuredClone(stored ?? EMPTY_LEDGER)
     for (const session of this.ctx.sessions.list()) this.backfill(session)
     sweepRetention(this.ledger, Date.now(), this.config.retentionDays)
     await this.flush()
@@ -196,6 +209,49 @@ export class UsageLedger extends Service {
       throw new RemoteError('gateway/bad-request', `unknown usage range "${String(range)}"`, {})
     }
     return Promise.resolve(summarizeLedger(this.ledger, range, Date.now()))
+  }
+
+  /**
+   * Estimated spend per session for one filter range: the invoking agents and
+   * every subagent, each with the money its own committed attempts cost.
+   * Sessions with no priced attempt report `usd` as `undefined` and name the
+   * routes no declared price covered, so an unmeasurable total is never
+   * reported as a spend of zero.
+   * @param range - the requested window (`today` by dashboard default).
+   * @param signal - caller cancellation.
+   * @returns one row per billing session, busiest first.
+   */
+  async sessionCosts(range: UsageRange, signal: AbortSignal): Promise<readonly UsageSessionCost[]> {
+    signal.throwIfAborted()
+    if (!isUsageRange(range)) {
+      throw new RemoteError('gateway/bad-request', `unknown usage range "${String(range)}"`, {})
+    }
+    return await Promise.resolve(summarizeSessionCosts(this.ledger, range, Date.now()))
+  }
+
+  /**
+   * Declared USD price of one route, or `undefined` when no mounted adapter
+   * declares one. Prices are read per sample, so a settings or catalog change
+   * reaches the next fold. A declaration that fails validation cannot price
+   * anything: the fold keeps running, warns once for the route, and counts its
+   * samples as unmeasurable like any other undeclared price.
+   * @param provider - the attributed provider.
+   * @param model - the attributed model.
+   * @returns detached route pricing, or `undefined` when nothing declares one.
+   */
+  private declaredCost(provider: string, model: string): LlmModelCost | undefined {
+    try {
+      return this.ctx.get('llm')?.modelCost(provider, model)
+    } catch (error: unknown) {
+      const key = `${provider}${MODEL_KEY_SEPARATOR}${model}`
+      if (!this.rejectedRoutes.has(key)) {
+        this.rejectedRoutes.add(key)
+        this.ctx.logger.warn(
+          `usage-ledger: route "${provider}/${model}" declares prices this ledger cannot use; its samples count as unmeasurable: ${String(error)}`,
+        )
+      }
+      return undefined
+    }
   }
 
   /**
@@ -287,13 +343,25 @@ export class UsageLedger extends Service {
     }
     bucket.samples.push({ day, sample })
     if (route !== undefined && bucket.route === undefined) {
-      for (const prior of bucket.samples.slice(0, -1)) {
-        moveSample(this.ledger, prior.day, UNKNOWN_ATTRIBUTION, route, prior.sample)
+      const prior = bucket.samples.slice(0, -1)
+      if (prior.length > 0) {
+        const fromCost = this.declaredCost(UNKNOWN_ATTRIBUTION.provider, UNKNOWN_ATTRIBUTION.model)
+        const toCost = this.declaredCost(route.provider, route.model)
+        for (const sample of prior) {
+          moveSample(this.ledger, sample.day, UNKNOWN_ATTRIBUTION, route, sample.sample)
+          moveSessionSample(
+            this.ledger, sample.day, session.id, UNKNOWN_ATTRIBUTION, route, sample.sample, fromCost, toCost,
+          )
+        }
       }
       bucket.route = route
     }
     const effective = bucket.route ?? UNKNOWN_ATTRIBUTION
     addSample(this.ledger, day, effective.provider, effective.model, sample)
+    addSessionSample(
+      this.ledger, day, session.id, effective.provider, effective.model, sample,
+      this.declaredCost(effective.provider, effective.model), 1,
+    )
     this.checkCacheHitAlert(day)
   }
 

@@ -1,5 +1,5 @@
 ---
-description: "单轮次预算 guard：在每步之前检查 token 压力、工具调用与挂钟时间上限，供选择、配置或排查该 guard 的用户与维护者阅读。"
+description: "面向轮次、会话与运行的预算 guard：在每一步之前检查计费 token、计价成本、工具调用、挂钟时间与上下文压力上限，供选择、配置或排查该 guard 的用户与维护者阅读。"
 kind: "package-reference"
 ---
 
@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-使用本包可为一个轮次能消耗多少设限。三项可选上限——实测请求压力、已分发的工具调用、挂钟时长——会在每个拟进入的步骤之前检查；任一项到达后，guard 会记录一条持久化的 `budget/exceeded` 事件、拒绝该步骤，轮次随即以 blocked 结束，而不是继续下去。认领了人类消息的步骤始终进入，因此预算绝不会丢弃用户说过的话；所有上限在未配置时都处于关闭状态。`dsh` web-app 组合包以三项上限全关的方式挂载本插件，部署可按组合逐项选择启用。
+使用本包可为一个 agent 在下一次模型请求之前能花多少设限。可选上限按计费 token、计价美元、工具调用或挂钟时间为单个轮次、整个会话与单次运行设界；另有一项独立上限约束实测上下文压力。某个步骤一旦到达上限，guard 会记录一条持久化的 `budget/exceeded` 事件、拒绝该步骤，轮次随即以 blocked 结束而不是继续。认领了人类消息的步骤始终进入，因此预算绝不会丢弃用户输入；所有上限在未配置时都处于关闭状态，web-app 组合包正是以全关方式挂载本插件。
 
 ## 目录
 
@@ -25,43 +25,66 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用本包
 
-当会话应当停下而不是继续在一个失控轮次上消耗时，挂载本插件。无配置时它只观察轮次、不拒绝任何步骤；每设置一项上限就启用一项约束。
+当 agent 应当停下而不是继续消耗时，挂载本插件。无配置时它只观察轮次、不拒绝任何步骤；每设置一项上限就启用一项约束。
 
 ### 何时选择
 
-当无人值守或长周期运行的 agent 必须受到约束时选择它——永远不收敛的工具循环、持续数小时的轮次，或靠自身输出不断膨胀的上下文。当每个轮次都必须完整跑完才正确时避免使用；当你需要硬性中断时也不适用：guard 在步骤之间检查，因此它停止的是*下一个*模型请求，而不是已经发出的调用。它同样不适合会话级或按天预算，因为每个轮次都会重新获得完整的额度。
+当无人值守或长周期 agent 必须被设界时选择它：永不收敛的工具循环、运行数小时的会话，或持续计费的请求。三个范围回答三个问题——轮次上限约束一个模型请求周期，会话上限约束整段对话的计费历史，运行上限约束 kernel 开启的一次任务。上下文上限则切断请求已超出其衡量基准的轮次。
 
-### 设置各项上限
+当每个轮次都必须为正确性而跑完时避免使用，也需要硬中断时不要依赖它：guard 只在步骤之间检查，因此它停止的是*下一个*模型请求，永不是在途调用。它同样无法约束自己从未观察到的工作——见[已知限制与延期工作](#known-limitations-and-deferred-work)。
 
-按部署需要挂载插件并给出上限：
+### 设置上限
+
+按部署想要的上限挂载本插件：
 
 ```yaml
 - name: '@deepseek-ai/dsh-budgets'
   config:
-    maxTotalTokens: 200000   # reject a step once measured request pressure reaches this
-    maxToolCalls: 50         # reject a step once this many tool calls are dispatched in the turn
-    maxWallMs: 600000        # reject a step once the turn has run this long
-    maxCostUsd: 5             # reject a step once the turn's priced cost reaches this many USD
-    usdPerMillionTokens: 3    # USD per million measured tokens: what the deployment's model costs
+    maxTotalTokens: 200000      # billed tokens one turn may spend
+    maxToolCalls: 50            # tool calls one turn may dispatch
+    maxWallMs: 600000           # milliseconds one turn may run
+    maxSessionTokens: 5000000   # billed tokens the whole session may spend
+    maxSessionCost: 25          # USD the session may spend, priced by usdPerMillionTokens
+    maxSessionWallTime: 28800000
+    maxRunTokens: 500000        # billed tokens one run may spend
+    maxRunCost: 5
+    maxRunWallTime: 1800000
+    maxContextTokens: 200000    # measured request pressure of one step
+    usdPerMillionTokens: 3      # USD per million billed tokens: what the deployment's model costs
 ```
 
-| 字段 | 默认值 | 含义 |
-|---|---|---|
-| `maxTotalTokens` | 未设置（关闭） | 单个步骤实测请求压力的上限，在该步骤之前比较 |
-| `maxToolCalls` | 未设置（关闭） | 单个轮次内已分发工具调用的上限 |
-| `maxWallMs` | 未设置（关闭） | 单个轮次挂钟时长的上限，从其 `turn/start` 起算 |
-| `maxCostUsd` | 未设置（关闭） | 单个轮次实测成本（美元）的上限，在该步骤之前比较；需要同时设置 `usdPerMillionTokens` |
-| `usdPerMillionTokens` | 未设置（无作用） | 每百万实测 token 的部署定价（美元），即部署所用模型的成本；没有 `maxCostUsd` 时不起任何作用 |
+| 字段 | 范围 | 默认值 | 含义 |
+|---|---|---|---|
+| `maxInputTokens` | 轮次 | 未设置（关闭） | 单个轮次可被计费的提示 token——未缓存的输入加上缓存读与缓存写 |
+| `maxOutputTokens` | 轮次 | 未设置（关闭） | 单个轮次可被计费的补全 token |
+| `maxTotalTokens` | 轮次 | 未设置（关闭） | 单个轮次可消耗的全部计费 token |
+| `maxToolCalls` | 轮次 | 未设置（关闭） | 单个轮次可分发的工具调用数 |
+| `maxWallMs` | 轮次 | 未设置（关闭） | 单个轮次的挂钟时长，自其 `turn/start` 起算 |
+| `maxSessionTokens` | 会话 | 未设置（关闭） | 整个会话可消耗的计费 token |
+| `maxSessionCost` | 会话 | 未设置（关闭） | 会话可消耗的计价美元；需要 `usdPerMillionTokens` |
+| `maxSessionWallTime` | 会话 | 未设置（关闭） | 会话的挂钟年龄，自其创建时刻起算 |
+| `maxRunTokens` | 运行 | 未设置（关闭） | 单次运行可消耗的计费 token |
+| `maxRunCost` | 运行 | 未设置（关闭） | 运行可消耗的计价美元；需要 `usdPerMillionTokens` |
+| `maxRunWallTime` | 运行 | 未设置（关闭） | 单次运行的挂钟时长，自其运行标记起算 |
+| `maxContextTokens` | 上下文 | 未设置（关闭） | 下一次请求的实测请求压力 |
+| `maxCostUsd` | 轮次 | 未设置（关闭） | 单个轮次可消耗的计价美元；需要 `usdPerMillionTokens` |
+| `usdPerMillionTokens` | 价格 | 未设置（无作用） | 每百万计费 token 的美元价；没有成本上限时不起作用 |
 
-未设置的上限即处于关闭状态，因此无配置挂载的插件不会拒绝任何步骤。非正数或非有限值会让插件加载失败并给出明确错误，而不是悄悄关闭它所声明的上限；生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-budgets)是受支持取值的完整清单。
+未设置的上限即处于关闭状态，因此无配置挂载的插件不会拒绝任何步骤。非正数或非有限值会让插件加载失败并给出明确错误，而不是悄悄关闭它所声明的上限。没有价格的成本上限是受支持的状态而非配置错误：插件正常加载、记录一条警告，并把该维度报告为无法计量，因为 harness 自身没有计价来源，价格由部署声明其模型成本。生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-budgets)是受支持取值的完整清单。
 
 ### 你会得到什么
 
-当轮次到达某项已配置的上限时，guard 会记录一条持久化的 `budget/exceeded` 会话事件，指明上限、实测值、所配置的限值，以及它所停止的轮次与步骤；同时记录一条包含同样事实的警告；并拒绝拟进入的步骤。随后循环用它既有的 `blocked` 原因关闭该轮次——与历来拒绝步骤所产生的原因相同——且不新增 `TurnEndReason`。已经产生的工具结果保留在会话中，而下一个轮次以全新事实开始——它自己的 `turn/start` 会重置工具调用计数与挂钟起点。
+某个步骤到达已配置的上限时，guard 记录一条持久化的 `budget/exceeded` 会话事件、记录一条包含相同事实的警告，并拒绝该拟进入的步骤。事件指明预算（`scope`：`turn`、`context`、`session` 或 `run`）、上限（`name`）、被比较的值（`observed`）、已配置的限值（`limit`）、被停止的轮次与步骤、范围为运行时所属运行的身份，以及部署配置的每一项上限——数值、未设置维度读作字面量 `unbounded`，没有价格的成本维度读作 `unmeasurable`。随后循环以既有的 `blocked` 原因结束该轮次，与一直以来的被拒步骤结论相同，且不新增任何 `TurnEndReason`。已经产生的工具结果留在会话中，下一轮次从全新的轮次内事实开始。
 
-该事件为 log-only 且读取时必需：它不携带 `ignorable` 标记，因此不认识该类型的读取方会直接拒绝整份日志，而不是丢弃这次切断。其 payload 与声明位置见生成的[持久化目录](../../../docs/persistence-catalog.zh.md#budgetexceeded--log-only)。
+该事件是仅日志且读取必需的：它不携带 `ignorable` 标记，因此不认识该类型的读取方会拒绝整份日志，而不是丢弃这次切断。其载荷与声明位置见生成的[持久化目录](../../../docs/persistence-catalog.zh.md#budgetexceeded--log-only)。
 
-有两处的顺序很关键。人类输入优先：如果某步骤认领的消息中包含 `source.kind === 'user'` 的一条，该步骤就会进入，甚至不会评估各项上限，因此拒绝永远不会丢弃用户消息或 steer 指令。检查按代价从低到高进行——先工具调用，再挂钟时间，最后才是 token 测量——因此已经越过较廉价上限的轮次不必为其日志的重放付出代价。
+顺序在两处很重要。人类输入优先：如果某步骤认领的消息中包含 `source.kind === 'user'` 的消息，该步骤直接进入，上限根本不会被评估，因此拒绝永远不会丢弃用户消息或引导指令。而检查按代价从低到高进行——先计数器、再时钟、然后读取一次计费消耗、最后做上下文测量——因此已经越过较廉价上限的步骤不必为其日志重放付出代价。
+
+### 数字从何而来
+
+计费消耗是 token 计量器自身的提供方报告账目，读自其 `tokenUsage` 会话投影：由计量器从每一个上报了用量的已结算 assistant 尝试折叠出的四个互斥桶，重试单独计入。轮次比较会话当前读数与其 `turn/start` 到达时读数之差，会话比较整份读数，运行比较自其运行标记以来的差值。由于投影会随每次结算落地即折叠，能砍断的正是正在花费的那个轮次，而不是其后的轮次。
+
+运行是 kernel 的持久任务：guard 以结构化方式从日志中读取运行身份与起始时刻，即 `task/created` 事件的元数据，因此不需要对 `@deepseek-ai/dsh-agent-kernel` 的编译期依赖。上下文压力是唯一读取测量值而非消耗的维度：`maxContextTokens` 比较 `ctx.tokenMeter.measure(session).totalTokens`，即请求本身而非账单。
 
 -----
 
@@ -69,36 +92,41 @@ kind: "package-reference"
 ## 理解实现
 
 <details>
-<summary>实现细节——点击展开</summary>
+<summary>实现内部细节——点击展开</summary>
 
-本节解释 guard 如何获知一个轮次的活动、在何处否决，并指出实现它的代码位置；可观察行为已在[使用本包](#use-this-package)中完整说明。
+本节说明 guard 如何得知轮次、会话与运行的活动、在哪里行使否决，并指向实现它的代码；可观察行为已在[使用本包](#use-this-package)中完整覆盖。
 
-### 设计理念
+### 设计原则
 
-guard 建立在四项承诺之上：
+该 guard 建立在五项承诺之上：
 
-- **在真实存在的否决边界上强制执行。** `agent/pre-step` 是已声明的 waterfall，循环本就把它的拒绝转换为 `{ kind: 'blocked' }`；`agent/turn-stopping` 是没有否决位置的停止事件，在其上挂监听器只会是无效负担。与规范中计划执行点之间的完整偏差记录在 [guard-budgets Agent Note](../../../.agents/notes/implemented/feature/2026-09-12-guard-budgets.zh.md) 中。
-- **事实，而非历史。** 每个轮次的事实保存在 `WeakMap<Session, TurnFacts>` 中，由投递的 `session/event` 维护——从不同步读取会话日志——因此恢复或分叉的会话不产生额外代价，也不需要新的投影。
-- **人类输入高于一切上限。** 认领的消息本就应当被投递；拒绝携带用户消息的步骤会将其丢弃，因此 guard 选择委派。
-- **上限是配置，不是常量。** 每个约束都是可在 `cordis.yml` 中更改的可选且经校验的 `Config` 字段；没有隐藏默认值，也没有测试钩子。
+- **在确实存在的否决边界上执行。** `agent/pre-step` 是已声明的 waterfall，循环本就把它的拒绝转成 `{ kind: 'blocked' }`；`agent/turn-stopping` 是没有否决槽位的停止事件，在那里挂监听器只会是无效负担。与规范设想执行点的完整偏差记录在 [guard-budgets Agent Note](../../../.agents/notes/implemented/feature/2026-09-12-guard-budgets.zh.md) 中。
+- **事实，而非历史。** 轮次内与运行内事实存放在以会话为键的 `WeakMap` 中，并由投递的 `session/event` 维护——绝不同步读取会话日志——因此被恢复或分叉的会话无需付出代价，也不需要新增投影。
+- **每个数字只有一个归属者。** 计费消耗读自 token 计量器的 `tokenUsage` 投影，上下文压力读自其 `measure()`；guard 不重新推导任何一项。
+- **人类输入高于一切上限。** 认领的消息本就是为了投递；拒绝携带用户消息的步骤会将其丢弃，因此 guard 转而委派。
+- **上限是配置，不是常量。** 每项界都是可在 `cordis.yml` 中改动的、带校验的可选 `Config` 字段；没有隐藏默认值，也没有测试钩子。
 
-### 轮次如何被观察与切断
+### 轮次与运行如何被观察和切断
 
-一个 `session/event` 监听器构建事实：`turn/start` 写入 `{ turn, startedAt: event.time, toolCalls: 0 }`，`tool/call` 在条目存在时递增 `toolCalls`，其余事件类型一律忽略。由于条目只由插件亲眼观察到的 `turn/start` 创建，插件加载时已经打开的轮次没有事实，也就永远不会被切断。
+一个 `session/event` 监听器构建事实。`turn/start` 写入 `{ turn, startedAt: event.time, toolCalls: 0, spend }`，其中 `spend` 是该时刻会话的计费消耗；`tool/call` 在条目存在时递增 `toolCalls`；携带可用运行身份的 `task/created` 事件写入 `{ runId, startedAt, spend }`；其余事件类型一律忽略。由于轮次条目只由插件亲眼观察到的 `turn/start` 创建、运行条目只由它见过的标记创建，插件加载时已经在途的工作永远不会被切断——而标记早于挂载时刻的运行则没有可计量的消耗。
 
-一个 `agent/pre-step` 监听器评估拟进入的步骤。当 agent 的会话没有事实、事实属于另一个轮次、认领的消息带有 `source.kind === 'user'`，或未配置任何上限、也没有任一项到达时，它原样委派。否则它通过会话自身的 append 路径追加 `budget/exceeded` 事件，记录那一条警告，并返回 `{ kind: 'reject' }`，且不调用 `next()`——这正是 Cordis waterfall 定义的短路：后续监听器不再运行，循环记下 `blocked`。事件在拒绝之前写入，因此即使进程随该轮次一同结束，持久日志也带着这次切断的原因；警告与事件陈述同样的事实，而轮次的 `blocked` 结束仍是读取方重建出的结果。
+一个 `agent/pre-step` 监听器评估拟进入的步骤。当 agent 会话没有事实、或事实属于另一个轮次、或某条认领消息带有 `source.kind === 'user'`、或没有配置任何上限、或没有任何上限到达时，它原样委派。否则它通过会话自身的 append 路径追加 `budget/exceeded` 事件、记录唯一一条警告，并在不调用 `next()` 的情况下返回 `{ kind: 'reject' }`——这正是 Cordis waterfall 定义的短路：后续监听器不再运行，循环记下 `blocked`。事件先于拒绝写入，因此即使进程随该轮次一起崩溃，持久日志仍带有切断的原因；警告与事件陈述同样的事实，而该轮次的 `blocked` 结束仍是读取方重建出的结论。
 
-### 各项上限分别比较什么
+### 各项上限比较什么
 
-`maxToolCalls` 比较该轮次已计入的 `tool/call` 事件数。`maxWallMs` 用 `Date.now() - facts.startedAt` 与该轮次自身的 `turn/start` 时间戳比较，因此是挂钟时间而非 CPU 时间。`maxTotalTokens` 比较 `ctx.tokenMeter.measure(agent.session).totalTokens`——计量器对请求总压力的估算，它在安全时复用提供方用量，否则重新计价当前 surface；这是对请求的测量，不是账单。`maxCostUsd` 按 `usdPerMillionTokens` 的每百万 token 价格为同一测量值计价，并比较该轮次的美元成本。
+`maxToolCalls` 比较该轮次已计入的 `tool/call` 事件数。`maxWallMs` 用 `Date.now() - facts.startedAt` 与该轮次自身的 `turn/start` 时间戳比较，因此是挂钟时间而非 CPU 时间。`maxSessionWallTime` 用同一时钟与会话头部的创建时刻比较，因此计入会话的整个年龄，包含空闲时段。`maxRunWallTime` 则与运行标记的时间戳比较。
+
+`maxInputTokens`、`maxOutputTokens` 与 `maxTotalTokens` 比较该轮次的计费桶：提示 token 为未缓存输入加上两个缓存桶，总量再加补全 token。`maxSessionTokens` 与 `maxRunTokens` 对会话与运行比较同样的桶。`maxCostUsd`、`maxSessionCost` 与 `maxRunCost` 按 `usdPerMillionTokens` 以每百万 token 为这些 token 计价——提示、补全与缓存 token 一律同一费率，因为 harness 不持有按路由的费率表。`maxContextTokens` 比较 `ctx.tokenMeter.measure(agent.session).totalTokens`，即计量器对请求总压力的估算，它在安全时复用提供方用量、否则重新计价当前 surface；它衡量的是请求而不是账单。
 
 ### 源码地图
 
-| 文件 | 职责 |
+| 文件 | 作用 |
 |---|---|
-| [`src/index.ts`](src/index.ts) | 插件入口：`Config` schema、加载期失败即报的校验、轮次事实与 pre-step 监听器 |
-| [`src/types.ts`](src/types.ts) | 持久化的 `budget/exceeded` payload、共享的上限名词汇，以及 `SessionEventMap` 合并 |
-| — | 不发布运行时不变式伴生入口；guard 拥有一个由自身监听器消费的弱引用会话事实表，而伴生入口从日志重新推导轮次事实所观察到的仍是同一批事件，而非独立关系。 |
+| [`src/index.ts`](src/index.ts) | 插件入口：`Config` schema、失败即报的校验、事实监听器、上限评估 |
+| [`src/types.ts`](src/types.ts) | 上限表与范围/度量词汇、持久化的 `budget/exceeded` 载荷，以及 `SessionEventMap` 合并 |
+| [`src/spend.ts`](src/spend.ts) | 计费 token 的拆分与单一费率计价，缺失的一侧读作无法计量 |
+| [`src/run-marker.ts`](src/run-marker.ts) | 对 kernel 持久运行标记的结构化读取 |
+| — | 未发布运行时不变式伴随件；guard 持有两个由自身监听器消费的弱引用会话事实表，而从日志重新推导同样事实的伴随件观察到的仍是同一批事件，而非独立关系。 |
 
 </details>
 
@@ -107,55 +135,56 @@ guard 建立在四项承诺之上：
 <a id="further-exploration"></a>
 ## 进一步探索
 
-当包级约定不够用时阅读以下页面。它们从 pre-step 边界逐步进入循环的轮次生命周期、实测压力与 guard 组映射。
+当包级契约不够用时阅读这些页面。它们从 pre-step 边界延伸到循环的轮次生命周期、被衡量的数字以及 guard 组地图。
 
 - [Agent 包参考](../../../packages/core/agent/README.zh.md)——`agent/pre-step` waterfall 与循环理解的 `PreStepDecision` 取值。
+- [Token 计量器](../../llm/token-meter/README.zh.md)——本 guard 直接读取而不再自行测量的 `tokenUsage`、`contextPressure` 投影与 `measure()`。
 - [工具子系统参考](../../../docs/subsystems/tools.zh.md)——产生本 guard 所计 `tool/call` 事件的 `tools/execute` 流水线。
-- [guard-budgets Agent Note](../../../.agents/notes/implemented/feature/2026-09-12-guard-budgets.zh.md)——本包的设计、人类输入规则，以及它所拒绝的执行点。
-- [生成配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-budgets)——每个受支持的上限及其源声明。
-- [guard 组映射](../README.zh.md)——同组的 guard 包与循环卫生家族。
+- [guard-budgets Agent Note](../../../.agents/notes/implemented/feature/2026-09-12-guard-budgets.zh.md)——设计、人类输入规则，以及本包拒绝采用的执行点。
+- [生成的配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-budgets)——每一项受支持的上限及其源码声明。
+- [guard 组地图](../README.zh.md)——同组 guard 包与循环卫生家族。
 
 -----
 
 <a id="model-experience"></a>
 ## 模型体验
 
-### 条件性轮次终止
+### 有条件的轮次终止
 
 #### 模型看到什么
 
-不添加提示词、工具 schema 或消息文本。上限到达意味着该轮次的下一次请求根本不会发出：轮次以循环的 `blocked` 原因关闭，而模型的下一次请求是下一个轮次组装的任何内容。已经产生的工具结果保留在日志中，因此其内容不会对后续轮次隐藏。
+不新增任何提示、工具 schema 或消息文本。上限到达意味着该轮次的下一次请求根本不会发出：轮次以循环的 `blocked` 原因结束，模型的下一次请求是下一轮次所组装的内容。已经产生的工具结果留在日志中，因此其内容不会对后续轮次隐藏。
 
 #### Token 影响
 
-不增加 token；测量本身不发送任何内容。到达上限会省下它阻止的每个步骤的提示词、工具 schema 与输出，这正是设限的目的。
+新增零 token；测量本身不发送任何内容。到达的上限会省下它阻止的每个步骤的提示、工具 schema 与输出，这正是该约束的意义。
 
 #### KV Cache 影响
 
-仅追加；拒绝步骤不会向请求 surface 添加任何内容，因此现有 KV Cache 条目仍可复用。
+仅追加；拒绝步骤不会给请求 surface 增加任何内容，因此既有 KV Cache 条目保持可复用。
 
 ## 已知限制与延期工作
 
 <a id="known-limitations-and-deferred-work"></a>
 
 
-这些限制说明 guard 何时不合适。它们是当前包约束，不是任务积压。
+这些限制界定了 guard 何时并不合适。它们是当前的包约束，不是任务清单。
 
-- **读取时必需的事件**——`budget/exceeded` 记录不携带 `ignorable` 标记（append 路径无法写入该标记），因此比该事件更早的 harness 会拒绝整份日志，而不是跳过这次切断。读取由更新的 harness 切断过的日志前，请先升级读取方。
-- **没有计价来源**——harness 自身无法为模型定价：`maxCostUsd` 按部署配置的 `usdPerMillionTokens` 以每百万 token 为单位乘以实测压力，因此过期的价格会悄悄误算每一轮的成本。请按提供方的现行费率设置价格，并在更换模型时重新校准。
-- **每个轮次的事实只覆盖被观察到的轮次**——插件加载时已经打开的轮次没有条目，永远不会被切断；这也意味着在轮次中途挂载的插件无法约束它挂载时所处的那个轮次。
+- **读取必需的事件**——`budget/exceeded` 记录不携带 `ignorable` 标记（append 路径无法写入该标记），因此比该事件更早的 harness 会拒绝整份日志，而不是跳过这次切断。读取由更新的 harness 切断过的日志前，请先升级读取方。
+- **harness 没有计价来源**——成本上限的准确度只取决于部署配置的单一费率 `usdPerMillionTokens`，提示、补全与缓存 token 同为一份费率，过期的价格会悄悄误算每一步。更好来源的归属者尚不存在：[`@deepseek-ai/dsh-llm-deepseek`](../../llm/llm-deepseek/README.zh.md) 的模型目录未声明成本，按路由的费率只能经适配器的 `resolveModelInfo` 到达 harness。在该归属者落地之前，没有价格的成本上限会正常加载、记录一次警告，并把自身报告为 `unmeasurable`。
+- **事实只覆盖被观察到的轮次与运行**——插件加载时已经打开的轮次永远不会被切断，标记早于挂载时刻的运行也没有可计量的消耗，因此从运行中途恢复的进程会从它见到的下一个标记开始计算运行上限。
 - **只在步骤之间检查**——单次长时间模型调用或工具执行不会被中断；上限在下一个拟进入的步骤生效，而永不提出步骤的 agent（例如挂起的提供方调用）不会被本 guard 停止。
-- **按轮次而非按会话**——每个轮次都会重新获得完整上限，因此长会话可以多次花掉同一份额度。
-- **人类输入绕过所有上限**——这是设计使然，但它意味着持续引导的用户会让轮次活过每一道上限。
+- **提供方上报的 token，不是账单**——投影只计入上报了用量的已结算尝试，因此未上报用量的尝试不贡献任何数值，该读数是下限；重试计入，缓存计价遵循提供方自身的规则。
+- **人类输入绕过每一项上限**——这是设计使然，但也意味着持续引导的用户会让该轮次越过所有约束。
 
 <a id="dev-note"></a>
 ### 开发备注
 
 <details>
-<summary>维护者的工作上下文——点击展开</summary>
+<summary>面向维护者的工作上下文——点击展开</summary>
 
-本开发备注是维护者的工作上下文：开放问题与尚未决定的探索方向。它明确不具权威性——已交付的行为、限制与既定理由以上文、包代码和相关 Agent Note 为准。
+本开发备注是维护者的工作上下文：未决问题与尚未确定的取向。它明确不具权威性——已交付行为、限制与已接受的取舍都在上面的章节、包代码与所链接的 Agent Note 中。
 
-字段名与演化 harness 规范曾提出的 `maxInputTokens` 与 `maxCostUsd` 不同：实际交付的字段是 `maxTotalTokens`，因为 `ctx.tokenMeter` 测量的是请求总压力而非仅输入 token；成本则由部署配置的 `usdPerMillionTokens` 计价，而非 harness 计价来源——后者并不存在。本家族的参考契约见[演进式 Harness 子系统](../../../docs/subsystems/evolutionary-harness.zh.md)。
+轮次字段仍与规范提出的 `maxTurnInputTokens`、`maxTurnOutputTokens` 与 `maxTurnTotalTokens` 不同：实际交付名为 `maxInputTokens`、`maxOutputTokens` 与 `maxTotalTokens`，其中 `maxTotalTokens` 保留原名是因为部署已经在配置它。会话与运行字段与规范同名，而规范的 `maxContextTokens` 在此作为压力维度交付，同名编译预算则由 [agent-context](../../runtime/agent-context/README.zh.md) 拥有。在按路由计价出现归属者之前，价格仍是部署声明的单一费率；那次改动的形态是取自 `ctx.llm.resolveModelInfo(provider, model).cost` 的路由声明成本，由 usage-ledger 的 `priceSample` 计价并按路由缓存。本家族的参考契约见[演进式 Harness 子系统](../../../docs/subsystems/evolutionary-harness.zh.md)。
 
 </details>

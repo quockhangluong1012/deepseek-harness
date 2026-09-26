@@ -1,10 +1,11 @@
 /**
  * The usage-dashboard domain declaration: one `ledger` table holding the
  * single aggregate state document under the `state` key. The whole ledger —
- * per-day counters, per-day-per-model counters, and per-session fold cursors
- * — is one atomic document, so a crash can never persist counters without
- * their cursor (which would double-count on the next backfill) or a cursor
- * without its counters (which would under-count).
+ * per-day counters, per-day-per-model counters, per-day-per-session cost
+ * counters, and per-session fold cursors — is one atomic document, so a crash
+ * can never persist counters without their cursor (which would double-count on
+ * the next backfill) or a cursor without their counters (which would
+ * under-count).
  *
  * The state is disposable derived data: every counter refolds from the
  * durable session logs, so a schema failure backs the document aside and
@@ -42,16 +43,35 @@ export const usageModelAggregate = z.object({
 /** One route's counters on one day, inferred from {@link usageModelAggregate}. */
 export type UsageModelAggregate = z.infer<typeof usageModelAggregate>
 
+/** One session's billed attempts on one provider/model route in one day. */
+export const usageSessionAggregate = z.object({
+  sessionId: z.string(),
+  provider: z.string(),
+  model: z.string(),
+  /** Attempts priced through a route that declared USD rates. */
+  pricedRequests: count,
+  /** Attempts no declared price covers, including steps whose route never settled. */
+  unpricedRequests: count,
+  /** Estimated USD over the priced attempts; a route with no declared price adds nothing. */
+  costUsd: z.number().nonnegative(),
+})
+
+/** One session's route counters in one day, inferred from {@link usageSessionAggregate}. */
+export type UsageSessionAggregate = z.infer<typeof usageSessionAggregate>
+
 /**
  * The complete ledger state: per-day counters keyed by `YYYY-MM-DD`
  * (UTC+7), per-day-per-model counters keyed by
- * `` `${day}\u0000${provider}\u0000${model}` ``, and the highest folded event
- * sequence per live session id.
+ * `` `${day}\u0000${provider}\u0000${model}` ``, per-day-per-session-per-model
+ * counters keyed by
+ * `` `${day}\u0000${sessionId}\u0000${provider}\u0000${model}` ``, and the
+ * highest folded event sequence per live session id.
  */
 export const usageLedgerState = z.object({
   cursors: z.record(z.string(), count),
   daily: z.record(z.string(), usageDayAggregate),
   models: z.record(z.string(), usageModelAggregate),
+  sessions: z.record(z.string(), usageSessionAggregate),
 })
 
 /** The ledger state, inferred from {@link usageLedgerState}. */
@@ -61,7 +81,7 @@ export type UsageLedgerState = z.infer<typeof usageLedgerState>
 export const LEDGER_KEY = 'state'
 
 /** Empty ledger state: no cursors, no counters. */
-export const EMPTY_LEDGER: UsageLedgerState = { cursors: {}, daily: {}, models: {} }
+export const EMPTY_LEDGER: UsageLedgerState = { cursors: {}, daily: {}, models: {}, sessions: {} }
 
 /**
  * The usage-dashboard domain spec. `single` layout is irrelevant at one

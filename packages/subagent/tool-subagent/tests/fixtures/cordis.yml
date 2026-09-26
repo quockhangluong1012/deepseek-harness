@@ -1,0 +1,17 @@
+- name: '@deepseek-ai/dsh-llm'
+- name: '@deepseek-ai/dsh-session'
+- name: '@deepseek-ai/dsh-system-prompt'
+- name: '@deepseek-ai/dsh-tools'
+- name: '@deepseek-ai/dsh-session-projection'
+- name: '@deepseek-ai/dsh-subagent'
+- name: './fixtures/recording-provider.ts'
+  config:
+    name: fixture
+    reply: recorded subagent reply
+- name: '@deepseek-ai/dsh-tool-subagent'
+  config:
+    provider: fixture
+    agentDirs:
+      project:
+        - '{{agentsRoot}}'
+      user: []

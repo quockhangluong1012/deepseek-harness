@@ -21,7 +21,7 @@ export interface SkillSessionOutcome {
   readonly outcome: 'ok' | 'failed'
 }
 
-/** Provenance of a skill's creation: background review or user-directed. */
+/** Which side created a skill: background review or user-directed. */
 export type SkillCreatedBy = 'agent' | 'foreground' | null
 
 /** A skill's trust standing, derived from evidence rather than elapsed time. */
@@ -97,7 +97,7 @@ export interface SkillUsageRecord {
   state: SkillLifecycleState
   /** Pinned skills skip automatic transitions and resist deletion. */
   pinned: boolean
-  /** Creation provenance; null covers user-directed and unknown origins. */
+  /** Which side created it; null covers user-directed and unknown creators. */
   createdBy: SkillCreatedBy
   /** Consolidation target absorbing this skill, or null when standalone. */
   absorbedInto: string | null

@@ -60,8 +60,7 @@ kind: "package-reference"
 包装层建立在四项承诺之上：
 
 - **强制执行归属，而非库。** `dsh-timeout` 负责时序与分类（`deadline`、`timeoutOf`）；本插件负责 `tools/execute` 上的单次调用接线；各能力负责终止。该拆分记录在[超时截止时间库 Agent Note](../../../.agents/notes/implemented/architecture/2026-07-06-timeout-deadline-library.zh.md) 中。
-- **工具声明自己的预算。** `timeoutMs` 位于工具的 `ToolDefinition` 上，从注册表读取（`ctx.tools.get(exec.name, exec.agent)?.timeoutMs`），因此不可能拼错工具名，未声明工具原样委派。
-- **工具可以完全退出部署默认值。** `ToolDefinition` 上的 `unboundedTimeout: true`（例如等待人类回应、没有自然时间上限的工具）会让本包装层整体跳过——既不套用它自己的 `timeoutMs`，也不套用 `defaultTimeoutMs`，调用方自己的信号未经包装直达该工具。
+- **工具声明自己的预算。** `timeoutMs` 位于工具的 `ToolDefinition` 上，从注册表读取（`ctx.tools.get(exec.name, exec.agent)?.timeoutMs`），因此不可能拼错工具名，未声明工具原样委派，也不存在部署级默认截止时间。`ToolDefinition` 上的 `unboundedTimeout: true`（例如等待人类回应、没有自然时间上限的工具）声明同一约定：包装层不会设置任何截止时间，调用方自己的信号未经包装直达该工具。
 - **作用域分类。** `TOOL_TIMEOUT` 同时用作内部 `deadline` 分类码与结构化错误 `code`；把 `timeoutOf` 限定到它，可避免嵌套的外层截止时间（先触发的另一包装层计时器）被误读为本插件的超时——它读作普通的上游取消。
 - **先交换信号，再恢复。** Cordis `next()` 忽略传入参数，因此包装层原地修改共享 `exec`：分发时把派生的截止时间信号换到 `exec` 上，并在 `finally` 中恢复调用方信号，使 `tools/post-execute` 监听器永远看不到本插件可能已中止的信号。
 

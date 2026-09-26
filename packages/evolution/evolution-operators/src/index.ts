@@ -1,14 +1,15 @@
 /**
- * Mutation-operator evolution (`ctx.evolutionOperators`): a durable store of
- * per-operator and per-artifact-class mutation statistics (§8) — attempts,
- * acceptance, mean outcome delta, and regression rate — with the
+ * Mutation-operator evolution (`ctx.evolutionOperators`): the canonical
+ * mutation-operator vocabulary mutators import as their portfolio, a durable
+ * store of per-operator and per-artifact-class mutation statistics (§8) —
+ * attempts, acceptance, mean outcome delta, and regression rate — with the
  * exploration-adjusted ranking (§9) that says which operator to try next on
  * an artifact class, and the instruction proposal each operator and class
- * holds with the verdicts recorded for it. The optimizer records every staged
- * write's operator and outcome through the optional recorder seam, and
- * `/operators` reads the statistics and the ranking. The store records and
- * recommends a mutation instruction; it never rewrites an optimizer's own.
- * Nothing here calls a model.
+ * holds with the verdicts recorded for it. The optimizer imports the
+ * vocabulary and records every staged write's operator and outcome through the
+ * optional recorder seam, and `/operators` reads the statistics and the
+ * ranking. The store records and recommends a mutation instruction; it never
+ * edits one. Nothing here calls a model.
  * @module @deepseek-ai/dsh-evolution-operators
  */
 
@@ -31,8 +32,8 @@ import type {
 
 export type * from './types.ts'
 export { instructionAdjustment, judgedInstruction, proposedInstruction } from './instructions.ts'
-export { MUTATION_OPERATORS, rankOperators, recommendOperator, scoreOf, statsKey, updatedStats } from './operators.ts'
-export type { RankOptions } from './operators.ts'
+export { MUTATION_OPERATOR_CATALOG, MUTATION_OPERATORS, rankOperators, recommendOperator, scoreOf, statsKey, updatedStats } from './operators.ts'
+export type { MutationOperatorSpec, RankOptions } from './operators.ts'
 export { operatorInstructionRow, operatorStatsRow, operatorsDomainSpec } from './spec.ts'
 
 /** Deployment choices for the mutation-operator store; an omitted field takes its default. */

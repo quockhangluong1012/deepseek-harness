@@ -1,5 +1,5 @@
 ---
-description: "The spill storage service: save oversized tool text or captured session references and return a retrievable locator."
+description: "The artifact store seams: save oversized tool text and read stored artifacts back by search, read, extract, diff, and summarize."
 kind: "package-reference"
 ---
 
@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-spill` lets plugins and tools save oversized text through the public `ctx.spillStore` API and receive an opaque locator, exact byte count, and retrieval guidance. Choose it when full results must remain retrievable without filling model context. Configure `dsh-spill-local` for local persistence, and add `dsh-spill-policy` when oversized tool results should become bounded previews. The API does not offer retention, replacement, retrieval, or search operations. A save rejects on storage failure, leaving the caller to keep the content inline or fail.
+`dsh-spill` lets plugins and tools save oversized text through the public `ctx.spillStore` API and receive an opaque locator, exact byte count, and retrieval guidance, and it defines the read-only `ctx.artifacts` API that reads stored artifacts back by search, read, extract, diff, and summarize. Choose it when full results must remain retrievable without filling model context. Configure `dsh-spill-local` for local persistence, and add `dsh-spill-policy` when oversized tool results should become bounded previews. A save rejects on storage failure, leaving the caller to keep the content inline or fail.
 
 ## Table of Contents
 
@@ -57,6 +57,12 @@ const ref = await ctx.spillStore.saveText({
 
 The returned `SpillRef` carries three fields: `locator`, an opaque model-facing handle the backend produces (a local file path for `dsh-spill-local`, possibly a URI or key for another backend); `bytes`, the exact UTF-8 byte count written; and `retrievalHint`, the guidance a consumer shows the model — for the local backend, read or grep the path. Consumers render the locator with the hint and never parse the locator itself.
 
+### Retrieving artifacts
+
+`ctx.artifacts` reads the artifacts `saveText` stored, under the same session scope and with the same opaque locators: `search` lists a session's artifacts newest first, optionally matching a stored-name substring; `read` returns the stored text or one line window; `extract` projects the lines matching a regular expression; `diff` compares two artifacts into a unified patch; and `summarize` retains an artifact's head and tail under a byte budget. A locator this backend did not store — a foreign path, an unknown name, or a non-file entry — rejects with `ArtifactLocatorError`.
+
+Retrieval is read-only: no operation writes, replaces, exports, or deletes an artifact, and none changes a model request. What a model sees of an oversized result stays `dsh-spill-policy`'s decision, and a retrieval recovers the complete text its notice points at. `ArtifactStore` is defined in [`src/artifacts.ts`](src/artifacts.ts), whose module JSDoc is the contract every backend honors.
+
 ### Ownership and boundaries
 
 Storage is grouped by the owning session: forked sessions inherit existing locators from the seeded log without copying or re-owning them, and new spills after a fork use the child session id. A session-reference artifact belongs to the target session receiving the context, not the referenced source session. `suggestedName` is only a hint — backends sanitize it to one safe segment and never trust it as a path. Consumers own preview and spill decisions; the backend owns storage and artifact expiry.
@@ -80,7 +86,7 @@ This section explains the design decisions behind the service; the observable be
 The package is built on one separation and a deliberate minimum:
 
 - **Contract, implementation, and policy stay separate.** This package defines what a backend does (`saveText`); `dsh-spill-local` implements it; `dsh-spill-policy` decides when. Each concern evolves and swaps independently.
-- **One method, nothing else.** The seam owns no retention policy, no result replacement, and no retrieval or search API — those have owning packages.
+- **One method on the storage seam.** The storage seam owns no retention policy, no result replacement, and no retrieval or search API — those have owning packages. Retrieval is its own read-only seam (`ctx.artifacts`) over the same artifacts, so one backend owns the durable bytes and one policy owns what a model sees.
 - **Reject, never silently degrade at the seam.** The caller owns degradation; the seam reports real storage failures.
 
 ### Source map
@@ -88,7 +94,8 @@ The package is built on one separation and a deliberate minimum:
 | File | Role |
 |---|---|
 | [`src/index.ts`](src/index.ts) | Plugin entry: the abstract `SpillStore` service and its `saveText` contract |
-| [`src/types.ts`](src/types.ts) | Vocabulary: `SaveTextSpill`, `SpillRef`, branded `SpillLocator`, `SpillOwner`, `SpillSource` |
+| [`src/artifacts.ts`](src/artifacts.ts) | The abstract `ArtifactStore` retrieval service (`ctx.artifacts`) and `ArtifactLocatorError` |
+| [`src/types.ts`](src/types.ts) | Vocabulary: `SaveTextSpill`, `SpillRef`, branded `SpillLocator`, `SpillOwner`, `SpillSource`, and the retrieval request/result types |
 | — | No runtime invariant companion is published; this package exposes no independent event sequence or mutable data relation beyond contracts enforced at its owning seam. |
 
 ### Data model
@@ -97,7 +104,7 @@ The package is built on one separation and a deliberate minimum:
 
 ### Lifecycle
 
-A backend subclasses `SpillStore` and loads as a plugin, registering as `ctx.spillStore`; one implementation per context, and a second load fails. Disposal releases the service. The abstract class itself registers nothing — this package contributes the contract and vocabulary only.
+A backend subclasses `SpillStore` and loads as a plugin, registering as `ctx.spillStore`; one implementation per context, and a second load fails. `dsh-spill-local` registers `ctx.artifacts` from the same plugin fiber, so one disposal releases both services over one root. The abstract classes themselves register nothing — this package contributes the contracts and vocabulary only.
 
 </details>
 
@@ -133,8 +140,8 @@ No direct invalidation; the named consumer owns any request-prefix changes.
 
 These limits define when the spill storage service is incomplete on its own. They are current package constraints.
 
-- **No retrieval or deletion API** — consumers can only render the backend's locator and guidance; lifecycle and access semantics remain backend-specific.
-- **Storage is not access control** — the owner session namespaces writes but does not authorize reads of a locator; each backend and retrieval consumer must enforce its own boundary.
+- **No deletion API** — retrieval is read-only; artifact lifetime belongs to the backend's own retention, such as the local startup sweep.
+- **Storage is not access control** — the owner session namespaces writes and search results, but a locator does not authorize a read; each backend and retrieval consumer must enforce its own boundary.
 
 <a id="dev-note"></a>
 ### Dev Note
@@ -146,7 +153,7 @@ This Dev Note is working context for maintainers: undecided directions and open 
 
 #### Future: executor spill-file integration
 
-The seam has only `saveText`; a save-file or link/copy path for existing executor spill files (for example normalizing bash temp files) and tool-owned spill for subagent rollouts remain deferred, per the [tool output spill decision](../../../.agents/notes/implemented/architecture/2026-07-08-tool-output-spill-files.md).
+The storage seam has only `saveText`; a save-file or link/copy path for existing executor spill files (for example normalizing bash temp files) and tool-owned spill for subagent rollouts remain deferred, per the [tool output spill decision](../../../.agents/notes/implemented/architecture/2026-07-08-tool-output-spill-files.md).
 
 #### Future: non-local backends and cleanup
 

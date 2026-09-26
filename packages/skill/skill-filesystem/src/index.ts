@@ -13,7 +13,11 @@ import { access, lstat, readdir, readFile, realpath, stat } from 'node:fs/promis
 import { unwatchFile, watchFile, type Stats } from 'node:fs'
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { homedir } from 'node:os'
-import type { Context } from '@deepseek-ai/cordis'
+import type { Context, Volatile } from '@deepseek-ai/cordis'
+import type {} from '@deepseek-ai/cordis-plugin-loader'
+import type {} from '@deepseek-ai/dsh-agent'
+import type {} from '@deepseek-ai/dsh-settings'
+import type {} from '@deepseek-ai/dsh-user-questions'
 import chokidar from 'chokidar'
 import z from '@deepseek-ai/schemastery'
 import type Schema from '@deepseek-ai/schemastery'
@@ -46,6 +50,13 @@ const DEFAULT_WATCH_STABILITY_THRESHOLD_MS = 200
 const DEFAULT_WATCH_POLL_INTERVAL_MS = 100
 const DEFAULT_WATCH_MAX_PROJECTS = 128
 
+/** Question id the project-trust answer is keyed by. */
+const PROJECT_TRUST_QUESTION_ID = 'project-skills-trust'
+/** Option label that accepts a project root; every other answer declines it. */
+const PROJECT_TRUST_LABEL = 'Trust this folder'
+/** Option label that declines a project root. */
+const PROJECT_TRUST_DECLINE_LABEL = 'Skip'
+
 export const name = 'skill-filesystem'
 export const inject = ['skills']
 
@@ -63,8 +74,13 @@ export interface Config {
   claudeHome?: string
   /** Additional skill roots scanned after project roots and before user roots. */
   customSkillDirs?: string[]
-  /** Absolute project roots whose `.dsh/skills`, `.hermes/skills`, `.agents/skills`, and `.claude/skills` index; others are skipped. */
-  trustedProjectDirs?: string[]
+  /**
+   * Absolute project roots whose `.dsh/skills`, `.hermes/skills`, `.agents/skills`,
+   * and `.claude/skills` index; others are skipped. Volatile, so the project-trust
+   * answer records an accepted root here through the settings service and a recorded
+   * answer reaches the running provider without a remount.
+   */
+  trustedProjectDirs: Volatile<string[]>
   /** Whether any project roots index; false disables project discovery entirely. */
   projectDiscovery?: boolean
   /** Whether host-local skill roots are watched for catalog changes. */
@@ -83,14 +99,21 @@ export interface Config {
   bundledSkillDir?: string
 }
 
-export const Config: Schema<Config> = z.object({
+/**
+ * Configuration a composition supplies for one provider instance. The loader
+ * resolves `trustedProjectDirs` into a live reference before {@link apply} runs,
+ * so this input type carries the plain list a profile writes.
+ */
+export type ConfigInput = Omit<Config, 'trustedProjectDirs'> & { trustedProjectDirs?: string[] }
+
+export const Config: Schema<ConfigInput, Config> = z.object({
   providerName: z.string().min(1).default('filesystem'),
   includeDefaultRoots: z.boolean().default(true),
   dshHome: z.string(),
   agentsHome: z.string(),
   claudeHome: z.string(),
   customSkillDirs: z.array(z.string()).default([]),
-  trustedProjectDirs: z.array(z.string()).default([]),
+  trustedProjectDirs: z.array(z.string()).default([]).volatile(),
   projectDiscovery: z.boolean().default(true),
   watch: z.boolean().default(true),
   watchUsePolling: z.boolean().default(false),
@@ -200,7 +223,7 @@ interface ResolvedWatchConfig {
 }
 
 /** Register the local filesystem skill provider on `ctx.skills`. */
-export function apply(ctx: Context, config: Config = {}): void {
+export function apply(ctx: Context, config: Config): void {
   let provider!: FileSystemSkillProvider
   ctx.skills.registerProvider((control) => {
     provider = new FileSystemSkillProvider(ctx, control, config)
@@ -223,7 +246,11 @@ export class FileSystemSkillProvider implements SkillProvider {
   private readonly agentsHome: string
   private readonly claudeHome: string
   private readonly customSkillDirs: string[]
-  private readonly trustedProjectDirs: string[]
+  private readonly trustedProjectDirs: Volatile<string[]>
+  /** Project roots this provider's own answers trusted, resolved like configured entries. */
+  private readonly sessionTrustedProjectDirs = new Set<string>()
+  /** Outstanding per-root trust questions, so one discovery asks and concurrent callers await the same answer. */
+  private readonly trustQuestions = new Map<string, Promise<boolean>>()
   private readonly projectDiscovery: boolean
   private readonly warnedUntrusted = new Set<string>()
   /** Project-skill scan verdicts, keyed by resolved path and stamped with the modification time. */
@@ -235,7 +262,7 @@ export class FileSystemSkillProvider implements SkillProvider {
   constructor(
     private readonly ctx: Context,
     control: SkillProviderControl,
-    config: Config = {},
+    config: Config,
   ) {
     this.name = config.providerName ?? 'filesystem'
     this.includeDefaultRoots = config.includeDefaultRoots ?? true
@@ -243,12 +270,9 @@ export class FileSystemSkillProvider implements SkillProvider {
     this.agentsHome = resolve(config.agentsHome ?? process.env.DSH_AGENTS_HOME ?? join(homedir(), '.agents'))
     this.claudeHome = resolve(config.claudeHome ?? join(homedir(), '.claude'))
     this.customSkillDirs = (config.customSkillDirs ?? []).map(root => resolve(root))
-    this.trustedProjectDirs = (config.trustedProjectDirs ?? []).map((root) => {
-      if (!isAbsolute(root)) {
-        throw new Error(`skill-filesystem: trustedProjectDirs entries must be absolute paths, got ${JSON.stringify(root)}`)
-      }
-      return resolve(root)
-    })
+    this.trustedProjectDirs = config.trustedProjectDirs
+    // Fail loud at load on a relative entry; a live settings edit is re-validated on the next discovery.
+    for (const root of config.trustedProjectDirs.get()) resolveTrustedRoot(root)
     this.projectDiscovery = config.projectDiscovery ?? true
     this.watchManager = new SkillWatchManager(ctx, control.invalidate, resolveWatchConfig(config))
     control.signal.addEventListener('abort', () => { void this.dispose() }, { once: true })
@@ -268,7 +292,7 @@ export class FileSystemSkillProvider implements SkillProvider {
    *   quarantined project skill is skipped and counted on that observation.
    */
   async list(options: SkillLookupOptions): Promise<SkillCandidate[] | SkillProviderObservation> {
-    const roots = await this.roots(options.cwd)
+    const roots = await this.roots(options)
     let complete = true
     try {
       await this.watchManager.observeRoots(roots)
@@ -277,7 +301,7 @@ export class FileSystemSkillProvider implements SkillProvider {
       complete = false
     }
     const candidates: SkillCandidate[] = []
-    const gate = new MountedToolGate(this.ctx.get('tools') as MountedToolRegistry | undefined)
+    const gate = new MountedToolGate(this.ctx.get('tools'))
     let quarantinedCount = 0
     for (const root of roots) {
       const found = await discoverRoot(root, this.ctx, this.name, {
@@ -384,19 +408,22 @@ export class FileSystemSkillProvider implements SkillProvider {
     return this.disposal
   }
 
-  private async roots(cwd: string | undefined): Promise<SkillRoot[]> {
+  private async roots(options: SkillLookupOptions): Promise<SkillRoot[]> {
     const roots: SkillRoot[] = []
+    const cwd = options.cwd
     if (this.includeDefaultRoots && cwd !== undefined && this.projectDiscovery) {
       const projectRoot = await findProjectRoot(resolve(cwd), optionalFileSystem(this.ctx))
-      if (this.isTrustedProjectRoot(projectRoot)) {
+      // A trusted root contributes its project roots; an untrusted one asks the
+      // human once and keeps the fail-closed skip when the answer is no, absent,
+      // or unreachable. projectTrust records why on every refusal.
+      const trusted = this.trustedRoots().some(root => sameAbsolutePath(root, projectRoot))
+      if (trusted || await this.projectTrust(projectRoot, options)) {
         roots.push(
           { path: join(projectRoot, '.dsh/skills'), source: 'project-dsh', rank: PROJECT_DSH_RANK, projectRoot },
           { path: join(projectRoot, '.hermes/skills'), source: 'project-hermes', rank: PROJECT_HERMES_RANK, projectRoot },
           { path: join(projectRoot, '.agents/skills'), source: 'project-agents', rank: PROJECT_AGENTS_RANK, projectRoot },
           { path: join(projectRoot, '.claude/skills'), source: 'project-claude', rank: PROJECT_CLAUDE_RANK, projectRoot },
         )
-      } else {
-        this.warnUntrustedProjectRoot(projectRoot)
       }
     }
     roots.push(...this.customSkillDirs.map(path => ({ path, source: 'custom' as const, rank: CUSTOM_RANK })))
@@ -414,25 +441,117 @@ export class FileSystemSkillProvider implements SkillProvider {
   }
 
   /**
-   * Whether one resolved project root may contribute skills. Comparison runs
-   * on resolved absolute paths: symlinked aliases match only when listed as
-   * resolved. Windows compares case-insensitively, matching the filesystem.
-   * @param projectRoot - resolved project root for the lookup cwd.
-   * @returns whether the root is explicitly trusted.
+   * The roots that may contribute project skills now: the volatile configuration
+   * list plus the roots this provider's own answers trusted. Both are re-read on
+   * every discovery, so a live settings edit and a recorded answer both apply.
+   * Comparison runs on resolved absolute paths — symlinked aliases match only
+   * when listed as resolved, and Windows compares case-insensitively, matching
+   * the filesystem.
+   * @returns resolved absolute roots, configuration first.
+   * @throws when a configured entry is not an absolute path.
    */
-  private isTrustedProjectRoot(projectRoot: string): boolean {
-    return this.trustedProjectDirs.some(trusted => sameAbsolutePath(trusted, projectRoot))
+  private trustedRoots(): string[] {
+    return [
+      ...this.trustedProjectDirs.get().map(root => resolveTrustedRoot(root)),
+      ...this.sessionTrustedProjectDirs,
+    ]
+  }
+
+  /**
+   * Ask once per project root whether its skills may load. Concurrent callers
+   * await the same question; a declined, unanswered, or unanswerable question
+   * returns false, which keeps the root's skills unloaded for this provider.
+   * @param projectRoot - resolved project root to question.
+   * @param options - lookup options supplying the waiting lifetime.
+   * @returns whether the root may contribute skills.
+   */
+  private projectTrust(projectRoot: string, options: SkillLookupOptions): Promise<boolean> {
+    const answered = this.trustQuestions.get(projectRoot)
+    if (answered !== undefined) return answered
+    const asking = this.askProjectTrust(projectRoot, options)
+    this.trustQuestions.set(projectRoot, asking)
+    return asking
+  }
+
+  /**
+   * Put the project-trust question to the calling agent's human and record an
+   * accepted root, so the answer survives this session.
+   * @param projectRoot - resolved project root to question.
+   * @param options - lookup options supplying the calling agent's waiting lifetime.
+   * @returns whether the human trusted the root.
+   */
+  private async askProjectTrust(projectRoot: string, options: SkillLookupOptions): Promise<boolean> {
+    const questions = this.ctx.get('userQuestions')
+    const agent = this.ctx.get('agents')?.currentInitiator()
+    if (questions === undefined || agent === undefined) {
+      this.warnUntrustedProjectRoot(projectRoot, 'no answerer is available to ask for trust')
+      return false
+    }
+    let answer
+    try {
+      answer = await questions.ask({
+        questions: [{
+          id: PROJECT_TRUST_QUESTION_ID,
+          header: 'Project skills',
+          question: 'Trust this folder?',
+          detail: `${projectRoot} can contribute skills from its .dsh/skills, .hermes/skills, `
+            + '.agents/skills, and .claude/skills directories. Trusting it records this folder as a '
+            + 'trusted project root; skipping it leaves those skills unloaded.',
+          options: [
+            { label: PROJECT_TRUST_LABEL, description: 'Index this folder\'s project skills, now and in later sessions.' },
+            { label: PROJECT_TRUST_DECLINE_LABEL, description: 'Keep this folder\'s project skills unloaded.' },
+          ],
+        }],
+        agent,
+        ...options.signal === undefined ? {} : { signal: options.signal },
+      })
+    } catch (error) {
+      this.warnUntrustedProjectRoot(projectRoot, `the trust question went unanswered: ${errorMessage(error)}`)
+      return false
+    }
+    const item = answer.answers.find(entry => entry.id === PROJECT_TRUST_QUESTION_ID)
+    if (item === undefined || item.selected.length !== 1 || item.selected[0] !== PROJECT_TRUST_LABEL || item.custom !== undefined) {
+      this.warnUntrustedProjectRoot(projectRoot, 'the folder was not trusted')
+      return false
+    }
+    this.sessionTrustedProjectDirs.add(projectRoot)
+    await this.rememberProjectTrust(projectRoot)
+    return true
+  }
+
+  /**
+   * Record an accepted project root in this plugin's own `trustedProjectDirs`
+   * through the settings service, which persists it in the active profile's
+   * patch. The running config reference is committed by the loader, so no
+   * remount is needed. A missing or refusing settings service leaves the
+   * session's answer in place and logs that it is not durable.
+   * @param projectRoot - accepted resolved project root.
+   */
+  private async rememberProjectTrust(projectRoot: string): Promise<void> {
+    const settings = this.ctx.get('settings')
+    const namespace = this.ctx.fiber.entry?.options.id
+    if (settings === undefined || namespace === undefined) {
+      const missing = settings === undefined ? 'no settings service' : 'no profile entry'
+      this.ctx.logger.warn(`skill file discovery trusts ${projectRoot} for this session only: ${missing} can record the answer`)
+      return
+    }
+    try {
+      await settings.mutate(namespace, [{ op: 'set', path: ['trustedProjectDirs'], value: this.trustedRoots() }])
+    } catch (error) {
+      this.ctx.logger.warn(`skill file discovery could not record trust for ${projectRoot}: ${errorMessage(error)}`)
+    }
   }
 
   /**
    * Warn once per project root about skipped project skills, so an untrusted
    * checkout explains itself without spamming every discovery.
    * @param projectRoot - skipped project root.
+   * @param reason - why the root stayed untrusted.
    */
-  private warnUntrustedProjectRoot(projectRoot: string): void {
+  private warnUntrustedProjectRoot(projectRoot: string, reason: string): void {
     if (this.warnedUntrusted.has(projectRoot)) return
     this.warnedUntrusted.add(projectRoot)
-    this.ctx.logger.warn(`skill file discovery skips untrusted project root ${projectRoot}: list it in trustedProjectDirs to index its skills`)
+    this.ctx.logger.warn(`skill file discovery skips untrusted project root ${projectRoot}: ${reason}`)
   }
 }
 
@@ -876,6 +995,19 @@ function assertPositiveInteger(field: string, value: number): void {
   if (!Number.isInteger(value) || value < 1) {
     throw new TypeError(`skill-filesystem: ${field} must be a positive integer`)
   }
+}
+
+/**
+ * Resolve one `trustedProjectDirs` entry.
+ * @param root - raw configured or recorded project root.
+ * @returns the resolved absolute path.
+ * @throws when the entry is not an absolute path.
+ */
+function resolveTrustedRoot(root: string): string {
+  if (!isAbsolute(root)) {
+    throw new Error(`skill-filesystem: trustedProjectDirs entries must be absolute paths, got ${JSON.stringify(root)}`)
+  }
+  return resolve(root)
 }
 
 function isAbsentPathError(error: unknown): boolean {

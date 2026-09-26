@@ -1,0 +1,8 @@
+docs/persistence-catalog.md
+docs/subsystems/permission-presets.md
+docs/subsystems/README.md
+packages/evolution/command-evolution/README.md
+packages/evolution/evolution-graph/README.md
+packages/evolution/evolution-optimizer/README.md
+packages/session-query/session-query/README.md
+packages/runtime/agent-kernel-builtins/README.md

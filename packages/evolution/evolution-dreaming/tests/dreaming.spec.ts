@@ -5,8 +5,7 @@ import { DomainFacility } from '@deepseek-ai/dsh-storage-domain'
 import { EvolutionScopeId } from '@deepseek-ai/dsh-evolution-memory'
 import type { EvolutionMemoryRecord } from '@deepseek-ai/dsh-evolution-memory'
 import { MemoryMediaPool, MemoryStorageBackend } from '../../../storage/storage-domain/tests/helpers/memory-backend.ts'
-import EvolutionDreaming, { resolveConfig } from '../src/index.ts'
-import type { Config } from '../src/index.ts'
+import EvolutionDreaming, { Config, resolveConfig } from '../src/index.ts'
 
 const scope = EvolutionScopeId('test', 'ws')
 
@@ -131,12 +130,24 @@ describe('dreaming configuration', () => {
       supersedeOverlap: 0.3,
       maxRestatements: 5,
       maxLedgerEntries: 10,
+      profile: 'default',
     })
   })
 
   it('rejects a supersede threshold above the merge threshold', () => {
     expect(() => resolveConfig({ mergeOverlap: 0.2, supersedeOverlap: 0.5 }))
       .toThrow(/supersedeOverlap/)
+  })
+
+  it('refuses to load with a profile that can never name a scope', () => {
+    // `EvolutionScopeId` builds `<profile>:<workspace>`, so accepting this
+    // profile would empty every read under it instead of failing at load.
+    expect(() => resolveConfig({ profile: '' })).toThrow('profile must be non-empty')
+    expect(() => resolveConfig({ profile: 'team:eu' })).toThrow("profile must not contain ':'")
+    // The schema refuses the same values before a mount is even attempted.
+    expect(() => Config({ profile: '' })).toThrow(/regexp/)
+    expect(() => Config({ profile: 'team:eu' })).toThrow(/regexp/)
+    expect(Config({ profile: 'team' }).profile).toBe('team')
   })
 })
 
@@ -192,7 +203,7 @@ describe('dreaming cycle', () => {
     await ctx.fiber.dispose()
   })
 
-  it('refuses a note-only candidate by provenance and admits it once a failure restates it', async () => {
+  it('refuses a note-only candidate as unattributed and admits it once a failure restates it', async () => {
     const rows: SummaryRow[] = []
     const { ctx, dreaming } = await harness({ minScore: 0 }, {
       feedback: fakeFeedback(rows),
@@ -211,7 +222,7 @@ describe('dreaming cycle', () => {
     // The notes carry no sighting the harness observed, so no gate can vouch
     // for them and nothing is written.
     expect(refused.promoted).toBe(0)
-    expect(refused.refused).toEqual([{ reason: 'unattributed-provenance', count: 2 }])
+    expect(refused.refused).toEqual([{ reason: 'unattributed-sighting', count: 2 }])
     expect(dreaming.read(scope)).toBeUndefined()
 
     // The same text recorded as a failing tool result is attributed, and the
@@ -221,10 +232,10 @@ describe('dreaming cycle', () => {
     const deep = await dreaming.run('deep', scope, ['s1'], NOW)
     expect(deep.promoted).toBe(1)
     // The second note, which no failure restates, is still unattributable.
-    expect(deep.refused).toEqual([{ reason: 'unattributed-provenance', count: 1 }])
+    expect(deep.refused).toEqual([{ reason: 'unattributed-sighting', count: 1 }])
     const promoted = dreaming.promotions(scope)[0]
     expect(promoted?.tool).toBe('bash')
-    expect(promoted?.evidence).toEqual({ provenance: 'attributed', count: 12, sessions: 4 })
+    expect(promoted?.evidence).toEqual({ attribution: 'attributed', count: 12, sessions: 4 })
     await ctx.fiber.dispose()
   })
 
@@ -300,16 +311,18 @@ describe('dreaming cycle', () => {
     await ctx.fiber.dispose()
   })
 
-  it('drops promotions the decay rule has outlived once capacity is pressed', async () => {
+  it('drops a promotion the decay rule has outlived', async () => {
+    const rows = [strong()]
     const { ctx, dreaming } = await harness(
       { maxPromotions: 2, capacityTriggerRatio: 0.5, staleAfterDays: 30 },
-      { feedback: fakeFeedback([strong()]), memory: fakeMemory({ agentLessons: KNOWN }) },
+      { feedback: fakeFeedback(rows), memory: fakeMemory({ agentLessons: KNOWN }) },
     )
     const old = '2026-09-01T00:00:00.000Z'
     const first = await dreaming.dream(scope, ['s1'], old)
     expect(first.promoted).toBe(1)
-    // A cycle more than `staleAfterDays` later presses capacity, so the first
-    // promotion expires while a second, distinct candidate is promoted.
+    // The failure stops being recorded, so nothing stages it again and the
+    // decay rule drops the promotion the scope never saw again.
+    rows.splice(0, rows.length)
     const later = '2026-10-15T00:00:00.000Z'
     const second = await dreaming.dream(scope, ['s1'], later)
     expect(second.pruned).toBe(1)
@@ -354,8 +367,44 @@ describe('dreaming cycle', () => {
       memory: fakeMemory(undefined),
     })
     await dreaming.dreamAll()
-    expect(dreaming.read(EvolutionScopeId('workspace', 'ws-1'))?.narratives).toHaveLength(1)
-    expect(dreaming.read(EvolutionScopeId('workspace', 'ws-2'))?.narratives).toHaveLength(1)
+    expect(dreaming.read(EvolutionScopeId('default', 'ws-1'))?.narratives).toHaveLength(1)
+    expect(dreaming.read(EvolutionScopeId('default', 'ws-2'))?.narratives).toHaveLength(1)
+    await ctx.fiber.dispose()
+  })
+
+  it('namespaces the automatic cycle under the profile the readers use', async () => {
+    const { ctx, dreaming } = await harness({ profile: 'team' }, {
+      feedback: fakeFeedback([strong()]),
+      registry: { list: () => [{ id: 'ws-1', sessionIds: ['s1'] }] },
+      memory: fakeMemory(undefined),
+    })
+    await dreaming.dreamAll()
+    expect(dreaming.read(EvolutionScopeId('team', 'ws-1'))?.narratives).toHaveLength(1)
+    // The namespace the cycle used before the fix, and the one every other
+    // evolution store names, hold nothing.
+    expect(dreaming.read(EvolutionScopeId('workspace', 'ws-1'))).toBeUndefined()
+    expect(dreaming.read(EvolutionScopeId('default', 'ws-1'))).toBeUndefined()
+    await ctx.fiber.dispose()
+  })
+
+  it('merges a REM narrative and a deep pass that write together', async () => {
+    const { ctx, dreaming } = await harness({}, {
+      feedback: fakeFeedback([strong()]),
+      memory: fakeMemory({ agentLessons: KNOWN }),
+    })
+    // Both phases read a scope that holds no record yet and then write. The
+    // second write merges into the record the first committed instead of
+    // replacing it, which is what keeps the other phase's field.
+    const [rem, deep] = await Promise.all([
+      dreaming.run('rem', scope, ['s1'], NOW),
+      dreaming.run('deep', scope, ['s1'], NOW),
+    ])
+    expect(rem.staged).toBe(1)
+    expect(deep.promoted).toBe(1)
+    const record = dreaming.read(scope)
+    expect(record?.narratives).toHaveLength(1)
+    expect(record?.promotions).toHaveLength(1)
+    expect(record?.ledger).toHaveLength(1)
     await ctx.fiber.dispose()
   })
 
@@ -412,7 +461,7 @@ describe('dreaming cycle', () => {
     const task = tasks[0]
     if (task === undefined) throw new Error('the cycle did not register')
     await task.run(new AbortController().signal)
-    expect(dreaming.read(EvolutionScopeId('workspace', 'ws-1'))?.narratives).toHaveLength(1)
+    expect(dreaming.read(EvolutionScopeId('default', 'ws-1'))?.narratives).toHaveLength(1)
     // A pass aborted at teardown stops before touching any workspace.
     const aborted = new AbortController()
     aborted.abort()
@@ -430,6 +479,24 @@ describe('dreaming cycle', () => {
     const later = await dreaming.dream(scope, ['s1'], '2026-11-01T00:00:00.000Z')
     expect(later.pruned).toBe(1)
     expect(dreaming.read(scope)?.promotions).toEqual([])
+    await ctx.fiber.dispose()
+  })
+
+  it('keeps a narrative the scope sees again past the stale window', async () => {
+    const { ctx, dreaming } = await harness({ minScore: 0 }, {
+      feedback: fakeFeedback([strong()]),
+      memory: fakeMemory({ agentLessons: KNOWN }),
+    })
+    const first = await dreaming.dream(scope, ['s1'], NOW)
+    expect(first.promoted).toBe(1)
+    // Forty days later the failure is still being recorded: the sighting
+    // moves the promotion instant, so the decay rule keeps the narrative.
+    const later = '2026-10-23T00:00:00.000Z'
+    const again = await dreaming.dream(scope, ['s1'], later)
+    expect(again).toMatchObject({ promoted: 0, merged: 0, superseded: 0, pruned: 0 })
+    expect(dreaming.promotions(scope).map(promotion => promotion.promotedAt)).toEqual([later])
+    // A pass that only moved that instant folded nothing, so it ledgers nothing.
+    expect(dreaming.ledger(scope)).toHaveLength(1)
     await ctx.fiber.dispose()
   })
 

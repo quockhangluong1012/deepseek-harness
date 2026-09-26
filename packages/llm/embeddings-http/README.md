@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-embeddings-http` serves one `ctx.embeddings` route from an OpenAI-compatible endpoint: one POST to `<baseURL>/embeddings` per batch, with the response validated before any vector reaches the cache. The endpoint and model are required configuration, because no embedding model name is assumed; the bearer key is resolved per batch through the credential seam, so a rotated key reaches the very next request, and an omitted key leaves the request unauthenticated for endpoints that need none. The response shape is the one DeepSeek-compatible gateways, Ollama, vLLM, and LM Studio serve.
+`dsh-embeddings-http` serves one `ctx.embeddings` route from an OpenAI-compatible endpoint, sending one POST to `<baseURL>/embeddings` per batch and validating the response before any vector reaches the cache; the batch is reported under the model that served it, the fallback when the primary request failed. The endpoint and model are required configuration, because no embedding model name is assumed; the bearer key is resolved per batch, so a rotated key reaches the next request, and an omitted key leaves the request unauthenticated. DeepSeek-compatible gateways, Ollama, vLLM, and LM Studio serve the response shape.
 
 ## Table of Contents
 
@@ -66,7 +66,7 @@ The request body is `{ model, input }` with the model from the resolved spec, so
 
 ### Failure and recovery
 
-A rejected HTTP status reports the status and a bounded slice of the body. A body that is not JSON, carries no `data` array, leaves a text unanswered, places an index outside the batch, or carries a non-numeric value all fail `MALFORMED_RESPONSE` — a partially read response would otherwise be cached as if it were complete. When `fallbackModel` is set, any primary failure retries the whole batch once under the fallback model (each attempt gets its own `timeoutMs`); when both fail, the error names both models and both failures. No invariant companion is published: the endpoint is the sole authority on the vectors, so there is no second independent observation to check it against.
+A rejected HTTP status reports the status and a bounded slice of the body. A body that is not JSON, carries no `data` array, leaves a text unanswered, places an index outside the batch, or carries a non-numeric value all fail `MALFORMED_RESPONSE` — a partially read response would otherwise be cached as if it were complete. When `fallbackModel` is set, any primary failure retries the whole batch once under the fallback model (each attempt gets its own `timeoutMs`), and the returned batch reports the fallback as the model that produced its vectors; when both fail, the error names both models and both failures. No invariant companion is published: the endpoint is the sole authority on the vectors, so there is no second independent observation to check it against.
 
 </details>
 

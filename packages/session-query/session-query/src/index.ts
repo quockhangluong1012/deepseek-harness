@@ -73,7 +73,7 @@ export {
 } from './config.ts'
 export { readColdSessionLog } from './cold-read.ts'
 export type { ColdSessionLog } from './cold-read.ts'
-export { extractSessionEventText } from './extraction.ts'
+export { extractSessionEventText, MEMORY_PRODUCER_KINDS } from './extraction.ts'
 export { buildSessionEventRecords, buildSessionEventSearchDocuments } from './documents.ts'
 export {
   compileSessionTextFilter,

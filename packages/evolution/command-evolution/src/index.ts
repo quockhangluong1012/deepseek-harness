@@ -5,8 +5,8 @@
  * session export (`/trajectory`), a research-and-save turn (`/learn`),
  * blueprint-backed skill suggestions (`/suggestions`), and the reporting
  * commands that read what the engine measured — traces (`/trace`),
- * the scope graph (`/graph`) and its claims (`/claims`), stored failure
- * reflections (`/reflection`),
+ * the scope graph (`/graph`) and the scope's lesson facts (`/claims`),
+ * stored failure reflections (`/reflection`),
  * benchmarks (`/benchmark`), curricula (`/curriculum`), evaluator health
  * (`/evaluators`), populations (`/population`), routes (`/routes`), rollouts
  * (`/canary`), novelty (`/novelty`), stagnation (`/stagnation`), islands
@@ -22,7 +22,7 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import { mkdir, realpath, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, realpath, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { CommandDefinitionId } from '@deepseek-ai/dsh-commands/brand'
@@ -48,7 +48,8 @@ import { rankFrontier } from './frontier.ts'
 import type { FrontierInput } from './frontier.ts'
 import type {} from '@deepseek-ai/dsh-evolution-skill-telemetry'
 import type { SkillLifecycleState, SkillUsageRecord, SkillVersion } from '@deepseek-ai/dsh-evolution-skill-telemetry'
-import type { SkillBlueprint } from '@deepseek-ai/dsh-skill'
+import { resolveSkillDir, splitSkillFile } from '@deepseek-ai/dsh-evolution-skill-manage'
+import type { SkillBlueprint, SkillSummary } from '@deepseek-ai/dsh-skill'
 import { isUsageRange, type UsageRange } from '@deepseek-ai/dsh-usage-ledger'
 import { assertNever, type JsonValue } from '@deepseek-ai/dsh-util-values'
 import z from '@deepseek-ai/schemastery'
@@ -56,7 +57,7 @@ import { strToU8, zipSync } from 'fflate'
 import { renderTimeline, scopeTimeline } from './journey.ts'
 import type { TraceRecord } from '@deepseek-ai/dsh-evolution-trace'
 import type { CurriculumGap, CurriculumProposal } from '@deepseek-ai/dsh-evolution-curriculum'
-import { nextLadder } from '@deepseek-ai/dsh-evolution-benchmark'
+import { datasetInputs, loadDatasets, MINED_TASK, nextLadder } from '@deepseek-ai/dsh-evolution-benchmark'
 import type { BenchmarkInput, BenchmarkState, BenchmarkTask } from '@deepseek-ai/dsh-evolution-benchmark'
 import type { EvaluatorHealthSummary, EvaluatorRun } from '@deepseek-ai/dsh-evolution-evaluator-health'
 import type { PopulationCandidate, PopulationStatus } from '@deepseek-ai/dsh-evolution-population'
@@ -77,7 +78,7 @@ import type {
   MigrationReason,
 } from '@deepseek-ai/dsh-evolution-islands'
 import { EVOLUTION_ROLES } from '@deepseek-ai/dsh-evolution-model-routes'
-import type { DutyDecision, DutyInput, DutyRecord, DutyVerdict, EvolutionRole, ModelRoute, RouteEvidence, RouteRow, RouteSummary } from '@deepseek-ai/dsh-evolution-model-routes'
+import type { DutyDecision, DutyInput, DutyRecord, DutyVerdict, EvolutionRole, ModelRoute, RouteEffectiveness, RouteEvidence, RouteRankingEntry, RouteRow, RouteSummary } from '@deepseek-ai/dsh-evolution-model-routes'
 import { nextStage } from '@deepseek-ai/dsh-evolution-canary'
 import type { DeploymentRecord, DeploymentState } from '@deepseek-ai/dsh-evolution-canary'
 import { settle } from '@deepseek-ai/dsh-evolution-budget'
@@ -85,8 +86,6 @@ import type { BudgetAllocation, BudgetSettlement, SpendRecord } from '@deepseek-
 import type { ConfigRecommendation, ConfigSummary, EngineRun } from '@deepseek-ai/dsh-evolution-meta'
 import type { MetricUnit, MetricValue } from '@deepseek-ai/dsh-evolution-metrics'
 import type { OperatorRanking, OperatorStats } from '@deepseek-ai/dsh-evolution-operators'
-import type { RouteEffectiveness, RouteRankingEntry, RoutingRole } from '@deepseek-ai/dsh-evolution-router'
-import { ROUTING_ROLES } from '@deepseek-ai/dsh-evolution-router'
 import type { EvaluatorStrategy, StrategyRanking } from '@deepseek-ai/dsh-evolution-evaluator-strategy'
 
 declare module '@deepseek-ai/dsh-llm' {
@@ -126,7 +125,7 @@ interface ScopeMembership {
 type StagedVerb = 'approve' | 'reject'
 
 /** Argument grammar for `/memory`; anything else reports usage. */
-const MEMORY_USAGE = 'Usage: /memory pending | approve <id> | reject <id>'
+const MEMORY_USAGE = 'Usage: /memory pending | add <text> | approve <id> | reject <id>'
 
 /** Argument grammar for `/refine`; anything else reports usage. */
 const REFINE_USAGE = 'Usage: /refine (no arguments)'
@@ -138,13 +137,16 @@ const JOURNEY_USAGE = 'Usage: /journey [today | 7d | 30d | all]'
 const JOURNEY_EXPORT_USAGE = 'Usage: /journey export [today | 7d | 30d | all] [--out <path>]'
 
 /** Argument grammar for `/skills`; anything else reports usage. */
-const SKILLS_USAGE = 'Usage: /skills pending | approve <id>'
+const SKILLS_USAGE = 'Usage: /skills pending | approve <id> | rollback <name>'
 
 /** Argument grammar for `/graph`; anything else reports usage. */
 const GRAPH_USAGE = 'Usage: /graph <entity> [relation]'
 
 /** Argument grammar for `/claims`; anything else reports usage. */
 const CLAIMS_USAGE = 'Usage: /claims [query]'
+
+/** How many claims `/claims` lists; the knowledge graph's former query cap. */
+const CLAIMS_LIMIT = 20
 
 /** Argument grammar for `/reflection`; anything else reports usage. */
 const REFLECTION_USAGE = 'Usage: /reflection [limit]'
@@ -183,7 +185,7 @@ const TRACE_USAGE = 'Usage: /trace <sessionId>'
 const CURRICULUM_USAGE = 'Usage: /curriculum [retire <id>]'
 
 /** Argument grammar for `/benchmark`; anything else reports usage. */
-const BENCHMARK_USAGE = 'Usage: /benchmark [admit | promote <id> [state] | retire <id>]'
+const BENCHMARK_USAGE = 'Usage: /benchmark [admit | admit-datasets <dir> | promote <id> [state] | retire <id>]'
 
 /** Argument grammar for `/evaluators`; anything else reports usage. */
 const EVALUATORS_USAGE = 'Usage: /evaluators [runs [<skill>]]'
@@ -570,6 +572,27 @@ async function executeMemory(
     const record = ctx.evolutionMemory.read(scope)
     return { kind: 'success', text: formatStagedList(record?.staged ?? [], 'write', record?.agentLessons ?? []) }
   }
+  if (verb === 'add' && id !== undefined) {
+    // The quick add keeps the human's words verbatim; approval appends them
+    // after the scope's existing instructions document.
+    const text = [id, ...rest].join(' ').trim()
+    if (text.length === 0) return { kind: 'error', text: MEMORY_USAGE }
+    const staged = await ctx.evolutionMemory.stageWrite({
+      scopeId: scope,
+      kind: 'memory',
+      op: 'appendInstructions',
+      payload: { text },
+      originSessionId: invocation.agent.session.id,
+      gist: text.length > 80 ? `${text.slice(0, 77)}...` : text,
+      // Identical text re-added while pending bumps the entry instead of
+      // parking a second copy of the same rule.
+      mergeKey: text,
+    })
+    return {
+      kind: 'success',
+      text: `Staged remember '${staged.id}' (${staged.gist}). Approve it with '/memory approve ${staged.id}'.`,
+    }
+  }
   if ((verb === 'approve' || verb === 'reject') && id !== undefined && rest.length === 0) {
     const entry = ctx.evolutionMemory.read(scope)?.staged.find(candidate => candidate.id === id)
     if (entry === undefined) return { kind: 'error', text: `No staged write '${id}'.` }
@@ -783,11 +806,11 @@ function executeGraph(
 }
 
 /**
- * Execute `/claims [query]`: the scope's active claims, most believed first,
- * each with the decomposed confidence and the evidence standing behind it. A
- * retired claim is absent — `/graph` still reaches its subject, but only a
- * standing claim answers here.
- * @param ctx - plugin context carrying the optional knowledge graph.
+ * Execute `/claims [query]`: the scope's standing lesson facts, most believed
+ * first, each with its confidence and the confirmations and refutations
+ * behind it. A fact the store invalidated is absent — `/graph` still reaches
+ * its subject, but only a standing fact answers here.
+ * @param ctx - plugin context carrying the memory store.
  * @param scope - scope identity resolved from the invoking session.
  * @param invocation - raw command input.
  * @returns the command result.
@@ -799,9 +822,12 @@ function executeClaims(
 ): CommandResult {
   const [query, ...rest] = graphArgs(invocation.rawInput)
   if (rest.length > 0) return { kind: 'error', text: CLAIMS_USAGE }
-  const graph = ctx.get('evolutionGraph')
-  if (graph === undefined) return { kind: 'error', text: 'The knowledge graph is not mounted.' }
-  const claims = graph.claims(scope, query ?? '')
+  const needle = (query ?? '').trim().toLowerCase()
+  const claims = (ctx.evolutionMemory.read(scope)?.agentLessons ?? [])
+    .filter(artifact => artifact.lifecycle !== 'invalidated'
+      && (needle === '' || artifact.statement.toLowerCase().includes(needle)))
+    .sort((left, right) => right.confidence - left.confidence || left.id.localeCompare(right.id))
+    .slice(0, CLAIMS_LIMIT)
   if (claims.length === 0) {
     return { kind: 'success', text: `No active claim matching '${query ?? ''}' in this scope.` }
   }
@@ -811,10 +837,9 @@ function executeClaims(
       `${claims.length} active claim${claims.length === 1 ? '' : 's'}:`,
       ...claims.map(claim => `- ${claim.statement}`
         + ` [confidence ${claim.confidence.toFixed(2)}`
-        + `, ${claim.independentSupport} supporting / ${claim.contradictionCount} contradicting source(s)`
-        + `, evidence ${claim.evidenceQuality.toFixed(2)}`
-        + `, source ${claim.sourceReliability.toFixed(2)}`
-        + `, newest ${claim.recency}]`),
+        + `, ${claim.validationCount} confirming / ${claim.refutationCount} contradicting check(s)`
+        + `, evidence ${claim.evidence}`
+        + `, newest ${claim.lastValidatedAt ?? claim.updatedAt}]`),
     ].join('\n'),
   }
 }
@@ -882,8 +907,11 @@ function renderReflection(reflection: ReflectionRow): string {
 
 /**
  * Execute `/skills` against the session's scope: the skill-kind half of staged
- * governance. Approving drops an entry whose skill write already happened
- * through `skill_manage`. A bare invocation reports the pending list, as
+ * governance. Approving a staged patch promotes it — the body is written to
+ * the skill file with the preimage it replaces recorded in one transaction
+ * (amendment S9) — while approving a proposal for a skill that does not exist
+ * yet only drops the entry, because that skill's body is written through the
+ * gated `skill_manage` write. A bare invocation reports the pending list, as
  * `/memory` does.
  * @param ctx - plugin context carrying the evolution memory store.
  * @param scope - scope identity resolved from the invoking session.
@@ -902,17 +930,173 @@ async function executeSkills(
     // is no artifact text for its list to resolve.
     return { kind: 'success', text: staged.length === 0 ? SKILLS_EMPTY : formatStagedList(staged, 'skill proposal', []) }
   }
+  if (verb === 'rollback' && id !== undefined && rest.length === 0) {
+    return await rollbackSkillBody(ctx, id)
+  }
   if (verb === 'approve' && id !== undefined && rest.length === 0) {
     const entry = staged.find(candidate => candidate.id === id)
     if (entry === undefined) return { kind: 'error', text: `No staged skill '${id}'.` }
+    const patch = stagedSkillPatch(entry)
+    if (patch !== undefined) return await promoteStagedSkill(ctx, entry, patch)
     return await mutateStaged(
       ctx,
       entry,
       'approve',
-      `Approved staged skill ${entry.op} (${entry.gist}). The skill file itself is written by skill_manage; approve only after that write landed.`,
+      `Approved staged skill ${entry.op} (${entry.gist}). A new skill is written by skill_manage; approve only after that write landed.`,
     )
   }
   return { kind: 'error', text: SKILLS_USAGE }
+}
+
+/** The staged skill patch one `/skills approve` promotes. */
+interface StagedSkillPatch {
+  /** Skill whose body the patch replaces. */
+  skill: string
+  /** Complete replacement SKILL.md body the promotion writes. */
+  body: string
+}
+
+/** The writable skill file one promotion resolves: the shape `resolveSkillDir` answers with. */
+interface PromotionTarget {
+  /** Validated skill name. */
+  name: string
+  /** Writable skill directory. */
+  dir: string
+  /** The skill's SKILL.md path. */
+  file: string
+  /** Catalog source the resolution accepted. */
+  source: string
+}
+
+/**
+ * Read the skill and body a staged patch carries. A patch whose payload names
+ * neither is a staged write no promotion can land, so the caller folds it back
+ * into the proposal path rather than writing anything.
+ * @param entry - the staged entry to read.
+ * @returns the patch, or undefined when the entry carries no skill body.
+ */
+function stagedSkillPatch(entry: StagedWrite): StagedSkillPatch | undefined {
+  if (entry.kind !== 'skill' || entry.op !== 'patch') return undefined
+  const payload = objectOf(entry.payload)
+  const skill = payload?.['skill']
+  const body = payload?.['body']
+  if (typeof skill !== 'string' || skill.length === 0) return undefined
+  if (typeof body !== 'string' || body.length === 0) return undefined
+  return { skill, body }
+}
+
+/** The slice of `ctx.evolutionLineage` a promotion writes: the body chain and its preimages. */
+interface PolicyChain {
+  recordRevision(input: { policy: string; body: string }): Promise<unknown>
+  revisions(policy: string): readonly { version: number; digest: string; parentDigest: string | null; body: string }[]
+}
+
+/**
+ * Promote one staged skill patch — one transaction (amendment S9): resolve the
+ * skill's file, read the body being replaced as the preimage, write the
+ * promoted body, record both bodies in the skill's policy chain, and resolve
+ * the staged entry. A failure after the write restores the preimage, so the
+ * file and the chain never disagree: a promotion is either fully landed or not
+ * landed at all.
+ * @param ctx - plugin context carrying the skill catalog and lineage seams.
+ * @param entry - the staged patch entry to promote.
+ * @param patch - the skill and complete body the entry carries.
+ * @returns the command result.
+ */
+async function promoteStagedSkill(
+  ctx: Context,
+  entry: StagedWrite,
+  patch: StagedSkillPatch,
+): Promise<CommandResult> {
+  const catalog = ctx.get('skills') as { list(): Promise<readonly SkillSummary[]> } | undefined
+  if (catalog === undefined) {
+    return { kind: 'error', text: `Cannot promote '${entry.id}': the skill catalog is not mounted.` }
+  }
+  const lineage = ctx.get('evolutionLineage') as PolicyChain | undefined
+  if (lineage === undefined) {
+    return {
+      kind: 'error',
+      text: `Cannot promote '${entry.id}': the lineage store, which keeps the preimage a rollback restores, is not mounted.`,
+    }
+  }
+  let resolved: PromotionTarget
+  try {
+    resolved = await resolveSkillDir(() => catalog.list(), patch.skill, (_dir, file) => file)
+    // The promoted body must be a complete skill file naming this skill before
+    // anything is written; a body that fails this would land a broken skill.
+    splitSkillFile(patch.body, patch.skill)
+  } catch (error) {
+    return { kind: 'error', text: `Cannot promote '${entry.id}': ${error instanceof Error ? error.message : String(error)}` }
+  }
+  const preimage = await readFile(resolved.file, 'utf8')
+  await writeFile(resolved.file, patch.body, 'utf8')
+  try {
+    // The chain may already hold the replaced body — the optimizer records the
+    // row's start body when it stages — so only an unseen preimage is appended.
+    const policy = `skill:${patch.skill}`
+    if (!lineage.revisions(policy).some(revision => revision.body === preimage)) {
+      await lineage.recordRevision({ policy, body: preimage })
+    }
+    await lineage.recordRevision({ policy, body: patch.body })
+    await ctx.evolutionMemory.approveStaged(entry.id)
+  } catch (error) {
+    await writeFile(resolved.file, preimage, 'utf8')
+    return {
+      kind: 'error',
+      text: `Cannot promote '${entry.id}': ${error instanceof Error ? error.message : String(error)}. The recorded skill body was restored.`,
+    }
+  }
+  return {
+    kind: 'success',
+    text: `Promoted staged skill patch (${entry.gist}): wrote ${resolved.file} and recorded the preimage it replaces. Roll back with '/skills rollback ${patch.skill}'.`,
+  }
+}
+
+/**
+ * Roll one skill body back to its preimage: the revision immediately preceding
+ * the recorded revision whose bytes are the file's current body. The restore is
+ * recorded as a new revision, so a revert lands as history rather than
+ * rewriting it (§14.5). A file whose bytes no revision holds was edited outside
+ * the chain, and rolling it back would restore text nothing recorded, so the
+ * command refuses instead of guessing.
+ * @param ctx - plugin context carrying the skill catalog and lineage seams.
+ * @param name - skill to restore.
+ * @returns the command result.
+ */
+async function rollbackSkillBody(ctx: Context, name: string): Promise<CommandResult> {
+  const catalog = ctx.get('skills') as { list(): Promise<readonly SkillSummary[]> } | undefined
+  if (catalog === undefined) return { kind: 'error', text: `Cannot roll back '${name}': the skill catalog is not mounted.` }
+  const lineage = ctx.get('evolutionLineage') as PolicyChain | undefined
+  if (lineage === undefined) {
+    return { kind: 'error', text: `Cannot roll back '${name}': the lineage store, which holds the preimage, is not mounted.` }
+  }
+  let resolved: PromotionTarget
+  let current: string
+  try {
+    resolved = await resolveSkillDir(() => catalog.list(), name, (_dir, file) => file)
+    current = await readFile(resolved.file, 'utf8')
+  } catch (error) {
+    return { kind: 'error', text: `Cannot roll back '${name}': ${error instanceof Error ? error.message : String(error)}` }
+  }
+  const chain = lineage.revisions(`skill:${name}`)
+  const promoted = chain.find(revision => revision.body === current)
+  if (promoted === undefined) {
+    return { kind: 'error', text: `Cannot roll back '${name}': no recorded revision matches its current body.` }
+  }
+  const preimage = chain.find(revision => revision.digest === promoted.parentDigest)
+  if (preimage === undefined) {
+    return { kind: 'error', text: `Cannot roll back '${name}': revision ${promoted.version} records no preimage.` }
+  }
+  try {
+    await writeFile(resolved.file, preimage.body, 'utf8')
+    await lineage.recordRevision({ policy: `skill:${name}`, body: preimage.body })
+  } catch (error) {
+    return { kind: 'error', text: `Cannot roll back '${name}': ${error instanceof Error ? error.message : String(error)}` }
+  }
+  return {
+    kind: 'success',
+    text: `Rolled '${name}' back to revision ${preimage.version}, recorded as a new revision.`,
+  }
 }
 
 /** One trajectory export outcome as the trajectory service reports it. */
@@ -1794,10 +1978,10 @@ function renderList(label: string, items: readonly string[]): string[] {
 }
 
 /**
- * Execute `/benchmark [admit | promote <id> [state] | retire <id>]`: list the
- * benchmark store by state, admit the open curriculum proposals as fresh
- * tasks, promote a task up the learning ladder (or to a named state), or
- * retire one.
+ * Execute `/benchmark [admit | admit-datasets <dir> | promote <id> [state] | retire <id>]`:
+ * list the benchmark store by state, admit the open curriculum proposals or a
+ * §5.3 dataset corpus as fresh tasks, promote a task up the learning ladder (or
+ * to a named state), or retire one.
  * @param ctx - plugin context carrying the optional benchmark and curriculum stores.
  * @param invocation - raw command input plus the invoking agent.
  * @returns the command result.
@@ -1823,11 +2007,25 @@ async function executeBenchmark(ctx: Context, invocation: CommandInvocation): Pr
           task: proposal.task,
           gists: [...proposal.gists],
           sourceSessions: [...proposal.sourceSessions],
+          ...MINED_TASK,
         }))
       const { admitted, duplicates } = await store.admit(inputs)
       return {
         kind: 'success',
         text: `Admitted ${admitted.length} benchmark task${admitted.length === 1 ? '' : 's'}`
+        + `, ${duplicates.length} duplicate${duplicates.length === 1 ? '' : 's'} skipped.`,
+      }
+    }
+    if (verb === 'admit-datasets') {
+      // The corpus is named by the caller: a §5.3 dataset is authored material a
+      // deployment points at, not a directory the store can assume.
+      if (args.length !== 2) return { kind: 'error', text: BENCHMARK_USAGE }
+      const datasets = await loadDatasets(args[1] as string)
+      const { admitted, duplicates } = await store.admit(datasetInputs(datasets))
+      return {
+        kind: 'success',
+        text: `Admitted ${admitted.length} benchmark task${admitted.length === 1 ? '' : 's'}`
+        + ` from ${datasets.length} dataset${datasets.length === 1 ? '' : 's'}`
         + `, ${duplicates.length} duplicate${duplicates.length === 1 ? '' : 's'} skipped.`,
       }
     }
@@ -2251,7 +2449,7 @@ async function executeCuratorOptimize(
       : ` Holdout: ${String(report.holdout.winner.pass)} pass at ${report.holdout.winner.tokens} tokens vs baseline ${String(report.holdout.baseline.pass)} pass at ${report.holdout.baseline.tokens} tokens.`
     return {
       kind: 'success',
-      text: `Optimized '${skill}': staged skill patch ${report.stagedId}.${holdout} Write the skill with skill_manage, then '/skills approve ${report.stagedId}' to drop the entry.`,
+      text: `Optimized '${skill}': staged skill patch ${report.stagedId}.${holdout} Approve it with '/skills approve ${report.stagedId}' to write the body and record the preimage it replaces in one transaction.`,
     }
   }
   const stagnant = report.stagnant
@@ -2602,8 +2800,8 @@ async function executeDream(
  * @param candidate - the argument to test.
  * @returns true when the argument is a routing role.
  */
-function isRoutingRole(candidate: string | undefined): candidate is RoutingRole {
-  return candidate !== undefined && (ROUTING_ROLES as readonly string[]).includes(candidate)
+function isRoutingRole(candidate: string | undefined): candidate is EvolutionRole {
+  return candidate !== undefined && (EVOLUTION_ROLES as readonly string[]).includes(candidate)
 }
 
 /**
@@ -2809,23 +3007,23 @@ function executeOperators(ctx: Context, invocation: CommandInvocation): CommandR
 /**
  * Report the measured route effectiveness for the task classes and roles the
  * optimizer recorded, or the route the store recommends for one pair.
- * @param ctx - plugin context carrying the router seam.
+ * @param ctx - plugin context carrying the model-routes seam.
  * @param invocation - raw command input.
  * @returns the command result.
  */
 function executeRouter(ctx: Context, invocation: CommandInvocation): CommandResult {
-  const store = ctx.get('evolutionRouter') as {
+  const store = ctx.get('evolutionModelRoutes') as {
     effectiveness(taskClass?: string, role?: string): readonly RouteEffectiveness[]
-    recommend(taskClass: string, role: string): RouteRankingEntry | undefined
+    recommend(role: string, taskClass?: string): RouteRankingEntry | undefined
   } | undefined
-  if (store === undefined) return { kind: 'error', text: 'The evolution router store is not mounted.' }
+  if (store === undefined) return { kind: 'error', text: 'The evolution model-routes store is not mounted.' }
   const [verb, ...rest] = splitArgs(invocation.rawInput)
   try {
     if (verb === 'recommend') {
       if (rest.length !== 2 || !isRoutingRole(rest[1])) return { kind: 'error', text: ROUTER_USAGE }
       const taskClass = rest[0] as string
       const role = rest[1]
-      const recommendation = store.recommend(taskClass, role)
+      const recommendation = store.recommend(role, taskClass)
       if (recommendation === undefined) {
         return { kind: 'success', text: `No route has enough recorded outcomes on '${taskClass}' for ${role} to recommend yet.` }
       }
@@ -2850,7 +3048,7 @@ function executeRouter(ctx: Context, invocation: CommandInvocation): CommandResu
       text: [
         `${rows.length} route row${rows.length === 1 ? '' : 's'}:`,
         ...rows.map(row => `- ${row.provider}/${row.model} (${row.role}, ${row.taskClass}):`
-          + ` ${Math.round(row.passRate * 100)}% pass over ${row.samples},`
+          + ` ${Math.round(row.passRate * 100)}% pass over ${row.runs},`
           + ` ${Math.round(row.meanTokens)} mean tokens, ${Math.round(row.meanWallTimeMs)}ms mean`),
       ].join('\n'),
     }
@@ -3071,7 +3269,7 @@ export function apply(ctx: Context, config: Config): void {
       definitionId: CommandDefinitionId('@deepseek-ai/dsh-command-evolution/memory'),
       name: 'memory',
       description: 'Review staged evolution memory writes',
-      input: { hint: 'pending | approve <id> | reject <id>' },
+      input: { hint: 'pending | add <text> | approve <id> | reject <id>' },
       handler: (invocation: CommandInvocation) => track(handleCommand(ctx, profile, 'memory', invocation)),
     })
     yield ctx.commands.register({
@@ -3152,8 +3350,8 @@ export function apply(ctx: Context, config: Config): void {
     yield ctx.commands.register({
       definitionId: CommandDefinitionId('@deepseek-ai/dsh-command-evolution/benchmark'),
       name: 'benchmark',
-      description: 'Manage the evaluation-task benchmark: admit curriculum proposals and promote tasks along the learning ladder',
-      input: { hint: '[admit | promote <id> [state] | retire <id>]' },
+      description: 'Manage the evaluation-task benchmark: admit curriculum proposals or a dataset corpus and promote tasks along the learning ladder',
+      input: { hint: '[admit | admit-datasets <dir> | promote <id> [state] | retire <id>]' },
       handler: (invocation: CommandInvocation) => track(handleCommand(ctx, profile, 'benchmark', invocation)),
     })
     yield ctx.commands.register({

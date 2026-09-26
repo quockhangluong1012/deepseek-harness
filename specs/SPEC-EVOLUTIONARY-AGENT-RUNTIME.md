@@ -4,7 +4,7 @@
 
 **Status:** proposed implementation baseline  
 **Repository audited:** `https://github.com/quockhangluong1012/deepseek-harness`  
-**Audited revision:** `85d814676cb06eb723487e09313d7178ffad970a` (`feat(memory): implement episodic notes retention and management`, 2026-09-16)  
+**Audited revision:** `feat(memory): implement episodic notes retention and management` (2026-09-16)  
 **Scope:** runtime evolution, not a second agent loop  
 **Normative labels:** `[CONFIRMED]`, `[PROPOSED]`, `[REFACTOR]`, `[REMOVE]`, `[EXTERNAL BENCHMARK]`\
 **Amendments:** §32–§35 (review of 2026-09-23) record implementation status, normative amendments S1–S11, findings outside this specification, and the consolidated roadmap. Where §33 conflicts with §1–§31, §33 governs.
@@ -75,7 +75,7 @@ The repository explicitly identifies these packages as the spine in `docs/archit
 |---|---|---|---|
 | Session | `packages/core/session` | Append-only event log, replay, surface derivation, persistence seam | `[KEEP]`; add kernel events through `SessionEventMap` |
 | System prompt | `packages/core/system-prompt` | Prompt sections, variables, tool-schema assembly | `[REFACTOR]` behind a Context Compiler adapter |
-| Tools | `packages/core/tools` | Scoped registry, schema, pre/execute/post waterfalls | `[KEEP]`; add capability and provenance metadata |
+| Tools | `packages/core/tools` | Scoped registry, schema, pre/execute/post waterfalls | `[KEEP]`; add capability and source metadata |
 | Agent | `packages/core/agent` | `Agent`, `AgentRegistry`, `AgentFactory`, ownership and lifecycle | `[KEEP]`; expose kernel attachment |
 | Agent loop | `packages/core/agent-loop` | `ReactLoopAgent`, turn/step flow, request preparation, tool concurrency, cancellation | `[KEEP]`; do not fork |
 | LLM | `packages/llm/llm` | `LlmAdapter`, message vocabulary, retries, stream protocol | `[KEEP]`; model router selects adapters above it |
@@ -156,7 +156,7 @@ The distinction between technical sandbox and governance approval is already pre
 
 `packages/hooks/hook-protocol` owns matcher, codec, runner, timeout, output merge, detached-run, and hook audit helpers. `packages/hooks/hooks-codex` and `packages/hooks/hooks-claude-code` attach to `agent/session-start`, `agent/pre-step`, `tools/pre-execute`, and `tools/post-execute`, with configured timeouts and bounded stderr summaries.
 
-The hook boundary is powerful but output is still just a merged decision/context contribution. A target security plane must assign provenance/trust and prevent hook output or tool output from silently becoming trusted user policy.
+The hook boundary is powerful but output is still just a merged decision/context contribution. A target security plane must assign a source reference and trust and prevent hook output or tool output from silently becoming trusted user policy.
 
 ### 2.9 Skills, plugins, MCP, and profiles [CONFIRMED]
 
@@ -265,7 +265,7 @@ Plugin tree / services / scoped agent context
 | `[KEEP]` | Cordis plugin composition and profile layering | Make kernel a plugin family; do not introduce a privileged monolith |
 | `[KEEP]` | `core/session` and session projections | Add kernel/evidence events; preserve log and projection ownership |
 | `[KEEP]` | `core/agent` + `core/agent-loop` | Attach kernel via events and per-agent scope; no second driver |
-| `[KEEP]` | `core/tools` waterfalls | Make them the execution seam for action authorization and provenance |
+| `[KEEP]` | `core/tools` waterfalls | Make them the execution seam for action authorization and source attribution |
 | `[KEEP]` | `llm/llm` adapter protocol | Add routing hints and cost metadata at adapter boundary |
 | `[KEEP]` | `sandbox/sandbox-policy` | Reuse as technical boundary resolver |
 | `[KEEP]` | `interaction/user-approval` | Reuse as human governance resolver; add policy decision linkage |
@@ -275,7 +275,7 @@ Plugin tree / services / scoped agent context
 | `[REFACTOR]` | compaction | Make compaction produce a checkpoint with retained facts and lineage |
 | `[REFACTOR]` | skills/filesystem | Add trust, admission, capability requirements, version, and rollback metadata |
 | `[REFACTOR]` | subagent providers | Require child policy intersection and explicit delegation receipt |
-| `[REFACTOR]` | evolution reviewer/curator/optimizer | Gate promotion on evidence, holdouts, provenance, and reversible artifacts |
+| `[REFACTOR]` | evolution reviewer/curator/optimizer | Gate promotion on evidence, holdouts, attribution, and reversible artifacts |
 | `[KEEP]` | experimental Agent Teams | Promote only after kernel delegation contracts are adopted; no rewrite now |
 | `[KEEP]` | workflow engine | Adapt to task contracts and checkpoint/resume; retain worker-thread provider |
 | `[REMOVE]` | any new parallel `AgentLoop` or `RuntimeAgent` identity | Delete design proposals that fork `ReactLoopAgent` lifecycle |
@@ -513,7 +513,7 @@ interface ContextSource {
   readonly kind: 'policy' | 'task' | 'plan' | 'memory' | 'evidence' | 'artifact' | 'history' | 'tool'
   readonly content: string
   readonly trust: TrustLabel
-  readonly provenance: Provenance
+  readonly sourceRef: SourceRef
   readonly relevance: RelevanceScore
   readonly expiresAt?: string
 }
@@ -534,7 +534,7 @@ Pipeline:
 collect -> classify trust -> retrieve -> rank
        -> conflict check -> deduplicate -> compress
        -> fit token budget -> order stable prefix -> compile
-       -> log digest and selected provenance
+       -> log digest and selected source reference
 ```
 
 Policy and task contract sources outrank tool output. Untrusted repo/web/MCP content is data, never an instruction authority. The compiler must retain a short conflict report when two high-ranked sources disagree.
@@ -684,7 +684,7 @@ interface GovernanceReceipt {
 
 Add `packages/guard/prompt-injection` (name may change after package review) as a policy observer, not as a new prompt builder. It must:
 
-1. wrap external content in a `ContentEnvelope` with source, trust, provenance, and taint;
+1. wrap external content in a `ContentEnvelope` with source, trust, a source reference, and taint;
 2. scan tool/MCP/web/repo output before context admission;
 3. scan model tool proposals before policy evaluation;
 4. redact secrets and credentials from logs and model context;
@@ -697,7 +697,7 @@ interface ContentEnvelope {
   readonly source: 'user' | 'repo' | 'tool' | 'web' | 'mcp' | 'subagent'
   readonly trust: 'trusted' | 'untrusted' | 'unknown'
   readonly tainted: boolean
-  readonly provenance: Provenance
+  readonly sourceRef: SourceRef
   readonly findings: readonly SecurityFinding[]
 }
 ```
@@ -834,7 +834,7 @@ interface Evidence {
   readonly kind: 'file' | 'tool-result' | 'web' | 'mcp' | 'test' | 'user' | 'model'
   readonly contentRef: string
   readonly digest: string
-  readonly provenance: Provenance
+  readonly sourceRef: SourceRef
   readonly trust: TrustLabel
   readonly observedAt: string
 }
@@ -984,7 +984,7 @@ evidence/recorded, claim/updated, hypothesis/updated
 evolution/candidate, evolution/evaluated, evolution/promoted, evolution/rolled-back
 ```
 
-Every event carries `version`, `runId`, optional `taskId`, actor, timestamp, and provenance. Sensitive arguments are hashed/redacted. Event schemas are added to the generated persistence/session catalogs and covered by migration tests.
+Every event carries `version`, `runId`, optional `taskId`, actor, timestamp, and a source reference. Sensitive arguments are hashed/redacted. Event schemas are added to the generated persistence/session catalogs and covered by migration tests.
 
 ### 18.3 Metrics [PROPOSED]
 
@@ -1215,7 +1215,7 @@ Files/packages: kernel evidence contracts; `web/*`, `mcp/*`, `evolution-graph`, 
 Deliverables:
 
 - Evidence/Claim/Hypothesis records;
-- provenance/trust and contradiction edges;
+- source references/trust and contradiction edges;
 - evidence-backed research verifier;
 - memory admission requires evidence/trajectory refs.
 
@@ -1285,7 +1285,7 @@ The first shippable slice is P0 shadow → P0 enforcing. P2 must not block the s
 
 ### Context and memory
 
-- Compiler output is budgeted, ranked, provenance-labelled, and digestible.
+- Compiler output is budgeted, ranked, source-labelled, and digestible.
 - Compaction preserves acceptance, policy, open work, failures, and evidence refs.
 - Memory promotion requires source refs, confidence, utility, lineage, and expiry/validation policy.
 
@@ -1386,7 +1386,7 @@ That is an incremental extension of the audited DeepSeek Harness, not a rewrite 
 
 ## 32. Implementation status (2026-09-23) [CONFIRMED]
 
-Audited tree: `main` at `556c0dc2e6` plus the uncommitted working tree of 2026-09-23. The working tree adds the kernel evidence, claim, and hypothesis API with lifecycle tests; MCP capability declarations; the permission-presets policy-profile provider; and the new `packages/guard/prompt-injection`. Line numbers refer to that tree and drift with later edits.
+Audited tree: `main` plus the uncommitted working tree of 2026-09-23. The working tree adds the kernel evidence, claim, and hypothesis API with lifecycle tests; MCP capability declarations; the permission-presets policy-profile provider; and the new `packages/guard/prompt-injection`. Line numbers refer to that tree and drift with later edits.
 
 | Section | Status | Observation |
 |---|---|---|
@@ -1402,7 +1402,7 @@ Audited tree: `main` at `556c0dc2e6` plus the uncommitted working tree of 2026-0
 | §12.1 Skill admission | Partial | Skill metadata carries capabilities, version, and test scenarios. There are no admission states and no quarantine. |
 | §13.2 Delegation receipt | Implemented | `packages/runtime/agent-kernel/src/delegation.ts`. |
 | §13.3 Workflow checkpoint | Not implemented | |
-| §14.2 Model router | Not implemented | `evolution-router` and `evolution-model-routes` record optimizer routes. Neither selects a runtime route. |
+| §14.2 Model router | Not implemented | `evolution-model-routes` records and ranks the routes the optimizer ran, absorbing the retired `evolution-router` outcomes. It still selects no runtime route. |
 | §15.1 Evidence, claims, hypotheses | Partial | `recordEvidence()`, `recordClaim()`, and `recordHypothesis()` are in the working tree. No model-facing tool exposes them. |
 | §15.2 Verification gate | Partial | `DefaultVerificationGate` and `CriterionVerifierRegistry` exist, but no production code calls `register()` (`packages/runtime/agent-kernel/src/verification.ts:184`). With empty acceptance the gate never runs. `closeTurn` records statuses but never steers, so the gate cannot keep a turn open. |
 | §16 Failure, recovery | Partial | Only `verification-failed` is produced. Nothing reads `recovery/decided`. |

@@ -32,12 +32,15 @@ import type { ContextCompiler } from './compile.ts'
 import { filterDelta, dropExpired, sourceOf } from './registry.ts'
 import type { ContextSourceDescriptor, ContextSourceProvider, ContextSourceRegistry } from './registry.ts'
 import { sourcesFromView } from './sources.ts'
-import type { CompiledContext, ContextSource, ContextSourceKind } from './types.ts'
+import { CONTEXT_TIERS } from './tiers.ts'
+import type { CompiledContext, ContextSource, ContextSourceKind, ContextTier, ContextTierDemand } from './types.ts'
 
 export type * from './types.ts'
 export { CONTEXT_COMPILER_VERSION } from './compile.ts'
 export type { ContextCompileInput, ContextCompiler } from './compile.ts'
 export { dropExpired, filterDelta, retentionOfPlacement, sourceOf } from './registry.ts'
+export { admitSources, CONTEXT_TIERS, tierOf, TIER_OF_KIND } from './tiers.ts'
+export type { TierAdmission } from './tiers.ts'
 export type { ContextItem, ContextPlacement, ContextSourceDescriptor, ContextSourceProvider, ContextSourceRegistry } from './registry.ts'
 
 /** Plugin name used by loader diagnostics. */
@@ -53,12 +56,15 @@ export interface Config {
   mode?: 'shadow' | 'apply'
   /** Token ceiling one compiled placement may price at; unset means unbounded. */
   maxContextTokens?: number
+  /** Tiers whose sources a placement withholds until `admit()` names the tier or the source id. */
+  onDemandTiers?: ContextTier[]
 }
 
 /** Runtime configuration schema for the agent-context plugin. */
 export const Config: z<Config> = z.object({
   mode: z.union(['shadow', 'apply'] as const).default('shadow'),
   maxContextTokens: z.number(),
+  onDemandTiers: z.array(z.union([...CONTEXT_TIERS])).default([]),
 })
 
 declare module '@deepseek-ai/cordis' {
@@ -152,6 +158,14 @@ const contextSourcePlacement: ProjectionDefinition<'contextSourcePlacement', Con
 }
 
 
+/** One caller's admitted demand: whole tiers, single source ids, or both. */
+interface AdmittedDemand {
+  /** Tiers the caller admitted. */
+  readonly tiers: readonly ContextTier[]
+  /** Source ids the caller admitted. */
+  readonly sourceIds: readonly string[]
+}
+
 /**
  * The compiler service (`ctx.agentContext`). It attaches to the prompt
  * assembly waterfall in its constructor, so unloading the plugin unloads the
@@ -164,10 +178,14 @@ export class AgentContextService extends Service implements ContextSourceRegistr
   readonly compiler: ContextCompiler
   private readonly mode: 'shadow' | 'apply'
   private readonly maxContextTokens: number | null
+  private readonly onDemandTiers: readonly ContextTier[]
   private readonly registrations = new Map<string, { descriptor: ContextSourceDescriptor; provide: ContextSourceProvider }>()
   private nextRegistrationId = 0
   /** Latest successfully compiled source ids per live session. */
   private readonly includedSources = new WeakMap<Agent['session'], ReadonlySet<string>>()
+  /** Demands callers admitted for one live session, each under the token its disposer removes. */
+  private readonly admitted = new WeakMap<Agent['session'], Map<number, AdmittedDemand>>()
+  private nextAdmissionId = 0
 
   /**
    * @param ctx - plugin context; the assembly listener is scoped to it.
@@ -179,6 +197,7 @@ export class AgentContextService extends Service implements ContextSourceRegistr
     this.compiler = new DefaultContextCompiler()
     this.mode = config.mode ?? 'shadow'
     this.maxContextTokens = config.maxContextTokens ?? null
+    this.onDemandTiers = config.onDemandTiers ?? []
     ctx.effect(
       () => ctx.sessionProjections.register(contextSourcePlacement),
       'agentContext.contextSourcePlacement',
@@ -218,6 +237,50 @@ export class AgentContextService extends Service implements ContextSourceRegistr
    */
   isIncluded(session: Agent['session'], sourceId: string): boolean {
     return this.includedSources.get(session)?.has(sourceId) ?? false
+  }
+
+  /**
+   * Admit the sources the configured on-demand tiers withhold: every later
+   * compile for the session places the named tiers and source ids until the
+   * returned disposer runs, and reports what it still withholds in
+   * `CompiledContext.deferred`. The demand is this caller's own — it is not
+   * recorded in the session log, so a replay reproduces the placement only
+   * when it is given the same demand; the placement it produced stays durable.
+   * @param session - live session whose later compiles admit the demand.
+   * @param demand - the tiers and source ids to admit.
+   * @returns a disposer that withdraws this caller's demand.
+   */
+  admit(session: Agent['session'], demand: ContextTierDemand): () => void {
+    const admissionId = this.nextAdmissionId
+    this.nextAdmissionId += 1
+    let held = this.admitted.get(session)
+    if (held === undefined) {
+      held = new Map<number, AdmittedDemand>()
+      this.admitted.set(session, held)
+    }
+    held.set(admissionId, { tiers: demand.tiers ?? [], sourceIds: demand.sourceIds ?? [] })
+    return () => { held.delete(admissionId) }
+  }
+
+  /**
+   * The union of every demand a caller admitted for one session.
+   * @param session - the live session a compile is for.
+   * @returns the combined demand, or undefined when no caller admitted one.
+   */
+  private demandOf(session: Agent['session']): ContextTierDemand | undefined {
+    const held = this.admitted.get(session)
+    if (held === undefined || held.size === 0) return undefined
+    const tiers: ContextTier[] = []
+    const sourceIds: string[] = []
+    for (const demand of held.values()) {
+      for (const tier of demand.tiers) {
+        if (!tiers.includes(tier)) tiers.push(tier)
+      }
+      for (const sourceId of demand.sourceIds) {
+        if (!sourceIds.includes(sourceId)) sourceIds.push(sourceId)
+      }
+    }
+    return { tiers, sourceIds }
   }
 
   /**
@@ -281,12 +344,15 @@ export class AgentContextService extends Service implements ContextSourceRegistr
     // mounted, but then it has no durable task facts to make required.
     const view = this.ctx.get('agentKernel')?.state.view(session)
     const registered = await this.collectRegistered(agent, signal, seenSourceIds)
+    const demand = this.demandOf(session)
     const compiled = await this.compiler.compile({
       assembly,
       sources: [...sourcesFromView(view), ...registered.sources],
       objective: view?.task.objective ?? '',
       maxTokens: this.maxContextTokens,
       hysteresis: { includedIds: new Set(placement?.includedIds ?? []), omittedIds: new Set(placement?.cutIds ?? []) },
+      onDemandTiers: this.onDemandTiers,
+      ...demand === undefined ? {} : { demand },
     })
     const resurfacedDelta = compiled.included.some(entry => registered.deltaSourceIds.has(entry.source.id))
     const record = recordOf(compiled, this.maxContextTokens)

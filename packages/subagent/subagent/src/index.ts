@@ -66,6 +66,7 @@ import type {
   SubagentStartRequest,
 } from './types.ts'
 import { SubagentError } from './error.ts'
+import { withAgentResult } from './agent-result.ts'
 import { assertSubagentMaxDepth } from './depth.ts'
 import { createActivationObserver, createLifecycleEmitter, observeRun } from './lifecycle.ts'
 import type { ActivationObserver, LifecycleEmitter } from './lifecycle.ts'
@@ -85,10 +86,16 @@ export * from './out-of-process.ts'
 export { AssistantOutputFold, finalAssistantOutput } from './assistant-output.ts'
 export { SubagentRunId } from './types.ts'
 export type {
+  Action,
+  AgentResult,
+  AgentResultStatus,
+  ArtifactRef,
   ContinuableCreateRequest,
   ContinuableCreateSpec,
   ContinuableStart,
   ContinuableStartSpec,
+  EvidenceRef,
+  Finding,
   ResolvedSubagentStartRequest,
   SubagentCapabilities,
   SubagentInterruptAuthority,
@@ -116,6 +123,17 @@ export type {
 export type { SubagentCatalogEntry } from './projection-types.ts'
 export { SubagentError } from './error.ts'
 export { settleRun } from './run-settlement.ts'
+export {
+  AGENT_RESULT_SCHEMA,
+  AGENT_RESULT_STATUSES,
+  NO_FOLLOW_UP,
+  agentResultOf,
+  agentResultStatusFor,
+  gateAgentResult,
+  readAgentResult,
+  withAgentResult,
+} from './agent-result.ts'
+export type { AgentResultFollowUp, AgentResultGate } from './agent-result.ts'
 export { assertSubagentMaxDepth, delegationDepthOf } from './depth.ts'
 export {
   appendDelegatedPolicyOverrides,
@@ -585,7 +603,7 @@ export class SubagentRuntime extends TypertRemoteService {
         throw error
       }
     }
-    return observeRun(this.emitLifecycle, name, request.parent, run)
+    return observeRun(this.emitLifecycle, name, request.parent, withAgentResult(run))
   }
 
   /**

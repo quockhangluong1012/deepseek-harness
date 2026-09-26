@@ -37,7 +37,7 @@ function apply(
   decisions: readonly LessonDecision[],
   addTargets: ReadonlyMap<number, LessonArtifact | undefined> = new Map(),
 ): EvolutionMemoryRecord {
-  return applyLessonDecisions(base, decisions, addTargets, NOW, 30)
+  return applyLessonDecisions(base, decisions, addTargets, { now: NOW, defaultTtlDays: 30, confidenceFloor: 0.5 })
 }
 
 describe('lesson decision vocabulary', () => {
@@ -88,12 +88,44 @@ describe('credential scrubbing on the write path', () => {
 })
 
 describe('applying a decision batch', () => {
-  it('confirms an artifact: one counter and the instant, nothing else', () => {
+  it('confirms an artifact: one counter, the instant, and the ladder rung', () => {
     const existing = artifact('use postgres', { ttlDays: 7 })
     const next = apply(record([existing]), [{ kind: 'confirms', artifactId: existing.id }])
-    expect(next.agentLessons).toEqual([{ ...existing, validationCount: 3, updatedAt: NOW }])
+    expect(next.agentLessons).toEqual([{
+      ...existing,
+      validationCount: 3,
+      // The confirmation is the validation, and it moves the fact from the
+      // status a record without one reads as onto the ladder's first rung.
+      lifecycle: 'validated',
+      lastValidatedAt: NOW,
+      updatedAt: NOW,
+    }])
     // The family stamp is the caller's job: the fold returns an unstamped record.
     expect(next.lessonsUpdatedAt).toBeNull()
+  })
+
+  it('validates a fact the policy distrusts without promoting it', () => {
+    const existing = artifact('use postgres', { lifecycle: 'validated', confidence: 0.2 })
+    const next = apply(record([existing]), [{ kind: 'confirms', artifactId: existing.id }])
+    // A confirmation of a fact below the confidence floor still counts as a
+    // validation; it does not climb past `validated`.
+    expect(next.agentLessons[0]).toMatchObject({ validationCount: 3, lifecycle: 'validated', lastValidatedAt: NOW })
+  })
+
+  it('climbs the ladder one rung per confirmation and stops at stable', () => {
+    const promoted = apply(record([artifact('use postgres', { lifecycle: 'validated' })]), [
+      { kind: 'confirms', artifactId: 'use postgres' },
+    ])
+    expect(promoted.agentLessons[0]?.lifecycle).toBe('promoted')
+    const stable = apply(promoted, [{ kind: 'confirms', artifactId: 'use postgres' }])
+    expect(stable.agentLessons[0]?.lifecycle).toBe('stable')
+    // A stable fact has no further rung, and an invalidated one has no status
+    // it can be confirmed into.
+    expect(apply(stable, [{ kind: 'confirms', artifactId: 'use postgres' }]).agentLessons[0]?.lifecycle).toBe('stable')
+    const invalidated = apply(record([artifact('use postgres', { lifecycle: 'invalidated' })]), [
+      { kind: 'confirms', artifactId: 'use postgres' },
+    ])
+    expect(invalidated.agentLessons[0]?.lifecycle).toBe('invalidated')
   })
 
   it('skips a decision whose artifact the record no longer holds', () => {
@@ -119,6 +151,9 @@ describe('applying a decision batch', () => {
       refutationCount: 0,
       validationCount: 0,
       supersedes: [{ statement: 'use postgres', confidence: 0.6, supersededAt: NOW }],
+      // A correction is the caller naming the wording that stands: recorded as
+      // the one conflict rule no comparison may overturn (§9.6).
+      conflict: { rule: 'explicit-supersession', winner: 'candidate', at: NOW },
       updatedAt: NOW,
     }])
     // The correction keeps the id it is addressed by, so the id no longer
@@ -168,7 +203,6 @@ describe('applying a decision batch', () => {
       refutationCount: 0,
       sourceRefs: ['session:s2'],
       scope: 'project',
-      sourceRefs: ['session:s2'],
       ttlDays: 30,
       createdAt: NOW,
       updatedAt: NOW,
@@ -191,6 +225,8 @@ describe('applying a decision batch', () => {
       source: 's2',
       evidence: 'fact',
       confidence: 0.9,
+      // `overwrite` always resolves to the candidate: recorded explicitly (§9.6).
+      conflict: { rule: 'explicit-supersession', winner: 'candidate', at: NOW },
       updatedAt: NOW,
     }])
 
@@ -199,10 +235,16 @@ describe('applying a decision batch', () => {
       [{ kind: 'new', candidate: candidate('use postgres 15', { conditions: 'rechecked', confidence: 0.4 }), strategy: 'merge' }],
       new Map([[0, target]]),
     )
+    // Same scope, no elapsed ttl: the candidate's higher-quality evidence
+    // ('fact' beats the target's 'inference') decides the whole content,
+    // while `merge` still joins the conditions instead of replacing them.
     expect(merged.agentLessons).toEqual([{
       ...target,
       conditions: 'database work; rechecked',
-      confidence: 0.6,
+      source: 's2',
+      evidence: 'fact',
+      confidence: 0.4,
+      conflict: { rule: 'source-quality', winner: 'candidate', at: NOW },
       updatedAt: NOW,
     }])
   })
@@ -211,8 +253,9 @@ describe('applying a decision batch', () => {
     const base = record([artifact('use postgres')])
     const sameIdentity = apply(base, [{ kind: 'new', candidate: candidate('Use Postgres') }])
     expect(sameIdentity).toBe(base)
-    // A resolved target changes nothing either: under keep_both the artifact
-    // the candidate matches is left exactly as it was.
+    // A resolved target that is the candidate's own identity changes nothing
+    // either: a second artifact with that identity could not be told apart
+    // from the first, and the artifact stays exactly as it was.
     const targeted = record([artifact('use postgres')])
     const withTarget = apply(
       targeted,
@@ -220,6 +263,24 @@ describe('applying a decision batch', () => {
       new Map([[0, artifact('use postgres')]]),
     )
     expect(withTarget).toBe(targeted)
+  })
+
+  it('counts a paraphrased new decision as a validation of the lesson it matches', () => {
+    const target = artifact('use postgres')
+    const next = apply(
+      record([target]),
+      [{ kind: 'new', candidate: candidate('prefers postgres for storage') }],
+      new Map([[0, target]]),
+    )
+    // keep_both folds no content into the match, but the extraction's evidence
+    // still reaches the fact it matched instead of being dropped.
+    expect(next.agentLessons).toEqual([{
+      ...target,
+      validationCount: 3,
+      lifecycle: 'validated',
+      lastValidatedAt: NOW,
+      updatedAt: NOW,
+    }])
   })
 
   it('falls back to the candidate identity when the resolved target is gone', () => {
@@ -252,10 +313,15 @@ describe('applying a decision batch', () => {
         statement: 'use postgres 15',
         // The confirmation landed before the correction, so the superseded
         // value carried three validations and one refutation; the replacement
-        // starts its own history.
+        // starts its own history. The confirmation also reached `validated`
+        // before the correction ran, and the correction's spread of the
+        // record it addresses carries that status and instant forward.
         validationCount: 0,
         refutationCount: 0,
+        lifecycle: 'validated',
+        lastValidatedAt: NOW,
         supersedes: [{ statement: 'use postgres', confidence: 0.6, supersededAt: NOW }],
+        conflict: { rule: 'explicit-supersession', winner: 'candidate', at: NOW },
         updatedAt: NOW,
       },
       {
@@ -267,6 +333,8 @@ describe('applying a decision batch', () => {
         confidence: 0.9,
         validationCount: 1,
         refutationCount: 0,
+        lifecycle: 'validated',
+        lastValidatedAt: NOW,
         sourceRefs: ['session:s2'],
         scope: 'project',
         ttlDays: 30,

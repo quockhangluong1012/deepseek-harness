@@ -656,11 +656,210 @@ describe('job_kill', () => {
   })
 })
 
+describe('job_monitor', () => {
+  it('matches retained output and leaves the consuming read untouched', async () => {
+    const { ctx } = await setup()
+    const p = producer()
+    ctx.jobs.start(p.spec)
+    p.append('booting\nlistening on port 3000\n')
+
+    const result = await call(ctx, 'job_monitor', { job_id: 'bash-1', pattern: 'listening on port 3000' })
+    if (result.isError) throw new Error('expected job_monitor success')
+    expect(result.value).toMatchObject({
+      matched: true,
+      excerpt: 'listening on port 3000',
+      lossy: false,
+      job: { id: 'bash-1', kind: 'bash', status: 'running' },
+    })
+    expect(text(result)).toBe('job bash-1 matched "listening on port 3000":\nlistening on port 3000\n[status: running]')
+    // Monitoring is an observer: the model's cursor still sees the whole stream.
+    expect(text(await call(ctx, 'job_output', { job_id: 'bash-1' })))
+      .toBe('booting\nlistening on port 3000\n[status: running]')
+  })
+
+  it('wakes on later output and matches a pattern split across chunks', async () => {
+    const { ctx } = await setup()
+    const owner = await fakeAgent(ctx, 'sess-1')
+    const other = producer({ owner: owner.id, label: 'unrelated' })
+    const p = producer({ owner: owner.id })
+    ctx.jobs.start(other.spec)
+    ctx.jobs.start(p.spec)
+
+    const pending = call(ctx, 'job_monitor', { job_id: 'bash-2', pattern: 'ready on port 8080', timeout_ms: 5_000 }, owner)
+    // Another job's append and settlement leave this wait parked.
+    other.append('noise\n')
+    other.settle({ status: 'completed' })
+    await tick()
+    p.append('starting')
+    await tick()
+    p.append('ready on port ')
+    p.append('8080\n')
+
+    const result = await pending
+    expect(result.isError).toBe(false)
+    expect(text(result)).toBe('job bash-2 matched "ready on port 8080":\nready on port 8080\n[status: running]')
+    expect(p.cancels).toEqual([])
+  })
+
+  it('reads the pattern as a literal unless regex is true', async () => {
+    const { ctx } = await setup()
+    const p = producer()
+    ctx.jobs.start(p.spec)
+    p.append('built in 12 ms\n')
+
+    const literal = await call(ctx, 'job_monitor', { job_id: 'bash-1', pattern: 'in \\d+ ms', timeout_ms: 10 })
+    expect(text(literal)).toContain('has not matched yet "in \\\\d+ ms"')
+
+    const regex = await call(ctx, 'job_monitor', { job_id: 'bash-1', pattern: 'in \\d+ ms', regex: true })
+    expect(text(regex)).toBe('job bash-1 matched "in \\\\d+ ms":\nin 12 ms\n[status: running]')
+  })
+
+  it('ignores producer narration the model cannot read back', async () => {
+    const { ctx } = await setup()
+    const p = producer()
+    ctx.jobs.start(p.spec)
+    p.append('ready\n', { channel: 'log' })
+
+    const result = await call(ctx, 'job_monitor', { job_id: 'bash-1', pattern: 'ready', timeout_ms: 10 })
+    if (result.isError) throw new Error('expected job_monitor success')
+    const monitored = result.value as { matched: boolean }
+    expect(monitored.matched).toBe(false)
+  })
+
+  it('answers immediately for a job that already settled without matching', async () => {
+    const { ctx } = await setup()
+    const p = producer()
+    ctx.jobs.start(p.spec)
+    p.append('final words\n')
+    p.settle({ status: 'completed' })
+    await tick()
+
+    const result = await call(ctx, 'job_monitor', { job_id: 'bash-1', pattern: 'ready' })
+    expect(text(result)).toBe('job bash-1 ended without matching "ready":\nfinal words\n[status: completed]')
+  })
+
+  it('returns a non-match result when a live job settles, rather than hanging', async () => {
+    const { ctx } = await setup()
+    const owner = await fakeAgent(ctx, 'sess-1')
+    const p = producer({ owner: owner.id })
+    ctx.jobs.start(p.spec)
+    p.append('compiling\n')
+
+    const pending = call(ctx, 'job_monitor', { job_id: 'bash-1', pattern: 'ready', timeout_ms: 60_000 }, owner)
+    await tick()
+    p.settle({ status: 'completed', detail: 'exit code: 1' })
+
+    const result = await pending
+    if (result.isError) throw new Error('expected job_monitor success')
+    const monitored = result.value as { matched: boolean }
+    expect(monitored.matched).toBe(false)
+    expect(text(result)).toBe('job bash-1 ended without matching "ready":\ncompiling\n[status: completed, exit code: 1]')
+  })
+
+  it('times out with the job still running and leaves it alive', async () => {
+    const { ctx } = await setup({ waitTimeoutMs: 10, maxWaitTimeoutMs: 20 })
+    const p = producer()
+    ctx.jobs.start(p.spec)
+
+    // A model-supplied timeout far above the cap is clamped: this returns
+    // promptly (≤ the 20ms cap), not after ten minutes.
+    const result = await call(ctx, 'job_monitor', { job_id: 'bash-1', pattern: 'never', timeout_ms: 600_000 })
+    expect(text(result)).toBe('job bash-1 has not matched yet "never":\n[status: running]')
+    expect(ctx.jobs.get(JobId('bash-1')).status).toBe('running')
+  })
+
+  it('flags a match attempt that covered only the retained window', async () => {
+    const { ctx } = await setup({}, { retainBytes: 8 })
+    const p = producer()
+    ctx.jobs.start(p.spec)
+    p.append('x'.repeat(40))
+
+    const result = await call(ctx, 'job_monitor', { job_id: 'bash-1', pattern: 'absent', timeout_ms: 10 })
+    if (result.isError) throw new Error('expected job_monitor success')
+    const monitored = result.value as { lossy: boolean }
+    expect(monitored.lossy).toBe(true)
+    expect(text(result)).toContain('[only retained output was matched; earlier bytes were dropped]')
+  })
+
+  it('monitors an unowned job for a caller with no agent', async () => {
+    const { ctx } = await setup()
+    const p = producer()
+    ctx.jobs.start(p.spec)
+
+    const pending = call(ctx, 'job_monitor', { job_id: 'bash-1', pattern: 'ready', timeout_ms: 5_000 })
+    await tick()
+    p.append('ready\n')
+    expect(text(await pending)).toBe('job bash-1 matched "ready":\nready\n[status: running]')
+  })
+
+  it('applies the producer output limit to a monitor result', async () => {
+    const { ctx } = await setup()
+    const p = producer({ outputLimitBytes: 48 })
+    ctx.jobs.start(p.spec)
+    p.append(`${'m'.repeat(200)}\n`)
+
+    const result = await call(ctx, 'job_monitor', { job_id: 'bash-1', pattern: 'm'.repeat(200) })
+    expect(Buffer.byteLength(text(result))).toBeLessThanOrEqual(48)
+    expect(text(result)).toContain('[result truncated]')
+  })
+
+  it('stops waiting when the caller aborts the call', async () => {
+    const { ctx } = await setup()
+    const owner = await fakeAgent(ctx, 'sess-1')
+    ctx.jobs.start(producer({ owner: owner.id }).spec)
+
+    const aborter = new AbortController()
+    const pending = ctx.tools.execute({
+      signal: aborter.signal,
+      callId: ToolCallId('call-monitor-abort'),
+      name: 'job_monitor',
+      arguments: { job_id: 'bash-1', pattern: 'never', timeout_ms: 5_000 },
+      agent: owner,
+    })
+    await tick()
+    aborter.abort()
+    const result = await pending
+    expect(result.isError).toBe(true)
+    expect(text(result)).toContain('job_monitor aborted')
+  })
+
+  it('rejects invalid patterns, timeouts, and foreign jobs as errored results', async () => {
+    const { ctx } = await setup()
+    ctx.jobs.start(producer().spec)
+
+    const noPattern = await call(ctx, 'job_monitor', { job_id: 'bash-1', pattern: '' })
+    expect(noPattern.isError).toBe(true)
+    expect(text(noPattern)).toContain('pattern must be a non-empty string')
+
+    const brokenRegex = await call(ctx, 'job_monitor', { job_id: 'bash-1', pattern: '(', regex: true })
+    expect(brokenRegex.isError).toBe(true)
+    expect(text(brokenRegex)).toContain('invalid regex pattern "("')
+
+    const zeroTimeout = await call(ctx, 'job_monitor', { job_id: 'bash-1', pattern: 'x', timeout_ms: 0 })
+    expect(zeroTimeout.isError).toBe(true)
+    expect(text(zeroTimeout)).toContain('timeout_ms must be a positive integer')
+
+    expect((await call(ctx, 'job_monitor', { job_id: '', pattern: 'x' })).isError).toBe(true)
+    const unknown = await call(ctx, 'job_monitor', { job_id: 'bash-99', pattern: 'x' })
+    expect(unknown.isError).toBe(true)
+    expect(text(unknown)).toContain('unknown job bash-99')
+
+    const alice = await fakeAgent(ctx, 'sess-alice')
+    ctx.jobs.start(producer({ owner: alice.id }).spec)
+    const bob = await fakeAgent(ctx, 'sess-bob')
+    const foreign = await call(ctx, 'job_monitor', { job_id: 'bash-2', pattern: 'x' }, bob)
+    expect(foreign.isError).toBe(true)
+    expect(text(foreign)).toContain('belongs to another session')
+  })
+})
+
 describe('tool-owned UI presentation (presentCall)', () => {
-  it('renders generic cards for all three control tools', async () => {
+  it('renders generic cards for all four control tools', async () => {
     const { ctx } = await setup()
     expect(ctx.tools.get('job_output')?.presentCall?.({ job_id: 'bash-1' }))
       .toEqual({ card: 'generic', title: 'Read output from background job bash-1', kind: 'read', rawInput: 'bash-1' })
+    expect(ctx.tools.get('job_monitor')?.presentCall?.({ job_id: 'bash-1', pattern: 'ready' }))
+      .toEqual({ card: 'generic', title: 'Wait for matching output from background job bash-1', kind: 'read', rawInput: 'bash-1' })
     expect(ctx.tools.get('job_list')?.presentCall?.({}))
       .toEqual({ card: 'generic', title: 'List background jobs', kind: 'read' })
     expect(ctx.tools.get('job_kill')?.presentCall?.({ job_id: 'subagent-2' }))

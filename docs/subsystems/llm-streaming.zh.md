@@ -592,6 +592,8 @@ interface LlmResolvedModelInfo extends LlmModelInfo {
   reasoning?: LlmModelReasoningInfo
   /** Declared mid-conversation system prompt handling; absent means only a leading system message is read. */
   systemPromptUpdate?: SystemPromptUpdate
+  /** Provider-declared USD price per million billed tokens when the adapter's catalog states one. */
+  cost?: LlmModelCost
 }
 ```
 
@@ -833,64 +835,74 @@ interface PreparedLlmCall {
  */
 declare abstract class LlmAdapter {
   /**
-   * Describe one provider route owned by this adapter.
-   * @param provider - a route passed to `registerAdapter()` for this instance.
-   * @returns detached display metadata whose id must equal `provider`.
-   */
+     * Describe one provider route owned by this adapter.
+     * @param provider - a route passed to `registerAdapter()` for this instance.
+     * @returns detached display metadata whose id must equal `provider`.
+     */
   providerInfo(provider: string): LlmProviderInfo;
   /**
-   * Return the provider-owned retry policy captured with this route.
-   * @param _provider - a route passed to `registerAdapter()` for this instance.
-   * @returns a resolved policy, or `undefined` to use the normal defaults.
-   */
+     * Return the provider-owned retry policy captured with this route.
+     * @param _provider - a route passed to `registerAdapter()` for this instance.
+     * @returns a resolved policy, or `undefined` to use the normal defaults.
+     */
   providerRetryPolicy(_provider: string): ResolvedRetryPolicy | undefined;
   /**
-   * Resolve provider-side request-image pricing for one exact model route.
-   * The default declares none, so consumers fall back to their own neutral
-   * estimate. Implementations must answer synchronously without I/O; the
-   * token meter resolves this per measurement.
-   * @param _provider - a route passed to `registerAdapter()` for this instance.
-   * @param _model - exact model id passed to {@link GenerateOptions.model}.
-   * @returns route-owned image pricing, or `undefined` when the route declares none.
-   */
+     * Resolve provider-side request-image pricing for one exact model route.
+     * The default declares none, so consumers fall back to their own neutral
+     * estimate. Implementations must answer synchronously without I/O; the
+     * token meter resolves this per measurement.
+     * @param _provider - a route passed to `registerAdapter()` for this instance.
+     * @param _model - exact model id passed to {@link GenerateOptions.model}.
+     * @returns route-owned image pricing, or `undefined` when the route declares none.
+     */
   imageRequestPricing(_provider: string, _model: string): LlmImageRequestPricing | undefined;
   /**
-   * List models this adapter can currently advertise for one owned provider.
-   * The result is advisory: an adapter may accept unlisted model ids, and
-   * consumers must not turn absence into request rejection.
-   * @param _provider - one provider route owned by this adapter.
-   * @returns discoverable models in adapter-preferred order.
-   */
+     * Resolve provider-declared USD prices for one exact model route. The
+     * default declares none, so consumers read the absence as unknown, never
+     * as free. Implementations must answer synchronously without I/O; the
+     * usage ledger prices every billed sample with this.
+     * @param _provider - a route passed to `registerAdapter()` for this instance.
+     * @param _model - exact model id passed to {@link GenerateOptions.model}.
+     * @returns detached route pricing, or `undefined` when the route declares none.
+     */
+  modelCost(_provider: string, _model: string): LlmModelCost | undefined;
+  /**
+     * List models this adapter can currently advertise for one owned provider.
+     * The result is advisory: an adapter may accept unlisted model ids, and
+     * consumers must not turn absence into request rejection.
+     * @param _provider - one provider route owned by this adapter.
+     * @returns discoverable models in adapter-preferred order.
+     */
   listModels(_provider: string): Promise<readonly LlmModelInfo[]>;
   /**
-   * Resolve all metadata available for one exact model. This query is
-   * independent of the advisory catalog and does not validate request routing.
-   * @param provider - one provider route owned by this adapter.
-   * @param model - exact model id passed to {@link GenerateOptions.model}.
-   * @param _signal - cancellation for this exact-model lookup; asynchronous
-   *   implementations must settle promptly after it aborts.
-   * @returns provider/model identity plus any context, call-default, and reasoning metadata.
-   */
+     * Resolve all metadata available for one exact model. This query is
+     * independent of the advisory catalog and does not validate request routing.
+     * @param provider - one provider route owned by this adapter.
+     * @param model - exact model id passed to {@link GenerateOptions.model}.
+     * @param _signal - cancellation for this exact-model lookup; asynchronous
+     *   implementations must settle promptly after it aborts.
+     * @returns provider/model identity plus any context, call-default, and reasoning metadata.
+     */
   resolveModel(
-    provider: string,
-    model: string,
-    _signal?: AbortSignal,
-  ): Promise<LlmResolvedModelInfo>;
+      provider: string,
+      model: string,
+      _signal?: AbortSignal,
+    ): Promise<LlmResolvedModelInfo>;
   /**
-   * Bind exact model metadata and the eventual request dispatch to one adapter generation.
-   * Dynamic adapters override this so settings changes between preparation and
-   * dispatch cannot combine one generation's capabilities with another's endpoint.
-   * @param provider - registered provider route.
-   * @param model - exact model id.
-   * @param signal - cancellation for model resolution.
-   * @returns model metadata and a one-generation stream entry point.
-   */
+     * Bind exact model metadata and the eventual request dispatch to one adapter generation.
+     * Dynamic adapters override this so settings changes between preparation and
+     * dispatch cannot combine one generation's capabilities with another's endpoint.
+     * @param provider - registered provider route.
+     * @param model - exact model id.
+     * @param signal - cancellation for model resolution.
+     * @returns model metadata and a one-generation stream entry point.
+     */
   async prepareCall(provider: string, model: string, signal?: AbortSignal): Promise<PreparedAdapterCall>;
   /**
-   * Stream one model call as raw chunks. The only required method.
-   * @param options - the fully-assembled request; implementations must honor `options.signal`.
-   * @returns the chunk stream, obeying the adapter contract documented on `StreamChunk`.
-   */
+     * Stream one model call as raw chunks. The only required method.
+     * @param options - the fully-assembled request; implementations must honor `options.signal`.
+     * @returns the chunk stream, obeying the adapter contract documented on `StreamChunk`.
+     */
   abstract stream(options: GenerateOptions): AsyncIterable<StreamChunk>;
 }
 ```
@@ -960,7 +972,9 @@ resolve(request: EmbeddingRequest): EmbeddingSpec
 
 /**
  * Embed one batch, serving texts the cache already holds and asking the
- * provider only for the rest.
+ * provider only for the rest. A batch a provider served with another model is
+ * cached and reported under that model, so a fallback vector is never read
+ * back as the requested model's output.
  * @param request - texts and routing fields.
  * @returns vectors in request order, with the cache and provider counts.
  */
@@ -1059,6 +1073,19 @@ providerRetryPolicy(provider: string): ResolvedRetryPolicy
  * @returns the owning adapter's image pricing for the route, when declared.
  */
 imageRequestPricing(provider: string, model: string): LlmImageRequestPricing | undefined
+
+/**
+ * Resolve provider-declared USD prices for one exact route, or `undefined`
+ * when the provider is unregistered or declares none. Unknown providers
+ * degrade to `undefined` rather than throwing because callers price durable
+ * history whose route may no longer be mounted. Detached rates reach money
+ * arithmetic, so an adapter-declared non-finite or negative value rejects
+ * here instead of poisoning a later total.
+ * @param provider - registered provider route to inspect.
+ * @param model - exact model id passed to the adapter.
+ * @returns detached route pricing for the route, when declared.
+ */
+modelCost(provider: string, model: string): LlmModelCost | undefined
 
 /**
  * Resolve the exact text one durable file occurrence contributes to every

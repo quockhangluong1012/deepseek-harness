@@ -43,6 +43,8 @@ interface HarnessConfig {
 
 async function harness(config: HarnessConfig = { maxBytes: 8192 }): Promise<Harness> {
   const dir = await realpath(await mkdtemp(join(tmpdir(), 'evc-')))
+  // Scope locks must never land in the developer's real harness home.
+  const lockDirectory = await mkdtemp(join(tmpdir(), 'dsh-evolution-memory-locks-'))
   const ctx = new Context()
   await ctx.plugin(Storage)
   ctx.storage.backend.register('memory', new MemoryStorageBackend(new MemoryMediaPool()))
@@ -50,7 +52,7 @@ async function harness(config: HarnessConfig = { maxBytes: 8192 }): Promise<Harn
   ctx.storage.mount('domain', facility)
   ctx.provide('storageDomain', facility)
   const { default: EvolutionMemoryStore } = await import('@deepseek-ai/dsh-evolution-memory')
-  await ctx.plugin(EvolutionMemoryStore, { capacityBytes: 65536 })
+  await ctx.plugin(EvolutionMemoryStore, { capacityBytes: 65536, lockDirectory })
   await ctx.plugin(SessionStore)
   const workspaces = new Map<string, { id: WorkspaceId; title: string; path: string; sessionIds: SessionId[] }>()
   ctx.provide('workspaceRegistry', {
@@ -202,15 +204,24 @@ describe('evolution-memory-context injector', () => {
       const artifactId = record.agentLessons[0]?.id
       if (artifactId === undefined) throw new Error('no artifact id')
 
+      // A confirms climbs the memory lifecycle ladder (candidate -> validated
+      // -> promoted -> stable) and stamps `lastValidatedAt`, which genuinely
+      // grows the stored record until the ladder settles at its terminal rung.
+      // Reach that rung first so the assertion below tests a confirms that
+      // truly changes nothing the brief renders.
+      await ctx.evolutionMemory.applyExtractionDecisions(id, [{ kind: 'confirms', artifactId }])
+      await ctx.evolutionMemory.applyExtractionDecisions(id, [{ kind: 'confirms', artifactId }])
+      await ctx.evolutionMemory.applyExtractionDecisions(id, [{ kind: 'confirms', artifactId }])
+
       const first = await preStep(ctx, fakeAgent(session))
       const briefs = briefsOf(first.kind === 'enter' ? first.messages : [])
       expect(briefs).toHaveLength(1)
       const digest = (briefs[0]?.source as { digest: string }).digest
       session.append('user/message', briefs[0] as UserMessage, { surfaceOp: 'append' })
 
-      // A `confirms` decision bumps the artifact's validationCount only; the
-      // rendered lesson line never changes, so the store digest moves but the
-      // brief must not.
+      // At the terminal rung, a further confirms bumps only validationCount
+      // and refreshes `lastValidatedAt` to a same-length instant: the rendered
+      // lesson line never changes, so the store digest moves but the brief must not.
       await ctx.evolutionMemory.applyExtractionDecisions(id, [{ kind: 'confirms', artifactId }])
       expect(ctx.evolutionMemory.digest(id)).not.toBe(digest)
 

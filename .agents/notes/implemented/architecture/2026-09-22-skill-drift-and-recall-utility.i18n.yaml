@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-22-skill-drift-and-recall-utility.md
-2026-09-22-skill-drift-and-recall-utility.md: 19e20db8db3dbb0b6ac9484ff348fe6e9854d616
+2026-09-22-skill-drift-and-recall-utility.md: a83feae51c95112392e6e97f496cf0d35dc6ff08
 2026-09-22-skill-drift-and-recall-utility.zh.md: 50581f29693e5e45415d73b8013eb9d522e2d619

@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-22-self-refine-critique.md
-2026-09-22-self-refine-critique.md: e89a3a81f95adcd88c3ef61641716d0ed7ffc2ed
+2026-09-22-self-refine-critique.md: 2edf04b37972e68a838da0b4b93be16a7946cc0f
 2026-09-22-self-refine-critique.zh.md: 64cbb862d6cababdd25df12189fe9762e85d4479

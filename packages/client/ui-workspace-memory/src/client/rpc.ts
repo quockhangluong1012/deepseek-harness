@@ -61,11 +61,6 @@ export interface RawVerbs {
     request: { readonly workspaceId: WorkspaceId; readonly query: string },
     signal?: AbortSignal,
   ): Promise<RemoteResult<WorkspaceMemoryContextFilesValue>>
-  /** Rebuild the document from chat history. */
-  rebuildMemory(
-    request: { readonly workspaceId: WorkspaceId },
-    signal?: AbortSignal,
-  ): Promise<RemoteResult<WorkspaceMemoryValue>>
 }
 
 /** Throwing unary verbs the page drives. */
@@ -86,8 +81,6 @@ export interface PageVerbs {
   removeContextItem(workspaceId: WorkspaceId, itemId: string): Promise<WorkspaceMemoryValue>
   /** List candidate paths for the add-file picker. */
   listContextFiles(workspaceId: WorkspaceId, query: string, signal: AbortSignal): Promise<readonly string[]>
-  /** Rebuild the document from chat history. */
-  rebuildMemory(workspaceId: WorkspaceId, signal: AbortSignal): Promise<WorkspaceMemoryValue>
 }
 
 /** The page Remote: throwing verbs plus the follow-stream transport. */
@@ -125,7 +118,6 @@ export function bindPageVerbs(remote: { readonly workspaceMemory: RawVerbs }): P
     removeContextItem: async (workspaceId, itemId) => unwrapResult(await verbs.removeContextItem({ workspaceId, itemId })),
     listContextFiles: async (workspaceId, query, signal) =>
       unwrapResult(await verbs.listContextFiles({ workspaceId, query }, signal)).paths,
-    rebuildMemory: async (workspaceId, signal) => unwrapResult(await verbs.rebuildMemory({ workspaceId }, signal)),
   }
 }
 

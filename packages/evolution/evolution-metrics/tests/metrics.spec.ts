@@ -1,4 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { mkdtemp } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import Storage from '@deepseek-ai/dsh-storage'
 import { DomainFacility } from '@deepseek-ai/dsh-storage-domain'
@@ -13,7 +16,7 @@ import type { MetricsReport } from '../src/index.ts'
 const HOUR = 3_600_000
 const T0 = Date.parse('2026-01-01T00:00:00.000Z')
 
-/** Provenance of the decision batch the memory-utility test applies. */
+/** The extraction record of the decision batch the memory-utility test applies. */
 const extraction = {
   at: new Date(T0 + HOUR).toISOString(),
   sessionId: 's-asking',
@@ -153,9 +156,9 @@ describe('metric report', () => {
     expect(value(report, 'skill-incremental-utility').unavailableReason).toContain('no-skill control')
     expect(value(report, 'skill-incremental-utility').unavailableReason)
       .toContain('a producer that scores one scenario with the skill absent')
-    expect(value(report, 'benchmark-robustness').unavailableReason).toContain('no outcome field')
+    expect(value(report, 'benchmark-robustness').unavailableReason).toContain('the benchmark store is not mounted')
     expect(value(report, 'benchmark-robustness').unavailableReason)
-      .toContain('a producer that executes a task and records whether it passed')
+      .toContain('records whether it passed')
   })
 
   it('withholds a gain the window cannot evidence, keeping the measured costs', async () => {
@@ -250,6 +253,134 @@ describe('metric report', () => {
       .toContain('carries no billed cost')
   })
 
+  it('sums every spend the window\'s own batches recorded', async () => {
+    vi.useFakeTimers()
+    const { ctx, metrics } = await boot()
+    await ctx.plugin(EvolutionMeta, {})
+    await ctx.plugin(EvolutionBudget, {})
+    // Older half: one pass in two. Newer half: two passes in two.
+    for (const [runId, hour, pass] of [['r1', 0, true], ['r2', 1, false], ['r3', 2, true], ['r4', 3, true]] as const) {
+      await recordRun(ctx, runId, hour, pass)
+      await ctx.evolutionBudget.allocate({ batchId: runId, taskClass: 'writer', candidateClass: 'standard' })
+      await ctx.evolutionBudget.spend(runId, { tokens: 100, wallTimeMs: 60_000, rollouts: 1, cost: 2 })
+    }
+    // A batch that settled twice bills both settlements.
+    await ctx.evolutionBudget.spend('r1', { tokens: 100, wallTimeMs: 60_000, rollouts: 1, cost: 3 })
+
+    const billed = value(metrics.report(), 'capability-gain-per-cost-unit')
+
+    // A gain of 1/2 over 5 + 2 + 2 + 2 cost units.
+    expect(billed.value).toBeCloseTo(0.5 / 11, 12)
+  })
+
+  it('withholds the search overhead ratio when the window holds no run', async () => {
+    const { ctx, metrics } = await boot()
+    await ctx.plugin(EvolutionBudget, {})
+
+    expect(value(metrics.report(), 'compute-overhead-ratio').unavailableReason)
+      .toBe('the window holds no run to compare a spend against')
+  })
+
+  it('names the store failure recurrence needs to name its sessions', async () => {
+    const { ctx, metrics } = await boot()
+    ctx.provide('evolutionFeedback', { signals: () => [] } as never)
+
+    expect(value(metrics.report(), 'failure-recurrence').unavailableReason)
+      .toBe('the skill telemetry store that names the sessions is not mounted')
+  })
+
+  it('names the missing session when no skill load recorded one', async () => {
+    const { ctx, metrics } = await boot()
+    ctx.provide('evolutionFeedback', { signals: () => [] } as never)
+    ctx.provide('evolutionSkillTelemetry', { entries: () => [] } as never)
+
+    expect(value(metrics.report(), 'failure-recurrence').unavailableReason)
+      .toBe('no skill load recorded a session, so there is no session to aggregate over')
+  })
+
+  it('names the empty denominator a measured gain was divided by', async () => {
+    vi.useFakeTimers()
+    const { ctx, metrics } = await boot()
+    await ctx.plugin(EvolutionMeta, {})
+    await ctx.plugin(EvolutionBudget, {})
+    // Older half: one pass in two. Newer half: two in two, over runs that
+    // recorded neither tokens nor wall time.
+    for (const [runId, hour, pass] of [['r1', 0, true], ['r2', 1, false], ['r3', 2, true], ['r4', 3, true]] as const) {
+      await recordRun(ctx, runId, hour, pass, 0, 0)
+    }
+    await ctx.evolutionBudget.allocate({ batchId: 'r1', taskClass: 'writer', candidateClass: 'standard' })
+    await ctx.evolutionBudget.spend('r1', { tokens: 100, wallTimeMs: 10, rollouts: 1 })
+
+    const report = metrics.report()
+
+    expect(value(report, 'capability-gain-per-million-tokens').unavailableReason).toBe('the window spent no tokens')
+    expect(value(report, 'capability-gain-per-compute-hour').unavailableReason).toBe('the window recorded no wall time')
+    expect(value(report, 'compute-overhead-ratio').unavailableReason)
+      .toBe('the runs in the window recorded no tokens to compare the spend against')
+    // The gain is evidenced, so the cost denominator reports its own gap.
+    expect(value(report, 'capability-gain-per-cost-unit').unavailableReason)
+      .toContain('carries no billed cost')
+  })
+
+  it('names a window whose billed cost is zero', async () => {
+    vi.useFakeTimers()
+    const { ctx, metrics } = await boot()
+    await ctx.plugin(EvolutionMeta, {})
+    await ctx.plugin(EvolutionBudget, {})
+    for (const [runId, hour, pass] of [['r1', 0, true], ['r2', 1, false], ['r3', 2, true], ['r4', 3, true]] as const) {
+      await recordRun(ctx, runId, hour, pass)
+      await ctx.evolutionBudget.allocate({ batchId: runId, taskClass: 'writer', candidateClass: 'standard' })
+      await ctx.evolutionBudget.spend(runId, { tokens: 100, wallTimeMs: 60_000, rollouts: 1, cost: 0 })
+    }
+
+    expect(value(metrics.report(), 'capability-gain-per-cost-unit').unavailableReason)
+      .toBe('the window\'s runs recorded no billed cost')
+  })
+
+  it('names the span when every run of the window shares one recorded instant', async () => {
+    vi.useFakeTimers()
+    const { ctx, metrics } = await boot()
+    await ctx.plugin(EvolutionMeta, {})
+    await recordRun(ctx, 'r1', 0, true)
+    await recordRun(ctx, 'r2', 0, false)
+    await recordRun(ctx, 'r3', 0, true)
+    await recordRun(ctx, 'r4', 0, true)
+
+    expect(value(metrics.report(), 'learning-velocity').unavailableReason)
+      .toBe('every run in the window shares one recorded instant, so no span elapsed')
+  })
+
+  it('names the empty table each supporting metric reads', async () => {
+    const { ctx, metrics } = await boot()
+    ctx.provide('evolutionCanary', {
+      summary: () => ({ total: 0, byState: { shadow: 0, canary: 0, promoted: 0, 'rolled-back': 0, rejected: 0 } }),
+    } as never)
+    ctx.provide('evolutionLineage', { experiments: () => [] } as never)
+    ctx.provide('evolutionEvaluatorHealth', {
+      summary: () => ({
+        runs: 0,
+        unanimousRate: 0,
+        approvalRate: 0,
+        recentApprovalRate: 0,
+        drift: 0,
+        falsePositiveRate: 0,
+        channels: [],
+      }),
+    } as never)
+    ctx.provide('evolutionSkillTelemetry', {
+      entries: () => [{ name: 'writer', usage: { sessionIds: ['s1'] } }],
+    } as never)
+    ctx.provide('evolutionFeedback', { signals: () => [] } as never)
+
+    const report = metrics.report()
+
+    expect(value(report, 'promotion-quality').unavailableReason).toBe('no experiment is recorded')
+    expect(value(report, 'rollback-rate').unavailableReason).toBe('no deployment reached a terminal decision yet')
+    expect(value(report, 'evaluator-reliability').unavailableReason).toBe('no evaluator verdict is recorded')
+    expect(value(report, 'failure-recurrence').unavailableReason)
+      .toBe('every recorded session loads with no failing tool result')
+  })
+
   it('reads the supporting metrics from the stores that own them', async () => {
     const { ctx, metrics } = await boot()
     ctx.provide('evolutionCanary', {
@@ -297,7 +428,9 @@ describe('metric report', () => {
   it('reports memory utility from the recall ledger, and names the missing record without one', async () => {
     vi.useFakeTimers()
     const { ctx, metrics } = await boot()
-    await ctx.plugin(EvolutionMemoryStore, { capacityBytes: 65536 })
+    // Scope locks must never land in the developer's real harness home.
+    const lockDirectory = await mkdtemp(join(tmpdir(), 'dsh-evolution-memory-locks-'))
+    await ctx.plugin(EvolutionMemoryStore, { capacityBytes: 65536, lockDirectory })
 
     // Nothing recalled yet: the reading names the record it is missing.
     const empty = value(metrics.report(), 'memory-utility')

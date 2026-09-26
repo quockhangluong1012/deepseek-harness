@@ -15,6 +15,21 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { registerPresentOpen } from '../src/present-open.ts'
 import { presentedFileUrl, PRESENT_OPEN_PATH } from '../src/presented.ts'
 
+// Windows grants SeCreateSymbolicLinkPrivilege only to elevated or
+// developer-mode processes, so a file symlink there fails with EPERM. Probe the
+// capability rather than the OS; the file-link case skips where it is absent.
+const fileSymlinks = await mkdtemp(join(tmpdir(), 'dsh-symlink-probe-')).then(async (probeDir) => {
+  try {
+    await writeFile(join(probeDir, 'target'), '')
+    await symlink(join(probeDir, 'target'), join(probeDir, 'link'))
+    return true
+  } catch {
+    return false
+  } finally {
+    await rm(probeDir, { recursive: true, force: true })
+  }
+})
+
 const cleanups: Array<() => Promise<unknown>> = []
 afterEach(async () => {
   for (const cleanup of cleanups.reverse()) await cleanup()
@@ -129,7 +144,18 @@ describe('Presented workspace file native open route', () => {
     expect(opener).not.toHaveBeenCalled()
   })
 
-  it('opens external regular files through absolute and relative paths but refuses final symlinks', async () => {
+  it('opens external regular files through absolute and relative paths', async () => {
+    const { root, file, open, opener } = await fixture()
+    const outside = join(root, 'outside.txt')
+    await writeFile(outside, 'outside')
+    for (const path of ['../outside.txt', outside]) {
+      file.path = path
+      expect((await open()).status).toBe(204)
+      expect(opener.mock.lastCall?.[0].path).toBe(await realpath(outside))
+    }
+  })
+
+  it.skipIf(!fileSymlinks)('refuses a final symlink to a regular file', async () => {
     const { root, cwd, file, open, opener } = await fixture()
     const outside = join(root, 'outside.txt')
     await writeFile(outside, 'outside')
@@ -138,11 +164,6 @@ describe('Presented workspace file native open route', () => {
     await symlink(outside, source)
     expect((await open()).status).toBe(404)
     expect(opener).not.toHaveBeenCalled()
-    for (const path of ['../outside.txt', outside]) {
-      file.path = path
-      expect((await open()).status).toBe(204)
-      expect(opener.mock.lastCall?.[0].path).toBe(await realpath(outside))
-    }
   })
 
   it('reports query and launcher failures without leaking Host paths and allows retry', async () => {

@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
+import { MINED_TASK } from '@deepseek-ai/dsh-evolution-benchmark'
 import type { BenchmarkTask } from '@deepseek-ai/dsh-evolution-benchmark'
 import type { FeedbackSignal } from '@deepseek-ai/dsh-evolution-feedback'
-import type { Claim } from '@deepseek-ai/dsh-evolution-graph'
-import type { StagedWrite } from '@deepseek-ai/dsh-evolution-memory'
+import type { LessonArtifact, LessonLifecycle, StagedWrite } from '@deepseek-ai/dsh-evolution-memory'
 import { EvolutionScopeId } from '@deepseek-ai/dsh-evolution-memory'
 import type { SkillUsageRecord } from '@deepseek-ai/dsh-evolution-skill-telemetry'
 import {
@@ -39,25 +39,19 @@ function staged(createdAt: string, id = 'staged-1'): StagedWrite {
   }
 }
 
-/** One claim with the belief fields the graph derives. */
-function claim(contradictionCount: number, id = 'claim-1'): Claim {
+/** One lesson artifact, contradicted by `refutationCount` refutations. */
+function artifact(refutationCount: number, id = 'claim-1', lifecycle?: LessonLifecycle): LessonArtifact {
   return {
     id,
     statement: 'the build is green',
-    status: 'active',
-    retiredBy: null,
+    source: 's1',
+    conditions: '',
+    evidence: 'inference',
     confidence: 0.5,
-    evidenceQuality: 1,
-    sourceReliability: 1,
-    independentSupport: 1,
-    contradictionCount,
-    recency: '2026-09-20T00:00:00.000Z',
-    supportedBy: [],
-    contradictedBy: [],
-    observedIn: [],
-    supersedes: [],
-    derivedFrom: [],
-    usedBy: [],
+    validationCount: 0,
+    refutationCount,
+    scope: 'project',
+    lifecycle,
     createdAt: '2026-09-20T00:00:00.000Z',
     updatedAt: '2026-09-20T00:00:00.000Z',
   }
@@ -117,6 +111,7 @@ function task(capability: string, state: BenchmarkTask['state']): BenchmarkTask 
     task: `probe ${capability}`,
     gists: ['boom'],
     sourceSessions: ['s1'],
+    ...MINED_TASK,
     at: '2026-09-20T00:00:00.000Z',
     state,
   }
@@ -136,7 +131,6 @@ function evidence(overrides: Partial<NudgeEvidence> = {}): NudgeEvidence {
 function deps(overrides: Partial<NudgeDeps> = {}): NudgeDeps {
   return {
     record: undefined,
-    graph: undefined,
     feedback: undefined,
     telemetry: undefined,
     benchmark: undefined,
@@ -155,13 +149,11 @@ describe('recorded nudge conditions', () => {
       'memory', 'memory', 'skills', 'skills', 'skills',
     ])
     expect(NUDGE_CONDITIONS.map(entry => entry.store)).toEqual([
-      'evolutionMemory', 'evolutionGraph', 'evolutionSkillTelemetry', 'evolutionFeedback', 'evolutionBenchmark',
+      'evolutionMemory', 'evolutionMemory', 'evolutionSkillTelemetry', 'evolutionFeedback', 'evolutionBenchmark',
     ])
   })
 
   it('names the unmounted store rather than guessing', () => {
-    expect(unevaluableLine(condition('contradicted-claims')))
-      .toBe('contradicted claims cannot be checked: the evolutionGraph store is not mounted.')
     expect(unevaluableLine(condition('skill-trust')))
       .toBe('skill trust cannot be checked: the evolutionSkillTelemetry store is not mounted.')
   })
@@ -180,11 +172,15 @@ describe('recorded nudge conditions', () => {
 
   it('renders contradicted claims and stays quiet while none is', () => {
     expect(contradictedClaimLine([])).toBeUndefined()
-    expect(contradictedClaimLine([claim(0)])).toBeUndefined()
-    expect(contradictedClaimLine([claim(2), claim(0, 'claim-2')]))
+    // A fresh unconfirmed candidate is not yet a contradiction.
+    expect(contradictedClaimLine([artifact(0)])).toBeUndefined()
+    expect(contradictedClaimLine([artifact(0, 'claim-1', 'candidate')])).toBeUndefined()
+    expect(contradictedClaimLine([artifact(2), artifact(0, 'claim-2')]))
       .toBe('Contradicted claims: 1 active claim with contradicting evidence; run /claims.')
-    expect(contradictedClaimLine([claim(1), claim(1, 'claim-2')]))
+    expect(contradictedClaimLine([artifact(1), artifact(1, 'claim-2')]))
       .toBe('Contradicted claims: 2 active claims with contradicting evidence; run /claims.')
+    // A corrected or invalidated fact carries no live refutation to report.
+    expect(contradictedClaimLine([artifact(0, 'claim-1', 'invalidated')])).toBeUndefined()
   })
 
   it('renders failure signals the store graded decisive', () => {
@@ -219,22 +215,23 @@ describe('recorded nudge conditions', () => {
       record: { staged: [staged('2026-09-01T00:00:00.000Z')] } as never,
     }))).toBeUndefined()
     expect(NUDGE_EVALUATORS['contradicted-claims'](condition('contradicted-claims'), noScope, deps({
-      graph: { claims: () => [claim(1)] } as never,
+      record: { agentLessons: [artifact(1)] } as never,
     }))).toBeUndefined()
   })
 
-  it('reads the scope record and the graph for the memory conditions', () => {
-    const read: EvolutionScopeId[] = []
-    const record = { staged: [staged('2026-09-01T00:00:00.000Z')] }
+  it('reads both memory conditions from the scope record', () => {
+    const record = {
+      staged: [staged('2026-09-01T00:00:00.000Z')],
+      agentLessons: [artifact(1)],
+    }
     expect(NUDGE_EVALUATORS['staged-writes'](condition('staged-writes'), evidence(), deps({
       record: record as never,
       stagedWriteWaitMinutes: 60,
     }))).toContain('1 pending')
     expect(NUDGE_EVALUATORS['staged-writes'](condition('staged-writes'), evidence(), deps())).toBeUndefined()
     expect(NUDGE_EVALUATORS['contradicted-claims'](condition('contradicted-claims'), evidence(), deps({
-      graph: { claims: (scope: EvolutionScopeId) => { read.push(scope); return [claim(1)] } } as never,
+      record: record as never,
     }))).toContain('1 active')
-    expect(read).toEqual([SCOPE])
   })
 
   it('reads each skill condition from its own store and names the unmounted one', () => {

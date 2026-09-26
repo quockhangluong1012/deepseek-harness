@@ -4,14 +4,15 @@
  * previews and first-run deferral, over the `evolution_curator` domain, plus
  * opt-in LLM consolidation of agent-created skills.
  *
- * The plugin is mounted once per host and owns the maintenance schedule
- * itself: it observes host-wide session activity, runs one start-time
- * due-check, and then ticks every `tickMinutes`, running a pass only when the
- * interval elapsed and enough idleness was observed. A pass examines every
- * tracked skill and moves idle ones along, skipping pinned skills, protected
- * names, and bundled or hub sources. The idle-gated entry seeds the
- * bookkeeping on its first call and defers one interval. Stored objects never
- * leak by reference.
+ * The plugin is mounted once per host and hands its maintenance cadence to
+ * `ctx.evolutionHeartbeat` when that engine is mounted: one registered task
+ * runs a pass on the engine's host-wide schedule under the configured
+ * `intervalHours` and `minIdleHours`, and disposes with the plugin. Without
+ * the engine, and on demand, `maybeRun` and `run` run the same pass. A pass
+ * examines every tracked skill and moves idle ones along, skipping pinned
+ * skills, protected names, and bundled or hub sources. The idle-gated entry
+ * seeds the bookkeeping on its first call and defers one interval. Stored
+ * objects never leak by reference.
  * @module @deepseek-ai/dsh-evolution-curator
  */
 
@@ -25,6 +26,7 @@ import type {} from '@deepseek-ai/dsh-skill'
 import type {} from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-evolution-model-routes'
+import { openCeiling } from '@deepseek-ai/dsh-evolution-budget'
 import type { DutyDecision, DutyInput, DutyRecord, DutyVerdict } from '@deepseek-ai/dsh-evolution-model-routes'
 import type { FeedbackSignal } from '@deepseek-ai/dsh-evolution-feedback'
 import { deadline } from '@deepseek-ai/dsh-timeout'
@@ -107,6 +109,9 @@ declare module '@deepseek-ai/cordis' {
 /** Single bookkeeping key in the `meta` table. */
 const STATE_KEY = 'state'
 
+/** Identity this plugin registers its maintenance pass under in `ctx.evolutionHeartbeat`. */
+export const CURATION_TASK_NAME = 'skill-curation'
+
 /**
  * The identity one regression debt merges under: its skill and its failure.
  * Skill names are kebab-case without whitespace, so no merge key — which
@@ -165,8 +170,6 @@ export interface Config {
   intervalHours?: number
   /** Minimum observed idle hours before a pass runs. */
   minIdleHours?: number
-  /** Minutes between host-wide due-checks. */
-  tickMinutes?: number
   /** Idle days moving `active` to `stale`. */
   staleAfterDays?: number
   /** Idle days moving `stale` to `archived`. */
@@ -240,7 +243,6 @@ export const Config: z<Config> = z.object({
   enabled: z.boolean().default(true),
   intervalHours: z.number().step(1).min(1).default(168),
   minIdleHours: z.number().step(1).min(0).default(2),
-  tickMinutes: z.number().step(1).min(1).default(15),
   staleAfterDays: z.number().step(1).min(1).default(30),
   archiveAfterDays: z.number().step(1).min(1).default(90),
   staleTrustFailureFloor: z.number().step(1).min(1).default(3),
@@ -273,7 +275,6 @@ export interface ResolvedConfig {
   enabled: boolean
   intervalHours: number
   minIdleHours: number
-  tickMinutes: number
   staleAfterDays: number
   archiveAfterDays: number
   staleTrustFailureFloor: number
@@ -314,7 +315,6 @@ export function resolveConfig(config: Config): ResolvedConfig {
     enabled = true,
     intervalHours = 168,
     minIdleHours = 2,
-    tickMinutes = 15,
     staleAfterDays = 30,
     archiveAfterDays = 90,
     staleTrustFailureFloor = 3,
@@ -351,7 +351,6 @@ export function resolveConfig(config: Config): ResolvedConfig {
     enabled,
     intervalHours,
     minIdleHours,
-    tickMinutes,
     staleAfterDays,
     archiveAfterDays,
     staleTrustFailureFloor,
@@ -534,6 +533,37 @@ function isLineageSeam(value: unknown): value is LineageSeam {
 }
 
 /**
+ * The slice of `ctx.evolutionHeartbeat` this plugin registers with. Declared
+ * structurally rather than imported so the curator keeps no dependency on the
+ * heartbeat package: the engine is optional infrastructure, and the curator
+ * must work — with `maybeRun` and `run` callable directly — when nothing
+ * mounts one.
+ */
+interface HeartbeatSeam {
+  /**
+   * Register one periodic task.
+   * @param task - identity, cadence, and the work to run.
+   * @returns the disposer removing the task.
+   */
+  register(task: {
+    name: string
+    intervalHours: number
+    minIdleHours?: number
+    run: (signal: AbortSignal) => Promise<void> | void
+  }): () => void
+}
+
+/**
+ * Whether a context value offers the heartbeat seam this plugin calls.
+ * Absent and foreign values answer false instead of throwing.
+ * @param value - the value read from `ctx.get('evolutionHeartbeat')`.
+ * @returns whether the value can register a task.
+ */
+function isHeartbeatSeam(value: unknown): value is HeartbeatSeam {
+  return typeof Reflect.get(Object(value), 'register') === 'function'
+}
+
+/**
  * Idle-triggered automatic skill lifecycle curator. Opens the
  * `evolution_curator` domain at init and closes it through `ctx.effect`.
  * Transitions apply through skill telemetry, which stays optional: without
@@ -565,12 +595,13 @@ export class EvolutionCurator extends Service {
   }
 
   /**
-   * Open the domain, observe host-wide activity, and own the maintenance
-   * schedule. No consumer can trigger a pass before this method's
-   * `ctx.provide` takes effect, so the start-time due-check runs
-   * fire-and-forget, matching the interval tick, and plugin startup never
-   * waits on a background pass. Teardown stops the timer, aborts active
-   * consolidation, awaits in-flight passes, then closes the domain.
+   * Open the domain and observe host-wide activity, so `maybeRun`'s idle gate
+   * and the heartbeat registration are in place before any consumer calls in.
+   * The schedule itself belongs to `ctx.evolutionHeartbeat`: this method
+   * registers one task and never waits for a pass, so plugin startup never
+   * waits for a background maintenance pass. Teardown removes the task,
+   * aborts active consolidation, awaits in-flight passes, then closes the
+   * domain.
    */
   protected async [Service.init](): Promise<void> {
     const domain = await this.ctx.storageDomain.open(curatorDomainSpec)
@@ -580,22 +611,22 @@ export class EvolutionCurator extends Service {
     this.ctx.on('session/event', () => {
       this.lastActivityAt = Date.now()
     })
-    const timer: { handle?: ReturnType<typeof setInterval> } = {}
     this.ctx.effect(() => async () => {
-      clearInterval(timer.handle)
       await this.drain()
       await domain.close()
     }, 'evolution-curator.lifecycle')
     if (!this.resolved.enabled) return
-    const runScheduledPass = (): void => {
-      void this.maybeRun().catch((error: unknown) => {
-        this.ctx.logger.warn(`evolution curator scheduled pass failed: ${String(error)}`)
-      })
-    }
-    runScheduledPass()
-    const handle = setInterval(runScheduledPass, this.resolved.tickMinutes * 60_000)
-    timer.handle = handle
-    handle.unref()
+    const heartbeat: unknown = this.ctx.get('evolutionHeartbeat')
+    if (!isHeartbeatSeam(heartbeat)) return
+    this.ctx.effect(
+      () => heartbeat.register({
+        name: CURATION_TASK_NAME,
+        intervalHours: this.resolved.intervalHours,
+        minIdleHours: this.resolved.minIdleHours,
+        run: async () => { await this.run() },
+      }),
+      'evolution-curator.heartbeatTask',
+    )
   }
 
   /**
@@ -766,7 +797,9 @@ export class EvolutionCurator extends Service {
    * and enough idleness was observed. The first call only seeds the
    * bookkeeping and defers one interval. Idleness defaults to the newest
    * host-wide session activity this process observed; before any activity is
-   * observed the host counts as idle.
+   * observed the host counts as idle. The registered heartbeat task calls
+   * `run` directly instead: the engine already applies the same interval and
+   * idle gates, so the cadence lives in one place.
    * @param options - clock and idleness overrides plus the dry-run flag.
    * @returns the pass report, or undefined when this call defers.
    * @throws when teardown has begun.
@@ -835,14 +868,17 @@ export class EvolutionCurator extends Service {
   /**
    * Run one opt-in LLM consolidation over the agent-created skills this
    * curator tracks. Returns undefined when consolidation is off, when the
-   * seam is unmounted, or when no candidate awaits a verdict. A cost row
-   * reaches the ledger before the fork starts; the fork runs as a bounded
-   * in-package tool loop over `ctx.llm`. With `requireConsolidationReview`
-   * off, the returned verdicts apply under the full-package rule and land in
-   * the same snapshot, ledger, and rollback machinery as an automatic pass.
-   * With it on, the verdicts are withheld and the report's `awaitingReview`
-   * names the recorded proposer identity; `applyPendingConsolidation` commits
-   * them under a distinct reviewing identity.
+   * seam is unmounted, when no candidate awaits a verdict, or when the
+   * evolution-budget ceiling refused the fork. A cost row reaches the ledger
+   * before the fork starts; the fork runs as a bounded in-package tool loop
+   * over `ctx.llm`, and its tokens and wall time settle against the daily and
+   * weekly ceiling batches `openCeiling` opened. With
+   * `requireConsolidationReview` off, the returned verdicts apply under the
+   * full-package rule and land in the same snapshot, ledger, and rollback
+   * machinery as an automatic pass. With it on, the verdicts are withheld and
+   * the report's `awaitingReview` names the recorded proposer identity;
+   * `applyPendingConsolidation` commits them under a distinct reviewing
+   * identity.
    * @param options - clock override and the proposer identity to record.
    * @returns the consolidation report, or undefined when no run happened.
    * @throws when teardown has begun, or when review is required but the
@@ -875,6 +911,14 @@ export class EvolutionCurator extends Service {
       const dir = resolveBackupDir(summaries, summary.name)
       if (dir !== undefined) dirs.set(summary.name, dir)
     }
+    // The fork is a background model call like the optimizer's scoring runs, so
+    // it opens the deployment's own daily and weekly evolution-budget ceiling
+    // before the cost row or the model request is written: a spent ceiling
+    // refuses the pass and nothing is spent. `openCeiling` logs the reason, so
+    // the scheduled pass is visibly left for want of budget, not dropped.
+    const opening = await openCeiling(this.ctx, 'evolution-curator', 'consolidation', new Date())
+    if (opening.kind === 'refused') return undefined
+    const startedAt = Date.now()
     const framed = frameConsolidationInput(survey.candidates, this.resolved.maxInputBytes)
     const cost = {
       inputBytes: framed.inputBytes,
@@ -907,9 +951,10 @@ export class EvolutionCurator extends Service {
     const controller = new AbortController()
     this.active.add(controller)
     let steps: number
+    let tokens = 0
     try {
       using callDeadline = deadline(controller.signal, this.resolved.timeoutMs, EVOLUTION_CONSOLIDATE_TIMEOUT)
-      steps = await runConsolidationFork({
+      const run = await runConsolidationFork({
         stream: request => llm.stream(request),
         execute: (name, args) => executeConsolidationTool({ candidates, dirs, verdicts }, name, args),
       }, {
@@ -920,8 +965,14 @@ export class EvolutionCurator extends Service {
         input: framed.text,
         signal: callDeadline.signal,
       })
+      steps = run.steps
+      tokens = run.tokens
     } finally {
       this.active.delete(controller)
+    }
+    if (opening.kind === 'open') {
+      const spend = { tokens, wallTimeMs: Date.now() - startedAt, rollouts: 0 }
+      for (const batchId of opening.batchIds) await opening.budget.spend(batchId, spend)
     }
     if (this.resolved.requireConsolidationReview) {
       const duties = this.ctx.get('evolutionModelRoutes') as DutyStore | undefined
@@ -1193,7 +1244,7 @@ export class EvolutionCurator extends Service {
    * Adopt one agent-created skill into user-directed standing, recording the
    * movement in the ledger. Manual only: clocks never reset.
    * @param name - skill name.
-   * @returns the stored record with user-directed provenance.
+   * @returns the stored record with a user-directed creation record.
    */
   async adopt(name: string): Promise<SkillUsageRecord> {
     const telemetry = this.ctx.get('evolutionSkillTelemetry')
@@ -1553,7 +1604,9 @@ export class EvolutionCurator extends Service {
     if (telemetry === undefined) throw new Error('evolution-curator: applying a consolidation requires the skill telemetry store')
     const names = new Set(pending.verdicts.map(row => row.name))
     const survey = await this.surveyCandidates()
-    const candidates = new Map(survey.candidates.filter(candidate => names.has(candidate.name)).map(candidate => [candidate.name, candidate] as const))
+    const candidates = new Map(survey.candidates
+      .filter(candidate => names.has(candidate.name))
+      .map(candidate => [candidate.name, candidate] as const))
     const summaries = await this.ctx.skills.list()
     const dirs = new Map<string, string>()
     for (const summary of summaries) {

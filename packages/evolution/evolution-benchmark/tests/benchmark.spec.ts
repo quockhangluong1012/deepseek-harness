@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
+import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
+import TokenMeter from '@deepseek-ai/dsh-token-meter'
 import Storage from '@deepseek-ai/dsh-storage'
 import { DomainFacility } from '@deepseek-ai/dsh-storage-domain'
 import { MemoryMediaPool, MemoryStorageBackend } from '../../../storage/storage-domain/tests/helpers/memory-backend.ts'
-import EvolutionBenchmark, { resolveConfig } from '../src/index.ts'
+import EvolutionBenchmark, { MINED_TASK, resolveConfig } from '../src/index.ts'
 import type { BenchmarkInput } from '../src/index.ts'
 
 async function boot(config: Record<string, unknown> = {}) {
@@ -13,6 +15,8 @@ async function boot(config: Record<string, unknown> = {}) {
   const facility = new DomainFacility(ctx, { backend: 'memory', routes: {} })
   ctx.storage.mount('domain', facility)
   ctx.provide('storageDomain', facility)
+  new SessionProjectionRegistry(ctx)
+  new TokenMeter(ctx)
   const fiber = await ctx.plugin(EvolutionBenchmark, config)
   return { ctx, fiber, store: ctx.evolutionBenchmark }
 }
@@ -22,12 +26,14 @@ const input = (task: string, capability = 'writer'): BenchmarkInput => ({
   task,
   gists: ['boom'],
   sourceSessions: ['s1'],
+  ...MINED_TASK,
 })
 
 describe('evolution benchmark', () => {
-  it('resolves the admission bound', () => {
-    expect(resolveConfig({})).toEqual({ maxAdmit: 20 })
-    expect(resolveConfig({ maxAdmit: 3 })).toEqual({ maxAdmit: 3 })
+  it('resolves the admission and run bounds', () => {
+    expect(resolveConfig({})).toEqual({ maxAdmit: 20, maxTasks: 20, attempts: 1 })
+    expect(resolveConfig({ maxAdmit: 3 })).toEqual({ maxAdmit: 3, maxTasks: 20, attempts: 1 })
+    expect(resolveConfig({ maxTasks: 5, attempts: 3 })).toEqual({ maxAdmit: 20, maxTasks: 5, attempts: 3 })
   })
 
   it('admits fresh tasks with content addresses and reports duplicates', async () => {

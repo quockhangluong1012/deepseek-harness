@@ -18,11 +18,11 @@ export type DreamPhase = 'light' | 'rem' | 'deep'
  * beside the message; `unattributed` is an episodic note, which the memory
  * store records as text with a day and nothing that identifies its author.
  */
-export type DreamProvenance = 'attributed' | 'unattributed'
+export type DreamAttribution = 'attributed' | 'unattributed'
 
 /** The gate that refused a candidate the durable promotion path. */
 export type DreamRefusalReason =
-  | 'unattributed-provenance'
+  | 'unattributed-sighting'
   | 'below-score'
   | 'below-recall'
   | 'below-diversity'
@@ -44,13 +44,13 @@ export interface DreamCandidate {
   /** ISO-8601 instant of the most recent observation. */
   lastAt: string
   /** Where its sightings came from; `attributed` if any one of them was observed. */
-  provenance: DreamProvenance
+  attribution: DreamAttribution
 }
 
 /** The evidence the promotion gate judged, recorded on the narrative it admitted. */
 export interface DreamPromotionEvidence {
-  /** Provenance of the candidate the gate admitted. */
-  provenance: DreamProvenance
+  /** Attribution of the candidate the gate admitted. */
+  attribution: DreamAttribution
   /** Sightings the candidate carried when it was admitted. */
   count: number
   /** Distinct sessions the candidate carried when it was admitted. */
@@ -71,7 +71,7 @@ export interface DreamPromotion {
   signals: DreamSignals
   /** ISO-8601 instant of promotion. */
   promotedAt: string
-  /** Provenance and counts the gate judged when it admitted this narrative. */
+  /** Attribution and counts the gate judged when it admitted this narrative. */
   evidence: DreamPromotionEvidence
   /** Statements folded into this one, oldest fold first, bounded by `maxRestatements`. */
   restatements: readonly string[]

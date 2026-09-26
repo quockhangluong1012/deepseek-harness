@@ -22,14 +22,16 @@ This table connects model-visible tool names to the plugin package and service s
 | `@deepseek-ai/dsh-tools` | `run_code` | `ctx.tools`, `ctx.ptcRuntime (execution time)`, `ctx.systemPrompt` | `tool/call`, `one tool/ptc-dispatch-start + tool/ptc-dispatch pair per bridged sub-call`, `tool/result` | - | Owned by the tool registry as a reserved transport outside filterable capability layers under `mode: ptc` / `mode: both` (see the PTC mode Agent Note). Under `ptc` it is the registry's only wire contribution; the other visible capabilities are declared in a generated SDK section in the loaded runtime's language, and a program calls them through bindings scheduled under the native concurrency contract (submission-ordered starts and policy; concurrency-safe bodies overlap up to `maxParallelSubCalls`) that re-enter the complete guarded tool pipeline and link each nested execution to this outer result. |
 | `@deepseek-ai/dsh-plan-mode` | `exit_plan_mode` | `ctx.tools`, `ctx.systemPrompt`, `ctx.userQuestions (execution time, opportunistic)` | `tool/call`, `plan/mode inactive on an approved review`, `tool/result` | - | exit_plan_mode stays in the model-facing schema while planning is inactive so transitions add no tool-catalog churn on top of the plan-policy change. Its execute path rejects calls outside plan mode; in plan mode it presents the plan over the user-questions seam (approve / keep planning with feedback), and approval logs plan mode inactive at the step boundary. |
 | `@deepseek-ai/dsh-tool-bash` | `bash` | `ctx.tools`, `ctx.shell`, `ctx.systemPrompt`, `ctx.shellEnv`, `ctx.jobs for run_in_background and the job-backed foreground path` | `tool/call`, `tool/result` | - | The bash tool is the model-facing consumer of the bash executor seam. With a job registry composed every call registers with the generic `ctx.jobs` runtime as it starts, collected/stopped through the `job_*` tools from `@deepseek-ai/dsh-tool-jobs`; without one, or with `enableRunInBackground: false`, the tool registers a foreground-only schema without the `run_in_background` parameter. |
+| `@deepseek-ai/dsh-tool-changes` | `turn_changes`, `turn_diff` | `ctx.tools`, `ctx.workspaceChanges` | `tool/call`, `tool/result` | - | Both tools read the per-turn change records `@deepseek-ai/dsh-workspace-changes` keeps for the calling Session in this Host process; a deployment without that package records nothing, so neither tool has a turn to report. |
 | `@deepseek-ai/dsh-tool-present` | `present` | `ctx.tools`, `ctx.fs`, `ctx.sessionProjections` | `tool/call`, `deliverables/presented after a successful final result`, `tool/result` | - | Deliveries belong to the calling Session; Web ui-deliverables supplies source-file opening and cards. |
 | `@deepseek-ai/dsh-tool-pwsh` | `pwsh` | `ctx.tools`, `ctx.shell`, `ctx.systemPrompt`, `ctx.shellEnv`, `ctx.jobs for run_in_background and the job-backed foreground path` | `tool/call`, `tool/result` | - | The pwsh tool is the PowerShell-dialect consumer of the shell executor seam for Windows compositions (a PowerShell executor such as `@deepseek-ai/dsh-pwsh-local` backs `ctx.shell`); it mirrors the bash tool call-for-call including full sandbox-escalation (`sandbox_permissions` + `justification` resolved through `ctx.approval`) — `run_in_background` runs register with the generic `ctx.jobs` runtime and are collected/stopped through the `job_*` tools, and the managed `DSH_*` environment comes from `@deepseek-ai/dsh-shell-env`. Each call runs in a fresh process (no persistent PTY session), with native `C:\...` paths and `$env:NAME` variables. |
 | `@deepseek-ai/dsh-tool-cordis` | `cordis_inspect_list`, `cordis_inspect_query` | `ctx.tools`, `ctx.cordisInspect` | `tool/call`, `tool/result` | - | Creator mode provides two read-only runtime inspection tools. The Cordis host runner supplies the inspection registry; Client queries require a connected page. Author persistent changes as bundles and install them with plugin_manager. |
 | `@deepseek-ai/dsh-tool-bash-persistent` | `bash` | `ctx.tools`, `ctx.terminals`, `an owning Agent at execution time` | `tool/call`, `PTY shell state`, `tool/result` | - | One owner-isolated persistent bash tool; deployment composition supplies the PTY backend and may override the model-facing environment description. |
 | `@deepseek-ai/dsh-tool-pwsh-persistent` | `pwsh` | `ctx.tools`, `ctx.terminals`, `an owning Agent at execution time` | `tool/call`, `PTY shell state`, `tool/result` | - | One owner-isolated persistent pwsh tool, the Windows counterpart of the persistent bash tool; deployment composition supplies a pwsh-dialect PTY backend and may override the model-facing environment description. |
 | `@deepseek-ai/dsh-tool-str-replace-editor` | `str_replace_editor` | `ctx.tools`, `ctx.fs` | `tool/call`, `fs/observed after view presence/absence, edit absence, or successful mutation`, `tool/result` | - | Standalone view/create/unique literal replace/line insert tool over the filesystem seam; it composes with any shell or terminal API. |
-| `@deepseek-ai/dsh-tool-fs` | `edit`, `read`, `read_image`, `write` | `ctx.tools`, `ctx.fs`, `ctx.systemPrompt`, `ctx.attachments (image-tool registration)`, `ctx.llm + an image-capable route (image-tool execution)` | `tool/call`, `fs/write-intent or fs/edit-intent for mutations`, `fs/observed after read presence/absence or successful file operation`, `durable attachment (read_image)`, `tool/result` | - | The read-before-write/edit policy is added by `@deepseek-ai/dsh-fs-observation-policy` (an `fs/*` event-gate plugin, no schema change); a deployment that loads these tools is expected to also load it. The image tool is not registered without `ctx.attachments`; its schema is route-independent, and execution refuses unless the exact routed model declares image input. |
+| `@deepseek-ai/dsh-tool-fs` | `apply_patch`, `edit`, `multi_edit`, `read`, `read_image`, `write` | `ctx.tools`, `ctx.fs`, `ctx.systemPrompt`, `ctx.attachments (image-tool registration)`, `ctx.llm + an image-capable route (image-tool execution)` | `tool/call`, `fs/write-intent or fs/edit-intent for mutations`, `fs/observed after read presence/absence or successful file operation`, `durable attachment (read_image)`, `tool/result` | - | The read-before-write/edit policy is added by `@deepseek-ai/dsh-fs-observation-policy` (an `fs/*` event-gate plugin, no schema change); a deployment that loads these tools is expected to also load it. The image tool is not registered without `ctx.attachments`; its schema is route-independent, and execution refuses unless the exact routed model declares image input. |
 | `@deepseek-ai/dsh-tool-fs-search` | `glob`, `grep` | `ctx.tools`, `ctx.subprocess`, `ctx.systemPrompt` | `tool/call`, `tool/result` | - | glob and grep are unconditional discovery tools that spawn the packaged ripgrep binary (`@vscode/ripgrep`) through ctx.subprocess as ordinary foreground calls (never background jobs) — no host `rg` install and no shell layer. The catalog uses `sampleOverCapGlobResults: true`; deployments must choose that behavior explicitly. Capped results save the complete formatted list through the optional ctx.spillStore backend; returned locators are follow-up-readable/searchable when the backend exposes local paths in co-located deployments. |
+| `@deepseek-ai/dsh-tool-git` | `git_branch`, `git_commit`, `git_pr`, `git_worktree` | `ctx.tools`, `ctx.subprocess` | `tool/call`, `tool/result` | - | The four git tools run git and gh as argv vectors through ctx.subprocess — never a shell — so one schema serves POSIX and Windows compositions. Nonzero exits are results carrying the `[exit code: N]` marker; only cancellation, an unusable argument, or a missing program is an error. `git_pr` needs an authenticated GitHub CLI; ambient GH_TOKEN/GITHUB_TOKEN values do not reach the child because the subprocess seam scrubs credential-shaped names. |
 | `@deepseek-ai/dsh-tool-terminal` | `terminal_close`, `terminal_list`, `terminal_open`, `terminal_read`, `terminal_send`, `terminal_signal` | `ctx.tools`, `ctx.terminals`, `ctx.systemPrompt`, `ctx.jobs at call time for run_in_background` | `tool/call`, `tool/result` | - | The six terminal tools are opt-in and complement one-shot shell/filesystem tools. `terminal_send(run_in_background: true)` registers with `ctx.jobs`; TUI, named key sequences, BEL, resize, auto-start, and cross-agent sharing are absent from the schema. |
 | `@deepseek-ai/dsh-tool-goal` | `create_goal`, `get_goal`, `update_goal` | `ctx.tools`, `ctx.agents`, `ctx.goals`, `ctx.systemPrompt`, `a calling Agent in an authorized open turn` | `tool/call`, `goal/change for mutations`, `tool/result` | - | create, edit, pause, and resume require direct-human root authority; complete and blocked also accept the exact current goal round. The default blocked lower bound is three admitted rounds. |
 | `@deepseek-ai/dsh-schedule` | `schedule_create`, `schedule_delete`, `schedule_list` | `ctx.tools`, `ctx.sessions`, `Session persistence`, `a future live root Agent` | `tool/call`, `schedule/change create or delete`, `tool/result` | - | Registered only inside live root Agent scopes created after the opt-in Schedule plugin loads. Version 1 accepts after_seconds, explicit absolute at, and bounded fixed-rate every_seconds, and discloses session-local delivery; management reads and mutations require the shared Session persistence barrier. |
@@ -39,10 +41,10 @@ This table connects model-visible tool names to the plugin package and service s
 | `@deepseek-ai/dsh-tool-session-query` | `session_event_read`, `session_event_search`, `session_event_trace`, `session_search`, `session_trace` | `ctx.tools`, `ctx.systemPrompt`, `ctx.sessionQuery`, `a calling Agent for workspace authority` | `tool/call`, `tool/result` | - | The five read-only tools hide provider cursors and authorize every result from the immutable calling agent session. The package is opt-in; compositions that need enforced deadlines or bounded inline output also mount the generic timeout or spill policies. |
 | `@deepseek-ai/dsh-tool-subagent` | `list_subagent_models`, `subagent` | `ctx.tools`, `ctx.subagents`, `ctx.systemPrompt`, `ctx.llm for model discovery and selected-route validation` | `tool/call`, `tool/result`, `child session events through the chosen provider` | `subagent`, `subagent_fork` | The registered delegation name is the load-time `toolName` config (default `subagent`); the default schema above has model selection off, while the discovery schema is shown as the fixed companion available in an enabled Session. Web presets sample the Plugins preference for each new top-level Session and preserve that decision for its child Sessions; `subagent_fork` remains fixed-route. Each instance independently controls whether it reads model-selection settings and its background behavior through `modelSelectionSettings`, `backgroundMode`, and `enableRunInBackground`. |
 | `@deepseek-ai/dsh-tool-subagent-control` | `interrupt_agent`, `list_agents`, `send_message` | `ctx.tools`, `ctx.subagents`, `ctx.agents and ctx.sessionProjections (list_agents only)` | `tool/call`, `tool/result`, `child session events through ctx.subagents` | - | The globally named control tools over continuable background subagents: provider-bound `tool-subagent` instances register distinct delegation tools, while this package registers `send_message` and `interrupt_agent` once, plus `list_agents` from its separately loaded `/list-agents` plugin (whose catalog rows use the sessionProjections and live Agent registries). |
-| `@deepseek-ai/dsh-tool-jobs` | `job_kill`, `job_list`, `job_output` | `ctx.tools`, `ctx.jobs`, `ctx.systemPrompt` | `tool/call`, `tool/result`, `user/message via agent.inject() for background completion notices` | - | The kind-agnostic background-job controller: background bash commands, PTY sends, and subagents are read, listed, and killed through the same three tools. Loading the plugin attaches the controller that arms producers' `ctx.jobs.start()`. |
+| `@deepseek-ai/dsh-tool-jobs` | `job_kill`, `job_list`, `job_monitor`, `job_output` | `ctx.tools`, `ctx.jobs`, `ctx.systemPrompt` | `tool/call`, `tool/result`, `user/message via agent.inject() for background completion notices` | - | The kind-agnostic background-job controller: background bash commands, PTY sends, and subagents are read, listed, and killed through the same three tools. Loading the plugin attaches the controller that arms producers' `ctx.jobs.start()`. |
 | `@deepseek-ai/dsh-experimental-tool-agent-team` | `interrupt_agent`, `list_agents`, `send_message`, `spawn_teammate`, `team_task_create`, `team_task_get`, `team_task_list`, `team_task_update`, `wait_agent` | `ctx.tools`, `ctx.systemPrompt`, `ctx.agentTeams`, `an exact live Team member Agent` | `tool/call`, `team/member`, `team/message/queued`, `team/message/delivered`, `team/task`, `tool/result` | - | All nine tools are scoped to implicit Team Leads and durable teammates. The shipped dsh-base bundle keeps the package disabled; the documented Agent Teams profile patch enables it while disabling the legacy continuable-child control names. |
 | `@deepseek-ai/dsh-tool-todo` | `todo_write` | `ctx.tools`, `owning Agent session` | `tool/call`, `todo/write`, `tool/result` | - | todo_write is session-owned state; UIs render the latest todo/write event as a checklist. `allowParallelInProgress` is required with no default, so the catalog states its choice: `true`, whose description invites several `in_progress` items. A deployment choosing `false` receives the same tool with a description asking for exactly one active task. |
-| `@deepseek-ai/dsh-tool-evidence` | `record_claim`, `record_evidence` | `ctx.tools`, `ctx.agentKernel`, `a calling Agent with an open task` | `tool/call`, `evidence/recorded`, `claim/updated`, `tool/result` | - | Both tools write the knowledge plane through the kernel. `record_evidence` states what was observed and how far it may be trusted; `record_claim` states what the task asserts, citing recorded evidence. The kernel refuses either call when the calling agent has no task, so a deployment without the kernel records nothing rather than dropping a fact. |
+| `@deepseek-ai/dsh-tool-evidence` | `record_claim`, `record_evidence`, `record_hypothesis` | `ctx.tools`, `ctx.agentKernel`, `a calling Agent with an open task` | `tool/call`, `evidence/recorded`, `claim/updated`, `hypothesis/updated`, `tool/result` | - | All three tools write the knowledge plane through the kernel. `record_evidence` states what was observed and how far it may be trusted; `record_claim` states what the task asserts, citing recorded evidence; `record_hypothesis` states the question the task is still testing. The kernel refuses any call whose calling agent has no task, so a deployment without the kernel records nothing rather than dropping a fact. |
 | `@deepseek-ai/dsh-tool-workflow` | `workflow` | `ctx.tools`, `ctx.workflowEngine`, `ctx.systemPrompt`, `a calling Agent (exec.agent parents the script children)` | `tool/call`, `tool/result` | - | - |
 | `@deepseek-ai/dsh-tool-workspace-dependencies` | `load_workspace_dependencies` | `ctx.tools` | `tool/call`, `tool/result` | - | - |
 | `@deepseek-ai/dsh-tool-web` | `web_fetch`, `web_search` | `ctx.tools`, `ctx.web`, `ctx.systemPrompt` | `tool/call`, `tool/result` | - | web_search and web_fetch keep provider selection behind ctx.web so model-visible schemas stay stable across backend swaps. |
@@ -635,6 +637,57 @@ Source: [`packages/shell/tool-bash/src/index.ts`](../packages/shell/tool-bash/sr
 
 The bash tool is the model-facing consumer of the bash executor seam. With a job registry composed every call registers with the generic `ctx.jobs` runtime as it starts, collected/stopped through the `job_*` tools from `@deepseek-ai/dsh-tool-jobs`; without one, or with `enableRunInBackground: false`, the tool registers a foreground-only schema without the `run_in_background` parameter.
 
+<a id="deepseek-aidsh-tool-changes"></a>
+
+## `@deepseek-ai/dsh-tool-changes`
+
+### `turn_changes`
+
+List the files one turn changed in this workspace, with added and deleted line counts. Use it to review what earlier work changed before reading, editing, or reporting on those files; an oversized or binary file is listed with a marker instead of counts. Changes are recorded when a turn stops, so it reports completed turns. Omit turn for the most recently recorded one, then use turn_diff to read one listed file's diff.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "turn": {
+      "type": "integer",
+      "description": "Turn number to report. Omit for the most recently recorded turn."
+    }
+  },
+  "additionalProperties": false
+}
+```
+
+Source: [`packages/deliverables/tool-changes/src/index.ts`](../packages/deliverables/tool-changes/src/index.ts)
+
+### `turn_diff`
+
+Read one file's recorded diff from a turn listed by turn_changes, without re-running whatever changed it. Pass the turn and the file path as turn_changes listed it; hunks carry three context lines and every line keeps its + or - prefix. A binary or oversized file reports that instead of lines.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "turn": {
+      "type": "integer",
+      "description": "Turn the file changed in. Omit for the most recently recorded turn."
+    },
+    "path": {
+      "type": "string",
+      "description": "A file path as turn_changes listed it for that turn."
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "path"
+  ]
+}
+```
+
+Source: [`packages/deliverables/tool-changes/src/index.ts`](../packages/deliverables/tool-changes/src/index.ts)
+
+Both tools read the per-turn change records `@deepseek-ai/dsh-workspace-changes` keeps for the calling Session in this Host process; a deployment without that package records nothing, so neither tool has a turn to report.
+
 <a id="deepseek-aidsh-tool-present"></a>
 
 ## `@deepseek-ai/dsh-tool-present`
@@ -950,6 +1003,28 @@ Standalone view/create/unique literal replace/line insert tool over the filesyst
 
 ## `@deepseek-ai/dsh-tool-fs`
 
+### `apply_patch`
+
+Apply a V4A patch that creates or updates several UTF-8 text files.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "patch": {
+      "type": "string",
+      "description": "The complete patch, from \"*** Begin Patch\" through \"*** End Patch\". Update hunks carry \" \" context, \"-\" removed, and \"+\" added lines."
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "patch"
+  ]
+}
+```
+
+Source: [`packages/fs/tool-fs/src/index.ts`](../packages/fs/tool-fs/src/index.ts)
+
 ### `edit`
 
 Edit an existing UTF-8 text file by replacing literal text.
@@ -980,6 +1055,55 @@ Edit an existing UTF-8 text file by replacing literal text.
     "file_path",
     "old_string",
     "new_string"
+  ]
+}
+```
+
+Source: [`packages/fs/tool-fs/src/index.ts`](../packages/fs/tool-fs/src/index.ts)
+
+### `multi_edit`
+
+Apply several literal edits to one UTF-8 text file, all or none.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "file_path": {
+      "type": "string",
+      "description": "Path to edit, resolved by the filesystem backend."
+    },
+    "edits": {
+      "type": "array",
+      "description": "Literal replacements applied in order to the same file. Every edit must resolve before any is written.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "old_string": {
+            "type": "string",
+            "description": "Literal text to replace. Must match exactly."
+          },
+          "new_string": {
+            "type": "string",
+            "description": "Literal replacement text. Use an empty string to delete the match."
+          },
+          "replace_all": {
+            "type": "boolean",
+            "description": "Replace all matches of this entry. Defaults to false; when false, old_string must appear exactly once."
+          }
+        },
+        "required": [
+          "old_string",
+          "new_string"
+        ]
+      }
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "file_path",
+    "edits"
   ]
 }
 ```
@@ -1128,6 +1252,154 @@ Search file contents with a ripgrep regular expression. Returns matching lines w
 Source: [`packages/fs/tool-fs-search/src/index.ts`](../packages/fs/tool-fs-search/src/index.ts)
 
 glob and grep are unconditional discovery tools that spawn the packaged ripgrep binary (`@vscode/ripgrep`) through ctx.subprocess as ordinary foreground calls (never background jobs) — no host `rg` install and no shell layer. The catalog uses `sampleOverCapGlobResults: true`; deployments must choose that behavior explicitly. Capped results save the complete formatted list through the optional ctx.spillStore backend; returned locators are follow-up-readable/searchable when the backend exposes local paths in co-located deployments.
+
+<a id="deepseek-aidsh-tool-git"></a>
+
+## `@deepseek-ai/dsh-tool-git`
+
+### `git_branch`
+
+Switch to a git branch, or create it first. With `create: true` the branch is created at the current commit and checked out; without it the branch must already exist. The reported output names the resulting branch. Requires a git repository at the resolved directory; a dirty working tree may block the switch.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Branch name to switch to or create."
+    },
+    "create": {
+      "type": "boolean",
+      "description": "Create the branch at the current commit before switching to it (default false)."
+    },
+    "repo": {
+      "type": "string",
+      "description": "Repository directory. Defaults to the session working directory; a relative path is resolved against it."
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "name"
+  ]
+}
+```
+
+Source: [`packages/git/tool-git/src/index.ts`](../packages/git/tool-git/src/index.ts)
+
+### `git_commit`
+
+Stage every change in the repository (`git add --all`) and commit it with your message for the change set. The message becomes the commit message; write it in the imperative mood and describe the change, not the files. A repository with nothing to commit exits nonzero and the reported output says so. Requires a git repository at the resolved directory and a configured git identity (`user.name` and `user.email`).
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "message": {
+      "type": "string",
+      "description": "Commit message describing the change set."
+    },
+    "repo": {
+      "type": "string",
+      "description": "Repository directory. Defaults to the session working directory; a relative path is resolved against it."
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "message"
+  ]
+}
+```
+
+Source: [`packages/git/tool-git/src/index.ts`](../packages/git/tool-git/src/index.ts)
+
+### `git_pr`
+
+Open a GitHub pull request for the current branch with `gh pr create`. The body is passed on stdin, so it may contain any text. Returns the pull request URL on success. Requires the GitHub CLI (`gh`), authenticated for the repository remote; the harness never forwards an ambient `GH_TOKEN`.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "title": {
+      "type": "string",
+      "description": "Pull request title."
+    },
+    "body": {
+      "type": "string",
+      "description": "Pull request description, in markdown. Required so no interactive editor opens."
+    },
+    "base": {
+      "type": "string",
+      "description": "Branch the pull request targets; defaults to the repository default branch."
+    },
+    "draft": {
+      "type": "boolean",
+      "description": "Open the pull request as a draft (default false)."
+    },
+    "repo": {
+      "type": "string",
+      "description": "Repository directory. Defaults to the session working directory; a relative path is resolved against it."
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "title",
+    "body"
+  ]
+}
+```
+
+Source: [`packages/git/tool-git/src/index.ts`](../packages/git/tool-git/src/index.ts)
+
+### `git_worktree`
+
+Create or remove a git worktree. `add` checks out a second working tree at `path`, optionally creating `branch` and starting from `commitish`, so parallel work proceeds without disturbing this checkout. `remove` deletes the worktree directory and its entry in the repository metadata; it refuses a worktree with modifications unless `force: true` is passed, and `force: true` DISCARDS those uncommitted modifications. With `add`, `path` has no effect on the current working tree.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "action": {
+      "type": "string",
+      "description": "`add` creates a worktree; `remove` deletes one.",
+      "enum": [
+        "add",
+        "remove"
+      ]
+    },
+    "path": {
+      "type": "string",
+      "description": "Directory of the worktree: where `add` checks it out, or the existing worktree `remove` deletes. A relative path is resolved against the resolved repository directory."
+    },
+    "branch": {
+      "type": "string",
+      "description": "With `add`, create this new branch checked out in the new worktree."
+    },
+    "commitish": {
+      "type": "string",
+      "description": "With `add`, the commit or branch the new worktree starts from; defaults to HEAD."
+    },
+    "force": {
+      "type": "boolean",
+      "description": "With `remove`, discard uncommitted modifications in the worktree (default false, which refuses instead)."
+    },
+    "repo": {
+      "type": "string",
+      "description": "Repository directory. Defaults to the session working directory; a relative path is resolved against it."
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "action",
+    "path"
+  ]
+}
+```
+
+Source: [`packages/git/tool-git/src/index.ts`](../packages/git/tool-git/src/index.ts)
+
+The four git tools run git and gh as argv vectors through ctx.subprocess — never a shell — so one schema serves POSIX and Windows compositions. Nonzero exits are results carrying the `[exit code: N]` marker; only cancellation, an unusable argument, or a missing program is an error. `git_pr` needs an authenticated GitHub CLI; ambient GH_TOKEN/GITHUB_TOKEN values do not reach the child because the subprocess seam scrubs credential-shaped names.
 
 <a id="deepseek-aidsh-tool-terminal"></a>
 
@@ -1894,6 +2166,10 @@ Delegate a self-contained task to a subagent (a separate agent that works in its
       "type": "string",
       "description": "The complete, self-contained task for the subagent. It does not share this conversation's context, so include everything it needs. Ask for a text answer: only the child's text reaches this conversation."
     },
+    "agent": {
+      "type": "string",
+      "description": "Optional name of a file-defined agent (from `.dsh/agents`, `.claude/agents`, or `.opencode/agents`). Its configured tools, model, and permissions then apply to this child. An unknown name reports the available agents."
+    },
     "run_in_background": {
       "type": "boolean",
       "description": "Whether to run as a background job and return its id. Defaults to false; collect with job_output or stop with job_kill."
@@ -2031,6 +2307,41 @@ List your background jobs (running and finished) with their ids, kinds, and stat
   "type": "object",
   "properties": {},
   "additionalProperties": false
+}
+```
+
+Source: [`packages/jobs/tool-jobs/src/index.ts`](../packages/jobs/tool-jobs/src/index.ts)
+
+### `job_monitor`
+
+Wait until a background job's output matches a pattern, then return the matched text. The wait is bounded by the configured cap and reads the retained output without consuming it, so a later job_output still returns everything. It ends early when the job settles without matching. The pattern is a case-sensitive literal substring unless `regex: true` makes it a case-sensitive JavaScript regular expression.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "job_id": {
+      "type": "string",
+      "description": "Job id returned by the tool that started the background work."
+    },
+    "pattern": {
+      "type": "string",
+      "description": "Non-empty text to wait for: a literal substring, or a JavaScript regular-expression source when `regex: true`."
+    },
+    "regex": {
+      "type": "boolean",
+      "description": "Interpret `pattern` as a case-sensitive JavaScript regular expression instead of a literal substring. Defaults to false."
+    },
+    "timeout_ms": {
+      "type": "integer",
+      "description": "Max wait in milliseconds. Must be a positive integer. Defaults to the configured wait timeout; capped by the configured maximum."
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "job_id",
+    "pattern"
+  ]
 }
 ```
 
@@ -2515,7 +2826,46 @@ Record one observation as evidence the task can later cite: what kind it is, whe
 
 Source: [`packages/runtime/tool-evidence/src/index.ts`](../packages/runtime/tool-evidence/src/index.ts)
 
-Both tools write the knowledge plane through the kernel. `record_evidence` states what was observed and how far it may be trusted; `record_claim` states what the task asserts, citing recorded evidence. The kernel refuses either call when the calling agent has no task, so a deployment without the kernel records nothing rather than dropping a fact.
+### `record_hypothesis`
+
+Record the question the task is testing, citing the claims that bear on it and how far they have settled it. Record a hypothesis when the task is investigating rather than asserting, so the question it is still answering stays durable.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "question": {
+      "type": "string",
+      "description": "The question being tested."
+    },
+    "claimIds": {
+      "type": "array",
+      "description": "Claim identities that bear on the question.",
+      "items": {
+        "type": "string"
+      }
+    },
+    "status": {
+      "type": "string",
+      "description": "How far the recorded claims have settled the question.",
+      "enum": [
+        "open",
+        "supported",
+        "refuted",
+        "inconclusive"
+      ]
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "question"
+  ]
+}
+```
+
+Source: [`packages/runtime/tool-evidence/src/index.ts`](../packages/runtime/tool-evidence/src/index.ts)
+
+All three tools write the knowledge plane through the kernel. `record_evidence` states what was observed and how far it may be trusted; `record_claim` states what the task asserts, citing recorded evidence; `record_hypothesis` states the question the task is still testing. The kernel refuses any call whose calling agent has no task, so a deployment without the kernel records nothing rather than dropping a fact.
 
 <a id="deepseek-aidsh-tool-workflow"></a>
 

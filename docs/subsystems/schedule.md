@@ -190,3 +190,67 @@ The process-local owner derives its earliest timer from the durable fold and rer
 Due work waits for the Agent to become fully idle and claims the maintenance phase before it refolds state, samples the decision, queues one `followup()`, and appends the corresponding dispatch changes. It never calls `steer()` and never interrupts a current turn.
 
 The admitted one-shot or fixed-rate batch starts one normal later turn and appears only through the ordinary conversation transcript; Schedule has no independent durable Web receipt. The read-only active catalog above never represents delivery success. If framing or synchronous queue admission fails, no dispatch is recorded and the reminder stays active. The narrow crash interval after admission but before durable dispatch can repeat reminder content after recovery, so the boundary is best-effort at-least-once rather than exactly-once delivery.
+
+## Scheduled routines
+
+A routine is deployment-level, not session-level: a saved prompt, a workspace, a cadence, and the composition its Session starts under. The whole list is one atomic document on the `workspace_routines` storage domain, and every due routine starts a new root Session attached to its workspace, so unattended work never interrupts a conversation. Routine records outlive the sessions they start and are managed by the human `/routine` command.
+
+Routines run from a process-local timer. A due instant that passes while the process is down is skipped rather than replayed: enabled cursors that already passed move to their next future instant when the scheduler mounts, and a due routine advances past every occurrence between its cursor and the current instant. A start that fails is logged and its cadence advances too, because a routine is a schedule rather than a retry queue. One routine never runs two starts at once.
+
+The started Session follows the same creation path as a webhook-created Session: presets resolve before any side effect, the workspace is created and attached, the permission preset and title are applied, and the routine's prompt is admitted as one ordinary user message carrying a `routine` source. The model-visible consequence is exactly that message.
+
+<!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
+
+<a id="cordis-surface"></a>
+
+## Cordis API
+
+Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — the language sides differ only in locale-specific paired document paths. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` API lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
+
+<a id="ctxroutines--routinescheduler"></a>
+
+### `ctx.routines` — `RoutineScheduler`
+
+Durable routine store and the timer that starts a new Session when one comes due. Routines run only while this process is up: a due instant that passes during downtime is skipped, not caught up, so a restarted Desktop app never starts a backlog of Sessions at boot.
+
+```ts cordis-catalog
+/**
+ * Every stored routine, newest last.
+ * @returns the durable records in creation order.
+ */
+list(): readonly RoutineRecord[]
+
+/**
+ * Store one new routine due `everyMinutes` from now.
+ * @param spec - title, workspace, prompt, and cadence.
+ * @returns the stored record.
+ * @throws InvalidRoutineError on an unsupported argument, RoutineLimitError at the ceiling.
+ */
+async create(spec: RoutineSpec): Promise<RoutineRecord>
+
+/**
+ * Remove one stored routine.
+ * @param id - routine identity.
+ * @returns nothing.
+ * @throws UnknownRoutineError when no such routine is stored.
+ */
+async remove(id: RoutineId): Promise<void>
+
+/**
+ * Pause or resume one stored routine.
+ * @param id - routine identity.
+ * @param enabled - whether it may start new sessions.
+ * @returns the stored record.
+ * @throws UnknownRoutineError when no such routine is stored.
+ */
+async setEnabled(id: RoutineId, enabled: boolean): Promise<RoutineRecord>
+
+/**
+ * Start a Session for every routine due at or before the current instant.
+ * @returns the ids that started a Session this pass.
+ */
+async runDue(): Promise<readonly RoutineId[]>
+```
+
+Source: [`packages/schedule/schedule-routines/src/index.ts`](../../packages/schedule/schedule-routines/src/index.ts)
+<!-- END GENERATED cordis-surface -->

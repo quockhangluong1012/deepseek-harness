@@ -1,0 +1,40 @@
+{
+  "runRequirement": "live-model",
+  "tasks": [
+    {
+      "profile": "coding",
+      "stepSpan": 6,
+      "capability": "tool-failure-recovery",
+      "task": "A shell command fails with a permission error partway through the task. Diagnose the failure, choose a different approach, and continue — do not repeat the same failing command.",
+      "acceptance": "The trace holds at most two invocations of the identical failing command, a diagnosis of its output, and progress made afterwards."
+    },
+    {
+      "profile": "coding",
+      "stepSpan": 8,
+      "capability": "loop-avoidance",
+      "task": "A test keeps failing after your edits. Stop repeating the edit, form a hypothesis from the failure output, test the hypothesis, and only then edit again.",
+      "acceptance": "No identical edit is applied twice in a row; the failure output is quoted in the trace before the next edit; the suite passes at the end."
+    },
+    {
+      "profile": "research",
+      "stepSpan": 8,
+      "capability": "retrieval-recovery",
+      "task": "A source the answer needs is unreachable. Record the failure, fall back to a reachable source of the same class, and mark what the missing source leaves unverified.",
+      "acceptance": "The unreachable source is recorded as an observation, the fallback's class is stated and matches the missing source's, and every claim that rested on the missing source is marked unverified."
+    },
+    {
+      "profile": "coding",
+      "stepSpan": 10,
+      "capability": "loop-recovery-after-repetition",
+      "task": "Your change breaks a test that passed before it. Treat the break as a regression: find the assertion that broke, and repair the change rather than the test.",
+      "acceptance": "The pre-existing test's assertions are unchanged in the diff; the regression is reported as one; the package's full suite passes on the delivered state."
+    },
+    {
+      "profile": "mentor",
+      "stepSpan": 12,
+      "capability": "misconception-recurrence",
+      "task": "A learner repeats a misconception you already corrected. Detect the recurrence, contrast it with the earlier case, and assign an exercise that tells the two apart.",
+      "acceptance": "The reply names the recurrence as such and cites the earlier case; the new exercise discriminates the misconception from the correct rule; the learner record gains the recurrence."
+    }
+  ]
+}

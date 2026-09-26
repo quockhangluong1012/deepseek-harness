@@ -60,7 +60,6 @@ function remoteOf(): PageRemote {
     addFileItem: vi.fn(),
     removeContextItem: vi.fn(),
     listContextFiles: vi.fn(),
-    rebuildMemory: vi.fn(),
     follow: () => (async function* (): AsyncIterable<WorkspaceMemoryFollowFrame> {})(),
     openStream: (options: RemoteStreamOptions<WorkspaceMemoryFollowFrame>) => drivingStream(options.open),
   }

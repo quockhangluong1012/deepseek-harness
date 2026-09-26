@@ -142,6 +142,25 @@ export interface BudgetSettlement {
   parallelism: BudgetMargin
 }
 
+/**
+ * What background work has spent across every recorded batch, and nothing
+ * else: no ceiling, no margin, and no verdict on what the work was worth. The
+ * kernel's `BudgetGovernor` reports this beside a session's own use, so a
+ * caller of the governor reads both budget owners from one call.
+ */
+export interface RecordedBackgroundSpend {
+  /** Tokens every recorded spend billed. */
+  tokens: number
+  /** Wall-clock milliseconds every recorded spend took. */
+  wallMs: number
+  /**
+   * Billed cost in the deployment's own cost units, absent when any recorded
+   * spend states no cost: a partial sum would read as what all of background
+   * work cost, and a zero would read as a measurement no spend made.
+   */
+  cost?: number | undefined
+}
+
 /** One candidate offered for a batch's recorded screening pool (§38). */
 export interface PooledCandidateInput {
   /** Candidate identity within the batch. */

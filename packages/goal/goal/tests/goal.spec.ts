@@ -705,12 +705,11 @@ describe('goal replay validation', () => {
     const base = snapshotChange()
     // Simulate an event committed before token tracking existed: no
     // `tokensUsed` field at all, not merely zero.
-    const legacy = { ...base } as Partial<GoalSnapshotChangeMeta>
-    delete legacy.tokensUsed
+    const { tokensUsed: _dropped, ...legacy } = base
     const decoded = decodeGoalChange(legacy)
     expect(decoded).toMatchObject({ operation: 'create', tokensUsed: 0 })
     const session = Session.create(SessionId('legacy-tokens-used'))
-    appendChange(session, legacy as GoalChangeMeta)
+    appendChange(session, legacy)
     expect(foldGoal(session.snapshotEvents())).toMatchObject({ tokensUsed: 0 })
   })
 

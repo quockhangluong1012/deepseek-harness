@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-The harness is assembled from npm packages under `packages/`, grouped by capability family: sessions and the agent loop, model-facing tools, shell and filesystem execution, web access, subagents, and the rest. Use this page as the top-level map: find the owning group, then open its README for the package list. Every package is scoped `@deepseek-ai/dsh-*` and lives in exactly one group; each group README is the authoritative package map for its family.
+The harness is assembled from npm packages under `packages/`, grouped by capability family. Use this page as the top-level map: find the owning group, then open its README for the package list. Every package is scoped `@deepseek-ai/dsh-*`; each group README is the authoritative package map for its family.
 
 ## Table of Contents
 
@@ -28,62 +28,67 @@ Every package lives in exactly one group; new packages join existing groups, and
 
 | Group | Role |
 |---|---|
-| [`core/`](core/README.md) | Product API spine: sessions, prompts, tools, agent services, and the concrete loop |
+| [`core/`](core/README.md) | Product API spine and the concrete agent loop |
 | [`api/`](api/README.md) | Remote BFF assembly and Typert RPC gateway |
-| [`typert/`](typert/README.md) | Type graph generation, artifact loading, and runtime registry |
+| [`typert/`](typert/README.md) | Type graph generation, artifact loading, runtime registry |
 | [`goal/`](goal/README.md) | Same-session goal persistence and lifecycle |
 | [`schedule/`](schedule/README.md) | Session-local scheduled follow-ups |
 | [`feedback/`](feedback/README.md) | Human feedback capture and command |
 | [`identity/`](identity/README.md) | Shared anonymous identity |
-| [`llm/`](llm/README.md) | LLM capability family: abstract service + provider adapters |
-| [`subprocess/`](subprocess/README.md) | Subprocess capability family: Service Definition + local process-tree provider |
-| [`ssh/`](ssh/README.md) | POSIX remote connection with paired filesystem, subprocess and sandbox providers |
-| [`shell/`](shell/README.md) | Bash capability family: executor seam, local impl, model-facing tools |
-| [`terminal/`](terminal/README.md) | Persistent PTY capability family: owner-scoped sessions, local implementation, model-facing tools |
-| [`ptc-runtime/`](ptc-runtime/README.md) | PTC execution capability family: Service Definition + sandboxed Node provider + PTC mode Consumer |
+| [`llm/`](llm/README.md) | LLM Service Definition and provider adapters |
+| [`subprocess/`](subprocess/README.md) | Subprocess Service Definition and local process-tree provider |
+| [`ssh/`](ssh/README.md) | POSIX remote connection with paired filesystem/subprocess/sandbox providers |
+| [`shell/`](shell/README.md) | Bash executor seam, local implementation, model-facing tools |
+| [`git/`](git/README.md) | Model-facing git tools: commit, branch, pull request, worktrees |
+| [`terminal/`](terminal/README.md) | Owner-scoped persistent PTYs with model-facing tools |
+| [`ptc-runtime/`](ptc-runtime/README.md) | PTC Service Definition, sandboxed Node provider, PTC mode Consumer |
 | [`computer-use/`](computer-use/README.md) | Exclusive named desktop-provider registration |
 | [`browser-use/`](browser-use/README.md) | Exclusive named browser-provider registration |
 | [`sandbox/`](sandbox/README.md) | Process-confinement seam; bwrap/Landlock/Seatbelt backends |
-| [`deliverables/`](deliverables/README.md) | Turn deliverables: explicit file delivery and recorded workspace changes |
-| [`fs/`](fs/README.md) | Filesystem capability family: seam, local impl, model-facing file tools, discovery tools |
-| [`lsp/`](lsp/README.md) | LSP capability family: seam, generic stdio provider, and the `lsp` tool |
-| [`skill/`](skill/README.md) | Skill capability family: provider registry, local provider, model-facing catalog/loader |
-| [`compaction/`](compaction/README.md) | Compaction capability family: Service Definition + basic provider + command Consumer |
-| [`context/`](context/README.md) | Model-visible request context: workspace instructions, time context, references |
-| [`subagent/`](subagent/README.md) | Subagent capability family: provider-registry contract and model-facing delegation tools |
-| [`jobs/`](jobs/README.md) | Generic background-job runtime and model-facing job control tools |
+| [`deliverables/`](deliverables/README.md) | Turn deliverables: explicit file delivery, recorded workspace changes |
+| [`fs/`](fs/README.md) | Filesystem seam, local implementation, model-facing file/discovery tools |
+| [`lsp/`](lsp/README.md) | LSP seam, generic stdio provider, `lsp` tool |
+| [`skill/`](skill/README.md) | Skill provider registry, local provider, model-facing catalog/loader |
+| [`compaction/`](compaction/README.md) | Compaction Service Definition, basic provider, command Consumer |
+| [`context/`](context/README.md) | Model-visible request context: workspace instructions, time, references |
+| [`repo/`](repo/README.md) | Bounded, lazily built repository index: paths, symbols, references |
+| [`subagent/`](subagent/README.md) | Subagent provider-registry contract and model-facing delegation tools |
+| [`jobs/`](jobs/README.md) | Background-job runtime and model-facing job control tools |
 | [`experimental/`](experimental/README.md) | Pre-stable prototypes with explicit private exceptions |
-| [`workflow/`](workflow/README.md) | Workflow seam, worker-thread and PTC process engines, and model-facing `workflow`/`ralph` tools |
-| [`webhook/`](webhook/README.md) | Verified external events, trusted rules, and fire-and-forget Workspace Sessions |
-| [`web/`](web/README.md) | Web capability family: seam, search/fetch providers, model-facing web tools |
+| [`workflow/`](workflow/README.md) | Workflow seam and engines, plus `workflow`/`ralph` tools |
+| [`webhook/`](webhook/README.md) | Verified external events, trusted rules, fire-and-forget Workspace Sessions |
+| [`web/`](web/README.md) | Web seam, search/fetch providers, model-facing web tools |
 | [`document/`](document/README.md) | Shared Host Office-to-PDF conversion |
-| [`attachment/`](attachment/README.md) | Durable attachment identity, validation, local content-addressed storage |
-| [`spill/`](spill/README.md) | Spill capability family: storage seam, local impl, tool-result spill policy |
-| [`todo/`](todo/README.md) | The model-facing `todo_write` tool |
-| [`plan/`](plan/README.md) | Plan collaboration state with a direct entry command and reviewed exit |
-| [`preset/`](preset/README.md) | Per-session agent composition from preset `cordis.yml` files |
-| [`guard/`](guard/README.md) | Loop-hygiene and content guards: advisory repeat-call reminders, the `tools/execute` deadline enforcer, the per-turn ceilings, and the prompt-injection and credential scanner |
-| [`runtime/`](runtime/README.md) | Control-plane runtime: the agent kernel that owns one durable task contract per session and the completion gate, and the context compiler that records what each model step was compiled from |
+| [`attachment/`](attachment/README.md) | Attachment identity, validation, local content-addressed storage |
+| [`spill/`](spill/README.md) | Spill storage seam, local implementation, tool-result spill policy |
+| [`todo/`](todo/README.md) | Model-facing `todo_write` tool |
+| [`plan/`](plan/README.md) | Plan collaboration state with entry command and reviewed exit |
+| [`preset/`](preset/README.md) | Per-session agent composition from preset `cordis.yml` |
+| [`guard/`](guard/README.md) | Repeat-call reminders, execute deadline, turn ceilings, injection/credential scanning |
+| [`runtime/`](runtime/README.md) | Agent kernel (durable task contract, completion gate) and context compiler |
+| [`verification/`](verification/README.md) | Command-backed verifiers for the kernel's completion gate |
+| [`research/`](research/README.md) | Ordered research loop with durable per-run stage state |
+| [`mentor/`](mentor/README.md) | Durable learner record, misconception engine, teach-and-reassess loop |
 | [`bundle/`](bundle/README.md) | Installable `dsh --profile` patch layers |
-| [`extensions/`](extensions/README.md) | Agent runtime self-modification: live plugin/service inspection and model-written mount/unmount |
-| [`mcp/`](mcp/README.md) | External Model Context Protocol servers exposed as native tools |
-| [`hooks/`](hooks/README.md) | Hook bridges + the shared Claude Code / Codex wire-protocol library |
-| [`session/`](session/README.md) | Durable session data plane: persistence seam + backends, projection seam, log-backed titles, session reporting |
-| [`session-query/`](session-query/README.md) | Session retrieval family: logical corpus, bounded reads, lineage, semantic filtering, SQLite full-text search |
-| [`settings/`](settings/README.md) | User-settings seam + file-backed provider |
-| [`credentials/`](credentials/README.md) | Credential-reference and credential-record seam + env-over-`.env` provider + authorization flows that ask a human |
-| [`storage/`](storage/README.md) | Non-session storage hub + backends + domain form |
+| [`extensions/`](extensions/README.md) | Agent runtime self-modification: live plugin inspection, model-written mounts |
+| [`mcp/`](mcp/README.md) | External Model Context Protocol servers as native tools |
+| [`hooks/`](hooks/README.md) | Hook bridges and shared Claude Code / Codex protocol library |
+| [`session/`](session/README.md) | Durable session data plane: persistence, projection, log-backed titles |
+| [`session-query/`](session-query/README.md) | Session retrieval: corpus, bounded reads, lineage, SQLite full-text search |
+| [`settings/`](settings/README.md) | User-settings seam and file-backed provider |
+| [`credentials/`](credentials/README.md) | Credential references/records, env-over-`.env` provider, human authorization |
+| [`storage/`](storage/README.md) | Non-session storage hub with backends and domain form |
 | [`workspace/`](workspace/README.md) | Workspace entity |
-| [`evolution/`](evolution/README.md) | Self-learning harness: per-scope memory records, staged writes, background review, and skill curation |
-| [`sdk/`](sdk/README.md) | Out-of-process SDK: JSON-RPC protocol and TypeScript client/server |
+| [`evolution/`](evolution/README.md) | Per-scope memory records, staged writes, background review, skill curation |
+| [`sdk/`](sdk/README.md) | Out-of-process SDK: JSON-RPC protocol, TypeScript client/server |
 | [`acp/`](acp/README.md) | Automation-only Agent Client Protocol server |
-| [`interaction/`](interaction/README.md) | Human-collaboration plane: approval/interaction seams, permission preset, commands, ask-user tool |
+| [`interaction/`](interaction/README.md) | Approval/interaction seams, permission presets, commands, ask-user tool |
 | [`boot/`](boot/README.md) | Shared app-bin boot glue |
-| [`host/`](host/README.md) | Web GUI host services, directory picking, application launch, plugin inventory, and product telemetry |
-| [`client/`](client/README.md) | Web-GUI browser half: shell, wire, object services, slots, `ui-*` plugins |
+| [`host/`](host/README.md) | Web GUI host services, directory picking, app launch, telemetry |
+| [`client/`](client/README.md) | Web-GUI browser half: shell, wire, slots, `ui-*` plugins |
 | [`test-support/`](test-support/README.md) | Test infrastructure (testkits, replay, Loader smokes) |
-| [`runtime-diagnostics/`](runtime-diagnostics/README.md) | Runtime diagnostics: package-owned invariant checks and reports |
-| [`util/`](util/README.md) | Low-level zero-dependency utilities shared across groups (`Branded<B>`, home/path helpers, timeout, retention) |
+| [`runtime-diagnostics/`](runtime-diagnostics/README.md) | Package-owned invariant checks and reports |
+| [`util/`](util/README.md) | Low-level zero-dependency utilities shared across groups |
 
 -----
 

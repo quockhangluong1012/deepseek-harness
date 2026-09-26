@@ -191,7 +191,7 @@ describe('evolution adversary', () => {
       ctx.provide('evolutionBenchmark', {
         tasks: (state: string) => (state === 'holdout' ? [{ capability: 'writer' }, { capability: 'writer' }] : []),
       } as never)
-      ctx.provide('evolutionRouter', {
+      ctx.provide('evolutionModelRoutes', {
         effectiveness: () => [
           { taskClass: 'writer', provider: 'deepseek', model: 'chat' },
           { taskClass: 'writer', provider: 'deepseek', model: 'reasoner' },

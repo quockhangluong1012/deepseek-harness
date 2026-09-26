@@ -29,22 +29,28 @@ function record(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
+/** One authenticated Host RPC call: `method` is `<namespace>/<method>` and `args` are its named parameters. */
+export interface DesktopHostRpcRequest {
+  readonly namespace: string
+  readonly method: string
+  readonly args: Record<string, unknown>
+}
+
+/** Authenticated Host RPC caller; rejects on transport, envelope, or Host failure. */
+export type DesktopHostRpc = (request: DesktopHostRpcRequest) => Promise<unknown>
+
 /**
- * Authenticate the native HTTP client through the Web application's launch URL.
+ * Create an authenticated RPC caller for one running Desktop Host.
  * @param authenticatedUrl - URL supplied by the running Desktop Host.
  * @param send - Electron session fetch, retaining the Web authentication cookie.
- * @returns metadata reads and write-only credential operations over standard RPC.
+ * @returns caller for every gateway method the Desktop shell invokes.
  */
-export async function connectDesktopWelcome(
+export function createDesktopHostRpc(
   authenticatedUrl: string,
   send: (input: string, init?: RequestInit) => Promise<Response>,
-  cookies: () => Promise<string> = () => Promise.resolve(''),
-): Promise<DesktopWelcomeBackend> {
+): DesktopHostRpc {
   const origin = new URL(authenticatedUrl).origin
-  const authenticated = await send(authenticatedUrl, { credentials: 'include' })
-  await authenticated.body?.cancel()
-  if (!authenticated.ok) throw new Error('desktop welcome: Web authentication failed')
-  const invoke = async (request: { namespace: string; method: string; args: Record<string, unknown> }): Promise<unknown> => {
+  return async (request) => {
     const rpcId = randomUUID()
     const method = `${request.namespace}/${request.method}`
     const response = await send(new URL(`/api/${method}`, origin).href, {
@@ -60,6 +66,24 @@ export async function connectDesktopWelcome(
     }
     return envelope.result.value
   }
+}
+
+/**
+ * Authenticate the native HTTP client through the Web application's launch URL.
+ * @param authenticatedUrl - URL supplied by the running Desktop Host.
+ * @param send - Electron session fetch, retaining the Web authentication cookie.
+ * @returns metadata reads and write-only credential operations over standard RPC.
+ */
+export async function connectDesktopWelcome(
+  authenticatedUrl: string,
+  send: (input: string, init?: RequestInit) => Promise<Response>,
+  cookies: () => Promise<string> = () => Promise.resolve(''),
+): Promise<DesktopWelcomeBackend> {
+  const origin = new URL(authenticatedUrl).origin
+  const authenticated = await send(authenticatedUrl, { credentials: 'include' })
+  await authenticated.body?.cancel()
+  if (!authenticated.ok) throw new Error('desktop welcome: Web authentication failed')
+  const invoke = createDesktopHostRpc(authenticatedUrl, send)
   const account = desktopAccountBackend(origin, invoke, cookies)
   const settingsAndReference = async () => {
     const settings = await invoke({ namespace: 'settings', method: 'describe', args: {} })

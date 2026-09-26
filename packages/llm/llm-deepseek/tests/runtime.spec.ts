@@ -1779,6 +1779,23 @@ describe('plugin registration and config', () => {
     expect(info?.systemPromptUpdate).toBeUndefined()
   })
 
+  it('declares the published route prices to both the exact-model query and the fold lookup', async () => {
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    await ctx.plugin(LlmDeepSeek, { baseURL: 'http://127.0.0.1:1' })
+    const flash = { inputPerMTok: 0.14, outputPerMTok: 0.28, cacheReadPerMTok: 0.0028, cacheWritePerMTok: 0 }
+    await expect(ctx.llm.resolveModelInfo('deepseek-official', 'deepseek-flash'))
+      .resolves.toMatchObject({ cost: flash })
+    expect(ctx.llm.modelCost('deepseek-official', 'deepseek-flash')).toEqual(flash)
+    expect(ctx.llm.modelCost('deepseek-official', 'deepseek-v4-pro'))
+      .toMatchObject({ inputPerMTok: 0.435, outputPerMTok: 0.87, cacheReadPerMTok: 0.003625, cacheWritePerMTok: 0 })
+    // A model the catalog does not list passes through and declares no price,
+    // which a consumer must read as unmeasurable rather than free.
+    expect(ctx.llm.modelCost('deepseek-official', 'unlisted-pass-through')).toBeUndefined()
+    await expect(ctx.llm.resolveModelInfo('deepseek-official', 'unlisted-pass-through'))
+      .resolves.not.toHaveProperty('cost')
+  })
+
   it.each(['off', 'low', 'max'] as const)('uses the configured %s reasoning default', async (effort) => {
     const ctx = new Context()
     await ctx.plugin(LlmRuntime)

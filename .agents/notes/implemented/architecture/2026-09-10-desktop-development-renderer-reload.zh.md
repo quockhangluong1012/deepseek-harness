@@ -47,4 +47,4 @@ bundle 监视与传输无关，不含 SSE 通道的组合会单独挂载它并�
 
 ## Testing
 
-`apps/desktop/tests/desktop-host-development-reload.spec.ts` 固定开发 patch 层与产物监视：被重写的 shell 文档只上报一次并在 dispose 后停止，bundle 重建经订阅上报，而抛错的观察者不会终止轮询。`apps/desktop/tests/host-process.spec.ts` 通过真实的子进程 IPC 通道把 `renderer-rebuilt` 通告送达已注册的监听器。`packages/client/hmr/tests/node-half.client.spec.ts` 在没有任何 `webServer` 服务的上下文中挂载仅监视 row，并证明它会上报重建的 bundle 且在 dispose 后停止。
+本记录引入的开发 patch 层已随其测试一并从桌面宿主中移除。bundle 重建的覆盖保留在 `packages/client/hmr/tests/node-half.client.spec.ts`：它在没有任何 `webServer` 服务的上下文中挂载仅监视 row，并证明它会上报重建的 bundle 且在 dispose 后停止。

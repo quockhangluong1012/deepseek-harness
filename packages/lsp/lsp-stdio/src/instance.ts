@@ -198,7 +198,9 @@ export class LspInstance {
       }
       opened = true
       if (request.operation === 'diagnostics') {
-        const diagnostics = await this.waitForDiagnostics(diagnosticsWaiter!, signal)
+        /* v8 ignore next -- armDiagnostics runs whenever the operation is `diagnostics`; defensive. */
+        if (diagnosticsWaiter === undefined) throw new Error('LSP diagnostics waiter was not armed')
+        const diagnostics = await this.waitForDiagnostics(diagnosticsWaiter, signal)
         return { kind: 'diagnostics', diagnostics }
       }
       const payload = await this.sendRequest(request.operation, uri, request.position, signal)

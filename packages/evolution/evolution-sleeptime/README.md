@@ -98,7 +98,7 @@ No invariant companion is published because the domain tables are the only copy 
 - [Evolutionary Harness specification](../../../specs/evolutionary-harness-v11-deep-research.md) §25 — the sleep-time compute this package implements.
 - [Evolution package map](../README.md) — the group's packages and their repository position.
 - [`dsh-evolution-heartbeat`](../evolution-heartbeat/README.md) — the idle driver whose quiet ticks trigger the anticipation pass.
-- [`dsh-evolution-router`](../evolution-router/README.md) and [`dsh-evolution-skill-telemetry`](../../skill/evolution-skill-telemetry/README.md) — the stores whose recorded recurrence the pass anticipates from.
+- [`dsh-evolution-model-routes`](../evolution-model-routes/README.md) and [`dsh-evolution-skill-telemetry`](../../skill/evolution-skill-telemetry/README.md) — the stores whose recorded recurrence the pass anticipates from.
 - [`dsh-evolution-dreaming`](../evolution-dreaming/README.md) — the sibling that consolidates past observations into durable memory, where sleep-time precomputes for likely futures.
 
 -----

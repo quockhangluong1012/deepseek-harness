@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-budgets",
-  "description": "Per-turn budget guard: token, tool-call, and wall-clock ceilings enforced on agent/pre-step",
+  "description": "Budget guard: turn, session, run, and context ceilings enforced on agent/pre-step",
   "version": "0.1.5-rc.2",
   "publishConfig": {
     "access": "public"
@@ -33,6 +33,7 @@
     "@deepseek-ai/cordis": "workspace:~",
     "@deepseek-ai/dsh-agent": "workspace:*",
     "@deepseek-ai/dsh-session": "workspace:*",
+    "@deepseek-ai/dsh-session-projection": "workspace:*",
     "@deepseek-ai/dsh-token-meter": "workspace:*"
   },
   "devDependencies": {
@@ -42,6 +43,7 @@
     "@deepseek-ai/dsh-agent-loop-testkit": "workspace:*",
     "@deepseek-ai/dsh-llm": "workspace:*",
     "@deepseek-ai/dsh-session": "workspace:*",
+    "@deepseek-ai/dsh-session-projection": "workspace:*",
     "@deepseek-ai/dsh-token-meter": "workspace:*",
     "@deepseek-ai/dsh-tools": "workspace:*"
   }

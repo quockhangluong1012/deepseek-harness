@@ -1,0 +1,137 @@
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+}
+
+.heading,
+.subheading {
+  margin: 0;
+  color: var(--dsw-text-primary);
+}
+
+.heading {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.subheading {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.lead,
+.hint {
+  margin: 0;
+  color: var(--dsw-text-tertiary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.notice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--dsw-surface-secondary);
+  color: var(--dsw-text-primary);
+  font-size: 12px;
+}
+
+.detail {
+  color: var(--dsw-text-tertiary);
+  font-family: var(--dsw-font-mono);
+  word-break: break-all;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--dsw-border-subtle);
+  border-radius: 6px;
+}
+
+.name {
+  color: var(--dsw-text-primary);
+  font-weight: 600;
+}
+
+.status {
+  color: var(--dsw-text-secondary);
+  font-size: 12px;
+}
+
+.endpoint {
+  flex: 1 1 200px;
+  overflow: hidden;
+  color: var(--dsw-text-tertiary);
+  font-family: var(--dsw-font-mono);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.secrets,
+.attempt {
+  color: var(--dsw-text-tertiary);
+  font-size: 12px;
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+}
+
+.editor {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--dsw-border-subtle);
+  border-radius: 8px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--dsw-text-secondary);
+  font-size: 12px;
+}
+
+.select,
+.textarea {
+  width: 100%;
+  border: 1px solid var(--dsw-border-subtle);
+  border-radius: 6px;
+  background: var(--dsw-surface-primary);
+  color: var(--dsw-text-primary);
+  font: inherit;
+}
+
+.select {
+  height: 28px;
+}
+
+.textarea {
+  min-height: 64px;
+  padding: 6px;
+  font-family: var(--dsw-font-mono);
+  resize: vertical;
+}

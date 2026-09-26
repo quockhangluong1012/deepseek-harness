@@ -27,7 +27,7 @@ English | [中文](README.zh.md)
 
 `WebhookRule<K>` has a branded unique `id`, a provider `kind`, and `run(delivery, signal)`. A callback may execute arbitrary trusted code and returns either `null` or one `WebhookSessionRequest`. Rules of the same kind start independently, and one throw or rejection is logged without starving siblings.
 
-`VerifiedWebhookDelivery` carries provider kind, configured source id, provider delivery id, normalized lossless JSON, and receipt time. The runtime snapshots and freezes the complete value before sharing it. `deliveryId` is provenance plus replay suppression: a repeat inside the one-hour bounded process-local window is acknowledged without re-running rules; repeats past the window (or after a restart) run the rules again.
+`VerifiedWebhookDelivery` carries provider kind, configured source id, provider delivery id, normalized lossless JSON, and receipt time. The runtime snapshots and freezes the complete value before sharing it. `deliveryId` identifies the delivery and drives replay suppression: a repeat inside the one-hour bounded process-local window is acknowledged without re-running rules; repeats past the window (or after a restart) run the rules again.
 
 Registration is an effect. Its awaitable disposer first hides the rule, then aborts and drains active callbacks. Callbacks must observe the supplied signal; same-process code that ignores cancellation cannot be forcibly stopped safely.
 

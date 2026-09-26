@@ -7,7 +7,7 @@ kind: "package-library"
 
 [English](README.md) | 中文
 
-## 摘要
+## 概述
 
 当当前写入方新增 `max-steps` 轮次结束原因时，使用此库将 V4 Session 日志迁移到 V5。此相邻迁移只更改头部版本，并保留每个事件和继承前缀。V5 沿用 V4 的物理行编码。完整恢复请使用 Session 格式目录；本包不负责读取或发布文件。
 

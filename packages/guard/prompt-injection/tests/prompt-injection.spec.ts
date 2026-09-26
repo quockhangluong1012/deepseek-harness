@@ -96,7 +96,7 @@ describe('content envelopes', () => {
     const envelope = scanContent({
       content: `${INJECTION} key ${SECRET}`,
       source: 'web',
-      provenance: { source: 'web', locator: 'https://example.invalid/page' },
+      sourceRef: { source: 'web', locator: 'https://example.invalid/page' },
     }, 4096)
 
     expect(envelope.tainted).toBe(true)
@@ -111,11 +111,11 @@ describe('content envelopes', () => {
   })
 
   it('leaves user content untainted and reports the scan ceiling', () => {
-    const trusted = scanContent({ content: 'please fix the parser', source: 'user', provenance: { source: 'user' } }, 4096)
+    const trusted = scanContent({ content: 'please fix the parser', source: 'user', sourceRef: { source: 'user' } }, 4096)
     expect(trusted).toMatchObject({ tainted: false, trust: 'trusted', findings: [] })
     expect(defaultTrustFor('mcp')).toBe('untrusted')
 
-    const truncated = scanContent({ content: 'x'.repeat(64), source: 'tool', provenance: { source: 'tool' } }, 16)
+    const truncated = scanContent({ content: 'x'.repeat(64), source: 'tool', sourceRef: { source: 'tool' } }, 16)
     expect(truncated.findings.map(finding => finding.rule)).toEqual(['scan-truncated'])
     expect(truncated.digest).toBe(digestOf('x'.repeat(64)))
   })

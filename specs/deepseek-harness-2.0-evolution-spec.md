@@ -251,7 +251,7 @@ Core capabilities:
 - evidence graph
 - contradiction search
 - uncertainty handling
-- citation/provenance
+- citation/source
 - research artifact persistence
 
 ## 3.3. Mentor / Analyst Profile
@@ -1936,7 +1936,7 @@ The project is considered to have reached the next-generation target when:
 
 ### Research
 
-- claims have provenance
+- claims record their source
 - contradictions are actively searched
 - uncertainty is explicit
 - source quality influences synthesis
@@ -2044,7 +2044,7 @@ This section compares DeepSeek Harness with the agentic coding harnesses it comp
 - **External facts** come from public documentation and search results as of 2026-09-23. They are linked in §30.5.
 - Some Codex details come from a third-party reference site (codex.danielvaughan.com), not from OpenAI's own documentation.
 - A cell marked `[UNCONFIRMED]` could not be confirmed from a search result.
-- **Facts about this repository** were checked against `main` at `556c0dc2e6` plus the working tree of 2026-09-23.
+- **Facts about this repository** were checked against `main` plus the working tree of 2026-09-23.
 
 **Status words used in the `dsh` column**
 
@@ -2088,7 +2088,7 @@ Keep these; the backlog in §31 builds on them.
 
 | Mechanism | CC | CX | MM | OC | GM | dsh |
 |---|---|---|---|---|---|---|
-| Terminal TUI | ✓ | ✓ | ✓ | ✓ | ✓ | absent: removed in `10bb9cbf4a`; Desktop and Web are the interactive surfaces (decision: upgrade Desktop, §32.4) |
+| Terminal TUI | ✓ | ✓ | ✓ | ✓ | ✓ | absent: the interactive TUI package was removed; Desktop and Web are the interactive surfaces (decision: upgrade Desktop, §32.4) |
 | Desktop app | ✓ | ✓ | ✓ closed source | – | – | mounted (`apps/desktop`) |
 | Headless machine output | ✓ `json`, `stream-json` | ✓ `exec --json`, `--output-schema` | ✓ `exec --output-format stream-json` | ✓ `run`, HTTP server | ✓ `json`, `stream-json` | partial: `--json` NDJSON, one event per committed step; only `--json` and `--session-id` flags (`packages/bundle/headless/src/startup.ts:43-51`) |
 | Continue, resume, fork | ✓ | ✓ | ✓ plus export | ✓ plus share | ✓ | partial: Web resume and fork; headless exact `--session-id` only; ACP cannot fork |
@@ -2164,7 +2164,7 @@ Keep these; the backlog in §31 builds on them.
 | # | Defect | Location |
 |---|---|---|
 | 1 | `DEFAULT_APPROVAL_TOOLS` lists `terminal_spawn` and `terminal_kill`, which no longer exist. As a result `terminal_open`, `terminal_signal`, and `terminal_close` are never gated. `subagent_fork` is not gated either, because the list matches exact names. | `packages/interaction/permission-presets/src/index.ts:160-179` |
-| 2 | Launcher help advertises `dsh tui --patch`, `dsh tui --resume`, and `dsh plugin --profile tui`, although the TUI package was removed | `apps/cli/src/args.ts:96-99`; commit `10bb9cbf4a` |
+| 2 | Launcher help advertises `dsh tui --patch`, `dsh tui --resume`, and `dsh plugin --profile tui`, although the TUI package was removed | `apps/cli/src/args.ts:96-99` |
 | 3 | A hook's `continue:false` is folded into a sticky stop and then not applied anywhere | `packages/hooks/hook-protocol/README.md:41,128,141` |
 | 4 | The command registry is mounted in every base profile, but only the Web composer can dispatch commands; headless, SDK, and ACP cannot | `packages/interaction/commands`; `packages/acp/acp/src` |
 | 5 | Project skills are skipped silently: `trustedProjectDirs` defaults to `[]`, and nothing asks the user to trust the folder | `packages/skill/skill-filesystem/src/index.ts:88` |

@@ -5,17 +5,22 @@
  * Pareto winner that beats the baseline — ranked by cost and then by distance
  * from the skill's recorded novelty archive, so a candidate that only repeats
  * archived bodies does not win a tie — and stage it as a skill patch a human
- * approves. Nothing writes a skill directly: the staged entry waits in the
- * scope until `/skills approve` drops it after the human's own write.
+ * approves. Nothing writes a skill directly: `/skills approve` writes the body
+ * and the preimage it replaces in one transaction, and `/skills rollback`
+ * restores that preimage. A candidate is only declared better when the paired
+ * sign test over the per-scenario outcomes clears the configured confidence
+ * (S9), and a mount with no configured holdout draws one from the scope's
+ * mined corpus of recorded failure patterns.
  * @module @deepseek-ai/dsh-evolution-optimizer
  */
 
-import { createHash, randomUUID } from 'node:crypto'
+import { randomUUID } from 'node:crypto'
 import { Context, Service } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { processScenarioRunner, shouldOptimize } from '@deepseek-ai/dsh-evolution-scorer'
 import { SCORER_VERSION } from '@deepseek-ai/dsh-evolution-scorer'
 import type { SkillScore } from '@deepseek-ai/dsh-evolution-scorer'
+import { lineDiff } from '@deepseek-ai/dsh-evolution-lineage'
 import { checkBehaviorContract } from '@deepseek-ai/dsh-evolution-scorer/src/behavior.ts'
 import type {} from '@deepseek-ai/dsh-evolution-memory'
 import type { EvolutionScopeId } from '@deepseek-ai/dsh-evolution-memory'
@@ -29,8 +34,7 @@ import type {} from '@deepseek-ai/dsh-evolution-self-model'
 import type {} from '@deepseek-ai/dsh-evolution-lineage'
 import type {} from '@deepseek-ai/dsh-evolution-operators'
 import type {} from '@deepseek-ai/dsh-evolution-evaluator-strategy'
-import type {} from '@deepseek-ai/dsh-evolution-budget'
-import type {} from '@deepseek-ai/dsh-evolution-router'
+import { openCeiling } from '@deepseek-ai/dsh-evolution-budget'
 import type {} from '@deepseek-ai/dsh-evolution-meta'
 import type {} from '@deepseek-ai/dsh-evolution-skill-telemetry'
 import type {} from '@deepseek-ai/dsh-llm'
@@ -51,13 +55,20 @@ import {
   repeatedExperiment,
   staleExperiments,
 } from './experiments.ts'
+import type { MinedScenarioRow } from './experiments.ts'
 import { descriptorOf, noveltyOf } from './novelty.ts'
 import { failureSignature, operatorRecords, orderPortfolio } from './surface.ts'
 import { contaminatedHoldout } from './contamination.ts'
-import { diffLineCounts } from './lineage.ts'
+import { pairedSignTest } from './significance.ts'
+import type { PairedSignificance } from './significance.ts'
+import { drawHoldout, mineScenarios, orderMinedScenarios, sameSource } from './mining.ts'
+import { attemptsPerScenario, digestOf, measuredOutcome, promotionContext } from './lineage.ts'
+import type { PromotionContextCheck } from './lineage.ts'
+import type { MinedScenario } from './types.ts'
 import type { MutationOperator } from './mutate.ts'
 import type {
   EvaluatedVariant,
+  EvaluationContext,
   RegressionFloor,
   ExperimentDraft,
   ExperimentRecord,
@@ -80,11 +91,17 @@ export {
 export { descriptorOf, noveltyOf } from './novelty.ts'
 export { failureSignature, operatorRecords, orderPortfolio } from './surface.ts'
 export { contaminatedHoldout } from './contamination.ts'
-export { diffLineCounts } from './lineage.ts'
-export type { LineChangeCounts } from './lineage.ts'
+export { drawHoldout, mineScenarios, minedScenarioName, orderMinedScenarios } from './mining.ts'
+export type { MineSignals } from './mining.ts'
+export { pairedSignTest } from './significance.ts'
+export type { PairedSignificance } from './significance.ts'
+export { attemptsPerScenario, digestOf, measuredOutcome, promotionContext } from './lineage.ts'
+export type { PromotionContextCheck, PromotionContextOptions } from './lineage.ts'
 export type { OperatorRecord } from './surface.ts'
 export type {
   EvaluatedVariant,
+  EvaluationContext,
+  EvaluationDimension,
   ExperimentDraft,
   ExperimentRecord,
   ExperimentTriple,
@@ -95,6 +112,7 @@ export type {
   PromotionConfidence,
 } from './types.ts'
 export { dominates, paretoFrontier, pickWinner, screenSurvivors } from './pareto.ts'
+export type { SelectionScore } from './pareto.ts'
 export {
   distributeCandidates,
   frameMutationInput,
@@ -127,8 +145,23 @@ export interface Config {
   /**
    * Corpus scenarios reserved for the promotion check. They are never scored
    * during search, and a winner the baseline dominates on them is refused.
+   * When empty, the run draws its holdout from the scope's mined corpus
+   * instead, so a mount configured either way protects the promotion (S9).
    */
   holdoutScenarios?: string[]
+  /**
+   * Holdout scenarios a run draws from the scope's mined corpus when
+   * `holdoutScenarios` is empty: candidate scenarios mined from the recorded
+   * failure signals of the scope's own scored runs (S9). 0, the default, mines
+   * nothing and draws nothing, which leaves a mount that configures no holdout
+   * list with no protected holdout — a promotion then refuses loudly rather
+   * than checking one.
+   */
+  minedHoldoutCount?: number
+  /** Candidate scenarios one scope's mined corpus keeps; the strongest evidence survives. Defaults to 50. */
+  maxMinedScenarios?: number
+  /** Trajectory sessions and failure signals one mining pass reads. Defaults to 100. */
+  mineSignalLimit?: number
   /** Billed tokens one run may spend on candidate scoring; 0 leaves it unbounded. */
   budgetTokens?: number
   /** Wall time in milliseconds one run may spend on candidate scoring; 0 leaves it unbounded. */
@@ -149,6 +182,16 @@ export interface Config {
    * paired comparison is a coin flip (amendment S9).
    */
   confirmationRuns?: number
+  /**
+   * Confidence level the paired sign test must reach before a candidate is
+   * declared better than the re-scored baseline (amendment S9): the promotion
+   * requires the exact two-sided p-value over the per-scenario pass
+   * differences to be at most `1 - promotionConfidence`. Defaults to 0.95, the
+   * conventional level, so a corpus large enough to show a real difference
+   * promotes and a coin-flip split does not. Lower it only where a smaller
+   * scenario corpus cannot reach 0.95 at any real effect size.
+   */
+  promotionConfidence?: number
   /**
    * Refuse a run whose exact hypothesis — same skill, evidence, scenarios,
    * operators, starting body, and route — already has a recorded outcome;
@@ -201,11 +244,15 @@ export const Config: z<Config> = z.object({
   triggerMinUses: z.number().step(1).min(1).default(20),
   triggerFailureRate: z.number().min(0).max(1).default(0.3),
   holdoutScenarios: z.array(z.string()).default([]),
+  minedHoldoutCount: z.number().step(1).min(0).default(0),
+  maxMinedScenarios: z.number().step(1).min(1).default(50),
+  mineSignalLimit: z.number().step(1).min(1).default(100),
   budgetTokens: z.number().step(1).min(0).default(0),
   budgetWallTimeMs: z.number().step(1).min(0).default(0),
   screenScenarioCount: z.number().step(1).min(0).default(0),
   operators: z.array(z.string()).default(['rewrite']),
   confirmationRuns: z.number().step(1).min(3).default(3),
+  promotionConfidence: z.number().min(0.5).max(0.999).default(0.95),
   skipRepeatedExperiments: z.boolean().default(true),
   stagnationWindow: z.number().step(1).min(1).default(5),
   priorMinTries: z.number().step(1).min(1).default(3),
@@ -233,11 +280,15 @@ export interface ResolvedConfig {
   triggerMinUses: number
   triggerFailureRate: number
   holdoutScenarios: readonly string[]
+  minedHoldoutCount: number
+  maxMinedScenarios: number
+  mineSignalLimit: number
   budgetTokens: number
   budgetWallTimeMs: number
   screenScenarioCount: number
   operators: readonly MutationOperator[]
   confirmationRuns: number
+  promotionConfidence: number
   skipRepeatedExperiments: boolean
   stagnationWindow: number
   priorMinTries: number
@@ -261,11 +312,15 @@ export function resolveConfig(config: Config): ResolvedConfig {
     triggerMinUses = 20,
     triggerFailureRate = 0.3,
     holdoutScenarios = [],
+    minedHoldoutCount = 0,
+    maxMinedScenarios = 50,
+    mineSignalLimit = 100,
     budgetTokens = 0,
     budgetWallTimeMs = 0,
     screenScenarioCount = 0,
     operators = ['rewrite'],
     confirmationRuns = 3,
+    promotionConfidence = 0.95,
     skipRepeatedExperiments = true,
     stagnationWindow = 5,
     priorMinTries = 3,
@@ -282,11 +337,15 @@ export function resolveConfig(config: Config): ResolvedConfig {
     triggerMinUses,
     triggerFailureRate,
     holdoutScenarios,
+    minedHoldoutCount,
+    maxMinedScenarios,
+    mineSignalLimit,
     budgetTokens,
     budgetWallTimeMs,
     screenScenarioCount,
     operators: resolveOperators(operators),
     confirmationRuns,
+    promotionConfidence,
     skipRepeatedExperiments,
     stagnationWindow,
     priorMinTries,
@@ -310,6 +369,8 @@ export class EvolutionOptimizer extends Service {
   private readonly resolved: ResolvedConfig
   private table?: KvTable<string, ExperimentRecord>
 
+  private mined?: KvTable<string, MinedScenarioRow>
+
   /**
    * @param ctx - host context carrying the optimizer's seams.
    * @param config - mutation budgets, route, trigger copy, governance, and agent composition.
@@ -326,6 +387,7 @@ export class EvolutionOptimizer extends Service {
     const domain = await this.ctx.storageDomain.open(optimizerDomainSpec)
     this.ctx.effect(() => () => domain.close(), 'evolution-optimizer.domainClose')
     this.table = domain.table('records')
+    this.mined = domain.table('mined')
   }
 
   /**
@@ -360,6 +422,127 @@ export class EvolutionOptimizer extends Service {
   }
 
   /**
+   * Mine candidate holdout scenarios for one skill from the scope's recorded
+   * failure signals: the trajectory sessions its own runs recorded, compressed
+   * by `dsh-evolution-trace`, and the failures `dsh-evolution-feedback`
+   * aggregated across them. Candidates merge into the scope's durable corpus by
+   * failure pattern, so repeated mining reinforces a pattern instead of
+   * duplicating it, and the corpus keeps `maxMinedScenarios` best-observed rows.
+   *
+   * Mining is budget-bounded: it opens the skill's own daily and weekly ceiling
+   * first and does nothing when that ceiling is spent, so mining can never
+   * starve the evaluation runs the same batches pay for. A missing trace or
+   * feedback seam mines nothing rather than failing the run — the signals are
+   * optional evidence, and a run without them simply has no mined holdout.
+   * @param scopeId - scope whose recorded runs supply the trajectory signals.
+   * @param skill - skill the mined candidates are gathered for, which owns the ceiling.
+   * @returns the scope's corpus after mining, strongest evidence first.
+   */
+  async mine(scopeId: EvolutionScopeId, skill: string): Promise<readonly MinedScenario[]> {
+    const ceiling = await openCeiling(this.ctx, 'evolution-optimizer', skill, new Date())
+    if (ceiling.kind === 'refused') {
+      this.ctx.logger.debug(`evolution optimizer did not mine holdout scenarios for '${skill}': ${ceiling.reason}`)
+      return this.minedCorpus(scopeId)
+    }
+    const trajectory = [...new Set(this.experiments(scopeId, {
+      skill,
+      limit: this.resolved.maxExperiments,
+    }).flatMap(row => row.trajectory ?? []))].slice(0, this.resolved.mineSignalLimit)
+    const trace = this.ctx.get('evolutionTrace')
+    const feedback = this.ctx.get('evolutionFeedback')
+    if (trajectory.length === 0 || (trace === undefined && feedback === undefined)) return this.minedCorpus(scopeId)
+    try {
+      const traces = trace === undefined ? [] : await trace.summary(trajectory, this.resolved.mineSignalLimit)
+      const signals = feedback === undefined ? [] : feedback.signals(trajectory, this.resolved.mineSignalLimit)
+      const found = mineScenarios({ traces, signals })
+      if (found.length === 0) return this.minedCorpus(scopeId)
+      await this.writeMined(scopeId, found)
+    } catch (error) {
+      // Mining is evidence gathering, never a precondition for the run: a store
+      // that cannot be read leaves the corpus as it was.
+      this.ctx.logger.warn(`evolution optimizer could not mine holdout scenarios for '${skill}': ${String(error)}`)
+    }
+    return this.minedCorpus(scopeId)
+  }
+
+  /**
+   * Merge one mining pass into the scope's durable corpus and keep it within
+   * `maxMinedScenarios` rows, strongest evidence first.
+   * @param scopeId - scope the candidates belong to.
+   * @param found - candidates the pass folded out of the signals.
+   */
+  private async writeMined(scopeId: EvolutionScopeId, found: readonly MinedScenario[]): Promise<void> {
+    const table = this.mined
+    if (table === undefined) throw new Error('evolution-optimizer: the experiments domain is not open')
+    const scope = String(scopeId)
+    const merged = new Map(this.minedCorpus(scopeId).map(row => [row.scenario, row]))
+    for (const candidate of found) {
+      const current = merged.get(candidate.scenario)
+      merged.set(candidate.scenario, current === undefined ? candidate : {
+        scenario: candidate.scenario,
+        sources: [...current.sources, ...candidate.sources
+          .filter(source => !current.sources.some(existing => sameSource(existing, source)))],
+        occurrences: current.occurrences + candidate.occurrences,
+        sessions: Math.max(current.sessions, candidate.sessions),
+        firstAt: current.firstAt === '' || (candidate.firstAt !== '' && candidate.firstAt < current.firstAt)
+          ? candidate.firstAt
+          : current.firstAt,
+        lastAt: candidate.lastAt > current.lastAt ? candidate.lastAt : current.lastAt,
+      })
+    }
+    const rows = orderMinedScenarios([...merged.values()]).slice(0, this.resolved.maxMinedScenarios)
+    const kept = new Set(rows.map(row => row.scenario))
+    for (const row of rows) {
+      await table.put(JSON.stringify([scope, row.scenario]), { scope, ...row })
+    }
+    for (const scenario of merged.keys()) {
+      if (!kept.has(scenario)) await table.delete(JSON.stringify([scope, scenario]))
+    }
+  }
+
+  /**
+   * Read one scope's mined corpus, strongest evidence first.
+   * @param scopeId - scope whose candidates are read.
+   * @returns the candidates, strongest first.
+   */
+  private minedCorpus(scopeId: EvolutionScopeId): readonly MinedScenario[] {
+    const table = this.mined
+    if (table === undefined) return []
+    const scope = String(scopeId)
+    return orderMinedScenarios([...table.entries()]
+      .map(([, row]) => row)
+      .filter(row => row.scope === scope)
+      .map(row => ({
+        scenario: row.scenario,
+        sources: row.sources.map(source => ({ ...source })),
+        occurrences: row.occurrences,
+        sessions: row.sessions,
+        firstAt: row.firstAt,
+        lastAt: row.lastAt,
+      })))
+  }
+
+  /**
+   * The holdout one run checks its winner against: the configured list when the
+   * mount names one, otherwise a draw from the scope's mined corpus, mining
+   * first so a run's own evidence is in the corpus it draws from. Both paths
+   * keep the candidates the skill has not already searched, so the draw never
+   * hands the contamination check a list it must refuse.
+   * @param request - the run whose holdout is resolved.
+   * @returns the holdout scenario names, empty when the mount protects none.
+   */
+  private async resolveHoldout(request: OptimizeRequest): Promise<readonly string[]> {
+    if (this.resolved.holdoutScenarios.length > 0) return this.resolved.holdoutScenarios
+    if (this.resolved.minedHoldoutCount === 0) return []
+    await this.mine(request.scopeId, request.skill)
+    const searched = new Set(this.experiments(request.scopeId, {
+      skill: request.skill,
+      limit: this.resolved.maxExperiments,
+    }).flatMap(row => row.scenarios))
+    return drawHoldout(this.minedCorpus(request.scopeId), searched, this.resolved.minedHoldoutCount)
+  }
+
+  /**
    * Append one run to the ledger and drop the scope's stale rows. Also binds
    * §24.3 durable evidence: the recorded fixture digest, harvested session
    * trajectory, named policy profile, and the frontmatter contract gate's
@@ -386,15 +569,18 @@ export class EvolutionOptimizer extends Service {
       at: new Date().toISOString(),
       scope: String(request.scopeId),
       skill: request.skill,
+      hypothesis: draft.hypothesis,
       evidence: draft.evidence,
       operators: [...draft.operators],
       portfolio: [...draft.portfolio],
       novelOperators: [...draft.novelOperators],
       scenarios: [...draft.scenarios],
-      holdout: [...this.resolved.holdoutScenarios],
+      holdout: [...draft.holdout],
       baseline: triple(report.baseline),
       winner: draft.winner === null ? null : triple(draft.winner.score),
       confidence: report.confidence,
+      significance: draft.significance,
+      evaluation: draft.evaluation,
       samples: draft.samples,
       outcome: report.status,
       reason: report.reason,
@@ -403,7 +589,7 @@ export class EvolutionOptimizer extends Service {
       model: draft.model,
       bodySha: digestOf(draft.body),
       scorerVersion: draft.scorerVersion,
-      ...diffLineCounts(draft.body, draft.winner?.body ?? draft.body),
+      ...lineDiff(draft.body, draft.winner?.body ?? draft.body),
       winnerSha: draft.winner === null ? null : digestOf(draft.winner.body),
       winnerOperator: draft.winner?.operator ?? null,
       winnerArchiveNovelty: draft.winnerArchiveNovelty,
@@ -513,7 +699,7 @@ export class EvolutionOptimizer extends Service {
    * @returns the run report plus what the run must record about itself.
    */
   private async execute(request: OptimizeRequest): Promise<{ report: OptimizeReport; draft?: ExperimentDraft }> {
-    const holdout = this.resolved.holdoutScenarios
+    const holdout = await this.resolveHoldout(request)
     const overlap = request.scenarios.filter(scenario => holdout.includes(scenario))
     if (overlap.length > 0) {
       throw new Error(`evolution-optimizer: holdout scenarios are also search scenarios: ${overlap.join(', ')}`)
@@ -529,6 +715,9 @@ export class EvolutionOptimizer extends Service {
       throw new Error(`evolution-optimizer: holdout scenarios were already used for search for '${request.skill}': ${contaminated.join(', ')}`)
     }
     let stagnant = false
+    // The paired comparison behind the promotion decision, filled once a winner
+    // is selected so every later draft and report carries it (amendment S9).
+    let significance: PairedSignificance | null = null
     const report = (
       status: OptimizeReport['status'],
       fields: {
@@ -539,6 +728,7 @@ export class EvolutionOptimizer extends Service {
         checked?: HoldoutCheck | null
         truncated?: boolean
         confirmed?: PromotionConfidence | null
+        significant?: PairedSignificance | null
         below?: RegressionFloor | null
         stagnant?: boolean
       } = {},
@@ -552,6 +742,7 @@ export class EvolutionOptimizer extends Service {
       holdout: fields.checked ?? null,
       truncated: fields.truncated ?? false,
       confidence: fields.confirmed ?? null,
+      significance: fields.significant ?? significance,
       floor: fields.below ?? null,
       stagnant: fields.stagnant ?? stagnant,
     })
@@ -586,7 +777,6 @@ export class EvolutionOptimizer extends Service {
     const run = request.run ?? processScenarioRunner
     const evidence = request.evidence ?? `${failures} failures over ${loads} recorded loads`
     const signal = request.signal ?? new AbortController().signal
-    const fork = { stream: (options: Parameters<typeof llm.stream>[0]) => llm.stream(options) }
     const strategy = this.mutationStrategy(request, evidence)
     stagnant = strategy.stagnant
     if (this.resolved.skipRepeatedExperiments) {
@@ -611,8 +801,18 @@ export class EvolutionOptimizer extends Service {
         }
       }
     }
+    // The mutation is a model call like the scoring runs, so it opens the
+    // skill's own ceiling first and settles its tokens and wall time against
+    // the same daily and weekly batches those runs spend.
+    const ceiling = await openCeiling(this.ctx, 'evolution-optimizer', request.skill, new Date())
+    if (ceiling.kind === 'refused') {
+      return { report: report('skipped', { reason: ceiling.reason }) }
+    }
+    const fork = { stream: (options: Parameters<typeof llm.stream>[0]) => llm.stream(options) }
     const mutated: { body: string; operator: string; novelty: number; archiveNovelty: number }[] = []
     let unusable = 0
+    let mutationTokens = 0
+    const mutationStartedAt = Date.now()
     const seen = new Set<string>([body])
     // One snapshot of the skill's archive per run: every candidate is measured
     // against the same recorded history, so their scores compare with each
@@ -643,8 +843,9 @@ export class EvolutionOptimizer extends Service {
         body,
         allocation.count,
       )
+      mutationTokens += produced.tokens
       // Two operators can land on the same body; it is one candidate, first operator wins.
-      for (const candidate of produced) {
+      for (const candidate of produced.bodies) {
         if (seen.has(candidate)) continue
         // A body that would break the skill cannot be landed, so it is not a
         // candidate: the cheapest gate runs before any scoring run is paid for.
@@ -665,6 +866,10 @@ export class EvolutionOptimizer extends Service {
         })
       }
     }
+    if (ceiling.kind === 'open') {
+      const spend = { tokens: mutationTokens, wallTimeMs: Date.now() - mutationStartedAt, rollouts: 0 }
+      for (const batchId of ceiling.batchIds) await ceiling.budget.spend(batchId, spend)
+    }
     if (mutated.length === 0) {
       const detail = unusable === 0 ? '' : `; ${unusable} refused for breaking the skill frontmatter`
       return {
@@ -674,22 +879,28 @@ export class EvolutionOptimizer extends Service {
       }
     }
     let samples = 0
+    let evaluation: EvaluationContext | null = null
+    const operators = [...new Set(mutated.map(variant => variant.operator))]
     const draft = (winner: EvaluatedVariant | null): ExperimentDraft => ({
+      hypothesis: `${evidence}; proposing ${operators.join(', ')}`,
       evidence,
-      operators: [...new Set(mutated.map(variant => variant.operator))],
+      operators,
       portfolio: strategy.portfolio.map(operator => operator.id),
       novelOperators: [...new Set(mutated
         .filter(variant => variant.novelty > 0)
         .map(variant => variant.operator))],
       scenarios: request.scenarios,
+      holdout,
       provider,
       model,
       scorerVersion: scorer.version,
       body,
       winner,
+      evaluation,
       winnerArchiveNovelty: winner?.archiveNovelty ?? null,
       agentProfile: agent.profile ?? null,
       samples,
+      significance,
     })
     const deps = { scorer, skill: request.skill, scenarios: request.scenarios, agent, run }
     const spent = { tokens: 0, wallTimeMs: 0 }
@@ -705,7 +916,7 @@ export class EvolutionOptimizer extends Service {
       return { report: report('skipped', { reason: baseline.reason }), draft: draft(null) }
     }
     spend(baseline.score)
-    samples = samplesOf(baseline.score)
+    samples = attemptsPerScenario(baseline.score)
     const screenCount = this.resolved.screenScenarioCount
     let pool: readonly { index: number; body: string; operator: string; novelty: number; archiveNovelty: number }[] =
       mutated.map((variant, index) => ({
@@ -786,6 +997,49 @@ export class EvolutionOptimizer extends Service {
         draft: draft(null),
       }
     }
+    // §S9.3 selection: a pass-rate difference is only evidence when the paired
+    // per-scenario outcomes favor the winner by more than chance. Two arms that
+    // agreed on every paired scenario carry no pass-rate evidence at all, so the
+    // relative token epsilon is what separated them and the promotion stands on
+    // that; any discordant pair must clear the configured confidence.
+    significance = pairedSignTest(baseline.score, winner.score, this.resolved.promotionConfidence)
+    if (!significance.significant && significance.wins + significance.losses > 0) {
+      return {
+        report: report('no-improvement', {
+          baseline: baseline.score,
+          candidates,
+          truncated,
+          significant: significance,
+          reason: `the winner for '${request.skill}' is not significantly better than the baseline:`
+            + ` ${significance.wins} win(s), ${significance.losses} loss(es), ${significance.ties} tie(s),`
+            + ` paired sign test p=${significance.pValue.toFixed(4)} at confidence ${significance.confidence}`,
+        }),
+        draft: draft(winner),
+      }
+    }
+    // §14.6 promotion gate: a promotion compares a candidate against the
+    // baseline it has to beat, so both arms were measured under one benchmark,
+    // model route, budget, and task set. The model and the budget are single
+    // run-level choices shared by both arms; the benchmark and the task set are
+    // read off each arm's own scenario records, so a corpus regenerated between
+    // the two scoring passes — or a scenario one arm never scored — refuses the
+    // promotion instead of comparing two numbers as if they described one
+    // evaluation.
+    const promotionOptions = {
+      scorerVersion: scorer.version,
+      model: agent.profile ?? agent.configPath,
+      budget: { tokens: this.resolved.budgetTokens, wallTimeMs: this.resolved.budgetWallTimeMs },
+    }
+    const sharedContext = (left: SkillScore, right: SkillScore, stage: string): EvaluationContext => {
+      const check: PromotionContextCheck = promotionContext(left, right, promotionOptions)
+      if (check.mismatch.length > 0) {
+        throw new Error(
+          `evolution-optimizer: refusing to promote '${request.skill}': its ${stage} arms were not measured under the same ${check.mismatch.join(' and ')}`,
+        )
+      }
+      return check.context
+    }
+    evaluation = sharedContext(baseline.score, winner.score, 'search')
     const floor = this.regressionFloor(
       request.scopeId,
       request.skill,
@@ -804,7 +1058,9 @@ export class EvolutionOptimizer extends Service {
       }
     }
     if (holdout.length === 0) {
-      throw new Error(`evolution-optimizer: promotion requires configured holdoutScenarios to stage a skill patch for '${request.skill}'`)
+      throw new Error(
+        `evolution-optimizer: promotion requires holdoutScenarios or mined holdout scenarios to stage a skill patch for '${request.skill}'`,
+      )
     }
     const privateDeps = { ...deps, scenarios: holdout }
     const baselineHoldout = await scoreVariantTiered(this.ctx, privateDeps, body, body)
@@ -822,6 +1078,7 @@ export class EvolutionOptimizer extends Service {
       }
     }
     const checked: HoldoutCheck = { baseline: baselineHoldout.score, winner: winnerHoldout.score }
+    sharedContext(baselineHoldout.score, winnerHoldout.score, 'holdout')
     if (dominates(baselineHoldout.score, winnerHoldout.score)) {
       return {
         report: report('holdout-rejected', {
@@ -900,17 +1157,17 @@ export class EvolutionOptimizer extends Service {
       gist: `optimizer patch for '${request.skill}' by ${winner.operator}: pass ${String(winner.score.pass)}, ${winner.score.tokens} tokens`,
     })
     await this.recordPopulation(request.skill, staged.id, winner, slim)
-    await this.recordModelRoute(provider, model, winner, slim)
+    await this.recordRoutes(request.skill, provider, model, winner, slim)
     await this.recordCanary(request.skill, staged.id, winner, slim)
     await this.recordNovelty(request.skill, staged.id, winner)
     await this.recordStagnation(request.skill, staged.id, winner, slim)
     await this.recordIslands(request.skill)
     await this.recordSelfModel(request.skill, winner)
-    await this.recordLineage(request.skill, staged.id, winner, slim, provider, model)
+    await this.recordLineage(request.skill, staged.id, winner, baseline, slim, provider, model)
+    await this.recordPolicyRevision(request.skill, winner, body, evaluation)
     await this.recordOperators(request.skill, winner, baseline)
     await this.recordEvaluatorStrategy(request.skill, winner, checked, scorer)
     await this.recordBudget(request.skill, staged.id, winner, spent, candidates.length)
-    await this.recordRouter(request.skill, provider, model, winner)
     await this.recordMeta(request.skill, staged.id, strategy.portfolio, scorer, provider, model, winner)
     return {
       report: report('staged', {
@@ -957,15 +1214,19 @@ export class EvolutionOptimizer extends Service {
   }
 
   /**
-   * Record the candidate-generation route and the winner's triple as model
-   * routing evidence when the model-routes store is mounted. A failing record
-   * must not fail the optimization, so it logs a warning instead.
-   * @param provider - provider half of the route used for mutation.
-   * @param model - model half of the route used for mutation.
+   * Record the staged write's route and the winner's triple as model-routing
+   * evidence when the model-routes store is mounted, once for the role that
+   * generated the candidate and once for the role that evaluated it, both
+   * scoped to the staged write's task class. A failing record must not fail the
+   * optimization, so it logs a warning instead.
+   * @param skill - the task class the staged write mutates.
+   * @param provider - provider half of the route used for mutation and evaluation.
+   * @param model - model half of that route.
    * @param winner - the winning variant.
    * @param slim - projection of a score onto its measured triple.
    */
-  private async recordModelRoute(
+  private async recordRoutes(
+    skill: string,
     provider: string,
     model: string,
     winner: { score: { pass: boolean; tokens: number; wallTimeMs: number } },
@@ -974,11 +1235,9 @@ export class EvolutionOptimizer extends Service {
     const routes = this.ctx.get('evolutionModelRoutes')
     if (routes === undefined) return
     try {
-      await routes.observe({
-        role: 'candidate-generation',
-        route: { provider, model },
-        triple: slim(winner.score),
-      })
+      for (const role of ['candidate-generation', 'evaluation'] as const) {
+        await routes.observe({ taskClass: skill, role, route: { provider, model }, triple: slim(winner.score) })
+      }
     } catch (error) {
       this.ctx.logger.warn(`evolution optimizer could not record model route: ${String(error)}`)
     }
@@ -1115,11 +1374,13 @@ export class EvolutionOptimizer extends Service {
   /**
    * Record the staged write as one dependency-versioned experiment envelope
    * when the lineage store is mounted, so later comparisons can prove the
-   * evaluator, model, and skill contexts are unchanged. A failing record must
-   * not fail the optimization, so it logs a warning instead.
+   * evaluator, model, and skill contexts are unchanged, with the outcome the
+   * run's own measurement supports rather than an asserted verdict. A failing
+   * record must not fail the optimization, so it logs a warning instead.
    * @param skill - the skill the staged write mutates.
    * @param stagedId - the staged write identity.
    * @param winner - the winning variant.
+   * @param baseline - the baseline score the winner beat.
    * @param slim - projection of a score onto its measured triple.
    * @param provider - provider half of the route used for evaluation.
    * @param model - model half of the route used for evaluation.
@@ -1128,6 +1389,7 @@ export class EvolutionOptimizer extends Service {
     skill: string,
     stagedId: string,
     winner: { body: string; operator: string; score: { pass: boolean; tokens: number; wallTimeMs: number } },
+    baseline: { score: { pass: boolean } },
     slim: (score: { pass: boolean; tokens: number; wallTimeMs: number }) => { pass: boolean; tokens: number; wallTimeMs: number },
     provider: string,
     model: string,
@@ -1143,7 +1405,7 @@ export class EvolutionOptimizer extends Service {
         operator: winner.operator,
         tasks: [],
         metrics: slim(winner.score),
-        outcome: 'improved',
+        outcome: measuredOutcome(baseline.score, winner.score),
         regressions: [],
         dependencies: {
           skill: digestOf(winner.body),
@@ -1154,6 +1416,50 @@ export class EvolutionOptimizer extends Service {
       })
     } catch (error) {
       this.ctx.logger.warn(`evolution optimizer could not record lineage envelope: ${String(error)}`)
+    }
+  }
+
+  /**
+   * Record the promotion's body history when the lineage store is mounted, so
+   * the skill's policy history stays versioned, diffable, reproducible, and
+   * reversible (§14.5, amendment S9): the body the run started from lands as
+   * one revision — the recoverable preimage a promotion of the winning body
+   * replaces — and the winning body lands as the revision after it, with the
+   * benchmark their comparison was measured under. The store assigns the
+   * version, hashes each body, and diffs it against the revision it replaces.
+   * A start body the chain already holds is not recorded again, so a run that
+   * begins from the same body never grows the chain, and re-recording the
+   * current bytes stays a no-op. A
+   * failing record must not fail the optimization, so it logs a warning
+   * instead.
+   * @param skill - the skill the staged write mutates.
+   * @param winner - the winning variant whose body was promoted.
+   * @param startingBody - the body the run started from, which the promoted body replaces.
+   * @param evaluation - the context the promotion compared its arms under, absent when none was proven.
+   */
+  private async recordPolicyRevision(
+    skill: string,
+    winner: { body: string },
+    startingBody: string,
+    evaluation: EvaluationContext | null,
+  ): Promise<void> {
+    const lineage = this.ctx.get('evolutionLineage')
+    if (lineage === undefined) return
+    try {
+      // A chain that already holds the start body needs no second copy of it:
+      // the preimage is recoverable either way, and re-recording it would grow
+      // the chain on every run that starts from the same body.
+      const policy = `skill:${skill}`
+      if (!lineage.revisions(policy).some(revision => revision.body === startingBody)) {
+        await lineage.recordRevision({ policy, body: startingBody })
+      }
+      await lineage.recordRevision({
+        policy: `skill:${skill}`,
+        body: winner.body,
+        ...evaluation === null ? {} : { benchmark: evaluation.benchmark },
+      })
+    } catch (error) {
+      this.ctx.logger.warn(`evolution optimizer could not record policy revision: ${String(error)}`)
     }
   }
 
@@ -1257,39 +1563,6 @@ export class EvolutionOptimizer extends Service {
   }
 
   /**
-   * Record the staged write's evaluation route and outcome when the router
-   * store is mounted, so per-task-class route learning sees how the route
-   * performed on this skill. A failing record must not fail the optimization,
-   * so it logs a warning instead.
-   * @param skill - the skill the staged write mutates.
-   * @param provider - provider half of the evaluation route.
-   * @param model - model half of the evaluation route.
-   * @param winner - the winning variant with its measured triple.
-   */
-  private async recordRouter(
-    skill: string,
-    provider: string,
-    model: string,
-    winner: { score: { pass: boolean; tokens: number; wallTimeMs: number } },
-  ): Promise<void> {
-    const router = this.ctx.get('evolutionRouter')
-    if (router === undefined) return
-    try {
-      await router.observe({
-        taskClass: skill,
-        role: 'evaluation',
-        provider,
-        model,
-        pass: winner.score.pass,
-        tokens: winner.score.tokens,
-        wallTimeMs: winner.score.wallTimeMs,
-      })
-    } catch (error) {
-      this.ctx.logger.warn(`evolution optimizer could not record route outcome: ${String(error)}`)
-    }
-  }
-
-  /**
    * Record the staged write's run as one engine run under the configuration
    * it actually used when the meta store is mounted, so the engine learns
    * which configuration this task class should run next. A failing record
@@ -1338,19 +1611,6 @@ export class EvolutionOptimizer extends Service {
 export default EvolutionOptimizer
 
 /**
- * Attempts per scenario a triple was measured with. A run whose scenarios ran
- * different attempt counts has no single number, so the fewest any scored
- * scenario took is the count a comparison may rely on; a score with no
- * scenario records reports zero.
- * @param score - the aggregated triple.
- * @returns the attempt count two triples must share to be comparable.
- */
-function samplesOf(score: SkillScore): number {
-  const counts = score.scores.map(record => record.samples.length)
-  return counts.length === 0 ? 0 : Math.min(...counts)
-}
-
-/**
  * Comparability key for one measured triple: its scenarios, route, attempt
  * count, and scoring-semantics version. Two triples with different keys were
  * not measured under the same conditions, so a regression guard must not
@@ -1368,12 +1628,3 @@ function comparabilityKey(measured: {
   return JSON.stringify([[...measured.scenarios].sort(), measured.provider, measured.model, measured.samples, measured.scorerVersion])
 }
 
-/**
- * SHA-256 of one skill body, so the ledger identifies the exact text a run
- * scored without storing the body itself.
- * @param text - the body to digest.
- * @returns the lowercase hex digest.
- */
-function digestOf(text: string): string {
-  return createHash('sha256').update(text, 'utf8').digest('hex')
-}

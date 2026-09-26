@@ -96,4 +96,33 @@ describe('verification repair loop', () => {
     expect(eventsOf(agent, 'verification/requested')).toHaveLength(0)
     expect(kernel.state.view(agent.session)?.task.status).toBe('completed')
   })
+
+  it('re-runs a criterion when no repository state was recorded to reuse it for', async () => {
+    const { ctx, kernel } = await rig({ acceptance: [criterion('build')], maxRepairAttempts: 3 })
+    let runs = 0
+    kernel.verifiers.register({
+      id: 'counting',
+      supports: () => true,
+      verify: async (_request, subject) => {
+        runs += 1
+        return { result: { criterionId: subject.id, status: 'fail', evidence: [] } }
+      },
+    })
+    const agent = await makeAgent(ctx)
+
+    await preStep(ctx, agent, [humanMessage('one')])
+    await stopTurn(ctx, agent)
+    expect(runs).toBe(1)
+
+    // This deployment records no workspace changes, so the kernel cannot name
+    // the repository state a verifier read and never answers a pass from an
+    // earlier result: the digest differs per pass.
+    await preStep(ctx, agent, [humanMessage('two')], 2)
+    await stopTurn(ctx, agent, 2)
+
+    expect(runs).toBe(2)
+    const digests = eventsOf(agent, 'verification/requested').map(record => record.repositoryDigest)
+    expect(digests).toHaveLength(2)
+    expect(new Set(digests).size).toBe(2)
+  })
 })

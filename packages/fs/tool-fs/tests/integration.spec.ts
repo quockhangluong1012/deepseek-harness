@@ -222,6 +222,101 @@ describe('default deployment (with dsh-fs-observation-policy)', () => {
     })
   })
 
+  describe('multi_edit → disk', () => {
+    it('applies every edit in one write, verified byte-for-byte', async () => {
+      await writeFile(join(dir, 'a.txt'), 'alpha\nbeta\ngamma\n')
+      await call('read', { file_path: 'a.txt' })
+      const result = await call('multi_edit', {
+        file_path: 'a.txt',
+        edits: [
+          { old_string: 'alpha', new_string: 'ALPHA' },
+          { old_string: 'gamma', new_string: 'GAMMA' },
+        ],
+      })
+      expect(result.isError).toBe(false)
+      expect(text(result)).toBe(`The file ${join(dir, 'a.txt')} has been updated successfully with 2 edits.`)
+      expect(await readFile(join(dir, 'a.txt'), 'utf8')).toBe('ALPHA\nbeta\nGAMMA\n')
+    })
+
+    it('applies nothing when a later edit does not resolve', async () => {
+      await writeFile(join(dir, 'a.txt'), 'alpha\nbeta\n')
+      await call('read', { file_path: 'a.txt' })
+      const result = await call('multi_edit', {
+        file_path: 'a.txt',
+        edits: [
+          { old_string: 'alpha', new_string: 'ALPHA' },
+          { old_string: 'absent', new_string: 'x' },
+        ],
+      })
+      expect(result.isError).toBe(true)
+      expect(result.error).toMatchObject({ info: { code: 'FS_EDIT_NOT_FOUND' } })
+      expect(text(result)).toBe(`Error: edits[1]: old_string was not found in "${join(dir, 'a.txt')}"`)
+      // The first edit never reached the file.
+      expect(await readFile(join(dir, 'a.txt'), 'utf8')).toBe('alpha\nbeta\n')
+    })
+
+    it('keeps a CRLF file CRLF', async () => {
+      await writeFile(join(dir, 'a.txt'), 'alpha\r\nbeta\r\n')
+      await call('read', { file_path: 'a.txt' })
+      const result = await call('multi_edit', { file_path: 'a.txt', edits: [{ old_string: 'alpha', new_string: 'ALPHA' }] })
+      expect(result.isError).toBe(false)
+      expect(await readFile(join(dir, 'a.txt'), 'utf8')).toBe('ALPHA\r\nbeta\r\n')
+    })
+  })
+
+  describe('apply_patch → disk', () => {
+    it('creates one file and updates another in a single call', async () => {
+      await writeFile(join(dir, 'existing.txt'), 'keep\nold line\n')
+      await call('read', { file_path: 'existing.txt' })
+      const patch = [
+        '*** Begin Patch',
+        '*** Add File: new.txt',
+        '+created',
+        '*** Update File: existing.txt',
+        '@@',
+        ' keep',
+        '-old line',
+        '+new line',
+        '*** End Patch',
+      ].join('\n')
+      const result = await call('apply_patch', { patch })
+      expect(result.isError).toBe(false)
+      expect(text(result)).toBe(`Applied 2 file changes.\nCreated ${join(dir, 'new.txt')}\nUpdated ${join(dir, 'existing.txt')}`)
+      expect(await readFile(join(dir, 'new.txt'), 'utf8')).toBe('created\n')
+      expect(await readFile(join(dir, 'existing.txt'), 'utf8')).toBe('keep\nnew line\n')
+    })
+
+    it('applies nothing when the patch is malformed', async () => {
+      const result = await call('apply_patch', { patch: '*** Begin Patch\n*** Add File: new.txt\nstray\n*** End Patch' })
+      expect(result.isError).toBe(true)
+      expect(text(result)).toBe('Error: line 3: an Add File content line must start with "+"')
+      await expect(readFile(join(dir, 'new.txt'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    })
+
+    it('applies nothing when a later section cannot resolve', async () => {
+      await writeFile(join(dir, 'first.txt'), 'one\n')
+      await writeFile(join(dir, 'second.txt'), 'two\n')
+      await call('read', { file_path: 'first.txt' })
+      await call('read', { file_path: 'second.txt' })
+      const patch = [
+        '*** Begin Patch',
+        '*** Update File: first.txt',
+        '@@',
+        '-one',
+        '+ONE',
+        '*** Update File: second.txt',
+        '@@',
+        '-absent',
+        '+ABSENT',
+        '*** End Patch',
+      ].join('\n')
+      const result = await call('apply_patch', { patch })
+      expect(result.isError).toBe(true)
+      expect(await readFile(join(dir, 'first.txt'), 'utf8')).toBe('one\n')
+      expect(await readFile(join(dir, 'second.txt'), 'utf8')).toBe('two\n')
+    })
+  })
+
   describe('the gate records only through the events (no method coupling)', () => {
     it('a direct ctx.fs.readText records no observed-state, so a later edit rejects', async () => {
       await writeFile(join(dir, 'a.txt'), 'hello world')

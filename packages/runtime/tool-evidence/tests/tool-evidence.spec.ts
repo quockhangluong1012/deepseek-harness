@@ -18,12 +18,12 @@ afterEach(async () => {
 })
 
 /** One context with the loop, the kernel, and the research tools mounted. */
-async function mounted(): Promise<{ ctx: Context; agent: Awaited<ReturnType<Awaited<ReturnType<typeof mountAgentLoopTestHarness>>['create']>> }> {
+async function mounted(config: toolEvidence.Config = {}): Promise<{ ctx: Context; agent: Awaited<ReturnType<Awaited<ReturnType<typeof mountAgentLoopTestHarness>>['create']>> }> {
   const ctx = new Context()
   contexts.push(ctx)
   await mountAgentLoopTestDependencies(ctx)
   await ctx.plugin(AgentKernel, {})
-  await ctx.plugin(toolEvidence, {})
+  await ctx.plugin(toolEvidence, config)
   const driver = await mountAgentLoopTestHarness(ctx)
   const agent = await driver.create(SessionId('evidence-tools'), { provider: 'mock', model: 'mock' }, { cwd: process.cwd() })
   // A record needs a task to answer to, so the fixture opens one the same way a
@@ -58,7 +58,7 @@ describe('research tools', () => {
       kind: 'file',
       contentRef: 'packages/core/tools/src/index.ts',
       trust: 'trusted',
-      provenance: { source: 'model', locator: 'call-evidence' },
+      sourceRef: { source: 'model', locator: 'call-evidence' },
     })
 
     const claim = await call(ctx, 'record_claim', agent, {
@@ -86,9 +86,18 @@ describe('research tools', () => {
     await ctx.plugin(toolEvidence, {})
 
     expect(ctx.tools.get('record_evidence')).toBeDefined()
-    // No kernel is mounted, so `ctx.get('agentKernel')` is undefined and the
-    // tool cannot write a durable fact nobody owns.
+    // No kernel is mounted, so `ctx.get('agentKernel')` is undefined and each
+    // tool fails instead of writing a durable fact nobody owns.
     expect(ctx.get('agentKernel')).toBeUndefined()
+    const calls = [
+      ['record_evidence', { kind: 'file', contentRef: 'README.md' }],
+      ['record_claim', { statement: 'unsupported', confidence: 0.5 }],
+      ['record_hypothesis', { question: 'does anything hold?' }],
+    ] as const
+    for (const [toolName, args] of calls) {
+      const result = await call(ctx, toolName, undefined, args, `call-${toolName}`)
+      expect(result.isError).toBe(true)
+    }
   })
 
   it('clamps a stated confidence into the interval the claim accepts', async () => {
@@ -97,5 +106,65 @@ describe('research tools', () => {
 
     const claims = agent.session.snapshotEvents().filter(event => event.type === 'claim/updated')
     expect(claims[0]?.data.confidence).toBe(1)
+  })
+
+  it('records the question the task is testing, citing the claims behind it', async () => {
+    const { ctx, agent } = await mounted()
+    await call(ctx, 'record_claim', agent, { statement: 'the fold reproduces the log', confidence: 0.6 }, 'call-hypothesis-claim')
+    const claimId = String(agent.session.snapshotEvents().find(event => event.type === 'claim/updated')?.data.claimId)
+
+    const hypothesis = await call(ctx, 'record_hypothesis', agent, {
+      question: 'does the digest survive a replay?',
+      claimIds: [claimId],
+      status: 'inconclusive',
+    }, 'call-hypothesis')
+    expect(hypothesis.isError).toBe(false)
+
+    const hypotheses = agent.session.snapshotEvents().filter(event => event.type === 'hypothesis/updated')
+    expect(hypotheses).toHaveLength(1)
+    expect(hypotheses[0]?.data).toMatchObject({
+      question: 'does the digest survive a replay?',
+      claims: [claimId],
+      status: 'inconclusive',
+      tests: [],
+    })
+  })
+
+  it('opens a hypothesis that cites no claim yet', async () => {
+    const { ctx, agent } = await mounted()
+    const hypothesis = await call(ctx, 'record_hypothesis', agent, { question: 'is the ledger replayable?' }, 'call-open-hypothesis')
+    expect(hypothesis.isError).toBe(false)
+
+    const hypotheses = agent.session.snapshotEvents().filter(event => event.type === 'hypothesis/updated')
+    expect(hypotheses[0]?.data).toMatchObject({ question: 'is the ledger replayable?', claims: [], status: 'open' })
+  })
+
+  it('refuses a hypothesis citing a claim this session never asserted', async () => {
+    const { ctx, agent } = await mounted()
+    const hypothesis = await call(ctx, 'record_hypothesis', agent, {
+      question: 'does an unknown claim hold?',
+      claimIds: ['made-up-claim'],
+    }, 'call-unknown-claim')
+    expect(hypothesis.isError).toBe(true)
+
+    expect(agent.session.snapshotEvents().filter(event => event.type === 'hypothesis/updated')).toHaveLength(0)
+  })
+
+  it('keeps a supplied digest and defaults an unstated trust label', async () => {
+    const { ctx, agent } = await mounted()
+    await call(ctx, 'record_evidence', agent, {
+      kind: 'file', contentRef: 'README.md', digest: 'a'.repeat(64),
+    }, 'call-digest')
+
+    const recorded = agent.session.snapshotEvents().find(event => event.type === 'evidence/recorded')
+    expect(recorded?.data).toMatchObject({ digest: 'a'.repeat(64), trust: 'unknown' })
+  })
+
+  it('bounds recorded text to the configured ceiling', async () => {
+    const { ctx, agent } = await mounted({ maxTextChars: 8 })
+    await call(ctx, 'record_hypothesis', agent, { question: 'longer than eight characters' }, 'call-bounded')
+
+    const recorded = agent.session.snapshotEvents().find(event => event.type === 'hypothesis/updated')
+    expect(recorded?.data.question).toBe('longer t')
   })
 })

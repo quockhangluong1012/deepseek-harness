@@ -1,9 +1,9 @@
 /**
  * Public type vocabulary of the dependency-aware lineage store: dependency
- * versions, experiment envelopes, comparability verdicts, and ablation
- * attribution (§34 dependency-aware evolution, §36 artifact lineage and
- * causal attribution, §48 reproducible evolutionary experiments). Types
- * only — no runtime code.
+ * versions, experiment envelopes, comparability verdicts, ablation
+ * attribution, and versioned policy revisions (§14.5 policy versioning, §34
+ * dependency-aware evolution, §36 artifact lineage and causal attribution,
+ * §48 reproducible evolutionary experiments). Types only — no runtime code.
  * @module @deepseek-ai/dsh-evolution-lineage/src/types
  */
 
@@ -72,6 +72,43 @@ export interface ExperimentEnvelope {
 
 /** One experiment offered for recording: the envelope minus its stamp. */
 export type ExperimentInput = Omit<ExperimentEnvelope, 'at'>
+
+/** Lines one policy revision added and removed against the revision it replaced. */
+export interface PolicyDiff {
+  /** Lines the new body carries past their longest common subsequence. */
+  addedLines: number
+  /** Lines the replaced body carries past their longest common subsequence. */
+  removedLines: number
+}
+
+/**
+ * One versioned policy revision. The chain is linear per policy: a revision
+ * names the digest it replaced, carries the exact body it committed, and
+ * records what that body changed, so a policy is reproducible and reversible
+ * from the store alone (§14.5) without re-reading the file the body was
+ * written from.
+ */
+export interface PolicyRevision {
+  /** Policy identity, `<kind>:<name>` — for example `skill:writer`. */
+  policy: string
+  /** Revision number inside the policy, starting at 1. */
+  version: number
+  /** sha256-hex of the body this revision commits. */
+  digest: string
+  /** Digest of the revision this one replaced, absent on a policy's first revision. */
+  parentDigest: string | null
+  /** What this revision changed, by line count; both zero on a policy's first revision. */
+  diff: PolicyDiff
+  /** Benchmark identity the revision was measured under, absent when nothing measured it. */
+  benchmark?: string | undefined
+  /** Complete policy body this revision commits: the exact bytes {@link digest} hashes. */
+  body: string
+  /** ISO-8601 instant the revision was recorded. */
+  at: string
+}
+
+/** One revision offered for recording: what the caller knows, minus what the store assigns. */
+export type PolicyRevisionInput = Omit<PolicyRevision, 'version' | 'digest' | 'parentDigest' | 'diff' | 'at'>
 
 /** Whether two experiments may be compared, and what changed. */
 export interface ExperimentComparison {

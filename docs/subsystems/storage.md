@@ -75,6 +75,21 @@ interface DomainSpec {
    */
   readonly compatibleVersions?: readonly number[]
   /**
+   * Opt in to write coalescing: instead of publishing every write on its own,
+   * the domain applies each write to memory at its chain slot and publishes
+   * the writes staged together as ONE backend operation per touched slot
+   * ([`Domain.flush`](./domain.ts) settles a batch on demand, and a batch is
+   * otherwise published as soon as the write chain runs out of queued jobs).
+   * A caller's promise still resolves only after its own write is durable, and
+   * a rejected publication restores the slot's pre-batch memory value — the
+   * trade is that a write is briefly visible to readers before the medium
+   * holds it. Opt in for domains whose writes arrive in per-turn bursts (one
+   * whole-file rewrite per batch instead of one per write); leave it off for
+   * data whose every write must be individually serialized to the medium
+   * before it becomes readable.
+   */
+  readonly coalesceWrites?: boolean
+  /**
    * What `open` does with a stored table record that fails its zod schema.
    * Absent (the default), the whole open rejects with `invalid-record` —
    * right for authoritative data. `'backup-and-skip'` is for domains whose
@@ -110,6 +125,17 @@ interface Domain<S extends DomainSpec> {
    * @returns the typed table handle.
    */
   table<N extends keyof S['tables'] & string>(name: N): KvTable<TableKeyOf<S, N>, TableValueOf<S, N>>
+
+  /**
+   * Settle every write queued and staged so far: the barrier a caller uses at
+   * a boundary that must not leave a write pending. Resolves once each write
+   * has reached its own outcome — durable, or rejected to the caller that
+   * issued it — so a write's failure is never reported through the barrier.
+   * A domain without `coalesceWrites` publishes nothing early: this only
+   * waits for its write chain to drain.
+   * @returns resolution after every write issued before the call settled.
+   */
+  flush(): Promise<void>
 
   /**
    * Close this domain: reject new writes immediately, drain already-queued

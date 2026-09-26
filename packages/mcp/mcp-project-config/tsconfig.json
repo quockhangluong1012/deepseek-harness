@@ -16,6 +16,21 @@
     },
     {
       "path": "../../util/home-paths"
+    },
+    {
+      "path": "../../core/agent"
+    },
+    {
+      "path": "../../core/session"
+    },
+    {
+      "path": "../../interaction/user-approval"
+    },
+    {
+      "path": "../../runtime/agent-kernel"
+    },
+    {
+      "path": "../../typert/protocol"
     }
   ]
 }

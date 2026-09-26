@@ -60,7 +60,7 @@ export const memoryRecall = z.object({
   outcomeAt: z.string().nullable().default(null),
 })
 
-/** Extraction provenance at the durable boundary. */
+/** The extraction that wrote the document, at the durable boundary. */
 export const evolutionExtraction = z.object({
   at: z.string(),
   sessionId: z.string(),

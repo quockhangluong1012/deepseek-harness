@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-`dsh-commands` 让用户能在交互式 Harness UI 中运行 `/command [input]` 操作，且不会把命令或结果变成模型消息。命令可以展示输入提示、接受附件，并只针对一个 agent 生效，同时为其他 agent 保留同名的全局命令。每次通过准入的执行都会记录到接收 agent 的会话日志中，UI 则在模型历史之外渲染结算结果。它适合为 `dsh` CLI（命令行界面）或 Web 客户端提供直接面向用户的控制；无 UI 的演示与 ACP（Agent Client Protocol）自动化不提供此命令面。
+`dsh-commands` 让用户能在交互式 Harness UI 中运行 `/command [input]` 操作，且不会把命令或结果变成模型消息。命令会展示输入提示、接受附件，并只针对一个 agent 生效，同时为其他 agent 保留同名的全局命令。每次通过准入的执行都会记录到接收 agent 的会话日志中，UI 则在模型历史之外渲染结算结果。它适合为 `dsh` CLI（命令行界面）或 Web 客户端提供直接面向用户的控制；无 UI 的演示主干不需要 composer，而 ACP（Agent Client Protocol）主机会派发提交的命令行。
 
 ## 目录
 
@@ -25,7 +25,7 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用本包
 
-当交互式 UI 希望用户用斜杠命令而非模型提示词驱动 agent 侧行为时，组合此服务。无 UI 的演示主干和 ACP 自动化不提供命令适配器，也不需要它。
+当交互式 UI 或 ACP 主机希望用户用斜杠命令而非模型提示词驱动 agent 侧行为时，组合此服务。无 UI 的演示主干不提供命令 composer，也不需要它。
 
 ### 注册命令
 
@@ -57,6 +57,18 @@ ctx.commands.register({
 
 命令可以声明 `input.attachments` 以接受 composer 图片与通用文件。执行器负责强制执行声明：把附件发给未声明的命令、附件存储缺失、会话范围内的文件上传凭证未知或图片批量超出限制，都会在处理器运行前以错误结果结算。图片以 base64 输入通过命令 wire，通用文件则引用后台上传完成后得到的凭证，因此命令提交不会再次读取文件字节。通过准入的 `ImageBlock` 与 `FileBlock` 按用户选择顺序组成冻结的 `invocation.attachments` 数组，其模型可见用途由处理器负责。
 
+<a id="file-defined-commands"></a>
+### 文件定义的命令
+
+`@deepseek-ai/dsh-commands/file-commands` 是独立的一行注册：它加载项目 `.dsh/commands` 与 `.claude/commands` 目录，以及 `<DSH_HOME>/commands` 与 `~/.claude/commands` 中的 Markdown 文件，按优先级从高到低排列，先提供某个名称的根目录拥有它。
+
+命令文件需要带非空 `description` 的 YAML frontmatter 和非空正文；`argument-hint` 会成为命令的输入提示。无法读取、解析或校验的文件——包括超过 `maxCommandBytes` 的文件——会被跳过并输出一条指明文件与原因的警告，未知的 frontmatter 键只报告一次，因此损坏的文件绝不会让加载失败。
+
+派发已加载的命令时，会把它的正文作为一条用户消息提交给接收 agent：`$ARGUMENTS` 被替换为调用输入的裁剪结果，正文中没有占位符时则把该输入作为独立段落追加；这次提交让命令的正文成为模型可见内容。两个 frontmatter 字段决定它启动的那次运行，两者都会在 agent 停稳时解除：
+
+- `allowed-tools` 通过 `ctx.tools.restrict()` 为那次运行遮蔽 agent 的工具。
+- `model` 为那次运行替换接收 agent 路由中的模型部分。提供方——以及随之而来的凭证与该路由校验所用的目录——仍属于 agent 自身，因此该提供方不提供所声明模型时，运行请求会直接失败，而不会改道。
+
 ### 从适配器分派
 
 交互式适配器调用 `execute(agent, line, attachments, signal)`，传入确切的接收 agent、完整命令行与本次提交的有序附件。它返回已结算的 `CommandExecution`——规范化结果加生命周期配对 `commandId`——语法无效或名称未知时返回 `undefined`。`list(agent)` 与 `find(agent, name)` 在应用 agent 作用域遮蔽后用于命令发现。
@@ -82,6 +94,7 @@ ctx.commands.register({
 | [`src/index.ts`](src/index.ts) | `CommandRuntime` 服务：注册、作用域、分派、生命周期事件 |
 | [`src/types.ts`](src/types.ts) | 命令定义、描述符、执行与结果类型 |
 | [`src/brand.ts`](src/brand.ts) | 稳定命令定义标识和每次执行的生命周期 id |
+| [`src/file-commands.ts`](src/file-commands.ts) | 文件定义的命令：发现、frontmatter、注册，以及命令所提交运行的工具与模型覆盖 |
 | [`src/invariant.ts`](src/invariant.ts) | 不变式伴生插件：按会话日志配对 `command/run` 与 `command/done` |
 
 ### 生命周期事件
@@ -119,7 +132,7 @@ ctx.commands.register({
 
 #### 模型看到的内容
 
-注册表自身不会提交任何内容。已知斜杠命令在 UI 命令平面执行，其 `CommandResult` 文本不会作为用户消息提交。已交付的适配器会拒绝未知斜杠命令输入，而不是将其变成模型提示词。命令生产方可以显式使用接收命令的 `Agent`；例如，[`dsh-plan-mode`](../../plan/plan-mode/README.zh.md#model-and-human-interactions)在选择 plan mode 后，会提交 `/plan [message]` 中的可选消息与有序附件。执行器只负责把附件准入为持久化对象，是否以及如何成为模型可见消息由声明接受的生产方决定。
+注册表自身不会提交任何内容。已知斜杠命令在 UI 命令平面执行，其 `CommandResult` 文本不会作为用户消息提交。已交付的适配器会拒绝未知斜杠命令输入，而不是将其变成模型提示词。命令生产方可以显式使用接收命令的 `Agent`；例如，[`dsh-plan-mode`](../../plan/plan-mode/README.zh.md#model-and-human-interactions)在选择 plan mode 后，会提交 `/plan [message]` 中的可选消息与有序附件。执行器只负责把附件准入为持久化对象，是否以及如何成为模型可见消息由声明接受的生产方决定。文件定义的命令就是这样的生产方：它的正文会作为用户消息到达模型，声明的 `model` 会改变那次运行的请求路由，并由该请求的 header 记录。
 
 #### Token 影响
 
@@ -138,6 +151,7 @@ ctx.commands.register({
 
 - **仅支持非结构化文本输入**：表单、补全 schema 和类型化参数仍由各命令自行解析。
 - **副作用采用协作式取消**：中止后，分发会停止等待；处理器必须遵循信号，才能停止已经进入外部系统的工作。
+- **文件命令的 `model` 是模型 id，而不是完整路由**：它只替换接收 agent 当前路由中的模型部分；切换提供方属于会话模型选择的职责，不是命令文件的职责。
 
 <a id="dev-note"></a>
 ### 开发备注

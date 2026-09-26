@@ -75,7 +75,7 @@ const observed = ctx.evolutionAdversary.observedDefenses()
 | `behavioral-metrics` | 本存储的探针 | 至少一条探针行使了 `evaluator-gaming` |
 | `adversarial-tests` | 本存储的探针 | 至少一个技能探完 §45 的每个类别 |
 | `randomized-tests` | —— | 没有东西记录哪些测试是随机化的 |
-| `evaluator-rotation` | `evolution-router.effectiveness(undefined, 'evaluation')` | 某个任务类记录了两条或更多评估路由 |
+| `evaluator-rotation` | `evolution-model-routes.effectiveness(undefined, 'evaluation')` | 某个任务类记录了两条或更多评估路由 |
 
 未挂载的存储会使其对应防御为 `unobserved` 并点名缺失的存储，绝不会读作开放。随机化测试与人工抽查留在操作者一侧：没有存储记录随机化的选择，人工抽查也根本不是清单行。观测器只读取姊妹存储——它不向基准追加任何内容、不走任何路由、也从不启动评估。
 
@@ -119,7 +119,7 @@ const observed = ctx.evolutionAdversary.observedDefenses()
 - **记录探针而不执行探针**——存储只记录对抗提示词及其修复状态（§58.12：信任被记录而非强制）；对技能执行探针并判定弱点仍是操作者的职责。
 - **所有类别共用一个下限**——`minProbesPerCategory` 适用于每个弱点家族；按类别的下限需要在存储上加配置。
 - **清单只覆盖可自动化的防御**——人工抽查按设计留在操作者一侧；存储只跟踪它能观测的六项防御，而 `randomized-tests` 读作 `unobserved`，因为没有任何东西记录哪些测试是被随机化的。
-- **观测的质量取决于其存储**——`observedDefenses()` 从与它一同挂载的存储推导；当 `evolution-benchmark`、`evolution-evaluator-strategy` 或 `evolution-router` 未挂载时，对应防御读作 `unobserved`，而不是满足或开放。
+- **观测的质量取决于其存储**——`observedDefenses()` 从与它一同挂载的存储推导；当 `evolution-benchmark`、`evolution-evaluator-strategy` 或 `evolution-model-routes` 未挂载时，对应防御读作 `unobserved`，而不是满足或开放。
 - **观测与断言分开读取**——`defenses()` 报告操作者设置了什么，`observedDefenses()` 报告存储记录了什么；两者之间没有任何调和，因此手工设置的行可能声称一项证据并未显示的防御。
 
 <a id="dev-note"></a>

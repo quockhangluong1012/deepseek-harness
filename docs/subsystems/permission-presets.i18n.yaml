@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/subsystems/permission-presets.md
-permission-presets.md: eaa075120a9673ac1f477387762d02b06292c0b5
-permission-presets.zh.md: ac8f40a2c8ae307d0260866158e0a928084fcfb3
+permission-presets.md: ff5c0fc2e45a22131061807d6cad771951eb4162
+permission-presets.zh.md: f3773c2affe5585a2966695c47c166fb3793466d

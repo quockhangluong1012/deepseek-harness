@@ -17,17 +17,20 @@
  * @module @deepseek-ai/dsh-evolution-trace/src/project
  */
 
-import type { ContentBlock } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock, LlmModelCost, TokenUsage } from '@deepseek-ai/dsh-llm'
+import { messageRoute, normalizeSample, priceSample, sampleOfAttempt, sampleOfMessage } from '@deepseek-ai/dsh-usage-ledger'
 import { truncateUtf8 } from '@deepseek-ai/dsh-evolution-memory'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import type { ContextCompilationRecord } from '@deepseek-ai/dsh-agent-context'
 import type { VerificationResult } from '@deepseek-ai/dsh-agent-kernel'
+import { routeKey } from './prices.ts'
 import type {
   TraceCause,
   TraceFailure,
   TraceFeedback,
   TraceRecord,
   TraceRetrieval,
+  TraceStateDelta,
   TraceStep,
   TraceSubgoal,
   TraceToolCall,
@@ -73,8 +76,11 @@ interface BuildStep {
   interrupted: boolean
   retries: number
   usage: TraceStep['usage']
+  estimatedCostUsd: number | null
   context: ContextCompilationRecord | null
   calls: TraceToolCall[]
+  stateDelta: TraceStateDelta[]
+  subagentRunIds: string[]
 }
 
 /** One turn under construction. */
@@ -91,6 +97,13 @@ interface BuildTurn {
   /** Steps in first-open order. */
   stepOrder: number[]
   failures: PendingFailure[]
+  /**
+   * Records that arrived between two steps. The transition and delegation that
+   * open a step are appended before its `step/start`, so the next step claims
+   * them; whatever the turn closes with binds to its newest step.
+   */
+  pendingStateDelta: TraceStateDelta[]
+  pendingSubagentRunIds: string[]
 }
 
 /** One dispatched but not yet settled tool call. */
@@ -136,9 +149,15 @@ const RETRIEVAL_TARGET_KEYS: readonly string[] = ['name', 'query']
  * @param sessionId - session identity.
  * @param events - committed events in sequence order.
  * @param maxChars - character budget for one failure, request, target, snapshot, or answer gist.
+ * @param prices - catalog price of each route the log ran under, keyed by `routeKey`; absent leaves every step unpriced.
  * @returns the structured trace.
  */
-export function project(sessionId: string, events: readonly SessionEvent[], maxChars: number): TraceRecord {
+export function project(
+  sessionId: string,
+  events: readonly SessionEvent[],
+  maxChars: number,
+  prices?: ReadonlyMap<string, LlmModelCost>,
+): TraceRecord {
   const turns = new Map<number, BuildTurn>()
   const turnOrder: number[] = []
   let openTurn: BuildTurn | undefined
@@ -148,6 +167,7 @@ export function project(sessionId: string, events: readonly SessionEvent[], maxC
   const feedback: TraceFeedback[] = []
   let currentContext: ContextCompilationRecord | null = null
   let currentPlan: readonly TraceSubgoal[] | null = null
+  let currentRoute: { provider: string; model: string } | undefined
   let newestTime = -1
 
   const markTime = (time: number): void => {
@@ -158,6 +178,19 @@ export function project(sessionId: string, events: readonly SessionEvent[], maxC
   }
   const enhanceTime = (built: BuildStep, time: number): void => {
     built.finishedAt = new Date(time).toISOString()
+  }
+  /** Add one usage sample's priced cost to a step, using the route it ran under. */
+  const addCost = (
+    built: BuildStep,
+    usage: TokenUsage | undefined,
+    route: { provider: string; model: string } | undefined,
+  ): void => {
+    if (prices === undefined || usage === undefined || route === undefined) return
+    const cost = prices.get(routeKey(route.provider, route.model))
+    if (cost === undefined) return
+    const sample = normalizeSample(usage)
+    if (sample === undefined) return
+    built.estimatedCostUsd = (built.estimatedCostUsd ?? 0) + priceSample(sample, cost)
   }
 
   for (const event of events) {
@@ -179,6 +212,8 @@ export function project(sessionId: string, events: readonly SessionEvent[], maxC
             steps: new Map(),
             stepOrder: [],
             failures: [],
+            pendingStateDelta: [],
+            pendingSubagentRunIds: [],
           }
           turns.set(turn, built)
           turnOrder.push(turn)
@@ -195,6 +230,27 @@ export function project(sessionId: string, events: readonly SessionEvent[], maxC
       case 'context/compiled': {
         currentContext = event.data
         if (openStep !== undefined) openStep.context = event.data
+        break
+      }
+      case 'request/context': {
+        currentRoute = { provider: event.data.provider, model: event.data.model }
+        break
+      }
+      case 'task/transitioned': {
+        const delta: TraceStateDelta = {
+          from: event.data.from,
+          to: event.data.to,
+          trigger: event.data.trigger.kind,
+          at: new Date(event.time).toISOString(),
+        }
+        if (openStep !== undefined) openStep.stateDelta.push(delta)
+        else openTurn?.pendingStateDelta.push(delta)
+        break
+      }
+      case 'delegation/issued': {
+        const runId = String(event.data.childRunId)
+        if (openStep !== undefined) openStep.subagentRunIds.push(runId)
+        else openTurn?.pendingSubagentRunIds.push(runId)
         break
       }
       case 'todo/write': {
@@ -232,8 +288,11 @@ export function project(sessionId: string, events: readonly SessionEvent[], maxC
           interrupted: false,
           retries: 0,
           usage: null,
+          estimatedCostUsd: null,
           context: currentContext,
           calls: [],
+          stateDelta: turn.pendingStateDelta.splice(0),
+          subagentRunIds: turn.pendingSubagentRunIds.splice(0),
         }
         turn.steps.set(step.step, step)
         turn.stepOrder.push(step.step)
@@ -255,6 +314,7 @@ export function project(sessionId: string, events: readonly SessionEvent[], maxC
         const answer = truncateUtf8(textOf(event.data.message.content).replace(/\s+/gu, ' ').trim(), maxChars)
         const owner = turns.get(event.data.turn)
         if (answer.length > 0 && owner !== undefined) owner.finalAnswer = answer
+        addCost(built, sampleOfMessage(event), messageRoute(event.data.message) ?? currentRoute)
         enhanceTime(built, event.time)
         break
       }
@@ -262,6 +322,7 @@ export function project(sessionId: string, events: readonly SessionEvent[], maxC
         const built = stepOf(event.data.turn, event.data.step)
         if (built === undefined) break
         built.retries += 1
+        addCost(built, sampleOfAttempt(event), currentRoute)
         enhanceTime(built, event.time)
         break
       }
@@ -328,6 +389,14 @@ export function project(sessionId: string, events: readonly SessionEvent[], maxC
         if (built === undefined) break
         built.endedAt = new Date(event.time).toISOString()
         built.endReason = event.data.reason.kind
+        // The turn closes with the records that answer it — verification, the
+        // terminal transition — so they close the step whose output they read.
+        const lastStep = built.stepOrder.at(-1)
+        const newest = lastStep === undefined ? undefined : built.steps.get(lastStep)
+        if (newest !== undefined) {
+          newest.stateDelta.push(...built.pendingStateDelta.splice(0))
+          newest.subagentRunIds.push(...built.pendingSubagentRunIds.splice(0))
+        }
         if (built === openTurn) {
           openTurn = undefined
           openStep = undefined
@@ -365,9 +434,12 @@ function toTraceTurn(turn: BuildTurn): TraceTurn {
       interrupted: built.interrupted,
       retries: built.retries,
       usage: built.usage,
+      estimatedCostUsd: built.estimatedCostUsd,
       context: built.context,
       calls: built.calls,
       failures,
+      stateDelta: built.stateDelta,
+      subagentUsage: { count: built.subagentRunIds.length, runIds: built.subagentRunIds },
     }
   })
   const failures: TraceFailure[] = turn.failures.map(failure => ({

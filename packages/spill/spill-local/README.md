@@ -1,5 +1,5 @@
 ---
-description: "The local filesystem spill backend: how spilled text is saved to private session-scoped files and retrieved with read or grep."
+description: "The local artifact store backend: private session-scoped files for oversized text, plus read-only retrieval over the same root."
 kind: "package-reference"
 ---
 
@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-spill-local` saves a caller's oversized text to a private, session-scoped file on the host filesystem and returns that file's path as the locator, with retrieval guidance telling the model to read or grep it. Mount it whenever a composition needs spill storage on the same machine the agent runs on. Files are private to the current user, names are unpredictable, and each session's files group under a stable directory, so a shared root cannot leak output or be redirected by a planted symlink. Configuration selects the root and the startup-cleanup retention period; previews and spill decisions live in other packages.
+`dsh-spill-local` saves oversized text to a private, session-scoped file and returns that file's path as the locator, with guidance telling the model to read or grep it; it also registers `ctx.artifacts`, the read-only retrieval service over the same files. Mount it when a composition needs an artifact store on the agent's machine. Files are private to the current user, names are unpredictable, and each session groups under a stable directory, so a shared root cannot leak output or be redirected by a planted symlink. Configuration selects the root and cleanup retention; previews and spill decisions live in other packages.
 
 ## Table of Contents
 
@@ -49,6 +49,12 @@ The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-a
 
 Each `saveText` call writes the full text to a fresh file and returns three fields: `locator` (the file path), `bytes` (the exact UTF-8 byte count), and `retrievalHint` — "Use read with offset/limit, or grep this path to search within it." A consumer shows that hint to the model, which can then read or search the file with its ordinary file tools.
 
+### Retrieving stored artifacts
+
+The plugin also registers `ctx.artifacts`, which reads the files `saveText` wrote under this root: `search` lists one session's artifacts newest first, and `read`, `extract`, `diff`, and `summarize` take the locators this backend returned. A locator outside the root, a name that is not stored, and an entry that is not a regular file — a directory or a link — are refused with `ArtifactLocatorError`, so retrieval cannot read an arbitrary path or through a planted link. Saves record no artifact index, so search matches the stored leaf name, which ends with the sanitized suggested name.
+
+Retrieval never writes. `summarize` retains the head and tail under the requested byte budget with `dsh-output-retention`'s byte-oriented retainer and reports the exact omitted byte count; no operation changes the stored file, and none changes what a model sees of a result.
+
 ### Where files land
 
 Files are stored at `<root>/session-<hash>/<random>-<safeName>`, where `session-<hash>` is a short hash of the owning session id (so one session's files group together) and `<random>-<safeName>` pairs an unpredictable hex prefix with the caller's suggested name sanitized to one safe path segment. A relative `root` resolves from the process working directory.
@@ -76,13 +82,15 @@ This section explains the design decisions behind the backend; the observable be
 
 ### Design philosophy
 
-The backend owns storage details only, on one principle: **a spilled artifact must be private and unredirectable**. The root is private (0700), the session directory is a stable hash, the leaf name is unpredictable, and the write is exclusive and owner-only. The storage mechanics live in a Cordis-free module so they are unit-testable without a context.
+The backend owns storage details only, on one principle: **a spilled artifact must be private and unredirectable**. The root is private (0700), the session directory is a stable hash, the leaf name is unpredictable, and the write is exclusive and owner-only. The storage mechanics live in a Cordis-free module so they are unit-testable without a context, and the retrieval service reads those same files without writing them.
 
 ### Source map
 
 | File | Role |
 |---|---|
-| [`src/index.ts`](src/index.ts) | Plugin entry: `Config`, the `LocalSpillStore` service, cleanup lifecycle, locator and retrieval-hint assembly |
+| [`src/index.ts`](src/index.ts) | Plugin entry: `Config`, the `LocalSpillStore` service, `LocalArtifactStore` registration, cleanup lifecycle, locator and retrieval-hint assembly |
+| [`src/artifacts.ts`](src/artifacts.ts) | `LocalArtifactStore`: the read-only retrieval service over this root |
+| [`src/retrieve.ts`](src/retrieve.ts) | Cordis-free retrieval mechanics: locator validation, listing, line windows, projections, diff, summary retention |
 | [`src/cleanup.ts`](src/cleanup.ts) | One-shot age sweep, filesystem-identity checks, symlink and ownership safeguards |
 | [`src/store.ts`](src/store.ts) | Cordis-free storage mechanics: private root, session directory, safe-name encoding, exclusive write |
 | — | No runtime invariant companion is published; this package exposes no independent event sequence or mutable data relation beyond contracts enforced at its owning seam. |
@@ -100,9 +108,10 @@ The backend owns storage details only, on one principle: **a spilled artifact mu
 
 Read these pages when the package-level contract is not enough.
 
-- [Spill storage service](../spill/README.md) — the `saveText` contract and vocabulary this backend implements.
+- [Spill storage service](../spill/README.md) — the `saveText` contract and the artifact retrieval vocabulary this backend implements.
 - [Spill package map](../README.md) — the three-package family and each role.
 - [dsh-spill-policy](../spill-policy/README.md) — the policy that calls this backend when a result is too large.
+- [dsh-output-retention](../../util/output-retention/README.md) — the byte-oriented retention `summarize` composes.
 - [Spill subsystem](../../../docs/subsystems/spill.md) — the exhaustive vocabulary and ownership.
 - [Tool output spill decision](../../../.agents/notes/implemented/architecture/2026-07-08-tool-output-spill-files.md) — the capability boundary and design rationale.
 
@@ -125,7 +134,9 @@ No direct invalidation; the named consumer owns any request-prefix changes.
 These limits define when the local backend is a poor fit or needs operational care. They are current package constraints.
 
 - **A long-lived deployment is not swept until restart** — the one-shot sweep runs only after activation, so files that cross the age cutoff during a run are reclaimed on the next start.
-- **Locators require a co-located filesystem consumer** — a remote or virtual deployment needs another `SpillStore` backend whose locator and retrieval hint are meaningful there.
+- **The caller owns retrieval bounds** — only `summarize` enforces a byte budget; `search`, `read`, `extract`, and `diff` return what the request asks for, and a context producer owns its own injection cap.
+- **An expired artifact reads as unknown** — a locator whose file the sweep deleted is refused like any other unknown name; a caller needs a new save to recover that content.
+- **Retrieval reads only this root** — `ctx.artifacts` resolves locators of the files this backend stored; a remote or virtual deployment needs another backend whose locators are meaningful there.
 
 <a id="dev-note"></a>
 ### Dev Note

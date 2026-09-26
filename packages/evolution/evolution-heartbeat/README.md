@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-evolution-heartbeat` is the autonomous-maintenance engine behind the Evolutionary Harness: consumers register named tasks with their own cadence, and the plugin runs them while the host is idle. Mounted once per host, it owns a single timer, so every task shares one host-wide schedule. A task runs only once its interval elapsed and the host stayed idle long enough; its first due-check seeds the bookkeeping and defers one interval, so mounting the engine never fires every task at once. A failing task is recorded without stopping the others.
+`dsh-evolution-heartbeat` is the Evolutionary Harness's autonomous-maintenance engine: consumers register named tasks with their own cadence, and mounted once per host it owns a single timer, so all tasks share one host-wide schedule. A task runs only once its interval elapsed and the host stayed idle long enough; its first due-check seeds bookkeeping and defers one interval, so mounting never fires every task at once. A due-check arriving while a pass runs joins that pass; a failing task is recorded without stopping the others.
 
 ## Table of Contents
 
@@ -39,9 +39,9 @@ export function apply(ctx: Context): void {
 }
 ```
 
-The engine then owns the schedule: it observes host-wide `session/event` activity itself, runs one start-time due-check, and repeats a due-check every `tickMinutes` on an `unref()`ed timer disposed with the plugin. A task is considered only when its interval elapsed since its last attempt and the host was idle for its threshold; a host that observed no session activity at all counts as idle. Registering after start-up is fine: the next due-check seeds the task and defers one interval.
+The engine then owns the schedule: it observes host-wide `session/event` activity itself, schedules one start-time due-check for after the mounting turn, and repeats a due-check every `tickMinutes` on an `unref()`ed timer disposed with the plugin. A task is considered only when its interval elapsed since its last attempt and the host was idle for its threshold; a host that observed no session activity at all counts as idle. Registering after start-up is fine: the next due-check seeds the task and defers one interval.
 
-Call `runDue` to run the same due-check yourself (`force: true` ignores both the interval and the idle gate), `runTask` to run one task immediately, and `state` to read every task's cadence and last outcome.
+Call `runDue` to run the same due-check yourself (`force: true` ignores both the interval and the idle gate), `runTask` to run one task immediately, and `state` to read every task's cadence and last outcome. A `runDue` call made while a pass is still running returns that pass's report rather than starting a second, so a tick that lands during a long pass cannot run the same tasks twice.
 
 ### Configuration
 
@@ -74,11 +74,11 @@ The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-a
 
 One bookkeeping row per task in storage domain `evolution_heartbeat`, version `1`, layout `per-record`, table `tasks` keyed by task name. The row holds the last attempt instant and the last failure message; an absent row means the task was never attempted, which is what defers a freshly registered task by one interval. The engine holds registrations in memory only: a restart re-registers them from the mounting plugins, and the durable bookkeeping is what survives.
 
-The clock and the idleness arrive as call arguments on `runDue`, while the mounted plugin adds the host-wide parts: a `session/event` listener keeping the newest activity instant, a fire-and-forget start-time due-check that never blocks plugin startup, and an `unref()`ed interval disposed through `ctx.effect`. Specs drive the schedule with fake timers, so the plugin carries no test-only clock seam.
+The clock and the idleness arrive as call arguments on `runDue`, while the mounted plugin adds the host-wide parts: a `session/event` listener keeping the newest activity instant, a start-time due-check scheduled on a zero-delay timer so it runs after the mounting turn instead of inside `init`, and an `unref()`ed repeating tick. Both handles are disposed through `ctx.effect`. Specs drive the schedule with fake timers, so the plugin carries no test-only clock seam.
 
 ### Task execution
 
-Tasks run sequentially in registration order. Each attempt owns one `AbortController`, aborted at plugin teardown, so a long-running task observes disposal instead of outliving its plugin. Every attempt stamps the bookkeeping whether it succeeded or failed, so a permanently failing task is retried on its interval instead of on every tick; the failure message lands in `lastError` and one warning is logged. A rejection is contained: it is recorded and the pass continues with the next task.
+Tasks run sequentially in registration order, and one pass runs at a time: a due-check requested while a pass is still in flight returns that pass's report instead of starting a second. Each attempt owns one `AbortController`, aborted at plugin teardown, so a long-running task observes disposal instead of outliving its plugin. Every attempt stamps the bookkeeping whether it succeeded or failed, so a permanently failing task is retried on its interval instead of on every tick; the failure message lands in `lastError` and one warning is logged. A rejection is contained: it is recorded and the pass continues with the next task.
 
 ### Disposal
 
@@ -99,7 +99,7 @@ No invariant companion is published because the domain table is the only copy of
 
 - [Evolutionary Harness subsystem](../../../docs/subsystems/evolutionary-harness.md) — the behaviour contract behind the self-learning family.
 - [Evolution package map](../README.md) — the group's packages and their repository position.
-- [`dsh-evolution-curator`](../evolution-curator/README.md) — the skill-lifecycle maintenance pass this engine's idle gating mirrors.
+- [`dsh-evolution-curator`](../evolution-curator/README.md) — the skill-lifecycle maintenance pass this engine schedules.
 - [Generated configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-evolution-heartbeat) — every accepted config field.
 
 -----
@@ -133,6 +133,6 @@ These limits define when the engine is a poor fit. They are current package cons
 <details>
 <summary>Working context for maintainers — click to expand</summary>
 
-The curator owns an equivalent idle gate and host-wide timer of its own. Migrating it onto this registry would leave one scheduling implementation instead of two, but it also changes shipped, tested curation behaviour, so the migration is deliberately not part of this package's introduction. No design owner yet.
+The curator registers its `skill-curation` pass in this registry, so one scheduler owns background maintenance across the evolutionary harness. The heartbeat's idle and interval gates are the only cadence the curator has: nothing in that package runs a timer of its own.
 
 </details>

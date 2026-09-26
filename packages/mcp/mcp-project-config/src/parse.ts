@@ -7,6 +7,7 @@
  */
 
 import { createHash } from 'node:crypto'
+import type { TrustLabel } from '@deepseek-ai/dsh-agent-kernel'
 
 /** One entry this parser rejected, with enough detail for a single log line. */
 export interface SkippedServer {
@@ -18,8 +19,8 @@ export interface SkippedServer {
 
 /** One accepted server declaration, normalized to a `dsh-mcp-client` config input. */
 export type ParsedServer =
-  | { readonly transport: 'stdio'; readonly serverName: string; readonly command: string; readonly args: string[]; readonly env: Record<string, string> }
-  | { readonly transport: 'streamable-http'; readonly serverName: string; readonly url: string; readonly headers: Record<string, string> }
+  | { readonly transport: 'stdio'; readonly serverName: string; readonly command: string; readonly args: string[]; readonly env: Record<string, string>; readonly trust: TrustLabel }
+  | { readonly transport: 'streamable-http'; readonly serverName: string; readonly url: string; readonly headers: Record<string, string>; readonly trust: TrustLabel }
 
 /** The outcome of parsing one `.mcp.json` document. */
 export interface ParsedMcpConfig {
@@ -45,7 +46,7 @@ function asObject(value: unknown): Record<string, unknown> | undefined {
  * @param rawName - the JSON key naming the server.
  * @returns a `serverName` matching `^[A-Za-z0-9_-]{1,32}$`.
  */
-function normalizeServerName(rawName: string): string {
+export function normalizeServerName(rawName: string): string {
   if (VALID_SERVER_NAME.test(rawName)) return rawName
   const slug = rawName.normalize('NFKD')
     .replace(/[^A-Za-z0-9_-]+/g, '_')
@@ -65,6 +66,23 @@ function stringRecord(value: unknown): Record<string, string> | undefined {
     result[key] = entryValue
   }
   return result
+}
+
+/**
+ * Read one entry's declared trust label. An omitted `trust` is the untrusted
+ * default `dsh-mcp-client` applies, so an entry written before the label
+ * existed keeps its boundary.
+ * @param value - the raw `trust` value.
+ * @returns the label, or undefined when the declared value is not one of them.
+ */
+export function parseTrust(value: unknown): TrustLabel | undefined {
+  switch (value) {
+    case undefined: return 'untrusted'
+    case 'trusted': return 'trusted'
+    case 'untrusted': return 'untrusted'
+    case 'unknown': return 'unknown'
+    default: return undefined
+  }
 }
 
 /**
@@ -91,17 +109,22 @@ export function parseMcpProjectConfig(raw: unknown): ParsedMcpConfig {
     }
     const serverName = normalizeServerName(rawName)
     if (servers.has(serverName)) { skipped.push({ rawName, reason: `normalized name collides with another entry: ${serverName}` }); continue }
+    const trust = parseTrust(entry.trust)
+    if (trust === undefined) {
+      skipped.push({ rawName, reason: '"trust" must be "trusted", "untrusted", or "unknown"' })
+      continue
+    }
 
     if (type === 'stdio') {
       if (typeof entry.command !== 'string' || entry.command.length === 0) {
         skipped.push({ rawName, reason: 'stdio entry requires a non-empty "command"' })
         continue
       }
-      const args = entry.args === undefined ? [] : Array.isArray(entry.args) && entry.args.every(a => typeof a === 'string') ? entry.args as string[] : undefined
+      const args = entry.args === undefined ? [] : Array.isArray(entry.args) && entry.args.every(a => typeof a === 'string') ? entry.args : undefined
       if (args === undefined) { skipped.push({ rawName, reason: '"args" must be an array of strings' }); continue }
       const env = entry.env === undefined ? {} : stringRecord(entry.env)
       if (env === undefined) { skipped.push({ rawName, reason: '"env" must be a map of strings' }); continue }
-      servers.set(serverName, { transport: 'stdio', serverName, command: entry.command, args, env })
+      servers.set(serverName, { transport: 'stdio', serverName, command: entry.command, args, env, trust })
       continue
     }
 
@@ -119,7 +142,7 @@ export function parseMcpProjectConfig(raw: unknown): ParsedMcpConfig {
     }
     const headers = entry.headers === undefined ? {} : stringRecord(entry.headers)
     if (headers === undefined) { skipped.push({ rawName, reason: '"headers" must be a map of strings' }); continue }
-    servers.set(serverName, { transport: 'streamable-http', serverName, url: entry.url, headers })
+    servers.set(serverName, { transport: 'streamable-http', serverName, url: entry.url, headers, trust })
   }
 
   return { servers, skipped }

@@ -1,5 +1,5 @@
 ---
-description: "本地文件系统 spill 后端：spill 文本如何保存到私有会话级文件，并用 read 或 grep 取回。"
+description: "本地产物存储后端：私有会话级文件保存超大文本，并在同一根目录上提供只读取回。"
 kind: "package-reference"
 ---
 
@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-`dsh-spill-local` 把调用方的超大文本保存到宿主文件系统中私有的会话级文件，并以该文件路径作为定位信息返回，同时给出告诉模型读取或搜索它的取回指引。只要组合需要在 agent（智能体）运行所在的同一台机器上进行 spill 存储，就挂载它。文件对当前用户私有、名称不可预测，且每个会话的文件归入稳定的目录，因此共享根目录既不会泄露输出，也不会被预置的符号链接重定向。配置选择根目录与启动清理保留期；预览与 spill 决策由其他包负责。
+`dsh-spill-local` 把超大文本保存到私有的会话级文件，并以该文件路径作为定位信息返回，同时给出告诉模型读取或搜索它的指引；它还注册 `ctx.artifacts`，即同一批文件之上的只读取回服务。当组合需要在 agent（智能体）所在机器上使用产物存储时挂载它。文件对当前用户私有、名称不可预测，且每个会话归入稳定目录，因此共享根目录既不会泄露输出，也不会被预置的符号链接重定向。配置选择根目录与清理保留期；预览与 spill 决策由其他包负责。
 
 ## 目录
 
@@ -49,6 +49,12 @@ kind: "package-reference"
 
 每次 `saveText` 调用都会把完整文本写入一个新文件，并返回三个字段：`locator`（文件路径）、`bytes`（精确的 UTF-8 字节数）与 `retrievalHint`——"Use read with offset/limit, or grep this path to search within it."。消费方把该提示展示给模型，模型随后可以用其常规文件工具读取或搜索该文件。
 
+### 取回已存产物
+
+该插件还注册 `ctx.artifacts`，读取 `saveText` 写入本根目录的文件：`search` 按最新优先列出某会话的产物，`read`、`extract`、`diff` 与 `summarize` 接受此后端返回的定位信息。根目录之外的定位信息、未存储的名称，以及不是常规文件的条目——目录或链接——都会以 `ArtifactLocatorError` 拒绝，因此取回既不能读取任意路径，也不能穿过预置的链接。保存不记录产物索引，因此搜索匹配存储叶子名，而它以上述清理后的建议名结尾。
+
+取回绝不写入。`summarize` 用 `dsh-output-retention` 的字节导向保留器在请求的字节预算内保留首尾，并报告精确的省略字节数；没有任何操作会改动已存文件，也不会改变模型对某个结果的可见内容。
+
 ### 文件存放位置
 
 文件存放在 `<root>/session-<hash>/<random>-<safeName>`：`session-<hash>` 是所属会话 id 的短哈希（让同一会话的文件归在一起），`<random>-<safeName>` 把不可预测的十六进制前缀与清理为单个安全路径段的调用方建议名配对。相对 `root` 从进程工作目录解析。
@@ -76,13 +82,15 @@ kind: "package-reference"
 
 ### 设计理念
 
-后端只负责存储细节，建立在一个原则之上：**spill 产物必须私有且不可重定向**。根目录私有（0700）、会话目录是稳定哈希、文件名不可预测、写入采用排他且仅所有者模式。存储机制放在与 Cordis 无关的模块中，以便无需上下文即可单元测试。
+后端只负责存储细节，建立在一个原则之上：**spill 产物必须私有且不可重定向**。根目录私有（0700）、会话目录是稳定哈希、文件名不可预测、写入采用排他且仅所有者模式。存储机制放在与 Cordis 无关的模块中，以便无需上下文即可单元测试；取回服务读取同一批文件，但绝不写入它们。
 
 ### 源码地图
 
 | 文件 | 职责 |
 |---|---|
-| [`src/index.ts`](src/index.ts) | 插件入口：`Config`、`LocalSpillStore` 服务、清理生命周期、定位信息与取回提示的组装 |
+| [`src/index.ts`](src/index.ts) | 插件入口：`Config`、`LocalSpillStore` 服务、`LocalArtifactStore` 注册、清理生命周期、定位信息与取回提示的组装 |
+| [`src/artifacts.ts`](src/artifacts.ts) | `LocalArtifactStore`：本根目录之上的只读取回服务 |
+| [`src/retrieve.ts`](src/retrieve.ts) | 与 Cordis 无关的取回机制：定位信息校验、列举、行窗口、投影、比较、摘要保留 |
 | [`src/cleanup.ts`](src/cleanup.ts) | 一次性按年龄扫描、文件系统身份检查、符号链接和所有权保护 |
 | [`src/store.ts`](src/store.ts) | 与 Cordis 无关的存储机制：私有根目录、会话目录、安全名称编码、排他写入 |
 | — | 不发布运行时不变式伴生入口；除由所属 seam 强制执行的约定外，本包不暴露独立事件序列或可变数据关系。 |
@@ -100,9 +108,10 @@ kind: "package-reference"
 
 当包级约定不够用时阅读以下页面。
 
-- [spill 存储服务](../spill/README.zh.md)——此后端实现的 `saveText` 约定与词汇。
+- [spill 存储服务](../spill/README.zh.md)——此后端实现的 `saveText` 约定与产物取回词汇。
 - [spill 包映射](../README.zh.md)——三包家族与各自职责。
 - [dsh-spill-policy](../spill-policy/README.zh.md)——结果过大时调用此后端的策略。
+- [dsh-output-retention](../../util/output-retention/README.zh.md)——`summarize` 组合使用的字节导向保留机制。
 - [spill 子系统](../../../docs/subsystems/spill.zh.md)——穷尽式词汇与归属。
 - [工具输出 spill 决策](../../../.agents/notes/implemented/architecture/2026-07-08-tool-output-spill-files.zh.md)——能力边界与设计依据。
 
@@ -125,7 +134,9 @@ kind: "package-reference"
 这些限制说明本地后端何时不合适或需要特别的运维注意。它们是当前的包约束。
 
 - **长期运行的部署要等到重启才会被扫描**——一次性扫描只在激活后运行，因此运行期间超过年龄截止值的文件会在下次启动时回收。
-- **定位信息需要与其位于同一文件系统的消费方**——远程或虚拟部署需要另一个 `SpillStore` 后端，其定位信息与取回提示在该环境中有明确含义。
+- **取回边界由调用方负责**——只有 `summarize` 强制字节预算；`search`、`read`、`extract` 与 `diff` 返回请求所要求的内容，注入上限由上下文生产方自行负责。
+- **已过期产物会读作未知**——扫描删除其文件后，该定位信息会像任何未知名称一样被拒绝；调用方需要重新保存才能恢复该内容。
+- **取回只读取本根目录**——`ctx.artifacts` 解析此后端所存文件的定位信息；远程或虚拟部署需要另一个后端，其定位信息在该环境中有明确含义。
 
 <a id="dev-note"></a>
 ### 开发备注

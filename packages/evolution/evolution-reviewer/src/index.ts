@@ -39,6 +39,7 @@ import type {} from '@deepseek-ai/dsh-prompt-injection'
 import type {} from '@deepseek-ai/dsh-agent-kernel'
 import { WorkspaceId } from '@deepseek-ai/dsh-workspace'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
+import { openCeiling } from '@deepseek-ai/dsh-evolution-budget'
 import type { EvolutionExtraction, EvolutionOutput, LessonDecision } from '@deepseek-ai/dsh-evolution-memory'
 import { EvolutionScopeId, RECALL_LABEL_PREFIX, utf8Bytes } from '@deepseek-ai/dsh-evolution-memory'
 import { skillCreationEvidence, skillProposalMergeKey } from '@deepseek-ai/dsh-evolution-skill-telemetry'
@@ -69,6 +70,7 @@ declare module '@deepseek-ai/cordis' {
  * @returns true when any scanned content was tainted.
  */
 function sessionHasTaintedContent(session: Session | undefined): boolean {
+  // oxlint-disable-next-line typescript/no-deprecated -- Existing Session history read; migration deferred.
   return session?.snapshotEvents().some(event => event.type === 'security/scan' && event.data.tainted) ?? false
 }
 
@@ -268,7 +270,12 @@ interface TurnBuffer {
   outcomes: Map<string, boolean>
 }
 
-/** One turn waiting behind the defer queue's deadline for its session. */
+/**
+ * One session's turns waiting behind the defer queue's deadline: the rows of
+ * every turn queued since the entry armed, in turn order, with the newest
+ * turn number and route. The call's own transcript byte cap bounds the rows
+ * it sends, oldest first.
+ */
 interface DeferredTurn {
   scope: EvolutionScopeId
   session: Session
@@ -278,7 +285,7 @@ interface DeferredTurn {
   timer: ReturnType<typeof setTimeout>
 }
 
-/** Provenance of one extraction call, everything but its route and session. */
+/** What one extraction call was, everything but its route and session. */
 interface ExtractionMeta {
   at: string
   turn: number
@@ -528,7 +535,11 @@ export class EvolutionReviewer extends Service {
     ctx.on('session/disposed', (session: Session) => {
       const key = String(session.id)
       this.buffers.delete(key)
-      this.dropDeferred(key)
+      // A disposed session never reaches its own deadline, and the queued rows
+      // are the only copy of its unextracted turns: flush them instead of
+      // dropping them. The flush starts after this handler, so the abort below
+      // never cancels it.
+      this.flushDeferred(key)
       const controller = this.bySession.get(key)
       if (controller !== undefined) {
         controller.abort(new Error(`evolution review for session '${key}' disposed`))
@@ -541,7 +552,9 @@ export class EvolutionReviewer extends Service {
       this.bySession.clear()
       this.buffers.clear()
       this.lastHumanText.clear()
-      // Abort bound work; a queued turn is dropped, never started.
+      // Abort bound work; a queued turn is dropped, never started: the
+      // reviewer's own services unload with this fiber, so an extraction
+      // started here could neither call the model nor write the store.
       for (const pending of this.deferredTurns.values()) clearTimeout(pending.timer)
       this.deferredTurns.clear()
     }, 'evolution-reviewer.teardown')
@@ -876,16 +889,18 @@ export class EvolutionReviewer extends Service {
   /**
    * Queue one turn for extraction at its session's defer deadline.
    *
-   * A turn that closes before the flush replaces the pending entry's snapshot
-   * (turn, rows, route) while the original deadline and timer stand: a busy
-   * session coalesces into one extraction that never runs later than its first
-   * snapshot's deadline. The cooldown was checked when the turn was queued and
-   * is deliberately not re-checked at flush time.
+   * A turn that closes before the flush appends its rows to the pending entry
+   * and takes over its turn number and route while the original deadline and
+   * timer stand: a busy session accumulates into one extraction that never
+   * runs later than its first snapshot's deadline and loses no turn's rows —
+   * the call's transcript byte cap drops the oldest rows of an oversized
+   * snapshot instead. The cooldown was checked when the turn was queued and is
+   * deliberately not re-checked at flush time.
    * @param scope - resolved workspace scope.
    * @param session - owning session, whose id keys the queue.
-   * @param turn - turn number of the snapshot.
-   * @param rows - admitted transcript rows of the snapshot.
-   * @param route - resolved model route of the snapshot.
+   * @param turn - newest turn number of the accumulated snapshot.
+   * @param rows - admitted transcript rows of that turn, appended after the queued ones.
+   * @param route - resolved model route of the newest snapshot.
    */
   private queueDeferred(
     scope: EvolutionScopeId,
@@ -898,7 +913,7 @@ export class EvolutionReviewer extends Service {
     const pending = this.deferredTurns.get(key)
     if (pending !== undefined) {
       pending.turn = turn
-      pending.rows = rows
+      pending.rows.push(...rows)
       pending.route = route
       return
     }
@@ -920,27 +935,19 @@ export class EvolutionReviewer extends Service {
   }
 
   /**
-   * Run a due deferred turn through the immediate path's per-scope chain.
+   * Run one session's queued turns through the immediate path's per-scope
+   * chain: at the deadline its timer arms, or at session disposal, which
+   * flushes them rather than losing them. Removing the entry before enqueueing
+   * is what makes a flush happen exactly once, whichever trigger wins.
    * @param key - session id keying the queue.
    */
   private flushDeferred(key: string): void {
     const pending = this.deferredTurns.get(key)
-    // A dropped entry may still reach here when its already-armed timer fires;
-    // disposal and teardown abort bound work instead of starting it.
+    // An already-flushed entry may still reach here when its armed timer
+    // fires; teardown drops its entries without flushing at all.
     if (pending === undefined) return
     this.deferredTurns.delete(key)
     this.enqueueExtraction(pending.scope, pending.session, pending.turn, pending.rows, pending.route)
-  }
-
-  /**
-   * Drop one session's queued turn without extracting it.
-   * @param key - session id keying the queue.
-   */
-  private dropDeferred(key: string): void {
-    const pending = this.deferredTurns.get(key)
-    if (pending === undefined) return
-    clearTimeout(pending.timer)
-    this.deferredTurns.delete(key)
   }
 
   /**
@@ -1123,12 +1130,17 @@ export class EvolutionReviewer extends Service {
    * §5's critique: the admitted critiques are recorded first, as scope context
    * items, and the revision each licenses travels inside the same batch as an
    * ordinary `new` candidate. One model call covers both halves.
+   *
+   * The call opens the scope's daily and weekly evolution-budget ceiling
+   * before the model is asked and settles its tokens and wall time against
+   * both once it answers. A spent ceiling refuses the call — `openCeiling`
+   * logs the reason — and nothing is extracted.
    * @param scope - scope identity.
    * @param route - resolved model route.
    * @param rows - transcript rows, already byte-capped.
    * @param signal - caller cancellation.
    * @param sessionId - the extracting session, stamped on every new candidate.
-   * @param meta - provenance of the call.
+   * @param meta - what the call was.
    */
   private async extract(
     scope: EvolutionScopeId,
@@ -1138,8 +1150,19 @@ export class EvolutionReviewer extends Service {
     sessionId: SessionId,
     meta: ExtractionMeta,
   ): Promise<void> {
+    // The extraction is a background model call, so it opens the scope's daily
+    // and weekly ceiling before it reaches the model. A refused call leaves no
+    // trace beyond the warning `openCeiling` logs: no request is made and the
+    // stored artifacts are untouched, like any other skipped turn.
+    const opening = await openCeiling(this.ctx, 'evolution-reviewer', String(scope), new Date())
+    if (opening.kind === 'refused') return
+    const startedAt = Date.now()
     const relevant = await this.indexedArtifacts(scope, rows)
     const response = await this.callModel(route, rows, relevant, signal, sessionId)
+    if (opening.kind === 'open') {
+      const spend = { tokens: response.tokens, wallTimeMs: Date.now() - startedAt, rollouts: 0 }
+      for (const batchId of opening.batchIds) await opening.budget.spend(batchId, spend)
+    }
     const untrusted = sessionHasTaintedContent(this.ctx.get('sessions')?.get(sessionId))
     const { decisions, critiques } = this.resolveDecisions(
       parseExtractionDecisions(response.text),
@@ -1183,7 +1206,7 @@ export class EvolutionReviewer extends Service {
    * shows a decision naming an artifact a concurrent prune removed.
    *
    * A `new` candidate takes its `source` from this extraction's session, which
-   * only the caller knows: the model's decision carries no provenance field.
+   * only the caller knows: the model's decision names no writer.
    *
    * A critique is admitted only when the transcript this call sent records a
    * failure for it to be written against and names all three of §4.2's fields;
@@ -1315,11 +1338,11 @@ export class EvolutionReviewer extends Service {
    * Write one resolved decision batch: staged as a single `applyDecisions`
    * entry when background approval is configured, applied directly otherwise.
    * A rebuild always writes directly — the caller explicitly asked for it — and
-   * an empty batch carries nothing to approve, so it applies as the provenance
+   * an empty batch carries nothing to approve, so it applies as the extraction
    * stamp it is.
    * @param scope - scope identity.
    * @param decisions - the resolved batch.
-   * @param extraction - provenance of the call that produced the batch.
+   * @param extraction - the record of the call that produced the batch.
    * @param turn - the turn the batch was extracted from, named in the staged gist.
    */
   private async applyExtraction(
@@ -1358,7 +1381,7 @@ export class EvolutionReviewer extends Service {
    * there is nothing left to drop and the failure propagates.
    * @param scope - scope identity.
    * @param decisions - the resolved batch.
-   * @param extraction - provenance of the call that produced the batch.
+   * @param extraction - the record of the call that produced the batch.
    */
   private async writeDecisions(
     scope: EvolutionScopeId,
@@ -1366,11 +1389,11 @@ export class EvolutionReviewer extends Service {
     extraction: EvolutionExtraction,
   ): Promise<void> {
     let pending = decisions
-    let provenance = extraction
+    let extractionStamp = extraction
     let retries = decisions.filter(decision => decision.kind === 'new').length + 1
     for (;;) {
       try {
-        await this.ctx.evolutionMemory.applyExtractionDecisions(scope, pending, provenance)
+        await this.ctx.evolutionMemory.applyExtractionDecisions(scope, pending, extractionStamp)
         return
       } catch (error) {
         const failure = remoteErrorOf(error)
@@ -1383,7 +1406,7 @@ export class EvolutionReviewer extends Service {
           + ` dropping ${reduced.note} and retrying`,
         )
         pending = reduced.decisions
-        provenance = { ...provenance, truncated: true }
+        extractionStamp = { ...extractionStamp, truncated: true }
       }
     }
   }
@@ -1396,7 +1419,8 @@ export class EvolutionReviewer extends Service {
    * @param relevant - the numbered artifacts the prompt lists.
    * @param signal - caller cancellation.
    * @param sessionId - the extracting session.
-   * @returns the settled answer text and whether the model stopped on its cap.
+   * @returns the settled answer text, whether the model stopped on its cap,
+   *   and the tokens the answer consumed (0 when the provider reported none).
    */
   private async callModel(
     route: { provider: string; model: string },
@@ -1404,7 +1428,7 @@ export class EvolutionReviewer extends Service {
     relevant: readonly IndexedArtifact[],
     signal: AbortSignal,
     sessionId: SessionId,
-  ): Promise<{ text: string; truncated: boolean }> {
+  ): Promise<{ text: string; truncated: boolean; tokens: number }> {
     using callDeadline = deadline(signal, this.resolved.timeoutMs, EVOLUTION_REVIEW_TIMEOUT)
     const framed = frameExtractionRequest(rows, relevant)
     const messages = [createUserMessage({
@@ -1428,7 +1452,11 @@ export class EvolutionReviewer extends Service {
       assembler.push(chunk)
     }
     callDeadline.signal.throwIfAborted()
-    return finishText(assembler)
+    const usage = assembler.usage
+    return {
+      ...finishText(assembler),
+      tokens: usage === undefined ? 0 : usage.totalTokens ?? usage.inputTokens + usage.outputTokens,
+    }
   }
 }
 

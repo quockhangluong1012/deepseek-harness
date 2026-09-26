@@ -1,8 +1,9 @@
 /**
- * Public type vocabulary of the adaptive model-routing store: the evolutionary
+ * Public type vocabulary of the model-routing history owner: the evolutionary
  * role topology, the route assignment set, the measured evidence behind each
- * route, and the identities that filled a run's roles. Types only — no runtime
- * code.
+ * route with the effectiveness and ranking derived from it, the §44 route
+ * disagreement, and the identities that filled a run's roles. Types only — no
+ * runtime code.
  * @module @deepseek-ai/dsh-evolution-model-routes/src/types
  */
 
@@ -17,6 +18,9 @@ export type EvolutionRole =
   | 'candidate-generation'
   | 'evaluation'
   | 'promotion-review'
+
+/** One task class a route is measured on, e.g. a skill name. */
+export type RouteTaskClass = string
 
 /** One provider/model route, mirroring the optimizer's route config shape. */
 export interface ModelRoute {
@@ -43,6 +47,16 @@ export interface RouteRow {
   at: string
 }
 
+/** The measured triple of one routed run. */
+export interface RouteTriple {
+  /** Whether the run passed its corpus. */
+  pass: boolean
+  /** Billed tokens the run consumed. */
+  tokens: number
+  /** Wall time of the run, in milliseconds. */
+  wallTimeMs: number
+}
+
 /** One measured outcome of a route used in a role. */
 export interface RouteEvidence {
   /** Evidence row identity. */
@@ -61,6 +75,12 @@ export interface RouteEvidence {
   wallTimeMs: number
   /** ISO-8601 instant the outcome was measured. */
   at: string
+  /**
+   * The task class the outcome was measured on. Absent on outcomes recorded
+   * before the store learned task classes, which read as measured for the role
+   * as a whole: they feed the per-role summary and never a per-class ranking.
+   */
+  taskClass?: RouteTaskClass | undefined
 }
 
 /** One measured outcome offered for recording. */
@@ -70,27 +90,98 @@ export interface RouteEvidenceInput {
   /** The route that served the role. */
   route: ModelRoute
   /** The measured triple of the run. */
-  triple: { pass: boolean; tokens: number; wallTimeMs: number }
+  triple: RouteTriple
+  /** The task class the run measured, or absent to record a role-wide outcome. */
+  taskClass?: RouteTaskClass | undefined
 }
 
-/** Aggregated per-route evidence within one role. */
-export interface RouteSummary {
-  /** Role the route served. */
-  role: EvolutionRole
+/**
+ * The numbers every route reading derives, whether pooled across a role's task
+ * classes or scoped to one of them. Ranking reads this shape, so a pooled
+ * summary and a per-class effectiveness row rank by the same rule.
+ */
+export interface RouteMeasurement {
   /** Provider half of the route. */
   provider: string
   /** Model half of the route. */
   model: string
   /** How the route entered the assignment set. */
   origin: RouteOrigin
-  /** Recorded runs of this route in this role. */
+  /** Recorded runs of this route. */
   runs: number
+  /** Passing runs among the recorded runs. */
+  passes: number
   /** Passing runs as a share of recorded runs; 0 when none are recorded. */
   passRate: number
   /** Mean billed tokens per recorded run; 0 when none are recorded. */
   meanTokens: number
-  /** Newest evidence `at`, or null when none are recorded. */
+  /** Mean wall time per recorded run, in milliseconds; 0 when none are recorded. */
+  meanWallTimeMs: number
+}
+
+/** Aggregated per-route evidence within one role, pooled over its task classes. */
+export interface RouteSummary extends RouteMeasurement {
+  /** Role the route served. */
+  role: EvolutionRole
+  /** Newest evidence `at`, or null when none is recorded. */
   lastAt: string | null
+}
+
+/** Derived effectiveness of one route on one task class and role. */
+export interface RouteEffectiveness extends RouteMeasurement {
+  /** The task class the route was measured on. */
+  taskClass: RouteTaskClass
+  /** The role the route served. */
+  role: EvolutionRole
+  /** ISO-8601 instant of the last measured outcome. */
+  lastAt: string
+}
+
+/** One ranked route with the numbers behind its rank. */
+export interface RouteRankingEntry {
+  /** Provider half of the route. */
+  provider: string
+  /** Model half of the route. */
+  model: string
+  /** How the route entered the assignment set. */
+  origin: RouteOrigin
+  /** Recorded runs of the route. */
+  runs: number
+  /** Passing runs as a share of recorded runs. */
+  passRate: number
+  /** Mean billed tokens per recorded run. */
+  meanTokens: number
+  /** Mean wall time per recorded run, in milliseconds. */
+  meanWallTimeMs: number
+  /** The sample-confidence-adjusted score that ranks the route. */
+  score: number
+  /** Why the route ranks here, naming the numbers. */
+  reason: string
+}
+
+/**
+ * One strong disagreement between the two best-measured routes of one task
+ * class and role (§44).
+ */
+export interface RouteDisagreement {
+  /** The task class the routes were measured on. */
+  taskClass: RouteTaskClass
+  /** The role the routes served. */
+  role: EvolutionRole
+  /** The route with the higher recorded pass rate. */
+  leader: ModelRoute
+  /** The route with the lower recorded pass rate. */
+  trailer: ModelRoute
+  /** Recorded pass rate of the leader. */
+  leaderPassRate: number
+  /** Recorded pass rate of the trailer. */
+  trailerPassRate: number
+  /** The pass-rate gap between them, in 0..1. */
+  gap: number
+  /** Runs behind each route, leader then trailer. */
+  runs: readonly [number, number]
+  /** What was observed, naming both routes and their rates. */
+  detail: string
 }
 
 /**
@@ -123,23 +214,23 @@ export type DutyDecision = 'promotion' | 'verdict' | 'consolidation'
  * candidate and the role that judged it.
  */
 export interface DutyRecord {
-  /** Run the duty belongs to, e.g. the optimizer's staged write identity. */
+  /** The run the role belongs to. */
   runId: string
   /** Role the identity filled. */
   role: EvolutionRole
-  /** The identity that filled the role, e.g. an agent, a session, or an operator. */
+  /** Identity that filled the role. */
   identity: string
-  /** ISO-8601 instant the duty was recorded. */
+  /** ISO-8601 instant the fill was recorded. */
   at: string
 }
 
 /** One role fill offered for recording. */
 export interface DutyInput {
-  /** Run the duty belongs to. */
+  /** The run the role belongs to. */
   runId: string
   /** Role the identity filled. */
   role: EvolutionRole
-  /** The identity that filled the role. */
+  /** Identity that filled the role. */
   identity: string
 }
 

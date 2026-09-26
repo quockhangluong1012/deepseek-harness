@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-12-guard-budgets.md
-2026-09-12-guard-budgets.md: 31731926ef7e2994dc837a8a246d54c7c9be31f0
-2026-09-12-guard-budgets.zh.md: a0e69ee27d518cf1545f816eda8f998d6e851e69
+2026-09-12-guard-budgets.md: 2413fb56555cb014187d1f94962b8fea1451c735
+2026-09-12-guard-budgets.zh.md: 9e5cb10eea49651a7f0dec1dc7c9ffe92265e50e

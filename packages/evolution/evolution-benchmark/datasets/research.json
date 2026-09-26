@@ -1,0 +1,40 @@
+{
+  "runRequirement": "live-model",
+  "tasks": [
+    {
+      "profile": "research",
+      "stepSpan": 8,
+      "capability": "citation-correctness",
+      "task": "Answer the question you are given and verify that every citation resolves to the passage it is attached to. A citation that fails either check is removed, and the claim resting on it is dropped.",
+      "acceptance": "Each citation resolves and the cited passage carries the claim's assertion; no citation survives that fails either check."
+    },
+    {
+      "profile": "research",
+      "stepSpan": 10,
+      "capability": "uncertainty-calibration",
+      "task": "Deliver an answer with an explicit confidence, the observations that support it, and the missing evidence that would lower it.",
+      "acceptance": "The answer states a confidence, the observations behind it, and the missing evidence that would change it; the confidence is consistent with the evidence actually cited."
+    },
+    {
+      "profile": "research",
+      "stepSpan": 12,
+      "capability": "claim-verification",
+      "task": "Answer a factual question from primary sources only. State each claim with the source that carries it, and label every claim you could not source as unsupported instead of asserting it.",
+      "acceptance": "Every asserted claim cites a retrievable source; unsourced claims are labelled unsupported; no claim is asserted from a secondary summary alone."
+    },
+    {
+      "profile": "research",
+      "stepSpan": 15,
+      "capability": "contradiction-recall",
+      "task": "Answer the question, then search deliberately for evidence that contradicts your answer and report what the search found — including an explicit negative result naming the searches that found none.",
+      "acceptance": "The trace records the contradiction search before synthesis; the final answer states how the found contradiction changed the conclusion, or that none was found and which searches were run."
+    },
+    {
+      "profile": "research",
+      "stepSpan": 20,
+      "capability": "source-ranking",
+      "task": "Research a contested question and rank each source you use by class: primary, official, secondary, or unknown. Synthesise only from the classes that can support the conclusion.",
+      "acceptance": "Every cited source carries its class; the synthesis rests on primary or official sources; secondary sources appear only as context and never as the support for a conclusion."
+    }
+  ]
+}

@@ -162,16 +162,16 @@ export function apply(ctx: Context, config: Config): void {
   const fallbackTimeZone = fallbackFormatter.resolvedOptions().timeZone
   const formatters = new Map<string, Intl.DateTimeFormat>([[fallbackTimeZone, fallbackFormatter]])
 
-  ctx.inject(['agentContext'], compilerCtx => {
+  ctx.inject(['agentContext'], (compilerCtx) => {
     compilerCtx.effect(() => compilerCtx.agentContext.register({
       producer: name,
       kind: 'history',
       trust: 'trusted',
       placement: 'delta',
       maxBytes: Number.MAX_SAFE_INTEGER,
-    }, async (agent, signal) => {
+    }, (agent, signal) => {
       signal.throwIfAborted()
-      return timeContextItems(agent)
+      return Promise.resolve(timeContextItems(agent))
     }))
   })
 

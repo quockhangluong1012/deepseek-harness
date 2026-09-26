@@ -31,6 +31,8 @@ function contract(status: TaskContract['status']): TaskContract {
     runId: brandString<RunId>('run-1'),
     objective: 'repair the failing reader',
     constraints: [],
+    dependencies: [],
+    evidence: [],
     acceptance: [],
     agentProfile: 'worker',
     policyProfile: 'default',
@@ -66,7 +68,7 @@ describe('scanForRecovery', () => {
     await writeSession(ctx, id, [
       { type: 'turn/start', seq: SessionSeq(0), time: 1, data: { turn: 1 } },
       { type: 'task/created', seq: SessionSeq(1), time: 2, data: contract('executing') },
-      { type: 'turn/end', seq: SessionSeq(2), time: 3, data: { turn: 1, reason: { kind: 'stop' } } },
+      { type: 'turn/end', seq: SessionSeq(2), time: 3, data: { turn: 1, reason: { kind: 'completed' } } },
     ])
 
     const entries = await scanForRecovery(ctx.sessionPersistence)
@@ -113,7 +115,7 @@ describe('scanForRecovery', () => {
     const ctx = await mountedPersistence()
     await writeSession(ctx, SessionId('bare-session'), [
       { type: 'turn/start', seq: SessionSeq(0), time: 1, data: { turn: 1 } },
-      { type: 'turn/end', seq: SessionSeq(1), time: 2, data: { turn: 1, reason: { kind: 'stop' } } },
+      { type: 'turn/end', seq: SessionSeq(1), time: 2, data: { turn: 1, reason: { kind: 'completed' } } },
     ])
 
     expect(await scanForRecovery(ctx.sessionPersistence)).toEqual([])
@@ -124,7 +126,7 @@ describe('scanForRecovery', () => {
     await writeSession(ctx, SessionId('a-resumable'), [
       { type: 'turn/start', seq: SessionSeq(0), time: 1, data: { turn: 1 } },
       { type: 'task/created', seq: SessionSeq(1), time: 2, data: contract('paused') },
-      { type: 'turn/end', seq: SessionSeq(2), time: 3, data: { turn: 1, reason: { kind: 'stop' } } },
+      { type: 'turn/end', seq: SessionSeq(2), time: 3, data: { turn: 1, reason: { kind: 'completed' } } },
     ])
     await writeSession(ctx, SessionId('b-repairable'), [
       { type: 'turn/start', seq: SessionSeq(0), time: 1, data: { turn: 1 } },
@@ -169,7 +171,7 @@ describe('checkpoint-aware recovery scan', () => {
       }] : []),
       {
         type: 'turn/end', seq: SessionSeq(checkpointed ? 5 : 4), time: checkpointed ? 6 : 5,
-        data: { turn: 1, reason: { kind: 'stop' } },
+        data: { turn: 1, reason: { kind: 'completed' } },
       },
     ]
     const pendingId = SessionId('checkpoint-pending')

@@ -4,7 +4,7 @@ import { attributionHeaders, LlmAdapter, LlmError } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions, ImageAttachmentAccessResolver, PreparedAdapterCall, StreamChunk } from '@deepseek-ai/dsh-llm'
 import type { DeepSeekLlmApiJson } from '@deepseek-ai/dsh-deepseek-llm-api-extensions'
 import { idleWatchdog, timeoutOf } from '@deepseek-ai/dsh-timeout'
-import { catalogModelInfo, modelInfo } from './model-info.ts'
+import { catalogModelCost, catalogModelInfo, modelInfo } from './model-info.ts'
 import type { DeepSeekAdapterOptions, DeepSeekConnectionOptions as Connection } from './types.ts'
 import { DeepSeekFileStore } from './file-store.ts'
 import { MESSAGES_FILES_BETA, messagesApiRoot } from './messages-api.ts'
@@ -40,6 +40,9 @@ export class DeepSeekAdapter extends LlmAdapter {
   }
   override imageRequestPricing(_provider: string, model: string) {
     return imagePricing(this.dependencies.options(), model, this.imageAccess)
+  }
+  override modelCost(_provider: string, model: string) {
+    return catalogModelCost(this.dependencies.options(), model)
   }
   override prepareCall(provider: string, model: string, _signal?: AbortSignal): Promise<PreparedAdapterCall> {
     const connection = this.dependencies.options()

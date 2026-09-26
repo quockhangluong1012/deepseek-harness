@@ -38,7 +38,9 @@
     - id: headless-startup
       name: '@deepseek-ai/dsh-headless/startup'
 
-    # Reads its task and run options from the ordinary headlessStartup provider.
+    # Reads its task and every run option from the ordinary headlessStartup
+    # provider: the resume/model/permission/turn/prompt/tool flags below all
+    # parse and validate at startup, and reach the run only through here.
     - id: headless-runner
       name: '@deepseek-ai/dsh-headless'
       inject: [headlessStartup]
@@ -46,6 +48,13 @@
         task: !!js ctx.headlessStartup.task
         sessionId: !!js ctx.headlessStartup.sessionId
         json: !!js ctx.headlessStartup.json
+        continueLatest: !!js ctx.headlessStartup.continueLatest
+        model: !!js ctx.headlessStartup.model
+        permissionMode: !!js ctx.headlessStartup.permissionMode
+        maxTurns: !!js ctx.headlessStartup.maxTurns
+        systemPrompt: !!js ctx.headlessStartup.systemPrompt
+        allowedTools: !!js ctx.headlessStartup.allowedTools
+        outputSchema: !!js ctx.headlessStartup.outputSchema
 
 - id: hmr
   disabled: true

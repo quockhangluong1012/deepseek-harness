@@ -155,15 +155,37 @@ describe('staleExperiments', () => {
 })
 
 describe('optimizerDomainSpec', () => {
-  it('keeps the ledger open across the version that added the archive-novelty field', () => {
-    expect(optimizerDomainSpec.version).toBe(2)
-    expect(optimizerDomainSpec.compatibleVersions).toEqual([1])
-    // A version-1 row predates the field; it must still parse, reading as never
-    // measured rather than failing the domain open. The fixture omits the field
-    // for that reason.
+  it('keeps the ledger open across every version that added a column or the mined table', () => {
+    expect(optimizerDomainSpec.version).toBe(5)
+    // Versions 1-4 each added something the ledger now carries: v1 archive
+    // novelty, v2 the hypothesis and evaluated pair, v3 paired significance,
+    // v4 the mined holdout corpus. All four must still open.
+    expect(optimizerDomainSpec.compatibleVersions).toEqual([1, 2, 3, 4])
+    // A version-1 row predates every added field; it must still parse, reading
+    // as never measured, never stated, and never compared rather than failing
+    // the domain open. The fixture omits those fields for that reason.
     const versionOne = row('a', '2026-09-15T10:00:00.000Z')
     const parsed = experimentRecordSchema.parse(versionOne)
     expect(parsed.winnerArchiveNovelty).toBeNull()
+    expect(parsed.hypothesis).toBeNull()
+    expect(parsed.evaluation).toBeNull()
     expect(experimentRecordSchema.safeParse({ ...versionOne, winnerArchiveNovelty: 1.5 }).success).toBe(false)
+  })
+
+  it('carries a recorded evaluated pair through the durable schema', () => {
+    const evaluation = {
+      benchmark: 'scorer-v1:abc',
+      model: 'profile:writer',
+      budget: { tokens: 0, wallTimeMs: 0 },
+      tasks: ['s1'],
+      attempts: { baseline: 1, winner: 3 },
+    }
+    const recorded = { ...row('a', '2026-09-15T10:00:00.000Z'), hypothesis: 'evidence; proposing rewrite', evaluation }
+    expect(experimentRecordSchema.parse(recorded)).toMatchObject({
+      hypothesis: 'evidence; proposing rewrite',
+      evaluation,
+    })
+    const negative = { ...recorded, evaluation: { ...evaluation, attempts: { baseline: -1, winner: 3 } } }
+    expect(experimentRecordSchema.safeParse(negative).success).toBe(false)
   })
 })

@@ -5,7 +5,6 @@
  * @module @deepseek-ai/dsh-tool-fs/src/write
  */
 
-import { normalize } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { DiffCallView, DiffResultView, ToolResult } from '@deepseek-ai/dsh-tools'
@@ -13,6 +12,7 @@ import type { FsWriteOutcome } from '@deepseek-ai/dsh-fs'
 import type {} from '@deepseek-ai/dsh-fs'
 import { computeHunkDiffs, diffsFromMeta } from './diff.ts'
 import { remediateFsError } from './error.ts'
+import { fileScopeKey } from './scope-key.ts'
 import { sessionResolveOptions } from './session-cwd.ts'
 import type { FsSandboxController } from './sandbox.ts'
 
@@ -104,11 +104,12 @@ export function applyWriteTool(ctx: Context, sandbox: FsSandboxController): void
             .map(({ path, oldText, newText }) => ({ path, oldText, newText })),
       }),
     },
-    // Same-path calls never overlap on the path key; distinct paths still pack,
-    // and a race that slips through an unnormalized alias fails closed on the
+    // Same-file calls never overlap on the resolved, case-folded path key;
+    // distinct paths still pack, and an alias the key cannot unify (symlinks,
+    // a session-relative name against its absolute form) fails closed on the
     // observation guard.
     isConcurrencySafe: () => true,
-    parallelScopeKey: args => normalize(args.file_path),
+    parallelScopeKey: args => fileScopeKey(args.file_path),
     async execute(args: WriteToolArgs, exec) {
       const input = parseWriteArgs(args)
       // Resolve the per-call sandbox policy (approved mode > session override

@@ -7,7 +7,7 @@
  * @module @deepseek-ai/dsh-agent-kernel/state-machine
  */
 
-import type { StateTransition, TaskContract, TaskStatus } from './types.ts'
+import type { StateTransition, TaskContract, TaskSpecState, TaskStatus } from './types.ts'
 
 /** Every task status, in the order the kernel's lifecycle reaches them. */
 export const TASK_STATUSES: readonly TaskStatus[] = [
@@ -25,6 +25,29 @@ export const TASK_STATUSES: readonly TaskStatus[] = [
   'failed',
   'cancelled',
 ]
+
+/**
+ * The state each kernel status projects onto. `planning`, `executing`,
+ * `observing`, and `recovering` are all work in progress, so they report
+ * `running`; the three statuses that wait on a human report `blocked`; and
+ * `cancelled` reports `failed`, because a cancelled task neither completed nor
+ * waits for anything, and the runtime model has no cancelled state.
+ */
+export const SPEC_STATE_BY_STATUS: Readonly<Record<TaskStatus, TaskSpecState>> = {
+  intake: 'pending',
+  planning: 'running',
+  ready: 'ready',
+  executing: 'running',
+  observing: 'running',
+  verifying: 'verifying',
+  recovering: 'running',
+  'awaiting-approval': 'blocked',
+  'awaiting-user': 'blocked',
+  paused: 'blocked',
+  completed: 'completed',
+  failed: 'failed',
+  cancelled: 'failed',
+}
 
 /**
  * Every legal edge of the task state machine. The kernel's driver takes

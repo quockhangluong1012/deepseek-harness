@@ -26,14 +26,20 @@ function variant(
 
 describe('dominates', () => {
   it('lets a pass dominate a failure regardless of cost', () => {
-    expect(dominates({ pass: true, tokens: 999, wallTimeMs: 999 }, { pass: false, tokens: 1, wallTimeMs: 1 })).toBe(true)
-    expect(dominates({ pass: false, tokens: 1, wallTimeMs: 1 }, { pass: true, tokens: 999, wallTimeMs: 999 })).toBe(false)
+    expect(dominates({ pass: true, tokens: 999 }, { pass: false, tokens: 1 })).toBe(true)
+    expect(dominates({ pass: false, tokens: 1 }, { pass: true, tokens: 999 })).toBe(false)
   })
 
   it('requires a strict improvement on one axis at equal pass', () => {
-    expect(dominates({ pass: true, tokens: 5, wallTimeMs: 5 }, { pass: true, tokens: 5, wallTimeMs: 5 })).toBe(false)
-    expect(dominates({ pass: true, tokens: 4, wallTimeMs: 5 }, { pass: true, tokens: 5, wallTimeMs: 5 })).toBe(true)
-    expect(dominates({ pass: true, tokens: 6, wallTimeMs: 5 }, { pass: true, tokens: 5, wallTimeMs: 5 })).toBe(false)
+    expect(dominates({ pass: true, tokens: 5 }, { pass: true, tokens: 5 })).toBe(false)
+    expect(dominates({ pass: true, tokens: 4 }, { pass: true, tokens: 5 })).toBe(true)
+    expect(dominates({ pass: true, tokens: 6 }, { pass: true, tokens: 5 })).toBe(false)
+  })
+
+  it('needs the relative token epsilon before cost counts as better', () => {
+    // 2% of 100: 99 tokens is the same bill in practice, 97 is not.
+    expect(dominates({ pass: true, tokens: 99 }, { pass: true, tokens: 100 })).toBe(false)
+    expect(dominates({ pass: true, tokens: 97 }, { pass: true, tokens: 100 })).toBe(true)
   })
 })
 
@@ -80,7 +86,7 @@ describe('screenSurvivors', () => {
 
 describe('pickWinner', () => {
   it('picks the cheapest frontier member that beats the baseline', () => {
-    const baseline = { pass: true, tokens: 10, wallTimeMs: 10 }
+    const baseline = { pass: true, tokens: 10 }
     const winner = pickWinner(baseline, [
       variant(0, true, 9, 9),
       variant(1, true, 5, 5),
@@ -89,8 +95,21 @@ describe('pickWinner', () => {
     expect(winner?.index).toBe(1)
   })
 
+  it('never lets a lower wall time decide the pick', () => {
+    const baseline = { pass: true, tokens: 10 }
+    // Equal pass state, equal billed tokens, equal novelty: only mutation order
+    // separates them, so the faster candidate does not win (S9.3 — wall time
+    // measures the machine, not the candidate).
+    expect(pickWinner(baseline, [variant(0, true, 5, 900), variant(1, true, 5, 4)])?.index).toBe(0)
+  })
+
+  it('picks the candidate that passes even when it is slower and costlier', () => {
+    const baseline = { pass: false, tokens: 4 }
+    expect(pickWinner(baseline, [variant(0, false, 1, 1), variant(1, true, 99, 9999)])?.index).toBe(1)
+  })
+
   it('breaks ties by novelty, then earlier mutation, and never by wall time', () => {
-    const baseline = { pass: true, tokens: 10, wallTimeMs: 10 }
+    const baseline = { pass: true, tokens: 10 }
     // Same billed tokens, different wall times: the faster candidate is no
     // longer preferred, so the more novel body wins (S9 — wall time measures
     // the machine, not the candidate).
@@ -104,13 +123,13 @@ describe('pickWinner', () => {
   })
 
   it('prefers a new pass over a cheaper failure', () => {
-    const baseline = { pass: false, tokens: 4, wallTimeMs: 4 }
+    const baseline = { pass: false, tokens: 4 }
     const winner = pickWinner(baseline, [variant(0, false, 3, 3), variant(1, true, 9, 9)])
     expect(winner?.index).toBe(1)
   })
 
   it('breaks ties by archive novelty above body novelty', () => {
-    const baseline = { pass: true, tokens: 10, wallTimeMs: 10 }
+    const baseline = { pass: true, tokens: 10 }
     // Same cost, opposite distance from the skill's archive: the far candidate
     // is the one that explores what the skill has not already staged, even
     // though its body restates more of this run's starting body.
@@ -118,12 +137,12 @@ describe('pickWinner', () => {
   })
 
   it('never picks a candidate that does not beat the baseline, however far from the archive', () => {
-    const baseline = { pass: true, tokens: 5, wallTimeMs: 5 }
+    const baseline = { pass: true, tokens: 5 }
     expect(pickWinner(baseline, [variant(0, true, 9, 9, 0.9, 1)])).toBeNull()
   })
 
   it('ranks as before when every candidate carries the empty-archive reading', () => {
-    const baseline = { pass: true, tokens: 10, wallTimeMs: 10 }
+    const baseline = { pass: true, tokens: 10 }
     // Both read 1 — the value an empty archive gives every descriptor — so body
     // novelty and then mutation order decide.
     expect(pickWinner(baseline, [variant(0, true, 5, 5, 0.2, 1), variant(1, true, 5, 5, 0.2, 1)])?.index).toBe(0)
@@ -131,7 +150,7 @@ describe('pickWinner', () => {
   })
 
   it('returns null when nothing dominates the baseline', () => {
-    const baseline = { pass: true, tokens: 5, wallTimeMs: 5 }
+    const baseline = { pass: true, tokens: 5 }
     expect(pickWinner(baseline, [variant(0, true, 5, 5), variant(1, true, 9, 9)])).toBeNull()
     expect(pickWinner(baseline, [])).toBeNull()
   })

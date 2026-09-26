@@ -8,9 +8,9 @@
  */
 
 /**
- * One mutation operator identity. The canonical operators are the eight named
- * by {@link MUTATION_OPERATORS}; deployments may add their own ids, which the
- * ranking admits once observed.
+ * One mutation operator identity. The canonical operators are those of
+ * {@link MUTATION_OPERATOR_CATALOG}; deployments may add their own ids, which
+ * the ranking admits once observed.
  */
 export type MutationOperator = string
 

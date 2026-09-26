@@ -220,6 +220,13 @@ export function apply(ctx: Context): void {
                 // Fork or child-title failure leaves the source view unchanged.
               })
           },
+          // The rewind itself runs in the Host command plane: its `command/run` and
+          // `command/done` records carry the durable outcome and render as a flow node,
+          // so a failed dispatch leaves this view unchanged.
+          rewindAt: (args) => {
+            void ctx.remote.commands.execute(sessionId, `/rewind ${args}`, [])
+              .catch(() => {})
+          },
         }
       },
     }, ChatView)

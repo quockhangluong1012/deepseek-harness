@@ -5,7 +5,13 @@
  * @module @deepseek-ai/dsh-evolution-trace/src/types
  */
 
-import type { VerificationResult } from '@deepseek-ai/dsh-agent-kernel'
+import type {
+  Capability,
+  ResourceBudget,
+  TaskStatus,
+  TransitionKind,
+  VerificationResult,
+} from '@deepseek-ai/dsh-agent-kernel'
 import type { ContextCompilationRecord } from '@deepseek-ai/dsh-agent-context'
 import type { FeedbackRecord } from '@deepseek-ai/dsh-command-feedback/types'
 import type { TokenUsage } from '@deepseek-ai/dsh-llm'
@@ -36,6 +42,26 @@ export interface TraceToolCall {
   at: string
 }
 
+/** One task-state transition the kernel recorded for a step (§5.2 state delta). */
+export interface TraceStateDelta {
+  /** Task status before the transition. */
+  from: TaskStatus
+  /** Task status after the transition. */
+  to: TaskStatus
+  /** Why the kernel transitioned. */
+  trigger: TransitionKind
+  /** ISO-8601 instant of the transition, or null when the record carried no metadata. */
+  at: string | null
+}
+
+/** The subagents one step delegated to (§5.2 subagent usage). */
+export interface TraceSubagentUsage {
+  /** Subagents the step delegated to. */
+  count: number
+  /** Child runs the step delegated to, in issue order. */
+  runIds: readonly string[]
+}
+
 /** One model step inside a turn: the model call plus the tool executions it requested. */
 export interface TraceStep {
   /** Owning turn number. */
@@ -53,6 +79,14 @@ export interface TraceStep {
   /** Token accounting of the settled assistant message; null when the adapter reported none. */
   usage: TokenUsage | null
   /**
+   * Estimated USD the step was billed for, from its route's catalog prices
+   * (§5.2 estimated cost). Null when the step reported no usage sample, when no
+   * route was in force, or when the route's catalog declares no price; a
+   * retried attempt and the settled message both contribute, and a sample whose
+   * route is unpriced contributes nothing.
+   */
+  estimatedCostUsd: number | null
+  /**
    * The compiled-context record in force when the step ran, or null when the
    * session log holds no `context/compiled` event (§3.1 context snapshot/hash).
    * The record's `digest` is the placement identity §17 reconstructs.
@@ -62,6 +96,16 @@ export interface TraceStep {
   calls: readonly TraceToolCall[]
   /** Calls whose result carried an error block. */
   failures: number
+  /**
+   * Task-state transitions bound to this step (§5.2 state delta), in log order:
+   * a transition recorded before the turn's first step opens the first step,
+   * one recorded after the last step closes the last step, and one recorded
+   * between two steps opens the following one. A transition recorded before any
+   * turn opened is bound to no step.
+   */
+  stateDelta: readonly TraceStateDelta[]
+  /** The subagents this step delegated to, bound the same way as {@link stateDelta}. */
+  subagentUsage: TraceSubagentUsage
 }
 
 /** One turn of a session trace, open or ended. */
@@ -178,6 +222,108 @@ export interface TraceRecord {
   evaluations: readonly VerificationResult[]
   /** Human remarks recorded against the session (§3.1 user feedback), in log order. */
   feedback: readonly TraceFeedback[]
+}
+
+/** How one run ended (§5.1 Agent Trace). */
+export type AgentRunStatus =
+  | 'success'
+  | 'failure'
+  | 'cancelled'
+  | 'budget_exceeded'
+  | 'loop_detected'
+  | 'timeout'
+
+/** One delegated child run as the delegating log records it (§5.1 subagents). */
+export interface TraceSubagent {
+  /** Identity of the parent's delegation receipt. */
+  delegationId: string
+  /** Child run the parent delegated to. */
+  runId: string
+  /** Delegation depth of the child; a direct child is 1. */
+  depth: number
+  /** Ceilings the child's task contract started with. */
+  limits: ResourceBudget
+  /** Capabilities the receipt granted the child. */
+  capabilities: readonly Capability[]
+  /** Turn the receipt was issued in; null when it was issued before any turn opened. */
+  turn: number | null
+  /** Step the receipt was issued in; null when it followed none. */
+  step: number | null
+  /** ISO-8601 instant of the receipt. */
+  issuedAt: string
+}
+
+/** The ceilings a run's task contract declared and the spend observed against them. */
+export interface BudgetTrace {
+  /** Ceilings the contract declared; an absent field is unbounded. */
+  limits: ResourceBudget
+  /** `step/start` records in the run. */
+  steps: number
+  /** `tool/call` records in the run. */
+  toolCalls: number
+  /** The run's steps' token accounting summed as {@link TraceRecord.usage} sums it. */
+  tokens: number
+  /** Wall-clock milliseconds from the run's contract to its newest recorded event. */
+  wallMs: number
+  /** Estimated USD over the run's priced steps; null when none was priceable. */
+  costUsd: number | null
+  /** Deepest child delegation depth the run reached; 0 without a delegation. */
+  childDepth: number
+}
+
+/** The context placements one run compiled (§5.1 context). */
+export interface ContextTrace {
+  /** `context/compiled` records in the run. */
+  compilations: number
+  /** Placement digests in log order, the identity §17 reconstructs. */
+  digests: readonly string[]
+  /** Largest placement token estimate in the run; 0 when the run recorded none. */
+  peakTokens: number
+}
+
+/** One verification result attributed to the run that requested it (§5.1 verification). */
+export interface VerificationTrace extends VerificationResult {
+  /** ISO-8601 instant of the result. */
+  at: string
+}
+
+/**
+ * The first-class execution trace of one run (§5.1 Agent Trace): the kernel's
+ * task-and-transition records plus the agent-loop's step events, projected from
+ * one session log. A session with no `task/created` record holds no run, and a
+ * log that recorded several tasks holds one trace per run.
+ */
+export interface AgentTrace {
+  /** Durable run identity the kernel gave the task. */
+  runId: string
+  /** Session whose log the run was projected from. */
+  sessionId: string
+  /** Task the run executes; the contract carries one at intake. */
+  taskId: string
+  /** Registered agent profile the task runs under. */
+  profile: string
+  /** ISO-8601 instant of the run's `task/created` record. */
+  startedAt: string
+  /** ISO-8601 instant of the record that ended the run; null while it has not ended. */
+  endedAt: string | null
+  /** Every step of the run in log order. */
+  steps: readonly TraceStep[]
+  /** Every tool call of the run in dispatch order. */
+  toolCalls: readonly TraceToolCall[]
+  /** Subagents the run delegated to, in issue order. */
+  subagents: readonly TraceSubagent[]
+  /** Observed spend against the contract's ceilings. */
+  budget: BudgetTrace
+  /** Context placements the run compiled. */
+  context: ContextTrace
+  /** Verification results the run recorded, in log order. */
+  verification: readonly VerificationTrace[]
+  /**
+   * How the run ended, or null while it has not: the status the newest decisive
+   * record gives it. The mapping from the kernel's records is total over an
+   * ended run and is documented in the package README.
+   */
+  finalStatus: AgentRunStatus | null
 }
 
 /** The compressed learning-trace row one session contributes. */

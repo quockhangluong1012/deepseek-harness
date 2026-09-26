@@ -6,7 +6,7 @@ English | [中文](2026-09-13-webhook-replay-suppression-window.zh.md)
 
 ## Problem
 
-`WebhookRuntime.dispatch` ran every rule for every delivery: `deliveryId` was provenance only, with no deduplication. Providers redeliver on transport failure and operators redeliver manually from the provider dashboard; each repeat minted another root Session — unbounded resource consumption plus repeated prompt-injection surface from the same payload.
+`WebhookRuntime.dispatch` ran every rule for every delivery: `deliveryId` only named the delivery, with no deduplication. Providers redeliver on transport failure and operators redeliver manually from the provider dashboard; each repeat minted another root Session — unbounded resource consumption plus repeated prompt-injection surface from the same payload.
 
 ## Decision
 

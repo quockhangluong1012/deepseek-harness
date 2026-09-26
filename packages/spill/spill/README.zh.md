@@ -1,5 +1,5 @@
 ---
-description: "spill 存储服务：保存超大工具文本或已捕获的会话引用，并返回可用于取回内容的定位信息。"
+description: "产物存储 seam：保存超大工具文本，并按搜索、读取、提取、比较、摘要取回已存产物。"
 kind: "package-reference"
 ---
 
@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-`dsh-spill` 让插件和工具通过公开的 `ctx.spillStore` API 保存超大文本，并取得不透明定位信息、精确字节数与取回指引。当完整结果必须保持可取回、同时又不能填满模型上下文时选择它。配置 `dsh-spill-local` 可获得本地持久化；当超大工具结果应变为有界预览时，再添加 `dsh-spill-policy`。该 API 不提供保留、替换、取回或搜索操作。存储故障会使保存操作拒绝，由调用方决定保留内联内容还是让操作失败。
+`dsh-spill` 让插件和工具通过公开的 `ctx.spillStore` API 保存超大文本，并取得不透明定位信息、精确字节数与取回指引；它同时定义只读的 `ctx.artifacts` API，按搜索、读取、提取、比较与摘要取回已存产物。当完整结果必须保持可取回、同时又不能填满模型上下文时选择它。配置 `dsh-spill-local` 可获得本地持久化；当超大工具结果应变为有界预览时，再添加 `dsh-spill-policy`。存储故障会使保存操作拒绝，由调用方决定保留内联内容还是让操作失败。
 
 ## 目录
 
@@ -57,6 +57,12 @@ const ref = await ctx.spillStore.saveText({
 
 返回的 `SpillRef` 携带三个字段：`locator`，后端产生的面向模型的不透明句柄（对 `dsh-spill-local` 是本地文件路径，对其他后端可能是 URI 或键）；`bytes`，写入的精确 UTF-8 字节数；`retrievalHint`，消费方展示给模型的指引——对本地后端而言是读取或搜索该路径。消费方将定位信息与指引一同呈现，绝不自行解析定位信息。
 
+### 取回产物
+
+`ctx.artifacts` 读取 `saveText` 保存的产物，沿用相同的会话作用域与相同的不透明定位信息：`search` 按最新优先列出某会话的产物，可选按存储名子串匹配；`read` 返回存储文本或其中一个行窗口；`extract` 投影出匹配正则表达式的行；`diff` 把两个产物比较为统一补丁；`summarize` 在字节预算内保留产物的首尾。后端未曾存储的定位信息——外部路径、未知名称或非文件条目——会以 `ArtifactLocatorError` 拒绝。
+
+取回是只读的：没有任何操作会写入、替换、导出或删除产物，也不会改变模型请求。模型能看到超大结果中的哪些内容仍由 `dsh-spill-policy` 决定，而取回操作恢复的正是其提示所指的完整文本。`ArtifactStore` 定义于 [`src/artifacts.ts`](src/artifacts.ts)，其模块 JSDoc 是每个后端都必须遵守的约定。
+
 ### 归属与边界
 
 存储按所属会话分组：fork 后的会话从种子日志继承既有定位信息，无需复制或更改归属，fork 后新产生的 spill 使用子会话 id。会话引用产物归接收上下文的目标会话所有，而不是被引用的源会话。`suggestedName` 只是提示——后端会把它清理成单个安全路径段，绝不把它当作可信路径。预览与 spill 决策由消费方负责；存储与产物过期由后端负责。
@@ -80,7 +86,7 @@ const ref = await ctx.spillStore.saveText({
 本包建立在一个分离与刻意的极简之上：
 
 - **约定、实现与策略保持分离。** 本包定义后端做什么（`saveText`）；`dsh-spill-local` 实现它；`dsh-spill-policy` 决定何时触发。各项关注点独立演进与替换。
-- **只有一个方法，别无其他。** 该 seam 不负责保留策略、结果替换或取回/搜索 API——那些都有各自的归属包。
+- **存储 seam 只有一个方法。** 存储 seam 不负责保留策略、结果替换或取回/搜索 API——那些都有各自的归属包。取回是同一批产物之上的独立只读 seam（`ctx.artifacts`），因此持久字节只有一个所有者，模型能看到什么也只有一个策略负责。
 - **在 seam 处拒绝，绝不静默降级。** 降级由调用方负责；seam 报告真实存储故障。
 
 ### 源码地图
@@ -88,7 +94,8 @@ const ref = await ctx.spillStore.saveText({
 | 文件 | 职责 |
 |---|---|
 | [`src/index.ts`](src/index.ts) | 插件入口：抽象 `SpillStore` 服务及其 `saveText` 约定 |
-| [`src/types.ts`](src/types.ts) | 词汇：`SaveTextSpill`、`SpillRef`、带品牌类型 `SpillLocator`、`SpillOwner`、`SpillSource` |
+| [`src/artifacts.ts`](src/artifacts.ts) | 抽象 `ArtifactStore` 取回服务（`ctx.artifacts`）与 `ArtifactLocatorError` |
+| [`src/types.ts`](src/types.ts) | 词汇：`SaveTextSpill`、`SpillRef`、带品牌类型 `SpillLocator`、`SpillOwner`、`SpillSource`，以及取回请求/结果类型 |
 | — | 不发布运行时不变式伴生入口；除归属 seam 强制执行的约定外，本包不暴露独立的事件序列或可变数据关系。 |
 
 ### 数据模型
@@ -97,7 +104,7 @@ const ref = await ctx.spillStore.saveText({
 
 ### 生命周期
 
-后端继承 `SpillStore` 并以插件方式加载，注册为 `ctx.spillStore`；每个上下文只有一个实现，第二次加载会失败。执行 dispose（资源释放）时会释放该服务。抽象类本身不注册任何内容——本包只提供约定与词汇。
+后端继承 `SpillStore` 并以插件方式加载，注册为 `ctx.spillStore`；每个上下文只有一个实现，第二次加载会失败。`dsh-spill-local` 在同一个插件 fiber 上注册 `ctx.artifacts`，因此一次 dispose（资源释放）会同时释放同一根目录上的两个服务。抽象类本身不注册任何内容——本包只提供约定与词汇。
 
 </details>
 
@@ -133,8 +140,8 @@ spill 消费方将后端的定位信息与取回指引渲染给模型，从而�
 
 这些限制说明 spill 存储服务单独使用时在哪些方面不完整。它们是当前的包约束。
 
-- **没有取回或删除 API**——消费方只能渲染后端的定位信息与指引；生命周期与访问语义仍由后端自行决定。
-- **存储不等于访问控制**——所属会话区分写入命名空间，但不会授权通过定位信息读取内容；每个后端与取回消费方都必须自行强制执行访问边界。
+- **没有删除 API**——取回是只读的；产物生命周期属于后端自身的保留机制，例如本地启动清理。
+- **存储不等于访问控制**——所属会话区分写入命名空间与搜索结果，但定位信息本身不授予读取权限；每个后端与取回消费方都必须自行强制执行访问边界。
 
 <a id="dev-note"></a>
 ### 开发备注
@@ -146,7 +153,7 @@ spill 消费方将后端的定位信息与取回指引渲染给模型，从而�
 
 #### 未来：执行器 spill 文件集成
 
-该 seam 只有 `saveText`；为既有执行器 spill 文件提供保存文件或链接/复制路径（例如规范化 bash 临时文件），以及为 subagent 展开提供工具自有 spill，仍然延期，见[工具输出 spill 决策](../../../.agents/notes/implemented/architecture/2026-07-08-tool-output-spill-files.zh.md)。
+存储 seam 只有 `saveText`；为既有执行器 spill 文件提供保存文件或链接/复制路径（例如规范化 bash 临时文件），以及为 subagent 展开提供工具自有 spill，仍然延期，见[工具输出 spill 决策](../../../.agents/notes/implemented/architecture/2026-07-08-tool-output-spill-files.zh.md)。
 
 #### 未来：非本地后端与清理
 

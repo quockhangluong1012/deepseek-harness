@@ -15,11 +15,12 @@
 import { lastAssistantStreamChunk } from '@deepseek-ai/dsh-llm/assistant-stream'
 import type { AssistantMessage, LlmModelCost, LlmModelCostRates, TokenUsage } from '@deepseek-ai/dsh-llm/types'
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
-import type { UsageDayAggregate, UsageLedgerState, UsageModelAggregate } from './spec.ts'
+import type { UsageDayAggregate, UsageLedgerState, UsageModelAggregate, UsageSessionAggregate } from './spec.ts'
 import type {
   UsageDayBucket,
   UsageModelRow,
   UsageRange,
+  UsageSessionCost,
   UsageSummary,
 } from './types.ts'
 
@@ -238,12 +239,24 @@ export function modelKey(day: string, provider: string, model: string): string {
 }
 
 /**
- * Day part of one models-table key.
- * @param key - the models-table key.
+ * Day part of one day-first ledger key (models or sessions table).
+ * @param key - the table key.
  * @returns the UTC+7 day key.
  */
-export function dayOfModelKey(key: string): string {
+export function dayOfKey(key: string): string {
   return key.slice(0, key.indexOf(MODEL_KEY_SEPARATOR))
+}
+
+/**
+ * Ledger key of one session's counters for one route on one day.
+ * @param day - the UTC+7 day key.
+ * @param sessionId - the session (agent or subagent) that committed the samples.
+ * @param provider - the attributed provider.
+ * @param model - the attributed model.
+ * @returns the sessions-table key.
+ */
+export function sessionKey(day: string, sessionId: string, provider: string, model: string): string {
+  return `${day}${MODEL_KEY_SEPARATOR}${sessionId}${MODEL_KEY_SEPARATOR}${provider}${MODEL_KEY_SEPARATOR}${model}`
 }
 
 /**
@@ -331,6 +344,74 @@ function addModelOnly(
 }
 
 /**
+ * Credit (or, with `sign` `-1`, retire) one billed sample in one session's
+ * route counters. A route with no declared price adds no money and counts as
+ * unpriced, so the session's total never treats an unknown price as free. A
+ * row whose two counts reach zero is deleted, so no empty row accumulates.
+ * @param state - the ledger state to accumulate into.
+ * @param day - the UTC+7 day key of the sample.
+ * @param sessionId - the session (agent or subagent) that committed the sample.
+ * @param provider - the attributed provider.
+ * @param model - the attributed model.
+ * @param sample - the validated sample, whose own tokens select any volume tier.
+ * @param cost - declared route price, or `undefined` when the route declares none.
+ * @param sign - `1` to credit the sample, `-1` to retire it.
+ */
+export function addSessionSample(
+  state: UsageLedgerState,
+  day: string,
+  sessionId: string,
+  provider: string,
+  model: string,
+  sample: NormalizedSample,
+  cost: LlmModelCost | undefined,
+  sign: 1 | -1,
+): void {
+  const key = sessionKey(day, sessionId, provider, model)
+  const row: UsageSessionAggregate = state.sessions[key] ?? {
+    sessionId, provider, model, pricedRequests: 0, unpricedRequests: 0, costUsd: 0,
+  }
+  if (cost === undefined) {
+    row.unpricedRequests += sign
+  } else {
+    row.pricedRequests += sign
+    row.costUsd += sign * priceSample(sample, cost)
+  }
+  if (row.pricedRequests <= 0 && row.unpricedRequests <= 0) {
+    // oxlint-disable-next-line typescript/no-dynamic-delete -- plain JSON-keyed record; a Map breaks the stored schema
+    delete state.sessions[key]
+    return
+  }
+  state.sessions[key] = row
+}
+
+/**
+ * Move one sample's session counters from one route to another on the same
+ * day, for a step whose route arrives after its first samples.
+ * @param state - the ledger state to adjust.
+ * @param day - the UTC+7 day key of the sample.
+ * @param sessionId - the session (agent or subagent) that committed the sample.
+ * @param from - the previously attributed route.
+ * @param to - the newly settled route.
+ * @param sample - the validated sample to move.
+ * @param fromCost - declared price of the previous route.
+ * @param toCost - declared price of the settled route.
+ */
+export function moveSessionSample(
+  state: UsageLedgerState,
+  day: string,
+  sessionId: string,
+  from: { provider: string; model: string },
+  to: { provider: string; model: string },
+  sample: NormalizedSample,
+  fromCost: LlmModelCost | undefined,
+  toCost: LlmModelCost | undefined,
+): void {
+  addSessionSample(state, day, sessionId, from.provider, from.model, sample, fromCost, -1)
+  addSessionSample(state, day, sessionId, to.provider, to.model, sample, toCost, 1)
+}
+
+/**
  * Drop ledger counters older than the retention window. Day keys sort
  * lexicographically as chronology, so the cutoff is a string comparison.
  * @param state - the ledger state to prune.
@@ -345,7 +426,11 @@ export function sweepRetention(state: UsageLedgerState, now: number, retentionDa
   }
   for (const key of Object.keys(state.models)) {
     // oxlint-disable-next-line typescript/no-dynamic-delete -- plain JSON-keyed record; a Map breaks the stored schema
-    if (dayOfModelKey(key) < cutoff) delete state.models[key]
+    if (dayOfKey(key) < cutoff) delete state.models[key]
+  }
+  for (const key of Object.keys(state.sessions)) {
+    // oxlint-disable-next-line typescript/no-dynamic-delete -- plain JSON-keyed record; a Map breaks the stored schema
+    if (dayOfKey(key) < cutoff) delete state.sessions[key]
   }
 }
 
@@ -379,7 +464,7 @@ export function summarizeLedger(state: UsageLedgerState, range: UsageRange, now:
   })
   const byModel = new Map<string, ModelAccumulator>()
   for (const [key, row] of Object.entries(state.models)) {
-    if (!inWindow.has(dayOfModelKey(key))) continue
+    if (!inWindow.has(dayOfKey(key))) continue
     const routeKey = `${row.provider}${MODEL_KEY_SEPARATOR}${row.model}`
     const entry = byModel.get(routeKey) ?? {
       provider: row.provider, model: row.model, requests: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0,
@@ -412,4 +497,56 @@ export function summarizeLedger(state: UsageLedgerState, range: UsageRange, now:
     daily,
     models,
   }
+}
+
+/** Mutable per-session accumulation while summarizing one window. */
+interface SessionAccumulator {
+  sessionId: string
+  usd: number
+  pricedRequests: number
+  unpricedRequests: number
+  unpricedRoutes: Set<string>
+}
+
+/**
+ * Summarize one window's per-session spend: one row per session that billed
+ * anything, so the invoking agent and each of its subagents keep their own
+ * money. The window is the same UTC+7 window {@link summarizeLedger} uses, so
+ * a session's money and the dashboard's totals cover the same attempts.
+ * @param state - the ledger counters to summarize.
+ * @param range - the requested window.
+ * @param now - Unix epoch milliseconds anchoring the window.
+ * @returns one row per session, busiest first.
+ */
+export function summarizeSessionCosts(
+  state: UsageLedgerState,
+  range: UsageRange,
+  now: number,
+): UsageSessionCost[] {
+  const start = windowStartOfRange(range, now)
+  const inWindow = new Set(Object.keys(state.daily).filter(day => day >= dayKeyUTC7(start) || range === 'all'))
+  const bySession = new Map<string, SessionAccumulator>()
+  for (const [key, row] of Object.entries(state.sessions)) {
+    if (!inWindow.has(dayOfKey(key))) continue
+    const entry = bySession.get(row.sessionId) ?? {
+      sessionId: row.sessionId, usd: 0, pricedRequests: 0, unpricedRequests: 0, unpricedRoutes: new Set<string>(),
+    }
+    entry.usd += row.costUsd
+    entry.pricedRequests += row.pricedRequests
+    entry.unpricedRequests += row.unpricedRequests
+    if (row.unpricedRequests > 0) entry.unpricedRoutes.add(`${row.provider}/${row.model}`)
+    bySession.set(row.sessionId, entry)
+  }
+  return [...bySession.values()]
+    .map(row => ({
+      sessionId: row.sessionId,
+      // No priced attempt means nothing measurable, which is not the same
+      // answer as a measured zero: a declared-but-free route still prices.
+      usd: row.pricedRequests === 0 ? undefined : row.usd,
+      pricedRequests: row.pricedRequests,
+      unpricedRequests: row.unpricedRequests,
+      unpricedRoutes: [...row.unpricedRoutes].sort(),
+    }))
+    .sort((left, right) =>
+      (right.pricedRequests + right.unpricedRequests) - (left.pricedRequests + left.unpricedRequests))
 }

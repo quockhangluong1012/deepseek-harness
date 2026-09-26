@@ -113,7 +113,7 @@ Source: [`packages/evolution/evolution-adversary/src/index.ts`](../../packages/e
 
 ### `ctx.evolutionBenchmark` — `EvolutionBenchmark`
 
-Benchmark store over durable tasks. Opens the `evolution_benchmark` domain at init and closes it through `ctx.effect`.
+Benchmark store over durable tasks and the outcomes their runs recorded. Opens the `evolution_benchmark` and `evolution_benchmark_runs` domains at init and closes them through `ctx.effect`.
 
 ```ts cordis-catalog
 /**
@@ -132,6 +132,29 @@ async admit(inputs: readonly BenchmarkInput[]): Promise<{ admitted: readonly Ben
  * @returns the tasks, detached from the store.
  */
 tasks(state?: BenchmarkState): readonly BenchmarkTask[]
+
+/**
+ * List every recorded task outcome, newest first.
+ * @returns the outcomes, detached from the store.
+ */
+outcomes(): readonly BenchmarkOutcome[]
+
+/**
+ * Execute benchmark tasks and record one durable outcome per task.
+ *
+ * Each task runs as its own input script through the caller's runner — the
+ * same fresh-process seam `evolution-scorer` scores through, so a keyless
+ * deployment passes a replay runner and a live one passes a recording
+ * runner. The attempts are reduced by the scorer's own `scoreRun`, so the
+ * verdict, the billed tokens, and the wall time mean exactly what they mean
+ * everywhere else. A run that fails is recorded as a failed outcome with its
+ * reason rather than aborting the pass, so one unrunnable task cannot hide
+ * the outcomes of the tasks around it. At most `maxTasks` tasks run per pass;
+ * the rest are reported as deferred.
+ * @param request - the tasks, the runner, and the wiring every run boots with.
+ * @returns the recorded outcomes and the pass's counts.
+ */
+async run(request: BenchmarkRunRequest): Promise<BenchmarkRunReport>
 
 /**
  * Move one task to another state. Learning advances one step per call
@@ -317,7 +340,10 @@ Host Remote service over the durable evolution record. The stream is owned by th
  * Replace the scope's lesson artifacts wholesale. This is the document-level
  * verb the editor drives: the supplied list becomes the whole lessons
  * document, so an artifact the caller omits is dropped rather than kept
- * beside the new ones.
+ * beside the new ones. A supplied artifact that restates one the scope
+ * already holds updates that record — its counters, creation instant,
+ * creation record, and expiry survive — instead of being replaced by a fresh one,
+ * so re-saving a document does not reset what later extractions recorded.
  * @param request - scope identity and the complete artifact list.
  * @returns the updated projection.
  */
@@ -418,7 +444,9 @@ run(options: CuratorRunOptions = {}): Promise<CuratorReport>
  * and enough idleness was observed. The first call only seeds the
  * bookkeeping and defers one interval. Idleness defaults to the newest
  * host-wide session activity this process observed; before any activity is
- * observed the host counts as idle.
+ * observed the host counts as idle. The registered heartbeat task calls
+ * `run` directly instead: the engine already applies the same interval and
+ * idle gates, so the cadence lives in one place.
  * @param options - clock and idleness overrides plus the dry-run flag.
  * @returns the pass report, or undefined when this call defers.
  * @throws when teardown has begun.
@@ -438,14 +466,17 @@ async surveyCandidates(options: CuratorRunOptions = {}): Promise<ConsolidationSu
 /**
  * Run one opt-in LLM consolidation over the agent-created skills this
  * curator tracks. Returns undefined when consolidation is off, when the
- * seam is unmounted, or when no candidate awaits a verdict. A cost row
- * reaches the ledger before the fork starts; the fork runs as a bounded
- * in-package tool loop over `ctx.llm`. With `requireConsolidationReview`
- * off, the returned verdicts apply under the full-package rule and land in
- * the same snapshot, ledger, and rollback machinery as an automatic pass.
- * With it on, the verdicts are withheld and the report's `awaitingReview`
- * names the recorded proposer identity; `applyPendingConsolidation` commits
- * them under a distinct reviewing identity.
+ * seam is unmounted, when no candidate awaits a verdict, or when the
+ * evolution-budget ceiling refused the fork. A cost row reaches the ledger
+ * before the fork starts; the fork runs as a bounded in-package tool loop
+ * over `ctx.llm`, and its tokens and wall time settle against the daily and
+ * weekly ceiling batches `openCeiling` opened. With
+ * `requireConsolidationReview` off, the returned verdicts apply under the
+ * full-package rule and land in the same snapshot, ledger, and rollback
+ * machinery as an automatic pass. With it on, the verdicts are withheld and
+ * the report's `awaitingReview` names the recorded proposer identity;
+ * `applyPendingConsolidation` commits them under a distinct reviewing
+ * identity.
  * @param options - clock override and the proposer identity to record.
  * @returns the consolidation report, or undefined when no run happened.
  * @throws when teardown has begun, or when review is required but the
@@ -465,7 +496,7 @@ async staged(): Promise<StagedSkill[]>
  * Adopt one agent-created skill into user-directed standing, recording the
  * movement in the ledger. Manual only: clocks never reset.
  * @param name - skill name.
- * @returns the stored record with user-directed provenance.
+ * @returns the stored record with a user-directed creation record.
  */
 async adopt(name: string): Promise<SkillUsageRecord>
 
@@ -970,13 +1001,19 @@ find( scopeId: EvolutionScopeId, query: string, limit: number = this.resolved.ma
  * Extract relations from text and merge them. One `temperature: 0` call
  * returns JSON, which is validated here before anything is stored: a
  * malformed answer rejects rather than storing a partial graph.
+ *
+ * The call opens the scope's daily and weekly evolution-budget ceiling
+ * before it reaches the model and settles its tokens and wall time against
+ * both once it returns. A mounted store whose ceiling is spent refuses the
+ * call — {@link openCeiling} logs the reason — and no model request is made.
  * @param scopeId - scope identity.
  * @param text - source text to read relations from.
  * @param route - provider and model to call.
  * @param signal - caller cancellation.
- * @returns what the extraction observed and merged.
+ * @returns what the extraction observed and merged, or undefined when the
+ *   ceiling refused the call.
  */
-async extract( scopeId: EvolutionScopeId, text: string, route: { provider: string; model: string }, signal: AbortSignal, ): Promise<GraphExtractResult>
+async extract( scopeId: EvolutionScopeId, text: string, route: { provider: string; model: string }, signal: AbortSignal, ): Promise<GraphExtractResult | undefined>
 ```
 
 Source: [`packages/evolution/evolution-graph/src/index.ts`](../../packages/evolution/evolution-graph/src/index.ts)
@@ -1017,6 +1054,9 @@ lastRunAt(name: string): string | null
  * bookkeeping is absent is seeded and deferred; a task whose interval has
  * not elapsed, or whose idle gate is unsatisfied, is deferred. Tasks run
  * sequentially, and a failing task is recorded without stopping the pass.
+ * One pass runs at a time: a call arriving while a pass is in flight returns
+ * that pass's report instead of starting a second, so a tick that lands
+ * during a long pass cannot run the same tasks twice.
  * @param options - clock, idleness, and force overrides.
  * @returns entries for tasks reached before teardown stops the pass.
  */
@@ -1155,6 +1195,29 @@ compare(idA: string, idB: string): ExperimentComparison | undefined
  * @returns the envelope, detached, or undefined when unknown.
  */
 replay(id: string): ExperimentEnvelope | undefined
+
+/**
+ * Record one policy revision. The store assigns the next version number,
+ * hashes the body, and diffs it against the revision it replaces, so a
+ * policy's history is versioned, diffable, reproducible, and reversible from
+ * the stored bodies (§14.5) without trusting the caller for any of it. The
+ * same bytes as the chain's head is a no-op: re-recording the current body
+ * would add a version that changed nothing. Committing an older revision's
+ * bytes is a real revision, so a revert lands as a new version rather than
+ * rewriting history.
+ * @param input - the policy identity, its body, and the benchmark it was measured under.
+ * @returns the stored revision, or the recorded head when the body is unchanged.
+ */
+async recordRevision(input: PolicyRevisionInput): Promise<PolicyRevision>
+
+/**
+ * List one policy's committed revisions, oldest first: the whole chain, in
+ * the order it was committed, with each revision's body so a reader can diff
+ * or restore any pair without reading the file the body came from.
+ * @param policy - policy identity.
+ * @returns the detached revisions, oldest first; empty when the policy has none.
+ */
+revisions(policy: string): readonly PolicyRevision[]
 ```
 
 Source: [`packages/evolution/evolution-lineage/src/index.ts`](../../packages/evolution/evolution-lineage/src/index.ts)
@@ -1186,6 +1249,18 @@ usage(id: EvolutionScopeId): EvolutionMemoryUsage
  * @returns `'empty'` when absent, else the sha1 of the covered inputs.
  */
 digest(id: EvolutionScopeId): string
+
+/**
+ * The model-facing projection of one scope: its current facts and documents,
+ * derived from the ledger record on every call. The record stays the source
+ * of truth — nothing is stored here and nothing the record dropped survives
+ * in it — and every field a stored fact may omit is materialized, so a
+ * consumer reads current values instead of absences. The brief injector is
+ * the shipped consumer.
+ * @param id - scope identity.
+ * @returns the current-state projection, or undefined when the scope has no record.
+ */
+projection(id: EvolutionScopeId): MemoryProjection | undefined
 
 /**
  * Replace the user-authored instruction text. Instructions carry no
@@ -1233,6 +1308,24 @@ async updateArtifact( id: EvolutionScopeId, artifactId: string, patch: LessonArt
 async removeArtifact(id: EvolutionScopeId, artifactId: string): Promise<EvolutionMemoryRecord>
 
 /**
+ * Move one fact's lifecycle status along a legal edge. Every status change a
+ * caller makes by hand goes through here, so the store owns one place where
+ * the edges are checked; a confirmation moves a status as part of its own
+ * write, under the same edges.
+ *
+ * A move to `promoted` or `stable` requires the configured
+ * `confidenceFloor`: a fact below it stays where it is and this call fails.
+ * A move that no edge declares fails too.
+ * @param id - scope identity.
+ * @param artifactId - the addressed artifact.
+ * @param to - the status to move to.
+ * @param at - ISO-8601 instant of the move, defaulting to the wall clock.
+ * @returns the stored record.
+ * @throws `evolution/item-not-found` when no artifact carries that id.
+ */
+async transitionArtifact( id: EvolutionScopeId, artifactId: string, to: LessonLifecycle, at: string = new Date().toISOString(), ): Promise<EvolutionMemoryRecord>
+
+/**
  * Apply one extraction pass's whole decision batch: a `confirms` bumps the
  * addressed artifact's `validationCount`, a `contradicts` bumps its
  * `refutationCount` and replaces the statement and confidence it carries,
@@ -1250,16 +1343,17 @@ async removeArtifact(id: EvolutionScopeId, artifactId: string): Promise<Evolutio
  * replaces. A batch that changed nothing — an empty one, or one whose only
  * decisions named artifacts the record no longer holds — stamps no family,
  * exactly as {@link addArtifact} does when its add stores nothing; the
- * provenance of the call that found nothing is still recorded.
+ * extraction that found nothing is still recorded.
  *
- * A batch applied with provenance is also published as one
+ * A batch applied with an extraction record is also published as one
  * `evolution/decisions-applied` event once the write is durable, carrying
- * the artifacts as they read before it. A batch applied without provenance
- * is not published: every decision would carry unattributable evidence.
+ * the artifacts as they read before it. A batch applied without an
+ * extraction record is not published: every decision would carry
+ * unattributable evidence.
  * @param id - scope identity.
  * @param decisions - the confirmed, contradicted, and new facts, in the
  * order the extraction reported them.
- * @param extraction - provenance of the call that produced the batch.
+ * @param extraction - the record of the call that produced the batch.
  * @returns the stored record.
  */
 async applyExtractionDecisions( id: EvolutionScopeId, decisions: readonly LessonDecision[], extraction?: EvolutionExtraction, ): Promise<EvolutionMemoryRecord>
@@ -1269,12 +1363,15 @@ async applyExtractionDecisions( id: EvolutionScopeId, decisions: readonly Lesson
  * document-level counterpart to {@link addArtifact}, {@link updateArtifact},
  * and {@link removeArtifact}, not a compatibility shim. A caller replaces
  * the whole list by hand this way; the controller's `setLessons` Remote op
- * is its one caller. Every candidate is validated and given a fresh
- * identity, counters, and instants, so a candidate list that repeats an
- * identity is refused.
+ * is its one caller. Every candidate is validated. A candidate that restates
+ * an artifact the record already holds folds into that artifact — keeping
+ * its identity, counters, creation instant, creation record, and expiry — and
+ * only a statement the record does not hold is stored as a fresh artifact,
+ * so a list that repeats an identity is refused. The supplied list becomes
+ * the whole array: an artifact the caller omits is dropped.
  * @param id - scope identity.
  * @param candidates - the whole lessons document, one candidate per fact.
- * @param extraction - provenance when model-written.
+ * @param extraction - the extraction record when model-written.
  * @returns the stored record.
  */
 async replaceArtifacts( id: EvolutionScopeId, candidates: readonly LessonArtifactInput[], extraction?: EvolutionExtraction, ): Promise<EvolutionMemoryRecord>
@@ -1303,7 +1400,7 @@ async sweep(scopeId: EvolutionScopeId, now: string = new Date().toISOString()): 
  * Replace the whole user profile document by hand or from extraction.
  * @param id - scope identity.
  * @param text - replacement profile document.
- * @param extraction - provenance when model-written.
+ * @param extraction - the extraction record when model-written.
  * @returns the stored record.
  */
 async setUserProfile(id: EvolutionScopeId, text: string, extraction?: EvolutionExtraction): Promise<EvolutionMemoryRecord>
@@ -1501,6 +1598,67 @@ Metric layer over the evolution stores. It opens no domain and holds no state, s
  * @returns the window, the north star per denominator, and the supporting set.
  */
 report(query: MetricsQuery = {}): MetricsReport
+
+/**
+ * Measure the §13.2 coding metric set over one window of recorded session
+ * logs. Every value is computed on demand from the events the kernel, the
+ * trace, and the feedback stores already wrote: nothing is appended, nothing
+ * is re-recorded, and a metric whose records the window does not hold names
+ * the missing record instead of reporting a zero.
+ *
+ * The window covers the sessions storage lists, narrowed by the query bounds
+ * on each session's newest event and by the query's newest-first limit, and
+ * `maxSessions` bounds how many of the newest-created sessions are read at
+ * all. Each log is folded through the kernel's own metric fold, so a counter
+ * the kernel owns is read, never recomputed.
+ * @param query - which sessions the window covers; omitted fields take defaults.
+ * @returns the session window and the readings in spec order.
+ */
+async coding(query: CodingQuery = {}): Promise<CodingReport>
+
+/**
+ * Measure the §13.5 long-horizon set over one window of recorded benchmark
+ * outcomes: for each horizon tier, success, process discipline, recoveries,
+ * context pressure, and budget usage.
+ *
+ * The window covers the outcomes `ctx.evolutionBenchmark.run()` recorded,
+ * newest first, narrowed by the query and bounded by `maxOutcomes`. Every
+ * reading aggregates the outcome rows alone: each row was folded from its
+ * run's own harvested sessions when the run was recorded, so nothing is
+ * re-read here and a store that is not mounted makes the whole set
+ * unmeasurable with the missing store named.
+ * @param query - which outcomes the window covers; omitted fields take defaults.
+ * @returns the outcome window and one entry per shipped horizon tier.
+ */
+longHorizon(query: LongHorizonQuery = {}): LongHorizonReport
+
+/**
+ * Measure the §13.3 research metric set over one window of recorded research
+ * runs and the claim and observation records their sessions logged. The
+ * window covers the runs `ctx.research` holds, newest first, narrowed by the
+ * query; each of their sessions is opened once and folded into the ledger
+ * the runs' references resolve through, so nothing is copied and nothing is
+ * written.
+ *
+ * Research work is what the run records scope: a session's claims and
+ * observations enter the metric set through the stages of its runs, never
+ * through the session log alone. A store that is not mounted makes the whole
+ * set unmeasurable with the missing store named.
+ * @param query - which runs the window covers; omitted fields take defaults.
+ * @returns the run window and the seven research metrics in spec order.
+ */
+async research(query: ResearchQuery = {}): Promise<ResearchReport>
+
+/**
+ * Measure the §13.4 mentor metric set over one learner's durable record and
+ * the misconception cycles recorded for them. Both stores are read, never
+ * written; a store that is not mounted leaves the metrics that read it
+ * unmeasurable with that store named, and a learner with nothing recorded
+ * names the record each metric is missing.
+ * @param query - the learner whose recorded work the report covers.
+ * @returns the learner and the six mentor metrics in spec order.
+ */
+mentor(query: MentorQuery): MentorReport
 ```
 
 Source: [`packages/evolution/evolution-metrics/src/index.ts`](../../packages/evolution/evolution-metrics/src/index.ts)
@@ -2039,7 +2197,7 @@ Source: [`packages/evolution/evolution-self-model/src/index.ts`](../../packages/
 
 ### `ctx.evolutionSkillTelemetry` — `EvolutionSkillTelemetry`
 
-Durable per-skill telemetry store. Opens the `evolution_skill_usage` domain at init and closes it through `ctx.effect`. A passive `tools/post-execute` observer counts successful `skill`-tool loads as uses; views, patches, provenance, pins, and states arrive through the explicit marks below.
+Durable per-skill telemetry store. Opens the `evolution_skill_usage` domain at init and closes it through `ctx.effect`. A passive `tools/post-execute` observer counts successful `skill`-tool loads as uses; views, patches, creation records, pins, and states arrive through the explicit marks below.
 
 ```ts cordis-catalog
 /**
@@ -2070,12 +2228,17 @@ async markUsed(name: string, source?: string, sessionId?: string): Promise<Skill
 /**
  * Count one failed `skill`-tool load. Successful loads arrive through
  * {@link markUsed}; this is the failure half, called by the same
- * `tools/post-execute` observer. Exclusion matches {@link markUsed}.
+ * `tools/post-execute` observer. Exclusion matches {@link markUsed}, and so
+ * does the session correlation: the session where the load failed is in
+ * play just like one where it succeeded.
  * @param name - skill name.
  * @param source - catalog source when the caller already resolved it.
+ * @param sessionId - failing session, recorded so a later pass can pull the
+ *   failures observed while this skill was in play. Omitted by callers with
+ *   no session, which leaves the recorded list untouched.
  * @returns the stored record, or undefined for excluded sources.
  */
-async markFailed(name: string, source?: string): Promise<SkillUsageRecord | undefined>
+async markFailed(name: string, source?: string, sessionId?: string): Promise<SkillUsageRecord | undefined>
 
 /**
  * Count one human view. Exclusion matches {@link markUsed}.
@@ -2112,7 +2275,7 @@ async markAgentCreated(name: string): Promise<SkillUsageRecord>
  * carrying model authorship move; everything else rejects, and clocks never
  * reset.
  * @param name - skill name.
- * @returns the stored record with user-directed provenance.
+ * @returns the stored record with a user-directed creation record.
  */
 async markAdopted(name: string): Promise<SkillUsageRecord>
 
@@ -2354,6 +2517,14 @@ Immutable session trace projection. Opens no domain: the session log is the auth
 async trace(sessionId: string): Promise<TraceRecord | undefined>
 
 /**
+ * Project one session's committed log into its runs' execution traces
+ * (§5.1 Agent Trace). A log that recorded no task contract holds no run.
+ * @param sessionId - session identity.
+ * @returns one trace per run, oldest first, or undefined when storage holds no such session.
+ */
+async runs(sessionId: string): Promise<readonly AgentTrace[] | undefined>
+
+/**
  * Compress the given sessions into learning-trace rows, most decisive first:
  * most failures, then retries, then billed tokens, then newest. Absent
  * sessions contribute nothing.
@@ -2489,7 +2660,7 @@ Source: [`packages/evolution/evolution-verifiers/src/index.ts`](../../packages/e
 
 One extraction pass's decision batch landed on a scope's record, emitted once per applied batch strictly after the write is durable. Deriving consumers — the knowledge graph's claim layer is the shipped one — fold the batch into their own state here; a listener failure is their own to contain, because the batch it reports is already stored.
 
-A batch applied without provenance is not published: every decision is attributed to the session that reported it, and a batch whose session is unknown would carry unattributable evidence.
+A batch applied without an extraction record is not published: every decision is attributed to the session that reported it, and a batch whose session is unknown would carry unattributable evidence.
 
 ```ts cordis-catalog
 /**
@@ -2499,7 +2670,7 @@ A batch applied without provenance is not published: every decision is attribute
  * one — fold the batch into their own state here; a listener failure is
  * their own to contain, because the batch it reports is already stored.
  *
- * A batch applied without provenance is not published: every decision is
+ * A batch applied without an extraction record is not published: every decision is
  * attributed to the session that reported it, and a batch whose session
  * is unknown would carry unattributable evidence.
  * @param batch - scope, source session, decisions, and the artifacts they addressed.

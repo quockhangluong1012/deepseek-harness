@@ -202,7 +202,16 @@ describe('compareBehaviorReplay', () => {
       pass,
       tokens: 10,
       wallTimeMs: 5,
-      scores: [{ scenario, pass, changes: [], tokens: 10, wallTimeMs: 5, samples: [5] }],
+      scores: [{
+        scenario,
+        pass,
+        changes: [],
+        tokens: 10,
+        wallTimeMs: 5,
+        samples: [5],
+        fixtureDigest: 'test-fixture-digest',
+        trajectory: null,
+      }],
     }
   }
 

@@ -7,7 +7,7 @@ English | [中文](2026-08-03-per-session-agent-presets.zh.md)
 
 ## Problem
 
-One `dsh` process serves many sessions, but the composition that decides what an agent *is* — its tools, persona, prompt sections, delegation backends — is fixed for the whole process by the `cordis.yml` the launcher booted. A deployment that wants a benchmark-minimal agent beside a full coding agent has to run two processes, and the shipped workaround (a `--config` overlay that disables tool rows) changes every session at once.
+One `dsh` process serves many sessions, but the composition that decides what an agent *is* — its tools, persona, prompt sections, delegation backends — is fixed for the whole process by the `cordis.yml` the launcher booted. A deployment that wants a benchmark-minimal agent beside a full coding agent has to run two processes, and the shipped workaround (`apps/cli/config/minimal.cordis.yml`, a `--config` overlay that disables tool rows) changes every session at once.
 
 The obvious reading of "let a session pick its composition" is that the loader needs a new tier. It does not. [`dsh-tools`](../../../../packages/core/tools/README.md) and [`dsh-system-prompt`](../../../../packages/core/system-prompt/README.md) already file registrations into the calling context's scope layer, and [the agent is a registration scope](2026-07-08-agent-scope-contexts.md). What was missing is a way to point a whole `cordis.yml` at one agent's scope.
 

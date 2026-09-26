@@ -4,7 +4,7 @@ import type { Volatile } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { isVolatile } from '@deepseek-ai/cosmokit'
 import { resolveRetryPolicy, RetryPolicySchema } from '@deepseek-ai/dsh-llm'
-import type { ModelModality, RetryPolicyConfig } from '@deepseek-ai/dsh-llm'
+import type { LlmModelCost, LlmModelCostRates, ModelModality, RetryPolicyConfig } from '@deepseek-ai/dsh-llm'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import type { LaunchEnvironmentSnapshot } from '@deepseek-ai/dsh-launch-environment'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
@@ -77,17 +77,36 @@ export function plainOptions(config: Config): Options {
   return Object.fromEntries(Object.entries(config).map(([key, value]) => [key, isVolatile(value) ? value.get() : value]))
 }
 
-const catalogModel: z<DeepSeekCatalogModel> = z.object({
+/** One route's or tier's USD-per-million-token rates, each required once declared. */
+const costRates = {
+  inputPerMTok: z.number().min(0).required(),
+  outputPerMTok: z.number().min(0).required(),
+  cacheReadPerMTok: z.number().min(0).required(),
+  cacheWritePerMTok: z.number().min(0).required(),
+}
+
+/**
+ * Declared USD prices of one route, with its optional volume tiers; the cast
+ * is the readonly {@link LlmModelCost.tiers}, which `z.array` infers mutable.
+ */
+const catalogCost = z.object({
+  ...costRates,
+  tiers: z.union([z.array(z.object({ ...costRates, inputTokensAbove: z.number().step(1).min(0).required() })), z.const(undefined)]),
+}) as z<LlmModelCost>
+
+/** Declared catalog model fields; `cost` is cast for the same reason as {@link catalogCost}. */
+const catalogModel = z.object({
   id: z.string().required(),
   name: z.string(),
   description: z.string(),
   contextWindow: z.number().step(1).min(1),
+  cost: z.union([catalogCost, z.const(undefined)]),
   maxTokens: z.number().step(1).min(1),
   inputModalities: z.array(z.union(MODEL_MODALITIES)).min(1).default(['text']),
   imagePixelBudget: z.union([z.number().step(1).min(1), 'low']),
   imageMaxBytes: z.number().step(1).min(1),
   systemPromptUpdate: z.const('in-history'),
-})
+}) as z<DeepSeekCatalogModel>
 
 export const Config = z.object({
   apiKeyEnv: z.string().role('credential-ref').default(DEFAULT_API_KEY_ENV).volatile(),
@@ -124,6 +143,45 @@ const BASE_URL_ENV = 'DEEPSEEK_BASE_URL'
  * newer key.
  */
 export type ResolvedDeepSeekOptions = DeepSeekConnectionOptions
+
+/** Whether one declared rate is a usable USD amount. */
+function isRate(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0
+}
+
+/** Whether one declared rate block carries four usable USD amounts. */
+function isValidCostRates(rates: LlmModelCostRates): boolean {
+  return isRate(rates.inputPerMTok) && isRate(rates.outputPerMTok)
+    && isRate(rates.cacheReadPerMTok) && isRate(rates.cacheWritePerMTok)
+}
+
+/**
+ * Validate and detach one catalog entry's declared prices. A dynamic config
+ * update reaches this check without schema validation, and these rates end up
+ * in money arithmetic, so an unusable value fails here rather than poisoning
+ * a later total.
+ * @param modelId - the catalog entry the prices belong to, for the failure message.
+ * @param cost - the declared prices.
+ * @returns a detached copy of the prices.
+ */
+function resolvedCatalogCost(modelId: string, cost: LlmModelCost): LlmModelCost {
+  const tiers = cost.tiers
+  const tiersValid = tiers === undefined || tiers.every(tier =>
+    isValidCostRates(tier) && Number.isSafeInteger(tier.inputTokensAbove) && tier.inputTokensAbove >= 0)
+  if (!isValidCostRates(cost) || !tiersValid) {
+    throw new Error(
+      `llm-deepseek: catalog model "${modelId}" cost must declare finite non-negative per-million-token rates`
+      + ' and non-negative integer tier thresholds',
+    )
+  }
+  return {
+    inputPerMTok: cost.inputPerMTok,
+    outputPerMTok: cost.outputPerMTok,
+    cacheReadPerMTok: cost.cacheReadPerMTok,
+    cacheWritePerMTok: cost.cacheWritePerMTok,
+    ...tiers === undefined ? {} : { tiers: tiers.map(tier => ({ ...tier })) },
+  }
+}
 
 /** Resolve, validate, and detach the advisory model catalog. */
 function resolveModels(models: readonly DeepSeekCatalogModel[] | undefined): DeepSeekCatalogModel[] {
@@ -185,6 +243,7 @@ function resolveModels(models: readonly DeepSeekCatalogModel[] | undefined): Dee
       ...model.name === undefined ? {} : { name: model.name },
       ...model.description === undefined ? {} : { description: model.description },
       ...model.contextWindow === undefined ? {} : { contextWindow: model.contextWindow },
+      ...model.cost === undefined ? {} : { cost: resolvedCatalogCost(model.id, model.cost) },
       ...model.maxTokens === undefined ? {} : { maxTokens: model.maxTokens },
       ...model.systemPromptUpdate === undefined ? {} : { systemPromptUpdate: model.systemPromptUpdate },
       inputModalities: [...inputModalities],

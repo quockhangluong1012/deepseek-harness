@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { brandString } from '@deepseek-ai/dsh-brand'
-import { CriterionVerifierRegistry, DefaultVerificationGate, VERIFIER_VERSION } from '../src/verification.ts'
+import { CriterionResultCache, CriterionVerifierRegistry, DefaultVerificationGate, VERIFIER_VERSION } from '../src/verification.ts'
 import type {
   AcceptanceCriterion,
   BudgetSnapshot,
@@ -26,6 +26,8 @@ function task(criteria: readonly AcceptanceCriterion[], budget: ResourceBudget =
     runId: brandString<RunId>('run-1'),
     objective: 'objective',
     constraints: [],
+    dependencies: [],
+    evidence: [],
     acceptance: [...criteria],
     agentProfile: 'default',
     policyProfile: 'default',
@@ -55,22 +57,30 @@ function gate(requireAcceptanceCriteria = false, allowHumanOnlyCompletion = fals
   })
 }
 
+/** One verification request at one repository state. */
+function request(subject: TaskContract, changedScopes: readonly string[] = [], repositoryDigest = 'digest-1'): VerificationRequest {
+  return gate().request(subject, changedScopes, repositoryDigest)
+}
+
+/** Cache bounds the registry specs run under. */
+const CACHE = { maxEntries: 8, ttlMs: 60_000 }
+
 describe('verification requests and aggregation', () => {
   it('requests the task criteria at the task revision', () => {
-    const request = gate().request(task([criterion('a')]), ['src/a.ts'])
-    expect(request).toMatchObject({ revision: 3, changedScopes: ['src/a.ts'] })
-    expect(request.criteria.map(item => item.id)).toEqual(['a'])
+    const built = request(task([criterion('a')]), ['src/a.ts'])
+    expect(built).toMatchObject({ revision: 3, changedScopes: ['src/a.ts'], repositoryDigest: 'digest-1' })
+    expect(built.criteria.map(item => item.id)).toEqual(['a'])
   })
 
   it('aggregates reported outcomes and leaves an unreported criterion unknown', () => {
-    const request = gate().request(task([criterion('a'), criterion('b')]), [])
-    const passed = gate().evaluate(request, [verdict('a', 'pass'), verdict('b', 'pass')], ['pnpm test'])
+    const built = request(task([criterion('a'), criterion('b')]), [])
+    const passed = gate().evaluate(built, [verdict('a', 'pass'), verdict('b', 'pass')], ['pnpm test'])
     expect(passed).toMatchObject({ status: 'pass', commands: ['pnpm test'], verifierVersion: VERIFIER_VERSION })
 
-    const failed = gate().evaluate(request, [verdict('a', 'pass'), verdict('b', 'fail')], [])
+    const failed = gate().evaluate(built, [verdict('a', 'pass'), verdict('b', 'fail')], [])
     expect(failed.status).toBe('fail')
 
-    const unknown = gate().evaluate(request, [verdict('a', 'pass')], [])
+    const unknown = gate().evaluate(built, [verdict('a', 'pass')], [])
     expect(unknown.status).toBe('unknown')
     expect(unknown.criterionResults[1]).toMatchObject({
       criterionId: 'b',
@@ -78,22 +88,22 @@ describe('verification requests and aggregation', () => {
       detail: 'no verifier reported a result for this criterion',
     })
 
-    expect(gate().evaluate(gate().request(task([]), []), [], []).status).toBe('pass')
+    expect(gate().evaluate(request(task([]), []), [], []).status).toBe('pass')
   })
 })
 
 describe('completion gate', () => {
   it('allows completion only when every required criterion passed', () => {
     const subject = task([criterion('a')])
-    const request = gate().request(subject, [])
-    const result = gate().evaluate(request, [verdict('a', 'pass')], [])
+    const built = request(subject, [])
+    const result = gate().evaluate(built, [verdict('a', 'pass')], [])
     expect(gate().decide(subject, result, [], budget())).toEqual({ allowed: true, reasons: [] })
   })
 
   it('refuses completion for a missing criterion, an unresolved failure, and an exhausted ceiling', () => {
     const subject = task([criterion('a'), criterion('b', 'test', false)], { maxSteps: 4 })
-    const request = gate().request(subject, [])
-    const failed = gate().evaluate(request, [verdict('a', 'fail'), verdict('b', 'pass')], [])
+    const built = request(subject, [])
+    const failed = gate().evaluate(built, [verdict('a', 'fail'), verdict('b', 'pass')], [])
     const decision = gate().decide(
       subject,
       failed,
@@ -111,7 +121,7 @@ describe('completion gate', () => {
 
   it('refuses a task that declares no criterion when the deployment requires one', () => {
     const subject = task([])
-    const decision = gate(true).decide(subject, gate().evaluate(gate().request(subject, []), [], []), [], budget())
+    const decision = gate(true).decide(subject, gate().evaluate(request(subject, []), [], []), [], budget())
     expect(decision).toEqual({
       allowed: false,
       reasons: ['the conversational task declares no acceptance criterion and this deployment requires one before completion'],
@@ -120,23 +130,23 @@ describe('completion gate', () => {
 
   it('refuses a task whose only passing evidence is human-reported', () => {
     const subject = task([criterion('a', 'human')])
-    const request = gate().request(subject, [])
-    const result = gate().evaluate(request, [verdict('a', 'pass')], [])
+    const built = request(subject, [])
+    const result = gate().evaluate(built, [verdict('a', 'pass')], [])
     expect(gate().decide(subject, result, [], budget()).reasons)
       .toEqual(['the only evidence is human-reported and this deployment requires machine-verifiable evidence'])
     expect(gate(false, true).decide(subject, result, [], budget()).allowed).toBe(true)
-    expect(gate().decide(task([criterion('a', 'human')]), gate().evaluate(request, [], []), [], budget()).reasons).toContain(
+    expect(gate().decide(task([criterion('a', 'human')]), gate().evaluate(built, [], []), [], budget()).reasons).toContain(
       'verification reported unknown for revision 3',
     )
   })
 
   it('treats a configured ceiling missing from the snapshot as exhausted', () => {
     const subject = task([criterion('a', 'test', false)], { maxTokens: 100 })
-    const passed = gate().evaluate(gate().request(subject, []), [verdict('a', 'pass')], [])
+    const passed = gate().evaluate(request(subject, []), [verdict('a', 'pass')], [])
     expect(gate().decide(subject, passed, [], budget()).reasons).toEqual(['budget ceiling maxTokens is exhausted'])
 
     const optionalNone = task([criterion('a', 'test', false), criterion('b', 'human', false)])
-    const noneRequired = gate().evaluate(gate().request(optionalNone, []), [verdict('a', 'pass')], [])
+    const noneRequired = gate().evaluate(request(optionalNone, []), [verdict('a', 'pass')], [])
     expect(gate().decide(optionalNone, noneRequired, [], budget()).reasons)
       .toEqual(['verification reported unknown for revision 3'])
   })
@@ -156,36 +166,90 @@ describe('criterion verifier registry', () => {
   }
 
   it('collects verdicts from the first verifier that supports each criterion', async () => {
-    const registry = new CriterionVerifierRegistry()
-    const request: VerificationRequest = { taskId: brandString<TaskId>('task-1'), revision: 1, criteria: [criterion('a')], changedScopes: [] }
-    expect(await registry.collect(request)).toEqual({ results: [], commands: [] })
+    const registry = new CriterionVerifierRegistry(60_000, CACHE)
+    const unrecognized = request(task([criterion('a')]), [], 'digest-unrecognized')
+    expect(await registry.collect(unrecognized)).toEqual({ results: [], commands: [] })
 
     const dispose = registry.register(verifier('v1', 'pass', ['pnpm test']))
     registry.register(verifier('v2', 'fail', ['pnpm lint']))
-    expect(await registry.collect(request)).toEqual({
+    const state: VerificationRequest = { ...unrecognized, repositoryDigest: 'digest-collect' }
+    expect(await registry.collect(state)).toEqual({
       results: [{ criterionId: 'a', status: 'pass', evidence: [] }],
       commands: ['pnpm test'],
     })
 
     dispose()
     dispose()
-    expect(await registry.collect(request)).toMatchObject({ commands: ['pnpm lint'] })
+    expect(await registry.collect({ ...state, repositoryDigest: 'digest-after-dispose' }))
+      .toMatchObject({ commands: ['pnpm lint'] })
   })
 
   it('skips a criterion no verifier supports and a verifier that answers nothing', async () => {
-    const registry = new CriterionVerifierRegistry()
+    const registry = new CriterionVerifierRegistry(60_000, CACHE)
     registry.register({
       id: 'silent',
       supports: () => true,
       verify: async () => undefined,
     })
-    const request: VerificationRequest = {
-      taskId: brandString<TaskId>('task-1'),
-      revision: 1,
-      criteria: [criterion('a')],
-      changedScopes: [],
+    expect(await registry.collect(request(task([criterion('a')]), []))).toEqual({ results: [], commands: [] })
+  })
+})
+
+describe('criterion result cache', () => {
+  /** One verifier that reports `pass` and counts how often it ran. */
+  function countingVerifier(runs: string[]): CriterionVerifier {
+    return {
+      id: 'counter',
+      supports: () => true,
+      verify: async (_request, subject): Promise<{ result: CriterionResult }> => {
+        runs.push(subject.id)
+        return { result: { criterionId: subject.id, status: 'pass', evidence: [] } }
+      },
     }
-    expect(await registry.collect(request)).toEqual({ results: [], commands: [] })
+  }
+
+  it('reuses a criterion result for an unchanged repository and re-runs it after a change', async () => {
+    const registry = new CriterionVerifierRegistry(60_000, CACHE)
+    const runs: string[] = []
+    registry.register(countingVerifier(runs))
+    const subject = task([criterion('a'), criterion('b')])
+
+    const first = await registry.collect(request(subject, ['src/a.ts'], 'digest-before'))
+    expect(runs).toEqual(['a', 'b'])
+    expect(first.results).toEqual([
+      { criterionId: 'a', status: 'pass', evidence: [] },
+      { criterionId: 'b', status: 'pass', evidence: [] },
+    ])
+
+    const repeated = await registry.collect(request(subject, ['src/a.ts'], 'digest-before'))
+    expect(runs).toEqual(['a', 'b'])
+    expect(repeated).toEqual(first)
+
+    await registry.collect(request(subject, ['src/a.ts'], 'digest-after'))
+    expect(runs).toEqual(['a', 'b', 'a', 'b'])
+  })
+
+  it('evicts the oldest retained result at its entry bound and expires by age', () => {
+    const cache = new CriterionResultCache({ maxEntries: 2, ttlMs: 1_000 })
+    cache.set('a', 'digest-1', verdict('a', 'pass'), 0)
+    cache.set('b', 'digest-1', verdict('b', 'pass'), 0)
+    cache.set('c', 'digest-1', verdict('c', 'pass'), 0)
+
+    expect(cache.size).toBe(2)
+    expect(cache.get('a', 'digest-1', 0)).toBeUndefined()
+    expect(cache.get('c', 'digest-1', 0)).toMatchObject({ criterionId: 'c' })
+
+    expect(cache.get('b', 'digest-1', 1_001)).toBeUndefined()
+    expect(cache.size).toBe(1)
+  })
+
+  it('keeps one criterion decision per repository state', () => {
+    const cache = new CriterionResultCache({ maxEntries: 8, ttlMs: 60_000 })
+    cache.set('a', 'digest-1', verdict('a', 'pass'), 0)
+    cache.set('a', 'digest-2', verdict('a', 'fail'), 0)
+
+    expect(cache.get('a', 'digest-1', 0)).toMatchObject({ status: 'pass' })
+    expect(cache.get('a', 'digest-2', 0)).toMatchObject({ status: 'fail' })
   })
 })
 
@@ -196,7 +260,7 @@ describe('verifier cost control', () => {
   }
 
   it('runs the cheap families first and stops at the first failed required criterion', async () => {
-    const registry = new CriterionVerifierRegistry()
+    const registry = new CriterionVerifierRegistry(60_000, CACHE)
     const ran: string[] = []
     registry.register({
       id: 'slow',
@@ -214,16 +278,16 @@ describe('verifier cost control', () => {
         return { result: { criterionId: criterion.id, status: 'fail', evidence: [] } }
       },
     })
-    const request = gate().request(task([required('suite', 'test'), required('unit', 'assertion')]), [])
+    const built = request(task([required('suite', 'test'), required('unit', 'assertion')]), [])
 
-    const { results } = await registry.collect(request)
+    const { results } = await registry.collect(built)
 
     expect(ran).toEqual(['unit'])
     expect(results.map(result => result.criterionId)).toEqual(['unit'])
   })
 
   it('runs an optional failed criterion and still collects the later ones', async () => {
-    const registry = new CriterionVerifierRegistry()
+    const registry = new CriterionVerifierRegistry(60_000, CACHE)
     const ran: string[] = []
     registry.register({
       id: 'any',
@@ -234,22 +298,22 @@ describe('verifier cost control', () => {
       },
     })
     const optional = { ...required('first', 'assertion'), required: false }
-    const request = gate().request(task([optional, required('second', 'assertion')]), [])
+    const built = request(task([optional, required('second', 'assertion')]), [])
 
-    await registry.collect(request)
+    await registry.collect(built)
 
     expect(ran).toEqual(['first', 'second'])
   })
 
   it('reports a verifier that overruns its ceiling as a failed criterion', async () => {
-    const registry = new CriterionVerifierRegistry(10)
+    const registry = new CriterionVerifierRegistry(10, CACHE)
     registry.register({
       id: 'hangs',
       supports: () => true,
-      verify: () => new Promise(resolve => { setTimeout(() => { resolve(undefined) }, 5_000) }),
+      verify: () => new Promise((resolve) => { setTimeout(() => { resolve(undefined) }, 5_000) }),
     })
 
-    const { results } = await registry.collect(gate().request(task([required('slow', 'test')]), []))
+    const { results } = await registry.collect(request(task([required('slow', 'test')]), []))
 
     expect(results).toEqual([{
       criterionId: 'slow',

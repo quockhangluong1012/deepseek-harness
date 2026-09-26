@@ -11,8 +11,10 @@ import { Context } from '@deepseek-ai/cordis'
 import Storage from '@deepseek-ai/dsh-storage'
 import { DomainFacility } from '@deepseek-ai/dsh-storage-domain'
 import { EvolutionScopeId } from '@deepseek-ai/dsh-evolution-memory'
+import EvolutionLineage from '@deepseek-ai/dsh-evolution-lineage'
 import type { NoveltyArchiveEntry } from '@deepseek-ai/dsh-evolution-novelty-search'
 import { MemoryMediaPool, MemoryStorageBackend } from '../../../storage/storage-domain/tests/helpers/memory-backend.ts'
+import type { EvaluateSkillRequest } from '@deepseek-ai/dsh-evolution-scorer'
 import EvolutionOptimizer, { descriptorOf } from '../src/index.ts'
 
 const roots: Context[] = []
@@ -25,6 +27,10 @@ function textTurn(text: string) {
   return (async function* () {
     yield { type: 'block-start', index: 0, blockType: 'text' }
     yield { type: 'block-end', index: 0, block: { type: 'text', text } }
+    // The mutation route is the only model call this harness streams, and a
+    // real adapter reports usage before finish: the run settles that count
+    // against the skill's ceiling.
+    yield { type: 'usage', usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 } }
     yield { type: 'finish', reason: { kind: 'stop' } }
   })()
 }
@@ -61,7 +67,15 @@ function archived(candidateId: string, body: string): NoveltyArchiveEntry {
 }
 
 /** The measured triple a fake scorer call answers with, plus the two §24.3 fields a fixture may set on it. */
-type MeasuredTriple = { pass: boolean; tokens: number; wallTimeMs: number; fixtureDigest?: string; trajectory?: string | null }
+type MeasuredTriple = {
+  pass: boolean
+  tokens: number
+  wallTimeMs: number
+  fixtureDigest?: string
+  trajectory?: string | null
+  /** Per-scenario pass outcomes for the paired comparison; a scenario absent here takes `pass`. */
+  perScenario?: Record<string, boolean>
+}
 
 interface BenchSeams {
   record?: { name: string; usage: ReturnType<typeof usage> } | undefined
@@ -98,6 +112,10 @@ interface BenchSeams {
   resolutions?: { id: string; kind: string; decision: 'approved' | 'rejected' }[] | undefined
   /** Wall-time samples each scored scenario carries; the attempt count. */
   sampleCount?: number | undefined
+  /** Learning rows the trace seam answers every summary call with. */
+  trace?: readonly Record<string, unknown>[] | undefined
+  /** Aggregated failures the feedback seam answers every signals call with. */
+  feedback?: readonly Record<string, unknown>[] | undefined
   /** Score one call by the scenarios it runs and its global call index. */
   scoresFor?: ((scenarios: readonly string[], call: number) => MeasuredTriple) | undefined
   /**
@@ -125,8 +143,11 @@ interface BenchSeams {
   islands?: { error?: Error } | undefined
   /** Mount a fake self-model store; `error` fails every observe write. */
   selfModel?: { error?: Error } | undefined
-  /** Mount a fake lineage store; `error` fails every record write. */
-  lineage?: { error?: Error } | undefined
+  /**
+   * Mount a lineage store; `error` fails every record write, and `real` mounts
+   * the package's own store over the harness storage domain instead of a fake.
+   */
+  lineage?: { error?: Error; real?: boolean } | undefined
 }
 
 /** A storage domain whose only table refuses every write. */
@@ -188,7 +209,7 @@ async function bench(seams: BenchSeams = {}) {
   let calls = 0
   const fakeScorer = {
     version: seams.scorerVersion ?? 1,
-    evaluateSkill: async (request: { skill: string; scenarios: readonly string[] }) => {
+    evaluateSkill: async (request: EvaluateSkillRequest) => {
       const call = calls
       calls += 1
       scoreCalls.push([...request.scenarios])
@@ -210,7 +231,7 @@ async function bench(seams: BenchSeams = {}) {
           ...measured,
           scores: request.scenarios.map(scenario => ({
             scenario,
-            pass: measured.pass,
+            pass: measured.perScenario?.[scenario] ?? measured.pass,
             changes: [],
             tokens: measured.tokens,
             wallTimeMs: measured.wallTimeMs,
@@ -309,26 +330,43 @@ async function bench(seams: BenchSeams = {}) {
     } as never)
   }
   const lineageEnvelopes: Record<string, unknown>[] = []
+  const lineageRevisions: Record<string, unknown>[] = []
   if (seams.lineage !== undefined) {
-    ctx.provide('evolutionLineage', {
-      record: async (input: Record<string, unknown>) => {
-        if (seams.lineage?.error !== undefined) throw seams.lineage.error
-        lineageEnvelopes.push(input)
-        return { experimentId: input.experimentId as string, ...input, at: '' }
-      },
-    } as never)
+    if (seams.lineage.real === true) {
+      await ctx.plugin(EvolutionLineage, {})
+    } else {
+      ctx.provide('evolutionLineage', {
+        record: async (input: Record<string, unknown>) => {
+          if (seams.lineage?.error !== undefined) throw seams.lineage.error
+          lineageEnvelopes.push(input)
+          return { experimentId: input.experimentId as string, ...input, at: '' }
+        },
+        recordRevision: async (input: Record<string, unknown>) => {
+          if (seams.lineage?.error !== undefined) throw seams.lineage.error
+          lineageRevisions.push(input)
+          return { policy: input.policy as string, version: 1, ...input, at: '' }
+        },
+        revisions: () => [] as never,
+      } as never)
+    }
   }
-  const budgetSpends: { batchId: string; tokens: number }[] = []
+  const budgetSpends: { batchId: string; tokens: number; rollouts: number }[] = []
   if (seams.budget !== undefined) {
     ctx.provide('evolutionBudget', {
       batches: () => [],
       allocate: async () => ({}) as never,
       withinBudget: () => seams.budget?.exceeded !== true,
-      spend: async (batchId: string, input: { tokens: number }) => {
-        budgetSpends.push({ batchId, tokens: input.tokens })
+      spend: async (batchId: string, input: { tokens: number; rollouts: number }) => {
+        budgetSpends.push({ batchId, tokens: input.tokens, rollouts: input.rollouts })
         return {} as never
       },
     } as never)
+  }
+  if (seams.trace !== undefined) {
+    ctx.provide('evolutionTrace', { summary: async () => seams.trace ?? [] } as never)
+  }
+  if (seams.feedback !== undefined) {
+    ctx.provide('evolutionFeedback', { signals: () => seams.feedback ?? [] } as never)
   }
   await ctx.plugin(EvolutionOptimizer, {
     ...(seams.route === false ? {} : { provider: 'deepseek', model: 'deepseek-chat' }),
@@ -346,10 +384,11 @@ async function bench(seams: BenchSeams = {}) {
   const optimizer = ctx.get('evolutionOptimizer') as EvolutionOptimizer
   return {
     ctx, optimizer, staged, populationRows, routeRows, canaryRows, noveltyRows,
-    stagnationRows, islandTicks, selfModelObservations, lineageEnvelopes,
+    stagnationRows, islandTicks, selfModelObservations, lineageEnvelopes, lineageRevisions,
     scoreCalls, scorer: fakeScorer, llmCalls: () => llmCalls, budgetSpends,
   }
 }
+
 const request = {
   skill: 'writer',
   scenarios: ['s1'],
@@ -473,6 +512,116 @@ describe('EvolutionOptimizer', () => {
     expect(staged).toHaveLength(0)
   })
 
+  it('refuses a candidate whose paired pass difference is not significant', async () => {
+    const { optimizer, staged } = await bench({
+      record: { name: 'writer', usage: usage(12, 10) },
+      body: BASE,
+      mutations: [V2],
+      // The winner clears the baseline's pass state but only on one of three
+      // paired scenarios: p = 1, far above the default 0.95 confidence.
+      scoreForBody: body => body === V2
+        ? { pass: true, tokens: 3, wallTimeMs: 5, perScenario: { s1: true, s2: false, s3: false } }
+        : { pass: false, tokens: 3, wallTimeMs: 5, perScenario: { s1: false, s2: false, s3: false } },
+    })
+    const report = await optimizer.optimize({ ...request, scenarios: ['s1', 's2', 's3'] })
+    expect(report.status).toBe('no-improvement')
+    expect(report.reason).toContain('not significantly better')
+    expect(report.significance).toMatchObject({ method: 'paired-sign-test', wins: 1, losses: 0, confidence: 0.95 })
+    expect(staged).toHaveLength(0)
+  })
+
+  it('decides the significance boundary by the configured confidence', async () => {
+    const scored = {
+      record: { name: 'writer', usage: usage(12, 10) },
+      body: BASE,
+      mutations: [V2],
+      // Five paired scenarios the winner takes and the baseline loses:
+      // p = 2/2^5 = 0.0625, which clears 0.9 and misses 0.95.
+      scoreForBody: (body: string) => body === V2
+        ? { pass: true, tokens: 3, wallTimeMs: 5, perScenario: { s1: true, s2: true, s3: true, s4: true, s5: true } }
+        : { pass: false, tokens: 3, wallTimeMs: 5, perScenario: { s1: false, s2: false, s3: false, s4: false, s5: false } },
+    }
+    const scenarios = ['s1', 's2', 's3', 's4', 's5']
+    const strict = await bench({ ...scored, config: { promotionConfidence: 0.95 } })
+    const strictReport = await strict.optimizer.optimize({ ...request, scenarios })
+    expect(strictReport.status).toBe('no-improvement')
+    expect(strictReport.significance?.pValue).toBeCloseTo(0.0625, 10)
+
+    const lenient = await bench({ ...scored, config: { promotionConfidence: 0.9 } })
+    const lenientReport = await lenient.optimizer.optimize({ ...request, scenarios })
+    expect(lenientReport.status).toBe('staged')
+    expect(lenientReport.significance).toMatchObject({ wins: 5, losses: 0, significant: true })
+    expect(lenient.staged).toHaveLength(1)
+    // The decision is auditable: the row carries the statistic it rested on.
+    expect(lenient.optimizer.experiments(request.scopeId)[0]?.significance).toMatchObject({
+      confidence: 0.9,
+      wins: 5,
+      losses: 0,
+      significant: true,
+    })
+  })
+
+  it('mines holdout scenarios from the recorded failures and draws one', async () => {
+    // The first run cannot promote — its triples tie — but it still records the
+    // trajectory session its scenarios harvested; the second run mines that
+    // session's failures, draws one as its holdout, and stages on it.
+    let promoting = false
+    const { optimizer } = await bench({
+      record: { name: 'writer', usage: usage(12, 10) },
+      body: BASE,
+      mutations: [V2],
+      bareHoldoutDefault: true,
+      config: { minedHoldoutCount: 1 },
+      trace: [{ sessionId: 'session-9', failures: 1, failureGists: ['bash: ENOENT'], updatedAt: '2026-01-01T00:00:00.000Z' }],
+      feedback: [{
+        tool: 'bash',
+        message: 'bash: ENOENT',
+        count: 2,
+        sessions: 1,
+        firstAt: '2026-01-01T00:00:00.000Z',
+        lastAt: '2026-01-02T00:00:00.000Z',
+      }],
+      scoreForBody: (body: string) => promoting
+        ? { pass: true, tokens: body === V2 ? 3 : 9, wallTimeMs: 5, trajectory: 'session-9' }
+        : { pass: true, tokens: 5, wallTimeMs: 5, trajectory: 'session-9' },
+    })
+    expect((await optimizer.optimize(request)).status).toBe('no-improvement')
+
+    promoting = true
+    const report = await optimizer.optimize({ ...request, evidence: 'second run' })
+    expect(report.status).toBe('staged')
+    // The row records the holdout the run actually checked, drawn from the
+    // mined corpus rather than from an empty config list.
+    const row = optimizer.experiments(request.scopeId)[0]
+    expect(row?.holdout).toHaveLength(1)
+    expect(row?.holdout[0]).toMatch(/^mined-[0-9a-f]{12}$/)
+    // The mined candidates are durable: the corpus still holds every scenario
+    // the row was checked against, and the draw takes the strongest one, so
+    // the checked scenario leads the corpus it was drawn from.
+    const corpus = await optimizer.mine(request.scopeId, 'writer')
+    const scenarios = corpus.map(entry => entry.scenario)
+    expect(scenarios).toEqual(expect.arrayContaining(row?.holdout ?? []))
+    expect(scenarios[0]).toBe(row?.holdout[0])
+    // Re-mining the same signals reinforces the patterns the corpus already
+    // holds instead of duplicating them.
+    expect((await optimizer.mine(request.scopeId, 'writer')).map(entry => entry.scenario))
+      .toEqual(scenarios)
+  })
+
+  it('mines nothing while the skill ceiling is spent', async () => {
+    const { optimizer } = await bench({
+      record: { name: 'writer', usage: usage(12, 10) },
+      body: BASE,
+      mutations: [V2],
+      bareHoldoutDefault: true,
+      budget: { exceeded: true },
+      scoreForBody: (body: string) => ({ pass: true, tokens: body === V2 ? 3 : 9, wallTimeMs: 5, trajectory: 'session-9' }),
+      trace: [{ sessionId: 'session-9', failures: 1, failureGists: ['bash: ENOENT'], updatedAt: '2026-01-01T00:00:00.000Z' }],
+      config: { minedHoldoutCount: 1, holdoutScenarios: ['holdout-1'] },
+    })
+    expect(await optimizer.mine(request.scopeId, 'writer')).toEqual([])
+  })
+
   it('stages the winning variant as a skill patch', async () => {
     const { optimizer, staged } = await bench({
       record: { name: 'writer', usage: usage(12, 10) },
@@ -523,8 +672,8 @@ describe('EvolutionOptimizer', () => {
     expect(staged).toHaveLength(0)
   })
 
-  it('refuses a new scoring run once the evolution-budget ceiling is spent', async () => {
-    const { optimizer } = await bench({
+  it('refuses the run before its mutation once the evolution-budget ceiling is spent', async () => {
+    const { optimizer, llmCalls } = await bench({
       record: { name: 'writer', usage: usage(12, 10) },
       body: BASE,
       mutations: [V2],
@@ -535,6 +684,8 @@ describe('EvolutionOptimizer', () => {
     expect(report.status).toBe('skipped')
     expect(report.reason).toContain('evolution-budget')
     expect(report.reason).toContain('spent')
+    // The refusal lands on the mutation, so no model rewrite was paid for.
+    expect(llmCalls()).toBe(0)
   })
 
   it('records every live scoring run against the mounted evolution-budget store', async () => {
@@ -547,13 +698,17 @@ describe('EvolutionOptimizer', () => {
     })
     const report = await optimizer.optimize(request)
     expect(report.status).toBe('staged')
-    // Baseline plus the winning variant: one live run each, spent into both
-    // the daily and the weekly ceiling batch — once for the search
-    // comparison and again for the required private holdout comparison —
-    // plus the existing post-hoc total-run record `recordBudget` already
-    // writes under the staged id.
-    expect(budgetSpends).toHaveLength(9)
-    expect(budgetSpends.map(row => row.tokens)).toEqual([9, 9, 3, 3, 9, 9, 3, 3, 12])
+    // The mutation call, then baseline plus the winning variant: one live run
+    // each, spent into both the daily and the weekly ceiling batch — the
+    // mutation once for the whole rewrite round, the runs once each for the
+    // search comparison and again for the required private holdout
+    // comparison — plus the existing post-hoc total-run record `recordBudget`
+    // already writes under the staged id.
+    expect(budgetSpends).toHaveLength(11)
+    expect(budgetSpends.map(row => row.tokens)).toEqual([2, 2, 9, 9, 3, 3, 9, 9, 3, 3, 12])
+    expect(budgetSpends.slice(0, 2).map(row => row.rollouts)).toEqual([0, 0])
+    expect(budgetSpends[0]?.batchId).toContain('evolution-optimizer:writer:daily:')
+    expect(budgetSpends[1]?.batchId).toContain('evolution-optimizer:writer:weekly:')
   })
 
   it('keeps staging when the population store is not mounted', async () => {
@@ -620,7 +775,7 @@ describe('EvolutionOptimizer', () => {
     expect(staged).toHaveLength(1)
   })
 
-  it('records the candidate-generation route into a mounted model-routes store', async () => {
+  it('records the generating and evaluating routes of a staged write into a mounted model-routes store', async () => {
     const { optimizer, routeRows } = await bench({
       record: { name: 'writer', usage: usage(12, 10) },
       body: BASE,
@@ -630,12 +785,22 @@ describe('EvolutionOptimizer', () => {
     })
     const report = await optimizer.optimize(request)
     expect(report.status).toBe('staged')
-    expect(routeRows).toHaveLength(1)
-    expect(routeRows[0]).toEqual({
-      role: 'candidate-generation',
-      route: { provider: 'deepseek', model: 'deepseek-chat' },
-      triple: { pass: true, tokens: 3, wallTimeMs: 5 },
-    })
+    // Both evolutionary roles of the run are recorded, each scoped to the skill
+    // as its task class, so the route store can rank them per class.
+    expect(routeRows).toEqual([
+      {
+        taskClass: 'writer',
+        role: 'candidate-generation',
+        route: { provider: 'deepseek', model: 'deepseek-chat' },
+        triple: { pass: true, tokens: 3, wallTimeMs: 5 },
+      },
+      {
+        taskClass: 'writer',
+        role: 'evaluation',
+        route: { provider: 'deepseek', model: 'deepseek-chat' },
+        triple: { pass: true, tokens: 3, wallTimeMs: 5 },
+      },
+    ])
   })
 
   it('survives a failing model-routes store with a warning', async () => {
@@ -1007,12 +1172,105 @@ describe('EvolutionOptimizer', () => {
     const envelope = lineageEnvelopes[0] as Record<string, unknown>
     expect(envelope.experimentId).toBe('staged-0')
     expect(envelope.skill).toBe('writer')
-    expect(envelope.outcome).toBe('improved')
+    // Both sides passed, so the pick rested on billed tokens alone: the
+    // envelope records the measurement, not an asserted improvement.
+    expect(envelope.outcome).toBe('inconclusive')
     expect(envelope.dependencies).toMatchObject({
       evaluator: 'scorer-v1',
       model: 'deepseek/deepseek-chat',
     })
     expect(typeof (envelope.dependencies as Record<string, unknown>).skill).toBe('string')
+  })
+
+  it('records the tested hypothesis and the context the promotion compared its arms under', async () => {
+    const { optimizer, lineageRevisions, staged } = await bench({
+      record: { name: 'writer', usage: usage(12, 10) },
+      body: BASE,
+      mutations: [V2],
+      lineage: {},
+      sampleCount: 1,
+      scoresFor: (_scenarios, call) => ({ pass: true, tokens: call === 0 ? 9 : 3, wallTimeMs: 5 }),
+    })
+    const report = await optimizer.optimize(request)
+    expect(report.status).toBe('staged')
+    const row = optimizer.experiments(request.scopeId)[0]
+    expect(row?.hypothesis).toBe('10 failures over 22 recorded loads; proposing rewrite')
+    expect(row?.evaluation).toMatchObject({
+      model: 'cfg',
+      budget: { tokens: 0, wallTimeMs: 0 },
+      tasks: ['s1'],
+      attempts: { baseline: 1, winner: 1 },
+    })
+    expect(row?.evaluation?.benchmark).toMatch(/^scorer-v1:[0-9a-f]{64}$/)
+    // The promoted body lands in the policy chain under the same benchmark the
+    // promotion was gated on.
+    // The start body lands first as the promotion's preimage, then the
+    // promoted body under the benchmark the promotion was gated on.
+    expect(lineageRevisions).toEqual([
+      { policy: 'skill:writer', body: BASE },
+      { policy: 'skill:writer', body: V2, benchmark: row?.evaluation?.benchmark },
+    ])
+    expect(staged).toHaveLength(1)
+  })
+
+  it('refuses to promote a winner the baseline did not share a benchmark generation with', async () => {
+    const { optimizer, staged } = await bench({
+      record: { name: 'writer', usage: usage(12, 10) },
+      body: BASE,
+      mutations: [V2],
+      // A corpus regenerated between the two scoring passes: the winner's
+      // scenario records carry fixture content the baseline never read.
+      scoreForBody: body => body === V2
+        ? { pass: true, tokens: 3, wallTimeMs: 5, fixtureDigest: 'regenerated' }
+        : { pass: true, tokens: 9, wallTimeMs: 5, fixtureDigest: 'digest' },
+    })
+    await expect(optimizer.optimize(request)).rejects.toThrow(
+      "refusing to promote 'writer': its search arms were not measured under the same benchmark",
+    )
+    expect(staged).toHaveLength(0)
+    expect(optimizer.experiments(request.scopeId)).toHaveLength(0)
+  })
+
+  it('writes the promotion into a mounted policy chain', async () => {
+    const { ctx, optimizer, staged } = await bench({
+      record: { name: 'writer', usage: usage(12, 10) },
+      body: BASE,
+      mutations: [V2],
+      lineage: { real: true },
+      scoreForBody: body => ({ pass: true, tokens: body === V2 ? 3 : 9, wallTimeMs: 5 }),
+    })
+    const report = await optimizer.optimize(request)
+    expect(report.status).toBe('staged')
+    // The package's own store received the body the run started from — the
+    // recoverable preimage the promotion replaces — followed by the promoted
+    // body, which carries the benchmark the promotion was gated on.
+    const chain = ctx.evolutionLineage.revisions('skill:writer')
+    expect(chain).toHaveLength(2)
+    expect(chain[0]).toMatchObject({ policy: 'skill:writer', version: 1, parentDigest: null, body: BASE })
+    expect(chain[1]).toMatchObject({ policy: 'skill:writer', version: 2, parentDigest: chain[0]?.digest, body: V2 })
+    expect(chain[1]?.benchmark).toBe(optimizer.experiments(request.scopeId)[0]?.evaluation?.benchmark)
+    expect(staged).toHaveLength(1)
+    // A second promotion of the same body is a no-op for the chain: the bytes
+    // are the ones the head already carries.
+    const second = await optimizer.optimize({ ...request, evidence: 'different evidence' })
+    expect(second.status).toBe('staged')
+    expect(ctx.evolutionLineage.revisions('skill:writer')).toHaveLength(2)
+  })
+
+  it('records an improved outcome when the winner passed where the baseline did not', async () => {
+    const { optimizer, lineageEnvelopes } = await bench({
+      record: { name: 'writer', usage: usage(12, 10) },
+      body: BASE,
+      mutations: [V2],
+      lineage: {},
+      scoreForBody: body => ({ pass: body === V2, tokens: body === V2 ? 3 : 9, wallTimeMs: 5 }),
+    })
+    // Six paired scenarios the winner takes and the baseline loses: the paired
+    // sign test needs a lopsided split, not one lucky scenario, to call the
+    // winner better (amendment S9).
+    const report = await optimizer.optimize({ ...request, scenarios: ['s1', 's2', 's3', 's4', 's5', 's6'] })
+    expect(report.status).toBe('staged')
+    expect((lineageEnvelopes[0] as Record<string, unknown>).outcome).toBe('improved')
   })
 
   it('survives a failing lineage store with a warning', async () => {
@@ -1218,7 +1476,7 @@ describe('EvolutionOptimizer', () => {
       scoreForBody: body => ({ pass: true, tokens: body === V2 ? 3 : 9, wallTimeMs: 5 }),
     })
     await expect(optimizer.optimize(request)).rejects.toThrow(
-      "promotion requires configured holdoutScenarios to stage a skill patch for 'writer'",
+      "promotion requires holdoutScenarios or mined holdout scenarios to stage a skill patch for 'writer'",
     )
   })
 

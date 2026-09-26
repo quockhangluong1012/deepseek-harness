@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { EmbeddingsError, EmbeddingsProvider, EmbeddingsRuntime, resolveConfig } from '../src/index.ts'
-import type { EmbeddingSpec } from '../src/index.ts'
+import type { EmbeddingBatch, EmbeddingSpec } from '../src/index.ts'
 
 /** Provider recording every batch it is asked for. */
 class FakeProvider extends EmbeddingsProvider {
@@ -16,9 +16,24 @@ class FakeProvider extends EmbeddingsProvider {
     spec: EmbeddingSpec,
     texts: readonly string[],
     signal?: AbortSignal,
-  ): Promise<readonly (readonly number[])[]> {
+  ): Promise<EmbeddingBatch> {
     this.calls.push({ spec, texts, signal })
-    return texts.map(this.vector)
+    return { model: spec.model, vectors: texts.map(this.vector) }
+  }
+}
+
+/** Provider answering under `serves`, whatever model it was asked for. */
+class ServingProvider extends EmbeddingsProvider {
+  /** Model each batch was asked for, in call order. */
+  readonly asked: string[] = []
+
+  constructor(readonly defaultModel: string, private readonly serves: string) {
+    super()
+  }
+
+  async embed(spec: EmbeddingSpec, texts: readonly string[]): Promise<EmbeddingBatch> {
+    this.asked.push(spec.model)
+    return { model: this.serves, vectors: texts.map(() => [7]) }
   }
 }
 
@@ -26,8 +41,8 @@ class FakeProvider extends EmbeddingsProvider {
 class TruncatingProvider extends EmbeddingsProvider {
   readonly defaultModel = 'truncating'
 
-  async embed(): Promise<readonly (readonly number[])[]> {
-    return []
+  async embed(): Promise<EmbeddingBatch> {
+    return { model: 'truncating', vectors: [] }
   }
 }
 
@@ -127,6 +142,25 @@ describe('embeddings service', () => {
     expect(other.cached).toBe(0)
     expect(other.embedded).toBe(1)
     expect(provider.calls).toHaveLength(2)
+    await ctx.fiber.dispose()
+  })
+
+  it('keys a batch by the model that produced it, not the one the caller asked for', async () => {
+    const { ctx, embeddings } = await harness()
+    const provider = new ServingProvider('primary-model', 'fallback-model')
+    embeddings.registerProvider(['fake'], provider)
+    const first = await embeddings.embed({ texts: ['shared'] })
+    // The provider reported the fallback, so that is the batch's identity.
+    expect(first.spec).toEqual({ provider: 'fake', model: 'fallback-model' })
+    expect(first.vectors).toEqual([[7]])
+    // The requested model's key holds nothing, so the text is embedded again
+    // rather than answered from a vector the primary model never produced.
+    const asPrimary = await embeddings.embed({ texts: ['shared'] })
+    expect(asPrimary).toMatchObject({ cached: 0, embedded: 1, vectors: [[7]] })
+    // The producing model's key holds it, so a request naming that model hits.
+    const asFallback = await embeddings.embed({ texts: ['shared'], model: 'fallback-model' })
+    expect(asFallback).toMatchObject({ cached: 1, embedded: 0, vectors: [[7]] })
+    expect(provider.asked).toEqual(['primary-model', 'primary-model'])
     await ctx.fiber.dispose()
   })
 

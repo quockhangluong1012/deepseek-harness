@@ -532,7 +532,7 @@ describe('normalizeSessionLog', () => {
       taskId: 'task-1',
       actor: 'kernel',
       timestamp,
-      provenance: { source: 'kernel' },
+      sourceRef: { source: 'kernel' },
     })
     const events: Array<{ type: string; data: Record<string, unknown>; clocks?: string[] }> = [
       { type: 'task/created', data: { metadata: metadata(101) } },

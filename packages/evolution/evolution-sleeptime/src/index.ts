@@ -16,7 +16,7 @@
 import { Context, Service } from '@deepseek-ai/cordis'
 import type { KvTable } from '@deepseek-ai/dsh-storage-domain'
 import type {} from '@deepseek-ai/dsh-evolution-heartbeat'
-import type {} from '@deepseek-ai/dsh-evolution-router'
+import type {} from '@deepseek-ai/dsh-evolution-model-routes'
 import type {} from '@deepseek-ai/dsh-evolution-skill-telemetry'
 import type {} from '@deepseek-ai/dsh-evolution-trace'
 import z from 'zod'
@@ -201,8 +201,9 @@ export class EvolutionSleeptime extends Service {
   }
 
   /**
-   * Every occurrence the mounted source stores recorded: the router's measured
-   * outcomes per task class, and the sessions the skill-telemetry store
+   * Every occurrence the mounted source stores recorded: the model-routes
+   * store's outcomes measured per task class, and the sessions the
+   * skill-telemetry store
    * recorded for each skill, token-accounted by the trace store. A store that
    * is not mounted contributes nothing, so a host without them anticipates
    * less instead of inventing recurrence.
@@ -211,10 +212,12 @@ export class EvolutionSleeptime extends Service {
    */
   private async recordedOccurrences(signal?: AbortSignal): Promise<TaskOccurrence[]> {
     const occurrences: TaskOccurrence[] = []
-    const router = this.ctx.get('evolutionRouter')
-    if (router !== undefined) {
-      for (const outcome of router.outcomes()) {
-        occurrences.push({ source: 'route', taskClass: outcome.taskClass, tokens: outcome.tokens, at: outcome.at })
+    const routes = this.ctx.get('evolutionModelRoutes')
+    if (routes !== undefined) {
+      for (const row of routes.evidence()) {
+        // An outcome recorded without a task class names no class to recur on.
+        if (row.taskClass === undefined) continue
+        occurrences.push({ source: 'route', taskClass: row.taskClass, tokens: row.tokens, at: row.at })
       }
     }
     const telemetry = this.ctx.get('evolutionSkillTelemetry')

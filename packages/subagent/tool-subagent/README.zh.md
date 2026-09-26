@@ -50,8 +50,11 @@ kind: "package-reference"
 | `agentOptions` | — | 配置的子级 `provider`、`model`、适配器所有的 `reasoningEffort` 与正整数 `maxTokens` 默认值；要求提供方支持 `agentOptions`，并会覆盖提供方持有的路由默认值 |
 | `persona` | — | 每个子 agent 独立的 persona；要求提供方具备 `persona` 能力 |
 | `toolFilter` | — | 每个子 agent 独立的全局工具限制；要求提供方具备 `toolFilter` 能力 |
+| `agentDirs` | 已知的项目与用户 agent 目录 | 搜索文件定义 agent（`*.md`）的目录，按层内列出顺序；空列表禁用该层 |
 | `maxDepth` | Host 设置（`1`） | 绝对委派深度上限（`0` 禁止委派）；`'provider-managed'` 不向进程外提供方发送上限 |
 | `maxPartialTextChars` | `8000` | 父级可见失败中包含的子级部分输出的最大字符数 |
+| `delegation` | 无上限、允许所有角色、不检测重复 | 本实例所启动每个子 agent 的委派策略：`maxDepth`、`maxChildren`、`maxConcurrent`、`maxCost`、`maxTokens`、`allowedRoles`、`duplicateTaskDetection`、`resultSchemaRequired` |
+| `usdPerMillionTokens` | — | 每百万计费 token 的美元价格；任何以美元计的上限（`delegation.maxCost` 或某角色的 `budget.maxCostUsd`）都必须提供它，因为 harness 自身不持有任何路由价格数据 |
 
 生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-tool-subagent)是每个受支持字段及其 JSDoc 的穷尽式真源。
 
@@ -62,6 +65,53 @@ kind: "package-reference"
 `continuable` 策略下，省略或为 `true` 的 `run_in_background` 会启动一个持久化子 agent，并返回 `started subagent <childId>`，不等待结果；子 agent 的 Activation 结束时，运行时投递一条结算通知，可选的 `send_message` 工具会向它发送更多工作。把 `run_in_background` 设为 `false` 可在前台等待结果。
 
 `maxDepth` 限制递归深度（`0` 禁止委派）；省略时，每次委派读取 Host 当前的 `subagent.maxDepth` 设置，初始值为 `1`。数值深度要求提供方具备 `depthLimit` 能力；`'provider-managed'` 把预算留给进程外提供方。当提供方支持时，`persona` 与 `toolFilter` 会配置每个子 agent；工具在达到上限时仍然可见——每次尝试启动都会检查调用 agent 的当前深度，被拒绝时返回出错的工具结果。
+
+### 文件定义的 agent
+
+工具还会从部署的项目根目录（`agentDirs.project`，默认 `.dsh/agents`、`.claude/agents`、`.opencode/agents`）与主目录（`agentDirs.user`，同样这三个名称）读取 agent 定义。每个根目录存放扁平的 `*.md` 文件；项目根目录优先于用户根目录，同一层内靠前的根目录优先。一个定义由可选 frontmatter 与子 agent 不会读取的正文组成：
+
+```yaml
+---
+name: code-reviewer
+role: reviewer
+description: Reviews a diff for defects
+tools: read, grep, bash
+model: alpha/reviewer-model
+permission:
+  edit: deny
+budget:
+  maxTokens: 50000
+  maxCostUsd: 1.5
+maxTurns: 8
+outputSchema: code-reviewer.schema.json
+---
+```
+
+`name` 默认取文件名；`description` 是一个普通值；`model` 是 `provider/model`、保留已配置提供方的裸模型 id，或 `inherit`；`tools` 是逗号分隔列表、行内列表，或缩进的 `tool: true|false` 映射；`permission` 是缩进的 `tool: allow|ask|deny` 映射。工具名是 harness 的全局工具名；Claude Code 的大写拼写会机械映射（`WebFetch` → `web_fetch`）。
+
+其余字段声明该 worker 角色：`role` 指明该定义被哪个策略角色接纳（即 `allowedRoles`），省略时取 `name`；`budget` 是子 agent 上限 `maxTokens` 与 `maxCostUsd` 的缩进映射；`maxTurns` 限制子 agent 可开启的轮数；`outputSchema` 指明一个相对该定义文件的路径，其中存放子 agent 必须满足的对象为根的 JSON Schema。角色的上限与 `maxTurns` 会成为子 agent 的工作上限（worker limits），美元上限则与实例的 `usdPerMillionTokens` 一并交给子 agent，作为比较该上限的价格；若角色声明了美元上限而实例未声明价格，调用会失败，而不是把上限悄悄丢弃。调用自身的 `output_schema` 为该子 agent 作答，角色的 schema 只是回退；该 schema 要求前台运行。角色的 memory scope 刻意不可声明：harness 没有逐子 agent 的 memory scope 控制，而一个不产生任何效果的字段会让人以为部署拥有它并不拥有的控制。
+
+使用可选 `agent` 参数命名某个定义的调用，只会对该子 agent 应用该定义：`tools` 与所有 `permission: deny` 条目成为子 agent 的工具限制，并与实例级 `toolFilter` 求交；`model` 覆盖已配置的子级路由。未命名 agent 的调用与之前完全一致。未知名称会让调用失败，并报告可用 agent 与已搜索的目录；加载器无法读取的定义会被跳过并给出诊断，因此它绝不会让另一个 agent 的委派失败。除 `deny` 之外的 `permission` 条目会记录在定义上但尚未强制执行——见[已知限制](#known-limitations-and-deferred-work)。
+
+### 委派策略与任务重叠
+
+<a id="delegation-policy-and-task-overlap"></a>
+
+`delegation` 约束本实例启动的每个子 agent。策略在每次委派时依据此配置解析（其余坐标由 `DELEGATION_POLICY_DEFAULTS` 提供），并在请求提供方创建子 agent 之前强制执行：
+
+| 坐标 | 效果 |
+|---|---|
+| `maxChildren` | 一个父 agent 在其会话内可启动的子 agent 数；超出后下一次被拒绝。 |
+| `maxConcurrent` | 一个父 agent 同时处于运行中的子 agent 数；达到该数时下一次被拒绝。 |
+| `allowedRoles` | 接纳本次启动的角色，与定义的 `role` 或其 `name` 匹配。为空时接纳任何角色；非空列表会拒绝未指明角色的启动。 |
+| `resultSchemaRequired` | 是否要求每次被接纳的启动都携带输出 schema，来源为调用的 `output_schema` 或角色的 `outputSchema`。 |
+| `maxDepth` | 传给提供方的子级深度上限。省略时由实例的 `maxDepth`（每次委派读取 Host 设置）作答；两处同时声明且取值不同会让挂载失败。 |
+| `maxCost` / `maxTokens` | 作为子 agent 工作上限交给它的逐子 agent 上限；角色自身的 `budget` 会将其收窄。 |
+| `duplicateTaskDetection` | 是否在接纳启动前，把本次任务与父 agent 已有的子 agent 进行比较。 |
+
+拒绝会返回携带原因的出错结果（如“the role … is not one of the roles this delegation policy allows”“this delegation policy allows 1 children in flight, …”），而不是静默跳过。
+
+启用 `duplicateTaskDetection` 后，委派携带的目标（`description`）会与父 agent 在运行中与最近完成的子 agent 比较，比较依据是内容词的 Dice 系数——确定性、不调用模型、不读取文件系统。相似度达到 0.9 以上时，由已完成子 agent 保留下来的结果直接作答（`Reused the result of the subagent that already ran "…"`）；若匹配的是运行中的子 agent，调用会出错并指明该子 agent（可把新增要求发给它，或等待它）；相似度在 0.55 至 0.9 之间时仍会启动，但子 agent 的提示词会被收窄到前一个子 agent 未覆盖的部分。若完全相同的任务已完成而本进程不再持有其结果，调用会被拒绝，而不是静默重复。低于 0.55 时，以及开关关闭时，启动照常进行。
 
 ### 选择子级 LLM
 
@@ -99,7 +149,9 @@ kind: "package-reference"
 
 | 文件 | 职责 |
 |---|---|
-| [`src/index.ts`](src/index.ts) | 工具注册、生命周期镜像、模式解析、结果结算 |
+| [`src/index.ts`](src/index.ts) | 工具注册、生命周期镜像、模式解析、策略接纳、结果结算 |
+| [`src/agent-files.ts`](src/agent-files.ts) | 文件定义 agent 的发现、frontmatter 编译与工具过滤合并 |
+| [`src/delegation-children.ts`](src/delegation-children.ts) | 单个父会话已启动的内容：上限、重叠候选与保留下来的结果 |
 | [`src/model-selection.ts`](src/model-selection.ts) | 请求／配置合并与实时 LLM 路由预检 |
 | [`src/model-selection-settings.ts`](src/model-selection-settings.ts) | 为新 Session 读取的宿主所有 opt-in 设置 |
 | [`src/model-selection-state.ts`](src/model-selection-state.ts) | 记录并继承已读取决定的 Session 事件 |
@@ -130,11 +182,11 @@ kind: "package-reference"
 
 #### 模型看到什么
 
-委派工具的描述使用 `running` 与 `inactive` 表达后续投递的可用状态；`inactive` 不表示任务结果。当提供方存在时，以当前实例配置的名称公开已生成的默认 [`subagent` schema](../../../docs/tool-catalog.zh.md#deepseek-aidsh-tool-subagent)。启用的 Session 策略会添加 `provider`、`model` 与 `reasoning_effort`，以及继承和选择指引；提供方必须支持 `agentOptions`。提供方是否继承上下文会改变工具描述和提示词描述。启用后台模式会添加 `run_in_background`：可继续模式会记录其默认值为 `true`、运行时结算通知与显式前台覆盖；一次性模式会记录其默认值为 `false`，以及用 `job_output` 收集或用 `job_kill` 停止的 job id。可选 `output_schema` 接受一个对象根 JSON Schema，用于前台一次性运行的结构化最终答案；子 agent 随后必须以匹配的值调用 `structured_output`，该值随文本一起作为 `structured` 返回。当工具在本次组装的作用域中可见时，一个 `tool:<toolName>` 系统提示词 section 会指示模型同时启动相互独立的可继续委派、在它们运行时继续工作，并且仅当下一步动作依赖结果时选择前台；工具限制会同时移除其 schema 和这段指引。
+委派工具的描述使用 `running` 与 `inactive` 表达后续投递的可用状态；`inactive` 不表示任务结果。提供方存在时，工具以当前实例配置的名称公开已生成的默认 [`subagent` schema](../../../docs/tool-catalog.zh.md#deepseek-aidsh-tool-subagent)，其中包含用于命名文件定义 agent 的可选 `agent` 参数；未知名称会返回可用 agent 与已搜索的目录。启用的 Session 策略会添加 `provider`、`model` 与 `reasoning_effort`，以及继承和选择指引；提供方必须支持 `agentOptions`。提供方是否继承上下文会改变工具描述和提示词描述。启用后台模式会添加 `run_in_background`：可继续模式会记录其默认值为 `true`、运行时结算通知与显式前台覆盖；一次性模式会记录其默认值为 `false`，以及用 `job_output` 收集或用 `job_kill` 停止的 job id。可选 `output_schema` 接受一个对象根 JSON Schema，用于前台一次性运行的结构化最终答案；子 agent 随后必须以匹配的值调用 `structured_output`，该值随文本一起作为 `structured` 返回。当工具在本次组装的作用域中可见时，一个 `tool:<toolName>` 系统提示词 section 会指示模型同时启动相互独立的可继续委派、在它们运行时继续工作，并且仅当下一步动作依赖结果时选择前台；工具限制会同时移除其 schema 和这段指引。
 
 #### Token 影响
 
-每个父级请求支付固定的 schema 成本；模型选择会增加三个参数。每个提供方实例增加一个 schema，每个可继续实例还增加一个简短的系统提示词 section。
+每个父级请求支付固定的 schema 成本：始终存在的一个 `agent` 参数，启用模型选择时再加三个参数。每个提供方实例增加一个 schema，每个可继续实例还增加一个简短的系统提示词 section。
 
 #### KV Cache 影响
 
@@ -178,7 +230,7 @@ Use subagent in the background by default. Start independent delegations togethe
 
 #### 模型看到什么
 
-调用会保留描述与提示词。成功时只包含子 agent 的最终文本；当提供 `output_schema` 时，经过验证的结构化值以 `Structured result: <json>` 跟在后面。其他结果变为 `Error: <stop reason>`，随后在存在时附上安全的提供方诊断，再附上任何部分 assistant 文本（按 `maxPartialTextChars` 截断，默认 8000 字符）。子 agent 中间步骤不会进入父级。
+调用会保留描述与提示词。成功时只包含子 agent 的最终文本；当提供 `output_schema` 时，经过验证的结构化值以 `Structured result: <json>` 跟在后面。被委派策略拒绝的启动，以及由运行中子 agent 承接的重复任务，都会在任何子 agent 启动前返回 `Error: <原因>`；重复执行已完成的任务则返回该子 agent 的结果——见上文「委派策略与任务重叠」一节。其他结果变为 `Error: <stop reason>`，随后在存在时附上安全的提供方诊断，再附上任何部分 assistant 文本（按 `maxPartialTextChars` 截断，默认 8000 字符）。子 agent 中间步骤不会进入父级。
 
 #### Token 影响
 
@@ -213,6 +265,12 @@ Use subagent in the background by default. Start independent delegations togethe
 - **等待中的一次性实例较晚才发现重复名称**（`TODO(subagent-dup-toolname)`）——可继续实例会在插件应用期间预留提示词 section 名称，但若要阻止等待中的一次性实例回滚提供方注册，仍需要一份预期名称注册表。
 - **随附 fork 工具不能选择子级 LLM 路由**——它们继承父级提供方与模型，使复制的对话前缀仍有资格复用 KV Cache。仅当路由变更能保留复用或公开有界重算成本时，才重新启用选择。
 - **非路由子 agent 策略按实例固定**——另一个 persona、工具过滤器或深度上限需要另一个名称不同的工具。LLM 选择要求启用逐 Session 偏好，且提供方必须声明 `agentOptions`；两个进程内提供方和 DSH SDK 会声明该能力，而 ACP、Codex 与 Claude Code 会拒绝它，而不是忽略它。
+- **工具访问之上的 `permission` 决定未强制执行**——定义的 `deny` 条目会限制工具；其 `allow` 与 `ask` 条目会记录在解析出的定义上，并为每个文件给出一条诊断。强制执行它们需要子 agent 自身授权读取的逐子 agent 权限文档，而启动请求与委派回执都不携带它。
+- **子 agent 上限要求提供方声明 `workerLimits`**——当所选提供方无法执行子 agent 的工作上限时，策略上限会让挂载失败、角色上限会让调用失败；harness 无法施加的界限会被拒绝，而不是被接受后忽略。随附的进程外提供方未声明该能力。
+- **子 agent 上限与重叠检测是进程状态**——边界只为每个活动父 Session 记住自己启动过什么，因此进程重启后没有子 agent 历史：会话的第一次委派会像第一次那样被接纳，重启前已完成的子 agent 不会成为复用候选。若要持久重建，需要对子 agent 创建建立会话投影，而本工具没有注册它。
+- **文件定义 agent 只能通过失败的调用到达模型**——名单不会渲染进提示词或工具描述，因此父 agent 只能从未知名称错误中了解可用名称。渲染逐 Session 目录需要注册时取得 Session 工作目录，而本工具没有该信息。
+- **每次命名 agent 的委派都会重新读取定义**——发现过程没有监听器，因此已编辑的文件在下一次委派生效，而较大的 `agentDirs` 列表会在每次调用时付出目录读取成本。
+- **只识别 `.dsh/agents`、`.claude/agents` 与 `.opencode/agents` 的写法**——frontmatter 是文档化的标量／列表／映射子集，而非完整 YAML，因此使用锚点、嵌套映射或块序列的定义会被跳过并给出诊断。
 
 <a id="dev-note"></a>
 ### 开发备注

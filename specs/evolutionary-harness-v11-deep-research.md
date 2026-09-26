@@ -12,9 +12,9 @@ The key insight from current agent systems and evolutionary research is that cap
 
 1. **Learning-signal quality** — detailed traces, external feedback, verifier results, failures and counterexamples.
 2. **Search quality** — diversity, mutation operators, population management, Pareto selection and exploration/exploitation balance.
-3. **Skill/memory quality** — retrieval, consolidation, compositionality, provenance and anti-patterns.
+3. **Skill/memory quality** — retrieval, consolidation, compositionality, source tracking and anti-patterns.
 4. **Evaluation quality** — robust benchmarks, multi-objective scoring, held-out tests, adversarial/regression suites and contamination controls.
-5. **Governance quality** — promotion gates, autonomy levels, canaries, provenance, rollback and auditability.
+5. **Governance quality** — promotion gates, autonomy levels, canaries, attribution, rollback and auditability.
 
 This means the next version should not simply add more memory, graph search or GEPA. It should add the missing mechanisms that make those components produce measurable capability improvement.
 
@@ -49,7 +49,7 @@ The current roadmap also prioritizes frozen memory, three-tier memory, periodic 
 A long-lived agent gets progressively better only when the system can reliably answer four questions:
 
 ### What happened?
-Trace and provenance.
+Trace and source references.
 
 ### Why did it happen?
 Credit assignment, failure analysis and causal diagnosis.
@@ -579,7 +579,7 @@ shadow → canary → gradual promotion.
 
 # 19. Mechanism family Q — Memory as evidence graph, not just notes
 
-OpenClaw's current Dreaming system has become strongly provenance-aware: promotions use score, recall-frequency and query-diversity gates; untrusted/system-derived candidates are kept out of the durable promotion path; accepted rewrites retain preimages and reviewable dream reports.
+OpenClaw's current Dreaming system has become strongly attribution-aware: promotions use score, recall-frequency and query-diversity gates; untrusted/system-derived candidates are kept out of the durable promotion path; accepted rewrites retain preimages and reviewable dream reports.
 
 Source: current OpenClaw memory/Dreaming documentation.
 
@@ -974,7 +974,7 @@ Never allow the evolutionary process to silently train on its own evaluation ans
 Track:
 
 ```text
-benchmark provenance
+which benchmark it came from
 candidate exposure
 memory exposure
 previous usage
@@ -1369,7 +1369,7 @@ Hermes' current memory/skill write approval provides a useful operational patter
 4. Evaluation harness
 5. Baseline/candidate replay
 6. Regression suite
-7. Provenance/trust gates
+7. Attribution/trust gates
 8. Versioned artifact registry
 9. Promotion/rollback
 10. protected holdout
@@ -1420,7 +1420,7 @@ Treat cadence as a scheduler policy, not a cognitive mechanism.
 Use a Retriever interface with multiple providers/channels.
 
 ### Demote knowledge graph to later phase
-The graph is valuable only after claims, provenance and retrieval utility are working.
+The graph is valuable only after claims, source references and retrieval utility are working.
 
 ### Demote GEPA from "the evolution engine"
 GEPA is an evolutionary optimizer inside a larger governed evolution engine.
@@ -1437,7 +1437,7 @@ Targets should become measured baselines and experimental outcomes.
 | Periodic Nudge | Event/condition-based metacognitive triggers |
 | Background Review | Structured failure/pattern analysis with narrow tools |
 | Memory | Evidence-backed claim graph + utility feedback |
-| Dreaming | Provenance gate + merge/supersede + preimage rollback |
+| Dreaming | Attribution gate + merge/supersede + preimage rollback |
 | Active Memory | Escalation lane, not every-turn LLM retrieval |
 | Hybrid Search | Task-aware retrieval policy + downstream utility learning |
 | Skill Creation | Proposal → benchmark → canary → promotion |
@@ -1455,7 +1455,7 @@ Targets should become measured baselines and experimental outcomes.
 
 ## Phase 0 — Contracts
 
-Trace schema, artifact schema, event schema, evaluation contract, provenance, risk model, lifecycle states.
+Trace schema, artifact schema, event schema, evaluation contract, source references, risk model, lifecycle states.
 
 ## Phase 1 — Trace & replay
 
@@ -1463,7 +1463,7 @@ Immutable traces, event bus, replay engine, artifact version capture.
 
 ## Phase 2 — Memory & retrieval
 
-Episodic/semantic/procedural/failure/anti-pattern memory; deterministic retrieval; session search; provenance.
+Episodic/semantic/procedural/failure/anti-pattern memory; deterministic retrieval; session search; source references.
 
 ## Phase 3 — Evaluation
 
@@ -1545,12 +1545,12 @@ Agent with Evolution Loop
 Agent with Governed Meta-Evolution
 ```
 
-The architectural center should therefore be **Evolution Engine + Evaluation Harness + Trace/Provenance Fabric**, while Memory, Skills, GEPA, Dreaming, Active Memory and Multi-Agent systems become specialized components around that center.
+The architectural center should therefore be **Evolution Engine + Evaluation Harness + Trace/Source Fabric**, while Memory, Skills, GEPA, Dreaming, Active Memory and Multi-Agent systems become specialized components around that center.
 
 The strongest external lessons are:
 
 - Hermes: bounded curated memory, on-demand skills, background self-improvement, curator and recoverable maintenance.
-- OpenClaw: provenance-aware memory admission, deterministic recall before deeper recall, Dreaming with promotion gates, reviewable consolidation and governed skill evolution.
+- OpenClaw: source-aware memory admission, deterministic recall before deeper recall, Dreaming with promotion gates, reviewable consolidation and governed skill evolution.
 - Reflexion: structured verbal reinforcement from failures.
 - Self-Refine: local iterative refinement at inference time.
 - Voyager: automatic curriculum + executable compositional skill library.
@@ -1808,7 +1808,7 @@ await telemetry?.markRevised(args.name, /* the file content just written */)
 3. `patchSkill` (lines 262-263): after `markPatched`, add `await ctx.get('evolutionSkillTelemetry')?.markRevised(args.name, next)`.
 4. `editSkill` (lines 285-286): build `const file = \`---\n${split.head}\n---\n${content}\`` once, write it, then `markRevised(args.name, file)`.
 5. `write_file` / `remove_file` keep calling only `markPatched` — `SKILL.md`'s body is unchanged, so there is no new revision, but trust still resets (this package's behavior does change here: any write, even to a side file, invalidates prior trust evidence).
-6. The package README states plainly: every `create` through `skill_manage` carries `agent` provenance; a user vouches for it with `/curator adopt <name>`; `consolidate` defaults to off, so this is not a silent behavior change.
+6. The package README states plainly: every `create` through `skill_manage` carries an `agent` creation record; a user vouches for it with `/curator adopt <name>`; `consolidate` defaults to off, so this is not a silent behavior change.
 
 ## 58.5 Step 4 — evidence enters decisions in `evolution-curator`
 

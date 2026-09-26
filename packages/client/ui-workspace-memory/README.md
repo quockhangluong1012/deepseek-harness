@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-client-ui-workspace-memory` owns the Workspace page and the `workspaceMemory` Remote namespace. The page opens from the sidebar Workspace name and shows the description, produced-file outputs, chats and activity tabs, and the Instructions, Memory, and Context cards; it draws no input of its own, because the conversation's composer docks into the band the page holds open beneath its name and description. The Host face serves reads, mutations, file candidates, rebuilds, and the live follow stream over the durable store.
+`dsh-client-ui-workspace-memory` owns the Workspace page and the `workspaceMemory` Remote namespace. The page opens from the sidebar Workspace name and shows the description, produced-file outputs, chats and activity tabs, and the Instructions, Memory, and Context cards; it draws no input of its own, because the conversation's composer docks into the band the page holds open beneath its name and description. The Host face serves reads, mutations, file candidates, and the live follow stream over the durable store.
 
 ## Table of Contents
 
@@ -25,7 +25,7 @@ English | [中文](README.zh.md)
 <a id="use-this-package"></a>
 ## Use this package
 
-Mount the row in the `web-app` bundle beside the store, extractor, and injector. Clicking a Workspace name opens its page; the disclosure button expands the group. The page occupies the frame's `shell.page` seat, so it draws over the conversation in the center column rather than covering the app, and it renders null while nothing is open.
+Mount the row in the `web-app` bundle beside the store and injector. Clicking a Workspace name opens its page; the disclosure button expands the group. The page occupies the frame's `shell.page` seat, so it draws over the conversation in the center column rather than covering the app, and it renders null while nothing is open.
 
 Opening a page resolves its Workspace's blank Session (`uiWorkspace.connectWorkspace` reuses an existing one, else creates it) and selects it, so the conversation's resident composer — the same control the home page shows, with its model, permission, and mode seats live — docks into the band the page holds open beneath its name and description; a prompt typed there goes straight into that Workspace's Session. The page yields the column back as soon as its own Session is talked to (the first prompt clears the blank flag, and the reply streams in the conversation the composer belongs to), when the reader opens another Session anywhere, and through the sidebar's `close` call; a cleared selection leaves it standing, because the page is also what the no-session view shows.
 
@@ -41,7 +41,7 @@ No invariant companion is published because the controller projects the store wi
 
 ### Design concept
 
-Host service `ctx.workspaceMemoryController` owns the `workspaceMemory` namespace; every verb resolves the Workspace first with `workspace/not-found`. The browser page calls `read` on open and subscribes to `follow` for live updates while a background extraction or output-index write lands.
+Host service `ctx.workspaceMemoryController` owns the `workspaceMemory` namespace; every verb resolves the Workspace first with `workspace/not-found`. The browser page calls `read` on open and subscribes to `follow` for live updates while a hand edit lands.
 
 ### Source map
 
@@ -83,7 +83,7 @@ These limits define when the page is a poor fit. They are current package constr
 
 - **Web only** — the page lives in the web composition; other profiles have no surface.
 - **An Outputs tile opens its Session, not the file** — workspace-scoped surfaces have no file reader.
-- **Memory is one document** — there is no per-entry provenance or history.
+- **Memory is one document** — there is no per-entry source or history.
 
 <a id="dev-note"></a>
 ### Dev Note

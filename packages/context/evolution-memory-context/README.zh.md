@@ -111,12 +111,12 @@ kind: "package-reference"
 | 条件 | 所读证据 | 成立时的行 |
 |---|---|---|
 | `staged-writes` | `ctx.evolutionMemory.read(scope).staged`——该作用域待决的暂存写入，最旧在前 | 存在早于 `stagedWriteWaitMinutes` 的待决写入；`run /memory pending` |
-| `contradicted-claims` | `ctx.evolutionGraph.claims(scope)`——活跃主张，证据最强在前 | 带有相反证据的活跃主张；`run /claims` |
+| `contradicted-claims` | `ctx.evolutionMemory.read(scope).agentLessons`——该作用域的经验工件 | 仍成立、却被后续提取否证而未改正的事实；`run /claims` |
 | `skill-trust` | `ctx.evolutionSkillTelemetry.entries()`——每个受跟踪技能一条记录 | 在记录到一次降级后仍停留在 provisional 信任的技能；`run /curator status` |
 | `failure-signals` | `ctx.evolutionFeedback.signals(workspace 会话 id, failureSignalScanLimit)` | 由存储自身评为 `trigger_review` 的信号；用 `skill_manage` 记录可持久经验 |
 | `holdout-gaps` | `ctx.evolutionBenchmark.tasks()`——每个任务及其状态 | 处于评估中却没有 holdout 任务的能力；`run /benchmark` |
 
-`memoryNudgeInterval` 与 `skillNudgeInterval` 是节奏上限而非触发器：已触发的条件在观测到这么多后续回合之前保持沉默，而条件触发的回合按会话与条件分别记录，因此同一回合内的多次组装结果一致。存储未挂载的条件属于不可评估，而非成立或静默缺席，其行会点名该存储（`<subject> cannot be checked: the <store> store is not mounted.`）。不属于任何 workspace 的会话没有作用域，因此两个作用域绑定的条件在此保持沉默，而全局条件仍然渲染。
+`memoryNudgeInterval` 与 `skillNudgeInterval` 是节奏上限而非触发器：已触发的条件在观测到这么多后续回合之前保持沉默，而条件触发的回合按会话与条件分别记录，因此同一回合内的多次组装结果一致。存储未挂载的条件属于不可评估，而非成立或静默缺席，其行会点名该存储（`<subject> cannot be checked: the <store> store is not mounted.`）；两个作用域绑定的条件读取的是始终挂载的记忆存储，因此没有未挂载的情形。不属于任何 workspace 的会话没有作用域，因此两个作用域绑定的条件在此保持沉默，而全局条件仍然渲染。
 
 ## 模型体验
 

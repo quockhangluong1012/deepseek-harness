@@ -37,7 +37,7 @@ evolution 家族在 harness 之上叠加闭环学习，且不触碰任何特权�
 | [`evolution-benchmark`](evolution-benchmark/README.zh.md) | 基于生产失败的基准增长：带内容去重与污染状态的持久化评估任务存储 | `ctx.evolutionBenchmark` |
 | [`evolution-evaluator-health`](evolution-evaluator-health/README.zh.md) | 评估器集成健康：记录的行为评估裁决，含一致性、通过漂移、误报与漏报跟踪，以及其后的独立真值校准 | `ctx.evolutionEvaluatorHealth` |
 | [`evolution-population`](evolution-population/README.zh.md) | 基于种群（population）的进化：每一次暂存的优化器写入都成为按技能组织的候选，含代数编号、父代谱系与 暂存 → 通过/拒绝 生命周期 | `ctx.evolutionPopulation` |
-| [`evolution-model-routes`](evolution-model-routes/README.zh.md) | 自适应模型路由：面向进化角色拓扑、带实测证据与推荐的按角色路由指派，以及它拒绝的产出/评判角色冲突 | `ctx.evolutionModelRoutes` |
+| [`evolution-model-routes`](evolution-model-routes/README.zh.md) | 模型路由：持久化记录每个进化角色用过哪个 provider/model，含实测证据、按任务类别的有效性与排序、§44 分歧信号，以及按运行的职责分离检查 | `ctx.evolutionModelRoutes` |
 | [`evolution-canary`](evolution-canary/README.zh.md) | 金丝雀（canary）部署追踪：暂存技能补丁的发布状态，含实测金丝雀证据 | `ctx.evolutionCanary` |
 | [`evolution-novelty-search`](evolution-novelty-search/README.zh.md) | 新奇度搜索：按技能持久化的行为描述符档案，基于 Jaccard 的档案新奇度奖励有意义的差异候选 | `ctx.evolutionNovelty` |
 | [`evolution-stagnation`](evolution-stagnation/README.zh.md) | 停滞检测：统计无有意义改进的评估运行次数，并在前沿停滞时给出下一个多样性策略 | `ctx.evolutionStagnation` |
@@ -53,7 +53,6 @@ evolution 家族在 harness 之上叠加闭环学习，且不触碰任何特权�
 | [`evolution-operators`](evolution-operators/README.zh.md) | 变异算子演化：按算子与产物类别记录尝试次数、接受率、平均增量与回归率，并给出探索校正后的算子优先次序 | `ctx.evolutionOperators` |
 | [`evolution-evaluator-strategy`](evolution-evaluator-strategy/README.zh.md) | 评估器策略演化：按评估器与任务类别，从后续经独立真值校验的判定中积累的信任度，排除自评判定并点名晋级复核验证器 | `ctx.evolutionEvaluatorStrategy` |
 | [`evolution-budget`](evolution-budget/README.zh.md) | 演化预算：按候选类别定价的逐批次配额（含成本、时限与并行度上限）、以精确余量结算的实际开销、分配策略，以及逐次减半的筛选日程 | `ctx.evolutionBudget` |
-| [`evolution-router`](evolution-router/README.zh.md) | 路由自优化：按任务类别与角色测量路由结果，得出实际有效性、排序后的路由推荐，以及路由分歧所触发的不确定性信号 | `ctx.evolutionRouter` |
 | [`evolution-meta`](evolution-meta/README.zh.md) | 元演化：记录各配置与工作流下的引擎运行及其通过率，并推荐某任务类别应采用的引擎配置 | `ctx.evolutionMeta` |
 | [`evolution-metrics`](evolution-metrics/README.zh.md) | 演化指标：单位算力换来的能力增益，以及失败复发、回归债、晋级、回滚与评估器可靠性的支撑读数；每项要么已测量，要么点名它所缺失的记录 | `ctx.evolutionMetrics` |
 | [`evolution-verifiers`](evolution-verifiers/README.zh.md) | 校验器优先的候选准入：从模式、不变量、仿真、评估器到人工的最廉价优先阶梯，在第一个作出裁决的梯级停止 | `ctx.evolutionVerifiers` |

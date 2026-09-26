@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-19-remote-duplex-stream.md
-2026-09-19-remote-duplex-stream.md: 0f1f6a575f6871d37822c5829fe4531261b8e95b
-2026-09-19-remote-duplex-stream.zh.md: d3982aa433aa3ce84b945bb5831cef8064472853
+2026-09-19-remote-duplex-stream.md: 521549f71bf794506aa223c29aad47b1e4b840fc
+2026-09-19-remote-duplex-stream.zh.md: 8965d07eed1bd91d892b3e531008d5a4810e934c

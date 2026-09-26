@@ -21,6 +21,7 @@ describe('scoreRun', () => {
     const score = scoreRun({
       scenario: 'text-turn',
       expected,
+      fixtureDigest: 'test-fixture-digest',
       attempts: [
         attempt({ initial: expected, final: [...expected], tokens: 3114, wallTimeMs: 120 }),
         attempt({ initial: expected, final: [...expected], tokens: 3114, wallTimeMs: 140 }),
@@ -34,6 +35,7 @@ describe('scoreRun', () => {
     const score = scoreRun({
       scenario: 'workspace-edit',
       expected,
+      fixtureDigest: 'test-fixture-digest',
       attempts: [
         attempt({ initial: expected, final: [text('note.txt', 'expected\n'), text('extra.txt', 'new\n'), text('kept.txt', 'same\n')] }),
         attempt({ initial: expected, final: [] }),
@@ -48,6 +50,7 @@ describe('scoreRun', () => {
   it('compares each attempt against its own initial workspace when the scenario ships no expectation', () => {
     const score = scoreRun({
       scenario: 'read-only',
+      fixtureDigest: 'test-fixture-digest',
       attempts: [
         attempt({ initial: [text('a.txt', 'one\n')], final: [text('a.txt', 'one\n')] }),
         attempt({ initial: [text('a.txt', 'two\n')], final: [text('a.txt', 'two\n')] }),
@@ -59,6 +62,7 @@ describe('scoreRun', () => {
   it('fails an attempt that changed its own initial workspace when no expectation is shipped', () => {
     const score = scoreRun({
       scenario: 'read-only',
+      fixtureDigest: 'test-fixture-digest',
       attempts: [attempt({ initial: [text('a.txt', 'one\n')], final: [text('a.txt', 'two\n')] })],
     })
     expect(score).toMatchObject({ pass: false, changes: [{ path: 'a.txt', kind: 'changed' }] })
@@ -68,6 +72,7 @@ describe('scoreRun', () => {
     const score = scoreRun({
       scenario: 'median',
       expected: [],
+      fixtureDigest: 'test-fixture-digest',
       attempts: [
         attempt({ tokens: 30, wallTimeMs: 100 }),
         attempt({ tokens: 50, wallTimeMs: 200 }),

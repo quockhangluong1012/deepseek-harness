@@ -8,7 +8,7 @@
 
 import type { HookContribution } from './contribution.ts'
 import { classifyHookOutput } from './contribution.ts'
-import type { HookOutput } from './types.ts'
+import type { HookOutput, HookRequestPatch } from './types.ts'
 
 /** The single decision a hook point resolves to after merging all matched hooks. */
 export type MergedDecision = 'allow' | 'ask' | 'deny' | 'none'
@@ -27,6 +27,20 @@ export interface MergedHookOutcome {
   stop: boolean
   /** The first halting hook's `stopReason`, when one halted. */
   stopReason?: string
+  /**
+   * The merged {@link HookOutput.requestPatch} of every hook that named one, in
+   * hook order: a later hook's field replaces an earlier hook's for the same
+   * key, so the last hook to speak wins per field. `undefined` when no hook
+   * asked for a change.
+   */
+  requestPatch?: HookRequestPatch
+  /**
+   * The intersection of every hook's {@link HookOutput.allowTools}, in hook
+   * order. A hook that names no allow-list does not constrain the set, and a
+   * hook can only narrow: the result never contains a name no hook allowed, and
+   * `undefined` means no hook narrowed at all.
+   */
+  allowTools?: string[]
   /**
    * Every hook's `additionalContext`, in hook order (no joining — the bridge
    * decides). This is untrusted external data: it may reach the next request as
@@ -80,6 +94,8 @@ export function mergeHookOutputs(outputs: HookOutput[]): MergedHookOutcome {
   const additionalContext: string[] = []
   const systemMessages: string[] = []
   const contributions: HookContribution[] = []
+  let requestPatch: HookRequestPatch | undefined
+  let allowTools: string[] | undefined
 
   for (const out of outputs) {
     contributions.push({ index: contributions.length, kind: classifyHookOutput(out) })
@@ -100,6 +116,11 @@ export function mergeHookOutputs(outputs: HookOutput[]): MergedHookOutcome {
     if (out.systemMessage !== undefined && out.systemMessage.length > 0) {
       systemMessages.push(out.systemMessage)
     }
+    if (out.requestPatch !== undefined) requestPatch = { ...requestPatch, ...out.requestPatch }
+    if (out.allowTools !== undefined) {
+      const allowed = out.allowTools
+      allowTools = allowTools === undefined ? [...allowed] : allowTools.filter(name => allowed.includes(name))
+    }
   }
 
   const reasons = reasonsByRank.get(maxRank) ?? []
@@ -108,6 +129,8 @@ export function mergeHookOutputs(outputs: HookOutput[]): MergedHookOutcome {
     ...reasons.length > 0 ? { reason: reasons.join('\n\n') } : {},
     stop,
     ...stopReason !== undefined ? { stopReason } : {},
+    ...requestPatch !== undefined ? { requestPatch } : {},
+    ...allowTools !== undefined ? { allowTools } : {},
     additionalContext,
     systemMessages,
     contributions,

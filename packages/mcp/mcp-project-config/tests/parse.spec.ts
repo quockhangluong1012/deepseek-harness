@@ -14,12 +14,13 @@ describe('parseMcpProjectConfig', () => {
       command: 'npx',
       args: ['-y', '@modelcontextprotocol/server-github'],
       env: { TOKEN: 'x' },
+      trust: 'untrusted',
     })
   })
 
   it('defaults an omitted command entry to stdio, and defaults args/env when absent', () => {
     const { servers } = parseMcpProjectConfig({ mcpServers: { bare: { command: 'my-server' } } })
-    expect(servers.get('bare')).toEqual({ transport: 'stdio', serverName: 'bare', command: 'my-server', args: [], env: {} })
+    expect(servers.get('bare')).toEqual({ transport: 'stdio', serverName: 'bare', command: 'my-server', args: [], env: {}, trust: 'untrusted' })
   })
 
   it('accepts an http server and validates its URL scheme', () => {
@@ -34,9 +35,22 @@ describe('parseMcpProjectConfig', () => {
       serverName: 'remote',
       url: 'https://example.com/mcp',
       headers: { Authorization: 'Bearer x' },
+      trust: 'untrusted',
     })
     expect(servers.has('badScheme')).toBe(false)
     expect(skipped).toEqual([{ rawName: 'badScheme', reason: '"url" must be an absolute http(s) URL' }])
+  })
+
+  it('reads a declared trust label and rejects a value outside the vocabulary', () => {
+    const { servers, skipped } = parseMcpProjectConfig({
+      mcpServers: {
+        quarantined: { command: 'run', trust: 'trusted' },
+        unknown: { command: 'run', trust: 'maybe' },
+      },
+    })
+    expect(servers.get('quarantined')?.trust).toBe('trusted')
+    expect(servers.has('unknown')).toBe(false)
+    expect(skipped).toEqual([{ rawName: 'unknown', reason: '"trust" must be "trusted", "untrusted", or "unknown"' }])
   })
 
   it('normalizes a server name outside the tool-name pattern and disambiguates by content hash', () => {

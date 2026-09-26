@@ -38,4 +38,4 @@ Web composition 现在可以展示历程、决定待审写入、读取记录到�
 
 ## Testing
 
-`packages/client/ui-evolution/tests/` 覆盖 Host 面（已挂载与未挂载的整理器）、Remote 面（每个绑定动词的请求形状、失败解包、每个世代一份基线、双基线守卫、流失败、空闲至中止）、页面（包含全部 delta 种类与两类决策计数的桶、决定清除对应行、容量条、范围切换、follow 基线/upsert/失败、无作用域/加载/空状态）、席位与插件注册。`packages/client/connection/tests/evolution-fixture.client.spec.ts` 覆盖 fixture transport：每个控制器动词、整理器状态面、四个时间线窗口，以及带空闲中止的 follow 基线。本包 `src` 树的逐文件覆盖率为 100%。
+`packages/client/ui-evolution/tests/` 覆盖 Host 面（已挂载与未挂载的整理器）、Remote 面（每个绑定动词的请求形状、失败解包、每个世代一份基线、双基线守卫、流失败、空闲至中止）、页面（包含全部 delta 种类与两类决策计数的桶、决定清除对应行、容量条、范围切换、follow 基线/upsert/失败、无作用域/加载/空状态）、席位与插件注册。`packages/client/ui-evolution/tests/rpc.client.spec.ts` 覆盖经 fixture transport 的 Remote 面（每个绑定动词的请求形状、follow 基线与 upsert、双基线守卫、流失败、空闲至中止）；`curator-status.host.spec.ts` 覆盖整理器状态面，`page.client.spec.tsx` 覆盖时间线窗口。本包 `src` 树的逐文件覆盖率为 100%。

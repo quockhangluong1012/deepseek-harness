@@ -1,0 +1,1 @@
+Stale persistence format facts: docs/persistence-changes/historical-formats/README.md, docs/persistence-changes/historical-formats/README.zh.md, docs/persistence-changes/historical-formats/README.i18n.yaml. Run pnpm run verify-persistence-formats --write.

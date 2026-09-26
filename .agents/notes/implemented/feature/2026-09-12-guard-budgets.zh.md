@@ -16,11 +16,11 @@ Status: implemented
 
 执行点是 `agent/pre-step`，不是 `agent/turn-stopping`。`agent/pre-step` 是 waterfall，循环本就把它的 `{ kind: 'reject' }` 转换为轮次结束原因 `blocked`，而且它在该步骤的模型请求之前运行，因此拒绝是取消该请求，而不是与之竞争。`agent/turn-stopping` 是没有否决位置的停止事件：在那里唯一可用的动作是 `agent.steer(...)`，而它会让轮次继续打开。因此本包不在其上注册任何内容。这就是对 `specs/improvement.spec.md` Phase 1 的偏差——该处同时列出了两个执行点。
 
-各项上限按代价从低到高评估——`maxToolCalls` 对已计入的 `tool/call` 事件，`maxWallMs` 对 `Date.now() - startedAt`，`maxTotalTokens` 对 `ctx.tokenMeter.measure(agent.session).totalTokens`，`maxCostUsd` 对同一测量值按部署的 `usdPerMillionTokens` 以每百万 token 计价——因此已经越过较廉价上限的轮次不必为其日志重放付出代价。到达上限时会先追加一条持久化的 `budget/exceeded` 事件，携带上限名、实测值、限值以及它所停止的轮次与步骤，再记录恰好一条宿主警告，指明上限、agent、轮次、实测值与限值，然后在不调用 `next()` 的情况下返回 `{ kind: 'reject' }`，即 Cordis waterfall 的短路。不新增 `TurnEndReason`，也不发出 steer。该事件是 `src/types.ts` 中的普通 `SessionEventMap` 成员：按[会话日志版本机制](../../implemented/architecture/2026-08-10-session-log-version-mechanism.zh.md)，普通事件新增不会推动 `SESSION_FORMAT_VERSION` 变更，因此它与 `llm/fallback` 一样在已发布版本上交付，不附带迁移，也不改动 SDK 投影。它保持按读取必填——guard 不写入 `ignorable` 标记，因为 `Session.append()` 无法设置该信封字段——而 `blocked` 的轮次结束仍是重建出的结果。
+各项上限按代价从低到高评估——`maxToolCalls` 对已计入的 `tool/call` 事件；`maxWallMs`、`maxSessionWallTime` 与 `maxRunWallTime` 对各自的起点，即轮次的 `turn/start`、会话头部的创建时间与运行标记；轮次、会话与运行三条 token 与成本维度对 token 计量器的 `tokenUsage` 会话投影、在各自范围的起点处取差；`maxContextTokens` 对 `ctx.tokenMeter.measure(agent.session).totalTokens`——因此已经越过较廉价上限的步骤不必为其日志重放付出代价。到达上限时会先追加一条持久化的 `budget/exceeded` 事件，携带预算的范围、上限名、实测值、限值、部署所配置的每一项上限，以及它所停止的轮次与步骤，运行范围的切断还带上该运行的身份；再记录恰好一条指明同样事实的宿主警告，然后在不调用 `next()` 的情况下返回 `{ kind: 'reject' }`，即 Cordis waterfall 的短路。不新增 `TurnEndReason`，也不发出 steer。该事件是 `src/types.ts` 中的普通 `SessionEventMap` 成员：按[会话日志版本机制](../../implemented/architecture/2026-08-10-session-log-version-mechanism.zh.md)，普通事件新增不会推动 `SESSION_FORMAT_VERSION` 变更，因此它与 `llm/fallback` 一样在已发布版本上交付，不附带迁移，也不改动 SDK 投影。它保持按读取必填——guard 不写入 `ignorable` 标记，因为 `Session.append()` 无法设置该信封字段——而 `blocked` 的轮次结束仍是重建出的结果。
 
 人类输入高于一切上限。循环在 waterfall 运行之前就把该步骤认领的消息从 inbox 中移除，因此拒绝携带用户消息的步骤会将其丢弃。当认领的消息中有任何一条带有 `source.kind === 'user'` 时，guard 会在不评估任何上限的情况下委派。该规则是正确性条件而非优化：正是它让拒绝不具破坏性；它也意味着上限从轮次的第二步起才真正生效。
 
-`maxCostUsd` 按部署的 `usdPerMillionTokens` 以每百万 token 为同一测量值计价。harness 自身没有计价来源，因此由部署说出其模型的成本：没有价格的成本上限在加载期失败，没有成本上限的价格则不起作用。`maxTotalTokens` 也是所比较内容的诚实命名，因为 `ctx.tokenMeter` 测量的是请求总压力而非仅输入 token——规范表格中的 `maxInputTokens` 命名的是计量器并不产出的量。
+`maxCostUsd`、`maxSessionCost` 与 `maxRunCost` 按部署的 `usdPerMillionTokens` 以每百万 token 为计费 token 计价。harness 自身没有计价来源，因此没有价格的成本上限是一种受支持的状态而非加载失败：它会加载、警告一次，并在切断记录中把自身报告为 `unmeasurable`；而没有成本上限的价格仍不起作用。轮次各维度按规范的输入/输出/总量拆分交付为 `maxInputTokens`、`maxOutputTokens` 与 `maxTotalTokens`：总量沿用原名，因为部署已经配置了它；三者比较的均为计量器 `tokenUsage` 投影中的计费桶，而不是 `measure()` 报告的请求压力。
 
 ## Alternatives considered
 

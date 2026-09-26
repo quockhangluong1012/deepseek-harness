@@ -1,0 +1,47 @@
+{
+  "runRequirement": "live-model",
+  "tasks": [
+    {
+      "profile": "mentor",
+      "stepSpan": 6,
+      "capability": "learner-model-update",
+      "task": "Record what the exchange you are given shows about the learner's concept knowledge, application ability, and recurring mistakes, then name one next learning objective.",
+      "acceptance": "The record keeps concept knowledge and application ability apart, cites the exchange as the evidence for each entry, and names exactly one next objective."
+    },
+    {
+      "profile": "mentor",
+      "stepSpan": 8,
+      "capability": "misconception-diagnosis",
+      "task": "A learner states: 'the break of structure happened, therefore the entry is valid.' Diagnose the misconception behind the statement and explain why the inference does not hold.",
+      "acceptance": "The reply names the misconception as a standalone entry criterion, names the confirmation the inference is missing, and does not merely restate the rule the learner broke."
+    },
+    {
+      "profile": "mentor",
+      "stepSpan": 12,
+      "capability": "misconception-remediation",
+      "task": "After diagnosing a misconception, give a counterexample, assign a new case that exercises it, and reassess the learner's answer on that case.",
+      "acceptance": "The reply holds explanation, counterexample, exercise, and reassessment in that order; the reassessment states from the learner's answer whether the misconception persisted."
+    },
+    {
+      "profile": "ict",
+      "stepSpan": 15,
+      "capability": "bias-scenario-analysis",
+      "task": "State a daily bias for the series you are given, with the scenarios that would confirm it and those that would invalidate it, before discussing any entry.",
+      "acceptance": "The bias names the observations it rests on; at least one confirming and one invalidating scenario precede any entry discussion."
+    },
+    {
+      "profile": "ict",
+      "stepSpan": 20,
+      "capability": "ict-case-analysis",
+      "task": "Analyse the chart case study you are given with the ICT output contract: observations, structure, liquidity, PD array, bias, scenarios, confirmation, invalidation, confidence, and missing evidence.",
+      "acceptance": "Every contract section is present; each level, array, or liquidity reference is grounded in a stated observation; confirmation and invalidation are both stated; missing evidence names at least one observation the case does not supply."
+    },
+    {
+      "profile": "ict",
+      "stepSpan": 25,
+      "capability": "backtest-review",
+      "task": "Review the backtest you are given: separate the sample period, the rules tested, and the recorded outcomes, then name every assumption the result depends on.",
+      "acceptance": "The review states the period and the rules; the outcomes are reported without extrapolation beyond the sample; the assumptions the result depends on are listed explicitly."
+    }
+  ]
+}

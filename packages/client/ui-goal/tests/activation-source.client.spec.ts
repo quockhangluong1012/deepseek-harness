@@ -17,13 +17,14 @@ function projection(): GoalProjection {
       maxGoalRounds: 8,
     },
     roundsStarted: 0,
+    tokensUsed: 0,
     createdAt: 1,
     updatedAt: 1,
   }
 }
 
 function goalView(activation: 'armed' | 'disarmed'): GoalView {
-  return { ...projection().goal, roundsStarted: 0, createdAt: 1, updatedAt: 1, activation }
+  return { ...projection().goal, roundsStarted: 0, tokensUsed: 0, createdAt: 1, updatedAt: 1, activation }
 }
 
 describe('goal activation source', () => {

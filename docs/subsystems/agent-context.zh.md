@@ -8,21 +8,27 @@
 
 `ContextSourceKind` 是封闭联合 `policy | task | plan | memory | evidence | artifact | history | tool`。`RetentionClass` 是 `required | compressible`，`OmissionReason` 是 `budget | duplicate`。
 
-`ContextSource` 是编译器可以放置的一条贡献：一次编译内唯一的 `id`、`kind`、该来源贡献的确切 `content`、来自 [`agent-kernel`](agent-kernel.zh.md) 的 `TrustLabel` 与 `Provenance`、`retention` 等级，以及可选的 `subject`——它指名该来源所做的断言。编译器从组装读到的来源以其注册名作为 `id`；持久事实使用派生的键。
+`ContextSource` 是编译器可以放置的一条贡献：一次编译内唯一的 `id`、`kind`、该来源贡献的确切 `content`、来自 [`agent-kernel`](agent-kernel.zh.md) 的 `TrustLabel` 与 `SourceRef`、`retention` 等级，以及可选的 `subject`——它指名该来源所做的断言。编译器从组装读到的来源以其注册名作为 `id`；持久事实使用派生的键。
 
-组装出的贡献，其 kind、trust 与归属来自 [`src/classify.ts`](../../packages/runtime/agent-context/src/classify.ts) 中的前缀表，未列出的前缀解析为不可信的仓库内容。从 `KernelView` 读到的事实始终是 `trusted` 且始终是 `required`：目标、每个验收标准一条来源、每条约束一条、最新计划修订、每个未结动作一条，以及每个未解决失败一条。保留等级随 kind，因此 `policy`、`task`、`plan` 与 `evidence` 来源即使单独超出上限也仍被放置。
+组装出的贡献，其 kind、trust 与归属来自 [`src/classify.ts`](../../packages/runtime/agent-context/src/classify.ts) 中的前缀表，未列出的前缀解析为不可信的仓库内容。从 `KernelView` 读到的事实始终是 `trusted` 且始终是 `required`：目标、每个验收标准一条来源、任务声明的变更契约、每条约束一条、最新计划修订、每个未结动作一条，以及每个未解决失败一条。保留等级随 kind，因此 `policy`、`task`、`plan` 与 `evidence` 来源即使单独超出上限也仍被放置。
 
 ## 放置
 
 `CompiledSource` 是被放置的信封，带有它与任务目标的词面 `relevance`（[0,1]）以及来自 `dsh-token-meter` 的固定启发式 `tokens` 价格。
 
-`ContextCompiler.compile()` 接收一个 `ContextCompileInput`——组装、额外的持久来源、相关性打分所依据的目标，以及可选的上限——并返回 `CompiledContext`：按放置顺序排列的 `included` 来源、带有原因的 `omitted` 来源、被保留的 `conflicts`、放置的 `tokenEstimate`、其 `digest`，以及产出它的 `compilerVersion`。默认编译器是纯的、确定的，且不含 I/O。
+`ContextCompiler.compile()` 接收一个 `ContextCompileInput`——组装、额外的持久来源、相关性打分所依据的目标、可选的上限，以及本次编译挡下的层级与放行它们的请求——并返回 `CompiledContext`：按放置顺序排列的 `included` 来源、带有原因的 `omitted` 来源、被层级政策挡下的 `deferred` 来源、被保留的 `conflicts`、放置的 `tokenEstimate`、其 `digest`，以及产出它的 `compilerVersion`。默认编译器是纯的、确定的，且不含 I/O。
 
 排序是全序，因此重放能从相同来源复现一次放置：先可信度（`trusted`、`unknown`、`untrusted`），再 kind（`policy`、`task`、`plan`、`evidence`、`memory`、`artifact`、`history`、`tool`），再相关性降序，最后 `id` 的码元顺序。上限切掉该顺序的一个前缀，因此一旦某条可压缩来源放不下，其后每条可压缩来源都以 `budget` 被省略。内容已被某个已放置来源承载的可压缩来源以 `duplicate` 被省略；`required` 来源不会被这两条规则中的任何一条丢弃。
 
 `ContextConflict` 指名两条被放置的 `required` 来源互不相同的、关于同一个断言的争议：`subject` 与按放置顺序排列的相异来源 id。编译器报告分歧，但从不裁决分歧；对于只有一条来源声明的 `subject`，它不记录任何东西。
 
 `digest` 是重放必须复现的身份：对编译器版本、上限，以及每个被放置来源的 id、kind、trust、retention、价格、相关性与内容哈希，加上每条遗漏与每个冲突计算的 SHA-256。它不覆盖任何时钟，也不覆盖任何生成式身份。
+
+## 上下文层级
+
+每条来源都按其 kind 落在某一个层级里，因此 `ContextPlacement` 仍是产出者注册的唯一分类：`policy` 是 `L0`，`task` 是 `L1`，`plan` 与 `evidence` 是 `L2`，`memory` 是 `L3`，`history` 与 `tool` 是 `L4`，`artifact` 是 `L5`。没有任何 kind 是 `L6`——那是放置永不携带的内容所属的层级。
+
+`onDemandTiers` 指名放置会挡下、直到 `ContextTierDemand` 按层级或按来源 id 放行的层级；`CompiledContext.deferred` 会报告被挡下的内容及其 id、kind 与层级。被挡下的来源不是 `omitted` 来源：它从不被计价、排序或纳入摘要，因此放置与其摘要与"这些候选从未被提供"时完全一致。
 
 ## 持久记录
 
@@ -62,6 +68,19 @@ register(descriptor: ContextSourceDescriptor, provide: ContextSourceProvider): (
  * @returns whether the latest placement included the source.
  */
 isIncluded(session: Agent['session'], sourceId: string): boolean
+
+/**
+ * Admit the sources the configured on-demand tiers withhold: every later
+ * compile for the session places the named tiers and source ids until the
+ * returned disposer runs, and reports what it still withholds in
+ * `CompiledContext.deferred`. The demand is this caller's own — it is not
+ * recorded in the session log, so a replay reproduces the placement only
+ * when it is given the same demand; the placement it produced stays durable.
+ * @param session - live session whose later compiles admit the demand.
+ * @param demand - the tiers and source ids to admit.
+ * @returns a disposer that withdraws this caller's demand.
+ */
+admit(session: Agent['session'], demand: ContextTierDemand): () => void
 
 /**
  * Per-source-kind token totals of the session's newest recorded placement

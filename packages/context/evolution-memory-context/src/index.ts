@@ -1,8 +1,11 @@
 /**
  * Evolution memory brief injector. At each eligible pre-step the injector
- * compares the record's digest against the newest visible `user/message`
- * with an `evolution-memory` source and appends exactly one complete fresh
- * brief when they differ. It also owns the evolution nudge sections behind
+ * compares the scope's projected digest against the newest visible
+ * `user/message` with an `evolution-memory` source and appends exactly one
+ * complete fresh brief when they differ. It renders the projection the store
+ * derives from the scope's record (`ctx.evolutionMemory.projection`), so the
+ * brief reads current values rather than the record's absences. It also owns
+ * the evolution nudge sections behind
  * the system prompt: each section carries the lines of the recorded
  * conditions that fired (`conditions.ts`) and renders nothing while none
  * holds, so the prompt gains a nudge only when a mounted store reports
@@ -35,7 +38,7 @@ import type {} from '@deepseek-ai/dsh-evolution-feedback'
 import type {} from '@deepseek-ai/dsh-evolution-graph'
 import type {} from '@deepseek-ai/dsh-evolution-skill-telemetry'
 import { EvolutionScopeId, RECALL_LABEL_PREFIX } from '@deepseek-ai/dsh-evolution-memory'
-import type { EvolutionMemoryRecord } from '@deepseek-ai/dsh-evolution-memory'
+import type { EvolutionContextItem } from '@deepseek-ai/dsh-evolution-memory'
 import type { ContextSnapshotSection } from '@deepseek-ai/dsh-llm'
 import {
   evolutionBriefSections,
@@ -412,7 +415,6 @@ export function apply(ctx: Context, config: Config): void {
     }
     const deps: NudgeDeps = {
       record: evidence.scope === undefined ? undefined : ctx.evolutionMemory.read(evidence.scope),
-      graph: ctx.get('evolutionGraph'),
       feedback: ctx.get('evolutionFeedback'),
       telemetry: ctx.get('evolutionSkillTelemetry'),
       benchmark: ctx.get('evolutionBenchmark'),
@@ -479,11 +481,11 @@ export function apply(ctx: Context, config: Config): void {
    * material outranks nothing the user attached.
    */
   const materializeContext = async (
-    record: EvolutionMemoryRecord,
+    items: readonly EvolutionContextItem[],
     signal: AbortSignal,
   ): Promise<MaterializedContext[]> => {
     const fileSystem = ctx.get('fs')
-    const materialized = await Promise.all(record.contextItems.map(async (item) => {
+    const materialized = await Promise.all(items.map(async (item) => {
       if (item.kind === 'text') return { label: item.label, content: item.text }
       let content: string | undefined
       try {
@@ -510,20 +512,25 @@ export function apply(ctx: Context, config: Config): void {
   ): Promise<RenderedBrief | undefined> => {
     const sessionKey = String(session.id)
     const scope = scopeOf(member.id)
-    const record = ctx.evolutionMemory.read(scope)
-    if (record === undefined) {
+    // The brief renders the store's projection of the scope rather than the
+    // durable record: the projection materializes every field a stored fact may
+    // omit, and carries the digest and usage the supersede check and the header
+    // read. The ledger record stays the source of truth — the projection is
+    // derived from it on every call.
+    const projection = ctx.evolutionMemory.projection(scope)
+    if (projection === undefined) {
       renderedBriefs.delete(sessionKey)
       injectedDigests.delete(sessionKey)
       return undefined
     }
-    const digest = ctx.evolutionMemory.digest(scope)
+    const digest = projection.digest
     const cached = renderedBriefs.get(sessionKey)
     if (cached?.scope === scope && cached.digest === digest) return cached
 
-    const hasContent = record.instructions.length > 0
-      || record.agentLessons.length > 0
-      || record.userProfile.length > 0
-      || record.contextItems.length > 0
+    const hasContent = projection.instructions.length > 0
+      || projection.facts.length > 0
+      || projection.profile.length > 0
+      || projection.contextItems.length > 0
     if (!hasContent) {
       renderedBriefs.delete(sessionKey)
       injectedDigests.delete(sessionKey)
@@ -540,16 +547,15 @@ export function apply(ctx: Context, config: Config): void {
       return brief
     }
 
-    const materialized = await materializeContext(record, signal)
-    const usage = ctx.evolutionMemory.usage(scope)
+    const materialized = await materializeContext(projection.contextItems, signal)
     const briefInput = {
       title: member.title,
       path: member.path,
-      usage: { usedBytes: usage.usedBytes, capacityBytes: usage.capacityBytes },
+      usage: { usedBytes: projection.usedBytes, capacityBytes: projection.capacityBytes },
       capacityWarnPct,
-      instructions: record.instructions,
-      lessons: record.agentLessons,
-      profile: record.userProfile,
+      instructions: projection.instructions,
+      lessons: projection.facts,
+      profile: projection.profile,
       context: materialized,
     }
     const brief: RenderedBrief = {

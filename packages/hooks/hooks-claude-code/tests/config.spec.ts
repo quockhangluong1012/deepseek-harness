@@ -29,7 +29,7 @@ describe('parseClaudeCodeConfig', () => {
     expect(config.Stop).toEqual([{ hooks: [{ command: '/p/s.sh', timeoutSec: 30 }] }])
   })
 
-  it('skips non-command hooks (recorded) and keeps the command ones in the same group', () => {
+  it('skips unsupported hook types (recorded) and keeps command + http handlers in the same group', () => {
     const { config, skipped } = parseClaudeCodeConfig({
       PreToolUse: [{ hooks: [
         { type: 'prompt', prompt: 'hi' },
@@ -37,8 +37,8 @@ describe('parseClaudeCodeConfig', () => {
         { type: 'http', url: 'http://x' },
       ] }],
     })
-    expect(config.PreToolUse).toEqual([{ hooks: [{ command: 'ok.sh' }] }])
-    expect(skipped).toEqual([{ event: 'PreToolUse', type: 'prompt' }, { event: 'PreToolUse', type: 'http' }])
+    expect(config.PreToolUse).toEqual([{ hooks: [{ command: 'ok.sh' }, { url: 'http://x' }] }])
+    expect(skipped).toEqual([{ event: 'PreToolUse', type: 'prompt' }])
   })
 
   it('treats a hook with no `type` as a command (CC default)', () => {

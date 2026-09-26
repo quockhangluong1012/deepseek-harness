@@ -98,7 +98,7 @@ kind: "package-reference"
 | [`src/types.ts`](src/types.ts) | 公共记录、过滤器、请求与分页类型 |
 | [`src/config.ts`](src/config.ts) | 继承配置与封闭的 `SessionQueryError` 分类体系 |
 | [`src/filters.ts`](src/filters.ts) | 提供方无关谓词与字面文本扫描 |
-| [`src/extraction.ts`](src/extraction.ts) | 按事件类型的第一方语义文本提取 |
+| [`src/extraction.ts`](src/extraction.ts) | 按事件类型的第一方语义文本提取，并排除记忆生产者来源类型（S11 修订） |
 | [`src/documents.ts`](src/documents.ts) | 表层感知的语义文档投影 |
 | [`src/tracing.ts`](src/tracing.ts) | 一次性会话血缘与事件关系追踪 |
 | [`src/sources.ts`](src/sources.ts) | 不可变 header 兼容性检查 |

@@ -34,6 +34,8 @@
     "@deepseek-ai/dsh-agent": "workspace:*",
     "@deepseek-ai/dsh-brand": "workspace:*",
     "@deepseek-ai/dsh-compaction": "workspace:*",
+    "@deepseek-ai/dsh-evolution-budget": "workspace:*",
+    "@deepseek-ai/dsh-goal": "workspace:*",
     "@deepseek-ai/dsh-llm": "workspace:*",
     "@deepseek-ai/dsh-sandbox": "workspace:*",
     "@deepseek-ai/dsh-sandbox-policy": "workspace:*",
@@ -45,6 +47,9 @@
     "@deepseek-ai/dsh-util-values": "workspace:*"
   },
   "peerDependenciesMeta": {
+    "@deepseek-ai/dsh-evolution-budget": {
+      "optional": true
+    },
     "@deepseek-ai/dsh-compaction": {
       "optional": true
     }
@@ -56,6 +61,8 @@
     "@deepseek-ai/dsh-agent": "workspace:*",
     "@deepseek-ai/dsh-brand": "workspace:*",
     "@deepseek-ai/dsh-compaction": "workspace:*",
+    "@deepseek-ai/dsh-evolution-budget": "workspace:*",
+    "@deepseek-ai/dsh-goal": "workspace:*",
     "@deepseek-ai/dsh-llm": "workspace:*",
     "@deepseek-ai/dsh-sandbox": "workspace:*",
     "@deepseek-ai/dsh-sandbox-policy": "workspace:*",

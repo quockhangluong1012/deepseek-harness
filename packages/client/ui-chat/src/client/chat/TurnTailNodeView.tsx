@@ -1,7 +1,8 @@
-import { memo } from 'react'
+import { memo, useState } from 'react'
 import type { InjectFace, PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ChatNodeViewProps, PerformanceUsageInjected, TurnTailOwnerProps } from '../contract/slots.ts'
 import { MessageIconActions } from './MessageIconActions.tsx'
+import { RewindDialog } from './RewindDialog.tsx'
 import { TurnUsagePanel } from './TurnUsagePanel.tsx'
 import { assistantText } from './turn-assistant.ts'
 import { hasAssistantReplyContent } from '../contract/assistant-content.ts'
@@ -26,8 +27,9 @@ function lastContent(snapshot: ChatSnapshot, turn: number, skipWarning: boolean)
 
 /** Turn-local actions and feature tail over the Location index, independent of Assistant placement. */
 export const TurnTailNodeView = memo(function TurnTailNodeView({
-  node, openFile, forkAt, renderSlot, t, useChat, usePerformanceUsage,
+  node, openFile, forkAt, rewindAt, renderSlot, t, useChat, usePerformanceUsage,
 }: TurnTailNodeViewProps) {
+  const [rewindOpen, setRewindOpen] = useState(false)
   const detailed = usePerformanceUsage(mode => mode) === 'detailed'
   const data = node.data
   const hasLaterChatNode = useChat(snapshot =>
@@ -68,6 +70,7 @@ export const TurnTailNodeView = memo(function TurnTailNodeView({
         // turn/end seq it already has, and the Host cuts exactly there.
         onBranch={() => { forkAt(data.seq) }}
         branchUnavailable={data.branchUnavailable || hasLaterChatNode}
+        onRewind={() => { setRewindOpen(true) }}
         className={css.actions}
         extraActions={assistantActions}
         usageAction={detailed && data.tokenUsage !== undefined
@@ -75,6 +78,16 @@ export const TurnTailNodeView = memo(function TurnTailNodeView({
           : null}
         t={t}
       />
+      {rewindOpen && (
+        <RewindDialog
+          turn={data.turn}
+          t={t}
+          onClose={() => { setRewindOpen(false) }}
+          onRewind={({ mode, edit }) => {
+            rewindAt(edit === undefined ? `${mode} ${data.turn}` : `${mode} ${data.turn} --edit ${edit}`)
+          }}
+        />
+      )}
     </div>
   )
 })

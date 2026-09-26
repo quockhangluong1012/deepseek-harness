@@ -5,13 +5,13 @@
 ## Goal & branch
 
 - Goal `goal-c5707119-1c6d-4e8a-8bf7-71f654ded42b` (active): 8 batches P0→P4.
-- Branch `fix/full-sweep-batch-1` (local, unpushed). Commits:
-  - `58a28e3492` design spec (main, pre-branch)
-  - `696c325e24` batch 1 (145 src .js + gate)
-  - `4073c642f4` batch 2 (manifests)
-  - `4a094a89f1` batch 3 (llm)
-  - `6c28cc52a1` batch 4 (session; includes approval policy cache)
-  - `8ae3c7fec5` batch 5 (api; approval note corrected here)
+- Branch `fix/full-sweep-batch-1` (local, unpushed). Batches, in order:
+  - design spec (main, pre-branch)
+  - batch 1 (145 src .js + gate)
+  - batch 2 (manifests)
+  - batch 3 (llm)
+  - batch 4 (session; includes approval policy cache)
+  - batch 5 (api; approval note corrected here)
 - Design spec: `docs/superpowers/specs/2026-09-13-full-sweep-fixes-design.md`.
 - Batch plans: `docs/superpowers/plans/2026-09-13-batch-{1,2}-*.md` (batches 3–5 executed finding-by-finding per the design TDD loop; see Agent Notes).
 - Agent Notes: `simplification/2026-09-13-remove-src-js-residue.md`, `process/2026-09-13-manifest-conformance-batch-2.md`, `bug-fix/2026-09-13-p0-llm-batch-3.md`, `bug-fix/2026-09-13-p0-session-batch-4.md`, `bug-fix/2026-09-13-p0-api-batch-5.md` (each records triage verdicts).

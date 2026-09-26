@@ -170,9 +170,19 @@ class TestFileSystem extends FileSystem {
   }
 }
 
+/**
+ * Resolve one direct provider's or `apply` call's configuration: the schema
+ * turns `trustedProjectDirs` into the live reference a mounted plugin receives.
+ * @param config - raw configuration a profile would supply.
+ * @returns the resolved provider configuration.
+ */
+function resolvedConfig(config: SkillFileSystem.ConfigInput): SkillFileSystem.Config {
+  return SkillFileSystem.Config(config)
+}
+
 async function setupLocal(
   home: string,
-  config: Partial<SkillFileSystem.Config> = {},
+  config: SkillFileSystem.ConfigInput = {},
   mountedTools?: readonly string[],
 ): Promise<Context> {
   const ctx = new Context()
@@ -340,12 +350,12 @@ describe('FileSystemSkillProvider', () => {
       // repeat-lookup path that stays silent after the first warning.
       let direct!: SkillFileSystem.FileSystemSkillProvider
       ctx.skills.registerProvider((control) => {
-        direct = new SkillFileSystem.FileSystemSkillProvider(ctx, control, {
+        direct = new SkillFileSystem.FileSystemSkillProvider(ctx, control, resolvedConfig({
           providerName: 'direct',
           watch: false,
           dshHome: join(home, '.dsh'),
           agentsHome: join(home, '.agents'), claudeHome: join(home, '.claude'),
-        })
+        }))
         return direct
       })
       await direct.list({ cwd: project })
@@ -1086,14 +1096,14 @@ describe('FileSystemSkillProvider', () => {
     await ctx.plugin(SkillRegistry)
     let provider!: SkillFileSystem.FileSystemSkillProvider
     const disposeProvider = ctx.skills.registerProvider((control) => {
-      provider = new SkillFileSystem.FileSystemSkillProvider(ctx, control, {
+      provider = new SkillFileSystem.FileSystemSkillProvider(ctx, control, resolvedConfig({
         dshHome: join(home, '.dsh'),
         agentsHome: join(home, '.agents'), claudeHome: join(home, '.claude'),
         customSkillDirs: [nonDirectoryRoot],
         watch: true,
         watchStabilityThresholdMs: 20,
         watchPollIntervalMs: 10,
-      })
+      }))
       return provider
     })
     const beforeDisposal = await provider.list({})
@@ -1187,14 +1197,14 @@ describe('FileSystemSkillProvider', () => {
       process.env.DSH_AGENTS_HOME = join(envHome, 'empty-agents')
       const empty = new Context()
       await empty.plugin(SkillRegistry)
-      SkillFileSystem.apply(empty, { claudeHome: join(envHome, 'empty-claude'), watch: false })
+      SkillFileSystem.apply(empty, resolvedConfig({ claudeHome: join(envHome, 'empty-claude'), watch: false }))
       expect(await empty.skills.list()).toEqual([])
 
       delete process.env.DSH_AGENTS_HOME
       expect(new SkillFileSystem.FileSystemSkillProvider(empty, {
         signal: new AbortController().signal,
         invalidate() {},
-      }, { dshHome: join(envHome, 'empty-dsh') }).name).toBe('filesystem')
+      }, resolvedConfig({ dshHome: join(envHome, 'empty-dsh') })).name).toBe('filesystem')
     } finally {
       if (previousDshHome === undefined) {
         delete process.env.DSH_HOME
@@ -1541,13 +1551,13 @@ describe('FileSystemSkillProvider', () => {
     await ctx.plugin(SkillRegistry)
     let direct!: SkillFileSystem.FileSystemSkillProvider
     ctx.skills.registerProvider((control) => {
-      direct = new SkillFileSystem.FileSystemSkillProvider(ctx, control, {
+      direct = new SkillFileSystem.FileSystemSkillProvider(ctx, control, resolvedConfig({
         providerName: 'direct',
         dshHome: join(home, '.dsh'),
         agentsHome: join(home, '.agents'), claudeHome: join(home, '.claude'),
         watch: false,
         trustedProjectDirs: [project],
-      })
+      }))
       return direct
     })
     const candidate: SkillCandidate = {
@@ -1581,13 +1591,13 @@ describe('FileSystemSkillProvider', () => {
     await ctx.plugin(SkillRegistry)
     let direct!: SkillFileSystem.FileSystemSkillProvider
     ctx.skills.registerProvider((control) => {
-      direct = new SkillFileSystem.FileSystemSkillProvider(ctx, control, {
+      direct = new SkillFileSystem.FileSystemSkillProvider(ctx, control, resolvedConfig({
         providerName: 'direct',
         dshHome: join(home, '.dsh'),
         agentsHome: join(home, '.agents'), claudeHome: join(home, '.claude'),
         watch: false,
         trustedProjectDirs: [project],
-      })
+      }))
       return direct
     })
     const names = async (): Promise<string[]> => {

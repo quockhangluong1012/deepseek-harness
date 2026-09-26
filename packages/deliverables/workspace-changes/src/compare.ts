@@ -1,6 +1,6 @@
 /** Line comparison of two whole-file texts, bounded by a timeout that degrades to whole-file replacement. */
 import { structuredPatch } from 'diff'
-import type { WorkspaceDiffHunk } from './types.ts'
+import type { WorkspaceDiffHunk, WorkspaceHunkDecision } from './types.ts'
 
 /** Context lines around each change, the unified-diff default. */
 const CONTEXT_LINES = 3
@@ -63,4 +63,67 @@ export function compareText(before: string | null, after: string | null, timeout
     }
   }
   return { hunks, coarse, added, deleted }
+}
+
+/** One file's content after per-hunk decisions. */
+export interface DecidedFile {
+  /**
+   * Whether the file exists after the decisions: absent when the file did not exist before and no
+   * hunk is accepted, or when it did not exist after and every hunk is accepted.
+   */
+  exists: boolean
+  /** The resulting content, one line each plus the final newline of the side the last line came from; ignored when `exists` is false. */
+  content: string
+}
+
+/**
+ * Apply one decision per hunk to a whole-file comparison: an accepted hunk
+ * contributes its turn-end lines in place of its turn-start ones, a rejected
+ * hunk keeps its turn-start lines, and every line no hunk covers survives
+ * unchanged. A file that did not exist before exists only while some hunk is
+ * accepted; a file that does not exist after exists only while some hunk is
+ * rejected.
+ * @param before - turn-start text, or null when the file did not exist.
+ * @param after - turn-end text, or null when the file does not exist after the turn.
+ * @param hunks - the hunks of `compareText(before, after, …)`, in file order.
+ * @param decisions - one decision per hunk, in the same order.
+ * @returns the resulting existence and content.
+ * @throws when `decisions` does not hold exactly one decision per hunk.
+ */
+export function decidedText(
+  before: string | null, after: string | null,
+  hunks: readonly WorkspaceDiffHunk[], decisions: readonly WorkspaceHunkDecision[],
+): DecidedFile {
+  if (decisions.length !== hunks.length) {
+    throw new Error(`workspace-changes: ${hunks.length} hunks need exactly ${hunks.length} decisions, got ${decisions.length}`)
+  }
+  const oldLines = lines(terminated(before ?? ''))
+  const content: string[] = []
+  let last: string | null = before
+  let at = 0
+  const keepOld = (until: number): void => {
+    for (; at < until; at += 1) {
+      content.push(oldLines[at] as string)
+      last = before
+    }
+  }
+  hunks.forEach((hunk, position) => {
+    const start = hunk.oldStart - 1
+    keepOld(start)
+    if (decisions[position] === 'accept') {
+      for (const line of hunk.lines) {
+        if (line.startsWith('-')) continue
+        content.push(line.slice(1))
+        last = after
+      }
+    } else keepOld(start + hunk.oldLines)
+    at = start + hunk.oldLines
+  })
+  keepOld(oldLines.length)
+  const accepted = decisions.filter(decision => decision === 'accept').length
+  const exists = hunks.length === 0 ? after !== null
+    : before === null ? accepted > 0
+      : after === null ? accepted < hunks.length
+        : true
+  return { exists, content: content.length === 0 ? '' : `${content.join('\n')}${last !== null && last.endsWith('\n') ? '\n' : ''}` }
 }

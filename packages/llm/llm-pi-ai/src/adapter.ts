@@ -47,6 +47,7 @@ import {
 import type {
   GenerateOptions,
   ImageAttachmentAccess,
+  LlmModelCost,
   LlmModelInfo,
   LlmProviderInfo,
   LlmResolvedModelInfo,
@@ -355,6 +356,18 @@ export class PiAiAdapter extends LlmAdapter {
       const snapshot = this.current()
       return this.modelInfo(snapshot, provider, model)
     })
+  }
+
+  override modelCost(provider: string, model: string): LlmModelCost | undefined {
+    const snapshot = this.current()
+    try {
+      return resolvedModelCost(this.modelOf(snapshot, provider, model).cost)
+    } catch {
+      // A route this deployment cannot resolve declares no price here, and a
+      // price lookup must answer rather than fail; the configuration failure
+      // itself still surfaces through `listModels` and `resolveModel`.
+      return undefined
+    }
   }
 
   private modelInfo(snapshot: PiAiSnapshot, provider: string, model: string): LlmResolvedModelInfo {

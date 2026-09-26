@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-commands` lets users run `/command [input]` actions in interactive Harness UIs without turning the command or its result into a model message. Commands can advertise input hints, accept attachments, and target one agent while preserving a global command with the same name for other agents. Every admitted run is recorded in the receiving agent's session log, while the UI renders the settled result outside model history. Use it for direct human controls in the `dsh` CLI or Web client; UI-less demos and ACP automation do not provide this command surface.
+`dsh-commands` lets users run `/command [input]` actions in interactive Harness UIs without turning the command or its result into a model message. Commands advertise input hints, accept attachments, and target one agent while a same-named global command serves the others. Every admitted run is recorded in the receiving agent's session log, while the UI renders the settled result outside model history. Use it for direct human controls in the `dsh` CLI or Web client; a UI-less demo spine needs no composer, and an ACP host dispatches a submitted command line.
 
 ## Table of Contents
 
@@ -25,7 +25,7 @@ English | [中文](README.zh.md)
 <a id="use-this-package"></a>
 ## Use this package
 
-Compose this service when an interactive UI should let users drive agent-side behavior with slash commands instead of model prompts. UI-less demo spines and ACP automation provide no command adapter and do not need it.
+Compose this service when an interactive UI or an ACP host should let users drive agent-side behavior with slash commands instead of model prompts. A UI-less demo spine provides no command composer and does not need it.
 
 ### Registering a command
 
@@ -57,6 +57,18 @@ A plain registration is global. A command-producing plugin mounted beneath an ag
 
 A command may declare `input.attachments` to accept composer images and generic files. The executor enforces the declaration: attachments sent to a non-declaring command, an absent attachment store, an unknown Session-scoped file-upload receipt, or an over-limit image batch each settle as an error before the handler runs. Images cross the command wire as base64 input; generic files cite receipts from their completed background uploads, so command submission never reads their bytes again. Admitted `ImageBlock`s and `FileBlock`s reach the handler as one frozen `invocation.attachments` array in the user's selection order, and the handler owns their model-visible use.
 
+<a id="file-defined-commands"></a>
+### File-defined commands
+
+`@deepseek-ai/dsh-commands/file-commands` is a separate registration row: it loads the Markdown files of the project `.dsh/commands` and `.claude/commands` directories and of `<DSH_HOME>/commands` and `~/.claude/commands`, highest precedence first, and the first root that provides a name owns it.
+
+A command file needs YAML frontmatter with a non-empty `description` and a non-empty body; `argument-hint` becomes the command's input hint. A file that cannot be read, parsed, or validated — including one over `maxCommandBytes` — is skipped with one warning naming it and the reason, and an unknown frontmatter key is reported once, so a broken file never fails the load.
+
+Dispatching a loaded command submits its body as one user message to the receiving agent, with `$ARGUMENTS` replaced by the invocation's trimmed input or, when the body carries no placeholder, the input appended as its own paragraph; that submission makes the command's text model-visible. Two frontmatter fields shape the run it starts, and both are lifted when the agent parks:
+
+- `allowed-tools` masks the agent's tools through `ctx.tools.restrict()` for that run.
+- `model` replaces the model half of the receiving agent's route for that run. The provider — and with it the credentials and the catalog the route is validated against — stays the agent's own, so a declared model that the agent's provider does not serve fails the run's request rather than rerouting it.
+
 ### Dispatching from an adapter
 
 An interactive adapter calls `execute(agent, line, attachments, signal)` with the exact receiving agent, the full command line, and the submission's ordered attachments. It returns the settled `CommandExecution` — the normalized result plus its lifecycle `commandId` — or `undefined` for invalid syntax or an unknown name. `list(agent)` and `find(agent, name)` serve discovery after agent-scoped shadowing.
@@ -82,6 +94,7 @@ The observable behavior is covered in [Use this package](#use-this-package); thi
 | [`src/index.ts`](src/index.ts) | `CommandRuntime` service: registration, scoping, dispatch, lifecycle events |
 | [`src/types.ts`](src/types.ts) | Command definition, descriptor, execution, and result types |
 | [`src/brand.ts`](src/brand.ts) | Stable command-definition identities and per-execution lifecycle ids |
+| [`src/file-commands.ts`](src/file-commands.ts) | File-defined commands: discovery, frontmatter, registration, and the tool and model overrides of the run a command submits |
 | [`src/invariant.ts`](src/invariant.ts) | Invariant companion pairing `command/run` with `command/done` per session log |
 
 ### Lifecycle events
@@ -119,7 +132,7 @@ Read these pages when the package-level contract is not enough. They move from t
 
 #### What the model sees
 
-The registry itself submits nothing. Known slash commands execute in the UI command plane, and their `CommandResult` text is not submitted as a user message. Unknown slash-command input is rejected by shipped adapters instead of becoming a model prompt. A command producer may explicitly use the receiving `Agent`; for example, [`dsh-plan-mode`](../../plan/plan-mode/README.md#model-and-human-interactions) submits the optional message and ordered attachments in `/plan [message]` after selecting plan mode. The executor only admits attachments into durable objects; the declaring producer decides whether and how they become model-visible message content.
+The registry itself submits nothing. Known slash commands execute in the UI command plane, and their `CommandResult` text is not submitted as a user message. Unknown slash-command input is rejected by shipped adapters instead of becoming a model prompt. A command producer may explicitly use the receiving `Agent`; for example, [`dsh-plan-mode`](../../plan/plan-mode/README.md#model-and-human-interactions) submits the optional message and ordered attachments in `/plan [message]` after selecting plan mode. The executor only admits attachments into durable objects; the declaring producer decides whether and how they become model-visible message content. A file-defined command is such a producer: its body reaches the model as a user message, and a declared `model` changes that run's request route, which the request header records.
 
 #### Token effect
 
@@ -138,6 +151,7 @@ These limits define what the registry does not offer. They are current package c
 
 - **Only unstructured text input** — forms, completion schemas, and typed arguments remain command-owned parsing concerns.
 - **Cooperative side-effect cancellation** — dispatch stops awaiting on abort; handlers must honor the signal to stop work that has already escaped into external systems.
+- **A file command's `model` is a model id, not a route** — it replaces the model half of the receiving agent's current route; selecting another provider is the session model selection's job, not a command file's.
 
 <a id="dev-note"></a>
 ### Dev Note

@@ -35,7 +35,7 @@ it('shows and persists LSP diagnostics after a headless write', async () => {
       DSH_PERMISSION_MODE: 'danger-full-access',
       DSH_TELEMETRY_DISABLED: '1',
     },
-    inspect: async cwd => {
+    inspect: async (cwd) => {
       await expect(readFile(join(cwd, 'diagnostics.ts'), 'utf8')).resolves.toBe(content)
       const sessionsDir = join(cwd, '.sessions')
       const files = await readdir(sessionsDir, { recursive: true })

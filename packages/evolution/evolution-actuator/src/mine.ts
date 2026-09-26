@@ -6,6 +6,7 @@
  */
 
 import type { BenchmarkInput, ExposureEvidence } from '@deepseek-ai/dsh-evolution-benchmark'
+import { MINED_TASK } from '@deepseek-ai/dsh-evolution-benchmark'
 import type { RegressionDebt } from '@deepseek-ai/dsh-evolution-curator'
 import type { FeedbackSignal } from '@deepseek-ai/dsh-evolution-feedback'
 import type { PopulationCandidate } from '@deepseek-ai/dsh-evolution-population'
@@ -49,6 +50,7 @@ export function failureInputs(signals: readonly FeedbackSignal[]): BenchmarkInpu
       task: failureTask(tool, signal.message),
       gists: [signal.message],
       sourceSessions: [],
+      ...MINED_TASK,
     })
   }
   return inputs
@@ -69,6 +71,7 @@ export function debtInputs(debts: readonly RegressionDebt[]): BenchmarkInput[] {
     task: failureTask(debt.name, debt.message),
     gists: [debt.message],
     sourceSessions: [],
+    ...MINED_TASK,
   }))
 }
 

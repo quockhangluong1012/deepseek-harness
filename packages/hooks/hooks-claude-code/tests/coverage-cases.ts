@@ -1,11 +1,15 @@
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { ContextFormed } from '@deepseek-ai/dsh-llm'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { mkdtempSync, rmSync, writeFileSync, chmodSync, existsSync, readFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync, chmodSync, existsSync, readFileSync } from 'node:fs'
+import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
+import { CompactionId } from '@deepseek-ai/dsh-compaction'
+import { CommandId } from '@deepseek-ai/dsh-commands/brand'
+import ApprovalService from '@deepseek-ai/dsh-user-approval'
 import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
 import type { Agent } from '@deepseek-ai/dsh-agent'
@@ -31,8 +35,10 @@ const testToolSignal = new AbortController().signal
 
 const dirs: string[] = []
 const contexts: Context[] = []
+const endpoints: { close: () => Promise<void> }[] = []
 afterEach(async () => {
   for (const ctx of contexts.splice(0)) await ctx.fiber.dispose()
+  for (const endpoint of endpoints.splice(0)) await endpoint.close()
   for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true })
 })
 
@@ -65,6 +71,12 @@ function waitForIdle(_ctx: Context, agent: Agent): Promise<void> {
   return agent.whenIdle()
 }
 function events(agent: Agent): readonly SessionEvent[] { return agent.session.snapshotEvents() }
+
+/** The hook points one agent's log recorded a `hook/invoked` entry for, in log order. */
+function hookPoints(agent: Agent): string[] {
+  return events(agent).flatMap(event => event.type === 'hook/invoked' ? [event.data.point] : [])
+}
+
 /** Poll until `predicate` holds or the deadline passes — robust to detached
  * emit-listener hooks firing on a `.then` (a fixed sleep flakes under load). */
 async function waitFor(predicate: () => boolean, timeout = 5000, interval = 10): Promise<void> {
@@ -75,7 +87,7 @@ async function waitFor(predicate: () => boolean, timeout = 5000, interval = 10):
   }
 }
 
-export type CoverageGroup = 'config' | 'stop' | 'context' | 'edge-paths'
+export type CoverageGroup = 'config' | 'stop' | 'context' | 'edge-paths' | 'extensions' | 'events'
 
 /** Register independently schedulable slices of the hooks-claude-code coverage matrix. */
 export function defineCoverageCases(group: CoverageGroup): void {
@@ -444,12 +456,11 @@ export function defineCoverageCases(group: CoverageGroup): void {
   })
 
   if (group === 'context') describe('hooks-claude-code coverage — continue:false, context arm, no-cwd', () => {
-    it('a {"continue":false} hook is RECORDED as decision "stop" but does not halt the run (TODO(hook-continue-false))', async () => {
-    // The extension points cannot yet honor `continue:false` as a hard halt. The log must still record the
-    // stop decision while execution and the turn continue normally.
+    it('a {"continue":false} hook HALTS the run: the tool never runs and the turn ends aborted with the hook reason', async () => {
+      // The hook command is inline rather than a script path so this case
+      // exercises the halt under any host bash.
       const d = dir()
-      const s = sh(d, 'stop.sh', '#!/usr/bin/env bash\necho \'{"continue":false,"stopReason":"halt"}\'\n')
-      const path = hooks(d, { PreToolUse: [{ hooks: [{ type: 'command', command: s }] }] })
+      const path = hooks(d, { PreToolUse: [{ hooks: [{ type: 'command', command: 'echo \'{"continue":false,"stopReason":"halt"}\'' }] }] })
       const adapter = new MockAdapter([toolCallResponse('c1', 'echo', {}), textResponse('done')])
       const ctx = await harness(path, adapter)
       let ran = false
@@ -458,10 +469,71 @@ export function defineCoverageCases(group: CoverageGroup): void {
       agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
       await waitForIdle(ctx, agent)
       const res = events(agent).find(e => e.type === 'hook/result')
-      expect(res?.type === 'hook/result' && res.data.decision).toBe('stop') // recorded
-      expect(ran).toBe(true) // NOT honored: the tool still ran (halt is deferred)
+      expect(res?.type === 'hook/result' && res.data.decision).toBe('stop') // the request is recorded
+      expect(ran).toBe(false) // honored: the halt cancels the run before the tool dispatches
       const turnEnd = events(agent).findLast(e => e.type === 'turn/end')
-      expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason.kind).toBe('completed') // ran to completion
+      expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason)
+        .toEqual({ kind: 'aborted', reason: { kind: 'hook', reason: 'halt' } })
+    })
+
+    it('a UserPromptSubmit {"continue":false} hook halts the run before any model step', async () => {
+      const d = dir()
+      const path = hooks(d, { UserPromptSubmit: [{ hooks: [{ type: 'command', command: 'echo \'{"continue":false,"stopReason":"stop the press"}\'' }] }] })
+      const adapter = new MockAdapter([textResponse('should not run')])
+      const ctx = await harness(path, adapter)
+      const agent = await ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+      agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
+      await waitForIdle(ctx, agent)
+      expect(adapter.requests).toHaveLength(0)
+      const turnEnd = events(agent).findLast(e => e.type === 'turn/end')
+      expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason)
+        .toEqual({ kind: 'aborted', reason: { kind: 'hook', reason: 'stop the press' } })
+    })
+
+    it('a Stop {"continue":false} hook halts the run instead of forcing another step', async () => {
+      const d = dir()
+      const path = hooks(d, { Stop: [{ hooks: [{ type: 'command', command: 'echo \'{"continue":false,"stopReason":"done for today"}\'' }] }] })
+      const adapter = new MockAdapter([textResponse('done')])
+      const ctx = await harness(path, adapter)
+      const agent = await ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+      agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
+      await waitForIdle(ctx, agent)
+      expect(adapter.requests).toHaveLength(1) // no forced continuation step
+      const turnEnd = events(agent).findLast(e => e.type === 'turn/end')
+      expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason)
+        .toEqual({ kind: 'aborted', reason: { kind: 'hook', reason: 'done for today' } })
+    })
+
+    it('a PostToolUse {"continue":false} hook halts the run after the tool ran', async () => {
+      const d = dir()
+      const path = hooks(d, { PostToolUse: [{ hooks: [{ type: 'command', command: 'echo \'{"continue":false,"stopReason":"enough"}\'' }] }] })
+      const adapter = new MockAdapter([toolCallResponse('c1', 'echo', {}), textResponse('should not run')])
+      const ctx = await harness(path, adapter)
+      let ran = false
+      ctx.tools.register(defineContentToolFixture({ name: 'echo', description: 'e', parameters: {}, async execute() { ran = true; return [{ type: 'text', text: 'ok' }] } }))
+      const agent = await ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+      agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
+      await waitForIdle(ctx, agent)
+      expect(ran).toBe(true) // the call completed before the halt
+      expect(adapter.requests).toHaveLength(1) // and the halt stopped the run before the next step
+      const turnEnd = events(agent).findLast(e => e.type === 'turn/end')
+      expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason)
+        .toEqual({ kind: 'aborted', reason: { kind: 'hook', reason: 'enough' } })
+    })
+
+    it('a SessionStart {"continue":false} hook is warned, not halted: the run is not live yet', async () => {
+      const d = dir()
+      const path = hooks(d, { SessionStart: [{ hooks: [{ type: 'command', command: 'echo \'{"continue":false,"stopReason":"nope"}\'' }] }] })
+      const warn = vi.fn()
+      const adapter = new MockAdapter([textResponse('ok')])
+      const ctx = await harness(path, adapter)
+      ctx.logger.warn = warn as never
+      const agent = await ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+      agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
+      await waitForIdle(ctx, agent)
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('no live run exists there'))
+      expect(adapter.requests).toHaveLength(1) // the run proceeded
+      expect(events(agent).some(e => e.type === 'hook/invoked')).toBe(false) // no open turn to record into
     })
 
     it('a PostToolUse hook that BOTH blocks AND attaches additionalContext', async () => {
@@ -790,5 +862,361 @@ export function defineCoverageCases(group: CoverageGroup): void {
       await waitForIdle(ctx, agent)
       expect(adapter.requests).toHaveLength(1) // the turn ran regardless of hook timing
     })
+  })
+
+  if (group === 'extensions') describe('hooks-claude-code coverage — layered discovery, HTTP transport, request and tool-selection hooks', () => {
+    it('runs the discovered layers in precedence order: user settings, project settings, project .dsh/hooks.json', async () => {
+      const userRoot = dir()
+      const projectRoot = dir()
+      const layer = (root: string, path: string, reason: string): void => {
+        const file = join(root, path)
+        mkdirSync(join(file, '..'), { recursive: true })
+        writeFileSync(file, JSON.stringify({ hooks: { UserPromptSubmit: [{ hooks: [{ type: 'command', command: `echo ${reason} >&2; exit 2` }] }] } }))
+      }
+      layer(userRoot, join('.claude', 'settings.json'), 'from-user')
+      layer(projectRoot, join('.claude', 'settings.json'), 'from-project')
+      layer(projectRoot, join('.dsh', 'hooks.json'), 'from-dsh')
+
+      const adapter = new MockAdapter([textResponse('should not run')])
+      const ctx = new Context()
+      contexts.push(ctx)
+      await mountAgentLoopTestDependencies(ctx)
+      await ctx.plugin(AgentLoop, { agents: [] })
+      await ctx.plugin(LocalSubprocessRuntime)
+      await ctx.plugin(LocalBashExecutor, { timeoutMs: 10_000 })
+      // No configPath: the bridge runs on discovery alone.
+      await ctx.plugin(HooksClaude, { projectRoot, userRoot })
+      ctx.llm.registerAdapter(['mock'], adapter)
+      const agent = await ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+      agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
+      await waitForIdle(ctx, agent)
+
+      expect(adapter.requests).toHaveLength(0) // every layer's blocking hook fired
+      const summaries = events(agent).filter(e => e.type === 'hook/result')
+        .map(e => e.type === 'hook/result' ? e.data.stderrSummary : undefined)
+      expect(summaries).toEqual(['from-user', 'from-project', 'from-dsh'])
+    })
+
+    it('runs an HTTP hook through the bridge: the payload is POSTed and its deny decision blocks the tool', async () => {
+      const bodies: string[] = []
+      const server = createServer((req, res) => {
+        const chunks: Buffer[] = []
+        req.on('data', (chunk: Buffer) => chunks.push(chunk))
+        req.on('end', () => {
+          bodies.push(Buffer.concat(chunks).toString('utf8'))
+          res.writeHead(200, { 'content-type': 'application/json' })
+          res.end(JSON.stringify({
+            hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: 'refused by the endpoint' },
+          }))
+        })
+      })
+      await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
+      try {
+        const address = server.address()
+        const port = typeof address === 'object' && address !== null ? address.port : 0
+        const d = dir()
+        const path = hooks(d, { PreToolUse: [{ hooks: [{ type: 'http', url: `http://127.0.0.1:${port}/hook` }] }] })
+        const adapter = new MockAdapter([toolCallResponse('c1', 'echo', {}), textResponse('done')])
+        const ctx = await harness(path, adapter)
+        let ran = false
+        ctx.tools.register(defineContentToolFixture({ name: 'echo', description: 'e', parameters: {}, async execute() { ran = true; return [{ type: 'text', text: 'ok' }] } }))
+        const agent = await ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+        agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
+        await waitForIdle(ctx, agent)
+
+        expect(ran).toBe(false) // the endpoint's deny stopped the call
+        const result = events(agent).find(e => e.type === 'tool/result')
+        expect(result?.type === 'tool/result' && JSON.stringify(result.data.message)).toContain('refused by the endpoint')
+        const recorded = events(agent).find(e => e.type === 'hook/result')
+        expect(recorded?.type === 'hook/result' && recorded.data.decision).toBe('deny')
+        // The endpoint received the same PreToolUse payload a command hook gets.
+        expect(JSON.parse(bodies[0]!)).toMatchObject({
+          hook_event_name: 'PreToolUse', tool_name: 'echo', session_id: agent.session.header.id,
+        })
+      } finally {
+        await new Promise<void>((resolve) => { server.close(() =>{  resolve() }) })
+      }
+    })
+
+    it('applies a BeforeModel hook request patch to the model call', async () => {
+      const d = dir()
+      const path = hooks(d, { BeforeModel: [{ hooks: [{ type: 'command', command: 'echo \'{"hookSpecificOutput":{"hookEventName":"BeforeModel","request":{"model":"patched-model","maxTokens":321}}}\'' }] }] })
+      const adapter = new MockAdapter([textResponse('ok')])
+      const ctx = await harness(path, adapter)
+      const agent = await ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+      agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
+      await waitForIdle(ctx, agent)
+
+      expect(adapter.requests[0]!.model).toBe('patched-model')
+      expect(adapter.requests[0]!.maxTokens).toBe(321)
+    })
+
+    it('narrows the visible tool set from a BeforeToolSelection hook', async () => {
+      const d = dir()
+      const path = hooks(d, { BeforeToolSelection: [{ hooks: [{ type: 'command', command: 'echo \'{"hookSpecificOutput":{"hookEventName":"BeforeToolSelection","allowTools":["echo"]}}\'' }] }] })
+      const adapter = new MockAdapter([textResponse('ok')])
+      const ctx = await harness(path, adapter)
+      ctx.tools.register(defineContentToolFixture({ name: 'echo', description: 'e', parameters: {}, async execute() { return [{ type: 'text', text: 'ok' }] } }))
+      ctx.tools.register(defineContentToolFixture({ name: 'other', description: 'o', parameters: {}, async execute() { return [{ type: 'text', text: 'ok' }] } }))
+      const agent = await ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+      agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
+      await waitForIdle(ctx, agent)
+
+      expect(adapter.requests[0]!.tools?.map(tool => tool.name)).toEqual(['echo'])
+    })
+
+    it('runs the PostToolUseFailure point for a failed tool call and folds its context', async () => {
+      const d = dir()
+      const path = hooks(d, { PostToolUseFailure: [{ hooks: [{ type: 'command', command: 'echo \'{"hookSpecificOutput":{"hookEventName":"PostToolUseFailure","additionalContext":"the call failed"}}\'' }] }] })
+      const adapter = new MockAdapter([toolCallResponse('c1', 'boom', {}), textResponse('done')])
+      const ctx = await harness(path, adapter)
+      ctx.tools.register(defineContentToolFixture({ name: 'boom', description: 'b', parameters: {}, async execute() { throw new Error('kaboom') } }))
+      const agent = await ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+      agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
+      await waitForIdle(ctx, agent)
+
+      const invoked = events(agent).find(e => e.type === 'hook/invoked')
+      expect(invoked?.type === 'hook/invoked' && invoked.data.point).toBe('PostToolUseFailure')
+      expect(JSON.stringify(adapter.requests[1]!.messages)).toContain('the call failed')
+    })
+  })
+
+  if (group === 'events') describe('hooks-claude-code coverage — permission, compaction, notification, and lifecycle points', () => {
+    /** One HTTP hook endpoint recording every payload it receives; it answers each with `response`. */
+    async function hookEndpoint(response: unknown): Promise<{ url: string; bodies: string[] }> {
+      const bodies: string[] = []
+      const server = createServer((req, res) => {
+        const chunks: Buffer[] = []
+        req.on('data', (chunk: Buffer) => chunks.push(chunk))
+        req.on('end', () => {
+          bodies.push(Buffer.concat(chunks).toString('utf8'))
+          res.writeHead(200, { 'content-type': 'application/json' })
+          res.end(JSON.stringify(response))
+        })
+      })
+      await new Promise<void>((resolve) => { server.listen(0, '127.0.0.1', resolve) })
+      const address = server.address()
+      const port = typeof address === 'object' && address !== null ? address.port : 0
+      endpoints.push({ close: () => new Promise<void>((resolve) => { server.close(() => { resolve() }) }) })
+      return { url: `http://127.0.0.1:${port}/hook`, bodies }
+    }
+
+    /** A PreToolUse hook that turns the call into an approval ask (the approval seam's only bridge route). */
+    async function askEndpoint(): Promise<string> {
+      return (await hookEndpoint({
+        hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'ask', permissionDecisionReason: 'needs approval' },
+      })).url
+    }
+
+    it('runs PermissionRequest for an approval ask and honors a hook deny ahead of the answerer', async () => {
+      const ask = await askEndpoint()
+      const refusal = await hookEndpoint({ hookSpecificOutput: { hookEventName: 'PermissionRequest', permissionDecision: 'deny' } })
+      const d = dir()
+      const path = hooks(d, {
+        PreToolUse: [{ hooks: [{ type: 'http', url: ask }] }],
+        PermissionRequest: [{ matcher: 'guarded', hooks: [{ type: 'http', url: refusal.url }] }],
+      })
+      const adapter = new MockAdapter([toolCallResponse('c1', 'guarded', {}), textResponse('done')])
+      const ctx = await harness(path, adapter)
+      await ctx.plugin(ApprovalService)
+      const answerer = vi.fn(async () => 'allowed-once' as const)
+      ctx.on('approval/request', answerer)
+      let ran = false
+      ctx.tools.register(defineContentToolFixture({ name: 'guarded', description: 'g', parameters: {}, async execute() { ran = true; return [{ type: 'text', text: 'ok' }] } }))
+      const agent = await ctx.agentLoop.create(SessionId('ask-denied'), { provider: 'mock', model: 'mock' })
+      agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
+      await waitForIdle(ctx, agent)
+
+      expect(ran).toBe(false)
+      const result = events(agent).find(e => e.type === 'tool/result')
+      expect(result?.type === 'tool/result' && JSON.stringify(result.data.message)).toContain('the user rejected tool')
+      // The hook refused before the channel was asked, so the answerer never ran.
+      expect(answerer).not.toHaveBeenCalled()
+      expect(refusal.bodies).toHaveLength(1)
+      expect(JSON.parse(refusal.bodies[0]!)).toMatchObject({
+        hook_event_name: 'PermissionRequest',
+        session_id: 'ask-denied',
+        tool_name: 'guarded',
+        tool_input: {},
+        permission_suggestions: [],
+      })
+      expect(hookPoints(agent).sort()).toEqual(['PermissionRequest', 'PreToolUse'])
+    }, 15_000)
+
+    it('lets a PermissionRequest hook refuse but never grant: the approval channel still decides', async () => {
+      const ask = await askEndpoint()
+      const allowance = await hookEndpoint({ hookSpecificOutput: { hookEventName: 'PermissionRequest', permissionDecision: 'allow' } })
+      const d = dir()
+      const path = hooks(d, {
+        PreToolUse: [{ hooks: [{ type: 'http', url: ask }] }],
+        PermissionRequest: [{ hooks: [{ type: 'http', url: allowance.url }] }],
+      })
+      const adapter = new MockAdapter([toolCallResponse('c1', 'guarded', {}), textResponse('done')])
+      const ctx = await harness(path, adapter)
+      await ctx.plugin(ApprovalService)
+      const answerer = vi.fn(async () => 'unavailable' as const)
+      ctx.on('approval/request', answerer)
+      let ran = false
+      ctx.tools.register(defineContentToolFixture({ name: 'guarded', description: 'g', parameters: {}, async execute() { ran = true; return [{ type: 'text', text: 'ok' }] } }))
+      const agent = await ctx.agentLoop.create(SessionId('ask-allowed'), { provider: 'mock', model: 'mock' })
+      agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
+      await waitForIdle(ctx, agent)
+
+      // The hook's allow is not a grant: the call still went to the channel, which failed closed.
+      expect(ran).toBe(false)
+      expect(answerer).toHaveBeenCalledTimes(1)
+      const result = events(agent).find(e => e.type === 'tool/result')
+      expect(result?.type === 'tool/result' && JSON.stringify(result.data.message)).toContain('no approval channel is available')
+      expect(allowance.bodies).toHaveLength(1)
+      expect(JSON.parse(allowance.bodies[0]!)).toMatchObject({ hook_event_name: 'PermissionRequest', tool_name: 'guarded' })
+    }, 15_000)
+
+    it('runs Notification and PermissionDenied for a rejected decision, matched by their subjects', async () => {
+      const ask = await askEndpoint()
+      const prompted = await hookEndpoint({})
+      const unrelatedNotification = await hookEndpoint({})
+      const deniedByTool = await hookEndpoint({})
+      const otherDenial = await hookEndpoint({})
+      const d = dir()
+      const path = hooks(d, {
+        PreToolUse: [{ hooks: [{ type: 'http', url: ask }] }],
+        Notification: [
+          { matcher: 'permission_prompt', hooks: [{ type: 'http', url: prompted.url }] },
+          { matcher: 'auth_success', hooks: [{ type: 'http', url: unrelatedNotification.url }] },
+        ],
+        PermissionDenied: [
+          { matcher: 'guarded', hooks: [{ type: 'http', url: deniedByTool.url }] },
+          { matcher: 'other-tool', hooks: [{ type: 'http', url: otherDenial.url }] },
+        ],
+      })
+      const adapter = new MockAdapter([toolCallResponse('c1', 'guarded', {}), textResponse('done')])
+      const ctx = await harness(path, adapter)
+      await ctx.plugin(ApprovalService)
+      const answerer = vi.fn(async () => 'rejected' as const)
+      ctx.on('approval/request', answerer)
+      ctx.tools.register(defineContentToolFixture({ name: 'guarded', description: 'g', parameters: {}, async execute() { return [{ type: 'text', text: 'ok' }] } }))
+      const agent = await ctx.agentLoop.create(SessionId('approval-audit'), { provider: 'mock', model: 'mock' })
+      agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
+      await waitForIdle(ctx, agent)
+      await waitFor(() => prompted.bodies.length === 1 && deniedByTool.bodies.length === 1)
+
+      expect(answerer).toHaveBeenCalledTimes(1)
+      // The ask's Notification and the refusal's PermissionDenied are the CC payloads for that pair.
+      expect(JSON.parse(prompted.bodies[0]!)).toMatchObject({
+        hook_event_name: 'Notification',
+        session_id: 'approval-audit',
+        notification_type: 'permission_prompt',
+        message: 'Approval requested for tool "guarded"',
+        title: '',
+      })
+      expect(JSON.parse(deniedByTool.bodies[0]!)).toMatchObject({
+        hook_event_name: 'PermissionDenied',
+        tool_name: 'guarded',
+        reason: 'rejected',
+      })
+      // A group whose matcher names a subject this point never carries runs nothing.
+      expect(unrelatedNotification.bodies).toEqual([])
+      expect(otherDenial.bodies).toEqual([])
+      expect(hookPoints(agent).sort()).toEqual(['Notification', 'PermissionDenied', 'PreToolUse'])
+    }, 15_000)
+
+    it('runs PreCompact per compaction start, matching the trigger and reporting a halt it cannot apply', async () => {
+      const manual = await hookEndpoint({ continue: false, stopReason: 'compaction veto' })
+      const automatic = await hookEndpoint({})
+      const d = dir()
+      const path = hooks(d, {
+        PreCompact: [
+          { matcher: 'manual', hooks: [{ type: 'http', url: manual.url }] },
+          { matcher: 'auto', hooks: [{ type: 'http', url: automatic.url }] },
+        ],
+      })
+      const adapter = new MockAdapter([toolCallResponse('c1', 'compact', {}), textResponse('done')])
+      const ctx = await harness(path, adapter)
+      const warn = vi.fn()
+      ctx.logger.warn = warn as never
+      ctx.tools.register(defineContentToolFixture({
+        name: 'compact', description: 'c', parameters: {},
+        async execute(_args, exec) {
+          const session = exec.agent?.session
+          if (session === undefined) throw new Error('the compaction tool needs an agent session')
+          // A compaction start is the bridge's only route into PreCompact; both
+          // triggers are produced inside the open turn so the point is recorded.
+          session.append('compaction/start', { compactionId: CompactionId('manual-1'), sourceCommandId: CommandId('cmd-1'), turn: 1 })
+          session.append('compaction/start', { compactionId: CompactionId('auto-1'), turn: 1 })
+          return [{ type: 'text', text: 'ok' }]
+        },
+      }))
+      const agent = await ctx.agentLoop.create(SessionId('compact-1'), { provider: 'mock', model: 'mock' })
+      agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
+      await waitForIdle(ctx, agent)
+      await waitFor(() => manual.bodies.length === 1 && automatic.bodies.length === 1)
+      // The endpoint records its request before the bridge folds the response,
+      // so the halt report is only observable once the reply landed.
+      await waitFor(() => warn.mock.calls.some(call => String(call[0]).includes('no live run exists there')))
+
+      // The source command is what makes a compaction manual, and it is the matcher subject.
+      expect(JSON.parse(manual.bodies[0]!)).toMatchObject({
+        hook_event_name: 'PreCompact', trigger: 'manual', custom_instructions: '', session_id: 'compact-1',
+      })
+      expect(JSON.parse(automatic.bodies[0]!)).toMatchObject({ hook_event_name: 'PreCompact', trigger: 'auto' })
+      // A detached point has no live run: the halt request is reported, not applied.
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('no live run exists there'))
+      expect(hookPoints(agent).filter(point => point === 'PreCompact')).toHaveLength(2)
+      expect(adapter.requests).toHaveLength(2)
+    }, 15_000)
+
+    it('runs SessionEnd for a disposed agent, with no turn to record it in', async () => {
+      // A matcher on SessionEnd has no subject to test: it is dropped, and the hook still fires.
+      const end = await hookEndpoint({})
+      const d = dir()
+      const path = hooks(d, { SessionEnd: [{ matcher: 'never-matches', hooks: [{ type: 'http', url: end.url }] }] })
+      const ctx = await harness(path, new MockAdapter([]))
+      const handle = await ctx.agents.create({
+        sessionId: SessionId('ended'),
+        meta: { cwd: dir() },
+        agentOptions: { provider: 'mock', model: 'mock' },
+      })
+
+      await handle.dispose()
+      await waitFor(() => end.bodies.length === 1)
+
+      expect(JSON.parse(end.bodies[0]!)).toMatchObject({
+        hook_event_name: 'SessionEnd',
+        session_id: 'ended',
+        reason: 'other',
+      })
+      // Between turns there is no open turn, so the detached point leaves no hook/* record.
+      expect(hookPoints(handle.agent)).toEqual([])
+    }, 15_000)
+
+    it('runs PostToolUseFailure for a failed call, matched by tool, and honors a block', async () => {
+      const blocked = await hookEndpoint({ decision: 'block', reason: 'retry with a smaller input' })
+      const otherTool = await hookEndpoint({})
+      const d = dir()
+      const path = hooks(d, {
+        PostToolUseFailure: [
+          { matcher: 'boom', hooks: [{ type: 'http', url: blocked.url }] },
+          { matcher: 'other', hooks: [{ type: 'http', url: otherTool.url }] },
+        ],
+      })
+      const adapter = new MockAdapter([toolCallResponse('c1', 'boom', {}), textResponse('done')])
+      const ctx = await harness(path, adapter)
+      ctx.tools.register(defineContentToolFixture({ name: 'boom', description: 'b', parameters: {}, async execute() { throw new Error('kaboom') } }))
+      const agent = await ctx.agentLoop.create(SessionId('failure-1'), { provider: 'mock', model: 'mock' })
+      agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
+      await waitForIdle(ctx, agent)
+
+      const result = events(agent).find(e => e.type === 'tool/result')
+      expect(result?.type === 'tool/result' && result.data.message.isError).toBe(true)
+      expect(result?.type === 'tool/result' && JSON.stringify(result.data.message)).toContain('retry with a smaller input')
+      const payload = JSON.parse(blocked.bodies[0]!) as { error?: string; tool_response?: string }
+      expect(payload).toMatchObject({ hook_event_name: 'PostToolUseFailure', tool_name: 'boom' })
+      // The failure point names the failure beside the response it renders from.
+      expect(payload.error).toContain('kaboom')
+      expect(payload.tool_response).toBe(payload.error)
+      expect(otherTool.bodies).toEqual([])
+      expect(hookPoints(agent)).toEqual(['PostToolUseFailure'])
+      expect(adapter.requests).toHaveLength(2)
+    }, 15_000)
   })
 }

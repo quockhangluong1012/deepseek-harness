@@ -64,7 +64,7 @@ export interface EvolutionMemoryValue {
   readonly outputs: readonly EvolutionOutput[]
   /** Episodic tier: raw session notes in append order. */
   readonly episodic: readonly EpisodicEntry[]
-  /** Provenance of the last model-written document, or null. */
+  /** The extraction that last wrote the document, or null. */
   readonly lastExtraction: EvolutionExtraction | null
   /** Writes still awaiting a decision, oldest first. */
   readonly staged: readonly StagedWrite[]
@@ -89,7 +89,12 @@ export interface EvolutionSetInstructionsRequest extends EvolutionScopeRequest {
   readonly instructions: string
 }
 
-/** Replace the lessons document wholesale. */
+/**
+ * Replace the lessons document wholesale. A candidate that restates an
+ * artifact the scope already holds keeps that record's counters, creation
+ * instant, creation record, and expiry; only a statement the scope does not hold
+ * becomes a new record.
+ */
 export interface EvolutionSetLessonsRequest extends EvolutionScopeRequest {
   /** The whole lessons document, one candidate per fact. */
   readonly artifacts: readonly LessonArtifactInput[]

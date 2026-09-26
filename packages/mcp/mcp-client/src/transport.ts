@@ -1,14 +1,16 @@
 /**
  * Transport factory: creates the appropriate MCP transport based on the
  * plugin's resolved config. Stdio spawns a child process (with credential
- * scrubbing); Streamable HTTP connects to a URL.
+ * scrubbing); Streamable HTTP and legacy SSE connect to a URL. Both URL
+ * transports attach the configured headers to every request and, when the
+ * server is configured with `auth`, the same OAuth 2.1 client provider.
  *
  * @module
  */
 
-import type { Transport } from '@modelcontextprotocol/client'
+import type { OAuthClientProvider, Transport } from '@modelcontextprotocol/client'
+import { SSEClientTransport, StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio'
-import { StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
 import { scrubbedParentEnv } from '@deepseek-ai/dsh-subprocess'
 import type { Config } from './index.ts'
 
@@ -23,12 +25,24 @@ function buildChildEnv(extra: Record<string, string>): Record<string, string> {
 }
 
 /**
+ * The auth option object for one URL transport: absent entirely when the server
+ * has no `auth` block, so an unauthenticated server never reaches an auth seam.
+ * @param authProvider - the provider resolved for this plugin instance, or undefined.
+ * @returns the option entry to spread into the transport options.
+ */
+function authOption(authProvider: OAuthClientProvider | undefined): { authProvider?: OAuthClientProvider } {
+  return authProvider === undefined ? {} : { authProvider }
+}
+
+/**
  * Create an MCP transport from the resolved plugin config.
  *
  * @param config - Resolved plugin config discriminated on `transport`.
- * @returns A connected-ready MCP Transport (stdio or Streamable HTTP).
+ * @param authProvider - OAuth 2.1 provider for a server configured with `auth`;
+ *   omitted for every other server.
+ * @returns A connected-ready MCP Transport (stdio, legacy SSE, or Streamable HTTP).
  */
-export function createTransport(config: Config): Transport {
+export function createTransport(config: Config, authProvider?: OAuthClientProvider): Transport {
   switch (config.transport) {
     case 'stdio':
       return new StdioClientTransport({
@@ -37,10 +51,16 @@ export function createTransport(config: Config): Transport {
         env: buildChildEnv(config.env),
         cwd: config.cwd,
       })
+    case 'sse':
+      // oxlint-disable-next-line typescript/no-deprecated -- legacy SSE servers need it; the SDK ships no other SSE client.
+      return new SSEClientTransport(new URL(config.url), {
+        ...authOption(authProvider),
+        requestInit: { headers: config.headers },
+      })
     case 'streamable-http':
-      return new StreamableHTTPClientTransport(
-        new URL(config.url),
-        { requestInit: { headers: config.headers } },
-      )
+      return new StreamableHTTPClientTransport(new URL(config.url), {
+        ...authOption(authProvider),
+        requestInit: { headers: config.headers },
+      })
   }
 }

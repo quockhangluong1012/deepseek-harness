@@ -30,7 +30,6 @@ function rawOf() {
     addContextItem: vi.fn(async () => ({ ok: true as const, value })),
     removeContextItem: vi.fn(async () => ({ ok: true as const, value })),
     listContextFiles: vi.fn(async () => ({ ok: true as const, value: { paths: ['a.md'] } })),
-    rebuildMemory: vi.fn(async () => ({ ok: true as const, value })),
   }
 }
 
@@ -54,7 +53,6 @@ describe('workspace-memory rpc face', () => {
     await expect(verbs.addFileItem(id, 'label', '/w/a.md')).resolves.toBeDefined()
     await expect(verbs.removeContextItem(id, 'item')).resolves.toBeDefined()
     await expect(verbs.listContextFiles(id, 'q', signal)).resolves.toEqual(['a.md'])
-    await expect(verbs.rebuildMemory(id, signal)).resolves.toBeDefined()
     expect(raw.read).toHaveBeenCalledWith({ workspaceId: id })
     expect(raw.addContextItem).toHaveBeenCalledWith({ workspaceId: id, kind: 'text', label: 'label', text: 'text' })
     expect(raw.addContextItem).toHaveBeenCalledWith({ workspaceId: id, kind: 'file', label: 'label', path: '/w/a.md' })

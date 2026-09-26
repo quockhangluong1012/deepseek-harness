@@ -68,7 +68,7 @@ Rebuild used to regenerate the lessons document from history and write it as the
 
 - `validationCount` and `refutationCount` are live. A turn's evidence moves them, a `confirms` refreshes the artifact's `updatedAt`, and decay now runs on what a scope's own conversation keeps re-deriving rather than on age alone.
 - The relevance window is a completeness ceiling as well as a cost ceiling: a still-true fact nothing discusses again decays under `defaultTtlDays`, and no reader is told that it was once known.
-- One extraction call is one write: one `lessonsUpdatedAt` stamp, and a batch that changed nothing — an empty one, or one whose decisions all named artifacts the record no longer holds — stamps no family while still recording the call's provenance on `lastExtraction`.
+- One extraction call is one write: one `lessonsUpdatedAt` stamp, and a batch that changed nothing — an empty one, or one whose decisions all named artifacts the record no longer holds — stamps no family while still recording which call wrote it on `lastExtraction`.
 - A contradiction may replace an artifact's statement while the artifact keeps the id every caller addresses it by, so an id stops spelling the statement its artifact holds. `addArtifactTo` therefore resolves a candidate by statement as well as by id, and a corrected fact does not grow a twin on the next turn.
 - A staged batch is approved whole. There is no way to accept one decision of a turn and reject another, and the pending list shows decision details without the transcript evidence behind them.
 - Extraction has no removal path. Retiring a fact takes decay (three refutations by default, or a lapsed ttl) or the store's own remove operation; a wrong fact that no turn raises again survives until its ttl lapses.

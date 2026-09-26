@@ -1,0 +1,16 @@
+.agents/notes/implemented/feature/2026-09-12-guard-budgets.md
+docs/subsystems/agent-kernel.md
+docs/subsystems/spill.md
+packages/bundle/headless/README.md
+packages/context/active-memory-context/README.md
+packages/core/agent-loop/README.md
+packages/evolution/evolution-controller/README.md
+packages/evolution/evolution-operators/README.md
+packages/fs/tool-fs/README.md
+packages/llm/embeddings/README.md
+packages/runtime/agent-kernel/README.md
+packages/runtime/agent-kernel-builtins/README.md
+packages/skill/evolution-skill-telemetry/README.md
+packages/spill/spill-local/README.md
+packages/subagent/command-review/README.md
+packages/subagent/tool-subagent/README.md

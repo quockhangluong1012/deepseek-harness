@@ -187,7 +187,12 @@ async function runCost(ctx: Context, invocation: CommandInvocation): Promise<Com
     try {
       const snapshot = await ctx.sessionQuery.readSession(descendant.id)
       const label = (descendant.label ?? String(descendant.id)).replace(/[\r\n\t]/gu, ' ').trim()
-      inputs.push({ label: label.length > 0 ? label : String(descendant.id), depth: descendant.depth, snapshot, ownedFrom: snapshot.inheritedEventCount })
+      inputs.push({
+        label: label.length > 0 ? label : String(descendant.id),
+        depth: descendant.depth,
+        snapshot,
+        ownedFrom: snapshot.inheritedEventCount,
+      })
     } catch {
       invocation.signal.throwIfAborted()
       unavailableSessions += 1

@@ -25,6 +25,7 @@ schedule 组让 agent（智能体）为当前会话创建、列出和取消提�
 | 包 | 职责 | ctx 键 |
 |---|---|---|
 | [`schedule/`](schedule/README.zh.md) | 会话本地提醒：安排、列出并取消活动记录；发布供 header 目录与列表行标识读取的可选只读 projection；把到期提醒作为会话消息交付 | —（工具只注册在精确的 agent scope 中） |
+| [`schedule-routines/`](schedule-routines/README.zh.md) | 部署级定时 routine：持久定义，每次到期都会启动一个新的、挂在 Workspace 上的会话，由人类 `/routine` 命令管理 | `ctx.routines` |
 
 -----
 

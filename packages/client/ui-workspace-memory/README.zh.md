@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-`dsh-client-ui-workspace-memory` 拥有 Workspace 页面与 `workspaceMemory` Remote 命名空间。页面从侧边栏的 Workspace 名称打开，展示描述、产出文件、会话与动态标签页，以及指令、记忆、上下文三张卡片；页面自身不绘制输入区，因为会话的输入区停靠进页面名称与描述下方留出的 band。Host 侧基于持久存储提供读取、写入、候选文件、重建，以及实时 follow 流。
+`dsh-client-ui-workspace-memory` 拥有 Workspace 页面与 `workspaceMemory` Remote 命名空间。页面从侧边栏的 Workspace 名称打开，展示描述、产出文件、会话与动态标签页，以及指令、记忆、上下文三张卡片；页面自身不绘制输入区，因为会话的输入区停靠进页面名称与描述下方留出的 band。Host 侧基于持久存储提供读取、写入、候选文件，以及实时 follow 流。
 
 ## 目录
 
@@ -25,7 +25,7 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用本包
 
-在 `web-app` 组合包中，将该行与存储、提取器、注入器一并挂载。点击 Workspace 名称打开其页面；展开按钮展开分组。页面占用 frame 的 `shell.page` 席位，因此在中栏绘制在会话之上而非覆盖整个应用；没有打开任何页面时它返回 null。
+在 `web-app` 组合包中，将该行与存储、注入器一并挂载。点击 Workspace 名称打开其页面；展开按钮展开分组。页面占用 frame 的 `shell.page` 席位，因此在中栏绘制在会话之上而非覆盖整个应用；没有打开任何页面时它返回 null。
 
 打开页面时会解析该 Workspace 的空白 Session（`uiWorkspace.connectWorkspace` 复用已有的，否则新建）并选中它，因此会话的常驻输入区——与首页展示的是同一个控件，模型、权限与模式席位都是活的——停靠进页面名称与描述下方留出的 band；在那里输入的提示词直接进入该 Workspace 的 Session。一旦该 Session 被真正对话（首次提示词会清除 blank 标记，回复也就在输入区所属的会话中流式返回）、读者在别处打开任一 Session，或侧边栏调用 `close`，页面就把中栏让回；选择被清空时页面保留，因为无会话视图展示的也是它。
 
@@ -41,7 +41,7 @@ kind: "package-reference"
 
 ### 设计理念
 
-Host 服务 `ctx.workspaceMemoryController` 拥有 `workspaceMemory` 命名空间；每个动词都先解析 Workspace，失败时返回 `workspace/not-found`。浏览器页面在打开时调用 `read`，并订阅 `follow`，以便后台提取或产出索引写入落地时实时更新。
+Host 服务 `ctx.workspaceMemoryController` 拥有 `workspaceMemory` 命名空间；每个动词都先解析 Workspace，失败时返回 `workspace/not-found`。浏览器页面在打开时调用 `read`，并订阅 `follow`，以便手工编辑写入落地时实时更新。
 
 ### 源码地图
 

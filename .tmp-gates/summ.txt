@@ -1,0 +1,10 @@
+verify-package-readme-summaries: violations found:
+  packages/deliverables/command-rewind/README.md: Summary has 107 words; the limit is 100. Read .agents/skills/dsh-doc/SKILL.md and .agents/skills/dsh-doc/templates/package-reference.md before rewriting it.
+  packages/deliverables/workspace-changes/README.md: Summary has 122 words; the limit is 100. Read .agents/skills/dsh-doc/SKILL.md and .agents/skills/dsh-doc/templates/package-reference.md before rewriting it.
+  packages/evolution/evolution-curator/README.md: Summary has 126 words; the limit is 100. Read .agents/skills/dsh-doc/SKILL.md and .agents/skills/dsh-doc/templates/package-reference.md before rewriting it.
+  packages/evolution/evolution-heartbeat/README.md: Summary has 111 words; the limit is 100. Read .agents/skills/dsh-doc/SKILL.md and .agents/skills/dsh-doc/templates/package-reference.md before rewriting it.
+  packages/evolution/evolution-lineage/README.md: Summary has 107 words; the limit is 100. Read .agents/skills/dsh-doc/SKILL.md and .agents/skills/dsh-doc/templates/package-reference.md before rewriting it.
+  packages/evolution/evolution-metrics/README.md: Summary has 161 words; the limit is 100. Read .agents/skills/dsh-doc/SKILL.md and .agents/skills/dsh-doc/templates/package-reference.md before rewriting it.
+  packages/jobs/tool-jobs/README.md: Summary has 105 words; the limit is 100. Read .agents/skills/dsh-doc/SKILL.md and .agents/skills/dsh-doc/templates/package-reference.md before rewriting it.
+  packages/llm/embeddings-http/README.md: Summary has 108 words; the limit is 100. Read .agents/skills/dsh-doc/SKILL.md and .agents/skills/dsh-doc/templates/package-reference.md before rewriting it.
+  packages/runtime/agent-kernel/README.md: Summary has 113 words; the limit is 100. Read .agents/skills/dsh-doc/SKILL.md and .agents/skills/dsh-doc/templates/package-reference.md before rewriting it.

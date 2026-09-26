@@ -4,6 +4,8 @@ Status: implemented
 
 English | [中文](2026-08-28-auto-review.zh.md)
 
+Superseded in part by [the Auto mode reviewer scope decision](2026-09-26-auto-mode-reviewer-scope.md): the enforcement bundle, the classifier route, the decision vocabulary, and the approval owner changed; the authority model, source roles, and lifecycle below still hold.
+
 ## Problem
 
 Full access lets useful project work proceed without repeated approvals, but it also permits destructive operations and sensitive exfiltration. A permission mode that delegates approval to a model needs an explicit authority policy, a complete description of the pending action, and a failure path that never executes the rejected body. Sharing Full access's enforcement knobs also makes a separate durable mode identity necessary, including when a child inherits an older fork prefix.

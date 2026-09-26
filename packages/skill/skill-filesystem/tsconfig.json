@@ -9,8 +9,12 @@
     { "path": "../../../vendor/cosmokit" },
     { "path": "../../../vendor/cordis" },
     { "path": "../../../vendor/schemastery" },
+    { "path": "../../../vendor/loader" },
     { "path": "../../fs/fs" },
     { "path": "../../util/home-paths" },
-    { "path": "../skill" }
+    { "path": "../skill" },
+    { "path": "../../core/agent" },
+    { "path": "../../interaction/user-questions" },
+    { "path": "../../settings/settings" }
   ]
 }

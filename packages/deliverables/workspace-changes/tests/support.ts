@@ -11,6 +11,13 @@ import type { WorkspaceChangesSummary } from '../src/types.ts'
 
 let callNumber = 0
 
+/**
+ * Milliseconds a test that drives git through the `subprocess` capability may take.
+ * On Windows every command boots a containment runner process, so one turn's
+ * snapshots cost seconds and vitest's 5000ms default is too tight for those fixtures.
+ */
+export const SUBPROCESS_TEST_TIMEOUT_MS = 30_000
+
 /** Run git synchronously inside a fixture repository. */
 export function git(cwd: string, ...args: string[]): string {
   return execFileSync('git', ['-c', 'user.email=t@example.com', '-c', 'user.name=t', '-c', 'commit.gpgsign=false', ...args], {

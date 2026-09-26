@@ -12,7 +12,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
-import LocalSpillStore, { sessionDir } from '@deepseek-ai/dsh-spill-local'
+import LocalSpillStore, { LocalArtifactStore, sessionDir } from '@deepseek-ai/dsh-spill-local'
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
@@ -66,6 +66,7 @@ describe('spill-local real Loader composition through cordis.yml', () => {
       config: { path: pathToFileURL(configPath).href },
     })
     await context.loader.await()
+    expect(context.artifacts).toBeInstanceOf(LocalArtifactStore)
     await context.fiber.dispose()
     context = undefined
 

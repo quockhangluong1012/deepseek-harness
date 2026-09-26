@@ -45,6 +45,9 @@
       "path": "../../runtime/agent-kernel"
     },
     {
+      "path": "../../plan/plan-mode"
+    },
+    {
       "path": "../commands"
     },
     {

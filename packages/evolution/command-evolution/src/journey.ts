@@ -66,12 +66,12 @@ function dayOf(at: string): string {
 
 /**
  * Attribute one family's write instant: the extraction that landed at exactly
- * that instant names its provenance, and every other write is a hand edit.
+ * that instant names its writer, and every other write is a hand edit.
  * @param record - the scope record carrying the extraction.
  * @param at - the family's write instant.
  * @returns the gist and the session the write is attributable to.
  */
-function writeProvenance(
+function writeAttribution(
   record: EvolutionMemoryRecord,
   at: string,
 ): { gist: string; sessionId: string | null } {
@@ -95,19 +95,19 @@ function recordDeltas(record: EvolutionMemoryRecord | undefined): TimelineDelta[
     deltas.push({ day: dayOf(at), kind, gist, sessionId, at })
   }
   if (record.instructionsUpdatedAt != null) {
-    const provenance = writeProvenance(record, record.instructionsUpdatedAt)
-    push('instructions', record.instructionsUpdatedAt, provenance.gist, provenance.sessionId)
+    const attribution = writeAttribution(record, record.instructionsUpdatedAt)
+    push('instructions', record.instructionsUpdatedAt, attribution.gist, attribution.sessionId)
   }
   const lessonsAt = record.lessonsUpdatedAt
   const profileAt = record.profileUpdatedAt
   if (lessonsAt != null || profileAt != null) {
     if (lessonsAt != null) {
-      const provenance = writeProvenance(record, lessonsAt)
-      push('lessons', lessonsAt, provenance.gist, provenance.sessionId)
+      const attribution = writeAttribution(record, lessonsAt)
+      push('lessons', lessonsAt, attribution.gist, attribution.sessionId)
     }
     if (profileAt != null) {
-      const provenance = writeProvenance(record, profileAt)
-      push('profile', profileAt, provenance.gist, provenance.sessionId)
+      const attribution = writeAttribution(record, profileAt)
+      push('profile', profileAt, attribution.gist, attribution.sessionId)
     }
   } else if (record.lastExtraction !== null) {
     const extraction = record.lastExtraction

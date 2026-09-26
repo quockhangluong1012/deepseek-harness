@@ -800,8 +800,8 @@ function InstallDialog({
         title={t('installTitle')}
         closeLabel={t('close')}
         description={t('installDescription')}
-        className={css.installDialog as string}
-        contentClassName={css.installContent as string}
+        className={css.installDialog}
+        contentClassName={css.installContent}
         footer={(
           <Button variant="primary" className={css.wide} disabled={checking || empty} aria-busy={checking} onClick={onRun}>
             {checking ? <StateDot state="ongoing" /> : null}
@@ -969,7 +969,7 @@ function InstallDialog({
   // Another registry is worth offering only for a failure the Host laid at the one it asked.
   const changeable = phase === 'failed' && !approvable && install.failure?.failedAt === 'registry'
   return (
-    <Modal open={install.open} onClose={onClose} title={heading} headless className={css.installDialog as string}>
+    <Modal open={install.open} onClose={onClose} title={heading} headless className={css.installDialog}>
       <div className={css.wizard} data-install-phase={phase}>
         <div className={css.wizardHead}>
           {phase === 'done'

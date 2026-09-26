@@ -269,7 +269,7 @@ git commit -m "feat(active-memory-context): graph-neighbor leg fused into pre-st
 **Files:**
 - Modify: `packages/evolution/evolution-graph/README.md` + `.zh.md` (producer section + `intervalHours`/`profile` rows), `packages/context/active-memory-context/README.md` + `.zh.md` (graph leg + `profile`/`graphDepth`/`graphLimit` rows) — mirror the table style already in `packages/llm/embeddings-http/README.md:39-46`.
 - Modify: `docs/config-catalog.md` + `.zh.md` via `pnpm run gen-config-catalog` + manual ZH hunk mirror (code blocks copied verbatim, as done before).
-- Create: `.agents/notes/implemented/architecture/2026-09-1X-graph-vector-fusion.md` + `.zh.md` (problem/decision/alternatives/consequences; alternatives must record edge-provenance and side-index rejection + watermark→buffer deviation).
+- Create: `.agents/notes/implemented/architecture/2026-09-1X-graph-vector-fusion.md` + `.zh.md` (problem/decision/alternatives/consequences; alternatives must record edge-source-session and side-index rejection + watermark→buffer deviation).
 
 **Interfaces:** none (docs only).
 

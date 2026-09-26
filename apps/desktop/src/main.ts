@@ -2,6 +2,7 @@ import { WINDOWS_TITLEBAR_HEIGHT } from './windows-layout.ts'
 /** Electron shell: desktop project ownership, custom protocol, windows, and lifecycle. */
 
 import { readFile, writeFile } from 'node:fs/promises'
+import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
@@ -9,6 +10,7 @@ import {
   BrowserWindow,
   clipboard,
   dialog,
+  globalShortcut,
   ipcMain,
   Menu,
   powerMonitor,
@@ -37,7 +39,16 @@ import { DesktopFatalRecovery } from './fatal-recovery.ts'
 import { pruneCrashReports, RendererConsoleTail, writeCrashReport, type CrashReportSource } from './crash-report.ts'
 import { openWelcomeWindow } from './welcome-window.ts'
 import { WELCOME_IPC, needsWelcome } from './welcome-api.ts'
-import { connectDesktopWelcome, type DesktopWelcomeBackend } from './welcome-backend.ts'
+import { connectDesktopWelcome, createDesktopHostRpc, type DesktopHostRpc, type DesktopWelcomeBackend } from './welcome-backend.ts'
+import { createDesktopTray, type DesktopTray, type DesktopTrayStatus } from './tray.ts'
+import {
+  QUICK_PROMPT_PREFERENCE_FILE,
+  acceleratorFromCandidate,
+  openQuickPromptWindow,
+  readQuickPromptAccelerator,
+  writeQuickPromptAccelerator,
+} from './quick-prompt.ts'
+import type { QuickPromptShortcutCandidate, QuickPromptShortcutResult, QuickPromptSubmitResult } from './quick-prompt-api.ts'
 import { DesktopUpdateJournal } from './update-journal.ts'
 import { DesktopUpdatePreparationError } from './update-error.ts'
 import { DesktopUpdateSchedule, resolveDesktopUpdateScheduleConfig } from './update-schedule.ts'
@@ -62,6 +73,9 @@ let windowsLanguage: string | undefined
 let backendReady = false
 /** Error-level console output of the primary window, attached to crash reports. */
 const rendererConsole = new RendererConsoleTail()
+
+/** How often the tray re-asks the Host for running agents while the workspace window is hidden. */
+const TRAY_ACTIVITY_POLL_MS = 60_000
 
 // Platform-conventional logs directory (macOS ~/Library/Logs/<name>, otherwise under userData);
 // set before ready so the first fatal report already resolves under it.
@@ -120,6 +134,12 @@ protocol.registerSchemesAsPrivileged([{
     codeCache: true,
   },
 }])
+
+// Wayland exposes global shortcuts only through the XDG desktop portal; X11 and the other
+// platforms register raw grabs. The switch is read once, so it must precede app readiness.
+if (process.platform === 'linux' && process.env.XDG_SESSION_TYPE === 'wayland') {
+  app.commandLine.appendSwitch('enable-features', 'GlobalShortcutsPortal')
+}
 
 interface RuntimeResources {
   readonly nodeBin: string
@@ -339,6 +359,7 @@ async function main(): Promise<void> {
   const browserGuests = new DesktopBrowserGuests(() => hostUrl)
   let injections: readonly unknown[] = []
   let welcomeBackend: DesktopWelcomeBackend | undefined
+  let quickPromptRpc: DesktopHostRpc | undefined
   let stopAccount: (() => void) | undefined
   let openedAttempt: string | undefined
   let returnedAttempt: string | undefined
@@ -365,6 +386,9 @@ async function main(): Promise<void> {
     navigation = next
     return next.promise
   }
+  const hostFetch = (input: string, init?: RequestInit): Promise<Response> => net.fetch(input, init)
+  const hostSessionCookies = async (url: string): Promise<string> =>
+    (await session.defaultSession.cookies.get({ url })).map(cookie => `${cookie.name}=${cookie.value}`).join('; ')
   const platformView = new DesktopPlatformView(join(app.getAppPath(), 'lib', 'preload-platform-account.cjs'),
     () => locale.id === 'zh-CN' ? 'zh_CN' : 'en_US')
   const backend = new DesktopBackendController((onFailure) => {
@@ -381,7 +405,8 @@ async function main(): Promise<void> {
         hostUrl = ready.url
         if (ready.injections === undefined) throw new Error('Desktop Host did not provide boot injections')
         injections = ready.injections
-        welcomeBackend = await connectDesktopWelcome(ready.url, (input, init) => net.fetch(input, init), async () => (await session.defaultSession.cookies.get({ url: ready.url })).map(cookie => `${cookie.name}=${cookie.value}`).join('; '))
+        welcomeBackend = await connectDesktopWelcome(ready.url, hostFetch, () => hostSessionCookies(ready.url))
+        quickPromptRpc = createDesktopHostRpc(ready.url, hostFetch)
         stopAccount?.()
         stopAccount = welcomeBackend.account.watch((state) => {
           if (quitting) return
@@ -408,6 +433,8 @@ async function main(): Promise<void> {
         })
       },
       stop: async () => {
+        // The Host that authenticated this client is going away; a later prompt must not reuse its cookie.
+        quickPromptRpc = undefined
         try { await host.stop(requireCleanStop) }
         catch (error) {
           if (!requireCleanStop || !(error instanceof DesktopHostUncleanExitError)) throw error
@@ -804,6 +831,9 @@ async function main(): Promise<void> {
     updateSchedule.dispose()
     powerMonitor.off('resume', automaticCheck)
     updates.dispose()
+    stopWatchingTrayActivity()
+    tray?.dispose()
+    globalShortcut.unregisterAll()
   })
 
   app.setAboutPanelOptions({
@@ -916,6 +946,15 @@ async function main(): Promise<void> {
     mainWindow = window
     browserGuests.bind(window)
     window.on('focus', automaticCheck)
+    // Closing the workspace hides it so running agents survive; without a tray, or before the
+    // first workspace, the close keeps its existing quit semantics.
+    window.on('close', (event) => {
+      if (quitting || shuttingDown || tray === undefined || !enteredWorkspace) return
+      event.preventDefault()
+      window.hide()
+    })
+    window.on('show', () => { setTrayWindowVisibility(true) })
+    window.on('hide', () => { setTrayWindowVisibility(false) })
     window.on('closed', () => { if (mainWindow === window) mainWindow = undefined })
     window.webContents.on('console-message', (details) => {
       if (details.level !== 'error') return
@@ -1032,6 +1071,164 @@ async function main(): Promise<void> {
     window.focus()
   }
 
+  /**
+   * Reveal whichever surface startup selects: a visible window is only raised, and otherwise the
+   * welcome entry or the workspace is reopened. Tray and global-shortcut activations share it.
+   */
+  const revealPrimaryWindow = (): void => {
+    if (quitting) return
+    if (isMandatory()) { mandatoryUI?.focus(); return }
+    const window = welcomeWindow ?? mainWindow
+    if (window !== undefined && !window.isDestroyed() && window.isVisible()) {
+      if (window.isMinimized()) window.restore()
+      window.show()
+      window.focus()
+      return
+    }
+    if (backend.state.phase === 'ready' && !recovery.active) {
+      void openInitialWindow().catch((error: unknown) => { reportFatal(error, 'main') })
+      return
+    }
+    focusPrimaryWindow()
+  }
+  const togglePrimaryWindow = (): void => {
+    if (quitting) return
+    const window = welcomeWindow ?? mainWindow
+    if (window !== undefined && !window.isDestroyed() && window.isVisible()) { window.hide(); return }
+    revealPrimaryWindow()
+  }
+
+  /** Whether the tray can restore a hidden window; without it, closing the workspace keeps quitting. */
+  let tray: DesktopTray | undefined
+  let trayStatus: DesktopTrayStatus = { windowVisible: false, activeTasks: undefined }
+  const publishTrayStatus = (next: DesktopTrayStatus): void => {
+    trayStatus = next
+    tray?.update(next)
+  }
+  const refreshTrayTasks = async (): Promise<void> => {
+    if (tray === undefined || quitting) return
+    const host = backend.host
+    if (host === undefined) {
+      publishTrayStatus({ ...trayStatus, activeTasks: undefined })
+      return
+    }
+    try {
+      publishTrayStatus({ ...trayStatus, activeTasks: await host.updateTasks('inspect') })
+    } catch (error) {
+      // A stopping or unresponsive Host cannot confirm live work; the tray then claims none.
+      console.error(error)
+      publishTrayStatus({ ...trayStatus, activeTasks: undefined })
+    }
+  }
+  let trayActivityPoll: NodeJS.Timeout | undefined
+  const stopWatchingTrayActivity = (): void => {
+    if (trayActivityPoll !== undefined) { clearInterval(trayActivityPoll); trayActivityPoll = undefined }
+    if (trayStatus.activeTasks !== undefined) publishTrayStatus({ ...trayStatus, activeTasks: undefined })
+  }
+  const watchTrayActivity = (): void => {
+    if (tray === undefined || quitting) return
+    void refreshTrayTasks()
+    trayActivityPoll ??= setInterval(() => { void refreshTrayTasks() }, TRAY_ACTIVITY_POLL_MS)
+  }
+  const setTrayWindowVisibility = (visible: boolean): void => {
+    if (tray === undefined) return
+    if (visible) stopWatchingTrayActivity()
+    publishTrayStatus({ windowVisible: visible, activeTasks: visible ? undefined : trayStatus.activeTasks })
+    if (!visible) watchTrayActivity()
+  }
+
+  const quickPromptPreferenceFile = join(app.getPath('userData'), QUICK_PROMPT_PREFERENCE_FILE)
+  // A stored accelerator Electron cannot accept is a startup failure, never a silent fallback.
+  let quickPromptAccelerator = await readQuickPromptAccelerator(quickPromptPreferenceFile)
+  let registeredShortcut: string | undefined
+  let quickPromptWindow: BrowserWindow | undefined
+  let quickPromptOpening: Promise<void> | undefined
+  const registerQuickPromptShortcut = (accelerator: string): boolean => {
+    if (registeredShortcut !== undefined) globalShortcut.unregister(registeredShortcut)
+    registeredShortcut = undefined
+    try {
+      if (!globalShortcut.register(accelerator, () => { showQuickPrompt() })) return false
+    } catch (error) {
+      // Electron refuses an accelerator it cannot parse; the caller reports either outcome the same way.
+      console.error(error)
+      return false
+    }
+    registeredShortcut = accelerator
+    return true
+  }
+  const reportShortcutUnavailable = (accelerator: string): void => {
+    console.error(`desktop quick prompt: the global shortcut ${accelerator} is unavailable`)
+    void ordinaryMessageBox({ type: 'warning', title: locale.messages.quickPromptShortcutTitle,
+      message: formatDesktopMessage(locale.messages.quickPromptShortcutUnavailable, { accelerator }) })
+      .catch((error: unknown) => { console.error(error) })
+  }
+  const submitQuickPrompt = async (text: string): Promise<QuickPromptSubmitResult> => {
+    const prompt = text.trim()
+    if (prompt === '') return { ok: false, reason: 'empty' }
+    const rpc = quickPromptRpc
+    if (rpc === undefined || quitting) return { ok: false, reason: 'unavailable' }
+    let sessionId: string
+    try {
+      const created = await rpc({ namespace: 'session', method: 'create', args: { request: {} } })
+      if (typeof created !== 'object' || created === null || !('sessionId' in created)
+        || typeof created.sessionId !== 'string' || created.sessionId === '') {
+        throw new Error('desktop quick prompt: the Host returned no Session identity')
+      }
+      sessionId = created.sessionId
+      await rpc({ namespace: 'session', method: 'prompt', args: { request: {
+        requestId: randomUUID(), sessionId, mode: 'queue', content: [{ type: 'text', text: prompt }],
+      } } })
+    } catch (error) {
+      // The Host refused or could not answer; the window offers its own localized failure copy.
+      console.error(error)
+      return { ok: false, reason: 'rejected' }
+    }
+    revealPrimaryWindow()
+    return { ok: true, sessionId }
+  }
+  const changeQuickPromptShortcut = async (candidate: QuickPromptShortcutCandidate): Promise<QuickPromptShortcutResult> => {
+    const accelerator = acceleratorFromCandidate(candidate, process.platform)
+    if (accelerator === undefined) return { ok: false, reason: 'invalid' }
+    if (!registerQuickPromptShortcut(accelerator)) return { ok: false, reason: 'conflict' }
+    quickPromptAccelerator = accelerator
+    try {
+      await writeQuickPromptAccelerator(quickPromptPreferenceFile, accelerator)
+    } catch (error) {
+      console.error(error)
+      return { ok: false, reason: 'unpersisted' }
+    }
+    return { ok: true, accelerator }
+  }
+  const showQuickPrompt = (): void => {
+    if (quitting) return
+    if (isMandatory()) { mandatoryUI?.focus(); return }
+    const open = quickPromptWindow
+    if (open !== undefined && !open.isDestroyed()) { open.show(); open.focus(); return }
+    quickPromptOpening ??= openQuickPromptWindow(locale, quickPromptAccelerator, {
+      submit: submitQuickPrompt,
+      setShortcut: changeQuickPromptShortcut,
+      close: () => { quickPromptWindow?.close() },
+    }).then((window) => {
+      quickPromptWindow = window
+      window.once('closed', () => { if (quickPromptWindow === window) quickPromptWindow = undefined })
+    }).catch((error: unknown) => { reportFatal(error, 'main') })
+      .finally(() => { quickPromptOpening = undefined })
+  }
+
+  try {
+    tray = createDesktopTray({
+      platform: process.platform,
+      iconPath: development ? join(app.getAppPath(), 'resources', 'icon-windows.png') : join(process.resourcesPath, 'icon.png'),
+      locale: () => locale,
+      actions: { toggleWindow: togglePrimaryWindow, openQuickPrompt: showQuickPrompt, quit: () => { app.quit() } },
+    })
+    publishTrayStatus(trayStatus)
+  } catch (error) {
+    // A desktop whose notification area refuses the icon keeps the window's quit-on-close behavior.
+    console.error(error)
+  }
+  if (!registerQuickPromptShortcut(quickPromptAccelerator)) reportShortcutUnavailable(quickPromptAccelerator)
+
   if (app.isPackaged || process.env.DSH_DESKTOP_DEV_APP === '1') app.setAsDefaultProtocolClient('dsh')
   app.on('open-url', (event, url) => {
     event.preventDefault()
@@ -1039,10 +1236,11 @@ async function main(): Promise<void> {
   })
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) focusPrimaryWindow()
+    // A hidden workspace is still a window, so activation must reveal it rather than ignore it.
+    if (!BrowserWindow.getAllWindows().some(window => window.isVisible())) revealPrimaryWindow()
   })
   app.on('window-all-closed', () => {
-    if (process.platform !== 'darwin') app.quit()
+    if (process.platform !== 'darwin' && tray === undefined) app.quit()
   })
   app.on('before-quit', (event) => {
     shuttingDown = true

@@ -8,7 +8,13 @@
   "references": [
     { "path": "../../../vendor/cordis" },
     { "path": "../../../vendor/schemastery" },
+    { "path": "../../core/session" },
+    { "path": "../../llm/token-meter" },
+    { "path": "../../runtime/agent-kernel" },
     { "path": "../../storage/storage-domain" },
-    { "path": "../evolution-curriculum" }
+    { "path": "../../test-support/llm-replay" },
+    { "path": "../../test-support/session-snapshot" },
+    { "path": "../evolution-curriculum" },
+    { "path": "../evolution-scorer" }
   ]
 }

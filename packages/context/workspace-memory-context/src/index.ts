@@ -143,17 +143,17 @@ export function apply(ctx: Context, config: Config): void {
     return undefined
   }
 
-  ctx.inject(['agentContext'], compilerCtx => {
+  ctx.inject(['agentContext'], (compilerCtx) => {
     compilerCtx.effect(() => compilerCtx.agentContext.register({
       producer: 'workspace-memory',
       kind: 'memory',
       trust: 'untrusted',
       placement: 'stable-core',
       maxBytes,
-    }, async (agent, signal): Promise<readonly ContextItem[]> => {
+    }, (agent, signal): Promise<readonly ContextItem[]> => {
       signal.throwIfAborted()
       const brief = newestVisibleBrief(agent, [])
-      return brief === undefined ? [] : [{ id: 'brief', text: textOfUserMessage(brief), relevance: 1 }]
+      return Promise.resolve(brief === undefined ? [] : [{ id: 'brief', text: textOfUserMessage(brief), relevance: 1 }])
     }))
   })
 

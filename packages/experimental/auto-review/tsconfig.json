@@ -18,6 +18,12 @@
       "path": "../../core/agent"
     },
     {
+      "path": "../../core/agent-default-model"
+    },
+    {
+      "path": "../../sandbox/sandbox"
+    },
+    {
       "path": "../../context/agent-instructions"
     },
     {

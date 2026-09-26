@@ -8,6 +8,8 @@
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type {} from '@deepseek-ai/dsh-user-approval'
+import { applyApplyPatchTool, APPLY_PATCH_MAX_BYTES } from './apply-patch.ts'
+import { applyMultiEditTool } from './multi-edit.ts'
 import { applyReadTool, READ_LIMIT, STREAM_MIN_SIZE } from './read.ts'
 import { applyWriteTool } from './write.ts'
 import { applyEditTool } from './edit.ts'
@@ -38,6 +40,8 @@ export interface Config {
   readMaxBytes?: number
   /** Files at or above this size stream instead of loading whole into memory. */
   readStreamMinSize?: number
+  /** Largest `apply_patch` patch argument accepted, in UTF-8 bytes. */
+  applyPatchMaxBytes?: number
 }
 
 export const Config: z<Config> = z.object({
@@ -45,6 +49,7 @@ export const Config: z<Config> = z.object({
   readMaxLineLength: z.number().default(READ_MAX_LINE_LENGTH),
   readMaxBytes: z.number().default(READ_MAX_BYTES),
   readStreamMinSize: z.number().default(STREAM_MIN_SIZE),
+  applyPatchMaxBytes: z.number().default(APPLY_PATCH_MAX_BYTES),
 })
 
 /** The shape after schemastery applied the defaults. */
@@ -57,7 +62,10 @@ function assertPositiveInteger(name: string, value: number): void {
   }
 }
 
-/** Register the full `read`/`write`/`edit` filesystem tool suite, plus `read_image` while `attachments` is mounted. */
+/**
+ * Register the full `read`/`write`/`edit`/`multi_edit`/`apply_patch` filesystem tool suite,
+ * plus `read_image` while `attachments` is mounted.
+ */
 export function apply(ctx: Context, config: Config): void {
   // schemastery (Config) has already filled every defaulted field.
   const resolved = config as ResolvedConfig
@@ -65,6 +73,7 @@ export function apply(ctx: Context, config: Config): void {
   assertPositiveInteger('readMaxLineLength', resolved.readMaxLineLength)
   assertPositiveInteger('readMaxBytes', resolved.readMaxBytes)
   assertPositiveInteger('readStreamMinSize', resolved.readStreamMinSize)
+  assertPositiveInteger('applyPatchMaxBytes', resolved.applyPatchMaxBytes)
   applyReadTool(ctx, {
     limit: resolved.readLimit,
     maxLineLength: resolved.readMaxLineLength,
@@ -77,10 +86,12 @@ export function apply(ctx: Context, config: Config): void {
   ctx.inject(['attachments'], (imageCtx) => {
     applyReadImageTool(imageCtx)
   })
-  // One escalation API shared by both mutating tools: advertisement gating,
+  // One escalation API shared by every mutating tool: advertisement gating,
   // per-call policy resolution, and denial-marker mapping, all keyed off whether
   // the mounted ctx.fs confines (ctx.fs.sandboxMode).
   const sandbox = new FsSandboxController(ctx)
   applyWriteTool(ctx, sandbox)
   applyEditTool(ctx, sandbox)
+  applyMultiEditTool(ctx, sandbox)
+  applyApplyPatchTool(ctx, { maxBytes: resolved.applyPatchMaxBytes }, sandbox)
 }

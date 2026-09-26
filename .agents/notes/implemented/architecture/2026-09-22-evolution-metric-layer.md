@@ -42,7 +42,7 @@ Add one read-only package, `packages/evolution/evolution-metrics` (`ctx.evolutio
 
 ## Deviations from the plan
 
-The plan was the ranked remainder of the previous batch's gap audit, which put this block first because it is the only one of the remaining items that measures the other five rather than changing what the engine does: §55's own rule is that a system creating a hundred skills for a one-percent gain is worse than one creating five for twenty percent, and no command could answer which one this is. The remaining ranked items (the record-only loops' missing consumers, the per-task outcome records, the dreaming provenance gate, the claim graph, the retriever seam) are untouched.
+The plan was the ranked remainder of the previous batch's gap audit, which put this block first because it is the only one of the remaining items that measures the other five rather than changing what the engine does: §55's own rule is that a system creating a hundred skills for a one-percent gain is worse than one creating five for twenty percent, and no command could answer which one this is. The remaining ranked items (the record-only loops' missing consumers, the per-task outcome records, the dreaming attribution gate, the claim graph, the retriever seam) are untouched.
 
 ## Fixes found on the way
 

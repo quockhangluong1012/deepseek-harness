@@ -15,14 +15,12 @@ import { Deque } from '@deepseek-ai/dsh-deque'
 import type {} from '@deepseek-ai/dsh-workspace'
 import type { Workspace, WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
 import type {} from '@deepseek-ai/dsh-workspace-memory'
-import type {} from '@deepseek-ai/dsh-workspace-memory-llm'
 import type { WorkspaceMemoryRecord } from '@deepseek-ai/dsh-workspace-memory/types'
 import type {
   WorkspaceMemoryAddContextItemRequest,
   WorkspaceMemoryContextFilesValue,
   WorkspaceMemoryListContextFilesRequest,
   WorkspaceMemoryReadRequest,
-  WorkspaceMemoryRebuildRequest,
   WorkspaceMemoryRemoveContextItemRequest,
   WorkspaceMemorySetDescriptionRequest,
   WorkspaceMemorySetInstructionsRequest,
@@ -188,8 +186,8 @@ const LIST_DEPTH = 3
 const LIST_LIMIT = 200
 
 /**
- * Host Remote service delegating memory verbs to the store and extractor.
- * @param ctx - Host context carrying the registry, store, and extractor.
+ * Host Remote service delegating memory verbs to the durable store.
+ * @param ctx - Host context carrying the registry and store.
  */
 export class WorkspaceMemoryController extends TypertRemoteService {
   static inject = ['typert', 'workspaceRegistry', 'workspaceMemory']
@@ -314,40 +312,6 @@ export class WorkspaceMemoryController extends TypertRemoteService {
     const workspace = this.requireWorkspace(request.workspaceId)
     const paths = await listWorkspaceFiles(workspace.path, request.query, signal)
     return { paths }
-  }
-
-  /**
-   * Rebuild the document from the Workspace's chat history.
-   * @param request - Workspace identity.
-   * @param signal - caller cancellation.
-   * @returns the updated projection.
-   */
-  @Remote('rebuildMemory')
-  async rebuildMemory(request: WorkspaceMemoryRebuildRequest, signal: AbortSignal): Promise<WorkspaceMemoryValue> {
-    const workspace = this.requireWorkspace(request.workspaceId)
-    const extractor = this.ctx.get('workspaceMemoryExtractor')
-    if (extractor === undefined) {
-      throw new RemoteError(
-        'workspace-memory/extraction-failed',
-        `workspace-memory rebuild for '${String(request.workspaceId)}' has no extractor`,
-        { workspaceId: String(request.workspaceId) },
-      )
-    }
-    try {
-      await extractor.rebuild(workspace.id, signal)
-    } catch (error) {
-      if (error instanceof RemoteError) throw error
-      throw new RemoteError(
-        'workspace-memory/extraction-failed',
-        `workspace-memory rebuild for '${String(request.workspaceId)}' failed: ${error instanceof Error ? error.message : String(error)}`,
-        { workspaceId: String(request.workspaceId) },
-      )
-    }
-    return workspaceMemoryValue(
-      workspace.id,
-      this.ctx.workspaceMemory.read(workspace.id),
-      this.ctx.workspaceMemory.usage(workspace.id),
-    )
   }
 
   /**

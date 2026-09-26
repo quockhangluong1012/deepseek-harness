@@ -25,6 +25,7 @@ kind: "package-group"
 | [agent-preset-registry](agent-preset-registry/README.zh.md) | 选择、代际保留和 profile 编辑 | `ctx.agentPresets` |
 | [agent-preset](agent-preset/README.zh.md) | 声明式子插件和元数据 | — |
 | [persona](persona/README.zh.md) | 可组装的 Agent 人设 | — |
+| [analyst-profiles](analyst-profiles/README.zh.md) | 声明式分析师与魔鬼代言人作答约定 | `ctx.analystProfiles` |
 
 <a id="related-documentation"></a>
 ## 相关文档

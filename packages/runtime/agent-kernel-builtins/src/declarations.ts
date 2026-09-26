@@ -213,4 +213,21 @@ export const BUILTIN_DECLARATIONS: readonly CapabilityDeclaration[] = [
   // reference or the statement selects the rule.
   { tool: 'record_evidence', capabilities: ['memory.write'], resources: args => fieldOf(args, ['contentRef'], 'evidence') },
   { tool: 'record_claim', capabilities: ['memory.write'], resources: args => fieldOf(args, ['statement'], 'claim') },
+  { tool: 'record_hypothesis', capabilities: ['memory.write'], resources: args => fieldOf(args, ['question'], 'hypothesis') },
+  // Batched and patch-grammar file mutations carry the same fs.edit capability
+  // as a single edit; apply_patch touches several files, so its resource is
+  // the domain constant rather than one path.
+  { tool: 'multi_edit', capabilities: ['fs.edit'], resources: args => fieldOf(args, ['file_path'], 'multi_edit') },
+  { tool: 'apply_patch', capabilities: ['fs.write', 'fs.edit'], resources: () => 'apply_patch' },
+  // Git tools mutate or read repository history; read the repo path when the
+  // call names one, else fall back to the working tree.
+  { tool: 'git_commit', capabilities: ['git.write'], resources: args => fieldOf(args, ['repo'], 'git') },
+  { tool: 'git_branch', capabilities: ['git.write'], resources: args => fieldOf(args, ['name'], 'git') },
+  { tool: 'git_pr', capabilities: ['git.write', 'network.write'], resources: args => fieldOf(args, ['title'], 'git') },
+  { tool: 'git_worktree', capabilities: ['git.write'], resources: args => fieldOf(args, ['path'], 'git') },
+  // Waiting on a background job's output is an observation, like job_output.
+  { tool: 'job_monitor', capabilities: ['memory.read'], resources: args => fieldOf(args, ['job_id'], 'jobs') },
+  // Turn changes/diff read the recorded workspace-changes record, not disk.
+  { tool: 'turn_changes', capabilities: ['memory.read'], resources: () => 'workspace-changes' },
+  { tool: 'turn_diff', capabilities: ['memory.read'], resources: args => fieldOf(args, ['path'], 'workspace-changes') },
 ]

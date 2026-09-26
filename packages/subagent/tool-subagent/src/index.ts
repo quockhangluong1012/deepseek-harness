@@ -8,10 +8,21 @@
  * @module @deepseek-ai/dsh-tool-subagent
  */
 
+import { homedir } from 'node:os'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
+import {
+  NO_DELEGATION_CEILING,
+  delegatedWorkerBudget,
+  delegationPolicyRefusal,
+  delegationPolicySchema,
+  resolveDelegationPolicy,
+} from '@deepseek-ai/dsh-agent-kernel'
+import type { DelegationPolicy, DelegationPolicyConfig } from '@deepseek-ai/dsh-agent-kernel'
+import { taskOverlapDecision } from '@deepseek-ai/dsh-agent-kernel'
 import { scopeChainOf, scopeOf } from '@deepseek-ai/dsh-scope'
 import { assertObjectJsonSchema, defineTool, startAbortGuardedBackground } from '@deepseek-ai/dsh-tools'
+import type { ObjectJsonSchema } from '@deepseek-ai/dsh-tools'
 import type { Agent, AgentOptions } from '@deepseek-ai/dsh-agent'
 import { ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
@@ -22,9 +33,14 @@ import {
   assertSubagentMaxDepth,
   parentAgentOptionsForDelegation,
   settleRun,
+  SubagentRunId,
 } from '@deepseek-ai/dsh-subagent'
-import type { SubagentProvider, SubagentResult, SubagentRun } from '@deepseek-ai/dsh-subagent'
+import type { SubagentProvider, SubagentResult, SubagentRun, SubagentStartRequest } from '@deepseek-ai/dsh-subagent'
 import type { JobOutcome } from '@deepseek-ai/dsh-jobs'
+import { discoverFileAgents, mergeToolFilters } from './agent-files.ts'
+import type { AgentRoots, FileAgent } from './agent-files.ts'
+import { DelegationLedger } from './delegation-children.ts'
+import type { DelegationChildResult } from './delegation-children.ts'
 import {
   assertAllowedModelSelection,
   hasConfiguredLlmSelection,
@@ -49,6 +65,12 @@ export const inject = ['tools', 'subagents', 'systemPrompt', 'sessionProjections
  * Failures must preserve evidence without blowing the parent context.
  */
 const MAX_PARTIAL_TEXT_CHARS = 8000
+
+/**
+ * Well-known agent definition roots, in precedence order, resolved against each
+ * layer's base directory when `agentDirs` omits them.
+ */
+const WELL_KNOWN_AGENT_ROOTS: readonly string[] = ['.dsh/agents', '.claude/agents', '.opencode/agents']
 
 /** Config: which registered provider this tool delegates to, plus child defaults. */
 export interface Config {
@@ -97,6 +119,26 @@ export interface Config {
     deny?: string[]
   }
   /**
+   * Roots searched for file-defined agents (`*.md`), in precedence order. The
+   * model selects one by name through the `agent` parameter, and the compiled
+   * definition narrows that child's tools and route. Omission searches the
+   * well-known project and user agent directories; two empty lists disable
+   * discovery.
+   */
+  agentDirs?: {
+    /**
+     * Project-layer roots. A relative root resolves against the nearest
+     * ancestor of the calling Session's working directory that holds a `.git`
+     * entry.
+     */
+    project?: string[]
+    /**
+     * User-layer roots. A leading `~` or `~/` expands to the home directory,
+     * and any other relative root resolves against it.
+     */
+    user?: string[]
+  }
+  /**
    * Maximum child depth: a non-negative safe integer (`0` forbids delegation),
    * or `'provider-managed'` to send no cap. A numeric cap
    * requires the provider's `depthLimit` capability (mount fails loud
@@ -113,6 +155,23 @@ export interface Config {
    * context.
    */
   maxPartialTextChars?: number
+  /**
+   * Delegation policy for the children this tool spawns: the per-parent child
+   * and concurrency caps, the admitted roles, whether a spawn must carry an
+   * output schema, whether a repeated task is detected before spawning, and the
+   * token and cost ceilings handed to each child. An omitted axis keeps
+   * `DELEGATION_POLICY_DEFAULTS`, which binds nothing, and an omitted
+   * `maxDepth` uses this tool's `maxDepth`.
+   */
+  delegation?: DelegationPolicyConfig
+  /**
+   * USD per million billed tokens. Required by any child ceiling priced in
+   * dollars (`delegation.maxCost` or a role's `budget.maxCostUsd`), because the
+   * harness owns no per-route price data and cannot otherwise compare the
+   * ceiling; it is carried into the child's worker limits as the flat price
+   * those ceilings are measured at.
+   */
+  usdPerMillionTokens?: number
 }
 
 export const Config: z<Config> = z.object({
@@ -139,8 +198,14 @@ export const Config: z<Config> = z.object({
     allow: z.array(z.string()).default(undefined as unknown as string[]),
     deny: z.array(z.string()).default(undefined as unknown as string[]),
   }).default(undefined as unknown as { allow: string[]; deny: string[] }),
+  agentDirs: z.object({
+    project: z.array(z.string()).default([...WELL_KNOWN_AGENT_ROOTS]),
+    user: z.array(z.string()).default([...WELL_KNOWN_AGENT_ROOTS]),
+  }).default({ project: [...WELL_KNOWN_AGENT_ROOTS], user: [...WELL_KNOWN_AGENT_ROOTS] }),
   maxDepth: z.union([z.natural().max(Number.MAX_SAFE_INTEGER), z.const('provider-managed' as const)]),
   maxPartialTextChars: z.number().step(1).min(1).default(MAX_PARTIAL_TEXT_CHARS),
+  delegation: delegationPolicySchema,
+  usdPerMillionTokens: z.number().min(0),
 })
 
 /** Render text blocks from the canonical JSON block array without trusting arbitrary values. */
@@ -151,6 +216,69 @@ function outputValueText(values: JsonValue[]): string {
       && value.type === 'text' && typeof value.text === 'string')
     .map(value => value.text)
     .join('')
+}
+
+/**
+ * The reusable result of one settled child.
+ * @param blocks - the child's final assistant blocks.
+ * @returns the child's text and the blocks a reused delegation re-serves.
+ */
+function childResultOf(blocks: readonly ContentBlock[]): DelegationChildResult {
+  const output = blocks as unknown as JsonValue[]
+  return { text: outputValueText(output), output }
+}
+
+/**
+ * The narrower of two declared ceilings. A role and the delegation policy both
+ * bound the same axis, and the child may only be granted the smaller of them.
+ * @param declared - the ceiling a role declared.
+ * @param policy - the ceiling the delegation policy declared.
+ * @returns the smaller ceiling, or whichever of the two is declared.
+ */
+function narrowerCeiling(declared: number | undefined, policy: number | undefined): number | undefined {
+  if (declared === undefined) return policy
+  if (policy === undefined) return declared
+  return Math.min(declared, policy)
+}
+
+/**
+ * The ceilings one child enforces on itself, from the delegation policy and the
+ * role the call names.
+ * @param policy - the resolved delegation policy.
+ * @param agent - the file-defined role, absent when the call names none.
+ * @param usdPerMillionTokens - the deployment's token price, absent when it declares none.
+ * @returns the child's worker limits, or undefined when no ceiling applies.
+ * @throws when a dollar ceiling has no token price to compare it at.
+ */
+function delegatedChildLimits(
+  policy: DelegationPolicy,
+  agent: FileAgent | undefined,
+  usdPerMillionTokens: number | undefined,
+): SubagentStartRequest['workerLimits'] {
+  const policyBudget = delegatedWorkerBudget(policy)
+  const declared = agent?.workerLimits
+  const maxTurns = declared?.maxTurns
+  const maxTokens = narrowerCeiling(declared?.maxTokens, policyBudget.maxTokens)
+  const maxCostUsd = narrowerCeiling(declared?.maxCostUsd, policyBudget.maxCostUsd)
+  if (maxTurns === undefined && maxTokens === undefined && maxCostUsd === undefined) return undefined
+  if (maxCostUsd === undefined) {
+    return {
+      ...maxTurns === undefined ? {} : { maxTurns },
+      ...maxTokens === undefined ? {} : { maxTokens },
+    }
+  }
+  if (usdPerMillionTokens === undefined) {
+    throw new Error(
+      `subagent role "${agent?.name ?? ''}" declares a USD ceiling and this deployment declares no token price; `
+      + 'set `usdPerMillionTokens` to the price the ceiling is compared at',
+    )
+  }
+  return {
+    ...maxTurns === undefined ? {} : { maxTurns },
+    ...maxTokens === undefined ? {} : { maxTokens },
+    maxCostUsd,
+    usdPerMillionTokens,
+  }
 }
 
 /** Settle pending startup without rejecting the task producer contract. */
@@ -294,6 +422,44 @@ function providerWording(inheritsConversation: boolean): { description: string; 
   }
 }
 
+/**
+ * Resolve one named file-defined agent for a delegation call.
+ * @param name - the model's `agent` value.
+ * @param cwd - the calling Session's working directory.
+ * @param roots - configured agent-directory layers.
+ * @param warn - diagnostic sink for unusable definition files.
+ * @returns the compiled definition.
+ * @throws when no definition declares the name; the message lists the available agents and the searched directories.
+ */
+async function resolveFileAgent(
+  name: string,
+  cwd: string,
+  roots: AgentRoots,
+  warn: (message: string) => void,
+): Promise<FileAgent> {
+  const catalog = await discoverFileAgents(roots, { cwd, home: homedir(), warn })
+  const agent = catalog.agents.get(name)
+  if (agent === undefined) {
+    const available = [...catalog.agents.values()].map(entry =>
+      entry.description === undefined ? entry.name : `${entry.name} (${entry.description})`)
+    throw new Error(
+      `subagent agent "${name}" is unknown; available agents: ${available.join(', ') || '(none)'}`
+      + `; searched ${catalog.roots.join(', ') || '(none)'}`,
+    )
+  }
+  return agent
+}
+
+/** Configured child options with one file-defined agent's route override applied over them. */
+function mergeAgentOptions(
+  configured: AgentOptions | undefined,
+  declared: AgentOptions | undefined,
+): AgentOptions | undefined {
+  if (configured === undefined) return declared
+  if (declared === undefined) return configured
+  return { ...configured, ...declared }
+}
+
 interface DelegationRunRequest {
   readonly run_in_background?: boolean
 }
@@ -337,9 +503,41 @@ export function apply(ctx: Context, config: Config, session?: Session): void {
   if (config.toolFilter !== undefined && config.toolFilter.allow === undefined && config.toolFilter.deny === undefined) {
     throw new Error('tool-subagent: `toolFilter` is configured but names neither `allow` nor `deny` — remove the key or fill the filter')
   }
+  const agentRoots: AgentRoots = {
+    project: config.agentDirs?.project ?? WELL_KNOWN_AGENT_ROOTS,
+    user: config.agentDirs?.user ?? WELL_KNOWN_AGENT_ROOTS,
+  }
+  for (const root of [...agentRoots.project, ...agentRoots.user]) {
+    if (root.trim() === '') throw new Error('tool-subagent: every `agentDirs` root must be a non-empty path')
+  }
   const backgroundEnabled = config.enableRunInBackground !== false
   const continuable = (config.backgroundMode ?? 'one-shot') === 'continuable'
   const toolName = config.toolName ?? 'subagent'
+
+  // The policy this deployment declares, resolved without a runtime depth: the
+  // spawn path resolves again with the depth sampled at that delegation. Under
+  // a dollar ceiling, a missing token price fails this plugin's load rather
+  // than every delegation, because the ceiling cannot be compared at all.
+  const declaredPolicy = resolveDelegationPolicy(
+    config.delegation,
+    typeof config.maxDepth === 'number' ? config.maxDepth : undefined,
+  )
+  if (config.usdPerMillionTokens !== undefined && !(config.usdPerMillionTokens > 0)) {
+    throw new Error('tool-subagent: `usdPerMillionTokens` must be a positive price')
+  }
+  const pricedPolicyBudget = delegatedWorkerBudget(declaredPolicy)
+  if (pricedPolicyBudget.maxCostUsd !== undefined && config.usdPerMillionTokens === undefined) {
+    throw new Error(
+      'tool-subagent: `delegation.maxCost` prices a child in USD, so it requires `usdPerMillionTokens`, '
+      + 'the token price the harness owns no other source for',
+    )
+  }
+  if (config.delegation?.maxDepth !== undefined && typeof config.maxDepth === 'number'
+    && config.maxDepth !== config.delegation.maxDepth) {
+    throw new Error(
+      'tool-subagent: `delegation.maxDepth` and `maxDepth` declare different child depth caps; declare one of them',
+    )
+  }
 
   const modelSelectionCapable = config.modelSelectionSettings === true
   ctx.sessionProjections.register(subagentModelSelectionProjectionDefinition)
@@ -366,6 +564,19 @@ export function apply(ctx: Context, config: Config, session?: Session): void {
         `tool-subagent: provider "${subagentProvider.name}" does not support \`backgroundMode: continuable\``,
       )
     }
+    if (declaredPolicy.resultSchemaRequired && !subagentProvider.capabilities.outputSchema) {
+      throw new Error(
+        'tool-subagent: `delegation.resultSchemaRequired` needs a provider that supports child output schemas, '
+        + `and "${subagentProvider.name}" declares none`,
+      )
+    }
+    if ((pricedPolicyBudget.maxTokens !== undefined || pricedPolicyBudget.maxCostUsd !== undefined)
+      && !subagentProvider.capabilities.workerLimits) {
+      throw new Error(
+        'tool-subagent: `delegation` prices every child, so it needs a provider that enforces child worker limits, '
+        + `and "${subagentProvider.name}" cannot (no workerLimits capability)`,
+      )
+    }
   }
 
   // Validate provider-owned config outside the optional LLM binding so an
@@ -379,6 +590,16 @@ export function apply(ctx: Context, config: Config, session?: Session): void {
   const install = (runtimeCtx: Context, modelSelectionPolicy: ModelSelectionPolicy | undefined): void => {
     const modelSelectionEnabled = modelSelectionPolicy !== undefined
     if (modelSelectionPolicy !== undefined) registerListSubagentModels(runtimeCtx, modelSelectionPolicy)
+    // What this composition has spawned. The delegation policy's caps and the
+    // overlap decision read it, and a continuable child settles through its own
+    // `subagent/end` because this call collects no result for it.
+    const ledger = new DelegationLedger()
+    runtimeCtx.on('subagent/end', (info) => {
+      ledger.settleChild(
+        info.id,
+        info.lastAssistantMessage === undefined ? undefined : childResultOf(info.lastAssistantMessage),
+      )
+    })
     // Load order and HMR replacement can change provider availability while
     // this fiber remains active.
     let mounted: { subagentProvider: SubagentProvider; disposeTool: () => void } | undefined
@@ -415,6 +636,10 @@ export function apply(ctx: Context, config: Config, session?: Session): void {
             type: 'string',
             required: true,
             description: wording.promptDescription,
+          },
+          agent: {
+            type: 'string' as const,
+            description: 'Optional name of a file-defined agent (from `.dsh/agents`, `.claude/agents`, or `.opencode/agents`). Its configured tools, model, and permissions then apply to this child. An unknown name reports the available agents.',
           },
           ...modelSelectionEnabled ? {
             provider: {
@@ -503,11 +728,20 @@ export function apply(ctx: Context, config: Config, session?: Session): void {
 
           const modelRequest = args as DelegationModelRequest
           const parentOptions = parentAgentOptionsForDelegation(parent)
+          const fileAgent = args.agent === undefined
+            ? undefined
+            : await resolveFileAgent(
+              args.agent,
+              parent.session.header.cwd ?? process.cwd(),
+              agentRoots,
+              (message) =>{  runtimeCtx.logger.warn(message) },
+            )
+          const declaredChildAgentOptions = mergeAgentOptions(config.agentOptions, fileAgent?.agentOptions)
           const requiresRoutePreflight = hasDelegationModelRequest(modelRequest)
-            || hasConfiguredLlmSelection(config.agentOptions)
+            || hasConfiguredLlmSelection(declaredChildAgentOptions)
           const configuredChildAgentOptions = requiresRoutePreflight && providerRouteDefaults !== undefined
-            ? { ...providerRouteDefaults, ...config.agentOptions }
-            : config.agentOptions
+            ? { ...providerRouteDefaults, ...declaredChildAgentOptions }
+            : declaredChildAgentOptions
           const requestedChildAgentOptions = requestedAgentOptions(
             parentOptions,
             configuredChildAgentOptions,
@@ -537,18 +771,73 @@ export function apply(ctx: Context, config: Config, session?: Session): void {
             }
           }
           exec.signal.throwIfAborted()
-          const maxDepth = runtimeCtx.subagents.resolveMaxDepth(config.maxDepth)
-          const outputSchema = (args as { output_schema?: unknown }).output_schema
-          if (outputSchema !== undefined) assertObjectJsonSchema(outputSchema)
+          const policy = resolveDelegationPolicy(
+            config.delegation,
+            runtimeCtx.subagents.resolveMaxDepth(config.delegation?.maxDepth ?? config.maxDepth),
+          )
+          const maxDepth = policy.maxDepth === NO_DELEGATION_CEILING ? undefined : policy.maxDepth
+          const toolFilter = mergeToolFilters(config.toolFilter, fileAgent?.toolFilter)
+          const declaredSchema = args.output_schema
+          if (declaredSchema !== undefined) assertObjectJsonSchema(declaredSchema)
+          // The call's own schema answers for this child; the schema its role
+          // declares is the fallback.
+          const outputSchema: ObjectJsonSchema | undefined = declaredSchema ?? fileAgent?.outputSchema
+          const role = fileAgent === undefined ? undefined : fileAgent.role ?? fileAgent.name
+          const refusal = delegationPolicyRefusal(policy, {
+            ...role === undefined ? {} : { role },
+            hasOutputSchema: outputSchema !== undefined,
+          }, ledger.history(parent.session))
+          if (refusal !== undefined) throw new Error(`subagent delegation refused: ${refusal}`)
+
+          const overlap = taskOverlapDecision(policy, {
+            objective: args.description,
+            active: ledger.activeTasks(parent.session),
+            completed: ledger.completedTasks(parent.session),
+          })
+          if (overlap.kind === 'reuse') {
+            const retained = ledger.retainedResult(parent.session, overlap.childId)
+            if (retained === undefined) {
+              throw new Error(`subagent delegation lost the retained result of child "${overlap.childId}"`)
+            }
+            return {
+              kind: 'foreground' as const,
+              runId: SubagentRunId(overlap.childId),
+              output: [
+                { type: 'text', text: `Reused the result of the subagent that already ran "${overlap.objective}":` },
+                ...retained.output,
+              ],
+              ...retained.structured === undefined ? {} : { structured: retained.structured },
+            }
+          }
+          if (overlap.kind === 'merge') {
+            throw new Error(
+              `subagent delegation merged into child "${overlap.childId}", which is already running `
+              + `"${overlap.objective}": use that child's result, or send it the added requirement, `
+              + 'instead of spawning a duplicate',
+            )
+          }
+          if (overlap.kind === 'avoid') throw new Error(`subagent delegation avoided: ${overlap.reason}`)
+          const scopeNote = overlap.kind === 'narrow'
+            ? `A previous subagent already covered part of this work: "${overlap.objective}" (child "${overlap.childId}"). `
+              + 'Do not repeat what it covered; complete only what this task adds.\n\n'
+            : ''
+          const workerLimits = delegatedChildLimits(policy, fileAgent, config.usdPerMillionTokens)
+          if (workerLimits !== undefined && !subagentProvider.capabilities.workerLimits) {
+            throw new Error(
+              'this delegation declares child ceilings (worker limits), and provider '
+              + `"${subagentProvider.name}" cannot enforce them (no workerLimits capability)`,
+            )
+          }
           const request = {
             label: args.description,
-            prompt: [{ type: 'text', text: args.prompt }] as ContentBlock[],
+            prompt: [{ type: 'text', text: `${scopeNote}${args.prompt}` }] as ContentBlock[],
             parent,
             ...requestedChildAgentOptions !== undefined ? { agentOptions: requestedChildAgentOptions } : {},
             ...config.persona !== undefined ? { persona: config.persona } : {},
-            ...config.toolFilter !== undefined ? { toolFilter: config.toolFilter } : {},
+            ...toolFilter !== undefined ? { toolFilter } : {},
             ...maxDepth !== undefined ? { maxDepth } : {},
             ...outputSchema === undefined ? {} : { outputSchema },
+            ...workerLimits === undefined ? {} : { workerLimits },
           }
 
           const runSpec = resolveDelegationRun(args, { backgroundEnabled, continuable })
@@ -565,6 +854,9 @@ export function apply(ctx: Context, config: Config, session?: Session): void {
                 request,
                 signal: exec.signal,
               })
+              // The child settles through its own `subagent/end`, which this
+              // spawn's record matches by the durable child identity.
+              ledger.spawn(parent.session, { objective: args.description, childId: started.childId })
               return { kind: 'continuable' as const, subagentId: started.childId }
             }
             const jobs = runtimeCtx.get('jobs')
@@ -580,11 +872,18 @@ export function apply(ctx: Context, config: Config, session?: Session): void {
               run: () => {
                 const controller = new AbortController()
                 const start = runtimeCtx.subagents.start(config.provider, { ...request, signal: controller.signal })
+                const spawn = ledger.spawn(parent.session, { objective: args.description })
                 return {
                   cancel: (reason?: string) => {
                     controller.abort(reason ?? 'background subagent task killed')
                   },
-                  done: settleStart(start, controller.signal),
+                  done: settleStart(start, controller.signal).then((outcome) => {
+                    // The job result is the child's outcome, not its retained
+                    // answer: a later identical task is told the work is done
+                    // rather than reusing text this boundary never read.
+                    ledger.settle(parent.session, spawn)
+                    return outcome
+                  }),
                   // No output sources: the child session owns intermediate detail.
                 }
               },
@@ -596,7 +895,24 @@ export function apply(ctx: Context, config: Config, session?: Session): void {
             ...request,
             signal: exec.signal,
           })
-          return settleForegroundRun(run, config.maxPartialTextChars ?? MAX_PARTIAL_TEXT_CHARS)
+          const spawn = ledger.spawn(parent.session, {
+            objective: args.description,
+            ...run.localAgent === undefined ? {} : { childId: run.localAgent.session.id },
+          })
+          try {
+            const settled = await settleForegroundRun(run, config.maxPartialTextChars ?? MAX_PARTIAL_TEXT_CHARS)
+            ledger.settle(parent.session, spawn, {
+              text: outputValueText(settled.output),
+              output: settled.output,
+              ...settled.structured === undefined ? {} : { structured: settled.structured },
+            })
+            return settled
+          } catch (error: unknown) {
+            // A failed child still settles: it must not hold a concurrency slot
+            // for the rest of the session.
+            ledger.settle(parent.session, spawn)
+            throw error
+          }
         },
       }))
       mounted = { subagentProvider, disposeTool }

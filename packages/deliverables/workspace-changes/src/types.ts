@@ -76,6 +76,26 @@ export type WorkspaceFileDiff =
   | { kind: 'oversized'; path: string; display: string }
 
 
+/** One hunk's decision: `accept` writes the hunk's turn-end lines, `reject` keeps its turn-start lines. */
+export type WorkspaceHunkDecision = 'accept' | 'reject'
+
+/** The outcome of applying one listed file's hunk decisions, written as one atomic replacement. */
+export interface WorkspaceHunkApplyResult {
+  /** The listed file's `path`. */
+  path: string
+  /** The listed file's `display`. */
+  display: string
+  /** Hunk indices whose turn-end lines were written, ascending. */
+  accepted: number[]
+  /** Hunk indices whose turn-start lines were kept, ascending. */
+  rejected: number[]
+  /**
+   * Whether the file exists after the write: false when the turn created it and no hunk was accepted,
+   * or when the turn deleted it and every hunk was accepted.
+   */
+  exists: boolean
+}
+
 /** One file a rewind could not write back, and why. */
 export interface WorkspaceRestoreSkip {
   /** The listed file's `path`. */
@@ -113,6 +133,30 @@ export interface WorkspaceChanges {
    * @throws when a snapshot read fails for a live Session.
    */
   diff(sessionId: SessionId, seq: number, index: number, signal: AbortSignal): Promise<WorkspaceFileDiff | undefined>
+  /**
+   * Apply one decision per hunk to one listed file, replacing it in one step: the file ends as its
+   * turn-start content with every accepted hunk's turn-end lines in place, so a rejected hunk keeps
+   * exactly its own turn-start lines while its neighbours stay as decided. A file the turn created
+   * is removed when no hunk is accepted, and a file the turn deleted is removed when every hunk is
+   * accepted. The new content is written to a sibling temporary file and renamed over the target, so
+   * a reader observes either the previous or the new complete content and a failed write leaves the
+   * previous content in place. Accepting the same decisions again writes the same content, because
+   * the recorded comparison and the decisions fully determine it. The written content comes from the
+   * recorded sides, not from the file as it stands now, so an edit made to a decided region after the
+   * turn end is overwritten.
+   * @param sessionId - the Session that appended the event.
+   * @param seq - the event's sequence number.
+   * @param index - the file's index in the summary's `files`.
+   * @param decisions - one decision per hunk of that file's comparison, in hunk order.
+   * @param signal - cancels the reads and the write.
+   * @returns the outcome, or undefined once its Session was disposed, when this Host never recorded
+   *   it, when no file has that index, or when the comparison is not text.
+   * @throws when `decisions` does not carry exactly one decision per hunk, or when the write fails
+   *   for a live Session.
+   */
+  applyHunks(
+    sessionId: SessionId, seq: number, index: number, decisions: readonly WorkspaceHunkDecision[], signal: AbortSignal,
+  ): Promise<WorkspaceHunkApplyResult | undefined>
   /**
    * Rewind every file changed since one turn's start back to its content at that moment: a file
    * present in the turn-start snapshot is written back to that content, and a file absent there

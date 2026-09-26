@@ -20,7 +20,7 @@ const DEFAULT_ROOT_RE = new RegExp(`^${DEFAULT_ROOT_PREFIX}[A-Za-z0-9]{6}$`)
  * only descends into entries of this EXACT shape, so an unrelated
  * `session-backup` directory under a shared configured root is never swept.
  */
-const SESSION_DIR_RE = /^session-[0-9a-f]{12}$/
+export const SESSION_DIR_RE = /^session-[0-9a-f]{12}$/
 
 /** An existing root resolved to one stable filesystem identity. */
 interface ResolvedRoot {

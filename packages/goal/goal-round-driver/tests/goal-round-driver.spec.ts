@@ -172,6 +172,7 @@ describe('goal-round outcome policy', () => {
       phase: 'active',
       maxGoalRounds: 9,
       roundsStarted: 2,
+      tokensUsed: 0,
       createdAt: 1,
       updatedAt: 2,
       activation: 'armed',
@@ -193,6 +194,7 @@ describe('goal-round outcome policy', () => {
       phase: 'active',
       maxGoalRounds: 2,
       roundsStarted: 0,
+      tokensUsed: 0,
       createdAt: 1,
       updatedAt: 1,
       activation: 'armed',
@@ -1093,8 +1095,8 @@ describe('same-session goal driving', () => {
     expect(warn).not.toHaveBeenCalledWith(expect.stringContaining('goal-round-driver'))
   })
 
-  it('keeps terminal agent failure disarmed and defers queued human work until another wakeup', async () => {
-    const test = await harness([new Error('round one broke'), textResponse('human answer')])
+  it('keeps terminal agent failure disarmed and runs the queued human work in its own turn', async () => {
+    const test = await harness([new Error('round one broke'), textResponse('human answer'), textResponse('resumed')])
     let queued = false
     test.ctx.on('session/event', (session, event) => {
       if (session !== test.agent.session || queued) return
@@ -1109,16 +1111,26 @@ describe('same-session goal driving', () => {
 
     await waitForGoal(test.ctx, test.agent, current =>
       current?.phase === 'active' && current.activation === 'disarmed')
+    await test.agent.whenIdle()
 
-    expect(test.adapter.requests).toHaveLength(1)
-    expect(test.agent.inbox.nextTurn).toHaveLength(1)
+    // The failed round leaves the goal disarmed, and the human prompt queued
+    // during it keeps its own wake: the loop replays that wake in a fresh turn,
+    // which draws no further round from the disarmed goal.
+    expect(test.ctx.goals.get(test.agent)).toMatchObject({
+      phase: 'active',
+      activation: 'disarmed',
+      roundsStarted: 1,
+    })
+    expect(test.adapter.requests).toHaveLength(2)
+    expect(test.agent.inbox.nextTurn).toHaveLength(0)
+    expect(requestText(test.adapter.requests[1]!)).toContain('human interleaved')
 
     test.agent.steer(createUserMessage({ content: [{ type: 'text', text: 'resume after failure' }], source: { kind: 'user' } }))
     await test.agent.whenIdle()
 
-    expect(test.adapter.requests).toHaveLength(2)
-    expect(requestText(test.adapter.requests[1]!)).toContain('human interleaved')
-    expect(requestText(test.adapter.requests[1]!)).toContain('resume after failure')
+    expect(test.adapter.requests).toHaveLength(3)
+    expect(requestText(test.adapter.requests[2]!)).toContain('resume after failure')
+    expect(test.ctx.goals.get(test.agent)).toMatchObject({ activation: 'disarmed', roundsStarted: 1 })
   })
 
   it('waits for work queued by a pause observer before considering the next round', async () => {

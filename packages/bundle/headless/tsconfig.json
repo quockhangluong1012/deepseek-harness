@@ -30,6 +30,21 @@
       "path": "../../core/session"
     },
     {
+      "path": "../../core/system-prompt"
+    },
+    {
+      "path": "../../core/tools"
+    },
+    {
+      "path": "../../interaction/commands"
+    },
+    {
+      "path": "../../interaction/permission-presets"
+    },
+    {
+      "path": "../../subagent/subagent-in-process-driver"
+    },
+    {
       "path": "../../boot/cmdline"
     },
     {

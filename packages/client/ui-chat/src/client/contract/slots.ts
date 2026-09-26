@@ -117,6 +117,12 @@ export interface ChatNodeOwnerProps {
   inspectCall: ((callId: ToolCallId) => void) | undefined
   forkAt: (seq: number) => void
   /**
+   * Dispatch one `/rewind` invocation for the viewed Session. The argument is the
+   * command's own operand string (`<mode> <turn> [--edit <text>]`); the Host command
+   * plane owns validation, the outcome, and its durable log records.
+   */
+  rewindAt: (args: string) => void
+  /**
    * Session-authorized image loader, down-threaded from the Chat view so a
    * chat-node renderer can render the attachment presentation slot directly
    * with only the durable references plus this loader, instead of receiving a
@@ -206,6 +212,12 @@ export interface ChatViewInjected {
     read: () => ChatScrollPosition | null
   }
   forkAt: (seq: number) => void
+  /**
+   * Dispatch one `/rewind` invocation for the viewed Session. The argument is the
+   * command's own operand string (`<mode> <turn> [--edit <text>]`); the Host command
+   * plane owns validation, the outcome, and its durable log records.
+   */
+  rewindAt: (args: string) => void
   fileMentions: (owner: TurnTailOwnerProps) => MarkdownFileMentions | undefined
 }
 

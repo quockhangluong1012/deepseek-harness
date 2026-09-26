@@ -732,7 +732,7 @@ describe('active-memory-context injector', () => {
     // Three labels match `zzz-multi`, which is why the leg keeps one hit per
     // session: counted once per match it would carry three reciprocal-rank
     // contributions and outrank `mmm-both`, the session both legs found.
-    expect([...text.matchAll(/\[session ([^ ]+)/g)].map(match => match[1]))
+    expect([...text.matchAll(/from session ([^ ]+)/g)].map(match => match[1]))
       .toEqual(['mmm-both', 'zzz-multi'])
   })
 

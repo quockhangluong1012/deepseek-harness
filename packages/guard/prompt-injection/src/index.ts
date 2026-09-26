@@ -101,7 +101,7 @@ function quarantineNotice(rules: readonly string[]): string {
  */
 function serializeArguments(args: unknown): string {
   try {
-    return JSON.stringify(args ?? null) ?? ''
+    return JSON.stringify(args ?? null)
   } catch {
     // The registry hands over parsed JSON by contract; a value that traps
     // serialization must not break the pipeline it is travelling through.
@@ -195,7 +195,7 @@ export function apply(ctx: Context, config: Config): void {
       const envelope = scanContent({
         content: serializeArguments(exec.arguments),
         source: 'model',
-        provenance: { source: 'model', locator: exec.callId },
+        sourceRef: { source: 'model', locator: exec.callId },
         trust: 'unknown',
       }, maxScanBytes)
       if (envelope.findings.length > 0) recordScan(session, exec, 'proposal', envelope, 0)
@@ -215,7 +215,7 @@ export function apply(ctx: Context, config: Config): void {
     const envelope = scanContent({
       content: texts.map(block => block.text).join('\n'),
       source,
-      provenance: { source, locator: exec.callId },
+      sourceRef: { source, locator: exec.callId },
     }, maxScanBytes)
     const session = exec.agent?.session
     if (session === undefined || envelope.findings.length === 0) return decision

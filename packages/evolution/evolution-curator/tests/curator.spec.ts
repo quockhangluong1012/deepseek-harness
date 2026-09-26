@@ -8,12 +8,20 @@ import { DomainFacility } from '@deepseek-ai/dsh-storage-domain'
 import EvolutionSkillTelemetry from '@deepseek-ai/dsh-evolution-skill-telemetry'
 import type { FeedbackSignal } from '@deepseek-ai/dsh-evolution-feedback'
 import { MemoryMediaPool, MemoryStorageBackend } from '../../../storage/storage-domain/tests/helpers/memory-backend.ts'
-import EvolutionCurator, { resolveConfig } from '../src/index.ts'
+import EvolutionCurator, { CURATION_TASK_NAME, resolveConfig } from '../src/index.ts'
 import { curatorHome, readLedger } from '../src/safety.ts'
 
 const DAY = 24 * 3600 * 1000
 const HOUR = 3600 * 1000
 const T0 = Date.parse('2026-06-01T00:00:00.000Z')
+
+/** One task the harness's stub heartbeat received from the curator. */
+interface RegisteredTask {
+  name: string
+  intervalHours: number
+  minIdleHours?: number
+  run: (signal: AbortSignal) => Promise<void> | void
+}
 
 const savedHome = process.env['DSH_HOME']
 const homeDirs: string[] = []
@@ -41,6 +49,8 @@ async function harness(options: {
   feedFailures?: boolean
   feedSignals?: FeedbackSignal[]
   curatorConfig?: Record<string, unknown>
+  /** Provide a stub `ctx.evolutionHeartbeat` that records registrations. */
+  heartbeat?: boolean
   /** `conflicting-evidence` signals per skill, as the uncertainty store holds them. */
   conflicts?: Record<string, string[]>
   /** Lineage envelopes the version rule compares, newest last. */
@@ -103,11 +113,21 @@ async function harness(options: {
   if (options.telemetry !== false) {
     await ctx.plugin(EvolutionSkillTelemetry)
   }
+  const heartbeatTasks: RegisteredTask[] = []
+  const heartbeat = { tasks: heartbeatTasks, disposed: 0 }
+  if (options.heartbeat === true) {
+    ctx.provide('evolutionHeartbeat', {
+      register: (task: RegisteredTask) => {
+        heartbeatTasks.push(task)
+        return () => { heartbeat.disposed += 1 }
+      },
+    } as never)
+  }
   const baseline = vi.isFakeTimers() ? vi.getTimerCount() : 0
   const fiber = await ctx.plugin(EvolutionCurator, options.curatorConfig ?? {})
   const curator = ctx.evolutionCurator
   const telemetry = ctx.get('evolutionSkillTelemetry')
-  return { ctx, fiber, curator, telemetry, skills, baseline, state, feedbackCalls }
+  return { ctx, fiber, curator, telemetry, skills, baseline, state, feedbackCalls, heartbeat }
 }
 
 describe('evolution curator', () => {
@@ -116,7 +136,6 @@ describe('evolution curator', () => {
       enabled: true,
       intervalHours: 168,
       minIdleHours: 2,
-      tickMinutes: 15,
       staleAfterDays: 30,
       archiveAfterDays: 90,
       protectedNames: [],
@@ -457,11 +476,11 @@ describe('evolution curator', () => {
     }
   })
 
-  it('seeds the bookkeeping at start-up and defers one interval', async () => {
+  it('seeds the bookkeeping on the first due-check and defers one interval', async () => {
     vi.useFakeTimers({ now: T0 })
     const h = await harness({ curatorConfig: { intervalHours: 1, minIdleHours: 2 } })
     try {
-      expect(h.curator.lastRunAt()).toBe(new Date(T0).toISOString())
+      expect(h.curator.lastRunAt()).toBeNull()
       expect(await h.curator.maybeRun()).toBeUndefined()
       expect(h.curator.lastRunAt()).toBe(new Date(T0).toISOString())
       vi.setSystemTime(T0 + 30 * 60_000)
@@ -479,6 +498,8 @@ describe('evolution curator', () => {
     })
     try {
       await h.telemetry?.markUsed('old')
+      // The first due-check only seeds the bookkeeping; the next one is due.
+      expect(await h.curator.maybeRun()).toBeUndefined()
       vi.setSystemTime(T0 + 2 * DAY)
       const report = await h.curator.maybeRun()
       expect(report?.transitions).toHaveLength(1)
@@ -497,6 +518,8 @@ describe('evolution curator', () => {
     })
     try {
       await h.telemetry?.markUsed('old')
+      // The first due-check only seeds the bookkeeping; the next one is due.
+      expect(await h.curator.maybeRun()).toBeUndefined()
       vi.setSystemTime(T0 + 2 * DAY)
       h.ctx.emit('session/event', undefined as never, undefined as never)
       expect(await h.curator.maybeRun()).toBeUndefined()
@@ -511,52 +534,68 @@ describe('evolution curator', () => {
     }
   })
 
-  it('owns one host-wide timer and disposes it with the plugin', async () => {
+  it('registers one pass with the heartbeat and starts none at mount', async () => {
     vi.useFakeTimers({ now: T0 })
-    const h = await harness()
+    const run = vi.spyOn(EvolutionCurator.prototype, 'run')
     try {
-      expect(vi.getTimerCount()).toBe(h.baseline + 1)
-    } finally {
+      const h = await harness({ heartbeat: true, sources: { old: 'user-dsh' } })
+      expect(run).not.toHaveBeenCalled()
+      expect(h.curator.lastRunAt()).toBeNull()
+      expect(vi.getTimerCount()).toBe(h.baseline)
+      expect(h.heartbeat.tasks.map(task => task.name)).toEqual([CURATION_TASK_NAME])
+      expect(h.heartbeat.tasks[0]).toMatchObject({ intervalHours: 168, minIdleHours: 2 })
       await h.fiber.dispose()
+      expect(h.heartbeat.disposed).toBe(1)
+    } finally {
+      run.mockRestore()
     }
-    expect(vi.getTimerCount()).toBe(h.baseline)
   })
 
-  it('runs its due-check on the tick and survives a failing pass', async () => {
+  it('runs a pass when the registered heartbeat task fires', async () => {
     vi.useFakeTimers({ now: T0 })
     const h = await harness({
+      heartbeat: true,
       sources: { old: 'user-dsh' },
-      curatorConfig: { tickMinutes: 60, intervalHours: 25, minIdleHours: 0, staleAfterDays: 1 },
+      curatorConfig: { intervalHours: 1, minIdleHours: 2, staleAfterDays: 1 },
     })
     try {
-      const warnings: string[] = []
-      h.ctx.logger.exporter({
-        levels: { default: 9 },
-        export: (message) => {
-          warnings.push(message.args.join(' '))
-        },
-      })
       await h.telemetry?.markUsed('old')
-      await vi.advanceTimersByTimeAsync(HOUR)
-      expect(h.telemetry?.read('old')).toMatchObject({ state: 'active' })
-      h.state.failList = true
-      await vi.advanceTimersByTimeAsync(25 * HOUR)
-      expect(warnings.join('\n')).toContain('evolution curator scheduled pass failed: Error: catalog unavailable')
-      expect(vi.getTimerCount()).toBe(h.baseline + 1)
-      h.state.failList = false
-      await vi.advanceTimersByTimeAsync(2 * HOUR)
+      vi.setSystemTime(T0 + 2 * DAY)
+      await h.heartbeat.tasks[0]?.run(new AbortController().signal)
       expect(h.telemetry?.read('old')).toMatchObject({ state: 'stale' })
-      expect(h.curator.lastRunAt()).not.toBe(new Date(T0).toISOString())
+      expect(h.curator.lastRunAt()).toBe(new Date(T0 + 2 * DAY).toISOString())
     } finally {
       await h.fiber.dispose()
     }
   })
 
-  it('starts no timer and touches no bookkeeping when disabled', async () => {
+  it('reports a failing pass to the heartbeat and stays usable', async () => {
     vi.useFakeTimers({ now: T0 })
-    const h = await harness({ curatorConfig: { enabled: false } })
+    const h = await harness({
+      heartbeat: true,
+      sources: { old: 'user-dsh' },
+      curatorConfig: { intervalHours: 1, minIdleHours: 2, staleAfterDays: 1 },
+    })
+    try {
+      await h.telemetry?.markUsed('old')
+      vi.setSystemTime(T0 + 2 * DAY)
+      h.state.failList = true
+      await expect(h.heartbeat.tasks[0]?.run(new AbortController().signal)).rejects.toThrow('catalog unavailable')
+      expect(h.curator.lastRunAt()).toBeNull()
+      h.state.failList = false
+      await h.heartbeat.tasks[0]?.run(new AbortController().signal)
+      expect(h.telemetry?.read('old')).toMatchObject({ state: 'stale' })
+    } finally {
+      await h.fiber.dispose()
+    }
+  })
+
+  it('registers no task and touches no bookkeeping when disabled', async () => {
+    vi.useFakeTimers({ now: T0 })
+    const h = await harness({ heartbeat: true, curatorConfig: { enabled: false } })
     try {
       expect(vi.getTimerCount()).toBe(h.baseline)
+      expect(h.heartbeat.tasks).toEqual([])
       expect(h.curator.lastRunAt()).toBeNull()
       expect(await h.curator.maybeRun()).toBeUndefined()
       expect(h.curator.lastRunAt()).toBeNull()

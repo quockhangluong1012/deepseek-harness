@@ -1,4 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
+import { mkdtemp } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import Storage from '@deepseek-ai/dsh-storage'
 import { DomainFacility } from '@deepseek-ai/dsh-storage-domain'
@@ -21,7 +24,10 @@ async function harness(config: Config = { capacityBytes: 65536 }) {
   const facility = new DomainFacility(ctx, { backend: 'memory', routes: {} })
   ctx.storage.mount('domain', facility)
   ctx.provide('storageDomain', facility)
-  const fiber = await ctx.plugin(EvolutionMemoryStore, config)
+  const lockDirectory = await mkdtemp(join(tmpdir(), 'dsh-evolution-memory-locks-'))
+  // Object.assign: the Config interface shares its name with the schema value,
+  // which trips no-misused-spread's class-instance check.
+  const fiber = await ctx.plugin(EvolutionMemoryStore, Object.assign({ lockDirectory }, config))
   const published: EvolutionDecisionsApplied[] = []
   ctx.on('evolution/decisions-applied', (batch) => {
     published.push(batch)
@@ -41,7 +47,7 @@ function candidate(statement: string, source = 's1'): LessonArtifactInput {
   }
 }
 
-/** One extraction's provenance, as the reviewer stamps it on a batch. */
+/** One extraction record, as the reviewer stamps it on a batch. */
 function extraction(sessionId: string): EvolutionExtraction {
   return {
     at: '2026-09-22T00:00:00.000Z',
@@ -86,7 +92,31 @@ describe('evolution-memory applied decision batches', () => {
     }
   })
 
-  it('publishes nothing for a batch applied without provenance', async () => {
+  it('counts a paraphrased new decision as a validation of the lesson it matched', async () => {
+    const h = await harness()
+    try {
+      // Every vector is identical, so the similarity lookup selects the
+      // standing fact as the target; the decision omits a strategy, so the
+      // fold runs under keep_both.
+      h.ctx.provide('embeddings', {
+        embed: async ({ texts }: { texts: readonly string[] }) => ({ vectors: texts.map(() => [1]) }),
+      })
+      const id = scope()
+      await h.store.addArtifact(id, candidate('use postgres', 's1'))
+      const record = await h.store.applyExtractionDecisions(id, [
+        { kind: 'new', candidate: candidate('prefers postgres for storage', 's2') },
+      ])
+      // The fact keeps its identity and gains the extraction's evidence; no
+      // twin artifact was stored beside it.
+      expect(record.agentLessons).toHaveLength(1)
+      expect(record.agentLessons[0]).toMatchObject({ id: 'use postgres', statement: 'use postgres', validationCount: 1 })
+      expect(record.lessonsUpdatedAt).toEqual(expect.any(String))
+    } finally {
+      await h.fiber.dispose()
+    }
+  })
+
+  it('publishes nothing for a batch applied without an extraction record', async () => {
     const h = await harness()
     try {
       const id = scope()

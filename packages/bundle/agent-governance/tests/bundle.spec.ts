@@ -43,10 +43,12 @@ describe('dsh-agent-governance bundle', () => {
   it('declares the control plane as one parseable patch list, every row resolved by a dependency', () => {
     const inserted = rows()
 
-    expect(inserted.map(row => row.id)).toEqual(['agent-kernel', 'agent-kernel-builtins', 'tool-evidence', 'prompt-injection'])
+    expect(inserted.map(row => row.id)).toEqual(['agent-kernel', 'agent-kernel-builtins', 'command-verifiers', 'tool-evidence', 'prompt-injection'])
     expect(inserted.every(row => row.config?.['mode'] === undefined || row.config['mode'] === 'shadow')).toBe(true)
     expect(inserted.find(row => row.id === 'agent-kernel')?.config).toEqual({ mode: 'shadow' })
     expect(inserted.find(row => row.id === 'prompt-injection')?.config).toEqual({ mode: 'shadow' })
+    expect(Object.keys(inserted.find(row => row.id === 'command-verifiers')?.config?.['verifiers'] ?? {}))
+      .toEqual(['typecheck', 'lint', 'test'])
   })
 
   it('composes a kernel whose policy can evaluate shipped tools, and a guard on the tool pipeline', async () => {

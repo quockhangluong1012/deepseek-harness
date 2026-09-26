@@ -2,6 +2,10 @@ import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import Storage from '@deepseek-ai/dsh-storage'
 import { DomainFacility } from '@deepseek-ai/dsh-storage-domain'
+import { mkdtemp } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
 import { MemoryMediaPool, MemoryStorageBackend } from '../../../storage/storage-domain/tests/helpers/memory-backend.ts'
 import EvolutionMemoryStore, {
   EvolutionScopeId,
@@ -55,6 +59,11 @@ async function harness(
     maxResolutions?: number
   } = { capacityBytes: 1024 },
 ) {
+  // Scope locks live on disk, so a suite that used the real harness home would
+  // contend with a developer's own runs and leave claim files behind when a
+  // test times out. One directory per run keeps the lock exercised and the
+  // developer's home untouched.
+  const lockDirectory = await mkdtemp(join(tmpdir(), 'dsh-evolution-memory-locks-'))
   const pool = new MemoryMediaPool()
   const ctx = new Context()
   await ctx.plugin(Storage)
@@ -62,7 +71,7 @@ async function harness(
   const facility = new DomainFacility(ctx, { backend: 'memory', routes: {} })
   ctx.storage.mount('domain', facility)
   ctx.provide('storageDomain', facility)
-  const fiber = await ctx.plugin(EvolutionMemoryStore, config)
+  const fiber = await ctx.plugin(EvolutionMemoryStore, { lockDirectory, ...config })
   return { ctx, fiber, store: ctx.evolutionMemory }
 }
 
@@ -124,6 +133,7 @@ describe('evolution-memory scope ids', () => {
       maxRecalls: 50,
       maxResolutions: 200,
       mergeSimilarityFloor: 0.87,
+      confidenceFloor: 0.5,
       maintenanceIntervalHours: 24,
       refutationFloor: 3,
       defaultTtlDays: 30,
@@ -131,6 +141,8 @@ describe('evolution-memory scope ids', () => {
       maxEpisodicEntries: 100,
       demoteUtilityFloor: 0.35,
       demoteMinSurfaced: 3,
+      lockDirectory: dshHomePath('evolution-memory', 'locks'),
+      lockWaitMs: 2000,
     })
   })
 })
@@ -552,6 +564,47 @@ describe('evolution-memory store', () => {
     await fiber.dispose()
   })
 
+  it('replaceArtifacts folds a restated artifact into the record it already holds', async () => {
+    const { fiber, store } = await harness({ capacityBytes: 8192 })
+    const id = scope()
+    await store.addArtifact(id, candidate('use postgres'))
+    await store.addArtifact(id, candidate('prefer short functions'))
+    // A later extraction confirms one fact twice and corrects the wording of
+    // the other, which keeps the artifact's id while replacing its statement.
+    await store.applyExtractionDecisions(id, [
+      { kind: 'confirms', artifactId: 'use postgres' },
+      { kind: 'confirms', artifactId: 'use postgres' },
+      { kind: 'contradicts', artifactId: 'prefer short functions', statement: 'prefer small functions' },
+    ])
+    const before = store.read(id)?.agentLessons ?? []
+    const replaced = await store.replaceArtifacts(id, [
+      // The restated candidate replaces stored content, so it takes the same
+      // credential scrub a fresh artifact gets.
+      candidate('use postgres', { conditions: 'database work with sk-abcdefghijklmnopqrstuvwxyz0123', confidence: 0.7 }),
+      candidate('prefer small functions'),
+      candidate('new fact'),
+    ])
+    const [restated, corrected, added] = replaced.agentLessons
+    expect(replaced.agentLessons.map(artifact => artifact.id)).toEqual(['use postgres', 'prefer short functions', 'new fact'])
+    // The restated fact keeps its counters and creation instant, and takes the
+    // candidate's content.
+    expect(restated).toMatchObject({
+      statement: 'use postgres',
+      conditions: 'database work with [REDACTED]',
+      confidence: 0.7,
+      validationCount: 2,
+      refutationCount: 0,
+      createdAt: before[0]?.createdAt,
+    })
+    // The corrected fact is reached by the statement it now carries, so it
+    // survives with its id and the history of the wording it replaced instead
+    // of being answered by a twin.
+    expect(corrected).toMatchObject({ id: 'prefer short functions', createdAt: before[1]?.createdAt })
+    expect(corrected?.supersedes?.map(entry => entry.statement)).toEqual(['prefer short functions'])
+    expect(added).toMatchObject({ id: 'new fact', validationCount: 0 })
+    await fiber.dispose()
+  })
+
   it('replaceArtifacts refuses a repeated identity or a blank statement without mutating', async () => {
     const { fiber, store } = await harness()
     const id = scope()
@@ -579,7 +632,7 @@ describe('evolution-memory store', () => {
     await fiber.dispose()
   })
 
-  it('replaceArtifacts stamps provenance when given extraction and leaves it alone otherwise', async () => {
+  it('replaceArtifacts stamps the extraction record when given one and leaves it alone otherwise', async () => {
     const { fiber, store } = await harness()
     const id = scope()
     const extraction: EvolutionExtraction = {
@@ -593,7 +646,7 @@ describe('evolution-memory store', () => {
     }
     const stamped = await store.replaceArtifacts(id, [candidate('one')], extraction)
     expect(stamped.lastExtraction).toEqual(extraction)
-    // The stored provenance is a copy, not the caller's object.
+    // The stored extraction record is a copy, not the caller's object.
     expect(stamped.lastExtraction).not.toBe(extraction)
     const plain = await store.replaceArtifacts(id, [candidate('two')])
     expect(plain.agentLessons.map(artifact => artifact.statement)).toEqual(['two'])
@@ -601,7 +654,7 @@ describe('evolution-memory store', () => {
     await fiber.dispose()
   })
 
-  it('setUserProfile replaces the document with provenance', async () => {
+  it('setUserProfile replaces the document with an extraction record', async () => {
     const { fiber, store } = await harness()
     const id = scope()
     const plain = await store.setUserProfile(id, 'likes terse answers')
@@ -1467,7 +1520,7 @@ describe('evolution-memory store', () => {
 })
 
 describe('evolution-memory extraction decisions', () => {
-  it('applies a whole batch in one write with provenance', async () => {
+  it('applies a whole batch in one write with an extraction record', async () => {
     const { fiber, store } = await harness()
     const id = scope()
     const seeded = await store.addArtifact(id, candidate('use postgres', { conditions: 'database work' }))
@@ -1551,7 +1604,7 @@ describe('evolution-memory extraction decisions', () => {
     const record = await store.applyExtractionDecisions(id, [], extraction)
     expect(record.agentLessons).toEqual(before?.agentLessons)
     // The pass found nothing, so it stamped no family — the same rule
-    // `addArtifact` follows when its add stores nothing. The provenance of the
+    // `addArtifact` follows when its add stores nothing. The extraction record of the
     // call that found nothing is still recorded.
     expect(record.lastExtraction).toEqual(extraction)
     expect(record.lessonsUpdatedAt).toBe(before?.lessonsUpdatedAt)
@@ -1590,7 +1643,7 @@ describe('evolution-memory extraction decisions', () => {
     await fiber.dispose()
   })
 
-  it('applies a batch without stamping provenance the caller did not supply', async () => {
+  it('applies a batch without stamping an extraction record the caller did not supply', async () => {
     const { fiber, store } = await harness()
     const id = scope()
     await store.addArtifact(id, candidate('use postgres'))

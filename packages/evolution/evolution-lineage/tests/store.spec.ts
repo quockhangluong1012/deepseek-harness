@@ -176,6 +176,77 @@ describe('evolution lineage', () => {
     }
   })
 
+  it('numbers a policy\'s revisions from one and diffs each against its parent', async () => {
+    const { fiber, store } = await boot()
+    try {
+      const first = await store.recordRevision({ policy: 'skill:writer', body: 'head\nold\n' })
+      expect(first).toMatchObject({
+        policy: 'skill:writer',
+        version: 1,
+        parentDigest: null,
+        diff: { addedLines: 0, removedLines: 0 },
+        body: 'head\nold\n',
+      })
+      expect(first.digest).toMatch(/^[0-9a-f]{64}$/)
+      expect(first.at).toMatch(/^\d{4}-\d{2}-\d{2}T/)
+      const second = await store.recordRevision({ policy: 'skill:writer', body: 'head\nnew\n', benchmark: 'scorer-v1/abc' })
+      expect(second).toMatchObject({
+        version: 2,
+        parentDigest: first.digest,
+        diff: { addedLines: 1, removedLines: 1 },
+        benchmark: 'scorer-v1/abc',
+      })
+      // A second policy keeps its own chain.
+      const other = await store.recordRevision({ policy: 'prompt:writer', body: 'x\n' })
+      expect(other.version).toBe(1)
+      expect(store.revisions('skill:writer').map(row => row.version)).toEqual([1, 2])
+      expect(store.revisions('prompt:writer').map(row => row.version)).toEqual([1])
+      expect(store.revisions('missing')).toEqual([])
+    } finally {
+      await fiber.dispose()
+    }
+  })
+
+  it('re-recording the head body adds no revision, while restoring an older body does', async () => {
+    const { fiber, store } = await boot()
+    try {
+      const first = await store.recordRevision({ policy: 'skill:writer', body: 'one\n' })
+      await store.recordRevision({ policy: 'skill:writer', body: 'two\n' })
+      const unchanged = await store.recordRevision({ policy: 'skill:writer', body: 'two\n' })
+      expect(unchanged.version).toBe(2)
+      expect(store.revisions('skill:writer')).toHaveLength(2)
+      // A revert re-commits the old bytes as a new revision rather than
+      // rewriting the chain, so the revision it undoes stays readable.
+      const reverted = await store.recordRevision({ policy: 'skill:writer', body: 'one\n' })
+      expect(reverted).toMatchObject({ version: 3, digest: first.digest, body: 'one\n' })
+      expect(reverted.parentDigest).not.toBeNull()
+      expect(store.revisions('skill:writer').map(row => row.body)).toEqual(['one\n', 'two\n', 'one\n'])
+    } finally {
+      await fiber.dispose()
+    }
+  })
+
+  it('revisions are detached, and the chain survives a restart', async () => {
+    const backend = new MemoryStorageBackend(new MemoryMediaPool())
+    const first = await boot(backend)
+    try {
+      await first.store.recordRevision({ policy: 'skill:writer', body: 'one\n' })
+      const head = first.store.revisions('skill:writer')[0]
+      if (head === undefined) throw new Error('the revision was not recorded')
+      head.body = 'mutated'
+      expect(first.store.revisions('skill:writer')[0]?.body).toBe('one\n')
+    } finally {
+      await first.fiber.dispose()
+    }
+    const second = await boot(backend)
+    try {
+      expect(second.store.revisions('skill:writer')).toHaveLength(1)
+      expect(second.store.revisions('skill:writer')[0]?.body).toBe('one\n')
+    } finally {
+      await second.fiber.dispose()
+    }
+  })
+
   it('reads throw before the store starts', () => {
     const ctx = new Context()
     const store = new EvolutionLineage(ctx, { comparedKeys: ['skill'] })
@@ -183,6 +254,13 @@ describe('evolution lineage', () => {
     expect(() => store.envelope('e1')).toThrow('not started yet')
     expect(() => store.compare('a', 'b')).toThrow('not started yet')
     expect(() => store.replay('e1')).toThrow('not started yet')
+    expect(() => store.revisions('skill:writer')).toThrow('not started yet')
+  })
+
+  it('recording a revision throws before the store starts', async () => {
+    const ctx = new Context()
+    const store = new EvolutionLineage(ctx, { comparedKeys: ['skill'] })
+    await expect(store.recordRevision({ policy: 'skill:writer', body: 'x\n' })).rejects.toThrow('not started yet')
   })
 
   it('amending throws before the store starts', async () => {

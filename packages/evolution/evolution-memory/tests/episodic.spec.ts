@@ -1,4 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
+import { mkdtemp } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import Storage from '@deepseek-ai/dsh-storage'
 import { DomainFacility } from '@deepseek-ai/dsh-storage-domain'
@@ -16,7 +19,10 @@ async function harness(config: Config) {
   const facility = new DomainFacility(ctx, { backend: 'memory', routes: {} })
   ctx.storage.mount('domain', facility)
   ctx.provide('storageDomain', facility)
-  const fiber = await ctx.plugin(EvolutionMemoryStore, config)
+  const lockDirectory = await mkdtemp(join(tmpdir(), 'dsh-evolution-memory-locks-'))
+  // Object.assign: the Config interface shares its name with the schema value,
+  // which trips no-misused-spread's class-instance check.
+  const fiber = await ctx.plugin(EvolutionMemoryStore, Object.assign({ lockDirectory }, config))
   return { ctx, fiber, store: ctx.evolutionMemory }
 }
 
@@ -124,6 +130,52 @@ describe('evolution-memory episodic tier', () => {
       expect(store.usage(id).usedBytes).toBe(usedBefore + 4)
       expect(after?.episodic).toHaveLength(1)
       expect(digestOf(after)).toBe(digestOf(before))
+    } finally {
+      await fiber.dispose()
+    }
+  })
+})
+
+describe('evolution-memory quick-add instructions', () => {
+  it('appends a staged instruction after the existing document and stamps the family', async () => {
+    const { fiber, store } = await harness({ capacityBytes: 4096 })
+    try {
+      const id = scope()
+      await store.setInstructions(id, 'existing rule')
+      const staged = await store.stageWrite({
+        scopeId: id, kind: 'memory', op: 'appendInstructions',
+        payload: { text: '  always run pnpm run lint  ' }, originSessionId: 's1', gist: 'remember lint',
+      })
+      expect(store.read(id)?.instructions).toBe('existing rule')
+      await store.approveStaged(staged.id)
+
+      const record = store.read(id)
+      expect(record?.instructions).toBe('existing rule\n\nalways run pnpm run lint')
+      expect(record?.instructionsUpdatedAt).not.toBeNull()
+      expect(record?.staged).toEqual([])
+    } finally {
+      await fiber.dispose()
+    }
+  })
+
+  it('starts an empty instructions document and refuses a blank quick-add', async () => {
+    const { fiber, store } = await harness({ capacityBytes: 4096 })
+    try {
+      const id = scope()
+      const first = await store.stageWrite({
+        scopeId: id, kind: 'memory', op: 'appendInstructions',
+        payload: { text: 'first rule' }, originSessionId: 's1', gist: 'first',
+      })
+      await store.approveStaged(first.id)
+      expect(store.read(id)?.instructions).toBe('first rule')
+
+      const blank = await store.stageWrite({
+        scopeId: id, kind: 'memory', op: 'appendInstructions',
+        payload: { text: '  \n ' }, originSessionId: 's1', gist: 'blank',
+      })
+      await expect(store.approveStaged(blank.id)).rejects.toThrow("non-blank 'text'")
+      expect(store.read(id)?.instructions).toBe('first rule')
+      expect(store.read(id)?.staged.map(entry => entry.id)).toEqual([blank.id])
     } finally {
       await fiber.dispose()
     }

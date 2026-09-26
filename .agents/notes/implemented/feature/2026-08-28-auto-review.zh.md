@@ -4,6 +4,8 @@ Status: implemented
 
 [English](2026-08-28-auto-review.md) | 中文
 
+部分内容已被[Auto 模式 reviewer 范围决策](2026-09-26-auto-mode-reviewer-scope.zh.md)取代：执行组合、分类路由、决策词汇与审批归属均已改变；下文定义的权威模型、来源角色与生命周期继续有效。
+
 ## 问题
 
 Full access 让有用的项目工作无需反复审批即可继续，但也允许破坏性操作与敏感信息外泄。把审批委托给模型的权限模式需要明确的权威策略、完整待执行动作描述，以及绝不执行被拒绝 body 的失败路径。共用 Full access 的执行旋钮也使独立持久模式身份成为必要，包括 child 继承较早 fork 前缀的情况。

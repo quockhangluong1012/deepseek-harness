@@ -5,7 +5,7 @@
  */
 
 import { truncateUtf8 } from '@deepseek-ai/dsh-evolution-memory'
-import type { LessonArtifact } from '@deepseek-ai/dsh-evolution-memory'
+import type { MemoryFact } from '@deepseek-ai/dsh-evolution-memory'
 import type { ContextSnapshotSection } from '@deepseek-ai/dsh-llm'
 
 const SYSTEM_REMINDER_OPEN = '<system-reminder>'
@@ -106,29 +106,30 @@ interface EvolutionBriefInput {
   /** Usage ratio at or above which the header carries the consolidate warning. */
   capacityWarnPct: number
   instructions: string
-  lessons: readonly LessonArtifact[]
+  /** The scope's current facts, as `ctx.evolutionMemory.projection` presents them. */
+  lessons: readonly MemoryFact[]
   profile: string
   context: readonly MaterializedContext[]
 }
 
 /**
- * Order artifacts strongest-first: confidence descending, ties broken by
- * ascending `id` so equal-confidence artifacts render deterministically.
- * @param artifacts - the scope's artifacts.
+ * Order facts strongest-first: confidence descending, ties broken by
+ * ascending `id` so equal-confidence facts render deterministically.
+ * @param facts - the scope's current facts.
  * @returns a new array in strongest-first order.
  */
-function orderedLessons(artifacts: readonly LessonArtifact[]): LessonArtifact[] {
-  return [...artifacts].sort((left, right) =>
+function orderedLessons(facts: readonly MemoryFact[]): MemoryFact[] {
+  return [...facts].sort((left, right) =>
     right.confidence - left.confidence || (left.id < right.id ? -1 : 1))
 }
 
 /**
- * Render the lines for the first `kept` artifacts of a strongest-first order.
- * @param ordered - artifacts already in strongest-first order.
- * @param kept - how many leading artifacts to render.
+ * Render the lines for the first `kept` facts of a strongest-first order.
+ * @param ordered - facts already in strongest-first order.
+ * @param kept - how many leading facts to render.
  * @returns the joined lesson lines, or the empty string when none are kept.
  */
-function lessonLines(ordered: readonly LessonArtifact[], kept: number): string {
+function lessonLines(ordered: readonly MemoryFact[], kept: number): string {
   return ordered.slice(0, kept)
     // A fact derived from content nobody vouched for is quoted data with the
     // source it came from, never a directive the model reads as instruction
@@ -140,19 +141,19 @@ function lessonLines(ordered: readonly LessonArtifact[], kept: number): string {
 }
 
 /**
- * Render lesson artifacts best-first, dropping the lowest-confidence ones
- * until the block fits its byte budget. Artifacts are never truncated
+ * Render lesson facts best-first, dropping the lowest-confidence ones
+ * until the block fits its byte budget. Facts are never truncated
  * mid-statement: when not even one fits, the block is empty rather than a
  * partial line.
- * @param artifacts - the scope's artifacts.
+ * @param facts - the scope's current facts.
  * @param maxBytes - byte budget for the rendered block.
- * @returns the rendered lines and how many artifacts were dropped.
+ * @returns the rendered lines and how many facts were dropped.
  */
 export function renderLessonLines(
-  artifacts: readonly LessonArtifact[],
+  facts: readonly MemoryFact[],
   maxBytes: number,
 ): { text: string; dropped: number } {
-  const ordered = orderedLessons(artifacts)
+  const ordered = orderedLessons(facts)
   for (let kept = ordered.length; kept > 0; kept -= 1) {
     const text = lessonLines(ordered, kept)
     if (byteLength(text) <= maxBytes) return { text, dropped: ordered.length - kept }

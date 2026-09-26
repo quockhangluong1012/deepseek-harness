@@ -227,14 +227,65 @@ describe('evolution heartbeat', () => {
     try {
       const runs: number[] = []
       h.heartbeat.register({ name: 'maintenance', intervalHours: 1, run: () => { runs.push(Date.now()) } })
+      // The start-time due pass seeds the task at T0; the 10-minute tick
+      // defers it, and the tick after the interval elapses runs it.
       await vi.advanceTimersByTimeAsync(10 * 60_000)
-      expect(h.heartbeat.lastRunAt('maintenance')).toBe(new Date(T0 + 10 * 60_000).toISOString())
+      expect(h.heartbeat.lastRunAt('maintenance')).toBe(new Date(T0).toISOString())
       expect(runs).toEqual([])
-      // The interval elapses at the 70-minute tick, so the run lands there and
-      // the following tick defers again.
-      await vi.advanceTimersByTimeAsync(70 * 60_000)
-      expect(runs).toEqual([T0 + 70 * 60_000])
-      expect(h.heartbeat.lastRunAt('maintenance')).toBe(new Date(T0 + 70 * 60_000).toISOString())
+      await vi.advanceTimersByTimeAsync(60 * 60_000)
+      expect(runs).toEqual([T0 + 60 * 60_000])
+      expect(h.heartbeat.lastRunAt('maintenance')).toBe(new Date(T0 + 60 * 60_000).toISOString())
+    } finally {
+      await h.fiber.dispose()
+    }
+  })
+
+  it('runs one due pass at a time and answers a re-entrant call with it', async () => {
+    vi.useFakeTimers({ now: T0 })
+    const h = await harness({ intervalHours: 1, minIdleHours: 0 })
+    const started = Promise.withResolvers<undefined>()
+    const release = Promise.withResolvers<undefined>()
+    try {
+      let runs = 0
+      h.heartbeat.register({
+        name: 'slow',
+        intervalHours: 1,
+        run: async () => {
+          runs += 1
+          started.resolve(undefined)
+          await release.promise
+        },
+      })
+      await h.heartbeat.runDue()
+      vi.setSystemTime(T0 + 2 * HOUR)
+      const first = h.heartbeat.runDue()
+      await started.promise
+      const second = h.heartbeat.runDue()
+      // The second call joins the pass already running instead of starting one.
+      expect(second).toBe(first)
+      release.resolve(undefined)
+      await expect(second).resolves.toMatchObject({ tasks: [{ name: 'slow', outcome: 'ran' }] })
+      expect(runs).toBe(1)
+      // Once the pass settles, the next call starts a fresh one.
+      expect(h.heartbeat.runDue()).not.toBe(first)
+    } finally {
+      release.resolve(undefined)
+      await h.fiber.dispose()
+    }
+  })
+
+  it('schedules the start-time due pass after the mounting turn', async () => {
+    vi.useFakeTimers({ now: T0 })
+    const h = await harness({ intervalHours: 1, minIdleHours: 0 })
+    try {
+      const runs: string[] = []
+      h.heartbeat.register({ name: 'early', intervalHours: 1, run: () => { runs.push('early') } })
+      // No pass runs inside `init`: the pending zero-delay timer is what seeds
+      // the task registered after the mount, and it still only seeds.
+      expect(h.heartbeat.lastRunAt('early')).toBeNull()
+      await vi.advanceTimersByTimeAsync(1)
+      expect(h.heartbeat.lastRunAt('early')).toBe(new Date(T0).toISOString())
+      expect(runs).toEqual([])
     } finally {
       await h.fiber.dispose()
     }
@@ -247,9 +298,12 @@ describe('evolution heartbeat', () => {
       const warn = vi.spyOn(h.ctx.logger, 'warn').mockImplementation(() => {})
       h.heartbeat.register({ name: 'maintenance', intervalHours: 1, run: () => {} })
       h.pool.failNextWrites = 1
-      await vi.advanceTimersByTimeAsync(10 * 60_000)
+      await vi.advanceTimersByTimeAsync(1)
       expect(warn).toHaveBeenCalledWith(expect.stringContaining('scheduled pass failed'))
       expect(h.heartbeat.lastRunAt('maintenance')).toBeNull()
+      // The failed start pass leaves the schedule intact: the tick seeds it.
+      await vi.advanceTimersByTimeAsync(10 * 60_000 - 1)
+      expect(h.heartbeat.lastRunAt('maintenance')).toBe(new Date(T0 + 10 * 60_000).toISOString())
     } finally {
       await h.fiber.dispose()
     }
@@ -327,7 +381,7 @@ describe('evolution heartbeat', () => {
     }
   })
 
-  it('owns no timer while disabled and releases it on disposal', async () => {
+  it('owns no timer while disabled and releases both handles on disposal', async () => {
     vi.useFakeTimers({ now: T0 })
     const off = await harness({ enabled: false })
     try {
@@ -338,6 +392,10 @@ describe('evolution heartbeat', () => {
     }
     const on = await harness()
     try {
+      // The pending start-time due pass plus the repeating tick; the start
+      // handle is released once it fires.
+      expect(vi.getTimerCount()).toBe(on.baseline + 2)
+      await vi.advanceTimersByTimeAsync(1)
       expect(vi.getTimerCount()).toBe(on.baseline + 1)
     } finally {
       await on.fiber.dispose()

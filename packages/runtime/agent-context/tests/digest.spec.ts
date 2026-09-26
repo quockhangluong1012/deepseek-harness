@@ -4,7 +4,7 @@ import type { CompiledSource, ContextConflict, ContextOmission, ContextSource } 
 
 /** One envelope fixture. */
 function source(id: string, content = id): ContextSource {
-  return { id, kind: 'task', content, trust: 'trusted', provenance: { source: 'kernel', locator: id }, retention: 'required' }
+  return { id, kind: 'task', content, trust: 'trusted', sourceRef: { source: 'kernel', locator: id }, retention: 'required' }
 }
 
 /** One priced fixture. */

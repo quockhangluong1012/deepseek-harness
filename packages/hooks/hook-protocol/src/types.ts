@@ -25,8 +25,10 @@ declare module '@deepseek-ai/dsh-session/types' {
     }
     /**
      * Log-only outcome paired to `hook/invoked` by `handlerId`. Decision is the
-     * parsed permission result, `stop` for `continue:false`, or `pass`; exit code
-     * may be absent, stderr is bounded, and duration is wall-clock runtime.
+     * parsed permission result, `stop` for `continue:false`, `transport-error`
+     * for a failed HTTP hook transport (which fails closed), or `pass`; exit code
+     * may be absent (an HTTP hook never records one), stderr is bounded, and
+     * duration is wall-clock runtime.
      */
     'hook/result': {
       turn: number
@@ -49,9 +51,9 @@ export type HookDialect = 'claude-code' | 'codex'
 
 /**
  * One configured command hook (the `{ type: 'command', command, timeout? }`
- * shape shared by both dialects). Non-command hook types (CC's `prompt`/`agent`/
- * `http`) are parsed-and-skipped by a bridge, so only this shape reaches the
- * runner.
+ * shape shared by both dialects). Non-runnable hook types (CC's `prompt`/
+ * `agent`/`mcp_tool`) are parsed-and-skipped by a bridge, so only this shape
+ * and {@link HttpHook} reach the runner.
  */
 export interface CommandHook {
   /** The shell command line to run. */
@@ -61,13 +63,33 @@ export interface CommandHook {
 }
 
 /**
+ * One configured HTTP hook (`{ type: 'http', url, headers?, timeout? }`). The
+ * hook's stdin payload is POSTed to `url` as JSON, and the response body is
+ * decoded exactly like a command hook's clean-exit stdout. A transport fault
+ * (timeout, non-2xx status, connection error, unreadable body) is FAIL-CLOSED:
+ * see {@link HookOutput.transportError}. `${VAR}` interpolation and
+ * `allowedEnvVars` are unsupported.
+ */
+export interface HttpHook {
+  /** Absolute `http:`/`https:` endpoint the payload is POSTed to. */
+  url: string
+  /** Extra request headers; `content-type: application/json` is always set. */
+  headers?: Record<string, string>
+  /** Per-hook timeout in SECONDS (the wire unit); the runner converts to ms. */
+  timeoutSec?: number
+}
+
+/** One runnable hook: a command to run or an HTTP endpoint to POST to. */
+export type HookHandler = CommandHook | HttpHook
+
+/**
  * One matcher group: a `matcher` pattern (absent / `''` / `'*'` = match-all)
- * plus the command hooks that run when it matches. Both dialects share this
- * shape (CC's `hooks.json` and Codex's `hooks.json`).
+ * plus the handlers that run when it matches. Both dialects share this shape
+ * (CC's `hooks.json` and Codex's `hooks.json`).
  */
 export interface MatcherGroup {
   matcher?: string
-  hooks: CommandHook[]
+  hooks: HookHandler[]
 }
 
 /**
@@ -134,4 +156,43 @@ export interface HookOutput {
    * bridge logs + warns when this is present.
    */
   updatedInput?: Record<string, unknown>
+  /**
+   * The model-request fields a BeforeModel hook asked to replace
+   * (`hookSpecificOutput.request`). Applied by the bridge on the
+   * `agent/request` waterfall; every other request field is unchanged.
+   */
+  requestPatch?: HookRequestPatch
+  /**
+   * The complete set of tool names a BeforeToolSelection hook allows
+   * (`hookSpecificOutput.allowTools`). The bridge narrows the assembled tool
+   * set to these names; a hook can only narrow, never add back a tool.
+   */
+  allowTools?: string[]
+  /**
+   * The failure text of a hook TRANSPORT fault — an HTTP timeout, non-2xx
+   * status, connection error, or unreadable body. Its presence means the
+   * transport could not answer, so the hook FAILS CLOSED: the output also
+   * carries a `deny` decision with this text as its reason, and the durable
+   * `hook/result` records `transport-error` instead of a decision. A command
+   * hook that cannot run stays non-blocking and never sets this.
+   */
+  transportError?: string
+}
+
+/**
+ * The model-request fields a BeforeModel hook may replace. Each is validated at
+ * the bridge: non-string or empty `provider`/`model`/`reasoningEffort` and
+ * non-positive or non-safe-integer `maxTokens` are ignored with a warning.
+ * Messages, tools, the system prompt, the session id, and the turn signal are
+ * NOT patchable — they belong to the loop and the logged request header.
+ */
+export interface HookRequestPatch {
+  /** Provider route for the request. */
+  provider?: string
+  /** Provider-owned model id for the request. */
+  model?: string
+  /** Adapter-owned reasoning effort for the request. */
+  reasoningEffort?: string
+  /** Output-token cap for the request. */
+  maxTokens?: number
 }

@@ -6,7 +6,7 @@ The Webhook subsystem turns authenticated external deliveries into optional ordi
 
 ## Shared values
 
-`WebhookRuleId`, `WebhookSourceId`, and `WebhookDeliveryId` are opaque strings. A delivery id is provenance and the replay-suppression key: the runtime remembers recent (kind, source, deliveryId) triples for one hour in a bounded process-local store and drops repeats inside that window.
+`WebhookRuleId`, `WebhookSourceId`, and `WebhookDeliveryId` are opaque strings. A delivery id identifies the delivery and is the replay-suppression key: the runtime remembers recent (kind, source, deliveryId) triples for one hour in a bounded process-local store and drops repeats inside that window.
 
 `WebhookEventMap` is merge-extensible by provider kind. `WebhookEventOf<K>` selects a known provider event and otherwise admits generic lossless JSON, allowing an out-of-tree adapter without changing the runtime package.
 

@@ -38,6 +38,10 @@ for (const proposal of staged) {
 
 `gaps()` joins the mounted seams: for every tracked skill with sessions, the distinct failure gists of its compressed trace rows. `propose(gaps)` stages one grounded task per gap that clears the evidence floor, skipping any already-open proposal for the same capability and task. When the failure-memory store is mounted, `propose` also matches each gap to the reflection stored for it — the newest stored reflection of the gap's sessions whose symptom is the same observed failure as one of its gists — and the staged proposal carries that reflection's anti-pattern and candidate test, so a task holds the corrective heuristic of §21 rather than only an error string. `proposals()` lists every staged task, open first then retired; `retire(id)` retires one deliberately. The `/curriculum` command measures, stages, and lists in one step, and accepts `retire <id>`.
 
+### Task classification vocabulary
+
+`types.ts` exports the profile and family vocabulary every task is classified with: `TaskProfile` (`coding`, `research`, `mentor`, `ict`) and `TaskFamily` (`coding`, `research`, `mentor-ict`, `long-horizon`, `loop-recovery`). The vocabulary lives here, beside the task derivation, and `dsh-evolution-benchmark` classifies the tasks it stores and the §5.3 baseline datasets it ships with it, so a task and the dataset it lands in cannot name two different families.
+
 ### Configuration
 
 The evidence floor is a validated `Config` member changeable from `cordis.yml`.

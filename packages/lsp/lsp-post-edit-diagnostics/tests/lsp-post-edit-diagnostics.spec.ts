@@ -235,7 +235,7 @@ describe('lsp-post-edit-diagnostics', () => {
     expect(result.content).toEqual([{ type: 'text', text: 'replacement' }])
     expect(result.additionalContexts?.[0]?.content).toMatchObject([{
       type: 'text',
-      text: expect.stringContaining('Diagnostics for a.ts:\n1:1 error: boom'),
+      text: expect.stringContaining('Diagnostics for a.ts:\n1:1 error: boom') as string,
     }])
   })
 

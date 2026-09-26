@@ -51,7 +51,9 @@ const next = ctx.evolutionOperators.recommend('writer')
 const instruction = ctx.evolutionOperators.recommendedInstruction('writer')
 ```
 
-`record(outcome)` 用实测的接受标志与通过增量，按产物类幂等更新该算子的统计；`stats(artifactClass?)` 按规范算子顺序列出各行；`ranking(artifactClass)` 按探索调整得分对组合排序——八个规范算子加上统计中可观察到的任何部署专属算子——未试过的算子也在其中，并按该产物类记录在案的指令判定微调；`recommend(artifactClass)` 返回排序首位——有证据时是被证明的领先者，全无记录时是规范首个算子。
+`MUTATION_OPERATOR_CATALOG` 是两个消费方共读的共享词汇：每个规范单主体算子一项 `{ id, instruction }`，按规范顺序排列，因此发送指令的突变方与对算子结果排序的本存储永不脱节。`MUTATION_OPERATORS` 则单独按规范顺序列出同样的 id。
+
+`record(outcome)` 用实测的接受标志与通过增量，按产物类幂等更新该算子的统计；`stats(artifactClass?)` 按规范算子顺序列出各行；`ranking(artifactClass)` 按探索调整得分对组合排序——导出的 `MUTATION_OPERATOR_CATALOG` 所指名的规范算子，加上统计中可观察到的任何部署专属算子——未试过的算子也在其中，并按该产物类记录在案的指令判定微调；`recommend(artifactClass)` 返回排序首位——有证据时是被证明的领先者，全无记录时是规范首个算子。
 
 指令那一半正是让突变策略得以演化（§9）的部分。`recordInstruction(input)` 存入某算子与产物类应当发送的指令行，连同促发它的证据；`judgeInstruction(verdict)` 记录该提案是否被接受及其原因，并拒绝针对尚未持有提案的配对给出的判定；`instruction(operator, artifactClass)` 读取一行；`instructions(artifactClass?)` 按规范算子顺序列出；`recommendedInstruction(artifactClass)` 返回排序领先者所持有的指令，当该领先者尚未持有提案时为 undefined。排序由 `instructionWeight × (接受 − 拒绝) / 判定数` 微调，幅度受该权重限制，因此被拒绝的指令会把其算子压到未试先验之下，被接受的则把它抬到之上。
 
@@ -74,7 +76,7 @@ const instruction = ctx.evolutionOperators.recommendedInstruction('writer')
 
 ### 设计概念
 
-记账是精确的。`updatedStats` 累积尝试与接受次数，把每次结果的增量折入滑动平均，并把回归率重算为新尝试次数上负增量的精确占比——从不使用衰减估计。打分是先验加探索：`scoreOf` 平滑 `(accepted + 1) / (attempts + 2)`——因此未试过的算子从自己的先验起步——再加上 `exploration × sqrt(1 / (attempts + 1))`，因此持续失败的算子让位于从未试过者，而一旦被证明的领先者有了几次接受，它就排在它们之上。`rankOperators` 始终返回整个组合——八个规范算子加上统计中观察到的任何部署专属算子——这使组合保持完整，并让 `recommend` 具备完全性：没有证据时即规范首个算子。
+记账是精确的。`updatedStats` 累积尝试与接受次数，把每次结果的增量折入滑动平均，并把回归率重算为新尝试次数上负增量的精确占比——从不使用衰减估计。打分是先验加探索：`scoreOf` 平滑 `(accepted + 1) / (attempts + 2)`——因此未试过的算子从自己的先验起步——再加上 `exploration × sqrt(1 / (attempts + 1))`，因此持续失败的算子让位于从未试过者，而一旦被证明的领先者有了几次接受，它就排在它们之上。`rankOperators` 始终返回整个组合——`MUTATION_OPERATOR_CATALOG` 的规范算子加上统计中观察到的任何部署专属算子——这使组合保持完整，并让 `recommend` 具备完全性：没有证据时即规范首个算子。
 
 指令行是同一配对上的第二个、更慢的信号。它的身份是算子与产物类，因此重新提出的指令会替换上一条：`proposedInstruction` 计入又一次提案，文本不变时保留既有判定，文本改变时则让计数从头开始，因为证据判定的是旧文本而不是这个配对。提案在判定落地之前不带任何权重，这正是 `instructionAdjustment` 对没有判定的行什么都不返回的原因：提出提案很廉价，只有经判定的证据才移动排序。
 
@@ -86,7 +88,7 @@ const instruction = ctx.evolutionOperators.recommendedInstruction('writer')
 
 - **此处覆盖**——某个产物类的证据支持哪个突变算子，以及该算子提出的指令与判定它的那些证据。
 - **此处不覆盖**——第 4 级是 [`dsh-evolution-evaluator-strategy`](../evolution-evaluator-strategy/README.zh.md)，第 5 级是 [`dsh-evolution-budget`](../evolution-budget/README.zh.md)；第 1、2 级属于优化器自身。
-- **在优化器以 `disabled: true` 发布期间不可达**——Web profile 以停用状态挂载 [`dsh-evolution-optimizer`](../evolution-optimizer/README.zh.md)，因此唯一会记录算子结果或指令判定的生产者是一个并未运行的调用者。突变请求实际发送的指令行仍硬编码在该包的算子目录中：本存储记录提案并推荐它，此处不会改写优化器的任何指令。
+- **在优化器以 `disabled: true` 发布期间不可达**——Web profile 以停用状态挂载 [`dsh-evolution-optimizer`](../evolution-optimizer/README.zh.md)，因此唯一会记录算子结果或指令判定的生产者是一个并未运行的调用者。算子词汇与突变请求所发送的指令行都是本存储的 `MUTATION_OPERATOR_CATALOG`，该包会导入它；本存储记录提案并推荐它，此处不会改写该目录。
 
 ### 失败与恢复
 
@@ -103,7 +105,7 @@ const instruction = ctx.evolutionOperators.recommendedInstruction('writer')
 
 - [进化式 Harness 规范](../../../specs/evolutionary-harness-v11-deep-research.md) §8、§9 与 §26——本包实现的算子组合、变异策略演化与元演化阶梯。
 - [进化包地图](../README.zh.md)——本组包及其仓库位置。
-- [`dsh-evolution-optimizer`](../evolution-optimizer/README.zh.md)——通过可选记录接缝记录每次暂存写入的算子与结果的消费者，也是本存储只对其提出提案而不改写的指令目录所在。
+- [`dsh-evolution-optimizer`](../evolution-optimizer/README.zh.md)——把 `MUTATION_OPERATOR_CATALOG` 作为其变异算子组合导入、并通过可选记录接缝记录每次暂存写入的算子与结果的消费者。
 - [`dsh-evolution-actuator`](../evolution-actuator/README.zh.md)——当停滞恢复抵达 §32 的新算子档位时读取推荐指令的循环。
 - [`dsh-evolution-budget`](../evolution-budget/README.zh.md)——为这些算子所驱动的搜索定价的第 5 级存储。
 - [`dsh-evolution-lineage`](../evolution-lineage/README.zh.md)——记录哪个算子产出了哪个实验的姊妹包，喂养同一套逐算子学习。
@@ -129,7 +131,7 @@ const instruction = ctx.evolutionOperators.recommendedInstruction('writer')
 - **推荐不等于改写**——存储记录某算子与类提出的指令及其赢得的判定；它从不改写被停用优化器所发送的指令目录，因此施加提案是部署的决定。
 - **每个配对只有一条指令，且只有其当前判定**——重新提出的文本会让计数从头开始，因此更早文本的记录被丢弃而非归档，而且当产物类在其下发生变化时，判定计数不会衰减。
 - **仅按类隔离**——统计与指令按产物类键控，从不跨类汇聚，因此数据稀少的类依赖先验而非相似类。
-- **无算子退役**——规范组合固定为 §8 的八个算子；部署专属算子只能靠观察进入，移除算子需要一次域版本升级，而不是一个存储开关。
+- **无算子退役**——规范组合固定为 `MUTATION_OPERATOR_CATALOG` 所持有的词汇；部署专属算子只能靠观察进入，移除算子需要一次域版本升级，而不是一个存储开关。
 
 <a id="dev-note"></a>
 ### 开发备注

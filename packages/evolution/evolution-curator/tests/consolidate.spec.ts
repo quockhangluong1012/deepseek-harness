@@ -12,7 +12,6 @@ import EvolutionModelRoutes from '@deepseek-ai/dsh-evolution-model-routes'
 import type { SkillUsageRecord } from '@deepseek-ai/dsh-evolution-skill-telemetry'
 import { MemoryMediaPool, MemoryStorageBackend } from '../../../storage/storage-domain/tests/helpers/memory-backend.ts'
 import EvolutionCurator, { resolveConfig } from '../src/index.ts'
-import type { CuratorReport } from '../src/types.ts'
 import { applyConsolidation, frameConsolidationInput } from '../src/consolidate.ts'
 import { appendLedger, curatorHome, pathExists, readLedger, readTextBlob, textSha } from '../src/safety.ts'
 import type { LedgerEntry } from '../src/safety.ts'
@@ -152,23 +151,25 @@ async function packageSkill(
 const CONSOLIDATING = { consolidate: true, provider: 'aux', model: 'cheap' }
 
 describe('evolution curator consolidation', () => {
-  it('does not wait for the start-time due pass before the plugin resolves', async () => {
-    const pending = Promise.withResolvers<CuratorReport | undefined>()
-    const spy = vi.spyOn(EvolutionCurator.prototype, 'maybeRun').mockReturnValue(pending.promise)
+  it('resolves without starting a maintenance pass', async () => {
+    const run = vi.spyOn(EvolutionCurator.prototype, 'run')
+    const maybeRun = vi.spyOn(EvolutionCurator.prototype, 'maybeRun')
     try {
       let mounted = false
       const promise = harness({ curatorConfig: { enabled: true } }).then((h) => {
         mounted = true
         return h
       })
-      // If startup still awaited the pass, `mounted` would never flip while
-      // `pending` is unresolved: this is the observable startup contract.
-      await vi.waitFor(() => { expect(mounted).toBe(true) }, { timeout: 1000, interval: 5 })
-      pending.resolve(undefined)
       const h = await promise
-      await h.fiber.dispose()
+      // Startup owns no pass: the heartbeat's task registration is the only
+      // trigger, so mounting cannot wait on a background pass.
+      expect(mounted).toBe(true)
+      expect(run).not.toHaveBeenCalled()
+      expect(maybeRun).not.toHaveBeenCalled()
+      await h.disposeAll()
     } finally {
-      spy.mockRestore()
+      run.mockRestore()
+      maybeRun.mockRestore()
     }
   })
 
@@ -502,12 +503,14 @@ describe('evolution curator consolidation', () => {
   })
 
   it('skips verdicts outside the survey and for pinned skills', async () => {
+    const body = '---\nname: pinned\ndescription: pinned skill\n---\nrewritten\n'
     const h = await harness({
       curatorConfig: CONSOLIDATING,
       respond: async (_request, index) => (index === 0
         ? toolTurn([
           call('skill_apply', { name: 'ghost', action: 'archive' }),
           call('skill_apply', { name: 'pinned', action: 'archive' }),
+          call('skill_apply', { name: 'pinned', action: 'patch', body }),
         ])
         : textTurn('done')),
     })
@@ -515,11 +518,18 @@ describe('evolution curator consolidation', () => {
       h.skills.push(await packageSkill(h.home, 'pinned', { full: true }))
       await h.telemetry?.markAgentCreated('pinned')
       await h.telemetry?.setPinned('pinned', true)
+      const original = await readFile(join(h.home, 'skills', 'pinned', 'SKILL.md'), 'utf8')
       const report = await h.curator.consolidate()
-      expect(report?.skipped).toBe(1)
-      expect(report?.verdicts).toEqual([{ name: 'pinned', action: 'archive' }])
+      expect(report?.skipped).toBe(2)
+      expect(report?.verdicts).toEqual([
+        { name: 'pinned', action: 'archive' },
+        { name: 'pinned', action: 'patch', body },
+      ])
+      // A pin refuses a patch as it refuses a move: the body stays byte-identical.
+      expect(await readFile(join(h.home, 'skills', 'pinned', 'SKILL.md'), 'utf8')).toBe(original)
       expect(await pathExists(join(h.home, 'skills', 'pinned'))).toBe(true)
       expect(await pathExists(join(h.home, 'skills', '.archive'))).toBe(false)
+      expect((await readLedger(curatorHome())).filter(entry => entry.action === 'patch')).toEqual([])
     } finally {
       await h.fiber.dispose()
     }
@@ -558,6 +568,7 @@ describe('evolution curator consolidation', () => {
         candidates: new Map([['leaf', candidate]]),
         dirs: new Map([['leaf', dir]]),
         maxDiffLines: 0,
+        requireVerifierPass: false,
       }, [
         { name: 'leaf', action: 'patch', body: 'no fenced head at all\n' },
         { name: 'leaf', action: 'patch', body: '---\nname: other\ndescription: d\n---\nbody\n' },
@@ -617,6 +628,7 @@ describe('evolution curator consolidation', () => {
         candidates: new Map([['leaf', candidate]]),
         dirs: new Map([['leaf', dir]]),
         maxDiffLines: 3,
+        requireVerifierPass: false,
       }, [
         // Frontmatter and the trailing blank line stay put; one body line
         // changes — 1 added, 1 removed, under the cap.
@@ -674,6 +686,7 @@ describe('evolution curator consolidation', () => {
         candidates: new Map([['leaf', candidate]]),
         dirs: new Map([['leaf', dir]]),
         maxDiffLines: 0,
+        requireVerifierPass: false,
       }, [
         // Drops the protected span entirely.
         { name: 'leaf', action: 'patch', body: '---\nname: leaf\ndescription: leaf skill\n---\nbody of leaf v2\n' },
@@ -1093,5 +1106,117 @@ describe('evolution curator consolidation', () => {
     } finally {
       await second.disposeAll()
     }
+  })
+})
+
+describe('evolution curator budget gate', () => {
+  /** The ceiling state the stub answers; tests flip it between passes. */
+  interface Ceiling {
+    exceeded: boolean
+  }
+
+  /** One settled spend, as the stub records it. */
+  interface Spend {
+    batchId: string
+    tokens: number
+    wallTimeMs: number
+    rollouts: number
+  }
+
+  /** The same turn with a provider usage report before its finish, when one is given. */
+  function withUsage(
+    chunks: StreamChunk[],
+    usage?: { inputTokens: number; outputTokens: number; totalTokens?: number },
+  ): StreamChunk[] {
+    if (usage === undefined) return chunks
+    return [...chunks.slice(0, -1), { type: 'usage', usage }, ...chunks.slice(-1)]
+  }
+
+  /** Provide a budget-store stub whose ceilings follow `ceiling` and that records every spend. */
+  function mountBudget(ctx: Context, ceiling: Ceiling, spends: Spend[]): void {
+    ctx.provide('evolutionBudget', {
+      batches: () => [],
+      allocate: async () => ({}),
+      withinBudget: () => !ceiling.exceeded,
+      spend: async (batchId: string, input: Spend) => {
+        spends.push({ ...input, batchId })
+        return {}
+      },
+    } as never)
+  }
+
+  it('refuses the fork before the model once the evolution-budget ceiling is spent', async () => {
+    const h = await harness({ curatorConfig: CONSOLIDATING })
+    try {
+      const leaf = await packageSkill(h.home, 'leaf')
+      h.skills.push(leaf)
+      await h.telemetry?.markAgentCreated('leaf')
+      mountBudget(h.ctx, { exceeded: true }, [])
+
+      expect(await h.curator.consolidate()).toBeUndefined()
+
+      // The refusal precedes the fork and the cost row that would have announced it.
+      expect(h.calls).toHaveLength(0)
+      expect(await readLedger(curatorHome())).toEqual([])
+    } finally {
+      await h.fiber.dispose()
+    }
+  })
+
+  it('settles the fork against both ceiling batches with the tokens it consumed', async () => {
+    const spends: Spend[] = []
+    const h = await harness({
+      curatorConfig: CONSOLIDATING,
+      respond: async (_request, index) => withUsage(
+        index === 0 ? toolTurn([call('skill_apply', { name: 'leaf', action: 'keep' })]) : textTurn('done'),
+        index === 0 ? { inputTokens: 40, outputTokens: 2 } : undefined,
+      ),
+    })
+    try {
+      h.skills.push(await packageSkill(h.home, 'leaf'))
+      await h.telemetry?.markAgentCreated('leaf')
+      mountBudget(h.ctx, { exceeded: false }, spends)
+
+      expect((await h.curator.consolidate())?.steps).toBe(2)
+
+      // One spend per ceiling batch, under the deployment's own subject, both
+      // carrying the tokens the fork's one usage-reporting answer consumed.
+      expect(spends.map(row => row.batchId)).toEqual([
+        expect.stringContaining('evolution-curator:consolidation:daily:'),
+        expect.stringContaining('evolution-curator:consolidation:weekly:'),
+      ])
+      expect(spends.map(row => [row.tokens, row.rollouts])).toEqual([[42, 0], [42, 0]])
+    } finally {
+      await h.fiber.dispose()
+    }
+  })
+
+  it('bills a reported total, computes one from input and output, and bills nothing when none is reported', async () => {
+    const billed: number[] = []
+    const usages: ({ inputTokens: number; outputTokens: number; totalTokens?: number } | undefined)[] = [
+      { inputTokens: 40, outputTokens: 2, totalTokens: 99 },
+      { inputTokens: 40, outputTokens: 2 },
+      undefined,
+    ]
+    for (const usage of usages) {
+      const spends: Spend[] = []
+      const h = await harness({
+        curatorConfig: CONSOLIDATING,
+        respond: async (_request, index) => withUsage(
+          index === 0 ? toolTurn([call('skill_apply', { name: 'leaf', action: 'keep' })]) : textTurn('done'),
+          index === 0 ? usage : undefined,
+        ),
+      })
+      try {
+        h.skills.push(await packageSkill(h.home, 'leaf'))
+        await h.telemetry?.markAgentCreated('leaf')
+        mountBudget(h.ctx, { exceeded: false }, spends)
+        await h.curator.consolidate()
+        billed.push(spends[0]?.tokens ?? -1)
+      } finally {
+        await h.fiber.dispose()
+      }
+    }
+    expect(billed).toEqual([99, 42, 0])
   })
 })

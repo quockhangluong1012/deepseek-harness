@@ -47,7 +47,7 @@ kind: "package-reference"
 |---|---|---|
 | `read` | `{ scopeId }` | 作用域的投影记录；没有记录时返回空投影。 |
 | `setInstructions` | `{ scopeId, instructions }` | 替换用户撰写的规则并返回投影。 |
-| `setLessons` | `{ scopeId, artifacts }` | 整体替换经验工件列表并返回投影；调用方未提供的工件会被丢弃，而不是与新工件并存。 |
+| `setLessons` | `{ scopeId, artifacts }` | 整体替换经验工件列表并返回投影；调用方未提供的工件会被丢弃，而不是与新工件并存，而供给的工件若重新陈述该作用域已持有的某个工件，则会保留该记录的计数器、创建时刻、来源记录与到期时间。 |
 | `setProfile` | `{ scopeId, profile }` | 手工替换用户画像文档并返回投影。 |
 | `addContextItem` | `{ scopeId, kind, label, text }` 或 `{ scopeId, kind, label, path }` | 附加粘贴文本或 Workspace 内的真实文件。 |
 | `removeContextItem` | `{ scopeId, itemId }` | 分离一条上下文条目。 |

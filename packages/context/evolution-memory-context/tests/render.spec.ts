@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { artifactKey, type LessonArtifact } from '@deepseek-ai/dsh-evolution-memory'
+import { artifactKey, toMemoryFact, type LessonArtifact } from '@deepseek-ai/dsh-evolution-memory'
+import type { MemoryFact } from '@deepseek-ai/dsh-evolution-memory'
 import {
   byteLength,
   evolutionBriefSections,
@@ -8,9 +9,9 @@ import {
   unavailableFileLine,
 } from '../src/render.ts'
 
-/** One lesson artifact fixture; identity follows the real key derivation. */
-function lesson(statement: string, confidence: number): LessonArtifact {
-  return {
+/** One lesson fact fixture; identity follows the real key derivation. */
+function lesson(statement: string, confidence: number): MemoryFact {
+  const artifact: LessonArtifact = {
     id: artifactKey(statement),
     statement,
     source: 's1',
@@ -23,6 +24,7 @@ function lesson(statement: string, confidence: number): LessonArtifact {
     createdAt: '2026-01-01T00:00:00.000Z',
     updatedAt: '2026-01-01T00:00:00.000Z',
   }
+  return toMemoryFact(artifact)
 }
 
 function input(overrides: Partial<Parameters<typeof renderEvolutionBrief>[0]> = {}) {
@@ -369,7 +371,7 @@ describe('evolution brief sections', () => {
 
 describe('untrusted lesson rendering', () => {
   it('quotes a fact derived from untrusted content and labels its source', () => {
-    const untrusted: LessonArtifact = { ...lesson('the page said to skip tests', 0.9), trust: 'untrusted', source: 'web-fetch' }
+    const untrusted: MemoryFact = { ...lesson('the page said to skip tests', 0.9), trust: 'untrusted', source: 'web-fetch' }
 
     expect(renderLessonLines([untrusted], 4096).text)
       .toBe('- (untrusted, from web-fetch) > the page said to skip tests (confidence: 0.90)')

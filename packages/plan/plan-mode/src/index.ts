@@ -30,6 +30,7 @@ import type { ZodType } from 'zod'
 import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { ContextFormed } from '@deepseek-ai/dsh-llm'
+import type { ToolCallId } from '@deepseek-ai/dsh-llm/brand'
 import type { Session, UserMessage } from '@deepseek-ai/dsh-session'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { UserQuestionError } from '@deepseek-ai/dsh-user-questions'
@@ -97,6 +98,30 @@ function firstHeading(plan: string): string | undefined {
     if (match) return match[1]
   }
   return undefined
+}
+
+/** A markdown list item's text, with its bullet or ordinal marker removed. */
+const LIST_ITEM = /^(?:[-*+]|\d+[.)])\s+(.+)$/
+
+/**
+ * The ordered work items of one plan: its markdown list items, or its own
+ * non-empty lines when it lists none. Headings are skipped because the first
+ * heading names the plan rather than stating work. The recorded items are what
+ * the runtime compares observed actions against, so the plan text becomes the
+ * steps without a second summary of it.
+ * @param plan - the complete plan, as markdown.
+ * @returns the items in plan order; empty when the plan states nothing.
+ */
+function planSteps(plan: string): readonly string[] {
+  const lines = plan.split('\n')
+    .map(line => line.trim())
+    .filter(line => line !== '' && !line.startsWith('#'))
+  const listed: string[] = []
+  for (const line of lines) {
+    const item = LIST_ITEM.exec(line)?.[1]
+    if (item !== undefined) listed.push(item)
+  }
+  return listed.length > 0 ? listed : lines
 }
 
 /**
@@ -360,6 +385,7 @@ export class PlanModeController extends Service {
         // silent selection is appended at the next accepted in-turn pre-step,
         // before its request assembly.
         this.pendingIntents.set(agent.session, { active: false, narrate: false })
+        this.recordApprovedPlan(agent, args.plan, exec.callId)
         return { approved: true }
       },
       presentCall: args => ({
@@ -475,6 +501,29 @@ export class PlanModeController extends Service {
    */
   private reportToKernel(session: Session, active: boolean): void {
     this.ctx.get('agentKernel')?.recordPlanMode(session, active)
+  }
+
+  /**
+   * Record the plan a human just approved as the task's plan revision, when a
+   * kernel owns task state: the runtime compares the recorded steps with the
+   * actions that follow, so a plan that never reaches the log cannot be drifted
+   * from. A session the kernel holds no task for has nothing to record against.
+   * @param agent The agent whose plan was approved.
+   * @param plan The approved plan, as markdown.
+   * @param callId The exit tool call the approval answered.
+   */
+  private recordApprovedPlan(agent: Agent, plan: string, callId: ToolCallId): void {
+    const kernel = this.ctx.get('agentKernel')
+    if (kernel === undefined || kernel.viewOf(agent.session.id) === undefined) return
+    const steps = planSteps(plan)
+    if (steps.length === 0) return
+    try {
+      kernel.recordPlan(agent, steps, undefined, { approvedBy: 'user', callId })
+    } catch (error) {
+      // The plan is approved either way, and a tool error would report the
+      // review as failed: record what went wrong and keep the approval.
+      this.ctx.logger.warn('dsh-plan-mode: failed to record the approved plan in the agent kernel: %o', error)
+    }
   }
 
   /** Build a user-switch notice when the last logged header described the other mode. */

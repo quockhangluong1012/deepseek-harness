@@ -131,6 +131,7 @@ const SENTENCE_MODEL_EXPERIENCE: Readonly<Record<string, SentenceContract>> = {
   'packages/client/ui-settings-agent-loop': { kind: 'none', reason: 'Browser-side settings surface; registers no model surface.' },
   'packages/client/ui-settings-subagent': { kind: 'none', reason: 'Browser-side settings surface; registers no model surface.' },
   'packages/client/ui-settings-web-search': { kind: 'none', reason: 'Browser-side settings surface; registers no model surface.' },
+  'packages/client/ui-settings-mcp': { kind: 'none', reason: 'Browser-side settings surface; registers no model surface.' },
   'packages/client/ui-plan': { kind: 'indirect', reason: 'The chip dispatches /plan off; dsh-plan-mode owns the model-visible policy, exit tool, and logged state.' },
   'packages/client/ui-user-questions': { kind: 'indirect', reason: 'The package mounts dsh-tool-ask-user; that tool owns the model-visible schema and answer rendering.' },
   'packages/client/ui-trajectory': { kind: 'none', reason: 'Browser-side UI plugin layer; registers nothing model-facing.' },
@@ -167,7 +168,6 @@ const SENTENCE_MODEL_EXPERIENCE: Readonly<Record<string, SentenceContract>> = {
   'packages/host/directory-picker-browse': { kind: 'none', reason: 'The GUI-host picking backend registers nothing model-facing.' },
   'packages/host/directory-picker-native': { kind: 'none', reason: 'The GUI-host picking backend registers nothing model-facing.' },
   'packages/host/webserver': { kind: 'none', reason: 'The HTTP carrier bridges browser and API handler and registers nothing model-facing.' },
-  'packages/webhook/webhook-github': { kind: 'indirect', reason: 'The adapter delegates model-visible text to matching rules and dsh-webhook.' },
   'packages/host/frontend-static': { kind: 'none', reason: 'The SPA dist server answers browser asset requests and registers nothing model-facing.' },
   'packages/host/plugin-inventory': { kind: 'none', reason: 'Host-side read-only Loader projection; registers nothing model-facing.' },
   'packages/host/open-in-app': { kind: 'none', reason: 'Host routes opening desktop applications for a human; registers nothing model-facing.' },
@@ -266,6 +266,12 @@ const SENTENCE_MODEL_EXPERIENCE: Readonly<Record<string, SentenceContract>> = {
   'packages/web/web-fetch-http': { kind: 'indirect', reason: 'The provider backend delegates model rendering to dsh-tool-web.' },
   'packages/web/web-search-exa': { kind: 'indirect', reason: 'The provider backend delegates model rendering to dsh-tool-web.' },
   'packages/workflow/workflow': { kind: 'indirect', reason: 'The service delegates parent and child model rendering to its consumer and engine.' },
+  'packages/mentor/learner-model': { kind: 'none', reason: 'The durable learner record is host-side state behind ctx.learnerModel; the mentor package that reads it owns any model-visible rendering.' },
+  'packages/mentor/misconception': { kind: 'indirect', reason: 'The engine renders each stage directive but registers no prompt, tool, schema, or session event of its own; dsh-mentor-loop owns the model-visible injection of the rendered text.' },
+  'packages/research/case-store': { kind: 'none', reason: 'The durable case artifact is host-side state behind ctx.caseStore; the consumer that renders a case owns any model-visible use of it.' },
+  'packages/repo/repo-index': { kind: 'indirect', reason: 'The index only exposes filesystem-derived facts through ctx.repoIndex; dsh-repo-map owns every model-visible rendering of them.' },
+  'packages/mcp/mcp-project-config': { kind: 'indirect', reason: 'The plugin reads project `.mcp.json` files and mounts `dsh-mcp-client` rows; every mounted client owns its own request prefix, tool, and instructions, so this package registers no prompt, tool, schema, or session event of its own.' },
+  'packages/client/ui-review': { kind: 'none', reason: 'Browser-side review panel; renders a log-only review record without changing model context.' },
 }
 
 interface Failure {

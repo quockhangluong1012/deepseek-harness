@@ -13,7 +13,7 @@
  * @module @deepseek-ai/dsh-agent-context/sources
  */
 
-import type { KernelView } from '@deepseek-ai/dsh-agent-kernel'
+import type { ChangeContract, KernelView } from '@deepseek-ai/dsh-agent-kernel'
 import type { PromptAssembly } from '@deepseek-ai/dsh-system-prompt'
 import { classifyContribution, retentionOf } from './classify.ts'
 import type { ContextSource } from './types.ts'
@@ -35,7 +35,7 @@ export function sourcesFromAssembly(assembly: PromptAssembly): ContextSource[] {
         kind: classified.kind,
         content: contribution.text,
         trust: classified.trust,
-        provenance: { source: classified.source, locator: contribution.name },
+        sourceRef: { source: classified.source, locator: contribution.name },
         retention: retentionOf(classified.kind),
       }
     })
@@ -45,8 +45,9 @@ export function sourcesFromAssembly(assembly: PromptAssembly): ContextSource[] {
  * Project one kernel view into the task's own required sources.
  * @param view - the kernel's current view of a session's task, or undefined
  *   when no kernel is mounted or the session has no task contract yet.
- * @returns the objective, acceptance criteria, constraints, latest plan, and
- *   unresolved failures, as required envelopes in a stable order.
+ * @returns the objective, acceptance criteria, the declared change contract,
+ *   constraints, latest plan, and unresolved failures, as required envelopes in
+ *   a stable order.
  */
 export function sourcesFromView(view: KernelView | undefined): ContextSource[] {
   if (view === undefined) return []
@@ -59,7 +60,7 @@ export function sourcesFromView(view: KernelView | undefined): ContextSource[] {
       kind: 'task',
       content: task.objective,
       trust: 'trusted',
-      provenance: kernel(`task/${task.taskId}`),
+      sourceRef: kernel(`task/${task.taskId}`),
       retention: 'required',
       subject: 'objective',
     })
@@ -70,7 +71,17 @@ export function sourcesFromView(view: KernelView | undefined): ContextSource[] {
       kind: 'task',
       content: `${criterion.description} (verifier: ${criterion.verifier}${criterion.required ? ', required' : ''})`,
       trust: 'trusted',
-      provenance: kernel(`task/${task.taskId}/acceptance/${criterion.id}`),
+      sourceRef: kernel(`task/${task.taskId}/acceptance/${criterion.id}`),
+      retention: 'required',
+    })
+  }
+  if (task.changeContract !== undefined) {
+    sources.push({
+      id: 'task:change-contract',
+      kind: 'task',
+      content: changeContractText(task.changeContract),
+      trust: 'trusted',
+      sourceRef: kernel(`task/${task.taskId}/change-contract`),
       retention: 'required',
     })
   }
@@ -80,7 +91,7 @@ export function sourcesFromView(view: KernelView | undefined): ContextSource[] {
       kind: 'task',
       content: `${constraint.kind}: ${constraint.statement}`,
       trust: 'trusted',
-      provenance: kernel(`task/${task.taskId}/constraint/${String(index)}`),
+      sourceRef: kernel(`task/${task.taskId}/constraint/${String(index)}`),
       retention: 'required',
     })
   })
@@ -90,7 +101,7 @@ export function sourcesFromView(view: KernelView | undefined): ContextSource[] {
       kind: 'plan',
       content: view.plan.steps.join('\n'),
       trust: 'trusted',
-      provenance: kernel(`task/${task.taskId}/plan/${String(view.plan.revision)}`),
+      sourceRef: kernel(`task/${task.taskId}/plan/${String(view.plan.revision)}`),
       retention: 'required',
       subject: 'plan',
     })
@@ -101,7 +112,7 @@ export function sourcesFromView(view: KernelView | undefined): ContextSource[] {
       kind: 'tool',
       content: `unsettled action: ${actionId}`,
       trust: 'trusted',
-      provenance: kernel(`task/${task.taskId}/action/${actionId}`),
+      sourceRef: kernel(`task/${task.taskId}/action/${actionId}`),
       retention: 'required',
     })
   }
@@ -111,9 +122,30 @@ export function sourcesFromView(view: KernelView | undefined): ContextSource[] {
       kind: 'task',
       content: `unresolved failure: ${failure.kind}`,
       trust: 'trusted',
-      provenance: kernel(`task/${task.taskId}/failure/${failure.failureId}`),
+      sourceRef: kernel(`task/${task.taskId}/failure/${failure.failureId}`),
       retention: 'required',
     })
   }
   return sources
+}
+
+/**
+ * Render one declared change contract as the model-visible statement of the
+ * boundary its change must stay inside.
+ * @param contract - the boundary the task declared before modifying anything.
+ * @returns one line naming the goal, then one line per bound the contract declares.
+ */
+function changeContractText(contract: ChangeContract): string {
+  const lines = [`change contract: ${contract.goal}`]
+  const bounds: readonly (readonly [string, readonly string[]])[] = [
+    ['expected files', contract.expectedFiles],
+    ['allowed files', contract.allowedFiles],
+    ['must preserve', contract.mustPreserve],
+    ['forbidden changes', contract.forbiddenChanges],
+    ['expected tests', contract.expectedTests],
+  ]
+  for (const [label, globs] of bounds) {
+    if (globs.length > 0) lines.push(`${label}: ${globs.join(', ')}`)
+  }
+  return lines.join('\n')
 }

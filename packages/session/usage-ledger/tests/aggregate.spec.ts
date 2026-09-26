@@ -8,19 +8,23 @@ import {
   MODEL_KEY_SEPARATOR,
   UNKNOWN_ROUTE,
   addSample,
+  addSessionSample,
   cacheHitAvg,
   dayKeyUTC7,
-  dayOfModelKey,
+  dayOfKey,
   dayStartUTC7,
   daysOfRange,
   isUsageRange,
   messageRoute,
   modelKey,
   moveSample,
+  moveSessionSample,
   normalizeSample,
   sampleOfAttempt,
   sampleOfMessage,
+  sessionKey,
   summarizeLedger,
+  summarizeSessionCosts,
   sweepRetention,
   windowStartOfRange,
   isCount,
@@ -41,8 +45,11 @@ function sample(overrides: Record<string, unknown> = {}) {
 }
 
 function state(): UsageLedgerState {
-  return { cursors: {}, daily: {}, models: {} }
+  return { cursors: {}, daily: {}, models: {}, sessions: {} }
 }
+
+/** Declared rates for the fixtures: 1 / 0.5 / 2 USD per million tokens. */
+const RATES: LlmModelCost = { inputPerMTok: 1, outputPerMTok: 2, cacheReadPerMTok: 0.5, cacheWritePerMTok: 0 }
 
 describe('isCount', () => {
   it('admits non-negative safe integers only', () => {
@@ -259,7 +266,13 @@ describe('model keys', () => {
   it('round-trips day, provider, and model', () => {
     const key = modelKey('2026-09-09', 'deepseek', 'chat')
     expect(key).toContain(MODEL_KEY_SEPARATOR)
-    expect(dayOfModelKey(key)).toBe('2026-09-09')
+    expect(dayOfKey(key)).toBe('2026-09-09')
+  })
+
+  it('round-trips day, session, provider, and model', () => {
+    const key = sessionKey('2026-09-09', 'session-a', 'deepseek', 'chat')
+    expect(key).toBe(['2026-09-09', 'session-a', 'deepseek', 'chat'].join(MODEL_KEY_SEPARATOR))
+    expect(dayOfKey(key)).toBe('2026-09-09')
   })
 })
 
@@ -306,11 +319,15 @@ describe('sweepRetention', () => {
     if (attempt === undefined) throw new Error('fixture')
     addSample(ledger, '2026-09-01', 'deepseek', 'chat', attempt)
     addSample(ledger, '2026-09-09', 'deepseek', 'chat', attempt)
+    addSessionSample(ledger, '2026-09-01', 'session-a', 'deepseek', 'chat', attempt, RATES, 1)
+    addSessionSample(ledger, '2026-09-09', 'session-a', 'deepseek', 'chat', attempt, RATES, 1)
     sweepRetention(ledger, NOON_SEP9, 7)
     expect(ledger.daily['2026-09-01']).toBeUndefined()
     expect(ledger.daily['2026-09-09']).toBeDefined()
     expect(ledger.models[modelKey('2026-09-01', 'deepseek', 'chat')]).toBeUndefined()
     expect(ledger.models[modelKey('2026-09-09', 'deepseek', 'chat')]).toBeDefined()
+    expect(ledger.sessions[sessionKey('2026-09-01', 'session-a', 'deepseek', 'chat')]).toBeUndefined()
+    expect(ledger.sessions[sessionKey('2026-09-09', 'session-a', 'deepseek', 'chat')]).toBeDefined()
   })
 })
 
@@ -354,5 +371,98 @@ describe('summarizeLedger', () => {
     const summary = summarizeLedger(ledger, 'all', NOON_SEP9)
     expect(summary.daily.map(bucket => bucket.day)).toEqual(['2026-09-01', '2026-09-09'])
     expect(summary.totals.requests).toBe(2)
+  })
+})
+
+describe('addSessionSample and moveSessionSample', () => {
+  const big = normalizeSample(sample())
+  const KEY = sessionKey('2026-09-09', 'session-a', 'deepseek', 'chat')
+  if (big === undefined) throw new Error('fixture')
+
+  it('accumulates priced money under the declaring route', () => {
+    const ledger = state()
+    addSessionSample(ledger, '2026-09-09', 'session-a', 'deepseek', 'chat', big, RATES, 1)
+    expect(ledger.sessions[KEY]).toEqual({
+      sessionId: 'session-a',
+      provider: 'deepseek',
+      model: 'chat',
+      pricedRequests: 1,
+      unpricedRequests: 0,
+      // 100 uncached input + 20 cache-read input + 50 output tokens.
+      costUsd: priceSample(big, RATES),
+    })
+  })
+
+  it('counts a route with no declared price as unpriced and adds no money', () => {
+    const ledger = state()
+    addSessionSample(ledger, '2026-09-09', 'session-a', 'deepseek', 'chat', big, undefined, 1)
+    expect(ledger.sessions[KEY]).toMatchObject({ pricedRequests: 0, unpricedRequests: 1, costUsd: 0 })
+  })
+
+  it('moves a sample between routes, retiring an emptied row and keeping a stocked one', () => {
+    const ledger = state()
+    addSessionSample(ledger, '2026-09-09', 'session-a', UNKNOWN_ROUTE, UNKNOWN_ROUTE, big, undefined, 1)
+    moveSessionSample(
+      ledger, '2026-09-09', 'session-a',
+      { provider: UNKNOWN_ROUTE, model: UNKNOWN_ROUTE }, { provider: 'deepseek', model: 'chat' },
+      big, undefined, RATES,
+    )
+    expect(ledger.sessions[sessionKey('2026-09-09', 'session-a', UNKNOWN_ROUTE, UNKNOWN_ROUTE)]).toBeUndefined()
+    expect(ledger.sessions[KEY]).toMatchObject({ pricedRequests: 1, unpricedRequests: 0 })
+
+    addSessionSample(ledger, '2026-09-09', 'session-a', UNKNOWN_ROUTE, UNKNOWN_ROUTE, big, undefined, 1)
+    addSessionSample(ledger, '2026-09-09', 'session-a', UNKNOWN_ROUTE, UNKNOWN_ROUTE, big, undefined, 1)
+    moveSessionSample(
+      ledger, '2026-09-09', 'session-a',
+      { provider: UNKNOWN_ROUTE, model: UNKNOWN_ROUTE }, { provider: 'deepseek', model: 'chat' },
+      big, undefined, RATES,
+    )
+    expect(ledger.sessions[sessionKey('2026-09-09', 'session-a', UNKNOWN_ROUTE, UNKNOWN_ROUTE)])
+      .toMatchObject({ unpricedRequests: 1 })
+    expect(ledger.sessions[KEY]).toMatchObject({ pricedRequests: 2 })
+  })
+})
+
+describe('summarizeSessionCosts', () => {
+  const big = normalizeSample(sample())
+  if (big === undefined) throw new Error('fixture')
+
+  it('sums each session separately and names the routes it could not price', () => {
+    const ledger = state()
+    addSample(ledger, '2026-09-09', 'deepseek', 'chat', big)
+    addSessionSample(ledger, '2026-09-09', 'session-a', 'deepseek', 'chat', big, RATES, 1)
+    addSessionSample(ledger, '2026-09-09', 'session-a', 'deepseek', 'unlisted', big, undefined, 1)
+    addSessionSample(ledger, '2026-09-09', 'session-b', 'deepseek', 'cart', big, RATES, 1)
+    addSessionSample(ledger, '2026-09-09', 'session-c', 'deepseek', 'list', big, undefined, 1)
+
+    const costs = summarizeSessionCosts(ledger, '7d', NOON_SEP9)
+    // Busiest first: session-a billed two attempts, the others one each.
+    expect(costs.map(row => row.sessionId)).toEqual(['session-a', 'session-b', 'session-c'])
+    expect(costs[0]).toEqual({
+      sessionId: 'session-a',
+      usd: priceSample(big, RATES),
+      pricedRequests: 1,
+      unpricedRequests: 1,
+      unpricedRoutes: ['deepseek/unlisted'],
+    })
+    // A session with no priced attempt is unmeasurable rather than free.
+    expect(costs[2]).toEqual({
+      sessionId: 'session-c',
+      usd: undefined,
+      pricedRequests: 0,
+      unpricedRequests: 1,
+      unpricedRoutes: ['deepseek/list'],
+    })
+  })
+
+  it('excludes session rows outside the window', () => {
+    const ledger = state()
+    addSample(ledger, '2026-09-01', 'deepseek', 'chat', big)
+    addSessionSample(ledger, '2026-09-01', 'session-old', 'deepseek', 'chat', big, RATES, 1)
+    expect(summarizeSessionCosts(ledger, '7d', NOON_SEP9)).toEqual([])
+  })
+
+  it('reports nothing before any sample lands', () => {
+    expect(summarizeSessionCosts(state(), 'today', NOON_SEP9)).toEqual([])
   })
 })

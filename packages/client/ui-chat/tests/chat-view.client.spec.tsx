@@ -304,6 +304,7 @@ function makeHarness(
     read: () => savedScroll,
   }
   const forkAt = vi.fn()
+  const rewindAt = vi.fn()
   // Rows and the harness must observe the same chat-store instance.
   const chat = createChatStore().create()
   const transcriptView = createSnapshotStore<TranscriptViewMode>('compact')
@@ -453,6 +454,7 @@ function makeHarness(
     loadImage: vi.fn(() => Promise.reject(new Error('not used'))),
     chatScroll,
     forkAt,
+    rewindAt,
     // Absent-service default; mention tests override with a real resolver.
     fileMentions: () => undefined,
     t,
@@ -479,7 +481,7 @@ function makeHarness(
     set, setSession: session.set, setChat: chatSource.set, ChatView, props,
     openFile, openSkill, loadOlder, loadThrough, openView,
     setOutline: (value: unknown) => { outlineValue = value },
-    chatScroll, forkAt, toolOwners,
+    chatScroll, forkAt, rewindAt, toolOwners,
     setPerformanceUsage: (mode: 'compact' | 'detailed') => { performanceUsage.set(mode) },
     setGrouped: (value: ConversationGroupedView<ProcessGroupData> | undefined) => {
       grouped = value
@@ -1649,6 +1651,31 @@ describe('ChatView', () => {
     // Host boundary), not the assistant node seq.
     expect(h.forkAt).toHaveBeenCalledWith(3)
   }))
+
+  it('opens the rewind dialog from the turn tail and dispatches the chosen mode', () => {
+    const h = makeHarness(
+      { nodes: [assistant(1, 'working')], turnTimings: new Map([[1, { startTime: 0 }]]) },
+      { testInbox: { 'next-turn': [], 'next-step': [] }, running: true },
+    )
+    const view = render(<h.ChatView {...h.props} />)
+    act(() => {
+      h.setSession({ running: false })
+      h.setChat({ turnEnds: new Map([[1, 3]]) })
+    })
+
+    fireEvent.click(view.getByRole('button', { name: zh['rewind.action'] }))
+    const dialog = view.getByRole('dialog', { name: zh['rewind.title'].replace('{turn}', '1') })
+    expect(within(dialog).getByText(zh['rewind.effect.both'].replace('{turn}', '1'))).not.toBeNull()
+    // The dialog states its consequence before it acts: nothing is dispatched yet.
+    expect(h.rewindAt).not.toHaveBeenCalled()
+
+    fireEvent.click(within(dialog).getByRole('tab', { name: zh['rewind.mode.conversation'] }))
+    fireEvent.change(within(dialog).getByLabelText(zh['rewind.edit.label']), { target: { value: 'redo it' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: zh['rewind.confirm'] }))
+    expect(h.rewindAt).toHaveBeenCalledExactlyOnceWith('conversation 1 --edit redo it')
+    expect(h.forkAt).not.toHaveBeenCalled()
+    expect(view.queryByRole('dialog')).toBeNull()
+  })
 
   it('keeps a later pending occurrence visible when it reuses a durable MessageId', () => {
     const pending = {

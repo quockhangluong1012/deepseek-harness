@@ -34,11 +34,11 @@ describe('scripted subagent provider fixture', () => {
     expect(ctx.subagents.list()).toEqual(['mock'])
 
     const run = await ctx.subagents.start('mock', baseRequest())
-    await expect(run.result).resolves.toEqual({
+    await expect(run.result).resolves.toMatchObject({
       output: [{ type: 'text', text: 'hello from fixture' }],
-      structured: undefined,
       stopReason: 'completed',
     })
+    expect(await run.result).not.toHaveProperty('structured')
     await run.dispose()
   })
 

@@ -8,7 +8,7 @@ The control plane owned by [`@deepseek-ai/dsh-agent-kernel`](../../packages/runt
 
 A task is a projection of `task/*` events, never an in-memory singleton. `TaskId` and `RunId` are [branded ids](core.md#branded-ids); `ActionId` is the tool call's own `ToolCallId` under a second brand, so a proposal, its decisions, and its receipt correlate without a second identifier.
 
-`TaskContract` carries the objective, its constraints, its acceptance criteria, the workspace its file policy is bounded to, the agent and policy profiles, the resource budget, the current `TaskStatus`, and a positive `revision` that every accepted transition increments. `TaskStatus` is the closed union `intake | planning | ready | executing | observing | verifying | recovering | awaiting-approval | awaiting-user | paused | completed | failed | cancelled`, and every member has a producer: a task is `intake` when opened, `planning` while plan mode is entered, `ready` once its first step is admitted, `executing`/`observing` around each step, `verifying` at turn end, `recovering` when recovery starts, and terminal when the completion gate or a cancellation answers. The kernel drives `intake → ready → executing → observing` when plan mode is not entered.
+`TaskContract` carries the objective, its constraints, its acceptance criteria, the change contract the caller declared, the workspace its file policy is bounded to, the agent and policy profiles, the resource budget, the current `TaskStatus`, and a positive `revision` that every accepted transition increments. `TaskStatus` is the closed union `intake | planning | ready | executing | observing | verifying | recovering | awaiting-approval | awaiting-user | paused | completed | failed | cancelled`, and every member has a producer: a task is `intake` when opened, `planning` while plan mode is entered, `ready` once its first step is admitted, `executing`/`observing` around each step, `verifying` at turn end, `recovering` when recovery starts, and terminal when the completion gate or a cancellation answers. The kernel drives `intake → ready → executing → observing` when plan mode is not entered.
 
 A session holds one task at a time. A human message claimed while the current task is terminal opens the next contract, which names the task it follows in `parentTaskId`; when one is still active the message continues it. `TaskClass` decides what a task starts from: `conversational` (the default) takes no acceptance criterion and completes at turn end without a verification pair, while `coding`, `research`, and `operations` take the criteria `acceptanceByClass` configures and are held to one only when `requireAcceptanceCriteriaByClass` requires it. The class comes from the caller's own `taskClass`, else the role the task runs under, else the mutation heuristic — a task following one that proposed an `fs.write`/`fs.edit` tool is coding work.
 
@@ -38,6 +38,8 @@ Each tool call produces a proposal, a rule decision, a composed authorization, a
 
 Child authority is the intersection of the receipt with the child's profile, the deployment rules, and the child's own sandbox: [`src/delegation.ts`](../../packages/runtime/agent-kernel/src/delegation.ts) refuses a capability the receipt withholds, a filesystem mutation outside its writable scopes narrowed against the child's boundary, and every action past the parent's depth cap. The child task contract keeps the receipt's run identity, names the parent task, and starts from the parent's remaining budget.
 
+`DelegationPolicy` is what one deployment admits at the spawn boundary: `maxDepth`, `maxChildren`, `maxConcurrent`, `maxCost`, `maxTokens`, `allowedRoles`, `duplicateTaskDetection`, and `resultSchemaRequired`, resolved from a partial declaration by `resolveDelegationPolicy()` against the consumer's own child-depth setting. `delegationPolicyRefusal()` answers a spawn with one refusal sentence, `delegatedWorkerBudget()` supplies the token and cost ceilings handed to the child, and `taskOverlapDecision()` compares one delegation objective against the parent's in-flight and completed children and returns `reuse`, `merge`, `narrow`, `avoid`, or `spawn` — a deterministic token-set comparison with no model call ([`src/delegation-policy.ts`](../../packages/runtime/agent-kernel/src/delegation-policy.ts), [`src/task-overlap.ts`](../../packages/runtime/agent-kernel/src/task-overlap.ts)). `dsh-tool-subagent` is the current spawn boundary that enforces them.
+
 ## Built-in declarations
 
 The kernel registry starts empty and fails closed. [`@deepseek-ai/dsh-agent-kernel-builtins`](../../packages/runtime/agent-kernel-builtins/README.md) is the opt-in plugin that declares every shipped product tool — the capabilities one invocation needs and a total, never-empty projection from its arguments to the resource they apply to — registering them once the injected `agentKernel` service exists, in any mount order. A spec re-derives the tool inventory from the generated [tool catalog](../tool-catalog.md) and fails when a shipped name has no declaration, so a new tool cannot arrive undeclared.
@@ -46,7 +48,21 @@ The kernel registry starts empty and fails closed. [`@deepseek-ai/dsh-agent-kern
 
 `VerificationRequest` carries the task, the exact revision the criteria were read from, those criteria, and the changed scopes. `VerificationResult` aggregates per-criterion `CriterionResult` records into `pass`, `fail`, or `unknown`, with the commands the verifiers ran and the verifier version. `CompletionDecision` is the gate's answer: completion is allowed only when every required criterion passed, no unresolved failure remains, and no configured ceiling is exhausted.
 
-`FailureKind` is the shared classification — `model-auth`, `model-rate-limit`, `model-context-overflow`, `tool-invalid-input`, `tool-policy-denied`, `tool-transient`, `sandbox-denied`, `approval-rejected`, `timeout`, `budget-exhausted`, `stale-write`, `verification-failed`, `subagent-failed`, `workflow-failed`, `persistence-failed`, `prompt-injection`, `output-truncated`, `tool-args-malformed`, `no-progress`, `stalled`, `step-ceiling`, and `unknown`. The last five are amendment S4's loop-robustness classifications: each names a way a run stops making progress without failing outright, and the kernel's own detector records `step-ceiling` — with the failure's recovery, `checkpoint-pause` — when a task reaches its configured step ceiling, pausing it rather than admitting another step. `FailureRecord` names one occurrence, and `RecoveryDecision` records the `RecoveryAction` chosen for it, whether the action may be retried, the attempts remaining, whether a checkpoint must precede the retry, and why.
+`FailureKind` is the shared classification — `model-auth`, `model-rate-limit`, `model-context-overflow`, `tool-invalid-input`, `tool-policy-denied`, `tool-transient`, `sandbox-denied`, `approval-rejected`, `timeout`, `budget-exhausted`, `stale-write`, `verification-failed`, `subagent-failed`, `workflow-failed`, `persistence-failed`, `prompt-injection`, `output-truncated`, `tool-args-malformed`, `no-progress`, `stalled`, `step-ceiling`, `plan-drift`, `verification-regressed`, and `unknown`. The last five are amendment S4's loop-robustness classifications: each names a way a run stops making progress without failing outright, and the kernel's own detector records `step-ceiling` — with the failure's recovery, `checkpoint-pause` — when a task reaches its configured step ceiling, pausing it rather than admitting another step. `FailureRecord` names one occurrence, and `RecoveryDecision` records the `RecoveryAction` chosen for it, whether the action may be retried, the attempts remaining, whether a checkpoint must precede the retry, and why.
+
+## Governor, progress, and liveness
+
+`GovernorDecision` is the one control decision the kernel composes per step: `continue`, `retry`, `replan`, `compact`, `delegate`, `ask_user`, and the five stops `stop_success`, `stop_failure`, `stop_budget`, `stop_loop`, and `stop_timeout`. `StepDelta` measures the movement the step that just ended made, one axis per kind of event it produced: `toolNovelty` (the share of its tool calls the recent history had not seen), `stateDelta` (a task revision advanced), `evidenceGain` (an observation or claim was recorded), `goalProgress` (the session's goal changed), `errorReduction` (unresolved failures fell), and `planProgress` (a plan revision was recorded). Each axis is normalized to `[0, 1]`, and `progressScore` is their mean, so 0 is a step the harness observed moving nothing.
+
+Every step boundary appends `governor/decided` with a `GovernorDecisionRecord`: the decision, its reasons in evaluation order, the step's delta, the score, the turn and step, the `TimeoutKind` when the decision answers a stall, and the timestamp. The decision is composed from budget state, progress, repetition, oscillation, the newest unresolved failure's decided recovery, context pressure, task state, subagent depth, and liveness, in that order of precedence. A step whose score is above 0 resolves the `no-progress` and `stalled` failures recorded against the steps before it. In `mode: 'enforce'` the kernel returns the refusal for a `stop_*` decision at `agent/pre-step`, which the loop reports as a blocked turn.
+
+`TimeoutKind` names which layer went quiet when the liveness window elapsed: `tool` (a call that never settled), `transport` (a request that produced no frame), `stream` (a request that stopped producing frames), `agent` (a run with nothing in flight), or `child-agent` (a delegated child). The monitor tracks the last model frame, the last tool pipeline event, and the last progressing step, and a task that waits for a human or is parked by a stop is never reported as stalled.
+
+## Coding lifecycle
+
+`CodingPhase` is the §10.5 pipeline a task of class `coding` runs: `understand`, `map`, `plan`, `contract`, `implement`, `local-verify`, `review`, `regression`, `complete`. `canAdvancePhase()` and `assertPhaseTransition()` expose the machine's direct edges — the forward chain plus the repair return each check phase takes to `implement` — and a transition outside that table throws. `CodingLifecycleConfig` (`phases`, `budgets`, `review`) is validated once at load by `resolveCodingLifecycle()`, and `ResolvedCodingLifecycle` is what the service runs: the phase list starts at `understand`, ends at `complete`, repeats no phase; a `budgets` entry names a phase this deployment runs and states its positive step ceiling; the review cannot be enabled while `phases` omits `review`, and REVIEW is skipped in the pipeline while the reviewer is switched off.
+
+`CodingPhaseRecord` is one entry: the phase, the phase it came from, the task class, the phase's ordinal in the pipeline, its trigger (`lifecycle-started`, `phase-advanced`, `phase-repaired`), the caller's `detail`, the task revision, and the timestamp. `CodeReviewRecord` is one REVIEW entry's settled report: the diff ref reviewed, the `CodeReviewReport` (`summary` plus `CodeReviewFinding[]` of file, optional line, `ReviewSeverity`, and message), the task revision, and the timestamp. `ctx.agentKernel.lifecycle` is the `CodingLifecycle` service: `phasesFor(taskClass)`, `current(session)`, `advance(session, target, detail?)`, `repair(session, detail)`, `review(agent, signal)`, `completionPredicate(session)`, and `registerReviewer(reviewer)`, which takes a deployment's `IndependentReviewer` (its `review(request: CodeReviewRequest)` answers one `CodeReviewReport`) and refuses a second registration. `PhaseAdvance` reports the entries appended and the `CodingPhaseBudget` that stopped the advance; the caller records that failure, and the kernel parks the task at `awaiting-user`.
 
 ## Research record
 
@@ -57,6 +73,8 @@ The kernel registry starts empty and fails closed. [`@deepseek-ai/dsh-agent-kern
 ## Checkpoints and read model
 
 `Checkpoint` indexes one task at one session sequence: the task and run identities, the session, the `sessionSeq`, the status and revision, the `BudgetSnapshot`, the open action ids, the unresolved failures, the `CheckpointReason`, and the timestamp. `KernelView` is what a reader gets back from `ctx.agentKernel.state.view(session)`: the current contract, the budget observation, the open actions, the unresolved failures, the latest plan and checkpoint when either exists, and the delegation receipt when the agent is a child.
+
+`BudgetSnapshot` measures a task's spend and reports what each configured ceiling has left; `ctx.agentKernel.budgets` also answers what a session can still promise. `available(session)` is the measured remaining allowance less the holds the session's in-flight children placed and the spend its settled children reported; `reserve(session, amount, runId?)` holds part of that allowance for work about to run and returns the `BudgetReservation` naming the session, the run, and the ceilings it placed; `commit(reservationId, actual?)` settles a hold with what the work spent, and `release(reservationId)` ends one whose work never ran. Holds and the debits they settle into are process state: a restart has no in-flight work to hold budget for, so what a parent handed down is read from its `delegation/issued` receipts instead.
 
 ## Surfaces
 
@@ -75,10 +93,13 @@ The kernel declaration-merges these into `SessionEventMap`; all are log-only and
 | `task/created` | The complete `TaskContract` at creation |
 | `task/transitioned` | One `StateTransition` |
 | `task/plan` | One `PlanRevision` |
+| `task/phase` | One `CodingPhaseRecord` |
+| `task/review` | One `CodeReviewRecord`, the independent reviewer's structured report for one REVIEW entry |
 | `action/decided` | One `ActionProposal`, the `PolicyDecision` it answers, and the composed `AuthorizationDecision`, including the capabilities it granted |
 | `action/committed` | One `ActionReceipt` and the one-action grants that ended with it |
 | `verification/requested`, `verification/result` | The request and the aggregated result |
 | `failure/recorded`, `recovery/decided` | The failure and the chosen recovery |
+| `governor/decided` | One `GovernorDecisionRecord`: the decision, its reasons, the step's `StepDelta`, and the normalized progress score |
 | `checkpoint/created` | One `Checkpoint` |
 | `evidence/recorded` | One `Evidence` |
 | `claim/updated`, `hypothesis/updated` | One `TaskClaim` or one `TaskHypothesis` |
@@ -144,14 +165,18 @@ snapshot(agent: Agent): Promise<KernelView | undefined>
 viewOf(sessionId: SessionId): KernelView | undefined
 
 /**
- * Record an initial plan or a recovery amendment tied to one unresolved failure.
+ * Record an initial plan or an amendment tied to one unresolved failure. A
+ * revision a human approved is legal without a failure reference, because the
+ * review is the justification the model's own rewrite lacks.
  * @param agent - the live agent whose task owns the plan.
  * @param steps - ordered work items in the new plan revision.
  * @param failureId - unresolved failure that justifies an amendment.
+ * @param options - who approved the revision and which action recorded it.
  * @returns the durable plan revision.
- * @throws When the session has no task, or an amendment is not linked to an unresolved failure.
+ * @throws When the session has no task, a model-recorded amendment is not
+ *   linked to an unresolved failure, or the task reached its revision cap.
  */
-recordPlan(agent: Agent, steps: readonly string[], failureId?: FailureId): PlanRevision
+recordPlan(agent: Agent, steps: readonly string[], failureId?: FailureId, options: PlanOptions = {}): PlanRevision
 
 /**
  * Record one observation a claim may cite.

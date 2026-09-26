@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-当需要从会话日志回答"某一步究竟依据什么编译出来、重放能否复现它"时，就挂载本包。它把组装出的每条提示词 section 与运行时 context，加上 Kernel 推导出的持久任务事实，包装成来源信封；按可信度、种类与相关性排序，用 token meter 计价，并为每个不同的放置追加一条仅日志的 `context/compiled` 记录（摘要值重复时不追加）。`mode: 'shadow'`（默认）记录放置结果且不改变任何东西；`mode: 'apply'` 还会丢弃被上限切掉的可压缩来源。`policy`、`task`、`plan` 与 `evidence` 来源永不被丢弃。
+回答这样一个问题：从会话日志看，某一步究竟依据什么编译出来、重放能否复现它。每条组装出的提示词 section 与运行时 context，加上 Kernel 推导出的持久任务事实，都会成为用 token meter 排序并计价的来源信封，而每个不同的放置都会追加一条仅日志的 `context/compiled` 记录。`mode: 'shadow'`（默认）记录放置结果且不改变任何东西；`mode: 'apply'` 还会丢弃被上限切掉的可压缩来源。按各来源 kind 派生出的层级可以被挡下，直到调用方放行它。
 
 ## 目录
 
@@ -45,6 +45,7 @@ kind: "package-reference"
 |---|---|---|
 | `mode` | `shadow` | `shadow` 记录放置结果并原样返回组装；`apply` 还会返回移除了放置所遗漏的每个来源之后的组装 |
 | `maxContextTokens` | 未设置（无上限） | 放置所拟合的 token 上限，由 token meter 的固定启发式估算器计价 |
+| `onDemandTiers` | `[]` | 其来源会被放置挡下、直到 `admit()` 指名该层级或该来源 id 的层级 |
 
 每个被接受的字段都列在生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-agent-context)中。
 
@@ -68,7 +69,7 @@ kind: "package-reference"
 | `context:`、`ui:`、`app:` | `artifact` | `trusted` | `repo` |
 | 其他任何前缀 | `artifact` | `untrusted` | `repo` |
 
-从 `ctx.agentKernel.state.view(session)` 读到的持久任务事实始终是 `trusted`、始终是 `required`，并归属 `kernel`：目标、每个验收标准一条来源、每条约束一条、最新计划修订、每个未结动作一条，以及每个未解决失败一条。
+从 `ctx.agentKernel.state.view(session)` 读到的持久任务事实始终是 `trusted`、始终是 `required`，并归属 `kernel`：目标、每个验收标准一条来源、任务声明的变更契约、每条约束一条、最新计划修订、每个未结动作一条，以及每个未解决失败一条。
 
 ### 注册一个动态来源（S2）
 
@@ -94,6 +95,24 @@ const stop = ctx.agentContext.register(
 | `tail-reminder` | `compressible` | 每次编译都出现——随 turn 变化、可能为适配上限而被裁掉的内容 |
 
 过了自身 `expiresAt` 的条目会在放置前被丢弃，条目文本会在成为来源前按描述符的 `maxBytes` 截断。这个注册表是纯增量的：目前没有任何随包产出者迁移出 `core/system-prompt` section 改用它，因此在没有任何注册的情况下挂载本插件，行为与之前完全一致。
+
+### 上下文层级与按需闸门
+
+每条来源都按其 kind 落在某一个层级里，因此 `ContextPlacement` 仍是产出者注册的唯一分类。层级说明该来源属于模型工作集的哪一层：
+
+| 层级 | 内容 | Kind |
+|---|---|---|
+| `L0` | 常驻政策与系统指令 | `policy` |
+| `L1` | 任务契约及其验收标准 | `task` |
+| `L2` | 工作记忆：计划及其所依据的证据 | `plan`、`evidence` |
+| `L3` | 相关记忆 | `memory` |
+| `L4` | 近期历史与工具结果 | `history`、`tool` |
+| `L5` | 指向上下文之外所存内容的引用 | `artifact` |
+| `L6` | 冷存储：放置永不携带、只经 `L5` 引用抵达的内容 | 无 |
+
+`onDemandTiers` 指名放置要挡下的层级。被挡下的来源不是遗漏：编译从不为它计价、排序或摘要，因此 `included`、`omitted` 与摘要与"这些候选从未被提供"时完全一致，而 `CompiledContext.deferred` 会报告被挡下的内容及其 id、kind 与层级。
+
+`ctx.agentContext.admit(session, { tiers, sourceIds })` 会为该会话后续的编译放行被挡下的来源；返回的撤销函数收回该请求，此后该层级重新被挡下。这个请求是调用方自己的，且不记录进会话日志，因此放置本身保持持久，而重放只有在拿到同一请求时才能复现它。`ctx.agentContext.compiler.compile()` 也可直接接收同样的 `onDemandTiers` 与 `demand` 输入。
 
 ### 保留与排序
 
@@ -131,6 +150,7 @@ const stop = ctx.agentContext.register(
 | 存在哪些贡献、它们说了什么 | `core/system-prompt` 的 section 与运行时 context |
 | 任务是什么、其计划、未结动作、失败 | `dsh-agent-kernel` 对会话日志的折叠 |
 | 一条贡献的 kind、trust 与归属 | `src/classify.ts` |
+| 某个 kind 所属层级，以及按需闸门 | `src/tiers.ts` |
 | 放置顺序 | `src/rank.ts` |
 | token 价格与上限切分 | `src/budget.ts` 基于 `dsh-token-meter` 的固定估算器 |
 | 放置身份 | `src/digest.ts` |
@@ -144,6 +164,7 @@ const stop = ctx.agentContext.register(
 | [`src/compile.ts`](src/compile.ts) | 纯流水线、来源集合断言、去重与冲突，以及 `recordOf()` |
 | [`src/sources.ts`](src/sources.ts) | 两个来源族：组装出的贡献与 Kernel 任务事实 |
 | [`src/classify.ts`](src/classify.ts) | 前缀、trust、归属与保留等级表 |
+| [`src/tiers.ts`](src/tiers.ts) | kind 到层级的对照表，以及挡下被配置层级的闸门 |
 | [`src/rank.ts`](src/rank.ts) | 目标词项提取、相关性打分与全序放置顺序 |
 | [`src/budget.ts`](src/budget.ts) | 固定启发式计价与 required 优先的前缀切分 |
 | [`src/digest.ts`](src/digest.ts) | 内容哈希与规范化放置摘要 |
@@ -154,9 +175,10 @@ const stop = ctx.agentContext.register(
 
 ```text
 collect the assembled contributions
-  -> wrap each in a source envelope (kind, trust, provenance, retention)
+  -> wrap each in a source envelope (kind, trust, sourceRef, retention)
   -> append the kernel view's required task facts
   -> reject an empty or duplicated source id
+  -> withhold every source in an on-demand tier the compile did not ask for
   -> price with the token meter's fixed estimator
   -> score lexical overlap with the task objective
   -> sort by the total placement order
@@ -192,11 +214,11 @@ collect the assembled contributions
 
 #### 模型看到什么
 
-在 `shadow` 模式下什么也看不到：编译器追加其记录，并原样返回 `core/system-prompt` 产出的组装。在 `mode: 'apply'` 下，模型看到的 section 与运行时 context 与原来相同，但缺少放置所遗漏的每个来源——被上限切掉的可压缩贡献（`reason: 'budget'`），或内容已被某个已放置来源承载的贡献（`reason: 'duplicate'`）。Required 来源，包括每条持久任务事实，始终在场。
+在 `shadow` 模式下什么也看不到：编译器追加其记录，并原样返回 `core/system-prompt` 产出的组装。在 `mode: 'apply'` 下，模型看到的 section 与运行时 context 与原来相同，但缺少放置所遗漏的每个来源——被上限切掉的可压缩贡献（`reason: 'budget'`），或内容已被某个已放置来源承载的贡献（`reason: 'duplicate'`）。Required 来源，包括每条持久任务事实，始终在场。配置了 `onDemandTiers` 时，被挡下层级中的来源在两种模式下都不出现，直到调用方用 `admit()` 放行它；放置会在 `CompiledContext.deferred` 中报告它，而不是放进 `omitted`。
 
 #### Token 影响
 
-直接的 token 影响为零。`shadow` 模式不移除任何 token；`apply` 模式移除记录在 `omitted` 中报告的那些 token 价格，并且当 required 来源单独就超出上限时，放置的价格可以高于其上限。
+直接的 token 影响为零。`shadow` 模式不移除任何 token；`apply` 模式移除记录在 `omitted` 中报告的那些 token 价格，并且当 required 来源单独就超出上限时，放置的价格可以高于其上限。被挡下的层级则会在其被放行之前，从每一步中移除它本会贡献的 token 价格。
 
 #### KV Cache 影响
 
@@ -215,6 +237,9 @@ collect the assembled contributions
 - **相关性是词面的** — 与目标中长度三个字符及以上词项的重叠，没有词干化、同义词或 embedding 阶段，因此用不同措辞回答目标的来源得分为 0。
 - **token 价格是估算** — 上限比较的是 token meter 的固定启发式估算——与为请求内容块计价的是同一个估算器——而不是提供方实际的 token 计数。
 - **保留等级由 kind 固定** — 每条组装出的 `tool:`、`context:`、`ui:`、`app:` 贡献都可压缩，无论它读起来多像指导；未列出的前缀是不可信数据；二者都无法从配置改变。
+- **请求本身不持久** — `admit()` 把已放行的层级与 id 保存在服务实例中，`deferred` 也留在编译结果上，因此持久记录会展示请求所产生的放置，却不展示请求本身；重放只有在拿到同一请求时才能复现被挡下的放置。
+- **没有任何 kind 落在 `L6`** — 该层级命名的是 spill 存储放在放置之外的内容，因此配置 `onDemandTiers: ['L6']` 目前挡不下任何东西；想要按需获取更低层级的部署应指名 `L3`、`L4` 或 `L5`。
+- **被挡下的来源不是遗漏** — `deferred` 不属于 `included`、`omitted`、token 估算或摘要，因此没有任何持久信息能区分被挡下的来源与从未存在的来源。读者复现它依据的是触发该请求的事件。
 - **apply 按步骤生效** — `apply` 模式只过滤交给它的那次组装，因此被丢弃的贡献会在下一次能容纳它的组装中回来；编译器不在步骤之间保留记忆。
 
 <a id="dev-note"></a>

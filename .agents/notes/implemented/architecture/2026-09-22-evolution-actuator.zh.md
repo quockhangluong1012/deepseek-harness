@@ -49,7 +49,7 @@ Status: implemented
 
 ## 与计划的偏差
 
-计划是上一批缺口审计中排好序的剩余项，其中把"只记录"的回路排在最前。有两项被有意排除在本批之外：按任务的结果记录，与 dreaming 的出处门。前者是 `evolution-benchmark` 与 scorer 中的记录变更，而非驱动；后者是 `evolution-dreaming` 提升路径内部的门，而不是对已记录裁定的回路，并已随该包落地（见[出处、合并与回滚的决定](2026-09-22-dreaming-provenance-merge-and-rollback.zh.md)）。结果记录与检索接缝仍然开放。
+计划是上一批缺口审计中排好序的剩余项，其中把"只记录"的回路排在最前。有两项被有意排除在本批之外：按任务的结果记录，与 dreaming 的归属门。前者是 `evolution-benchmark` 与 scorer 中的记录变更，而非驱动；后者是 `evolution-dreaming` 提升路径内部的门，而不是对已记录裁定的回路，并已随该包落地（见[归属、合并与回滚的决定](2026-09-22-dreaming-attribution-merge-and-rollback.zh.md)）。结果记录与检索接缝仍然开放。
 
 ## 途中发现的修复
 

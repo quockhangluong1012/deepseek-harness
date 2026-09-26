@@ -30,7 +30,7 @@ The skill family lets agents and users discover and load reusable task instructi
 | [`skill-office/`](skill-office/README.md) | Bundles Word, PowerPoint, and Excel workflows with structural file checks | registers on `ctx.skills` |
 | [`tool-skill/`](tool-skill/README.md) | Publishes the session skill catalog and the model-facing `skill` loader tool | registers on `ctx.tools` |
 | [`tool-workspace-dependencies/`](tool-workspace-dependencies/README.md) | Reports bundled Office interpreter paths and versions for Desktop and SDK carriers | registers on `ctx.tools` |
-| [`evolution-skill-telemetry/`](evolution-skill-telemetry/README.md) | Durable per-skill use/view/patch counters with provenance, pin, and lifecycle state | `ctx.evolutionSkillTelemetry` |
+| [`evolution-skill-telemetry/`](evolution-skill-telemetry/README.md) | Durable per-skill use/view/patch counters with a creation record, pin, and lifecycle state | `ctx.evolutionSkillTelemetry` |
 | [`evolution-skill-manage/`](evolution-skill-manage/README.md) | Model-facing `skill_manage` tool that creates, patches, edits, writes, removes, and deletes skills as files | registers on `ctx.tools` |
 
 -----

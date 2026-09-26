@@ -1,0 +1,4 @@
+verify-package-readme-model-experience failed:
+  packages\context\working-set\README.md: missing package README
+  packages\deliverables\command-rewind\README.md: line 123: content after #### What the model sees paragraph must be a titled H5 plus `markdown` fence owned by that field
+  packages\mcp\mcp-project-config\README.md: line 116: short Model Experience form requires an audited entry in SENTENCE_MODEL_EXPERIENCE

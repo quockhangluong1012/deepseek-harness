@@ -1,12 +1,16 @@
 /**
  * Durable extracted-fact vocabulary for a scope's lessons: one artifact per
- * fact, with the provenance and quality metadata the evolutionary-harness
+ * fact, with the creation record and quality metadata the evolutionary-harness
  * specification requires of long-term memory.
  * @module @deepseek-ai/dsh-evolution-memory/lesson-artifact
  */
 
 import { SENSITIVE_PLACEHOLDER, DEFAULT_SENSITIVE_PATTERNS } from '@deepseek-ai/dsh-session-telemetry/src/sensitive.ts'
 import { z } from 'zod'
+import { CONFLICT_RULES } from './conflict.ts'
+import type { LessonConflict } from './conflict.ts'
+import { LIFECYCLE_STATES } from './lifecycle.ts'
+import type { LessonLifecycle } from './lifecycle.ts'
 
 /** Whether an artifact came from a fact, a direct observation, or a model inference. */
 export type LessonEvidenceKind = 'fact' | 'observation' | 'inference'
@@ -37,6 +41,16 @@ export interface LessonArtifact {
   refutationCount: number
   /** Scope this applies at. */
   scope: LessonArtifactScope
+  /**
+   * Status in the memory lifecycle, moved only along the edges
+   * `src/lifecycle.ts` declares. Absent on records written before the lifecycle
+   * existed, where it reads as `candidate`.
+   */
+  lifecycle?: LessonLifecycle | undefined
+  /** ISO-8601 instant of the last validation, or absent when the fact was never validated. */
+  lastValidatedAt?: string | undefined
+  /** The last conflict this fact was party to and the rule that decided it. */
+  conflict?: LessonConflict | undefined
   /** Days without confirmation before decay may prune this artifact; absent never expires by age. */
   ttlDays?: number | undefined
   /** ISO-8601 creation instant. */
@@ -176,6 +190,13 @@ export const lessonArtifact: z.ZodType<LessonArtifact> = z.object({
   validationCount: z.number().int().min(0),
   refutationCount: z.number().int().min(0),
   scope: artifactScope,
+  lifecycle: z.enum(LIFECYCLE_STATES).optional(),
+  lastValidatedAt: z.string().optional(),
+  conflict: z.object({
+    rule: z.enum(CONFLICT_RULES),
+    winner: z.enum(['standing', 'candidate']),
+    at: z.string(),
+  }).optional(),
   ttlDays: z.number().int().min(1).optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
@@ -250,16 +271,17 @@ export function scrubArtifactText(text: string): string {
  * propagates to what is derived from it, and such a fact enters a long-term
  * store only through staging, where a human or a policy answers for it.
  * @param candidate - the artifact a caller is about to store.
- * @throws When the candidate declares its content untrusted.
+ * @param confidenceFloor - policy confidence floor a candidate must carry.
+ * @throws When the candidate declares its content untrusted, or fails admission.
  */
-export function assertDirectlyAdmissible(candidate: LessonArtifactInput): void {
+export function assertDirectlyAdmissible(candidate: LessonArtifactInput, confidenceFloor: number): void {
   if (candidate.trust === 'untrusted') {
     throw new Error(
       'evolution-memory: an artifact derived from untrusted content is not admissible directly; '
       + `stage the write for approval instead (statement ${JSON.stringify(candidate.statement)})`,
     )
   }
-  const issues = admissionIssues(candidate)
+  const issues = admissionIssues(candidate, confidenceFloor)
   if (issues.length > 0) {
     throw new Error(
       `evolution-memory: artifact is not admissible as durable learning — ${issues.join('; ')} `
@@ -271,13 +293,16 @@ export function assertDirectlyAdmissible(candidate: LessonArtifactInput): void {
 /**
  * Why one candidate is not admissible as durable learning. A generic transcript
  * summary that names no source, no trajectory, or no lineage is not admissible
- * (spec §9.2); a candidate that names all three is, because the store supplies
- * the expiry policy and the utility that later recall updates, and a later
- * audit needs to trace the fact back to the run and the origin that produced it.
+ * (spec §9.2), and a candidate below the policy confidence floor carries too
+ * little belief to enter durable memory at all; a candidate that clears every
+ * bar is admissible, because the store supplies the expiry policy and the
+ * utility that later recall updates, and a later audit needs to trace the fact
+ * back to the run and the origin that produced it.
  * @param candidate - the artifact a caller is about to store.
+ * @param confidenceFloor - policy confidence floor a candidate must carry.
  * @returns the reasons, empty when the candidate may be admitted.
  */
-export function admissionIssues(candidate: LessonArtifactInput): string[] {
+export function admissionIssues(candidate: LessonArtifactInput, confidenceFloor: number): string[] {
   const issues: string[] = []
   if (candidate.sourceRefs === undefined || candidate.sourceRefs.length === 0) {
     issues.push('it names no source reference')
@@ -287,6 +312,9 @@ export function admissionIssues(candidate: LessonArtifactInput): string[] {
   }
   if (candidate.lineage === undefined) {
     issues.push('it carries no lineage')
+  }
+  if (candidate.confidence < confidenceFloor) {
+    issues.push(`it carries confidence ${candidate.confidence} below the ${confidenceFloor} floor`)
   }
   return issues
 }
@@ -303,7 +331,10 @@ export function artifactKey(statement: string): string {
 /**
  * Admit a legacy free-text lessons document as one coarse artifact, so a
  * record written before the artifact model opens and reads without blocking.
- * The heartbeat maintenance task later refines it into discrete artifacts.
+ * The artifact enters the lifecycle as an `observation`: nobody validated the
+ * document as a fact, and it stays a permanent fallback until an extraction
+ * confirms it and moves it up the ladder. The heartbeat maintenance task later
+ * refines it into discrete artifacts.
  * @param text - the stored legacy document.
  * @param now - ISO-8601 instant to stamp.
  * @returns one artifact, or none when the document is blank.
@@ -317,6 +348,7 @@ export function wrapLegacyLessons(text: string, now: string): LessonArtifact[] {
     conditions: '',
     evidence: 'inference',
     confidence: 0.5,
+    lifecycle: 'observation',
     validationCount: 0,
     refutationCount: 0,
     scope: 'project',

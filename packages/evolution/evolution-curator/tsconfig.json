@@ -14,6 +14,7 @@
     { "path": "../../skill/skill" },
     { "path": "../../skill/evolution-skill-manage" },
     { "path": "../../skill/evolution-skill-telemetry" },
+    { "path": "../evolution-budget" },
     { "path": "../evolution-feedback" },
     { "path": "../evolution-model-routes" },
     { "path": "../evolution-verifiers" },

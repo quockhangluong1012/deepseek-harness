@@ -2,12 +2,12 @@ import { describe, expect, it } from 'vitest'
 import {
   decidePromotion,
   evolveNarratives,
-  mergeProvenance,
+  mergeAttribution,
   narrativeId,
   relateNarrative,
 } from '../src/narrative.ts'
 import type { NarrativeLimits, QualifiedCandidate } from '../src/narrative.ts'
-import type { DreamCandidate, DreamPromotion, DreamProvenance } from '../src/types.ts'
+import type { DreamCandidate, DreamPromotion, DreamAttribution } from '../src/types.ts'
 
 const NOW = '2026-09-13T00:00:00.000Z'
 
@@ -36,7 +36,7 @@ function candidate(overrides: Partial<DreamCandidate> = {}): DreamCandidate {
     sessions: 4,
     firstAt: '2026-09-01T00:00:00.000Z',
     lastAt: '2026-09-12T00:00:00.000Z',
-    provenance: 'attributed',
+    attribution: 'attributed',
     ...overrides,
   }
 }
@@ -57,7 +57,7 @@ function promotion(overrides: Partial<DreamPromotion> = {}): DreamPromotion {
       conceptRichness: 0.5,
     },
     promotedAt: NOW,
-    evidence: { provenance: 'attributed', count: 9, sessions: 4 },
+    evidence: { attribution: 'attributed', count: 9, sessions: 4 },
     restatements: [],
     supersededBy: null,
     supersededAt: null,
@@ -76,21 +76,21 @@ describe('narrative identity', () => {
   })
 })
 
-describe('provenance merge', () => {
-  it('keeps attributed provenance when either side was observed', () => {
-    expect(mergeProvenance('attributed', 'attributed')).toBe('attributed')
-    expect(mergeProvenance('attributed', 'unattributed')).toBe('attributed')
-    expect(mergeProvenance('unattributed', 'attributed')).toBe('attributed')
+describe('attribution merge', () => {
+  it('keeps an attributed sighting set when either side was observed', () => {
+    expect(mergeAttribution('attributed', 'attributed')).toBe('attributed')
+    expect(mergeAttribution('attributed', 'unattributed')).toBe('attributed')
+    expect(mergeAttribution('unattributed', 'attributed')).toBe('attributed')
   })
 
   it('stays unattributed when neither side was observed', () => {
-    expect(mergeProvenance('unattributed', 'unattributed')).toBe('unattributed')
+    expect(mergeAttribution('unattributed', 'unattributed')).toBe('unattributed')
   })
 })
 
 describe('promotion gate', () => {
   const input = {
-    provenance: 'attributed' as DreamProvenance,
+    attribution: 'attributed' as DreamAttribution,
     score: 0.9,
     count: 9,
     sessions: 4,
@@ -101,8 +101,8 @@ describe('promotion gate', () => {
   })
 
   it('refuses an unattributed candidate by name however high it scores', () => {
-    expect(decidePromotion({ ...input, provenance: 'unattributed' }, GATE))
-      .toEqual({ promote: false, reason: 'unattributed-provenance' })
+    expect(decidePromotion({ ...input, attribution: 'unattributed' }, GATE))
+      .toEqual({ promote: false, reason: 'unattributed-sighting' })
   })
 
   it('names the numeric gate that refused a candidate', () => {
@@ -164,7 +164,7 @@ describe('narrative evolution', () => {
       score: 0.8,
       signals: expect.anything() as unknown,
       promotedAt: NOW,
-      evidence: { provenance: 'attributed', count: 9, sessions: 4 },
+      evidence: { attribution: 'attributed', count: 9, sessions: 4 },
       restatements: [],
       supersededBy: null,
       supersededAt: null,
@@ -182,11 +182,16 @@ describe('narrative evolution', () => {
     expect(outcome.promotions[1]).toEqual(other)
   })
 
-  it('leaves an identity the scope already holds untouched', () => {
-    const held = promotion()
-    const outcome = evolveNarratives([held], [qualified()], LIMITS, NOW)
+  it('moves the promotion instant of an identity the scope already holds', () => {
+    const held = promotion({ promotedAt: '2026-08-01T00:00:00.000Z' })
+    const other = promotion({ statement: UNRELATED, tool: 'curl' })
+    const outcome = evolveNarratives([held, other], [qualified()], LIMITS, NOW)
     expect(outcome).toMatchObject({ promoted: 0, merged: 0, superseded: 0 })
-    expect(outcome.promotions).toEqual([held])
+    // The sighting moves the instant the decay rule measures from, so a
+    // recurring narrative is not dropped for age; its wording and its evidence
+    // stay as the gate first stored them, and no other narrative is touched.
+    expect(outcome.promotions[0]).toEqual({ ...held, promotedAt: NOW })
+    expect(outcome.promotions[1]).toEqual(other)
   })
 
   it('bounds the restatements one narrative retains', () => {

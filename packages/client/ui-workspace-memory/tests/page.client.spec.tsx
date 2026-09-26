@@ -79,7 +79,6 @@ function remoteOf(overrides: Partial<PageRemote> = {}): PageRemote {
     addFileItem: vi.fn(async () => valueOf()),
     removeContextItem: vi.fn(async () => valueOf()),
     listContextFiles: vi.fn(async () => []),
-    rebuildMemory: vi.fn(async () => valueOf()),
     follow: () => (async function* (): AsyncIterable<WorkspaceMemoryFollowFrame> {})(),
     openStream: (options: RemoteStreamOptions<WorkspaceMemoryFollowFrame>) => drivingStream(options.open),
     ...overrides,
@@ -249,46 +248,6 @@ describe('workspace-memory page', () => {
     await act(async () => {})
   })
 
-  it('regenerate calls rebuildMemory and shows busy', async () => {
-    let resolveRebuild!: (value: WorkspaceMemoryValue) => void
-    const current = valueOf()
-    const rebuildMemory = vi.fn(() => new Promise<WorkspaceMemoryValue>((resolve) => {
-      resolveRebuild = resolve
-    }))
-    const remote = remoteOf({
-      read: vi.fn(async () => current),
-      rebuildMemory,
-    })
-    render(<WorkspaceMemoryPage {...propsOf({ remote })} />)
-    await screen.findByTestId('workspace-memory-page')
-    fireEvent.click(screen.getByText('card.regenerate'))
-    expect(rebuildMemory).toHaveBeenCalled()
-    const busy = screen.getAllByText('card.regenerating')
-    expect(busy.length).toBeGreaterThan(0)
-    fireEvent.click(busy[0]!)
-    expect(rebuildMemory).toHaveBeenCalledOnce()
-    act(() => {
-      resolveRebuild(valueOf({ memory: 'fresh' }))
-    })
-    expect(await screen.findByText('fresh')).toBeDefined()
-  })
-
-  it('shows rebuild failures inline', async () => {
-    const remote = remoteOf({ rebuildMemory: vi.fn(async () => { throw new Error('model down') }) })
-    render(<WorkspaceMemoryPage {...propsOf({ remote })} />)
-    await screen.findByTestId('workspace-memory-page')
-    fireEvent.click(screen.getByText('card.regenerate'))
-    expect(await screen.findByText('model down')).toBeDefined()
-  })
-
-  it('shows string failures verbatim', async () => {
-    const remote = remoteOf({ rebuildMemory: vi.fn(async () => { throw 'plain failure' }) })
-    render(<WorkspaceMemoryPage {...propsOf({ remote })} />)
-    await screen.findByTestId('workspace-memory-page')
-    fireEvent.click(screen.getByText('card.regenerate'))
-    expect(await screen.findByText('plain failure')).toBeDefined()
-  })
-
   it('a too-large failure renders card copy', async () => {
     const current = valueOf()
     const failure = Object.assign(new Error('too large'), {
@@ -308,7 +267,7 @@ describe('workspace-memory page', () => {
     expect(await screen.findByText('error.tooLarge')).toBeDefined()
   })
 
-  it('renders update time and extraction provenance', async () => {
+  it('renders update time and which extraction wrote the document', async () => {
     const remote = remoteOf({
       read: vi.fn(async () => valueOf({
         memoryUpdatedAt: new Date(Date.now() - 5 * 60_000).toISOString(),
@@ -417,6 +376,17 @@ describe('workspace-memory page', () => {
     fireEvent.change(within(dialog).getByLabelText('card.edit'), { target: { value: 'x' } })
     fireEvent.click(within(dialog).getByText('card.save'))
     expect(await screen.findByText('memory down')).toBeDefined()
+  })
+
+  it('shows a non-Error memory failure verbatim', async () => {
+    const remote = remoteOf({ setMemory: vi.fn(async () => { throw 'plain failure' }) })
+    render(<WorkspaceMemoryPage {...propsOf({ remote })} />)
+    await screen.findByTestId('workspace-memory-page')
+    fireEvent.click(screen.getAllByText('card.edit')[1]!)
+    const dialog = screen.getByRole('dialog', { name: 'card.memory' })
+    fireEvent.change(within(dialog).getByLabelText('card.edit'), { target: { value: 'x' } })
+    fireEvent.click(within(dialog).getByText('card.save'))
+    expect(await screen.findByText('plain failure')).toBeDefined()
   })
 
   it('edits the description through placeholder, blur, save, and escape', async () => {

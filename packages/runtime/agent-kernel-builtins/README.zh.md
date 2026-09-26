@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-在 agent kernel 旁边挂载本包，让 `mode: 'enforce'` 治理真实流量。它声明每个已发布产品工具的能力，以及每项能力所适用的资源投影；一旦 kernel 服务存在便向其注册，与挂载顺序无关。它不拥有策略也不拥有执行：Kernel 的权限文档仍然决定每个动作，卸载本插件只移除它添加的声明。
+在 agent kernel 旁边挂载本包，让 `mode: 'enforce'` 治理真实流量。它声明每个已发布产品工具的能力，以及每项能力所适用的资源投影；一旦 kernel 服务存在便向其注册，与挂载顺序无关；它还把产品的独立评审注册到 Kernel 的编码生命周期端口上（§10.6）。它不拥有策略也不拥有执行：Kernel 的权限文档仍然决定每个动作，卸载本插件只移除它所注册的东西。
 
 ## 目录
 
@@ -25,7 +25,7 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用本包
 
-部署打开 `mode: 'enforce'` 时，在 `@deepseek-ai/dsh-agent-kernel` 旁边加载本插件。本插件无需配置、不注入服务，只注册声明。挂载顺序永远无关紧要：注册等待被注入的 `agentKernel` 服务。
+部署打开 `mode: 'enforce'`、或希望 Kernel 的 §10.5 REVIEW 阶段有实现者时，在 `@deepseek-ai/dsh-agent-kernel` 旁边加载本插件。本插件不注入服务，只做注册。挂载顺序永远无关紧要：注册等待被注入的 `agentKernel` 服务。
 
 ### 最小组合
 
@@ -43,13 +43,21 @@ kind: "package-reference"
 - name: '@deepseek-ai/dsh-agent-kernel-builtins'
 ```
 
+### 配置
+
+| 字段 | 默认值 | 含义 |
+|---|---|---|
+| `reviewer` | `true` | 本插件是否把已发布的独立评审注册到 `ctx.agentKernel.lifecycle`。部署自行注册评审时关掉它，因为 Kernel 拒绝第二次注册。 |
+
+注册进来的评审在 Kernel 自身的 `Config.codingLifecycle.review.enabled` 打开之前保持休眠：从不启用 REVIEW 阶段的部署不会派生任何东西，本插件的注册也不改变任何行为。
+
 ### 何时选择它
 
 enforce 模式必须治理已发布工具时选择它：每次工具调用都需要留档决策的无人值守运行，或权限文档按动作族而非按工具命名的部署。部署声明自己的调用面时避开它——重命名过的工具、私有工具包，或动态铸造的 `mcp__*` 名字各自需要自己的声明，未被声明的工具保持拒绝。
 
 ### 你会得到什么
 
-每个已发布产品工具一份声明，各自指明一次调用需要的能力，并把调用的解析参数投影到每项能力所适用的资源。文件系统工具投影路径，shell 工具投影命令，网络工具投影查询与 URL，委派工具投影描述与 agent id，其余工具投影其族所治理的标识符。每份投影都是全函数且永不为空：缺失或畸形的参数回退到命名该工具领域的常量，因此未知资源只匹配宽泛规则，绝不可能滑过窄规则。完整表格在 [`src/declarations.ts`](src/declarations.ts)；一份 spec 断言它恰好命名了生成的[工具目录](../../../docs/tool-catalog.zh.md)所列的工具——新发布的工具在被声明之前会让那份 spec 失败。
+每个已发布产品工具一份声明，各自指明一次调用需要的能力，并把调用的解析参数投影到每项能力所适用的资源，外加 §10.6 独立评审：编码生命周期的 REVIEW 阶段通过已发布的评审接缝（`@deepseek-ai/dsh-command-review`）把它作为任务 agent 的全新子级派生，它回答该阶段消费的结构化报告。评审提示词给出要检查的 diff、变更本应达成的目标，以及其最后一轮必须满足的 schema。文件系统工具投影路径，shell 工具投影命令，网络工具投影查询与 URL，委派工具投影描述与 agent id，其余工具投影其族所治理的标识符。每份投影都是全函数且永不为空：缺失或畸形的参数回退到命名该工具领域的常量，因此未知资源只匹配宽泛规则，绝不可能滑过窄规则。完整表格在 [`src/declarations.ts`](src/declarations.ts)；一份 spec 断言它恰好命名了生成的[工具目录](../../../docs/tool-catalog.zh.md)所列的工具——新发布的工具在被声明之前会让那份 spec 失败。
 
 ### 声明属于哪里
 
@@ -69,12 +77,17 @@ enforce 模式必须治理已发布工具时选择它：每次工具调用都需
 
 Kernel 的注册表初始为空并按失败关闭。本插件只为已发布调用面填充它：`apply()` 通过一个 Cordis effect 注册整张表，因此卸载本插件会释放它做出的每一份注册，不动外来的声明。被注入的 `agentKernel` 服务让挂载顺序无关紧要——组合可以把本插件列在 Kernel 之前或之后。
 
+### 评审适配器
+
+`registerCodingReviewer(ctx, config)` 把已发布的评审接缝适配到 Kernel 的 `IndependentReviewer` 端口：它用代码评审提示词与 `REVIEW_OUTPUT_SCHEMA` 调用 `@deepseek-ai/dsh-command-review` 的 `runReviewer(ctx, config, task, caller)`，把任务 agent 作为父级、本轮次的取消信号交给评审子级，并返回结算后的结构化报告——若评审以其他原因停止、或没有回答结构化报告则抛出错误，Kernel 会把它记录为 `workflow-failed` 失败并停住任务。因此 `/review`、`/security-review` 与生命周期的 REVIEW 阶段共用同一条派生路径。
+
 ### 源码地图
 
 | 文件 | 角色 |
 |---|---|
-| [`src/index.ts`](src/index.ts) | 插件入口：`name`、`agentKernel` 注入与注册 effect |
+| [`src/index.ts`](src/index.ts) | 插件入口：`name`、`Config`、`agentKernel` 注入与注册 effect |
 | [`src/declarations.ts`](src/declarations.ts) | 声明表与全函数资源投影 |
+| [`src/reviewer.ts`](src/reviewer.ts) | 从已发布评审接缝到 Kernel 编码生命周期端口的 §10.6 适配器 |
 | — | 不发布运行时 invariant 伴生件；该表是静态注册，其覆盖 spec 从生成的目录重新推导工具清单，因此第二份观察不可能与之分叉。 |
 
 </details>
@@ -119,6 +132,8 @@ Kernel 的注册表初始为空并按失败关闭。本插件只为已发布调�
 - **动态铸造的名字超出范围**——`mcp__<server>__<tool>` 名字与按次铸造的 `structured_output` 工具在运行时之前不存在，因此任何静态表都声明不了它们；使用它们的部署逐个声明名字，或接受失败关闭的拒绝。
 - **一个工具，一份声明**——`bash` 与 `pwsh` 各以一名发布两次（单次与持久变体）；单份声明覆盖该名字，因此两个变体共享 `process.exec` 能力。
 - **混合命令共享一份声明**——`str_replace_editor` 为每条命令声明 `fs.read` 与 `fs.edit`，因此一次 `view` 也携带它从不使用的 edit 请求。`edit` 族上的拒绝会同时拒绝该路径的查看与修改。
+- **已发布的评审沿用会话路由**——`apply()` 注册适配器时不带 provider 或 model 覆盖，因此评审子级跑在调用 agent 的路由上；需要独立后端的部署使用 `registerCodingReviewer(ctx, { provider, model, subagentProvider })` 这个接缝，§10.6 的分离模型拓扑是组合选择，本插件不替部署决定。
+- **每个 Kernel 只允许一个评审**——Kernel 拒绝第二次注册，因此自行组合 `IndependentReviewer` 的部署在此设置 `reviewer: false`，而不是两者都挂载。
 - **有些映射是就近拟合，而非精确**——固定词汇没有读取技能体、会话记录或后台任务输出的成员（由 `fs.read` 与 `memory.read` 充任），也没有排期与团队任务的成员（由 `workflow.start` 与任务记忆充任）。每族注释记录了取舍理由。
 
 <a id="dev-note"></a>

@@ -1,0 +1,16 @@
+{
+  "extends": "./packages/subagent/tool-subagent/tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "composite": false,
+    "declaration": false,
+    "declarationMap": false,
+    "incremental": false,
+    "rootDir": ".",
+    "types": ["node"]
+  },
+  "include": [
+    "packages/subagent/tool-subagent/src",
+    "packages/subagent/tool-subagent/tests"
+  ]
+}

@@ -1,6 +1,6 @@
 /** Protocol-independent model capabilities and reasoning choices. */
 import { ReasoningEffortId } from '@deepseek-ai/dsh-llm'
-import type { LlmModelInfo, LlmResolvedModelInfo } from '@deepseek-ai/dsh-llm'
+import type { LlmModelCost, LlmModelInfo, LlmResolvedModelInfo } from '@deepseek-ai/dsh-llm'
 import type { DeepSeekCatalogModel, DeepSeekConnectionOptions } from './types.ts'
 
 const OFF_REASONING_EFFORT = ReasoningEffortId('off')
@@ -52,6 +52,17 @@ export function catalogModelInfo(provider: string, model: DeepSeekCatalogModel):
   }
 }
 
+/**
+ * Declared USD prices of one catalog entry, or `undefined` when the route
+ * declares none — an unlisted model, or a listed entry without `cost`.
+ * @param connection - validated connection facts.
+ * @param model - exact wire model id.
+ * @returns detached route pricing, or `undefined` when the route declares none.
+ */
+export function catalogModelCost(connection: DeepSeekConnectionOptions, model: string): LlmModelCost | undefined {
+  return connection.models.find(entry => entry.id === model)?.cost
+}
+
 /** Resolve model capabilities against one configuration generation.
  * @param connection - validated connection facts.
  * @param provider - registered provider id.
@@ -74,6 +85,7 @@ export function modelInfo(
       ? { provider, id: model, name: model, inputModalities: ['text' as const] }
       : catalogModelInfo(provider, configured),
     context: { contextWindow },
+    ...configured?.cost === undefined ? {} : { cost: configured.cost },
     defaultMaxTokens: configured?.maxTokens ?? connection.maxTokens,
     ...configured?.systemPromptUpdate === undefined ? {} : { systemPromptUpdate: configured.systemPromptUpdate },
     ...connection.defaults.thinking === 'disabled'

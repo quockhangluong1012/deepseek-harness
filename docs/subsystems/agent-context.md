@@ -8,21 +8,27 @@ The context compiler owned by [`@deepseek-ai/dsh-agent-context`](../../packages/
 
 `ContextSourceKind` is the closed union `policy | task | plan | memory | evidence | artifact | history | tool`. `RetentionClass` is `required | compressible`, and `OmissionReason` is `budget | duplicate`.
 
-`ContextSource` is one contribution the compiler may place: the `id` unique within one compile, the `kind`, the exact `content` the source contributes, the `TrustLabel` and `Provenance` from [`agent-kernel`](agent-kernel.md), the `retention` class, and an optional `subject` naming the claim the source makes. A source the compiler reads from the assembly keeps its registered name as `id`; a durable fact uses a derived key.
+`ContextSource` is one contribution the compiler may place: the `id` unique within one compile, the `kind`, the exact `content` the source contributes, the `TrustLabel` and `SourceRef` from [`agent-kernel`](agent-kernel.md), the `retention` class, and an optional `subject` naming the claim the source makes. A source the compiler reads from the assembly keeps its registered name as `id`; a durable fact uses a derived key.
 
-An assembled contribution's kind, trust, and attribution come from the prefix table in [`src/classify.ts`](../../packages/runtime/agent-context/src/classify.ts), and an unlisted prefix resolves to untrusted repository content. A fact read from `KernelView` is always `trusted` and always `required`: the objective, one source per acceptance criterion, one per constraint, the latest plan revision, one per unsettled action, and one per unresolved failure. Retention follows the kind, so `policy`, `task`, `plan`, and `evidence` sources are placed even when they alone exceed the ceiling.
+An assembled contribution's kind, trust, and attribution come from the prefix table in [`src/classify.ts`](../../packages/runtime/agent-context/src/classify.ts), and an unlisted prefix resolves to untrusted repository content. A fact read from `KernelView` is always `trusted` and always `required`: the objective, one source per acceptance criterion, the change contract the task declared, one per constraint, the latest plan revision, one per unsettled action, and one per unresolved failure. Retention follows the kind, so `policy`, `task`, `plan`, and `evidence` sources are placed even when they alone exceed the ceiling.
 
 ## Placement
 
 `CompiledSource` is a placed envelope with its lexical `relevance` to the task objective in [0,1] and its fixed-heuristic `tokens` price from `dsh-token-meter`.
 
-`ContextCompiler.compile()` takes one `ContextCompileInput` — the assembly, additional durable sources, the objective relevance is scored against, and an optional ceiling — and returns a `CompiledContext`: the `included` sources in placement order, the `omitted` ones with their reasons, the retained `conflicts`, the placement's `tokenEstimate`, its `digest`, and the `compilerVersion` that produced it. The default compiler is pure, deterministic, and free of I/O.
+`ContextCompiler.compile()` takes one `ContextCompileInput` — the assembly, additional durable sources, the objective relevance is scored against, an optional ceiling, and the tiers this compile withholds with the demand that admits them — and returns a `CompiledContext`: the `included` sources in placement order, the `omitted` ones with their reasons, the `deferred` sources the tier policy withheld, the retained `conflicts`, the placement's `tokenEstimate`, its `digest`, and the `compilerVersion` that produced it. The default compiler is pure, deterministic, and free of I/O.
 
 Ordering is total, so a replay reproduces a placement from the same sources: trust (`trusted`, `unknown`, `untrusted`), then kind (`policy`, `task`, `plan`, `evidence`, `memory`, `artifact`, `history`, `tool`), then relevance descending, then `id` by code unit. The ceiling cuts a prefix of that order, so once one compressible source does not fit, every later compressible source is omitted as `budget`. A compressible source whose content an already-placed source carries is omitted as `duplicate`; a `required` source is dropped by neither rule.
 
 `ContextConflict` names one claim two placed `required` sources disagree about: the `subject` and the disagreeing source ids in placement order. The compiler reports a disagreement and never resolves one, and it records nothing for a `subject` only one source declares.
 
 The `digest` is the identity a replay must reproduce: a SHA-256 over the compiler version, the ceiling, and, per placed source, its id, kind, trust, retention, price, relevance, and content hash, plus every omission and every conflict. It covers no clock and no generated identity.
+
+## Context tiers
+
+Every source sits in one tier derived from its kind, so `ContextPlacement` stays the only classification a producer registers: `policy` is `L0`, `task` is `L1`, `plan` and `evidence` are `L2`, `memory` is `L3`, `history` and `tool` are `L4`, and `artifact` is `L5`. No kind is `L6`, the tier of content a placement never carries.
+
+`onDemandTiers` names the tiers a placement withholds until a `ContextTierDemand` admits them by tier or by source id, and `CompiledContext.deferred` reports what it withheld with each source's id, kind, and tier. A withheld source is not an `omitted` one: it is never priced, ranked, or digested, so the placement and its digest are what they would be had the withheld candidates never been offered.
 
 ## Durable record
 
@@ -62,6 +68,19 @@ register(descriptor: ContextSourceDescriptor, provide: ContextSourceProvider): (
  * @returns whether the latest placement included the source.
  */
 isIncluded(session: Agent['session'], sourceId: string): boolean
+
+/**
+ * Admit the sources the configured on-demand tiers withhold: every later
+ * compile for the session places the named tiers and source ids until the
+ * returned disposer runs, and reports what it still withholds in
+ * `CompiledContext.deferred`. The demand is this caller's own — it is not
+ * recorded in the session log, so a replay reproduces the placement only
+ * when it is given the same demand; the placement it produced stays durable.
+ * @param session - live session whose later compiles admit the demand.
+ * @param demand - the tiers and source ids to admit.
+ * @returns a disposer that withdraws this caller's demand.
+ */
+admit(session: Agent['session'], demand: ContextTierDemand): () => void
 
 /**
  * Per-source-kind token totals of the session's newest recorded placement

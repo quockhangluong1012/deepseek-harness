@@ -190,3 +190,67 @@ shipped Web bundle 默认禁用 `ui-schedule`，显式 Schedule overlay 则把�
 到期工作会先等待 Agent 完全 idle 并认领 maintenance phase，再重新折叠状态、采样本次判断、将一个 `followup()` 排入队列，并追加对应的 dispatch 变更。它绝不会调用 `steer()`，也绝不会中断当前轮次。
 
 获得准入的一次性提醒或固定速率批次会启动一个普通的后续轮次，且只通过普通对话 transcript（文本记录）出现；Schedule 不提供独立的持久 Web 回执。上面的只读活动目录绝不表示交付成功。如果 framing 构造或同步队列准入失败，则不会记录 dispatch，提醒仍保持活动。队列准入后、持久 dispatch 前的狭窄崩溃窗口可能使提醒内容在恢复后重复，因此该边界提供的是尽力而为的至少一次交付，而非恰好一次交付。
+
+## 定时 routine
+
+routine 属于部署级而非会话级：一份保存下来的提示词、一个工作区、一个节奏，以及其会话启动时使用的组合。整份列表是 `workspace_routines` 存储 domain 上的一条原子记录；每个到期的 routine 都会启动一个挂接在其工作区上的新根会话，因此无人值守的工作绝不会打断对话。routine 记录比它们启动的会话更长寿，并由人类 `/routine` 命令管理。
+
+routine 由进程内计时器触发。停机期间错过的到期时刻会被跳过而不是补跑：调度器挂载时，已过期的启用游标会移到下一个未来时刻；到期 routine 会越过其游标与当前时刻之间的所有触发点。启动失败会被记录，其节奏同样会前进，因为 routine 是日程表而不是重试队列。同一个 routine 绝不会同时运行两次启动。
+
+启动的会话遵循与 webhook 创建的会话相同的创建路径：先解析 preset（任何副作用之前），再创建并挂接工作区，应用权限 preset 与标题，最后把 routine 的提示词作为一条带 `routine` 来源的普通用户消息投递。模型可见的后果恰是这条消息。
+
+<!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
+
+<a id="cordis-surface"></a>
+
+## Cordis API
+
+Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — the language sides differ only in locale-specific paired document paths. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.zh.md#dispatch-modes), and the framework-inherited `ctx` API lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
+
+<a id="ctxroutines--routinescheduler"></a>
+
+### `ctx.routines` — `RoutineScheduler`
+
+Durable routine store and the timer that starts a new Session when one comes due. Routines run only while this process is up: a due instant that passes during downtime is skipped, not caught up, so a restarted Desktop app never starts a backlog of Sessions at boot.
+
+```ts cordis-catalog
+/**
+ * Every stored routine, newest last.
+ * @returns the durable records in creation order.
+ */
+list(): readonly RoutineRecord[]
+
+/**
+ * Store one new routine due `everyMinutes` from now.
+ * @param spec - title, workspace, prompt, and cadence.
+ * @returns the stored record.
+ * @throws InvalidRoutineError on an unsupported argument, RoutineLimitError at the ceiling.
+ */
+async create(spec: RoutineSpec): Promise<RoutineRecord>
+
+/**
+ * Remove one stored routine.
+ * @param id - routine identity.
+ * @returns nothing.
+ * @throws UnknownRoutineError when no such routine is stored.
+ */
+async remove(id: RoutineId): Promise<void>
+
+/**
+ * Pause or resume one stored routine.
+ * @param id - routine identity.
+ * @param enabled - whether it may start new sessions.
+ * @returns the stored record.
+ * @throws UnknownRoutineError when no such routine is stored.
+ */
+async setEnabled(id: RoutineId, enabled: boolean): Promise<RoutineRecord>
+
+/**
+ * Start a Session for every routine due at or before the current instant.
+ * @returns the ids that started a Session this pass.
+ */
+async runDue(): Promise<readonly RoutineId[]>
+```
+
+Source: [`packages/schedule/schedule-routines/src/index.ts`](../../packages/schedule/schedule-routines/src/index.ts)
+<!-- END GENERATED cordis-surface -->

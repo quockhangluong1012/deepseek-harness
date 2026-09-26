@@ -1,18 +1,16 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
 import Storage from '@deepseek-ai/dsh-storage'
 import { DomainFacility } from '@deepseek-ai/dsh-storage-domain'
-import EvolutionMemoryStore, {
-  EvolutionScopeId,
-  type EvolutionExtraction,
-  type LessonArtifactInput,
-} from '@deepseek-ai/dsh-evolution-memory'
+import { EvolutionScopeId } from '@deepseek-ai/dsh-evolution-memory'
 import { MemoryMediaPool, MemoryStorageBackend } from '../../../storage/storage-domain/tests/helpers/memory-backend.ts'
 import EvolutionGraph, {
   Config,
   EVOLUTION_GRAPH_EXTRACT_TASK,
+  graphDomainSpec,
+  graphRecordSchema,
   normalizeNodeId,
   normalizeRelation,
   parseTriples,
@@ -88,6 +86,23 @@ describe('evolution graph', () => {
     expect(Config({ profile: 'team' }).profile).toBe('team')
   })
 
+  it('opens a version-1 record and drops the claims it stored', () => {
+    // The claim layer is gone, but a scope written before version 2 must not
+    // read as absent — a bare bump would empty every stored graph.
+    expect(graphDomainSpec.version).toBe(2)
+    expect(graphDomainSpec.compatibleVersions).toEqual([1])
+    expect(graphRecordSchema.parse({
+      nodes: [{ id: 'alice', label: 'Alice', kind: 'person' }],
+      edges: [],
+      claims: [{ id: 'a claim', statement: 'A claim', status: 'active' }],
+      updatedAt: '2026-09-22T00:00:00.000Z',
+    })).toEqual({
+      nodes: [{ id: 'alice', label: 'Alice', kind: 'person' }],
+      edges: [],
+      updatedAt: '2026-09-22T00:00:00.000Z',
+    })
+  })
+
   it('merges triples, reinforcing a repeat instead of duplicating it', async () => {
     const h = await harness()
     try {
@@ -137,6 +152,40 @@ describe('evolution graph', () => {
       ])
       expect(result).toEqual({ addedNodes: 2, addedEdges: 1, reinforcedEdges: 0, skipped: 3 })
       expect(h.graph.read(scope)?.edges).toHaveLength(1)
+    } finally {
+      await h.fiber.dispose()
+    }
+  })
+
+  it('merges a batch into a record another batch commits first', async () => {
+    const h = await harness()
+    try {
+      await h.graph.observe(scope, [{ from: 'A', relation: 'uses', to: 'B' }])
+      // Both batches read the record before either write lands: the second
+      // merges into the record the first committed instead of replacing it
+      // with the snapshot it read.
+      await Promise.all([
+        h.graph.observe(scope, [{ from: 'C', relation: 'uses', to: 'D' }]),
+        h.graph.observe(scope, [{ from: 'E', relation: 'uses', to: 'F' }]),
+      ])
+      const edges = h.graph.read(scope)?.edges ?? []
+      expect(edges.map(edge => edge.from).sort()).toEqual(['a', 'c', 'e'])
+    } finally {
+      await h.fiber.dispose()
+    }
+  })
+
+  it('keeps both batches when two writes open a scope together', async () => {
+    const h = await harness()
+    try {
+      // Neither call finds a record, so both create one; the second merges
+      // into the record the first created rather than replacing it.
+      await Promise.all([
+        h.graph.observe(scope, [{ from: 'A', relation: 'uses', to: 'B' }]),
+        h.graph.observe(scope, [{ from: 'C', relation: 'uses', to: 'D' }]),
+      ])
+      const edges = h.graph.read(scope)?.edges ?? []
+      expect(edges.map(edge => edge.from).sort()).toEqual(['a', 'c'])
     } finally {
       await h.fiber.dispose()
     }
@@ -285,17 +334,19 @@ describe('heartbeat extraction', () => {
    * One session event for a message whose content is the given blocks.
    * @param type - which of the two message events the producer reads to build.
    * @param content - the message's content blocks.
+   * @param source - the message's declared source; defaults to a test producer.
    * @returns the event as it would be published on `session/event`.
    */
   function messageEvent(
     type: 'user/message' | 'assistant/message',
     content: Array<Record<string, unknown>>,
+    source: Record<string, unknown> = { kind: 'plugin', plugin: 'test' },
   ): unknown {
     const message = {
       id: 'm1',
       role: type === 'user/message' ? 'user' : 'assistant',
       content,
-      source: { kind: 'plugin', plugin: 'test' },
+      source,
     }
     return type === 'user/message'
       ? { type, seq: 1, time: 0, data: message }
@@ -373,6 +424,27 @@ describe('heartbeat extraction', () => {
       expect(h.tasks[0]?.name).toBe('evolution-graph-extract')
       expect(h.tasks[0]?.name).toBe(EVOLUTION_GRAPH_EXTRACT_TASK)
       expect(h.tasks[0]?.intervalHours).toBe(6)
+    } finally {
+      await h.fiber.dispose()
+    }
+  })
+
+  it('ignores text a memory producer injected', async () => {
+    const session = { id: 's1', requestHeader: () => ({ config: { provider: 'p', model: 'm' } }) }
+    const h = await producerHarness({}, answer('{"triples":[{"from":"Ava","relation":"worked_on","to":"Atlas"}]}'), {
+      workspaces: { list: () => [{ id: 'ws', sessionIds: ['s1'] }] },
+      sessions: { get: () => session },
+    })
+    try {
+      h.ctx.emit('session/event', session as never, messageEvent(
+        'user/message',
+        [{ type: 'text', text: 'recalled: Ava worked on Atlas' }],
+        { kind: 'active-memory' },
+      ) as never)
+      await h.tasks[0]?.run(new AbortController().signal)
+      // Nothing was buffered, so the run pays for no extraction call at all.
+      expect(h.calls).toHaveLength(0)
+      expect(h.graph.find(EvolutionScopeId('default', 'ws'), 'ava')).toHaveLength(0)
     } finally {
       await h.fiber.dispose()
     }
@@ -766,367 +838,220 @@ describe('heartbeat extraction', () => {
   })
 })
 
-describe('claim graph', () => {
-  const T0 = '2026-09-22T00:00:00.000Z'
-  const T1 = '2026-09-22T01:00:00.000Z'
-  const T2 = '2026-09-22T02:00:00.000Z'
-  const T3 = '2026-09-22T03:00:00.000Z'
-  const T4 = '2026-09-22T04:00:00.000Z'
+describe('evolution graph budget gate', () => {
+  /** The scope the harness's single workspace session resolves to. */
+  const sweepScope = EvolutionScopeId('default', 'ws')
 
-  /** One memory-provenance record, as the reviewer stamps it on a batch. */
-  function extraction(sessionId: string): EvolutionExtraction {
-    return {
-      at: T0,
-      sessionId,
-      provider: 'stub',
-      model: 'stub-model',
-      origin: 'background_review',
-      inputBytes: 10,
-      truncated: false,
-    }
+  /** One settled spend, as the stub records it. */
+  interface Spend {
+    batchId: string
+    tokens: number
+    wallTimeMs: number
+    rollouts: number
   }
 
-  /** One caller-supplied candidate, with the fields a test varies pinned. */
-  function candidate(statement: string, source: string): LessonArtifactInput {
+  /** One `user/message` event carrying `text`, in the shape the producer buffers. */
+  function humanEvent(text: string): never {
     return {
-      statement,
-      source,
-      conditions: '',
-      evidence: 'fact',
-      confidence: 0.9,
-      scope: 'project',
-      sourceRefs: [`session:${source}`],
-      trajectoryRefs: [`run:${source}`],
-      lineage: { origin: source },
-    }
+      type: 'user/message',
+      seq: 1,
+      time: 0,
+      data: {
+        id: 'm1',
+        role: 'user',
+        content: [{ type: 'text', text }],
+        source: { kind: 'plugin', plugin: 'test' },
+      },
+    } as never
+  }
+
+  /** The source text of one request, as the model reads it. */
+  function sourceText(request: GenerateOptions | undefined): string {
+    const block = request?.messages[0]?.content[0]
+    return block?.type === 'text' ? block.text : ''
+  }
+
+  /** The same answer with a provider usage report before its finish, when one is given. */
+  function withUsage(
+    chunks: StreamChunk[],
+    usage?: { inputTokens: number; outputTokens: number; totalTokens?: number },
+  ): StreamChunk[] {
+    if (usage === undefined) return chunks
+    return [...chunks.slice(0, -1), { type: 'usage', usage }, ...chunks.slice(-1)]
   }
 
   /**
-   * A context with the graph and the store that produces its claims, so one
-   * test can drive a whole reviewer decision batch through both.
-   * @returns the mounted graph, the memory store, and the domain facility.
+   * Mounted graph with the heartbeat seam, one workspace session, a configured
+   * route, and a budget-store stub whose ceilings follow `budget.exceeded`. The
+   * stub yields a macrotask while allocating, so an event published from
+   * `budget.onAllocate` finishes buffering before a refused call decides
+   * whether to restore its own text.
    */
-  async function producerHarness() {
+  async function budgetHarness(
+    chunks: StreamChunk[],
+    budget: { exceeded: boolean; spends: Spend[]; onAllocate?: (() => void) | undefined },
+  ) {
+    const tasks: Array<{ name: string; run: (signal: AbortSignal) => Promise<void> | void }> = []
     const ctx = new Context()
     await ctx.plugin(Storage)
     ctx.storage.backend.register('memory', new MemoryStorageBackend(new MemoryMediaPool()))
     const facility = new DomainFacility(ctx, { backend: 'memory', routes: {} })
     ctx.storage.mount('domain', facility)
     ctx.provide('storageDomain', facility)
-    const memory = await ctx.plugin(EvolutionMemoryStore, { capacityBytes: 65536 })
-    const fiber = await ctx.plugin(EvolutionGraph, {})
-    return { ctx, memory, fiber, graph: ctx.evolutionGraph, store: ctx.evolutionMemory, facility }
+    const calls: GenerateOptions[] = []
+    ctx.provide('llm', {
+      stream: (options: GenerateOptions) => {
+        calls.push(options)
+        return (async function* () {
+          yield* chunks
+        })()
+      },
+    } as never)
+    ctx.provide('evolutionHeartbeat', {
+      register: (task: { name: string; run: (signal: AbortSignal) => Promise<void> | void }) => {
+        tasks.push(task)
+        return () => {}
+      },
+    } as never)
+    ctx.provide('workspaceRegistry', { list: () => [{ id: 'ws', sessionIds: ['s1'] }] } as never)
+    ctx.provide('evolutionBudget', {
+      batches: () => [],
+      allocate: async () => {
+        budget.onAllocate?.()
+        const yielded = Promise.withResolvers<undefined>()
+        setTimeout(() => {
+          yielded.resolve(undefined)
+        }, 0)
+        await yielded.promise
+        return {}
+      },
+      withinBudget: () => !budget.exceeded,
+      spend: async (batchId: string, input: Spend) => {
+        budget.spends.push({ ...input, batchId })
+        return {}
+      },
+    } as never)
+    const fiber = await ctx.plugin(EvolutionGraph, { provider: 'p', model: 'm' })
+    return { ctx, fiber, graph: ctx.evolutionGraph, calls, tasks }
   }
 
-  it('raises belief with independent evidence and never with a re-read source', async () => {
-    const h = await harness()
+  it('refuses the extraction before the model once the scope ceiling is spent', async () => {
+    const budget = { exceeded: true, spends: [] as Spend[] }
+    const h = await budgetHarness(answer('{"triples":[]}'), budget)
     try {
-      const recorded = await h.graph.recordClaims(scope, [{
-        statement: 'PostgreSQL holds the facts',
-        supportedBy: [{ source: 'adr-1', quality: 0.8, reliability: 0.5 }],
-        observedIn: ['s1', ''],
-        derivedFrom: ['an earlier scope note'],
-        usedBy: ['skill:sql'],
-      }], T0)
-      expect(recorded).toEqual({ added: 1, updated: 0, retired: 0, skipped: 0 })
-      // One source is worth half its own strength: 1/2 * 0.8 * 0.5.
-      expect(h.graph.claim(scope, 'postgresql holds the facts')).toEqual({
-        id: 'postgresql holds the facts',
-        statement: 'PostgreSQL holds the facts',
-        status: 'active',
-        retiredBy: null,
-        confidence: 0.2,
-        evidenceQuality: 0.8,
-        sourceReliability: 0.5,
-        independentSupport: 1,
-        contradictionCount: 0,
-        recency: T0,
-        supportedBy: [{
-          source: 'adr-1',
-          quality: 0.8,
-          reliability: 0.5,
-          firstAt: T0,
-          lastAt: T0,
-          count: 1,
-        }],
-        contradictedBy: [],
-        observedIn: ['s1'],
-        supersedes: [],
-        derivedFrom: ['an earlier scope note'],
-        usedBy: ['skill:sql'],
-        createdAt: T0,
-        updatedAt: T0,
-      })
+      const result = await h.graph.extract(
+        sweepScope,
+        'Ava worked on Atlas',
+        { provider: 'p', model: 'm' },
+        new AbortController().signal,
+      )
 
-      // A second, independent source adds support: 2/3 * 1 * 1.
-      await h.graph.recordClaims(scope, [{
-        statement: 'postgresql holds the facts',
-        supportedBy: [{ source: 'session-b', quality: 1, reliability: 1 }],
-      }], T1)
-      const supported = h.graph.claim(scope, 'postgresql holds the facts')
-      expect(supported).toMatchObject({
-        confidence: 2 / 3,
-        evidenceQuality: 1,
-        sourceReliability: 1,
-        independentSupport: 2,
-        recency: T1,
-      })
-
-      // Re-reading one of them changes no belief input, however it is
-      // graded: a source attests once, and only a new source adds support.
-      const reread = await h.graph.recordClaims(scope, [{
-        statement: 'PostgreSQL holds the facts',
-        supportedBy: [{ source: 'session-b', quality: 0.1, reliability: 0.1 }],
-      }], T2)
-      expect(reread).toEqual({ added: 0, updated: 1, retired: 0, skipped: 0 })
-      expect(h.graph.claim(scope, 'postgresql holds the facts')).toMatchObject({
-        confidence: 2 / 3,
-        independentSupport: 2,
-        recency: T2,
-        supportedBy: [
-          { source: 'adr-1', count: 1 },
-          { source: 'session-b', quality: 1, reliability: 1, firstAt: T1, lastAt: T2, count: 2 },
-        ],
-      })
-
-      // A contradiction divides the belief and is counted; the claim keeps
-      // standing at a lower belief until something supersedes it.
-      await h.graph.recordClaims(scope, [{
-        statement: 'PostgreSQL holds the facts',
-        contradictedBy: [{ source: 'session-c' }],
-      }], T3)
-      expect(h.graph.claim(scope, 'postgresql holds the facts')).toMatchObject({
-        status: 'active',
-        confidence: 2 / 3 / 2,
-        contradictionCount: 1,
-        recency: T3,
-        contradictedBy: [{ source: 'session-c', quality: 1, reliability: 1, firstAt: T3, lastAt: T3, count: 1 }],
-      })
-      // One contradicting source contradicting twice is still one source.
-      await h.graph.recordClaims(scope, [{
-        statement: 'postgresql holds the facts',
-        contradictedBy: [{ source: 'session-c' }],
-      }], T4)
-      expect(h.graph.claim(scope, 'postgresql holds the facts')).toMatchObject({
-        confidence: 2 / 3 / 2,
-        contradictionCount: 1,
-        contradictedBy: [{ source: 'session-c', lastAt: T4, count: 2 }],
-      })
-      // A second, independent contradiction divides the belief again.
-      await h.graph.recordClaims(scope, [{
-        statement: 'postgresql holds the facts',
-        contradictedBy: [{ source: 'session-d' }],
-      }], T4)
-      expect(h.graph.claim(scope, 'postgresql holds the facts')).toMatchObject({
-        confidence: 2 / 3 / 3,
-        contradictionCount: 2,
-      })
+      expect(result).toBeUndefined()
+      expect(h.calls).toHaveLength(0)
+      expect(budget.spends).toHaveLength(0)
     } finally {
       await h.fiber.dispose()
     }
   })
 
-  it('drops blank statements and evidence, and refuses claims past the cap', async () => {
-    const h = await harness({ maxClaims: 1 })
+  it('settles the extraction against both ceiling batches with the tokens it reported', async () => {
+    const budget = { exceeded: false, spends: [] as Spend[] }
+    const h = await budgetHarness(
+      withUsage(answer('{"triples":[]}'), { inputTokens: 40, outputTokens: 2 }),
+      budget,
+    )
     try {
-      expect(await h.graph.recordClaims(scope, [{ statement: '   ' }], T0))
-        .toEqual({ added: 0, updated: 0, retired: 0, skipped: 1 })
-      // A batch that stored nothing reaches no write at all.
-      expect(h.graph.read(scope)).toBeUndefined()
-      expect(await h.graph.recordClaims(scope, [
-        { statement: 'first fact', supportedBy: [{ source: '  ' }, { source: ' s1 ' }] },
-        { statement: 'second fact' },
-      ], T0)).toEqual({ added: 1, updated: 0, retired: 0, skipped: 1 })
-      // A claim the scope already holds is still writable at the cap: only
-      // new statements are refused.
-      expect(await h.graph.recordClaims(scope, [{ statement: 'first fact', supportedBy: [{ source: 's1' }] }], T1))
-        .toEqual({ added: 0, updated: 1, retired: 0, skipped: 0 })
-      expect(h.graph.claims(scope).map(claim => claim.id)).toEqual(['first fact'])
-      expect(h.graph.claim(scope, 'first fact')?.supportedBy).toEqual([
-        { source: 's1', quality: 1, reliability: 1, firstAt: T0, lastAt: T1, count: 2 },
+      const result = await h.graph.extract(
+        sweepScope,
+        'Ava worked on Atlas',
+        { provider: 'p', model: 'm' },
+        new AbortController().signal,
+      )
+
+      expect(result?.observed).toBe(0)
+      expect(budget.spends.map(row => row.batchId)).toEqual([
+        expect.stringContaining('evolution-graph:default:ws:daily:'),
+        expect.stringContaining('evolution-graph:default:ws:weekly:'),
       ])
+      expect(budget.spends.map(row => [row.tokens, row.rollouts])).toEqual([[42, 0], [42, 0]])
     } finally {
       await h.fiber.dispose()
     }
   })
 
-  it('answers queries with active claims only and caps what one returns', async () => {
-    const h = await harness()
-    try {
-      expect(h.graph.claims(scope)).toEqual([])
-      expect(h.graph.claims(other)).toEqual([])
-      expect(h.graph.claim(scope, 'unheard of')).toBeUndefined()
-      await h.graph.recordClaims(other, [{ statement: 'another scope holds this' }], T0)
-      await h.graph.recordClaims(scope, [
-        { statement: 'prefers terse answers', supportedBy: [{ source: 's1' }] },
-        { statement: 'use postgres 14', supportedBy: [{ source: 's1' }] },
-        {
-          statement: 'use postgres 16',
-          supportedBy: [{ source: 's1' }, { source: 's2' }],
-          supersedes: ['use postgres 14'],
-        },
-      ], T0)
-      // Best-supported first; a retired claim answers nothing.
-      expect(h.graph.claims(scope).map(claim => claim.id)).toEqual(['use postgres 16', 'prefers terse answers'])
-      expect(h.graph.claims(scope, 'POSTGRES').map(claim => claim.id)).toEqual(['use postgres 16'])
-      expect(h.graph.claims(scope, 'use postgres 14')).toEqual([])
-      expect(h.graph.claims(scope, 'use postgres', 1)).toHaveLength(1)
-      expect(h.graph.claims(other).map(claim => claim.id)).toEqual(['another scope holds this'])
-      // A retired claim stays readable by identity, naming what retired it.
-      expect(h.graph.claim(scope, 'Use Postgres 14')).toMatchObject({
-        status: 'retired',
-        retiredBy: 'use postgres 16',
-      })
-      expect(h.graph.claim(other, 'another scope holds this')?.status).toBe('active')
-    } finally {
-      await h.fiber.dispose()
+  it('bills a reported total, computes one from input and output, and bills nothing when none is reported', async () => {
+    const usages: ({ inputTokens: number; outputTokens: number; totalTokens?: number } | undefined)[] = [
+      { inputTokens: 40, outputTokens: 2, totalTokens: 99 },
+      { inputTokens: 40, outputTokens: 2 },
+      undefined,
+    ]
+    const billed: number[] = []
+    for (const usage of usages) {
+      const budget = { exceeded: false, spends: [] as Spend[] }
+      const h = await budgetHarness(withUsage(answer('{"triples":[]}'), usage), budget)
+      try {
+        await h.graph.extract(
+          sweepScope,
+          'Ava worked on Atlas',
+          { provider: 'p', model: 'm' },
+          new AbortController().signal,
+        )
+        billed.push(budget.spends[0]?.tokens ?? -1)
+      } finally {
+        await h.fiber.dispose()
+      }
     }
-    const capped = await harness({ maxQueryLimit: 1 })
-    try {
-      await capped.graph.recordClaims(scope, [{ statement: 'one' }, { statement: 'two' }], T0)
-      expect(capped.graph.claims(scope)).toHaveLength(1)
-      expect(capped.graph.claims(scope, '', 5)).toHaveLength(1)
-    } finally {
-      await capped.fiber.dispose()
-    }
+    expect(billed).toEqual([99, 42, 0])
   })
 
-  it('retires whichever claim a supersedes names, whatever the order', async () => {
-    const h = await harness()
+  it('keeps a refused scope\'s buffered text for a later sweep', async () => {
+    const budget = { exceeded: true, spends: [] as Spend[] }
+    const h = await budgetHarness(
+      answer('{"triples":[{"from":"Ava","relation":"worked_on","to":"Atlas"}]}'),
+      budget,
+    )
     try {
-      await h.graph.recordClaims(scope, [
-        { statement: 'the newer fact', supersedes: ['the older fact', '  unheard of  ', 'the newer fact'] },
-        { statement: 'the older fact', supportedBy: [{ source: 's1' }] },
-      ], T0)
-      expect(h.graph.claim(scope, 'the older fact')).toMatchObject({
-        status: 'retired',
-        retiredBy: 'the newer fact',
-      })
-      expect(h.graph.claim(scope, 'the newer fact')).toMatchObject({ status: 'active', retiredBy: null })
-      // Retiring an already retired claim again leaves the first retirer named.
-      expect(await h.graph.recordClaims(scope, [{ statement: 'the latest fact', supersedes: ['the older fact'] }], T1))
-        .toEqual({ added: 1, updated: 0, retired: 0, skipped: 0 })
-      expect(h.graph.claim(scope, 'the older fact')).toMatchObject({ retiredBy: 'the newer fact' })
+      h.ctx.emit('session/event', { id: 's1' } as never, humanEvent('Ava worked on Atlas'))
+      await h.tasks[0]?.run(new AbortController().signal)
+      expect(h.calls).toHaveLength(0)
+      expect(h.graph.read(sweepScope)).toBeUndefined()
+
+      budget.exceeded = false
+      await h.tasks[0]?.run(new AbortController().signal)
+
+      // The refused sweep spent nothing and dropped nothing: the reopen extracts
+      // the text the first sweep could not pay for.
+      expect(h.calls).toHaveLength(1)
+      expect(h.graph.find(sweepScope, 'ava')).toHaveLength(1)
     } finally {
       await h.fiber.dispose()
     }
   })
 
-  it('records the store decision batch as claim edges', async () => {
-    const h = await producerHarness()
-    try {
-      await h.store.applyExtractionDecisions(
-        scope,
-        [{ kind: 'new', candidate: candidate('Postgres is the store', 's1') }],
-        extraction('s1'),
-      )
-      await vi.waitFor(() => {
-        expect(h.graph.claims(scope)).toHaveLength(1)
-      })
-      expect(h.graph.claim(scope, 'Postgres is the store')).toMatchObject({
-        independentSupport: 1,
-        confidence: 0.45,
-        observedIn: ['s1'],
-        supportedBy: [{ source: 's1', quality: 1, reliability: 0.9, count: 1 }],
-      })
-
-      // The same session confirming a fact it already stated is one source;
-      // a second session is a second one.
-      await h.store.applyExtractionDecisions(scope, [{ kind: 'confirms', artifactId: 'postgres is the store' }], extraction('s1'))
-      await vi.waitFor(() => {
-        expect(h.graph.claim(scope, 'Postgres is the store')?.supportedBy).toHaveLength(1)
-      })
-      expect(h.graph.claim(scope, 'Postgres is the store')).toMatchObject({
-        independentSupport: 1,
-        confidence: 0.45,
-        supportedBy: [{ source: 's1', count: 2 }],
-      })
-      await h.store.applyExtractionDecisions(scope, [{ kind: 'confirms', artifactId: 'postgres is the store' }], extraction('s2'))
-      await vi.waitFor(() => {
-        expect(h.graph.claim(scope, 'Postgres is the store')).toMatchObject({
-          independentSupport: 2,
-          confidence: 0.6,
-        })
-      })
-
-      // A contradiction without a correction lowers the standing it lands on.
-      await h.store.applyExtractionDecisions(scope, [{ kind: 'contradicts', artifactId: 'postgres is the store' }], extraction('s3'))
-      await vi.waitFor(() => {
-        expect(h.graph.claim(scope, 'Postgres is the store')).toMatchObject({
-          status: 'active',
-          contradictionCount: 1,
-          confidence: 0.3,
-          contradictedBy: [{ source: 's3' }],
-        })
-      })
-
-      // A correction is a claim of its own, which retires the one it corrects.
-      await h.store.applyExtractionDecisions(scope, [{
-        kind: 'contradicts',
-        artifactId: 'postgres is the store',
-        statement: 'Postgres 16 is the store',
-        confidence: 0.8,
-      }], extraction('s4'))
-      await vi.waitFor(() => {
-        expect(h.graph.claims(scope).map(claim => claim.id)).toEqual(['postgres 16 is the store'])
-      })
-      expect(h.graph.claim(scope, 'Postgres is the store')).toMatchObject({
-        status: 'retired',
-        retiredBy: 'postgres 16 is the store',
-        contradictionCount: 2,
-      })
-      // Two independent contradictions divide the belief again (2/3 * 0.9 / 3).
-      expect(h.graph.claim(scope, 'Postgres is the store')?.confidence).toBeCloseTo(0.2, 10)
-      expect(h.graph.claim(scope, 'postgres 16 is the store')).toMatchObject({
-        independentSupport: 1,
-        confidence: 0.4,
-        supersedes: ['postgres is the store'],
-        supportedBy: [{ source: 's4', quality: 1, reliability: 0.8 }],
-      })
-
-      // A decision naming an artifact the batch never held evidences nothing,
-      // and a batch of only such decisions reaches no write.
-      const before = h.graph.read(scope)?.updatedAt
-      const settled = await h.store.applyExtractionDecisions(
-        scope,
-        [{ kind: 'confirms', artifactId: 'unheard of' }],
-        extraction('s9'),
-      )
-      expect(settled.agentLessons.map(artifact => artifact.statement)).toEqual(['Postgres 16 is the store'])
-      // One macrotask, so a fold for that batch would already have landed.
-      const tick: PromiseWithResolvers<void> = Promise.withResolvers()
-      setTimeout(tick.resolve, 0)
-      await tick.promise
-      expect(h.graph.read(scope)?.updatedAt).toBe(before)
-    } finally {
-      await h.memory.dispose()
-      await h.fiber.dispose()
+  it('does not clobber text buffered while a refused call was awaited', async () => {
+    const budget: { exceeded: boolean; spends: Spend[]; onAllocate?: (() => void) | undefined } = {
+      exceeded: true,
+      spends: [],
     }
-  })
-
-  it('logs a claim write that fails instead of failing the memory write', async () => {
-    const h = await producerHarness()
-    const warn = vi.spyOn(h.ctx.logger, 'warn')
+    const h = await budgetHarness(answer('{"triples":[]}'), budget)
     try {
-      await h.store.applyExtractionDecisions(
-        scope,
-        [{ kind: 'new', candidate: candidate('a durable fact', 's1') }],
-        extraction('s1'),
-      )
-      // The domain the claims would land in is gone; the batch that published
-      // them is already durable, so the failure is reported, not thrown.
-      await h.facility.get('evolution_graph')?.close()
-      await h.store.applyExtractionDecisions(
-        scope,
-        [{ kind: 'new', candidate: candidate('another durable fact', 's1') }],
-        extraction('s1'),
-      )
-      await vi.waitFor(() => {
-        expect(warn).toHaveBeenCalledWith(expect.stringContaining('claim write'))
-      })
+      h.ctx.emit('session/event', { id: 's1' } as never, humanEvent('Ava worked on Atlas'))
+      budget.onAllocate = () => {
+        h.ctx.emit('session/event', { id: 's1' } as never, humanEvent('Bea joined Atlas'))
+      }
+      await h.tasks[0]?.run(new AbortController().signal)
+      expect(h.calls).toHaveLength(0)
+
+      budget.onAllocate = undefined
+      budget.exceeded = false
+      await h.tasks[0]?.run(new AbortController().signal)
+
+      // The text published during the refusal keeps its own entry; the older
+      // batch is not restored over it.
+      expect(h.calls).toHaveLength(1)
+      expect(sourceText(h.calls[0])).toContain('Bea joined Atlas')
+      expect(sourceText(h.calls[0])).not.toContain('Ava worked on Atlas')
     } finally {
-      warn.mockRestore()
-      await h.memory.dispose()
       await h.fiber.dispose()
     }
   })

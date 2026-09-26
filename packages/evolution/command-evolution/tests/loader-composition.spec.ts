@@ -138,6 +138,8 @@ afterEach(async () => {
 describe('command-evolution real Loader composition', () => {
   it('discovers and executes /memory and /refine through the assembled command plane', async () => {
     root = await mkdtemp(join(tmpdir(), 'dsh-command-evolution-loader-'))
+    // Scope locks must never land in the developer's real harness home.
+    const lockDirectory = await mkdtemp(join(tmpdir(), 'dsh-evolution-memory-locks-'))
     const configPath = join(root, 'cordis.yml')
     await writeFile(configPath, [
       "- name: '@deepseek-ai/dsh-commands'",
@@ -148,7 +150,7 @@ describe('command-evolution real Loader composition', () => {
       "- name: '@deepseek-ai/dsh-session'",
       "- name: '@test/workspace-registry'",
       "- name: '@deepseek-ai/dsh-evolution-memory'",
-      '  config: { capacityBytes: 65536 }',
+      `  config: { capacityBytes: 65536, lockDirectory: ${JSON.stringify(lockDirectory)} }`,
       "- name: '@test/stub-reviewer'",
       "- name: '@deepseek-ai/dsh-command-evolution'",
       "  config: { profile: 'test' }",

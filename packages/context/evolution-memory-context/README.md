@@ -110,12 +110,12 @@ No invariant companion is published because the injector owns no durable state o
 | Condition | Evidence it reads | Line when it holds |
 |---|---|---|
 | `staged-writes` | `ctx.evolutionMemory.read(scope).staged` — the scope's pending writes, oldest first | a pending write older than `stagedWriteWaitMinutes`; `run /memory pending` |
-| `contradicted-claims` | `ctx.evolutionGraph.claims(scope)` — active claims, best-supported first | active claims carrying contradicting evidence; `run /claims` |
+| `contradicted-claims` | `ctx.evolutionMemory.read(scope).agentLessons` — the scope's lesson artifacts | standing facts a later extraction refuted without correcting; `run /claims` |
 | `skill-trust` | `ctx.evolutionSkillTelemetry.entries()` — one record per tracked skill | skills standing at provisional trust after a recorded demotion; `run /curator status` |
 | `failure-signals` | `ctx.evolutionFeedback.signals(workspace session ids, failureSignalScanLimit)` | signals the store itself graded `trigger_review`; record the durable lesson with `skill_manage` |
 | `holdout-gaps` | `ctx.evolutionBenchmark.tasks()` — every task with its state | capabilities under evaluation with no holdout task; `run /benchmark` |
 
-`memoryNudgeInterval` and `skillNudgeInterval` are the cadence ceiling, not the trigger: a condition that fired stays quiet until that many further turns have been observed, and the turn a condition fired on is remembered per session and condition, so assemblies within one turn agree. A condition whose store is not mounted is unevaluable rather than satisfied or silently absent, and its line names the store (`<subject> cannot be checked: the <store> store is not mounted.`). A session outside every workspace has no scope, so the two scope-bound conditions stay quiet there while the global ones still render.
+`memoryNudgeInterval` and `skillNudgeInterval` are the cadence ceiling, not the trigger: a condition that fired stays quiet until that many further turns have been observed, and the turn a condition fired on is remembered per session and condition, so assemblies within one turn agree. A condition whose store is not mounted is unevaluable rather than satisfied or silently absent, and its line names the store (`<subject> cannot be checked: the <store> store is not mounted.`); the two scope-bound conditions read the always-mounted memory store, so they have no unmounted case. A session outside every workspace has no scope, so the two scope-bound conditions stay quiet there while the global ones still render.
 
 <a id="model-experience"></a>
 ## Model Experience

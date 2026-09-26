@@ -10,7 +10,9 @@ flowchart LR
   pkg_agent_kernel["agent-kernel"]
   svc_agentKernel["ctx.agentKernel<br/>Task contract, action ledger, and completion gate"]
   pkg_agent_context["agent-context"]
-  svc_agentContext["ctx.agentContext<br/>Compiled context provenance"]
+  svc_agentContext["ctx.agentContext<br/>Compiled context source references"]
+  pkg_research_controller["research-controller"]
+  svc_research["ctx.research<br/>Research quality-control loop"]
   pkg_hmr["hmr"]
   svc_hmr["ctx.hmr<br/>Serialized module and configuration reloads"]
   pkg_app_boot["app-boot"]
@@ -140,10 +142,8 @@ flowchart LR
   pkg_active_memory_context["active-memory-context"]
   pkg_workspace_memory["workspace-memory"]
   svc_workspaceMemory["ctx.workspaceMemory<br/>Per-Workspace memory store"]
-  pkg_workspace_memory_llm["workspace-memory-llm"]
   pkg_workspace_memory_context["workspace-memory-context"]
   pkg_client_ui_workspace_memory["client-ui-workspace-memory"]
-  svc_workspaceMemoryExtractor["ctx.workspaceMemoryExtractor<br/>Workspace memory extractor"]
   svc_workspaceMemoryController["ctx.workspaceMemoryController<br/>Workspace memory Remote face"]
   svc_sessionQuery["ctx.sessionQuery<br/>Session reads, traces, filters, and search"]
   pkg_session_reference["session-reference"]
@@ -182,6 +182,9 @@ flowchart LR
   pkg_usage_ledger["usage-ledger"]
   svc_usageLedger["ctx.usageLedger<br/>Usage ledger fold"]
   pkg_client_ui_usage_dashboard["client-ui-usage-dashboard"]
+  pkg_schedule_routines["schedule-routines"]
+  svc_routines["ctx.routines<br/>Scheduled routine store and timer"]
+  pkg_workspace_session["workspace-session"]
   svc_usageDashboard["ctx.usageDashboard<br/>Usage dashboard Remote face"]
   pkg_skill["skill"]
   svc_skills["ctx.skills<br/>Skill provider registry"]
@@ -218,6 +221,7 @@ flowchart LR
   svc_evolutionCurriculum["ctx.evolutionCurriculum<br/>Automatic curriculum store"]
   pkg_evolution_benchmark["evolution-benchmark"]
   svc_evolutionBenchmark["ctx.evolutionBenchmark<br/>Benchmark task store"]
+  pkg_evolution_metrics["evolution-metrics"]
   pkg_evolution_evaluator_health["evolution-evaluator-health"]
   svc_evolutionEvaluatorHealth["ctx.evolutionEvaluatorHealth<br/>Evaluator ensemble health store"]
   pkg_evolution_population["evolution-population"]
@@ -248,7 +252,6 @@ flowchart LR
   svc_evolutionEvaluatorStrategy["ctx.evolutionEvaluatorStrategy<br/>Evaluator-strategy store"]
   pkg_evolution_meta["evolution-meta"]
   svc_evolutionMeta["ctx.evolutionMeta<br/>Meta-evolution store"]
-  pkg_evolution_metrics["evolution-metrics"]
   svc_evolutionMetrics["ctx.evolutionMetrics<br/>Evolution metric layer"]
   pkg_evolution_operators["evolution-operators"]
   svc_evolutionOperators["ctx.evolutionOperators<br/>Mutation-operator store"]
@@ -365,12 +368,28 @@ flowchart LR
   pkg_cordis_host_runner["cordis-host-runner"]
   svc_dynamicCordisRunner["ctx.dynamicCordisRunner<br/>Dynamic Cordis package host runner"]
   svc_cordisInspect["ctx.cordisInspect<br/>Dynamic Cordis inspect registry"]
+  pkg_analyst_profiles["analyst-profiles"]
+  svc_analystProfiles["ctx.analystProfiles<br/>Named analyst answer contracts"]
+  svc_artifacts["ctx.artifacts<br/>Spill artifact retrieval seam"]
+  pkg_case_store["case-store"]
+  svc_caseStore["ctx.caseStore<br/>Durable per-learner case store"]
+  pkg_learner_model["learner-model"]
+  svc_learnerModel["ctx.learnerModel<br/>Durable per-learner record"]
+  pkg_mentor_loop["mentor-loop"]
+  svc_mentorLoop["ctx.mentorLoop<br/>Mentor quality loop"]
+  pkg_misconception["misconception"]
+  svc_misconception["ctx.misconception<br/>Evidence-backed misconception engine"]
+  pkg_repo_index["repo-index"]
+  svc_repoIndex["ctx.repoIndex<br/>Bounded repository index"]
+  pkg_repo_map["repo-map"]
+  pkg_working_set["working-set"]
   pkg_agent --> svc_agents
   pkg_agent_context --> svc_agentContext
   pkg_agent_default_model --> svc_agentDefaultModel
   pkg_agent_kernel --> svc_agentKernel
   pkg_agent_loop --> svc_agentLoop
   pkg_agent_preset_registry --> svc_agentPresets
+  pkg_analyst_profiles --> svc_analystProfiles
   pkg_api_gateway --> svc_typertGateway
   pkg_api_job_controller --> svc_jobController
   pkg_api_session_controller --> svc_sessionController
@@ -390,6 +409,7 @@ flowchart LR
   pkg_bash_local --> svc_shell
   pkg_bash_sandbox --> svc_shell
   pkg_browser_use --> svc_browserUse
+  pkg_case_store --> svc_caseStore
   pkg_client_connection --> svc_connection
   pkg_client_file_upload --> svc_fileUploads
   pkg_client_modules --> svc_clientModules
@@ -474,6 +494,7 @@ flowchart LR
   pkg_invariants --> svc_invariants
   pkg_jobs --> svc_jobs
   pkg_jobs_local --> svc_jobs
+  pkg_learner_model --> svc_learnerModel
   pkg_llm --> svc_llm
   pkg_llm_deepseek --> svc_llm
   pkg_llm_pi_ai --> svc_llm
@@ -482,7 +503,9 @@ flowchart LR
   pkg_lsp_stdio --> svc_lsp
   pkg_mcp_client --> svc_mcpResources
   pkg_mcp_resources --> svc_mcpResources
+  pkg_mentor_loop --> svc_mentorLoop
   pkg_message_feedback --> svc_messageFeedback
+  pkg_misconception --> svc_misconception
   pkg_office_to_pdf --> svc_officeToPdf
   pkg_permission_presets --> svc_permissionPresets
   pkg_plan_mode --> svc_planMode
@@ -491,10 +514,13 @@ flowchart LR
   pkg_ptc_runtime --> svc_ptcRuntime
   pkg_ptc_runtime_node --> svc_ptcRuntime
   pkg_pwsh_local --> svc_shell
+  pkg_repo_index --> svc_repoIndex
+  pkg_research_controller --> svc_research
   pkg_sandbox --> svc_sandbox
   pkg_sandbox_local --> svc_sandbox
   pkg_sandbox_policy --> svc_sandboxPolicy
   pkg_sandbox_ssh --> svc_sandbox
+  pkg_schedule_routines --> svc_routines
   pkg_session --> svc_sessions
   pkg_session_log_deepseek --> svc_deepseekLlmApiExtensions
   pkg_session_persistence --> svc_sessionPersistence
@@ -516,7 +542,9 @@ flowchart LR
   pkg_skill_badge --> svc_skills
   pkg_skill_filesystem --> svc_skills
   pkg_skill_office --> svc_skills
+  pkg_spill --> svc_artifacts
   pkg_spill --> svc_spillStore
+  pkg_spill_local --> svc_artifacts
   pkg_spill_local --> svc_spillStore
   pkg_ssh --> svc_ssh
   pkg_storage --> svc_storage
@@ -554,7 +582,6 @@ flowchart LR
   pkg_workspace --> svc_workspaceRegistry
   pkg_workspace_changes --> svc_workspaceChanges
   pkg_workspace_memory --> svc_workspaceMemory
-  pkg_workspace_memory_llm --> svc_workspaceMemoryExtractor
   svc_agentDefaultModel --> pkg_api_session_controller
   svc_agentDefaultModel --> pkg_headless
   svc_agentLoop --> pkg_base
@@ -594,6 +621,7 @@ flowchart LR
   svc_dynamicCordisRunner --> pkg_tool_cordis
   svc_evolutionAdversary --> pkg_command_evolution
   svc_evolutionBenchmark --> pkg_command_evolution
+  svc_evolutionBenchmark --> pkg_evolution_metrics
   svc_evolutionBudget --> pkg_command_evolution
   svc_evolutionBudget --> pkg_evolution_optimizer
   svc_evolutionCanary --> pkg_command_evolution
@@ -654,10 +682,14 @@ flowchart LR
   svc_jobs --> pkg_tool_pwsh
   svc_jobs --> pkg_tool_subagent
   svc_jobs --> pkg_tool_terminal
+  svc_learnerModel --> pkg_evolution_metrics
+  svc_learnerModel --> pkg_mentor_loop
   svc_llm --> pkg_agent_loop
   svc_llm --> pkg_compaction_basic
   svc_lsp --> pkg_tool_lsp
   svc_mcpResources --> pkg_mcp_resources
+  svc_misconception --> pkg_evolution_metrics
+  svc_misconception --> pkg_mentor_loop
   svc_officeToPdf --> pkg_client_ui_sidebar_documentpreview
   svc_pluginManager --> pkg_plugin_manager
   svc_pluginManager --> pkg_ui_settings_plugin_inventory
@@ -665,6 +697,11 @@ flowchart LR
   svc_profileContext --> pkg_plugin_manager
   svc_ptcRuntime --> pkg_tools
   svc_ptcRuntime --> pkg_workflow_ptc
+  svc_repoIndex --> pkg_repo_map
+  svc_repoIndex --> pkg_working_set
+  svc_research --> pkg_research_controller
+  svc_routines --> pkg_commands
+  svc_routines --> pkg_workspace_session
   svc_sandbox --> pkg_bash_sandbox
   svc_sandbox --> pkg_terminal_bash
   svc_sandboxPolicy --> pkg_bash_sandbox
@@ -752,8 +789,6 @@ flowchart LR
   svc_workflowEngine --> pkg_tool_workflow
   svc_workspaceMemory --> pkg_client_ui_workspace_memory
   svc_workspaceMemory --> pkg_workspace_memory_context
-  svc_workspaceMemory --> pkg_workspace_memory_llm
-  svc_workspaceMemoryExtractor --> pkg_client_ui_workspace_memory
   svc_workspaceRegistry --> pkg_active_memory_context
   svc_workspaceRegistry --> pkg_api_session_controller
   svc_workspaceRegistry --> pkg_api_workspace_controller
@@ -764,6 +799,7 @@ flowchart LR
 | --- | --- | --- | --- | --- | --- | --- |
 | `ctx.agentKernel` | `core` | [`agent-kernel`](../packages/runtime/agent-kernel) | - | - | - | Observes the loop and tool waterfalls without owning execution; the session log is its only store, and it composes the sandbox and approval decisions it does not make. |
 | `ctx.agentContext` | `core` | [`agent-context`](../packages/runtime/agent-context) | - | - | - | Observes the assembly and the kernel view without owning either; it records the placement one model step was compiled from and, in apply mode, removes the compressible sources a ceiling cut. |
+| `ctx.research` | `core` | [`research-controller`](../packages/research/research-controller) | - | [`research-controller`](../packages/research/research-controller) | - | Owns one durable run per session and refuses a stage whose provider is missing; the observations and claims a run cites stay the kernel records it reads. |
 | `ctx.hmr` | `core` | [`hmr`](../packages/boot/hmr) | - | [`app-boot`](../packages/boot/app-boot) | - | Owns module and exact configuration watchers; application mutations share its queue and automatic reloads await the application file lock. |
 | `ctx.pluginRegistryProbe` | `core` | [`client-ui-plugin-manager`](../packages/client/ui-plugin-manager) | - | [`client-ui-plugin-manager`](../packages/client/ui-plugin-manager) | - | Races public registry responses on the Host; the Client owns the initial registry recommendation. |
 | `ctx.pluginManager` | `core` | [`plugin-manager`](../packages/boot/plugin-manager) | - | [`plugin-manager`](../packages/boot/plugin-manager), `ui-settings-plugin-inventory` | - | Shares profile package operations with the CLI and reports persisted and running state to Web and agent callers. |
@@ -811,9 +847,8 @@ flowchart LR
 | `ctx.messageFeedback` | `core` | [`message-feedback`](../packages/feedback/message-feedback) | - | - | - | Owns per-assistant-message feedback in the canonical Session log, target validation, per-item compare-and-set, and the Host unary Remote contract. Feedback stays outside model history; log export follows the consumer policy. |
 | `ctx.sessionFeedback` | `core` | [`command-feedback`](../packages/feedback/command-feedback) | - | - | - | Records one Session-level remark with its category as a log-only feedback/record event on a live Session through the Host unary Remote contract; the /feedback command shares the same producer. |
 | `ctx.workspaceRegistry` | `core` | [`workspace`](../packages/workspace/workspace) | - | [`api-workspace-controller`](../packages/api/workspace-controller), [`api-session-controller`](../packages/api/session-controller), [`active-memory-context`](../packages/context/active-memory-context) | - | Owns WorkspaceId-branded records over the domain facility; stable sessionIds accounts drive Host RPC and GUI projections. |
-| `ctx.workspaceMemory` | `core` | [`workspace-memory`](../packages/workspace/workspace-memory) | - | [`workspace-memory-llm`](../packages/workspace/workspace-memory-llm), [`workspace-memory-context`](../packages/context/workspace-memory-context), [`client-ui-workspace-memory`](../packages/client/ui-workspace-memory) | - | The workspace-memory plugin owns the durable per-Workspace record; workspace-memory-llm writes extracted documents and indexed outputs, workspace-memory-context renders the injected brief, and the workspace memory host face serves and mutates it. |
-| `ctx.workspaceMemoryExtractor` | `core` | [`workspace-memory-llm`](../packages/workspace/workspace-memory-llm) | - | [`client-ui-workspace-memory`](../packages/client/ui-workspace-memory) | - | The workspace-memory-llm plugin derives the memory document from session history; the workspace memory host face calls its rebuild, and no other package reads the service. |
-| `ctx.workspaceMemoryController` | `core` | [`client-ui-workspace-memory`](../packages/client/ui-workspace-memory) | - | - | - | The workspace memory host face provides the workspaceMemory Remote namespace over ctx.workspaceMemory and ctx.workspaceMemoryExtractor; the generated contribution carries it to the browser half, which reads it over the wire. |
+| `ctx.workspaceMemory` | `core` | [`workspace-memory`](../packages/workspace/workspace-memory) | - | [`workspace-memory-context`](../packages/context/workspace-memory-context), [`client-ui-workspace-memory`](../packages/client/ui-workspace-memory) | - | The workspace-memory plugin owns the durable per-Workspace record that holds the user-edited notes; workspace-memory-context renders the injected brief, and the workspace memory host face serves and mutates the record. |
+| `ctx.workspaceMemoryController` | `core` | [`client-ui-workspace-memory`](../packages/client/ui-workspace-memory) | - | - | - | The workspace memory host face provides the workspaceMemory Remote namespace over ctx.workspaceMemory; the generated contribution carries it to the browser half, which reads it over the wire. |
 | `ctx.sessionQuery` | `seam` | [`session-query`](../packages/session-query/session-query) | [`session-query-sqlite`](../packages/session-query/session-query-sqlite) | [`session-reference`](../packages/context/session-reference), [`tool-session-query`](../packages/session-query/tool-session-query), [`active-memory-context`](../packages/context/active-memory-context) | - | The interface supplies exact reads, filters, and traces; its concrete backend adds full-text reconciliation, ranking, snippets, and cursor generations, while the model consumer owns workspace authority and cursor-free rendering. |
 | `ctx.fileReferences` | `seam` | [`file-reference`](../packages/context/file-reference) | [`file-reference-local`](../packages/context/file-reference-local) | [`api-session-controller`](../packages/api/session-controller) | - | The interface returns path-only completion candidates within an Agent cwd; providers own namespace access and ranking without reading file contents. |
 | `ctx.sessionReferenceResolver` | `core` | [`session-reference`](../packages/context/session-reference) | - | - | - | Projects bounded current-surface conversation snapshots into durable untrusted message context; host adapters own mention syntax. |
@@ -827,9 +862,10 @@ flowchart LR
 | `ctx.sessionProjections` | `core` | [`session-projection`](../packages/session/session-projection) | - | [`api-session-controller`](../packages/api/session-controller), [`tool-todo`](../packages/todo/tool-todo), [`session-title`](../packages/session/session-title) | - | Domains register state-driven fold units; the eager drive keeps per-session watermark states and the Session controller serves baselines and pushes changed values. |
 | `ctx.sessionProjectionCache` | `core` | [`session-projection-cache`](../packages/session/session-projection-cache) | - | [`api-session-controller`](../packages/api/session-controller), [`session-query`](../packages/session-query/session-query), [`session-reference`](../packages/context/session-reference), [`subagent`](../packages/subagent/subagent) | - | Durably checkpoints projection unit states per session (throttled + turn/end/detach mandatory points) and serves the cold-read ladder: cache row + persistence tail replay, so listings never load full logs. |
 | `ctx.usageLedger` | `core` | [`usage-ledger`](../packages/session/usage-ledger) | - | [`client-ui-usage-dashboard`](../packages/client/ui-usage-dashboard) | - | The usage-ledger plugin folds billed attempts into durable per-day and per-model counters; the usage dashboard host face delegates its summary reads to the service. |
+| `ctx.routines` | `core` | [`schedule-routines`](../packages/schedule/schedule-routines) | - | [`workspace-session`](../packages/workspace/workspace-session), [`commands`](../packages/interaction/commands) | - | Holds the deployment-level routine list on the workspace_routines domain, advances each cursor past downtime, and starts one Workspace-backed Session per due routine through the shared creation path. |
 | `ctx.usageDashboard` | `core` | [`client-ui-usage-dashboard`](../packages/client/ui-usage-dashboard) | - | - | - | The usage dashboard host face provides the usageDashboard Remote namespace over ctx.usageLedger; the generated contribution carries it to the browser half, which reads it over the wire. |
 | `ctx.skills` | `seam` | [`skill`](../packages/skill/skill) | [`skill-badge`](../packages/skill/skill-badge), [`skill-filesystem`](../packages/skill/skill-filesystem), [`skill-office`](../packages/skill/skill-office) | [`tool-skill`](../packages/skill/tool-skill) | - | Merges provider skill catalogs; tool-skill renders the session-prefix catalog and loads complete skill bodies. |
-| `ctx.evolutionSkillTelemetry` | `core` | [`evolution-skill-telemetry`](../packages/skill/evolution-skill-telemetry) | - | [`evolution-skill-manage`](../packages/skill/evolution-skill-manage), [`evolution-curator`](../packages/evolution/evolution-curator) | - | The telemetry plugin owns durable per-skill counters, provenance, pins, lifecycle state, evidence-backed trust, the SKILL.md revision chain with a queryable version registry, and consolidation cost facts; evolution-skill-manage reports mutations and reads pins through the optional service, and evolution-curator drives lifecycle transitions and records trust observations over the same store. |
+| `ctx.evolutionSkillTelemetry` | `core` | [`evolution-skill-telemetry`](../packages/skill/evolution-skill-telemetry) | - | [`evolution-skill-manage`](../packages/skill/evolution-skill-manage), [`evolution-curator`](../packages/evolution/evolution-curator) | - | The telemetry plugin owns durable per-skill counters, a creation record, pins, lifecycle state, evidence-backed trust, the SKILL.md revision chain with a queryable version registry, and consolidation cost facts; evolution-skill-manage reports mutations and reads pins through the optional service, and evolution-curator drives lifecycle transitions and records trust observations over the same store. |
 | `ctx.evolutionMemory` | `core` | [`evolution-memory`](../packages/evolution/evolution-memory) | - | [`evolution-reviewer`](../packages/evolution/evolution-reviewer), [`evolution-memory-context`](../packages/context/evolution-memory-context), [`command-evolution`](../packages/evolution/command-evolution) | - | The evolution-memory plugin owns the durable per-scope record; evolution-reviewer and evolution-memory-context read and write it, and command-evolution resolves staged approvals against it. |
 | `ctx.evolutionReviewer` | `core` | [`evolution-reviewer`](../packages/evolution/evolution-reviewer) | - | [`command-evolution`](../packages/evolution/command-evolution) | - | The evolution-reviewer plugin derives lessons in the background; command-evolution calls its rebuild for /refine, and no other package reads the service. |
 | `ctx.evolutionCurator` | `core` | [`evolution-curator`](../packages/evolution/evolution-curator) | - | - | - | The evolution-curator plugin owns idle-triggered lifecycle passes over skill telemetry; the composition supplies the idle observation through maybeRun, and no in-repo package consumes the service directly. |
@@ -841,7 +877,7 @@ flowchart LR
 | `ctx.evolutionScorer` | `core` | [`evolution-scorer`](../packages/evolution/evolution-scorer) | - | [`evolution-optimizer`](../packages/evolution/evolution-optimizer) | - | The evolution-scorer plugin runs a scenario through the recorded-session harness and reduces the attempts to the pass/tokens/wall-time triple; it writes nothing, and evolution-optimizer reads the same verdict to decide whether a candidate beats its baseline. |
 | `ctx.evolutionCuratorStatus` | `core` | [`client-ui-evolution`](../packages/client/ui-evolution) | - | - | - | The evolution journey host face provides the evolutionCurator Remote namespace reporting curator status to the browser page; the generated contribution carries it to the client half. |
 | `ctx.evolutionCurriculum` | `core` | [`evolution-curriculum`](../packages/evolution/evolution-curriculum) | - | [`command-evolution`](../packages/evolution/command-evolution), [`evolution-benchmark`](../packages/evolution/evolution-benchmark) | - | The evolution-curriculum plugin measures capability gaps from skill telemetry and the trace store, stages one grounded training task per gap, and retires tasks deliberately; command-evolution reads it through /curriculum, evolution-benchmark admits its open proposals as evaluation tasks, and nothing here calls a model. |
-| `ctx.evolutionBenchmark` | `core` | [`evolution-benchmark`](../packages/evolution/evolution-benchmark) | - | [`command-evolution`](../packages/evolution/command-evolution) | - | The evolution-benchmark plugin grows evaluation tasks from production failures: content-deduplicated admission and the fresh → search → validation → holdout ladder with contamination and retirement states; command-evolution reads it through /benchmark, and nothing here calls a model. |
+| `ctx.evolutionBenchmark` | `core` | [`evolution-benchmark`](../packages/evolution/evolution-benchmark) | - | [`command-evolution`](../packages/evolution/command-evolution), [`evolution-metrics`](../packages/evolution/evolution-metrics) | - | The evolution-benchmark plugin grows evaluation tasks from production failures — content-deduplicated admission and the fresh → search → validation → holdout ladder with contamination and retirement states — and runs them: the run pass boots each task through the scorer's runner seam and records one durable outcome per task, which evolution-metrics reads as benchmark-robustness and the §13.5 long-horizon report; command-evolution reads the tasks through /benchmark, and nothing here calls a model itself. |
 | `ctx.evolutionEvaluatorHealth` | `core` | [`evolution-evaluator-health`](../packages/evolution/evolution-evaluator-health) | - | [`evolution-scorer`](../packages/evolution/evolution-scorer), [`command-evolution`](../packages/evolution/command-evolution) | - | The evolution-evaluator-health plugin records behavior-evaluation verdicts and aggregates agreement, approval-rate drift, and false positives; evolution-scorer records each verdict through the optional store, and command-evolution reports it through /evaluators. |
 | `ctx.evolutionPopulation` | `core` | [`evolution-population`](../packages/evolution/evolution-population) | - | [`evolution-optimizer`](../packages/evolution/evolution-optimizer), [`command-evolution`](../packages/evolution/command-evolution) | - | The evolution-population plugin records every staged optimizer write as a per-skill candidate with generation numbering, parent lineage, and the stage → approve/reject lifecycle; evolution-optimizer records candidates through the optional store, and command-evolution inspects generations, lineages, and the approved elite through /population. |
 | `ctx.evolutionModelRoutes` | `core` | [`evolution-model-routes`](../packages/evolution/evolution-model-routes) | - | [`evolution-optimizer`](../packages/evolution/evolution-optimizer), [`command-evolution`](../packages/evolution/command-evolution) | - | The evolution-model-routes plugin keeps per-role route assignments over the evolutionary role topology with measured evidence and recommendation; evolution-optimizer records each candidate-generation route and outcome through the optional store, and command-evolution lists, pins, and recommends routes through /routes. |
@@ -895,5 +931,12 @@ flowchart LR
 | `ctx.lsp` | `seam` | [`lsp`](../packages/lsp/lsp) | [`lsp-stdio`](../packages/lsp/lsp-stdio) | [`tool-lsp`](../packages/lsp/tool-lsp) | - | Provider registration and selection plus normalized query execution over exactly four operations; the seam offers no protocol escape hatch, so a backend translates into the normalized request and result. |
 | `ctx.dynamicCordisRunner` | `core` | [`cordis-host-runner`](../packages/extensions/cordis-host-runner) | - | [`tool-cordis`](../packages/extensions/tool-cordis) | - | Owns the in-memory definition registry, the vm sandbox for host halves, and the request-run round trip; browser pages reach the same service over the wire through its remote namespace. |
 | `ctx.cordisInspect` | `core` | [`cordis-host-runner`](../packages/extensions/cordis-host-runner) | - | [`tool-cordis`](../packages/extensions/tool-cordis) | - | Registers host inspect providers, mirrors the client provider manifest, and routes client queries through the dynamic Cordis transport. |
+| `ctx.analystProfiles` | `core` | [`analyst-profiles`](../packages/preset/analyst-profiles) | - | - | - | Each profile fixes an ordered section list and labels every claim observed or inferred, and the service publishes the profile id, its structured-output schema, and the validator that checks a returned answer under that same id, so a caller acts on a checked artifact instead of parsed prose. |
+| `ctx.artifacts` | `seam` | [`spill`](../packages/spill/spill) | [`spill-local`](../packages/spill/spill-local) | - | - | Search, read, extract, diff, and summarize recover, under the same session scope and opaque locators, what a spill backend stored; no operation writes, and the shipped spill-local implementation resolves only its own host filesystem root. |
+| `ctx.caseStore` | `core` | [`case-store`](../packages/research/case-store) | - | - | - | One record per learner holds the §21 ICT case artifact with observations kept apart from the interpretations that cite them and evidence stored by reference; amend appends each named array, replaces the entry carrying the same identity, and keeps an omitted field as recorded, and four projections serve learner memory, misconception detection, benchmark datasets, and the next mentor intervention. |
+| `ctx.learnerModel` | `core` | [`learner-model`](../packages/mentor/learner-model) | - | [`evolution-metrics`](../packages/evolution/evolution-metrics), [`mentor-loop`](../packages/mentor/mentor-loop) | - | Keyed by a stable learner id, so the record outlives every session; stated familiarity and graded application stay separate lists that no write merges, and every write carries the trust label of the content behind it. Reads are synchronous, and the store registers no tool, prompt, or session event, so the package that reads the record owns any model-visible rendering. |
+| `ctx.mentorLoop` | `core` | [`mentor-loop`](../packages/mentor/mentor-loop) | - | - | - | Derives where the learner stands from the session log, the kernel's claims and evidence, the misconception pipelines, and the learner record, takes at most one durable action per admitted step — record a detection, complete a stage, or count a recurring mistake — and appends that stage's instruction to the mentor agent's next request; with no kernel mounted it waits at devil-advocate, because the session holds no claim to act on. |
+| `ctx.misconception` | `core` | [`misconception`](../packages/mentor/misconception) | - | [`evolution-metrics`](../packages/evolution/evolution-metrics), [`mentor-loop`](../packages/mentor/mentor-loop) | - | Decides whether a learner's stated thesis matches a misconception the deployment declared and returns the design error and correcting objective behind it; the finding lands in the learner record, a durable per-learner pipeline, and the kernel claim ledger, then each stage drives explain, counterexample, exercise, new case, and reassess. |
+| `ctx.repoIndex` | `core` | [`repo-index`](../packages/repo/repo-index) | - | [`repo-map`](../packages/context/repo-map), [`working-set`](../packages/context/working-set) | - | Turns one workspace root into a bounded snapshot of walked paths, declaration symbols, resolved module specifiers, declaration references, and the derived test, package, and configuration graphs; ensure() re-walks directory metadata and returns the cached snapshot while the freshness digest holds, and invalidate() forces a rebuild. repo-map ranks and renders the repository map; working-set selects and renders the working set. |
 
 Maintenance mode: hybrid: services are discovered from Cordis declarations; interface/implementation/consumer roles are classified in `scripts/gen-doc-graphs.ts` with a completeness guard.

@@ -43,7 +43,7 @@ interface PrintOptions {
  * @returns the folded record and the events it was folded from.
  * @throws When the session does not exist or holds no `task/created` event.
  */
-async function readRecord(ctx: Context, rawSessionId: string): Promise<{ record: KernelRecord, events: SessionEvent[] }> {
+async function readRecord(ctx: Context, rawSessionId: string): Promise<{ record: KernelRecord; events: SessionEvent[] }> {
   const handle = await ctx.sessionPersistence.open(SessionId(rawSessionId), 'read')
   try {
     const { events } = await handle.read()
@@ -84,7 +84,7 @@ async function awaitLineage(ctx: Context, timeoutMs = 300): Promise<Context['evo
 function verificationResults(events: readonly SessionEvent[]): VerificationResult[] {
   return events
     .filter(event => event.type === 'verification/result')
-    .map(event => (event as SessionEvent<'verification/result'>).data)
+    .map(event => (event).data)
 }
 
 /**
@@ -123,7 +123,7 @@ export function kernelOpsCommand(ctx: Context, exit: AppExit): Command {
   /** Run one command body, reporting a failure through the launcher's exit path. */
   const run = (body: () => Promise<number>): void => {
     void body().then(
-      code => { exit(code) },
+      (code) => { exit(code) },
       (error: unknown) => {
         internals.writeError(`${error instanceof Error ? error.message : String(error)}\n`)
         exit(1)

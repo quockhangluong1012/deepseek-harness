@@ -1,11 +1,15 @@
 /**
  * @deepseek-ai/dsh-headless — one-shot direct Agent driver. The bundle patch
  * rides over dsh-base without Host, HTTP, or browser plugins; this runner
- * creates one Agent through the core registry (or adopts the exact Session a
- * `--session-id` names), drives the task to quiescence, streams provider
- * reasoning to stderr, flushes its Session, prints the final assistant text to
- * stdout, and exits. With `--json` it projects the run as newline-delimited
- * events instead of the final text.
+ * creates one Agent through the core registry (or adopts the Session a
+ * `--session-id`, `--resume`, or `--continue` names), applies the run flags to
+ * that Agent's own scope (model, system prompt, tool allow list, step ceiling,
+ * structured result) and to its Session's permission, drives the task to
+ * quiescence, streams provider reasoning to stderr, flushes its Session, prints
+ * the final assistant text (or the structured result) to stdout, and exits.
+ * With `--json` it projects the run as newline-delimited events instead. A task
+ * that is a command line (`/name [input]`) dispatches through the mounted
+ * command registry instead of the model, like the SDK and Web adapters do.
  *
  * @module @deepseek-ai/dsh-headless
  */
@@ -14,21 +18,30 @@ import { randomUUID } from 'node:crypto'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { brandString } from '@deepseek-ai/dsh-brand'
+import { parseCommand } from '@deepseek-ai/dsh-commands'
+import { attachStructuredRuntime } from '@deepseek-ai/dsh-subagent-in-process-driver'
+import type { StructuredAttachment } from '@deepseek-ai/dsh-subagent-in-process-driver'
 import { installModelSelection } from '@deepseek-ai/dsh-agent'
-import type { Agent, ModelSelectionRef } from '@deepseek-ai/dsh-agent'
+import type { Agent, ModelSelectionRef, PreStepDecision } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-agent-default-model'
 import type {} from '@deepseek-ai/dsh-fs'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import type { ObjectJsonSchema } from '@deepseek-ai/dsh-tools'
 import { assertNever } from '@deepseek-ai/dsh-util-values'
 import { SessionSeq } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent, SessionId, SessionLogOffset } from '@deepseek-ai/dsh-session'
 import { SessionQueryError } from '@deepseek-ai/dsh-session-query'
 // Empty type imports carry the loader Context merge for the settlement await,
-// the cmdline Context merge for the appExit host value, and the sessionQuery
-// Context merge for exact Session adoption.
+// the cmdline Context merge for the appExit host value, the sessionQuery
+// Context merge for Session adoption, the permissionPresets merge for the
+// permission flag's write, and the system-prompt/tools merges for the
+// Agent-scoped run options.
 import type {} from '@deepseek-ai/cordis-plugin-loader'
 import type {} from '@deepseek-ai/dsh-cmdline'
 import type {} from '@deepseek-ai/dsh-session-query'
+import type {} from '@deepseek-ai/dsh-permission-presets'
+import type {} from '@deepseek-ai/dsh-system-prompt'
+import type {} from '@deepseek-ai/dsh-tools'
 import { internals } from './runner-internals.ts'
 import { projectJsonRun, boundJsonLine } from './json-stream.ts'
 
@@ -46,12 +59,37 @@ export interface Config {
   sessionId?: string
   /** Whether stdout carries the machine-readable event stream instead of final text. */
   json?: boolean
+  /** Model id overriding the deployment default selection; absent keeps the composed selection. */
+  model?: string
+  /** Permission preset pinning this run's Session; absent keeps the composed default. */
+  permissionMode?: string
+  /** Ceiling on assistant steps this run's turn may enter; absent keeps the composed loop ceiling. */
+  maxTurns?: number
+  /** Text replacing this run's system prompt; absent keeps the composed prompt. */
+  systemPrompt?: string
+  /** Global tool names this run keeps visible; absent admits every composed tool. */
+  allowedTools?: string[]
+  /** Object-rooted JSON Schema the run's final answer must satisfy; absent reports the final text. */
+  outputSchema?: ObjectJsonSchema
+  /** Whether to adopt the newest Session recorded in this working directory. */
+  continueLatest?: boolean
 }
 
 export const Config: z<Config> = z.object({
   task: z.string(),
   sessionId: z.string(),
   json: z.boolean(),
+  model: z.string(),
+  permissionMode: z.string(),
+  maxTurns: z.number().step(1).min(1),
+  systemPrompt: z.string(),
+  // Preserve omission: an empty allow list is a materialized-empty-config bug
+  // that `tools.restrict` refuses, so the field must stay absent when unset.
+  allowedTools: z.array(z.string()).default(undefined as unknown as string[]),
+  // A JSON Schema object is opaque to schemastery; the provider asserted the
+  // object-rooted shape before publishing it.
+  outputSchema: z.any(),
+  continueLatest: z.boolean(),
 })
 
 /** Outcome of one owned run interval. */
@@ -301,6 +339,60 @@ function fail(io: HeadlessIo, error: unknown, json: boolean): void {
 }
 
 /**
+ * Resolve the newest Session recorded in one working directory, for
+ * `--continue`. Only a top-level Session is a candidate: the adoption checks
+ * refuse a subagent or forked Session, so considering one would fail a
+ * directory whose newest record is a child instead of continuing the
+ * conversation the caller meant.
+ * @param ctx - plugin context carrying the Session query service.
+ * @param cwd - the working directory this run resolved through the filesystem service.
+ * @returns the newest candidate's identity.
+ */
+async function latestSessionId(ctx: Context, cwd: string): Promise<SessionId> {
+  const query = ctx.get('sessionQuery')
+  if (query === undefined) {
+    throw new Error('headless --continue requires the sessionQuery service; dsh-base provides it')
+  }
+  // The query lists newest-first, so the first top-level record in this
+  // directory is the conversation being continued.
+  const records = await query.filterSessions([{ kind: 'cwd', values: [cwd] }])
+  const candidate = records.find(record =>
+    record.header.origin !== 'subagent' && record.header.parentSession === undefined)
+  if (candidate === undefined) {
+    throw new Error(`no top-level Session is recorded in "${cwd}"; omit --continue to start a new one`)
+  }
+  return candidate.header.id
+}
+
+/**
+ * Dispatch one leading slash-command line through the composed command registry.
+ *
+ * The SDK's session controller and the Web composer reach the same registry
+ * through their own host transport, so the one-shot app is a third dispatcher
+ * with the same admission semantics. A host without the registry, a line the
+ * registry cannot admit, and a handler that reports an error all fail this run
+ * instead of being submitted to the model as chat.
+ *
+ * @param ctx - plugin context that may carry the command registry.
+ * @param agent - the exact Agent the command runs against.
+ * @param line - complete slash-command line.
+ * @returns the settled handler's success text, or `undefined` when it supplied none.
+ */
+async function dispatchCommand(ctx: Context, agent: Agent, line: string): Promise<string | undefined> {
+  const commands = ctx.get('commands')
+  if (commands === undefined) {
+    throw new Error(`${line} is a command line, but this profile composes no command registry`)
+  }
+  // The one-shot app owns no cancellation: this signal satisfies the registry's
+  // abort contract, and the launcher keeps sole ownership of process exit.
+  const signal = new AbortController().signal
+  const execution = await commands.execute(agent, line, [], signal)
+  if (execution === undefined) throw new Error(`unknown or malformed command: ${line}`)
+  if (execution.result.kind === 'error') throw new Error(execution.result.text)
+  return execution.result.text
+}
+
+/**
  * Run one task through one Agent and request process exit.
  * @param ctx - plugin context carrying the Agent, default model, Session, and launcher IO services.
  * @param config - task, optional exact Session identity, and output mode.
@@ -321,6 +413,11 @@ async function run(ctx: Context, config: Config, io: HeadlessIo): Promise<void> 
   if (config.sessionId !== undefined && config.sessionId.trim() === '') {
     throw new Error('headless-runner: sessionId must not be blank')
   }
+  // The provider rejects the two selectors together, so an overlay that sets
+  // both is refused here instead of letting one silently win.
+  if (config.continueLatest === true && config.sessionId !== undefined) {
+    throw new Error('headless-runner: sessionId and continueLatest are mutually exclusive')
+  }
 
   const task = config.task === undefined || config.task === '-'
     ? await internals.readStdin()
@@ -330,19 +427,50 @@ async function run(ctx: Context, config: Config, io: HeadlessIo): Promise<void> 
   }
 
   const selection = defaultModel.currentSelection()
-  const agentOptions = { provider: selection.provider, model: selection.model }
+  // --model replaces the model id only: the provider route, its credentials,
+  // and the reasoning effort stay the deployment's, so a flag cannot point a
+  // run at an unrouted provider.
+  const agentOptions = { provider: selection.provider, model: config.model ?? selection.model }
+  const runOptions: { structured: StructuredAttachment | undefined } = { structured: undefined }
   // This bundle composes no preset roster, so the model-facing rows sit in the
   // host plane and the agent reads them from the global layer. A deployment
   // that DOES configure one has to join it here first
   // (@deepseek-ai/dsh-agent-preset-registry README, "Composing a child agent").
+  // Every run flag below is registered in the Agent's own scope, so none of
+  // them outlives that Agent or reaches a sibling.
   const setup = (agentCtx: Context): void => {
-    const selected: ModelSelectionRef = { current: selection, assembled: undefined }
+    const selected: ModelSelectionRef = { current: { ...selection, model: agentOptions.model }, assembled: undefined }
     installModelSelection(agentCtx, selected)
+    if (config.systemPrompt !== undefined) {
+      // A complete section is the harness's whole-prompt mechanism: assembly
+      // still resolves tools, contexts, and variables, then this text is the
+      // only section the request carries.
+      agentCtx.systemPrompt.section({
+        name: 'headless:system-prompt',
+        order: agentCtx.systemPrompt.getSectionOrder('DEPLOYMENT_PERSONA_PREFIX'),
+        text: config.systemPrompt,
+        complete: true,
+      })
+    }
+    if (config.allowedTools !== undefined) agentCtx.tools.restrict({ allow: config.allowedTools })
+    if (config.maxTurns !== undefined) {
+      const ceiling = config.maxTurns
+      // The proposed step number is 1-based, so the ceiling admits exactly
+      // `ceiling` steps and refuses the next one; the loop then ends the turn
+      // through its ordinary blocked-rejection path.
+      agentCtx.on('agent/pre-step', ({ step }, next): Promise<PreStepDecision> =>
+        step > ceiling ? Promise.resolve({ kind: 'reject' }) : next())
+    }
+    if (config.outputSchema !== undefined) {
+      runOptions.structured = attachStructuredRuntime(agentCtx, config.outputSchema)
+    }
   }
-  const sessionId = brandString<SessionId>(config.sessionId ?? `session-${randomUUID()}`)
   const fs = ctx.get('fs')
   const cwd = fs === undefined ? process.cwd() : fs.processPath(await fs.resolve('.'))
-  const agent = config.sessionId === undefined
+  const requested = config.sessionId
+    ?? (config.continueLatest === true ? await latestSessionId(ctx, cwd) : undefined)
+  const sessionId = brandString<SessionId>(requested ?? `session-${randomUUID()}`)
+  const agent = requested === undefined
     ? (await agents.create({
       sessionId,
       meta: { cwd },
@@ -350,8 +478,19 @@ async function run(ctx: Context, config: Config, io: HeadlessIo): Promise<void> 
       setup,
     })).agent
     : await resolveAgent(ctx, agents, sessionId, agentOptions, setup, cwd)
+  if (config.permissionMode !== undefined) {
+    const presets = ctx.get('permissionPresets')
+    if (presets === undefined) {
+      throw new Error('headless --permission-mode requires the permissionPresets service; dsh-base provides it')
+    }
+    // `set` validates the name against the composed preset table and writes the
+    // preset's knob bundle durably, so a resumed Session keeps the permission
+    // this run pinned and the flag outranks the deployment's process-wide
+    // default for exactly this Session.
+    presets.set(agent.session, config.permissionMode)
+  }
   await agent.whenIdle()
-  if (config.sessionId !== undefined) {
+  if (requested !== undefined) {
     // The resume-time check read a snapshot; an overlay can still append a
     // preset selection between it and the interval this run now owns, so
     // re-read the log the runner holds before submitting the task.
@@ -361,23 +500,50 @@ async function run(ctx: Context, config: Config, io: HeadlessIo): Promise<void> 
   const projection = config.json === true ? projectJsonRun(ctx, agent, io.stdout, { cwd }) : undefined
   const stopReasoning = projection === undefined ? streamReasoning(ctx, agent, io.stderr) : undefined
   try {
+    let dispatched = false
+    let commandText: string | undefined
     try {
-      agent.followup(createUserMessage({
-        content: [{ type: 'text', text: task }],
-        source: { kind: 'user' },
-      }))
+      // A command line is a human control, not a prompt: the registry admits it
+      // and its handler owns any model work it schedules.
+      if (parseCommand(task) === undefined) {
+        agent.followup(createUserMessage({
+          content: [{ type: 'text', text: task }],
+          source: { kind: 'user' },
+        }))
+      } else {
+        commandText = await dispatchCommand(ctx, agent, task)
+        dispatched = true
+      }
       await agent.whenIdle()
     } finally {
       stopReasoning?.()
     }
     await sessions.flush(agent.session)
     const outcome = summarize(agent.session, firstSeq)
-    if (projection === undefined) io.stdout.write(outcome.text + '\n')
-    else projection.finish(outcome.text)
+    const captured = runOptions.structured?.captured()
+    if (config.outputSchema !== undefined && captured === undefined) {
+      // The caller asked for a schema-constrained result; a prose answer is not
+      // one, and reporting the text as if it satisfied the schema would be a
+      // silent contract miss.
+      throw new Error('the run finished without a structured result: the model never called '
+        + '`structured_output` with arguments matching --output-schema')
+    }
+    // A command that scheduled no model work is its own answer; one that
+    // submitted a message answers through the turn it started.
+    const answer = outcome.text !== '' ? outcome.text : commandText ?? ''
+    if (projection === undefined) {
+      io.stdout.write(`${captured === undefined ? answer : JSON.stringify(captured.value)}\n`)
+    } else projection.finish(answer, captured?.value)
     if (outcome.reason?.kind === 'error') {
       io.stderr.write(`dsh: ${outcome.reason.error.code}: ${outcome.reason.error.message}\n`)
     }
-    io.exit(outcome.reason?.kind === 'completed' ? 0 : 1)
+    // A dispatched command owns the outcome when the interval holds no turn: its
+    // own settlement is the result. A turn the interval does hold decides as
+    // before, so a model failure inside a command's run still fails this run.
+    const settled = outcome.reason === undefined
+      ? dispatched
+      : outcome.reason.kind === 'completed'
+    io.exit(settled ? 0 : 1)
   } finally {
     projection?.dispose()
   }

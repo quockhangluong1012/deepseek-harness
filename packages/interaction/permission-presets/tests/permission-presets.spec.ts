@@ -4,10 +4,16 @@ import SessionStore, {
   Session,
   SessionId,
 } from '@deepseek-ai/dsh-session'
-import AgentKernel from '@deepseek-ai/dsh-agent-kernel'
+import AgentKernel, { CAPABILITY_VOCABULARY, POLICY_ACTIONS } from '@deepseek-ai/dsh-agent-kernel'
+import type { Capability, CapabilityRequest, PolicyProfileProvider } from '@deepseek-ai/dsh-agent-kernel'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
+import type { ProjectionDefinition } from '@deepseek-ai/dsh-session-projection'
+import ApprovalService from '@deepseek-ai/dsh-user-approval'
+import type { ApprovalOutcome, ApprovalPolicy } from '@deepseek-ai/dsh-user-approval'
+import type { PlanUnitState } from '@deepseek-ai/dsh-plan-mode/types'
 import type { SandboxMode } from '@deepseek-ai/dsh-sandbox'
-import type { ApprovalPolicy } from '@deepseek-ai/dsh-user-approval'
+import { z as zod } from 'zod'
+import type { ZodType } from 'zod'
 import PermissionPresetService, {
   AUTO_PRESET, CUSTOM_PRESET, DEFAULT_APPROVAL_TOOLS, requiresApproval,
 } from '@deepseek-ai/dsh-permission-presets'
@@ -62,6 +68,70 @@ async function mountedStore(options: { approvalDefault?: ApprovalPolicy | undefi
   return ctx
 }
 
+type GateExec = { name: string; arguments?: unknown; callId?: string; agent?: { session: Session } }
+type GateHandler = (exec: GateExec, next: () => Promise<{ kind: string }>) => Promise<{ kind: string }>
+
+/** The agent-kernel surfaces the gate reads, plus the provider it registers. */
+interface KernelStub {
+  /** Capability declarations keyed by tool name, as the builtins plugin registers them. */
+  declarations: Record<string, readonly CapabilityRequest[]>
+  /** The providers the service registered, in registration order. */
+  providers: PolicyProfileProvider[]
+  service: Record<string, unknown>
+}
+
+/** One agent-kernel stand-in: `resolve` reads the live declaration table so a spec can declare per call. */
+function kernelStub(): KernelStub {
+  const stub: KernelStub = {
+    declarations: {},
+    providers: [],
+    service: {},
+  }
+  stub.service = {
+    capabilities: { resolve: (tool: string) => stub.declarations[tool] },
+    registerPolicyProfileProvider: (provider: PolicyProfileProvider) => {
+      stub.providers.push(provider)
+      return () => {}
+    },
+  }
+  return stub
+}
+
+/** Mount the service on a fresh context and return its captured gate listener. */
+async function gateHarness(options: {
+  config?: NonNullable<Parameters<typeof PermissionPresetService.Config>[0]>
+  kernel?: KernelStub
+  approval?: boolean
+} = {}): Promise<{ ctx: Context; gated: GateHandler }> {
+  const ctx = new Context()
+  await ctx.plugin(SessionStore)
+  await ctx.plugin(SessionProjectionRegistry)
+  ctx.provide('shell', {
+    sandboxMode: 'workspace-write',
+    resolve() { throw new Error('no exec') },
+    run() { throw new Error('no exec') },
+    start() { throw new Error('no exec') },
+  })
+  if (options.approval === true) {
+    await ctx.plugin(ApprovalService)
+  } else {
+    ctx.provide('approval', { config: { policy: 'ask' } })
+  }
+  if (options.kernel !== undefined) ctx.provide('agentKernel', options.kernel.service as never)
+  let gated: GateHandler | undefined
+  const originalOn = ctx.on.bind(ctx) as (...args: never[]) => unknown
+  vi.spyOn(ctx, 'on').mockImplementation(((...args: never[]) => {
+    const [event, handler] = args as unknown as [string, GateHandler]
+    if (event === 'tools/pre-execute') gated = handler
+    return originalOn(...args)
+  }) as never)
+  await ctx.plugin(PermissionPresetService, options.config ?? {})
+  if (gated === undefined) throw new Error('permission gate listener not registered')
+  return { ctx, gated }
+}
+
+const allow = async (): Promise<{ kind: string }> => ({ kind: 'allow' })
+
 describe('permission preset fold', () => {
   it('folds the latest preset selection and steps over unrelated events', async () => {
     const ctx = await mounted()
@@ -95,7 +165,7 @@ describe('PermissionPresetService', () => {
 
   it('advertises the preset table in declaration order and resolves bundles', async () => {
     const ctx = await mounted()
-    expect(ctx.permissionPresets.names).toEqual(['workspace-write', 'danger-full-access'])
+    expect(ctx.permissionPresets.names).toEqual(['workspace-write', 'danger-full-access', 'accept-edits'])
     expect(ctx.permissionPresets.resolve('danger-full-access')).toMatchObject({ sandbox: 'danger-full-access', approval: 'never' })
     expect(() => ctx.permissionPresets.resolve('plan')).toThrow(/unknown preset "plan"/)
   })
@@ -157,9 +227,9 @@ describe('PermissionPresetService', () => {
   it('publishes an effect-scoped current-session preset and removes it on unload', async () => {
     const ctx = await mounted()
     const fiber = await mountAuto(ctx)
-    expect(ctx.permissionPresets.names).toEqual(['workspace-write', 'danger-full-access', AUTO_PRESET])
+    expect(ctx.permissionPresets.names).toEqual(['workspace-write', 'danger-full-access', 'accept-edits', AUTO_PRESET])
     expect(ctx.permissionPresets.resolve(AUTO_PRESET)).toEqual({
-      sandbox: 'danger-full-access', approval: 'never',
+      sandbox: 'workspace-write', approval: 'ask',
     })
     expect(ctx.permissionPresets.optionOf(AUTO_PRESET)).toEqual({
       value: AUTO_PRESET,
@@ -167,7 +237,7 @@ describe('PermissionPresetService', () => {
     })
 
     await fiber.dispose()
-    expect(ctx.permissionPresets.names).toEqual(['workspace-write', 'danger-full-access'])
+    expect(ctx.permissionPresets.names).toEqual(['workspace-write', 'danger-full-access', 'accept-edits'])
     expect(() => ctx.permissionPresets.resolve(AUTO_PRESET)).toThrow(/unknown preset "auto"/)
   })
 
@@ -186,16 +256,16 @@ describe('PermissionPresetService', () => {
 
     ctx.permissionPresets.set(session, AUTO_PRESET)
     expect(admissions).toBe(1)
+    // The Auto bundle is the composition default's knobs, so the selection
+    // writes only its identity.
     expect(session.snapshotEvents().map(event => [event.type, event.data])).toEqual([
       ['permission/preset', { preset: AUTO_PRESET }],
-      ['sandbox/mode', { mode: 'danger-full-access' }],
-      ['approval/policy', { policy: 'never' }],
     ])
     expect(ctx.permissionPresets.current(session)).toBe(AUTO_PRESET)
 
     ctx.permissionPresets.set(session, AUTO_PRESET)
     expect(admissions).toBe(2)
-    expect(session.snapshotEvents()).toHaveLength(3)
+    expect(session.snapshotEvents()).toHaveLength(1)
   })
 
   it('leaves the session untouched when dynamic admission rejects a selection', async () => {
@@ -210,7 +280,7 @@ describe('PermissionPresetService', () => {
     expect(session.snapshotEvents()).toEqual([])
   })
 
-  it('records shared-bundle Auto and Full access switches by preset identity only', async () => {
+  it('records a shared-bundle switch between Auto and its matching preset by identity only', async () => {
     const config = { presets: {
       'read-only': { sandbox: 'read-only', approval: 'ask' },
       'workspace-write': { sandbox: 'workspace-write', approval: 'ask' },
@@ -222,11 +292,11 @@ describe('PermissionPresetService', () => {
     ctx.permissionPresets.set(session, AUTO_PRESET)
     const baselineLength = session.snapshotEvents().length
 
-    ctx.permissionPresets.set(session, 'danger-full-access')
+    ctx.permissionPresets.set(session, 'workspace-write')
     expect(session.snapshotEvents().slice(baselineLength).map(event => [event.type, event.data])).toEqual([
-      ['permission/preset', { preset: 'danger-full-access' }],
+      ['permission/preset', { preset: 'workspace-write' }],
     ])
-    expect(ctx.permissionPresets.current(session)).toBe('danger-full-access')
+    expect(ctx.permissionPresets.current(session)).toBe('workspace-write')
 
     ctx.permissionPresets.set(session, AUTO_PRESET)
     expect(session.snapshotEvents().slice(baselineLength + 1).map(event => [event.type, event.data])).toEqual([
@@ -374,6 +444,12 @@ describe('new-session default', () => {
     expect(admissions).toBe(1)
     expect(ctx.permissionPresets.current(resumed)).toBe(AUTO_PRESET)
     expect(resumed.snapshotEvents().filter(event => event.type === 'permission/preset')).toHaveLength(1)
+    // A Session recorded under an earlier Auto bundle adopts the current
+    // reviewer scope instead of resuming outside it.
+    expect(resumed.snapshotEvents().slice(-2).map(event => [event.type, event.data])).toEqual([
+      ['sandbox/mode', { mode: 'workspace-write' }],
+      ['approval/policy', { policy: 'ask' }],
+    ])
   })
 
   it('pins the current setting into each new session without changing earlier sessions', async () => {
@@ -570,33 +646,6 @@ describe('approval gate (tools/pre-execute producer)', () => {
     await expect(gated!({ name: 'read' }, async () => ({ kind: 'allow' }))).resolves.toMatchObject({ kind: 'allow' })
   })
 
-  type GateExec = { name: string; agent?: { session: Session } }
-  type GateHandler = (exec: GateExec, next: () => Promise<{ kind: string }>) => Promise<{ kind: string }>
-
-  /** Mount the service on a fresh context and return its captured gate listener. */
-  async function gateHarness(): Promise<{ ctx: Context; gated: GateHandler }> {
-    const ctx = new Context()
-    await ctx.plugin(SessionStore)
-    await ctx.plugin(SessionProjectionRegistry)
-    ctx.provide('shell', {
-      sandboxMode: 'workspace-write',
-      resolve() { throw new Error('no exec') },
-      run() { throw new Error('no exec') },
-      start() { throw new Error('no exec') },
-    })
-    ctx.provide('approval', { config: { policy: 'ask' } })
-    let gated: GateHandler | undefined
-    const originalOn = ctx.on.bind(ctx) as (...args: never[]) => unknown
-    vi.spyOn(ctx, 'on').mockImplementation(((...args: never[]) => {
-      const [event, handler] = args as unknown as [string, GateHandler]
-      if (event === 'tools/pre-execute') gated = handler
-      return originalOn(...args)
-    }) as never)
-    await ctx.plugin(PermissionPresetService, {})
-    if (gated === undefined) throw new Error('permission gate listener not registered')
-    return { ctx, gated }
-  }
-
   it('delegates gated tools for a session standing on danger-full-access', async () => {
     const { ctx, gated } = await gateHarness()
     const session = ctx.sessions.create(SessionId('gate-full-access'))
@@ -615,11 +664,264 @@ describe('approval gate (tools/pre-execute producer)', () => {
     await expect(gated({ name: 'write', agent: { session } }, async () => ({ kind: 'allow' }))).resolves.toMatchObject({ kind: 'ask' })
   })
 
+  it('delegates a gated tool for a live Auto session and asks again after it closes', async () => {
+    const { ctx, gated } = await gateHarness()
+    const fiber = await mountAuto(ctx)
+    const session = ctx.sessions.create(SessionId('gate-auto'))
+    ctx.permissionPresets.set(session, AUTO_PRESET)
+    const agent = { session }
+    // Auto review resolves this exact call through its reviewer, which routes
+    // risky work into the same approval service: the gate must not ask twice.
+    await expect(gated({ name: 'write', agent }, async () => ({ kind: 'allow' }))).resolves.toMatchObject({ kind: 'allow' })
+    await expect(gated({ name: 'bash', agent }, async () => ({ kind: 'allow' }))).resolves.toMatchObject({ kind: 'allow' })
+
+    await fiber.dispose()
+    // Without a live reviewer the session returns to the askable workspace
+    // preset, so the generic gate owns the decision again.
+    expect(ctx.permissionPresets.current(session)).toBe('workspace-write')
+    await expect(gated({ name: 'write', agent }, async () => ({ kind: 'allow' }))).resolves.toMatchObject({ kind: 'ask' })
+  })
+
   it('asks for a session with no pinned sandbox knob (composition default applies)', async () => {
     const { gated } = await gateHarness()
     // A bare session carries no knob events: the gate falls back to the
     // confining composition default and still asks for gated tools.
     const session = freshSession('gate-bare')
     await expect(gated({ name: 'write', agent: { session } }, async () => ({ kind: 'allow' }))).resolves.toMatchObject({ kind: 'ask' })
+  })
+
+  /**
+   * A plan projection with plan-mode's own key and shape, so a spec governs
+   * plan state by appending the same `plan/mode` event the real package logs.
+   */
+  function planStub(init: Pick<PlanUnitState, 'active' | 'wanted'> = { active: false, wanted: null }) {
+    return {
+      key: 'plan',
+      stateVersion: 1,
+      stateSchema: zod.object({
+        active: zod.boolean(),
+        wanted: zod.boolean().nullable(),
+        running: zod.null(),
+        activeAtLastHeader: zod.boolean().nullable(),
+      }) as ZodType<PlanUnitState>,
+      init: () => ({ ...init, running: null, activeAtLastHeader: null }),
+      apply: (state, event) => event.type === 'plan/mode' ? { ...state, active: event.data.active, wanted: null } : state,
+      wire: {
+        viewSchema: zod.object({ active: zod.boolean(), pending: zod.boolean() }),
+        view: state => ({ active: state.active, pending: false }),
+      },
+    } satisfies ProjectionDefinition<'plan', PlanUnitState>
+  }
+
+  it('leaves an in-workspace edit to the next listener and still asks for a shell command', async () => {
+    const kernel = kernelStub()
+    kernel.declarations.edit = [{ capability: 'fs.edit', resource: 'src/a.ts' }]
+    kernel.declarations.bash = [{ capability: 'process.exec', resource: 'pnpm test' }]
+    const { ctx, gated } = await gateHarness({ config: { defaultPreset: 'accept-edits' }, kernel })
+    const session = ctx.sessions.create(SessionId('layer-accept-edits'))
+    expect(ctx.permissionPresets.current(session)).toBe('accept-edits')
+    const agent = { session }
+    await expect(gated({ name: 'edit', arguments: { file_path: 'src/a.ts' }, callId: 'accept-1', agent }, allow))
+      .resolves.toMatchObject({ kind: 'allow' })
+    // The preset allows edits only: a shell command keeps the gate's ask, and
+    // the tool's own sandbox still bounds the path an accepted edit may touch.
+    await expect(gated({ name: 'bash', arguments: { command: 'pnpm test' }, callId: 'accept-2', agent }, allow))
+      .resolves.toMatchObject({ kind: 'ask' })
+  })
+
+  it('stops asking for a resource prefix once a workspace grant is remembered', async () => {
+    const kernel = kernelStub()
+    kernel.declarations.edit = [{ capability: 'fs.edit', resource: 'src/a.ts' }]
+    const { ctx, gated } = await gateHarness({ kernel, approval: true })
+    const session = ctx.sessions.create(SessionId('layer-always'))
+    session.append('turn/start', { turn: 1 })
+    const agent = { session }
+    // Two pending calls on the same resource, then one "always" answer each:
+    // the second answer is a no-op because the rule is already remembered.
+    await expect(gated({ name: 'edit', arguments: { file_path: 'src/a.ts' }, callId: 'always-1', agent }, allow))
+      .resolves.toMatchObject({ kind: 'ask' })
+    await expect(gated({ name: 'edit', arguments: { file_path: 'src/a.ts' }, callId: 'always-2', agent }, allow))
+      .resolves.toMatchObject({ kind: 'ask' })
+    ctx.on('approval/request', () => Promise.resolve<ApprovalOutcome>('allowed-always'))
+    const request = (callId: string) => ctx.approval.request({ agent: agent as never, toolName: 'edit', callId: callId as never })
+    await expect(request('always-1')).resolves.toBe('allowed-always')
+    await expect(request('always-2')).resolves.toBe('allowed-always')
+    expect(session.snapshotEvents().filter(event => event.type === 'permission/rules').map(event => event.data))
+      .toEqual([{ rules: [{ action: 'edit', resource: 'src/a.ts', scope: 'workspace' }] }])
+    expect(ctx.sessionProjections.stateOf(session, 'permissions')?.rules)
+      .toEqual([{ action: 'edit', resource: 'src/a.ts', scope: 'workspace' }])
+    // The granted prefix runs without a second prompt; a sibling path still asks.
+    await expect(gated({ name: 'edit', arguments: { file_path: 'src/a.ts' }, callId: 'always-3', agent }, allow))
+      .resolves.toMatchObject({ kind: 'allow' })
+    kernel.declarations.edit = [{ capability: 'fs.edit', resource: 'src/b.ts' }]
+    await expect(gated({ name: 'edit', arguments: { file_path: 'src/b.ts' }, callId: 'always-4', agent }, allow))
+      .resolves.toMatchObject({ kind: 'ask' })
+  })
+
+  it('covers only the granted resource for a session-scoped grant', async () => {
+    const kernel = kernelStub()
+    kernel.declarations.edit = [{ capability: 'fs.edit', resource: 'src/a.ts' }]
+    const { ctx, gated } = await gateHarness({ kernel, approval: true })
+    const session = ctx.sessions.create(SessionId('layer-session'))
+    session.append('turn/start', { turn: 1 })
+    const agent = { session }
+    await expect(gated({ name: 'edit', arguments: { file_path: 'src/a.ts' }, callId: 'session-1', agent }, allow))
+      .resolves.toMatchObject({ kind: 'ask' })
+    ctx.on('approval/request', () => Promise.resolve<ApprovalOutcome>('allowed-session'))
+    await expect(ctx.approval.request({ agent: agent as never, toolName: 'edit', callId: 'session-1' as never })).resolves.toBe('allowed-session')
+    expect(session.snapshotEvents().filter(event => event.type === 'permission/rules').map(event => event.data))
+      .toEqual([{ rules: [{ action: 'edit', resource: 'src/a.ts', scope: 'session' }] }])
+    await expect(gated({ name: 'edit', arguments: { file_path: 'src/a.ts' }, callId: 'session-2', agent }, allow))
+      .resolves.toMatchObject({ kind: 'allow' })
+    kernel.declarations.edit = [{ capability: 'fs.edit', resource: 'src/a.ts.bak' }]
+    await expect(gated({ name: 'edit', arguments: { file_path: 'src/a.ts.bak' }, callId: 'session-3', agent }, allow))
+      .resolves.toMatchObject({ kind: 'ask' })
+  })
+
+  it('reports a scoped grant it cannot remember and returns the outcome unchanged', async () => {
+    // No agent kernel, so the call declares no resource to remember a rule for.
+    const { ctx } = await gateHarness({ approval: true })
+    const session = ctx.sessions.create(SessionId('layer-unarmed'))
+    session.append('turn/start', { turn: 1 })
+    const warn = vi.spyOn(ctx.logger, 'warn')
+    ctx.on('approval/request', () => Promise.resolve<ApprovalOutcome>('allowed-always'))
+    await expect(ctx.approval.request({ agent: { session } as never, toolName: 'bash', callId: 'unarmed-1' as never }))
+      .resolves.toBe('allowed-always')
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('has no rememberable scope'))
+    expect(session.snapshotEvents().some(event => event.type === 'permission/rules')).toBe(false)
+  })
+
+  it('refuses to remember a resource that is itself a selector', async () => {
+    const kernel = kernelStub()
+    kernel.declarations.bash = [{ capability: 'process.exec', resource: 'rm *.tmp' }]
+    const { ctx, gated } = await gateHarness({ kernel, approval: true })
+    const session = ctx.sessions.create(SessionId('layer-selector'))
+    session.append('turn/start', { turn: 1 })
+    const agent = { session }
+    await expect(gated({ name: 'bash', arguments: { command: 'rm *.tmp' }, callId: 'selector-1', agent }, allow))
+      .resolves.toMatchObject({ kind: 'ask' })
+    const warn = vi.spyOn(ctx.logger, 'warn')
+    ctx.on('approval/request', () => Promise.resolve<ApprovalOutcome>('allowed-always'))
+    await expect(ctx.approval.request({ agent: agent as never, toolName: 'bash', callId: 'selector-1' as never }))
+      .resolves.toBe('allowed-always')
+    // A `*` in the granted resource has no escaped form in the rule vocabulary,
+    // so remembering it would widen the rule past what the human granted.
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('is itself a selector'))
+    expect(session.snapshotEvents().some(event => event.type === 'permission/rules')).toBe(false)
+  })
+
+  it('denies a mutation while plan mode governs and publishes the same layer to the kernel', async () => {
+    const kernel = kernelStub()
+    kernel.declarations.write = [{ capability: 'fs.write', resource: 'src/a.ts' }]
+    const { ctx, gated } = await gateHarness({ kernel })
+    ctx.sessionProjections.register(planStub())
+    const session = ctx.sessions.create(SessionId('layer-plan'))
+    const agent = { session }
+    await expect(gated({ name: 'write', arguments: { file_path: 'src/a.ts' }, callId: 'plan-1', agent }, allow))
+      .resolves.toMatchObject({ kind: 'ask' })
+    session.append('plan/mode', { active: true })
+    await expect(gated({ name: 'write', arguments: { file_path: 'src/a.ts' }, callId: 'plan-2', agent }, allow))
+      .resolves.toMatchObject({ kind: 'deny', reason: expect.stringContaining('denies write "**"') as string })
+    // The kernel reads the same composed layer through the policy profile seam.
+    const provider = kernel.providers[0]
+    expect(provider?.resolve(session)?.document).toEqual({
+      defaults: { effect: 'allow' },
+      rules: [
+        { action: 'write', resource: '**', effect: 'deny' },
+        { action: 'edit', resource: '**', effect: 'deny' },
+        { action: 'shell', resource: '**', effect: 'deny' },
+      ],
+    })
+    session.append('plan/mode', { active: false })
+    expect(provider?.resolve(session)?.document).toBeUndefined()
+    await expect(gated({ name: 'write', arguments: { file_path: 'src/a.ts' }, callId: 'plan-3', agent }, allow))
+      .resolves.toMatchObject({ kind: 'ask' })
+  })
+
+  it('applies the plan layer from a selection that has not been logged yet', async () => {
+    const kernel = kernelStub()
+    kernel.declarations.write = [{ capability: 'fs.write', resource: 'src/a.ts' }]
+    const { ctx, gated } = await gateHarness({ kernel })
+    ctx.sessionProjections.register(planStub({ active: false, wanted: true }))
+    const session = ctx.sessions.create(SessionId('layer-plan-pending'))
+    // A selection awaits the next accepted pre-step; the guidance already
+    // governs the step, so the layer does too.
+    await expect(gated({ name: 'write', arguments: { file_path: 'src/a.ts' }, callId: 'pending-1', agent: { session } }, allow))
+      .resolves.toMatchObject({ kind: 'deny' })
+  })
+
+  it('appends the remembered rules after the selected preset’s own rules', async () => {
+    const kernel = kernelStub()
+    kernel.declarations.edit = [{ capability: 'fs.edit', resource: 'src/a.ts' }]
+    const { ctx, gated } = await gateHarness({ kernel })
+    const session = ctx.sessions.create(SessionId('layer-composed'))
+    // A session-scoped rule for the same resource, then reads through the
+    // provider: the preset's rules stay first and the rule follows them.
+    session.append('permission/rules', { rules: [{ action: 'edit', resource: 'src/a.ts', scope: 'session' }] })
+    ctx.permissionPresets.set(session, 'accept-edits')
+    const provider = kernel.providers.length > 0 ? kernel.providers[0] : undefined
+    // The provider registers only when a kernel is provided, which this harness
+    // does; read the selection it resolves for the session.
+    expect(provider).toBeDefined()
+    expect(provider!.resolve(session)?.document?.rules).toEqual([
+      { action: 'edit', resource: '**', effect: 'allow' },
+      { action: 'write', resource: '**', effect: 'allow' },
+      { action: 'edit', resource: 'src/a.ts', effect: 'allow' },
+    ])
+    await expect(gated({ name: 'edit', arguments: { file_path: 'src/a.ts' }, callId: 'composed-1', agent: { session } }, allow))
+      .resolves.toMatchObject({ kind: 'allow' })
+  })
+
+  it('rejects a planModePolicy rule outside the shared policy vocabulary at load', async () => {
+    await expect(gateHarness({ config: {
+      planModePolicy: { defaults: { effect: 'allow' }, rules: [{ action: 'write', resource: '', effect: 'deny' }] },
+    } as never })).rejects.toThrow(/\$\.planModePolicy/)
+  })
+})
+
+describe('capability action families', () => {
+  it('agrees with the kernel on the family every capability selects', async () => {
+    // The kernel keeps its capability-to-family table private, so this package
+    // projects it to decide the session layer at the gate. The kernel's own
+    // evaluation is the authority this spec asserts against: one allow rule per
+    // family on a shared resource makes the last matching rule index name the
+    // family the kernel assigns the capability.
+    const kernelCtx = new Context()
+    await kernelCtx.plugin(AgentKernel, {
+      policy: { defaults: { effect: 'deny' }, rules: POLICY_ACTIONS.map(action => ({ action, resource: 'probe', effect: 'allow' as const })) },
+    })
+    const kernelFamily = (capability: Capability): string | undefined => {
+      const decision = kernelCtx.agentKernel.policy.evaluate({
+        action: { toolName: 'probe' },
+        capabilities: [{ capability, resource: 'probe' }],
+        undeclared: false,
+        sandbox: {},
+      } as never)
+      return decision.matchedRuleIndex === null ? undefined : POLICY_ACTIONS[decision.matchedRuleIndex]
+    }
+
+    const kernel = kernelStub()
+    const { ctx, gated } = await gateHarness({ kernel, config: {
+      defaultPreset: 'probe',
+      approvalTools: ['probe'],
+      presets: {
+        probe: {
+          sandbox: 'workspace-write',
+          approval: 'ask',
+          policy: { defaults: { effect: 'ask' }, rules: POLICY_ACTIONS.map(action => ({ action, resource: action, effect: 'allow' })) },
+        },
+      },
+    } as never })
+    const session = ctx.sessions.create(SessionId('families'))
+    for (const capability of CAPABILITY_VOCABULARY) {
+      kernel.declarations.probe = [{ capability, resource: 'read' }]
+      const allowed: string[] = []
+      for (const action of POLICY_ACTIONS) {
+        kernel.declarations.probe = [{ capability, resource: action }]
+        const decision = await gated({ name: 'probe', callId: `family-${capability}`, agent: { session } }, allow)
+        if (decision.kind === 'allow') allowed.push(action)
+      }
+      expect(allowed).toEqual([kernelFamily(capability)])
+    }
   })
 })

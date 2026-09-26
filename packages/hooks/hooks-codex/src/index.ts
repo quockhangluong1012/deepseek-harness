@@ -30,6 +30,7 @@ import type { PostToolDecision, PreToolDecision, ToolExecution, ToolExecutionRes
 import {
   appendHookInvoked,
   appendHookResult,
+  applyRunHalt,
   createDetachedRuns,
   DEFAULT_HOOK_TIMEOUT_MS,
   DEFAULT_STDERR_SUMMARY_MAX_CHARS,
@@ -90,16 +91,17 @@ export function apply(ctx: Context, config: Config): void {
   const stderrSummaryMaxChars = config.stderrSummaryMaxChars ?? DEFAULT_STDERR_SUMMARY_MAX_CHARS
   assertPositiveInteger('stderrSummaryMaxChars', stderrSummaryMaxChars)
   const defaultTimeoutMs = config.defaultTimeoutMs ?? DEFAULT_HOOK_TIMEOUT_MS
+  const warn = (message: string): void => { ctx.logger.warn(`hooks-codex: ${message}`) }
   let parsed: CodexHookConfig = {}
   try {
     const raw: unknown = JSON.parse(readFileSync(config.configPath, 'utf8'))
     const result = parseCodexConfig(raw)
     parsed = result.config
     for (const s of result.skipped) {
-      ctx.logger.warn(`hooks-codex: skipping ${s.reason} on ${s.event} (only sync command hooks run)`)
+      warn(`skipping ${s.reason} on ${s.event} (only sync command hooks run)`)
     }
   } catch (error: unknown) {
-    ctx.logger.warn(`hooks-codex: could not load hook config "${config.configPath}": ${String(error)} — no hooks registered`)
+    warn(`could not load hook config "${config.configPath}": ${String(error)} — no hooks registered`)
     return
   }
 
@@ -166,7 +168,7 @@ export function apply(ctx: Context, config: Config): void {
         // differences stay explicit at their owning extension point.
         /* jscpd:ignore-start */
         if (output.systemMessage !== undefined) {
-          ctx.logger.warn(`hooks-codex: ${point} hook emitted a systemMessage, which is not yet surfaced (ignored)`)
+          warn(`${point} hook emitted a systemMessage, which is not yet surfaced (ignored)`)
         }
         if (session && opts.turn !== undefined) {
           appendHookResult(session, { turn: opts.turn, point, handlerId, output, stderrSummaryMaxChars, durationMs })
@@ -175,8 +177,6 @@ export function apply(ctx: Context, config: Config): void {
     }
     return mergeHookOutputs(outputs)
   }
-
-  // TODO(hook-continue-false): `merged.stop` is logged but needs a run-level halt mechanism.
 
   function contextFrom(merged: MergedHookOutcome): UserMessage | undefined {
     if (merged.additionalContext.length === 0) return undefined
@@ -196,10 +196,13 @@ export function apply(ctx: Context, config: Config): void {
     const ownerSignal = signal === undefined ? detached.signal : AbortSignal.any([signal, detached.signal])
     const run = runPoint('SessionStart', source, { ...base(agent, 'SessionStart', model), source }, { agent, plainStdoutAsContext: true, signal: ownerSignal })
       .then((merged) => {
+        // SessionStart runs before the run is live, so a halt here has no run
+        // to cancel: it is reported and only the hook/result record remains.
+        applyRunHalt(merged, 'SessionStart', undefined, warn)
         const context = contextFrom(merged)
         if (context) agent.inject(context)
       })
-      .catch((error: unknown) => { ctx.logger.warn(`hooks-codex: SessionStart hook failed: ${String(error)}`) })
+      .catch((error: unknown) => { warn(`SessionStart hook failed: ${String(error)}`) })
     detached.track(run)
     await run
     /* jscpd:ignore-end */
@@ -216,6 +219,9 @@ export function apply(ctx: Context, config: Config): void {
     const merged = await runPoint('UserPromptSubmit', '', payload, {
       agent, turn, plainStdoutAsContext: true, signal,
     })
+    // A halting hook stops the run here; the turn then closes as an abort
+    // carrying this hook's reason, so the decision below is never consumed.
+    if (applyRunHalt(merged, 'UserPromptSubmit', agent, warn)) return { kind: 'reject' }
     /* jscpd:ignore-start */
     if (merged.decision === 'deny') {
       return { kind: 'reject' }
@@ -236,6 +242,9 @@ export function apply(ctx: Context, config: Config): void {
     const turn = lastTurn(ctx, exec.agent)
     const merged = await runPoint('PreToolUse', exec.name, preToolPayload(ctx, exec, model), { ...exec.agent ? { agent: exec.agent } : {}, turn, signal: exec.signal })
     /* jscpd:ignore-end */
+    // The halt cancels the run; canceling the call too keeps the tool from
+    // dispatching while the abort travels back through the loop.
+    if (applyRunHalt(merged, 'PreToolUse', exec.agent, warn)) return { kind: 'cancel' }
     if (merged.decision === 'deny') return { kind: 'deny', reason: merged.reason ?? 'blocked by PreToolUse hook' }
     return next()
   })
@@ -245,6 +254,7 @@ export function apply(ctx: Context, config: Config): void {
     const turn = lastTurn(ctx, exec.agent)
     /* jscpd:ignore-start */
     const merged = await runPoint('PostToolUse', exec.name, postToolPayload(ctx, exec, result, model), { ...exec.agent ? { agent: exec.agent } : {}, turn, signal: exec.signal })
+    applyRunHalt(merged, 'PostToolUse', exec.agent, warn)
     const context = contextFrom(merged)
     if (merged.decision === 'deny') {
       return { kind: 'block', feedback: [{ type: 'text', text: merged.reason ?? 'blocked by PostToolUse hook' }], ...context ? { additionalContexts: [context] } : {} }
@@ -270,6 +280,8 @@ export function apply(ctx: Context, config: Config): void {
   ctx.on('agent/turn-stopping', async ({ agent, turn, signal }): Promise<void> => {
     const merged = await runPoint('Stop', '', { ...turnBase(ctx, agent, 'Stop', model), stop_hook_active: false, last_assistant_message: null }, { agent, turn, signal })
     /* jscpd:ignore-end */
+    // A halting Stop hook stops the run instead of forcing another step.
+    if (applyRunHalt(merged, 'Stop', agent, warn)) return
     if (merged.decision === 'deny') {
       // A blocking Stop hook forces continuation; a block with no reason (exit 2,
       // empty stderr) still forces it — fall back to a generic steering line

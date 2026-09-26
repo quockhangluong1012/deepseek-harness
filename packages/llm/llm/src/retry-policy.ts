@@ -15,7 +15,13 @@ const DEFAULT_MAX_RETRIES = 5
 const DEFAULT_INITIAL_DELAY_MS = 500
 const DEFAULT_MAX_DELAY_MS = 10_000
 const DEFAULT_JITTER_RATIO = 0.1
-const DEFAULT_RETRYABLE_CODES = Object.freeze([
+/**
+ * Failure codes the bounded transient retry policy retries by default. The
+ * provider-neutral set doubles as the canonical transient classification for
+ * consumers that must distinguish transient provider faults from request,
+ * credential, or context faults.
+ */
+export const DEFAULT_RETRYABLE_CODES: readonly string[] = Object.freeze([
   EMPTY_RESPONSE_CODE,
   'RATE_LIMIT',
   'SERVER',

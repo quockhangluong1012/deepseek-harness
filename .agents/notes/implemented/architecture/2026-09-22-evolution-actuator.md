@@ -49,7 +49,7 @@ Add one package, `packages/evolution/evolution-actuator`, that registers five he
 
 ## Deviations from the plan
 
-The plan was the ranked remainder of the previous batch's gap audit, which put the record-only loops first. Two ranked items are deliberately not here: the per-task outcome record and the dreaming provenance gate. The first is a recording change in `evolution-benchmark` and the scorer, not an actuation; the second was a gate inside `evolution-dreaming`'s promotion path rather than a loop over recorded verdicts, and it has since shipped with that package ([the provenance, merge, and rollback decision](2026-09-22-dreaming-provenance-merge-and-rollback.md)). The outcome record and the retriever seam remain open.
+The plan was the ranked remainder of the previous batch's gap audit, which put the record-only loops first. Two ranked items are deliberately not here: the per-task outcome record and the dreaming attribution gate. The first is a recording change in `evolution-benchmark` and the scorer, not an actuation; the second was a gate inside `evolution-dreaming`'s promotion path rather than a loop over recorded verdicts, and it has since shipped with that package ([the attribution, merge, and rollback decision](2026-09-22-dreaming-attribution-merge-and-rollback.md)). The outcome record and the retriever seam remain open.
 
 ## Fixes found on the way
 

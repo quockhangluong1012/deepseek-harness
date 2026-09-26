@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-workspace-memory` owns the durable per-Workspace document behind Workspace Memory: the user-authored description and instructions, the model-maintained memory document with its provenance, attached text and file context items, and the produced-file index. Hosts read it synchronously and mutate it through capped writes; the injector and extractor packages consume it. Choose it when every Session in a directory should inherit shared knowledge without writing inside the project.
+`dsh-workspace-memory` owns the durable per-Workspace document behind Workspace Memory: the user-authored description and instructions, the model-maintained memory document with the extraction that last wrote it, attached text and file context items, and the produced-file index. Hosts read it synchronously and mutate it through capped writes; the injector and extractor packages consume it. Choose it when every Session in a directory should inherit shared knowledge without writing inside the project.
 
 ## Table of Contents
 
@@ -71,7 +71,7 @@ One durable record per Workspace in storage domain `workspace_memory`, version `
 |---|---|
 | [`src/index.ts`](src/index.ts) | Plugin entry: `WorkspaceMemoryStore` service, caps, write paths |
 | [`src/spec.ts`](src/spec.ts) | Domain declaration: record schema and `defineDomain` spec |
-| [`src/types.ts`](src/types.ts) | Public record, context item, output, and provenance types |
+| [`src/types.ts`](src/types.ts) | Public record, context item, output, and extraction types |
 | [`src/digest.ts`](src/digest.ts) | Digest, capacity, and byte-length helpers |
 
 ### Failure and recovery
@@ -109,7 +109,7 @@ Independent of live requests: the package never touches a request prefix, so it 
 These limits define when the store is a poor fit. They are current package constraints.
 
 - **Machine-local only** — records live under `$DSH_HOME`, never inside the project directory.
-- **One document per Workspace** — there is no per-entry provenance, per-entry deletion, or memory history.
+- **One document per Workspace** — there is no per-entry source, per-entry deletion, or memory history.
 - **File size is a snapshot** — a file item's recorded size is not refreshed when the file changes on disk.
 
 <a id="dev-note"></a>

@@ -68,7 +68,7 @@ Registration is all-or-nothing: a batch naming a route another provider already 
 
 ### The cache
 
-The key is the SHA-256 of the resolved route, model, and text joined by a separator that cannot occur in either, so the three components cannot be confused for one another. A hit is re-inserted to become the most recently used key; an insert past the bound drops the first key, which is therefore the least recently used one. Duplicate texts inside one batch are both sent — batching repeats is the provider's business, not the cache's.
+The key is the SHA-256 of the resolved route, the model that produced the vector, and the text joined by a separator that cannot occur in either, so the three components cannot be confused for one another. The model component is the one the provider reports for the batch, not the one the caller asked for, so a batch a provider served with its fallback is stored under that fallback and never read back as the requested model's output. A hit is re-inserted to become the most recently used key; an insert past the bound drops the first key, which is therefore the least recently used one. Duplicate texts inside one batch are both sent — batching repeats is the provider's business, not the cache's.
 
 ### Failure and recovery
 
@@ -103,7 +103,7 @@ None: embedding requests carry no conversation prefix, so a batch cannot invalid
 - **In-process cache only** — a restart re-embeds every text; durable per-document reuse belongs to whatever index stores those vectors.
 - **No deduplication within a batch** — a text repeated in one batch is embedded once per occurrence.
 - **No provider concurrency limit** — a caller that issues many batches at once issues that many endpoint requests.
-- **No dimension or model validation** — the service returns whatever the provider produced; a caller mixing two models in one corpus owns that mistake.
+- **No dimension or model validation** — the service returns whatever the provider produced and caches it under the model the provider reported, but it does not check that vectors a caller keeps elsewhere share one model or width; a caller mixing two models in one corpus owns that mistake.
 
 <a id="dev-note"></a>
 ### Dev Note

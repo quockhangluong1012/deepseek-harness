@@ -493,6 +493,7 @@ function commitCompactionBody(
     shadowedSeqs: [...shadowedSeqs],
     summaryText: summary.map(block => block.type === 'text' ? block.text : '').join('\n'),
     summarizer: { provider, model },
+    // oxlint-disable-next-line typescript/no-deprecated -- Existing Session history read; migration deferred.
     events: session.snapshotEvents(),
     droppedToolResultIds: droppedToolResults(session, shadowedSeqs),
   })
@@ -619,6 +620,7 @@ function inspectCompactionEntryState(session: Session): CompactionEntryState {
 function droppedToolResults(session: Session, shadowedSeqs: readonly SessionSeq[]): string[] {
   const shadowed = new Set(shadowedSeqs)
   const dropped: string[] = []
+  // oxlint-disable-next-line typescript/no-deprecated -- Existing Session history read; migration deferred.
   for (const event of session.snapshotEvents()) {
     if (event.type !== 'tool/result' || !shadowed.has(event.seq)) continue
     dropped.push(event.data.message.toolCallId)

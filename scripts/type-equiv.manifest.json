@@ -1603,6 +1603,16 @@
     },
     {
       "doc": "docs/subsystems/lsp.md",
+      "symbol": "LspDiagnosticSeverity",
+      "source": "packages/lsp/lsp/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/lsp.md",
+      "symbol": "LspDiagnostic",
+      "source": "packages/lsp/lsp/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/lsp.md",
       "symbol": "LspQueryResult",
       "source": "packages/lsp/lsp/src/types.ts"
     },
@@ -2269,6 +2279,16 @@
     },
     {
       "doc": "docs/subsystems/deliverables.md",
+      "symbol": "WorkspaceRestoreSkip",
+      "source": "packages/deliverables/workspace-changes/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/deliverables.md",
+      "symbol": "WorkspaceRestoreResult",
+      "source": "packages/deliverables/workspace-changes/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/deliverables.md",
       "symbol": "WorkspaceChanges",
       "source": "packages/deliverables/workspace-changes/src/types.ts"
     },
@@ -2281,6 +2301,51 @@
       "doc": "docs/subsystems/product-telemetry.md",
       "symbol": "ProductTelemetryRecord",
       "source": "packages/host/product-telemetry-otel/src/index.ts"
+    },
+    {
+      "doc": "docs/subsystems/research.md",
+      "symbol": "ResearchStage",
+      "source": "packages/research/research-controller/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/research.md",
+      "symbol": "StageRecord",
+      "source": "packages/research/research-controller/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/research.md",
+      "symbol": "ResearchRunRecord",
+      "source": "packages/research/research-controller/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/research.md",
+      "symbol": "ResearchStageProvider",
+      "source": "packages/research/research-controller/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/research.md",
+      "symbol": "AnswerStatement",
+      "source": "packages/research/research-controller/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/research.md",
+      "symbol": "ResearchAnswer",
+      "source": "packages/research/research-controller/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/research.md",
+      "symbol": "CaseArtifact",
+      "source": "packages/research/case-store/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/research.md",
+      "symbol": "CaseObservation",
+      "source": "packages/research/case-store/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/research.md",
+      "symbol": "CaseInterpretation",
+      "source": "packages/research/case-store/src/types.ts"
     }
   ]
 }

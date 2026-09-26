@@ -20,14 +20,14 @@ async function opened(config: Parameters<typeof rig>[0] = {}) {
 }
 
 describe('evidence records', () => {
-  it('records one observation with its digest and provenance', async () => {
+  it('records one observation with its digest and source reference', async () => {
     const { kernel, agent } = await opened()
 
     const evidence = kernel.recordEvidence(agent, {
       kind: 'tool-result',
       contentRef: 'call-7',
       digest: 'a'.repeat(64),
-      provenance: { source: 'tool', locator: 'call-7' },
+      sourceRef: { source: 'tool', locator: 'call-7' },
       trust: 'untrusted',
     })
 
@@ -36,11 +36,11 @@ describe('evidence records', () => {
       contentRef: 'call-7',
       digest: 'a'.repeat(64),
       trust: 'untrusted',
-      provenance: { source: 'tool', locator: 'call-7' },
+      sourceRef: { source: 'tool', locator: 'call-7' },
     })
     expect(eventsOf(agent, 'evidence/recorded')[0]).toMatchObject({
       evidenceId: evidence.evidenceId,
-      metadata: { actor: 'model', taskId: currentTask(agent).taskId, provenance: { source: 'tool' } },
+      metadata: { actor: 'model', taskId: currentTask(agent).taskId, sourceRef: { source: 'tool' } },
     })
     expect(kernel.state.view(agent.session)?.evidence).toEqual([evidence])
   })
@@ -51,7 +51,7 @@ describe('evidence records', () => {
     expect(() => kernel.recordEvidence(agent, {
       kind: 'file',
       contentRef: '   ',
-      provenance: { source: 'repo' },
+      sourceRef: { source: 'repo' },
       trust: 'untrusted',
     })).toThrow('must name where its content lives')
   })
@@ -61,7 +61,7 @@ describe('evidence records', () => {
     const evidence = kernel.recordEvidence(agent, {
       kind: 'test',
       contentRef: 'vitest run evidence.spec.ts',
-      provenance: { source: 'tool', locator: 'call-9' },
+      sourceRef: { source: 'tool', locator: 'call-9' },
       trust: 'trusted',
     })
 
@@ -102,7 +102,7 @@ describe('evidence records', () => {
     const hypothesis = kernel.recordHypothesis(agent, {
       question: 'does the digest survive a replay?',
       claims: [claim.claimId],
-      tests: [{ taskId: task.taskId, revision: task.revision, criteria: [], changedScopes: [] }],
+      tests: [{ taskId: task.taskId, revision: task.revision, criteria: [], changedScopes: [], repositoryDigest: 'digest-1' }],
       status: 'inconclusive',
     })
 
@@ -119,7 +119,7 @@ describe('evidence records', () => {
     })).toThrow('this session never asserted')
     expect(() => kernel.recordHypothesis(agent, {
       question: 'does another task s revision hold?',
-      tests: [{ taskId: 'other-task' as TaskId, revision: 1, criteria: [], changedScopes: [] }],
+      tests: [{ taskId: 'other-task' as TaskId, revision: 1, criteria: [], changedScopes: [], repositoryDigest: 'digest-1' }],
     })).toThrow('not "')
   })
 
@@ -128,7 +128,7 @@ describe('evidence records', () => {
     const evidence = kernel.recordEvidence(agent, {
       kind: 'web',
       contentRef: 'https://example.invalid/spec',
-      provenance: { source: 'web', locator: 'https://example.invalid/spec' },
+      sourceRef: { source: 'web', locator: 'https://example.invalid/spec' },
       trust: 'untrusted',
     })
     const claim = kernel.recordClaim(agent, {

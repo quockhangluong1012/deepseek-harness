@@ -100,6 +100,7 @@ function stdioConfig(reconnect?: Config['reconnect']): Config {
     cwd: '',
     toolCallTimeoutMs: 60_000,
     failOnStartupError: false,
+    trust: 'untrusted',
     ...reconnect === undefined ? {} : { reconnect },
   }
 }

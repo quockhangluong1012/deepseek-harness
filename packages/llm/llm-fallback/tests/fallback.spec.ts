@@ -112,12 +112,16 @@ describe('llm-fallback', () => {
       fallbackRoutes: [],
       failureThreshold: 3,
       coolMs: 60000,
-      eligibleCodes: undefined,
+      eligibleCodes: ['EMPTY_RESPONSE', 'RATE_LIMIT', 'SERVER', 'TIMEOUT', 'TRANSPORT'],
     })
     const routes = [{ provider: 'other', model: 'other-model' }]
     const resolved = fallback.resolveConfig({ fallbackRoutes: routes, eligibleCodes: ['AUTH'] })
     expect(resolved.fallbackRoutes).toEqual(routes)
     expect(resolved.fallbackRoutes).not.toBe(routes)
+    const explicit = ['AUTH']
+    const explicitResolved = fallback.resolveConfig({ eligibleCodes: explicit })
+    expect(explicitResolved.eligibleCodes).toEqual(explicit)
+    expect(explicitResolved.eligibleCodes).not.toBe(explicit)
   })
 
   it('rejects invalid deployment choices loudly', () => {
@@ -214,7 +218,7 @@ describe('llm-fallback', () => {
 
   it('stays inert without routes', async () => {
     const adapter = new ScriptedAdapter([new LlmError('bad key', 'AUTH')])
-    ;({ ctx: context } = await harness(adapter))
+    ;({ ctx: context } = await harness(adapter, { eligibleCodes: ['AUTH'] }))
     const agent = await context.agentLoop.create(SessionId('fallback-inert'), {
       provider: 'mock',
       model: 'mock',
@@ -242,6 +246,7 @@ describe('llm-fallback', () => {
         { provider: 'third', model: 'third-model' },
       ],
       breaker: { failureThreshold: 1, coolMs: 1000 },
+      eligibleCodes: ['AUTH'],
     }))
     const agent = await context.agentLoop.create(SessionId('fallback-breaker'), {
       provider: 'mock',
@@ -280,6 +285,7 @@ describe('llm-fallback', () => {
     ])
     ;({ ctx: context } = await harness(adapter, {
       fallbackRoutes: [{ provider: 'other', model: 'other-model' }],
+      eligibleCodes: ['AUTH'],
     }))
     context.provide('llmFallbackKeyRotation', async (route, failure) => {
       rotated.push({ provider: route.provider, code: failure.code })
@@ -302,6 +308,7 @@ describe('llm-fallback', () => {
     ])
     ;({ ctx: context } = await harness(adapter, {
       fallbackRoutes: [{ provider: 'other', model: 'other-model' }],
+      eligibleCodes: ['AUTH'],
     }))
     context.provide('llmFallbackKeyRotation', () => {
       throw new Error('rotation exploded')
@@ -329,6 +336,7 @@ describe('llm-fallback', () => {
     ])
     ;({ ctx: context } = await harness(adapter, {
       fallbackRoutes: [{ provider: 'other', model: 'other-model' }],
+      eligibleCodes: ['AUTH'],
     }))
     const agent = await context.agentLoop.create(SessionId('fallback-cancel'), {
       provider: 'mock',
@@ -387,5 +395,116 @@ describe('llm-fallback', () => {
 
     expect(adapter.requests).toHaveLength(1)
     expect(agent.session.snapshotEvents().filter(item => item.type === 'llm/fallback')).toHaveLength(0)
+  })
+
+  it('switches on a transient failure when eligibleCodes is unset', async () => {
+    const adapter = new ScriptedAdapter([
+      new LlmError('busy', 'RATE_LIMIT'),
+      textResponse('recovered'),
+    ])
+    ;({ ctx: context } = await harness(adapter, {
+      fallbackRoutes: [{ provider: 'other', model: 'other-model' }],
+    }))
+    const agent = await context.agentLoop.create(SessionId('fallback-transient'), {
+      provider: 'mock',
+      model: 'mock',
+    })
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
+    await agent.whenIdle()
+
+    expect(adapter.requests.map(request => request.provider)).toEqual(['mock', 'other'])
+    expect(agent.session.snapshotEvents().filter(item => item.type === 'llm/fallback')).toHaveLength(1)
+  })
+
+  it('declines a non-transient failure when eligibleCodes is unset', async () => {
+    const adapter = new ScriptedAdapter([new LlmError('bad key', 'AUTH')])
+    ;({ ctx: context } = await harness(adapter, {
+      fallbackRoutes: [{ provider: 'other', model: 'other-model' }],
+    }))
+    const agent = await context.agentLoop.create(SessionId('fallback-non-transient'), {
+      provider: 'mock',
+      model: 'mock',
+    })
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
+    await agent.whenIdle()
+
+    expect(adapter.requests.map(request => request.provider)).toEqual(['mock'])
+    expect(agent.session.snapshotEvents().filter(item => item.type === 'llm/fallback')).toHaveLength(0)
+  })
+
+  it('resets a route breaker when that route succeeds', async () => {
+    const adapter = new ScriptedAdapter([
+      new LlmError('mock down', 'AUTH'),
+      new LlmError('other down', 'AUTH'),
+      textResponse('other back'),
+      new LlmError('mock down', 'AUTH'),
+      textResponse('via other'),
+    ])
+    ;({ ctx: context } = await harness(adapter, {
+      fallbackRoutes: [{ provider: 'other', model: 'other-model' }],
+      breaker: { failureThreshold: 1, coolMs: 60000 },
+      eligibleCodes: ['AUTH'],
+    }))
+    const failing = await context.agentLoop.create(SessionId('fallback-reset-failing'), {
+      provider: 'mock',
+      model: 'mock',
+    })
+    failing.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
+    await failing.whenIdle()
+    // The switch reaches the only route, which fails and opens its own breaker,
+    // so the turn ends with no alternative left.
+    expect(adapter.requests.map(request => request.provider)).toEqual(['mock', 'other'])
+
+    // The same route serves the next turn successfully.
+    failing.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
+    await failing.whenIdle()
+    expect(adapter.requests.map(request => request.provider)).toEqual(['mock', 'other', 'other'])
+
+    // That success cleared the route's failures, so a different agent reaches
+    // it without waiting out the 60s cooldown the earlier failure started.
+    const recovered = await context.agentLoop.create(SessionId('fallback-reset-recovered'), {
+      provider: 'mock',
+      model: 'mock',
+    })
+    recovered.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
+    await recovered.whenIdle()
+
+    expect(adapter.requests.map(request => request.provider)).toEqual(['mock', 'other', 'other', 'mock', 'other'])
+    const events = recovered.session.snapshotEvents().filter(item => item.type === 'llm/fallback')
+    expect(events).toHaveLength(1)
+    expect(events[0]?.data).toMatchObject({ fromProvider: 'mock', toProvider: 'other', attempt: 1 })
+  })
+
+  it('clears the stashed route when its step ends', async () => {
+    const adapter = new ScriptedAdapter([
+      new LlmError('bad key', 'AUTH'),
+      textResponse('recovered'),
+      textResponse('fresh identity'),
+    ])
+    ;({ ctx: context } = await harness(adapter, {
+      fallbackRoutes: [{ provider: 'other', model: 'other-model' }],
+      eligibleCodes: ['AUTH'],
+    }))
+    const sessionId = SessionId('fallback-stash-lifetime')
+    const first = await context.agents.create({
+      sessionId,
+      agentOptions: { provider: 'mock', model: 'mock' },
+    })
+    first.agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
+    await first.agent.whenIdle()
+    expect(adapter.requests.map(request => request.provider)).toEqual(['mock', 'other'])
+    await first.dispose()
+
+    // The replacement agent reuses the identity and restarts turn numbering,
+    // so it reaches the session/turn/step key the finished step stashed.
+    const second = await context.agents.create({
+      sessionId,
+      agentOptions: { provider: 'mock', model: 'mock' },
+    })
+    second.agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
+    await second.agent.whenIdle()
+
+    expect(adapter.requests.map(request => request.provider)).toEqual(['mock', 'other', 'mock'])
+    expect(second.agent.session.snapshotEvents().filter(item => item.type === 'llm/fallback')).toHaveLength(0)
   })
 })

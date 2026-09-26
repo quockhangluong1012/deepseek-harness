@@ -24,6 +24,9 @@
       "path": "../../core/agent"
     },
     {
+      "path": "../../runtime/agent-kernel"
+    },
+    {
       "path": "../../llm/llm"
     },
     {

@@ -37,8 +37,12 @@ export interface JsonProjectionOptions {
 
 /** The live handle of one `--json` projection. */
 export interface JsonProjection {
-  /** Write the terminal `final` event carrying the run's answer text. */
-  finish(text: string): void
+  /**
+   * Write the terminal `final` event carrying the run's answer.
+   * @param text - the last committed assistant text, empty when the run produced none.
+   * @param structured - the schema-constrained result, when the run declared one.
+   */
+  finish(text: string, structured?: unknown): void
   /** Stop observing the Session. */
   dispose(): void
 }
@@ -319,10 +323,14 @@ export function projectJsonRun(
   const stopSession = ctx.on('session/event', onSessionEvent)
 
   return {
-    finish(text: string): void {
+    finish(text: string, structured?: unknown): void {
       // The answer is the lossless terminal contract, so it is not truncated.
       if (disposed) return
-      sink.write(`${JSON.stringify({ type: 'final', text })}\n`)
+      sink.write(`${JSON.stringify({
+        type: 'final',
+        text,
+        ...structured === undefined ? {} : { structured },
+      })}\n`)
     },
     dispose(): void {
       disposed = true

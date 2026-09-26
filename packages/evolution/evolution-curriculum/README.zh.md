@@ -38,6 +38,10 @@ for (const proposal of staged) {
 
 `gaps()` 连接已挂载的 seam：对每个带会话的受追踪技能，取其压缩轨迹行的去重失败摘要。`propose(gaps)` 为每个越过证据下限的差距暂存一条有依据的任务，并跳过同一能力与任务已处于 open 的提案。挂载了失败记忆存储时，`propose` 还会把每个差距匹配到为它存下的反思——该差距所用会话中最晚写入、且症状与它的某条摘要属于同一次已观察失败的那条——暂存的提案随即带上该反思的反模式与候选测试，因此任务持有的是 §21 的纠正启发式，而不只是一段错误字符串。`proposals()` 列出全部已暂存任务，open 在前、retired 在后；`retire(id)` 刻意退役一个。`/curriculum` 命令一步完成测量、暂存与列出，并接受 `retire <id>`。
 
+### 任务分类词表
+
+`types.ts` 导出用于分类每个任务的 profile 与族词表：`TaskProfile`（`coding`、`research`、`mentor`、`ict`）与 `TaskFamily`（`coding`、`research`、`mentor-ict`、`long-horizon`、`loop-recovery`）。词表就放在此处、紧邻任务派生；`dsh-evolution-benchmark` 用它分类所存储的任务与所交付的 §5.3 基线数据集，因此一个任务与它所落入的数据集不可能各自声称不同的族。
+
 ### 配置
 
 证据下限是可在 `cordis.yml` 中修改的已验证 `Config` 成员。

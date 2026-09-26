@@ -40,9 +40,9 @@ declare module '@deepseek-ai/dsh-llm' {
  * Count the lines one patch would add and remove: both bodies minus their
  * longest common subsequence, so unchanged lines in place cost nothing and
  * every other line counts once on its own side. Order-sensitive, matching
- * `@deepseek-ai/dsh-evolution-optimizer`'s `diffLineCounts` — duplicated here
- * rather than imported so this package does not depend on the optimizer for
- * one pure line-diff function.
+ * `@deepseek-ai/dsh-evolution-lineage`'s `lineDiff` — duplicated here rather
+ * than imported so this package does not depend on the lineage store for one
+ * pure line-diff function.
  * @param before - the body on disk.
  * @param after - the candidate patch body.
  * @returns added and removed line counts.
@@ -217,6 +217,14 @@ export interface ConsolidationFork {
   execute(name: string, args: Record<string, unknown>): Promise<string>
 }
 
+/** What one bounded fork loop spent. */
+export interface ConsolidationForkRun {
+  /** Requests the fork spent. */
+  steps: number
+  /** Provider-reported tokens every answer consumed, 0 when none reported them. */
+  tokens: number
+}
+
 /** Fixed request fields for the bounded fork loop. */
 export interface ConsolidationRunOptions {
   /** Provider route for every request. */
@@ -238,13 +246,17 @@ export interface ConsolidationRunOptions {
  * results back, and stop at the first text-only answer or at `maxSteps`.
  * @param fork - model stream plus tool executor.
  * @param options - route, budget, framing, and cancellation.
- * @returns the requests spent.
+ * @returns the requests spent and the tokens every answer consumed.
  */
-export async function runConsolidationFork(fork: ConsolidationFork, options: ConsolidationRunOptions): Promise<number> {
+export async function runConsolidationFork(
+  fork: ConsolidationFork,
+  options: ConsolidationRunOptions,
+): Promise<ConsolidationForkRun> {
   const messages: Message[] = [createUserMessage({
     content: [{ type: 'text', text: options.input }],
     source: { kind: 'evolution-curator' },
   })]
+  let tokens = 0
   for (let step = 1; step <= options.maxSteps; step += 1) {
     const assembler = new BlockAssembler()
     for await (const chunk of fork.stream({
@@ -260,9 +272,11 @@ export async function runConsolidationFork(fork: ConsolidationFork, options: Con
       assembler.push(chunk)
     }
     assertFinish(assembler)
+    const usage = assembler.usage
+    if (usage !== undefined) tokens += usage.totalTokens ?? usage.inputTokens + usage.outputTokens
     const blocks = assembler.blocks()
     const calls = blocks.filter((block): block is Extract<ContentBlock, { type: 'tool-call' }> => block.type === 'tool-call')
-    if (calls.length === 0) return step
+    if (calls.length === 0) return { steps: step, tokens }
     messages.push(createAssistantMessage({
       content: blocks,
       source: { provider: options.provider, model: options.model },
@@ -276,7 +290,7 @@ export async function runConsolidationFork(fork: ConsolidationFork, options: Con
       }))
     }
   }
-  return options.maxSteps
+  return { steps: options.maxSteps, tokens }
 }
 
 /** Decode one tool call's arguments; malformed JSON becomes an empty request. */
@@ -343,11 +357,14 @@ export interface ConsolidationApplied {
 }
 
 /**
- * Apply the fork's verdicts under the full-package rule. A package is moved
- * whole or not at all: merges re-home the entire directory and rewrite its
- * `${DSH_SKILL_DIR}` references for the new relative root, archives move the
- * entire directory into `.archive/`, and a merge whose umbrella is missing or
- * unwritable leaves the package exactly where it is.
+ * Apply the fork's verdicts under the full-package rule. Eligibility precedes
+ * every action: a skill outside the surveyed candidate set, without a
+ * resolvable directory, or pinned is skipped whatever the verdict asked for,
+ * so a `patch` never rewrites a pinned body and a pinned package never moves.
+ * A package is moved whole or not at all: merges re-home the entire directory
+ * and rewrite its `${DSH_SKILL_DIR}` references for the new relative root,
+ * archives move the entire directory into `.archive/`, and a merge whose
+ * umbrella is missing or unwritable leaves the package exactly where it is.
  *
  * A `patch` body is admitted through the verifier ladder first: the schema and
  * invariant rungs decide it deterministically, a failing rung refuses the body
@@ -382,6 +399,12 @@ export async function applyConsolidation(
     const before = deps.telemetry.read(verdict.name)
     const dir = deps.dirs.get(verdict.name)
     if (before === undefined || dir === undefined) {
+      applied.skipped += 1
+      continue
+    }
+    // Eligibility precedes every action: a pinned skill is never patched,
+    // moved, or archived, whatever the fork asked for.
+    if (before.pinned) {
       applied.skipped += 1
       continue
     }
@@ -442,10 +465,6 @@ export async function applyConsolidation(
         before: beforeSha,
         after: textSha(verdict.body),
       })
-      continue
-    }
-    if (before.pinned) {
-      applied.skipped += 1
       continue
     }
     const destination = verdict.action === 'archive'

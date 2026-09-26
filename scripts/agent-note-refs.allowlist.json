@@ -8,28 +8,64 @@
   ".agents/notes/implemented/architecture/2026-08-27-adjacent-agent-steer-messaging.md": {
     "@deepseek-ai/dsh-tool-subagent-report": "records the complete removal this section conditions for reintroduction"
   },
-  ".agents/notes/implemented/architecture/2026-07-29-dsh-source-launch-tsx-esm.md": {
-    "apps/cli/src/tsconfig-paths-loader.ts": "records the deleted loader this decision removed",
-    "scripts/tspath-loader.ts": "records the deleted loader this decision removed"
+  ".agents/notes/implemented/architecture/2026-09-01-jobs-absorb-activity-record.md": {
+    "packages/activity/": "records the removal this decision performs; the standalone observation plane is deleted",
+    "packages/api/activity-controller": "records the removal this decision performs; the wire package is deleted"
+  },
+  ".agents/notes/implemented/architecture/2026-09-11-node-office-kit.md": {
+    "@deepseek-ai/libreoffice-kit": "names the separately released kit Node API in the deepseek-harness/libreoffice-kit repository, never a workspace package"
+  },
+  ".agents/notes/implemented/architecture/2026-09-14-independent-libreoffice-kit.md": {
+    "@deepseek-ai/libreoffice-kit": "names the package that repository publishes; the workspace holds only its adapter"
+  },
+  ".agents/notes/implemented/architecture/2026-09-14-sidebar-layout-provider-recovery.md": {
+    "packages/app/src/context/layout.tsx": "path inside the OpenCode upstream repository whose layout this record cites, not a path in this workspace"
+  },
+  ".agents/notes/implemented/architecture/2026-09-15-platform-office-engines.md": {
+    "@deepseek-ai/libreoffice-kit-${platform}-${arch}": "names the kit release per-platform native packages, published outside this workspace"
+  },
+  ".agents/notes/implemented/architecture/2026-09-16-user-terminal-permissions.md": {
+    "packages/core/src/pty.ts": "path inside the OpenCode upstream repository cited as adjacent evidence, not this workspace",
+    "packages/core/src/pty/pty.node.ts": "path inside the OpenCode upstream repository cited as adjacent evidence, not this workspace"
+  },
+  ".agents/notes/implemented/architecture/2026-09-18-agent-teams-single-bundle.md": {
+    "@deepseek-ai/dsh-experimental-agent-team-web-profile": "states the absence of this package as the decision it records"
   },
   ".agents/notes/implemented/feature/2026-07-16-harness-level-loop.md": {
     "packages/loop/": "states the non-existence as the decision: no loop family exists"
   },
-  ".agents/notes/implemented/testing/2026-07-24-web-gui-browser-e2e-lane.md": {
-    "packages/test-support/web-snapshot": "rejected alternative that was never built"
+  ".agents/notes/implemented/feature/2026-08-24-activity-observation-seam.md": {
+    "@deepseek-ai/dsh-activity": "names the deleted Service Definition of that superseded seam",
+    "@deepseek-ai/dsh-activity-local": "names the deleted Service Provider of that superseded seam",
+    "@deepseek-ai/dsh-api-activity-controller": "names the deleted wire package of that superseded seam",
+    "@deepseek-ai/dsh-client-ui-activity": "names the deleted client package of that superseded seam",
+    "packages/activity/": "the superseded seam these bullets define was folded into ctx.jobs and its packages deleted"
   },
-  ".agents/notes/implemented/process/2026-08-10-npm-release-sequences.md": {
-    "vendor/published.json": "rejected ledger alternative that was never built"
+  ".agents/notes/implemented/feature/2026-09-10-workspace-memory.md": {
+    "@deepseek-ai/dsh-workspace-memory-llm": "names the derivation package the workspace-memory consolidation deletes; dsh-workspace-memory keeps only the user-edited store"
+  },
+  ".agents/notes/implemented/feature/2026-09-12-evolution-recall-squeeze.md": {
+    "packages/workspace/workspace-memory-llm/src/prompt.ts": "reuse path this slice rejected inside a package the workspace-memory consolidation deletes"
   },
   ".agents/notes/implemented/process/2026-07-02-bilingual-docs-and-pairing-gate.md": {
     "docs/en/": "rejected locale-directory layout that was never built",
     "docs/zh/": "rejected locale-directory layout that was never built"
+  },
+  ".agents/notes/implemented/process/2026-08-10-npm-release-sequences.md": {
+    "vendor/published.json": "rejected ledger alternative that was never built"
   },
   ".agents/notes/implemented/process/2026-09-13-manifest-conformance-batch-2.md": {
     "packages/client/ui-sidebar-textpreview/": "records the untracked residue of a deleted package that this batch removed"
   },
   ".agents/notes/implemented/simplification/2026-08-30-jsonl-only-session-persistence.md": {
     "@deepseek-ai/dsh-session-persistence-sqlite": "names the package whose removal this note records"
+  },
+  ".agents/notes/implemented/simplification/2026-09-19-remove-desktop-profile-core-cleanup.md": {
+    "apps/desktop/src/profile-core-cleanup.ts": "records the deletion this decision performs",
+    "apps/desktop/src/profile-packages.ts": "records the deletion this decision performs"
+  },
+  ".agents/notes/implemented/testing/2026-07-24-web-gui-browser-e2e-lane.md": {
+    "packages/test-support/web-snapshot": "rejected alternative that was never built"
   },
   ".agents/notes/implemented/testing/2026-09-04-session-open-performance-gate.md": {
     "benchmarks/.dsh-build/": "benchmark build output directory created at lane runtime"

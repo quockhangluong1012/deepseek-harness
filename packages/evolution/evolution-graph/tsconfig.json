@@ -10,9 +10,11 @@
     { "path": "../../../vendor/schemastery" },
     { "path": "../../core/session" },
     { "path": "../../llm/llm" },
+    { "path": "../../session-query/session-query" },
     { "path": "../../storage/storage" },
     { "path": "../../storage/storage-domain" },
     { "path": "../../util/timeout" },
+    { "path": "../evolution-budget" },
     { "path": "../evolution-memory" }
   ]
 }

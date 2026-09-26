@@ -98,7 +98,7 @@ const planned = ctx.evolutionSleeptime.plan()
 - [进化式 Harness 规范](../../../specs/evolutionary-harness-v11-deep-research.md) §25——本包实现的睡眠时计算。
 - [进化包地图](../README.zh.md)——本组包及其仓库位置。
 - [`dsh-evolution-heartbeat`](../evolution-heartbeat/README.zh.md)——其安静节拍触发预期遍历的空闲驱动者。
-- [`dsh-evolution-router`](../evolution-router/README.zh.md) 与 [`dsh-evolution-skill-telemetry`](../../skill/evolution-skill-telemetry/README.zh.md)——遍历据其已记录复现做预期的两个存储。
+- [`dsh-evolution-model-routes`](../evolution-model-routes/README.zh.md) 与 [`dsh-evolution-skill-telemetry`](../../skill/evolution-skill-telemetry/README.zh.md)——遍历据其已记录复现做预期的两个存储。
 - [`dsh-evolution-dreaming`](../evolution-dreaming/README.zh.md)——把过往观察固化为持久记忆的姊妹包，而睡眠时计算为可能的未来做预计算。
 
 -----

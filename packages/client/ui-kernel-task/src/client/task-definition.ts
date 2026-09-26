@@ -18,7 +18,7 @@ import type { ChatConversationViewNode } from '@deepseek-ai/dsh-client-ui-chat/c
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 import type {} from '@deepseek-ai/dsh-agent-kernel/src/types.ts'
 import type {
-  CriterionResult, EvidenceKind, FailureKind, Provenance, ResourceBudget, TaskClaimStatus, TaskStatus, TrustLabel,
+  CriterionResult, EvidenceKind, FailureKind, ResourceBudget, SourceRef, TaskClaimStatus, TaskStatus, TrustLabel,
 } from '@deepseek-ai/dsh-agent-kernel/src/types.ts'
 
 /** Final renderer data for one verification result. */
@@ -54,7 +54,7 @@ export interface KernelTaskEvidenceData {
   /** How far the observed content may be trusted. */
   readonly trust: TrustLabel
   /** Emitting subsystem or external boundary that produced the observation. */
-  readonly source: Provenance['source']
+  readonly source: SourceRef['source']
 }
 
 /** One claim's current state, resolved with the evidence it cites (S1: evidence lineage). */
@@ -216,7 +216,7 @@ export function foldKernelTask(state: KernelTaskState, event: SessionEvent): Ker
             kind: event.data.kind,
             contentRef: event.data.contentRef,
             trust: event.data.trust,
-            source: event.data.provenance.source,
+            source: event.data.sourceRef.source,
           },
         },
       }
@@ -336,7 +336,7 @@ export const kernelTaskDefinition: ConversationNodeDefinition<KernelTaskState> =
     }
   },
   // The matcher admitted only the kernel events above; the fold reads those.
-  update: (context, match) => foldKernelTask(context.state as KernelTaskState, match.event as SessionEvent),
+  update: (context, match) => foldKernelTask(context.state, match.event as SessionEvent),
   buildViewNode: (context): ChatConversationViewNode | null => {
     if (context.start === undefined) return null
     return {

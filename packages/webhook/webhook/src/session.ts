@@ -6,12 +6,11 @@ import { isAbsolute } from 'node:path'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import type { ModelSelection } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-agent-default-model'
-import type {} from '@deepseek-ai/dsh-agent-preset-registry'
-import { boundContextSummary, createUserMessage, errorChain, type LlmCallConfig } from '@deepseek-ai/dsh-llm'
-import type {} from '@deepseek-ai/dsh-permission-presets'
+import { boundContextSummary, createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-title'
-import type {} from '@deepseek-ai/dsh-workspace'
+import { startWorkspaceSession } from '@deepseek-ai/dsh-workspace-session'
+import type { WorkspaceSessionAgentOptions } from '@deepseek-ai/dsh-workspace-session'
 import type { WebhookRuleId } from './brand.ts'
 import type { VerifiedWebhookDelivery, WebhookSessionRequest } from './types.ts'
 
@@ -23,11 +22,7 @@ interface ResolvedWebhookSessionRequest {
   readonly agentPreset: string
   readonly permissionPreset: string
   readonly modelSelection: ModelSelection
-  readonly agentOptions: {
-    readonly provider: string
-    readonly model: string
-    readonly maxTokens?: number
-  }
+  readonly agentOptions: WorkspaceSessionAgentOptions
 }
 
 /** Require one non-empty string field from an untyped rule result. */
@@ -58,7 +53,7 @@ function resolveRequest(ctx: Context, input: WebhookSessionRequest): ResolvedWeb
   if (model !== undefined && (model === null || typeof model !== 'object' || Array.isArray(model))) {
     throw new TypeError('webhook Session request model must be an object')
   }
-  let agentOptions: ResolvedWebhookSessionRequest['agentOptions']
+  let agentOptions: WorkspaceSessionAgentOptions
   let modelSelection: ModelSelection
   if (model === undefined) {
     const selected = ctx.agentDefaultModel.currentSelection()
@@ -83,26 +78,6 @@ function resolveRequest(ctx: Context, input: WebhookSessionRequest): ResolvedWeb
   return { workspacePath, title, prompt, agentPreset, permissionPreset, modelSelection, agentOptions }
 }
 
-/** Log a rollback failure without replacing the operation's original failure. */
-function reportRollbackFailure(ctx: Context, subject: string, error: unknown): void {
-  ctx.logger.warn(`webhook: ${subject} rollback failed: ${errorChain(error)}`)
-}
-
-/** Apply the creation-time selection until its first durable request header exists. */
-function installInitialModelSelection(agentCtx: Context, selection: ModelSelection): void {
-  agentCtx.on('agent/request', async ({ agent }, next): Promise<LlmCallConfig> => {
-    const resolved = await next()
-    if (agent.session.requestHeader() !== undefined
-      || resolved.provider !== selection.provider
-      || resolved.model !== selection.model) return resolved
-    const { reasoningEffort: _inheritedEffort, ...withoutInheritedEffort } = resolved
-    return {
-      ...withoutInheritedEffort,
-      ...selection.reasoningEffort === undefined ? {} : { reasoningEffort: selection.reasoningEffort },
-    }
-  })
-}
-
 /**
  * Create, attach, title, configure, and prompt one ordinary root Session.
  * Successful prompt admission ends webhook ownership of the operation; the
@@ -122,35 +97,19 @@ export async function createWebhookSession(
   signal: AbortSignal,
 ): Promise<void> {
   const resolved = resolveRequest(ctx, request)
-  ctx.permissionPresets.resolve(resolved.permissionPreset)
-  const preset = await ctx.agentPresets.resolve(resolved.agentPreset)
-  await using presetScope = await ctx.agentPresets.acquireScope(preset.id)
-  void presetScope
-  signal.throwIfAborted()
-
-  const workspace = await ctx.workspaceRegistry.create(resolved.workspacePath)
-  signal.throwIfAborted()
-  const sessionId = brandString<SessionId>(`webhook-${randomUUID()}`)
-  const handle = await ctx.agents.create({
-    sessionId,
-    signal,
-    meta: { cwd: workspace.path, agentPreset: preset.id },
-    agentOptions: resolved.agentOptions,
-    setup: async (agentCtx) => {
-      await ctx.agentPresets.mount(agentCtx, preset.id)
-      installInitialModelSelection(agentCtx, resolved.modelSelection)
+  await startWorkspaceSession(
+    ctx,
+    {
+      workspacePath: resolved.workspacePath,
+      sessionId: brandString<SessionId>(`webhook-${randomUUID()}`),
+      title: resolved.title,
+      agentPreset: resolved.agentPreset,
+      permissionPreset: resolved.permissionPreset,
+      modelSelection: resolved.modelSelection,
+      agentOptions: resolved.agentOptions,
+      owner: 'webhook',
     },
-  })
-
-  let attached = false
-  try {
-    signal.throwIfAborted()
-    await workspace.attachSession(sessionId)
-    attached = true
-    signal.throwIfAborted()
-    ctx.permissionPresets.set(handle.agent.session, resolved.permissionPreset)
-    ctx.sessionTitle.rename(handle.agent.session, resolved.title)
-    handle.agent.followup(createUserMessage({
+    createUserMessage({
       content: [{ type: 'text', text: resolved.prompt }],
       source: {
         kind: 'webhook',
@@ -161,20 +120,7 @@ export async function createWebhookSession(
         form: 'notice',
         summary: boundContextSummary(`${delivery.kind} webhook handled by ${ruleId}`),
       },
-    }))
-  } catch (error: unknown) {
-    if (attached) {
-      try {
-        await workspace.detachSession(sessionId)
-      } catch (rollbackError: unknown) {
-        reportRollbackFailure(ctx, `Workspace detach for Session "${sessionId}"`, rollbackError)
-      }
-    }
-    try {
-      await handle.dispose()
-    } catch (rollbackError: unknown) {
-      reportRollbackFailure(ctx, `Agent disposal for Session "${sessionId}"`, rollbackError)
-    }
-    throw error
-  }
+    }),
+    signal,
+  )
 }

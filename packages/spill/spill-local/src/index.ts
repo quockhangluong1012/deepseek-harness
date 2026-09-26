@@ -3,8 +3,11 @@
  * `@deepseek-ai/dsh-spill` storage seam. Persists oversized text to a
  * private, session-scoped file (see `./store.ts` for the traversal-safe naming
  * and exclusive owner-only write) and returns a path locator plus local
- * read/grep retrieval guidance. After activation it runs one best-effort
- * startup sweep that reclaims spill files older than `cleanupPeriodDays`.
+ * read/grep retrieval guidance. Registers two services over one root: itself as
+ * `ctx.spillStore` and `LocalArtifactStore` as `ctx.artifacts`, the read-only
+ * retrieval seam over the files it wrote. After activation it runs one
+ * best-effort startup sweep that reclaims spill files older than
+ * `cleanupPeriodDays`.
  *
  * @module @deepseek-ai/dsh-spill-local
  */
@@ -15,10 +18,12 @@ import { tmpdir } from 'node:os'
 import z from '@deepseek-ai/schemastery'
 import { SpillLocator, SpillStore } from '@deepseek-ai/dsh-spill'
 import type { SaveTextSpill, SpillRef } from '@deepseek-ai/dsh-spill'
+import { LocalArtifactStore } from './artifacts.ts'
 import { gatherSweepRoots, sweepSpillRoots } from './cleanup.ts'
 import type { SweepRoot, WarnFn } from './cleanup.ts'
 import { privateRoot, saveTextFile } from './store.ts'
 
+export { LocalArtifactStore } from './artifacts.ts'
 export { discoverDefaultRoots, sweepSpillRoots } from './cleanup.ts'
 export type { SweepOptions, SweepRoot, WarnFn } from './cleanup.ts'
 export { DEFAULT_ROOT_PREFIX, encodeSegment, isErrno, privateRoot, saveTextFile, sessionDir } from './store.ts'
@@ -80,12 +85,20 @@ export class LocalSpillStore extends SpillStore {
    */
   private cleanup: Promise<void> | undefined
 
+  /** This root's artifact retrieval service; it registers as `ctx.artifacts` from its constructor. */
+  readonly artifacts: LocalArtifactStore
+
   constructor(ctx: Context, config: Config) {
     super(ctx)
     // schemastery (static Config) has already filled `cleanupPeriodDays`; the
     // cast records that runtime fact for exactOptionalPropertyTypes.
     this.config = config as ResolvedConfig
     this.root = config.root !== undefined ? resolve(config.root) : privateRoot()
+
+    // Retrieval reads the SAME root this backend writes, so one fiber owns the
+    // artifacts under it: the service registers in this plugin's fiber and its
+    // disposal releases `ctx.artifacts` together with `ctx.spillStore`.
+    this.artifacts = new LocalArtifactStore(ctx, this.root)
 
     // One best-effort startup sweep, owned by the fiber. The generator body runs
     // at activation but does NOT await the sweep — it launches it and yields an

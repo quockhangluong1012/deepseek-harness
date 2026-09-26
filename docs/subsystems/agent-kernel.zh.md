@@ -8,7 +8,7 @@
 
 任务是一组 `task/*` 事件的投影，绝不是内存中的单例。`TaskId` 与 `RunId` 是[带品牌 id](core.zh.md#branded-ids)；`ActionId` 是工具调用自身的 `ToolCallId` 在第二个品牌下的形态，因此一条提议、它的决策与它的回执无需第二个标识符即可关联。
 
-`TaskContract` 携带目标、其约束、其验收标准、文件策略被限定到的工作区、agent 与策略 profile、资源预算、当前 `TaskStatus`，以及每次被接受的迁移都会递增的正 `revision`。`TaskStatus` 是封闭联合 `intake | planning | ready | executing | observing | verifying | recovering | awaiting-approval | awaiting-user | paused | completed | failed | cancelled`，且每个成员都有产生者：任务被打开时为 `intake`，进入 plan mode 期间为 `planning`，首个步骤被接纳后为 `ready`，每个步骤前后为 `executing`／`observing`，轮次结束时为 `verifying`，恢复开始时为 `recovering`，直到完成门或取消给出终态。未进入 plan mode 时，Kernel 自身驱动 `intake → ready → executing → observing`。
+`TaskContract` 携带目标、其约束、其验收标准、调用方声明的变更契约、文件策略被限定到的工作区、agent 与策略 profile、资源预算、当前 `TaskStatus`，以及每次被接受的迁移都会递增的正 `revision`。`TaskStatus` 是封闭联合 `intake | planning | ready | executing | observing | verifying | recovering | awaiting-approval | awaiting-user | paused | completed | failed | cancelled`，且每个成员都有产生者：任务被打开时为 `intake`，进入 plan mode 期间为 `planning`，首个步骤被接纳后为 `ready`，每个步骤前后为 `executing`／`observing`，轮次结束时为 `verifying`，恢复开始时为 `recovering`，直到完成门或取消给出终态。未进入 plan mode 时，Kernel 自身驱动 `intake → ready → executing → observing`。
 
 一个会话同一时间只持有一个任务。当前任务处于终态时被领取的人类消息会开启下一份契约，并在 `parentTaskId` 中指明它所承接的任务；当前任务仍活跃时，该消息继续同一任务。`TaskClass` 决定任务从什么起步：`conversational`（默认）不需要验收标准，并在轮次结束时完成、不产生验证事件对；`coding`、`research` 与 `operations` 采用 `acceptanceByClass` 配置的标准，且只在 `requireAcceptanceCriteriaByClass` 要求时被标准约束。类别来源依次为：调用方自己的 `taskClass`、任务所用角色、变异启发式——承接了一个提出过 `fs.write`/`fs.edit` 工具的任务属于编码工作。
 
@@ -38,6 +38,8 @@
 
 子级权限是回执与子级 profile、部署规则、子级自有沙箱的交集：[`src/delegation.ts`](../../packages/runtime/agent-kernel/src/delegation.ts) 拒绝回执扣留的能力、超出其可写范围（已与子级边界收窄）的写入，以及超过父级深度上限后的每个动作。子级任务契约沿用回执的运行标识，指名父级任务，并从父级的剩余预算起步。
 
+`DelegationPolicy` 是一次部署在启动边界上接纳的内容：`maxDepth`、`maxChildren`、`maxConcurrent`、`maxCost`、`maxTokens`、`allowedRoles`、`duplicateTaskDetection` 与 `resultSchemaRequired`；`resolveDelegationPolicy()` 依据消费方自己的子级深度设置，从部分声明中解析出它。`delegationPolicyRefusal()` 用一句话回答一次启动，`delegatedWorkerBudget()` 提供交给子 agent 的 token 与成本上限，`taskOverlapDecision()` 把一个委派目标与该父 agent 运行中及已完成的子 agent 比较，返回 `reuse`、`merge`、`narrow`、`avoid` 或 `spawn`——这是确定性的 token 集合比较，不调用模型（[`src/delegation-policy.ts`](../../packages/runtime/agent-kernel/src/delegation-policy.ts)、[`src/task-overlap.ts`](../../packages/runtime/agent-kernel/src/task-overlap.ts)）。`dsh-tool-subagent` 是当前执行它们的启动边界。
+
 ## 内置声明
 
 Kernel 注册表初始为空并按失败关闭。[`@deepseek-ai/dsh-agent-kernel-builtins`](../../packages/runtime/agent-kernel-builtins/README.zh.md) 是声明每个已发布产品工具的可选插件——一次调用所需的能力，以及从其参数到这些能力所适用资源的全函数、永不为空的投影——一旦被注入的 `agentKernel` 服务存在便注册，与挂载顺序无关。一份 spec 从生成的[工具目录](../tool-catalog.zh.md)重新推导工具清单，已发布名字没有声明就失败，因此新工具不可能在未声明的情况下到来。
@@ -46,7 +48,21 @@ Kernel 注册表初始为空并按失败关闭。[`@deepseek-ai/dsh-agent-kernel
 
 `VerificationRequest` 携带任务、标准所读取的确切 revision、那些标准，以及变更范围。`VerificationResult` 把逐标准的 `CriterionResult` 记录聚合为 `pass`、`fail` 或 `unknown`，并带验证器运行过的命令与验证器版本。`CompletionDecision` 是门禁的答案：只有在每个必需标准都通过、没有未解决的失败残留、且没有已配置上限被耗尽时，才允许完成。
 
-`FailureKind` 是共享的分类——`model-auth`、`model-rate-limit`、`model-context-overflow`、`tool-invalid-input`、`tool-policy-denied`、`tool-transient`、`sandbox-denied`、`approval-rejected`、`timeout`、`budget-exhausted`、`stale-write`、`verification-failed`、`subagent-failed`、`workflow-failed`、`persistence-failed`、`prompt-injection`、`output-truncated`、`tool-args-malformed`、`no-progress`、`stalled`、`step-ceiling` 与 `unknown`。后五者是修正案 S4 的循环健壮性分类：每一种都描述「运行没有直接失败却不再推进」的形态；Kernel 自己的检测器会在任务达到所配置的步骤上限时记录 `step-ceiling`——连同其恢复动作 `checkpoint-pause`——把任务置为暂停，而不是再接纳一个步骤。`FailureRecord` 指名一次发生，`RecoveryDecision` 记录为它选定的 `RecoveryAction`、该动作是否可重试、剩余尝试次数、重试前是否必须先做检查点，以及原因。
+`FailureKind` 是共享的分类——`model-auth`、`model-rate-limit`、`model-context-overflow`、`tool-invalid-input`、`tool-policy-denied`、`tool-transient`、`sandbox-denied`、`approval-rejected`、`timeout`、`budget-exhausted`、`stale-write`、`verification-failed`、`subagent-failed`、`workflow-failed`、`persistence-failed`、`prompt-injection`、`output-truncated`、`tool-args-malformed`、`no-progress`、`stalled`、`step-ceiling`、`plan-drift`、`verification-regressed` 与 `unknown`。后五者是修正案 S4 的循环健壮性分类：每一种都描述「运行没有直接失败却不再推进」的形态；Kernel 自己的检测器会在任务达到所配置的步骤上限时记录 `step-ceiling`——连同其恢复动作 `checkpoint-pause`——把任务置为暂停，而不是再接纳一个步骤。`FailureRecord` 指名一次发生，`RecoveryDecision` 记录为它选定的 `RecoveryAction`、该动作是否可重试、剩余尝试次数、重试前是否必须先做检查点，以及原因。
+
+## Governor、进度与活性
+
+`GovernorDecision` 是 Kernel 每个步骤组合出的那一个控制决策：`continue`、`retry`、`replan`、`compact`、`delegate`、`ask_user`，以及五个停止 `stop_success`、`stop_failure`、`stop_budget`、`stop_loop` 与 `stop_timeout`。`StepDelta` 度量刚结束那一步所产生的移动，按它产出的事件种类各占一轴：`toolNovelty`（其工具调用中近期历史未见过的比例）、`stateDelta`（任务 revision 前进）、`evidenceGain`（记录了观测或论断）、`goalProgress`（会话目标变化）、`errorReduction`（未解决失败减少）与 `planProgress`（记录了计划修订）。每轴都归一化到 `[0, 1]`，`progressScore` 是它们的均值，因此 0 表示 Harness 观察到该步骤什么也没移动。
+
+每个步骤边界都会追加 `governor/decided`，其中是一条 `GovernorDecisionRecord`：决策、按其求值顺序排列的理由、该步骤的 delta、分数、turn 与 step、该决策回答停顿时对应的 `TimeoutKind`，以及时间戳。决策依次由预算状态、进度、重复、振荡、最新未解决失败已决定的恢复动作、上下文压力、任务状态、子 agent 深度与活性组合而成，优先级如上所列。分数大于 0 的步骤会解除之前各步骤所记录的 `no-progress` 与 `stalled` 失败。在 `mode: 'enforce'` 下，Kernel 会对 `stop_*` 决策在 `agent/pre-step` 返回拒绝，循环将其上报为 blocked 轮次。
+
+`TimeoutKind` 指明活性窗口耗尽时安静下来的是哪一层：`tool`（从未结算的调用）、`transport`（没有产出任何帧的请求）、`stream`（停止产出帧的请求）、`agent`（没有任何在飞工作的运行）或 `child-agent`（被委派的子级）。监视器跟踪最后一次模型帧、最后一次工具管线事件与最后一个产生移动的步骤；等待人类回答或被停止挂起的任务绝不会被上报为停顿。
+
+## 编码生命周期
+
+`CodingPhase` 是类别为 `coding` 的任务所跑的 §10.5 流水线：`understand`、`map`、`plan`、`contract`、`implement`、`local-verify`、`review`、`regression`、`complete`。`canAdvancePhase()` 与 `assertPhaseTransition()` 暴露该状态机的直接边——前向链条，加上每个检查阶段失败时回到 `implement` 的修复返回边——这张表之外的迁移会抛错。`CodingLifecycleConfig`（`phases`、`budgets`、`review`）在加载时由 `resolveCodingLifecycle()` 校验一次，服务运行时依据的是 `ResolvedCodingLifecycle`：阶段列表以 `understand` 开头、以 `complete` 结尾、不重复任何阶段；`budgets` 的每一项都指向本部署会运行的阶段并给出其正整数步骤上限；在 `phases` 未包含 `review` 时不能启用评审，而评审开关关闭时 REVIEW 在流水线中被跳过。
+
+`CodingPhaseRecord` 是一次进入：阶段、它来自的阶段、任务类别、该阶段在流水线中的序号、触发原因（`lifecycle-started`、`phase-advanced`、`phase-repaired`）、调用方给出的 `detail`、任务 revision 与时间戳。`CodeReviewRecord` 是某个 REVIEW 条目结算后的报告：所检查的 diff 引用、`CodeReviewReport`（`summary` 加上由 file、可选 line、`ReviewSeverity` 与 message 组成的 `CodeReviewFinding[]`）、任务 revision 与时间戳。`ctx.agentKernel.lifecycle` 就是 `CodingLifecycle` 服务：`phasesFor(taskClass)`、`current(session)`、`advance(session, target, detail?)`、`repair(session, detail)`、`review(agent, signal)`、`completionPredicate(session)`，以及 `registerReviewer(reviewer)`——后者接收部署的 `IndependentReviewer`（其 `review(request: CodeReviewRequest)` 回答一份 `CodeReviewReport`）并拒绝第二次注册。`PhaseAdvance` 报告已追加的条目与阻止推进的 `CodingPhaseBudget`；该失败由调用方记录，Kernel 随后把任务停到 `awaiting-user`。
 
 ## 研究记录
 
@@ -57,6 +73,8 @@ Kernel 注册表初始为空并按失败关闭。[`@deepseek-ai/dsh-agent-kernel
 ## 检查点与读模型
 
 `Checkpoint` 在一个会话序列处为一个任务建索引：任务与运行标识、会话、`sessionSeq`、状态与 revision、`BudgetSnapshot`、未完成动作 id、未解决失败、`CheckpointReason` 与时间戳。`KernelView` 是读取者从 `ctx.agentKernel.state.view(session)` 得到的内容：当前契约、预算观测、未完成动作、未解决失败、存在时的最新计划与检查点，以及 agent 为子级时的委派回执。
+
+`BudgetSnapshot` 计量一个任务的花费并报告每个已配置上限还剩多少；`ctx.agentKernel.budgets` 还回答一个会话仍能承诺什么。`available(session)` 是实测剩余额度减去该会话在飞子级所占的持有量与已结算子级所报的花费；`reserve(session, amount, runId?)` 为即将运行的工作持有其中一部分，并返回 `BudgetReservation`，其中写明会话、运行与所持有的各轴上额；`commit(reservationId, actual?)` 用工作实际花掉的部分结算一份持有量，`release(reservationId)` 则结束一份其工作从未运行的持有量。持有量以及它们结算成的扣减量属于进程状态：重启后没有在飞工作可供持有预算，因此父级交下去了什么改从它的 `delegation/issued` 回执读取。
 
 ## 对外界面
 
@@ -75,10 +93,13 @@ Kernel 把这些声明合并进 `SessionEventMap`；它们全部只入日志，�
 | `task/created` | 创建时的完整 `TaskContract` |
 | `task/transitioned` | 一次 `StateTransition` |
 | `task/plan` | 一次 `PlanRevision` |
+| `task/phase` | 一条 `CodingPhaseRecord` |
+| `task/review` | 一条 `CodeReviewRecord`，即独立评审为某个 REVIEW 条目给出的结构化报告 |
 | `action/decided` | 一条 `ActionProposal`、它所依据的 `PolicyDecision`，以及组合后的 `AuthorizationDecision`（含其所授予的能力） |
 | `action/committed` | 一条 `ActionReceipt` 以及随其结算而结束的单次授权 |
 | `verification/requested`、`verification/result` | 请求与聚合后的结果 |
 | `failure/recorded`、`recovery/decided` | 失败与所选恢复 |
+| `governor/decided` | 一条 `GovernorDecisionRecord`：决策、其理由、该步骤的 `StepDelta` 与归一化进度分数 |
 | `checkpoint/created` | 一个 `Checkpoint` |
 | `evidence/recorded` | 一条 `Evidence` |
 | `claim/updated`、`hypothesis/updated` | 一条 `TaskClaim` 或一条 `TaskHypothesis` |
@@ -144,14 +165,18 @@ snapshot(agent: Agent): Promise<KernelView | undefined>
 viewOf(sessionId: SessionId): KernelView | undefined
 
 /**
- * Record an initial plan or a recovery amendment tied to one unresolved failure.
+ * Record an initial plan or an amendment tied to one unresolved failure. A
+ * revision a human approved is legal without a failure reference, because the
+ * review is the justification the model's own rewrite lacks.
  * @param agent - the live agent whose task owns the plan.
  * @param steps - ordered work items in the new plan revision.
  * @param failureId - unresolved failure that justifies an amendment.
+ * @param options - who approved the revision and which action recorded it.
  * @returns the durable plan revision.
- * @throws When the session has no task, or an amendment is not linked to an unresolved failure.
+ * @throws When the session has no task, a model-recorded amendment is not
+ *   linked to an unresolved failure, or the task reached its revision cap.
  */
-recordPlan(agent: Agent, steps: readonly string[], failureId?: FailureId): PlanRevision
+recordPlan(agent: Agent, steps: readonly string[], failureId?: FailureId, options: PlanOptions = {}): PlanRevision
 
 /**
  * Record one observation a claim may cite.

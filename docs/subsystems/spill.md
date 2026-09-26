@@ -2,7 +2,7 @@
 
 English | [中文](spill.zh.md)
 
-The spill storage [capability seam](../../.agents/notes/implemented/architecture/2026-07-08-tool-output-spill-files.md) persists caller-provided text and returns a model-facing locator with retrieval guidance. Its Service Definition is [dsh-spill](../../packages/spill/spill) (`ctx.spillStore`), and its local Service Provider is [dsh-spill-local](../../packages/spill/spill-local). Consumers include the [tool-result policy](../../packages/spill/spill-policy) and [session references](../../packages/context/session-reference/README.md). Spill is optional, not part of the [agent-loop spine](core.md); consumers own preview and spill decisions, while storage saves the supplied text verbatim.
+The spill storage [capability seam](../../.agents/notes/implemented/architecture/2026-07-08-tool-output-spill-files.md) persists caller-provided text and returns a model-facing locator with retrieval guidance. Its Service Definition is [dsh-spill](../../packages/spill/spill) (`ctx.spillStore`), which also defines the read-only artifact retrieval seam (`ctx.artifacts`) over the same stored artifacts, and its local Service Provider is [dsh-spill-local](../../packages/spill/spill-local), which registers both. Consumers include the [tool-result policy](../../packages/spill/spill-policy) and [session references](../../packages/context/session-reference/README.md). Spill is optional, not part of the [agent-loop spine](core.md); consumers own preview and spill decisions, while storage saves the supplied text verbatim.
 
 Source: [`packages/spill/spill/src/types.ts`](../../packages/spill/spill/src/types.ts)
 
@@ -87,9 +87,17 @@ type SpillLocator = Branded<'SpillLocator'>
 
 ## The service
 
-`SpillStore` (`ctx.spillStore`, defined in [`packages/spill/spill/src/index.ts`](../../packages/spill/spill/src/index.ts)) is a one-method abstract service: `saveText(input) → Promise<SpillRef>`. It persists the FULL `content` and REJECTS on a real storage failure (permissions, ENOSPC, backend unavailable). The seam owns storage only: no retention policy, no tool-result replacement, no retrieval/search API.
+`SpillStore` (`ctx.spillStore`, defined in [`packages/spill/spill/src/index.ts`](../../packages/spill/spill/src/index.ts)) is a one-method abstract service: `saveText(input) → Promise<SpillRef>`. It persists the FULL `content` and REJECTS on a real storage failure (permissions, ENOSPC, backend unavailable). The storage seam owns storage only: no retention policy, no tool-result replacement, and no retrieval API; retrieval is the separate read-only `ArtifactStore` seam below.
 
 The local backend ([dsh-spill-local](../../packages/spill/spill-local)) writes under `<root>/session-<hash>/<random>-<safeName>` — a configured or lazily-created private (0700) root, a `sha256(sessionId)` session subdir, and an exclusive owner-only (`open(path, 'wx', 0o600)`) write so a planted symlink cannot redirect it. Its `locator` is the local path and its `retrievalHint` tells the model to use `read` or `grep` on that path. The policy consumer ([dsh-spill-policy](../../packages/spill/spill-policy)) replaces an over-`maxInlineTokens` text/image result with ordered head/tail content and a spill address, best-effort: a save failure keeps the original inline result rather than turning a successful call into an `isError`.
+
+## Artifact retrieval
+
+`ArtifactStore` (`ctx.artifacts`, defined in [`packages/spill/spill/src/artifacts.ts`](../../packages/spill/spill/src/artifacts.ts)) is the read-only retrieval seam over the artifacts a `SpillStore` backend stored, exposing the artifact APIs named by the evolution specification. Its five operations are `search` — list one session's artifacts newest first, optionally matching a stored-name substring — `read` — return the stored text or one line window — `extract` — project the lines matching a regular expression — `diff` — compare two artifacts into a unified patch — and `summarize` — retain an artifact's head and tail under a byte budget and report the exact omitted byte count.
+
+Locators stay the opaque handles `saveText` returned. Every operation but `search` takes them, and a locator this backend did not store — a foreign path, an unknown name, an entry that is not a regular file — rejects with `ArtifactLocatorError` instead of reading an arbitrary file. Retrieval never writes, replaces, exports, or deletes an artifact and never changes a model request, so it cannot bypass the [tool-result policy](../../packages/spill/spill-policy): retention still decides what a model sees of an oversized result, and a retrieval recovers the complete text its notice points at. `summarize` composes the byte-oriented retention library the policy uses, so a caller can render the shipped notice from its `omittedBytes`.
+
+[dsh-spill-local](../../packages/spill/spill-local) registers both services from one plugin fiber over one root: the local provider reads exactly the files its `saveText` wrote, and one disposal releases both.
 
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 
@@ -98,6 +106,59 @@ The local backend ([dsh-spill-local](../../packages/spill/spill-local)) writes u
 ## Cordis API
 
 Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — the language sides differ only in locale-specific paired document paths. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` API lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
+
+<a id="ctxartifacts--artifactstore-abstract-seam"></a>
+
+### `ctx.artifacts` — `ArtifactStore` (abstract seam)
+
+Abstract artifact retrieval service over the artifacts of one `SpillStore` backend. Subclass, implement every operation, and load the subclass as a plugin — it registers as `ctx.artifacts` (one implementation per context; loading a second throws, cordis' standard duplicate-service behavior).
+
+Semantics every implementation must honor:
+
+- Retrieval is READ-ONLY. No operation writes, replaces, exports, or deletes an artifact, and none changes what a model request contains; the writing seam is `SpillStore`, and model-facing preview policy stays in `@deepseek-ai/dsh-spill-policy`.
+- read, extract, diff, and summarize accept only locators this backend stored. Another backend's locator, an unknown name, or a non-artifact entry REJECTS with ArtifactLocatorError rather than reading an arbitrary file.
+- Search is scoped to the request's SearchArtifacts.owner session, like storage, and never reaches another session's artifacts.
+- summarize retains the artifact's head and tail under the request's byte budget with the same byte-oriented retention the spill policy composes, so its exact `omittedBytes` is what the shipped notice formatter consumes.
+
+```ts cordis-catalog
+/**
+ * List artifacts of the owner session, newest first, filtered by the request's
+ * criteria. A session with no stored artifact returns an empty list.
+ * @param request - the owner session scope, optional stored-name substring, and match limit.
+ * @returns the matching artifacts, newest first; empty when none match.
+ */
+abstract search(request: SearchArtifacts): Promise<ArtifactMatch[]>
+
+/**
+ * Read one line window of a stored artifact, defaulting to all of it.
+ * @param request - the artifact locator and the optional 1-based line window.
+ * @returns the window text and both the window's and the artifact's sizes.
+ */
+abstract read(request: ReadArtifact): Promise<ArtifactText>
+
+/**
+ * Project the artifact lines matching a regular expression, in artifact order.
+ * @param request - the artifact locator, the pattern source, and the optional match limit.
+ * @returns the matching lines with their line numbers and the complete match count.
+ */
+abstract extract(request: ExtractArtifact): Promise<ArtifactExtract>
+
+/**
+ * Compare two stored artifacts line by line.
+ * @param request - the two artifact locators and the optional unchanged-line context.
+ * @returns the unified patch and the added/deleted line counts.
+ */
+abstract diff(request: DiffArtifacts): Promise<ArtifactDiff>
+
+/**
+ * Retain an artifact's head and tail under a byte budget.
+ * @param request - the artifact locator and the maximum returned UTF-8 bytes.
+ * @returns the retained ends and the exact omitted byte count.
+ */
+abstract summarize(request: SummarizeArtifact): Promise<ArtifactSummary>
+```
+
+Source: [`packages/spill/spill/src/artifacts.ts`](../../packages/spill/spill/src/artifacts.ts)
 
 <a id="ctxspillstore--spillstore-abstract-seam"></a>
 

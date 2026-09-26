@@ -26,14 +26,16 @@
 | `@deepseek-ai/dsh-tools` | `run_code` | `ctx.tools`、`ctx.ptcRuntime (execution time)`、`ctx.systemPrompt` | `tool/call`、`one tool/ptc-dispatch-start + tool/ptc-dispatch pair per bridged sub-call`、`tool/result` | - | 在 `mode: ptc`／`mode: both` 下，它由工具注册表所有，作为可过滤能力层之外的保留传输机制（参见 PTC mode Agent Note）。在 `ptc` 下，它是注册表对协议格式（wire format）的唯一贡献；其他可见能力在使用已加载运行时语言生成的 SDK 章节中声明。程序通过 binding 调用这些能力，调用按照原生并发约定调度：启动顺序和策略遵循提交顺序，并发安全的函数体最多重叠执行 `maxParallelSubCalls` 个。调用会重新进入完整且受守卫保护的工具流水线，并将每个嵌套执行关联到此外层结果。 |
 | `@deepseek-ai/dsh-plan-mode` | `exit_plan_mode` | `ctx.tools`、`ctx.systemPrompt`、`ctx.userQuestions (execution time, opportunistic)` | `tool/call`、`plan/mode inactive on an approved review`、`tool/result` | - | 规划未激活时，exit_plan_mode 仍保留在面向模型的 schema 中，这样状态转换不会在规划策略变更之外额外造成工具目录变动。其执行路径会拒绝规划模式之外的调用；在规划模式下，它通过用户交互 seam 提交计划（批准／根据反馈继续规划），批准后会在步骤边界记录规划模式已停用。 |
 | `@deepseek-ai/dsh-tool-bash` | `bash` | `ctx.tools`、`ctx.shell`、`ctx.systemPrompt`、`ctx.shellEnv`、`ctx.jobs for run_in_background and the job-backed foreground path` | `tool/call`、`tool/result` | - | bash 工具是 bash 执行器 seam 面向模型的消费方。组合中有 job 注册表时，每次调用一启动就注册到通用 `ctx.jobs` 运行时，并通过 `job_*` 工具（来自 `@deepseek-ai/dsh-tool-jobs`）收集／停止；没有注册表或 `enableRunInBackground: false` 时，工具注册不带 `run_in_background` 参数的纯前台 schema。 |
+| `@deepseek-ai/dsh-tool-changes` | `turn_changes`、`turn_diff` | `ctx.tools`、`ctx.workspaceChanges` | `tool/call`、`tool/result` | - | 两个工具都读取 `@deepseek-ai/dsh-workspace-changes` 在本 Host 进程中为调用方 Session 保存的按轮次改动记录；未组合该包的部署不记录任何内容，因此两个工具都没有可报告的轮次。 |
 | `@deepseek-ai/dsh-tool-present` | `present` | `ctx.tools`, `ctx.fs`, `ctx.sessionProjections` | `tool/call`, `deliverables/presented 在成功的最终结果之后`, `tool/result` | - | 交付归调用方 Session 所有；Web ui-deliverables 提供源文件打开与卡片。 |
 | `@deepseek-ai/dsh-tool-pwsh` | `pwsh` | `ctx.tools`、`ctx.shell`、`ctx.systemPrompt`、`ctx.shellEnv`、`ctx.jobs for run_in_background and the job-backed foreground path` | `tool/call`、`tool/result` | - | pwsh 工具是 Windows 组合中 shell 执行器 seam 的 PowerShell 方言消费方（由 `@deepseek-ai/dsh-pwsh-local` 等 PowerShell 执行器为 `ctx.shell` 提供后端）；它逐项对应 bash 工具调用，并包含完整的沙箱升权（`sandbox_permissions` 与 `justification` 经 `ctx.approval` 解析）。使用 `run_in_background` 的运行会注册到通用 `ctx.jobs` 运行时，并通过 `job_*` 工具收集／停止；托管的 `DSH_*` 环境来自 `@deepseek-ai/dsh-shell-env`。每次调用都在新进程中运行，不使用持久 PTY 会话。路径采用原生 `C:\...` 形式，变量采用 `$env:NAME`。 |
 | `@deepseek-ai/dsh-tool-cordis` | `cordis_inspect_list`, `cordis_inspect_query` | `ctx.tools`, `ctx.cordisInspect` | `tool/call`, `tool/result` | - | 创造模式提供两个只读运行时检查工具。Cordis host runner 提供检查注册表；Client 查询需要已连接页面。持久化变更编写为组合包，再通过 plugin_manager 安装。 |
 | `@deepseek-ai/dsh-tool-bash-persistent` | `bash` | `ctx.tools`、`ctx.terminals`、`an owning Agent at execution time` | `tool/call`、`PTY shell state`、`tool/result` | - | 一个按所有者隔离的持久 bash 工具；部署组合提供 PTY 后端，并可覆盖面向模型的环境描述。 |
 | `@deepseek-ai/dsh-tool-pwsh-persistent` | `pwsh` | `ctx.tools`、`ctx.terminals`、`an owning Agent at execution time` | `tool/call`、`PTY shell state`、`tool/result` | - | 一个按所有者隔离的持久 pwsh 工具，持久 bash 工具的 Windows 对应物；部署组合提供 pwsh 方言的 PTY 后端，并可覆盖面向模型的环境描述。 |
 | `@deepseek-ai/dsh-tool-str-replace-editor` | `str_replace_editor` | `ctx.tools`、`ctx.fs` | `tool/call`、`fs/observed after view presence/absence, edit absence, or successful mutation`、`tool/result` | - | 基于文件系统 seam 的独立查看／创建／唯一字面量替换／按行插入工具；可与任何 shell 或终端接口组合。 |
-| `@deepseek-ai/dsh-tool-fs` | `edit`、`read`、`read_image`、`write` | `ctx.tools`、`ctx.fs`、`ctx.systemPrompt`、`ctx.attachments (image-tool registration)`、`ctx.llm + an image-capable route (image-tool execution)` | `tool/call`、`fs/write-intent or fs/edit-intent for mutations`、`fs/observed after read presence/absence or successful file operation`、`durable attachment (read_image)`、`tool/result` | - | 先读后写／编辑策略由 `@deepseek-ai/dsh-fs-observation-policy` 添加；它是一个 `fs/*` 事件门禁插件，不会改变 schema。加载这些工具的部署按预期也应加载该插件。没有 `ctx.attachments` 时图片工具不会注册；其 schema 与路由无关，执行时除非确切路由的模型声明图片输入，否则拒绝。 |
+| `@deepseek-ai/dsh-tool-fs` | `apply_patch`、`edit`、`multi_edit`、`read`、`read_image`、`write` | `ctx.tools`、`ctx.fs`、`ctx.systemPrompt`、`ctx.attachments (image-tool registration)`、`ctx.llm + an image-capable route (image-tool execution)` | `tool/call`、`fs/write-intent or fs/edit-intent for mutations`、`fs/observed after read presence/absence or successful file operation`、`durable attachment (read_image)`、`tool/result` | - | 先读后写／编辑策略由 `@deepseek-ai/dsh-fs-observation-policy` 添加；它是一个 `fs/*` 事件门禁插件，不会改变 schema。加载这些工具的部署按预期也应加载该插件。没有 `ctx.attachments` 时图片工具不会注册；其 schema 与路由无关，执行时除非确切路由的模型声明图片输入，否则拒绝。 |
 | `@deepseek-ai/dsh-tool-fs-search` | `glob`、`grep` | `ctx.tools`、`ctx.subprocess`、`ctx.systemPrompt` | `tool/call`、`tool/result` | - | glob 和 grep 是无条件可用的发现工具，通过 ctx.subprocess spawn 随包提供的 ripgrep 二进制文件（`@vscode/ripgrep`），并作为普通前台调用运行，绝不作为后台任务；无需在宿主机安装 `rg`，也不经过 shell 层。本目录使用 `sampleOverCapGlobResults: true`；部署必须显式选择该行为。结果超过上限时，会通过可选的 ctx.spillStore 后端保存完整的格式化列表；在共置部署中，如果后端公开本地路径，返回的定位信息可供后续读取／搜索。 |
+| `@deepseek-ai/dsh-tool-git` | `git_branch`、`git_commit`、`git_pr`、`git_worktree` | `ctx.tools`、`ctx.subprocess` | `tool/call`、`tool/result` | - | 这 4 个 git 工具通过 ctx.subprocess 以 argv 向量方式运行 git 和 gh，绝不经过 shell，因此同一份 schema 同时服务 POSIX 和 Windows 组合。非零退出码属于结果，携带 `[exit code: N]` 标记；只有取消、参数不可用或程序缺失才是错误。`git_pr` 需要已登录的 GitHub CLI；环境中的 GH_TOKEN/GITHUB_TOKEN 不会传给子进程，因为 subprocess seam 会清除形似凭据的名称。 |
 | `@deepseek-ai/dsh-tool-terminal` | `terminal_close`、`terminal_list`、`terminal_open`、`terminal_read`、`terminal_send`、`terminal_signal` | `ctx.tools`、`ctx.terminals`、`ctx.systemPrompt`、`ctx.jobs at call time for run_in_background` | `tool/call`、`tool/result` | - | 这 6 个终端工具需要选择启用，用于补充一次性 bash／文件系统工具。`terminal_send(run_in_background: true)` 会注册到 `ctx.jobs`；schema 不包含 TUI、具名按键序列、BEL、调整尺寸、自动启动和跨 agent 共享。 |
 | `@deepseek-ai/dsh-tool-goal` | `create_goal`、`get_goal`、`update_goal` | `ctx.tools`、`ctx.agents`、`ctx.goals`、`ctx.systemPrompt`、`a calling Agent in an authorized open turn` | `tool/call`、`goal/change for mutations`、`tool/result` | - | create、edit、pause 和 resume 要求直接来自人类的根权限；complete 和 blocked 也接受确切的当前 Goal Round。blocked 的默认下限是 3 个获准的 Round。 |
 | `@deepseek-ai/dsh-schedule` | `schedule_create`、`schedule_delete`、`schedule_list` | `ctx.tools`、`ctx.sessions`、Session 持久化、未来创建的 live 根 Agent | `tool/call`、`schedule/change create or delete`、`tool/result` | - | 仅在选择启用的 Schedule 插件加载后创建的 live 根 Agent scope 内注册。版本 1 接受 after_seconds、显式绝对 at 和有界固定速率 every_seconds，并披露 session-local 交付；管理读取与变更必须通过共享的 Session 持久化 barrier。 |
@@ -43,9 +45,10 @@
 | `@deepseek-ai/dsh-tool-session-query` | `session_event_read`、`session_event_search`、`session_event_trace`、`session_search`、`session_trace` | `ctx.tools`、`ctx.systemPrompt`、`ctx.sessionQuery`、`a calling Agent for workspace authority` | `tool/call`、`tool/result` | - | 这 5 个只读工具会隐藏提供方游标，并根据不可变的调用 agent 会话为每个结果授权。该包需要选择启用；需要强制截止时间或限制行内输出的组合还会挂载通用超时或 spill 策略。 |
 | `@deepseek-ai/dsh-tool-subagent` | `list_subagent_models`、`subagent` | `ctx.tools`、`ctx.subagents`、`ctx.systemPrompt`、`用于模型发现和所选路由校验的 ctx.llm` | `tool/call`、`tool/result`、`child session events through the chosen provider` | `subagent`、`subagent_fork` | 注册的委派工具名称取决于加载时 `toolName` 配置（默认为 `subagent`）；上述默认 schema 关闭模型选择，而发现 schema 则展示为已启用 Session 中可用的固定配套工具。Web preset 会在每个新顶层 Session 创建时读取插件页偏好，并为其子 Session 保留该决定；`subagent_fork` 始终使用固定路由。每个实例通过 `modelSelectionSettings`、`backgroundMode` 与 `enableRunInBackground` 独立控制是否读取模型选择设置及其后台行为。 |
 | `@deepseek-ai/dsh-tool-subagent-control` | `interrupt_agent`、`list_agents`、`send_message` | `ctx.tools`、`ctx.subagents`、`ctx.agents and ctx.sessionProjections (list_agents only)` | `tool/call`、`tool/result`、`child session events through ctx.subagents` | - | 这些是控制可继续后台 subagent 的全局命名工具：绑定提供方的 `tool-subagent` 实例注册不同的委派工具；本包注册一次 `send_message` 和 `interrupt_agent`，另由 `list_agents` 通过单独加载的 `/list-agents` 插件提供，其目录行使用 sessionProjections 和实时 Agent 注册表。 |
-| `@deepseek-ai/dsh-tool-jobs` | `job_kill`、`job_list`、`job_output` | `ctx.tools`、`ctx.jobs`、`ctx.systemPrompt` | `tool/call`、`tool/result`、`user/message via agent.inject() for background completion notices` | - | 与任务种类无关的后台任务控制器：后台 bash 命令、PTY 发送和 subagent 都通过相同的 3 个工具读取、列出和终止。加载该插件会挂接控制器，从而启用生产方的 `ctx.jobs.start()`。 |
+| `@deepseek-ai/dsh-tool-jobs` | `job_kill`、`job_list`、`job_monitor`、`job_output` | `ctx.tools`、`ctx.jobs`、`ctx.systemPrompt` | `tool/call`、`tool/result`、`user/message via agent.inject() for background completion notices` | - | 与任务种类无关的后台任务控制器：后台 bash 命令、PTY 发送和 subagent 都通过相同的 3 个工具读取、列出和终止。加载该插件会挂接控制器，从而启用生产方的 `ctx.jobs.start()`。 |
 | `@deepseek-ai/dsh-experimental-tool-agent-team` | `interrupt_agent`、`list_agents`、`send_message`、`spawn_teammate`、`team_task_create`、`team_task_get`、`team_task_list`、`team_task_update`、`wait_agent` | `ctx.tools`、`ctx.systemPrompt`、`ctx.agentTeams`、`an exact live Team member Agent` | `tool/call`、`team/member`、`team/message/queued`、`team/message/delivered`、`team/task`、`tool/result` | - | 这 9 个工具限定于隐式 Team Lead 与持久 teammate 作用域。随产品发布的 dsh-base bundle 默认禁用该包；文档中的 Agent Teams profile patch 会启用它，并禁用旧 continuable child 的同名控制工具。 |
 | `@deepseek-ai/dsh-tool-todo` | `todo_write` | `ctx.tools`、`owning Agent session` | `tool/call`、`todo/write`、`tool/result` | - | todo_write 是会话所有的状态；UI 将最新的 todo/write 事件渲染为检查清单。`allowParallelInProgress` 是没有默认值的必填项，因此本目录明确选择 `true`，对应描述允许同时存在多个 `in_progress` 项。选择 `false` 的部署会获得同一工具，但描述会要求只能有 1 个活动任务。 |
+| `@deepseek-ai/dsh-tool-evidence` | `record_claim`、`record_evidence`、`record_hypothesis` | `ctx.tools`、`ctx.agentKernel`、`a calling Agent with an open task` | `tool/call`、`evidence/recorded`、`claim/updated`、`hypothesis/updated`、`tool/result` | - | 三个工具都通过 Kernel 写入知识平面。`record_evidence` 陈述观察到了什么以及可以信任到什么程度；`record_claim` 陈述任务主张什么，并引用已记录的证据；`record_hypothesis` 陈述任务仍在检验的问题。Kernel 会拒绝调用 agent 没有任务的任何调用，因此没有 Kernel 的部署不会记录任何内容，而不是丢弃事实。 |
 | `@deepseek-ai/dsh-tool-workflow` | `workflow` | `ctx.tools`、`ctx.workflowEngine`、`ctx.systemPrompt`、`a calling Agent (exec.agent parents the script children)` | `tool/call`、`tool/result` | - | - |
 | `@deepseek-ai/dsh-tool-workspace-dependencies` | `load_workspace_dependencies` | `ctx.tools` | `tool/call`, `tool/result` | - | - |
 | `@deepseek-ai/dsh-tool-web` | `web_fetch`、`web_search` | `ctx.tools`、`ctx.web`、`ctx.systemPrompt` | `tool/call`、`tool/result` | - | web_search 和 web_fetch 将提供方选择置于 ctx.web 之后，使模型可见 schema 在更换后端时保持稳定。 |
@@ -637,6 +640,56 @@ ask_user_question 会暂停工具调用，直到当前 UI 提供方返回人类�
 来源：[`packages/shell/tool-bash/src/index.ts`](../packages/shell/tool-bash/src/index.ts)
 
 bash 工具是 bash 执行器 seam 面向模型的消费方。组合中有 job 注册表时，每次调用一启动就注册到通用 `ctx.jobs` 运行时，并通过 `job_*` 工具（来自 `@deepseek-ai/dsh-tool-jobs`）收集／停止；没有注册表或 `enableRunInBackground: false` 时，工具注册不带 `run_in_background` 参数的纯前台 schema。
+<a id="deepseek-aidsh-tool-changes"></a>
+
+## `@deepseek-ai/dsh-tool-changes`
+
+### `turn_changes`
+
+列出某一轮在本工作区改动过的文件，并给出新增与删除的行数。在读取、编辑或汇报这些文件之前，可用它回顾此前改动过什么；超大或二进制文件只列出标记，不给出行数。改动在轮次结束时记录，因此它报告的是已完成的轮次。省略 turn 即取最近记录的一轮，再用 turn_diff 读取其中某个文件的 diff。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "turn": {
+      "type": "integer",
+      "description": "Turn number to report. Omit for the most recently recorded turn."
+    }
+  },
+  "additionalProperties": false
+}
+```
+
+来源： [`packages/deliverables/tool-changes/src/index.ts`](../packages/deliverables/tool-changes/src/index.ts)
+
+### `turn_diff`
+
+读取 turn_changes 列出的某一轮中某个文件的已记录 diff，无需重新执行造成改动的动作。传入该轮次以及 turn_changes 列出的文件路径；每个 hunk 带三行上下文，且每行保留其 + 或 - 前缀。二进制或超大文件会报告这一情况，而不给出行。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "turn": {
+      "type": "integer",
+      "description": "Turn the file changed in. Omit for the most recently recorded turn."
+    },
+    "path": {
+      "type": "string",
+      "description": "A file path as turn_changes listed it for that turn."
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "path"
+  ]
+}
+```
+
+来源： [`packages/deliverables/tool-changes/src/index.ts`](../packages/deliverables/tool-changes/src/index.ts)
+
+两个工具都读取 `@deepseek-ai/dsh-workspace-changes` 在本 Host 进程中为调用方 Session 保存的按轮次改动记录；未组合该包的部署不记录任何内容，因此两个工具都没有可报告的轮次。
 
 <a id="deepseek-aidsh-tool-present"></a>
 
@@ -955,6 +1008,28 @@ pwsh 工具是 Windows 组合中 shell 执行器 seam 的 PowerShell 方言消�
 
 ## `@deepseek-ai/dsh-tool-fs`
 
+### `apply_patch`
+
+应用一份 V4A patch，用于创建或更新若干 UTF-8 文本文件。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "patch": {
+      "type": "string",
+      "description": "The complete patch, from \"*** Begin Patch\" through \"*** End Patch\". Update hunks carry \" \" context, \"-\" removed, and \"+\" added lines."
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "patch"
+  ]
+}
+```
+
+来源： [`packages/fs/tool-fs/src/index.ts`](../packages/fs/tool-fs/src/index.ts)
+
 ### `edit`
 
 通过替换字面量文本来编辑现有 UTF-8 文本文件。
@@ -985,6 +1060,55 @@ pwsh 工具是 Windows 组合中 shell 执行器 seam 的 PowerShell 方言消�
     "file_path",
     "old_string",
     "new_string"
+  ]
+}
+```
+
+来源：[`packages/fs/tool-fs/src/index.ts`](../packages/fs/tool-fs/src/index.ts)
+
+### `multi_edit`
+
+对同一个 UTF-8 文本文件应用若干处字面量编辑，要么全部生效，要么都不生效。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "file_path": {
+      "type": "string",
+      "description": "Path to edit, resolved by the filesystem backend."
+    },
+    "edits": {
+      "type": "array",
+      "description": "Literal replacements applied in order to the same file. Every edit must resolve before any is written.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "old_string": {
+            "type": "string",
+            "description": "Literal text to replace. Must match exactly."
+          },
+          "new_string": {
+            "type": "string",
+            "description": "Literal replacement text. Use an empty string to delete the match."
+          },
+          "replace_all": {
+            "type": "boolean",
+            "description": "Replace all matches of this entry. Defaults to false; when false, old_string must appear exactly once."
+          }
+        },
+        "required": [
+          "old_string",
+          "new_string"
+        ]
+      }
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "file_path",
+    "edits"
   ]
 }
 ```
@@ -1133,6 +1257,153 @@ pwsh 工具是 Windows 组合中 shell 执行器 seam 的 PowerShell 方言消�
 来源：[`packages/fs/tool-fs-search/src/index.ts`](../packages/fs/tool-fs-search/src/index.ts)
 
 glob 和 grep 是无条件可用的发现工具，通过 ctx.subprocess spawn 随包提供的 ripgrep 二进制文件（`@vscode/ripgrep`），并作为普通前台调用运行，绝不作为后台任务；无需在宿主机安装 `rg`，也不经过 shell 层。本目录使用 `sampleOverCapGlobResults: true`；部署必须显式选择该行为。结果超过上限时，会通过可选的 ctx.spillStore 后端保存完整的格式化列表；在共置部署中，如果后端公开本地路径，返回的定位信息可供后续读取／搜索。
+<a id="deepseek-aidsh-tool-git"></a>
+
+## `@deepseek-ai/dsh-tool-git`
+
+### `git_branch`
+
+切换到某个 git 分支，或先创建它。带 `create: true` 时在当前提交处创建该分支并检出；不带时该分支必须已存在。报告的输出会给出切换后的分支名。要求解析出的目录处是一个 git 仓库；工作区存在未提交改动时可能阻止切换。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Branch name to switch to or create."
+    },
+    "create": {
+      "type": "boolean",
+      "description": "Create the branch at the current commit before switching to it (default false)."
+    },
+    "repo": {
+      "type": "string",
+      "description": "Repository directory. Defaults to the session working directory; a relative path is resolved against it."
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "name"
+  ]
+}
+```
+
+来源： [`packages/git/tool-git/src/index.ts`](../packages/git/tool-git/src/index.ts)
+
+### `git_commit`
+
+暂存仓库中的所有改动（`git add --all`），并用你给出的提交信息提交这组改动。该信息即提交信息；请用命令式语气描述改动本身，而不是文件名。无可提交内容的仓库会以非零状态退出，报告的输出会说明这一点。要求解析出的目录处是一个 git 仓库，且已配置 git 身份（`user.name` 与 `user.email`）。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "message": {
+      "type": "string",
+      "description": "Commit message describing the change set."
+    },
+    "repo": {
+      "type": "string",
+      "description": "Repository directory. Defaults to the session working directory; a relative path is resolved against it."
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "message"
+  ]
+}
+```
+
+来源： [`packages/git/tool-git/src/index.ts`](../packages/git/tool-git/src/index.ts)
+
+### `git_pr`
+
+用 `gh pr create` 为当前分支创建 GitHub pull request。正文通过 stdin 传入，因此可包含任意文本。成功时返回 pull request 的 URL。要求已安装 GitHub CLI（`gh`）并已针对仓库远端完成认证；harness 不会转发环境中已有的 `GH_TOKEN`。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "title": {
+      "type": "string",
+      "description": "Pull request title."
+    },
+    "body": {
+      "type": "string",
+      "description": "Pull request description, in markdown. Required so no interactive editor opens."
+    },
+    "base": {
+      "type": "string",
+      "description": "Branch the pull request targets; defaults to the repository default branch."
+    },
+    "draft": {
+      "type": "boolean",
+      "description": "Open the pull request as a draft (default false)."
+    },
+    "repo": {
+      "type": "string",
+      "description": "Repository directory. Defaults to the session working directory; a relative path is resolved against it."
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "title",
+    "body"
+  ]
+}
+```
+
+来源： [`packages/git/tool-git/src/index.ts`](../packages/git/tool-git/src/index.ts)
+
+### `git_worktree`
+
+创建或删除 git worktree。`add` 在 `path` 处检出第二个工作树，可选地创建 `branch` 并以 `commitish` 为起点，使并行工作不打扰当前检出。`remove` 删除该工作树目录及其在仓库元数据中的条目；除非传入 `force: true`，否则拒绝删除有改动的 worktree，而 `force: true` 会丢弃这些未提交的改动。使用 `add` 时，`path` 不影响当前工作树。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "action": {
+      "type": "string",
+      "description": "`add` creates a worktree; `remove` deletes one.",
+      "enum": [
+        "add",
+        "remove"
+      ]
+    },
+    "path": {
+      "type": "string",
+      "description": "Directory of the worktree: where `add` checks it out, or the existing worktree `remove` deletes. A relative path is resolved against the resolved repository directory."
+    },
+    "branch": {
+      "type": "string",
+      "description": "With `add`, create this new branch checked out in the new worktree."
+    },
+    "commitish": {
+      "type": "string",
+      "description": "With `add`, the commit or branch the new worktree starts from; defaults to HEAD."
+    },
+    "force": {
+      "type": "boolean",
+      "description": "With `remove`, discard uncommitted modifications in the worktree (default false, which refuses instead)."
+    },
+    "repo": {
+      "type": "string",
+      "description": "Repository directory. Defaults to the session working directory; a relative path is resolved against it."
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "action",
+    "path"
+  ]
+}
+```
+
+来源： [`packages/git/tool-git/src/index.ts`](../packages/git/tool-git/src/index.ts)
+
+这四个 git 工具通过 ctx.subprocess 以 argv 向量方式运行 git 与 gh——从不经过 shell——因此一套 schema 同时适用于 POSIX 与 Windows 组合。非零退出是携带 `[exit code: N]` 标记的结果；只有调用被取消、参数不可用或程序缺失才算错误。`git_pr` 需要已认证的 GitHub CLI；环境中已有的 GH_TOKEN/GITHUB_TOKEN 不会到达子进程，因为 subprocess seam 会清除形似凭据的名称。
 
 <a id="deepseek-aidsh-tool-terminal"></a>
 
@@ -1324,6 +1595,10 @@ glob 和 grep 是无条件可用的发现工具，通过 ctx.subprocess spawn �
     "max_goal_rounds": {
       "type": "integer",
       "description": "Optional positive safe-integer limit on automatic continuation rounds."
+    },
+    "max_goal_tokens": {
+      "type": "integer",
+      "description": "Optional positive safe-integer limit on total billed tokens spent since creation."
     }
   },
   "additionalProperties": false,
@@ -1383,6 +1658,10 @@ glob 和 grep 是无条件可用的发现工具，通过 ctx.subprocess spawn �
     "max_goal_rounds": {
       "type": "integer",
       "description": "Replacement cap; valid only with action edit."
+    },
+    "max_goal_tokens": {
+      "type": "integer",
+      "description": "Replacement token budget; valid only with action edit."
     },
     "blocked_reason": {
       "type": "string",
@@ -1891,6 +2170,10 @@ create、edit、pause 和 resume 要求直接来自人类的根权限；complete
       "type": "string",
       "description": "The complete, self-contained task for the subagent. It does not share this conversation's context, so include everything it needs. Ask for a text answer: only the child's text reaches this conversation."
     },
+    "agent": {
+      "type": "string",
+      "description": "Optional name of a file-defined agent (from `.dsh/agents`, `.claude/agents`, or `.opencode/agents`). Its configured tools, model, and permissions then apply to this child. An unknown name reports the available agents."
+    },
     "run_in_background": {
       "type": "boolean",
       "description": "Whether to run as a background job and return its id. Defaults to false; collect with job_output or stop with job_kill."
@@ -2028,6 +2311,41 @@ create、edit、pause 和 resume 要求直接来自人类的根权限；complete
   "type": "object",
   "properties": {},
   "additionalProperties": false
+}
+```
+
+来源：[`packages/jobs/tool-jobs/src/index.ts`](../packages/jobs/tool-jobs/src/index.ts)
+
+### `job_monitor`
+
+等待某个后台任务的输出匹配给定模式，然后返回匹配到的文本。等待时长受配置的上限约束，并且读取保留的输出时不消耗它，因此后续的 job_output 仍会返回全部内容。任务在未匹配的情况下结束时等待会提前结束。除非设置 `regex: true` 让模式成为大小写敏感的 JavaScript 正则表达式，否则模式是大小写敏感的字面量子串。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "job_id": {
+      "type": "string",
+      "description": "Job id returned by the tool that started the background work."
+    },
+    "pattern": {
+      "type": "string",
+      "description": "Non-empty text to wait for: a literal substring, or a JavaScript regular-expression source when `regex: true`."
+    },
+    "regex": {
+      "type": "boolean",
+      "description": "Interpret `pattern` as a case-sensitive JavaScript regular expression instead of a literal substring. Defaults to false."
+    },
+    "timeout_ms": {
+      "type": "integer",
+      "description": "Max wait in milliseconds. Must be a positive integer. Defaults to the configured wait timeout; capped by the configured maximum."
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "job_id",
+    "pattern"
+  ]
 }
 ```
 
@@ -2364,7 +2682,6 @@ create、edit、pause 和 resume 要求直接来自人类的根权限；complete
 
 这 10 个工具限定于隐式 Team Lead 与持久 teammate 作用域。随产品发布的 dsh-base bundle 默认禁用该包；文档中的 Agent Teams profile patch 会启用它，并禁用旧 continuable child 的同名控制工具。
 
-
 <a id="deepseek-aidsh-tool-todo"></a>
 
 ## `@deepseek-ai/dsh-tool-todo`
@@ -2415,6 +2732,144 @@ create、edit、pause 和 resume 要求直接来自人类的根权限；complete
 来源：[`packages/todo/tool-todo/src/index.ts`](../packages/todo/tool-todo/src/index.ts)
 
 todo_write 是会话所有的状态；UI 将最新的 todo/write 事件渲染为检查清单。`allowParallelInProgress` 是没有默认值的必填项，因此本目录明确选择 `true`，对应描述允许同时存在多个 `in_progress` 项。选择 `false` 的部署会获得同一工具，但描述会要求只能有 1 个活动任务。
+
+<a id="deepseek-aidsh-tool-evidence"></a>
+
+## `@deepseek-ai/dsh-tool-evidence`
+
+### `record_claim`
+
+记录任务此刻的主张，引用你已记录的证据，并给出置信度以及证据对该主张的确立程度。没有证据的主张只是提议，不是发现。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "statement": {
+      "type": "string",
+      "description": "The statement the task asserts."
+    },
+    "evidenceIds": {
+      "type": "array",
+      "description": "Evidence identities this claim cites.",
+      "items": {
+        "type": "string"
+      }
+    },
+    "confidence": {
+      "type": "number",
+      "description": "Confidence in [0, 1]."
+    },
+    "status": {
+      "type": "string",
+      "description": "How far the evidence establishes the statement.",
+      "enum": [
+        "proposed",
+        "supported",
+        "contradicted",
+        "stale",
+        "rejected"
+      ]
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "statement",
+    "confidence"
+  ]
+}
+```
+
+来源：[`packages/runtime/tool-evidence/src/index.ts`](../packages/runtime/tool-evidence/src/index.ts)
+
+### `record_evidence`
+
+把一次观察记录为任务日后可以引用的证据：它属于哪一类、内容在哪里，以及内容可被信任的程度。当你读取文件、运行检查，或收到打算据此推理的结果时，就记录证据。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "kind": {
+      "type": "string",
+      "description": "Where the observation came from.",
+      "enum": [
+        "file",
+        "tool-result",
+        "web",
+        "mcp",
+        "test",
+        "user",
+        "model"
+      ]
+    },
+    "contentRef": {
+      "type": "string",
+      "description": "Repository-relative path, URL, or tool call id locating the content."
+    },
+    "digest": {
+      "type": "string",
+      "description": "Digest of the observed content, when you computed one."
+    },
+    "trust": {
+      "type": "string",
+      "description": "How far the content may be trusted.",
+      "enum": [
+        "trusted",
+        "untrusted",
+        "unknown"
+      ]
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "contentRef"
+  ]
+}
+```
+
+来源：[`packages/runtime/tool-evidence/src/index.ts`](../packages/runtime/tool-evidence/src/index.ts)
+
+### `record_hypothesis`
+
+记录任务正在检验的问题，引用与它相关的主张，并给出这些主张对该问题的确定程度。当任务是在调查而非断言时记录假设，使它仍在回答的问题得以留存。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "question": {
+      "type": "string",
+      "description": "The question being tested."
+    },
+    "claimIds": {
+      "type": "array",
+      "description": "Claim identities that bear on the question.",
+      "items": {
+        "type": "string"
+      }
+    },
+    "status": {
+      "type": "string",
+      "description": "How far the recorded claims have settled the question.",
+      "enum": [
+        "open",
+        "supported",
+        "refuted",
+        "inconclusive"
+      ]
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "question"
+  ]
+}
+```
+
+来源：[`packages/runtime/tool-evidence/src/index.ts`](../packages/runtime/tool-evidence/src/index.ts)
+
+三个工具都通过 Kernel 写入知识平面。`record_evidence` 陈述观察到了什么以及可以信任到什么程度；`record_claim` 陈述任务主张什么，并引用已记录的证据；`record_hypothesis` 陈述任务仍在检验的问题。Kernel 会拒绝调用 agent 没有任务的任何调用，因此没有 Kernel 的部署不会记录任何内容，而不是丢弃事实。
 
 <a id="deepseek-aidsh-tool-workflow"></a>
 

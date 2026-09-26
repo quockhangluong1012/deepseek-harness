@@ -11,17 +11,18 @@ Source: [`packages/workspace/workspace-memory/README.md`](../../packages/workspa
 | Part | Written by | Reaches the model | Counts against capacity |
 |---|---|---|---|
 | **Instructions** | the user | yes | yes |
-| **Memory** | the model from this Workspace's own chat history; the user may edit or regenerate it | yes | yes |
+| **Memory** | the user | yes | yes |
 | **Context** | the user, as attached workspace files or pasted text | yes | yes |
 | **Description** | the user | no — page metadata | no |
-| **Outputs** | derived from successful mutation-tool calls | no — a navigation index | no |
+| **Outputs** | — the store keeps the field; no shipped profile writes it | no — a navigation index | no |
+
+No per-turn LLM extraction is mounted for this store, because the evolution reviewer runs the one transcript-reading pass per turn; the record therefore holds what the user writes.
 
 ## Packages
 
 | Package | Role | ctx key |
 |---|---|---|
 | [`workspace-memory`](../../packages/workspace/workspace-memory/README.md) | Durable per-Workspace record, caps, and capacity accounting | `ctx.workspaceMemory` |
-| [`workspace-memory-llm`](../../packages/workspace/workspace-memory-llm/README.md) | Per-turn output indexing, per-turn extraction, on-demand rebuild | `ctx.workspaceMemoryExtractor` |
 | [`workspace-memory-context`](../../packages/context/workspace-memory-context/README.md) | Renders the brief and splices it into `agent/pre-step` | — |
 | [`ui-workspace-memory`](../../packages/client/ui-workspace-memory/README.md) | Host `workspaceMemory` Remote namespace and the browser Workspace page | `ctx.workspaceMemoryController` |
 
@@ -87,7 +88,7 @@ async setInstructions(id: WorkspaceId, instructions: string): Promise<WorkspaceM
  * Replace the memory document by hand or from extraction.
  * @param id - Workspace identity.
  * @param memory - replacement document.
- * @param extraction - provenance when model-written.
+ * @param extraction - the extraction record when model-written.
  * @returns the stored record.
  */
 async setMemory(id: WorkspaceId, memory: string, extraction?: WorkspaceMemoryExtraction): Promise<WorkspaceMemoryRecord>
@@ -127,7 +128,7 @@ Source: [`packages/workspace/workspace-memory/src/index.ts`](../../packages/work
 
 ### `ctx.workspaceMemoryController` — `WorkspaceMemoryController`
 
-Host Remote service delegating memory verbs to the store and extractor.
+Host Remote service delegating memory verbs to the durable store.
 
 ```ts cordis-catalog
 /**
@@ -181,14 +182,6 @@ Host Remote service delegating memory verbs to the store and extractor.
 @Remote('listContextFiles') async listContextFiles(request: WorkspaceMemoryListContextFilesRequest, signal: AbortSignal): Promise<WorkspaceMemoryContextFilesValue>
 
 /**
- * Rebuild the document from the Workspace's chat history.
- * @param request - Workspace identity.
- * @param signal - caller cancellation.
- * @returns the updated projection.
- */
-@Remote('rebuildMemory') async rebuildMemory(request: WorkspaceMemoryRebuildRequest, signal: AbortSignal): Promise<WorkspaceMemoryValue>
-
-/**
  * Stream a complete memory baseline followed by ordered upserts.
  * @param signal - generation cancellation.
  * @returns baseline followed by ordered memory increments.
@@ -197,24 +190,4 @@ Host Remote service delegating memory verbs to the store and extractor.
 ```
 
 Source: [`packages/client/ui-workspace-memory/src/index.ts`](../../packages/client/ui-workspace-memory/src/index.ts)
-
-<a id="ctxworkspacememoryextractor--workspacememoryextractor"></a>
-
-### `ctx.workspaceMemoryExtractor` — `WorkspaceMemoryExtractor`
-
-Background extractor. One Workspace never runs two extractions at once; a turn is never blocked by one.
-
-```ts cordis-catalog
-/**
- * Rebuild the document from the Workspace's chat history.
- * @param workspaceId - Workspace identity.
- * @param signal - caller cancellation.
- * @returns resolution after the store write.
- */
-async rebuild(workspaceId: WorkspaceId, signal: AbortSignal): Promise<void>
-```
-
-Types: [WorkspaceId](workspace.md)
-
-Source: [`packages/workspace/workspace-memory-llm/src/index.ts`](../../packages/workspace/workspace-memory-llm/src/index.ts)
 <!-- END GENERATED cordis-surface -->

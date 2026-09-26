@@ -1,4 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { mkdtemp } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { ToolCallId, createToolResultMessage } from '@deepseek-ai/dsh-llm'
@@ -6,11 +9,13 @@ import SessionStore, { type Session, SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt, { renderContextSnapshot, renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import Storage from '@deepseek-ai/dsh-storage'
 import { DomainFacility } from '@deepseek-ai/dsh-storage-domain'
-import EvolutionBenchmark from '@deepseek-ai/dsh-evolution-benchmark'
+import EvolutionBenchmark, { MINED_TASK } from '@deepseek-ai/dsh-evolution-benchmark'
 import EvolutionFeedback from '@deepseek-ai/dsh-evolution-feedback'
-import EvolutionGraph from '@deepseek-ai/dsh-evolution-graph'
-import { EvolutionScopeId } from '@deepseek-ai/dsh-evolution-memory'
-import EvolutionMemoryStore from '@deepseek-ai/dsh-evolution-memory'
+import EvolutionMemoryStore, {
+  EvolutionScopeId,
+  type EvolutionExtraction,
+  type LessonArtifactInput,
+} from '@deepseek-ai/dsh-evolution-memory'
 import EvolutionSkillTelemetry from '@deepseek-ai/dsh-evolution-skill-telemetry'
 import { WorkspaceId } from '@deepseek-ai/dsh-workspace'
 import { MemoryMediaPool, MemoryStorageBackend } from '../../../storage/storage-domain/tests/helpers/memory-backend.ts'
@@ -23,7 +28,7 @@ import {
 } from '../src/sections.ts'
 
 /** Optional evolution stores a nudge test mounts; an omission is the unmounted case. */
-type Store = 'feedback' | 'graph' | 'benchmark' | 'telemetry'
+type Store = 'feedback' | 'benchmark' | 'telemetry'
 
 interface NudgeHarness {
   ctx: Context
@@ -58,11 +63,18 @@ async function nudgeHarness(options: {
   const facility = new DomainFacility(ctx, { backend: 'memory', routes: {} })
   ctx.storage.mount('domain', facility)
   ctx.provide('storageDomain', facility)
-  await ctx.plugin(EvolutionMemoryStore, { capacityBytes: 65536 })
+  // Scope locks must never land in the developer's real harness home.
+  const lockDirectory = await mkdtemp(join(tmpdir(), 'dsh-evolution-memory-locks-'))
+  await ctx.plugin(EvolutionMemoryStore, { capacityBytes: 65536, lockDirectory })
   await ctx.plugin(SessionStore)
   if (stores.has('feedback')) await ctx.plugin(EvolutionFeedback, {})
-  if (stores.has('graph')) await ctx.plugin(EvolutionGraph, {})
-  if (stores.has('benchmark')) await ctx.plugin(EvolutionBenchmark, {})
+  if (stores.has('benchmark')) {
+    // EvolutionBenchmark counts run tokens through the injected meter; these
+    // sections never assert on token totals, so a zero meter is enough and
+    // avoids pulling sessionProjections in behind the real TokenMeter.
+    ctx.provide('tokenMeter', { measure: () => ({ totalTokens: 0 }) } as never)
+    await ctx.plugin(EvolutionBenchmark, {})
+  }
   if (stores.has('telemetry')) {
     ctx.provide('skills', { list: async () => [] } as never)
     await ctx.plugin(EvolutionSkillTelemetry, {})
@@ -124,6 +136,22 @@ function appendFailure(session: Session, turn: number, text: string): void {
     step: 1,
     message: createToolResultMessage({ callId, content: [{ type: 'text', text }], isError: true }),
   }, { surfaceOp: 'append' })
+}
+
+/** One durable fact a later extraction can refute. */
+function refutable(statement: string): LessonArtifactInput {
+  return { statement, source: 's1', conditions: '', evidence: 'fact', confidence: 0.8, scope: 'project' }
+}
+
+/** One extraction record, as the reviewer stamps it on a decision batch. */
+const EXTRACTION: EvolutionExtraction = {
+  at: '2026-09-22T00:00:00.000Z',
+  sessionId: 's1',
+  provider: 'stub',
+  model: 'stub',
+  origin: 'background_review',
+  inputBytes: 10,
+  truncated: false,
 }
 
 const SCOPE_FRAGMENT = 'Staged writes:'
@@ -216,7 +244,7 @@ describe('evolution nudge sections', () => {
   })
 
   it('renders nothing while no recorded condition holds', async () => {
-    const h = keep(await nudgeHarness({ stores: ['feedback', 'graph', 'benchmark', 'telemetry'] }))
+    const h = keep(await nudgeHarness({ stores: ['feedback', 'benchmark', 'telemetry'] }))
     const prompt = await nudgePrompt(h.ctx, h.session)
     expect(prompt).toContain(SESSION_SEARCH_SECTION.text)
     expect(prompt).not.toContain(SCOPE_FRAGMENT)
@@ -226,9 +254,29 @@ describe('evolution nudge sections', () => {
     expect(prompt).not.toContain('Benchmark holdouts:')
   })
 
+  it('surfaces a contradicted lesson from the memory store alone', async () => {
+    const h = keep(await nudgeHarness())
+    await h.ctx.evolutionMemory.replaceArtifacts(h.scope, [
+      refutable('the cache is warm'),
+      refutable('the cache is cold'),
+    ])
+    // An unrefuted fact is not a contradiction, so the condition stays quiet.
+    expect(await nudgePrompt(h.ctx, h.session)).not.toContain('Contradicted claims:')
+    // A later extraction refutes one of them: the condition now reads the
+    // memory store, with no knowledge graph mounted anywhere.
+    await h.ctx.evolutionMemory.applyExtractionDecisions(
+      h.scope,
+      [{ kind: 'contradicts', artifactId: 'the cache is warm' }],
+      EXTRACTION,
+    )
+    expect(await nudgePrompt(h.ctx, h.session)).toContain(
+      'Contradicted claims: 1 active claim with contradicting evidence; run /claims.',
+    )
+  })
+
   it('names the condition each mounted store reports', async () => {
     const h = keep(await nudgeHarness({
-      stores: ['feedback', 'graph', 'benchmark', 'telemetry'],
+      stores: ['feedback', 'benchmark', 'telemetry'],
       config: { stagedWriteWaitMinutes: 0 },
     }))
     await h.ctx.evolutionMemory.stageWrite({
@@ -239,12 +287,14 @@ describe('evolution nudge sections', () => {
       originSessionId: String(h.session.id),
       gist: 'rules from the reviewer',
     })
-    await h.ctx.evolutionGraph.recordClaims(h.scope, [{
-      statement: 'the cache is warm',
-      contradictedBy: [{ source: 'session-9' }],
-    }])
+    await h.ctx.evolutionMemory.replaceArtifacts(h.scope, [refutable('the cache is warm')])
+    await h.ctx.evolutionMemory.applyExtractionDecisions(
+      h.scope,
+      [{ kind: 'contradicts', artifactId: 'the cache is warm' }],
+      EXTRACTION,
+    )
     await h.ctx.evolutionBenchmark.admit([
-      { capability: 'writer', task: 'patch the writer', gists: ['boom'], sourceSessions: ['s1'] },
+      { capability: 'writer', task: 'patch the writer', gists: ['boom'], sourceSessions: ['s1'], ...MINED_TASK },
     ])
     await h.ctx.evolutionSkillTelemetry.markUsed('catalog', 'user-dsh', String(h.session.id))
     await h.ctx.evolutionSkillTelemetry.recordTrustObservation('catalog', 'failure', String(h.session.id))
@@ -276,10 +326,9 @@ describe('evolution nudge sections', () => {
       gist: 'rules',
     })
     await h.ctx.evolutionBenchmark.admit([
-      { capability: 'reader', task: 'read a file', gists: [], sourceSessions: [] },
+      { capability: 'reader', task: 'read a file', gists: [], sourceSessions: [], ...MINED_TASK },
     ])
     const prompt = await nudgePrompt(h.ctx, h.session)
-    expect(prompt).toContain('contradicted claims cannot be checked: the evolutionGraph store is not mounted.')
     expect(prompt).toContain('skill trust cannot be checked: the evolutionSkillTelemetry store is not mounted.')
     expect(prompt).toContain('failure signals cannot be checked: the evolutionFeedback store is not mounted.')
     expect(prompt).toContain(SCOPE_FRAGMENT)
@@ -316,7 +365,7 @@ describe('evolution nudge sections', () => {
   it('drops the skill conditions while the skill tool is invisible', async () => {
     const hidden = keep(await nudgeHarness({ stores: ['benchmark'], skillTool: false }))
     await hidden.ctx.evolutionBenchmark.admit([
-      { capability: 'writer', task: 'patch the writer', gists: [], sourceSessions: [] },
+      { capability: 'writer', task: 'patch the writer', gists: [], sourceSessions: [], ...MINED_TASK },
     ])
     const hiddenPrompt = await nudgePrompt(hidden.ctx, hidden.session)
     expect(hiddenPrompt).not.toContain('Benchmark holdouts:')
@@ -324,14 +373,14 @@ describe('evolution nudge sections', () => {
 
     const visible = keep(await nudgeHarness({ stores: ['benchmark'] }))
     await visible.ctx.evolutionBenchmark.admit([
-      { capability: 'writer', task: 'patch the writer', gists: [], sourceSessions: [] },
+      { capability: 'writer', task: 'patch the writer', gists: [], sourceSessions: [], ...MINED_TASK },
     ])
     expect(await nudgePrompt(visible.ctx, visible.session)).toContain('Benchmark holdouts: 1 under evaluation')
   })
 
   it('leaves a session outside every workspace without scope conditions', async () => {
     const h = keep(await nudgeHarness({
-      stores: ['graph', 'benchmark'],
+      stores: ['benchmark'],
       config: { stagedWriteWaitMinutes: 0 },
     }))
     await h.ctx.evolutionMemory.stageWrite({
@@ -342,12 +391,8 @@ describe('evolution nudge sections', () => {
       originSessionId: String(h.session.id),
       gist: 'rules',
     })
-    await h.ctx.evolutionGraph.recordClaims(h.scope, [{
-      statement: 'the cache is warm',
-      contradictedBy: [{ source: 'session-9' }],
-    }])
     await h.ctx.evolutionBenchmark.admit([
-      { capability: 'reader', task: 'read a file', gists: [], sourceSessions: [] },
+      { capability: 'reader', task: 'read a file', gists: [], sourceSessions: [], ...MINED_TASK },
     ])
     const outsider = h.ctx.sessions.create(SessionId('nudge-outside'), { meta: { cwd: '/elsewhere' } })
     const prompt = await nudgePrompt(h.ctx, outsider)
@@ -359,7 +404,7 @@ describe('evolution nudge sections', () => {
   it('assembles without a session and keeps the fixed hint', async () => {
     const h = keep(await nudgeHarness({ stores: ['benchmark'] }))
     await h.ctx.evolutionBenchmark.admit([
-      { capability: 'writer', task: 'patch the writer', gists: [], sourceSessions: [] },
+      { capability: 'writer', task: 'patch the writer', gists: [], sourceSessions: [], ...MINED_TASK },
     ])
     const assembly = await h.ctx.systemPrompt.assemble({})
     expect(assembly.sections.map(section => section.name)).toContain('evolution-session-search')
@@ -383,7 +428,7 @@ describe('evolution nudge sections', () => {
   })
 
   it('keeps the system prompt byte-identical across a memory write (cache-prefix stability)', async () => {
-    const h = keep(await nudgeHarness({ stores: ['feedback', 'graph', 'benchmark', 'telemetry'] }))
+    const h = keep(await nudgeHarness({ stores: ['feedback', 'benchmark', 'telemetry'] }))
     const before = await nudgePrompt(h.ctx, h.session)
     // A memory write changes usage (0 -> 5 bytes charged) but the system
     // prompt must not reflect it: usage belongs to the brief, not this tier.

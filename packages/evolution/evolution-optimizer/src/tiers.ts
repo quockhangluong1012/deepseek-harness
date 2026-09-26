@@ -6,24 +6,25 @@
  * its own one-off batch id for the allocation policy to learn from; this
  * gate keys two long-lived batches per skill (`daily`, `weekly`) that
  * accumulate every scoring run's spend across the skill's whole history, and
- * it can refuse before a run happens.
+ * it can refuse before a run happens. The batches themselves, and the refusal
+ * both the scoring and the mutation paths read, are `evolution-budget`'s
+ * {@link openCeiling}.
  * @module @deepseek-ai/dsh-evolution-optimizer/tiers
  */
 
 import { createHash } from 'node:crypto'
-import type {} from '@deepseek-ai/dsh-evolution-budget'
+import {
+  dailyBatchId as budgetDailyBatchId,
+  openCeiling,
+  weeklyBatchId as budgetWeeklyBatchId,
+} from '@deepseek-ai/dsh-evolution-budget'
 import type { Context } from '@deepseek-ai/cordis'
 import type { SkillEvaluation } from '@deepseek-ai/dsh-evolution-scorer'
 import { scoreVariant, type ScoreVariantDeps } from './evaluate.ts'
 
-/** Two-digit zero pad for a date/week component. */
-function pad(value: number): string {
-  return String(value).padStart(2, '0')
-}
-
 /** The skill's ceiling batch id for the UTC calendar day `at` falls in. */
 export function dailyBatchId(skill: string, at: Date): string {
-  return `evolution-optimizer:${skill}:daily:${at.toISOString().slice(0, 10)}`
+  return budgetDailyBatchId('evolution-optimizer', skill, at)
 }
 
 /**
@@ -31,11 +32,7 @@ export function dailyBatchId(skill: string, at: Date): string {
  * (Monday-based, `YYYY-Www`).
  */
 export function weeklyBatchId(skill: string, at: Date): string {
-  const isoDay = (at.getUTCDay() + 6) % 7 // Monday=0 .. Sunday=6
-  const thursday = new Date(Date.UTC(at.getUTCFullYear(), at.getUTCMonth(), at.getUTCDate() - isoDay + 3))
-  const yearStart = Date.UTC(thursday.getUTCFullYear(), 0, 1)
-  const week = Math.ceil(((thursday.getTime() - yearStart) / 86400000 + 1) / 7)
-  return `evolution-optimizer:${skill}:weekly:${thursday.getUTCFullYear()}-W${pad(week)}`
+  return budgetWeeklyBatchId('evolution-optimizer', skill, at)
 }
 
 /**
@@ -55,28 +52,12 @@ export async function scoreVariantGated(
   body: string,
   attempts?: number,
 ): Promise<SkillEvaluation> {
-  const budget = ctx.get('evolutionBudget')
-  if (budget === undefined) return scoreVariant(deps, body, attempts)
-  const at = new Date()
-  const daily = dailyBatchId(deps.skill, at)
-  const weekly = weeklyBatchId(deps.skill, at)
-  for (const batchId of [daily, weekly]) {
-    if (!budget.batches(deps.skill).some(row => row.batchId === batchId)) {
-      await budget.allocate({ batchId, taskClass: deps.skill, candidateClass: 'standard' })
-    }
-  }
-  if (!budget.withinBudget(daily) || !budget.withinBudget(weekly)) {
-    return {
-      status: 'skipped',
-      skill: deps.skill,
-      reason: `the daily or weekly evolution-budget ceiling for '${deps.skill}' is spent`,
-    }
-  }
+  const opening = await openCeiling(ctx, 'evolution-optimizer', deps.skill, new Date())
+  if (opening.kind === 'refused') return { status: 'skipped', skill: deps.skill, reason: opening.reason }
   const evaluation = await scoreVariant(deps, body, attempts)
-  if (evaluation.status === 'evaluated') {
+  if (opening.kind === 'open' && evaluation.status === 'evaluated') {
     const spend = { tokens: evaluation.score.tokens, wallTimeMs: evaluation.score.wallTimeMs, rollouts: 1 }
-    await budget.spend(daily, spend)
-    await budget.spend(weekly, spend)
+    for (const batchId of opening.batchIds) await opening.budget.spend(batchId, spend)
   }
   return evaluation
 }

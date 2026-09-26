@@ -13,7 +13,7 @@ import { Context, Service } from '@deepseek-ai/cordis'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import { createAssistantMessage } from '@deepseek-ai/dsh-llm'
-import type { TokenUsage } from '@deepseek-ai/dsh-llm'
+import type { LlmModelCost, TokenUsage } from '@deepseek-ai/dsh-llm'
 import Storage from '@deepseek-ai/dsh-storage'
 import {
   apply as storageJsonApply, Config as storageJsonConfig, inject as storageJsonInject, name as storageJsonName,
@@ -42,6 +42,12 @@ interface HarnessOptions {
     cacheHitAlertThreshold?: number
     cacheHitAlertMinRequests?: number
   }
+  /**
+   * Route prices the test-owned LLM service declares, keyed `provider/model`.
+   * Absent mounts no LLM service at all, as a deployment without the LLM
+   * runtime does.
+   */
+  prices?: ReadonlyMap<string, LlmModelCost>
 }
 
 async function harness(options: HarnessOptions = {}) {
@@ -54,6 +60,10 @@ async function harness(options: HarnessOptions = {}) {
   await ctx.plugin({ name: storageDomainName, inject: storageDomainInject, apply: storageDomainApply, Config: storageDomainConfig }, { backend: 'json' })
   await ctx.plugin(SessionStore)
   await ctx.plugin(UsageLedger, options.config ?? { retentionDays: 90, writeEveryEvents: 100, writeIntervalMs: 60_000 })
+  const prices = options.prices
+  if (prices !== undefined) {
+    ctx.provide('llm', { modelCost: (provider: string, model: string) => prices.get(`${provider}/${model}`) } as never)
+  }
   return { ctx, root, ledger: ctx.usageLedger }
 }
 
@@ -247,6 +257,122 @@ describe('UsageLedger summary face', () => {
       .then(() => ctx.usageLedger.summary('today', controller.signal))
       .then(() => 'resolved', (error: unknown) => error)
     expect(aborted).not.toBe('resolved')
+  })
+})
+
+describe('UsageLedger per-session cost', () => {
+  /** 1 USD per uncached input and cache-read token... times one million. */
+  const CHAT_COST: LlmModelCost = { inputPerMTok: 1, outputPerMTok: 2, cacheReadPerMTok: 0.5, cacheWritePerMTok: 0 }
+  const PRO_COST: LlmModelCost = { inputPerMTok: 3, outputPerMTok: 4, cacheReadPerMTok: 1, cacheWritePerMTok: 0 }
+  /** USAGE bills 100 uncached input, 20 cache-read input, and 50 output tokens. */
+  const USAGE_COST = (100 * CHAT_COST.inputPerMTok + 20 * CHAT_COST.cacheReadPerMTok + 50 * CHAT_COST.outputPerMTok) / 1_000_000
+
+  it('prices the invoking agent and each subagent separately', async () => {
+    const { ctx } = await harness({
+      prices: new Map([['deepseek/deepseek-chat', CHAT_COST], ['deepseek/deepseek-v4-pro', PRO_COST]]),
+    })
+    const agent = ctx.sessions.create(SessionId('agent'))
+    answer(agent, 1, 1)
+    const subagent = ctx.sessions.create(SessionId('subagent'), {
+      meta: { parentSession: SessionId('agent'), origin: 'subagent', delegationDepth: 1 },
+    })
+    answer(
+      subagent, 1, 1,
+      { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+      'deepseek', 'deepseek-v4-pro',
+    )
+
+    const costs = await ctx.usageLedger.sessionCosts('today', new AbortController().signal)
+    expect(costs.map(row => row.sessionId)).toEqual(['agent', 'subagent'])
+    expect(costs[0]).toMatchObject({ pricedRequests: 1, unpricedRequests: 0, unpricedRoutes: [] })
+    expect(costs[0]?.usd).toBeCloseTo(USAGE_COST, 12)
+    expect(costs[1]).toMatchObject({ pricedRequests: 1, unpricedRequests: 0, unpricedRoutes: [] })
+    expect(costs[1]?.usd).toBeCloseTo((10 * PRO_COST.inputPerMTok + 5 * PRO_COST.outputPerMTok) / 1_000_000, 12)
+  })
+
+  it('reports a route with no declared price as unmeasurable, never zero', async () => {
+    const { ctx } = await harness({ prices: new Map([['deepseek/deepseek-chat', CHAT_COST]]) })
+    const session = ctx.sessions.create(SessionId('unpriced'))
+    answer(session, 1, 1, USAGE, 'deepseek', 'deepseek-unlisted')
+
+    await expect(ctx.usageLedger.sessionCosts('today', new AbortController().signal)).resolves.toEqual([{
+      sessionId: 'unpriced',
+      usd: undefined,
+      pricedRequests: 0,
+      unpricedRequests: 1,
+      unpricedRoutes: ['deepseek/deepseek-unlisted'],
+    }])
+  })
+
+  it('prices nothing when no LLM service is mounted', async () => {
+    const { ctx } = await harness()
+    const session = ctx.sessions.create(SessionId('no-llm'))
+    answer(session, 1, 1)
+
+    const costs = await ctx.usageLedger.sessionCosts('today', new AbortController().signal)
+    expect(costs).toHaveLength(1)
+    expect(costs[0]).toMatchObject({ sessionId: 'no-llm', usd: undefined, unpricedRequests: 1 })
+  })
+
+  it('keeps a partially priced session visible with the route it could not cover', async () => {
+    const { ctx } = await harness({ prices: new Map([['deepseek/deepseek-chat', CHAT_COST]]) })
+    const session = ctx.sessions.create(SessionId('mixed'))
+    answer(session, 1, 1)
+    answer(session, 2, 2, USAGE, 'deepseek', 'deepseek-unlisted')
+
+    const costs = await ctx.usageLedger.sessionCosts('today', new AbortController().signal)
+    expect(costs[0]).toMatchObject({ pricedRequests: 1, unpricedRequests: 1, unpricedRoutes: ['deepseek/deepseek-unlisted'] })
+    expect(costs[0]?.usd).toBeCloseTo(USAGE_COST, 12)
+  })
+
+  it('moves an early attempt\'s money onto the route its step settles', async () => {
+    const { ctx } = await harness({ prices: new Map([['deepseek/deepseek-chat', CHAT_COST]]) })
+    const session = ctx.sessions.create(SessionId('settled'))
+    session.append('turn/start', { turn: 1 })
+    session.append('step/start', { turn: 1, step: 1 })
+    session.append('assistant/attempt', { turn: 1, step: 1, stream: usageStream(USAGE) })
+    session.append('assistant/message', {
+      turn: 1,
+      step: 1,
+      message: createAssistantMessage({ content: [{ type: 'text', text: 'hi' }], source: { provider: 'deepseek', model: 'deepseek-chat' } }),
+      stream: [],
+      usage: USAGE,
+    }, { surfaceOp: 'append' })
+    session.append('step/end', { turn: 1, step: 1 })
+    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+
+    const costs = await ctx.usageLedger.sessionCosts('today', new AbortController().signal)
+    expect(costs[0]).toMatchObject({ sessionId: 'settled', pricedRequests: 2, unpricedRequests: 0, unpricedRoutes: [] })
+    expect(costs[0]?.usd).toBeCloseTo(2 * USAGE_COST, 12)
+  })
+
+  it('counts a route whose declaration cannot be used as unmeasurable, warning once', async () => {
+    const { ctx } = await harness()
+    const warnings: string[] = []
+    ctx.logger.warn = ((message: string) => void warnings.push(message)) as typeof ctx.logger.warn
+    ctx.provide('llm', {
+      modelCost: () => { throw new Error('adapter returned invalid cost metadata') },
+    } as never)
+    const session = ctx.sessions.create(SessionId('broken'))
+    answer(session, 1, 1)
+    answer(session, 2, 2)
+
+    const costs = await ctx.usageLedger.sessionCosts('today', new AbortController().signal)
+    expect(costs[0]).toMatchObject({ sessionId: 'broken', usd: undefined, pricedRequests: 0, unpricedRequests: 2 })
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0]).toContain('deepseek/deepseek-chat')
+    expect(warnings[0]).toContain('invalid cost metadata')
+  })
+
+  it('rejects an unknown range and an aborted call', async () => {
+    const { ctx } = await harness()
+    const badRange = await Promise.resolve()
+      .then(() => ctx.usageLedger.sessionCosts('yesterday' as never, new AbortController().signal))
+      .then(() => 'resolved', (error: unknown) => error)
+    expect(badRange).toMatchObject({ code: 'gateway/bad-request' })
+    const controller = new AbortController()
+    controller.abort()
+    await expect(ctx.usageLedger.sessionCosts('today', controller.signal)).rejects.toThrow()
   })
 })
 

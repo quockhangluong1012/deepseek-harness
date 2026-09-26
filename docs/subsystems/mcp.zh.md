@@ -136,4 +136,28 @@ register(server: string, provider: McpResourceProvider): () => void
 ```
 
 Source: [`packages/mcp/mcp-resources/src/index.ts`](../../packages/mcp/mcp-resources/src/index.ts)
+
+<a id="mcp-client-events"></a>
+
+### `mcp-client/*` events
+
+<a id="mcp-clientstatus--emit"></a>
+
+#### `mcp-client/status` — emit
+
+One mounted instance's connection state changed, including an initial notification of the state at subscription time. The plugin that mounts the instances reads this to report status; a mount owner subscribes before mounting so it never misses a server's first state.
+
+```ts cordis-catalog
+/**
+ * One mounted instance's connection state changed, including an initial
+ * notification of the state at subscription time. The plugin that mounts
+ * the instances reads this to report status; a mount owner subscribes
+ * before mounting so it never misses a server's first state.
+ * @mode emit
+ * @param change - the server and the state it is in after the transition.
+ */
+'mcp-client/status'(change: McpConnectionStatusChange): void
+```
+
+Source: [`packages/mcp/mcp-client/src/index.ts`](../../packages/mcp/mcp-client/src/index.ts)
 <!-- END GENERATED cordis-surface -->

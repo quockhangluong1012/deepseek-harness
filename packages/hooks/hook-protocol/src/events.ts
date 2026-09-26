@@ -84,19 +84,25 @@ export function appendHookInvoked(session: Session, invocation: HookInvocation):
 
 /**
  * Append the durable result paired with `hook/invoked`. The recorded decision
- * is the parsed decision, then `stop` for `continue:false`, else `pass`; stderr
- * is trimmed and capped, and an absent process exit stays omitted.
+ * is the parsed decision, then `stop` for `continue:false`, else `transport-error`
+ * for a failed HTTP hook transport, else `pass`; stderr is trimmed and capped,
+ * and an absent process exit stays omitted.
  * @param session - the session whose open turn records the event.
  * @param record - the outcome to record: the decoded output plus the summary cap and duration.
  */
 export function appendHookResult(session: Session, record: HookResultRecord): void {
   const { output } = record
-  const stderrSummary = summarizeStderr(output.stderr, record.stderrSummaryMaxChars)
+  // A transport fault carries no decision of its own unless the bridge failed
+  // closed; its failure text is the only durable trace, so it prefers stderr.
+  const detail = output.stderr.length > 0 ? output.stderr : output.transportError ?? ''
+  const stderrSummary = summarizeStderr(detail, record.stderrSummaryMaxChars)
   session.append('hook/result', {
     turn: record.turn,
     point: record.point,
     handlerId: record.handlerId,
-    decision: output.decision ?? (output.continue === false ? 'stop' : 'pass'),
+    decision: output.transportError !== undefined
+      ? 'transport-error'
+      : output.decision ?? (output.continue === false ? 'stop' : 'pass'),
     ...output.exitCode !== undefined ? { exitCode: output.exitCode } : {},
     ...stderrSummary !== undefined ? { stderrSummary } : {},
     durationMs: record.durationMs,

@@ -1,5 +1,5 @@
 /** `restore()` rewinds a working directory to one turn's start, spanning every turn since. */
-import { readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { readFile, rename, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
@@ -7,7 +7,7 @@ import type {} from '@deepseek-ai/dsh-agent'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
 import * as WorkspaceChanges from '../src/index.ts'
-import { endTurn, git, mutate, scratchDir, settle, startTurn } from './support.ts'
+import { endTurn, git, mutate, scratchDir, settle, startTurn, SUBPROCESS_TEST_TIMEOUT_MS } from './support.ts'
 
 const cleanups: Array<() => Promise<unknown>> = []
 afterEach(async () => {
@@ -44,7 +44,7 @@ function turnSeq(ctx: Context, sessionId: ReturnType<typeof SessionId>, turn: nu
   return event.seq
 }
 
-describe('workspace-changes restore', () => {
+describe('workspace-changes restore', { timeout: SUBPROCESS_TEST_TIMEOUT_MS }, () => {
   it('rewinds an edited file back to its turn-start content', async () => {
     const cwd = await repository()
     const ctx = await boot()
@@ -88,7 +88,7 @@ describe('workspace-changes restore', () => {
     expect(result?.restored.sort()).toEqual(['a.txt', 'new.txt'])
     expect(await readFile(join(cwd, 'a.txt'), 'utf8')).toBe('l1\nl2\nl3\n')
     await expect(stat(join(cwd, 'new.txt'))).rejects.toThrow()
-  }, 15000)
+  }, SUBPROCESS_TEST_TIMEOUT_MS)
 
   it('reverses a rename: recreates the old path and removes the new one', async () => {
     const cwd = await repository()

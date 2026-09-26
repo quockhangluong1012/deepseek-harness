@@ -80,6 +80,41 @@ export async function makeAgent(ctx: Context, cwd?: string): Promise<Agent> {
 }
 
 /**
+ * Register a directly constructed child Agent whose session header names its
+ * parent. The returned Promise settles after the kernel issued its delegation
+ * receipt, so a spec observes a child that already carries its authority.
+ * @param ctx - the owning context.
+ * @param parent - the delegating parent agent.
+ * @param cwd - absolute workspace directory to record on the session header.
+ * @returns the registered child Agent.
+ */
+export async function makeChild(ctx: Context, parent: Agent, cwd?: string): Promise<Agent> {
+  sequence += 1
+  const scope = ctx.plugin(() => {})
+  const id = SessionId(`agent-child-${String(sequence)}`)
+  const session = ctx.sessions.create(id, {
+    meta: { parentSession: parent.session.id, ...cwd === undefined ? {} : { cwd } },
+  })
+  const agent: Agent = {
+    id,
+    options: {},
+    session,
+    inbox: unsupportedInbox(),
+    status: 'idle',
+    ctx: scope.ctx,
+    followup: () => {},
+    steer: () => {},
+    inject: () => {},
+    send: () => {},
+    cancel: () => {},
+    runMaintenance: task => task(new AbortController().signal),
+    whenIdle: () => Promise.resolve(),
+  }
+  await ctx.agents.register(agent)
+  return agent
+}
+
+/**
  * Register one fixture tool.
  * @param ctx - the owning context.
  * @param name - the tool name the spec will call.

@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-`dsh-embeddings-http` 由一个 OpenAI 兼容后端服务 `ctx.embeddings` 的一个路由：每批向 `<baseURL>/embeddings` 发一次 POST，响应在任何向量进入缓存之前先被校验。后端地址与模型是必填配置，因为本包不假定任何嵌入模型名；bearer 密钥每批通过凭据接缝解析，因此轮换后的密钥能立刻用于下一次请求，而省略密钥则让请求不带认证，供不需要密钥的后端使用。响应格式即 DeepSeek 兼容网关、Ollama、vLLM 与 LM Studio 所提供的格式。
+`dsh-embeddings-http` 由一个 OpenAI 兼容后端为 `ctx.embeddings` 提供一个路由：每批向 `<baseURL>/embeddings` 发一次 POST，并在任何向量进入缓存之前校验响应；该批向量记在提供它的模型名下，即主请求失败时接手的 fallback 模型。后端地址与模型是必填配置，因为本包不假定任何嵌入模型名；bearer 密钥每批解析一次，因此轮换后的密钥能立即用于下一次请求，省略密钥则让请求不带认证。DeepSeek 兼容网关、Ollama、vLLM 与 LM Studio 提供的正是这种响应格式。
 
 ## 目录
 

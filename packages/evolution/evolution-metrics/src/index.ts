@@ -19,20 +19,65 @@
  * recorded under, so the dollar side covers the same runs as the numerator
  * and a window whose runs are not all priced reports unmeasurable rather than
  * a partial bill.
+ *
+ * The §13.2 coding set is the second read model: {@link EvolutionMetrics.coding}
+ * folds recorded session logs — the same records the kernel counters and the
+ * trace projection are built from — into the readings of agent behavior:
+ * verified success, false completion, regression, recovery, planning,
+ * verification coverage, human intervention, cost, and latency, beside the
+ * §5.4 baseline readings over the same window (loop rate, tool failure rate,
+ * subagent waste, context utilization, average tokens, and the verified-success
+ * ratios per dollar, per million tokens, and per ten minutes).
+ *
+ * Two more sets read the record the work left behind. {@link EvolutionMetrics.research}
+ * folds recorded research runs and the claim and observation records their
+ * sessions logged into the seven §13.3 readings of research quality, and
+ * {@link EvolutionMetrics.mentor} reads one learner's durable record and the
+ * misconception cycles recorded for them into the six §13.4 readings of
+ * mentoring. Neither writes: a research run, a claim, an observation, a
+ * learner entry, and a pipeline row are all another package's records.
+ *
+ * The §13.5 long-horizon set is the last read model:
+ * {@link EvolutionMetrics.longHorizon} reports success, process discipline,
+ * recoveries, context pressure, and budget usage per horizon tier, from the
+ * durable outcome `ctx.evolutionBenchmark.run()` records for every benchmark
+ * task it executes. Those outcomes are also what makes `benchmark-robustness`
+ * measurable: it is the share of executed tasks whose run passed.
+ *
  * @module @deepseek-ai/dsh-evolution-metrics
+ *
+ * This layer owns the read-model surface and nothing else. The evaluator
+ * health, uncertainty, and self-model read models are presented here:
+ * `evaluator-reliability` in the supporting set, and
+ * {@link EvolutionMetrics.uncertainty} and {@link EvolutionMetrics.selfModel}
+ * beside the four set reports. `evolution-evaluator-health`,
+ * `evolution-uncertainty`, and `evolution-self-model` each keep their own
+ * versioned durable domain and their own writer, and a control loop that
+ * drives behaviour still reads the store it depends on — presenting a metric
+ * and driving a loop are different jobs.
  */
 
 import { Context, Service } from '@deepseek-ai/cordis'
 import type { SpendRecord } from '@deepseek-ai/dsh-evolution-budget'
 import type { DeploymentSummary } from '@deepseek-ai/dsh-evolution-canary'
+import type {} from '@deepseek-ai/dsh-evolution-benchmark'
 import type { RegressionDebt } from '@deepseek-ai/dsh-evolution-curator'
 import type { EvaluatorHealthSummary } from '@deepseek-ai/dsh-evolution-evaluator-health'
 import type { FeedbackSignal } from '@deepseek-ai/dsh-evolution-feedback'
 import type { ExperimentEnvelope } from '@deepseek-ai/dsh-evolution-lineage'
 import type { EngineRun } from '@deepseek-ai/dsh-evolution-meta'
+import type { FrontierGap } from '@deepseek-ai/dsh-evolution-self-model'
+import type { EvaluationTask } from '@deepseek-ai/dsh-evolution-uncertainty'
 import type { SkillUsageRecord } from '@deepseek-ai/dsh-evolution-skill-telemetry'
 import type { MemoryUtility } from '@deepseek-ai/dsh-evolution-memory'
+import type { ResearchRunRecord } from '@deepseek-ai/dsh-research-controller'
+import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
+import { SessionId } from '@deepseek-ai/dsh-session'
 import z from 'zod'
+import { codingMetrics, readCodingSession, type CodingSessionFacts } from './coding.ts'
+import { longHorizonReport } from './horizon.ts'
+import { mentorMetrics } from './mentor.ts'
+import { readResearchLedger, researchMetrics, runInstant, type ResearchWork } from './research.ts'
 import {
   elapsedDays,
   gainPerComputeHour,
@@ -41,13 +86,34 @@ import {
   metric,
   passRate,
   ratio,
+  rate,
   share,
   splitHalves,
   unavailable,
 } from './metrics.ts'
-import type { MetricValue, MetricsQuery, MetricsReport, MetricsWindow } from './types.ts'
+import type {
+  CodingQuery,
+  CodingReport,
+  LongHorizonQuery,
+  LongHorizonReport,
+  MentorQuery,
+  MentorReport,
+  MetricValue,
+  MetricsQuery,
+  MetricsReport,
+  MetricsWindow,
+  ResearchQuery,
+  ResearchReport,
+  SelfModelReport,
+  UncertaintyQuery,
+  UncertaintyReport,
+} from './types.ts'
 
 export type * from './types.ts'
+export { codingMetrics, readCodingSession, type CodingSessionFacts } from './coding.ts'
+export { longHorizonReport } from './horizon.ts'
+export { mentorMetrics, type MentorFacts } from './mentor.ts'
+export { readResearchLedger, researchMetrics, runInstant, type ResearchLedger, type ResearchWork } from './research.ts'
 export {
   elapsedDays,
   gainPerComputeHour,
@@ -61,8 +127,14 @@ export {
   unavailable,
 } from './metrics.ts'
 
-/** Provenance of the run window: the pass, the cost, and the instant of one run. */
+/** Engine rows behind the run window: the pass, the cost, and the instant of one run. */
 const RUN_INPUT = 'ctx.evolutionMeta.runs(): EngineRun.pass / tokens / wallTimeMs / at'
+
+/** The §43 evaluation-task queue behind the uncertainty readings. */
+const QUEUE_INPUT = 'ctx.evolutionUncertainty.queue(skill, limit): EvaluationTask.kinds / signals / priority'
+
+/** The §42 capability frontier behind the self-model readings. */
+const FRONTIER_INPUT = 'ctx.evolutionSelfModel.gaps(): FrontierGap.score'
 
 /**
  * Deployment choices of the metric layer; an omitted field takes its default.
@@ -74,6 +146,17 @@ export interface Config {
   minimumRunsPerHalf?: number
   /** Failure signals one recurrence reading covers; default 50. */
   maxSignals?: number
+  /** Newest sessions one coding report reads, and covers when its query sets no limit; default 200. */
+  maxSessions?: number
+  /** Newest benchmark outcomes a long-horizon report covers when its query sets no limit; default 200. */
+  maxOutcomes?: number
+  /**
+   * Flat price of one million billed tokens in USD, or absent when the
+   * deployment prices nothing — then every dollar reading over a coding window
+   * is unmeasurable. The harness owns no per-route price data, so this is the
+   * deployment's own rate, the same one its budget ceilings bill at.
+   */
+  usdPerMillionTokens?: number
 }
 
 /** Normalized configuration used by the metric layer. */
@@ -84,16 +167,38 @@ export interface ResolvedConfig {
   minimumRunsPerHalf: number
   /** Failure signals one recurrence reading covers. */
   maxSignals: number
+  /** Newest sessions one coding report reads, and covers when its query sets no limit. */
+  maxSessions: number
+  /** Newest benchmark outcomes a long-horizon report covers when its query sets no limit. */
+  maxOutcomes: number
+  /** Price of one million billed tokens in USD, or undefined when unpriced. */
+  usdPerMillionTokens: number | undefined
 }
 
 /**
- * Resolve defaults for the optional fields.
+ * Resolve defaults for the optional fields. A price is optional — the dollar
+ * readings report unmeasurable without one — but a stated price no comparison
+ * could use fails plugin load instead of silently pricing every reading as
+ * unmeasurable.
  * @param config - user-facing plugin configuration.
  * @returns normalized runtime configuration.
+ * @throws When `usdPerMillionTokens` is not a positive finite number.
  */
 export function resolveConfig(config: Config): ResolvedConfig {
-  const { windowRuns = 200, minimumRunsPerHalf = 2, maxSignals = 50 } = config
-  return { windowRuns, minimumRunsPerHalf, maxSignals }
+  const {
+    windowRuns = 200,
+    minimumRunsPerHalf = 2,
+    maxSignals = 50,
+    maxSessions = 200,
+    maxOutcomes = 200,
+    usdPerMillionTokens,
+  } = config
+  if (usdPerMillionTokens !== undefined && (!Number.isFinite(usdPerMillionTokens) || usdPerMillionTokens <= 0)) {
+    throw new Error(
+      `evolution-metrics: usdPerMillionTokens must be a positive finite number, got ${String(usdPerMillionTokens)}`,
+    )
+  }
+  return { windowRuns, minimumRunsPerHalf, maxSignals, maxSessions, maxOutcomes, usdPerMillionTokens }
 }
 
 declare module '@deepseek-ai/cordis' {
@@ -115,6 +220,9 @@ export class EvolutionMetrics extends Service {
     windowRuns: z.number().int().min(1).default(200),
     minimumRunsPerHalf: z.number().int().min(1).default(2),
     maxSignals: z.number().int().min(1).default(50),
+    maxSessions: z.number().int().min(1).default(200),
+    maxOutcomes: z.number().int().min(1).default(200),
+    usdPerMillionTokens: z.number().optional(),
   })
 
   private readonly resolved: ResolvedConfig
@@ -172,6 +280,316 @@ export class EvolutionMetrics extends Service {
       northStar: this.northStar(gain, gap, series, tokens, wallTimeMs, spends),
       supporting: this.supporting(window, gain, gap, tokens, spends),
     }
+  }
+
+  /**
+   * Measure the §13.2 coding metric set over one window of recorded session
+   * logs. Every value is computed on demand from the events the kernel, the
+   * trace, and the feedback stores already wrote: nothing is appended, nothing
+   * is re-recorded, and a metric whose records the window does not hold names
+   * the missing record instead of reporting a zero.
+   *
+   * The window covers the sessions storage lists, narrowed by the query bounds
+   * on each session's newest event and by the query's newest-first limit, and
+   * `maxSessions` bounds how many of the newest-created sessions are read at
+   * all. Each log is folded through the kernel's own metric fold, so a counter
+   * the kernel owns is read, never recomputed.
+   * @param query - which sessions the window covers; omitted fields take defaults.
+   * @returns the session window and the readings in spec order.
+   */
+  async coding(query: CodingQuery = {}): Promise<CodingReport> {
+    const persistence = this.ctx.get('sessionPersistence')
+    const gap = persistence === undefined
+      ? 'the session persistence store is not mounted, so no recorded session is read'
+      : 'the session store lists no session with a recorded event'
+    const folded = persistence === undefined ? [] : await this.foldSessions(persistence)
+    // An empty log contributes no reading, so it is not a session of the window.
+    const window = folded
+      .filter((facts): facts is CodingSessionFacts & { updatedAt: string } => facts.updatedAt !== null)
+      .filter(facts => this.inWindow(facts.updatedAt, query.since, query.until))
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+      .slice(0, query.limit ?? this.resolved.maxSessions)
+    return {
+      window: {
+        sessions: window.length,
+        from: window.at(-1)?.updatedAt ?? null,
+        to: window[0]?.updatedAt ?? null,
+      },
+      metrics: codingMetrics(window, gap),
+    }
+  }
+
+  /**
+   * Measure the §13.5 long-horizon set over one window of recorded benchmark
+   * outcomes: for each horizon tier, success, process discipline, recoveries,
+   * context pressure, and budget usage.
+   *
+   * The window covers the outcomes `ctx.evolutionBenchmark.run()` recorded,
+   * newest first, narrowed by the query and bounded by `maxOutcomes`. Every
+   * reading aggregates the outcome rows alone: each row was folded from its
+   * run's own harvested sessions when the run was recorded, so nothing is
+   * re-read here and a store that is not mounted makes the whole set
+   * unmeasurable with the missing store named.
+   * @param query - which outcomes the window covers; omitted fields take defaults.
+   * @returns the outcome window and one entry per shipped horizon tier.
+   */
+  longHorizon(query: LongHorizonQuery = {}): LongHorizonReport {
+    const store = this.ctx.get('evolutionBenchmark')
+    const gap = store === undefined
+      ? 'the benchmark store is not mounted, so no task outcome is recorded'
+      : 'no benchmark task outcome is recorded: `ctx.evolutionBenchmark.run()` executes a task and records'
+        + ' whether it passed'
+    const window = store === undefined
+      ? []
+      : store.outcomes()
+        .filter(outcome => this.inWindow(outcome.at, query.since, query.until))
+        .sort((left, right) => right.at.localeCompare(left.at))
+        .slice(0, query.limit ?? this.resolved.maxOutcomes)
+    return longHorizonReport(window, gap)
+  }
+
+  /**
+   * Fold the newest listed sessions' committed logs, newest-created first.
+   * `list()` promises no order, so the `createdAt` of each header orders the
+   * read and a session's own id breaks a tie.
+   * @param persistence - the session storage seam to read.
+   * @returns one fold per read session, newest-created first.
+   */
+  private async foldSessions(persistence: SessionPersistence): Promise<CodingSessionFacts[]> {
+    const listed = [...await persistence.list()]
+      .sort((left, right) => right.header.createdAt - left.header.createdAt
+        || left.header.id.localeCompare(right.header.id))
+      .slice(0, this.resolved.maxSessions)
+    const folded: CodingSessionFacts[] = []
+    for (const snapshot of listed) {
+      const handle = await persistence.open(snapshot.header.id, 'read')
+      try {
+        folded.push(readCodingSession(
+          String(snapshot.header.id),
+          (await handle.read(0)).events,
+          this.resolved.usdPerMillionTokens,
+        ))
+      } finally {
+        await handle.close()
+      }
+    }
+    return folded
+  }
+
+  /**
+   * Measure the §13.3 research metric set over one window of recorded research
+   * runs and the claim and observation records their sessions logged. The
+   * window covers the runs `ctx.research` holds, newest first, narrowed by the
+   * query; each of their sessions is opened once and folded into the ledger
+   * the runs' references resolve through, so nothing is copied and nothing is
+   * written.
+   *
+   * Research work is what the run records scope: a session's claims and
+   * observations enter the metric set through the stages of its runs, never
+   * through the session log alone. A store that is not mounted makes the whole
+   * set unmeasurable with the missing store named.
+   * @param query - which runs the window covers; omitted fields take defaults.
+   * @returns the run window and the seven research metrics in spec order.
+   */
+  async research(query: ResearchQuery = {}): Promise<ResearchReport> {
+    const controller = this.ctx.get('research')
+    const persistence = this.ctx.get('sessionPersistence')
+    const covered = controller === undefined ? undefined : this.coveredRuns(controller.runs(), query)
+    const runs = covered?.length ?? 0
+    const work = covered === undefined || persistence === undefined
+      ? []
+      : await this.readResearchWork(covered, persistence)
+    const gap = this.researchGap(controller !== undefined, persistence !== undefined, runs)
+    return {
+      window: {
+        sessions: work.length,
+        runs,
+        from: this.runEdge(covered?.[covered.length - 1]),
+        to: this.runEdge(covered?.[0]),
+      },
+      metrics: researchMetrics(work, gap),
+    }
+  }
+
+  /**
+   * Measure the §13.4 mentor metric set over one learner's durable record and
+   * the misconception cycles recorded for them. Both stores are read, never
+   * written; a store that is not mounted leaves the metrics that read it
+   * unmeasurable with that store named, and a learner with nothing recorded
+   * names the record each metric is missing.
+   * @param query - the learner whose recorded work the report covers.
+   * @returns the learner and the six mentor metrics in spec order.
+   */
+  mentor(query: MentorQuery): MentorReport {
+    return {
+      learnerId: String(query.learnerId),
+      metrics: mentorMetrics({
+        learner: this.ctx.get('learnerModel')?.read(query.learnerId),
+        pipelines: this.ctx.get('misconception')?.pipelines(query.learnerId),
+      }),
+    }
+  }
+
+  /**
+   * Measure the §43 uncertainty read model over the evaluation-task queue
+   * `ctx.evolutionUncertainty` derives from its durable signals: how deep that
+   * queue is, and how much of it more than one kind of evidence agrees on.
+   *
+   * The store groups the signals and ranks the queue; nothing here re-derives
+   * either, so this report only presents the read model the store already
+   * owns. A store that is not mounted leaves both readings unmeasurable with
+   * the store named, while a mounted store holding no signal is an empty
+   * queue: a measured zero tasks, not a missing record.
+   * @param query - which skill's signals the queue covers, and how many tasks it may hold.
+   * @returns the queue and the two uncertainty readings in spec order.
+   */
+  uncertainty(query: UncertaintyQuery = {}): UncertaintyReport {
+    const store = this.ctx.get('evolutionUncertainty')
+    const unmounted = 'the evolution uncertainty store is not mounted, so no evaluation task is queued'
+    const tasks: readonly EvaluationTask[] = store?.queue(query.skill, query.limit) ?? []
+    return {
+      window: {
+        skill: query.skill ?? null,
+        tasks: tasks.length,
+        signals: tasks.reduce((total, task) => total + task.signals, 0),
+        topPriority: tasks[0]?.priority ?? null,
+      },
+      metrics: [
+        store === undefined
+          ? unavailable('uncertainty-queue-depth', 'count', [QUEUE_INPUT], unmounted)
+          : metric(
+            'uncertainty-queue-depth',
+            tasks.length,
+            'count',
+            [QUEUE_INPUT],
+            'the store\'s own queue limit caps the rows, so a deployment that caps it low reads the cap rather'
+            + ' than every signal it holds; a task leaves the queue when its signals are resolved, and a task'
+            + ' that is still queued is one nobody re-evaluated yet',
+          ),
+        rate(
+          'uncertainty-corroboration',
+          'share',
+          tasks.filter(task => task.kinds.length > 1).length,
+          tasks.length,
+          [QUEUE_INPUT],
+          store === undefined
+            ? unmounted
+            : 'no evaluation task is queued: a signal is recorded through `ctx.evolutionUncertainty.record()`,'
+              + ' and every task leaves the queue once its signals are resolved',
+          'a task counts as corroborated when more than one of the five §43 kinds flagged it, whatever signal'
+            + ' count each kind contributed, so the share measures independent agreement rather than volume',
+        ),
+      ],
+    }
+  }
+
+  /**
+   * Measure the §42 self-model read model over the capability frontier
+   * `ctx.evolutionSelfModel` ranks from its durable per-capability entries: how
+   * weak the frontier stands overall, and how weak its weakest entry is.
+   *
+   * The store merges the assessments and ranks the frontier; nothing here
+   * re-derives either, so this report only presents the read model the store
+   * already owns. A store that is not mounted leaves both readings
+   * unmeasurable with the store named, and a mounted store holding no entry
+   * names the observation that would have ranked one.
+   * @returns the frontier and the two self-model readings in spec order.
+   */
+  selfModel(): SelfModelReport {
+    const store = this.ctx.get('evolutionSelfModel')
+    const unmounted = 'the evolution self-model store is not mounted, so no capability is ranked'
+    const gaps: readonly FrontierGap[] = store?.gaps() ?? []
+    const weakest = gaps[0]
+    return {
+      window: {
+        skills: store?.assessments().length ?? 0,
+        capabilities: gaps.length,
+      },
+      metrics: [
+        rate(
+          'self-model-frontier-pass-rate',
+          'share',
+          gaps.reduce((total, gap) => total + gap.score, 0),
+          gaps.length,
+          [FRONTIER_INPUT],
+          store === undefined
+            ? unmounted
+            : 'no capability entry is recorded: a capability is entered when an attempt of it is observed'
+              + ' through `ctx.evolutionSelfModel.observe()`',
+          'the unweighted mean of the frontier\'s running pass rates, so a capability backed by two observations'
+            + ' counts as much as one backed by twenty; the recorded confidence beside each score is what says'
+            + ' how much evidence the score rests on',
+        ),
+        weakest === undefined
+          ? unavailable(
+            'self-model-weakest-pass-rate',
+            'share',
+            [FRONTIER_INPUT],
+            store === undefined
+              ? unmounted
+              : 'no capability entry is recorded, so the frontier has no weakest capability',
+          )
+          : metric(
+            'self-model-weakest-pass-rate',
+            weakest.score,
+            'share',
+            [FRONTIER_INPUT],
+            `the running pass rate of the capability the frontier ranks first, '${weakest.capability}', which`
+              + ` is what \`nextToLearn()\` returns; the rank breaks ties on ${String(weakest.confidence)}`
+              + ' confidence and then on covering skills, so a thin-evidence capability can lead a stronger one',
+          ),
+      ],
+    }
+  }
+
+  /** The recorded runs one research query covers, newest first. */
+  private coveredRuns(
+    runs: readonly ResearchRunRecord[],
+    query: ResearchQuery,
+  ): readonly ResearchRunRecord[] {
+    return runs
+      .filter(run => query.sessionId === undefined || run.sessionId === query.sessionId)
+      .filter(run => this.inWindow(runInstant(run), query.since, query.until))
+      .slice(0, query.limit ?? runs.length)
+  }
+
+  /**
+   * Fold the ledger of every session the window's runs belong to. A session is
+   * opened once however many of its runs the window covers.
+   * @param runs - the window's runs.
+   * @param persistence - the session storage seam to read.
+   * @returns one work item per session the runs belong to.
+   */
+  private async readResearchWork(
+    runs: readonly ResearchRunRecord[],
+    persistence: SessionPersistence,
+  ): Promise<ResearchWork[]> {
+    const work: ResearchWork[] = []
+    for (const sessionId of [...new Set(runs.map(run => run.sessionId))]) {
+      const handle = await persistence.open(SessionId(sessionId), 'read')
+      try {
+        work.push({
+          sessionId,
+          runs: runs.filter(run => run.sessionId === sessionId),
+          ledger: readResearchLedger((await handle.read(0)).events),
+        })
+      } finally {
+        await handle.close()
+      }
+    }
+    return work
+  }
+
+  /** Why the research metric set has no population, naming the missing store or the empty window. */
+  private researchGap(controller: boolean, persistence: boolean, runs: number): string {
+    if (!controller) return 'the research controller is not mounted, so no research run is recorded'
+    if (!persistence) return 'the session persistence store is not mounted, so no claim or observation is read'
+    return `the query covers ${runs} recorded research run${runs === 1 ? '' : 's'}`
+  }
+
+  /** The instant a run stands at in the window, or null when the window is empty. */
+  private runEdge(run: ResearchRunRecord | undefined): string | null {
+    return run === undefined ? null : runInstant(run)
   }
 
   /**
@@ -354,15 +772,7 @@ export class EvolutionMetrics extends Service {
         + ' the composition and records it beside the skill-using run of that scenario',
       ),
       this.memoryUtility(),
-      unavailable(
-        'benchmark-robustness',
-        'share',
-        ['ctx.evolutionBenchmark.tasks(): BenchmarkTask.state'],
-        'no record scores a benchmark task: the store carries a ladder state but no outcome field, and no caller runs'
-        + ' a task — the growth loop advances the ladder from the capability\'s recorded candidate exposure, which'
-        + ' binds no evaluation to a task identity, and an adversary probe is admitted as a task without being run.'
-        + ' A robustness share needs a producer that executes a task and records whether it passed',
-      ),
+      this.benchmarkRobustness(),
       this.regressionDebt(),
       this.promotionQuality(),
       this.rollbackRate(),
@@ -465,6 +875,35 @@ export class EvolutionMetrics extends Service {
       + ' batch followed, and outcome gain is the share of them graded clean. Two §23 links are not recorded and'
       + ' contribute nothing: whether an injected item was used at all, and whether it was cited. §24\'s fourth'
       + ' factor, source quality, likewise has no recorded source for a recalled memory',
+    )
+  }
+
+  /** Share of executed benchmark tasks whose recorded run passed. */
+  private benchmarkRobustness(): MetricValue {
+    const id = 'benchmark-robustness' as const
+    const unit = 'share' as const
+    const inputs = ['ctx.evolutionBenchmark.outcomes(): BenchmarkOutcome.pass / status']
+    const store = this.ctx.get('evolutionBenchmark')
+    if (store === undefined) {
+      return unavailable(id, unit, inputs, 'the benchmark store is not mounted, so no executed task records'
+        + ' whether it passed')
+    }
+    const rows = store.outcomes()
+    const scored = rows.filter(row => row.status === 'scored')
+    if (scored.length === 0) {
+      return unavailable(id, unit, inputs, rows.length === 0
+        ? 'no benchmark task outcome is recorded: `ctx.evolutionBenchmark.run()` executes a task and records'
+          + ' whether it passed'
+        : `every one of the ${rows.length} recorded outcomes is a failed run, so no executed task reached a verdict`)
+    }
+    return metric(
+      id,
+      scored.filter(row => row.pass).length / scored.length,
+      unit,
+      inputs,
+      'the share covers the outcomes recorded for executed tasks, not every task the store holds: a task nobody'
+      + ' ran has no outcome and is not counted, and a failed run is named in the long-horizon window rather'
+      + ' than counted as a task that did not pass',
     )
   }
 

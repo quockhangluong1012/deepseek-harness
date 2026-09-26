@@ -66,6 +66,7 @@ At the prompt, `/dream` runs the cycle for the invoking scope and `/dream <phase
 | `supersedeOverlap` | `0.3` | Lower overlap at or above which a candidate corrects the narrative it shares a tool with |
 | `maxRestatements` | `5` | Statements one narrative retains as the restatements it absorbed |
 | `maxLedgerEntries` | `10` | Promotion passes retained per scope for rollback |
+| `profile` | `default` | Scope-identity namespace; must match the profile the readers of these dreams use |
 
 The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-evolution-dreaming) is the exhaustive source for every accepted field.
 
@@ -95,9 +96,9 @@ Each dimension is normalized to `0..1` before weighting, so no signal can domina
 A candidate gathers sightings from two sources, and only one of them can vouch for it:
 
 - **Attributed** — the feedback seam's aggregate of failing `tool/result` events. The harness watched the call and its result as they were delivered, so the recorded message carries the tool and the session beside it, and the evidence names where it came from.
-- **Unattributed** — an episodic note from the memory store's daily log. That tier records a note's text, its day, and its instant, and nothing that identifies who wrote it: a model extraction, the user, and a system notice read alike. A candidate resting only on such sightings is refused by name (`unattributed-provenance`) whatever it scores, because no gate can vouch for text whose source the store does not record.
+- **Unattributed** — an episodic note from the memory store's daily log. That tier records a note's text, its day, and its instant, and nothing that identifies who wrote it: a model extraction, the user, and a system notice read alike. A candidate resting only on such sightings is refused by name (`unattributed-sighting`) whatever it scores, because no gate can vouch for text whose source the store does not record.
 
-One observed sighting vouches for the candidate it folds into, so an episodic note that restates a recorded failure adds to that failure's evidence without ever being able to promote on its own. The gate's decision is a pure rule with its inputs recorded: each admitted narrative keeps the provenance and the counts the gate judged, and each pass reports the candidates it refused by the named gate that refused them.
+One observed sighting vouches for the candidate it folds into, so an episodic note that restates a recorded failure adds to that failure's evidence without ever being able to promote on its own. The gate's decision is a pure rule with its inputs recorded: each admitted narrative keeps the attribution and the counts the gate judged, and each pass reports the candidates it refused by the named gate that refused them.
 
 ### Merge and supersede
 
@@ -106,15 +107,15 @@ A narrative's identity is its normalized statement, and the statement never chan
 - at or above `mergeOverlap` it restates that narrative, so it folds into it and the retained wordings are listed on the narrative — the durable record collects no near-duplicates, and the canonical statement, its promotion instant, and its evidence stay put;
 - between `supersedeOverlap` and `mergeOverlap` it corrects it: a new narrative answers, and the predecessor is marked with the identity of the narrative that replaced it and when. The predecessor keeps its place and its evidence and answers no query, which is exactly what a retired claim does in the claim graph.
 
-An identity the record already answers to — the canonical statement itself, or a wording it absorbed — is nothing to write. Every candidate is related against the narratives the same pass has already written, so two restatements arriving together produce one narrative.
+An identity the record already answers to — the canonical statement itself, or a wording it absorbed — writes no second narrative, but it does move that narrative's promotion instant, which is what keeps a recurring failure durable while the scope keeps recording it. Every candidate is related against the narratives the same pass has already written, so two restatements arriving together produce one narrative.
 
 ### Phase separation
 
-Only the deep phase writes durable memory. Light and REM may run on their own for inspection without changing what the scope has learned, and the automatic cycle runs all three in order. Episodic notes re-stage while the memory retention window keeps them, so a note is re-scored with decayed recency rather than tracked as consumed. Promotions live in the plugin's own domain, never in the model-owned lessons document, so two writers never contend for one document.
+Only the deep phase writes durable memory. Light and REM may run on their own for inspection without changing what the scope has learned, and the automatic cycle runs all three in order. Both writing phases merge into the record current at their write on the domain's write chain, not into the snapshot the phase read first, so a REM narrative and a deep pass that overlap keep both of their fields. Episodic notes re-stage while the memory retention window keeps them, so a note is re-scored with decayed recency rather than tracked as consumed. Promotions live in the plugin's own domain, never in the model-owned lessons document, so two writers never contend for one document.
 
 ### Ledger and rollback
 
-Every pass that changes the promotions writes one ledger entry, and the entry holds the promotions array the pass replaced as its preimage together with what it installed. The record is its own blob store, so a preimage cannot go missing between the write and the rollback that reads it, and the entry's evidence records what the pass did — added, folded, retired, dropped — for audit. `rollback(scope, entryId)` fails closed on an unknown identity before anything is written, restores the preimage exactly, and ledgers its own entry, which makes the rollback as reversible as the pass it undid. The ledger is bounded by `maxLedgerEntries`, newest kept, so a long-lived scope keeps a rollback window rather than every pass it ever ran.
+Every pass that promotes, folds, retires, or drops a narrative writes one ledger entry, and the entry holds the promotions array the pass replaced as its preimage together with what it installed. A pass that only moved a promotion instant writes the record without an entry: it folded, retired, and dropped nothing, so a rollback has nothing of its own to restore and the bounded ledger keeps its room for the passes that moved narratives. The record is its own blob store, so a preimage cannot go missing between the write and the rollback that reads it, and the entry's evidence records what the pass did — added, folded, retired, dropped — for audit. `rollback(scope, entryId)` fails closed on an unknown identity before anything is written, restores the preimage exactly, and ledgers its own entry, which makes the rollback as reversible as the pass it undid. The ledger is bounded by `maxLedgerEntries`, newest kept, so a long-lived scope keeps a rollback window rather than every pass it ever ran.
 
 ### Failure and recovery
 
@@ -151,7 +152,7 @@ None: the cycle makes no model call, so it cannot invalidate provider cache reus
 - **The relation rule is lexical** — restatement and correction are decided by shared words, so a paraphrase without shared vocabulary is a new narrative and a correction phrased with the original's words can fold. An embedding provider or a declared relation from the writer would decide both.
 - **Relevance is lexical** — the signal compares concepts as words. A semantic comparison through an embedding provider would rank candidates whose wording differs more strictly.
 - **A fold keeps the canonical statement, not the better wording** — the first narrative promoted answers for every restatement folded into it, even when a later wording described the failure better.
-- **A fold does not reset the decay clock** — `staleAfterDays` measures from the promotion instant, so a narrative older than the window can absorb a restatement and be dropped by the same pass. A merge after a long silence is better served by the failure being staged again, which promotes a fresh narrative.
+- **A fold does not reset the decay clock** — `staleAfterDays` measures from the promotion instant, which only a candidate the record already answers to (the canonical statement, or a wording it absorbed) moves; a new restatement folds into the narrative without moving it, so a narrative older than the window can absorb one and be dropped by the same pass. A merge after a long silence is better served by the failure being staged again, which promotes a fresh narrative.
 - **Heartbeat cadence is fixed per deployment** — one `intervalHours` applies to every scope.
 - **Machine-local only** — dreams live under `$DSH_HOME`, never inside the project directory.
 

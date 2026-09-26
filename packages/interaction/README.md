@@ -31,6 +31,7 @@ Each package README and its subsystem reference own the exhaustive contracts.
 | [`permission-presets/`](permission-presets/README.md) | Bundles sandbox mode with an approval policy into one user-facing Permissions selector | `ctx.permissionPresets` |
 | [`user-questions/`](user-questions/README.md) | Defines the validated question schema and scoped answerer waterfall an agent pauses on | `ctx.userQuestions` |
 | [`tool-ask-user/`](tool-ask-user/README.md) | Exposes the `ask_user_question` tool so the model can ask the human for a decision | registers on `ctx.tools` |
+| [`command-inspect/`](command-inspect/README.md) | Reports what the deployment has: the command catalog, environment facts, and the MCP, agent, and hook surfaces | registers on `ctx.commands` |
 
 -----
 

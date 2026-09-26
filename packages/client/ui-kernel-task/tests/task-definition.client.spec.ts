@@ -13,8 +13,8 @@ const TASK_ID = 'task-1'
 const RUN_ID = 'run-1'
 
 /** Metadata the kernel writes on every record, so a node can claim its events. */
-function metadata(taskId = TASK_ID): { version: 1, runId: string, taskId: string, actor: 'kernel', timestamp: number, provenance: { source: string, locator: string } } {
-  return { version: 1, runId: RUN_ID, taskId, actor: 'kernel', timestamp: 1, provenance: { source: 'kernel', locator: taskId } }
+function metadata(taskId = TASK_ID): { version: 1; runId: string; taskId: string; actor: 'kernel'; timestamp: number; sourceRef: { source: string; locator: string } } {
+  return { version: 1, runId: RUN_ID, taskId, actor: 'kernel', timestamp: 1, sourceRef: { source: 'kernel', locator: taskId } }
 }
 
 /** The state a `task/created` event starts a node with. */
@@ -63,7 +63,7 @@ function context(state: KernelTaskState, location: ConversationLocation = OPEN_L
 }
 
 /** One session event of the given type. */
-function event<T extends SessionEvent['type']>(seq: number, type: T, data: unknown = {}): SessionEvent {
+function event(seq: number, type: SessionEvent['type'], data: unknown = {}): SessionEvent {
   return { type, seq: SessionSeq(seq), time: 1_000 + seq, data } as SessionEvent
 }
 
@@ -115,7 +115,7 @@ describe('kernel-task fold', () => {
       kind: 'test',
       contentRef: 'tests/reader.spec.ts',
       trust: 'trusted',
-      provenance: { source: 'tool', locator: 'call-2' },
+      sourceRef: { source: 'tool', locator: 'call-2' },
       observedAt: 1,
       metadata: metadata(),
     }))

@@ -7,6 +7,7 @@ import CommandRuntime from '@deepseek-ai/dsh-commands'
 import GoalService from '@deepseek-ai/dsh-goal'
 import type { GoalRef } from '@deepseek-ai/dsh-goal'
 import SessionStore, { Session, SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
+import { createAssistantMessage, createUserMessage } from '@deepseek-ai/dsh-llm'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import * as commandGoal from '@deepseek-ai/dsh-command-goal'
 import { createInboxStub } from '@deepseek-ai/dsh-agent-loop-testkit'
@@ -101,7 +102,7 @@ describe('@deepseek-ai/dsh-command-goal registration', () => {
       definitionId: '@deepseek-ai/dsh-command-goal',
       name: 'goal',
       description: 'Set or view the goal for a long-running task',
-      input: { hint: '[<objective>|clear|edit <objective>|pause|resume]', attachments: true },
+      input: { hint: '[<objective>|clear|edit [<objective>]|pause|resume] [--rounds <n>] [--tokens <n>]', attachments: true },
     })
     expect(test.ctx.commands.find(test.agent, 'goal')).toBeDefined()
 
@@ -115,7 +116,7 @@ describe('/goal human command', () => {
     const test = await harness()
     await expect(run(test)).resolves.toEqual({
       kind: 'success',
-      text: 'No goal is currently set.\nUsage: /goal [<objective>|clear|edit <objective>|pause|resume]',
+      text: 'No goal is currently set.\nUsage: /goal [<objective>|clear|edit [<objective>]|pause|resume] [--rounds <n>] [--tokens <n>]',
     })
     expect(domainEvents(test.session)).toEqual([])
   })
@@ -238,7 +239,7 @@ describe('/goal human command', () => {
     goal = test.ctx.goals.resume(test.agent, ref(goal))
     test.ctx.goals.complete(test.agent, ref(goal))
     const complete = await run(test)
-    expect(complete.text).toContain('Status: complete')
+    expect(complete.text).toContain('Status: achieved')
     expect(complete.text).toContain('Commands: /goal <objective>, /goal clear')
   })
 
@@ -246,6 +247,134 @@ describe('/goal human command', () => {
     const test = await harness()
     vi.spyOn(test.ctx.goals, 'get').mockImplementationOnce(() => { throw new Error('unexpected failure') })
     await expect(run(test)).rejects.toThrow('unexpected failure')
+  })
+})
+
+describe('/goal budgets', () => {
+  it('creates a goal with a round cap and a token budget', async () => {
+    const test = await harness()
+    const created = await run(test, ' ship the release --rounds 12 --tokens 50000')
+    expect(created.kind).toBe('success')
+    expect(created.text).toContain('Goal created')
+    expect(created.text).toContain('Objective: ship the release')
+    expect(created.text).toContain('Rounds: 0/12')
+    expect(created.text).toContain('Tokens: 0/50000')
+    expect(test.ctx.goals.get(test.agent)).toMatchObject({
+      objective: 'ship the release',
+      maxGoalRounds: 12,
+      maxGoalTokens: 50_000,
+    })
+  })
+
+  it('edits budgets without replacing the objective and keeps the last repeated flag', async () => {
+    const test = await harness()
+    await run(test, ' first objective --rounds 5')
+    const created = test.ctx.goals.get(test.agent)!
+    const edited = await run(test, ' edit --tokens 900 --tokens 1000')
+    expect(edited.kind).toBe('success')
+    expect(edited.text).toContain('Goal updated')
+    expect(edited.text).toContain('Objective: first objective')
+    expect(edited.text).toContain('Rounds: 0/5')
+    expect(edited.text).toContain('Tokens: 0/1000')
+    expect(test.ctx.goals.get(test.agent)).toMatchObject({
+      id: created.id,
+      objective: 'first objective',
+      maxGoalTokens: 1000,
+      revision: 2,
+    })
+  })
+
+  it('rejects a malformed budget value instead of treating it as objective text', async () => {
+    const test = await harness()
+    const zero = await run(test, ' ship it --tokens 0')
+    expect(zero.kind).toBe('error')
+    expect(zero.text).toContain('Budget values are positive whole numbers; got "0"')
+    expect(test.ctx.goals.get(test.agent)).toBeUndefined()
+
+    const fractional = await run(test, ' ship it --rounds 2.5')
+    expect(fractional.kind).toBe('error')
+    expect(fractional.text).toContain('got "2.5"')
+  })
+
+  it('refuses budgets on sub-commands that cannot carry them', async () => {
+    const test = await harness()
+    await run(test, ' work')
+    for (const suffix of [' pause --tokens 5', ' clear --rounds 2', ' resume --tokens 5', ' --tokens 5']) {
+      const result = await run(test, suffix)
+      expect(result.kind).toBe('error')
+      expect(result.text).toContain('--rounds and --tokens accompany a goal objective or /goal edit.')
+    }
+    expect(test.ctx.goals.get(test.agent)?.phase).toBe('active')
+  })
+})
+
+describe('/goal terminal status', () => {
+  /** Append one admitted goal round, the event the round counter folds. */
+  function admitRound(test: Harness): void {
+    const goal = test.ctx.goals.get(test.agent)!
+    test.session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'round one' }],
+      source: { kind: 'goal', goalId: goal.id, revision: goal.revision, round: 1 },
+    }), { surfaceOp: 'append' })
+  }
+
+  it('reports a spent round budget with its reason and a recovery hint', async () => {
+    const test = await harness()
+    test.ctx.goals.create(test.agent, { objective: 'spend the rounds', maxGoalRounds: 1 })
+    admitRound(test)
+
+    const result = await run(test)
+    expect(result.kind).toBe('success')
+    expect(result.text).toContain('Status: budget-exhausted')
+    expect(result.text).toContain('Reason: round budget spent (1/1 rounds)')
+    expect(result.text).toContain('Rounds: 1/1')
+    expect(result.text).toContain('Commands: /goal edit --rounds <n> or --tokens <n>, /goal clear')
+  })
+
+  it('reports a spent token budget', async () => {
+    const test = await harness()
+    test.ctx.goals.create(test.agent, { objective: 'spend the tokens', maxGoalTokens: 10 })
+    test.session.append('step/start', { turn: 1, step: 1 })
+    test.session.append('assistant/message', {
+      stream: [],
+      turn: 1,
+      step: 1,
+      message: createAssistantMessage({
+        content: [{ type: 'text', text: 'work' }],
+        source: { provider: 'test', model: 'test' },
+      }),
+      usage: { inputTokens: 9, outputTokens: 3 },
+    }, { surfaceOp: 'append' })
+    test.session.append('step/end', { turn: 1, step: 1 })
+
+    const result = await run(test)
+    expect(result.text).toContain('Status: budget-exhausted')
+    expect(result.text).toContain('Reason: token budget spent (12/10 tokens)')
+  })
+
+  it('keeps achieved for a completed goal that also spent its budget', async () => {
+    const test = await harness()
+    test.ctx.goals.create(test.agent, { objective: 'finish it', maxGoalRounds: 1 })
+    admitRound(test)
+    const current = test.ctx.goals.get(test.agent)!
+    test.ctx.goals.complete(test.agent, ref(current))
+
+    const result = await run(test)
+    expect(result.text).toContain('Status: achieved')
+    expect(result.text).not.toContain('Reason:')
+    expect(result.text).toContain('Commands: /goal <objective>, /goal clear')
+  })
+
+  it('reports blocked for a policy blocker', async () => {
+    const test = await harness()
+    test.ctx.goals.create(test.agent, { objective: 'wait on upstream' })
+    const goal = test.ctx.goals.get(test.agent)!
+    test.ctx.goals.block(test.agent, ref(goal), { code: 'upstream-unavailable', message: 'Provider unavailable' })
+
+    const result = await run(test)
+    expect(result.text).toContain('Status: blocked')
+    expect(result.text).toContain('Blocker: upstream-unavailable: Provider unavailable')
+    expect(result.text).not.toContain('Reason:')
   })
 })
 
@@ -333,7 +462,7 @@ describe('/goal attachments', () => {
     const followup = vi.fn()
     ;(test.agent as unknown as { followup: typeof followup }).followup = followup
     test.ctx.goals.create(test.agent, { objective: 'active objective' })
-    for (const suffix of [' pause', '', ' clear']) {
+    for (const suffix of [' pause', '', ' clear', ' edit --tokens 5']) {
       const result = await runWithAttachments(test, suffix, false)
       expect(result).toEqual({
         kind: 'error',

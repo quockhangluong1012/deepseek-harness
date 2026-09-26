@@ -83,6 +83,7 @@ const stdioConfig: Config = {
   cwd: '',
   toolCallTimeoutMs: 60_000,
   failOnStartupError: false,
+  trust: 'untrusted',
 }
 
 // ---- Tests ----
@@ -471,6 +472,7 @@ describe('apply (plugin lifecycle)', () => {
       headers: { Authorization: 'Bearer x' },
       toolCallTimeoutMs: 30_000,
       failOnStartupError: false,
+      trust: 'untrusted',
     }
 
     await apply(ctx, httpConfig)

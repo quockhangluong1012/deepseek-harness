@@ -46,10 +46,13 @@ import * as ToolBashPersistent from '@deepseek-ai/dsh-tool-bash-persistent'
 import * as ToolPwshPersistent from '@deepseek-ai/dsh-tool-pwsh-persistent'
 import CordisHostRunner from '@deepseek-ai/dsh-cordis-host-runner'
 import * as ToolCordis from '@deepseek-ai/dsh-tool-cordis'
+import * as ToolChanges from '@deepseek-ai/dsh-tool-changes'
+import type { WorkspaceChanges } from '@deepseek-ai/dsh-workspace-changes'
 import * as ToolPresent from '@deepseek-ai/dsh-tool-present'
 import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
 import * as ToolFsSearch from '@deepseek-ai/dsh-tool-fs-search'
 import * as ToolStrReplaceEditor from '@deepseek-ai/dsh-tool-str-replace-editor'
+import * as ToolGit from '@deepseek-ai/dsh-tool-git'
 import TerminalSessionService from '@deepseek-ai/dsh-terminal'
 import * as ToolPty from '@deepseek-ai/dsh-tool-terminal'
 import * as ToolGoal from '@deepseek-ai/dsh-tool-goal'
@@ -123,7 +126,7 @@ class CatalogWorkflowEngine extends WorkflowEngine {
 function registerCatalogSubagentProvider(ctx: Context, name: string): void {
   const provider: SubagentProvider = {
     name,
-    capabilities: { agentOptions: true, outputSchema: true, depthLimit: true, toolFilter: true, persona: true },
+    capabilities: { agentOptions: true, outputSchema: true, depthLimit: true, toolFilter: true, persona: true, workerLimits: false },
     inheritsParentContext: false,
     start: () => Promise.reject(new Error('tool-catalog provider cannot start a child')),
     // Declared so consumers configured for continuable background mode mount.
@@ -303,6 +306,21 @@ const TOOL_PACKAGES: ToolPackage[] = [
       'The bash tool is the model-facing consumer of the bash executor seam. With a job registry composed every call registers with the generic `ctx.jobs` runtime as it starts, collected/stopped through the `job_*` tools from `@deepseek-ai/dsh-tool-jobs`; without one, or with `enableRunInBackground: false`, the tool registers a foreground-only schema without the `run_in_background` parameter.',
   },
   {
+    pkg: '@deepseek-ai/dsh-tool-changes',
+    dir: 'tool-changes',
+    source: 'packages/deliverables/tool-changes/src/index.ts',
+    requires: ['ctx.tools', 'ctx.workspaceChanges'],
+    writes: ['tool/call', 'tool/result'],
+    async mount(ctx) {
+      // Schema harvest never resolves a turn or reads a comparison, so an
+      // empty service satisfies the injection.
+      ctx.provide('workspaceChanges', {} as WorkspaceChanges)
+      await ctx.plugin(ToolChanges)
+    },
+    note:
+      'Both tools read the per-turn change records `@deepseek-ai/dsh-workspace-changes` keeps for the calling Session in this Host process; a deployment without that package records nothing, so neither tool has a turn to report.',
+  },
+  {
     pkg: '@deepseek-ai/dsh-tool-present',
     dir: 'tool-present',
     source: 'packages/deliverables/tool-present/src/index.ts',
@@ -420,6 +438,20 @@ const TOOL_PACKAGES: ToolPackage[] = [
     },
     note:
       'glob and grep are unconditional discovery tools that spawn the packaged ripgrep binary (`@vscode/ripgrep`) through ctx.subprocess as ordinary foreground calls (never background jobs) — no host `rg` install and no shell layer. The catalog uses `sampleOverCapGlobResults: true`; deployments must choose that behavior explicitly. Capped results save the complete formatted list through the optional ctx.spillStore backend; returned locators are follow-up-readable/searchable when the backend exposes local paths in co-located deployments.',
+  },
+  {
+    pkg: '@deepseek-ai/dsh-tool-git',
+    dir: 'tool-git',
+    source: 'packages/git/tool-git/src/index.ts',
+    requires: ['ctx.tools', 'ctx.subprocess'],
+    writes: ['tool/call', 'tool/result'],
+    async mount(ctx) {
+      // Registration never spawns; the seam is mounted so the plugin activates.
+      await ctx.plugin(LocalSubprocessRuntime)
+      await ctx.plugin(ToolGit)
+    },
+    note:
+      'The four git tools run git and gh as argv vectors through ctx.subprocess — never a shell — so one schema serves POSIX and Windows compositions. Nonzero exits are results carrying the `[exit code: N]` marker; only cancellation, an unusable argument, or a missing program is an error. `git_pr` needs an authenticated GitHub CLI; ambient GH_TOKEN/GITHUB_TOKEN values do not reach the child because the subprocess seam scrubs credential-shaped names.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-terminal',
@@ -637,13 +669,13 @@ const TOOL_PACKAGES: ToolPackage[] = [
     dir: 'tool-evidence',
     source: 'packages/runtime/tool-evidence/src/index.ts',
     requires: ['ctx.tools', 'ctx.agentKernel', 'a calling Agent with an open task'],
-    writes: ['tool/call', 'evidence/recorded', 'claim/updated', 'tool/result'],
+    writes: ['tool/call', 'evidence/recorded', 'claim/updated', 'hypothesis/updated', 'tool/result'],
     async mount(ctx) {
       await ctx.plugin(AgentKernel, {})
       await ctx.plugin(ToolEvidence, {})
     },
     note:
-      'Both tools write the knowledge plane through the kernel. `record_evidence` states what was observed and how far it may be trusted; `record_claim` states what the task asserts, citing recorded evidence. The kernel refuses either call when the calling agent has no task, so a deployment without the kernel records nothing rather than dropping a fact.',
+      'All three tools write the knowledge plane through the kernel. `record_evidence` states what was observed and how far it may be trusted; `record_claim` states what the task asserts, citing recorded evidence; `record_hypothesis` states the question the task is still testing. The kernel refuses any call whose calling agent has no task, so a deployment without the kernel records nothing rather than dropping a fact.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-workflow',

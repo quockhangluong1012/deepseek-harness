@@ -13,7 +13,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react'
-import type { ObservableSnapshot, SnapshotStore } from '@deepseek-ai/dsh-client-store'
+import type { SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import {
   IconAgentPresetOutlineRegular, IconChevronDownOutlineRegular, IconWarningOutlineRegular, Menu, Toast,
@@ -27,8 +27,6 @@ import css from './AgentPresetSeat.module.css'
 /** Registration-side business face for the hero chip. */
 export interface AgentPresetSeatInjected {
   hooks: {
-    /** Whether this entry offers preset selection. */
-    showPresetPicker: ObservableSnapshot<boolean>
     /** Seat snapshot bound by the renderer as useAgentPresetSeat. */
     agentPresetSeat: SnapshotStore<AgentPresetSeatState>
   }
@@ -76,9 +74,8 @@ export type AgentPresetSeatProps =
  * @returns the chip, or null when the deployment composes no presets.
  */
 export function AgentPresetSeat({
-  sessionId, useSessionRetainInfo, load, select, introduced, useAgentPresetSeat, useShowPresetPicker, t,
+  sessionId, useSessionRetainInfo, load, select, introduced, useAgentPresetSeat, t,
 }: AgentPresetSeatProps) {
-  const showPresetPicker = useShowPresetPicker(value => value)
   const state = useAgentPresetSeat(snapshot => snapshot)
   const main = useSessionRetainInfo(info => sessionId === undefined
     || (info?.retainedBy.mainView ?? 0) > 0)
@@ -87,7 +84,9 @@ export function AgentPresetSeat({
   // it rather than leaving the first one silently in place.
   const toastSeq = useRef(0)
   const [toast, setToast] = useState<{ seq: number; text: string } | null>(null)
-  const visible = showPresetPicker && state.showPicker
+  // Visibility is the host roster's chooser policy: selection is not a
+  // Developer-tools capability, so `showPicker` is the whole gate.
+  const visible = state.showPicker
   const pickerVisible = useRef(visible)
   pickerVisible.current = visible
 

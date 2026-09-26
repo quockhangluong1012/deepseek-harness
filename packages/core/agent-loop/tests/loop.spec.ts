@@ -1829,6 +1829,64 @@ describe('agent loop', () => {
     ])
   })
 
+  it('re-wakes a prompt queued during a failing turn and consumes it exactly once', async () => {
+    const agentRef: { current?: Agent } = {}
+    const adapter = new MockAdapter([
+      () => {
+        const agent = agentRef.current
+        if (agent === undefined) throw new Error('model callback ran before agent setup')
+        send(agent, 'queued during the failed turn')
+        return [{ type: 'finish', reason: { kind: 'error', failure: { message: 'provider 500', code: 'SERVER' } } }]
+      },
+      textResponse('recovered'),
+    ])
+    const ctx = await harness(adapter)
+    const agent = await ctx.agentLoop.create(SessionId('fail-rewake'), { provider: 'mock', model: 'mock' })
+    agentRef.current = agent
+
+    send(agent, 'outer message')
+    await agent.whenIdle()
+
+    const turns = agent.session.snapshotEvents()
+      .filter(event => event.type === 'turn/start')
+      .map(event => event.data.turn)
+    expect(turns).toEqual([1, 2])
+    expect(adapter.requests).toHaveLength(2)
+    expect(userTexts(agent)).toEqual(['outer message', 'queued during the failed turn'])
+    expect(agent.inbox.nextTurn).toHaveLength(0)
+    expect(agent.status).toBe('idle')
+  })
+
+  it('replays a mid-turn wake once: a failing turn with no new wake stops the loop', async () => {
+    const agentRef: { current?: Agent } = {}
+    const adapter = new MockAdapter([
+      () => {
+        const agent = agentRef.current
+        if (agent === undefined) throw new Error('model callback ran before agent setup')
+        send(agent, 'queued during the failed turn')
+        send(agent, 'queued behind it')
+        return [{ type: 'finish', reason: { kind: 'error', failure: { message: 'provider 500', code: 'SERVER' } } }]
+      },
+      [{ type: 'finish', reason: { kind: 'error', failure: { message: 'provider 500', code: 'SERVER' } } }],
+      textResponse('must not run'),
+    ])
+    const ctx = await harness(adapter)
+    const agent = await ctx.agentLoop.create(SessionId('fail-rewake-once'), { provider: 'mock', model: 'mock' })
+    agentRef.current = agent
+
+    send(agent, 'outer message')
+    await agent.whenIdle()
+
+    // The re-woken turn fails without gaining a new message, so the wake it
+    // spent is not replayed: the loop stops instead of grinding through the
+    // remaining queue over a failing provider.
+    expect(adapter.requests).toHaveLength(2)
+    expect(userTexts(agent)).toEqual(['outer message', 'queued during the failed turn'])
+    expect(agent.inbox.nextTurn.map(message => message.content[0]))
+      .toEqual([{ type: 'text', text: 'queued behind it' }])
+    expect(agent.status).toBe('idle')
+  })
+
   it('records normalized model errors on the turn boundary', async () => {
     const adapter = new MockAdapter([]) // script exhausted → throws
     const ctx = await harness(adapter)

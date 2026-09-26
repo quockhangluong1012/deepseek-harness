@@ -35,7 +35,14 @@ function stubAgent(ctx: Context, id: string): { agent: Agent; session: Session }
 /** Captures the last start request and answers with a scripted result. */
 class FakeReviewProvider implements SubagentProvider {
   readonly name = 'fake-review'
-  readonly capabilities = { agentOptions: true, outputSchema: true, depthLimit: false, toolFilter: false, persona: false }
+  readonly capabilities = {
+    agentOptions: true,
+    outputSchema: true,
+    depthLimit: false,
+    toolFilter: false,
+    persona: false,
+    workerLimits: false,
+  }
   readonly inheritsParentContext = false
   lastRequest: ResolvedSubagentStartRequest | undefined
   disposed = false
@@ -72,17 +79,31 @@ async function harness(config: commandReview.Config = {}): Promise<Harness> {
   await ctx.plugin(SubagentRuntime)
   const provider = new FakeReviewProvider()
   ctx.subagents.registerProvider(provider)
-  await ctx.plugin(commandReview, { subagentProvider: 'fake-review', ...config })
+  // Object.assign: the Config interface shares its name with the schema value,
+  // which trips no-misused-spread's class-instance check.
+  await ctx.plugin(commandReview, Object.assign({ subagentProvider: 'fake-review' }, config))
   const { agent } = stubAgent(ctx, `command-review-${Math.random()}`)
   return { ctx, agent, provider }
 }
 
-async function run(test: Harness, suffix = ''): Promise<string> {
-  const execution = await test.ctx.commands.execute(test.agent, `/review${suffix}`, [], new AbortController().signal)
-  if (execution === undefined) throw new Error('review command was not registered')
-  const result = await execution.result
+async function executeCommand(test: Harness, line: string) {
+  const execution = await test.ctx.commands.execute(test.agent, line, [], new AbortController().signal)
+  if (execution === undefined) throw new Error(`command was not registered: ${line}`)
+  return execution
+}
+
+async function run(test: Harness, suffix = '', command = '/review'): Promise<string> {
+  const execution = await executeCommand(test, `${command}${suffix}`)
+  const result = execution.result
   if (result.kind === 'error') return `ERROR: ${result.text}`
   return result.text ?? ''
+}
+
+/** The task prompt the fake provider last received, or a failure when it sent none. */
+function lastPrompt(test: Harness): string {
+  const block = test.provider.lastRequest?.prompt[0]
+  if (block === undefined || block.type !== 'text') throw new Error('the reviewer received no text prompt')
+  return block.text
 }
 
 describe('@deepseek-ai/dsh-command-review', () => {
@@ -90,7 +111,9 @@ describe('@deepseek-ai/dsh-command-review', () => {
     expect(commandReview.name).toBe('command-review')
     expect(commandReview.inject).toEqual(['commands', 'subagents'])
     const test = await harness()
-    expect(test.ctx.commands.list()).toContainEqual(expect.objectContaining({ name: 'review' }))
+    const registered = test.ctx.commands.list(test.agent)
+    expect(registered).toContainEqual(expect.objectContaining({ name: 'review' }))
+    expect(registered).toContainEqual(expect.objectContaining({ name: 'security-review' }))
   })
 
   it('asks the reviewer to inspect uncommitted changes when no ref is given', async () => {
@@ -104,7 +127,7 @@ describe('@deepseek-ai/dsh-command-review', () => {
   it('asks the reviewer to inspect the diff against a given ref', async () => {
     const test = await harness()
     await run(test, ' main')
-    const text = (test.provider.lastRequest?.prompt[0] as { text: string }).text
+    const text = lastPrompt(test)
     expect(text).toContain('"main"')
     expect(text).toContain('git diff main')
   })
@@ -186,6 +209,58 @@ describe('@deepseek-ai/dsh-command-review', () => {
     const test = await harness()
     const text = await run(test, ' --help')
     expect(text).toContain('Usage: /review')
+    expect(test.provider.lastRequest).toBeUndefined()
+  })
+
+  it('records one durable review/report event and cites it from the command outcome', async () => {
+    const test = await harness()
+    const report = {
+      summary: 'One issue found.',
+      findings: [{ file: 'b.ts', line: '20-25', severity: 'high', message: 'SQL injection risk' }],
+    }
+    test.provider.scriptResult({ output: [], stopReason: 'completed', structured: report })
+    const execution = await executeCommand(test, '/review')
+    const seq = execution.result.kind === 'success' ? execution.result.sourceEventSeq : undefined
+    if (seq === undefined) throw new Error('the command outcome cited no recorded report')
+    const event = test.agent.session.eventAt(seq)
+    expect(event?.type).toBe('review/report')
+    expect(event?.data).toEqual({
+      commandId: execution.commandId,
+      kind: 'code',
+      target: '',
+      summary: report.summary,
+      findings: report.findings,
+    })
+  })
+
+  it('uses a security prompt against the same report schema for /security-review', async () => {
+    const test = await harness()
+    await run(test, '', '/security-review')
+    const text = lastPrompt(test)
+    expect(text).toContain('independent security reviewer')
+    expect(text).toContain('uncommitted working-tree changes')
+    expect(text).toContain('injection')
+    expect(text).not.toContain('Do not report style preferences')
+    expect(test.provider.lastRequest?.outputSchema).toEqual(commandReview.REVIEW_OUTPUT_SCHEMA)
+  })
+
+  it('reviews a named ref for security and records its kind and target', async () => {
+    const test = await harness()
+    test.provider.scriptResult({
+      output: [],
+      stopReason: 'completed',
+      structured: { summary: 'No security defects.', findings: [] },
+    })
+    const execution = await executeCommand(test, '/security-review main')
+    const seq = execution.result.kind === 'success' ? execution.result.sourceEventSeq : undefined
+    if (seq === undefined) throw new Error('the command outcome cited no recorded report')
+    expect(test.agent.session.eventAt(seq)?.data).toMatchObject({ kind: 'security', target: 'main', findings: [] })
+  })
+
+  it('shows security usage text for /security-review --help', async () => {
+    const test = await harness()
+    const text = await run(test, ' --help', '/security-review')
+    expect(text).toContain('Usage: /security-review')
     expect(test.provider.lastRequest).toBeUndefined()
   })
 })

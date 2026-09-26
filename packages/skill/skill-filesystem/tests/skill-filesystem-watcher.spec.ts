@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import SkillRegistry from '@deepseek-ai/dsh-skill'
+import type { Config, ConfigInput } from '../src/index.ts'
 
 interface FakeWatcherControl {
   emitter: EventEmitter
@@ -90,6 +91,16 @@ vi.mock('chokidar', () => ({
 }))
 
 const SkillFileSystem = await import('../src/index.ts')
+
+/**
+ * Resolve one direct provider's configuration: the schema turns
+ * `trustedProjectDirs` into the live reference a mounted plugin receives.
+ * @param config - raw configuration a profile would supply.
+ * @returns the resolved provider configuration.
+ */
+function resolvedConfig(config: ConfigInput): Config {
+  return SkillFileSystem.Config(config)
+}
 
 /** Every temp dir created by this file, removed after each test. */
 const tempDirs: string[] = []
@@ -366,14 +377,14 @@ describe('skill-filesystem watcher failures', () => {
     await ctx.plugin(SkillRegistry)
     let provider!: InstanceType<typeof SkillFileSystem.FileSystemSkillProvider>
     const disposeProvider = ctx.skills.registerProvider((control) => {
-      provider = new SkillFileSystem.FileSystemSkillProvider(ctx, control, {
+      provider = new SkillFileSystem.FileSystemSkillProvider(ctx, control, resolvedConfig({
         dshHome: join(home, '.dsh'),
         agentsHome: join(home, '.agents'),
         claudeHome: join(home, '.claude'),
         watch: true,
         watchPollIntervalMs: 10,
         watchStabilityThresholdMs: 20,
-      })
+      }))
       return provider
     })
 
@@ -404,14 +415,14 @@ describe('skill-filesystem watcher failures', () => {
     await ctx.plugin(SkillRegistry)
     let provider!: InstanceType<typeof SkillFileSystem.FileSystemSkillProvider>
     const disposeProvider = ctx.skills.registerProvider((control) => {
-      provider = new SkillFileSystem.FileSystemSkillProvider(ctx, control, {
+      provider = new SkillFileSystem.FileSystemSkillProvider(ctx, control, resolvedConfig({
         dshHome: join(home, '.dsh'),
         agentsHome: join(home, '.agents'),
         claudeHome: join(home, '.claude'),
         watch: true,
         watchPollIntervalMs: 10,
         watchStabilityThresholdMs: 20,
-      })
+      }))
       return provider
     })
 
@@ -436,14 +447,14 @@ describe('skill-filesystem watcher failures', () => {
     await ctx.plugin(SkillRegistry)
     let provider!: InstanceType<typeof SkillFileSystem.FileSystemSkillProvider>
     const disposeProvider = ctx.skills.registerProvider((control) => {
-      provider = new SkillFileSystem.FileSystemSkillProvider(ctx, control, {
+      provider = new SkillFileSystem.FileSystemSkillProvider(ctx, control, resolvedConfig({
         dshHome: join(home, '.dsh'),
         agentsHome: join(home, '.agents'),
         claudeHome: join(home, '.claude'),
         watch: true,
         watchPollIntervalMs: 10,
         watchStabilityThresholdMs: 20,
-      })
+      }))
       return provider
     })
 

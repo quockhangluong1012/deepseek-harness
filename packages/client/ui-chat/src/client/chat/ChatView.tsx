@@ -98,8 +98,8 @@ const ChatNodeList = memo(function ChatNodeList({ entries, useChatGroup, pending
  */
 export function ChatView({
   useSession, useChat, useChatNode, useChatNodeProcess, useChatGroup, useConversation, useSessions, useStore, actions, renderSlot,
-  sessionId, openFile, openSkill, openExternalLink, loadOlder, loadThrough, loadImage, inspectCall, chatScroll, forkAt, fileMentions,
-  usePresentation, useProjection, t,
+  sessionId, openFile, openSkill, openExternalLink, loadOlder, loadThrough, loadImage, inspectCall, chatScroll, forkAt, rewindAt,
+  fileMentions, usePresentation, useProjection, t,
 }: ChatViewSlotProps) {
   const order = useChat(s => s.order)
   const groupedEntries = useConversation(snapshot => snapshot.views.grouped('chat')?.entries)
@@ -254,6 +254,7 @@ export function ChatView({
                 openSkill={openSkill}
                 inspectCall={inspectCall}
                 forkAt={forkAt}
+                rewindAt={rewindAt}
                 loadImage={loadImage}
                 renderMessageImages={renderMessageImages}
                 fileMentions={fileMentions}

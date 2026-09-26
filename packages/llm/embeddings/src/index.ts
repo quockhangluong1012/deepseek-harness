@@ -2,11 +2,12 @@
  * Embeddings service (`ctx.embeddings`): a provider-route registry plus one
  * batch call whose results are cached by content hash.
  *
- * The cache is keyed by the resolved route, model, and text together, so
- * changing either route or model looks up a different entry instead of reusing
- * a stale vector, and it is bounded: the least recently used vector is dropped
- * once the configured entry count is reached. Durable reuse of per-document
- * vectors belongs to the index that stores them, not to this cache.
+ * The cache is keyed by the resolved route, the model that produced the vector,
+ * and the text together, so a changed route, a changed model, or a provider
+ * that served the batch with its fallback looks up a different entry instead of
+ * reusing a stale vector, and it is bounded: the least recently used vector is
+ * dropped once the configured entry count is reached. Durable reuse of
+ * per-document vectors belongs to the index that stores them, not to this cache.
  * @module @deepseek-ai/dsh-embeddings
  */
 
@@ -14,7 +15,7 @@ import { createHash } from 'node:crypto'
 import { Context, Service } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { HarnessError } from '@deepseek-ai/dsh-llm'
-import type { EmbeddingRequest, EmbeddingResult, EmbeddingSpec } from './types.ts'
+import type { EmbeddingBatch, EmbeddingRequest, EmbeddingResult, EmbeddingSpec } from './types.ts'
 
 export type * from './types.ts'
 
@@ -48,13 +49,13 @@ export abstract class EmbeddingsProvider {
    * @param spec - the resolved route and model.
    * @param texts - texts to embed, in the order their vectors must return.
    * @param signal - cancels the provider call.
-   * @returns one vector per text, in the same order.
+   * @returns one vector per text, in the same order, with the model that produced them.
    */
   abstract embed(
     spec: EmbeddingSpec,
     texts: readonly string[],
     signal?: AbortSignal,
-  ): Promise<readonly (readonly number[])[]>
+  ): Promise<EmbeddingBatch>
 }
 
 declare module '@deepseek-ai/cordis' {
@@ -162,7 +163,9 @@ export class EmbeddingsRuntime extends Service {
 
   /**
    * Embed one batch, serving texts the cache already holds and asking the
-   * provider only for the rest.
+   * provider only for the rest. A batch a provider served with another model is
+   * cached and reported under that model, so a fallback vector is never read
+   * back as the requested model's output.
    * @param request - texts and routing fields.
    * @returns vectors in request order, with the cache and provider counts.
    */
@@ -185,19 +188,23 @@ export class EmbeddingsRuntime extends Service {
       vectors[index] = held
       cached += 1
     })
+    // What the caller and the cache will call this batch: the requested spec
+    // until a provider reports the model that actually served it.
+    let served = spec
     if (pending.length > 0) {
       const produced = await provider.embed(spec, pending.map(entry => entry.text), request.signal)
-      assertVectorCount(spec.provider, produced, pending.length)
+      served = { provider: spec.provider, model: produced.model }
+      assertVectorCount(spec.provider, produced.vectors, pending.length)
       for (let offset = 0; offset < pending.length; offset += 1) {
         const entry = pending[offset]
-        const vector = produced[offset]
+        const vector = produced.vectors[offset]
         /* v8 ignore next 2 -- both arrays hold one entry per pending text (checked above) */
         if (entry === undefined || vector === undefined) continue
         vectors[entry.index] = vector
-        this.remember(cacheKey(spec, entry.text), vector)
+        this.remember(cacheKey(served, entry.text), vector)
       }
     }
-    return { spec, vectors, cached, embedded: pending.length }
+    return { spec: served, vectors, cached, embedded: pending.length }
   }
 
   /** Resolve the route and the provider serving it, or refuse the request. */

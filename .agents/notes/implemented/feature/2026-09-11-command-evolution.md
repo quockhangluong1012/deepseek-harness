@@ -21,7 +21,7 @@ Ship `@deepseek-ai/dsh-command-evolution` in the `evolution/` group as a functio
 
 ## Consequences
 
-Staged evolution writes are governable from any command adapter today: background proposals surface in `/memory pending`, memory entries land through `/memory approve`, and anything unwanted leaves through `/memory reject`. Skill proposals stay explicitly blocked on their skill write, which is honest about the missing approver half. `/refine` gives the rebuild path a human entry point without touching the reviewer's gating or provenance.
+Staged evolution writes are governable from any command adapter today: background proposals surface in `/memory pending`, memory entries land through `/memory approve`, and anything unwanted leaves through `/memory reject`. Skill proposals stay explicitly blocked on their skill write, which is honest about the missing approver half. `/refine` gives the rebuild path a human entry point without touching the reviewer's gating or extraction record.
 
 ## Testing
 

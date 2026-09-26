@@ -25,7 +25,7 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用本包
 
-当同一作用域中的会话应共享指令、经验工件、画像与上下文时挂载本插件。作用域标识是以 `EvolutionScopeId` 构造的不透明 `profile:workspaceId`（或 `profile:global`）键。JSON 后端经由 `storageKey()` 将每个作用域存于 `evolution_memory/records/<profile>--<workspaceId>.json`，因为 `:` 不是路径安全字符。读取从已校验的内存同步进行；写入在进入写入链之前强制执行字节上限，并盖上 `updatedAt`。
+当同一作用域中的会话应共享指令、经验工件、画像与上下文时挂载本插件。作用域标识是以 `EvolutionScopeId` 构造的不透明 `profile:workspaceId`（或 `profile:global`）键。JSON 后端经由 `storageKey()` 将每个作用域存于 `evolution_memory/records/<profile>--<workspaceId>.json`，因为 `:` 不是路径安全字符。读取从已校验的内存同步进行；写入在进入写入链之前强制执行字节上限，并盖上 `updatedAt`。每次变更还会占用该作用域在 `lockDirectory` 中的跨进程锁文件，因此记忆作用域共享同一存储介质的两个 dsh 进程不会同时改写同一作用域的记录；写入若在 `lockWaitMs` 内无法取得该锁，就以 `evolution/scope-locked` 失败，而不是挂起。
 
 ### 配置
 
@@ -55,6 +55,8 @@ kind: "package-reference"
 | `maxEpisodicEntries` | `100` | 每个作用域在年龄裁剪之后保留的情景笔记数，保留最新的 |
 | `demoteUtilityFloor` | `0.35` | S8 效用值低于该值时，一条被充分召回过的事实会被衰退降级 |
 | `demoteMinSurfaced` | `3` | 事实需要被召回这么多次，其效用值才会被信任用于降级判定 |
+| `lockDirectory` | `<DSH_HOME>/evolution-memory/locks` | 存放每个作用域一个跨进程锁文件的目录；凡是记忆作用域共享同一存储介质的进程都必须指定同一个目录 |
+| `lockWaitMs` | `2000` | 写入等待某个作用域已被持有的锁多少毫秒后以 `evolution/scope-locked` 失败；`0` 表示一旦争用就失败 |
 
 生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-evolution-memory)是每个可接受字段的详尽来源。
 
@@ -82,7 +84,7 @@ kind: "package-reference"
 
 ### 暂存写入与决策
 
-`stageWrite` 暂存一条记忆或技能提案而不触碰容量。记忆类暂存载荷指明其操作：`setInstructions`、`setUserProfile` 与 `appendEpisodic` 携带 `{ text }`，`addArtifact` 携带 `{ candidate, strategy }`，`updateArtifact` 携带 `{ id, patch }`，`removeArtifact` 携带 `{ id }`，`replaceArtifacts` 携带 `{ candidates }`，`applyDecisions` 携带 `{ decisions, extraction? }`。`approveStaged` 先应用记忆操作（上限拒绝、或所寻址的工件不存在时保留条目），仅移除技能条目；`rejectStaged` 直接丢弃任一条目。审批一批 `applyDecisions` 会在审批时读到的记录上原子地应用整批，并在那时解析每个 `new` 候选的合并目标——与 `addArtifact` 的暂存路径相同的「先度量、再复核」拆分，而绝非暂存时拍下的快照。
+`stageWrite` 暂存一条记忆或技能提案而不触碰容量。记忆类暂存载荷指明其操作：`setInstructions`、`appendInstructions`、`setUserProfile` 与 `appendEpisodic` 携带 `{ text }`，`addArtifact` 携带 `{ candidate, strategy }`，`updateArtifact` 携带 `{ id, patch }`，`removeArtifact` 携带 `{ id }`，`replaceArtifacts` 携带 `{ candidates }`，`applyDecisions` 携带 `{ decisions, extraction? }`。`approveStaged` 先应用记忆操作（上限拒绝、或所寻址的工件不存在时保留条目），仅移除技能条目；`rejectStaged` 直接丢弃任一条目。审批一批 `applyDecisions` 会在审批时读到的记录上原子地应用整批，并在那时解析每个 `new` 候选的合并目标——与 `addArtifact` 的暂存路径相同的「先度量、再复核」拆分，而绝非暂存时拍下的快照。
 
 暂存载荷是一个 JSON 值，并在写入边界处校验：无法无损往返 JSON 的载荷会被大声拒绝，且不存储任何内容。
 
@@ -92,7 +94,7 @@ kind: "package-reference"
 
 两种决策都会把一条决策记录——条目 id、kind、op、gist、决策、来源会话、时刻、合并键与重复计数——追加到记录的 `resolutions` 日志（最新优先，受 `maxResolutions` 限制）。决策记录既不计入容量，也不进入摘要，因此决定一次写入永不重新注入简报。
 
-每个记忆族各自盖自己的时间戳：`setInstructions` 盖 `instructionsUpdatedAt`，`addArtifact` / `updateArtifact` / `removeArtifact` / `replaceArtifacts` / `applyDecisions` 这一族盖 `lessonsUpdatedAt`，`setUserProfile` 盖 `profileUpdatedAt`。暂存审批只为它改动的族盖章，因此不存储任何内容的经验追加或决策批次一个都不盖。`appendEpisodic` 不盖任何族：情景笔记是未经审批的固化输入，不是已审定的文档。`memoryUpdatedAt` 再保留一个版本，取经验与画像两个时间戳中的较晚者。每次被接受的写入都盖上 `updatedAt`。
+每个记忆族各自盖自己的时间戳：`setInstructions` 与 `appendInstructions` 盖 `instructionsUpdatedAt`，`addArtifact` / `updateArtifact` / `removeArtifact` / `replaceArtifacts` / `applyDecisions` 这一族盖 `lessonsUpdatedAt`，`setUserProfile` 盖 `profileUpdatedAt`。暂存审批只为它改动的族盖章，因此不存储任何内容的经验追加或决策批次一个都不盖。`appendEpisodic` 不盖任何族：情景笔记是未经审批的固化输入，不是已审定的文档。`memoryUpdatedAt` 再保留一个版本，取经验与画像两个时间戳中的较晚者。每次被接受的写入都盖上 `updatedAt`。
 
 ### 召回台账
 
@@ -133,6 +135,7 @@ kind: "package-reference"
 | [`src/index.ts`](src/index.ts) | 插件入口：`EvolutionMemoryStore` 服务、上限、写入路径、暂存审批、维护注册与扫描 |
 | [`src/capture-contract.ts`](src/capture-contract.ts) | 技能准入门：`CaptureContract` 校验及其 JSON 物化 |
 | [`src/spec.ts`](src/spec.ts) | 域声明：记录模式、旧文档接纳与 `defineDomain` 规范 |
+| [`src/scope-lock.ts`](src/scope-lock.ts) | 跨进程作用域写锁：独占锁文件、有界等待，以及它的 `evolution/scope-locked` 失败 |
 | [`src/types.ts`](src/types.ts) | 公共记录、上下文条目、产出、来源与暂存写入类型 |
 | [`src/lesson-artifact.ts`](src/lesson-artifact.ts) | 工件类型与 schema、statement 身份，以及旧经验文档的接纳 |
 | [`src/decisions.ts`](src/decisions.ts) | 决策词汇，以及作用于记录之上的纯 confirm/contradict/new 折入 |
@@ -143,7 +146,7 @@ kind: "package-reference"
 
 ### 失败与恢复
 
-被拒绝的写入永不改变记录。`addContextItem` 在超过条目数量或容量时以 `evolution/capacity-exceeded` 拒绝，任何字节已放不下的写入也以同样方式拒绝。序列化后的工件数组超过 `maxAgentBytes` 时则以 `evolution/too-large` 拒绝，并指明字段、观测字节与上限。`updateArtifact` 与 `removeArtifact` 遇到未知身份以 `evolution/item-not-found` 拒绝，暂存操作寻址缺失工件时同样如此。重复身份的候选列表与规范化后为空字符串的 statement 都被当作编程错误大声拒绝，且在任何持久化之前：前者无法区分两个工件，后者会持久化一个被工件 schema 拒绝的记录，而该域的下一次打开会拒绝整个存储。未知暂存 id 在审批与驳回时均以 `evolution/staged-not-found` 报告。`recordOutputs` 在列表无变化时直接返回而不写入，因此幂等的回合不会产生 `domain/changed` 抖动。
+被拒绝的写入永不改变记录。`addContextItem` 在超过条目数量或容量时以 `evolution/capacity-exceeded` 拒绝，任何字节已放不下的写入也以同样方式拒绝。序列化后的工件数组超过 `maxAgentBytes` 时则以 `evolution/too-large` 拒绝，并指明字段、观测字节与上限。`updateArtifact` 与 `removeArtifact` 遇到未知身份以 `evolution/item-not-found` 拒绝，暂存操作寻址缺失工件时同样如此。重复身份的候选列表与规范化后为空字符串的 statement 都被当作编程错误大声拒绝，且在任何持久化之前：前者无法区分两个工件，后者会持久化一个被工件 schema 拒绝的记录，而该域的下一次打开会拒绝整个存储。未知暂存 id 在审批与驳回时均以 `evolution/staged-not-found` 报告。`recordOutputs` 在列表无变化时直接返回而不写入，因此幂等的回合不会产生 `domain/changed` 抖动。写入若遇到另一进程持有其作用域的锁，会在 `lockWaitMs` 过后以 `evolution/scope-locked` 拒绝，并指明锁文件与持有者 pid；记录保持不变，且锁在拒绝路径上同样被释放，因此下一次写入立刻就能取得它。
 
 不发布 invariant 伴生包，因为域表是该状态的唯一副本，不存在第二个可供核对的独立观测。
 
@@ -177,6 +180,8 @@ kind: "package-reference"
 这些限制界定了本存储不适用的场景。它们是当前包约束。
 
 - **仅限本机**——记录位于 `$DSH_HOME` 之下，永不写入项目目录内。
+- **作用域锁只排除写者，不合并写者**——每个进程各自持有一份作用域记录的快照，因此该锁是把写同一作用域的进程串行化，而不是调和第二个进程漏掉的内容；被两个进程同时写入的作用域最终保留较晚写入方对较早写入方各字段的看法。请把 `lockDirectory` 指向所有共享同一存储介质的进程共用的同一位置，而迁移存储根目录却不迁移锁目录会让写者失去串行化。
+- **被杀死时持有的锁文件会比进程活得更久**——进程若在取得锁与释放锁之间死去，就会留下它的锁文件，此后该作用域的写者会在 `lockWaitMs` 之后失败，并在消息里指明该文件；删除该文件即为恢复手段。这里刻意不做过期判定，因为剥夺一个存活持有者的归属，正好会放进这个锁本意排除的第二个写者。
 - **同义改写合并依赖 embeddings**——候选匹配所用的相似度来自可选的 `ctx.embeddings` seam；没有它时只有规范化后完全相同的 statement 才能匹配，改写过措辞的重复项会另存为一个独立工件。
 - **迁移来的工件保持粗粒度**——旧经验文档打开时是一个覆盖整份文本的工件，目前还没有任何一趟流程拆分它；提取把决策折入它读到的工件，因此迁移来的作用域在简报里保留那一条很长的工件行，而新工件是加在它旁边，不是取代它。
 - **衰退由写入与反驳驱动，充分召回后还会叠加 S8 效用**——工件在最后一次触达它的写入之后 `defaultTtlDays` 天被剪除，使用工件从不计入这个时钟，因此一条再无人讨论的事实即使仍然为真也会衰退。决策批次写入的计数正是作用域自身回合所提供的：`confirms` 刷新工件的 `updatedAt`，`contradicts` 计入 `refutationFloor`，而提取的相关性窗口从未向模型展示的工件两者都得不到。迁移来的粗粒度工件完全不携带 ttl，因为接纳时不会赋予该值，因此只有反驳下限或低效用读数可能剪除它。效用本身只经 `recordRecallOutcome` 累积，因此从未被召回过的工件既不积累这第三条衰退路径的证据，也不承受它的风险。

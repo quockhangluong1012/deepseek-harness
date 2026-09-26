@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-22-evolution-metric-layer.md
-2026-09-22-evolution-metric-layer.md: edf22ac5243876f2402106e8f75e21433a08f83e
+2026-09-22-evolution-metric-layer.md: 2e166a5a40c0b86b3171045c738308e1b6cf82c5
 2026-09-22-evolution-metric-layer.zh.md: 3f2e934b6afce8fca6fd34a357de02e61f35259d

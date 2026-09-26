@@ -11,6 +11,9 @@ export const CHANGES_DIFF_PATH = '/api/changes.diff'
 /** Authenticated POST route for opening a changed file on the Host desktop. */
 export const CHANGES_OPEN_PATH = '/api/changes.open'
 
+/** Authenticated POST route applying one listed file's per-hunk decisions. */
+export const CHANGES_HUNKS_PATH = '/api/changes.hunks'
+
 /**
  * Browser-relative form of {@link CHANGED_FILES_PATH}; see
  * .agents/notes/implemented/architecture/2026-09-14-web-document-relative-app-routes.md.

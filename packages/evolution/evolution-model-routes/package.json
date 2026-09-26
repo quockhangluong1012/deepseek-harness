@@ -28,6 +28,7 @@
   "license": "MIT",
   "peerDependencies": {
     "@deepseek-ai/cordis": "workspace:~",
+    "@deepseek-ai/dsh-evolution-uncertainty": "workspace:*",
     "@deepseek-ai/dsh-storage-domain": "workspace:*"
   },
   "dependencies": {
@@ -36,6 +37,7 @@
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "workspace:~",
+    "@deepseek-ai/dsh-evolution-uncertainty": "workspace:*",
     "@deepseek-ai/dsh-storage-domain": "workspace:*"
   }
 }

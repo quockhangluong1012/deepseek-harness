@@ -4,14 +4,14 @@
  * log-only `context/compiled` session event.
  *
  * `dsh-agent-kernel` owns the task contract this compiler reads and the
- * `TrustLabel`/`Provenance` vocabulary its envelopes carry; `core/system-prompt`
+ * `TrustLabel`/`SourceRef` vocabulary its envelopes carry; `core/system-prompt`
  * keeps ownership of the contributions the compiler is a facade over. This
  * module declares contracts only.
  *
  * @module @deepseek-ai/dsh-agent-context/types
  */
 
-import type { Provenance, TrustLabel } from '@deepseek-ai/dsh-agent-kernel'
+import type { SourceRef, TrustLabel } from '@deepseek-ai/dsh-agent-kernel'
 
 /** What a context source is for. Closed vocabulary, fixed by the runtime specification. */
 export type ContextSourceKind =
@@ -29,6 +29,31 @@ export type RetentionClass = 'required' | 'compressible'
 
 /** Why one source was left out of a compiled context. */
 export type OmissionReason = 'budget' | 'duplicate'
+
+/**
+ * How deep in the model's working set one source sits, from the standing
+ * policies (`L0`) to content the placement never carries (`L6`). A source's
+ * tier follows from its kind; `tiers.ts` owns the table and the gate.
+ */
+export type ContextTier = 'L0' | 'L1' | 'L2' | 'L3' | 'L4' | 'L5' | 'L6'
+
+/** What one compile asks for beyond the tiers its policy always places. */
+export interface ContextTierDemand {
+  /** Tiers whose sources this compile admits although the policy withholds them. */
+  readonly tiers?: readonly ContextTier[]
+  /** Source ids this compile admits, whatever tier they sit in. */
+  readonly sourceIds?: readonly string[]
+}
+
+/** One source a compile withheld because of its tier. */
+export interface ContextDeferredSource {
+  /** The withheld source's id. */
+  readonly id: string
+  /** What the withheld source is for. */
+  readonly kind: ContextSourceKind
+  /** The tier its kind sits in, which the policy withholds. */
+  readonly tier: ContextTier
+}
 
 /**
  * One contribution the compiler may place: either a section or runtime context
@@ -49,7 +74,7 @@ export interface ContextSource {
   /** Whether the content is instruction authority or data. */
   readonly trust: TrustLabel
   /** Where the content came from. */
-  readonly provenance: Provenance
+  readonly sourceRef: SourceRef
   /** Whether the content may be dropped to fit a budget. */
   readonly retention: RetentionClass
   /**
@@ -92,6 +117,13 @@ export interface CompiledContext {
   readonly included: readonly CompiledSource[]
   /** The sources the compile left out, in considered order. */
   readonly omitted: readonly ContextOmission[]
+  /**
+   * The sources the tier policy withheld, in candidate order. A withheld source
+   * is not an omission: the compile never priced or ranked it, so it is absent
+   * from `included`, `omitted`, and the digest alike. The list reports what a
+   * later compile can admit through `ContextCompileInput.demand`.
+   */
+  readonly deferred: readonly ContextDeferredSource[]
   /** Disagreements among the placed required sources, in subject order. */
   readonly conflicts: readonly ContextConflict[]
   /** Sum of the placed sources' token prices. */

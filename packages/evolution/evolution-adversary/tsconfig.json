@@ -10,7 +10,7 @@
     { "path": "../../../vendor/schemastery" },
     { "path": "../evolution-benchmark" },
     { "path": "../evolution-evaluator-strategy" },
-    { "path": "../evolution-router" },
+    { "path": "../evolution-model-routes" },
     { "path": "../../storage/storage-domain" }
   ]
 }

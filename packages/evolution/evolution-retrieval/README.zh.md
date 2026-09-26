@@ -87,7 +87,7 @@ if (recommended !== undefined) {
 
 归属记录是 `evolution_retrieval` 域（v1，一张以「配置键 + 会话 id」连接为键的 `attributions` 表）中的持久逐条行：`{ configKey, configuration, sessionId, at }`。配置键是 §39 全部维度按固定顺序的取值，因此以不同字段顺序构造同一配置的两个调用方记录的是同一个配置；同一会话记录两次会幂等更新其行并保留首次的时刻。
 
-有效性在读取时推导，永不落库。`gradesOf(sessions, skills, failed)` 连接两个已经对会话评级的证据存储：技能遥测存储给出会话服务过的任务类别与其已评级结果，反馈存储则在某个信号评级为 `complete`（归因到具体工具的失败，而非仅被观察到的失败）时，把该会话在其加载过的类别上评为失败。`effectivenessRows` 把这些评级折叠为每个配置与类别一行，`rankConfigurations` 用 `scoreOf` 为每行打分——与 `dsh-evolution-router` 给路由打分相同的、按样本置信度缩放的 beta 先验平滑成功率。因此配置由它服务过的会话达成了什么来评判：一个提升了相似度分数、但其会话却失败的检索改动，排名会低于没有这样做的配置。
+有效性在读取时推导，永不落库。`gradesOf(sessions, skills, failed)` 连接两个已经对会话评级的证据存储：技能遥测存储给出会话服务过的任务类别与其已评级结果，反馈存储则在某个信号评级为 `complete`（归因到具体工具的失败，而非仅被观察到的失败）时，把该会话在其加载过的类别上评为失败。`effectivenessRows` 把这些评级折叠为每个配置与类别一行，`rankConfigurations` 用 `scoreOf` 为每行打分——与 `dsh-evolution-model-routes` 给路由打分相同的、按样本置信度缩放的 beta 先验平滑成功率。因此配置由它服务过的会话达成了什么来评判：一个提升了相似度分数、但其会话却失败的检索改动，排名会低于没有这样做的配置。
 
 本包不测量检索精度，也不以它排名：相似度是召回实现选择的输入，配置的名次取决于它的会话达成了什么。
 
@@ -116,7 +116,7 @@ if (recommended !== undefined) {
 - [进化包地图](../README.zh.md) — 该组的包及其仓库位置。
 - [`dsh-active-memory-context`](../../context/active-memory-context/README.zh.md) — 产生方：它为每个它所简报的会话记录生效中的检索配置。
 - [`dsh-evolution-skill-telemetry`](../../skill/evolution-skill-telemetry/README.zh.md) 与 [`dsh-evolution-feedback`](../evolution-feedback/README.zh.md) — 本包所连接的两个已评级会话证据来源。
-- [`dsh-evolution-router`](../evolution-router/README.zh.md) — 使用相同打分形态、从实测结果学习路由的同族包。
+- [`dsh-evolution-model-routes`](../evolution-model-routes/README.zh.md) — 使用相同打分形态、从实测结果学习路由的同族包。
 
 -----
 

@@ -464,6 +464,31 @@ Types: [SandboxExecutionPolicy](sandbox.md)
 
 Source: [`packages/fs/fs/src/index.ts`](../../packages/fs/fs/src/index.ts)
 
+<a id="ctxrepoindex--repoindexservice"></a>
+
+### `ctx.repoIndex` — `RepoIndexService`
+
+The repository index service (`ctx.repoIndex`).
+
+```ts cordis-catalog
+/**
+ * Return the index for one workspace root, building it when the walk's
+ * fingerprint differs from the cached one.
+ * @param root - workspace root path as the filesystem backend resolves it.
+ * @param signal - cancellation; aborts the walk and the reads it started.
+ * @returns the bounded snapshot.
+ */
+ensure(root: string, signal?: AbortSignal): Promise<RepoIndexSnapshot>
+
+/**
+ * Drop every cached snapshot, so the next `ensure()` walks and reads again.
+ * @returns nothing.
+ */
+invalidate(): void
+```
+
+Source: [`packages/repo/repo-index/src/types.ts`](../../packages/repo/repo-index/src/types.ts)
+
 <a id="fs-events"></a>
 
 ### `fs/*` events

@@ -5,6 +5,7 @@
  */
 
 import type { BenchmarkInput } from '@deepseek-ai/dsh-evolution-benchmark'
+import { MINED_TASK } from '@deepseek-ai/dsh-evolution-benchmark'
 import type { EvaluationTask, UncertaintySignal } from '@deepseek-ai/dsh-evolution-uncertainty'
 
 /**
@@ -30,5 +31,6 @@ export function benchmarkInput(task: EvaluationTask, signals: readonly Uncertain
     task: strongest.detail,
     gists: [...new Set(ordered.map(signal => signal.detail))],
     sourceSessions: [],
+    ...MINED_TASK,
   }
 }

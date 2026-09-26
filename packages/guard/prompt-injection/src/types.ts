@@ -12,7 +12,7 @@
  */
 
 import type { TrustLabel } from '@deepseek-ai/dsh-agent-kernel'
-import type { Provenance } from '@deepseek-ai/dsh-agent-kernel'
+import type { SourceRef } from '@deepseek-ai/dsh-agent-kernel'
 
 /** Which origin produced one piece of content. */
 export type EnvelopeSource = 'user' | 'repo' | 'tool' | 'web' | 'mcp' | 'subagent' | 'model'
@@ -51,7 +51,7 @@ export interface ContentEnvelope {
   /** Whether the content must not be treated as an instruction. */
   readonly tainted: boolean
   /** Source and locator of the content itself. */
-  readonly provenance: Provenance
+  readonly sourceRef: SourceRef
   /** Every rule that matched, in rule-table order. */
   readonly findings: readonly SecurityFinding[]
   /** SHA-256 of the observed content, before any credential was replaced. */
@@ -65,7 +65,7 @@ export interface ScanRequest {
   /** Origin that produced it. */
   readonly source: EnvelopeSource
   /** Source and locator of the content. */
-  readonly provenance: Provenance
+  readonly sourceRef: SourceRef
   /**
    * Override for the origin's default trust. Omit to use
    * {@link defaultTrustFor}; a caller that has proof of authorship passes

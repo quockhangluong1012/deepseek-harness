@@ -1,28 +1,39 @@
 /**
  * Dependency-aware evolution (`ctx.evolutionLineage`): a durable log of
  * dependency-versioned experiment envelopes — one per evaluated candidate —
- * with comparability checks and ablation attribution (§34). Every result
- * records the dependency versions it ran under, so a metric comparison is
- * provably apples-to-apples: two envelopes compare only when none of the
- * configured compared keys changed between them. Ablation attribution says
- * which change caused an improvement (§36), and every envelope carries the
- * seeds it ran, so any experiment replays from its record (§48).
+ * with comparability checks and ablation attribution (§34), plus a linear
+ * revision chain per policy and the diff between consecutive revisions
+ * (§14.5 policy versioning). Every result records the dependency versions it
+ * ran under, so a metric comparison is provably apples-to-apples: two
+ * envelopes compare only when none of the configured compared keys changed
+ * between them. Ablation attribution says which change caused an improvement
+ * (§36), and every envelope carries the seeds it ran, so any experiment
+ * replays from its record (§48).
  * Comparisons are recorded facts, never gates: nothing here permits or
  * refuses an optimization (§58.12). Nothing here calls a model; the
  * optimizer records envelopes through the optional recorder seam.
  * @module @deepseek-ai/dsh-evolution-lineage
  */
 
+import { createHash } from 'node:crypto'
 import { Context, Service } from '@deepseek-ai/cordis'
 import type { KvTable } from '@deepseek-ai/dsh-storage-domain'
 import z from 'zod'
-import { changedDependencies, DEPENDENCY_KEYS } from './lineage.ts'
+import { changedDependencies, DEPENDENCY_KEYS, lineDiff, revisionKey } from './lineage.ts'
 import { lineageDomainSpec } from './spec.ts'
-import type { DependencyKey, ExperimentComparison, ExperimentEnvelope, ExperimentInput, ExperimentOutcome } from './types.ts'
+import type {
+  DependencyKey,
+  ExperimentComparison,
+  ExperimentEnvelope,
+  ExperimentInput,
+  ExperimentOutcome,
+  PolicyRevision,
+  PolicyRevisionInput,
+} from './types.ts'
 
 export type * from './types.ts'
-export { changedDependencies, comparable, attributeImprovement, DEPENDENCY_KEYS } from './lineage.ts'
-export { lineageDomainSpec, experimentEnvelopeRow } from './spec.ts'
+export { changedDependencies, comparable, attributeImprovement, DEPENDENCY_KEYS, lineDiff, revisionKey } from './lineage.ts'
+export { lineageDomainSpec, experimentEnvelopeRow, policyRevisionRow } from './spec.ts'
 
 /** Deployment choices of the lineage store; an omitted field takes its default. */
 export interface Config {
@@ -70,6 +81,8 @@ export class EvolutionLineage extends Service {
 
   private experimentTable?: KvTable<string, ExperimentEnvelope>
 
+  private revisionTable?: KvTable<string, PolicyRevision>
+
   /**
    * @param ctx - host context carrying the storage domain.
    * @param config - validated store choices.
@@ -79,11 +92,12 @@ export class EvolutionLineage extends Service {
     this.resolved = resolveConfig(config)
   }
 
-  /** Open the domain and publish the table handle. */
+  /** Open the domain and publish both table handles. */
   protected async [Service.init](): Promise<void> {
     const domain = await this.ctx.storageDomain.open(lineageDomainSpec)
     this.ctx.effect(() => () => domain.close(), 'evolution-lineage.domainClose')
     this.experimentTable = domain.table('experiments')
+    this.revisionTable = domain.table('revisions')
   }
 
   /**
@@ -92,7 +106,7 @@ export class EvolutionLineage extends Service {
    * @returns the stored envelope.
    */
   async record(input: ExperimentInput): Promise<ExperimentEnvelope> {
-    const table = this.requireTable()
+    const table = this.requireExperimentTable()
     const envelope: ExperimentEnvelope = {
       experimentId: input.experimentId,
       skill: input.skill,
@@ -128,7 +142,7 @@ export class EvolutionLineage extends Service {
    * @throws when the experiment identity is unknown.
    */
   async amendOutcome(id: string, outcome: ExperimentOutcome, rejectedReason?: string): Promise<ExperimentEnvelope> {
-    const table = this.requireTable()
+    const table = this.requireExperimentTable()
     const current = table.get(id)
     if (current === undefined) throw new Error(`evolution-lineage: unknown experiment '${id}'`)
     const next: ExperimentEnvelope = {
@@ -146,7 +160,7 @@ export class EvolutionLineage extends Service {
    * @returns the envelopes, detached from the store.
    */
   experiments(skill?: string): readonly ExperimentEnvelope[] {
-    const rows = [...this.requireTable().entries()]
+    const rows = [...this.requireExperimentTable().entries()]
       .map(([, envelope]) => structuredClone(envelope))
       .filter(envelope => skill === undefined || envelope.skill === skill)
     rows.sort(
@@ -161,7 +175,7 @@ export class EvolutionLineage extends Service {
    * @returns the envelope, or undefined when unknown.
    */
   envelope(id: string): ExperimentEnvelope | undefined {
-    const found = this.requireTable().get(id)
+    const found = this.requireExperimentTable().get(id)
     return found === undefined ? undefined : structuredClone(found)
   }
 
@@ -173,7 +187,7 @@ export class EvolutionLineage extends Service {
    * @returns the comparability verdict, or undefined when either id is unknown.
    */
   compare(idA: string, idB: string): ExperimentComparison | undefined {
-    const table = this.requireTable()
+    const table = this.requireExperimentTable()
     const a = table.get(idA)
     const b = table.get(idB)
     if (a === undefined || b === undefined) return undefined
@@ -188,13 +202,90 @@ export class EvolutionLineage extends Service {
    * @returns the envelope, detached, or undefined when unknown.
    */
   replay(id: string): ExperimentEnvelope | undefined {
-    const found = this.requireTable().get(id)
+    const found = this.requireExperimentTable().get(id)
     return found === undefined ? undefined : structuredClone(found)
   }
 
-  private requireTable(): KvTable<string, ExperimentEnvelope> {
-    if (this.experimentTable === undefined) throw new Error('evolution lineage store is not started yet')
-    return this.experimentTable
+  /**
+   * Record one policy revision. The store assigns the next version number,
+   * hashes the body, and diffs it against the revision it replaces, so a
+   * policy's history is versioned, diffable, reproducible, and reversible from
+   * the stored bodies (§14.5) without trusting the caller for any of it. The
+   * same bytes as the chain's head is a no-op: re-recording the current body
+   * would add a version that changed nothing. Committing an older revision's
+   * bytes is a real revision, so a revert lands as a new version rather than
+   * rewriting history.
+   * @param input - the policy identity, its body, and the benchmark it was measured under.
+   * @returns the stored revision, or the recorded head when the body is unchanged.
+   */
+  async recordRevision(input: PolicyRevisionInput): Promise<PolicyRevision> {
+    const table = this.requireRevisionTable()
+    const head = this.headRevision(input.policy)
+    const digest = createHash('sha256').update(input.body, 'utf8').digest('hex')
+    if (head !== undefined && head.digest === digest) return structuredClone(head)
+    const revision: PolicyRevision = {
+      policy: input.policy,
+      version: head === undefined ? 1 : head.version + 1,
+      digest,
+      parentDigest: head?.digest ?? null,
+      diff: head === undefined ? { addedLines: 0, removedLines: 0 } : lineDiff(head.body, input.body),
+      ...input.benchmark === undefined ? {} : { benchmark: input.benchmark },
+      body: input.body,
+      at: new Date().toISOString(),
+    }
+    await table.put(revisionKey(revision.policy, revision.version), revision)
+    return structuredClone(revision)
+  }
+
+  /**
+   * List one policy's committed revisions, oldest first: the whole chain, in
+   * the order it was committed, with each revision's body so a reader can diff
+   * or restore any pair without reading the file the body came from.
+   * @param policy - policy identity.
+   * @returns the detached revisions, oldest first; empty when the policy has none.
+   */
+  revisions(policy: string): readonly PolicyRevision[] {
+    return [...this.requireRevisionTable().entries()]
+      .map(([, row]) => row)
+      .filter(row => row.policy === policy)
+      .sort((left, right) => left.version - right.version)
+      .map(row => structuredClone(row))
+  }
+
+  /**
+   * The newest revision committed for one policy, undetached for internal use.
+   * @param policy - policy identity.
+   * @returns the head revision, or undefined for a policy with no history.
+   */
+  private headRevision(policy: string): PolicyRevision | undefined {
+    let head: PolicyRevision | undefined
+    for (const [, row] of this.requireRevisionTable().entries()) {
+      if (row.policy !== policy) continue
+      if (head === undefined || row.version > head.version) head = row
+    }
+    return head
+  }
+
+  /**
+   * Read the open experiment table.
+   * @returns the experiments table.
+   * @throws when the domain was never opened.
+   */
+  private requireExperimentTable(): KvTable<string, ExperimentEnvelope> {
+    const table = this.experimentTable
+    if (table === undefined) throw new Error('evolution lineage store is not started yet')
+    return table
+  }
+
+  /**
+   * Read the open revision table.
+   * @returns the revisions table.
+   * @throws when the domain was never opened.
+   */
+  private requireRevisionTable(): KvTable<string, PolicyRevision> {
+    const table = this.revisionTable
+    if (table === undefined) throw new Error('evolution lineage store is not started yet')
+    return table
   }
 }
 

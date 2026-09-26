@@ -45,6 +45,8 @@ async function composition(): Promise<{
   dispose: () => Promise<void>
 }> {
   const dir = await realpath(await mkdtemp(join(tmpdir(), 'evx-')))
+  // Scope locks must never land in the developer's real harness home.
+  const lockDirectory = await mkdtemp(join(tmpdir(), 'dsh-evolution-memory-locks-'))
   const ctx = new Context()
   await ctx.plugin(Storage)
   ctx.storage.backend.register('memory', new MemoryStorageBackend(new MemoryMediaPool()))
@@ -52,7 +54,7 @@ async function composition(): Promise<{
   ctx.storage.mount('domain', facility)
   ctx.provide('storageDomain', facility)
   const { default: EvolutionMemoryStore } = await import('@deepseek-ai/dsh-evolution-memory')
-  await ctx.plugin(EvolutionMemoryStore, { capacityBytes: 65536 })
+  await ctx.plugin(EvolutionMemoryStore, { capacityBytes: 65536, lockDirectory })
   const workspaces = new Map<string, { id: WorkspaceId; title: string; path: string; sessionIds: SessionId[] }>()
   ctx.provide('workspaceRegistry', {
     list: () => [...workspaces.values()],

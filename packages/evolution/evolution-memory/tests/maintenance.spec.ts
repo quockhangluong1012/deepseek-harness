@@ -1,4 +1,7 @@
 import { describe, expect, it } from 'vitest'
+import { mkdtemp } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import Storage from '@deepseek-ai/dsh-storage'
 import { DomainFacility } from '@deepseek-ai/dsh-storage-domain'
@@ -104,7 +107,8 @@ async function harness(options: {
       },
     })
   }
-  const fiber = await ctx.plugin(EvolutionMemoryStore, options.config ?? { capacityBytes: 4096 })
+  const lockDirectory = await mkdtemp(join(tmpdir(), 'dsh-evolution-memory-locks-'))
+  const fiber = await ctx.plugin(EvolutionMemoryStore, { lockDirectory, ...options.config ?? { capacityBytes: 4096 } })
   return { facility, fiber, store: ctx.evolutionMemory }
 }
 
@@ -244,6 +248,28 @@ describe('evolution-memory sweep', () => {
     expect(await store.sweep(id)).toEqual({ pruned: 1, refined: 0 })
     expect(store.read(id)?.agentLessons.map(entry => entry.statement)).toEqual(['fresh fact'])
     expect(store.read(id)?.lessonsUpdatedAt).not.toBeNull()
+    await fiber.dispose()
+  })
+
+  it('keeps the value that replaced a condemned wording, history and all', async () => {
+    const { facility, fiber, store } = await harness()
+    const id = scope()
+    await store.addArtifact(id, candidate('use postgres'))
+    // The refutation floor has already condemned the wording as it stands.
+    await condemn(facility, id, artifactKey('use postgres'))
+    const corrected = await store.applyExtractionDecisions(id, [
+      { kind: 'contradicts', artifactId: artifactKey('use postgres'), statement: 'use mysql 8' },
+    ])
+    expect(corrected.agentLessons[0]?.supersedes).toHaveLength(1)
+    // The correction reset the counters that measured the superseded wording,
+    // so refutations of it cannot delete the value that replaced it (S8).
+    expect(await store.sweep(id)).toEqual({ pruned: 0, refined: 0 })
+    expect(store.read(id)?.agentLessons.map(entry => entry.statement)).toEqual(['use mysql 8'])
+    expect(store.read(id)?.agentLessons[0]).toMatchObject({
+      id: artifactKey('use postgres'),
+      refutationCount: 0,
+      supersedes: [{ statement: 'use postgres' }],
+    })
     await fiber.dispose()
   })
 

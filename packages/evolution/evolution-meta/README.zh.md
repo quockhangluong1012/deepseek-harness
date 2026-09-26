@@ -99,7 +99,7 @@ const next = ctx.evolutionMeta.recommend('writer')
 | 2——工作流 | 引擎运行的序列：哪个算子、哪个评估器、哪一档预算，以何顺序 | `evolution-meta`（本存储）——每次运行、摘要与推荐上都带 `workflow` 与 `workflowId` | 已实现且可检视；在有运行记录序列之前**不可达**，因为优化器的记录接缝是唯一写入者 |
 | 3——变异策略 | 哪种变异算子对哪类产物有效 | `evolution-operators`——按产物类别排序的算子组合 | 同一门槛；第 3–5 层只是记录，不是策略（§26 的治理上限） |
 | 4——评估策略 | 哪个评估器能抓住回归，以及多大的基准才够 | `evolution-evaluator-strategy`，其证据由 `evolution-evaluator-health` 与 `evolution-benchmark` 提供 | 同一门槛 |
-| 5——资源分配 | 分配多少搜索预算、何时利用何时探索、走哪条路由 | `evolution-budget` 与 `evolution-router` | 同一门槛 |
+| 5——资源分配 | 分配多少搜索预算、何时利用何时探索、走哪条路由 | `evolution-budget` 与 `evolution-model-routes` | 同一门槛 |
 
 由此有两点结论，各包 README 直接写明而不是遮掩：
 
@@ -114,7 +114,7 @@ const next = ctx.evolutionMeta.recommend('writer')
 - [进化式 Harness 规范](../../../specs/evolutionary-harness-v11-deep-research.md) §26——本包实现其第 2 层的元演化阶梯，建立在 §9 的基础上。
 - [进化包地图](../README.zh.md)——本组包及其仓库位置。
 - [`dsh-evolution-optimizer`](../evolution-optimizer/README.zh.md)——通过可选记录接缝记录每次暂存写入的引擎运行与工作流的消费者，也是出厂即禁用的一行。
-- [`dsh-evolution-operators`](../evolution-operators/README.zh.md)、[`dsh-evolution-evaluator-strategy`](../evolution-evaluator-strategy/README.zh.md)、[`dsh-evolution-budget`](../evolution-budget/README.zh.md) 与 [`dsh-evolution-router`](../evolution-router/README.zh.md)——本包组合成单一引擎配置的四个组件学习器。
+- [`dsh-evolution-operators`](../evolution-operators/README.zh.md)、[`dsh-evolution-evaluator-strategy`](../evolution-evaluator-strategy/README.zh.md)、[`dsh-evolution-budget`](../evolution-budget/README.zh.md) 与 [`dsh-evolution-model-routes`](../evolution-model-routes/README.zh.md)——本包组合成单一引擎配置的四个组件学习器。
 
 -----
 

@@ -27,9 +27,6 @@
     },
     {
       "path": "../../workspace/workspace-memory"
-    },
-    {
-      "path": "../../workspace/workspace-memory-llm"
     }
   ]
 }

@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-22-claim-evidence-graph.md
-2026-09-22-claim-evidence-graph.md: 06f5a6435dd42726245229b07679b26cb30fcc6b
+2026-09-22-claim-evidence-graph.md: 1c9ef077b00655a666e5436414ffa58f28c924d6
 2026-09-22-claim-evidence-graph.zh.md: 8d7948587f0a7064cc956f3c1c7ac00b05ef4ab9

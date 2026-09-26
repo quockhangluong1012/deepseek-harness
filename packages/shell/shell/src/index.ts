@@ -23,6 +23,8 @@ export type {
   CollectedOutput,
   DshEnvironment,
   DshEnvironmentKey,
+  SubprocessOutputRead,
+  SubprocessOutputReader,
 } from './types.ts'
 export { parseExitStatus } from './render.ts'
 export type { ParsedExitStatus } from './render.ts'

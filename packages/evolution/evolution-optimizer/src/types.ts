@@ -8,6 +8,7 @@
 import type { AgentUnderTest } from '@deepseek-ai/dsh-session-snapshot'
 import type { ScenarioRunner, SkillScore } from '@deepseek-ai/dsh-evolution-scorer'
 import type { EvolutionScopeId } from '@deepseek-ai/dsh-evolution-memory'
+import type { PairedSignificance } from './significance.ts'
 
 /** One optimization run: which skill, over which corpus scenarios, staged where. */
 export interface OptimizeRequest {
@@ -103,6 +104,13 @@ export interface OptimizeReport {
   stagnant: boolean
   /** Paired-comparison tally when the run confirmed its winner, else null. */
   confidence: PromotionConfidence | null
+  /**
+   * The paired significance comparison the run's promotion gate decided on
+   * (amendment S9): its win/loss tally, the exact p-value, and whether the
+   * winner cleared the configured confidence. Null when the run selected no
+   * winner, because nothing was compared.
+   */
+  significance: PairedSignificance | null
   /** Whether the run stopped evaluating candidates early because its budget was spent. */
   truncated: boolean
 }
@@ -117,6 +125,54 @@ export interface ExperimentTriple {
   wallTimeMs: number
 }
 
+/** One dimension of the evaluation context that two measured arms can disagree on. */
+export type EvaluationDimension = 'benchmark' | 'tasks'
+
+/**
+ * The evaluation context one promotion proved its two arms shared (§14.6):
+ * the benchmark they were read from, the model route in effect, the budget
+ * they were measured with, and the task set they covered. A promotion may land
+ * only when the re-scored baseline and the winning candidate agree, so the run
+ * refuses to stage a winner measured differently and records the shared
+ * context beside the triples it decided on.
+ */
+export interface EvaluationContext {
+  /**
+   * Benchmark identity: the scorer version plus the content digest of the
+   * recorded fixtures the arm's scenarios were read from, so a corpus
+   * regeneration between the two arms reads as a different benchmark.
+   */
+  benchmark: string
+  /**
+   * Model route both arms ran under, as the agent composition every attempt
+   * booted: the named profile when the run configures one, else its config
+   * path. The composition is what fixes the model, and the optimizer sees no
+   * further model identity.
+   */
+  model: string
+  /** Budget both arms were measured with; zero means that ceiling is unbounded. */
+  budget: {
+    /** Billed tokens one run may spend on scoring. */
+    tokens: number
+    /** Wall time in milliseconds one run may spend on scoring. */
+    wallTimeMs: number
+  }
+  /** Task set both arms covered, in the order it was scored. */
+  tasks: readonly string[]
+  /**
+   * Attempts per scenario each arm actually bought. The tier gate gives the
+   * starting body one replay attempt and a changed candidate the scorer's
+   * configured count (S9), so these legitimately differ; both are recorded so
+   * a reader can see the sample each arm was measured on.
+   */
+  attempts: {
+    /** Attempts per scenario the baseline arm bought. */
+    baseline: number
+    /** Attempts per scenario the winning arm bought. */
+    winner: number
+  }
+}
+
 /** One durable record of a run that reached evaluation, newest-first when read. */
 export interface ExperimentRecord {
   /** Ledger identity. */
@@ -127,6 +183,12 @@ export interface ExperimentRecord {
   scope: string
   /** Skill the run optimized. */
   skill: string
+  /**
+   * The theory the run tested, stated for the registry: the failure evidence
+   * it addressed plus the mutation operators it proposed as the repair
+   * (§14.2, §14.4). Null on rows recorded before this field existed.
+   */
+  hypothesis?: string | null
   /** Failure evidence the mutation addressed. */
   evidence: string
   /** Mutation operators that produced the evaluated candidates. */
@@ -148,6 +210,21 @@ export interface ExperimentRecord {
   winner: ExperimentTriple | null
   /** Paired-comparison tally, absent when the run did not confirm its winner. */
   confidence: PromotionConfidence | null
+  /**
+   * The paired significance comparison behind the promotion decision
+   * (amendment S9): win/loss/ties over the per-scenario outcomes, the exact
+   * sign-test p-value, and the confidence it was decided at, so the decision
+   * is auditable rather than a bare boolean. Null when the run selected no
+   * winner and on rows recorded before this field existed.
+   */
+  significance?: PairedSignificance | null
+  /**
+   * The context the promotion's two search arms were measured under (§14.6),
+   * recorded when the run selected a winner and refused to stage when the arms
+   * disagreed on it; null on a run that selected none and on rows recorded
+   * before this field existed.
+   */
+  evaluation?: EvaluationContext | null
   /** Attempts per scenario the winner's triple was measured with. */
   samples: number
   /** What the run decided. */
@@ -214,6 +291,36 @@ export interface ExperimentsQuery {
   limit?: number | undefined
 }
 
+/** One recorded signal behind a mined scenario. */
+export interface MinedScenarioSource {
+  /** Producer the signal came from: a compressed learning row or an aggregated failure. */
+  kind: 'trace' | 'feedback'
+  /** Tool the failure was attributed to, or null when the producer named none. */
+  tool: string | null
+  /** The failure text the producer carried, as it clipped it. */
+  detail: string
+}
+
+/**
+ * One candidate holdout scenario mined from the scope's recorded failure
+ * signals: a failure pattern the corpus should cover, its corpus-safe name, and
+ * the evidence that named it.
+ */
+export interface MinedScenario {
+  /** Scenario name, as a corpus directory carries it. */
+  scenario: string
+  /** Signals that named this pattern, in first-seen order. */
+  sources: MinedScenarioSource[]
+  /** Observations counted across the signals that named it. */
+  occurrences: number
+  /** Most sessions one of its signals covered. */
+  sessions: number
+  /** ISO-8601 instant of the earliest signal, empty when none carried a stamp. */
+  firstAt: string
+  /** ISO-8601 instant of the latest signal, empty when none carried a stamp. */
+  lastAt: string
+}
+
 /** An approved promotion a new candidate is measured against. */
 export interface RegressionFloor {
   /** Triple the approved body scored on the same scenarios. */
@@ -226,6 +333,8 @@ export interface RegressionFloor {
 
 /** Facts one run hands to the ledger once it has scored something. */
 export interface ExperimentDraft {
+  /** The theory the run tested: its failure evidence plus the operators it proposed. */
+  hypothesis: string
   /** Failure evidence the mutation addressed. */
   evidence: string
   /** Mutation operators that produced the evaluated candidates. */
@@ -236,6 +345,8 @@ export interface ExperimentDraft {
   novelOperators: readonly string[]
   /** Search scenarios the run evaluated. */
   scenarios: readonly string[]
+  /** Holdout scenarios the run checked, configured or drawn from the mined corpus. */
+  holdout: readonly string[]
   /** Provider route the mutation used. */
   provider: string
   /** Model id the mutation used. */
@@ -250,6 +361,12 @@ export interface ExperimentDraft {
   /** Winning candidate, absent when nothing was promoted. */
   winner: EvaluatedVariant | null
   /**
+   * The context both search arms were measured under, absent until a winner is
+   * selected: a run with nothing to compare never proves the two arms shared a
+   * benchmark, and its promotion would be the only place the proof is used.
+   */
+  evaluation: EvaluationContext | null
+  /**
    * Archive novelty the winning candidate was ranked on, absent when nothing
    * was promoted: how far the promoted body sat from the skill's recorded
    * history when the pick was made.
@@ -257,4 +374,9 @@ export interface ExperimentDraft {
   winnerArchiveNovelty: number | null
   /** Named dsh profile the run's agent composition booted under, or null. */
   agentProfile: string | null
+  /**
+   * The paired significance comparison between the winning candidate and the
+   * re-scored baseline, absent when the run selected no winner.
+   */
+  significance: PairedSignificance | null
 }

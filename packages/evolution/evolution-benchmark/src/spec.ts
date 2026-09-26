@@ -17,6 +17,10 @@ export const benchmarkTaskRow = z.object({
   task: z.string(),
   gists: z.array(z.string()),
   sourceSessions: z.array(z.string()),
+  profile: z.enum(['coding', 'research', 'mentor', 'ict']).nullable().default(null),
+  family: z.enum(['coding', 'research', 'mentor-ict', 'long-horizon', 'loop-recovery']).default('loop-recovery'),
+  stepSpan: z.number().int().min(1).nullable().default(null),
+  acceptance: z.string().nullable().default(null),
   at: z.string(),
   state: z.enum(['fresh', 'search', 'validation', 'holdout', 'contaminated', 'retired']),
 })
@@ -32,7 +36,11 @@ export type BenchmarkTaskRow = z.infer<typeof benchmarkTaskRow>
  */
 export const benchmarkDomainSpec = defineDomain({
   name: 'evolution_benchmark',
-  version: 1,
+  version: 2,
+  // Version 1 stored tasks without a profile, family, or stated horizon; every
+  // producer of that generation derived its task from a recorded failure, so
+  // those rows open as the loop/recovery family with no declared profile.
+  compatibleVersions: [1],
   layout: 'per-record',
   tables: {
     tasks: domainTable<string, BenchmarkTask>(benchmarkTaskRow),

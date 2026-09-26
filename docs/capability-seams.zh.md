@@ -12,7 +12,9 @@ flowchart LR
   pkg_agent_kernel["agent-kernel"]
   svc_agentKernel["ctx.agentKernel<br/>Task contract, action ledger, and completion gate"]
   pkg_agent_context["agent-context"]
-  svc_agentContext["ctx.agentContext<br/>Compiled context provenance"]
+  svc_agentContext["ctx.agentContext<br/>Compiled context source references"]
+  pkg_research_controller["research-controller"]
+  svc_research["ctx.research<br/>Research quality-control loop"]
   pkg_hmr["hmr"]
   svc_hmr["ctx.hmr<br/>Serialized module and configuration reloads"]
   pkg_app_boot["app-boot"]
@@ -142,10 +144,8 @@ flowchart LR
   pkg_active_memory_context["active-memory-context"]
   pkg_workspace_memory["workspace-memory"]
   svc_workspaceMemory["ctx.workspaceMemory<br/>Per-Workspace memory store"]
-  pkg_workspace_memory_llm["workspace-memory-llm"]
   pkg_workspace_memory_context["workspace-memory-context"]
   pkg_client_ui_workspace_memory["client-ui-workspace-memory"]
-  svc_workspaceMemoryExtractor["ctx.workspaceMemoryExtractor<br/>Workspace memory extractor"]
   svc_workspaceMemoryController["ctx.workspaceMemoryController<br/>Workspace memory Remote face"]
   svc_sessionQuery["ctx.sessionQuery<br/>Session reads, traces, filters, and search"]
   pkg_session_reference["session-reference"]
@@ -184,6 +184,9 @@ flowchart LR
   pkg_usage_ledger["usage-ledger"]
   svc_usageLedger["ctx.usageLedger<br/>Usage ledger fold"]
   pkg_client_ui_usage_dashboard["client-ui-usage-dashboard"]
+  pkg_schedule_routines["schedule-routines"]
+  svc_routines["ctx.routines<br/>Scheduled routine store and timer"]
+  pkg_workspace_session["workspace-session"]
   svc_usageDashboard["ctx.usageDashboard<br/>Usage dashboard Remote face"]
   pkg_skill["skill"]
   svc_skills["ctx.skills<br/>Skill provider registry"]
@@ -220,6 +223,7 @@ flowchart LR
   svc_evolutionCurriculum["ctx.evolutionCurriculum<br/>Automatic curriculum store"]
   pkg_evolution_benchmark["evolution-benchmark"]
   svc_evolutionBenchmark["ctx.evolutionBenchmark<br/>Benchmark task store"]
+  pkg_evolution_metrics["evolution-metrics"]
   pkg_evolution_evaluator_health["evolution-evaluator-health"]
   svc_evolutionEvaluatorHealth["ctx.evolutionEvaluatorHealth<br/>Evaluator ensemble health store"]
   pkg_evolution_population["evolution-population"]
@@ -250,7 +254,6 @@ flowchart LR
   svc_evolutionEvaluatorStrategy["ctx.evolutionEvaluatorStrategy<br/>Evaluator-strategy store"]
   pkg_evolution_meta["evolution-meta"]
   svc_evolutionMeta["ctx.evolutionMeta<br/>Meta-evolution store"]
-  pkg_evolution_metrics["evolution-metrics"]
   svc_evolutionMetrics["ctx.evolutionMetrics<br/>Evolution metric layer"]
   pkg_evolution_operators["evolution-operators"]
   svc_evolutionOperators["ctx.evolutionOperators<br/>Mutation-operator store"]
@@ -367,12 +370,28 @@ flowchart LR
   pkg_cordis_host_runner["cordis-host-runner"]
   svc_dynamicCordisRunner["ctx.dynamicCordisRunner<br/>Dynamic Cordis package host runner"]
   svc_cordisInspect["ctx.cordisInspect<br/>Dynamic Cordis inspect registry"]
+  pkg_analyst_profiles["analyst-profiles"]
+  svc_analystProfiles["ctx.analystProfiles<br/>Named analyst answer contracts"]
+  svc_artifacts["ctx.artifacts<br/>Spill artifact retrieval seam"]
+  pkg_case_store["case-store"]
+  svc_caseStore["ctx.caseStore<br/>Durable per-learner case store"]
+  pkg_learner_model["learner-model"]
+  svc_learnerModel["ctx.learnerModel<br/>Durable per-learner record"]
+  pkg_mentor_loop["mentor-loop"]
+  svc_mentorLoop["ctx.mentorLoop<br/>Mentor quality loop"]
+  pkg_misconception["misconception"]
+  svc_misconception["ctx.misconception<br/>Evidence-backed misconception engine"]
+  pkg_repo_index["repo-index"]
+  svc_repoIndex["ctx.repoIndex<br/>Bounded repository index"]
+  pkg_repo_map["repo-map"]
+  pkg_working_set["working-set"]
   pkg_agent --> svc_agents
   pkg_agent_context --> svc_agentContext
   pkg_agent_default_model --> svc_agentDefaultModel
   pkg_agent_kernel --> svc_agentKernel
   pkg_agent_loop --> svc_agentLoop
   pkg_agent_preset_registry --> svc_agentPresets
+  pkg_analyst_profiles --> svc_analystProfiles
   pkg_api_gateway --> svc_typertGateway
   pkg_api_job_controller --> svc_jobController
   pkg_api_session_controller --> svc_sessionController
@@ -392,6 +411,7 @@ flowchart LR
   pkg_bash_local --> svc_shell
   pkg_bash_sandbox --> svc_shell
   pkg_browser_use --> svc_browserUse
+  pkg_case_store --> svc_caseStore
   pkg_client_connection --> svc_connection
   pkg_client_file_upload --> svc_fileUploads
   pkg_client_modules --> svc_clientModules
@@ -476,6 +496,7 @@ flowchart LR
   pkg_invariants --> svc_invariants
   pkg_jobs --> svc_jobs
   pkg_jobs_local --> svc_jobs
+  pkg_learner_model --> svc_learnerModel
   pkg_llm --> svc_llm
   pkg_llm_deepseek --> svc_llm
   pkg_llm_pi_ai --> svc_llm
@@ -484,7 +505,9 @@ flowchart LR
   pkg_lsp_stdio --> svc_lsp
   pkg_mcp_client --> svc_mcpResources
   pkg_mcp_resources --> svc_mcpResources
+  pkg_mentor_loop --> svc_mentorLoop
   pkg_message_feedback --> svc_messageFeedback
+  pkg_misconception --> svc_misconception
   pkg_office_to_pdf --> svc_officeToPdf
   pkg_permission_presets --> svc_permissionPresets
   pkg_plan_mode --> svc_planMode
@@ -493,10 +516,13 @@ flowchart LR
   pkg_ptc_runtime --> svc_ptcRuntime
   pkg_ptc_runtime_node --> svc_ptcRuntime
   pkg_pwsh_local --> svc_shell
+  pkg_repo_index --> svc_repoIndex
+  pkg_research_controller --> svc_research
   pkg_sandbox --> svc_sandbox
   pkg_sandbox_local --> svc_sandbox
   pkg_sandbox_policy --> svc_sandboxPolicy
   pkg_sandbox_ssh --> svc_sandbox
+  pkg_schedule_routines --> svc_routines
   pkg_session --> svc_sessions
   pkg_session_log_deepseek --> svc_deepseekLlmApiExtensions
   pkg_session_persistence --> svc_sessionPersistence
@@ -518,7 +544,9 @@ flowchart LR
   pkg_skill_badge --> svc_skills
   pkg_skill_filesystem --> svc_skills
   pkg_skill_office --> svc_skills
+  pkg_spill --> svc_artifacts
   pkg_spill --> svc_spillStore
+  pkg_spill_local --> svc_artifacts
   pkg_spill_local --> svc_spillStore
   pkg_ssh --> svc_ssh
   pkg_storage --> svc_storage
@@ -556,7 +584,6 @@ flowchart LR
   pkg_workspace --> svc_workspaceRegistry
   pkg_workspace_changes --> svc_workspaceChanges
   pkg_workspace_memory --> svc_workspaceMemory
-  pkg_workspace_memory_llm --> svc_workspaceMemoryExtractor
   svc_agentDefaultModel --> pkg_api_session_controller
   svc_agentDefaultModel --> pkg_headless
   svc_agentLoop --> pkg_base
@@ -596,6 +623,7 @@ flowchart LR
   svc_dynamicCordisRunner --> pkg_tool_cordis
   svc_evolutionAdversary --> pkg_command_evolution
   svc_evolutionBenchmark --> pkg_command_evolution
+  svc_evolutionBenchmark --> pkg_evolution_metrics
   svc_evolutionBudget --> pkg_command_evolution
   svc_evolutionBudget --> pkg_evolution_optimizer
   svc_evolutionCanary --> pkg_command_evolution
@@ -656,10 +684,14 @@ flowchart LR
   svc_jobs --> pkg_tool_pwsh
   svc_jobs --> pkg_tool_subagent
   svc_jobs --> pkg_tool_terminal
+  svc_learnerModel --> pkg_evolution_metrics
+  svc_learnerModel --> pkg_mentor_loop
   svc_llm --> pkg_agent_loop
   svc_llm --> pkg_compaction_basic
   svc_lsp --> pkg_tool_lsp
   svc_mcpResources --> pkg_mcp_resources
+  svc_misconception --> pkg_evolution_metrics
+  svc_misconception --> pkg_mentor_loop
   svc_officeToPdf --> pkg_client_ui_sidebar_documentpreview
   svc_pluginManager --> pkg_plugin_manager
   svc_pluginManager --> pkg_ui_settings_plugin_inventory
@@ -667,6 +699,11 @@ flowchart LR
   svc_profileContext --> pkg_plugin_manager
   svc_ptcRuntime --> pkg_tools
   svc_ptcRuntime --> pkg_workflow_ptc
+  svc_repoIndex --> pkg_repo_map
+  svc_repoIndex --> pkg_working_set
+  svc_research --> pkg_research_controller
+  svc_routines --> pkg_commands
+  svc_routines --> pkg_workspace_session
   svc_sandbox --> pkg_bash_sandbox
   svc_sandbox --> pkg_terminal_bash
   svc_sandboxPolicy --> pkg_bash_sandbox
@@ -754,8 +791,6 @@ flowchart LR
   svc_workflowEngine --> pkg_tool_workflow
   svc_workspaceMemory --> pkg_client_ui_workspace_memory
   svc_workspaceMemory --> pkg_workspace_memory_context
-  svc_workspaceMemory --> pkg_workspace_memory_llm
-  svc_workspaceMemoryExtractor --> pkg_client_ui_workspace_memory
   svc_workspaceRegistry --> pkg_active_memory_context
   svc_workspaceRegistry --> pkg_api_session_controller
   svc_workspaceRegistry --> pkg_api_workspace_controller
@@ -766,6 +801,7 @@ flowchart LR
 | --- | --- | --- | --- | --- | --- | --- |
 | `ctx.agentKernel` | `core` | [`agent-kernel`](../packages/runtime/agent-kernel) | - | - | - | 观察 agent loop 与工具 waterfall 而不拥有执行；会话日志是它唯一的存储，它组合自己并不作出的沙箱与审批决策。 |
 | `ctx.agentContext` | `core` | [`agent-context`](../packages/runtime/agent-context) | - | - | - | 观察组装过程与 kernel 视图，但不拥有二者；它记录一次模型步骤所依据的放置，并在 apply 模式下移除被上限裁掉的可压缩来源。 |
+| `ctx.research` | `core` | [`research-controller`](../packages/research/research-controller) | - | [`research-controller`](../packages/research/research-controller) | - | 每个会话拥有一个持久化运行记录，并拒绝缺少提供方的阶段；运行所引用的观察与断言仍保留为它读取的 kernel 记录。 |
 | `ctx.hmr` | `core` | [`hmr`](../packages/boot/hmr) | - | [`app-boot`](../packages/boot/app-boot) | - | 负责模块和精确配置监听；应用修改共用其队列，自动重载等待应用文件锁。 |
 | `ctx.pluginRegistryProbe` | `core` | [`client-ui-plugin-manager`](../packages/client/ui-plugin-manager) | - | [`client-ui-plugin-manager`](../packages/client/ui-plugin-manager) | - | 在 Host 上并发比较公共安装源响应；初始安装源推荐由 Client 负责。 |
 | `ctx.pluginManager` | `core` | [`plugin-manager`](../packages/boot/plugin-manager) | - | [`plugin-manager`](../packages/boot/plugin-manager), `ui-settings-plugin-inventory` | - | 与 CLI 共享 profile 包操作，并向 Web 和 Agent 调用方分别报告持久状态与运行状态。 |
@@ -813,9 +849,8 @@ flowchart LR
 | `ctx.messageFeedback` | `core` | [`message-feedback`](../packages/feedback/message-feedback) | - | - | - | 拥有权威 Session 日志中的逐 assistant 消息反馈、目标校验、逐条目 compare-and-set 及 Host 一元 Remote 契约。反馈不进入模型历史；日志导出遵循消费方策略。 |
 | `ctx.sessionFeedback` | `core` | [`command-feedback`](../packages/feedback/command-feedback) | - | - | - | 通过 Host 一元 Remote 契约在 live Session 上把一条带分类的 Session 级评价记录为仅写日志的 feedback/record 事件；/feedback 命令共用同一个生产方。 |
 | `ctx.workspaceRegistry` | `core` | [`workspace`](../packages/workspace/workspace) | - | [`api-workspace-controller`](../packages/api/workspace-controller), [`api-session-controller`](../packages/api/session-controller), [`active-memory-context`](../packages/context/active-memory-context) | - | 通过领域设施拥有带 WorkspaceId 品牌类型的记录；稳定的 sessionIds 账户驱动 Host RPC 与 GUI 投影。 |
-| `ctx.workspaceMemory` | `core` | [`workspace-memory`](../packages/workspace/workspace-memory) | - | [`workspace-memory-llm`](../packages/workspace/workspace-memory-llm), [`workspace-memory-context`](../packages/context/workspace-memory-context), [`client-ui-workspace-memory`](../packages/client/ui-workspace-memory) | - | workspace-memory 插件拥有按 Workspace 持久化的记录；workspace-memory-llm 写入提取出的文档与索引产出，workspace-memory-context 渲染注入的简报，workspace memory 宿主面则负责读取与改写它。 |
-| `ctx.workspaceMemoryExtractor` | `core` | [`workspace-memory-llm`](../packages/workspace/workspace-memory-llm) | - | [`client-ui-workspace-memory`](../packages/client/ui-workspace-memory) | - | workspace-memory-llm 插件根据会话历史推导记忆文档；workspace memory 宿主面调用其重建，没有其他包读取该服务。 |
-| `ctx.workspaceMemoryController` | `core` | [`client-ui-workspace-memory`](../packages/client/ui-workspace-memory) | - | - | - | workspace memory 宿主面在 ctx.workspaceMemory 与 ctx.workspaceMemoryExtractor 之上提供 workspaceMemory Remote namespace；生成的 contribution 将它送到浏览器半，由浏览器半在线读取。 |
+| `ctx.workspaceMemory` | `core` | [`workspace-memory`](../packages/workspace/workspace-memory) | - | [`workspace-memory-context`](../packages/context/workspace-memory-context), [`client-ui-workspace-memory`](../packages/client/ui-workspace-memory) | - | workspace-memory 插件拥有按 Workspace 持久化、保存用户编辑过的笔记的记录；workspace-memory-context 渲染注入的简报，workspace memory 宿主面负责读取与改写该记录。 |
+| `ctx.workspaceMemoryController` | `core` | [`client-ui-workspace-memory`](../packages/client/ui-workspace-memory) | - | - | - | workspace memory 宿主面在 ctx.workspaceMemory 之上提供 workspaceMemory Remote namespace；生成的 contribution 将它送到浏览器半，由浏览器半在线读取。 |
 | `ctx.sessionQuery` | `seam` | [`session-query`](../packages/session-query/session-query) | [`session-query-sqlite`](../packages/session-query/session-query-sqlite) | [`session-reference`](../packages/context/session-reference), [`tool-session-query`](../packages/session-query/tool-session-query), [`active-memory-context`](../packages/context/active-memory-context) | - | 该接口提供精确读取、过滤和追踪；具体后端还提供全文协调、排序、摘要片段和游标世代，而模型消费方负责工作区权限与不含游标的渲染。 |
 | `ctx.fileReferences` | `seam` | [`file-reference`](../packages/context/file-reference) | [`file-reference-local`](../packages/context/file-reference-local) | [`api-session-controller`](../packages/api/session-controller) | - | 该接口返回 Agent cwd 内仅含路径的补全候选；提供方负责命名空间访问与排序，但不读取文件内容。 |
 | `ctx.sessionReferenceResolver` | `core` | [`session-reference`](../packages/context/session-reference) | - | - | - | 将当前表层中有界的对话快照投影为持久但不可信的消息上下文；Host 适配器负责提及语法。 |
@@ -829,6 +864,7 @@ flowchart LR
 | `ctx.sessionProjections` | `core` | [`session-projection`](../packages/session/session-projection) | - | [`api-session-controller`](../packages/api/session-controller), [`tool-todo`](../packages/todo/tool-todo), [`session-title`](../packages/session/session-title) | - | 各领域注册由状态驱动的折叠单元；主动驱动过程维护每个会话的水位状态，Session controller 提供 baseline 并推送发生变化的值。 |
 | `ctx.sessionProjectionCache` | `core` | [`session-projection-cache`](../packages/session/session-projection-cache) | - | [`api-session-controller`](../packages/api/session-controller), [`session-query`](../packages/session-query/session-query), [`session-reference`](../packages/context/session-reference), [`subagent`](../packages/subagent/subagent) | - | 按会话持久保存投影单元状态的检查点（节流检查点，以及轮次／结束／分离时的必选检查点），并提供冷读取阶梯：缓存行加持久化尾部回放，因此列表读取永远不需要加载完整日志。 |
 | `ctx.usageLedger` | `core` | [`usage-ledger`](../packages/session/usage-ledger) | - | [`client-ui-usage-dashboard`](../packages/client/ui-usage-dashboard) | - | usage-ledger 插件把已计费的尝试折叠为按天、按模型持久化的计数器；用量仪表盘宿主面把其汇总读取委托给该服务。 |
+| `ctx.routines` | `core` | [`schedule-routines`](../packages/schedule/schedule-routines) | - | [`workspace-session`](../packages/workspace/workspace-session), [`commands`](../packages/interaction/commands) | - | 在 workspace_routines 领域上持有部署级的 routine 列表，把每个游标推进过停机期，并通过共享创建路径为每个到期 routine 启动一个 Workspace-backed Session。 |
 | `ctx.usageDashboard` | `core` | [`client-ui-usage-dashboard`](../packages/client/ui-usage-dashboard) | - | - | - | 用量仪表盘宿主面在 ctx.usageLedger 之上提供 usageDashboard Remote namespace；生成的 contribution 将它送到浏览器半，由浏览器半在线读取。 |
 | `ctx.skills` | `seam` | [`skill`](../packages/skill/skill) | [`skill-badge`](../packages/skill/skill-badge), [`skill-filesystem`](../packages/skill/skill-filesystem), [`skill-office`](../packages/skill/skill-office) | [`tool-skill`](../packages/skill/tool-skill) | - | 合并提供方的 skill（技能）目录；tool-skill 渲染会话前缀目录，并加载完整的 skill 正文。 |
 | `ctx.evolutionSkillTelemetry` | `core` | [`evolution-skill-telemetry`](../packages/skill/evolution-skill-telemetry) | - | [`evolution-skill-manage`](../packages/skill/evolution-skill-manage), [`evolution-curator`](../packages/evolution/evolution-curator) | - | telemetry 插件拥有按技能持久化的计数器、来源、pin、生命周期状态、有证据支撑的信任度、带可查询版本注册表的 SKILL.md 修订链，以及归并成本事实；evolution-skill-manage 经可选服务上报变更并读取 pin，evolution-curator 在同一存储上驱动生命周期流转并记录信任观测。 |
@@ -843,7 +879,7 @@ flowchart LR
 | `ctx.evolutionScorer` | `core` | [`evolution-scorer`](../packages/evolution/evolution-scorer) | - | [`evolution-optimizer`](../packages/evolution/evolution-optimizer) | - | evolution-scorer 插件让场景经已录制会话 harness 运行，并把多次尝试归纳为通过／token／墙钟时间三元组；它不写入任何内容，evolution-optimizer 读取同一裁决来判断某个候选是否胜过其基线。 |
 | `ctx.evolutionCuratorStatus` | `core` | [`client-ui-evolution`](../packages/client/ui-evolution) | - | - | - | 演进历程宿主面提供向浏览器页面报告 curator 状态的 evolutionCurator Remote namespace；生成的 contribution 将它送到客户端半。 |
 | `ctx.evolutionCurriculum` | `core` | [`evolution-curriculum`](../packages/evolution/evolution-curriculum) | - | [`command-evolution`](../packages/evolution/command-evolution), [`evolution-benchmark`](../packages/evolution/evolution-benchmark) | - | evolution-curriculum 插件从技能 telemetry 与轨迹存储测量能力差距，为每个差距暂存一条有依据的训练任务，并有意识地淘汰任务；command-evolution 经 /curriculum 读取它，evolution-benchmark 把其 open 提案接纳为评估任务，这里不调用模型。 |
-| `ctx.evolutionBenchmark` | `core` | [`evolution-benchmark`](../packages/evolution/evolution-benchmark) | - | [`command-evolution`](../packages/evolution/command-evolution) | - | evolution-benchmark 插件从生产失败中生长评估任务：内容去重的准入，以及带污染与退役状态的 fresh → search → validation → holdout 阶梯；command-evolution 经 /benchmark 读取它，这里不调用模型。 |
+| `ctx.evolutionBenchmark` | `core` | [`evolution-benchmark`](../packages/evolution/evolution-benchmark) | - | [`command-evolution`](../packages/evolution/command-evolution), [`evolution-metrics`](../packages/evolution/evolution-metrics) | - | evolution-benchmark 插件从生产失败中生长评估任务——内容去重的准入，以及带污染与退役状态的 fresh → search → validation → holdout 阶梯——并运行它们：运行过程经评分器的 runner seam 启动每个任务，并为每个任务记录一个持久化结果，evolution-metrics 将其读作基准鲁棒性和 §13.5 长时程报告；command-evolution 经 /benchmark 读取这些任务，这里不自行调用模型。 |
 | `ctx.evolutionEvaluatorHealth` | `core` | [`evolution-evaluator-health`](../packages/evolution/evolution-evaluator-health) | - | [`evolution-scorer`](../packages/evolution/evolution-scorer), [`command-evolution`](../packages/evolution/command-evolution) | - | evolution-evaluator-health 插件记录行为评估裁决，并汇总一致性、通过率漂移与误报；evolution-scorer 经可选存储记录每个裁决，command-evolution 经 /evaluators 报告它。 |
 | `ctx.evolutionPopulation` | `core` | [`evolution-population`](../packages/evolution/evolution-population) | - | [`evolution-optimizer`](../packages/evolution/evolution-optimizer), [`command-evolution`](../packages/evolution/command-evolution) | - | evolution-population 插件把每一次暂存的优化器写入记录为按技能的候选，带代数编号、父代谱系与 暂存 → 通过／拒绝 生命周期；evolution-optimizer 经可选存储记录候选，command-evolution 经 /population 查看世代、谱系与已通过的精英。 |
 | `ctx.evolutionModelRoutes` | `core` | [`evolution-model-routes`](../packages/evolution/evolution-model-routes) | - | [`evolution-optimizer`](../packages/evolution/evolution-optimizer), [`command-evolution`](../packages/evolution/command-evolution) | - | evolution-model-routes 插件在进化角色拓扑之上按角色保存路由指派，并带实测证据与推荐；evolution-optimizer 经可选存储记录每一次候选生成的路由与结果，command-evolution 经 /routes 列出、固定并推荐路由。 |
@@ -897,5 +933,12 @@ flowchart LR
 | `ctx.lsp` | `seam` | [`lsp`](../packages/lsp/lsp) | [`lsp-stdio`](../packages/lsp/lsp-stdio) | [`tool-lsp`](../packages/lsp/tool-lsp) | - | 提供方注册与选择，加上恰好四种操作的标准化查询执行；该 seam 不提供协议逃生口，后端必须转换为标准化请求和结果。 |
 | `ctx.dynamicCordisRunner` | `core` | [`cordis-host-runner`](../packages/extensions/cordis-host-runner) | - | [`tool-cordis`](../packages/extensions/tool-cordis) | - | 拥有内存定义注册表、Host 半的 vm 沙箱和 request-run 往返流程；浏览器页面通过其 Remote 命名空间在线访问同一服务。 |
 | `ctx.cordisInspect` | `core` | [`cordis-host-runner`](../packages/extensions/cordis-host-runner) | - | [`tool-cordis`](../packages/extensions/tool-cordis) | - | 注册 Host inspect 提供方、镜像 Client 提供方 manifest，并通过动态 Cordis 传输路由 Client 查询。 |
+| `ctx.analystProfiles` | `core` | [`analyst-profiles`](../packages/preset/analyst-profiles) | - | - | - | 每个 profile 固定一份有序的小节清单，并标注每条断言是观察到还是推断而来；该服务发布 profile id、它的结构化输出 schema，以及在同一 id 下校验返回答案的校验器，使调用方依据经过校验的产物行动，而不是解析文本。
+| `ctx.artifacts` | `seam` | [`spill`](../packages/spill/spill) | [`spill-local`](../packages/spill/spill-local) | - | - | 搜索、读取、提取、比对和总结在同一会话作用域与不透明定位信息之下取回某个 spill 后端所存储的内容；没有任何操作会写入，随包发布的 spill-local 实现只解析自己的 Host 文件系统根目录。
+| `ctx.caseStore` | `core` | [`case-store`](../packages/research/case-store) | - | - | - | 每个学习者一条记录，保存 §21 ICT 案例产物，其中观察与引用它们的解释分开存放，证据按引用存储；amend 追加每个具名数组、替换携带相同标识的条目，并保留未提供字段的已记录值；四个投影分别服务于学习者记忆、misconception 判定、基准数据集和下一次 mentor 干预。
+| `ctx.learnerModel` | `core` | [`learner-model`](../packages/mentor/learner-model) | - | [`evolution-metrics`](../packages/evolution/evolution-metrics), [`mentor-loop`](../packages/mentor/mentor-loop) | - | 以稳定的 learner id 为键，因此该记录比任何会话都长寿；自述的熟悉度与分级的应用能力保持为两份互不合并的列表，并且每次写入都携带其背后内容的信任标签。读取是同步的，该存储不注册任何工具、提示词或会话事件，因此任何面向模型的渲染都由读取该记录的包负责。
+| `ctx.mentorLoop` | `core` | [`mentor-loop`](../packages/mentor/mentor-loop) | - | - | - | 从会话日志、kernel 的断言与证据、misconception 流水线和学习者记录推导学习者当前所处的位置，每个被接纳的步骤至多采取一个持久化动作——记录一次判定、完成一个阶段，或计一次重复错误——并把该阶段的指令追加到 mentor agent 的下一次请求中；未挂载 kernel 时它停在 devil-advocate，因为该会话没有任何可据以行动的主张。
+| `ctx.misconception` | `core` | [`misconception`](../packages/mentor/misconception) | - | [`evolution-metrics`](../packages/evolution/evolution-metrics), [`mentor-loop`](../packages/mentor/mentor-loop) | - | 判定学习者给出的论点是否与部署所声明的某个 misconception 相符，并返回其背后的设计错误与纠正目标；该结论落入学习者记录、按学习者持久化的流水线和 kernel 断言账本，随后每个阶段驱动 explain、counterexample、exercise、new case 和 reassess。
+| `ctx.repoIndex` | `core` | [`repo-index`](../packages/repo/repo-index) | - | [`repo-map`](../packages/context/repo-map), [`working-set`](../packages/context/working-set) | - | 把一个工作区根目录转换为有界快照，包含遍历过的路径、声明符号、已解析的模块说明符、声明引用，以及推导出的测试、包和配置图；只要新鲜度摘要仍然成立，ensure() 就重新遍历目录元数据并返回缓存快照，invalidate() 则强制重建。repo-map 对仓库地图排序并渲染；working-set 选择并渲染工作集。
 
 维护模式：混合模式。服务从 Cordis 声明中发现；接口、实现和消费方角色在 `scripts/gen-doc-graphs.ts` 中分类，并设有完整性守卫。

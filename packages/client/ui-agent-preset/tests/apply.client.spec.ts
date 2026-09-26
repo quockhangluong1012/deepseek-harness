@@ -429,6 +429,37 @@ describe('ui-agent-preset apply', () => {
     conversation()
   })
 
+  it('offers preset selection with Developer tools off, and keeps the gated surfaces gated', async () => {
+    const { ctx, slots, calls } = await bench()
+    declareRoot(slots)
+    const conversation = declareConversation(slots)
+    ctx.provide('conversation', {} as never)
+    const state = {
+      current: 'blank',
+      byId: { blank: { id: 'blank', blank: true, projectionValues: {} as { agentPreset?: string } } },
+    }
+    const sessions = sessionsDouble(ctx, state)
+    ctx.provide('sessions', sessions as never)
+    ctx.provide('uiWorkspace', uiWorkspaceDouble() as never)
+    await ctx.plugin({ inject: [...inject, 'conversation', 'sessions', 'uiWorkspace'], apply }).await()
+    // The bench's settings document carries no ui-settings namespace, so the
+    // Developer-tools preference reads off — the state spec EX3 is about.
+    expect(ctx.configForms.developerTools.enabled.getSnapshot()).toBe(false)
+
+    const seat = (slots.entries('conversation.hero.agentPreset')[0]!
+      .inject as unknown as (sessionId: SessionId) => AgentPresetSeatInjected)(SessionId('blank'))
+    await seat.load()
+    expect(seat.hooks.agentPresetSeat.getSnapshot().showPicker).toBe(true)
+    expect(await seat.select('minimal')).toBeUndefined()
+    expect(calls.filter(call => call.startsWith('select:'))).toEqual(['select:minimal'])
+
+    // The chooser follows the host's selection policy alone; the section's
+    // Developer-tools-gated preference row still reads the off preference.
+    const section = (slots.entries('settings.section')[0]!.inject as unknown as () => AgentPresetSectionInjected)()
+    expect(section.hooks.developerTools.getSnapshot()).toBe(false)
+    conversation()
+  })
+
   it('moves the chip when the default changes on the settings surface', async () => {
     const { ctx, slots, moveDefault, remote } = await bench()
     declareRoot(slots)

@@ -58,7 +58,7 @@ beforeAll(async () => {
   await ctx.plugin(Lsp)
   await ctx.plugin(LocalSubprocessRuntime)
   await ctx.plugin(LocalFileSystem, { cwd: process.cwd() })
-  const resolve = vi.spyOn(ctx.subprocess, 'resolveExecutable').mockImplementation(async (command) => {
+  vi.spyOn(ctx.subprocess, 'resolveExecutable').mockImplementation(async (command) => {
     if (command === 'typescript-language-server') return serverBin
     throw new SubprocessExecutableNotFoundError(`${command} is not installed for this test`)
   })
@@ -126,7 +126,7 @@ describe('real typescript-language-server', () => {
     if (result.kind === 'diagnostics') {
       expect(result.diagnostics).toContainEqual(expect.objectContaining({
         severity: 'error',
-        message: expect.stringContaining("Type 'string' is not assignable to type 'number'."),
+        message: expect.stringContaining("Type 'string' is not assignable to type 'number'.") as string,
       }))
     }
   }, 60_000)

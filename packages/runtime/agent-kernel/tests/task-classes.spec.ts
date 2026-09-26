@@ -119,6 +119,51 @@ describe('task classes', () => {
     expect(kernel.state.view(conversational.session)?.task.acceptance.map(item => item.id)).toEqual(['reply'])
   })
 
+  it('starts a task from the shipped criteria of its class when the deployment configures none', async () => {
+    const { ctx, kernel } = await rig()
+    const coding = await makeAgent(ctx)
+    kernel.intake(coding, { objective: 'change the parser', agentProfile: 'default', taskClass: 'coding' })
+    expect(kernel.state.view(coding.session)?.task.acceptance.map(item => [item.id, item.verifier, item.required]))
+      .toEqual([
+        ['typecheck', 'typecheck', true],
+        ['lint', 'lint', true],
+        ['test', 'test', true],
+        ['diff', 'diff', true],
+      ])
+
+    const research = await makeAgent(ctx)
+    kernel.intake(research, { objective: 'compare the options', agentProfile: 'default', taskClass: 'research' })
+    expect(kernel.state.view(research.session)?.task.acceptance.map(item => item.id)).toEqual(['citations'])
+
+    const conversational = await makeAgent(ctx)
+    kernel.intake(conversational, { objective: 'what is the flag', agentProfile: 'default' })
+    expect(kernel.state.view(conversational.session)?.task.acceptance).toEqual([])
+  })
+
+  it('gives a coding task its shipped criteria through the mutation heuristic', async () => {
+    const { ctx, kernel } = await rig({
+      policy: { defaults: { effect: 'allow' }, rules: [{ action: 'write', resource: '**', effect: 'allow' }] },
+    })
+    const agent = await makeAgent(ctx)
+    registerTool(ctx, 'write-file')
+    kernel.capabilities.register({ tool: 'write-file', capabilities: ['fs.write'], resources: () => '**' })
+    await runTurn(agent, ctx, 'edit the parser')
+    await callTool(ctx, 'write-file', agent)
+
+    await preStep(ctx, agent, [humanMessage('now fix the test')], 2)
+
+    // The conversation is about the repository now, so the next task is coding
+    // work and starts from the shipped coding criteria.
+    expect(kernel.state.view(agent.session)?.task.taskClass).toBe('coding')
+    expect(kernel.state.view(agent.session)?.task.acceptance.map(item => item.id))
+      .toEqual(['typecheck', 'lint', 'test', 'diff'])
+  })
+
+  it('refuses a configured class key that names no task class', async () => {
+    await expect(rig({ acceptanceByClass: { codeing: [criterion('typo')] } } as never))
+      .rejects.toThrow('acceptanceByClass names unknown task class "codeing"')
+  })
+
   it('demands a criterion per class: a conversational task completes while a coding one keeps working', async () => {
     const { ctx, kernel } = await rig({
       acceptanceByClass: { conversational: [], coding: [] },
@@ -190,7 +235,7 @@ describe('no-progress detection', () => {
     const results = []
     for (let call = 0; call < 4; call += 1) results.push(await callTool(ctx, 'read-page', agent))
 
-    expect(results.every(result => result.isError === false)).toBe(true)
+    expect(results.every(result => ! result.isError)).toBe(true)
     expect(eventsOf(agent, 'failure/recorded')).toEqual([])
   })
 })

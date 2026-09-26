@@ -6,16 +6,18 @@
  *
  * A `new` decision still goes through the store's merge-by-meaning add path,
  * so a candidate the model called new that coincides with an artifact outside
- * the list it was shown folds into that artifact instead of accumulating
- * beside it. This module also owns the artifact-application primitives that
- * fold shares with the store's own write paths, so the decision vocabulary
- * stays importable without the store's module body.
+ * the list it was shown folds into that artifact — or, under `keep_both`,
+ * counts as a validation of it — instead of accumulating beside it. This module
+ * also owns the artifact-application primitives that fold shares with the
+ * store's own write paths, so the decision vocabulary stays importable without
+ * the store's module body.
  * @module @deepseek-ai/dsh-evolution-memory/decisions
  */
 
 import { z } from 'zod'
 import { artifactKey, lessonArtifact, lessonArtifactInput, normalizeStatement, scrubArtifactText } from './lesson-artifact.ts'
 import type { LessonArtifact, LessonArtifactInput, LessonMergeStrategy } from './lesson-artifact.ts'
+import { confirmedLifecycle } from './lifecycle.ts'
 import { mergeArtifact } from './merge.ts'
 import type { EvolutionMemoryRecord } from './types.ts'
 
@@ -72,6 +74,20 @@ export const lessonDecision: z.ZodType<LessonDecision> = z.discriminatedUnion('k
 ])
 
 /**
+ * The store policy one artifact fold runs under. Grouped rather than passed as
+ * loose parameters because every fold needs the same three values, and a new
+ * fold would otherwise add a positional argument to every caller.
+ */
+export interface LessonPolicy {
+  /** ISO-8601 instant to stamp on every artifact the fold touches. */
+  now: string
+  /** ttl a new artifact is given when its candidate carries none. */
+  defaultTtlDays: number
+  /** Confidence floor a fact needs before it may be promoted. */
+  confidenceFloor: number
+}
+
+/**
  * Derive the identity a candidate stores under, refusing a statement that
  * normalizes away to nothing. An empty identity is not merely useless: it
  * would persist a record the artifact schema rejects, and the next open of the
@@ -119,11 +135,13 @@ export function freshArtifact(candidate: LessonArtifactInput, id: string, now: s
 }
 
 /**
- * Add one candidate to a record's artifacts. A candidate whose identity is
- * already present stores nothing under `keep_both`, because a second artifact
- * with the same identity cannot be told apart from the first; under any other
- * strategy the artifact `pickMergeTarget` selected absorbs the candidate. A
- * candidate with no selected target becomes its own artifact.
+ * Add one candidate to a record's artifacts. Under `keep_both` a candidate
+ * whose identity is already present stores nothing, because a second artifact
+ * with the same identity cannot be told apart from the first, and a candidate
+ * that matched only by resembling another fact counts as a validation of that
+ * fact instead of being dropped: the extraction reported evidence for it. Under
+ * `overwrite` or `merge` the artifact `pickMergeTarget` selected absorbs the
+ * candidate. A candidate with no selected target becomes its own artifact.
  *
  * `target` was selected outside the write chain, from the record as it read
  * before the similarity lookup awaited, so the artifact it names is resolved
@@ -136,22 +154,19 @@ export function freshArtifact(candidate: LessonArtifactInput, id: string, now: s
  * @param strategy - how the candidate folds into a selected artifact.
  * @param target - the artifact selected for this candidate outside the write
  * chain; undefined when nothing matched closely enough.
- * @param now - ISO-8601 instant to stamp.
- * @param defaultTtlDays - ttl a new artifact is given when the candidate carries none.
+ * @param policy - the instant, ttl, and confidence floor to fold under.
  * @returns the candidate record without the family stamp, or `record` itself
- * when the add stores nothing.
+ * when the add stores nothing and validates nothing.
  */
 export function addArtifactTo(
   record: EvolutionMemoryRecord,
   candidate: LessonArtifactInput,
   strategy: LessonMergeStrategy,
   target: LessonArtifact | undefined,
-  now: string,
-  defaultTtlDays: number,
+  policy: LessonPolicy,
 ): EvolutionMemoryRecord {
   const id = artifactIdOf(candidate)
-  const matched = record.agentLessons.find(artifact => artifact.id === target?.id)
-    ?? record.agentLessons.find(artifact => artifact.id === id)
+  const identity = record.agentLessons.find(artifact => artifact.id === id)
     // A `contradicts` decision can correct an artifact's statement while the
     // artifact keeps the id it is addressed by, so the id and the normalized
     // statement part company. Matching the statement as well keeps a later
@@ -159,18 +174,32 @@ export function addArtifactTo(
     // so without depending on the embeddings seam, which a similarity-only
     // match would.
     ?? record.agentLessons.find(artifact => artifactKey(artifact.statement) === id)
+  const matched = record.agentLessons.find(artifact => artifact.id === target?.id) ?? identity
   if (matched === undefined) {
-    return { ...record, agentLessons: [...record.agentLessons, freshArtifact(candidate, id, now, defaultTtlDays)] }
+    return {
+      ...record,
+      agentLessons: [...record.agentLessons, freshArtifact(candidate, id, policy.now, policy.defaultTtlDays)],
+    }
   }
-  if (strategy === 'keep_both') return record
-  const merged = mergeArtifact(matched, candidate, strategy, now)
+  if (strategy === 'keep_both') {
+    // A candidate the similarity lookup matched is the extraction's evidence
+    // for the fact it resembles; `keep_both` folds no content into that fact,
+    // so the evidence is recorded as a validation. An identity already present
+    // stores nothing at all: neither artifact the record would hold could be
+    // told apart from the other.
+    return matched === identity ? record : confirmArtifactIn(record, matched.id, policy.now, policy.confidenceFloor)
+  }
+  const merged = mergeArtifact(matched, candidate, strategy, policy.now)
   return { ...record, agentLessons: record.agentLessons.map(artifact => artifact.id === matched.id ? merged : artifact) }
 }
 
 /**
  * Bump one existing artifact's validation counter and refresh its instant.
  * Identity, statement, content, and the other counters never change: a
- * confirmation is evidence for the fact already stored, not a new fact.
+ * confirmation is evidence for the fact already stored, not a new fact. The
+ * confirmation also climbs the lifecycle ladder one rung, and stamps
+ * `lastValidatedAt` whether or not it climbed: a fact the policy distrusts is
+ * validated but never promoted.
  *
  * A decision naming an artifact the record no longer holds is skipped rather
  * than refused: a prune can land between the resolution that produced the
@@ -179,13 +208,26 @@ export function addArtifactTo(
  * @param record - current record value.
  * @param artifactId - the addressed artifact.
  * @param now - ISO-8601 instant to stamp.
+ * @param confidenceFloor - confidence floor a promotion requires.
  * @returns the candidate record without the family stamp, or `record` itself
  * when the artifact is gone.
  */
-function confirmArtifactIn(record: EvolutionMemoryRecord, artifactId: string, now: string): EvolutionMemoryRecord {
+function confirmArtifactIn(
+  record: EvolutionMemoryRecord,
+  artifactId: string,
+  now: string,
+  confidenceFloor: number,
+): EvolutionMemoryRecord {
   const existing = record.agentLessons.find(artifact => artifact.id === artifactId)
   if (existing === undefined) return record
-  const next = lessonArtifact.parse({ ...existing, validationCount: existing.validationCount + 1, updatedAt: now })
+  const status = confirmedLifecycle(existing, confidenceFloor)
+  const next = lessonArtifact.parse({
+    ...existing,
+    validationCount: existing.validationCount + 1,
+    lastValidatedAt: now,
+    ...status === undefined ? {} : { lifecycle: status },
+    updatedAt: now,
+  })
   return { ...record, agentLessons: record.agentLessons.map(artifact => artifact.id === artifactId ? next : artifact) }
 }
 
@@ -223,13 +265,16 @@ function contradictArtifactIn(record: EvolutionMemoryRecord, decision: Contradic
     ...decision.confidence === undefined ? {} : { confidence: decision.confidence },
     ...replaces
       ? {
-          supersedes: [
-            ...existing.supersedes ?? [],
-            { statement: existing.statement, confidence: existing.confidence, supersededAt: now },
-          ],
-          validationCount: 0,
-          refutationCount: 0,
-        }
+        supersedes: [
+          ...existing.supersedes ?? [],
+          { statement: existing.statement, confidence: existing.confidence, supersededAt: now },
+        ],
+        validationCount: 0,
+        refutationCount: 0,
+        // A correction is the caller naming the wording that stands: the one
+        // conflict rule no comparison may overturn.
+        conflict: { rule: 'explicit-supersession', winner: 'candidate', at: now },
+      }
       : { refutationCount: existing.refutationCount + 1 },
     updatedAt: now,
   })
@@ -249,31 +294,28 @@ function contradictArtifactIn(record: EvolutionMemoryRecord, decision: Contradic
  * the decision's index in `decisions`; a missing key or an undefined value
  * means nothing matched closely enough. `confirms` and `contradicts`
  * decisions never consult it.
- * @param now - ISO-8601 instant to stamp on every artifact the batch touches.
- * @param defaultTtlDays - ttl a new artifact is given when its candidate carries none.
+ * @param policy - the instant, ttl, and confidence floor to fold under.
  * @returns the candidate record without the family stamp.
  */
 export function applyLessonDecisions(
   record: EvolutionMemoryRecord,
   decisions: readonly LessonDecision[],
   addTargets: ReadonlyMap<number, LessonArtifact | undefined>,
-  now: string,
-  defaultTtlDays: number,
+  policy: LessonPolicy,
 ): EvolutionMemoryRecord {
   return decisions.reduce((current, decision, index) => {
     switch (decision.kind) {
       case 'confirms':
-        return confirmArtifactIn(current, decision.artifactId, now)
+        return confirmArtifactIn(current, decision.artifactId, policy.now, policy.confidenceFloor)
       case 'contradicts':
-        return contradictArtifactIn(current, decision, now)
+        return contradictArtifactIn(current, decision, policy.now)
       case 'new':
         return addArtifactTo(
           current,
           decision.candidate,
           decision.strategy ?? 'keep_both',
           addTargets.get(index),
-          now,
-          defaultTtlDays,
+          policy,
         )
     }
   }, record)

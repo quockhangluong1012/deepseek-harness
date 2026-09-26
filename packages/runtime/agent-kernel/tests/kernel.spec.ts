@@ -174,7 +174,7 @@ describe('task intake', () => {
 })
 
 describe('kernel audit envelopes', () => {
-  it('correlates durable task and action records to versioned provenance', async () => {
+  it('correlates durable task and action records to a versioned source reference', async () => {
     const { ctx, kernel } = await mounted({ policy: ALLOW_ALL })
     const agent = await makeAgent(ctx, process.cwd())
     emitAgentEvent(ctx, agent, 'agent/inbox/claimed', { message: humanMessage('inspect this file'), turn: 1 })
@@ -188,24 +188,24 @@ describe('kernel audit envelopes', () => {
       runId: task.runId,
       taskId: task.taskId,
       actor: 'user',
-      timestamp: expect.any(Number),
-      provenance: { source: 'user' },
+      sourceRef: { source: 'user' },
     })
+    expect(typeof task.metadata?.timestamp).toBe('number')
     expect(kernel.state.view(agent.session)?.task).not.toHaveProperty('metadata')
     expect(eventsOf(agent, 'task/transitioned')[0]?.metadata).toMatchObject({
-      version: 1, runId: task.runId, taskId: task.taskId, actor: 'kernel', provenance: { source: 'kernel' },
+      version: 1, runId: task.runId, taskId: task.taskId, actor: 'kernel', sourceRef: { source: 'kernel' },
     })
-    // One record carries the action's whole authorization, so its provenance is
+    // One record carries the action's whole authorization, so its source is
     // the policy layer that decided; the call identity survives in the proposal.
     expect(decisions(agent)[0]?.metadata).toMatchObject({
-      version: 1, runId: task.runId, taskId: task.taskId, actor: 'kernel', provenance: { source: 'policy' },
+      version: 1, runId: task.runId, taskId: task.taskId, actor: 'kernel', sourceRef: { source: 'policy' },
     })
     expect(proposals(agent)[0]).toMatchObject({ actionId: 'metadata-call' })
     expect(decisions(agent)[0]?.metadata).toMatchObject({
-      version: 1, runId: task.runId, taskId: task.taskId, actor: 'kernel', provenance: { source: 'policy' },
+      version: 1, runId: task.runId, taskId: task.taskId, actor: 'kernel', sourceRef: { source: 'policy' },
     })
     expect(eventsOf(agent, 'action/committed')[0]?.metadata).toMatchObject({
-      version: 1, runId: task.runId, taskId: task.taskId, actor: 'tool', provenance: { source: 'tool' },
+      version: 1, runId: task.runId, taskId: task.taskId, actor: 'tool', sourceRef: { source: 'tool' },
     })
   })
 })
@@ -282,6 +282,8 @@ describe('turn verification', () => {
       runId: brandString<RunId>('run-manual'),
       objective: 'manual',
       constraints: [],
+      dependencies: [],
+      evidence: [],
       acceptance: [],
       agentProfile: 'default',
       policyProfile: 'default',
@@ -303,6 +305,8 @@ describe('turn verification', () => {
       runId: brandString<RunId>('run-paused'),
       objective: 'paused',
       constraints: [],
+      dependencies: [],
+      evidence: [],
       acceptance: [{ id: 'build', description: 'build passes', verifier: 'build', required: true }],
       agentProfile: 'default',
       policyProfile: 'default',
@@ -383,7 +387,7 @@ describe('task plan revisions', () => {
       runId: currentTask(agent).runId,
       taskId: currentTask(agent).taskId,
       actor: 'model',
-      provenance: { source: 'model' },
+      sourceRef: { source: 'model' },
     })
   })
 })
@@ -441,7 +445,11 @@ describe('action ledger over the tool pipeline', () => {
 
     expect(result.isError).toBe(false)
     const proposal = proposals(agent)[0]!
-    expect(proposal.arguments).toMatchObject({ sha256: expect.stringMatching(/^[0-9a-f]{64}$/) })
+    const stored = proposal.arguments
+    if (typeof stored !== 'object' || stored === null || Array.isArray(stored)) {
+      throw new Error('expected the proposal to record its arguments as a digest object')
+    }
+    expect(stored.sha256).toMatch(/^[0-9a-f]{64}$/)
     expect(JSON.stringify([
       proposal,
       policies(agent)[0],
@@ -512,6 +520,8 @@ describe('action ledger over the tool pipeline', () => {
       runId: brandString<RunId>('run-capped'),
       objective: 'replan forever',
       constraints: [],
+      dependencies: [],
+      evidence: [],
       acceptance: [{ id: 'crit', description: 'the criterion passes', verifier: 'assertion', required: true }],
       agentProfile: 'default',
       policyProfile: 'default',
@@ -638,12 +648,12 @@ describe('action ledger over the tool pipeline', () => {
     expect(currentTask(agent).policyProfile).toBe('restricted')
     const denied = await callTool(ctx, 'probe', agent, 'restricted-call')
     expect(denied.isError).toBe(true)
-    expect(decisions(agent)[0]?.metadata?.provenance.locator).toBe('restricted')
+    expect(decisions(agent)[0]?.metadata?.sourceRef.locator).toBe('restricted')
 
     selected = { profile: 'permissive', document: ALLOW_ALL }
     const allowed = await callTool(ctx, 'probe', agent, 'permissive-call')
     expect(allowed.isError).toBe(false)
-    expect(decisions(agent)[1]?.metadata?.provenance.locator).toBe('permissive')
+    expect(decisions(agent)[1]?.metadata?.sourceRef.locator).toBe('permissive')
     dispose()
   })
 
@@ -825,7 +835,7 @@ describe('attachments and checkpoints', () => {
       runId: checkpoint?.runId,
       taskId: checkpoint?.taskId,
       actor: 'kernel',
-      provenance: { source: 'kernel' },
+      sourceRef: { source: 'kernel' },
     })
   })
 
@@ -896,7 +906,10 @@ describe('attachments and checkpoints', () => {
     agent.session.append('step/start', { turn: 1, step: 1 })
     await preStep(ctx, agent, [humanMessage('two')], 1, 2)
     agent.session.append('step/start', { turn: 1, step: 2 })
+    // The ceiling step is the task's one final tool-free step, and the turn
+    // that owns it is where the pause is recorded.
     await preStep(ctx, agent, [humanMessage('three')], 1, 3)
+    await stopTurn(ctx, agent)
 
     expect(currentTask(agent).status).toBe('paused')
     expect(eventsOf(agent, 'checkpoint/created').map(entry => entry.reason)).toContain('before-pause')

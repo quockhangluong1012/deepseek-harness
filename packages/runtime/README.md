@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-The `runtime/` group holds packages that govern what the existing execution substrate does without owning any of it. `agent-kernel` derives one durable task contract per session, records a proposal and decision for every tool call, composes the permission document with the sandbox and the approval answerers, and gates completion on the required acceptance criteria. `agent-context` wraps every assembled prompt contribution and durable task fact in a source envelope, records the placement digest each model step was compiled from, and can drop compressible sources past a token ceiling. None mounts by default yet, so a deployment opts in per composition.
+The `runtime/` group holds packages that govern what the existing execution substrate does without owning any of it. `agent-kernel` derives one durable task contract per session, records a proposal and decision for every tool call, composes the permission document with the sandbox and the approval answerers, and gates completion on the required acceptance criteria. `agent-context` wraps every assembled prompt contribution and durable task fact in a source envelope, records each step's placement digest, drops compressible sources past a token ceiling, and withholds a configured tier until a caller admits it. None mounts by default.
 
 ## Table of Contents
 

@@ -15,12 +15,12 @@ Status: implemented
 - **`contaminatedHoldout` 是纯函数**（`evolution-optimizer/src/contamination.ts`）：给定该技能已记录的运行，点名台账里已记为*搜索*的 holdout 场景，按 holdout 顺序。只有已记录的搜索列表算数——只被当 holdout 检查过的场景什么都没训练过——而跨运行复用场景做搜索永远不算污染，因为在同一任务上加两次选择压力是常规做法，不是污染。
 - **`execute` 在任何模型调用之前抛错**，与重叠检查、重名检查并列：该技能搜过的名字出现在 holdout 里，就带名大声失败，在最早能确定的点。配置错误大声失败是本 repo 的规矩，而这就是配置错误——一个不干净的 holdout。
 - **按技能匹配，不按作用域。** 选出过技能 A 正文的场景从没塑造过技能 B 的候选：B 的变异输入只有失败计数，从没有场景答案。按作用域匹配会在常规的多技能切分上误报（`s1` 搜 A、验 B）。
-- **不加新状态，因为台账本身就是暴露记录。** 行里的 `scenarios` 列表在本 repo 就是 benchmark provenance：每次搜索暴露都是一行记录，守卫经现成的 `experiments()` 读它。另建一套 benchmark 状态存储，等于复制台账再去对账。
+- **不加新状态，因为台账本身就是暴露记录。** 行里的 `scenarios` 列表在本 repo 已经记录了每次搜索暴露来自哪个 benchmark：每次搜索暴露都是一行记录，守卫经现成的 `experiments()` 读它。另建一套 benchmark 状态存储，等于复制台账再去对账。
 
 ## Alternatives considered
 
 - **六态分类（fresh/search/validation/holdout/contaminated/retired）。** 否决：这六个态把单次运行的角色（search、holdout、validation）和跨运行的历史（fresh、contaminated、retired）混在一起，而台账两边都记了——角色在每行里，历史在行与行之间。加状态列等于把两个列表已说的话再说一遍，再配一台没人操作的转移机。
-- **每行记录语料 provenance。** 否决：一个 host 只对一个 `corpusDir` 评分，台账不出 host，所以场景名加 scorer 版本加尝试次数已能定位一次度量。 provenance 字段盖的是个常量。
+- **每行记录所评的语料。** 否决：一个 host 只对一个 `corpusDir` 评分，台账不出 host，所以场景名加 scorer 版本加尝试次数已能定位一次度量。 语料字段盖的是个常量。
 - **按作用域匹配。** 设计 helper 时否决：它拦掉合法的多技能切分，白拦——暴露经技能自己的选择传播，不经作用域。
 - **警告放行而不是抛错。** 否决：兄弟重叠检查就是抛错，污染过的 holdout 是同一类错误——一场无法验证的验证。带着一行日志继续跑，是静默训练加一行日志。
 

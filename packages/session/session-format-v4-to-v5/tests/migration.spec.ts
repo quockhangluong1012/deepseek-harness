@@ -41,7 +41,7 @@ const turnEnded: SessionFormatEvent = {
 function context(events: SessionFormatEvent[]): SessionFormatMigrationContext {
   return {
     emitEvent: event => events.push(event),
-    emitRun: run => { for (const event of run.expand()) events.push(event) },
+    emitRun: (run) => { for (const event of run.expand()) events.push(event) },
   }
 }
 
@@ -66,7 +66,7 @@ describe('V4-to-V5 Session format migration', () => {
     expect(target).toEqual({ ...source, version: 5 })
     expect(stage.finish(output)).toBe(1)
     expect(events).toEqual([inheritedEvent, inheritedMarker, turnEnded])
-    expect(() => migration.validateTargetHeader(target)).not.toThrow()
+    expect(() =>{  migration.validateTargetHeader(target) }).not.toThrow()
   })
   it('uses the last inherited marker when the V4 prefix contains nested seed boundaries', () => {
     const source = { ...sourceHeader, isSeeded: true }

@@ -4,7 +4,7 @@ Date: 2026-09-14 Status: approved — awaiting spec review before implementation
 
 ## Background
 
-Spec §17 wants vector search (discover) fused with graph search (navigate). The repository already owns every part except two: `evolution-graph` has a store and query API (`find`/`expand`/`answer`, read via `/graph`) but no production producer — nothing ever calls `observe`, so every graph is empty forever; and graph nodes/edges carry no session provenance, so entity results cannot join session hits directly. The §15 RRF fusion helper (`fusion.ts`) exists and is reused, not reinvented.
+Spec §17 wants vector search (discover) fused with graph search (navigate). The repository already owns every part except two: `evolution-graph` has a store and query API (`find`/`expand`/`answer`, read via `/graph`) but no production producer — nothing ever calls `observe`, so every graph is empty forever; and graph nodes/edges record no session they were read from, so entity results cannot join session hits directly. The §15 RRF fusion helper (`fusion.ts`) exists and is reused, not reinvented.
 
 ## Producer: heartbeat extraction in `evolution-graph`
 
@@ -26,4 +26,4 @@ Producer: heartbeat registration, extraction against a fake `llm`, watermark ski
 
 ## Alternatives rejected
 
-Edge provenance (`sessions[]` on edges): precise but needs a stored-record migration, write amplification, and a cap policy. Separate side-index domain: same benefit with an extra package plus a follow-the-graph sync problem. Both lose to the label bridge, which needs no migration and reuses `find`/`expand`/FTS/`fusion.ts`; its fuzziness (label-substring matching) is honest for a recall-enrichment leg.
+Per-edge source sessions (`sessions[]` on edges): precise but needs a stored-record migration, write amplification, and a cap policy. Separate side-index domain: same benefit with an extra package plus a follow-the-graph sync problem. Both lose to the label bridge, which needs no migration and reuses `find`/`expand`/FTS/`fusion.ts`; its fuzziness (label-substring matching) is honest for a recall-enrichment leg.

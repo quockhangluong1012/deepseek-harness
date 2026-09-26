@@ -122,13 +122,15 @@ export function viewOf(overrides: Partial<KernelView> = {}): KernelView {
     objective: 'fix the failing build',
     constraints: [],
     acceptance: [],
+    dependencies: [],
+    evidence: [],
     agentProfile: 'default',
     policyProfile: 'default',
     budget: {},
     status: 'executing',
     revision: 3,
   }
-  return { task, sessionId: SessionId('context-agent-view'), budgets: BUDGET, openActionIds: [], unresolvedFailures: [], evidence: [], claims: [], hypotheses: [], ...overrides }
+  return { task, sessionId: SessionId('context-agent-view'), budgets: BUDGET, openActionIds: [], unresolvedFailures: [], evidence: [], claims: [], hypotheses: [], diagnoses: [], ...overrides }
 }
 
 /**

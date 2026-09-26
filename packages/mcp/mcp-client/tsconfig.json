@@ -24,6 +24,15 @@
       "path": "../../core/tools"
     },
     {
+      "path": "../../credentials/authorization"
+    },
+    {
+      "path": "../../credentials/credentials"
+    },
+    {
+      "path": "../../interaction/commands"
+    },
+    {
       "path": "../../runtime/agent-kernel"
     },
     {

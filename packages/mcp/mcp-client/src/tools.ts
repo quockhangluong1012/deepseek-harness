@@ -19,7 +19,7 @@ import type { Context } from '@deepseek-ai/cordis'
 // Type-only: activates the `ctx.agentKernel` Context declaration and its
 // capability registry, which this bridge declares MCP tools against.
 import type {} from '@deepseek-ai/dsh-agent-kernel'
-import type { AgentKernel } from '@deepseek-ai/dsh-agent-kernel'
+import type { AgentKernel, TrustLabel } from '@deepseek-ai/dsh-agent-kernel'
 import { isImageAdmissionError } from '@deepseek-ai/dsh-attachment'
 import type { AttachmentStore, ImageAttachmentRef, ImageMediaType, SaveImageAttachment } from '@deepseek-ai/dsh-attachment'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
@@ -66,7 +66,7 @@ export interface ToolBridgeOptions {
  */
 export type McpEndpointConfig =
   | { readonly transport: 'stdio'; readonly command: string; readonly args: readonly string[] }
-  | { readonly transport: 'streamable-http'; readonly url: string }
+  | { readonly transport: 'streamable-http' | 'sse'; readonly url: string }
 
 /** Transport plus endpoint hash resolved for one plugin `Config`. */
 export interface McpEndpointOrigin {
@@ -112,6 +112,7 @@ export function endpointOriginForConfig(config: McpEndpointConfig): McpEndpointO
     case 'stdio':
       return { transport: 'stdio', endpointHash: endpointHashForStdio(config.command, config.args) }
     case 'streamable-http':
+    case 'sse':
       return { transport: 'http', endpointHash: endpointHashForHttp(config.url) }
   }
 }
@@ -140,21 +141,24 @@ export type ToolDisposers = Map<string, () => void>
  * kernel.
  *
  * The kernel owns the policy decision; this publisher only tells it what each
- * synced tool needs, as `mcp.call` against `mcp:<serverName>/<rawToolName>`. A
- * declaration follows its registry generation, so a reconnect, a tool
- * removal, a namespace-conflict rollback, and plugin unload each replace or
- * clear it: the kernel never authorizes a tool the server no longer publishes.
- * The kernel is optional and may mount before or after this server;
- * subscribing publishes the current generation once it exists.
+ * synced tool needs, as `mcp.call` against `mcp:<serverName>/<rawToolName>`, and
+ * how far the server behind it may be trusted. A declaration follows its
+ * registry generation, so a reconnect, a tool removal, a namespace-conflict
+ * rollback, and plugin unload each replace or clear it: the kernel never
+ * authorizes a tool the server no longer publishes. The kernel is optional and
+ * may mount before or after this server; subscribing publishes the current
+ * generation once it exists.
  *
  * @param ctx - the server plugin's scope, which owns the kernel subscription.
  * @param serverName - the namespace the declared resources are qualified by.
+ * @param trust - the per-server trust label every declaration carries.
  * @returns the publisher: call it with the live `publicName → rawName`
  *   generation, or with an empty map to withdraw every declaration.
  */
 export function createMcpCapabilityPublisher(
   ctx: Context,
   serverName: string,
+  trust: TrustLabel,
 ): (generation: ReadonlyMap<string, string>) => void {
   let generation: ReadonlyMap<string, string> = new Map()
   let declarations = new Map<string, () => void>()
@@ -167,10 +171,11 @@ export function createMcpCapabilityPublisher(
         tool: publicName,
         capabilities: ['mcp.call'],
         resources: () => `mcp:${serverName}/${rawName}`,
-        // An MCP server is outside the trust boundary: what it returns is
-        // external content, so a deployment quarantining untrusted content
-        // requires a human answer before the call runs.
-        trust: 'untrusted',
+        // An MCP server is outside the trust boundary by default: what it
+        // returns is external content, so a deployment quarantining untrusted
+        // content requires a human answer before the call runs. A deployment
+        // that owns a server may declare it `trusted` in that server's config.
+        trust,
       }))
     }
   }
@@ -372,7 +377,7 @@ export interface McpToolDefinitionOptions {
   outputSchema?: unknown
   /** Whether the upstream tool requires the unsupported task execution extension. */
   taskRequired?: boolean
-  /** Provenance shared by one synced generation; omitted for standalone adapters. */
+  /** Tool source shared by one synced generation; omitted for standalone adapters. */
   origin?: ToolOrigin
   /** Generation digest from {@link computeServerDigest}; omitted for standalone adapters. */
   serverDigest?: string

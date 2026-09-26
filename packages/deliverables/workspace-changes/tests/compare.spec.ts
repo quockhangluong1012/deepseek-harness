@@ -1,6 +1,6 @@
 /** Line comparison with its timeout degradation. */
 import { describe, expect, it } from 'vitest'
-import { compareText } from '../src/compare.ts'
+import { compareText, decidedText } from '../src/compare.ts'
 
 describe('compareText', () => {
   it('yields unified hunks with context and counts only changed lines', () => {
@@ -38,5 +38,64 @@ describe('compareText', () => {
     const created = compareText(null, `${after}\n${before}`, 1)
     expect(created.coarse).toBe(true)
     expect(created).toMatchObject({ added: 8000, deleted: 0, hunks: [{ oldStart: 1, oldLines: 0, newStart: 1, newLines: 8000 }] })
+  })
+})
+
+/** Two changed lines, eight lines apart, so their hunks never merge. */
+const BEFORE = `${[
+  '{',
+  '  "name": "app",',
+  '  "port": 8080,',
+  '  "host": "localhost",',
+  '  "secure": false,',
+  '  "timeout": 30,',
+  '  "keepAlive": true,',
+  '  "logLevel": "info",',
+  '  "region": "eu",',
+  '  "shards": 2,',
+  '  "queue": "default",',
+  '  "retries": 3,',
+  '  "tail": true',
+  '}',
+].join('\n')}\n`
+const AFTER = BEFORE.replace('8080', '9090').replace('"retries": 3,', '"retries": 5,')
+
+describe('decidedText', () => {
+  it('keeps a rejected hunk at its turn-start lines while the accepted one takes the turn-end lines', () => {
+    const hunks = compareText(BEFORE, AFTER, 100).hunks
+    expect(hunks).toHaveLength(2)
+    expect(decidedText(BEFORE, AFTER, hunks, ['accept', 'reject']))
+      .toEqual({ exists: true, content: BEFORE.replace('8080', '9090') })
+    expect(decidedText(BEFORE, AFTER, hunks, ['reject', 'accept']).content)
+      .toBe(BEFORE.replace('"retries": 3,', '"retries": 5,'))
+    // Every hunk decided the same way reproduces that whole side.
+    expect(decidedText(BEFORE, AFTER, hunks, ['accept', 'accept']).content).toBe(AFTER)
+    expect(decidedText(BEFORE, AFTER, hunks, ['reject', 'reject']).content).toBe(BEFORE)
+  })
+
+  it('follows the side that created or removed the file', () => {
+    const created = compareText(null, AFTER, 100).hunks
+    expect(decidedText(null, AFTER, created, ['accept'])).toEqual({ exists: true, content: AFTER })
+    expect(decidedText(null, AFTER, created, ['reject'])).toEqual({ exists: false, content: '' })
+    const removed = compareText(BEFORE, null, 100).hunks
+    expect(decidedText(BEFORE, null, removed, ['accept'])).toEqual({ exists: false, content: '' })
+    expect(decidedText(BEFORE, null, removed, ['reject'])).toEqual({ exists: true, content: BEFORE })
+  })
+
+  it('reproduces the shared lines when there are no hunks and keeps an unterminated last line unterminated', () => {
+    // No hunks means both sides hold the same lines, so every decision set reproduces them.
+    expect(decidedText(BEFORE, BEFORE, [], [])).toEqual({ exists: true, content: BEFORE })
+    // An empty text over an absent side is a file the turn created empty, not a removal.
+    expect(decidedText(null, '', [], [])).toEqual({ exists: true, content: '' })
+    expect(decidedText('', null, [], [])).toEqual({ exists: false, content: '' })
+    const hunks = compareText('a\nb', 'a\nB', 100).hunks
+    expect(decidedText('a\nb', 'a\nB', hunks, ['reject']).content).toBe('a\nb')
+    expect(decidedText('a\nb', 'a\nB', hunks, ['accept']).content).toBe('a\nB')
+  })
+
+  it('refuses a decision set that does not match the hunks', () => {
+    const hunks = compareText(BEFORE, AFTER, 100).hunks
+    expect(() => decidedText(BEFORE, AFTER, hunks, ['accept'])).toThrow('2 hunks need exactly 2 decisions, got 1')
+    expect(() => decidedText(BEFORE, AFTER, [], ['reject'])).toThrow('0 hunks need exactly 0 decisions, got 1')
   })
 })

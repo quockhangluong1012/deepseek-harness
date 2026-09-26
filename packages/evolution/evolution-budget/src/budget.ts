@@ -3,8 +3,9 @@
  * allocation builder that prices a candidate class from the base ceilings, the
  * ceilings §37 adds beside the frozen builder — cost, deadline, and
  * parallelism — the settlement arithmetic that says whether a spend stayed
- * inside, and the successive-halving schedule a recorded candidate pool
- * implies. No I/O, no domain — fully unit-testable.
+ * inside, the daily and weekly ceiling-batch keys a background call is gated
+ * on, and the successive-halving schedule a recorded candidate pool implies.
+ * No I/O, no domain — fully unit-testable.
  * @module @deepseek-ai/dsh-evolution-budget/src/budget
  */
 
@@ -123,6 +124,36 @@ export function dimensionCeilings(candidateClass: CandidateClass, bases: Dimensi
  */
 export function poolKey(batchId: string, candidateId: string): string {
   return `${batchId}\0${candidateId}`
+}
+
+/**
+ * The ceiling-batch id one owner's subject is gated on for the UTC day `at`
+ * falls in. The allocation such a batch holds accumulates every spend the owner
+ * records for that subject that day, so the day's ceiling resets at midnight
+ * rather than pricing the subject once for its lifetime.
+ * @param owner - the calling package, prefixing the batch id.
+ * @param subject - the task class the ceiling covers.
+ * @param at - the instant whose UTC day keys the batch.
+ * @returns the batch id.
+ */
+export function dailyBatchId(owner: string, subject: string, at: Date): string {
+  return `${owner}:${subject}:daily:${at.toISOString().slice(0, 10)}`
+}
+
+/**
+ * The ceiling-batch id one owner's subject is gated on for the ISO-8601 week
+ * `at` falls in (Monday-based, `YYYY-Www`).
+ * @param owner - the calling package, prefixing the batch id.
+ * @param subject - the task class the ceiling covers.
+ * @param at - the instant whose ISO week keys the batch.
+ * @returns the batch id.
+ */
+export function weeklyBatchId(owner: string, subject: string, at: Date): string {
+  const isoDay = (at.getUTCDay() + 6) % 7 // Monday=0 .. Sunday=6
+  const thursday = new Date(Date.UTC(at.getUTCFullYear(), at.getUTCMonth(), at.getUTCDate() - isoDay + 3))
+  const yearStart = Date.UTC(thursday.getUTCFullYear(), 0, 1)
+  const week = Math.ceil(((thursday.getTime() - yearStart) / 86400000 + 1) / 7)
+  return `${owner}:${subject}:weekly:${thursday.getUTCFullYear()}-W${String(week).padStart(2, '0')}`
 }
 
 /**

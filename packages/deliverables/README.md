@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-The deliverables family records what a turn hands to the user as durable Session events that only clients read: the `present` tool declares final files the model delivered, and the workspace-changes recorder captures the files a turn changed with their line counts from git snapshots and whole-file captures, serves each file's comparison, and can rewind working-directory code back to a turn's start. The `/rewind` command exposes that rewind directly to the user, without a model turn. The Web [deliverables plugin](../client/ui-deliverables/README.md) renders the recorded changes at the end of a turn. Choose this family for a product that shows delivered files and per-turn changes; `present` needs `ctx.tools` and `ctx.fs`, the recorder needs `ctx.subprocess` and a git executable.
+The deliverables family records what a turn hands to the user as durable Session events: `present` declares the model's final delivered files, and the workspace-changes recorder captures each turn's changed files with line counts from git snapshots and whole-file captures, serves each file's comparison, and can rewind working-directory code to a turn's start. `/rewind` exposes that rewind to the user without a model turn, and `tool-changes` reads a recorded turn back to the model. The Web [deliverables plugin](../client/ui-deliverables/README.md) renders the recorded changes after a turn. Choose this family for a product that shows delivered files and per-turn changes.
 
 ## Table of Contents
 
@@ -26,6 +26,7 @@ The deliverables family records what a turn hands to the user as durable Session
 |---|---|---|
 | [`tool-present`](tool-present/README.md) | Declares existing files as final deliverables through the `present` tool | registers on `ctx.tools` |
 | [`workspace-changes`](workspace-changes/README.md) | Summarizes each top-level turn's changed files from git working-tree snapshots and whole-file captures, serves their comparisons, and rewinds code to a turn's start | provides `ctx.workspaceChanges`; listens to `session/event`, appends `workspace/changes` |
+| [`tool-changes`](tool-changes/README.md) | Reports one recorded turn's changed files and one listed file's comparison to the model through two read-only tools | registers on `ctx.tools` |
 | [`command-rewind`](command-rewind/README.md) | Exposes `/rewind`: restores working-directory files to their content at the start of a turn | registers on `ctx.commands` |
 
 -----

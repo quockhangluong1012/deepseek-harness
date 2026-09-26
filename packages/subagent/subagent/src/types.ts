@@ -10,6 +10,7 @@
  */
 
 import type { Agent, AgentOptions } from '@deepseek-ai/dsh-agent'
+import type { EvidenceId, EvidenceKind } from '@deepseek-ai/dsh-agent-kernel'
 import type { Branded } from '@deepseek-ai/dsh-brand'
 import type { ContentBlock, MessageId } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
@@ -133,6 +134,42 @@ export interface SubagentCapabilities {
   readonly depthLimit: boolean
   readonly toolFilter: boolean
   readonly persona: boolean
+  /**
+   * Whether the provider composes the child in this process, so
+   * {@link SubagentStartRequest.workerLimits} can be enforced inside the
+   * child's own scope. A provider that runs the child out of process cannot
+   * observe its steps and must declare `false`: a worker ceiling it accepted
+   * and never applied would be a promise it cannot keep.
+   */
+  readonly workerLimits: boolean
+}
+
+/**
+ * Ceilings one worker role declares for its child, enforced inside that
+ * child's own scope. Each declared ceiling is a bound the child reaches at a
+ * step boundary: the check runs before a step is admitted, so a call already in
+ * flight finishes first. An undeclared axis is unbounded.
+ *
+ * The ceilings live in the child's own scope rather than in the parent's, so
+ * they hold while the child runs and they disappear with it. Cold-resuming a
+ * continuable child therefore starts it without them, exactly as it starts
+ * without the prior activation's `agentOptions.maxTokens`.
+ */
+export interface WorkerLimits {
+  /** Turns the child may open. A step of a later turn is refused. */
+  readonly maxTurns?: number
+  /** Billed tokens the child's session may spend, as its `tokenUsage` reports them. */
+  readonly maxTokens?: number
+  /**
+   * Priced USD the child's session may spend. Requires
+   * {@link WorkerLimits.usdPerMillionTokens}, because the harness owns no
+   * per-route price data of its own.
+   */
+  readonly maxCostUsd?: number
+  /** Wall-clock milliseconds the child may run, measured from its session's creation. */
+  readonly maxWallMs?: number
+  /** USD per million billed tokens, the flat price {@link WorkerLimits.maxCostUsd} is compared at. */
+  readonly usdPerMillionTokens?: number
 }
 
 /**
@@ -198,6 +235,13 @@ export interface SubagentStartRequest {
    * persona (strict `{{…}}` interpolation against the registered variables).
    */
   readonly persona?: string
+  /**
+   * Optional ceilings the child enforces on itself. Requires
+   * {@link SubagentCapabilities.workerLimits}; rejected at start otherwise.
+   * In-process backends install them in the child's creation window, before
+   * its first step.
+   */
+  readonly workerLimits?: WorkerLimits
 }
 
 /**
@@ -244,6 +288,81 @@ export interface ContinuableCreateSpec {
 }
 
 /**
+ * How a settled child result may be consumed. An `accepted` result is consumed
+ * as it stands; `needs_more_evidence` asks the parent for one more child run;
+ * `invalid`, `contradictory`, and `timeout` are non-accepted outcomes the parent
+ * must report instead of reading them as success.
+ */
+export type AgentResultStatus = 'accepted' | 'needs_more_evidence' | 'invalid' | 'contradictory' | 'timeout'
+
+/**
+ * A reference to one observation a child recorded in its own session log. The
+ * identity is the kernel's own observation identity; `kind` and `locator` are
+ * denormalized beside it because the child's log is not the parent's, so a
+ * parent reads where an observation lives without folding another session.
+ */
+export interface EvidenceRef {
+  /** Identity of the observation in the child's own session log. */
+  readonly evidenceId: EvidenceId
+  /** Family that observed it. */
+  readonly kind: EvidenceKind
+  /** Repository-relative path, URL, or tool call id locating the content. */
+  readonly locator: string
+}
+
+/** One output a child produced and the parent may retrieve. */
+export interface ArtifactRef {
+  /** Repository-relative path, URL, or attachment id locating the artifact. */
+  readonly locator: string
+  /** Digest of the artifact's content, when the child computed one. */
+  readonly digest?: string
+}
+
+/** One statement a child established, with the observations behind it. */
+export interface Finding {
+  /** The statement the child established. */
+  readonly statement: string
+  /** Observations the child cites for it. */
+  readonly evidence: readonly EvidenceRef[]
+  /** Stated confidence in `[0, 1]`. */
+  readonly confidence?: number
+}
+
+/** One action a child recommends the parent take next. */
+export interface Action {
+  /** What the parent is recommended to do. */
+  readonly instruction: string
+  /** Why the child recommends it. */
+  readonly rationale?: string
+}
+
+/**
+ * The result contract a delegated child settles with: what it established, what
+ * it observed, what it produced, what it recommends, and how the parent may
+ * consume the whole answer.
+ *
+ * A child reports this shape through the structured output its delegation
+ * requested. A settled run that reported no such value still carries the
+ * contract, with a status classified from its stop reason, so a parent always
+ * consumes one vocabulary rather than reading `stopReason` and `structured`
+ * itself.
+ */
+export interface AgentResult {
+  /** How the parent may consume this result. */
+  readonly status: AgentResultStatus
+  /** Statements the child established. */
+  readonly findings: readonly Finding[]
+  /** Observations the child cites. */
+  readonly evidence: readonly EvidenceRef[]
+  /** Outputs the child produced. */
+  readonly artifacts: readonly ArtifactRef[]
+  /** Actions the child recommends the parent take next. */
+  readonly recommendedActions: readonly Action[]
+  /** Stated confidence in the whole result, in `[0, 1]`. */
+  readonly confidence?: number
+}
+
+/**
  * Why a subagent run ended. Merge-extensible (a backend may add variants);
  * consumers branch on the known cases and fall through `default`. The known
  * cases mirror the harness turn-end vocabulary so the tool layer can map a
@@ -285,6 +404,14 @@ export interface SubagentResult {
    * schema-agnostic.
    */
   readonly structured?: unknown
+  /**
+   * The child's settled result read as the {@link AgentResult} contract: the
+   * status the child reported when it returned that shape, otherwise the status
+   * its stop reason classifies to. Present on every result a one-shot run
+   * resolves through `ctx.subagents.start`, which attaches it; a provider-built
+   * result may omit it and consumers derive it with `agentResultOf`.
+   */
+  readonly agentResult?: AgentResult
   /**
    * Provider-authored, non-assistant failure detail for a non-`completed`
    * result. Providers keep this text free of tool inputs, file contents,

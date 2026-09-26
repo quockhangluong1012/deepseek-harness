@@ -1,15 +1,19 @@
 /** Per-Session turn recorder: snapshots, captures around file-tool edits, the turn-end diff, and the records kept until disposal. */
-import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
+import { randomUUID } from 'node:crypto'
+import { mkdir, mkdtemp, readFile, realpath, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { dirname, join, relative, resolve } from 'node:path'
+import { basename, dirname, join, relative, resolve } from 'node:path'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import { captureFile, mutationPath, sameCapture, type Capture } from './capture.ts'
-import { compareText } from './compare.ts'
+import { compareText, decidedText, type DecidedFile } from './compare.ts'
 import {
   blobText, diffTrees, gitlinkPaths, ignoredPaths, locateGitWorkspace, snapshotTree, treeBlob, type GitRunner, type GitWorkspace,
 } from './git.ts'
 import { canonicalPath, compareDisplay, displayPathOf, durablePathOf, isInside, isTemporaryPath, temporaryRoots, toPosix } from './paths.ts'
-import type { WorkspaceChangedFile, WorkspaceChangesSummary, WorkspaceFileDiff, WorkspaceRestoreResult, WorkspaceRestoreSkip } from './types.ts'
+import type {
+  WorkspaceChangedFile, WorkspaceChangesSummary, WorkspaceFileDiff, WorkspaceHunkApplyResult, WorkspaceHunkDecision,
+  WorkspaceRestoreResult, WorkspaceRestoreSkip,
+} from './types.ts'
 
 /** Facts shared by every recorder of one plugin instance. */
 export interface RecorderEnvironment {
@@ -240,6 +244,45 @@ export class TurnRecorder {
   }
 
   /**
+   * Apply one decision per hunk to one listed file, in one atomic replacement.
+   * See `WorkspaceChanges.applyHunks` for the contract.
+   * @param seq - the announcing event's sequence number.
+   * @param index - the file's index in the summary's `files`.
+   * @param decisions - one decision per hunk of that file's comparison, in hunk order.
+   * @param signal - cancels the reads and the write.
+   * @returns the outcome, or undefined for an unknown sequence or index, a refused comparison, or once disposed.
+   * @throws when the decisions do not match the recomputed comparison's hunks, or when the write fails.
+   */
+  async applyHunks(
+    seq: number, index: number, decisions: readonly WorkspaceHunkDecision[], signal: AbortSignal,
+  ): Promise<WorkspaceHunkApplyResult | undefined> {
+    const record = this.records.get(seq)
+    const file = record?.summary.files[index]
+    const sources = record?.sources[index]
+    const paths = this.paths
+    if (file === undefined || sources === undefined || paths === undefined || sources.refusal !== undefined) return undefined
+    const combined = AbortSignal.any([signal, this.lifetime.signal])
+    let decided: DecidedFile
+    try {
+      const [before, after] = await Promise.all([this.readSide(sources.before, combined), this.readSide(sources.after, combined)])
+      if (before === OVERSIZED || after === OVERSIZED) return undefined
+      const { hunks } = compareText(before, after, this.env.diffTimeoutMs)
+      decided = decidedText(before, after, hunks, decisions)
+      const absolute = await canonicalPath(resolve(paths.cwd, file.path))
+      if (decided.exists) await replaceFile(absolute, decided.content, combined)
+      else await rm(absolute, { force: true })
+    } catch (error: unknown) {
+      // Disposal aborts a read or a write mid-flight; the Session is gone either way.
+      if (this.lifetime.signal.aborted) return undefined
+      throw error
+    }
+    const accepted: number[] = []
+    const rejected: number[] = []
+    decisions.forEach((decision, position) => { (decision === 'accept' ? accepted : rejected).push(position) })
+    return { path: file.path, display: file.display, accepted, rejected, exists: decided.exists }
+  }
+
+  /**
    * Rewind every file changed since one turn's start back to its content at that moment.
    * Diffs the turn-start tree against a fresh snapshot of the CURRENT working tree — not the
    * turn's own recorded diff — so every intervening turn's changes are undone too, not only the
@@ -288,7 +331,7 @@ export class TurnRecorder {
             if (restoreAbsolute !== currentAbsolute) await rm(currentAbsolute, { force: true })
           }
           restored.push(display)
-        } catch (error: unknown) {
+        } catch {
           if (this.lifetime.signal.aborted) return undefined
           skipped.push({ path: finalPath, display, reason: 'error' })
         }
@@ -449,6 +492,29 @@ export class TurnRecorder {
 /** Whether a captured side holds binary content. */
 function isBinary(capture: Capture): boolean {
   return capture.kind === 'file' && capture.binary
+}
+
+/**
+ * Replace one file in a single step: the complete new content is written to a
+ * random-suffix sibling opened exclusively and renamed over the target, so a
+ * reader observes either the previous or the new complete content and a failed
+ * write leaves the previous content untouched. The previous permissions are
+ * carried over; a file that does not exist yet gets `0o644` less the umask.
+ * @param absolute - canonical absolute path of the file.
+ * @param content - the complete new content.
+ * @param signal - cancels the write.
+ * @throws when the sibling cannot be written or renamed; the sibling is removed first.
+ */
+async function replaceFile(absolute: string, content: string, signal: AbortSignal): Promise<void> {
+  const mode = await stat(absolute).then(info => info.mode & 0o777, () => 0o644)
+  const temp = join(dirname(absolute), `.${basename(absolute)}.${randomUUID()}.tmp`)
+  try {
+    await writeFile(temp, content, { mode, flag: 'wx', signal })
+    await rename(temp, absolute)
+  } catch (error: unknown) {
+    await rm(temp, { force: true })
+    throw error
+  }
 }
 
 interface Counts { added: number; deleted: number; binary: boolean; oversized?: boolean }

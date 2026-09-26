@@ -44,10 +44,13 @@
   },
   "dependencies": {
     "@deepseek-ai/dsh-util-values": "workspace:*",
-    "@deepseek-ai/schemastery": "workspace:~"
+    "@deepseek-ai/schemastery": "workspace:~",
+    "picomatch": "^4.0.4",
+    "yaml": "^2.8.1"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "workspace:~",
+    "@types/picomatch": "^4.0.2",
     "@deepseek-ai/cordis-plugin-loader": "workspace:~",
     "@deepseek-ai/dsh-agent": "workspace:*",
     "@deepseek-ai/dsh-agent-context": "workspace:*",

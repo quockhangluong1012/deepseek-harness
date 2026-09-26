@@ -1,0 +1,40 @@
+{
+  "runRequirement": "live-model",
+  "tasks": [
+    {
+      "profile": "coding",
+      "stepSpan": 4,
+      "capability": "code-change-with-tests",
+      "task": "In the workspace you are given, add a regression test for a boundary behaviour the existing tests miss, then make it pass by changing that function's implementation. Do not change the function's public signature or any behaviour its current tests pin.",
+      "acceptance": "The diff adds a test and a source change; the added test fails against the pre-change implementation; the touched package's test command passes afterwards; the changed function's exported signature is unchanged."
+    },
+    {
+      "profile": "coding",
+      "stepSpan": 5,
+      "capability": "plan-fidelity",
+      "task": "State your plan before the first edit, then execute it. If the evidence forces a different approach, restate the plan before continuing rather than diverging silently.",
+      "acceptance": "The trace holds a plan statement before the first mutating tool call, a restatement after any divergence from it, and a passing test run at the end."
+    },
+    {
+      "profile": "coding",
+      "stepSpan": 6,
+      "capability": "change-contract",
+      "task": "The run is given a change request that names the files it may touch. Implement the request while touching no other file, and report every file the change actually touched.",
+      "acceptance": "The diff contains exactly the named files; the package's test suite passes; the final report lists the touched files."
+    },
+    {
+      "profile": "coding",
+      "stepSpan": 8,
+      "capability": "failure-diagnosis",
+      "task": "A test in the workspace fails for a reason unrelated to the change you were asked to make. Diagnose the failure from its output before editing anything, then fix its root cause rather than weakening the assertion.",
+      "acceptance": "The trace shows a diagnosis of the failure output before the first edit; the failing assertion's text is unchanged in the diff; the suite passes at the end."
+    },
+    {
+      "profile": "coding",
+      "stepSpan": 10,
+      "capability": "independent-review",
+      "task": "After making the requested change, review your own diff as an independent reviewer would: name at least one concrete weakness you would raise, then either fix it or state why you left it.",
+      "acceptance": "The final message names a concrete weakness of the delivered diff with the disposition taken; the package's test suite passes on the delivered state."
+    }
+  ]
+}

@@ -32,7 +32,7 @@ Batch 6 of the full-sweep fixes (`docs/superpowers/specs/2026-09-13-full-sweep-f
 
 **Re-harden worker message handling.** Already hardened: parse-before-touch, hostile-peer rules, an `Object.hasOwn` prototype guard, and ELU + wall timers.
 
-**Change the schedule floor, the release timeout, preset silence, patch provenance, boot sync FS, RPC scans, or method params.** Accepted as is: the floor is an abuse-protection invariant in pure domain math with no Config surface; the timeout is fatal-path timing; preset-default silence has a resolution-time fail-loud backstop; patch provenance is debug-only cosmetic; boot reads are a one-time small-file cold start; RPC scans are tiny-n with fresh dispatch; and method params use a fail-loud tested fallback without minification.
+**Change the schedule floor, the release timeout, preset silence, patch attribution, boot sync FS, RPC scans, or method params.** Accepted as is: the floor is an abuse-protection invariant in pure domain math with no Config surface; the timeout is fatal-path timing; preset-default silence has a resolution-time fail-loud backstop; patch attribution is debug-only cosmetic; boot reads are a one-time small-file cold start; RPC scans are tiny-n with fresh dispatch; and method params use a fail-loud tested fallback without minification.
 
 ## Consequences
 

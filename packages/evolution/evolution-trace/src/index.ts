@@ -2,14 +2,17 @@
  * Immutable session trace projection (`ctx.evolutionTrace`): the structured
  * learning trace of a session, derived from the committed session log — the
  * authoritative raw trace — with ranked root-cause attribution per failed tool
- * call, the §3.1 trajectory items the log records, counterfactual replay over
- * a recorded trace, and compressed learning-trace rows for reflection and
+ * call, the §3.1 trajectory items the log records, the per-run execution trace
+ * of §5.1 (identity, steps with their §5.2 telemetry, subagents, spend,
+ * context, verification, and how the run ended), counterfactual replay over a
+ * recorded trace, and compressed learning-trace rows for reflection and
  * evolution.
  *
  * Nothing here calls a model or writes a new domain: the session log already
  * is the immutable raw trace (§3.3 form one), so the store projects it on
  * demand instead of duplicating it. Read paths flush a live session first so a
- * query sees the turns that reached the model.
+ * query sees the turns that reached the model, and price the steps they read
+ * from the mounted LLM catalog.
  * @module @deepseek-ai/dsh-evolution-trace
  */
 
@@ -20,12 +23,17 @@ import type { SessionHandle } from '@deepseek-ai/dsh-session-persistence'
 import { SessionPersistenceNotFoundError } from '@deepseek-ai/dsh-session-persistence'
 import type {} from '@deepseek-ai/dsh-evolution-memory'
 import { project } from './project.ts'
+import { routePrices } from './prices.ts'
+import { projectRuns } from './runs.ts'
 import { replayTrace } from './replay.ts'
 import { summarize } from './summarize.ts'
-import type { LearningTraceRow, ReplayArtifact, ReplayReport, TraceRecord } from './types.ts'
+import type { AgentTrace, LearningTraceRow, ReplayArtifact, ReplayReport, TraceRecord } from './types.ts'
 
 export type * from './types.ts'
 export { project, sumUsage } from './project.ts'
+export { routeKey, routePrices, routesOf } from './prices.ts'
+export type { TraceRoute } from './prices.ts'
+export { projectRuns } from './runs.ts'
 export { replayTrace } from './replay.ts'
 export { summarize } from './summarize.ts'
 
@@ -118,7 +126,20 @@ export class EvolutionTrace extends Service {
     const id = sessionId as SessionId
     const events = await readEvents(this.ctx, id)
     if (events === undefined) return undefined
-    return project(String(id), events, this.resolved.maxChars)
+    return project(String(id), events, this.resolved.maxChars, await routePrices(this.ctx, events))
+  }
+
+  /**
+   * Project one session's committed log into its runs' execution traces
+   * (§5.1 Agent Trace). A log that recorded no task contract holds no run.
+   * @param sessionId - session identity.
+   * @returns one trace per run, oldest first, or undefined when storage holds no such session.
+   */
+  async runs(sessionId: string): Promise<readonly AgentTrace[] | undefined> {
+    const id = sessionId as SessionId
+    const events = await readEvents(this.ctx, id)
+    if (events === undefined) return undefined
+    return projectRuns(String(id), events, this.resolved.maxChars, await routePrices(this.ctx, events))
   }
 
   /**

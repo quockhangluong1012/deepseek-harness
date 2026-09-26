@@ -43,7 +43,7 @@ export const workspaceOutput = z.object({
   at: z.string(),
 })
 
-/** Extraction provenance at the durable boundary. */
+/** The extraction that wrote the document, at the durable boundary. */
 export const workspaceMemoryExtraction = z.object({
   at: z.string(),
   sessionId: z.string(),

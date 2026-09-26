@@ -42,6 +42,9 @@
       "path": "../../workspace/workspace"
     },
     {
+      "path": "../evolution-budget"
+    },
+    {
       "path": "../evolution-memory"
     },
     {

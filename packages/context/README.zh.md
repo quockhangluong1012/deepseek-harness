@@ -24,13 +24,16 @@ context 组提供不定义任何工具、为每次请求添加模型可见上下
 
 | 包 | 职责 | ctx key |
 |---|---|---|
-| [`agent-instructions/`](agent-instructions/README.zh.md) | 将 `AGENTS.md`、`CLAUDE.md` 工作区指令加载到上下文，并在文件编辑后刷新 | — |
+| [`agent-instructions/`](agent-instructions/README.zh.md) | 把 `AGENTS.md`／`CLAUDE.md` 工作区指令加载进上下文，解析 `@path` import 与按路径生效的 `.dsh/rules`，并在文件编辑后刷新 | — |
+| [`command-init/`](command-init/README.zh.md) | 面向人类的 `/init` 命令，要求 agent 撰写本工作区的 `AGENTS.md` | 注册到 `ctx.commands` |
 | [`workspace-memory-context/`](workspace-memory-context/README.zh.md) | 将工作区记忆简报渲染进 `agent/pre-step` | — |
 | [`evolution-memory-context/`](evolution-memory-context/README.zh.md) | 将演进记忆简报渲染进 `agent/pre-step`，并以条件驱动的提示点名实际触发的已记录条件 | — |
 | [`session-reference/`](session-reference/README.zh.md) | 引用其他会话：提及一个会话，其有界只读快照即成为上下文 | `ctx.sessionReferenceResolver` |
 | [`file-reference/`](file-reference/README.zh.md) | 发现 `@file` 提及，并提供由宿主支持的 UI 共用的提及语法 | `ctx.fileReferences` |
 | [`file-reference-local/`](file-reference-local/README.zh.md) | `@file` 提及的本地工作区补全提供方 | — |
 | [`time-context/`](time-context/README.zh.md) | 每个步骤的当前时间、浏览器时区与经过时长 | — |
+| [`repo-map/`](repo-map/README.zh.md) | 工作区源码树的有序、带字节上限的地图，仅在变化时刷新 | — |
+| [`working-set/`](working-set/README.zh.md) | 当前任务点名的文件及其依赖、测试、配置与文档，仅在选中结果变化时刷新 | — |
 | [`tmux-context/`](tmux-context/README.zh.md) | agent 所在的 tmux 会话、窗口与窗格位置 | — |
 
 -----

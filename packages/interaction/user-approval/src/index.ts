@@ -52,7 +52,9 @@ export { ApprovalRequestId } from './types.ts'
 export type { ApprovalOutcome } from './types.ts'
 
 /** Every {@link ApprovalOutcome}, for runtime normalization of answerer returns. */
-const OUTCOMES: readonly ApprovalOutcome[] = ['allowed-once', 'rejected', 'cancelled', 'unavailable']
+const OUTCOMES: readonly ApprovalOutcome[] = [
+  'allowed-once', 'allowed-session', 'allowed-always', 'rejected', 'cancelled', 'unavailable',
+]
 
 /**
  * A session's approval policy — what happens to an {@link ApprovalService}
@@ -216,7 +218,8 @@ export class ApprovalService extends Service {
    * authoritative append cannot reject the request or suppress its matching
    * audit event.
    * @param req - the pending decision (agent, tool identity, reason, signal).
-   * @returns the closed outcome; `'allowed-once'` is the only grant.
+   * @returns the closed outcome; the three `allowed-*` values are grants, and
+   *   remembering either scoped grant belongs to the asker.
    * @throws when no turn is open or either audit event fails before the session
    *   append commit point.
    */

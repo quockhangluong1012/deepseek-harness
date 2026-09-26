@@ -7,9 +7,14 @@
  * candidates get more budget, low-potential candidates an early-stop screen,
  * novel candidates an exploration allowance — and the settlement says how much
  * of each priced ceiling a batch spent or exceeded. The optimizer records each
- * staged write's allocation and spend through the optional recorder seam, the
- * actuator's budget loop gates a task class's work on `withinBudget`, and
- * `/budget` reads batches and spends. Nothing here calls a model.
+ * staged write's allocation and spend through the optional recorder seam,
+ * the actuator's budget loop gates a task class's work on `withinBudget`,
+ * `/budget` reads batches and spends, and the kernel's `BudgetGovernor` reads
+ * `backgroundSpend` so one call reports a session's own use beside it.
+ * {@link openCeiling} is the one gate every background model call opens
+ * before it spends: it keys a subject's daily and weekly ceiling batches,
+ * prices them when they do not exist yet, and refuses the call once either is
+ * spent. Nothing here calls a model.
  * @module @deepseek-ai/dsh-evolution-budget
  */
 
@@ -17,7 +22,7 @@ import { randomUUID } from 'node:crypto'
 import { Context, Service } from '@deepseek-ai/cordis'
 import type { KvTable } from '@deepseek-ai/dsh-storage-domain'
 import z from 'zod'
-import { buildAllocation, dimensionCeilings, poolKey, screeningSchedule, settle, withinAllocation } from './budget.ts'
+import { buildAllocation, dailyBatchId, dimensionCeilings, poolKey, screeningSchedule, settle, weeklyBatchId, withinAllocation } from './budget.ts'
 import { objectiveReadings } from './objectives.ts'
 import { policyFor } from './policy.ts'
 import { budgetDomainSpec } from './spec.ts'
@@ -30,6 +35,7 @@ import type {
   ObjectiveReading,
   PoolInput,
   PooledCandidate,
+  RecordedBackgroundSpend,
   SpendInput,
   SpendRecord,
 } from './types.ts'
@@ -38,6 +44,7 @@ export type * from './types.ts'
 export {
   buildAllocation,
   CANDIDATE_CLASSES,
+  dailyBatchId,
   dimensionCeilings,
   halvingRounds,
   multiplierFor,
@@ -45,6 +52,7 @@ export {
   recordedTotal,
   screeningSchedule,
   settle,
+  weeklyBatchId,
   withinAllocation,
 } from './budget.ts'
 export { EVOLUTION_OBJECTIVES, objectiveReadings } from './objectives.ts'
@@ -137,6 +145,56 @@ declare module '@deepseek-ai/cordis' {
     /** Durable budget allocations and spends with settlements. */
     evolutionBudget: EvolutionBudget
   }
+}
+
+/** What {@link openCeiling} reports about one subject's ceiling before a call runs. */
+export type CeilingOpening =
+  /** No `evolutionBudget` is mounted: every ceiling is unconfigured, not exceeded. */
+  | { readonly kind: 'unmetered' }
+  /** A ceiling is spent: the caller must leave its call out, and `reason` says so. */
+  | { readonly kind: 'refused'; readonly reason: string }
+  /** Both batches hold: run the call, then settle it against `batchIds`. */
+  | { readonly kind: 'open'; readonly budget: EvolutionBudget; readonly batchIds: readonly string[] }
+
+/**
+ * Open the daily and weekly ceiling batches of one owner's subject, so a
+ * background model call can be gated before it spends. The subject is the task
+ * class the batches are priced against — a skill, a capability, a workspace
+ * scope — and both are priced as `standard`, because no §37 policy decision
+ * covers background work. A batch that already exists keeps its allocation, so
+ * a re-opened ceiling never re-prices spend accumulated under it.
+ *
+ * An unmounted store reports `unmetered`. A spent ceiling reports `refused` and
+ * warns through `ctx.logger`, since a call that does not run leaves no other
+ * trace. A refusal is not a failure: the caller reports it as a skip, so the
+ * scheduled pass it guards is visibly left for want of budget rather than
+ * silently dropped.
+ * @param ctx - host context carrying the optional budget store.
+ * @param owner - the calling package, which prefixes both batch ids.
+ * @param subject - the task class the ceiling covers.
+ * @param at - the instant whose UTC day and ISO week key the batches.
+ * @returns the gate's verdict, naming the batches to settle against when open.
+ */
+export async function openCeiling(
+  ctx: Context,
+  owner: string,
+  subject: string,
+  at: Date,
+): Promise<CeilingOpening> {
+  const budget = ctx.get('evolutionBudget')
+  if (budget === undefined) return { kind: 'unmetered' }
+  const batchIds = [dailyBatchId(owner, subject, at), weeklyBatchId(owner, subject, at)]
+  for (const batchId of batchIds) {
+    if (!budget.batches(subject).some(row => row.batchId === batchId)) {
+      await budget.allocate({ batchId, taskClass: subject, candidateClass: 'standard' })
+    }
+  }
+  if (batchIds.some(batchId => !budget.withinBudget(batchId))) {
+    const reason = `the daily or weekly evolution-budget ceiling for '${subject}' is spent`
+    ctx.logger.warn(`${owner}: '${subject}' left alone: ${reason}`)
+    return { kind: 'refused', reason }
+  }
+  return { kind: 'open', budget, batchIds }
 }
 
 /**
@@ -324,6 +382,28 @@ export class EvolutionBudget extends Service {
       .filter(row => batchId === undefined || row.batchId === batchId)
     rows.sort((left, right) => right.at.localeCompare(left.at) || left.batchId.localeCompare(right.batchId))
     return rows
+  }
+
+  /**
+   * What background work has spent across every recorded batch: its tokens
+   * and wall time summed, and its billed cost when every spend stated one.
+   * This is the read side the kernel's `BudgetGovernor` reports beside a
+   * session's own use, so a caller reads both budget owners from one call
+   * without opening this store's durable domain. A store that has not opened
+   * its domain yet has recorded nothing, so it reads as nothing spent.
+   * @returns the recorded background spend.
+   */
+  backgroundSpend(): RecordedBackgroundSpend {
+    if (this.spendTable === undefined) return { tokens: 0, wallMs: 0 }
+    const records = this.spends()
+    const cost = records.length === 0 || records.some(record => record.cost === undefined)
+      ? undefined
+      : records.reduce((sum, record) => sum + (record.cost ?? 0), 0)
+    return {
+      tokens: records.reduce((sum, record) => sum + record.tokens, 0),
+      wallMs: records.reduce((sum, record) => sum + record.wallTimeMs, 0),
+      ...cost === undefined ? {} : { cost },
+    }
   }
 
   /**

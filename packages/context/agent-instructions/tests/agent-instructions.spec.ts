@@ -1,5 +1,5 @@
 import { chmod, mkdtemp, mkdir, rm, stat, symlink, utimes, writeFile } from 'node:fs/promises'
-import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
+import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
@@ -45,6 +45,7 @@ import {
 import { resolveConfig, workspaceBaselineIdentity } from '../src/config.ts'
 import { candidateScopeKey, renderInstructionChanges, renderAgentInstructionSet, USER_GLOBAL_DIRECTORY, USER_GLOBAL_FILE } from '../src/render.ts'
 import { dedupInstructionFilesByDirectory, loadBaselineInstructionSet } from '../src/files.ts'
+import { rulePathGlobs, rulePathMatches } from '../src/rules.ts'
 import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 import {
   mountAgentLoopTestDependencies,
@@ -181,8 +182,20 @@ class RecordingFileSystem extends FileSystem {
     })()
   }
 
-  override async listDir(_target: FsTarget): Promise<FsDirEntry[]> {
-    return []
+  override async listDir(target: FsTarget, signal?: AbortSignal): Promise<FsDirEntry[]> {
+    if (signal !== undefined) this.signals.push(signal)
+    signal?.throwIfAborted()
+    const dir = String(target.targetKey)
+    const entries: FsDirEntry[] = []
+    for (const [key, entry] of this.entries) {
+      if (dirname(key) !== dir) continue
+      entries.push({
+        name: basename(key),
+        type: entry.type,
+        target: { targetKey: FsTargetKey(key), displayPath: key },
+      })
+    }
+    return entries.sort((left, right) => (left.name < right.name ? -1 : 1))
   }
 
   override async writeText(_target: FsTarget, _content: string, _expected?: FsWriteIntent): Promise<FsWriteOutcome> {
@@ -978,6 +991,242 @@ describe('workspace context instruction discovery', () => {
     } finally {
       await rm(root, { recursive: true, force: true })
       await rm(home, { recursive: true, force: true })
+    }
+  })
+})
+
+/** Text of the first content block one reconciliation rendered, or an empty string when it rendered nothing. */
+function renderedInstructionText(result: Awaited<ReturnType<typeof reconcileInstructionContext>>): string {
+  const block = result?.context.content[0]
+  return block?.type === 'text' ? block.text : ''
+}
+
+describe('workspace context @path imports', () => {
+  it('inlines referenced files, expands nested references, and leaves fenced code untouched', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      await write(join(root, 'AGENTS.md'), [
+        'repo rule',
+        '',
+        'See @handbook/guide.md.',
+        '',
+        'Packages use `@deepseek-ai/dsh-llm` scoped names.',
+        '',
+        'Documentation for the import syntax: `@handbook/guide.md`.',
+        '',
+        '```',
+        '@handbook/never.md',
+        '```',
+      ].join('\n'))
+      await write(join(root, 'handbook/guide.md'), 'guide body\n\n@./nested.md')
+      await write(join(root, 'handbook/nested.md'), 'nested body')
+
+      const set = await loadBaselineInstructionSet({ cwd: root, dshHome: home, maxBytes: 65536 })
+
+      expect(set?.rendered.text).toContain('repo rule')
+      expect(set?.rendered.text).toContain('guide body')
+      expect(set?.rendered.text).toContain('nested body')
+      expect(set?.rendered.text).toContain('@handbook/never.md')
+      expect(set?.rendered.text).toContain('`@deepseek-ai/dsh-llm`')
+      expect(set?.rendered.text).toContain('Documentation for the import syntax: `@handbook/guide.md`.')
+      expect(set?.observed[0]?.content).toContain('guide body')
+      expect(set?.observed[0]?.imports?.map(imported => relative(root, imported.absolutePath)))
+        .toEqual([join('handbook', 'guide.md'), join('handbook', 'nested.md')])
+      expect(set?.dropped).toEqual([])
+    } finally {
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
+  it('keeps references literal when they escape the project, miss, or repeat a chain file', async () => {
+    const outer = await tempRepo()
+    const root = join(outer, 'repo')
+    const home = await tempRepo()
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      await write(join(outer, 'secret.md'), 'secret body')
+      await write(join(root, 'AGENTS.md'), 'repo rule\n\n@../secret.md\n\n@missing.md\n\n@loop.md')
+      await write(join(root, 'loop.md'), 'loop body\n\n@AGENTS.md')
+
+      const set = await loadBaselineInstructionSet({ cwd: root, dshHome: home, maxBytes: 65536 })
+
+      expect(set?.rendered.text).toContain('loop body')
+      expect(set?.rendered.text).toContain('@../secret.md')
+      expect(set?.rendered.text).toContain('@missing.md')
+      expect(set?.rendered.text).toContain('@AGENTS.md')
+      expect(set?.rendered.text).not.toContain('secret body')
+      expect(set?.observed[0]?.imports?.map(imported => relative(root, imported.absolutePath)))
+        .toEqual(['loop.md'])
+      // A refused reference and a repeat are reported; a mention naming no file
+      // is silence, because prose `@tokens` are not import attempts.
+      expect(set?.dropped.map(drop => drop.reason)).toEqual([
+        'unresolved-import',
+        'unresolved-import',
+      ])
+    } finally {
+      await rm(outer, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
+  it('leaves references literal once the configured import depth is exhausted', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      await write(join(root, 'AGENTS.md'), 'repo rule\n\n@one.md')
+      await write(join(root, 'one.md'), 'one body\n\n@two.md')
+      await write(join(root, 'two.md'), 'two body')
+
+      const set = await loadBaselineInstructionSet({
+        cwd: root, dshHome: home, maxBytes: 65536, maxImportDepth: 1,
+      })
+
+      expect(set?.rendered.text).toContain('one body')
+      expect(set?.rendered.text).toContain('@two.md')
+      expect(set?.rendered.text).not.toContain('two body')
+      expect(set?.dropped.map(drop => drop.reason)).toEqual(['unresolved-import'])
+    } finally {
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
+  it('refreshes an importer whose own bytes did not change when an imported file changes', async () => {
+    const root = join(await tempRepo(), 'virtual-repo')
+    const home = join(await tempRepo(), 'virtual-home')
+    const ctx = new Context()
+    try {
+      await ctx.plugin(RecordingFileSystem)
+      const fs = ctx.fs as RecordingFileSystem
+      fs.entries.set(join(root, '.git'), { type: 'directory' })
+      fs.entries.set(join(root, 'AGENTS.md'), { type: 'file', content: 'repo rule\n\n@handbook/notes.md' })
+      fs.entries.set(join(root, 'handbook/notes.md'), { type: 'file', content: 'first note' })
+      const agent = await stubAgent(root)
+      const resolved = resolveConfig({ dshHome: home, maxBytes: 65536, localInstructionFileCandidates: [] })
+      const cache: InstructionVersionCache = new WeakMap()
+      const options = {
+        authorityMessages: [],
+        scopeMessages: [],
+        touchedPaths: [],
+        includeBaselineScopes: true,
+        signal: testToolSignal,
+      }
+
+      const cold = await reconcileInstructionContext(agent, resolved, cache, fs, options)
+      expect(renderedInstructionText(cold)).toContain('first note')
+      const visible = cold as NonNullable<typeof cold>
+      applyInstructionVersionUpdates(agent.session, visible.versionUpdates, cache)
+      agent.session.append('user/message', visible.context, { surfaceOp: 'append' })
+
+      const unchanged = await reconcileInstructionContext(agent, resolved, cache, fs, {
+        ...options,
+        authorityMessages: [visible.context],
+      })
+
+      fs.entries.set(join(root, 'handbook/notes.md'), { type: 'file', content: 'second note' })
+      const refreshed = await reconcileInstructionContext(agent, resolved, cache, fs, {
+        ...options,
+        authorityMessages: [visible.context],
+      })
+
+      expect(unchanged).toBeUndefined()
+      expect(renderedInstructionText(refreshed)).toContain('second note')
+    } finally {
+      await ctx.fiber.dispose()
+      await rm(dirname(root), { recursive: true, force: true })
+      await rm(dirname(home), { recursive: true, force: true })
+    }
+  })
+})
+
+describe('workspace context path-scoped rules', () => {
+  it('reads rule frontmatter globs and matches project-relative paths', () => {
+    expect(rulePathGlobs('---\npaths:\n  - packages/llm/**\n---\nbody')).toEqual(['packages/llm/**'])
+    expect(rulePathGlobs('---\npaths: handbook/*.md\n---\nbody')).toEqual(['handbook/*.md'])
+    expect(rulePathGlobs('---\npaths: []\n---\nbody')).toBeUndefined()
+    expect(rulePathGlobs('no frontmatter')).toBeUndefined()
+    expect(rulePathMatches('packages/llm/src/index.ts', ['packages/llm/**'])).toBe(true)
+    expect(rulePathMatches('packages/llm/src/index.ts', ['packages/shell/**'])).toBe(false)
+    expect(rulePathMatches('handbook/guide.md', ['handbook/*.md'])).toBe(true)
+    expect(rulePathMatches('handbook/deep/guide.md', ['handbook/*.md'])).toBe(false)
+  })
+
+  it('adds unscoped rules to the baseline and waits for a matching path to load a scoped one', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      await write(join(root, 'AGENTS.md'), 'repo rule')
+      await write(join(root, '.dsh/rules/always.md'), 'always body')
+      await write(join(root, '.dsh/rules/scoped.md'), [
+        '---',
+        'paths:',
+        "  - 'packages/llm/**'",
+        '---',
+        'llm only body',
+      ].join('\n'))
+
+      const set = await loadBaselineInstructionSet({ cwd: root, dshHome: home, maxBytes: 65536 })
+
+      expect(set?.rendered.text).toContain('always body')
+      expect(set?.rendered.text).not.toContain('llm only body')
+      expect(set?.rendered.text).not.toContain('paths:')
+      expect(set?.included.map(file => file.displayPath)).toContain('.dsh/rules/always.md')
+    } finally {
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
+  it('loads a scoped rule once a touched path matches and leaves it out otherwise', async () => {
+    const root = join(await tempRepo(), 'virtual-repo')
+    const home = join(await tempRepo(), 'virtual-home')
+    const ctx = new Context()
+    try {
+      await ctx.plugin(RecordingFileSystem)
+      const fs = ctx.fs as RecordingFileSystem
+      fs.entries.set(join(root, '.git'), { type: 'directory' })
+      fs.entries.set(join(root, '.dsh'), { type: 'directory' })
+      fs.entries.set(join(root, '.dsh/rules'), { type: 'directory' })
+      fs.entries.set(join(root, '.dsh/rules/scoped.md'), {
+        type: 'file',
+        content: ['---', 'paths:', "  - 'packages/llm/**'", '---', 'llm only body'].join('\n'),
+      })
+      const agent = await stubAgent(root)
+      const resolved = resolveConfig({
+        dshHome: home,
+        maxBytes: 65536,
+        localInstructionFileCandidates: [],
+      })
+      const options = {
+        authorityMessages: [],
+        scopeMessages: [],
+        includeBaselineScopes: false,
+        signal: testToolSignal,
+      }
+
+      const unrelated = await reconcileInstructionContext(agent, resolved, new WeakMap(), fs, {
+        ...options,
+        touchedPaths: [join(root, 'packages/shell/src/index.ts')],
+      })
+      const matching = await reconcileInstructionContext(agent, resolved, new WeakMap(), fs, {
+        ...options,
+        touchedPaths: [join(root, 'packages/llm/src/index.ts')],
+      })
+
+      expect(unrelated).toBeUndefined()
+      expect(renderedInstructionText(matching)).toContain('llm only body')
+      expect(matching?.context.source.kind === 'agent-instructions'
+        && matching.context.source.changes.map(change => change.scope))
+        .toEqual([candidateScopeKey('.dsh/rules', 'scoped.md')])
+    } finally {
+      await ctx.fiber.dispose()
+      await rm(dirname(root), { recursive: true, force: true })
+      await rm(dirname(home), { recursive: true, force: true })
     }
   })
 })

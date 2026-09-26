@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { benchmarkHash, blocksDuplicate, dedupe, HOLDOUT_AFTER_RUNS, ladderAdvance, nextLadder, transitionState } from '../src/index.ts'
+import { benchmarkHash, blocksDuplicate, dedupe, HOLDOUT_AFTER_RUNS, ladderAdvance, MINED_TASK, nextLadder, transitionState } from '../src/index.ts'
 import type { BenchmarkInput } from '../src/index.ts'
 
-const input = (task: string): BenchmarkInput => ({ capability: 'writer', task, gists: [], sourceSessions: [] })
+const input = (task: string): BenchmarkInput => ({ capability: 'writer', task, gists: [], sourceSessions: [], ...MINED_TASK })
 
 describe('evolution benchmark dedupe', () => {
   it('content-addresses a task by its normalized text', () => {

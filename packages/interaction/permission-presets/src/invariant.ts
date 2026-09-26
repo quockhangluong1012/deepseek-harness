@@ -3,6 +3,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import type { InvariantFailure, InvariantInstaller } from '@deepseek-ai/dsh-invariants'
+import { POLICY_ACTIONS } from '@deepseek-ai/dsh-agent-kernel'
 import { AUTO_PRESET } from './index.ts'
 
 const PACKAGE_NAME = '@deepseek-ai/dsh-permission-presets'
@@ -18,6 +19,19 @@ function validateEvent(ctx: Context, event: SessionEvent, fail: InvariantFailure
     && event.data.preset !== AUTO_PRESET
     && !ctx.permissionPresets.names.includes(event.data.preset)) {
     fail(`permission/preset names unknown preset ${JSON.stringify(event.data.preset)}`)
+  }
+  if (event.type === 'permission/rules') {
+    for (const rule of event.data.rules) {
+      // The log is a durable boundary: a rule whose action left the kernel's
+      // vocabulary, or whose resource is itself a selector, would silently
+      // widen or stop matching after a reload.
+      if (!POLICY_ACTIONS.includes(rule.action)) {
+        fail(`permission/rules names unknown action ${JSON.stringify(rule.action)}`)
+      }
+      if (rule.resource === '' || /[*?]/.test(rule.resource)) {
+        fail(`permission/rules names a resource that is not a literal: ${JSON.stringify(rule.resource)}`)
+      }
+    }
   }
 }
 

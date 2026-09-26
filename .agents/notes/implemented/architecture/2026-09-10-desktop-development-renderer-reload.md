@@ -47,4 +47,4 @@ The generated configuration catalog enumerates package entry points, so the watc
 
 ## Testing
 
-`apps/desktop/tests/desktop-host-development-reload.spec.ts` pins the development patch layer and the artifact watcher: a rewritten shell document reports once and stops after dispose, a bundle rebuild reports through the subscription, and a throwing observer does not end the poll. `apps/desktop/tests/host-process.spec.ts` carries a `renderer-rebuilt` announcement over the real child-process IPC channel to the registered listener. `packages/client/hmr/tests/node-half.client.spec.ts` mounts the watch-only row against a context with no `webServer` service and proves it reports a rebuilt bundle and stops on disposal.
+The development patch layer this record introduced is gone from the desktop host along with its specs. `packages/client/hmr/tests/node-half.client.spec.ts` retains the bundle-rebuild coverage: it mounts the watch-only row against a context with no `webServer` service and proves it reports a rebuilt bundle and stops on disposal.

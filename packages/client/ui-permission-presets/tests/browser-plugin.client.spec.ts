@@ -40,7 +40,7 @@ const CATALOG: PermissionCatalog = {
     {
       value: 'auto',
       name: 'Auto review',
-      description: 'Run without a sandbox after an experimental same-model review of every native tool call and PTC inner call.',
+      description: 'Host-provided Auto copy.',
     },
   ],
 }
@@ -202,8 +202,7 @@ describe('ui-permission browser plugin', () => {
     const again = await b.popup().options(proj, new AbortController().signal)
     expect(again.find(option => option.id === 'workspace-write')?.active).toBe(true)
     expect(again.find(option => option.id === 'read-only')?.detail).toBe('Reads only.')
-    expect(again.find(option => option.id === 'auto')?.detail)
-      .toBe('Run without a sandbox after an experimental same-model review of every native tool call and PTC inner call.')
+    expect(again.find(option => option.id === 'auto')?.detail).toBe(accessEn['auto.description'])
     // English built-ins use product labels; other kebab-case names title-case.
     expect(again.map(option => option.label)).toEqual(['Read Only', 'Workspace Write', 'Full access', 'Auto review'])
     expect(again.find(option => option.id === 'danger-full-access')?.confirmation).toEqual({
@@ -308,8 +307,7 @@ describe('ui-permission browser plugin', () => {
     const proj = { sessionId: sid('s1') }
     b.values.set(sid('s1'), { currentValue: 'workspace-write' })
     const options = await b.popup().options(proj, new AbortController().signal)
-    expect(options.find(option => option.id === 'auto')?.detail)
-      .toBe('无沙箱运行；每次原生工具调用和 PTC 内层调用前由同一模型进行实验性审查。')
+    expect(options.find(option => option.id === 'auto')?.detail).toBe(accessZh['auto.description'])
   })
 
   it('a pick submits the /permission line; rejection and unmatched throw', async () => {

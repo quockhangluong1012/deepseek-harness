@@ -1,0 +1,24 @@
+enOnly: 1
+   packages/subagent/tool-subagent/README.md
+zhOnly: 1
+   packages/runtime/agent-kernel-builtins/README.md
+both: 7
+   docs/persistence-catalog.md
+   docs/subsystems/permission-presets.md
+   docs/subsystems/README.md
+   packages/evolution/command-evolution/README.md
+   packages/evolution/evolution-graph/README.md
+   packages/evolution/evolution-optimizer/README.md
+   packages/session-query/session-query/README.md
+malformed: 0
+missingSide: 0
+
+RECORDABLE (both/zhOnly):
+docs/persistence-catalog.md
+docs/subsystems/permission-presets.md
+docs/subsystems/README.md
+packages/evolution/command-evolution/README.md
+packages/evolution/evolution-graph/README.md
+packages/evolution/evolution-optimizer/README.md
+packages/session-query/session-query/README.md
+packages/runtime/agent-kernel-builtins/README.md

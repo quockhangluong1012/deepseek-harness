@@ -5,7 +5,7 @@
  * @module @deepseek-ai/dsh-hook-protocol/codec
  */
 
-import type { HookOutput } from './types.ts'
+import type { HookOutput, HookRequestPatch } from './types.ts'
 
 /** The exit code a hook uses to signal a blocking error (stderr → model). */
 const BLOCKING_EXIT_CODE = 2
@@ -69,23 +69,42 @@ export function parseHookOutput(exitCode: number | undefined, stdout: string, st
   }
 
   // Structured stdout is valid only for a clean exit.
-  if (exitCode === 0) {
-    // Only attempt JSON when stdout looks like a JSON object — matches the
-    // reference engines, which treat other stdout as plain text, not an error.
-    if (trimmedOut.startsWith('{')) {
-      let parsed: Record<string, unknown> | undefined
-      try {
-        parsed = obj(JSON.parse(trimmedOut))
-      } catch {
-        // Malformed JSON on a clean exit = no structured output (lenient, as the
-        // reference engines are). The plain stdout remains the bridge's to use.
-        parsed = undefined
-      }
-      if (parsed) applyStructured(output, parsed, expectedEventName)
-    }
-  }
+  if (exitCode === 0) decodeStructured(output, trimmedOut, expectedEventName)
 
   return output
+}
+
+/**
+ * Decode a hook TRANSPORT's clean response body — an HTTP hook's response body,
+ * which has no process exit code. The body follows the same rules as a
+ * command hook's clean-exit stdout: JSON when it looks like an object, plain
+ * text otherwise.
+ * @param body - the response body text.
+ * @param expectedEventName - firing event used to guard hook-specific fields; omit to disable the guard.
+ * @returns the decoded outcome with no exit code and empty stderr.
+ */
+export function parseHookBody(body: string, expectedEventName?: string): HookOutput {
+  const trimmed = body.trim()
+  const output: HookOutput = { exitCode: undefined, stderr: '', stdout: trimmed }
+  decodeStructured(output, trimmed, expectedEventName)
+  return output
+}
+
+/**
+ * Fold a clean-exit stdout (or clean HTTP response body) into `output`: JSON
+ * only when the text looks like an object, so other stdout stays plain text.
+ */
+function decodeStructured(output: HookOutput, trimmedOut: string, expectedEventName?: string): void {
+  if (!trimmedOut.startsWith('{')) return
+  let parsed: Record<string, unknown> | undefined
+  try {
+    parsed = obj(JSON.parse(trimmedOut))
+  } catch {
+    // Malformed JSON on a clean exit = no structured output (lenient, as the
+    // reference engines are). The plain stdout remains the bridge's to use.
+    parsed = undefined
+  }
+  if (parsed) applyStructured(output, parsed, expectedEventName)
 }
 
 /**
@@ -130,5 +149,37 @@ function applyStructured(output: HookOutput, parsed: Record<string, unknown>, ex
     if (addCtx !== undefined) output.additionalContext = addCtx
     const updated = obj(hso.updatedInput)
     if (updated !== undefined) output.updatedInput = updated
+    const request = requestPatchOf(hso.request)
+    if (request !== undefined) output.requestPatch = request
+    const allowTools = allowToolsOf(hso.allowTools)
+    if (allowTools !== undefined) output.allowTools = allowTools
   }
+}
+
+/**
+ * Read the model-level `request` patch: only the declared keys with a valid
+ * value are kept, so a hook cannot smuggle a field the loop does not own.
+ * `unsafe` (above the allocation-safe integer range) and non-positive caps fall
+ * back to the unchanged request.
+ */
+function requestPatchOf(value: unknown): HookRequestPatch | undefined {
+  const raw = obj(value)
+  if (raw === undefined) return undefined
+  const patch: HookRequestPatch = {}
+  const provider = str(raw, 'provider')
+  if (provider !== undefined && provider.length > 0) patch.provider = provider
+  const model = str(raw, 'model')
+  if (model !== undefined && model.length > 0) patch.model = model
+  const reasoningEffort = str(raw, 'reasoningEffort')
+  if (reasoningEffort !== undefined && reasoningEffort.length > 0) patch.reasoningEffort = reasoningEffort
+  const maxTokens = raw.maxTokens
+  if (typeof maxTokens === 'number' && Number.isSafeInteger(maxTokens) && maxTokens > 0) patch.maxTokens = maxTokens
+  return Object.keys(patch).length > 0 ? patch : undefined
+}
+
+/** Read the tool allow-list: every entry must be a name, else the field is unusable. */
+function allowToolsOf(value: unknown): string[] | undefined {
+  return Array.isArray(value) && value.every(name => typeof name === 'string')
+    ? [...value]
+    : undefined
 }

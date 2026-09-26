@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { assembleContextFor } from '@deepseek-ai/dsh-agent'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
+import { CompactionId } from '@deepseek-ai/dsh-compaction'
 import { AgentContextService } from '../src/index.ts'
 import { admitStep, eventsOf, makeAgent, rig } from './rig.ts'
 
@@ -170,16 +171,16 @@ describe('budget hysteresis (S1 point 5)', () => {
       async () => [{ id: 'n1', text, relevance: 1 }],
     )
 
-    const first = await service.compile(agent, { sections: [], contexts: [] })
+    const first = await service.compile(agent, { sections: [], contexts: [], tools: [], variables: {} })
     expect(first.included.map(entry => entry.source.id)).toEqual(['notes:n1'])
 
     // Grows well past the 6-token ceiling; a fresh cut would drop it.
     text = 'this is a much longer note that no longer fits the same ceiling'
-    const second = await service.compile(agent, { sections: [], contexts: [] })
+    const second = await service.compile(agent, { sections: [], contexts: [], tools: [], variables: {} })
     expect(second.included.map(entry => entry.source.id)).toEqual(['notes:n1'])
 
-    agent.session.append('compaction/end', { compactionId: 'c1', turn: null })
-    const third = await service.compile(agent, { sections: [], contexts: [] })
+    agent.session.append('compaction/end', { compactionId: CompactionId('c1'), turn: null })
+    const third = await service.compile(agent, { sections: [], contexts: [], tools: [], variables: {} })
     expect(third.omitted).toContainEqual({ id: 'notes:n1', reason: 'budget' })
   })
 })

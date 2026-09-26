@@ -1,5 +1,5 @@
 ---
-description: "把任务内的研究证据与主张写入会话日志，并记录来源引用、信任标签与证据关联状态。"
+description: "把任务内的研究证据、主张与待检验问题写入会话日志，并记录来源引用、信任标签与证据关联状态。"
 kind: "package-reference"
 ---
 
@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-通过任务的持久会话日志记录研究观察与主张。`record_evidence` 保存来源引用与可选摘要；`record_claim` 引用同一会话中已记录的证据。两个工具都要求当前任务已挂载 Kernel，`maxTextChars` 会限制写入文本长度。
+通过任务的持久会话日志记录研究观察、主张与待检验问题。`record_evidence` 保存来源引用与可选摘要；`record_claim` 引用同一会话中已记录的证据；`record_hypothesis` 陈述这些主张所针对的问题。每个工具都要求当前任务已挂载 Kernel，`maxTextChars` 会限制写入文本长度。
 
 ## 目录
 
@@ -25,11 +25,11 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用本包
 
-把插件挂在 `tools` 旁；它注册两个面向模型的工具，并在调用时通过 `agentKernel` 写入记录。
+把插件挂在 `tools` 旁；它注册三个面向模型的工具，并在调用时通过 `agentKernel` 写入记录。
 
 ### 何时选择它
 
-当研究任务需要持久、可追溯的观察与主张，而非只留在对话记录中的结论时选择它。若调用方没有由 Kernel 管理的任务契约，则不要使用。
+当研究任务需要持久、可追溯的观察、主张与未决问题时选择它，而非只留在对话记录中的结论。若调用方没有由 Kernel 管理的任务契约，则不要使用。
 
 ### 最小配置
 
@@ -43,7 +43,7 @@ kind: "package-reference"
 
 | 字段 | 默认值 | 含义 |
 |---|---|---|
-| `maxTextChars` | `2000` | 记录内容引用、摘要或主张陈述时允许的最大 UTF-16 字符数 |
+| `maxTextChars` | `2000` | 记录内容引用、摘要、主张陈述或假设问题时允许的最大 UTF-16 字符数 |
 
 生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-tool-evidence)列出所有可接受字段。缺少 `agentKernel` 或调用方任务时，每次工具调用都会失败，而不是丢弃记录。
 
@@ -55,7 +55,7 @@ kind: "package-reference"
 <details>
 <summary>实现细节——点击展开</summary>
 
-工具在参数边界校验模型输入、限制所记录文本的长度，并调用 Kernel 的任务级记录方法。Kernel 会拒绝引用本会话未记录证据的主张，并追加 `evidence/recorded` 或 `claim/updated`；证据只保存位置与可选摘要，不复制观察内容。
+工具在参数边界校验模型输入、限制所记录文本的长度，并调用 Kernel 的任务级记录方法。Kernel 会拒绝指向本会话中并不存在的记录的引用，并追加 `evidence/recorded`、`claim/updated` 或 `hypothesis/updated`；证据只保存位置与可选摘要，不复制观察内容。
 
 | 文件 | 作用 |
 |---|---|
@@ -68,7 +68,7 @@ kind: "package-reference"
 <a id="further-exploration"></a>
 ## 进一步探索
 
-- [Agent kernel](../agent-kernel/README.zh.md) — 任务级证据与主张、信任标签及持久事件账本。
+- [Agent kernel](../agent-kernel/README.zh.md) — 任务级证据、主张与假设记录、信任标签及持久事件账本。
 - [生成的工具目录](../../../docs/tool-catalog.zh.md#deepseek-aidsh-tool-evidence) — 模型可见的精确 schema 与描述。
 
 -----
@@ -76,15 +76,15 @@ kind: "package-reference"
 <a id="model-experience"></a>
 ## 模型体验
 
-### 证据与主张工具
+### 证据、主张与假设工具
 
 #### 模型看到什么
 
-模型会看到[工具目录](../../../docs/tool-catalog.zh.md#deepseek-aidsh-tool-evidence)中生成的 `record_evidence` 与 `record_claim` schema。证据工具记录来源类型与 `contentRef`，并可带 `digest` 与 `trust`；主张工具记录陈述与置信度，并可带 `evidenceIds` 与状态。工具描述会说明何时记录，并指出没有证据的主张仍只是提议。
+模型会看到[工具目录](../../../docs/tool-catalog.zh.md#deepseek-aidsh-tool-evidence)中生成的 `record_evidence`、`record_claim` 与 `record_hypothesis` schema。证据工具记录来源类型与 `contentRef`，并可带 `digest` 与 `trust`；主张工具记录陈述与置信度，并可带 `evidenceIds` 与状态；假设工具记录问题，并可带 `claimIds` 与状态。工具描述会说明何时记录，指出没有证据的主张仍只是提议，并说明假设记录的是任务仍在回答的问题。
 
 #### Token 影响
 
-只要工具可见，两个 schema 就会加入请求。调用会返回所记录的标识及受长度限制的位置或陈述；插件不添加提示文本。
+只要工具可见，三个 schema 就会加入请求。调用会返回所记录的标识及受长度限制的位置、陈述或问题；插件不添加提示文本。
 
 #### KV Cache 影响
 
@@ -97,6 +97,7 @@ kind: "package-reference"
 - **引用不会保存内容。** 日志记录位置与可选摘要；供后续复查的文件、结果或 URL 仍须可访问。
 - **信任只是元数据，不是权威。** 模型提供的信任标签或摘要不能证明内容为真，也不能授予能力。
 - **主张只属于当前会话。** 主张只能引用本任务会话记录的证据；跨会话晋升由单独的准入流程负责。
+- **假设自身不记录检验。** `record_hypothesis` 承载问题与支撑它的主张；用于判定的验证留在 Kernel 的验证路径上，因此模型记录的每个假设的 `tests` 目前都为空。
 
 <a id="dev-note"></a>
 ### 开发备注

@@ -1325,4 +1325,17 @@ describe('resolveModel cost surfacing', () => {
     expect(info.cost?.inputPerMTok).toBe(model.cost.input)
     expect(info.cost?.outputPerMTok).toBe(model.cost.output)
   })
+
+  it('answers the synchronous price lookup with the same rates, and none for an unresolvable route', async () => {
+    const model = getBuiltinModels('openai').find(entry => entry.cost.input > 0 || entry.cost.output > 0
+      || entry.cost.cacheRead > 0 || entry.cost.cacheWrite > 0)
+    if (model === undefined) throw new Error('the installed openai catalog needs a priced model for this test')
+    const ctx = await bootWithSettings({ providers: { openai: { apiKeyEnv: KEY_ENV } } })
+
+    expect(ctx.llm.modelCost('openai', model.id))
+      .toEqual((await ctx.llm.resolveModelInfo('openai', model.id)).cost)
+    // A model the deployment cannot resolve declares no price rather than
+    // failing the lookup a fold is running.
+    expect(ctx.llm.modelCost('openai', 'not-in-the-installed-catalog')).toBeUndefined()
+  })
 })

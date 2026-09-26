@@ -129,16 +129,16 @@ export function apply(ctx: Context, config: Config): void {
     'agent-instructions.projectionLifecycle',
   )
 
-  ctx.inject(['agentContext'], compilerCtx => {
+  ctx.inject(['agentContext'], (compilerCtx) => {
     compilerCtx.effect(() => compilerCtx.agentContext.register({
       producer: 'agent-instructions',
       kind: 'policy',
       trust: 'untrusted',
       placement: 'delta',
       maxBytes: resolved.maxBytes,
-    }, async (agent, signal) => {
+    }, (agent, signal) => {
       signal.throwIfAborted()
-      return instructionItems(agent)
+      return Promise.resolve(instructionItems(agent))
     }))
   })
   // Emit listeners are not awaited, so each projection must compose against the
@@ -188,6 +188,7 @@ export function apply(ctx: Context, config: Config): void {
         maxBytes: resolved.maxBytes,
         maxSourceBytes: resolved.maxSourceBytes,
         maxTotalSourceBytes: resolved.maxTotalSourceBytes,
+        maxImportDepth: resolved.maxImportDepth,
         instructionFileCandidates: resolved.instructionFileCandidates,
         localInstructionFileCandidates: resolved.localInstructionFileCandidates,
         projectRoot,

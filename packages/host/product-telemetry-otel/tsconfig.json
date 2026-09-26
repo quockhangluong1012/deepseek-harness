@@ -16,6 +16,21 @@
     },
     {
       "path": "../../../vendor/schemastery"
+    },
+    {
+      "path": "../../core/session"
+    },
+    {
+      "path": "../../interaction/user-approval"
+    },
+    {
+      "path": "../../llm/llm"
+    },
+    {
+      "path": "../../session/session-telemetry"
+    },
+    {
+      "path": "../../session/usage-ledger"
     }
   ]
 }

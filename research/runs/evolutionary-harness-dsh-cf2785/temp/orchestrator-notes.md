@@ -8,5 +8,5 @@
 - Injector (`evolution-memory-context/src/index.ts`): agent/pre-step, digest compare triple-gate (injectedDigests map, claimed batch, newestLoggedDigest), absent record → digest 'empty' → nothing, empty sections → nothing, outside workspace → nothing. Nudges: memory every 1 turn, skills every 10 turns.
 - Composition: evolution rows ONLY in web-app bundle (profile default shared by reviewer/injector/commands/controller), base untouched → headless/sdk/acp byte-identical until adopted.
 - 4 investigators fanned out (memory / reviewer / curator-controller-journey / trajectory-scorer-wiring). Awaiting returns; then coverage-gaps + redundancy-audit + ranking commands.
-- Expected tensions: "memory trigger" vs "evolution save trigger" conflation; timeline as table vs read-model; brief vs recall vs compaction; foreground vs background_review provenance.
+- Expected tensions: "memory trigger" vs "evolution save trigger" conflation; timeline as table vs read-model; brief vs recall vs compaction; foreground vs background_review creator.
 - Verified via grep: only production caller of evolution `recordOutputs` is reviewer index.ts:849 (rest are workspace-memory mirror, tests, .d.ts). L1 position stands. Note: workspace-memory (+llm) is a parallel legacy mirror worth one line in report §7.

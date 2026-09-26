@@ -1,0 +1,61 @@
+{
+  "runRequirement": "live-model",
+  "tasks": [
+    {
+      "profile": "coding",
+      "stepSpan": 10,
+      "capability": "long-horizon-refactor",
+      "task": "Refactor one module into smaller units in named steps, keeping its public API and its package's test suite green after every step.",
+      "acceptance": "After each step the touched package's tests pass; the module's public API is unchanged; the final diff touches no file outside the module."
+    },
+    {
+      "profile": "research",
+      "stepSpan": 10,
+      "capability": "long-horizon-research",
+      "task": "Build an evidence-backed answer over ten or more steps, keeping a claim ledger that survives an intermediate context compaction.",
+      "acceptance": "After the compaction the run restates every earlier claim with its evidence; no claim is dropped or silently changed across the run."
+    },
+    {
+      "profile": "coding",
+      "stepSpan": 20,
+      "capability": "workflow-stage-discipline",
+      "task": "Deliver a change through the coding lifecycle stages — map, contract, implement, review, regression — and do not leave a stage until its exit is met.",
+      "acceptance": "The trace holds the stages in order with their exits; no implementation step precedes the contract; the regression stage runs the package's suite on the final state."
+    },
+    {
+      "profile": "mentor",
+      "stepSpan": 20,
+      "capability": "long-horizon-teaching",
+      "task": "Teach one concept over twenty or more steps with interleaved exercises, reassessing the learner after every third exercise.",
+      "acceptance": "Every third exercise is followed by a reassessment that cites the learner's own answer; the learner record is updated at the end with what the reassessments showed."
+    },
+    {
+      "profile": "coding",
+      "stepSpan": 50,
+      "capability": "multi-module-migration",
+      "task": "Migrate every caller of an interface to its replacement across a large workspace, one package at a time, keeping the tree buildable after each package.",
+      "acceptance": "After every package the tree typechecks and that package's tests pass; no compatibility shim remains in the final tree; no caller of the replaced interface survives."
+    },
+    {
+      "profile": "research",
+      "stepSpan": 50,
+      "capability": "long-horizon-synthesis",
+      "task": "Answer a broad question across fifty or more steps of search and synthesis, preserving the claim ledger, the source classes, and the contradiction record as the answer is built.",
+      "acceptance": "The final answer carries claims, source classes, and recorded contradictions gathered across the run; the run reports its step count, token spend, and context pressure from the trace rather than from memory."
+    },
+    {
+      "profile": "coding",
+      "stepSpan": 100,
+      "capability": "long-horizon-delivery",
+      "task": "Deliver a multi-package feature over a hundred or more steps, verifying before every completion claim, checkpointing so an interruption is resumable, and recovering from the interruption the run is given.",
+      "acceptance": "The run resumes from its checkpoint after the interruption; every completion claim is preceded by the verification it rests on; step count, cost, and context pressure are reported at the end."
+    },
+    {
+      "profile": "ict",
+      "stepSpan": 120,
+      "capability": "long-horizon-case-program",
+      "task": "Analyse a series of case studies over a hundred or more steps, keeping one case record consistent across the series and restating earlier conclusions when a later case contradicts them.",
+      "acceptance": "The record stays consistent across cases; a contradicting case produces a restatement of the earlier conclusion rather than a silent override; every case uses the section contract."
+    }
+  ]
+}

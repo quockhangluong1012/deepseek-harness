@@ -21,7 +21,7 @@ import type { WorkspaceChanges } from './types.ts'
 
 export type {
   WorkspaceChangedFile, WorkspaceChanges, WorkspaceChangesSummary, WorkspaceDiffHunk, WorkspaceFileDiff,
-  WorkspaceRestoreResult, WorkspaceRestoreSkip,
+  WorkspaceHunkApplyResult, WorkspaceHunkDecision, WorkspaceRestoreResult, WorkspaceRestoreSkip,
 } from './types.ts'
 
 /** Stable Loader identity. */
@@ -115,6 +115,8 @@ export function apply(ctx: Context, config: Config): void {
   const service: WorkspaceChanges = {
     summary: (sessionId, seq) => byId.get(sessionId)?.summary(seq),
     diff: (sessionId, seq, index, signal) => byId.get(sessionId)?.diff(seq, index, signal) ?? Promise.resolve(undefined),
+    applyHunks: (sessionId, seq, index, decisions, signal) =>
+      byId.get(sessionId)?.applyHunks(seq, index, decisions, signal) ?? Promise.resolve(undefined),
     restore: (sessionId, seq, signal) => byId.get(sessionId)?.restore(seq, signal) ?? Promise.resolve(undefined),
   }
   ctx.provide('workspaceChanges', service)

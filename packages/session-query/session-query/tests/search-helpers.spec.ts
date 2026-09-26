@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { createUserMessage, ToolCallId , createMessage, createToolResultMessage } from '@deepseek-ai/dsh-llm'
-import type { ContextFormed } from '@deepseek-ai/dsh-llm'
+import type { ContextFormed, UserMessage } from '@deepseek-ai/dsh-llm'
+import { brandString } from '@deepseek-ai/dsh-brand'
 import SessionStore, {
   SESSION_FORMAT_VERSION,
   SessionId,
@@ -122,6 +123,29 @@ describe('session-query semantic extraction', () => {
     expect(extractSessionEventText(events[4]!)).toBe('failed\nOops\nE_OOPS')
     expect(extractSessionEventText(events[5]!)).toBe('')
     expect(extractSessionEventText(events[6]!)).toBe('in_progress\nship search')
+  })
+
+  it('excludes memory-producer messages and keeps genuine user messages searchable', () => {
+    type MemorySource = Extract<UserMessage['source'], { kind: 'active-memory' | 'evolution-memory' | 'session-reference' | 'workspace-memory' }>
+    type EvolutionMemorySource = Extract<MemorySource, { kind: 'evolution-memory' }>
+    type WorkspaceMemorySource = Extract<MemorySource, { kind: 'workspace-memory' }>
+    const memorySources: MemorySource[] = [
+      { kind: 'active-memory', form: 'search-result' },
+      { kind: 'evolution-memory', form: 'snapshot', scopeId: brandString<EvolutionMemorySource['scopeId']>('scope'), digest: 'digest', sections: [] },
+      { kind: 'session-reference', form: 'recall', version: 1, references: [] },
+      { kind: 'workspace-memory', form: 'instructions', workspaceId: brandString<WorkspaceMemorySource['workspaceId']>('workspace'), digest: 'digest' },
+    ]
+    const text = (source: UserMessage['source']) => extractSessionEventText({
+      type: 'user/message',
+      seq: SessionSeq(0),
+      time: 1,
+      data: createUserMessage({ content: [{ type: 'text', text: 'quoted recall' }], source }),
+      surfaceOp: 'append',
+    } as SessionEvent)
+    expect(text({ kind: 'user' })).toBe('quoted recall')
+    for (const source of memorySources) {
+      expect(text(source)).toBe('')
+    }
   })
 
   it('extracts meaningful turn outcomes and skips structural or unknown events', () => {

@@ -217,7 +217,10 @@ export function apply(ctx: Context, config: Config): void {
       }
       const result = input.operation === 'diagnostics'
         ? await ctx.lsp.query({ operation: 'diagnostics', filePath: input.filePath, workspaceRoot }, exec.signal)
-        : await ctx.lsp.query({ operation: input.operation, filePath: input.filePath, position: input.position, workspaceRoot }, exec.signal)
+        : await ctx.lsp.query(
+          { operation: input.operation, filePath: input.filePath, position: input.position, workspaceRoot },
+          exec.signal,
+        )
       switch (result.kind) {
         case 'locations':
           return {

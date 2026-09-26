@@ -1,5 +1,5 @@
 /**
- * Provenance seam tests (SPEC §12.2 slice 1): every synced MCP tool definition
+ * Tool-source seam tests (SPEC §12.2 slice 1): every synced MCP tool definition
  * carries `origin` (namespace + transport + endpoint hash, never the raw
  * endpoint), a deterministic `serverDigest`, and an undefined `capabilities`
  * placeholder. Metadata only — no approval, taint, or transport behavior.
@@ -123,7 +123,7 @@ describe('server digests', () => {
   })
 })
 
-describe('synced definition provenance', () => {
+describe('synced definition source', () => {
   let ctx: Context
 
   beforeEach(async () => {
@@ -171,7 +171,7 @@ describe('synced definition provenance', () => {
       .toBe(computeServerDigest(['greet'], '4.5.6'))
   })
 
-  it('keeps provenance across re-sync and refreshes the digest with the tool list', async () => {
+  it('keeps the server source across re-sync and refreshes the digest with the tool list', async () => {
     const client = createMockClient([{ name: 'old_tool', inputSchema: { type: 'object' } }])
     const first = await syncTools(client as never, ctx, stdioOpts, new Map())
     const firstDigest = ctx.tools.get('mcp__srv__old_tool')?.serverDigest
@@ -199,7 +199,7 @@ describe('synced definition provenance', () => {
     expect(github?.serverDigest).toBe(web?.serverDigest)
   })
 
-  it('never leaks provenance into the model-facing schemas', async () => {
+  it('never leaks the server source into the model-facing schemas', async () => {
     const client = createMockClient([{ name: 'greet', inputSchema: { type: 'object' } }])
     await syncTools(client as never, ctx, stdioOpts, new Map())
 

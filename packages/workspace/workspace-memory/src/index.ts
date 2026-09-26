@@ -219,7 +219,7 @@ export class WorkspaceMemoryStore extends Service {
    * Replace the memory document by hand or from extraction.
    * @param id - Workspace identity.
    * @param memory - replacement document.
-   * @param extraction - provenance when model-written.
+   * @param extraction - the extraction record when model-written.
    * @returns the stored record.
    */
   async setMemory(id: WorkspaceId, memory: string, extraction?: WorkspaceMemoryExtraction): Promise<WorkspaceMemoryRecord> {

@@ -59,6 +59,31 @@
     - id: agent-kernel-builtins
       name: '@deepseek-ai/dsh-agent-kernel-builtins'
 
+    # The completion gate's only verifier (§8.1): without one, a required
+    # criterion nothing claims records `unknown` and never completes. `mode`
+    # above governs tool policy, not the gate — verification runs in `shadow`
+    # too — so a deployment that declares the criteria these ids claim gets a
+    # binding verdict. The commands name this workspace's own package.json
+    # scripts; the kernel wraps every verifier in `verifierTimeoutMs` (60s by
+    # default, on the `agent-kernel` row), so a deployment whose checks
+    # outlast that raises both the timeouts here and that ceiling.
+    - id: command-verifiers
+      name: '@deepseek-ai/dsh-command-verifiers'
+      config:
+        verifiers:
+          typecheck:
+            command: pnpm run typecheck
+            timeoutMs: 60000
+            expectedExitCodes: [0]
+          lint:
+            command: pnpm run lint
+            timeoutMs: 60000
+            expectedExitCodes: [0]
+          test:
+            command: pnpm run test
+            timeoutMs: 60000
+            expectedExitCodes: [0]
+
     - id: prompt-injection
       name: '@deepseek-ai/dsh-prompt-injection'
       config:
@@ -112,13 +137,25 @@
     - id: workspace
       name: '@deepseek-ai/dsh-workspace'
 
+    # Deployment-level scheduled routines: durable definitions that start a new
+    # Workspace-backed Session each time one comes due. They run while this
+    # process is up, so the Desktop app's tray keeps them alive.
+    - id: schedule-routines
+      name: '@deepseek-ai/dsh-schedule-routines'
+      config:
+        tickSeconds: 30
+        agentPreset: standard
+        permissionPreset: workspace-write
+        maxRoutines: 25
+
+    # User-edited notes only. The per-turn LLM extraction and rebuild pass is
+    # deliberately unmounted: `evolution-reviewer` already runs the one
+    # extraction pass per turn and owns the produced-file index, so a second
+    # rubric over the same transcript only duplicates spend and writes.
     - id: workspace-memory
       name: '@deepseek-ai/dsh-workspace-memory'
       config:
         capacityBytes: 131072
-
-    - id: workspace-memory-llm
-      name: '@deepseek-ai/dsh-workspace-memory-llm'
 
     - id: workspace-memory-context
       name: '@deepseek-ai/dsh-workspace-memory-context'
@@ -227,18 +264,18 @@
     # `/budget`, `/router`, and `/meta` read them.
     - id: evolution-operators
       name: '@deepseek-ai/dsh-evolution-operators'
+      config: {}
 
     - id: evolution-evaluator-strategy
       name: '@deepseek-ai/dsh-evolution-evaluator-strategy'
+      config: {}
 
     - id: evolution-budget
       name: '@deepseek-ai/dsh-evolution-budget'
-
-    - id: evolution-router
-      name: '@deepseek-ai/dsh-evolution-router'
-
+      config: {}
     - id: evolution-meta
       name: '@deepseek-ai/dsh-evolution-meta'
+      config: {}
 
     # Measurement and offline optimization: `evolution-scorer` turns one
     # recorded corpus scenario into the metric triple the optimizer selects on,
@@ -267,6 +304,7 @@
     # before the command plane that reads it.
     - id: evolution-metrics
       name: '@deepseek-ai/dsh-evolution-metrics'
+      config: {}
 
     - id: command-evolution
       name: '@deepseek-ai/dsh-command-evolution'
@@ -343,6 +381,7 @@
     # domain and reaches no model prompt.
     - id: evolution-stagnation
       name: '@deepseek-ai/dsh-evolution-stagnation'
+      config: {}
 
     # Island evolution: the optimizer advances generation ticks on the skill's
     # head island here, and the command plane registers lanes, records
@@ -350,6 +389,7 @@
     # only its own island domains and reaches no model prompt.
     - id: evolution-islands
       name: '@deepseek-ai/dsh-evolution-islands'
+      config: {}
 
     # Controlled self-model: the optimizer records each staged winner as one
     # capability observation here, and the command plane reads the weakest-first
@@ -357,6 +397,7 @@
     # writes only its own capability domains and reaches no model prompt.
     - id: evolution-self-model
       name: '@deepseek-ai/dsh-evolution-self-model'
+      config: {}
 
     # Uncertainty-driven learning: the scorer records evaluator disagreement
     # signals here, and the command plane reads the prioritized evaluation
@@ -364,6 +405,7 @@
     # reaches no model prompt.
     - id: evolution-uncertainty
       name: '@deepseek-ai/dsh-evolution-uncertainty'
+      config: {}
 
     # Adversarial evolution: the command plane records adversarial probes,
     # reads the next probing challenge, and tracks the evaluator-gaming
@@ -371,6 +413,7 @@
     # domains and reaches no model prompt.
     - id: evolution-adversary
       name: '@deepseek-ai/dsh-evolution-adversary'
+      config: {}
 
     # Dependency-aware lineage: the optimizer records each staged write as a
     # dependency-versioned experiment envelope here, and the command plane
@@ -386,6 +429,7 @@
     # reaches no model prompt.
     - id: evolution-sleeptime
       name: '@deepseek-ai/dsh-evolution-sleeptime'
+      config: {}
 
     # Actuation: the loops that act on what the stores above recorded —
     # ending a live rollout on its measured evidence, migrating an island whose
@@ -739,6 +783,11 @@
 
     - id: ui-commands
       name: '@deepseek-ai/dsh-client-ui-commands'
+
+    # Window keymap: the configurable chords that open the command palette
+    # (the '/' menu above) and return focus to the composer.
+    - id: ui-keybindings
+      name: '@deepseek-ai/dsh-client-ui-keybindings'
 
     - id: ui-skill
       name: '@deepseek-ai/dsh-client-ui-skill'

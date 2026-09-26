@@ -72,8 +72,8 @@ describe('readVectors', () => {
 describe('http embeddings provider', () => {
   it('posts the batch to the endpoint base and returns the vectors', async () => {
     const { provider, sent } = providerHarness(() => jsonResponse({ data: [{ embedding: [0.5, 0.25] }] }))
-    const vectors = await provider.embed(spec, ['hello'])
-    expect(vectors).toEqual([[0.5, 0.25]])
+    const batch = await provider.embed(spec, ['hello'])
+    expect(batch).toEqual({ model: 'embed-model', vectors: [[0.5, 0.25]] })
     expect(sent[0]?.url).toBe('https://embed.example/v1/embeddings')
     expect(sent[0]?.init.method).toBe('POST')
     expect(JSON.parse(sent[0]?.init.body as string)).toEqual({ model: 'embed-model', input: ['hello'] })
@@ -115,15 +115,21 @@ describe('http embeddings provider', () => {
       },
       { fallbackModel: 'fallback-model' },
     )
-    const vectors = await provider.embed(spec, ['x'])
-    expect(vectors).toEqual([[2]])
-    expect(sent.map(request => (JSON.parse(request.init.body as string) as { model: string }).model)).toEqual(['embed-model', 'fallback-model'])
+    const batch = await provider.embed(spec, ['x'])
+    // The fallback produced the vectors, so the batch names the fallback rather
+    // than the model the caller asked for.
+    expect(batch).toEqual({ model: 'fallback-model', vectors: [[2]] })
+    expect(sent.map(request => JSON.parse(request.init.body as string) as { model: string; input: string[] })).toEqual([
+      { model: 'embed-model', input: ['x'] },
+      { model: 'fallback-model', input: ['x'] },
+    ])
   })
   it('leaves the fallback untouched when the primary request succeeds', async () => {
     const { provider, sent } = providerHarness(() => jsonResponse({ data: [{ embedding: [1] }] }), {
       fallbackModel: 'fallback-model',
     })
-    await provider.embed(spec, ['x'])
+    const batch = await provider.embed(spec, ['x'])
+    expect(batch.model).toBe('embed-model')
     expect(sent).toHaveLength(1)
   })
 
@@ -221,6 +227,43 @@ describe('http embeddings plugin', () => {
       globalThis.fetch = original
     }
     expect(models).toEqual(['primary-model', 'fallback-model'])
+  })
+
+  it('never reads a fallback vector back under the primary model', async () => {
+    let calls = 0
+    const original = globalThis.fetch
+    globalThis.fetch = ((_url: string | URL, init?: RequestInit) => {
+      calls += 1
+      const { model } = JSON.parse(init?.body as string) as { model: string }
+      return Promise.resolve(calls === 1
+        ? new Response('overloaded', { status: 529 })
+        : jsonResponse({ data: [{ embedding: model === 'fallback-model' ? [2] : [9] }] }))
+    }) as unknown as typeof globalThis.fetch
+    try {
+      const { ctx } = await harness({
+        baseURL: 'https://e.example',
+        model: 'primary-model',
+        fallbackModel: 'fallback-model',
+      })
+      const embeddings = embeddingsOf(ctx)
+      const served = await embeddings.embed({ texts: ['x'] })
+      expect(served).toMatchObject({ spec: { provider: 'http', model: 'fallback-model' }, vectors: [[2]] })
+      // The primary model's key holds nothing: the fallback produced that
+      // vector, so a later primary-model request embeds the text again.
+      const again = await embeddings.embed({ texts: ['x'] })
+      expect(again).toMatchObject({
+        spec: { provider: 'http', model: 'primary-model' },
+        vectors: [[9]],
+        cached: 0,
+        embedded: 1,
+      })
+      // The fallback's own key holds it.
+      const asFallback = await embeddings.embed({ texts: ['x'], model: 'fallback-model' })
+      expect(asFallback).toMatchObject({ cached: 1, embedded: 0, vectors: [[2]] })
+      expect(calls).toBe(3)
+    } finally {
+      globalThis.fetch = original
+    }
   })
 
   it('resolves a configured credential reference for every batch', async () => {

@@ -1,6 +1,7 @@
 # The control-plane layer of a profile: the agent kernel, the built-in
-# capability declarations it needs to govern real traffic, and the
-# prompt-injection guard. Inserted by a profile that wants the governance plane;
+# capability declarations it needs to govern real traffic, the criterion
+# verifiers its completion gate delegates to, and the prompt-injection guard.
+# Inserted by a profile that wants the governance plane;
 # nothing here is part of dsh-base, so a deployment opts in by listing this
 # bundle in its profile.
 #
@@ -26,9 +27,42 @@
     - id: agent-kernel-builtins
       name: '@deepseek-ai/dsh-agent-kernel-builtins'
 
+    # The completion gate's only verifier (§8.1): without one, a required
+    # criterion nothing claims records `unknown` and never completes. `mode`
+    # above governs tool policy, not the gate — verification runs in `shadow`
+    # too — so a deployment that declares the criteria these ids claim gets a
+    # binding verdict. The commands name the workspace's own package.json
+    # scripts; the kernel wraps every verifier in `verifierTimeoutMs` (60s by
+    # default, on the `agent-kernel` row), so a deployment whose checks
+    # outlast that raises both the timeouts here and that ceiling.
+    - id: command-verifiers
+      name: '@deepseek-ai/dsh-command-verifiers'
+      config:
+        verifiers:
+          typecheck:
+            command: pnpm run typecheck
+            timeoutMs: 60000
+            expectedExitCodes: [0]
+          lint:
+            command: pnpm run lint
+            timeoutMs: 60000
+            expectedExitCodes: [0]
+          test:
+            command: pnpm run test
+            timeoutMs: 60000
+            expectedExitCodes: [0]
+
     # The research tools write the knowledge plane through the kernel: what the
     # model records as evidence and as a claim becomes an `evidence/recorded`
     # and `claim/updated` record the task can cite, instead of prose.
+
+    # The named verifier families §8.1 asks for: `security`, `browser`, and
+    # `review` each run an independent reviewer subagent rather than a shell
+    # command, so a deployment that declares no such criterion pays nothing.
+    # The row needs no config: every knob already defaults in the plugin, and
+    # `inject` requires the `subagents` service the governance plane mounts.
+    - id: agent-verifiers
+      name: '@deepseek-ai/dsh-agent-verifiers'
     - id: tool-evidence
       name: '@deepseek-ai/dsh-tool-evidence'
 
@@ -37,5 +71,15 @@
     # they reach model context. It grants nothing and blocks nothing.
     - id: prompt-injection
       name: '@deepseek-ai/dsh-prompt-injection'
+      config:
+        mode: shadow
+
+    # Knowledge plane (S1, S2): the compiler that places and budgets context
+    # sources. Without it the sources the evidence tools and the guard record
+    # have no compiler to reach model context through, so a governance-only
+    # profile would record evidence it never places. Starts in `shadow` like
+    # the rest of this bundle.
+    - id: agent-context
+      name: '@deepseek-ai/dsh-agent-context'
       config:
         mode: shadow

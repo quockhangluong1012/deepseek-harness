@@ -161,8 +161,10 @@ function registerNamedTools(ctx: Context, names: string[]): void {
 /** Assert the mapped PTC mode SDK includes the stable plan exit binding and test tools. */
 function expectPlanPtcSdkBindings(sdk: string): void {
   expect(sdk).toContain('interface ToolArgsMap {')
-  expect(sdk).toContain('read: Record<string, JsonValue>;')
-  expect(sdk).toContain('write: Record<string, JsonValue>;')
+  // A tool that declares no parameters compiles to a closed object root, so its
+  // SDK argument type admits only the empty object.
+  expect(sdk).toContain('read: Record<string, never>;')
+  expect(sdk).toContain('write: Record<string, never>;')
   expect(sdk).toContain('interface ToolOutputMap {')
   expect(sdk).toContain('exit_plan_mode: {\n    approved: true;\n  };')
   expect(sdk).toContain('[K in ToolName]: (args: ToolArgsMap[K]) => Promise<ToolOutputMap[K]>;')

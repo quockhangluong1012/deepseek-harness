@@ -1,16 +1,17 @@
 /**
- * Pareto selection over the scorer's metric triple: pass dominates everything,
- * then fewer billed tokens, then the candidate furthest from the skill's
- * archive, then the most novel body, then less wall time. The two novelty
- * axes sit above wall time because they are the axes the run can act on:
- * among candidates that cost the same, the one whose descriptor sits furthest
- * from everything the skill has already staged is the one that explores
- * ground the frontier has not walked, and below it the one that states
- * instructions the starting body did not carry is the one that changes what
- * the skill does — while wall time over fresh replayed processes is machine
- * noise. Dominance stays primary: archive novelty orders the candidates that
- * already beat the baseline, it never promotes one that did not. Pure, so
- * specs drive the arithmetic without spawning anything.
+ * Pareto selection over the axes the scorer's triple measures as candidate
+ * quality: whether a candidate passed its corpus dominates everything, and
+ * among candidates that agree on that, fewer billed tokens by at least a
+ * relative epsilon. Wall time is deliberately not an axis — over replayed
+ * processes it measures the machine, not the candidate (amendment S9.3) — and
+ * it is measured and reported but never compared. The two novelty axes sit
+ * below them: among candidates that cost the same, the one whose descriptor
+ * sits furthest from everything the skill has already staged is the one that
+ * explores ground the frontier has not walked, and below it the one that
+ * states instructions the starting body did not carry is the one that changes
+ * what the skill does. Dominance stays primary: archive novelty orders the
+ * candidates that already beat the baseline, it never promotes one that did
+ * not. Pure, so specs drive the arithmetic without spawning anything.
  * @module @deepseek-ai/dsh-evolution-optimizer/pareto
  */
 
@@ -22,20 +23,27 @@ import type { EvaluatedVariant } from './types.ts'
 const TOKEN_EPSILON = 0.02
 
 /**
- * Whether `a` dominates `b`: at least as good on every axis, strictly better on one.
- * @param a - comparison's left score triple.
- * @param b - comparison's right score triple.
+ * The axes selection compares: whether the candidate passed its corpus and the
+ * tokens it billed. Wall time is not part of it (S9.3).
+ */
+export interface SelectionScore {
+  /** Whether every scenario the candidate ran passed. */
+  pass: boolean
+  /** Billed tokens the candidate spent. */
+  tokens: number
+}
+
+/**
+ * Whether `a` dominates `b`: a better pass state, or the same pass state at
+ * least `TOKEN_EPSILON` fewer tokens. Two bodies within the epsilon bill the
+ * same in practice, so neither dominates the other on cost alone.
+ * @param a - comparison's left measured score.
+ * @param b - comparison's right measured score.
  * @returns true when `a` is at least as good on every axis and better on one.
  */
-export function dominates(
-  a: { pass: boolean; tokens: number; wallTimeMs: number },
-  b: { pass: boolean; tokens: number; wallTimeMs: number },
-): boolean {
+export function dominates(a: SelectionScore, b: SelectionScore): boolean {
   if (a.pass !== b.pass) return a.pass
-  // Wall time is deliberately absent: it measures the machine, not the
-  // candidate (amendment S9). Two bodies within TOKEN_EPSILON of each other
-  // bill the same in practice, so neither dominates on tokens alone.
-  return a.tokens <= b.tokens * (1 + TOKEN_EPSILON) && a.tokens < b.tokens * (1 - TOKEN_EPSILON)
+  return a.tokens < b.tokens * (1 - TOKEN_EPSILON)
 }
 
 /**
@@ -52,9 +60,9 @@ export function paretoFrontier(candidates: readonly EvaluatedVariant[]): Evaluat
 /**
  * Promote the `keep` best-screened variants to a full evaluation: better pass
  * state first, then fewer billed tokens, then the candidate furthest from the
- * skill's archive, then the most novel body, then less wall time, ties broken
- * by mutation order. Screening compares candidates on the same short scenario
- * subset, so this ordering — not dominance — decides who survives.
+ * skill's archive, then the most novel body, ties broken by mutation order.
+ * Screening compares candidates on the same short scenario subset, so this
+ * ordering — not dominance — decides who survives.
  * @param screened - variants with the triple their screen scored.
  * @param keep - how many survive; the caller keeps at least one.
  * @returns survivors in mutation order.
@@ -75,15 +83,15 @@ export function screenSurvivors(screened: readonly EvaluatedVariant[], keep: num
 /**
  * Pick the winner: the frontier member that dominates the re-scored baseline,
  * breaking ties by fewer tokens, then furthest from the skill's archive, then
- * more novel body, then earlier mutation. Wall time is never an ordering key. Dominance is
- * the only gate, so a candidate that does not beat the baseline is never
- * chosen on novelty.
- * @param baseline - triple the baseline scored under the same harness.
+ * more novel body, then earlier mutation. Dominance is the only gate, so a
+ * candidate that does not beat the baseline is never chosen on novelty, and
+ * wall time is not compared at all (S9.3).
+ * @param baseline - score the baseline measured under the same harness.
  * @param candidates - evaluated variants in mutation order.
  * @returns the winning variant, or null when nothing beats the baseline.
  */
 export function pickWinner(
-  baseline: { pass: boolean; tokens: number; wallTimeMs: number },
+  baseline: SelectionScore,
   candidates: readonly EvaluatedVariant[],
 ): EvaluatedVariant | null {
   const beating = paretoFrontier(candidates).filter(variant => dominates(variant.score, baseline))

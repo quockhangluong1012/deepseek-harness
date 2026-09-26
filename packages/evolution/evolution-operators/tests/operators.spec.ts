@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { MUTATION_OPERATORS, rankOperators, recommendOperator, scoreOf, statsKey, updatedStats } from '../src/operators.ts'
+import { MUTATION_OPERATOR_CATALOG, MUTATION_OPERATORS, rankOperators, recommendOperator, scoreOf, statsKey, updatedStats } from '../src/operators.ts'
 import type { OperatorInstruction, OperatorOutcome, OperatorStats } from '../src/types.ts'
 
 const outcome = (overrides: Partial<OperatorOutcome> = {}): OperatorOutcome => ({
@@ -22,17 +22,23 @@ const stats = (overrides: Partial<OperatorStats> = {}): OperatorStats => ({
 })
 
 describe('MUTATION_OPERATORS', () => {
-  it('lists the eight canonical mutation operators in order', () => {
+  it('lists the canonical vocabulary, in order, with one instruction per operator', () => {
     expect([...MUTATION_OPERATORS]).toEqual([
       'rewrite',
-      'add-step',
+      'compress',
+      'guard',
+      'exemplify',
+      'generalize',
+      'decompose',
+      'compose',
+      'reorder',
       'remove-step',
       'change-tool',
       'change-retrieval',
       'change-evaluator',
-      'merge-candidates',
-      'adversarial-patch',
     ])
+    expect(MUTATION_OPERATOR_CATALOG.map(spec => spec.id)).toEqual([...MUTATION_OPERATORS])
+    expect(new Set(MUTATION_OPERATOR_CATALOG.map(spec => spec.instruction)).size).toBe(MUTATION_OPERATORS.length)
   })
 })
 
@@ -94,9 +100,9 @@ describe('scoreOf', () => {
 })
 
 describe('rankOperators', () => {
-  it('ranks all eight canonical operators for the class', () => {
+  it('ranks every canonical operator for the class', () => {
     const ranked = rankOperators([], 'writer', 0.2)
-    expect(ranked.map(entry => entry.operator)).toHaveLength(8)
+    expect(ranked.map(entry => entry.operator)).toHaveLength(MUTATION_OPERATORS.length)
   })
 
   it('admits an observed deployment-specific operator into the ranking', () => {
@@ -106,7 +112,7 @@ describe('rankOperators', () => {
     expect(entry).toBeDefined()
     // A well-accepted deployment operator leads the canonical priors.
     expect(ranked[0]?.operator).toBe('custom-x')
-    expect(ranked).toHaveLength(9)
+    expect(ranked).toHaveLength(MUTATION_OPERATORS.length + 1)
   })
 
   it('breaks equal untried scores by canonical order', () => {
@@ -145,15 +151,15 @@ describe('rankOperators', () => {
     const proven = ranked.find(entry => entry.operator === 'rewrite')
     expect(proven?.reason).toContain('accepted 3/4')
     expect(proven?.reason).toContain('mean delta 0.50')
-    const untried = ranked.find(entry => entry.operator === 'adversarial-patch')
+    const untried = ranked.find(entry => entry.operator === 'change-evaluator')
     expect(untried?.reason).toContain("untried on 'writer'")
   })
 })
 
 describe('recommendOperator', () => {
   it('returns the top of the ranking', () => {
-    const ranked = rankOperators([stats({ operator: 'merge-candidates', attempts: 6, accepted: 5 })], 'writer', 0.2)
-    expect(recommendOperator(ranked)?.operator).toBe('merge-candidates')
+    const ranked = rankOperators([stats({ operator: 'compose', attempts: 6, accepted: 5 })], 'writer', 0.2)
+    expect(recommendOperator(ranked)?.operator).toBe('compose')
   })
 
   it('yields undefined for an empty ranking', () => {
@@ -175,9 +181,9 @@ describe('rankOperators with instruction evidence', () => {
       at: '2026-01-01T00:00:00.000Z',
       decidedAt: '2026-01-02T00:00:00.000Z',
     }
-    const accepted = { ...rejected, operator: 'adversarial-patch', instruction: 'Attack each rule with a counterexample.', accepted: 2, rejected: 0 }
+    const accepted = { ...rejected, operator: 'compose', instruction: 'Merge each pair of overlapping rules into one that states both.', accepted: 2, rejected: 0 }
     const ranked = rankOperators([], 'writer', 0.2, { instructions: [rejected, accepted], instructionWeight: 0.2 })
-    expect(ranked[0]?.operator).toBe('adversarial-patch')
+    expect(ranked[0]?.operator).toBe('compose')
     expect(ranked[0]?.instructionAdjustment).toBeCloseTo(0.2, 10)
     expect(ranked[0]?.reason).toContain('instruction +0.200')
     // The rejected instruction sinks its operator below the untried priors.

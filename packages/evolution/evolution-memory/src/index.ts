@@ -1,10 +1,10 @@
 /**
  * Durable per-scope evolution memory store (`ctx.evolutionMemory`): the
  * user-authored instructions, the model-maintained lesson artifacts and
- * profile document with provenance and per-family stamps, attached text and
- * file context items, the produced-file index, staged writes awaiting
- * approval, and the newest-first log of decided staged entries, over the
- * `evolution_memory` domain.
+ * profile document with the extraction that wrote them and per-family
+ * stamps, attached text and file context items, the produced-file index,
+ * staged writes awaiting approval, and the newest-first log of decided
+ * staged entries, over the `evolution_memory` domain.
  *
  * Lesson artifacts are addressed by identity, which is their normalized
  * statement: `addArtifact`, `updateArtifact`, and `removeArtifact` each name
@@ -19,23 +19,33 @@
  *
  * Reads are synchronous from the domain's validated memory. Every cap is
  * checked before the write chain is entered, and a rejected write never
- * mutates the record. Stored objects never leak by reference.
+ * mutates the record. Stored objects never leak by reference. Every mutation
+ * runs under the scope's cross-process write lock (`src/scope-lock.ts`): two
+ * dsh processes whose scopes share a storage medium never rewrite one scope's
+ * record at the same time, and a contended write waits `lockWaitMs` before it
+ * fails loud with `evolution/scope-locked` instead of hanging.
  * @module @deepseek-ai/dsh-evolution-memory
  */
 
 import { randomUUID } from 'node:crypto'
 import { Context, Service } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
+import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
 import type { KvTable } from '@deepseek-ai/dsh-storage-domain'
 import { RemoteError } from '@deepseek-ai/dsh-typert-protocol'
+import { ScopeWriteLock } from './scope-lock.ts'
 import { artifactBytesOf, digestOf, usedBytesOf, utf8Bytes } from './digest.ts'
-import { artifactKey, assertDirectlyAdmissible, lessonArtifactInput, rememberOutcome } from './lesson-artifact.ts'
+import { artifactKey, assertDirectlyAdmissible, lessonArtifactInput, rememberOutcome, scrubArtifactText } from './lesson-artifact.ts'
 import type { LessonArtifact, LessonArtifactInput, LessonArtifactPatch, LessonMergeStrategy } from './lesson-artifact.ts'
+import { transitionLifecycle } from './lifecycle.ts'
+import type { LessonLifecycle } from './lifecycle.ts'
 import { cosineSimilarity, mergeArtifact, pickMergeTarget } from './merge.ts'
 import { addArtifactTo, applyLessonDecisions, artifactIdOf, freshArtifact, lessonDecision } from './decisions.ts'
-import type { LessonDecision } from './decisions.ts'
+import type { LessonDecision, LessonPolicy } from './decisions.ts'
 import { demotable, pruneEpisodic, prunable } from './maintenance.ts'
 import type { SweepResult } from './maintenance.ts'
+import { projectEvolutionMemory } from './projection.ts'
+import type { MemoryProjection } from './projection.ts'
 import { appendRecall, bindRecalls, gradeRecall, memoryUtility, recallTarget } from './recall.ts'
 import type { MemoryUtility } from './recall.ts'
 import { evolutionExtraction, evolutionMemoryDomainSpec, stagedWritePayload } from './spec.ts'
@@ -81,7 +91,13 @@ export { validateCaptureContract } from './capture-contract.ts'
 export { contractJson } from './capture-contract.ts'
 export type { CaptureContractVerdict } from './capture-contract.ts'
 export { applyLessonDecisions, lessonDecision } from './decisions.ts'
-export type { LessonDecision } from './decisions.ts'
+export type { LessonDecision, LessonPolicy } from './decisions.ts'
+export { CONFLICT_RULES, resolveConflict } from './conflict.ts'
+export type { ConflictRule, LessonConflict } from './conflict.ts'
+export { LIFECYCLE_STATES, confirmedLifecycle, lifecycleOf, nextLadderState, transitionAllowed, transitionLifecycle } from './lifecycle.ts'
+export type { LessonLifecycle } from './lifecycle.ts'
+export { projectEvolutionMemory, toMemoryFact } from './projection.ts'
+export type { MemoryFact, MemoryProjection } from './projection.ts'
 export { evolutionMemoryDomainSpec } from './spec.ts'
 export { RECALL_LABEL_PREFIX, memoryUtility, recallTarget } from './recall.ts'
 export type { MemoryUtility } from './recall.ts'
@@ -120,7 +136,7 @@ declare module '@deepseek-ai/cordis' {
      * one — fold the batch into their own state here; a listener failure is
      * their own to contain, because the batch it reports is already stored.
      *
-     * A batch applied without provenance is not published: every decision is
+     * A batch applied without an extraction record is not published: every decision is
      * attributed to the session that reported it, and a batch whose session
      * is unknown would carry unattributable evidence.
      * @param batch - scope, source session, decisions, and the artifacts they addressed.
@@ -206,6 +222,13 @@ export interface Config {
   maxRecalls?: number
   /** Minimum similarity to an existing artifact that justifies merging instead of storing separately. */
   mergeSimilarityFloor?: number
+  /**
+   * Confidence a fact needs to be admitted as durable learning, and to be
+   * promoted past `validated`. A candidate below it is refused admission, and
+   * a fact whose confidence a later contradiction lowered below it is
+   * validated but never promoted.
+   */
+  confidenceFloor?: number
   /** Hours between two maintenance sweeps of every stored scope. */
   maintenanceIntervalHours?: number
   /** Refutations at or above which decay prunes an artifact regardless of age. */
@@ -233,6 +256,16 @@ export interface Config {
   demoteUtilityFloor?: number
   /** Surfacings a fact needs before its utility value is trusted for demotion. */
   demoteMinSurfaced?: number
+  /**
+   * Directory holding one cross-process lock file per scope. Every process
+   * whose memory scopes share a storage medium must name the same directory,
+   * so a deployment that relocates the storage root names a location beside
+   * it. Absent, locks live under the harness home, which is where the storage
+   * root sits by default.
+   */
+  lockDirectory?: string
+  /** Milliseconds a write waits for a scope's held lock before it fails. `0` fails on first contention. */
+  lockWaitMs?: number
 }
 
 /** Capacity-bar denominator and hard ceiling on stored bytes. */
@@ -262,6 +295,9 @@ const maxRecallsField = z.number().step(1).min(1).default(50)
 /** Similarity floor for merging a candidate into an existing artifact. */
 const mergeSimilarityFloorField = z.number().min(0).max(1).default(0.87)
 
+/** Confidence floor a fact needs for admission and for promotion past `validated`. */
+const confidenceFloorField = z.number().min(0).max(1).default(0.5)
+
 /** Hours between two maintenance sweeps of every stored scope. */
 const maintenanceIntervalHoursField = z.number().step(1).min(1).default(24)
 
@@ -283,6 +319,12 @@ const demoteUtilityFloorField = z.number().min(0).max(1).default(0.35)
 /** Surfacings required before a fact's utility value is trusted for demotion. */
 const demoteMinSurfacedField = z.number().step(1).min(1).default(3)
 
+/** Cross-process scope-lock directory; absent, the harness home's memory lock directory. */
+const lockDirectoryField = z.string()
+
+/** Milliseconds a write waits for a scope's held lock. */
+const lockWaitMsField = z.number().step(1).min(0).default(2000)
+
 /** Validated deployment choices; `capacityBytes` is required. */
 export const Config: z<Config> = z.object({
   capacityBytes: capacityBytesField,
@@ -294,6 +336,7 @@ export const Config: z<Config> = z.object({
   maxResolutions: maxResolutionsField,
   maxRecalls: maxRecallsField,
   mergeSimilarityFloor: mergeSimilarityFloorField,
+  confidenceFloor: confidenceFloorField,
   maintenanceIntervalHours: maintenanceIntervalHoursField,
   refutationFloor: refutationFloorField,
   defaultTtlDays: defaultTtlDaysField,
@@ -301,6 +344,8 @@ export const Config: z<Config> = z.object({
   maxEpisodicEntries: maxEpisodicEntriesField,
   demoteUtilityFloor: demoteUtilityFloorField,
   demoteMinSurfaced: demoteMinSurfacedField,
+  lockDirectory: lockDirectoryField,
+  lockWaitMs: lockWaitMsField,
 })
 
 /** Normalized configuration used by the store. */
@@ -314,6 +359,7 @@ export interface ResolvedConfig {
   maxResolutions: number
   maxRecalls: number
   mergeSimilarityFloor: number
+  confidenceFloor: number
   maintenanceIntervalHours: number
   refutationFloor: number
   defaultTtlDays: number
@@ -321,6 +367,8 @@ export interface ResolvedConfig {
   maxEpisodicEntries: number
   demoteUtilityFloor: number
   demoteMinSurfaced: number
+  lockDirectory: string
+  lockWaitMs: number
 }
 
 /**
@@ -339,6 +387,7 @@ export function resolveConfig(config: Config): ResolvedConfig {
     maxResolutions = 200,
     maxRecalls = 50,
     mergeSimilarityFloor = 0.87,
+    confidenceFloor = 0.5,
     maintenanceIntervalHours = 24,
     refutationFloor = 3,
     defaultTtlDays = 30,
@@ -346,6 +395,7 @@ export function resolveConfig(config: Config): ResolvedConfig {
     maxEpisodicEntries = 100,
     demoteUtilityFloor = 0.35,
     demoteMinSurfaced = 3,
+    lockWaitMs = 2000,
   } = config
   return {
     capacityBytes,
@@ -357,6 +407,7 @@ export function resolveConfig(config: Config): ResolvedConfig {
     maxResolutions,
     maxRecalls,
     mergeSimilarityFloor,
+    confidenceFloor,
     maintenanceIntervalHours,
     refutationFloor,
     defaultTtlDays,
@@ -364,6 +415,8 @@ export function resolveConfig(config: Config): ResolvedConfig {
     maxEpisodicEntries,
     demoteUtilityFloor,
     demoteMinSurfaced,
+    lockDirectory: config.lockDirectory ?? dshHomePath('evolution-memory', 'locks'),
+    lockWaitMs,
   }
 }
 
@@ -528,11 +581,31 @@ function checkArtifactCaps(record: EvolutionMemoryRecord, resolved: ResolvedConf
 }
 
 /**
+ * Scrub the text a candidate contributes to an existing artifact, so a merged
+ * artifact carries the credential-free text a fresh one gets.
+ * @param candidate - validated caller-supplied artifact fields.
+ * @returns the candidate with its three text fields scrubbed.
+ */
+function scrubCandidate(candidate: LessonArtifactInput): LessonArtifactInput {
+  return {
+    ...candidate,
+    statement: scrubArtifactText(candidate.statement),
+    conditions: scrubArtifactText(candidate.conditions),
+    source: scrubArtifactText(candidate.source),
+  }
+}
+
+/**
  * Replace the whole artifact array from a candidate list, refusing an identity
- * that appears twice and a statement that normalizes away to nothing.
+ * that appears twice and a statement that normalizes away to nothing. A
+ * candidate that restates an artifact the record already holds folds into it
+ * instead of becoming a fresh record, so the counters, creation instant,
+ * the creation record, and expiry the artifact earned survive a document-level write;
+ * only an identity the record does not hold is built fresh.
  * @param record - current record value.
  * @param candidates - validated caller-supplied artifact fields.
- * @param now - ISO-8601 instant to stamp as both instants.
+ * @param now - ISO-8601 instant a fresh artifact is created at, and an
+ * existing one is stamped as the merge instant.
  * @param defaultTtlDays - ttl an artifact is given when its candidate carries none.
  * @returns the candidate record without the family stamp.
  */
@@ -546,11 +619,19 @@ function replaceArtifactsIn(
   const artifacts: LessonArtifact[] = []
   for (const candidate of candidates) {
     const id = artifactIdOf(candidate)
-    if (seen.has(id)) {
-      throw new Error(`evolution-memory: replacement artifact list repeats identity '${id}'`)
+    // A `contradicts` correction keeps an artifact's id while replacing the
+    // statement derived from it, so the statement a record holds is matched as
+    // well: the corrected artifact absorbs a candidate spelling it instead of
+    // being answered by a twin.
+    const existing = record.agentLessons.find(artifact => artifact.id === id || artifactKey(artifact.statement) === id)
+    const identity = existing?.id ?? id
+    if (seen.has(identity)) {
+      throw new Error(`evolution-memory: replacement artifact list repeats identity '${identity}'`)
     }
-    seen.add(id)
-    artifacts.push(freshArtifact(candidate, id, now, defaultTtlDays))
+    seen.add(identity)
+    artifacts.push(existing === undefined
+      ? freshArtifact(candidate, id, now, defaultTtlDays)
+      : mergeArtifact(existing, scrubCandidate(candidate), 'overwrite', now))
   }
   return { ...record, agentLessons: artifacts }
 }
@@ -703,7 +784,7 @@ function requiredDecisions(fields: StagedPayloadFields): readonly LessonDecision
 }
 
 /**
- * Stamp extraction provenance from a staged payload when one is present.
+ * Stamp the extraction record from a staged payload when one is present.
  * @param record - candidate record value.
  * @param fields - payload fields.
  * @returns the record with `lastExtraction` replaced, or unchanged.
@@ -733,12 +814,16 @@ function applyDecisionsTo(
   resolved: ResolvedConfig,
   addTargets: readonly (LessonArtifact | undefined)[],
 ): EvolutionMemoryRecord {
-  const now = new Date().toISOString()
+  const policy: LessonPolicy = {
+    now: new Date().toISOString(),
+    defaultTtlDays: resolved.defaultTtlDays,
+    confidenceFloor: resolved.confidenceFloor,
+  }
   const targets = new Map<number, LessonArtifact | undefined>()
   for (const [index, decision] of decisions.entries()) {
     if (decision.kind === 'new') targets.set(index, addTargets[index])
   }
-  return applyLessonDecisions(record, decisions, targets, now, resolved.defaultTtlDays)
+  return applyLessonDecisions(record, decisions, targets, policy)
 }
 
 /**
@@ -769,7 +854,11 @@ function applyMemoryStagedOp(
     case 'addArtifact': {
       const candidate = lessonArtifactInput.parse(fields.candidate)
       const strategy = mergeStrategyField(fields.strategy)
-      const next = addArtifactTo(record, candidate, strategy, addTargets[0], new Date().toISOString(), resolved.defaultTtlDays)
+      const next = addArtifactTo(record, candidate, strategy, addTargets[0], {
+        now: new Date().toISOString(),
+        defaultTtlDays: resolved.defaultTtlDays,
+        confidenceFloor: resolved.confidenceFloor,
+      })
       if (next === record) return { record, family: null }
       checkArtifactCaps(next, resolved)
       return { record: withStagedExtraction(next, fields), family: 'lessons' }
@@ -796,6 +885,16 @@ function applyMemoryStagedOp(
       if (next === record) return { record, family: null }
       checkArtifactCaps(next, resolved)
       return { record: withStagedExtraction(next, fields), family: 'lessons' }
+    }
+    case 'appendInstructions': {
+      const text = requiredText(fields, entry.op).trim()
+      if (text.length === 0) {
+        throw new Error("evolution-memory: staged appendInstructions payload must carry a non-blank 'text'")
+      }
+      const current = record.instructions.trimEnd()
+      const next = { ...record, instructions: current.length === 0 ? text : `${current}\n\n${text}` }
+      checkCapacity(next, resolved.capacityBytes)
+      return { record: next, family: 'instructions' }
     }
     case 'setUserProfile': {
       const next = withStagedExtraction(applySetProfile(record, requiredText(fields, entry.op), resolved), fields)
@@ -978,6 +1077,21 @@ export class EvolutionMemoryStore extends Service {
   }
 
   /**
+   * The model-facing projection of one scope: its current facts and documents,
+   * derived from the ledger record on every call. The record stays the source
+   * of truth — nothing is stored here and nothing the record dropped survives
+   * in it — and every field a stored fact may omit is materialized, so a
+   * consumer reads current values instead of absences. The brief injector is
+   * the shipped consumer.
+   * @param id - scope identity.
+   * @returns the current-state projection, or undefined when the scope has no record.
+   */
+  projection(id: EvolutionScopeId): MemoryProjection | undefined {
+    const record = this.requireTable().get(storageKey(id) as EvolutionScopeId)
+    return record === undefined ? undefined : projectEvolutionMemory(record, id, this.resolved.capacityBytes)
+  }
+
+  /**
    * Replace the user-authored instruction text. Instructions carry no
    * per-field cap; only the scope capacity bounds them.
    * @param id - scope identity.
@@ -1015,7 +1129,7 @@ export class EvolutionMemoryStore extends Service {
     strategy: LessonMergeStrategy = 'keep_both',
   ): Promise<EvolutionMemoryRecord> {
     const parsed = lessonArtifactInput.parse(candidate)
-    assertDirectlyAdmissible(parsed)
+    assertDirectlyAdmissible(parsed, this.resolved.confidenceFloor)
     const key = artifactKey(parsed.statement)
     const current = this.requireTable().get(storageKey(id) as EvolutionScopeId)
     const artifacts = current?.agentLessons ?? []
@@ -1028,7 +1142,11 @@ export class EvolutionMemoryStore extends Service {
     const target = strategy === 'keep_both' ? undefined : await this.pickTarget(parsed, artifacts)
     const now = new Date().toISOString()
     return this.write(id, (record) => {
-      const next = addArtifactTo(record, parsed, strategy, target, now, this.resolved.defaultTtlDays)
+      const next = addArtifactTo(record, parsed, strategy, target, {
+        now,
+        defaultTtlDays: this.resolved.defaultTtlDays,
+        confidenceFloor: this.resolved.confidenceFloor,
+      })
       checkArtifactCaps(next, this.resolved)
       return stampFamily(next, 'lessons', now)
     })
@@ -1067,6 +1185,38 @@ export class EvolutionMemoryStore extends Service {
   }
 
   /**
+   * Move one fact's lifecycle status along a legal edge. Every status change a
+   * caller makes by hand goes through here, so the store owns one place where
+   * the edges are checked; a confirmation moves a status as part of its own
+   * write, under the same edges.
+   *
+   * A move to `promoted` or `stable` requires the configured
+   * `confidenceFloor`: a fact below it stays where it is and this call fails.
+   * A move that no edge declares fails too.
+   * @param id - scope identity.
+   * @param artifactId - the addressed artifact.
+   * @param to - the status to move to.
+   * @param at - ISO-8601 instant of the move, defaulting to the wall clock.
+   * @returns the stored record.
+   * @throws `evolution/item-not-found` when no artifact carries that id.
+   */
+  async transitionArtifact(
+    id: EvolutionScopeId,
+    artifactId: string,
+    to: LessonLifecycle,
+    at: string = new Date().toISOString(),
+  ): Promise<EvolutionMemoryRecord> {
+    return this.write(id, (record) => {
+      const existing = record.agentLessons.find(artifact => artifact.id === artifactId)
+      if (existing === undefined) throw itemNotFound(artifactId)
+      const moved = transitionLifecycle(existing, to, at, this.resolved.confidenceFloor)
+      const next = { ...record, agentLessons: record.agentLessons.map(artifact => artifact.id === artifactId ? moved : artifact) }
+      checkArtifactCaps(next, this.resolved)
+      return stampFamily(next, 'lessons', at)
+    })
+  }
+
+  /**
    * Apply one extraction pass's whole decision batch: a `confirms` bumps the
    * addressed artifact's `validationCount`, a `contradicts` bumps its
    * `refutationCount` and replaces the statement and confidence it carries,
@@ -1084,16 +1234,17 @@ export class EvolutionMemoryStore extends Service {
    * replaces. A batch that changed nothing — an empty one, or one whose only
    * decisions named artifacts the record no longer holds — stamps no family,
    * exactly as {@link addArtifact} does when its add stores nothing; the
-   * provenance of the call that found nothing is still recorded.
+   * extraction that found nothing is still recorded.
    *
-   * A batch applied with provenance is also published as one
+   * A batch applied with an extraction record is also published as one
    * `evolution/decisions-applied` event once the write is durable, carrying
-   * the artifacts as they read before it. A batch applied without provenance
-   * is not published: every decision would carry unattributable evidence.
+   * the artifacts as they read before it. A batch applied without an
+   * extraction record is not published: every decision would carry
+   * unattributable evidence.
    * @param id - scope identity.
    * @param decisions - the confirmed, contradicted, and new facts, in the
    * order the extraction reported them.
-   * @param extraction - provenance of the call that produced the batch.
+   * @param extraction - the record of the call that produced the batch.
    * @returns the stored record.
    */
   async applyExtractionDecisions(
@@ -1105,7 +1256,7 @@ export class EvolutionMemoryStore extends Service {
     // An extraction that read untrusted content cannot promote it: its
     // candidates are staged for approval instead of landing directly.
     for (const decision of parsed) {
-      if (decision.kind === 'new') assertDirectlyAdmissible(decision.candidate)
+      if (decision.kind === 'new') assertDirectlyAdmissible(decision.candidate, this.resolved.confidenceFloor)
     }
     const artifacts = this.read(id)?.agentLessons ?? []
     const addTargets = await this.decisionAddTargets(artifacts, parsed)
@@ -1141,12 +1292,15 @@ export class EvolutionMemoryStore extends Service {
    * document-level counterpart to {@link addArtifact}, {@link updateArtifact},
    * and {@link removeArtifact}, not a compatibility shim. A caller replaces
    * the whole list by hand this way; the controller's `setLessons` Remote op
-   * is its one caller. Every candidate is validated and given a fresh
-   * identity, counters, and instants, so a candidate list that repeats an
-   * identity is refused.
+   * is its one caller. Every candidate is validated. A candidate that restates
+   * an artifact the record already holds folds into that artifact — keeping
+   * its identity, counters, creation instant, creation record, and expiry — and
+   * only a statement the record does not hold is stored as a fresh artifact,
+   * so a list that repeats an identity is refused. The supplied list becomes
+   * the whole array: an artifact the caller omits is dropped.
    * @param id - scope identity.
    * @param candidates - the whole lessons document, one candidate per fact.
-   * @param extraction - provenance when model-written.
+   * @param extraction - the extraction record when model-written.
    * @returns the stored record.
    */
   async replaceArtifacts(
@@ -1210,7 +1364,7 @@ export class EvolutionMemoryStore extends Service {
    * Replace the whole user profile document by hand or from extraction.
    * @param id - scope identity.
    * @param text - replacement profile document.
-   * @param extraction - provenance when model-written.
+   * @param extraction - the extraction record when model-written.
    * @returns the stored record.
    */
   async setUserProfile(id: EvolutionScopeId, text: string, extraction?: EvolutionExtraction): Promise<EvolutionMemoryRecord> {
@@ -1412,7 +1566,7 @@ export class EvolutionMemoryStore extends Service {
     if (located.entry.kind === 'skill' && located.entry.op === 'create') {
       const issues = skillContractIssues(located.entry.payload)
       if (issues.length > 0) {
-        await this.requireTable().update(located.scope, (record) => {
+        await this.withScopeLock(located.scope, () => this.requireTable().update(located.scope, (record) => {
           if (record.staged.every(candidate => candidate.id !== id)) throw stagedNotFound(id)
           const now = new Date().toISOString()
           return {
@@ -1422,7 +1576,7 @@ export class EvolutionMemoryStore extends Service {
               : candidate),
             updatedAt: now,
           }
-        })
+        }))
         throw stagedBlocked(id, issues)
       }
     }
@@ -1441,7 +1595,7 @@ export class EvolutionMemoryStore extends Service {
         artifacts: located.record.agentLessons,
       }
       : undefined
-    await this.requireTable().update(located.scope, (record) => {
+    await this.withScopeLock(located.scope, () => this.requireTable().update(located.scope, (record) => {
       const target = record.staged.find(candidate => candidate.id === id)
       if (target === undefined) throw stagedNotFound(id)
       const now = new Date().toISOString()
@@ -1451,7 +1605,7 @@ export class EvolutionMemoryStore extends Service {
       const applied = applyMemoryStagedOp(record, target, resolved, addTargets)
       const stamped = applied.family === null ? applied.record : stampFamily(applied.record, applied.family, now)
       return { ...stamped, staged: remaining, resolutions, updatedAt: now }
-    })
+    }))
     if (batch !== undefined) this.publish(batch)
   }
 
@@ -1464,7 +1618,7 @@ export class EvolutionMemoryStore extends Service {
     const located = this.findStaged(id)
     if (located === undefined) throw stagedNotFound(id)
     const maxResolutions = this.resolved.maxResolutions
-    await this.requireTable().update(located.scope, (record) => {
+    await this.withScopeLock(located.scope, () => this.requireTable().update(located.scope, (record) => {
       const target = record.staged.find(candidate => candidate.id === id)
       if (target === undefined) throw stagedNotFound(id)
       const now = new Date().toISOString()
@@ -1474,7 +1628,7 @@ export class EvolutionMemoryStore extends Service {
         resolutions: withResolution(record.resolutions, target, 'rejected', now, maxResolutions),
         updatedAt: now,
       }
-    })
+    }))
   }
 
   /**
@@ -1491,7 +1645,7 @@ export class EvolutionMemoryStore extends Service {
     if (reason.length === 0) throw new Error('evolution-memory: blocked reason must be non-empty')
     const located = this.findStaged(id)
     if (located === undefined) throw stagedNotFound(id)
-    await this.requireTable().update(located.scope, (record) => {
+    await this.withScopeLock(located.scope, () => this.requireTable().update(located.scope, (record) => {
       if (record.staged.every(candidate => candidate.id !== id)) throw stagedNotFound(id)
       const now = new Date().toISOString()
       return {
@@ -1501,7 +1655,7 @@ export class EvolutionMemoryStore extends Service {
           : candidate),
         updatedAt: now,
       }
-    })
+    }))
   }
 
   /**
@@ -1522,7 +1676,7 @@ export class EvolutionMemoryStore extends Service {
     if (located.entry.kind !== 'skill') {
       throw new Error(`evolution-memory: staged entry '${id}' is not a skill proposal`)
     }
-    await this.requireTable().update(located.scope, (record) => {
+    await this.withScopeLock(located.scope, () => this.requireTable().update(located.scope, (record) => {
       const target = record.staged.find(candidate => candidate.id === id)
       if (target === undefined) throw stagedNotFound(id)
       const current = target.payload
@@ -1537,7 +1691,7 @@ export class EvolutionMemoryStore extends Service {
           : candidate),
         updatedAt: now,
       }
-    })
+    }))
   }
 
   /**
@@ -1552,19 +1706,21 @@ export class EvolutionMemoryStore extends Service {
     if (entries.length === 0) return
     const table = this.requireTable()
     const key = storageKey(id) as EvolutionScopeId
-    const current = table.get(key)
-    const outputs = mergeOutputs(current?.outputs ?? [], entries, this.resolved.maxOutputs)
-    if (current !== undefined && sameOutputs(current.outputs, outputs)) return
-    const now = new Date().toISOString()
-    if (current === undefined) {
-      await table.put(key, {
-        ...freshRecord() as EvolutionMemoryRecord,
-        outputs,
-        updatedAt: now,
-      })
-      return
-    }
-    await table.update(key, record => ({ ...record, outputs, updatedAt: new Date().toISOString() }))
+    await this.withScopeLock(key, async () => {
+      const current = table.get(key)
+      const outputs = mergeOutputs(current?.outputs ?? [], entries, this.resolved.maxOutputs)
+      if (current !== undefined && sameOutputs(current.outputs, outputs)) return
+      const now = new Date().toISOString()
+      if (current === undefined) {
+        await table.put(key, {
+          ...freshRecord() as EvolutionMemoryRecord,
+          outputs,
+          updatedAt: now,
+        })
+        return
+      }
+      await table.update(key, record => ({ ...record, outputs, updatedAt: new Date().toISOString() }))
+    })
   }
 
   /**
@@ -1690,25 +1846,53 @@ export class EvolutionMemoryStore extends Service {
     }
   }
 
+  /**
+   * Run one scope mutation under the scope's cross-process write lock, so no
+   * two processes rewrite the scope's record at the same time. The lock is
+   * released on both the success and the failure path; a release failure is
+   * logged rather than thrown, because it must not replace the write's own
+   * outcome.
+   * @param key - the scope's path-safe storage key.
+   * @param run - the mutation to run while the lock is held.
+   * @returns whatever `run` resolved with.
+   */
+  private async withScopeLock<T>(key: EvolutionScopeId, run: () => Promise<T>): Promise<T> {
+    const lock = await ScopeWriteLock.acquire(key, {
+      directory: this.resolved.lockDirectory,
+      waitMs: this.resolved.lockWaitMs,
+    })
+    try {
+      return await run()
+    } finally {
+      try {
+        await lock.release()
+      } catch (error) {
+        this.ctx.logger.warn(`evolution-memory: releasing the lock on scope '${key}' failed: ${String(error)}`)
+      }
+    }
+  }
+
   private async write(
     id: EvolutionScopeId,
     fn: (current: EvolutionMemoryRecord) => Partial<EvolutionMemoryRecord>,
   ): Promise<EvolutionMemoryRecord> {
     const table = this.requireTable()
     const key = storageKey(id) as EvolutionScopeId
-    const current = table.get(key)
-    if (current === undefined) {
-      const now = new Date().toISOString()
-      const seeded: EvolutionMemoryRecord = { ...(freshRecord() as EvolutionMemoryRecord), updatedAt: now }
-      const next: EvolutionMemoryRecord = { ...seeded, ...fn(seeded), updatedAt: now }
-      await table.put(key, structuredClone(next))
+    return this.withScopeLock(key, async () => {
+      const current = table.get(key)
+      if (current === undefined) {
+        const now = new Date().toISOString()
+        const seeded: EvolutionMemoryRecord = { ...(freshRecord() as EvolutionMemoryRecord), updatedAt: now }
+        const next: EvolutionMemoryRecord = { ...seeded, ...fn(seeded), updatedAt: now }
+        await table.put(key, structuredClone(next))
+        return structuredClone(next)
+      }
+      const next = await table.update(key, (record) => {
+        const candidate = fn(record)
+        return { ...record, ...candidate, updatedAt: new Date().toISOString() }
+      })
       return structuredClone(next)
-    }
-    const next = await table.update(key, (record) => {
-      const candidate = fn(record)
-      return { ...record, ...candidate, updatedAt: new Date().toISOString() }
     })
-    return structuredClone(next)
   }
 
   private requireTable(): KvTable<EvolutionScopeId, EvolutionMemoryRecord> {

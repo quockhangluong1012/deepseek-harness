@@ -43,6 +43,7 @@ function makeProjection(revision = 3): GoalProjection {
       maxGoalRounds: 8,
     },
     roundsStarted: 1,
+    tokensUsed: 0,
     createdAt: 10,
     updatedAt: 20,
   }
@@ -85,6 +86,7 @@ async function bench(options: {
     return {
       ...options.projection.goal,
       roundsStarted: options.projection.roundsStarted,
+      tokensUsed: options.projection.tokensUsed,
       createdAt: options.projection.createdAt,
       updatedAt: options.projection.updatedAt,
       activation: options.activation ?? 'armed',

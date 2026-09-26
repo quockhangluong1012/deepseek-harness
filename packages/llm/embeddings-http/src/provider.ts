@@ -7,7 +7,7 @@
  */
 
 import { EmbeddingsError, EmbeddingsProvider } from '@deepseek-ai/dsh-embeddings'
-import type { EmbeddingSpec } from '@deepseek-ai/dsh-embeddings'
+import type { EmbeddingBatch, EmbeddingSpec } from '@deepseek-ai/dsh-embeddings'
 import { deadline } from '@deepseek-ai/dsh-timeout'
 
 /** Timeout reason code for one embeddings request. */
@@ -110,24 +110,26 @@ export class HttpEmbeddingsProvider extends EmbeddingsProvider {
 
   /**
    * Embed one batch, retrying once with the fallback model when the primary
-   * request fails. Each attempt gets its own `timeoutMs` deadline.
+   * request fails. Each attempt gets its own `timeoutMs` deadline. A batch the
+   * fallback served reports the fallback as its model, because it produced the
+   * vectors.
    * @param spec - the resolved route and model.
    * @param texts - texts to embed, in the order their vectors must return.
    * @param signal - cancels the request, including a caller abort.
-   * @returns one vector per text, in the same order.
+   * @returns one vector per text, in the same order, with the model that produced them.
    */
   async embed(
     spec: EmbeddingSpec,
     texts: readonly string[],
     signal?: AbortSignal,
-  ): Promise<readonly (readonly number[])[]> {
+  ): Promise<EmbeddingBatch> {
     try {
-      return await this.post(spec.model, spec.provider, texts, signal)
+      return { model: spec.model, vectors: await this.post(spec.model, spec.provider, texts, signal) }
     } catch (primary: unknown) {
       const fallback = this.fallbackModel
       if (fallback === undefined) throw primary
       try {
-        return await this.post(fallback, spec.provider, texts, signal)
+        return { model: fallback, vectors: await this.post(fallback, spec.provider, texts, signal) }
       } catch (fallbackError: unknown) {
         throw new EmbeddingsError(
           `embedding endpoint ${this.endpoint} failed for model "${spec.model}" (${String(primary)})`

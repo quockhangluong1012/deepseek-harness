@@ -18,6 +18,7 @@ import { insideWorkspace } from './policy.ts'
 import type {
   Capability,
   CapabilityRequest,
+  BudgetReservation,
   DelegationId,
   DelegationReceipt,
   KernelView,
@@ -92,10 +93,29 @@ export interface DelegationInput {
   readonly sandbox: SandboxExecutionPolicy
   /** Digest of the permission document the grant is computed under. */
   readonly inheritedPolicyDigest: string
-  /** The parent's remaining budget, which becomes the child's ceiling. */
+  /** The parent's available allowance, which becomes the child's ceiling. */
   readonly resourceLimits: ResourceBudget
   /** Unix epoch milliseconds the receipt is issued. */
   readonly at: number
+}
+
+/**
+ * The ceilings one delegation hands a child: exactly what the parent reserved
+ * for it, so a child is never promised budget a sibling already holds. A child
+ * granted the parent's raw remaining instead would double-count it, because the
+ * parent's remaining is measured from the parent's own spend and knows nothing
+ * of what it has already promised.
+ * @param parent - the delegating parent's view, absent when it is not resolvable.
+ * @param reservation - the hold the child's grant was drawn from, absent for a parent without one.
+ * @param deployment - the ceilings this kernel was configured with.
+ * @returns the ceilings the child's task contract starts from.
+ */
+export function delegableBudget(
+  parent: KernelView | undefined,
+  reservation: BudgetReservation | undefined,
+  deployment: ResourceBudget,
+): ResourceBudget {
+  return parent === undefined || reservation === undefined ? deployment : reservation.amount
 }
 
 /**

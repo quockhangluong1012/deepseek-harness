@@ -76,7 +76,9 @@ async function bench(initialSettings?: ChatSettings, withBrowserRegistry = true,
   const openWorkspacePath = vi.fn<ClientRemote['session']['openWorkspacePath']>(
     () => Promise.resolve({ ok: true, value: { opened: true } }),
   )
-  runtime.remote.provideNamespaces({ session: { openWorkspacePath } })
+  const executeCommand = vi.fn((..._args: readonly unknown[]) =>
+    Promise.resolve({ ok: true, value: undefined }))
+  runtime.remote.provideNamespaces({ session: { openWorkspacePath }, commands: { execute: executeCommand } })
   const openSession = vi.fn<(id: SessionId) => void>()
   runtime.ctx.provide('uiWorkspace', {
     openWorkspace: vi.fn(async (_workspaceId: WorkspaceId, beforeOpen: (id: SessionId) => void) => {
@@ -125,6 +127,7 @@ async function bench(initialSettings?: ChatSettings, withBrowserRegistry = true,
     },
     runtime, chat, chatSettings, browserAvailable,
     layout, openWorkspacePath, sidebarRight, sidebarRightTabs, session, chatViewApi, rootReference, openSession,
+    executeCommand,
   }
 }
 
@@ -183,6 +186,22 @@ describe('Chat inject API', () => {
     await vi.waitFor(() => {
       expect(fork).toHaveBeenCalledWith({ sessionId: ROOT, atSeq: 18, increaseTitle: true })
     })
+    await b.runtime.dispose()
+  })
+
+  it('dispatches a rewind through the Host command plane', async () => {
+    const b = await bench()
+    const { injected } = b.chatViewApi(b.rootReference)
+    injected.rewindAt('both 3')
+    expect(b.executeCommand).toHaveBeenCalledWith(ROOT, '/rewind both 3', [])
+    injected.rewindAt('conversation 2 --edit redo this')
+    expect(b.executeCommand).toHaveBeenLastCalledWith(ROOT, '/rewind conversation 2 --edit redo this', [])
+
+    // A refused dispatch changes nothing in this view and raises no unhandled rejection.
+    b.executeCommand.mockRejectedValueOnce(new Error('offline'))
+    injected.rewindAt('code 1')
+    await Promise.resolve()
+    expect(b.executeCommand).toHaveBeenLastCalledWith(ROOT, '/rewind code 1', [])
     await b.runtime.dispose()
   })
 

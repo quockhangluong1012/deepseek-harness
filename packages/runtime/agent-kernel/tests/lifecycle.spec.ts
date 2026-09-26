@@ -1,11 +1,13 @@
 import { afterEach, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, ToolCallId } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { mountAgentLoopTestDependencies, mountAgentLoopTestHarness } from '@deepseek-ai/dsh-agent-loop-testkit'
+import { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
+import ApprovalService from '@deepseek-ai/dsh-user-approval'
 import AgentKernel from '../src/index.ts'
 import type { TaskContract } from '../src/types.ts'
-import { eventsOf, humanMessage, makeAgent, preStep, rig, stopTurn, transitions } from './rig.ts'
+import { callTool, denials, eventsOf, humanMessage, makeAgent, preStep, registerTool, rig, stopTurn, transitions } from './rig.ts'
 import { MockAdapter, textResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 
 const contexts: Context[] = []
@@ -115,8 +117,9 @@ it('records one execution-cycle transition per turn, not one per step', async ()
   expect(kinds).toEqual(['task-intake', 'step-admitted', 'turn-ended', 'verification-requested', 'verification-passed'])
 })
 
-it('pauses a task that reached its step ceiling, recording the failure once', async () => {
-  const { ctx, kernel } = await rig({ budgets: { maxSteps: 2 } })
+it('grants one final tool-free step at the step ceiling, then pauses the task', async () => {
+  const { ctx, kernel } = await rig({ mode: 'enforce', budgets: { maxSteps: 2 } })
+  registerTool(ctx, 'edit')
   const agent = await makeAgent(ctx)
 
   // The loop appends `step/start` after an admitted step, which is what the
@@ -126,18 +129,127 @@ it('pauses a task that reached its step ceiling, recording the failure once', as
   await preStep(ctx, agent, [humanMessage('two')], 1, 2)
   agent.session.append('step/start', { turn: 1, step: 2 })
   expect(kernel.state.view(agent.session)?.task.status).toBe('executing')
-  await preStep(ctx, agent, [humanMessage('three')], 1, 3)
 
-  expect(kernel.state.view(agent.session)?.task.status).toBe('paused')
+  // The ceiling step is the task's one final step, so it is admitted.
+  await preStep(ctx, agent, [humanMessage('answer')], 1, 3)
+  expect(kernel.state.view(agent.session)?.task.status).toBe('executing')
   expect(eventsOf(agent, 'failure/recorded').map(record => record.kind)).toEqual(['step-ceiling'])
   expect(eventsOf(agent, 'recovery/decided')[0]).toMatchObject({ action: 'checkpoint-pause' })
 
-  await preStep(ctx, agent, [humanMessage('four')], 1, 4)
+  // No tool runs in it: the model answers from the results it already has.
+  const refused = await callTool(ctx, 'edit', agent)
+  expect(refused.isError).toBe(true)
+  expect(denials(agent).at(-1)?.reasons.join('; ')).toContain('this is the final step, no tool may run')
+
+  // The turn that owns the final step ends the task: indexed, then paused.
+  await stopTurn(ctx, agent)
+  expect(kernel.state.view(agent.session)?.task.status).toBe('paused')
+  expect(eventsOf(agent, 'checkpoint/created').map(record => record.reason)).toContain('before-pause')
+
+  // A further step is refused rather than silently admitted.
+  expect(await preStep(ctx, agent, [humanMessage('four')], 1, 4)).toEqual({ kind: 'reject' })
   expect(eventsOf(agent, 'failure/recorded')).toHaveLength(1)
 })
 
-it('records a truncated turn as an output-truncated failure', async () => {
+it('retries a truncated turn once under a larger output limit, then steers the model to split the work', async () => {
+  const { ctx } = await rig({ outputTruncatedRetryTokens: 40_000 })
+  const agent = await makeAgent(ctx)
+  const steered: string[] = []
+  agent.steer = (message) => {
+    steered.push(message.content.filter(block => block.type === 'text').map(block => block.text).join(''))
+  }
+  /** The output limit the kernel requests for one turn's step. */
+  const requestedLimit = async (turn: number): Promise<number | undefined> => (await ctx.waterfall(
+    'agent/request',
+    { agent, turn, step: 1, signal: new AbortController().signal },
+    () => Promise.resolve({ provider: 'mock', model: 'mock', maxTokens: 8_000 }),
+  )).maxTokens
+
+  await preStep(ctx, agent, [humanMessage('write the long file')])
+  agent.session.append('turn/end', { turn: 1, reason: { kind: 'max-tokens' } } as never)
+  await preStep(ctx, agent, [humanMessage('carry on')], 2)
+
+  expect(eventsOf(agent, 'failure/recorded').map(record => record.kind)).toEqual(['output-truncated'])
+  expect(eventsOf(agent, 'recovery/decided')[0]).toMatchObject({ action: 'retry', retryable: true })
+  expect(await requestedLimit(2)).toBe(40_000)
+
+  // The retried turn truncated again, so a larger limit did not help: the
+  // kernel steers instead of granting a second raise.
+  agent.session.append('turn/end', { turn: 2, reason: { kind: 'max-tokens' } } as never)
+  await preStep(ctx, agent, [humanMessage('carry on')], 3)
+  expect(eventsOf(agent, 'failure/recorded')).toHaveLength(1)
+  expect(steered.at(-1)).toContain('Split the work')
+  expect(await requestedLimit(3)).toBe(8_000)
+
+  // A turn that ended otherwise answers the failure, so a later truncation is
+  // retried again.
+  agent.session.append('turn/end', { turn: 3, reason: { kind: 'completed' } } as never)
+  await preStep(ctx, agent, [humanMessage('again')], 4)
+  agent.session.append('turn/end', { turn: 4, reason: { kind: 'max-tokens' } } as never)
+  await preStep(ctx, agent, [humanMessage('once more')], 5)
+
+  expect(eventsOf(agent, 'failure/recorded').map(record => record.kind))
+    .toEqual(['output-truncated', 'output-truncated'])
+  expect(await requestedLimit(5)).toBe(40_000)
+})
+
+it('classifies a call the registry rejected as a tool-args-malformed failure', async () => {
+  const { ctx } = await rig()
+  const agent = await makeAgent(ctx)
+  ctx.tools.register(defineContentToolFixture({
+    name: 'edit',
+    description: 'edits one file',
+    parameters: { path: { type: 'string' as const, required: true } },
+    async execute() { return [{ type: 'text' as const, text: 'ok' }] },
+  }))
+  await preStep(ctx, agent, [humanMessage('edit the file')])
+
+  const result = await ctx.tools.execute({
+    signal: new AbortController().signal,
+    callId: ToolCallId('call-malformed'),
+    name: 'edit',
+    arguments: {},
+    agent,
+  })
+
+  expect(result.isError).toBe(true)
+  expect(result.error?.info?.code).toBe('INVALID_ARGS')
+  const failures = eventsOf(agent, 'failure/recorded')
+  expect(failures.map(record => record.kind)).toEqual(['tool-args-malformed'])
+  expect(failures[0]?.detail).toContain('tool "edit" rejected its arguments')
+  expect(eventsOf(agent, 'recovery/decided')[0]).toMatchObject({ action: 'diagnose' })
+  // The violation is answered with the parse error, never with an approval.
+  expect(eventsOf(agent, 'action/decided')).toHaveLength(0)
+})
+
+it('parks the task while an approval question is outstanding and resumes it when answered', async () => {
   const { ctx, kernel } = await rig()
+  await ctx.plugin(ApprovalService)
+  const agent = await makeAgent(ctx)
+  await preStep(ctx, agent, [humanMessage('rewrite the config')])
+  // The approval audit pair is turn-enclosed; the rig has no loop turn.
+  agent.session.append('turn/start', { turn: 1 })
+
+  let parked: string | undefined
+  ctx.on('approval/request', async () => {
+    parked = kernel.state.view(agent.session)?.task.status
+    return 'allowed-once' as const
+  })
+  const outcome = await ctx.approval.request({ agent, toolName: 'edit' })
+
+  expect(outcome).toBe('allowed-once')
+  expect(parked).toBe('awaiting-approval')
+  expect(transitions(agent).map(transition => `${transition.trigger.kind}:${transition.to}`)).toEqual([
+    'task-intake:ready',
+    'step-admitted:executing',
+    'human-required:awaiting-approval',
+    'approval-decided:executing',
+  ])
+  expect(kernel.state.view(agent.session)?.task.status).toBe('executing')
+})
+
+it('records a truncated turn as an output-truncated failure', async () => {
+  const { ctx } = await rig()
   const agent = await makeAgent(ctx)
   await preStep(ctx, agent, [humanMessage('write the long file')])
   // The loop records why the turn ended when it closes the turn, which is after

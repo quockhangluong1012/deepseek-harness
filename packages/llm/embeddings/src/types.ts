@@ -28,9 +28,25 @@ export interface EmbeddingSpec {
   model: string
 }
 
+/**
+ * One provider batch: the vectors and the model that produced them. A provider
+ * that retries a failed request under another model reports that model, so a
+ * caller keying vectors by model never attributes them to the model it asked
+ * for.
+ */
+export interface EmbeddingBatch {
+  /** Model that produced these vectors: the requested one, or the fallback that replaced it. */
+  model: string
+  /** One vector per requested text, in the same order. */
+  vectors: readonly (readonly number[])[]
+}
+
 /** Vectors for one batch, in request order. */
 export interface EmbeddingResult {
-  /** The route and model that produced these vectors. */
+  /**
+   * The route and the model that produced these vectors: the requested model,
+   * or the fallback a provider served the batch with.
+   */
   spec: EmbeddingSpec
   /** One vector per requested text, in the same order. */
   vectors: readonly (readonly number[])[]

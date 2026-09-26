@@ -1,0 +1,104 @@
+name: dsh
+description: >-
+  Run one dsh task with the headless profile, publish its stream-JSON run
+  events, and fail the job when the run does not complete.
+
+inputs:
+  task:
+    description: Task text submitted as one user message.
+    required: true
+  api-key:
+    description: >-
+      Provider credential passed to the run as DEEPSEEK_API_KEY. Pass it from a
+      repository secret so the runner masks it.
+    required: true
+  base-url:
+    description: Provider endpoint passed to the run as DEEPSEEK_BASE_URL; empty uses the provider default.
+    required: false
+    default: ''
+  patch:
+    description: Path of one Cordis patch overlay forwarded as --patch when the profile needs a deployment row.
+    required: false
+    default: ''
+  cli-version:
+    description: Version or dist-tag of @deepseek-ai/dsh installed from the npm registry.
+    required: false
+    default: latest
+  node-version:
+    description: Node.js version installed before the CLI.
+    required: false
+    default: '24'
+  working-directory:
+    description: Directory the run works in.
+    required: false
+    default: ${{ github.workspace }}
+  result-path:
+    description: File the newline-delimited run events are written to, relative to working-directory.
+    required: false
+    default: dsh-result.jsonl
+  comment-on-failure:
+    description: Whether a failed run comments its failure result on the triggering pull request or issue.
+    required: false
+    default: 'true'
+  github-token:
+    description: Token used for that comment, passed as GH_TOKEN and never echoed.
+    required: false
+    default: ${{ github.token }}
+
+outputs:
+  answer:
+    description: Final answer text of a completed run; empty when the run failed.
+    value: ${{ steps.report.outputs.answer }}
+  status:
+    description: Whether the run completed or failed.
+    value: ${{ steps.report.outputs.status }}
+  result-path:
+    description: Path of the run-event file the Action wrote.
+    value: ${{ steps.report.outputs.result-path }}
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Node.js
+      uses: actions/setup-node@v6
+      with:
+        node-version: ${{ inputs.node-version }}
+
+    # The Action installs the published CLI from the npm registry and never
+    # builds this repository, so a caller needs no checkout of dsh itself.
+    - name: Install dsh
+      shell: bash
+      run: |
+        npm install --global '@deepseek-ai/dsh@${{ inputs.cli-version }}'
+
+    # One invocation, one task. The step records the exit code instead of
+    # failing so the report step can still publish the failure result.
+    - name: Run the task
+      id: run
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        DEEPSEEK_API_KEY: ${{ inputs.api-key }}
+        DEEPSEEK_BASE_URL: ${{ inputs.base-url }}
+        DSH_TASK: ${{ inputs.task }}
+        DSH_PATCH: ${{ inputs.patch }}
+        DSH_RESULT_PATH: ${{ inputs.result-path }}
+      run: |
+        args=(--profile headless --json)
+        if [[ -n "$DSH_PATCH" ]]; then args+=(--patch "$DSH_PATCH"); fi
+        status=0
+        dsh "${args[@]}" "$DSH_TASK" >"$DSH_RESULT_PATH" 2>"$DSH_RESULT_PATH.stderr" || status=$?
+        echo "exit-code=$status" >> "$GITHUB_OUTPUT"
+
+    - name: Report the result
+      id: report
+      shell: bash
+      # A failed install or run still owes the job a posted failure result.
+      if: always()
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        DSH_RESULT_PATH: ${{ inputs.result-path }}
+        DSH_EXIT_CODE: ${{ steps.run.outputs.exit-code }}
+        DSH_COMMENT_ON_FAILURE: ${{ inputs.comment-on-failure }}
+      run: node '${{ github.action_path }}/report.mjs'

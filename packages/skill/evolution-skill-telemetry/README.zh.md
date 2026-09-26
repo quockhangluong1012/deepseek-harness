@@ -1,5 +1,5 @@
 ---
-description: "Durable per-skill use/view/patch telemetry with provenance, pin, and lifecycle state (ctx.evolutionSkillTelemetry), for hosts curating skills during use."
+description: "Durable per-skill use/view/patch telemetry with a creation record, pin, and lifecycle state (ctx.evolutionSkillTelemetry), for hosts curating skills during use."
 kind: "package-reference"
 ---
 
@@ -47,7 +47,7 @@ kind: "package-reference"
 
 ### 会话关联
 
-`markUsed(name, source, sessionId)` 会在计数器旁记下发起加载的会话——最新在前、去重，并以 `maxSessionIds` 为上界。被动观察器会带上它所运行的会话，因此关联无需额外接线。正因如此，消费者才能取出某技能在发挥作用期间所记录的失败，而那正是合并裁决据以反思的证据。查看与变更不记录会话。
+`markUsed(name, source, sessionId)` 与 `markFailed(name, source, sessionId)` 会在计数器旁记下发起加载的会话——最新在前、去重，并以 `maxSessionIds` 为上界。加载失败也算该技能在发挥作用，因此只曾加载失败过的会话仍与该技能相关联。被动观察器会带上它所运行的会话，因此关联无需额外接线。正因如此，消费者才能取出某技能在发挥作用期间所记录的失败，而那正是合并裁决据以反思的证据。查看与变更不记录会话。
 
 ### 配置
 

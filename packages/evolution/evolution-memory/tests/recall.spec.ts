@@ -1,4 +1,7 @@
 import { describe, expect, it } from 'vitest'
+import { mkdtemp } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import Storage from '@deepseek-ai/dsh-storage'
 import { DomainFacility } from '@deepseek-ai/dsh-storage-domain'
@@ -31,7 +34,10 @@ async function harness(config: Config = { capacityBytes: 65536 }) {
   const facility = new DomainFacility(ctx, { backend: 'memory', routes: {} })
   ctx.storage.mount('domain', facility)
   ctx.provide('storageDomain', facility)
-  const fiber = await ctx.plugin(EvolutionMemoryStore, config)
+  const lockDirectory = await mkdtemp(join(tmpdir(), 'dsh-evolution-memory-locks-'))
+  // Object.assign: the Config interface shares its name with the schema value,
+  // which trips no-misused-spread's class-instance check.
+  const fiber = await ctx.plugin(EvolutionMemoryStore, Object.assign({ lockDirectory }, config))
   return { ctx, fiber, store: ctx.evolutionMemory }
 }
 
@@ -194,7 +200,7 @@ describe('recall ledger over the store', () => {
       expect(typeof store.read(id)?.recalls[0]?.decidedAt).toBe('string')
 
       // A later batch leaves the bound recall alone, and a batch without
-      // provenance binds nothing.
+      // The extraction record binds nothing.
       await store.addContextItem(id, { kind: 'text', label: `${RECALL_LABEL_PREFIX}s-10`, text: 'y' })
       await store.applyExtractionDecisions(id, [{ kind: 'confirms', artifactId: 'gone' }])
       expect(store.read(id)?.recalls[0]).toMatchObject({ id: 's-10', decidedInSessionId: null })

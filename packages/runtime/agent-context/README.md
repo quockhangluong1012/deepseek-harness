@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Mount this package to answer, from the session log, what one model step was compiled from and whether a replay reproduces it. It wraps every assembled prompt section and runtime context, plus the durable task facts the kernel derives, in a source envelope; ranks them by trust, kind, and relevance; prices them with the token meter; and appends one log-only `context/compiled` record per distinct placement (a repeat digest records nothing). `mode: 'shadow'` (the default) records the placement and changes nothing; `mode: 'apply'` also drops the compressible sources the ceiling cut. Policy, task, plan, and evidence sources are never dropped.
+Answer, from the session log, what one model step was compiled from and whether a replay reproduces it. Each assembled prompt section and runtime context, plus the durable task facts the kernel derives, becomes a source envelope ranked and priced with the token meter, and each distinct placement appends one log-only `context/compiled` record. `mode: 'shadow'` (the default) records the placement and changes nothing; `mode: 'apply'` also drops the compressible sources the ceiling cut. A tier derived from each source's kind can be withheld until a caller admits it.
 
 ## Table of Contents
 
@@ -29,7 +29,7 @@ Mount the plugin in a profile when a step's compiled context must be attributabl
 
 ### When to choose it
 
-Choose it when context provenance or a context token ceiling must be a runtime contract: an unattended run whose prompt you must reconstruct afterwards, a deployment paying per input token, or a replay that must reproduce a placement exactly. Avoid it when the assembled prompt is small and fully trusted, because changed placements and delta resurfaces append log-only records, and `apply` mode removes omitted contributions.
+Choose it when context source references or a context token ceiling must be a runtime contract: an unattended run whose prompt you must reconstruct afterwards, a deployment paying per input token, or a replay that must reproduce a placement exactly. Avoid it when the assembled prompt is small and fully trusted, because changed placements and delta resurfaces append log-only records, and `apply` mode removes omitted contributions.
 
 ### Minimal configuration
 
@@ -45,6 +45,7 @@ Choose it when context provenance or a context token ceiling must be a runtime c
 |---|---|---|
 | `mode` | `shadow` | `shadow` records the placement and returns the assembly unchanged; `apply` also returns the assembly with every source the placement left out removed |
 | `maxContextTokens` | unset (unbounded) | Token ceiling the placement is fitted to, priced by the token meter's fixed heuristic |
+| `onDemandTiers` | `[]` | Tiers whose sources a placement withholds until `admit()` names the tier or the source id |
 
 Every accepted field is listed in the generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-agent-context).
 
@@ -68,7 +69,7 @@ An assembled contribution is classified by the prefix of its registered name, an
 | `context:`, `ui:`, `app:` | `artifact` | `trusted` | `repo` |
 | anything else | `artifact` | `untrusted` | `repo` |
 
-A durable task fact read from `ctx.agentKernel.state.view(session)` is always `trusted`, always `required`, and attributed to `kernel`: the objective, one source per acceptance criterion, one per constraint, the latest plan revision, one per unsettled action, and one per unresolved failure.
+A durable task fact read from `ctx.agentKernel.state.view(session)` is always `trusted`, always `required`, and attributed to `kernel`: the objective, one source per acceptance criterion, the change contract the task declared, one per constraint, the latest plan revision, one per unsettled action, and one per unresolved failure.
 
 
 ### Registering a dynamic source (S2)
@@ -95,6 +96,24 @@ const stop = ctx.agentContext.register(
 | `tail-reminder` | `compressible` | Every compile — turn-conditional material that may be cut to fit the ceiling |
 
 An item past its own `expiresAt` is dropped before placement, and an item's text is truncated to the descriptor's `maxBytes` before it becomes a source. This registry is additive: no shipped producer has migrated off `core/system-prompt` sections onto it yet, so mounting the plugin with nothing registered behaves exactly as before.
+
+### Context tiers and the on-demand gate
+
+Every source sits in one tier, derived from its kind, so `ContextPlacement` remains the only classification a producer registers. The tier names how deep in the model's working set the source belongs:
+
+| Tier | Contents | Kinds |
+|---|---|---|
+| `L0` | standing policies and system instructions | `policy` |
+| `L1` | the task contract and its acceptance criteria | `task` |
+| `L2` | working memory: the plan and the evidence it turns on | `plan`, `evidence` |
+| `L3` | relevant memory | `memory` |
+| `L4` | recent history and tool results | `history`, `tool` |
+| `L5` | references to content stored outside the context | `artifact` |
+| `L6` | cold storage: content a placement never carries, reached through an `L5` reference | none |
+
+`onDemandTiers` names the tiers a placement withholds. A withheld source is not an omission: the compile never prices, ranks, or digests it, so `included`, `omitted`, and the digest are exactly what they would be had the withheld candidates never been offered, and `CompiledContext.deferred` reports what was held back with its id, kind, and tier.
+
+`ctx.agentContext.admit(session, { tiers, sourceIds })` admits withheld sources for that session's later compiles; the returned disposer withdraws the demand, after which the tier is withheld again. The demand is the caller's own and is not recorded in the session log, so the placement stays durable while a replay reproduces it only when given the same demand. `ctx.agentContext.compiler.compile()` takes the same `onDemandTiers` and `demand` inputs direct.
 
 ### Retention and ranking
 
@@ -132,6 +151,7 @@ The compiler is built on four commitments:
 | Which contributions exist and what they say | `core/system-prompt` sections and runtime contexts |
 | What the task is, its plan, its open actions, its failures | `dsh-agent-kernel` fold over the session log |
 | Kind, trust, and attribution of a contribution | `src/classify.ts` |
+| Tier of a source kind, and the on-demand gate | `src/tiers.ts` |
 | Placement order | `src/rank.ts` |
 | Token price and the ceiling cut | `src/budget.ts` over `dsh-token-meter`'s fixed estimator |
 | Placement identity | `src/digest.ts` |
@@ -145,6 +165,7 @@ The compiler is built on four commitments:
 | [`src/compile.ts`](src/compile.ts) | The pure pipeline, the source-set assertions, dedupe and conflicts, and `recordOf()` |
 | [`src/sources.ts`](src/sources.ts) | The two source families: assembled contributions and kernel task facts |
 | [`src/classify.ts`](src/classify.ts) | The prefix, trust, attribution, and retention tables |
+| [`src/tiers.ts`](src/tiers.ts) | The kind-to-tier table and the gate that withholds a configured tier |
 | [`src/rank.ts`](src/rank.ts) | Objective term extraction, relevance scoring, and the total placement order |
 | [`src/budget.ts`](src/budget.ts) | Fixed-heuristic pricing and the required-first prefix cut |
 | [`src/digest.ts`](src/digest.ts) | Content hashing and the canonical placement digest |
@@ -155,9 +176,10 @@ The compiler is built on four commitments:
 
 ```text
 collect the assembled contributions
-  -> wrap each in a source envelope (kind, trust, provenance, retention)
+  -> wrap each in a source envelope (kind, trust, sourceRef, retention)
   -> append the kernel view's required task facts
   -> reject an empty or duplicated source id
+  -> withhold every source in an on-demand tier the compile did not ask for
   -> price with the token meter's fixed estimator
   -> score lexical overlap with the task objective
   -> sort by the total placement order
@@ -193,11 +215,11 @@ Read these when the package contract is not enough.
 
 #### What the model sees
 
-Nothing in `shadow` mode: the compiler appends its record and returns the assembly `core/system-prompt` produced. In `mode: 'apply'` the model sees the same sections and runtime contexts minus every source the placement left out — a compressible contribution the ceiling cut (`reason: 'budget'`) or one whose content an already-placed source carried (`reason: 'duplicate'`). Required sources, including every durable task fact, are always present.
+Nothing in `shadow` mode: the compiler appends its record and returns the assembly `core/system-prompt` produced. In `mode: 'apply'` the model sees the same sections and runtime contexts minus every source the placement left out — a compressible contribution the ceiling cut (`reason: 'budget'`) or one whose content an already-placed source carried (`reason: 'duplicate'`). Required sources, including every durable task fact, are always present. With `onDemandTiers` configured, a source in a withheld tier is absent in both modes until a caller admits it with `admit()`, and the placement reports it in `CompiledContext.deferred` rather than in `omitted`.
 
 #### Token effect
 
-Zero direct tokens. `shadow` mode removes no tokens; `apply` mode removes the token price the record reports in `omitted` and can leave a placement priced above its own ceiling when required sources alone exceed it.
+Zero direct tokens. `shadow` mode removes no tokens; `apply` mode removes the token price the record reports in `omitted` and can leave a placement priced above its own ceiling when required sources alone exceed it. A withheld tier removes the token price it would have contributed from every step until it is admitted.
 
 #### KV Cache effect
 
@@ -216,6 +238,9 @@ These limits define when the compiler is a poor fit. They are current package co
 - **Relevance is lexical** — overlap with the objective's terms of three or more characters, with no stemming, synonym, or embedding stage, so a source that answers the objective in different words scores 0.
 - **The token price is an estimate** — the ceiling compares the token meter's fixed heuristic, the same estimator that prices request content blocks, against a provider's actual token count.
 - **Retention is fixed by kind** — every assembled `tool:`, `context:`, `ui:`, and `app:` contribution is compressible however much it reads like guidance, and an unlisted prefix is untrusted data; neither can be changed from configuration.
+- **The demand is not durable** — `admit()` holds the admitted tiers and ids in the service instance, and `deferred` stays on the compile result, so the durable record shows the placement a demand produced but not the demand itself; a replay reproduces a withheld placement only when given the same demand.
+- **No kind occupies `L6`** — the tier names content the spill store holds outside the placement, so configuring `onDemandTiers: ['L6']` withholds nothing today; a deployment that wants lower tiers fetched on demand names `L3`, `L4`, or `L5`.
+- **A withheld source is not an omission** — `deferred` is not part of `included`, `omitted`, the token estimate, or the digest, so nothing durable distinguishes a withheld source from one that never existed. The event that prompts the demand is what a reader reproduces it from.
 - **Application is per step** — `apply` mode filters the assembly it is handed, so a dropped contribution returns on the next assembly that fits it; the compiler keeps no memory between steps.
 
 <a id="dev-note"></a>

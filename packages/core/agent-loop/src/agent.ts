@@ -47,7 +47,19 @@ type Phase =
     lastTurn: number
     wakeRequested: boolean
   }
-  | { kind: 'running'; abort: AbortController; turn: number; step: number; wakeRequested: boolean }
+  | {
+    kind: 'running'
+    abort: AbortController
+    turn: number
+    step: number
+    /**
+     * Whether the durable turn boundary is open. Only a wake that lands inside
+     * an open turn can be stranded by that turn's failure, so only that wake is
+     * latched for replay.
+     */
+    turnOpen: boolean
+    wakeRequested: boolean
+  }
 
 type StepEndReason = Extract<TurnEndReason, { kind: 'completed' | 'max-tokens' }>
 
@@ -195,11 +207,16 @@ export class ReactLoopAgent implements Agent {
   }
 
   cancel(cause: AgentCancelCause, options: CancelOptions = {}): void {
-    if (!options.keepInbox) {
-      this.inbox.clear()
-      if (this.phase.kind !== 'idle') this.phase.wakeRequested = false
+    // Discard queued work before the idle check: a cancellation reentrant inside
+    // `send` runs while the phase is still idle, before the driver it is about
+    // to start can claim the message.
+    if (!options.keepInbox) this.inbox.clear()
+    if (this.phase.kind !== 'idle') {
+      // A cancellation parks pending work: the latched wake is dropped either
+      // way, and a wake sent after the abort latches itself again.
+      this.phase.wakeRequested = false
+      this.phase.abort.abort(cause)
     }
-    if (this.phase.kind !== 'idle') this.phase.abort.abort(cause)
   }
 
   runMaintenance<T>(job: (signal: AbortSignal) => Promise<T>): Promise<T> {
@@ -226,20 +243,23 @@ export class ReactLoopAgent implements Agent {
   }
 
   /**
-   * Start one driver, or latch its wake behind maintenance or an aborted
-   * activity. A wake sent while idle always opens its turn boundary, even
-   * when its message was cleared; only a latched replay is suppressed when
-   * the queue no longer holds the wake.
+   * Start one driver, or latch its wake behind a live activity. A wake sent
+   * while idle always opens its turn boundary, even when its message was
+   * cleared; a latched replay is suppressed when the queue no longer holds the
+   * wake, and {@link cancel} drops the latch to park its pending work.
    * @param wakeAfterAbort - the {@link send} classification, captured before
    *   the inbox insertion so a reentrant cancel cannot reclassify it.
    */
   private wakeDriver(wakeAfterAbort = false): void {
     if (this.phase.kind !== 'idle') {
-      // Maintenance and aborted drivers cannot deliver the wake: latch it for
-      // replay at convergence. Live drivers claim queued work themselves;
-      // disposal never latches, so teardown waits on no model turn.
+      // A live driver claims queued work at its own boundaries unless its turn
+      // ends without claiming it, so a wake landing inside an open turn is
+      // latched for replay at convergence instead of being stranded by that
+      // turn's failure. Maintenance and a wake sent after cancellation always
+      // latch; disposal never does, so teardown waits on no model turn.
       const reason = abortedCancelCause(this.phase.abort.signal)
-      if (reason?.kind !== 'disposed' && (this.phase.kind === 'maintenance' || wakeAfterAbort)) {
+      if (reason?.kind !== 'disposed'
+        && (this.phase.kind === 'maintenance' || wakeAfterAbort || this.phase.turnOpen)) {
         this.phase.wakeRequested = true
       }
       return
@@ -251,6 +271,7 @@ export class ReactLoopAgent implements Agent {
       abort: new AbortController(),
       turn: this.phase.lastTurn,
       step: 0,
+      turnOpen: false,
       wakeRequested: false,
     })
     this.loopCtx.agents.withInitiator(this, () => this.kick()).then(driver.resolve, driver.reject)
@@ -272,16 +293,23 @@ export class ReactLoopAgent implements Agent {
   }
 
   private async kick(): Promise<void> {
+    let failed = false
     try {
       while (await this.turn()) {}
-    } catch (_error) {
+    } catch {
       // Reported failures and cancellation are contained at the driver boundary.
+      failed = true
     } finally {
       /* v8 ignore next -- kick owns a running phase until this driver boundary */
       if (this.phase.kind === 'running') {
-        const { turn, wakeRequested } = this.phase
+        const { turn, step, wakeRequested } = this.phase
+        const cause = abortedCancelCause(this.phase.abort.signal)
         this.setPhase({ kind: 'idle', lastTurn: turn })
-        if (wakeRequested && this.inbox.hasPending) this.wakeDriver()
+        // A turn that dies inside a step, or under cancellation, ends before it
+        // can claim a latched wake, which then replays. A blocked turn or a
+        // pre-step failure parks its pending work for an explicit wake instead.
+        if (wakeRequested && this.inbox.hasPending
+          && (cause !== undefined || (failed && step > 0))) this.wakeDriver()
       }
     }
   }
@@ -347,6 +375,9 @@ export class ReactLoopAgent implements Agent {
       this.throwError(error)
     }
     phase.turn = turn
+    // From here a wake can be stranded: it is claimable only at a later
+    // boundary, which the turn may never reach if it fails.
+    phase.turnOpen = true
     let turnEnds: TurnEndReason | null = null
     // Set when the turn would run past its step budget: the `turn/end` reason
     // resolves to `max-steps` in the `finally` below. A flag (rather than an

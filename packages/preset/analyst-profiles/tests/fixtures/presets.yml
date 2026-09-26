@@ -1,0 +1,9 @@
+# Test-only composition for @deepseek-ai/dsh-analyst-profiles: the two rows the
+# package publishes, loaded through the real Loader and its published export map.
+- id: analyst-profiles
+  name: '@deepseek-ai/dsh-analyst-profiles'
+
+- id: preset-devil-advocate
+  name: '@deepseek-ai/dsh-analyst-profiles/preset'
+  config:
+    profile: devil-advocate

@@ -5,18 +5,18 @@
  * @module @deepseek-ai/dsh-tool-fs/src/edit
  */
 
-import { normalize } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { DiffCallView, DiffResultView, ToolResult } from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-fs'
 import { computeHunkDiffs, diffsFromMeta } from './diff.ts'
 import { remediateFsError } from './error.ts'
+import { fileScopeKey } from './scope-key.ts'
 import { sessionResolveOptions } from './session-cwd.ts'
 import type { FsSandboxController } from './sandbox.ts'
 
 /** Validated `edit` arguments after defaulting. */
-interface EditInput {
+export interface EditInput {
   filePath: string
   oldString: string
   newString: string
@@ -42,12 +42,14 @@ interface EditToolArgs {
  * `file_path`, a non-empty `old_string`, and `old_string !== new_string`
  * (an equal pair would be a guaranteed no-op edit).
  * @param args - the schema-validated raw tool arguments.
+ * @param label - an optional caller-supplied position, prefixed to a failure message so a batch edit names the entry that failed.
  * @returns the camelCased input with `replace_all` defaulted to false.
  */
-export function parseEditArgs(args: { file_path: string; old_string: string; new_string: string; replace_all?: boolean }): EditInput {
-  if (args.file_path.trim().length === 0) throw new Error('file_path must be a non-empty string')
-  if (args.old_string.length === 0) throw new Error('old_string must be a non-empty string')
-  if (args.old_string === args.new_string) throw new Error('old_string and new_string must differ')
+export function parseEditArgs(args: { file_path: string; old_string: string; new_string: string; replace_all?: boolean }, label = ''): EditInput {
+  const prefix = label.length === 0 ? '' : `${label}: `
+  if (args.file_path.trim().length === 0) throw new Error(`${prefix}file_path must be a non-empty string`)
+  if (args.old_string.length === 0) throw new Error(`${prefix}old_string must be a non-empty string`)
+  if (args.old_string === args.new_string) throw new Error(`${prefix}old_string and new_string must differ`)
   return {
     filePath: args.file_path,
     oldString: args.old_string,
@@ -111,11 +113,12 @@ export function applyEditTool(ctx: Context, sandbox: FsSandboxController): void 
           .map(({ path, oldText, newText }) => ({ path, oldText, newText })),
       }),
     },
-    // Same-path calls never overlap on the path key; distinct paths still pack,
-    // and a race that slips through an unnormalized alias fails closed on the
+    // Same-file calls never overlap on the resolved, case-folded path key;
+    // distinct paths still pack, and an alias the key cannot unify (symlinks,
+    // a session-relative name against its absolute form) fails closed on the
     // observation guard.
     isConcurrencySafe: () => true,
-    parallelScopeKey: args => normalize(args.file_path),
+    parallelScopeKey: args => fileScopeKey(args.file_path),
     async execute(args: EditToolArgs, exec) {
       const input = parseEditArgs(args)
       // Resolve the per-call sandbox policy (approved mode > session override

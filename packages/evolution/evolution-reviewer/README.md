@@ -91,7 +91,7 @@ Two gates decide whether a critique is recorded: the transcript the call sent mu
 
 ### Writing and approval
 
-Turn extraction stages the batch as one `applyDecisions` entry per call when `writeApproval` is on, so `/memory approve <id>` applies the whole batch atomically against the record read at approval time. Tainted content always stages: when the prompt-injection guard recorded a `security/scan` with `tainted: true` for the session, every `new` candidate in the batch carries `trust: 'untrusted'` and the batch is staged whatever `writeApproval` says, because taint reaches durable memory only through an approval. A rebuild (provenance `rebuild`) always writes directly, as does a batch with nothing to approve in it. A failed extraction warns and keeps the stored artifacts; teardown and session disposal abort in-flight calls.
+Turn extraction stages the batch as one `applyDecisions` entry per call when `writeApproval` is on, so `/memory approve <id>` applies the whole batch atomically against the record read at approval time. Tainted content always stages: when the prompt-injection guard recorded a `security/scan` with `tainted: true` for the session, every `new` candidate in the batch carries `trust: 'untrusted'` and the batch is staged whatever `writeApproval` says, because taint reaches durable memory only through an approval. A rebuild (extraction `rebuild`) always writes directly, as does a batch with nothing to approve in it. A failed extraction warns and keeps the stored artifacts; teardown and session disposal abort in-flight calls.
 
 ### Relevance window
 
@@ -111,7 +111,7 @@ When the optional kernel is mounted, a `verification/result` event settles §23'
 
 A rebuild selects its material the same way: the scope's newest observed human request drives a ranked, directory-scoped `searchSessions`, each ranked session's events come back through `searchEvents`, and every selected event passes the shared admission rule before it is framed. Rows accumulate least-relevant-first, so the transcript byte cap drops recall rather than the strongest match. An absent or partial search seam, an empty ranked result, a failing search, or a scope with no observed turn falls back to the exact `readSurface` scan. A rebuild then folds the batch it produces into the artifacts already stored, exactly as a live turn does, instead of replacing them.
 
-Under the default `defer: auto`, a gated turn waits in an in-memory per-session queue instead of extracting at `turn/end`. Turns that close before the flush coalesce: the newest snapshot replaces the queued one while the first snapshot's `deferMaxAgeMs` deadline and timer stand, so a busy session cannot postpone its extraction indefinitely. Disposal and teardown drop queued turns without extracting them; `defer: never` restores the immediate turn-end extraction.
+Under the default `defer: auto`, a gated turn waits in an in-memory per-session queue instead of extracting at `turn/end`. Turns that close before the flush accumulate into one snapshot instead of replacing it: their rows append in turn order while the first snapshot's `deferMaxAgeMs` deadline and timer stand, so a busy session cannot postpone its extraction indefinitely, and an oversized snapshot loses only its oldest rows to `maxInputBytes`. Disposing a session flushes its queued turns rather than dropping them; plugin teardown drops them, because the reviewer's own services unload with it. `defer: never` restores the immediate turn-end extraction.
 
 -----
 
@@ -137,7 +137,7 @@ The reviewer observes `session/event` and buffers the current turn's admitted ro
 
 ### Failure and recovery
 
-Extraction routes resolve from the configured pair, else the session's last request header; a turn with neither skips with a warning, while a rebuild without a route rejects. `error` and `aborted` finishes throw into the warning path; `max-tokens` is tolerated as `truncated`; tool-call blocks and any other finish reject. Model calls run at `temperature: 0` with `purpose: 'evolution-review'`, so reasoning stays disabled and usage attributes to the review task. Recall failures, a critique item the store rejects, and a store rejection of a recalled item warn instead of failing the turn, and the previous context survives.
+Extraction routes resolve from the configured pair, else the session's last request header; a turn with neither skips with a warning, while a rebuild without a route rejects. `error` and `aborted` finishes throw into the warning path; `max-tokens` is tolerated as `truncated`; tool-call blocks and any other finish reject. Model calls run at `temperature: 0` with `purpose: 'evolution-review'`, so reasoning stays disabled and usage attributes to the review task. An extraction is budget-gated when `ctx.evolutionBudget` is mounted: it opens the scope's daily and weekly ceiling before the model is asked and settles its tokens and wall time against both, and a spent ceiling refuses the call with a warning — `openCeiling`'s — leaving the stored artifacts untouched and no request made. Recall failures, a critique item the store rejects, and a store rejection of a recalled item warn instead of failing the turn, and the previous context survives.
 
 No invariant companion is published because the reviewer owns no durable state of its own: buffers and chains are in-memory scheduling, and the store's domain table is the only durable copy.
 
@@ -171,7 +171,7 @@ You distill durable lessons for an agent scope from one turn of conversation.
 
 #### Token effect
 
-Capped: one auxiliary request per gated turn, bounded by `maxInputBytes` of transcript — failing tool results included — plus the `relevantArtifactLimit` artifact statements, and `maxOutputTokens` of completion. A critique adds a few tokens to that same answer rather than a request of its own. Recall adds one indexed search per observed turn and at most one context item to the scope record; its material reaches the model only through the next brief, and a recorded critique reaches it the same way, as one more context item.
+Capped: one auxiliary request per gated turn or defer flush, bounded by `maxInputBytes` of transcript — failing tool results included — plus the `relevantArtifactLimit` artifact statements, and `maxOutputTokens` of completion. A critique adds a few tokens to that same answer rather than a request of its own. With `ctx.evolutionBudget` mounted, an extraction also opens the scope's daily and weekly ceiling first and settles its spend against both, so a spent ceiling buys no request at all. Recall adds one indexed search per observed turn and at most one context item to the scope record; its material reaches the model only through the next brief, and a recorded critique reaches it the same way, as one more context item.
 
 #### KV Cache effect
 

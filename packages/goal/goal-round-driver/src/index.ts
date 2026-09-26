@@ -93,17 +93,18 @@ function renderThrown(value: unknown): string {
  */
 export function apply(ctx: Context): void {
   const states = new Map<Agent, DriverState>()
-  ctx.inject(['agentContext'], compilerCtx => {
+  ctx.inject(['agentContext'], (compilerCtx) => {
     compilerCtx.effect(() => compilerCtx.agentContext.register({
       producer: 'goal',
       kind: 'task',
       trust: 'trusted',
       placement: 'delta',
       maxBytes: Number.MAX_SAFE_INTEGER,
-    }, async (agent, signal) => {
+      // The provider contract is a promise face, so the abort check and any failure reject rather than throw.
+    }, (agent, signal) => Promise.resolve().then(() => {
       signal.throwIfAborted()
       return goalPromptItems(agent)
-    }))
+    })))
   })
 
   /** Create state for an exact currently live agent. */

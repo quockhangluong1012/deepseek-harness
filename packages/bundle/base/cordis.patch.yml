@@ -324,6 +324,9 @@
     - id: commands
       name: '@deepseek-ai/dsh-commands'
 
+    - id: file-commands
+      name: '@deepseek-ai/dsh-commands/file-commands'
+
     - id: command-feedback
       name: '@deepseek-ai/dsh-command-feedback'
 
@@ -362,6 +365,17 @@
     # independent, so it follows whichever compaction service this leaf mounts.
     - id: command-compact
       name: '@deepseek-ai/dsh-command-compact'
+
+    # Human `/init`: one ordinary user turn asking the agent to write this
+    # workspace's AGENTS.md. Needs no service beyond the command registry.
+    - id: command-init
+      name: '@deepseek-ai/dsh-command-init'
+
+    # Human inspection commands: `/help` over the command catalog, `/doctor`
+    # over the mounted environment, and `/mcp`, `/agents`, `/hooks` over the
+    # configured capability surfaces.
+    - id: command-inspect
+      name: '@deepseek-ai/dsh-command-inspect'
 
     - id: subagent
       name: '@deepseek-ai/dsh-subagent'
@@ -425,8 +439,6 @@
 
     - id: timeout-policy
       name: '@deepseek-ai/dsh-tool-call-timeout-policy'
-      config:
-        defaultTimeoutMs: 120000
 
     - id: spill-local
       name: '@deepseek-ai/dsh-spill-local'

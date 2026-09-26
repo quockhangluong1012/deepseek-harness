@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import LlmRuntime, { LlmAdapter, LlmError } from '@deepseek-ai/dsh-llm'
-import type { GenerateOptions, LlmConfigurableProvider, StreamChunk } from '@deepseek-ai/dsh-llm'
+import type { GenerateOptions, LlmConfigurableProvider, LlmModelCost, StreamChunk } from '@deepseek-ai/dsh-llm'
 
 class NoopAdapter extends LlmAdapter {
 
@@ -336,5 +336,34 @@ describe('imageRequestPricing resolution', () => {
     expect(ctx.llm.imageRequestPricing('missing', 'vision')).toBeUndefined()
     dispose()
     expect(ctx.llm.imageRequestPricing('a', 'vision')).toBeUndefined()
+  })
+})
+
+describe('modelCost resolution', () => {
+  it('resolves the owning adapter declaration, detaches it, and degrades everywhere else', async () => {
+    const ctx = await setup()
+    const rates: LlmModelCost = { inputPerMTok: 1, outputPerMTok: 2, cacheReadPerMTok: 0.5, cacheWritePerMTok: 0 }
+    class PricingAdapter extends NoopAdapter {
+      override modelCost(provider: string, model: string): LlmModelCost | undefined {
+        if (provider !== 'a') return undefined
+        if (model === 'priced') return rates
+        if (model === 'invalid') return { ...rates, inputPerMTok: Number.POSITIVE_INFINITY }
+        return undefined
+      }
+    }
+    ctx.llm.registerAdapter(['a'], new PricingAdapter())
+    ctx.llm.registerAdapter(['plain'], new NoopAdapter())
+
+    expect(ctx.llm.modelCost('a', 'priced')).toEqual(rates)
+    expect(ctx.llm.modelCost('a', 'priced')).not.toBe(rates)
+    // The base adapter declares none, and a route it does not know declares none either.
+    expect(ctx.llm.modelCost('plain', 'priced')).toBeUndefined()
+    expect(ctx.llm.modelCost('a', 'other')).toBeUndefined()
+    // Unregistered providers degrade instead of throwing: callers price
+    // durable history whose route may no longer be mounted.
+    expect(ctx.llm.modelCost('missing', 'priced')).toBeUndefined()
+    // Rates reach money arithmetic, so an unusable declaration rejects.
+    expect(() => ctx.llm.modelCost('a', 'invalid')).toThrow(LlmError)
+    expect(() => ctx.llm.modelCost('a', 'invalid')).toThrow(/invalid cost metadata/)
   })
 })

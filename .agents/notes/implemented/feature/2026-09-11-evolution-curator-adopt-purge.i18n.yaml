@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-11-evolution-curator-adopt-purge.md
-2026-09-11-evolution-curator-adopt-purge.md: e3dbc258608daa73fd56de964d09ff1991ff4078
+2026-09-11-evolution-curator-adopt-purge.md: 25bbffda330a521e701a7ab90711a1ab8736b031
 2026-09-11-evolution-curator-adopt-purge.zh.md: 4aa835c96f6626e8585aa1a9feb2ca841c07b54f

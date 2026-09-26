@@ -17,6 +17,9 @@
     },
     {
       "path": "../agent-kernel"
+    },
+    {
+      "path": "../../subagent/command-review"
     }
   ]
 }

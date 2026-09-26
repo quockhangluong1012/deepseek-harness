@@ -1,6 +1,6 @@
 /**
  * Evolution skill telemetry (`ctx.evolutionSkillTelemetry`): per-skill
- * use/view/patch counters with creation provenance, pinning, and lifecycle
+ * use/view/patch counters with the record of which side created the skill, pinning, and lifecycle
  * state over the `evolution_skill_usage` domain. Bundled and hub skills are
  * excluded from every write.
  *
@@ -191,10 +191,24 @@ function resetTrust(record: SkillUsageRecord): SkillUsageRecord {
 }
 
 /**
+ * Correlate one session with a record's session list: newest first,
+ * de-duplicated, capped by `max`. A caller without a session leaves the
+ * recorded list untouched.
+ * @param record - the record being written.
+ * @param sessionId - the session in play, when the caller has one.
+ * @param max - `maxSessionIds` bound.
+ * @returns the session list to store.
+ */
+function correlatedSessionIds(record: SkillUsageRecord, sessionId: string | undefined, max: number): readonly string[] {
+  if (sessionId === undefined) return record.sessionIds
+  return [sessionId, ...record.sessionIds.filter(id => id !== sessionId)].slice(0, max)
+}
+
+/**
  * Durable per-skill telemetry store. Opens the `evolution_skill_usage`
  * domain at init and closes it through `ctx.effect`. A passive
  * `tools/post-execute` observer counts successful `skill`-tool loads as
- * uses; views, patches, provenance, pins, and states arrive through the
+ * uses; views, patches, creation records, pins, and states arrive through the
  * explicit marks below.
  */
 export class EvolutionSkillTelemetry extends Service {
@@ -222,7 +236,7 @@ export class EvolutionSkillTelemetry extends Service {
         const name = (exec.arguments as { name?: unknown }).name
         if (typeof name === 'string') {
           try {
-            if (result.isError) await this.markFailed(name)
+            if (result.isError) await this.markFailed(name, undefined, exec.agent?.session.id)
             else await this.markUsed(name, undefined, exec.agent?.session.id)
           } catch (error) {
             this.ctx.logger.warn(`evolution skill telemetry use recording failed for '${name}': ${String(error)}`)
@@ -277,26 +291,30 @@ export class EvolutionSkillTelemetry extends Service {
       useCount: record.useCount + 1,
       lastOutcome: 'ok',
       lastUsedAt: now,
-      sessionIds: sessionId === undefined
-        ? record.sessionIds
-        : [sessionId, ...record.sessionIds.filter(id => id !== sessionId)].slice(0, this.resolved.maxSessionIds),
+      sessionIds: correlatedSessionIds(record, sessionId, this.resolved.maxSessionIds),
     }))
   }
 
   /**
    * Count one failed `skill`-tool load. Successful loads arrive through
    * {@link markUsed}; this is the failure half, called by the same
-   * `tools/post-execute` observer. Exclusion matches {@link markUsed}.
+   * `tools/post-execute` observer. Exclusion matches {@link markUsed}, and so
+   * does the session correlation: the session where the load failed is in
+   * play just like one where it succeeded.
    * @param name - skill name.
    * @param source - catalog source when the caller already resolved it.
+   * @param sessionId - failing session, recorded so a later pass can pull the
+   *   failures observed while this skill was in play. Omitted by callers with
+   *   no session, which leaves the recorded list untouched.
    * @returns the stored record, or undefined for excluded sources.
    */
-  async markFailed(name: string, source?: string): Promise<SkillUsageRecord | undefined> {
+  async markFailed(name: string, source?: string, sessionId?: string): Promise<SkillUsageRecord | undefined> {
     if (isExcludedSkillSource(source ?? await this.lookupSource(name))) return undefined
     return this.write(name, record => ({
       ...record,
       failureCount: (record.failureCount ?? 0) + 1,
       lastOutcome: 'failed',
+      sessionIds: correlatedSessionIds(record, sessionId, this.resolved.maxSessionIds),
     }))
   }
 
@@ -354,7 +372,7 @@ export class EvolutionSkillTelemetry extends Service {
    * carrying model authorship move; everything else rejects, and clocks never
    * reset.
    * @param name - skill name.
-   * @returns the stored record with user-directed provenance.
+   * @returns the stored record with a user-directed creation record.
    */
   async markAdopted(name: string): Promise<SkillUsageRecord> {
     const current = this.requireTable().get(name)

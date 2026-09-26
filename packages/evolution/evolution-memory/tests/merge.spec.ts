@@ -1,4 +1,7 @@
 import { describe, expect, it } from 'vitest'
+import { mkdtemp } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import Storage from '@deepseek-ai/dsh-storage'
 import { DomainFacility } from '@deepseek-ai/dsh-storage-domain'
@@ -44,9 +47,14 @@ describe('cosine similarity', () => {
     expect(cosineSimilarity([1, 0], [1, 0])).toBeCloseTo(1, 6)
     expect(cosineSimilarity([1, 0], [0, 1])).toBeCloseTo(0, 6)
     expect(cosineSimilarity([0, 0], [1, 1])).toBe(0)
-    // A position the other vector does not have counts as zero, so a truncated
-    // vector yields a finite score rather than NaN.
-    expect(cosineSimilarity([1, 1], [1])).toBeCloseTo(Math.SQRT1_2, 6)
+  })
+
+  it('refuses vectors of different dimensions instead of scoring their overlap', () => {
+    // Vectors of one batch come from one model and so share a width; a mismatch
+    // means two models' output reached one comparison, and padding the missing
+    // positions with zeros would rank facts by that mix-up.
+    expect(() => cosineSimilarity([1, 1], [1])).toThrow('cannot compare a 2-dimension vector with a 1-dimension vector')
+    expect(() => cosineSimilarity([1], [0.5, 0.5])).toThrow('cannot compare a 1-dimension vector with a 2-dimension vector')
   })
 })
 
@@ -62,13 +70,28 @@ describe('lesson artifact merge', () => {
     })
   })
 
-  it('merges conditions, keeps the higher confidence, and keeps both counters', () => {
+  it('merges conditions and lets the deciding rule pick whose confidence stands', () => {
+    // The candidate carries a verified fact where the standing artifact carries
+    // an inference, and §9.6 ranks source quality above the confidence a fact
+    // claims, so the candidate's lower confidence is the one that stands.
     const merged = mergeArtifact(artifact('use postgres'), candidate('use postgres', { confidence: 0.4 }), 'merge', NOW)
     expect(merged.conditions).toBe('first; second')
-    expect(merged.confidence).toBe(0.6)
+    expect(merged.confidence).toBe(0.4)
     expect(merged.validationCount).toBe(2)
     expect(merged.refutationCount).toBe(1)
     expect(merged.updatedAt).toBe(NOW)
+    expect(merged.conflict).toEqual({ winner: 'candidate', rule: 'source-quality', at: NOW })
+  })
+
+  it('keeps the standing content when no rule favors the candidate', () => {
+    // Same scope, no ttl, the same evidence kind, and the same attestation
+    // count — only confidence differs, and the standing fact carries more.
+    const standing = artifact('use postgres', { evidence: 'fact', confidence: 0.9, validationCount: 0 })
+    const merged = mergeArtifact(standing, candidate('use postgres', {
+      confidence: 0.4, sourceRefs: [], trajectoryRefs: [],
+    }), 'merge', NOW)
+    expect(merged).toMatchObject({ confidence: 0.9, source: 's1', evidence: 'fact' })
+    expect(merged.conflict).toEqual({ winner: 'standing', rule: 'confidence', at: NOW })
   })
 
   it('unions conditions, keeping whichever side carries them', () => {
@@ -129,7 +152,8 @@ async function harness(embeddings?: FakeEmbeddings) {
       },
     })
   }
-  const fiber = await ctx.plugin(EvolutionMemoryStore, { capacityBytes: 4096 })
+  const lockDirectory = await mkdtemp(join(tmpdir(), 'dsh-evolution-memory-locks-'))
+  const fiber = await ctx.plugin(EvolutionMemoryStore, { capacityBytes: 4096, lockDirectory })
   return { fiber, store: ctx.evolutionMemory }
 }
 

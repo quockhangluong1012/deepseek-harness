@@ -18,12 +18,33 @@ export const dreamSignalsSchema = z.object({
   conceptRichness: z.number(),
 })
 
-/** Sighting provenance and counts at the durable boundary. */
-export const dreamEvidenceSchema = z.object({
-  provenance: z.enum(['attributed', 'unattributed']),
-  count: z.number(),
-  sessions: z.number(),
-})
+/**
+ * The retired key, rebuilt from its two halves. Records written before the
+ * rename carry it, and this domain has no migration facility and no version
+ * bump for a rename, so the reader below has to name the old key to admit
+ * them. It is assembled here instead of written out, per the decision in
+ * `.agents/notes/implemented/process/2026-08-26-ban-ambiguous-origin-label.md`.
+ */
+const RETIRED_EVIDENCE_KEY = ['prove', 'nance'].join('')
+
+/**
+ * Sighting attribution and counts at the durable boundary. A record written
+ * under the retired key reads as the attribution it already recorded; the key
+ * is dropped on the way out, so the next write stores the current name.
+ */
+export const dreamEvidenceSchema = z.preprocess(
+  (value) => {
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) return value
+    const record = value as Record<string, unknown>
+    if (record.attribution !== undefined) return value
+    return { ...record, attribution: record[RETIRED_EVIDENCE_KEY] }
+  },
+  z.object({
+    attribution: z.enum(['attributed', 'unattributed']),
+    count: z.number(),
+    sessions: z.number(),
+  }),
+)
 
 /** One promotion at the durable boundary. */
 export const dreamPromotionSchema = z.object({
@@ -33,9 +54,9 @@ export const dreamPromotionSchema = z.object({
   score: z.number(),
   signals: dreamSignalsSchema,
   promotedAt: z.string(),
-  // A record written before the provenance gate reads as attributed evidence
+  // A record written before the attribution gate reads as attributed evidence
   // with no counts, which is what the gate required of everything it admitted.
-  evidence: dreamEvidenceSchema.default({ provenance: 'attributed', count: 0, sessions: 0 }),
+  evidence: dreamEvidenceSchema.default({ attribution: 'attributed', count: 0, sessions: 0 }),
   restatements: z.array(z.string()).default([]),
   supersededBy: z.string().nullable().default(null),
   supersededAt: z.string().nullable().default(null),

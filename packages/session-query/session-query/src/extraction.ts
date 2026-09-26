@@ -5,6 +5,23 @@ import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-tool-todo'
 
 /**
+ * Message sources that produce recalled or remembered material rather than a
+ * human prompt: the active-memory brief, the evolution-memory brief, the
+ * workspace-memory brief, and a host-recalled session reference. Their text is
+ * derived from earlier sessions and already indexed there, so indexing it again
+ * would mine the harness's own injections as if the human had said them
+ * (amendment S11). Every other kind — a direct prompt and any producer that has
+ * not declared itself one of these — stays searchable, matching the
+ * merge-extensible fall-through every other unknown source kind gets.
+ */
+export const MEMORY_PRODUCER_KINDS: readonly string[] = [
+  'active-memory',
+  'evolution-memory',
+  'session-reference',
+  'workspace-memory',
+]
+
+/**
  * Extract searchable semantic text from one first-party session event.
  *
  * Structural boundaries, embedded raw streams, request envelopes, and unknown
@@ -15,7 +32,7 @@ import type {} from '@deepseek-ai/dsh-tool-todo'
 export function extractSessionEventText(event: SessionEvent): string {
   switch (event.type) {
     case 'user/message':
-      return contentText(event.data.content)
+      return MEMORY_PRODUCER_KINDS.includes(event.data.source.kind) ? '' : contentText(event.data.content)
     case 'assistant/message':
       return contentText(event.data.message.content)
     case 'tool/call':

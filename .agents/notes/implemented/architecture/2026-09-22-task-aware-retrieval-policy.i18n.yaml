@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-22-task-aware-retrieval-policy.md
-2026-09-22-task-aware-retrieval-policy.md: 2147088631ee12c74f0a2f4f858bb2d550780f90
+2026-09-22-task-aware-retrieval-policy.md: 38181c89990a7c148582559bc5af92e552e20f56
 2026-09-22-task-aware-retrieval-policy.zh.md: dbd27a466f384f203a3470969ea10ef6e2c81554

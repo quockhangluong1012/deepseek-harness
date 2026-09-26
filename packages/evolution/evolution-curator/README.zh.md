@@ -9,9 +9,9 @@ kind: "package-reference"
 
 ## 概述
 
-不必亲自盯着技能生命周期：每个 host 挂载一次本插件，它就会按闲置时长与证据把技能在 `active → suspect → stale → archived` 之间移动，让最新一次加载回应了对其不利证据的 suspect 或 stale 技能回到 `active`，并用试运行预览每次通过。`consolidate` 让模型把 agent 创建的技能归并为伞技能；置顶、受保护、随包与 hub 来源的技能永不移动。它读取技能遥测，缺席时退化为簿记。真实通过会写快照，可整轮或按条目回滚。
+每个宿主挂载一次，技能就会按闲置时长与证据在 `active → suspect → stale → archived` 之间移动；最新一次加载回应了对其不利证据的 `suspect` 或 `stale` 技能会回到 `active`，且每趟通过都可用试运行预览。`consolidate` 让模型把 agent 创建的技能归并为伞技能；置顶、受保护、随包与 hub 来源的技能永不移动。拿不到技能遥测时，通过退化为簿记。真实通过会写快照，可整轮或按条目回滚。
 
-挂载本身就是全部触发：`enabled: false` 不启动定时器，也不触碰记账。
+挂载本身就是触发条件：`enabled: false` 不注册维护任务，也不触碰记账，而自动通过按 `ctx.evolutionHeartbeat` 独有的单份调度运行。
 
 ## 目录
 
@@ -27,9 +27,9 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用本包
 
-Host 启动时挂载本插件一次。此后它自行拥有维护计划：自己观测 host 范围的 `session/event` 活动，运行一次启动时到期检查，并以 `unref()` 过的定时器每 `tickMinutes` 重复一次到期检查，定时器随插件处置。到期检查仅在 `lastRunAt` 起经过 `intervalHours`，且 `minIdleHours` 内没有会话事件到达时才运行一次通过；本进程观测到任何活动之前，host 视为闲置。首次检查只播种 `lastRunAt` 并递延一个周期，因此短命 CLI 运行只贡献其启动时刻，而不运行任何东西。`enabled: false` 不启动定时器，也不触碰记账。
+每个 host 挂载本插件一次，并与 [`dsh-evolution-heartbeat`](../evolution-heartbeat/README.zh.md) 一并挂载。后台调度只有一个归属：curator 在心跳注册表中注册唯一任务 `skill-curation`，由该引擎决定到期检查何时运行。所注册的任务携带配置的 `intervalHours` 与 `minIdleHours`；引擎自行观测 host 范围的 `session/event` 活动，为新注册的任务播种并递延一个周期，且从不同时运行两次通过。curator 保留自己的活动监听，因为 `maybeRun` 的闲置门控要读它。不挂载引擎也受支持——此时不会有任何自动运行，`maybeRun`/`run` 是唯一触发方式。`enabled: false` 不注册任务，也不触碰记账。
 
-调用 `maybeRun` 可自行运行同一次到期检查（闲置门控可用 `idleMs` 显式覆盖），调用 `run` 做无条件通过，以 `dryRun: true` 预览报告而不写入。一次通过检查每个被跟踪的技能：闲置时长从上次加载起算，从未加载则从播种起算。`active` 在超过 `staleAfterDays` 后进入 `stale`。证据驱动的移动比闲置驱动慢一档：每一次由证据触发的移动都落在 `suspect` 上，而 `suspect` 再按 `active` 所用的同一闲置阈值老化进入 `stale`。
+调用 `maybeRun` 可自行运行同一次到期检查（闲置门控可用 `idleMs` 显式覆盖），调用 `run` 做无条件通过，以 `dryRun: true` 预览报告而不写入。首次 `maybeRun` 只播种 `lastRunAt` 并递延一个周期；所注册的任务直接调用 `run`，因为引擎已经应用了周期与闲置门控。一次通过检查每个被跟踪的技能：闲置时长从上次加载起算，从未加载则从播种起算。`active` 在超过 `staleAfterDays` 后进入 `stale`。证据驱动的移动比闲置驱动慢一档：每一次由证据触发的移动都落在 `suspect` 上，而 `suspect` 再按 `active` 所用的同一闲置阈值老化进入 `stale`。
 
 ### 漂移信号
 
@@ -55,7 +55,7 @@ Host 启动时挂载本插件一次。此后它自行拥有维护计划：自己
 
 ### 配置
 
-周期、阈值、保留期与归并路由是可通过 `cordis.yml` 修改的、经过校验的 `Config` 成员。归档阈值低于过期阈值时大声失败；`provider`/`model` 只设一半，或开启归并却缺少二者，同样大声失败。
+周期、阈值、保留期与归并路由是可通过 `cordis.yml` 修改的、经过校验的 `Config` 成员。归档阈值低于过期阈值时大声失败；`provider`/`model` 只设一半，或开启归并却缺少二者，同样大声失败。`intervalHours` 与 `minIdleHours` 是所注册心跳任务运行所依据的周期；滴答本身归 [`dsh-evolution-heartbeat`](../evolution-heartbeat/README.zh.md) 所有。
 
 ```yaml
 - name: '@deepseek-ai/dsh-evolution-curator'
@@ -68,10 +68,9 @@ Host 启动时挂载本插件一次。此后它自行拥有维护计划：自己
 
 | 字段 | 默认值 | 含义 |
 |---|---|---|
-| `enabled` | `true` | 总开关；关闭时跳过一切通过、不启动定时器、不触碰记账 |
+| `enabled` | `true` | 总开关；关闭时跳过一切通过、不注册任务、不触碰记账 |
 | `intervalHours` | `168` | 两次通过之间的最小小时数 |
 | `minIdleHours` | `2` | 通过运行前所需的最小观测闲置小时数 |
-| `tickMinutes` | `15` | host 范围到期检查之间的小时数 |
 | `staleAfterDays` | `30` | `active` 进入 `stale` 的闲置天数 |
 | `archiveAfterDays` | `90` | `stale` 进入 `archived` 的闲置天数 |
 | `staleTrustFailureFloor` | `3` | 在没有更新的加载回应的情况下，使 `active` 进入 `suspect` 的被归因信任失败数 |
@@ -107,12 +106,12 @@ Host 启动时挂载本插件一次。此后它自行拥有维护计划：自己
 
 ### 设计概念
 
-存储域 `evolution_curator`（版本 `1`、布局 `per-record`、表 `meta`）中单个键 `state` 下的一行记账。流转经由 `ctx.get` 通过技能遥测应用，因此存储未挂载时整理退化为记账而不是失败；目录中未知的名称记入 `custom` 来源，而不是逃出整理。时钟与闲置观测以 `run`/`maybeRun` 的调用参数到达，而挂载后的插件补上 host 范围的部分：一个保存最新活动时刻的 `session/event` 监听、一次不阻塞插件启动的即发即弃启动时到期检查，以及一个经 `ctx.effect` 处置的 `unref()` 定时器。规格用假定时器驱动到期与闲置转换，因此插件不携带任何仅测试用的时钟接缝。插件销毁会停止定时器、中止活动归并，等待正在运行的维护趟次结束后再关闭记账域。
+存储域 `evolution_curator`（版本 `1`、布局 `per-record`、表 `meta`）中单个键 `state` 下的一行记账。流转经由 `ctx.get` 通过技能遥测应用，因此存储未挂载时整理退化为记账而不是失败；目录中未知的名称记入 `custom` 来源，而不是逃出整理。时钟与闲置观测以 `run`/`maybeRun` 的调用参数到达，而挂载后的插件补上 host 范围的部分：一个保存最新活动时刻的 `session/event` 监听，以及在 `ctx.evolutionHeartbeat` 中以 `skill-curation` 为名注册的一个任务。`init` 只注册该任务、不启动任何通过，因此启动永不等待后台通过；生命周期 effect 先在途通过排空再关闭域。规格用假定时器与心跳接缝桩驱动到期与闲置转换，因此插件不携带任何仅测试用的时钟接缝。插件销毁会移除所注册的任务、中止进行中的归并、等待在途通过，然后关闭域。
 
 <a id="consolidation"></a>
 ### 归并
 
-`consolidate` 默认关闭，且产生真实模型调用。开启时，真实通过调查处于 `active` 或 `stale` 状态的 agent 创建技能，在 `maxInputBytes` 内框定它们，并在 fork 启动前追加一条 `cost` 台账行 `{inputBytes, maxOutputTokens, provider, model, truncated}`。每个候选都携带加载过它的那些会话里记录的失败——至多 `maxCandidateFailures` 条，在反馈存储已挂载时读取——因此裁决反映的是真正坏在哪里，而不是技能作者的意图。fork 是 `ctx.llm` 之上的有界进程内工具循环，白名单只有两个工具：`skill_view` 读取一个候选包，`skill_apply` 为每个候选记录一条裁决（`keep`、`patch`、`consolidate`、`archive`）。循环至多花 `maxSteps` 次请求，并在首个纯文本回答处结束；请求失败会抛出，运行的截止时间在 `timeoutMs` 处中止它，插件处置时同样中止。
+`consolidate` 默认关闭，且产生真实模型调用。开启时，真实通过调查处于 `active` 或 `stale` 状态的 agent 创建技能，在 `maxInputBytes` 内框定它们，并在 fork 启动前追加一条 `cost` 台账行 `{inputBytes, maxOutputTokens, provider, model, truncated}`。挂载 `ctx.evolutionBudget` 时，该次通过会在以上两者之前打开部署自身的每日与每周整理额度，随后把 fork 的 token 与墙钟时间结算到两者之上；额度已花完时返回 `undefined` 并给出 `openCeiling` 的告警，因此既不写台账行也不发请求。每个候选都携带加载过它的那些会话里记录的失败——至多 `maxCandidateFailures` 条，在反馈存储已挂载时读取——因此裁决反映的是真正坏在哪里，而不是技能作者的意图。fork 是 `ctx.llm` 之上的有界进程内工具循环，白名单只有两个工具：`skill_view` 读取一个候选包，`skill_apply` 为每个候选记录一条裁决（`keep`、`patch`、`consolidate`、`archive`）。循环至多花 `maxSteps` 次请求，并在首个纯文本回答处结束；请求失败会抛出，运行的截止时间在 `timeoutMs` 处中止它，插件处置时同样中止。
 
 所有写入都由整理器执行，因此无论模型要求什么，整包规则都成立。`patch` 正文在提交前先通过验证器优先的阶梯（见 [`dsh-evolution-verifiers`](../evolution-verifiers/README.zh.md)）：第 0、1 级确定性地判定 `skill_manage edit` 强制的 frontmatter 不变式，以及名称与指令不变式；在任何一级失败的正文被跳过，其拒绝层级与理由记入 `refusals`；通过确定性层级的正文接着要过受保护文本检查：补丁若丢失或改动了先前正文携带的 `<!-- dsh:protected -->` 区段，会被跳过，`refusals` 中记为 `level: 'protected-text'`，无论阶梯判定如何。保留每个受保护区段的正文接着要过 `maxDiffLines`——改动行数（新增加删除）超过配置上限的补丁会被跳过，`refusals` 中记为 `level: 'diff-cap'`，且不写入任何内容。阶梯的更高层级运行在 `applyConsolidation` 调用方转发的任意 `simulation`/`evaluator`/`review` 接缝之后；本插件自己的通过如今不转发任何接缝，因此它们弃权。默认情况下，弃权但未失败的阶梯仍会仅凭确定性证据提交；`requireVerifierPass` 会改为拒绝，记为 `level: 'ladder-incomplete'`，因此确实转发了更高层接缝的调用方可以要求每一级都做出判定后写入才落地。通过阶梯与行数上限两关的正文才会通过就地重写 `SKILL.md` 被提交——被替换的原文本先按内容寻址存为 blob。`consolidate` 裁决把候选的整个目录搬到伞技能之下（`<umbrella>/<name>/`），把被搬移树中每一处 `${DSH_SKILL_DIR}` 引用改写为新的相对根，并向伞技能的 `SKILL.md` 追加一条引用——随包携带 `references/`、`templates/`、`scripts/` 或 `assets/` 的包绝不会被压平成只剩 `SKILL.md`。`archive` 裁决把整个目录搬入技能旁边的 `.archive/`。伞技能缺失、不可写，或已占用同名目录时，包原地不动，该裁决计入跳过。归并记一条携带两端点的 `move` 台账条目；生命周期移动与自动通过走同一套快照、`pass` 与 `transition` 机制；`rollbackPass` 把每个被搬移的包移回并恢复生命周期状态。
 
@@ -130,7 +129,7 @@ host 插件无法无头 fork subagent 接缝——进程内 provider 从活跃�
 
 | 文件 | 职责 |
 |---|---|
-| [`src/index.ts`](src/index.ts) | 插件入口：`EvolutionCurator` 服务、通过逻辑、host 范围触发、回滚与记账 |
+| [`src/index.ts`](src/index.ts) | 插件入口：`EvolutionCurator` 服务、通过逻辑、host 范围活动监听与心跳注册、回滚与记账 |
 | [`src/drift.ts`](src/drift.ts) | 纯 §22 漂移信号：失败尖峰、更新的冲突证据、实测效用偏低、依赖版本变化 |
 | [`src/consolidate.ts`](src/consolidate.ts) | 归并 fork：调查框定、有界工具循环、经验证器把关的补丁准入与整包规则应用器 |
 | [`src/safety.ts`](src/safety.ts) | 快照、台账、blob、修剪、包搬移与回滚读取路径 |
@@ -139,7 +138,7 @@ host 插件无法无头 fork subagent 接缝——进程内 provider 从活跃�
 
 ### 失败与恢复
 
-失败的流转向上传播并停止本次通过：此前的移动有效，报告丢弃，记账保持未盖戳，因此下次通过重新检查每个技能。计划触发的失败被捕获并告警，定时器与记账保持完好以便下次滴答。非法记账会导致域打开时大声失败：丢失的 `lastRunAt` 会重跑首次递延并推移整个计划。启动前读取抛错。
+失败的流转向上传播并停止本次通过：此前的移动有效，报告丢弃，记账保持未盖戳，因此下次通过重新检查每个技能。失败的通过会送达所注册的心跳任务，由它记录失败并按周期重试；不会有任何吞掉，curator 自身的记账同样保持未盖戳。非法记账会导致域打开时大声失败：丢失的 `lastRunAt` 会重跑首次递延并推移整个计划。启动前读取抛错。
 
 不发布 invariant 伴生包，因为域表是该状态的唯一副本，不存在第二个可供核对的独立观测。
 
@@ -175,7 +174,7 @@ skill_apply(name, action, into?, body?) — record one verdict
 
 #### Token 影响
 
-有上限：每次运行至多 `maxSteps` 次请求，每次受 `maxInputBytes` 的框定调查加上先前工具结果，以及 `maxOutputTokens` 的补全约束。
+有上限：每次运行至多 `maxSteps` 次请求，每次受 `maxInputBytes` 的框定调查加上先前工具结果，以及 `maxOutputTokens` 的补全约束。挂载 `ctx.evolutionBudget` 时，该次运行还会先打开部署的每日与每周整理额度，并把每次请求的 token 以及整个运行的墙钟时间结算到两者之上，因此额度已花完时根本不会买下任何请求。
 
 #### KV Cache 影响
 
@@ -187,6 +186,7 @@ skill_apply(name, action, into?, body?) — record one verdict
 
 这些限制界定了本整理器不适用的场景。它们是当前包约束。
 
+- **自动通过依赖心跳**——curator 把任务注册到 `ctx.evolutionHeartbeat`，没有该引擎也能正常挂载，但此时不会有任何按计划运行：只有 `maybeRun`/`run` 的按需调用会移动技能。
 - **归档包会搬文件，处置生命周期状态不会**——自动的 `stale → archived` 流转只是遥测，而归并的 `archive` 裁决会把整个目录搬入 `.archive/`。
 - **信任只被记录，不被强制**——技能的状态会进入观测与状态行，但不会限制模型可以加载什么。
 - **归并在进程内运行**——host 插件无法无头 fork subagent 接缝，因此工具循环跑在 `ctx.llm` 上而非子 agent 上。

@@ -3,7 +3,7 @@ import { Context } from '@deepseek-ai/cordis'
 import Storage from '@deepseek-ai/dsh-storage'
 import { DomainFacility } from '@deepseek-ai/dsh-storage-domain'
 import { MemoryMediaPool, MemoryStorageBackend } from '../../../storage/storage-domain/tests/helpers/memory-backend.ts'
-import EvolutionOperators from '../src/index.ts'
+import EvolutionOperators, { MUTATION_OPERATORS } from '../src/index.ts'
 import type { InstructionInput, InstructionVerdict, OperatorOutcome } from '../src/index.ts'
 
 async function boot(backend = new MemoryStorageBackend(new MemoryMediaPool()), config?: Record<string, unknown>) {
@@ -69,9 +69,9 @@ describe('evolution operators', () => {
     const { fiber, store } = await boot()
     try {
       await store.record(outcome({ operator: 'change-tool' }))
-      await store.record(outcome({ operator: 'add-step' }))
+      await store.record(outcome({ operator: 'guard' }))
       await store.record(outcome({ operator: 'rewrite', artifactClass: 'reader' }))
-      expect(store.stats().map(row => row.operator)).toEqual(['rewrite', 'add-step', 'change-tool'])
+      expect(store.stats().map(row => row.operator)).toEqual(['rewrite', 'guard', 'change-tool'])
       expect(store.stats('reader').map(row => row.operator)).toEqual(['rewrite'])
       expect(store.stats('ghost')).toEqual([])
       ;(store.stats()[0] as { artifactClass: string }).artifactClass = 'mutated'
@@ -85,14 +85,14 @@ describe('evolution operators', () => {
     const { fiber, store } = await boot(undefined, { exploration: 0.2 })
     try {
       const empty = store.ranking('writer')
-      expect(empty).toHaveLength(8)
+      expect(empty).toHaveLength(MUTATION_OPERATORS.length)
       expect(store.recommend('writer')?.operator).toBe('rewrite')
-      await store.record(outcome({ operator: 'merge-candidates', accepted: true, delta: 1 }))
-      await store.record(outcome({ operator: 'merge-candidates', accepted: true, delta: 1 }))
-      await store.record(outcome({ operator: 'merge-candidates', accepted: true, delta: 1 }))
+      await store.record(outcome({ operator: 'compose', accepted: true, delta: 1 }))
+      await store.record(outcome({ operator: 'compose', accepted: true, delta: 1 }))
+      await store.record(outcome({ operator: 'compose', accepted: true, delta: 1 }))
       const ranked = store.ranking('writer')
-      expect(ranked[0]?.operator).toBe('merge-candidates')
-      expect(store.recommend('writer')?.operator).toBe('merge-candidates')
+      expect(ranked[0]?.operator).toBe('compose')
+      expect(store.recommend('writer')?.operator).toBe('compose')
       // A different class still ranks the canonical first operator.
       expect(store.recommend('ghost')?.operator).toBe('rewrite')
     } finally {
@@ -147,9 +147,9 @@ describe('evolution operators', () => {
     const { fiber, store } = await boot()
     try {
       await store.recordInstruction(instruction({ operator: 'change-tool' }))
-      await store.recordInstruction(instruction({ operator: 'add-step' }))
+      await store.recordInstruction(instruction({ operator: 'guard' }))
       await store.recordInstruction(instruction({ operator: 'rewrite', artifactClass: 'reader' }))
-      expect(store.instructions().map(row => row.operator)).toEqual(['rewrite', 'add-step', 'change-tool'])
+      expect(store.instructions().map(row => row.operator)).toEqual(['rewrite', 'guard', 'change-tool'])
       expect(store.instructions('reader').map(row => row.operator)).toEqual(['rewrite'])
       expect(store.instructions('ghost')).toEqual([])
       ;(store.instructions()[0] as { instruction: string }).instruction = 'mutated'
@@ -177,19 +177,19 @@ describe('evolution operators', () => {
   it('moves the ranking by the instruction verdicts the class recorded', async () => {
     const { fiber, store } = await boot(undefined, { exploration: 0.2, instructionWeight: 0.2 })
     try {
-      await store.recordInstruction(instruction({ operator: 'adversarial-patch', instruction: 'Attack each rule with a counterexample.' }))
-      await store.judgeInstruction(verdict({ operator: 'adversarial-patch', reason: 'the counterexample found a real hole' }))
+      await store.recordInstruction(instruction({ operator: 'compose', instruction: 'Merge each pair of overlapping rules into one that states both.' }))
+      await store.judgeInstruction(verdict({ operator: 'compose', reason: 'the merged rule kept both behaviors' }))
       await store.recordInstruction(instruction({ operator: 'rewrite' }))
       await store.judgeInstruction(verdict({ accepted: false }))
       const ranked = store.ranking('writer')
-      expect(ranked[0]?.operator).toBe('adversarial-patch')
+      expect(ranked[0]?.operator).toBe('compose')
       expect(ranked[0]?.instructionAdjustment).toBeCloseTo(0.2, 10)
       expect(ranked.find(entry => entry.operator === 'rewrite')?.instructionAdjustment).toBeCloseTo(-0.2, 10)
-      expect(store.recommend('writer')?.operator).toBe('adversarial-patch')
+      expect(store.recommend('writer')?.operator).toBe('compose')
       expect(store.recommendedInstruction('writer')).toMatchObject({
-        operator: 'adversarial-patch',
-        instruction: 'Attack each rule with a counterexample.',
-        lastVerdict: 'the counterexample found a real hole',
+        operator: 'compose',
+        instruction: 'Merge each pair of overlapping rules into one that states both.',
+        lastVerdict: 'the merged rule kept both behaviors',
       })
       // A class whose leader holds no proposal recommends no instruction.
       expect(store.recommendedInstruction('ghost')).toBeUndefined()

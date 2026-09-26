@@ -41,7 +41,7 @@ export interface EvolutionOutput {
   at: string
 }
 
-/** Extraction provenance, mirrored from the scope record. */
+/** The extraction that wrote the document, mirrored from the scope record. */
 export interface EvolutionExtraction {
   at: string
   sessionId: string

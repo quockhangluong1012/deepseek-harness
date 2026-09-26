@@ -17,12 +17,12 @@ import { TOOL_TIMEOUT } from '@deepseek-ai/dsh-tool-call-timeout-policy'
 
 const testToolSignal = new AbortController().signal
 
-/** Mount the registry + the timeout-policy enforcer, zero-config unless overridden. */
-async function setup(config: timeoutPolicy.Config = {}) {
+/** Mount the registry + the timeout-policy enforcer. */
+async function setup() {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
-  await ctx.plugin(timeoutPolicy, config)
+  await ctx.plugin(timeoutPolicy)
   return ctx
 }
 
@@ -45,8 +45,8 @@ const abortThrowingTool = defineContentToolFixture({
   },
 })
 
-describe('timeout-policy delegation (unconfigured / fast)', () => {
-  it('bounds a tool with NO declared budget at the configured default', async () => {
+describe('timeout-policy delegation (declared budgets only)', () => {
+  it('delegates a tool with NO declared budget, leaving the caller signal in place', async () => {
     const ctx = await setup()
     let seenSignal: AbortSignal | undefined
     ctx.tools.register(defineContentToolFixture({ name: 'probe', description: 'd', parameters: {},
@@ -54,8 +54,7 @@ describe('timeout-policy delegation (unconfigured / fast)', () => {
     const upstream = new AbortController().signal
     const result = await ctx.tools.execute({ callId: ToolCallId('c1'), name: 'probe', arguments: {}, signal: upstream })
     expect(result.isError).toBe(false)
-    expect(seenSignal).toBeDefined()
-    expect(seenSignal).not.toBe(upstream)
+    expect(seenSignal).toBe(upstream)
   })
 
   it('a tool with a budget that returns fast keeps its own result (no timeout)', async () => {
@@ -96,31 +95,49 @@ describe('timeout-policy unboundedTimeout exemption', () => {
     expect(seenSignal).toBe(upstream)
   })
 
-  it('never times out, even past the configured default', async () => {
+})
+
+describe('timeout-policy has no deployment default', () => {
+  it('never cancels ask_user_question or exit_plan_mode, while a declared budget still times out', async () => {
     vi.useFakeTimers()
     try {
-      const ctx = await setup({ defaultTimeoutMs: 100 })
-      const release: PromiseWithResolvers<void> = Promise.withResolvers()
-      ctx.tools.register(defineContentToolFixture({
-        name: 'ask', description: 'd', parameters: {}, unboundedTimeout: true,
-        async execute() { await release.promise; return [{ type: 'text' as const, text: 'answered' }] },
-      }))
-      const pending = ctx.tools.execute({ signal: testToolSignal, callId: ToolCallId('c1'), name: 'ask', arguments: {} })
-      // Ten times the configured default: a wrapped call would already have
-      // been replaced with TOOL_TIMEOUT by now.
-      await vi.advanceTimersByTimeAsync(1_000)
-      release.resolve()
-      const result = await pending
-      expect(result).toEqual({
-        content: [{ type: 'text', text: 'answered' }],
-        isError: false,
-        value: [{ type: 'text', text: 'answered' }],
+      const ctx = await setup()
+      const release = Promise.withResolvers<undefined>()
+      const seen: Record<string, AbortSignal | undefined> = {}
+      const humanTools = ['ask_user_question', 'exit_plan_mode']
+      for (const name of humanTools) {
+        ctx.tools.register(defineContentToolFixture({
+          name, description: 'blocks on a human answer', parameters: {}, unboundedTimeout: true,
+          async execute(_args, exec) {
+            seen[name] = exec.signal
+            await release.promise
+            return [{ type: 'text' as const, text: 'answered' }]
+          },
+        }))
+      }
+      ctx.tools.register(cooperativeTool)
+      const upstream = new AbortController().signal
+      const waiting = humanTools.map(name =>
+        ctx.tools.execute({ callId: ToolCallId(name), name, arguments: {}, signal: upstream }))
+      const budgeted = ctx.tools.execute({ callId: ToolCallId('slow'), name: 'slow', arguments: {}, signal: upstream })
+      // Ten times the 120_000ms default this plugin used to apply, with the
+      // 100ms declared budget already elapsed inside that window.
+      await vi.advanceTimersByTimeAsync(1_200_000)
+      release.resolve(undefined)
+      await expect(Promise.all(waiting)).resolves.toMatchObject([
+        { isError: false, content: [{ type: 'text', text: 'answered' }] },
+        { isError: false, content: [{ type: 'text', text: 'answered' }] },
+      ])
+      await expect(budgeted).resolves.toMatchObject({
+        isError: true,
+        error: { message: 'tool call timed out after 100ms', info: { code: TOOL_TIMEOUT } },
       })
+      expect(seen.ask_user_question).toBe(upstream)
+      expect(seen.exit_plan_mode).toBe(upstream)
     } finally {
       vi.useRealTimers()
     }
   })
-
 })
 
 describe('timeout-policy signal restoration', () => {
@@ -238,32 +255,6 @@ describe('timeout-policy TOOL_TIMEOUT replacement (deadline wins)', () => {
 describe('timeout-policy contract', () => {
   it('exposes the owned code constant', () => {
     expect(TOOL_TIMEOUT).toBe('TOOL_TIMEOUT')
-  })
-
-  it('times out an undeclared tool at the default deadline', async () => {
-    vi.useFakeTimers()
-    try {
-      const ctx = await setup()
-      ctx.tools.register(defineContentToolFixture({ name: 'nodefault', description: 'd', parameters: {},
-        execute(_args, exec): Promise<{ type: 'text'; text: string }[]> {
-          if (exec.signal.aborted) return Promise.resolve([{ type: 'text' as const, text: 'stopped' }])
-          return new Promise((resolve) => { exec.signal.addEventListener('abort', () => { resolve([{ type: 'text' as const, text: 'stopped' }]) }) })
-        } }))
-      const pending = ctx.tools.execute({ signal: testToolSignal, callId: ToolCallId('c1'), name: 'nodefault', arguments: {} })
-      await vi.advanceTimersByTimeAsync(120_000)
-      const result = await pending
-      expect(result.isError).toBe(true)
-      expect(result.error).toMatchObject({ info: { code: 'TOOL_TIMEOUT' } })
-    } finally {
-      vi.useRealTimers()
-    }
-  })
-
-  it('rejects a non-positive defaultTimeoutMs at load', async () => {
-    const ctx = new Context()
-    await ctx.plugin(SystemPrompt)
-    await ctx.plugin(ToolRuntime)
-    await expect(ctx.plugin(timeoutPolicy, { defaultTimeoutMs: 0 })).rejects.toThrow('defaultTimeoutMs')
   })
 })
 

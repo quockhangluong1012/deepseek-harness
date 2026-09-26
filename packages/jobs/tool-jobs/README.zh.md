@@ -1,5 +1,5 @@
 ---
-description: "面向模型的后台任务控制，供选择、配置或排查 job_output、job_list、job_kill 与完成通知的用户与维护者阅读。"
+description: "面向模型的后台任务控制，供选择、配置或排查 job_output、job_monitor、job_list、job_kill 与完成通知的用户与维护者阅读。"
 kind: "package-reference"
 ---
 
@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-使用 `dsh-tool-jobs`，可通过 `job_output`、`job_list` 与 `job_kill` 检查和控制后台命令、PTY 工作与 subagent。读取可在配置的超时内等待，列表结果标识各任务的 kind 与状态，而取消只有在工作停止后才结算。归属明确的工作完成时，agent（智能体）会收到会话内通知：繁忙的 agent 在下一步收到通知，空闲的 agent 则由 follow-up 轮次唤醒。配置控制等待上限、完成投递与可选的连续唤醒上限。流输出仅供单一读取方消费，待领通知无法在所有者释放后存活。
+使用 `dsh-tool-jobs`，可以通过 `job_output`、`job_monitor`、`job_list` 与 `job_kill` 检查和控制后台命令、PTY 工作与 subagent。读取可在配置的超时内等待，其中一种会等到输出匹配某个模式；`job_list` 标识每个任务的 kind 与状态，取消只有在工作停止后才结算。归属的工作完成时，agent（智能体）会收到会话内通知：繁忙的 agent 在下一步看到它，空闲的 agent 则由 follow-up 轮次唤醒。配置控制等待上限、投递方式，以及可选的连续唤醒上限。流输出只有一个读取方；待领通知无法在所有者被销毁后存活。
 
 ## 目录
 
@@ -25,15 +25,16 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用本包
 
-在 agent 需要启动、观察和停止后台任务的任何组合中加载本插件：它注册三个工具、附加生产方所需的控制器，并投递完成通知。它需要组合中已提供的 `ctx.tools`、`ctx.jobs` 与 `ctx.systemPrompt` 服务；完成通知经 `ctx.agents` 解析投递目标，凡有归属任务的组合都已提供它。
+在 agent 需要启动、观察和停止后台任务的任何组合中加载本插件：它注册四个工具、附加生产方所需的控制器，并投递完成通知。它需要组合中已提供的 `ctx.tools`、`ctx.jobs` 与 `ctx.systemPrompt` 服务；完成通知经 `ctx.agents` 解析投递目标，凡有归属任务的组合都已提供它。
 
-### 三个工具
+### 四个工具
 
 - `job_output(job_id, wait?, timeout_ms?)`——读取任务输出。流任务只返回自上次读取以来的输出；最终输出任务在结算后返回其结果。每个响应都以 `[status: ...]` 结尾。除非 `wait: true`，否则读取是非阻塞的；`wait: true` 最多等待到配置上限，超时时仍让运行中的任务保持存活。一次读取先渲染 stdout，再把 stderr 放进一段 `[stderr]`，标注读取前已离开内存的输出，并在结算后的第一次读取恰好携带一次任务的结果（subagent 的回答）。
+- `job_monitor(job_id, pattern, regex?, timeout_ms?)`——等待任务输出匹配 `pattern`，受配置上限约束，并返回匹配到的文本。除非 `regex: true` 使其成为大小写敏感的 JavaScript 正则表达式，否则 `pattern` 是大小写敏感的字面子串。任务结算时该等待会提前以未匹配结束，且它绝不消费流：之后的 `job_output` 仍返回全部内容。`log` 通道上的生产方叙述对模式不可见，正如它对读取不可见一样。
 - `job_list()`——列出你的后台任务及其 id、kind 与状态，每行一个：`<id> [<kind>] <status> — <label>`。
 - `job_kill(job_id, reason?)`——立即请求取消运行中的任务；任务在其工作真正停止后以 `killed` 结算。终止任务返回其当前快照，可选的原因会被记录并转发给任务。
 
-三个工具依次返回 `{ text, job }`、`PublicJobSnapshot[]` 与 `{ outcome: 'cancellation-requested' | 'already-finished', job }`。公共快照携带 id、kind、label、带实时进度行或终态 detail 的状态，以及开始／结束时间，并省略归属与环偏移。三个工具都通过通用 UI 卡片渲染：output 和 list 用 `read`，kill 用 `execute`。
+四个工具依次返回 `{ text, job }`、`{ matched, excerpt, lossy, job }`、`PublicJobSnapshot[]` 与 `{ outcome: 'cancellation-requested' | 'already-finished', job }`。公共快照携带 id、kind、label、带实时进度行或终态 detail 的状态，以及开始／结束时间，并省略归属与环偏移。monitor 结果携带模式是否匹配、匹配到的文本或它据以测试的保留输出、更早的字节是否已离开内存，以及同一个快照。四个工具都通过通用 UI 卡片渲染：output、monitor 和 list 用 `read`，kill 用 `execute`。
 
 ### 完成通知
 
@@ -175,6 +176,7 @@ Track every background job id you start. You are notified in-session when a job 
 - **已花掉的唤醒预算不会随时间恢复**——设置了 `maxConsecutiveWakes` 时，只有用户撰写的输入才能补充，因此预算耗尽的无人值守 agent 要等到其他原因开启下一轮时才收走剩余通知，且客户端不会显示有通知在等待。
 - **待领于空闲所有者的通知无法在该所有者释放后存活**——释放时的取消会清空未领取的 inbox，日志保留插入/取消这一对作为记录。
 - **模型读取只有单一消费方**——独立观察者使用注册表非消耗的 `readAt`（Web 客户端的 `job.follow`），而不是这些工具。
+- **monitor 只对保留的输出做匹配**——环缓冲默认为每个存活任务保留 256 KiB，因此在两次追加之间被完全淘汰的匹配永远不会被发现；`lossy` 字段表明更早的字节已被丢弃，需要更长匹配窗口时应提高注册表的 `retainBytes`。
 - **无 owner 的任务没有会话隔离**——外部调用方必须提供策略或避开这些任务。
 
 <a id="dev-note"></a>

@@ -1,6 +1,6 @@
 /**
- * Model-facing `job_output`, `job_list`, and `job_kill` tools over
- * `ctx.jobs`. Loading the plugin attaches the controller required by
+ * Model-facing `job_output`, `job_monitor`, `job_list`, and `job_kill` tools
+ * over `ctx.jobs`. Loading the plugin attaches the controller required by
  * producers. It also delivers completions the model has not already
  * collected to the owning agent: injected into a busy owner's next step, or
  * opening a turn on an idle one under the default `wakeup` delivery, unbounded
@@ -37,9 +37,9 @@ export const inject = ['tools', 'jobs', 'systemPrompt']
  */
 export type CompletionDelivery = 'quiet' | 'wakeup'
 
-/** Configures bounded `job_output` waits and completion-notice delivery. */
+/** Configures bounded job waits (`job_output` with `wait`, `job_monitor`) and completion-notice delivery. */
 export interface Config {
-  /** Wait duration applied when `job_output` sets `wait` without `timeout_ms` (default 30s). */
+  /** Wait duration applied when a wait omits `timeout_ms` (default 30s). */
   waitTimeoutMs?: number
   /** Hard cap on any single wait; a larger model-supplied `timeout_ms` is clamped down to it (default 10min). */
   maxWaitTimeoutMs?: number
@@ -158,9 +158,9 @@ function boundSingleText(content: readonly ContentBlock[], maxBytes: number): Co
   }]
 }
 
-/** The producer's cap for the job a `job_output` or `job_kill` call names, when it is visible to the caller. */
+/** The producer's cap for the job a `job_output`, `job_monitor`, or `job_kill` call names, when it is visible to the caller. */
 function visibleOutputLimit(ctx: Context, exec: ToolExecution): number | undefined {
-  if (exec.name !== 'job_output' && exec.name !== 'job_kill') return undefined
+  if (exec.name !== 'job_output' && exec.name !== 'job_monitor' && exec.name !== 'job_kill') return undefined
   const jobId = (exec.arguments as { job_id?: unknown } | null | undefined)?.job_id
   if (typeof jobId !== 'string' || jobId.length === 0) return undefined
   return ctx.jobs.list(exec.agent?.id).find(job => job.id === jobId)?.outputLimitBytes
@@ -174,7 +174,29 @@ function validateJobId(value: string): JobId {
   return JobId(value)
 }
 
-/** Pending presentation shared by the three generic job controls. */
+/**
+ * Compile one monitor pattern into a matcher reporting the text it matched.
+ * @param pattern - literal substring, or the regular-expression source when `regex`.
+ * @param regex - true to interpret `pattern` as a case-sensitive JavaScript regular expression.
+ * @returns a matcher returning the matched text, or `undefined` when the pattern is absent.
+ */
+function compileMatcher(pattern: string, regex: boolean | undefined): (text: string) => string | undefined {
+  if (pattern.length === 0) throw new Error('pattern must be a non-empty string')
+  if (regex !== true) return text => text.includes(pattern) ? pattern : undefined
+  let compiled: RegExp
+  try {
+    compiled = new RegExp(pattern)
+  } catch (error: unknown) {
+    const reason = error instanceof Error ? error.message : String(error)
+    throw new Error(`invalid regex pattern ${JSON.stringify(pattern)}: ${reason}`)
+  }
+  return (text) => {
+    const matched = compiled.exec(text)
+    return matched === null ? undefined : matched[0]
+  }
+}
+
+/** Pending presentation shared by the generic job controls. */
 function presentJobCall(title: string, kind: 'read' | 'execute', rawInput?: string): GenericCallView {
   return { card: 'generic', title, kind, ...rawInput !== undefined ? { rawInput } : {} }
 }
@@ -351,6 +373,97 @@ export function apply(ctx: Context, config: Config): void {
       return readBody(jobs.read(id, exec.agent?.id))
     },
     presentCall: args => presentJobCall(`Read output from background job ${args.job_id}`, 'read', args.job_id),
+  }))
+
+  ctx.tools.register(defineTool({
+    name: 'job_monitor',
+    description: 'Wait until a background job\'s output matches a pattern, then return the matched text. '
+      + 'The wait is bounded by the configured cap and reads the retained output without consuming it, so a later '
+      + 'job_output still returns everything. It ends early when the job settles without matching. The pattern is a '
+      + 'case-sensitive literal substring unless `regex: true` makes it a case-sensitive JavaScript regular expression.',
+    parameters: {
+      job_id: { type: 'string', required: true, description: 'Job id returned by the tool that started the background work.' },
+      pattern: { type: 'string', required: true, description: 'Non-empty text to wait for: a literal substring, or a JavaScript regular-expression source when `regex: true`.' },
+      regex: { type: 'boolean', description: 'Interpret `pattern` as a case-sensitive JavaScript regular expression instead of a literal substring. Defaults to false.' },
+      timeout_ms: { type: 'integer', description: 'Max wait in milliseconds. Must be a positive integer. Defaults to the configured wait timeout; capped by the configured maximum.' },
+    },
+    finalizeContent: finalizeJobContent,
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          matched: { type: 'boolean', required: true },
+          excerpt: { type: 'string', required: true },
+          lossy: { type: 'boolean', required: true },
+          job: { ...PUBLIC_JOB_SCHEMA, required: true },
+        },
+      },
+      render: (args, value) => {
+        const cause = value.matched
+          ? 'matched'
+          : value.job.finishedAt === undefined ? 'has not matched yet' : 'ended without matching'
+        const lines = [`job ${value.job.id} ${cause} ${JSON.stringify(args.pattern)}:`]
+        if (value.excerpt.length > 0) lines.push(value.excerpt.replace(/\n+$/u, ''))
+        if (value.lossy) lines.push('[only retained output was matched; earlier bytes were dropped]')
+        lines.push(statusLine(value.job))
+        return [{ type: 'text', text: lines.join('\n') }]
+      },
+    },
+    async execute(args, exec) {
+      const id = validateJobId(args.job_id)
+      const match = compileMatcher(args.pattern, args.regex)
+      if (args.timeout_ms !== undefined && (!Number.isSafeInteger(args.timeout_ms) || args.timeout_ms <= 0)) {
+        throw new Error(`timeout_ms must be a positive integer of milliseconds, got ${JSON.stringify(args.timeout_ms)}`)
+      }
+      const expiresAt = Date.now() + Math.min(args.timeout_ms ?? waitDefault, waitCap)
+      const caller = exec.agent?.id
+      // The parked scan's resolver. Everything between two `await`s below is
+      // synchronous, so an append that lands while this call scans wakes the
+      // next scan instead of being missed.
+      let wake: (() => void) | undefined
+      const abortScan = (): void => { wake?.() }
+      exec.signal.addEventListener('abort', abortScan, { once: true })
+      const unsubscribe = ctx.jobs.events.subscribe(
+        caller === undefined ? { owners: 'all' } : { owner: caller },
+        (event) => {
+          const eventId = event.type === 'settled' ? event.job.id : event.type === 'output' ? event.id : undefined
+          if (eventId !== id) return
+          wake?.()
+        },
+      )
+      try {
+        for (;;) {
+          // ponytail: rescan the retained window per event; the ring's retention
+          // cap bounds it, so an incremental cursor is not worth the carry state.
+          const read = ctx.jobs.readAt(id, 0, caller)
+          // `log` chunks are producer narration the model cannot read back.
+          const text = read.chunks
+            .filter(chunk => chunk.channel !== 'log')
+            .map(chunk => chunk.text)
+            .join('')
+          const job = publicJob(ctx.jobs.get(id, caller))
+          const matched = match(text)
+          if (matched !== undefined) return { matched: true, excerpt: matched, lossy: read.lossy, job }
+          if (job.status === 'completed' || job.status === 'killed' || job.status === 'failed'
+            || Date.now() >= expiresAt) {
+            return { matched: false, excerpt: text, lossy: read.lossy, job }
+          }
+          if (exec.signal.aborted) throw new Error('job_monitor aborted')
+          const next = new Promise<void>((resolve) => { wake = resolve })
+          const timer = setTimeout(() => wake?.(), expiresAt - Date.now())
+          try {
+            await next
+          } finally {
+            clearTimeout(timer)
+          }
+        }
+      } finally {
+        exec.signal.removeEventListener('abort', abortScan)
+        unsubscribe()
+      }
+    },
+    presentCall: args => presentJobCall(`Wait for matching output from background job ${args.job_id}`, 'read', args.job_id),
   }))
 
   ctx.tools.register(defineTool({

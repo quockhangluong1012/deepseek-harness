@@ -51,7 +51,6 @@ async function bench() {
     addContextItem: record('addContextItem'),
     removeContextItem: record('removeContextItem'),
     listContextFiles: async () => ({ ok: true as const, value: { paths: [] } }),
-    rebuildMemory: record('rebuildMemory'),
     follow: async function* (): AsyncIterable<WorkspaceMemoryFollowFrame> {
       yield { type: 'baseline', values: [value] }
     },

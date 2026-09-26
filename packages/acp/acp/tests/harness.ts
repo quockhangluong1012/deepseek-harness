@@ -9,6 +9,7 @@ import {
   client as createAcpClientApp,
   methods,
   ndJsonStream,
+  RequestError,
   type Agent as AcpAgent,
   type PromptRequest,
   type PromptResponse,
@@ -17,6 +18,7 @@ import {
   type SendRequestOptions,
   type SessionNotification,
   type Stream,
+  type WaitForTerminalExitResponse,
 } from '@agentclientprotocol/sdk'
 import AttachmentStore, { AttachmentError, AttachmentId } from '@deepseek-ai/dsh-attachment'
 import type { ImageAttachmentLimits, ImageAttachmentRef, SaveImageAttachment, StoredImageAttachment } from '@deepseek-ai/dsh-attachment'
@@ -181,12 +183,31 @@ export function errorResponse(message: string): StreamChunk[] {
 
 export type CapturedUpdate = SessionNotification['update']
 
+/** One fake client terminal created through `terminal/create`. */
+export interface FakeTerminal {
+  readonly id: string
+  readonly sessionId: string
+  readonly command: string
+  readonly args: readonly string[]
+  readonly cwd: string | null | undefined
+  readonly env: readonly { name: string; value: string }[]
+  /** Output the client returns from `terminal/output`. */
+  output: string
+  truncated: boolean
+  finished: boolean
+  exitCode: number | null
+  signal: string | null
+  killed: boolean
+  released: boolean
+}
+
 /** Stable-v1 client methods exercised by the bridge tests. */
 interface BridgeClient {
   initialize: NonNullable<AcpAgent['initialize']>
   authenticate: NonNullable<AcpAgent['authenticate']>
   newSession: NonNullable<AcpAgent['newSession']>
   listSessions: NonNullable<AcpAgent['listSessions']>
+  forkSession: NonNullable<AcpAgent['unstable_forkSession']>
   resumeSession: NonNullable<AcpAgent['resumeSession']>
   closeSession: NonNullable<AcpAgent['closeSession']>
   setSessionConfigOption: NonNullable<AcpAgent['setSessionConfigOption']>
@@ -202,6 +223,12 @@ export interface BridgeHarness {
   updates: CapturedUpdate[]
   sessionUpdates: { sessionId: string; update: CapturedUpdate }[]
   permissionRequests: RequestPermissionRequest[]
+  /** Files the fake client can serve through `fs/read_text_file`. */
+  clientFiles: Map<string, string>
+  /** Terminals the fake client created, in creation order. */
+  terminals: FakeTerminal[]
+  /** Complete one fake terminal with its exit facts and release its waiters. */
+  finishTerminal: (terminal: FakeTerminal, outcome?: { exitCode?: number | null; signal?: string | null }) => void
   persistenceRoot: string
   onPermission: (request: RequestPermissionRequest) => RequestPermissionResponse
   onSessionUpdateError: (() => void) | undefined
@@ -249,6 +276,9 @@ export async function makeBridgeHarness(options: {
   const updates: CapturedUpdate[] = []
   const sessionUpdates: { sessionId: string; update: CapturedUpdate }[] = []
   const permissionRequests: RequestPermissionRequest[] = []
+  const clientFiles = new Map<string, string>()
+  const terminals: FakeTerminal[] = []
+  const terminalExitWaiters = new Map<string, () => void>()
   const harness: BridgeHarness = {
     ctx,
     adapter,
@@ -256,6 +286,17 @@ export async function makeBridgeHarness(options: {
     updates,
     sessionUpdates,
     permissionRequests,
+    clientFiles,
+    terminals,
+    finishTerminal: (terminal, outcome) => {
+      terminal.finished = true
+      // Omitted facts default to a clean exit; an explicit null reports no
+      // code, which is how the client answers for a killed command.
+      terminal.exitCode = outcome === undefined ? 0 : outcome.exitCode ?? null
+      terminal.signal = outcome === undefined ? null : outcome.signal ?? null
+      terminalExitWaiters.get(terminal.id)?.()
+      terminalExitWaiters.delete(terminal.id)
+    },
     persistenceRoot,
     onPermission: () => ({ outcome: { outcome: 'cancelled' } }),
     onSessionUpdateError: undefined,
@@ -283,6 +324,72 @@ export async function makeBridgeHarness(options: {
       permissionRequests.push(params)
       return Promise.resolve(harness.onPermission(params))
     })
+    .onRequest(methods.client.fs.readTextFile, ({ params }) => {
+      const content = harness.clientFiles.get(params.path)
+      if (content === undefined) {
+        return Promise.reject(RequestError.internalError(undefined, `no such file: ${params.path}`))
+      }
+      return Promise.resolve({ content })
+    })
+    .onRequest(methods.client.fs.writeTextFile, ({ params }) => {
+      harness.clientFiles.set(params.path, params.content)
+      return Promise.resolve({})
+    })
+    .onRequest(methods.client.terminal.create, ({ params }) => {
+      const terminal: FakeTerminal = {
+        id: `terminal-${harness.terminals.length + 1}`,
+        sessionId: params.sessionId,
+        command: params.command,
+        args: params.args ?? [],
+        cwd: params.cwd,
+        env: params.env ?? [],
+        output: '',
+        truncated: false,
+        finished: false,
+        exitCode: null,
+        signal: null,
+        killed: false,
+        released: false,
+      }
+      harness.terminals.push(terminal)
+      return Promise.resolve({ terminalId: terminal.id })
+    })
+    .onRequest(methods.client.terminal.output, ({ params }) => {
+      const terminal = harness.terminals.find(candidate => candidate.id === params.terminalId)
+      if (terminal === undefined) {
+        return Promise.reject(RequestError.internalError(undefined, `no such terminal: ${params.terminalId}`))
+      }
+      return Promise.resolve({ output: terminal.output, truncated: terminal.truncated })
+    })
+    .onRequest(methods.client.terminal.waitForExit, ({ params }) => {
+      const terminal = harness.terminals.find(candidate => candidate.id === params.terminalId)
+      if (terminal === undefined) {
+        return Promise.reject(RequestError.internalError(undefined, `no such terminal: ${params.terminalId}`))
+      }
+      if (terminal.finished) return Promise.resolve({ exitCode: terminal.exitCode, signal: terminal.signal })
+      const { promise, resolve } = Promise.withResolvers<WaitForTerminalExitResponse>()
+      terminalExitWaiters.set(terminal.id, () => {
+        resolve({ exitCode: terminal.exitCode, signal: terminal.signal })
+      })
+      return promise
+    })
+    .onRequest(methods.client.terminal.kill, ({ params }) => {
+      const terminal = harness.terminals.find(candidate => candidate.id === params.terminalId)
+      if (terminal === undefined) {
+        return Promise.reject(RequestError.internalError(undefined, `no such terminal: ${params.terminalId}`))
+      }
+      terminal.killed = true
+      harness.finishTerminal(terminal, { exitCode: null, signal: 'SIGKILL' })
+      return Promise.resolve({})
+    })
+    .onRequest(methods.client.terminal.release, ({ params }) => {
+      const terminal = harness.terminals.find(candidate => candidate.id === params.terminalId)
+      if (terminal === undefined) {
+        return Promise.reject(RequestError.internalError(undefined, `no such terminal: ${params.terminalId}`))
+      }
+      terminal.released = true
+      return Promise.resolve({})
+    })
 
   const config = { stream: agentStream, ...options.config } as AcpConfig
   if (!(options.config && 'provider' in options.config)) config.provider = 'mock'
@@ -299,6 +406,7 @@ export async function makeBridgeHarness(options: {
     authenticate: params => client.request(methods.agent.authenticate, params),
     newSession: params => client.request(methods.agent.session.new, params),
     listSessions: params => client.request(methods.agent.session.list, params),
+    forkSession: params => client.request(methods.agent.session.fork, params),
     resumeSession: params => client.request(methods.agent.session.resume, params),
     closeSession: params => client.request(methods.agent.session.close, params),
     setSessionConfigOption: params => client.request(methods.agent.session.setConfigOption, params),

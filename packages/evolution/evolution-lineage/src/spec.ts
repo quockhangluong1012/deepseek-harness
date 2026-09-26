@@ -7,7 +7,7 @@
 
 import { z } from 'zod'
 import { defineDomain, domainTable } from '@deepseek-ai/dsh-storage-domain'
-import type { ExperimentEnvelope } from './types.ts'
+import type { ExperimentEnvelope, PolicyRevision } from './types.ts'
 
 /** Durable shape of one experiment envelope. */
 export const experimentEnvelopeRow = z.object({
@@ -42,17 +42,41 @@ export const experimentEnvelopeRow = z.object({
 /** One stored envelope, inferred from {@link experimentEnvelopeRow}. */
 export type ExperimentEnvelopeRow = z.infer<typeof experimentEnvelopeRow>
 
+/** Durable shape of one versioned policy revision. */
+export const policyRevisionRow = z.object({
+  policy: z.string(),
+  version: z.number().int().min(1),
+  digest: z.string(),
+  parentDigest: z.string().nullable(),
+  diff: z.object({
+    addedLines: z.number().int().min(0),
+    removedLines: z.number().int().min(0),
+  }),
+  benchmark: z.string().optional(),
+  body: z.string(),
+  at: z.string(),
+})
+
+/** One stored revision, inferred from {@link policyRevisionRow}. */
+export type PolicyRevisionRow = z.infer<typeof policyRevisionRow>
+
 /**
  * The evolution-lineage domain spec: one `experiments` table keyed by
- * experiment identity. `per-record` because experiments are independent.
- * Invalid rows fail the domain open loudly: the envelopes drive
- * apples-to-apples comparability decisions.
+ * experiment identity and one `revisions` table keyed by policy identity and
+ * revision number. `per-record` because experiments and revisions are
+ * independent. Invalid rows fail the domain open loudly: the envelopes drive
+ * apples-to-apples comparability decisions, and a dropped revision would break
+ * a policy's chain.
  */
 export const lineageDomainSpec = defineDomain({
   name: 'evolution_lineage',
-  version: 1,
+  version: 2,
+  // Version 1 held only `experiments`; `revisions` arrives empty on first
+  // write, so a vouched-for v1 document opens unchanged.
+  compatibleVersions: [1],
   layout: 'per-record',
   tables: {
     experiments: domainTable<string, ExperimentEnvelope>(experimentEnvelopeRow),
+    revisions: domainTable<string, PolicyRevision>(policyRevisionRow),
   },
 })

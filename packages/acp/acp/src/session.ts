@@ -12,10 +12,11 @@ import {
 } from '@agentclientprotocol/sdk'
 import type { Agent, AgentHandle, AgentOptions, ModelSelection } from '@deepseek-ai/dsh-agent'
 import { createUserMessage, errorChain, type UserMessage } from '@deepseek-ai/dsh-llm'
-import { type Session, type SessionEvent, type SessionId, type TurnEndReason } from '@deepseek-ai/dsh-session'
+import { SessionLogOffset, type Session, type SessionEvent, type SessionId, type TurnEndReason } from '@deepseek-ai/dsh-session'
 // Type-only: activates the kernel's `task/*` augmentation of `SessionEventMap`.
 import type {} from '@deepseek-ai/dsh-agent-kernel'
 import { AcpContentError, admitAcpPrompt, supportsAcpImagePrompts } from './content.ts'
+import { availableCommandsUpdate, commandLine } from './commands.ts'
 import { turnEndToStopReason } from './codec.ts'
 import { mountAcpMcpServers } from './mcp.ts'
 import { AcpModelControl } from './model-control.ts'
@@ -45,6 +46,16 @@ export interface CreateAcpSessionOptions extends AcpSessionBuildOptions {
 /** Persisted ACP session construction inputs. */
 export interface ResumeAcpSessionOptions extends AcpSessionBuildOptions {
   sessionId: SessionId
+}
+
+/** Forked ACP session construction inputs. */
+export interface ForkAcpSessionOptions extends CreateAcpSessionOptions {
+  /** The fork seed: the inherited source prefix plus its marker and closers. */
+  seed: readonly SessionEvent[]
+  /** Exact inherited prefix length the seed reports. */
+  inheritedEventCount: SessionLogOffset
+  /** The source session this child branches from. */
+  parentSession: SessionId
 }
 
 interface InflightPrompt {
@@ -103,6 +114,8 @@ export class AcpSession {
   private readonly modelControl: AcpModelControl
   private outputTail = Promise.resolve()
   private inflight: InflightPrompt | undefined
+  /** Cancellation owner of the command execution this session is currently dispatching. */
+  private commandRun: AbortController | undefined
   private closing: Promise<void> | undefined
   private readonly pendingSelections = new Map<string, ModelSelection>()
 
@@ -132,12 +145,43 @@ export class AcpSession {
       meta: { cwd: options.cwd },
       agentOptions: options.agentOptions,
       signal: options.signal,
-      setup: async (agentCtx) => {
-        modelControl.install(agentCtx)
-        await mountAcpMcpServers(agentCtx, options.mcpServers, options.cwd)
-      },
+      setup: AcpSession.composer(modelControl, options),
     })
     return new AcpSession(ctx, handle, modelControl, options.notify)
+  }
+
+  /**
+   * Compose a fresh Agent over an already-built fork seed. The seed comes from
+   * `dsh-session`'s single fork-seed builder, so the child inherits one copied
+   * prefix and no second history path exists; the Agent factory is the only
+   * owner that can attach a live Agent to that prefix.
+   * @param ctx - ACP plugin context with Agent, LLM, and persistence services.
+   * @param options - child identity, workspace, seed, route, MCP, and notifier.
+   * @returns the fully composed per-session module.
+   */
+  static async fork(ctx: Context, options: ForkAcpSessionOptions): Promise<AcpSession> {
+    const modelControl = new AcpModelControl(ctx.llm, options.fallbackSelection)
+    const handle = await ctx.agents.create({
+      sessionId: options.sessionId,
+      seed: options.seed,
+      inheritedEventCount: options.inheritedEventCount,
+      meta: { cwd: options.cwd, parentSession: options.parentSession, isSeeded: true },
+      agentOptions: options.agentOptions,
+      signal: options.signal,
+      setup: AcpSession.composer(modelControl, options),
+    })
+    return new AcpSession(ctx, handle, modelControl, options.notify)
+  }
+
+  /** The scoped composition every ACP-created Agent runs before publication. */
+  private static composer(
+    modelControl: AcpModelControl,
+    options: AcpSessionBuildOptions,
+  ): (agentCtx: Context) => Promise<void> {
+    return async (agentCtx: Context): Promise<void> => {
+      modelControl.install(agentCtx)
+      await mountAcpMcpServers(agentCtx, options.mcpServers, options.cwd)
+    }
   }
 
   /**
@@ -210,6 +254,25 @@ export class AcpSession {
     return this.modelControl.set(configId, value, signal)
   }
 
+  /**
+   * Publish the client's complete current command view. Called at session
+   * publication and on every registry change; the update queues behind prior
+   * output so a client never observes a stale replacement out of order.
+   */
+  advertiseCommands(): void {
+    if (this.closing !== undefined) return
+    const update = availableCommandsUpdate(this.ctx, this.agent)
+    if (update === undefined) return
+    const previous = this.outputTail
+    this.outputTail = previous
+      .then(() => this.notify({ sessionId: this.agent.session.id, update }))
+      /* v8 ignore start -- the bridge notifier contains transport failure. */
+      .catch((error: unknown) => {
+        this.ctx.logger.warn(`acp: command advertisement failed: ${errorChain(error)}`)
+      })
+    /* v8 ignore stop */
+  }
+
   /** Resolve topology state off-chain, then serialize its notification without blocking execution updates. */
   topologyChanged(): void {
     if (this.closing !== undefined) return
@@ -269,7 +332,11 @@ export class AcpSession {
     requestSignal?: AbortSignal,
   ): Promise<PromptResponse> {
     this.assertActive()
-    if (this.inflight !== undefined) throw invalidParams('a prompt is already in flight for this session')
+    if (this.inflight !== undefined || this.commandRun !== undefined) {
+      throw invalidParams('a prompt is already in flight for this session')
+    }
+    const command = commandLine(params.prompt)
+    if (command !== undefined) return this.runCommand(command, requestSignal)
     const completion = Promise.withResolvers<StopReason>()
     const admission = Promise.withResolvers<void>()
     const admissionController = new AbortController()
@@ -353,10 +420,54 @@ export class AcpSession {
     }
   }
 
-  /** Cancel the active prompt, or autonomous work when no ACP prompt exists. */
+  /**
+   * Dispatch one slash-command line and settle the work its handler starts.
+   *
+   * The ACP bridge is a dispatcher like the SDK's session controller: the
+   * registry admits the line, the handler owns any submission it makes, and a
+   * line that does not resolve to a command is a visible request failure — never
+   * a chat turn carrying the slash text. A handler's own model work is followed
+   * to quiescence so its updates are delivered before the prompt settles.
+   *
+   * @param line - exact slash-command line taken from the prompt's text block.
+   * @param requestSignal - JSON-RPC request cancellation signal.
+   * @returns the correlated stop reason, or `cancelled` after client cancellation.
+   */
+  private async runCommand(line: string, requestSignal?: AbortSignal): Promise<PromptResponse> {
+    const commands = this.ctx.get('commands')
+    if (commands === undefined) {
+      throw invalidParams(`${JSON.stringify(line)} is a command line, but this ACP host composes no command registry`)
+    }
+    const controller = new AbortController()
+    this.commandRun = controller
+    const relay = (): void => {
+      controller.abort(requestSignal?.reason)
+    }
+    requestSignal?.addEventListener('abort', relay, { once: true })
+    try {
+      const execution = await commands.execute(this.agent, line, [], controller.signal)
+      // Admission misses surface here: an unresolvable name is a client-visible
+      // failure, because falling through would send the slash line to the model.
+      if (execution === undefined) throw invalidParams(`unknown or malformed command: ${line}`)
+      if (execution.result.kind === 'error') throw invalidParams(execution.result.text)
+      await this.agent.whenIdle()
+      await this.outputTail
+      return { stopReason: 'end_turn' }
+    } catch (error: unknown) {
+      // A cancelled prompt settles as `cancelled`, the same as a cancelled message.
+      if (controller.signal.aborted) return { stopReason: 'cancelled' }
+      throw error
+    } finally {
+      if (this.commandRun === controller) this.commandRun = undefined
+      requestSignal?.removeEventListener('abort', relay)
+    }
+  }
+
+  /** Cancel the active prompt or command dispatch, or autonomous work when neither exists. */
   cancel(): void {
     const inflight = this.inflight
     this.cancelPrompt('ACP prompt cancelled')
+    this.commandRun?.abort(new Error('ACP prompt cancelled'))
     if (inflight === undefined) this.agent.cancel({ kind: 'user' })
   }
 
@@ -463,6 +574,7 @@ export class AcpSession {
       const failures: unknown[] = []
       const inflight = this.inflight
       this.cancelPrompt(detail)
+      this.commandRun?.abort(new Error(detail))
       if (inflight === undefined || !inflight.messageQueued) this.agent.cancel({ kind: 'user' })
       try {
         await inflight?.admissionDone

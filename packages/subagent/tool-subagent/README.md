@@ -50,8 +50,11 @@ Load the subagent service, an in-process or remote backend, and this tool; then 
 | `agentOptions` | — | Configured child `provider`, `model`, adapter-owned `reasoningEffort`, and positive `maxTokens` defaults; requires provider `agentOptions` support and overlays any provider-owned route defaults |
 | `persona` | — | Per-child persona; requires the provider's `persona` capability |
 | `toolFilter` | — | Per-child global-tool restriction; requires the `toolFilter` capability |
+| `agentDirs` | the well-known project and user agent directories | Directories searched for file-defined agents (`*.md`), each layer in the listed order; an empty list disables that layer |
 | `maxDepth` | Host setting (`1`) | Absolute delegation-depth cap (`0` forbids delegation); `'provider-managed'` sends no cap to an out-of-process provider |
 | `maxPartialTextChars` | `8000` | Maximum chars of child partial output included in a parent-facing failure |
+| `delegation` | no bound, every role, no duplicate detection | Delegation policy for every child this instance spawns: `maxDepth`, `maxChildren`, `maxConcurrent`, `maxCost`, `maxTokens`, `allowedRoles`, `duplicateTaskDetection`, `resultSchemaRequired` |
+| `usdPerMillionTokens` | — | USD per million billed tokens; required by any ceiling priced in dollars (`delegation.maxCost` or a role's `budget.maxCostUsd`), because the harness owns no per-route price data |
 
 The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-tool-subagent) is the exhaustive source for every accepted field and its JSDoc.
 
@@ -62,6 +65,53 @@ Under `one-shot` policy, an omitted `run_in_background` waits in the foreground 
 Under `continuable` policy, an omitted or `true` `run_in_background` starts a durable child and returns `started subagent <childId>` without waiting for a result; the runtime delivers one settlement notice when the child's Activation ends, and the optional `send_message` tool sends it more work. Set `run_in_background: false` to wait for the result in the foreground.
 
 `maxDepth` caps recursion (`0` forbids delegation); omission reads the current Host `subagent.maxDepth` setting, initially `1`, at each delegation. A numeric depth requires a provider with the `depthLimit` capability; `'provider-managed'` leaves the budget to an out-of-process provider. `persona` and `toolFilter` configure every child when the provider supports them, and the tool stays visible at the cap — each attempted start checks the calling agent's current depth and rejects with an errored result.
+
+### File-defined agents
+
+The tool also reads agent definitions from the deployment's project root (`agentDirs.project`, default `.dsh/agents`, `.claude/agents`, `.opencode/agents`) and from the home directory (`agentDirs.user`, the same three names). Each root holds flat `*.md` files; a project root wins over a user root, and inside one layer the earlier root wins. A definition is optional frontmatter plus a body the child never reads:
+
+```yaml
+---
+name: code-reviewer
+role: reviewer
+description: Reviews a diff for defects
+tools: read, grep, bash
+model: alpha/reviewer-model
+permission:
+  edit: deny
+budget:
+  maxTokens: 50000
+  maxCostUsd: 1.5
+maxTurns: 8
+outputSchema: code-reviewer.schema.json
+---
+```
+
+`name` defaults to the file name, `description` is one plain value, `model` is `provider/model`, a bare model id that keeps the configured provider, or `inherit`, `tools` is a comma-separated list, an inline list, or an indented `tool: true|false` mapping, and `permission` is an indented `tool: allow|ask|deny` mapping. Tool names are the harness's global tool names; Claude Code's capitalized spellings map mechanically (`WebFetch` → `web_fetch`).
+
+The remaining fields declare the worker role: `role` names the policy role this definition is admitted by (`allowedRoles`) and defaults to `name`; `budget` is an indented map of the child's `maxTokens` and `maxCostUsd` ceilings; `maxTurns` caps the turns the child may open; and `outputSchema` names a file, relative to the definition, holding the object-rooted JSON Schema the child must satisfy. The role's ceilings and `maxTurns` become the child's worker limits, and the dollar ceiling is handed over with the instance's `usdPerMillionTokens` as the price it is measured at; a role that declares a dollar ceiling where the instance declares no price fails the call rather than dropping the ceiling. A call's own `output_schema` answers for that child, and the role's schema is the fallback; the schema requires a foreground run. A role's memory scope is deliberately not declarable: the harness exposes no per-child memory-scope control, and a field that changes nothing would read as a control the deployment does not have.
+
+A call that names one with the optional `agent` parameter applies that definition to that child alone: `tools` and every `permission: deny` entry become the child's tool restriction, intersected with the instance `toolFilter`, and `model` overlays the configured child route. A call naming no agent delegates exactly as before. An unknown name fails the call and reports the available agents and the searched directories; a definition the loader cannot read is skipped with a diagnostic, so it never fails another agent's delegation. `permission` entries other than `deny` are recorded on the definition but not enforced yet — see [Known Limitations](#known-limitations-and-deferred-work).
+
+### Delegation policy and task overlap
+
+<a id="delegation-policy-and-task-overlap"></a>
+
+`delegation` bounds every child this instance spawns. The policy is resolved once per delegation from this configuration (`DELEGATION_POLICY_DEFAULTS` supplies the rest), and it is enforced before the provider is asked for a child:
+
+| Axis | Effect |
+|---|---|
+| `maxChildren` | Children one parent may spawn over its session; the next one is refused. |
+| `maxConcurrent` | Children of one parent in flight at once; the next one is refused while that many run. |
+| `allowedRoles` | Roles a spawn is admitted by, matched against a definition's `role` or its `name`. Empty admits every role; a non-empty list refuses a spawn that names no role. |
+| `resultSchemaRequired` | Whether every admitted spawn must carry an output schema, from the call's `output_schema` or the role's `outputSchema`. |
+| `maxDepth` | Child-depth cap passed to the provider. Omitted, the instance's `maxDepth` (Host setting at each delegation) answers; declaring both with different values fails the mount. |
+| `maxCost` / `maxTokens` | Per-child ceilings handed over as the child's worker limits; a role's own `budget` narrows them. |
+| `duplicateTaskDetection` | Whether a spawn is compared against this parent's children before it is admitted. |
+
+A refusal is an errored result carrying the reason ("the role … is not one of the roles this delegation policy allows", "this delegation policy allows 1 children in flight, …") rather than a silent skip.
+
+With `duplicateTaskDetection` set, the objective a delegation carries (`description`) is compared against the parent's in-flight and recently completed children by the Dice coefficient of their content words — deterministic, no model call, no filesystem read. Above 0.9 similarity a completed child's retained result answers the call instead (`Reused the result of the subagent that already ran "…"`), an in-flight child makes the call an error naming that child (send it the added work, or wait for it), and a lesser overlap at or above 0.55 spawns a child whose prompt is scoped to what the earlier child did not cover. An identical completed task whose result this process no longer holds is refused instead of silently repeated. Below 0.55, and whenever the switch is off, the spawn proceeds unchanged.
 
 ### Selecting a child LLM
 
@@ -99,7 +149,9 @@ The tool's description derives from `provider.inheritsParentContext`: a fresh ch
 
 | File | Role |
 |---|---|
-| [`src/index.ts`](src/index.ts) | Tool registration, lifecycle mirroring, mode resolution, result settlement |
+| [`src/index.ts`](src/index.ts) | Tool registration, lifecycle mirroring, mode resolution, policy admission, result settlement |
+| [`src/agent-files.ts`](src/agent-files.ts) | File-defined agent discovery, frontmatter compilation, and tool-filter merge |
+| [`src/delegation-children.ts`](src/delegation-children.ts) | What one parent session has spawned: caps, overlap candidates, retained results |
 | [`src/model-selection.ts`](src/model-selection.ts) | Request/config merge and live LLM route preflight |
 | [`src/model-selection-settings.ts`](src/model-selection-settings.ts) | Host-owned opt-in setting sampled for new Sessions |
 | [`src/model-selection-state.ts`](src/model-selection-state.ts) | Session event that records and inherits the sampled decision |
@@ -130,11 +182,11 @@ Read these pages when the package-level contract is not enough; they move from t
 
 #### What the model sees
 
-The delegation description uses `running` and `inactive` for follow-up availability; `inactive` does not imply a task result. The generated default [`subagent` schema](../../../docs/tool-catalog.md#deepseek-aidsh-tool-subagent) under this instance's configured name while its provider exists. An enabled Session policy adds `provider`, `model`, and `reasoning_effort` plus inheritance and selection guidance; the provider must support `agentOptions`. Provider context inheritance changes the tool and prompt descriptions. Enabled background mode adds `run_in_background`: continuable mode documents its `true` default, runtime settlement notice, and explicit foreground override, while one-shot mode documents its `false` default and the job id collected with `job_output` or stopped with `job_kill`. An optional `output_schema` accepts an object-rooted JSON Schema for a structured final answer on foreground one-shot runs; the child must then call `structured_output` with a matching value, which returns as `structured` alongside the text. While the tool is visible in an assembly's scope, a `tool:<toolName>` system-prompt section tells the model to start independent continuable delegations together, keep working while they run, and choose foreground only when its next action depends on the result; a tool restriction removes both its schema and this guidance.
+The delegation description uses `running` and `inactive` for follow-up availability; `inactive` does not imply a task result. While its provider exists, the tool exposes the generated default [`subagent` schema](../../../docs/tool-catalog.md#deepseek-aidsh-tool-subagent) under this instance's configured name, including the optional `agent` parameter that names a file-defined agent; an unknown name returns the available agents and the searched directories. An enabled Session policy adds `provider`, `model`, and `reasoning_effort` plus inheritance and selection guidance; the provider must support `agentOptions`. Provider context inheritance changes the tool and prompt descriptions. Enabled background mode adds `run_in_background`: continuable mode documents its `true` default, runtime settlement notice, and explicit foreground override, while one-shot mode documents its `false` default and the job id collected with `job_output` or stopped with `job_kill`. An optional `output_schema` accepts an object-rooted JSON Schema for a structured final answer on foreground one-shot runs; the child must then call `structured_output` with a matching value, which returns as `structured` alongside the text. While the tool is visible in an assembly's scope, a `tool:<toolName>` system-prompt section tells the model to start independent continuable delegations together, keep working while they run, and choose foreground only when its next action depends on the result; a tool restriction removes both its schema and this guidance.
 
 #### Token effect
 
-Fixed schema cost per parent request; model selection adds three parameters. Each provider instance adds one schema, and each continuable instance adds one short system-prompt section.
+Fixed schema cost per parent request: one always-present `agent` parameter, plus three more when model selection is enabled. Each provider instance adds one schema, and each continuable instance adds one short system-prompt section.
 
 #### KV Cache effect
 
@@ -178,7 +230,7 @@ Prefix-stable while the section text and tool presence are unchanged; removing t
 
 #### What the model sees
 
-The call retains the description and prompt. Success contains only the child's final text; when `output_schema` was supplied, the validated structured value follows as `Structured result: <json>`. Other outcomes become `Error: <stop reason>`, followed by a safe provider diagnostic when present and then any partial assistant text (capped at `maxPartialTextChars`, default 8000 chars). Intermediate child steps stay out of the parent.
+The call retains the description and prompt. Success contains only the child's final text; when `output_schema` was supplied, the validated structured value follows as `Structured result: <json>`. A spawn the delegation policy refuses, and a duplicate served by an in-flight child, return `Error: <reason>` before any child starts, and a re-run of a completed task returns that child's result — see the Delegation policy and task overlap section above. Other outcomes become `Error: <stop reason>`, followed by a safe provider diagnostic when present and then any partial assistant text (capped at `maxPartialTextChars`, default 8000 chars). Intermediate child steps stay out of the parent.
 
 #### Token effect
 
@@ -213,6 +265,12 @@ These limits define what this tool does not return or enforce; they are current 
 - **Duplicate names across waiting one-shot instances are detected late** (`TODO(subagent-dup-toolname)`) — continuable instances reserve their prompt-section name during plugin application, but preventing provider-registration rollback for waiting one-shot instances requires a registry of intended names.
 - **Shipped fork tools cannot select a child LLM route** — they inherit the parent's provider and model to keep the copied conversation prefix eligible for KV Cache reuse. Re-enable selection only when route changes preserve reuse or expose a bounded recomputation cost.
 - **Non-routing child policy is fixed per instance** — another persona, tool filter, or depth cap requires another distinctly named tool. LLM selection requires an enabled per-Session preference and a provider that advertises `agentOptions`; both in-process providers and DSH SDK advertise it, while ACP, Codex, and Claude Code reject it rather than ignore it.
+- **`permission` decisions above tool access are not enforced** — a definition's `deny` entries restrict tools, and its `allow` and `ask` entries are recorded on the parsed definition with one diagnostic per file. Enforcing them needs a per-child permission document the child's own authorization reads, which neither the start request nor the delegation receipt carries.
+- **Child ceilings require a provider that declares `workerLimits`** — a policy ceiling fails the mount and a role ceiling fails the call when the selected provider cannot enforce child worker limits, so a bound the harness cannot apply is refused rather than accepted and ignored. Shipped out-of-process providers declare no such capability.
+- **Child caps and overlap detection are process state** — the boundary remembers what it spawned for each live parent Session, so a restarted process starts with no child history: the first delegation of a session is admitted as if it were the first, and a child that completed before the restart is not a reuse candidate. Durable reconstruction would need a session projection over child creation, which this tool does not register.
+- **File-defined agents reach the model only through a failed call** — the roster is not rendered into the prompt or the tool description, so a parent learns the available names from the unknown-name error. Rendering a per-Session catalog needs the Session working directory at registration, which this tool does not have.
+- **A definition is read on every delegation that names an agent** — discovery has no watcher, so an edited file applies to the next delegation and a large `agentDirs` list pays its directory reads per call.
+- **Only `.dsh/agents`, `.claude/agents`, and `.opencode/agents` spellings are recognized** — frontmatter is a documented scalar/list/mapping subset rather than full YAML, so a definition using anchors, nested mappings, or block sequences is skipped with a diagnostic.
 
 <a id="dev-note"></a>
 ### Dev Note

@@ -47,6 +47,16 @@ interface Config {
    * {@link DEFAULT_APPROVAL_TOOLS}.
    */
   approvalTools?: string[]
+  /**
+   * The policy layer this service publishes while the `plan` projection reports
+   * plan mode active. Its rules are appended after the selected preset's and the
+   * remembered ones, so a plan-mode denial wins for the same action family; its
+   * defaults decide the composed layer's default when the selected preset
+   * declares no document of its own. The shipped default denies the file
+   * mutations and shell commands a plan must precede, since a shell command can
+   * change the workspace just as directly. Defaults to that document.
+   */
+  planModePolicy: PolicyDocument
 }
 ```
 

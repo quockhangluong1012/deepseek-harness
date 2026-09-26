@@ -104,7 +104,7 @@ export function sourceOf(descriptor: ContextSourceDescriptor, item: ContextItem)
     kind: descriptor.kind,
     content: text,
     trust: descriptor.trust,
-    provenance: { source: 'tool', locator: descriptor.producer },
+    sourceRef: { source: 'tool', locator: descriptor.producer },
     retention: retentionOfPlacement(descriptor.placement),
   }
 }

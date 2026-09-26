@@ -9,6 +9,8 @@
 
 import { BlockAssembler, createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, ContextFormed, GenerateOptions, Message, StreamChunk } from '@deepseek-ai/dsh-llm'
+import { MUTATION_OPERATOR_CATALOG } from '@deepseek-ai/dsh-evolution-operators'
+import type { MutationOperatorSpec } from '@deepseek-ai/dsh-evolution-operators'
 
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
@@ -36,45 +38,14 @@ export function mutationInstructions(count: number, instruction: string): string
 }
 
 /** One mutation operator: a stable id and the instruction line it contributes. */
-export interface MutationOperator {
-  /** Stable id a deployment selects in Config. */
-  id: string
-  /** Instruction line appended to the request header. */
-  instruction: string
-}
+export type MutationOperator = MutationOperatorSpec
 
 /**
- * Built-in mutation operators. One prompt as the only mutation mechanism
- * converges on one rewrite style, so a run may draw candidates from several.
- *
- * Selection guide: `rewrite` clarifies without changing behavior; `compress`
- * shortens a body the evidence shows is ignored for length; `guard` adds the
- * missing precondition; `exemplify` teaches by example; `generalize` widens a
- * rule that only covers the failing instance; `decompose` splits an
- * uncheckable procedure into steps; `compose` merges overlapping rules;
- * `reorder` moves the implicated check earlier without touching rule text;
- * `remove-step` deletes a step the evidence shows never fires;
- * `change-tool` swaps the implicated tool call; `change-retrieval` changes
- * only what the body looks up; `change-evaluator` changes only how the body
- * checks its own result. Two portfolio members from the specification stay
- * out deliberately: `merge-two-candidates` needs two input bodies and the
- * frame carries one, and `adversarial-patch` belongs to the contamination
- * review, not to repair mutation.
+ * The operator portfolio, in canonical order — the vocabulary the operator
+ * store ranks and this mutator sends, held in one place so an operator the
+ * ranking credits is one a run can select.
  */
-export const MUTATION_OPERATORS: readonly MutationOperator[] = [
-  { id: 'rewrite', instruction: 'Rewrite the body for clarity and ordering; change only what the evidence implicates.' },
-  { id: 'compress', instruction: 'Cut the body to the shortest text that still states every rule the evidence shows matters.' },
-  { id: 'guard', instruction: 'Add the precondition, refusal, or validation the evidence implicates, and nothing else.' },
-  { id: 'exemplify', instruction: 'Add one worked example per rule the evidence implicates; drop nothing that already works.' },
-  { id: 'generalize', instruction: 'Widen each rule the evidence implicates so it covers the failure class, not just the failing instance.' },
-  { id: 'decompose', instruction: 'Split the procedure the evidence implicates into separately checkable steps; keep every existing rule.' },
-  { id: 'compose', instruction: 'Merge duplicated or overlapping rules the evidence implicates into one rule that states both.' },
-  { id: 'reorder', instruction: 'Move the check the evidence implicates earlier in the procedure; change no rule text.' },
-  { id: 'remove-step', instruction: 'Delete the step the evidence shows never fires or always passes; keep everything else byte-identical.' },
-  { id: 'change-tool', instruction: 'Replace the tool call the evidence implicates with the tool that actually answers the question.' },
-  { id: 'change-retrieval', instruction: 'Change only what the body retrieves — queries, sources, or lookup order — as the evidence implicates.' },
-  { id: 'change-evaluator', instruction: 'Change only how the body checks its own result — thresholds, assertions, or verification steps — as the evidence implicates.' },
-]
+export const MUTATION_OPERATORS: readonly MutationOperator[] = MUTATION_OPERATOR_CATALOG
 
 /**
  * Resolve configured operator ids against the built-in portfolio.
@@ -111,15 +82,35 @@ export function distributeCandidates(
 }
 
 /**
- * Frame one mutation request, truncating the evidence (never the skill body)
- * until the frame fits the byte budget.
+ * Cut `text` to at most `maxBytes` UTF-8 bytes, ending on a character boundary
+ * so the frame stays valid UTF-8. An ASCII frame lands exactly on the budget; a
+ * multi-byte character straddling it costs those few bytes rather than sending
+ * half a character.
+ * @param text - the frame to cut.
+ * @param maxBytes - byte budget the result must not exceed.
+ * @returns the frame, cut from the end when it overflows.
+ */
+function truncateToBytes(text: string, maxBytes: number): string {
+  const bytes = Buffer.from(text, 'utf8')
+  if (bytes.length <= maxBytes) return text
+  let end = maxBytes
+  while (end > 0 && ((bytes[end] ?? 0) & 0xc0) === 0x80) end -= 1
+  return bytes.subarray(0, end).toString('utf8')
+}
+
+/**
+ * Frame one mutation request: the fixed instruction, the skill body, and the
+ * evidence, cut from the end until the frame fits `maxBytes`. The evidence
+ * halves first — it is the part the model does not rewrite — and a body that
+ * still overflows the budget is cut at a character boundary, so an oversized
+ * SKILL.md narrows the frame instead of blowing the byte budget.
  * @param skill - skill name the bodies replace.
  * @param body - current SKILL.md body the candidates must differ from.
  * @param evidence - failure evidence the rewrite should address.
  * @param count - bodies requested.
  * @param maxBytes - byte budget for the framed text.
  * @param instruction - the selected operator's instruction line.
- * @returns the framed text, its byte size, and whether evidence was dropped.
+ * @returns the framed text, its byte size, and whether the frame dropped input.
  */
 export function frameMutationInput(
   skill: string,
@@ -130,14 +121,16 @@ export function frameMutationInput(
   instruction: string,
 ): { text: string; inputBytes: number; truncated: boolean } {
   const header = mutationInstructions(count, instruction)
+  const frame = (evidenceText: string): string =>
+    `${header}\n\nSkill: ${skill}\n\nCurrent SKILL.md:\n${body}\n\nEvidence:\n${evidenceText}`
   let kept = evidence.length
-  let text = ''
-  for (;;) {
-    text = `${header}\n\nSkill: ${skill}\n\nCurrent SKILL.md:\n${body}\n\nEvidence:\n${evidence.slice(0, kept)}`
-    if (Buffer.byteLength(text) <= maxBytes || kept === 0) break
+  let fitted = frame(evidence)
+  while (Buffer.byteLength(fitted) > maxBytes && kept > 0) {
     kept = Math.floor(kept / 2)
+    fitted = frame(evidence.slice(0, kept))
   }
-  return { text, inputBytes: Buffer.byteLength(text), truncated: kept < evidence.length }
+  const text = truncateToBytes(fitted, maxBytes)
+  return { text, inputBytes: Buffer.byteLength(text), truncated: kept < evidence.length || text !== fitted }
 }
 
 /**
@@ -194,20 +187,28 @@ export interface MutationOptions {
   signal: AbortSignal
 }
 
+/** What one mutation call produced. */
+export interface MutationRun {
+  /** The usable bodies, possibly empty. */
+  bodies: string[]
+  /** Provider-reported tokens the answer consumed, 0 when it reported none. */
+  tokens: number
+}
+
 /**
  * Stream one mutation answer and parse its candidate bodies.
  * @param fork - model stream.
  * @param options - route, budget, framing, and cancellation.
  * @param body - current body every candidate must differ from.
  * @param count - maximum bodies to keep.
- * @returns the usable bodies, possibly empty.
+ * @returns the usable bodies, possibly empty, with the tokens the answer consumed.
  */
 export async function mutateOnce(
   fork: MutationFork,
   options: MutationOptions,
   body: string,
   count: number,
-): Promise<string[]> {
+): Promise<MutationRun> {
   const messages: Message[] = [createUserMessage({
     content: [{ type: 'text', text: options.input }],
     source: { kind: 'evolution-optimizer' },
@@ -233,5 +234,9 @@ export async function mutateOnce(
   const texts = assembler.blocks()
     .filter((block): block is Extract<ContentBlock, { type: 'text' }> => block.type === 'text')
     .map(block => block.text)
-  return parseMutationResponse(texts.join(''), body, count)
+  const usage = assembler.usage
+  return {
+    bodies: parseMutationResponse(texts.join(''), body, count),
+    tokens: usage === undefined ? 0 : usage.totalTokens ?? usage.inputTokens + usage.outputTokens,
+  }
 }

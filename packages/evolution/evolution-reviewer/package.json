@@ -29,6 +29,7 @@
   "peerDependencies": {
     "@deepseek-ai/cordis": "workspace:~",
     "@deepseek-ai/dsh-agent-kernel": "workspace:*",
+    "@deepseek-ai/dsh-evolution-budget": "workspace:*",
     "@deepseek-ai/dsh-evolution-memory": "workspace:*",
     "@deepseek-ai/dsh-evolution-skill-telemetry": "workspace:*",
     "@deepseek-ai/dsh-llm": "workspace:*",
@@ -51,6 +52,7 @@
   "devDependencies": {
     "@deepseek-ai/cordis": "workspace:~",
     "@deepseek-ai/dsh-agent-kernel": "workspace:*",
+    "@deepseek-ai/dsh-evolution-budget": "workspace:*",
     "@deepseek-ai/dsh-evolution-memory": "workspace:*",
     "@deepseek-ai/dsh-evolution-skill-telemetry": "workspace:*",
     "@deepseek-ai/dsh-llm": "workspace:*",

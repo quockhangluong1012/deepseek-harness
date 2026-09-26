@@ -1,6 +1,35 @@
 import { describe, expect, it } from 'vitest'
-import { attributeImprovement, changedDependencies, comparable, DEPENDENCY_KEYS } from '../src/lineage.ts'
+import { attributeImprovement, changedDependencies, comparable, DEPENDENCY_KEYS, lineDiff, revisionKey } from '../src/lineage.ts'
 import type { DependencyVersions } from '../src/types.ts'
+
+describe('revisionKey', () => {
+  it('keeps a policy and its revision number in one distinct key', () => {
+    expect(revisionKey('skill:writer', 2)).toBe('skill:writer#2')
+    expect(revisionKey('skill:writer', 12)).not.toBe(revisionKey('skill:writer', 2))
+  })
+})
+
+describe('lineDiff', () => {
+  it('reports zero for identical bodies', () => {
+    expect(lineDiff('# writer\nrule one\n', '# writer\nrule one\n')).toEqual({ addedLines: 0, removedLines: 0 })
+  })
+
+  it('counts one added and one removed line for a changed rule', () => {
+    expect(lineDiff('# writer\nold rule\n', '# writer\nnew rule\n')).toEqual({ addedLines: 1, removedLines: 1 })
+  })
+
+  it('counts appended lines as added only', () => {
+    expect(lineDiff('# writer\n', '# writer\nrule one\nrule two\n')).toEqual({ addedLines: 2, removedLines: 0 })
+  })
+
+  it('counts a pure reorder as change, since order is content', () => {
+    expect(lineDiff('a\nb\n', 'b\na\n')).toEqual({ addedLines: 1, removedLines: 1 })
+  })
+
+  it('shares context across a substitution, so surrounding lines cost nothing', () => {
+    expect(lineDiff('head\nold\ntail\n', 'head\nnew\ntail\n')).toEqual({ addedLines: 1, removedLines: 1 })
+  })
+})
 
 describe('DEPENDENCY_KEYS', () => {
   it('lists every dependency in canonical order', () => {

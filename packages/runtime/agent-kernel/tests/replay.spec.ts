@@ -8,6 +8,7 @@ import type {
   ActionId,
   ActionProposal,
   CheckpointId,
+  EvidenceId,
   FailureId,
   PolicyDecisionId,
   RunId,
@@ -30,11 +31,47 @@ function created(): TaskContract {
     objective: 'ship it',
     constraints: [],
     acceptance: [],
+    dependencies: [],
+    evidence: [],
     agentProfile: 'default',
     policyProfile: 'default',
     budget: { maxSteps: 4, maxToolCalls: 3, maxWallMs: 1_000_000, maxTokens: 100, maxCostUsd: 1, maxSubagentDepth: 2 },
     status: 'intake',
     revision: 1,
+  }
+}
+
+/** A contract as a build that predates the graph fields recorded it. */
+function legacyCreated(): SessionEventMap['task/created'] {
+  const { dependencies: _dependencies, evidence: _evidence, ...legacy } = created()
+  void _dependencies
+  void _evidence
+  return legacy as SessionEventMap['task/created']
+}
+
+/** One recorded observation. */
+function evidence(evidenceId: string): SessionEventMap['evidence/recorded'] {
+  return {
+    evidenceId: brandString<EvidenceId>(evidenceId),
+    kind: 'test',
+    contentRef: 'tests/replay.spec.ts',
+    sourceRef: { source: 'kernel' },
+    trust: 'trusted',
+    observedAt: 1,
+  }
+}
+
+/** One recorded failure diagnosis. */
+function diagnosis(failureId: string): SessionEventMap['failure/diagnosed'] {
+  return {
+    failureId: brandString<FailureId>(failureId),
+    category: 'verification',
+    severity: 'medium',
+    evidence: [],
+    hypotheses: [],
+    recommendedActions: ['replan', 'ask-user'],
+    detail: 'plan-drift is a medium verification failure; the kernel recovers by replan',
+    at: 1,
   }
 }
 
@@ -48,6 +85,7 @@ function transition(from: TaskContract['status'], to: TaskContract['status'], re
     trigger: { kind: 'step-admitted' },
     preconditions: [],
     effects: [],
+    evidence: [],
     taskRevision: revision,
     revision: revision + 1,
     actor: 'kernel',
@@ -97,6 +135,25 @@ describe('kernel ledger fold', () => {
     target.append('task/transitioned', transition('ready', 'executing', 2))
 
     expect(ledger.view(target)?.task).toMatchObject({ status: 'executing', revision: 3 })
+  })
+
+  it('folds a contract recorded before the graph fields, then the graph records that follow', () => {
+    const ledger = new KernelLedger()
+    const target = session()
+    // A build that predates the graph fields recorded neither list; the fold
+    // supplies them so later records have somewhere to accumulate.
+    target.append('task/created', legacyCreated())
+    expect(ledger.view(target)?.task).toMatchObject({ dependencies: [], evidence: [] })
+
+    const observed = evidence('evidence-1')
+    target.append('evidence/recorded', observed)
+    target.append('failure/diagnosed', diagnosis('failure-1'))
+
+    expect(ledger.entryOf(target).evidence.get(observed.evidenceId)).toEqual(observed)
+    // The contract carries the same refs, so a reader of one task sees the
+    // observations recorded for it without folding the evidence records.
+    expect(ledger.view(target)?.task.evidence).toEqual([observed.evidenceId])
+    expect(ledger.view(target)?.diagnoses).toEqual([diagnosis('failure-1')])
   })
 
   it('tracks open actions, authorizations, approvals, failures, plans, checkpoints, steps, and tool calls', () => {

@@ -90,4 +90,25 @@ describe('scoreVariantTiered', () => {
     await scoreVariantTiered(new Context(), deps, '# writer v3', '# writer')
     expect(attemptsSeen).toEqual([undefined, undefined])
   })
+
+  it('refuses before the scorer runs once the skill ceiling is spent', async () => {
+    const { attemptsSeen, scorer } = fakeScorer()
+    const ctx = new Context()
+    ctx.provide('evolutionBudget', {
+      batches: () => [],
+      allocate: async () => ({}),
+      withinBudget: () => false,
+      spend: async () => ({}),
+    } as never)
+    const deps: ScoreVariantDeps = { scorer, skill: 'writer', scenarios: ['s1'], agent: AGENT, run }
+
+    const evaluation = await scoreVariantTiered(ctx, deps, '# writer', '# writer')
+
+    expect(attemptsSeen).toEqual([])
+    expect(evaluation).toEqual({
+      status: 'skipped',
+      skill: 'writer',
+      reason: "the daily or weekly evolution-budget ceiling for 'writer' is spent",
+    })
+  })
 })

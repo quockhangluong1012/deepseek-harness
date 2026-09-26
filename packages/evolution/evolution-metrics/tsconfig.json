@@ -8,7 +8,17 @@
   "references": [
     { "path": "../../../vendor/cordis" },
     { "path": "../../../vendor/schemastery" },
+    { "path": "../../core/session" },
+    { "path": "../../feedback/command-feedback" },
+    { "path": "../../guard/budgets" },
+    { "path": "../../mentor/learner-model" },
+    { "path": "../../mentor/misconception" },
+    { "path": "../../research/research-controller" },
+    { "path": "../../runtime/agent-kernel" },
+    { "path": "../../session/session-persistence" },
     { "path": "../../skill/evolution-skill-telemetry" },
+    { "path": "../../todo/tool-todo" },
+    { "path": "../evolution-benchmark" },
     { "path": "../evolution-budget" },
     { "path": "../evolution-canary" },
     { "path": "../evolution-curator" },
@@ -16,6 +26,8 @@
     { "path": "../evolution-feedback" },
     { "path": "../evolution-lineage" },
     { "path": "../evolution-memory" },
-    { "path": "../evolution-meta" }
+    { "path": "../evolution-meta" },
+    { "path": "../evolution-self-model" },
+    { "path": "../evolution-uncertainty" }
   ]
 }

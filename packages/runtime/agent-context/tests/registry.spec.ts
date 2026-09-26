@@ -5,6 +5,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { assembleContextFor } from '@deepseek-ai/dsh-agent'
+import { CompactionId } from '@deepseek-ai/dsh-compaction'
 import { Session } from '@deepseek-ai/dsh-session'
 import { eventsOf, makeAgent, rig } from './rig.ts'
 
@@ -48,8 +49,8 @@ describe('context source registry', () => {
       () => Promise.resolve([{ id: 'e1', text: 'the build failed on main.ts', relevance: 1 }]),
     )
 
-    const first = await service.compile(agent, { sections: [], contexts: [] })
-    const second = await service.compile(agent, { sections: [], contexts: [] })
+    const first = await service.compile(agent, { sections: [], contexts: [], tools: [], variables: {} })
+    const second = await service.compile(agent, { sections: [], contexts: [], tools: [], variables: {} })
 
     expect(first.omitted).toContainEqual({ id: 'evidence:e1', reason: 'budget' })
     expect(second.omitted).toContainEqual({ id: 'evidence:e1', reason: 'budget' })
@@ -62,10 +63,10 @@ describe('context source registry', () => {
       { producer: 'evidence', kind: 'evidence', trust: 'trusted', placement: 'delta', maxBytes: 1000 },
       async () => [{ id: 'e1', text: 'the build failed on main.ts', relevance: 1 }],
     )
-    const empty = { sections: [], contexts: [] }
+    const empty = { sections: [], contexts: [], tools: [], variables: {} }
 
     const first = await service.compile(agent, empty)
-    agent.session.append('compaction/end', { compactionId: 'c1', turn: null })
+    agent.session.append('compaction/end', { compactionId: CompactionId('c1'), turn: null })
     const second = await service.compile(agent, empty)
     const records = eventsOf(agent, 'context/compiled')
     expect(records).toHaveLength(2)
@@ -112,7 +113,7 @@ describe('context source registry', () => {
       async () => [{ id: 'n1', text: 'far too long a note', relevance: 1 }],
     )
 
-    const compiled = await service.compile(agent, { sections: [], contexts: [] })
+    const compiled = await service.compile(agent, { sections: [], contexts: [], tools: [], variables: {} })
 
     const placed = compiled.included.find(entry => entry.source.id === 'notes:n1')
     expect(placed?.source.content).toBe('far t')
@@ -125,7 +126,7 @@ describe('context source registry', () => {
     first.service.register(descriptor, () => Promise.resolve([
       { id: 'e1', text: 'the build failed on main.ts', relevance: 1 },
     ]))
-    const initial = await first.service.compile(agent, { sections: [], contexts: [] })
+    const initial = await first.service.compile(agent, { sections: [], contexts: [], tools: [], variables: {} })
     const replayed = Session.create(agent.session.id, agent.session.snapshotEvents())
 
     const resumed = await rig()
@@ -133,7 +134,7 @@ describe('context source registry', () => {
     resumed.service.register(descriptor, () => Promise.resolve([
       { id: 'e1', text: 'the build failed on main.ts', relevance: 1 },
     ]))
-    const afterResume = await resumed.service.compile(resumedAgent, { sections: [], contexts: [] })
+    const afterResume = await resumed.service.compile(resumedAgent, { sections: [], contexts: [], tools: [], variables: {} })
 
     expect(initial.included.map(entry => entry.source.id)).toContain('evidence:e1')
     expect(afterResume.included.map(entry => entry.source.id)).not.toContain('evidence:e1')

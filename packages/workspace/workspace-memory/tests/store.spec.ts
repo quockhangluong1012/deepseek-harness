@@ -132,7 +132,7 @@ describe('workspace-memory store', () => {
     await fiber.dispose()
   })
 
-  it('setMemory stamps memoryUpdatedAt and keeps provenance', async () => {
+  it('setMemory stamps memoryUpdatedAt and keeps the extraction record', async () => {
     const { fiber, store } = await harness()
     const id = WorkspaceId('ws-1')
     expect(store.read(id)).toBeUndefined()

@@ -75,7 +75,7 @@ The checklist rows are an operator's assertion; `observedDefenses()` reads what 
 | `behavioral-metrics` | this store's probes | at least one probe exercised `evaluator-gaming` |
 | `adversarial-tests` | this store's probes | at least one skill probed every §45 category |
 | `randomized-tests` | — | nothing records which tests were randomized |
-| `evaluator-rotation` | `evolution-router.effectiveness(undefined, 'evaluation')` | one task class recorded two or more evaluation routes |
+| `evaluator-rotation` | `evolution-model-routes.effectiveness(undefined, 'evaluation')` | one task class recorded two or more evaluation routes |
 
 A store that is not mounted makes its defense `unobserved` with the missing store named, never open. Randomized tests and human spot checks stay operator-side: no store records the randomization choice, and human spot checks are not a checklist row at all. The observer only reads the sibling stores — it appends nothing to the benchmark, routes no run, and never starts an evaluation.
 
@@ -119,7 +119,7 @@ These limits define when the store is a poor fit. They are current package const
 - **Records probes, does not run them** — the store logs adversarial prompts and their repair state (§58.12: trust is recorded, not enforced); executing probes against a skill and judging weakness remains an operator's job.
 - **One minimum for all categories** — `minProbesPerCategory` applies to every weakness family; per-category minimums need configuration on the store.
 - **Checklist covers the automatable defenses** — human spot checks stay operator-side by design; the store tracks only the six defenses it can observe, and `randomized-tests` reads `unobserved` because nothing records which tests were randomized.
-- **An observation is only as good as its stores** — `observedDefenses()` derives from the stores mounted beside it; with `evolution-benchmark`, `evolution-evaluator-strategy`, or `evolution-router` unmounted the matching defense reads `unobserved` rather than satisfied or open.
+- **An observation is only as good as its stores** — `observedDefenses()` derives from the stores mounted beside it; with `evolution-benchmark`, `evolution-evaluator-strategy`, or `evolution-model-routes` unmounted the matching defense reads `unobserved` rather than satisfied or open.
 - **Observation and assertion are read separately** — `defenses()` reports what an operator set and `observedDefenses()` what the stores recorded; nothing reconciles the two, so a hand-set row can claim a defense the evidence does not show.
 
 <a id="dev-note"></a>

@@ -1,20 +1,27 @@
 /**
- * Discovers `mcpServers` declarations from a project `.mcp.json` and a user-level config file,
- * and mounts one `dsh-mcp-client` instance per accepted server. A project entry overrides a
- * user entry of the same normalized name. Neither file existing is the common case and mounts
- * nothing; a malformed file or entry is skipped with one warning rather than failing boot.
+ * Mounts the MCP server management service: it discovers `mcpServers`
+ * declarations from a project `.mcp.json` and a user-level config file, runs
+ * one `dsh-mcp-client` instance per accepted server, and serves the Desktop
+ * management surface (`list`, `upsert`, `remove`) that reads those files, adds
+ * or replaces declarations, and deletes them under the approval seam. A
+ * project entry overrides a user entry of the same normalized name. Neither
+ * file existing is the common case and mounts nothing; a malformed file or
+ * entry is skipped with one warning rather than failing boot.
  *
  * @module @deepseek-ai/dsh-mcp-project-config
  */
 
-import { readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type Schema from '@deepseek-ai/schemastery'
-import * as McpClient from '@deepseek-ai/dsh-mcp-client'
 import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
-import { parseMcpProjectConfig, type ParsedMcpConfig, type ParsedServer } from './parse.ts'
+import { McpServers } from './mcp-servers.ts'
+import type { McpApprovalChannel } from './mcp-servers.ts'
+// Side-effect type imports: declaration-merge `ctx.approval` (the ask a
+// reach-extending write makes) and `ctx.agents` (the live agent it addresses).
+import type {} from '@deepseek-ai/dsh-user-approval'
+import type {} from '@deepseek-ai/dsh-agent'
 // Side-effect type import: declaration-merges `ctx.tools` onto Context, required by McpClient.
 import type {} from '@deepseek-ai/dsh-tools'
 
@@ -44,65 +51,42 @@ export const Config: Schema<Config> = z.object({
 })
 
 /**
- * Read and parse one `.mcp.json`-shaped file. A missing file is the ordinary "nothing configured
- * here" case and produces no warning; any other read or parse failure warns and is treated as
- * empty so one broken file cannot block the other configured layer.
- * @param ctx - plugin context used only for its logger.
- * @param path - absolute path to the config file.
- * @returns the parsed servers and skipped entries, empty when the file is absent or broken.
+ * The approval channel a reach-extending write asks through. It resolves the
+ * ask's session to the live agent `user-approval` asks on behalf of, and
+ * rejects when this composition has no approval seam or no live agent holds
+ * that session — the write is then refused rather than applied unreviewed.
+ * @param ctx - plugin context carrying the approval and agent services.
+ * @returns the channel, or undefined when either service is absent.
  */
-async function readConfigFile(ctx: Context, path: string): Promise<ParsedMcpConfig> {
-  let raw: unknown
-  try {
-    raw = JSON.parse(await readFile(path, 'utf8'))
-  } catch (error: unknown) {
-    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
-      ctx.logger.warn(`mcp-project-config: could not load "${path}": ${String(error)} — no servers from this file`)
-    }
-    return { servers: new Map(), skipped: [] }
+function approvalChannel(ctx: Context): McpApprovalChannel | undefined {
+  const agents = ctx.get('agents')
+  const approval = ctx.get('approval')
+  if (agents === undefined || approval === undefined) return undefined
+  return {
+    request: async (ask) => {
+      const agent = agents.get(ask.sessionId)
+      if (agent === undefined) throw new Error(`no live agent holds session "${ask.sessionId}"`)
+      return await approval.request({
+        agent,
+        toolName: ask.toolName,
+        ...ask.reason === undefined ? {} : { reason: ask.reason },
+      })
+    },
   }
-  return parseMcpProjectConfig(raw)
 }
 
-/** Build the `dsh-mcp-client` config input for one parsed server. */
-function clientConfigFor(server: ParsedServer, failOnStartupError: boolean): McpClient.Config {
-  return server.transport === 'stdio'
-    ? McpClient.Config({
-        transport: 'stdio',
-        serverName: server.serverName,
-        command: server.command,
-        args: server.args,
-        env: server.env,
-        cwd: process.cwd(),
-        failOnStartupError,
-      })
-    : McpClient.Config({
-        transport: 'streamable-http',
-        serverName: server.serverName,
-        url: server.url,
-        headers: server.headers,
-        failOnStartupError,
-      })
-}
-
+/**
+ * Mount the management service for this profile.
+ * @param ctx - plugin context whose fiber owns the service and its client instances.
+ * @param config - the two config file paths and the startup-failure stance.
+ * @returns after every configured server's mount attempt settled.
+ */
 export async function apply(ctx: Context, config: Config): Promise<void> {
-  const projectPath = resolve(config.configPath ?? './.mcp.json')
-  const userPath = resolve(config.userConfigPath ?? dshHomePath('mcp.json'))
-  const [project, user] = projectPath === userPath
-    ? [await readConfigFile(ctx, projectPath), { servers: new Map<string, ParsedServer>(), skipped: [] }]
-    : await Promise.all([readConfigFile(ctx, projectPath), readConfigFile(ctx, userPath)])
-
-  for (const skippedEntry of [...user.skipped, ...project.skipped]) {
-    ctx.logger.warn(`mcp-project-config: skipping "${skippedEntry.rawName}": ${skippedEntry.reason}`)
-  }
-
-  // The project file is more specific to the current work than the user-level
-  // file, so its declaration wins a normalized-name collision.
-  const merged = new Map(user.servers)
-  for (const [serverName, server] of project.servers) merged.set(serverName, server)
-
-  const failOnStartupError = config.failOnStartupError ?? false
-  // Sequential, matching the ACP bridge's mountAcpMcpServers: each mcp-client
-  // instance blocks its own apply() on the initial connection attempt.
-  for (const server of merged.values()) await ctx.plugin(McpClient, clientConfigFor(server, failOnStartupError))
+  const servers = new McpServers(ctx, {
+    projectPath: resolve(config.configPath ?? './.mcp.json'),
+    userPath: resolve(config.userConfigPath ?? dshHomePath('mcp.json')),
+    failOnStartupError: config.failOnStartupError ?? false,
+    approval: approvalChannel(ctx),
+  })
+  await servers.start()
 }

@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-acp` lets trusted programs automate persistent DeepSeek Harness agents through the standard [ACP](https://agentclientprotocol.com): create or resume sessions, select a model and reasoning effort, attach MCP servers, submit or cancel work, receive semantic updates, and close sessions independently. Choose it for out-of-process subagents, test runners, and scripted controllers; it intentionally omits DSH-specific presentation data and interactive UI features. Persistence supports listing, resuming, and closing sessions across process restarts, but deletion, forks, transcript replay, and additional directories are unsupported. Run `pnpm dsh --profile acp` to start the server; use `dsh-subagent-acp` as the repository client.
+`dsh-acp` lets trusted programs automate persistent DeepSeek Harness agents through the standard [ACP](https://agentclientprotocol.com): create, resume, or fork sessions, select a model and reasoning effort, attach MCP servers, submit or cancel work, receive semantic updates, and close sessions independently. Choose it for out-of-process subagents, test runners, and scripted controllers; it intentionally omits DSH-specific presentation data and interactive UI features. Persistence supports listing, resuming, and closing sessions across process restarts, but deletion, transcript replay, and additional directories are unsupported. Run `pnpm dsh --profile acp` to start the server; use `dsh-subagent-acp` as the repository client.
 
 ## Table of Contents
 
@@ -52,7 +52,7 @@ The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-a
 
 ### Start a server
 
-`pnpm dsh --profile acp` starts the shipped stdio server. The `acp` profile mounts session persistence, so clients can list, resume, and close persistent sessions. [`@deepseek-ai/dsh-subagent-acp`](../../subagent/subagent-acp/README.md) starts the same profile for out-of-process delegation.
+`pnpm dsh --profile acp` starts the shipped stdio server. The `acp` profile mounts session persistence, so clients can list, resume, fork, and close persistent sessions. [`@deepseek-ai/dsh-subagent-acp`](../../subagent/subagent-acp/README.md) starts the same profile for out-of-process delegation.
 
 <a id="protocol-contract"></a><a id="standard-acp-v1-surface"></a>
 ### Protocol contract
@@ -61,19 +61,20 @@ One connection can run several sessions at once, each independent. The calls a c
 
 | Call | What you get |
 |---|---|
-| `initialize` | Stable ACP v1 plus `session/list`, `session/resume`, `session/close`, and Streamable HTTP MCP support; image prompts only when the durable attachment store and configured exact route support them. |
+| `initialize` | Stable ACP v1 plus `session/list`, `session/resume`, `session/close`, `session/fork`, and Streamable HTTP MCP support; image prompts only when the durable attachment store and configured exact route support them. |
 | `authenticate` | Immediate success; the server requires no authentication. |
 | `session/new` | A fresh persistent agent whose absolute workspace and stdio or HTTP MCP servers are validated before publication, plus its complete configuration-option state. |
 | `session/list` | Deterministic newest-first pages of persisted, resumable root sessions; an optional absolute `cwd` filter uses physical-directory identity where possible. |
 | `session/resume` | A persisted inactive session whose canonical workspace is verified before composition; its log is restored without replaying old updates. |
+| `session/fork` | A new independent session seeded from a source session's complete event log — still active here, or already stored — with its own id and configuration state; the source keeps running. The SDK still marks this call unstable. |
 | `session/close` | Quiescent cancellation, update draining, descendant disposal, persistence flush, and disposal of only the addressed Agent scope. |
 | `session/set_config_option` | A serialized update to the advertised `model` or `reasoning_effort`, returning the complete resulting state. |
 | `session/prompt` | Ordered text, resource links, and supported images, one prompt at a time per session; settlement follows Agent idle and ordered update delivery. |
 | `session/cancel` / `$/cancel_request` | The prompt-owned cancellation path; without an ACP prompt in flight it cancels autonomous work, while unknown session ids are no-ops. |
-| `session/update` | Committed assistant messages and thoughts, generic tool lifecycle, the agent kernel's durable plan revision when that plugin is mounted, configuration changes, and context usage, serialized per session. |
+| `session/update` | Committed assistant messages and thoughts, generic tool lifecycle, the agent kernel's durable plan revision when that plugin is mounted, the complete command list whenever the command registry changes, configuration changes, and context usage, serialized per session. |
 | `session/request_permission` | A permission prompt with one-shot allow/reject choices; your client can answer automatically. |
 
-Session configuration offers opaque provider/model choices from the live LLM service catalog and a `reasoning_effort` selector when the exact model declares one. A prompt snapshots that selection before asynchronous image admission and pins it across every model step in that turn; a concurrent option change applies to the next turn. ACP clients are trusted controllers: stdio MCP entries authorize their absolute commands and environment, HTTP entries authorize their absolute HTTP(S) URLs and headers, and any initial connection or discovery failure rolls back the unpublished Agent. Unsupported surfaces are omitted or rejected: `session/load`, deletion, fork, additional directories, SSE or ACP-transport MCP, modes, commands, plans, terminals, client filesystem operations, and elicitation.
+Session configuration offers opaque provider/model choices from the live LLM service catalog and a `reasoning_effort` selector when the exact model declares one. A prompt snapshots that selection before asynchronous image admission and pins it across every model step in that turn; a concurrent option change applies to the next turn. ACP clients are trusted controllers: stdio MCP entries authorize their absolute commands and environment, HTTP entries authorize their absolute HTTP(S) URLs and headers, and any initial connection or discovery failure rolls back the unpublished Agent. Unsupported surfaces are omitted or rejected: `session/load`, deletion, additional directories, SSE or ACP-transport MCP, modes, plans, and elicitation. A prompt whose only block is a text command line (`/name [input]`) does not start a turn: the bridge executes it against the mounted command registry, follows any model work its handler starts to quiescence, and settles as a completed turn; a line that resolves to no command, or a command line on a host without the registry, fails the request visibly instead of being submitted as chat, and a prompt carrying media is never a command invocation. Model file and command calls stay in the harness unless a deployment mounts this package's optional [`./client-fs`](src/client-fs.ts) and [`./client-shell`](src/client-shell.ts) providers, which hand a routed call to the connected client whenever it advertises `fs/*` or `terminal/*`; a command the client runs is not confined by the harness sandbox.
 
 -----
 
@@ -89,7 +90,7 @@ This section explains how the server realizes the behavior above and points at t
 
 The server is an automation transport with an intentionally standard public protocol. Three commitments shape it:
 
-- **Standard semantic updates only.** The wire carries committed messages and thoughts, generic tool lifecycle, configuration, and context usage; raw provider deltas, retry attempts, DSH presentation data, and unsupported content stay off the wire.
+- **Standard semantic updates only.** The wire carries committed messages and thoughts, generic tool lifecycle, the advertised command list, configuration, and context usage; raw provider deltas, retry attempts, DSH presentation data, and unsupported content stay off the wire.
 - **Truthful capability and configuration state.** `initialize` advertises only mounted support, topology changes publish complete configuration options, and a prompt pins the exact route it admitted.
 - **Quiescence before settlement.** Prompt and close operations settle only after their owned admission, Agent activity, ordered updates, descendants, persistence, and disposal have reached the required terminal state.
 
@@ -99,9 +100,14 @@ The decision history lives in the [ACP as an automation-only protocol note](../.
 
 | File | Role |
 |---|---|
-| [`src/index.ts`](src/index.ts) | Plugin entry: `Config` schema, `AgentSideConnection` wiring, per-session records, admission and settlement, teardown |
+| [`src/index.ts`](src/index.ts) | Plugin entry: `Config` schema, SDK `agent` app wiring, per-session records, admission and settlement, teardown |
+| [`src/session.ts`](src/session.ts) | One session's Agent, configuration, prompt admission, ordered updates, and quiescent close |
 | [`src/content.ts`](src/content.ts) | Wire-content admission and projection: image validation, route recheck, prompt reconstruction, assistant block conversion |
 | [`src/codec.ts`](src/codec.ts) | Pure turn-ending to ACP `stopReason` mapping |
+| [`src/commands.ts`](src/commands.ts) | Command advertisement and dispatch: the live command registry projected into `available_commands_update`, and the prompt line that becomes one command execution |
+| [`src/client.ts`](src/client.ts) | Client-capability bridge: the live connection, the advertised `fs/*`/`terminal/*` capabilities, the typed client calls, and session routing |
+| [`src/client-fs.ts`](src/client-fs.ts) | Optional `ctx.fs` provider: routed text reads and unguarded writes through `fs/read_text_file`/`fs/write_text_file` |
+| [`src/client-shell.ts`](src/client-shell.ts) | Optional `ctx.shell` provider: routed commands through `terminal/create` and its output, wait, kill, and release methods |
 | — | No runtime invariant companion is published; this transport owns no durable package-local event stream; protocol and lifecycle tests cover its mapping. |
 
 ### Admission and prompt settlement
@@ -169,7 +175,9 @@ These limits define when this package is a poor fit or needs special operational
 - **One primary workspace** — additional directories remain unsupported.
 - **Raster prompt images only** — PNG, JPEG, WebP, and GIF require a durable attachment store and an exact image-capable route.
 - **MCP tools only** — MCP resources and prompts have no DSH consumer.
-- **No transcript replay or interactive extensions** — session deletion, fork, `session/load`, modes, commands, terminals, client filesystem operations, and elicitation remain outside this automation surface. Plans are projected from the [agent kernel](../../runtime/agent-kernel/README.md)'s durable revision only; this package runs no planner of its own.
+- **No transcript replay or interactive extensions** — session deletion, `session/load`, modes, and elicitation remain outside this automation surface. Plans are projected from the [agent kernel](../../runtime/agent-kernel/README.md)'s durable revision only; this package runs no planner of its own.
+- **Client-owned files and terminals are opt-in** — the shipped server composes the local providers; a deployment that also mounts [`./client-fs`](src/client-fs.ts) or [`./client-shell`](src/client-shell.ts) hands routed model calls to the connected client whenever it advertises `fs/*` or `terminal/*`, and a command the client runs is not confined by the harness sandbox.
+- **A dispatched command has no result update** — the wire vocabulary carries a command list, not a command result. A client sees the model work a command starts and the durable `command/run`/`command/done` log records, but the handler's own result text stays in the session log.
 
 <a id="dev-note"></a>
 ### Dev Note

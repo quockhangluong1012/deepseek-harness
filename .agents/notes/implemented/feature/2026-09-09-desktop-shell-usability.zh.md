@@ -10,7 +10,7 @@ Electron 壳的应用菜单起初只有插件、检查更新和退出，聊天�
 
 ## Decision
 
-壳菜单由 `apps/desktop/src/menu.ts` 构建：应用菜单保留仅打包可用的插件入口与更新检查，编辑（撤销到全选）、视图（重载、缩放、仅开发可见的开发者工具）与窗口（最小化、关闭）使用 Electron role 以保留平台原生文案，只有顶层菜单消费壳 locale 文案。插件管理器改为行内版本编辑并校验精确版本，移除前用 locale 文案确认，开发构建禁用表单并显示只读提示，缺失的 locale 键回退显示键名，事务冲突与截断后的 pnpm 首行错误分别映射为友好提示。同一窗口新增更新区，由既有更新 IPC 与新增 `updates-version` 通道驱动：显示当前版本、手动检查、有可用版本时安装，并通过 coordinator 的 `download-progress` 订阅实时显示下载百分比。后端缺席时的 `dsh-app://app` 请求返回带 `retry-after: 1` 与 locale 重启文案的 503，开发构建手动检查显示仅打包可用提示而非“已是最新”。
+壳菜单由 `apps/desktop/src/main.ts` 构建：应用菜单保留仅打包可用的插件入口与更新检查，编辑（撤销到全选）、视图（重载、缩放、仅开发可见的开发者工具）与窗口（最小化、关闭）使用 Electron role 以保留平台原生文案，只有顶层菜单消费壳 locale 文案。插件管理器改为行内版本编辑并校验精确版本，移除前用 locale 文案确认，开发构建禁用表单并显示只读提示，缺失的 locale 键回退显示键名，事务冲突与截断后的 pnpm 首行错误分别映射为友好提示。同一窗口新增更新区，由既有更新 IPC 与新增 `updates-version` 通道驱动：显示当前版本、手动检查、有可用版本时安装，并通过 coordinator 的 `download-progress` 订阅实时显示下载百分比。后端缺席时的 `dsh-app://app` 请求返回带 `retry-after: 1` 与 locale 重启文案的 503，开发构建手动检查显示仅打包可用提示而非“已是最新”。
 
 ## Alternatives considered
 

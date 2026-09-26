@@ -1,7 +1,8 @@
 /**
  * The kernel ledger: a cursor-based fold of one session's kernel events into
  * the task view the service reads, plus the budget observation derived from
- * the session's own step and tool-call events.
+ * the session's own step and tool-call events and the background budget
+ * owner's spend beside it.
  *
  * The session log is the only source of truth. The fold keeps a cursor per
  * session and folds each event once, the way `ApprovalService` folds
@@ -12,7 +13,9 @@
  * @module @deepseek-ai/dsh-agent-kernel/ledger
  */
 
-import { SessionSeq, type Session, type SessionEvent } from '@deepseek-ai/dsh-session'
+import { randomUUID } from 'node:crypto'
+import { SessionSeq, type Session, type SessionEvent, type SessionId } from '@deepseek-ai/dsh-session'
+import { brandString } from '@deepseek-ai/dsh-brand'
 import { deriveSessionTokenSpend } from '@deepseek-ai/dsh-token-meter'
 import type { ApprovalOutcome, ApprovalRequestId } from '@deepseek-ai/dsh-user-approval/types'
 import type {
@@ -20,14 +23,18 @@ import type {
   ActionProposal,
   AuthorizationDecision,
   BudgetGovernor,
+  BackgroundSpend,
   PolicyDecision,
   BudgetSnapshot,
+  BudgetReservation,
+  BudgetReservationId,
   Checkpoint,
   TaskClaim,
   TaskClaimId,
   DelegationReceipt,
   Evidence,
   EvidenceId,
+  FailureDiagnosis,
   FailureId,
   FailureRef,
   TaskHypothesis,
@@ -35,9 +42,13 @@ import type {
   KernelStateReader,
   KernelView,
   PlanRevision,
+  RecordedTaskContract,
+  RecoveryDecision,
   ResourceBudget,
+  RunId,
   TaskContract,
   TaskId,
+  VerificationResult,
 } from './types.ts'
 import { applyTransition } from './state-machine.ts'
 
@@ -88,14 +99,31 @@ export interface LedgerEntry {
   failureAction: Map<FailureId, ActionId>
   /** The task and revision of the last verification that passed, when one did. */
   passingVerification: { readonly taskId: TaskId; readonly revision: number } | undefined
+  /**
+   * The verification result folded before {@link latestVerification}, when one
+   * was: the verification a repair answered. The §8.5 regression leg compares
+   * the two.
+   */
+  priorVerification: VerificationResult | undefined
+  /**
+   * The most recent verification result folded for this session, whatever its
+   * status.
+   */
+  latestVerification: VerificationResult | undefined
   /** Latest plan revision. */
   plan: PlanRevision | undefined
+  /** `goal/change` events folded, so a step's goal movement is measurable. */
+  goalChanges: number
+  /** Recovery decision recorded per failure, when the engine decided one. */
+  recoveries: Map<FailureId, RecoveryDecision>
   /** Observations recorded for this task, in log order. */
   evidence: Map<EvidenceId, Evidence>
   /** Claims asserted by this task. */
   claims: Map<TaskClaimId, TaskClaim>
   /** Questions this task is testing. */
   hypotheses: Map<TaskHypothesisId, TaskHypothesis>
+  /** Diagnoses recorded for this task's failures, in log order. */
+  diagnoses: FailureDiagnosis[]
   /** Latest checkpoint. */
   checkpoint: Checkpoint | undefined
   /** The delegation this session's agent acts under, when it is a child. */
@@ -125,6 +153,8 @@ export interface KernelRecord {
   readonly claims: readonly TaskClaim[]
   /** Hypotheses recorded for the task, newest state per hypothesis. */
   readonly hypotheses: readonly TaskHypothesis[]
+  /** Diagnoses recorded for the task's failures, in log order. */
+  readonly diagnoses: readonly FailureDiagnosis[]
   /** Actions proposed and not yet committed. */
   readonly openActionIds: readonly ActionId[]
   /** Failures with no accepted resolution. */
@@ -169,6 +199,7 @@ export function readKernelRecord(events: Iterable<SessionEvent>): KernelRecord |
     evidence: [...entry.evidence.values()],
     claims: [...entry.claims.values()],
     hypotheses: [...entry.hypotheses.values()],
+    diagnoses: entry.diagnoses,
     openActionIds: [...entry.openActions],
     unresolvedFailures: [...entry.failures.values()],
     proposals: entry.proposals,
@@ -199,10 +230,15 @@ function emptyEntry(): LedgerEntry {
     failures: new Map(),
     failureAction: new Map(),
     passingVerification: undefined,
+    priorVerification: undefined,
+    latestVerification: undefined,
     plan: undefined,
+    goalChanges: 0,
+    recoveries: new Map(),
     evidence: new Map(),
     claims: new Map(),
     hypotheses: new Map(),
+    diagnoses: [],
     checkpoint: undefined,
     delegation: undefined,
   }
@@ -210,11 +246,29 @@ function emptyEntry(): LedgerEntry {
 
 /**
  * The ledger's public surface: the read model the kernel service answers from,
- * plus the budget observation it records on checkpoints.
+ * the budget observation it records on checkpoints, and the reservations it
+ * holds against a session's remaining allowance. The observation reads both
+ * budget owners and enforces neither.
  */
 export class KernelLedger implements KernelStateReader, BudgetGovernor {
   /** Per-session fold cursor and folded state. */
   private readonly entries = new WeakMap<Session, LedgerEntry>()
+  /**
+   * Holds placed on each session's allowance, by reservation id. Holds belong
+   * to the work in flight, so they are process state: a restart has no child
+   * running to hold budget for, and the durable record of what a session
+   * promised is the delegation receipt it wrote.
+   */
+  private readonly reservations = new Map<BudgetReservationId, BudgetReservation>()
+  /** Spend settled work reported against each session, by session id. */
+  private readonly debited = new Map<SessionId, ResourceBudget>()
+
+  /**
+   * @param background - reads what background work has spent, so the
+   * observation carries the background budget owner's numbers beside the
+   * session's own. Omitted when no background budget owner is mounted.
+   */
+  constructor(private readonly background: (() => BackgroundSpend | undefined) | undefined = undefined) {}
 
   /**
    * Fold every event appended since the last call and return the current view.
@@ -234,6 +288,7 @@ export class KernelLedger implements KernelStateReader, BudgetGovernor {
       evidence: [...entry.evidence.values()],
       claims: [...entry.claims.values()],
       hypotheses: [...entry.hypotheses.values()],
+      diagnoses: entry.diagnoses,
       ...entry.plan === undefined ? {} : { plan: entry.plan },
       ...entry.checkpoint === undefined ? {} : { checkpoint: entry.checkpoint },
       ...entry.delegation === undefined ? {} : { delegation: entry.delegation },
@@ -263,7 +318,10 @@ export class KernelLedger implements KernelStateReader, BudgetGovernor {
   }
 
   /**
-   * Measure one task against its configured ceilings.
+   * Measure one task against its configured ceilings. The background budget
+   * owner's spend is reported beside the session's own use and debits nothing
+   * here: the remaining allowance is the session's alone, and `guard/budgets`
+   * is what enforces it.
    * @param task - the task whose configured ceilings apply.
    * @param session - the session whose events were counted.
    * @returns the observation and the remaining allowance per configured ceiling.
@@ -271,14 +329,116 @@ export class KernelLedger implements KernelStateReader, BudgetGovernor {
   measure(task: TaskContract, session: Session): BudgetSnapshot {
     const entry = this.entryOf(session)
     const wallMs = entry.createdAt === 0 ? 0 : Math.max(0, Date.now() - entry.createdAt)
+    // oxlint-disable-next-line typescript/no-deprecated -- Existing Session history read; migration deferred.
     const tokens = deriveSessionTokenSpend(session.snapshotEvents())
+    const background = this.background?.()
     return {
       steps: entry.steps,
       toolCalls: entry.toolCalls,
       tokens,
       wallMs,
       remaining: remainingAllowance(task.budget, entry.steps, entry.toolCalls, wallMs, tokens),
+      ...background === undefined ? {} : { background },
     }
+  }
+
+  /**
+   * What one session can still promise: its measured remaining allowance less
+   * the holds its in-flight work placed and the spend its settled children
+   * reported, per axis. An axis the session does not bound is absent.
+   * @param session - the session whose allowance is read.
+   * @returns the still-uncommitted allowance, per bounded axis.
+   */
+  available(session: Session): ResourceBudget {
+    const task = this.entryOf(session).task
+    if (task === undefined) return {}
+    const remaining = this.measure(task, session).remaining
+    const held = this.heldBy(session.id)
+    const debited = this.debited.get(session.id)
+    const allowance: Partial<Record<keyof ResourceBudget, number>> = { ...remaining }
+    for (const axis of RESERVED_AXES) {
+      const left = remaining[axis]
+      if (left === undefined) continue
+      allowance[axis] = Math.max(0, left - (held[axis] ?? 0) - (debited?.[axis] ?? 0))
+    }
+    return allowance
+  }
+
+  /**
+   * Hold part of one session's allowance for work that is about to run. The
+   * hold is capped at what the session has available, so two hold requests made
+   * before either settles cannot together exceed what the session had.
+   * @param session - the session whose allowance is held.
+   * @param amount - the ceilings the work may spend.
+   * @param runId - the run the hold is placed for, when the caller knows it.
+   * @returns the hold, carrying the ceilings it placed.
+   */
+  reserve(session: Session, amount: ResourceBudget, runId?: RunId): BudgetReservation {
+    const available = this.available(session)
+    const held: Partial<Record<keyof ResourceBudget, number>> = {}
+    for (const axis of RESERVED_AXES) {
+      const left = available[axis]
+      const requested = amount[axis]
+      if (left === undefined || requested === undefined) continue
+      held[axis] = Math.min(Math.max(0, requested), left)
+    }
+    const reservation: BudgetReservation = {
+      reservationId: brandString<BudgetReservationId>(randomUUID()),
+      sessionId: session.id,
+      ...runId === undefined ? {} : { runId },
+      amount: held,
+      at: Date.now(),
+    }
+    this.reservations.set(reservation.reservationId, reservation)
+    return reservation
+  }
+
+  /**
+   * Settle a hold with what the work it covered reported spending. The hold
+   * ends and the spend is debited from the session's available allowance; the
+   * session's measured remaining allowance is unchanged, because the work's
+   * spend is measured in its own session.
+   * @param reservationId - the hold being settled.
+   * @param actual - what the work spent, per axis, when the caller measured it.
+   */
+  commit(reservationId: BudgetReservationId, actual?: ResourceBudget): void {
+    const reservation = this.reservations.get(reservationId)
+    if (reservation === undefined) return
+    this.reservations.delete(reservationId)
+    if (actual === undefined) return
+    const debited: Partial<Record<keyof ResourceBudget, number>> = { ...this.debited.get(reservation.sessionId) }
+    for (const axis of RESERVED_AXES) {
+      const spent = actual[axis]
+      if (spent === undefined) continue
+      debited[axis] = (debited[axis] ?? 0) + Math.max(0, spent)
+    }
+    this.debited.set(reservation.sessionId, debited)
+  }
+
+  /**
+   * Release a hold for work that never ran.
+   * @param reservationId - the hold being released.
+   */
+  release(reservationId: BudgetReservationId): void {
+    this.reservations.delete(reservationId)
+  }
+
+  /**
+   * Every hold one session currently carries, summed per axis.
+   * @param sessionId - the session whose holds are summed.
+   * @returns the held ceilings; empty when the session carries none.
+   */
+  private heldBy(sessionId: SessionId): ResourceBudget {
+    const held: Partial<Record<keyof ResourceBudget, number>> = {}
+    for (const reservation of this.reservations.values()) {
+      if (reservation.sessionId !== sessionId) continue
+      for (const axis of RESERVED_AXES) {
+        const value = reservation.amount[axis]
+        if (value === undefined) continue
+        held[axis] = (held[axis] ?? 0) + value
+      }
+    }
+    return held
   }
 
   /**
@@ -313,9 +473,14 @@ export class KernelLedger implements KernelStateReader, BudgetGovernor {
 function fold(entry: LedgerEntry, event: SessionEvent): void {
   switch (event.type) {
     case 'task/created': {
-      const { metadata: _metadata, ...task } = event.data
+      const { metadata: _metadata, ...recorded } = event.data
       void _metadata
-      entry.task = task
+      const contract: RecordedTaskContract = recorded
+      entry.task = {
+        ...contract,
+        dependencies: contract.dependencies ?? [],
+        evidence: contract.evidence ?? [],
+      }
       entry.createdAt = event.time
       return
     }
@@ -325,24 +490,40 @@ function fold(entry: LedgerEntry, event: SessionEvent): void {
       if (entry.task !== undefined) entry.task = applyTransition(entry.task, event.data)
       return
     case 'verification/result': {
+      const { metadata: _verificationMetadata, ...verification } = event.data
+      void _verificationMetadata
+      entry.priorVerification = entry.latestVerification
+      entry.latestVerification = verification
       if (event.data.status !== 'pass') return
       const verified = entry.task
       if (verified !== undefined) entry.passingVerification = { taskId: verified.taskId, revision: event.data.revision }
       // A later pass is what resolves an earlier verification failure: the
-      // criterion that failed now holds, so it no longer blocks completion.
+      // criterion that failed now holds, so it no longer blocks completion. The
+      // same pass resolves plan drift, because a task whose outcome a verifier
+      // confirmed is not still unaccounted for by the path it took.
       resolveFailuresOfKind(entry, 'verification-failed')
+      resolveFailuresOfKind(entry, 'verification-regressed')
+      resolveFailuresOfKind(entry, 'plan-drift')
       return
     }
     case 'task/plan': {
       const { metadata: _metadata, ...plan } = event.data
       void _metadata
       entry.plan = plan
+      // A new revision answers whatever the task was drifting from.
+      resolveFailuresOfKind(entry, 'plan-drift')
       return
     }
     case 'evidence/recorded': {
       const { metadata: _metadata, ...evidence } = event.data
       void _metadata
       entry.evidence.set(evidence.evidenceId, evidence)
+      // The contract carries the same refs, so a reader of one task sees the
+      // observations recorded for it without folding the evidence records.
+      const observed = entry.task
+      if (observed !== undefined) {
+        entry.task = { ...observed, evidence: [...observed.evidence, evidence.evidenceId] }
+      }
       return
     }
     case 'claim/updated': {
@@ -386,6 +567,32 @@ function fold(entry: LedgerEntry, event: SessionEvent): void {
       entry.failures.set(event.data.failureId, { failureId: event.data.failureId, kind: event.data.kind })
       if (event.data.actionId !== undefined) entry.failureAction.set(event.data.failureId, event.data.actionId)
       return
+    case 'failure/diagnosed': {
+      const { metadata: _metadata, ...diagnosis } = event.data
+      void _metadata
+      entry.diagnoses.push(diagnosis)
+      return
+    }
+    case 'recovery/decided': {
+      const { metadata: _metadata, ...decision } = event.data
+      void _metadata
+      entry.recoveries.set(decision.failureId, decision)
+      return
+    }
+    case 'governor/decided':
+      // A step that moved something answers the loop and liveness failures
+      // recorded against the step that did not: the run replied to the guard by
+      // changing what it was doing, so neither failure still blocks completion.
+      if (event.data.progressScore > 0) {
+        resolveFailuresOfKind(entry, 'no-progress')
+        resolveFailuresOfKind(entry, 'stalled')
+      }
+      return
+    case 'goal/change':
+      // The goal is another plane's event; the kernel only counts its
+      // movement, which is one axis of a step's progress.
+      entry.goalChanges += 1
+      return
     case 'checkpoint/created': {
       const { metadata: _metadata, ...checkpoint } = event.data
       void _metadata
@@ -403,6 +610,19 @@ function fold(entry: LedgerEntry, event: SessionEvent): void {
       return
     case 'tool/call':
       entry.toolCalls += 1
+      return
+    case 'tool/result':
+      // A call that produced a model-facing result whether or not it failed has
+      // been parsed and dispatched, so an earlier malformed argument set no
+      // longer says anything about the tool: the model supplied arguments a
+      // schema accepted.
+      resolveFailuresOfKind(entry, 'tool-args-malformed')
+      return
+    case 'turn/end':
+      // A truncated turn is retried with a larger output limit; a turn that
+      // ended for any other reason produced its output, so the retry answered
+      // the failure and it no longer blocks completion.
+      if (event.data.reason.kind !== 'max-tokens') resolveFailuresOfKind(entry, 'output-truncated')
       return
     default:
       return
@@ -436,6 +656,17 @@ function resolveFailuresOfKind(entry: LedgerEntry, kind: FailureRef['kind']): vo
 }
 
 /**
+ * Ceilings a reservation holds: the axes a child's own spend consumes one for
+ * one, so promising them to two children at once would spend the parent's
+ * allowance twice. `maxCostUsd` is priced by the deployment's guard rather than
+ * measured here, and `maxSubagentDepth` and `maxConcurrentActions` bound
+ * authority rather than consumption — a held depth cap would refuse a
+ * grandchild and a held action slot would refuse a sibling's every call — so
+ * the three stay with the parent's own ceilings.
+ */
+const RESERVED_AXES = ['maxSteps', 'maxToolCalls', 'maxTokens', 'maxWallMs', 'maxCostUsd'] as const satisfies readonly (keyof ResourceBudget)[]
+
+/**
  * The remaining allowance for every configured ceiling, clamped at zero.
  * @param budget - the task's configured ceilings.
  * @param steps - observed model steps.
@@ -461,5 +692,9 @@ function remainingAllowance(
     ...budget.maxTokens === undefined ? {} : { maxTokens: Math.max(0, budget.maxTokens - tokens) },
     ...budget.maxCostUsd === undefined ? {} : { maxCostUsd: budget.maxCostUsd },
     ...budget.maxSubagentDepth === undefined ? {} : { maxSubagentDepth: budget.maxSubagentDepth },
+    // A concurrency ceiling bounds the actions in flight rather than an amount
+    // spent, and a slot frees when its action settles, so it is reported as
+    // configured; the kernel enforces it against the actions in flight.
+    ...budget.maxConcurrentActions === undefined ? {} : { maxConcurrentActions: budget.maxConcurrentActions },
   }
 }

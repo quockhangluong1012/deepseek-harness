@@ -1,5 +1,5 @@
 ---
-description: "The model-facing background-job controls for users and maintainers choosing, configuring, or debugging job_output, job_list, job_kill, and completion notices."
+description: "The model-facing background-job controls for users and maintainers choosing, configuring, or debugging job_output, job_monitor, job_list, job_kill, and completion notices."
 kind: "package-reference"
 ---
 
@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Use `dsh-tool-jobs` to inspect and control background commands, PTY work, and subagents through `job_output`, `job_list`, and `job_kill`. Reads can wait within a configured timeout, list results identify each job's kind and status, and cancellation settles only after the work stops. When owned work finishes, the agent receives an in-session notice: busy agents receive it in their next step, while idle agents are woken by a follow-up turn. Configuration controls wait limits, completion delivery, and an optional cap on consecutive wakeups. Stream output is consumed by one reader, and pending notices do not survive owner disposal.
+Use `dsh-tool-jobs` to inspect and control background commands, PTY work, and subagents with `job_output`, `job_monitor`, `job_list`, and `job_kill`. Reads can wait within a configured timeout, one until output matches a pattern; `job_list` identifies each job's kind and status, and cancellation settles only after work stops. When owned work finishes, the agent gets an in-session notice: busy agents see it in their next step, idle agents are woken by a follow-up turn. Configuration controls wait limits, delivery, and an optional consecutive-wakeup cap. Stream output has one reader; pending notices do not survive owner disposal.
 
 ## Table of Contents
 
@@ -25,15 +25,16 @@ Use `dsh-tool-jobs` to inspect and control background commands, PTY work, and su
 <a id="use-this-package"></a>
 ## Use this package
 
-Load this plugin in any composition where the agent should start, observe, and stop background jobs: it registers the three tools, attaches the controller producers need, and delivers completion notices. It requires the `ctx.tools`, `ctx.jobs`, and `ctx.systemPrompt` services from the composed harness; completion notices resolve their destination through `ctx.agents`, which every composition with owned jobs already provides.
+Load this plugin in any composition where the agent should start, observe, and stop background jobs: it registers the four tools, attaches the controller producers need, and delivers completion notices. It requires the `ctx.tools`, `ctx.jobs`, and `ctx.systemPrompt` services from the composed harness; completion notices resolve their destination through `ctx.agents`, which every composition with owned jobs already provides.
 
-### The three tools
+### The four tools
 
 - `job_output(job_id, wait?, timeout_ms?)` — Read a job's output. Stream jobs return only the output since the previous read; final-output jobs return their result after settlement. Every response ends with `[status: ...]`. Reads are non-blocking unless `wait: true`, which waits up to the configured cap and leaves a still-running job alive on timeout. A read renders stdout first and stderr in one `[stderr]` section, notes output that left memory before the read, and carries a job's result (a subagent's answer) exactly once, on the first read after settlement.
+- `job_monitor(job_id, pattern, regex?, timeout_ms?)` — Wait until the job's output matches `pattern`, bounded by the configured cap, and return the matched text. `pattern` is a case-sensitive literal substring unless `regex: true` makes it a case-sensitive JavaScript regular expression. The wait ends early with a non-match when the job settles, and it never consumes the stream: a later `job_output` still returns everything. Producer narration on the `log` channel is invisible to the pattern, like it is to a read.
 - `job_list()` — List your background jobs with their ids, kinds, and statuses, one per line: `<id> [<kind>] <status> — <label>`.
 - `job_kill(job_id, reason?)` — Request cancellation of a running job immediately; the job settles as `killed` once its work actually stops. A terminal job returns its current snapshot, and the optional reason is recorded and forwarded to the job.
 
-The three tools return `{ text, job }`, `PublicJobSnapshot[]`, and `{ outcome: 'cancellation-requested' | 'already-finished', job }` respectively. A public snapshot carries id, kind, label, status with the live progress line or the terminal detail, and start/finish times, and omits ownership and ring offsets. All three render through generic UI cards: `read` for output and list, `execute` for kill.
+The four tools return `{ text, job }`, `{ matched, excerpt, lossy, job }`, `PublicJobSnapshot[]`, and `{ outcome: 'cancellation-requested' | 'already-finished', job }` respectively. A public snapshot carries id, kind, label, status with the live progress line or the terminal detail, and start/finish times, and omits ownership and ring offsets. A monitor result carries whether the pattern matched, the matched text or the retained output it tested, whether earlier bytes had already left memory, and the same snapshot. All four render through generic UI cards: `read` for output, monitor, and list, `execute` for kill.
 
 ### Completion notices
 
@@ -51,8 +52,8 @@ Loading the plugin with no config is the common path; a `waitTimeoutMs` above `m
 
 | Field | Default | Meaning |
 |---|---|---|
-| `waitTimeoutMs` | `30,000` | Wait used when `wait: true` omits `timeout_ms` |
-| `maxWaitTimeoutMs` | `600,000` | Cap for model-supplied waits; larger values clamp down to it |
+| `waitTimeoutMs` | `30,000` | Wait used when `job_output` sets `wait` or `job_monitor` runs without `timeout_ms` |
+| `maxWaitTimeoutMs` | `600,000` | Cap for model-supplied waits on either tool; larger values clamp down to it |
 | `completionDelivery` | `wakeup` | `wakeup` opens a turn on an idle owner; `quiet` leaves the notice pending |
 | `maxConsecutiveWakes` | unset | Turns one owner may open by wake before notices degrade to injection; unset means no cap |
 
@@ -60,7 +61,7 @@ The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-a
 
 ### What can go wrong
 
-An agent whose composition loads no `tool-jobs` cannot start background work: this plugin's controller is what arms producers' `ctx.jobs.start()`. A model-supplied wait longer than `maxWaitTimeoutMs` is clamped down to the cap, and a timed-out wait returns `[status: running]` and leaves the job alive rather than failing. A completion notice pending on an idle owner does not survive that owner's disposal.
+An agent whose composition loads no `tool-jobs` cannot start background work: this plugin's controller is what arms producers' `ctx.jobs.start()`. A model-supplied wait longer than `maxWaitTimeoutMs` is clamped down to the cap, and a timed-out wait returns `[status: running]` and leaves the job alive rather than failing. A monitor whose pattern never appears against a job that settles returns its non-match result instead of waiting further, and a malformed regular expression fails the call. A completion notice pending on an idle owner does not survive that owner's disposal.
 
 -----
 
@@ -140,7 +141,7 @@ Prefix-stable while the plugin scope and guidance text are unchanged. Activation
 
 #### What the model sees
 
-The generated [`job_output`, `job_list`, and `job_kill` schemas](../../../docs/tool-catalog.md#deepseek-aidsh-tool-jobs) while this tool set is visible.
+The generated [`job_output`, `job_monitor`, `job_list`, and `job_kill` schemas](../../../docs/tool-catalog.md#deepseek-aidsh-tool-jobs) while this tool set is visible.
 
 #### Token effect
 
@@ -154,11 +155,11 @@ Prefix-stable while tool definitions and visibility are unchanged. Registration 
 
 #### What the model sees
 
-Reads return output or `(no new output)` followed by `[status: <status>]` and optional detail. An empty list returns `(no background jobs)`. Kill returns `requested cancellation of job <id>` or the existing terminal status. An owned completion the model has not already collected uses the notice above.
+Reads return output or `(no new output)` followed by `[status: <status>]` and optional detail. A monitor returns `job <id> matched "<pattern>":` with the matched text, or that the pattern has not matched yet or that the job ended without matching, with the retained output it tested. An empty list returns `(no background jobs)`. Kill returns `requested cancellation of job <id>` or the existing terminal status. An owned completion the model has not already collected uses the notice above.
 
 #### Token effect
 
-Results and notices remain in parent history until compaction. Stream reads do not repeat consumed output; a producer-supplied `outputLimitBytes` bounds each complete read or notice. Under `wakeup`, a notice reaching an idle owner also buys a model request the user did not ask for, capped per owner only when `maxConsecutiveWakes` is set; a notice reaching a busy owner adds a step to the turn it is already paying for.
+Results and notices remain in parent history until compaction. Stream reads do not repeat consumed output; a producer-supplied `outputLimitBytes` bounds each complete read, monitor result, or notice. Under `wakeup`, a notice reaching an idle owner also buys a model request the user did not ask for, capped per owner only when `maxConsecutiveWakes` is set; a notice reaching a busy owner adds a step to the turn it is already paying for.
 
 #### KV Cache effect
 
@@ -175,6 +176,7 @@ These limits define when the tools are a poor fit. They are current package cons
 - **A spent wake budget is not restored by time** — with `maxConsecutiveWakes` set, only user-authored input refills it, so an unattended agent whose budget ran out collects its remaining notices on the next turn something else opens, and nothing in the client shows that a notice is waiting.
 - **A notice pending on an idle owner does not survive that owner's disposal** — the disposal cancel clears the unclaimed inbox, and the log keeps the insert/cancel pair as the record.
 - **Model reads are single-consumer** — independent observers use the registry's non-consuming `readAt` (the Web client's `job.follow`), not these tools.
+- **A monitor tests only retained output** — the ring keeps 256 KiB per live job by default, so a match fully evicted between two appends is never seen; the `lossy` field says earlier bytes were already dropped, and a longer window needs a raised `retainBytes` on the registry.
 - **Unowned jobs have no session fence** — external callers must supply policy or avoid them.
 
 <a id="dev-note"></a>

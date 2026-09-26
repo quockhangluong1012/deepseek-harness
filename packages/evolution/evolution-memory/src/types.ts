@@ -1,7 +1,7 @@
 /**
  * Public type vocabulary of the evolution-memory store: the durable
  * per-scope document, its context items, produced-file index, extraction
- * provenance, and staged writes. Types only — no runtime code.
+ * the extraction that wrote them, and staged writes. Types only — no runtime code.
  * @module @deepseek-ai/dsh-evolution-memory/src/types
  */
 
@@ -16,6 +16,8 @@ import type { LessonDecision } from './decisions.ts'
 // importing the package root, whose module body reaches for `node:crypto`.
 export type { LessonArtifact, LessonArtifactInput, LessonArtifactPatch, LessonMergeStrategy } from './lesson-artifact.ts'
 export type { LessonLineage, LessonSupersession, UtilityEstimate } from './lesson-artifact.ts'
+export type { LessonLifecycle } from './lifecycle.ts'
+export type { ConflictRule, LessonConflict } from './conflict.ts'
 
 declare module '@deepseek-ai/dsh-typert-protocol' {
   interface RemoteErrorDetailsMap {
@@ -29,6 +31,8 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     'evolution/staged-not-found': { readonly stagedId: string }
     /** A staged skill proposal lacks the admission evidence approval needs. */
     'evolution/staged-blocked': { readonly stagedId: string; readonly neededEvidence: readonly string[] }
+    /** Another process holds the scope's cross-process write lock past the configured wait. */
+    'evolution/scope-locked': { readonly scope: string; readonly path: string; readonly waitedMs: number }
     /** The rebuild could not produce a document. */
     'evolution/extraction-failed': { readonly scopeId: string }
   }
@@ -107,7 +111,7 @@ export interface RecordedRecall extends MemoryRecall {
 /** Where a model-written memory document came from. */
 export type EvolutionExtractionOrigin = 'foreground' | 'background_review' | 'user-edit' | 'rebuild'
 
-/** Provenance of the last model-written lessons or profile document. */
+/** The extraction that last wrote the lessons or profile document. */
 export interface EvolutionExtraction {
   at: string
   sessionId: string
@@ -122,9 +126,9 @@ export interface EvolutionExtraction {
 export type StagedWriteKind = 'memory' | 'skill'
 
 /**
- * Text payload for the `setInstructions`, `setUserProfile`, and
- * `appendEpisodic` staged ops. A profile op may carry extraction
- * provenance, which approval stamps as `lastExtraction`.
+ * Text payload for the `setInstructions`, `appendInstructions`,
+ * `setUserProfile`, and `appendEpisodic` staged ops. A profile op may carry
+ * the extraction record, which approval stamps as `lastExtraction`.
  */
 export interface MemoryStagedTextPayload {
   text: string
@@ -174,7 +178,7 @@ export interface MemoryStagedReplaceArtifactsPayload {
 /**
  * Payload for the `applyDecisions` staged op: one extraction pass's whole
  * decision batch, applied as a single write. The optional `extraction` is the
- * provenance of the call that produced the batch, stamped on approval exactly
+ * record of the call that produced the batch, stamped on approval exactly
  * as `replaceArtifacts` and `addArtifact` stamp theirs.
  */
 export interface MemoryStagedApplyDecisionsPayload {
@@ -309,7 +313,7 @@ export interface EvolutionMemoryRecord {
   recalls: readonly MemoryRecall[]
   /** Episodic tier: raw session notes in append order, pruned by retention. */
   episodic: readonly EpisodicEntry[]
-  /** Provenance of the last model-written lessons or profile, or null. */
+  /** The extraction that last wrote the lessons or profile, or null. */
   lastExtraction: EvolutionExtraction | null
   /** Writes awaiting approval, oldest first. */
   staged: readonly StagedWrite[]

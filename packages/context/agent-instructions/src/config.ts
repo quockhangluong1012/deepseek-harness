@@ -13,6 +13,8 @@ const DEFAULT_INSTRUCTION_FILE_CANDIDATES = ['AGENTS.md', 'CLAUDE.md'] as const
 const DEFAULT_LOCAL_INSTRUCTION_FILE_CANDIDATES = ['AGENTS.local.md', 'CLAUDE.local.md'] as const
 const DEFAULT_MAX_SOURCE_BYTES = 1_048_576
 const DEFAULT_MAX_TOTAL_SOURCE_BYTES = 8 * DEFAULT_MAX_SOURCE_BYTES
+const DEFAULT_MAX_IMPORT_DEPTH = 5
+const DEFAULT_RULE_DIRECTORY = '.dsh/rules'
 const RESERVED_PATH_SEGMENTS = new Set(['', '.', '..'])
 
 /** User-facing workspace instruction loader configuration. */
@@ -43,6 +45,22 @@ export interface Config {
    * under the same per-directory trimmed-content dedup; empty disables the overlay.
    */
   localInstructionFileCandidates?: string[]
+  /**
+   * Maximum nesting depth of `@path` import expansion inside one instruction
+   * file; `0` disables imports. Only a reference naming an existing file inside
+   * the importing file's trust root (the project root, or `$DSH_HOME` for the
+   * user-global file) is expanded, so other `@tokens` stay as prose. A reference
+   * that repeats a file already on its own chain, exceeds this depth, or names a
+   * file outside the trust root stays literal and is reported as unresolved.
+   */
+  maxImportDepth?: number
+  /**
+   * Project-relative directory holding path-scoped rule files, read recursively
+   * for `*.md`; an empty value disables rule discovery. A rule whose leading
+   * YAML frontmatter declares `paths:` globs loads once a touched path matches
+   * one of them, while a rule that declares none joins the baseline chain.
+   */
+  ruleDirectory?: string
 }
 
 export const Config: z<Config> = z.object({
@@ -53,6 +71,8 @@ export const Config: z<Config> = z.object({
   maxTotalSourceBytes: z.number().step(1).min(1).default(DEFAULT_MAX_TOTAL_SOURCE_BYTES),
   instructionFileCandidates: z.array(z.string()).default([...DEFAULT_INSTRUCTION_FILE_CANDIDATES]),
   localInstructionFileCandidates: z.array(z.string()).default([...DEFAULT_LOCAL_INSTRUCTION_FILE_CANDIDATES]),
+  maxImportDepth: z.number().step(1).min(0).default(DEFAULT_MAX_IMPORT_DEPTH),
+  ruleDirectory: z.string().default(DEFAULT_RULE_DIRECTORY),
 })
 
 /** Normalized instruction discovery configuration. */
@@ -68,6 +88,8 @@ export interface ResolvedConfig extends ResolvedDiscoveryConfig {
   maxBytes: number
   maxSourceBytes: number
   maxTotalSourceBytes: number
+  maxImportDepth: number
+  ruleDirectory: string
 }
 
 /**
@@ -90,6 +112,8 @@ export function workspaceBaselineIdentity(
     maxTotalSourceBytes: config.maxTotalSourceBytes,
     instructionFileCandidates: config.instructionFileCandidates,
     localInstructionFileCandidates: config.localInstructionFileCandidates,
+    maxImportDepth: config.maxImportDepth,
+    ruleDirectory: config.ruleDirectory,
   })
 }
 
@@ -104,6 +128,8 @@ export function resolveConfig(config: Config): ResolvedConfig {
     maxBytes: config.maxBytes,
     maxSourceBytes: config.maxSourceBytes ?? DEFAULT_MAX_SOURCE_BYTES,
     maxTotalSourceBytes: config.maxTotalSourceBytes ?? DEFAULT_MAX_TOTAL_SOURCE_BYTES,
+    maxImportDepth: config.maxImportDepth ?? DEFAULT_MAX_IMPORT_DEPTH,
+    ruleDirectory: normalizeRuleDirectory(config.ruleDirectory),
   }
 }
 
@@ -133,4 +159,15 @@ function resolveInstructionFileCandidates(candidates: string[] | undefined, fall
   return (candidates ?? [...fallback]).filter(candidate => (
     !RESERVED_PATH_SEGMENTS.has(candidate) && !/[\\/]/.test(candidate)
   ))
+}
+
+/**
+ * Normalize the configured rule directory to the project-relative POSIX form
+ * used for scope keys and display paths.
+ * @param directory - configured directory, undefined for the default.
+ * @returns the normalized directory, or an empty string when rules are disabled.
+ */
+function normalizeRuleDirectory(directory: string | undefined): string {
+  if (directory === undefined) return DEFAULT_RULE_DIRECTORY
+  return directory.replaceAll('\\', '/').replace(/\/+$/u, '').replace(/^\.\//u, '')
 }

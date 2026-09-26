@@ -30,9 +30,6 @@
       - paragraph
       - paragraph: Never updated
       - button "Preview"
-      - button "Regenerate":
-        - img
-        - text: Regenerate
     - region "Context":
       - heading "Context" [level=2]
       - paragraph: 0 of 131072 bytes used

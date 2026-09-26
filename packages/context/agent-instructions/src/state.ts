@@ -5,6 +5,7 @@
  */
 
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import { isAbsolute, resolve } from 'node:path'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { Message } from '@deepseek-ai/dsh-llm'
 import type { Session, UserMessage } from '@deepseek-ai/dsh-session'
@@ -14,14 +15,19 @@ import { instructionContentSha1, trimmedInstructionDigest } from './digest.ts'
 import {
   ancestorChain,
   descendantDirsBetween,
+  discoverRuleFiles,
   findProjectRoot,
+  probeInstructionFileVersion,
   probeScopeInstruction,
+  readRuleGlobs,
   readScopeInstruction,
   relativeDisplay,
   type DroppedInstructionSource,
+  type ImportedInstructionState,
   type LoadedInstructionFile,
   type SourceReadBudget,
 } from './files.ts'
+import { rulePathMatches } from './rules.ts'
 import {
   candidateScopeKey,
   decodeScopeKey,
@@ -63,6 +69,12 @@ export interface InstructionVersionState {
    * per-directory duplicates on the metadata fast path without re-reading a sibling.
    */
   trimmedDigest: string
+  /**
+   * Files inlined by `@path` expansion with the versions read alongside them; the
+   * fast path re-probes them so a change inside an imported file still refreshes
+   * the importer whose own version did not move.
+   */
+  imports?: readonly ImportedInstructionState[]
 }
 
 /** Session-isolated fast-path state keyed by logical instruction scope. */
@@ -186,10 +198,34 @@ export function baselineInstructionState(files: LoadedInstructionFile[]): {
         version: file.version,
         digest,
         trimmedDigest: trimmedInstructionDigest(file.content),
+        ...file.imports === undefined ? {} : { imports: file.imports },
       })
     }
   }
   return { changes, versions }
+}
+
+/**
+ * Re-probe the imports retained by one cached scope.
+ * @param imports - imported files recorded with the cached content.
+ * @param fileSystem - provider used for the probes.
+ * @param signal - cancellation for provider probes.
+ * @returns true when every import still carries its cached version, so the cached content is current.
+ */
+async function importsAreCurrent(
+  imports: readonly ImportedInstructionState[] | undefined,
+  fileSystem: FileSystem,
+  signal?: AbortSignal,
+): Promise<boolean> {
+  if (imports === undefined || imports.length === 0) return true
+  for (const imported of imports) {
+    // A host read carries no freshness token; its content cannot be validated cheaply.
+    if (imported.version === undefined) return false
+    const version = await probeInstructionFileVersion(imported.absolutePath, fileSystem, signal)
+    signal?.throwIfAborted()
+    if (version !== imported.version) return false
+  }
+  return true
 }
 
 function versionStatesFor(session: Session, cache: InstructionVersionCache): Map<string, InstructionVersionState> {
@@ -303,6 +339,31 @@ export async function reconcileInstructionContext(
     for (const dir of descendantDirsBetween(cwd, touchedPath)) addProjectScopes(scopes, dir)
   }
 
+  const budget: SourceReadBudget = { remaining: resolved.maxTotalSourceBytes, dropped: [] }
+  // Rules can only become newly applicable through a touched path, and their
+  // unconditional members must be known to the baseline exclusion set, so a pass
+  // with neither touches nor baseline validation skips the rule walk entirely.
+  if (resolved.ruleDirectory.length > 0
+    && (options.touchedPaths.length > 0 || options.includeBaselineScopes)) {
+    const rules = await discoverRuleFiles(projectRoot, resolved.ruleDirectory, fileSystem, options.signal)
+    const touchedRelative = options.touchedPaths
+      .map(path => relativeDisplay(projectRoot, isAbsolute(path) ? path : resolve(cwd, path)))
+      .filter(relative => relative.length > 0 && !relative.startsWith('..'))
+    for (const rule of rules) {
+      options.signal?.throwIfAborted()
+      const state = await readRuleGlobs(rule, resolved, budget, fileSystem, options.signal)
+      if (state === undefined) continue
+      if (state.globs === undefined) {
+        // Unconditional rules render with the baseline, which owns their exclusion.
+        baselineScopes.add(rule.scope)
+        continue
+      }
+      if (touchedRelative.some(path => rulePathMatches(path, state.globs as readonly string[]))) {
+        scopes.add(rule.scope)
+      }
+    }
+  }
+
   const versions = versionStatesFor(session, versionCache)
   const seenAbsolutePaths = new Set<string>()
   // Per-directory trimmed-content identities kept so far this pass, iterated in
@@ -321,7 +382,6 @@ export async function reconcileInstructionContext(
   }
   const items: ChangeRenderItem[] = []
   const versionUpdates: InstructionVersionUpdate[] = []
-  const budget: SourceReadBudget = { remaining: resolved.maxTotalSourceBytes, dropped: [] }
   const pushRemoval = (scope: string, path: string): void => {
     const change: AgentInstructionChange = { action: 'remove', scope, path }
     items.push({ change, file: { absolutePath: `removed:${scope}`, displayPath: path, content: '' } })
@@ -387,6 +447,7 @@ export async function reconcileInstructionContext(
         && previous.action !== 'remove'
         && previous.path === cached.path
         && previous.digest === cached.digest
+        && await importsAreCurrent(cached.imports, fileSystem, options.signal)
       ) {
         // Unchanged and previously rendered: keep it, but an earlier sibling that
         // now matches its trimmed content makes this the duplicate to remove.
@@ -394,7 +455,16 @@ export async function reconcileInstructionContext(
         continue
       }
 
-      const file = await readScopeInstruction(probedFile, resolved.maxSourceBytes, budget, fileSystem, options.signal)
+      const file = await readScopeInstruction(probedFile, {
+        maxSourceBytes: resolved.maxSourceBytes,
+        maxImportDepth: resolved.maxImportDepth,
+        dshHome: resolved.dshHome,
+        projectRoot,
+        budget,
+        // A rule file's frontmatter is discovery metadata, not guidance.
+        stripFrontmatter: resolved.ruleDirectory.length > 0
+          && (directory === resolved.ruleDirectory || directory.startsWith(`${resolved.ruleDirectory}/`)),
+      }, fileSystem, options.signal)
       if (file === undefined) continue
       const currentDigest = instructionContentSha1(file.content)
       const trimmedDigest = trimmedInstructionDigest(file.content)
@@ -410,6 +480,7 @@ export async function reconcileInstructionContext(
         version: probedFile.version,
         digest: currentDigest,
         trimmedDigest,
+        ...file.imports === undefined ? {} : { imports: file.imports },
       }
       if (previous !== undefined && previous.action !== 'remove' && previous.path === file.displayPath && previous.digest === currentDigest) {
         versions.set(scope, nextVersion)

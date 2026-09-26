@@ -60,3 +60,28 @@ export interface UsageSummary {
   /** Per-model rows, descending by billed total. */
   readonly models: readonly UsageModelRow[]
 }
+
+/**
+ * One agent's or subagent's spend in one summary window: the session that
+ * committed the attempts, its estimated money, and the routes no declared
+ * price covered. A session that priced nothing reports `usd` as `undefined` —
+ * unmeasurable, never zero — so a caller can tell "spent nothing measurable"
+ * apart from "could not measure".
+ */
+export interface UsageSessionCost {
+  /** Session id: the invoking agent or one of its subagents. */
+  readonly sessionId: string
+  /**
+   * Estimated USD over the attempts priced through declared rates, or
+   * `undefined` when no attempt could be priced. Attempts counted in
+   * {@link unpricedRequests} contribute no money, so a mixed session reports
+   * a lower bound and names what it could not cover.
+   */
+  readonly usd: number | undefined
+  /** Attempts priced through a route that declared USD rates. */
+  readonly pricedRequests: number
+  /** Attempts no declared price covers, including steps whose route never settled. */
+  readonly unpricedRequests: number
+  /** Distinct routes with at least one unpriced attempt, ascending, as `provider/model`. */
+  readonly unpricedRoutes: readonly string[]
+}

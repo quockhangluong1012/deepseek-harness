@@ -9,9 +9,20 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import AgentKernel from '@deepseek-ai/dsh-agent-kernel'
+import AgentKernel, {
+  type ActionId,
+  type AuthorizationDecision,
+  type CheckpointId,
+  type FailureId,
+  type PolicyDecision,
+  type PolicyDecisionId,
+  type RunId,
+  type TaskContract,
+  type TaskId,
+} from '@deepseek-ai/dsh-agent-kernel'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import { provideCmdline } from '@deepseek-ai/dsh-cmdline'
+import type { ToolCallId } from '@deepseek-ai/dsh-llm/brand'
 import { SessionId, SessionLogOffset, SessionSeq, SESSION_FORMAT_VERSION, type SessionEvent, type SessionHeader } from '@deepseek-ai/dsh-session'
 import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import Storage from '@deepseek-ai/dsh-storage'
@@ -43,6 +54,8 @@ const CONTRACT: TaskContract = {
   objective: 'repair the failing reader',
   constraints: [],
   acceptance: [{ id: 'crit-1', description: 'the reader spec passes', verifier: 'test', required: true }],
+  dependencies: [],
+  evidence: [],
   agentProfile: 'worker',
   policyProfile: 'default',
   budget: { maxSteps: 4 },
@@ -141,7 +154,7 @@ function fixtureLog(): SessionEvent[] {
 async function invoke(
   argv: string[],
   log: readonly SessionEvent[] = fixtureLog(),
-): Promise<{ stdout: string, stderr: string, code: number }> {
+): Promise<{ stdout: string; stderr: string; code: number }> {
   const root = await mkdtemp(join(tmpdir(), 'kernel-ops-'))
   roots.push(root)
   const ctx = new Context()
@@ -160,16 +173,16 @@ async function invoke(
   let code = -1
   const write = internals.write
   const writeError = internals.writeError
-  internals.write = text => { stdout += text }
-  internals.writeError = text => { stderr += text }
+  internals.write = (text) => { stdout += text }
+  internals.writeError = (text) => { stderr += text }
   try {
-    provideCmdline(ctx, { args: argv, exit: value => { code = value } })
+    provideCmdline(ctx, { args: argv, exit: (value) => { code = value } })
     apply(ctx)
     // A command action settles on its own promise chain; the exit request is
     // what says the command finished.
-    const idle = Promise.withResolvers<void>()
-    const timer = setInterval(() => { if (code !== -1) idle.resolve() }, 5)
-    const timeout = setTimeout(() => { idle.resolve() }, 2_000)
+    const idle = Promise.withResolvers<undefined>()
+    const timer = setInterval(() => { if (code !== -1) idle.resolve(undefined) }, 5)
+    const timeout = setTimeout(() => { idle.resolve(undefined) }, 2_000)
     try {
       await idle.promise
     } finally {
@@ -201,7 +214,7 @@ describe('dsh task show', () => {
     const { stdout, code } = await invoke(['task', 'show', SESSION_ID, '--json'])
 
     expect(code).toBe(0)
-    const parsed = JSON.parse(stdout) as { task: { objective: string }, steps: number }
+    const parsed = JSON.parse(stdout) as { task: { objective: string }; steps: number }
     expect(parsed.task.objective).toBe('repair the failing reader')
     expect(parsed.steps).toBe(1)
   })
@@ -227,7 +240,7 @@ describe('dsh task recover-scan', () => {
     const log = [
       ...fixtureLog().filter(entry => entry.type !== 'action/decided'),
       { type: 'step/end' as const, seq: SessionSeq(8), time: 1008, data: { turn: 1, step: 1 } },
-      { type: 'turn/end' as const, seq: SessionSeq(9), time: 1009, data: { turn: 1, reason: { kind: 'stop' as const } } },
+      { type: 'turn/end' as const, seq: SessionSeq(9), time: 1009, data: { turn: 1, reason: { kind: 'completed' as const } } },
     ]
     const { stdout, code } = await invoke(['task', 'recover-scan'], log)
 
@@ -238,7 +251,7 @@ describe('dsh task recover-scan', () => {
     const log = [
       ...fixtureLog(),
       { type: 'step/end' as const, seq: SessionSeq(8), time: 1008, data: { turn: 1, step: 1 } },
-      { type: 'turn/end' as const, seq: SessionSeq(9), time: 1009, data: { turn: 1, reason: { kind: 'stop' as const } } },
+      { type: 'turn/end' as const, seq: SessionSeq(9), time: 1009, data: { turn: 1, reason: { kind: 'completed' as const } } },
     ]
     const { stdout, code } = await invoke(['task', 'recover-scan'], log)
 
@@ -272,7 +285,7 @@ describe('dsh task metrics', () => {
     const { stdout, code } = await invoke(['task', 'metrics', SESSION_ID, '--json'])
 
     expect(code).toBe(0)
-    const parsed = JSON.parse(stdout) as { tasksCreated: number, steps: number, verificationPassRate: number }
+    const parsed = JSON.parse(stdout) as { tasksCreated: number; steps: number; verificationPassRate: number }
     expect(parsed.tasksCreated).toBe(1)
     expect(parsed.steps).toBe(1)
     expect(parsed.verificationPassRate).toBe(1)
@@ -391,14 +404,14 @@ describe('dsh evolution replay', () => {
 
     let stdout = ''
     const write = internals.write
-    internals.write = text => { stdout += text }
+    internals.write = (text) => { stdout += text }
     let code = -1
     try {
-      provideCmdline(ctx, { args: ['evolution', 'replay', 'exp-1'], exit: value => { code = value } })
+      provideCmdline(ctx, { args: ['evolution', 'replay', 'exp-1'], exit: (value) => { code = value } })
       apply(ctx)
-      const idle = Promise.withResolvers<void>()
-      const timer = setInterval(() => { if (code !== -1) idle.resolve() }, 5)
-      const timeout = setTimeout(() => { idle.resolve() }, 2_000)
+      const idle = Promise.withResolvers<undefined>()
+      const timer = setInterval(() => { if (code !== -1) idle.resolve(undefined) }, 5)
+      const timeout = setTimeout(() => { idle.resolve(undefined) }, 2_000)
       try {
         await idle.promise
       } finally {
@@ -430,11 +443,11 @@ describe('dsh evolution replay', () => {
     let code = -1
     const errors = vi.spyOn(process.stderr, 'write').mockReturnValue(true)
     try {
-      provideCmdline(ctx, { args: ['evolution', 'replay', 'nope'], exit: value => { code = value } })
+      provideCmdline(ctx, { args: ['evolution', 'replay', 'nope'], exit: (value) => { code = value } })
       apply(ctx)
-      const idle = Promise.withResolvers<void>()
-      const timer = setInterval(() => { if (code !== -1) idle.resolve() }, 5)
-      const timeout = setTimeout(() => { idle.resolve() }, 2_000)
+      const idle = Promise.withResolvers<undefined>()
+      const timer = setInterval(() => { if (code !== -1) idle.resolve(undefined) }, 5)
+      const timeout = setTimeout(() => { idle.resolve(undefined) }, 2_000)
       try {
         await idle.promise
       } finally {
@@ -457,11 +470,11 @@ describe('dsh evolution replay', () => {
     let code = -1
     const errors = vi.spyOn(process.stderr, 'write').mockReturnValue(true)
     try {
-      provideCmdline(ctx, { args: ['evolution', 'replay', 'exp-1'], exit: value => { code = value } })
+      provideCmdline(ctx, { args: ['evolution', 'replay', 'exp-1'], exit: (value) => { code = value } })
       apply(ctx)
-      const idle = Promise.withResolvers<void>()
-      const timer = setInterval(() => { if (code !== -1) idle.resolve() }, 5)
-      const timeout = setTimeout(() => { idle.resolve() }, 2_000)
+      const idle = Promise.withResolvers<undefined>()
+      const timer = setInterval(() => { if (code !== -1) idle.resolve(undefined) }, 5)
+      const timeout = setTimeout(() => { idle.resolve(undefined) }, 2_000)
       try {
         await idle.promise
       } finally {

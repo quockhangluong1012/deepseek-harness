@@ -72,14 +72,17 @@ export class DefaultVerificationGate implements VerificationGate {
    * Build the verification request for one task revision.
    * @param task - the task to verify.
    * @param changedScopes - scopes the task changed.
+   * @param repositoryDigest - digest of the repository state the criteria are verified against.
    * @returns the request carrying the task's criteria at its current revision.
    */
-  request(task: TaskContract, changedScopes: readonly string[]): VerificationRequest {
+  request(task: TaskContract, changedScopes: readonly string[], repositoryDigest: string): VerificationRequest {
     return {
       taskId: task.taskId,
       revision: task.revision,
       criteria: task.acceptance,
       changedScopes,
+      repositoryDigest,
+      ...task.changeContract === undefined ? {} : { changeContract: task.changeContract },
     }
   }
 
@@ -198,8 +201,101 @@ const FAMILY_COST: Readonly<Record<AcceptanceCriterion['verifier'], number>> = {
   diff: 1,
   human: 2,
   research: 3,
-  build: 4,
-  test: 5,
+  typecheck: 4,
+  lint: 5,
+  build: 6,
+  test: 7,
+  security: 8,
+  browser: 9,
+  review: 10,
+}
+
+/** Deployment bounds on the per-criterion result cache. */
+export interface VerificationCacheConfig {
+  /** Results retained before the oldest entry is evicted. */
+  readonly maxEntries: number
+  /** Milliseconds a retained result stays reusable. */
+  readonly ttlMs: number
+}
+
+/** One retained criterion decision and the instant it was produced. */
+interface CachedCriterionResult {
+  /** The retained result. */
+  readonly result: CriterionResult
+  /** Unix epoch milliseconds the verifier produced it. */
+  readonly at: number
+}
+
+/**
+ * One criterion result per (criterion id, repository digest). The digest is the
+ * repository state the verifier read, so a repeated pass over an unchanged
+ * repository reuses the decision instead of paying for another check, and any
+ * change to the repository changes the digest and can never match it.
+ */
+export class CriterionResultCache {
+  private readonly entries = new Map<string, CachedCriterionResult>()
+  private readonly config: VerificationCacheConfig
+
+  /**
+   * @param config - entry and age bounds, both resolved from deployment configuration.
+   */
+  constructor(config: VerificationCacheConfig) {
+    this.config = config
+  }
+
+  /**
+   * The result one criterion already holds for one repository state.
+   * @param criterionId - the criterion that was decided.
+   * @param repositoryDigest - digest of the repository the verifier read.
+   * @param at - the instant to judge the entry's age at.
+   * @returns the retained result, or undefined when absent or expired.
+   */
+  get(criterionId: string, repositoryDigest: string, at = Date.now()): CriterionResult | undefined {
+    const key = cacheKey(criterionId, repositoryDigest)
+    const entry = this.entries.get(key)
+    if (entry === undefined) return undefined
+    if (at - entry.at > this.config.ttlMs) {
+      this.entries.delete(key)
+      return undefined
+    }
+    return entry.result
+  }
+
+  /**
+   * Retain one criterion result, evicting the oldest entry while the cache is
+   * over its configured bound.
+   * @param criterionId - the criterion that was decided.
+   * @param repositoryDigest - digest of the repository the verifier read.
+   * @param result - the result to retain.
+   * @param at - the instant the result was produced.
+   */
+  set(criterionId: string, repositoryDigest: string, result: CriterionResult, at = Date.now()): void {
+    const key = cacheKey(criterionId, repositoryDigest)
+    this.entries.delete(key)
+    this.entries.set(key, { result, at })
+    while (this.entries.size > this.config.maxEntries) {
+      const oldest = this.entries.keys().next().value
+      /* v8 ignore next -- a map over its bound is non-empty; the guard only narrows the iterator's declared optional value. */
+      if (oldest === undefined) return
+      this.entries.delete(oldest)
+    }
+  }
+
+  /** Results the cache currently retains. */
+  get size(): number {
+    return this.entries.size
+  }
+}
+
+/**
+ * The key of one cached decision: the criterion and the repository state it was
+ * decided against, so neither can answer for the other.
+ * @param criterionId - the criterion that was decided.
+ * @param repositoryDigest - digest of the repository the verifier read.
+ * @returns the cache key.
+ */
+function cacheKey(criterionId: string, repositoryDigest: string): string {
+  return `${criterionId}\u0000${repositoryDigest}`
 }
 
 export class CriterionVerifierRegistry {
@@ -207,12 +303,16 @@ export class CriterionVerifierRegistry {
   private readonly registered: CriterionVerifier[] = []
   /** Per-verifier wall-clock ceiling; a verifier that overruns answers `fail`. */
   private readonly timeoutMs: number
+  /** Criterion results retained by the repository state they were decided against. */
+  private readonly cache: CriterionResultCache
 
   /**
    * @param timeoutMs - ceiling for one verifier's own evaluation.
+   * @param cache - entry and age bounds for retained criterion results.
    */
-  constructor(timeoutMs = 60_000) {
+  constructor(timeoutMs: number, cache: VerificationCacheConfig) {
     this.timeoutMs = timeoutMs
+    this.cache = new CriterionResultCache(cache)
   }
 
   /**
@@ -229,7 +329,20 @@ export class CriterionVerifierRegistry {
   }
 
   /**
-   * Collect every verdict the registered verifiers can produce for a request.
+   * One criterion's result for a repository state a verifier already decided,
+   * without running any verifier.
+   * @param request - the request whose repository state the result must match.
+   * @param criterionId - the criterion to look up.
+   * @returns the retained result, or undefined when this repository state has none.
+   */
+  cached(request: VerificationRequest, criterionId: string): CriterionResult | undefined {
+    return this.cache.get(criterionId, request.repositoryDigest)
+  }
+
+  /**
+   * Collect every verdict the registered verifiers can produce for a request,
+   * reusing a retained result for each criterion the request's repository state
+   * already decided.
    * @param request - the request whose criteria are evaluated.
    * @returns the verdicts and every command the verifiers ran.
    */
@@ -238,15 +351,24 @@ export class CriterionVerifierRegistry {
     const commands: string[] = []
     const ordered = [...request.criteria].sort((left, right) => FAMILY_COST[left.verifier] - FAMILY_COST[right.verifier])
     for (const criterion of ordered) {
+      const retained = this.cached(request, criterion.id)
+      if (retained !== undefined) {
+        results.push(retained)
+        continue
+      }
       const verifier = this.registered.find(candidate => candidate.supports(criterion))
       if (verifier === undefined) continue
       const verdict = await this.runVerifier(verifier, request, criterion)
       if (verdict === undefined) continue
-      results.push(verdict.result)
-      commands.push(...verdict.commands ?? [])
+      results.push(verdict.verdict.result)
+      commands.push(...verdict.verdict.commands ?? [])
+      // A timeout is a fact about the verifier, not about the repository, so it
+      // is reported but never retained: reusing it would refuse the criterion
+      // for the whole entry lifetime however the task changed.
+      if (!verdict.timedOut) this.cache.set(criterion.id, request.repositoryDigest, verdict.verdict.result)
       // A failed required criterion already decides the aggregate: running a
       // slower verifier cannot make the task complete.
-      if (criterion.required && verdict.result.status === 'fail') break
+      if (criterion.required && verdict.verdict.result.status === 'fail') break
     }
     return { results, commands }
   }
@@ -258,30 +380,33 @@ export class CriterionVerifierRegistry {
    * @param verifier - the verifier to run.
    * @param request - the request the criterion belongs to.
    * @param criterion - the criterion to evaluate.
-   * @returns the verdict, or a failure naming the timeout.
+   * @returns the verdict with whether the ceiling produced it, or undefined when the verifier answered nothing.
    */
   private async runVerifier(
     verifier: CriterionVerifier,
     request: VerificationRequest,
     criterion: AcceptanceCriterion,
-  ): Promise<CriterionVerdict | undefined> {
+  ): Promise<{ verdict: CriterionVerdict; timedOut: boolean } | undefined> {
     let timer: ReturnType<typeof setTimeout> | undefined
-    const timedOut = new Promise<'timeout'>(resolve => {
+    const timedOut = new Promise<'timeout'>((resolve) => {
       timer = setTimeout(() => { resolve('timeout') }, this.timeoutMs)
     })
     try {
       const settled = await Promise.race([verifier.verify(request, criterion), timedOut])
       if (settled === 'timeout') {
         return {
-          result: {
-            criterionId: criterion.id,
-            status: 'fail',
-            evidence: [],
-            detail: `verifier "${verifier.id}" exceeded its ${String(this.timeoutMs)}ms ceiling`,
+          timedOut: true,
+          verdict: {
+            result: {
+              criterionId: criterion.id,
+              status: 'fail',
+              evidence: [],
+              detail: `verifier "${verifier.id}" exceeded its ${String(this.timeoutMs)}ms ceiling`,
+            },
           },
         }
       }
-      return settled
+      return settled === undefined ? undefined : { timedOut: false, verdict: settled }
     } finally {
       clearTimeout(timer)
     }

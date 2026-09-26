@@ -16,6 +16,9 @@
     },
     {
       "path": "../workspace-changes"
+    },
+    {
+      "path": "../../api/session-controller/tsconfig.host.json"
     }
   ]
 }

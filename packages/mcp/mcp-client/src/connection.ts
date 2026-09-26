@@ -15,12 +15,13 @@
  * @module
  */
 
-import { Client, type Transport } from '@modelcontextprotocol/client'
+import { Client, type OAuthClientProvider, type Transport } from '@modelcontextprotocol/client'
 import type { Context } from '@deepseek-ai/cordis'
 import { assertNever, type JsonValue } from '@deepseek-ai/dsh-util-values'
 import type { ServerContext } from './server-context.ts'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import { createTransport } from './transport.ts'
+import { syncPrompts, type PromptDisposers } from './prompts.ts'
 import { createMcpCapabilityPublisher, endpointOriginForConfig, syncTools } from './tools.ts'
 import type { ToolBridgeOptions, ToolDisposers } from './tools.ts'
 import type { Config } from './index.ts'
@@ -99,6 +100,26 @@ export interface ConnectionOutcome {
   error?: unknown
 }
 
+/**
+ * The connection state of one supervised server. `connecting` covers the
+ * activation attempt, `connected` a live generation, `reconnecting` an outage
+ * waiting for its next attempt, and `disconnected` a connection nothing will
+ * retry (reconnect disabled, budget spent, or the plugin unloading).
+ */
+export type McpConnectionStatus = 'connecting' | 'connected' | 'reconnecting' | 'disconnected'
+
+/** One status transition, with the outage's retry progress. */
+export interface McpConnectionStatusChange {
+  /** Stable local namespace of the server this state describes. */
+  readonly serverName: string
+  /** State after the transition. */
+  readonly status: McpConnectionStatus
+  /** Consecutive failed attempts since the last successful connection; 0 while connected. */
+  readonly attempt: number
+  /** Attempt budget for one outage; 0 when reconnect is disabled. */
+  readonly maxAttempts: number
+}
+
 /** Handle for one plugin instance's supervised connection. */
 export interface ConnectionHandle extends ServerContext {
   /**
@@ -107,6 +128,20 @@ export interface ConnectionHandle extends ServerContext {
    * whether a failed startup is fatal via `failOnStartupError`.
    */
   ready: Promise<ConnectionOutcome>
+  /**
+   * Read the connection state now — the same value the last
+   * {@link ConnectionHandle.onStatusChange} notification carried.
+   * @returns the current {@link McpConnectionStatus}.
+   */
+  status(): McpConnectionStatus
+  /**
+   * Observe every status transition, starting with one notification of the
+   * state at subscription time, so an observer that subscribes before the
+   * first attempt never misses the initial state.
+   * @param listener - called with the change once it takes effect.
+   * @returns disposer that removes the listener.
+   */
+  onStatusChange(listener: (change: McpConnectionStatusChange) => void): () => void
   /**
    * Stop reconnection, close the negotiating transport or live client, wait
    * for the in-flight attempt and queued tool syncs to quiesce, then
@@ -122,16 +157,22 @@ export interface ConnectionHandle extends ServerContext {
  * @param ctx - Cordis context providing the `tools` registry and logger.
  * @param config - Resolved plugin config selecting the transport and server identity.
  * @param policy - Resolved reconnect policy from {@link resolveReconnectPolicy}.
+ * @param authProvider - OAuth 2.1 provider for a server configured with `auth`; omitted otherwise.
  * @returns Handle with a `ready` promise for startup-await and a `dispose` for teardown.
  */
-export function startConnection(ctx: Context, config: Config, policy: ResolvedReconnectPolicy): ConnectionHandle {
+export function startConnection(
+  ctx: Context,
+  config: Config,
+  policy: ResolvedReconnectPolicy,
+  authProvider?: OAuthClientProvider,
+): ConnectionHandle {
   const label = `mcp-client(${config.serverName})`
-  // Provenance half of the bridge options: transport plus endpoint hash
+  // Tool-source half of the bridge options: transport plus endpoint hash
   // resolved once from config (secrets never feed the hash). The server
   // version joins per generation inside enqueueSync — it is only known after
   // the MCP initialize handshake.
   const incompleteDisposalMessage = `${label}: transport closure could not be confirmed during disposal — server shutdown may be incomplete`
-  const capabilities = createMcpCapabilityPublisher(ctx, config.serverName)
+  const capabilities = createMcpCapabilityPublisher(ctx, config.serverName, config.trust)
   const opts: ToolBridgeOptions = {
     registrationFailure: 'contain',
     serverName: config.serverName,
@@ -139,6 +180,7 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
     capabilities,
     ...endpointOriginForConfig(config),
   }
+  const promptOpts = { serverName: config.serverName, toolCallTimeoutMs: config.toolCallTimeoutMs }
   // The initial sync uses 'throw' when failOnStartupError is configured, so
   // a registration conflict propagates to the startup-await path. Re-syncs
   // and reconnect syncs always contain conflicts.
@@ -155,6 +197,8 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
   let closeClient: (() => Promise<boolean>) | undefined
   /** Live tool registrations owned by this server; only {@link enqueueSync} and dispose swap it. */
   let disposers: ToolDisposers = new Map()
+  /** Live prompt-command registrations owned by this server; swapped with the same generation as {@link disposers}. */
+  let promptDisposers: PromptDisposers = new Map()
   let reconnectTimer: NodeJS.Timeout | undefined
   /** Consecutive failed connection attempts within the current outage. */
   let failedAttempts = 0
@@ -163,6 +207,28 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
   /** The real error from the first connection attempt, for startup-await diagnostics. */
   let firstAttemptError: unknown
 
+  /** Current state, published to every observer through {@link reportStatus}. */
+  let status: McpConnectionStatus = 'connecting'
+  /** Observers of {@link ConnectionHandle.onStatusChange}, owned by their subscriber. */
+  const statusListeners = new Set<(change: McpConnectionStatusChange) => void>()
+
+  /** The change describing the state right now. */
+  function currentChange(): McpConnectionStatusChange {
+    return {
+      serverName: config.serverName,
+      status,
+      attempt: status === 'connected' ? 0 : failedAttempts,
+      maxAttempts: policy.enabled ? policy.maxAttempts : 0,
+    }
+  }
+
+  /** Publish one state and notify every live observer; the notify set is copied so a listener may unsubscribe. */
+  function reportStatus(next: McpConnectionStatus): void {
+    status = next
+    const change = currentChange()
+    for (const listener of [...statusListeners]) listener(change)
+  }
+
   /** A generation may act only while it is the current one on a live plugin. */
   const isCurrent = (generation: Client): boolean => !disposed && client === generation
 
@@ -170,7 +236,8 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
    * Serializes every syncTools call — initial syncs and notification re-syncs
    * across all generations — so two syncs can never interleave their
    * dispose-previous/register-next swap (which would double-dispose one
-   * generation and leak another).
+   * generation and leak another). The prompt sync rides the same queue so a
+   * generation's tools and prompt commands always describe one connection.
    */
   let syncChain: Promise<void> = Promise.resolve()
   function enqueueSync(generation: Client, syncOpts: ToolBridgeOptions = opts): Promise<void> {
@@ -185,6 +252,10 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
         serverVersion === undefined ? syncOpts : { ...syncOpts, serverVersion },
         disposers,
       )
+      // Prompt commands are a human convenience with their own containment: a
+      // failure there keeps the previous generation registered and never
+      // demotes the connection that just published this server's tools.
+      promptDisposers = await syncPrompts(generation, ctx, promptOpts, promptDisposers)
     })
     // The chain tail must survive a failed sync; the enqueuing caller owns reporting.
     syncChain = run.catch(() => {})
@@ -230,6 +301,7 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
         ? 'connection lost and reconnect is disabled — registered tools will fail until an HMR reload or Host restart'
         : 'connection failed and reconnect is disabled — no tools were registered; reload the plugin or restart the Host to connect'
       ctx.logger.error(`${label}: ${message}`)
+      reportStatus('disconnected')
       return
     }
     // A connection that stayed up past the stability window (= maxDelayMs, the
@@ -243,15 +315,19 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
       syncChain = syncChain.then(() => {
         for (const dispose of disposers.values()) dispose()
         disposers = new Map()
+        for (const dispose of promptDisposers.values()) dispose()
+        promptDisposers = new Map()
         capabilities(new Map())
         serverInstructions = ''
       })
       ctx.logger.error(`${label}: giving up after ${policy.maxAttempts} consecutive failed reconnect attempts — tools unregistered; reload the plugin or restart the Host to reconnect`)
+      reportStatus('disconnected')
       return
     }
     const delayMs = Math.min(policy.maxDelayMs, policy.initialDelayMs * 2 ** (failedAttempts - 1))
     const action = lostEstablishedConnection ? 'connection lost; reconnecting' : 'connection failed; retrying'
     ctx.logger.warn(`${label}: ${action} in ${delayMs}ms (attempt ${failedAttempts}/${policy.maxAttempts})`)
+    reportStatus('reconnecting')
     reconnectTimer = setTimeout(() => {
       reconnectTimer = undefined
       settling = connectGeneration(false)
@@ -278,6 +354,11 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
         versionNegotiation: { mode: 'auto' },
         listChanged: {
           tools: {
+            autoRefresh: false,
+            debounceMs: 0,
+            onChanged: () => { void refreshTools() },
+          },
+          prompts: {
             autoRefresh: false,
             debounceMs: 0,
             onChanged: () => { void refreshTools() },
@@ -313,6 +394,8 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
       if (!isCurrent(generation)) return
       ctx.logger.info(`${label}: tool list changed, re-syncing`)
       try {
+        // Both generations ride one queue: re-syncing the tool list beside the
+        // prompt list keeps them describing the same connection.
         await enqueueSync(generation)
       } catch (error) {
         if (!disposed) ctx.logger.error(`${label}: tool re-sync failed: ${String(error)}`)
@@ -320,7 +403,7 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
     }
     let instructions: string
     try {
-      transport = createTransport(config)
+      transport = createTransport(config, authProvider)
       await generation.connect(transport)
       if (hasClosed()) {
         attemptSettled = true
@@ -356,6 +439,7 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
     serverInstructions = instructions
     connectedAt = Date.now()
     if (failedAttempts > 0) ctx.logger.info(`${label}: reconnected and re-synced tools (attempt ${failedAttempts}/${policy.maxAttempts})`)
+    reportStatus('connected')
   }
 
   /** The in-flight (or last settled) connection attempt; dispose awaits it for quiescence. */
@@ -378,6 +462,12 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
 
   return {
     ready,
+    status: () => status,
+    onStatusChange(listener) {
+      statusListeners.add(listener)
+      listener(currentChange())
+      return () => { statusListeners.delete(listener) }
+    },
     instructions: () => serverInstructions,
     resources: {
       async request(request, exec): Promise<JsonValue> {
@@ -404,6 +494,7 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
     async dispose(): Promise<void> {
       disposed = true
       serverInstructions = ''
+      reportStatus('disconnected')
       if (reconnectTimer !== undefined) {
         clearTimeout(reconnectTimer)
         reconnectTimer = undefined
@@ -420,6 +511,8 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
       await syncChain
       for (const dispose of disposers.values()) dispose()
       disposers = new Map()
+      for (const dispose of promptDisposers.values()) dispose()
+      promptDisposers = new Map()
       capabilities(new Map())
     },
   }

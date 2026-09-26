@@ -132,7 +132,7 @@ const handle = await ctx.agents.create({
 
 `turn/end` 声明的类型是 `TurnEndCancelCause`；取消时，循环在其中记录一份新的 `AgentCancelCause`，保留调用方的 `kind` 和 hook 的 `reason` 文本。实时 `AbortSignal.reason` 仍是调用方的那个对象，传输层可能向其添加属性——Node 的 fetch 会给它赋一个 `stack`——因此这份拷贝既让该调用栈不进入日志，也让结束事件保持可追加。
 
-最终适配器选择、分发与迭代失败以终止结束的形式到达并进入 `agent/request-error`；处理该失败的监听器返回 `{ kind: 'retry' }` 且不调用 `next()`，未被处理的失败则是终态。每个步骤接受的重试次数受 `maxRequestRetries` 限制；超出上限的恢复保持终态并告警，无条件恢复因此无法无限重试。Middleware、结果处理、工具及其他扩展失败仍会抛出并直接关闭轮次——插件失败结束的是轮次，不是循环。取消后未分发的模型工具调用会收到合成的 `tool/call` 加 `ABORTED_BEFORE_DISPATCH` 结果对。[显式取消决策](../../../.agents/notes/implemented/architecture/2026-07-16-explicit-turn-cancellation.zh.md)拥有信号生命周期。
+最终适配器选择、分发与迭代失败以终止结束的形式到达并进入 `agent/request-error`；处理该失败的监听器返回 `{ kind: 'retry' }` 且不调用 `next()`，未被处理的失败则是终态。每个步骤接受的重试次数受 `maxRequestRetries` 限制；超出上限的恢复保持终态并告警，无条件恢复因此无法无限重试。Middleware、结果处理、工具及其他扩展失败仍会抛出并直接关闭轮次——插件失败结束的是轮次，不是循环。取消后未分发的模型工具调用会收到合成的 `tool/call` 加 `ABORTED_BEFORE_DISPATCH` 结果对。在已打开轮次内到达的唤醒会被锁存，而随后在某个步骤内——或在取消之下——终止的轮次会在收敛时重放该锁存，因此失败轮次期间排队的提示词会在全新轮次中运行，而不是滞留；重新被唤醒的轮次若再次失败且没有新的唤醒，循环就在那里结束，而不是自行重试。被阻塞的轮次与失败的 `agent/pre-step` 钩子仍会为显式唤醒停放待处理工作，而 `cancel()` 会丢弃该锁存，因此 `keepInbox` 会停放待处理工作，直到之后的一次唤醒。[显式取消决策](../../../.agents/notes/implemented/architecture/2026-07-16-explicit-turn-cancellation.zh.md)拥有信号生命周期。
 
 </details>
 

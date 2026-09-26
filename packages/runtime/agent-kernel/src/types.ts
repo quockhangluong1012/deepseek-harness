@@ -13,6 +13,8 @@
 
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { Branded } from '@deepseek-ai/dsh-brand'
+// Type-only: declares the `goal/change` Session event a task graph folds.
+import type { GoalRef } from '@deepseek-ai/dsh-goal'
 
 import type { ToolCallId } from '@deepseek-ai/dsh-llm/brand'
 import type { SandboxExecutionPolicy } from '@deepseek-ai/dsh-sandbox'
@@ -20,6 +22,8 @@ import type { Session } from '@deepseek-ai/dsh-session'
 import type { SessionId, SessionLogOffset } from '@deepseek-ai/dsh-session/types'
 import type { ApprovalOutcome } from '@deepseek-ai/dsh-user-approval/types'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
+// Type-only: declares the §10.5 coding-lifecycle service an `AgentKernel` exposes.
+import type { CodingLifecycle } from './coding-lifecycle.ts'
 
 /** Stable identity of one durable task contract. */
 export type TaskId = Branded<'TaskId'>
@@ -44,6 +48,9 @@ export type FailureId = Branded<'FailureId'>
 
 /** Identity of one issued delegation receipt. */
 export type DelegationId = Branded<'DelegationId'>
+
+/** Identity of one budget reservation. */
+export type BudgetReservationId = Branded<'BudgetReservationId'>
 
 /** Identity of one recorded observation a claim may cite. */
 export type EvidenceId = Branded<'EvidenceId'>
@@ -75,8 +82,8 @@ export type TaskClass = 'conversational' | 'coding' | 'research' | 'operations'
 /** Every task class, for configuration schemas and exhaustive switches. */
 export const TASK_CLASSES: readonly TaskClass[] = ['conversational', 'coding', 'research', 'operations']
 
-/** Where a kernel record's content came from. */
-export interface Provenance {
+/** Source reference for a kernel record's content. */
+export interface SourceRef {
   /** Emitting subsystem or external boundary. */
   readonly source: 'user' | 'model' | 'repo' | 'tool' | 'web' | 'mcp' | 'subagent' | 'policy' | 'kernel'
   /** Repository-relative path, URL, or tool call id locating the content, when one exists. */
@@ -85,7 +92,7 @@ export interface Provenance {
   readonly digest?: string
 }
 
-/** Versioned identity and provenance shared by every new kernel Session event. */
+/** Versioned identity and source reference shared by every new kernel Session event. */
 export interface KernelEventMetadata {
   /** Kernel event schema version. */
   readonly version: 1
@@ -98,7 +105,7 @@ export interface KernelEventMetadata {
   /** Unix epoch milliseconds when the record was written. */
   readonly timestamp: number
   /** Source and locator for the fact recorded. */
-  readonly provenance: Provenance
+  readonly sourceRef: SourceRef
 }
 
 /** An event payload with audit metadata; optional only for historical records. */
@@ -130,6 +137,23 @@ export type TaskStatus =
   | 'failed'
   | 'cancelled'
 
+/**
+ * The seven states the runtime task model projects onto. Kernel statuses are
+ * finer than this vocabulary because the harness distinguishes states a caller
+ * of the runtime model does not act on differently — `planning`, `observing`,
+ * and `recovering` are all work in progress, and the three waiting statuses are
+ * all a task that cannot proceed without a human. Every kernel status maps onto
+ * exactly one state through `specStateOf`.
+ */
+export type TaskSpecState =
+  | 'pending'
+  | 'ready'
+  | 'running'
+  | 'blocked'
+  | 'verifying'
+  | 'failed'
+  | 'completed'
+
 /** One bound the objective must respect. */
 export interface Constraint {
   /** Stable lower-kebab-case classification chosen by the intake source. */
@@ -144,10 +168,66 @@ export interface AcceptanceCriterion {
   readonly id: string
   /** Non-empty statement of what must hold. */
   readonly description: string
-  /** Which verifier family can evaluate the criterion. */
+  /**
+   * Which verifier family can evaluate the criterion: `build`, `test`, `lint`,
+   * `typecheck`, `diff`, `security`, `browser`, `review` (an independent
+   * reviewer), or the generic `assertion`, `human`, and `research` families
+   * (§8.1). A deployment resolves no family the kernel ships no verifier for,
+   * so the criterion stays `unknown` until one is registered.
+   */
   readonly verifier: 'test' | 'build' | 'diff' | 'assertion' | 'human' | 'research'
+    | 'lint' | 'typecheck' | 'security' | 'browser' | 'review'
   /** Whether a failed or unknown result blocks completion. */
   readonly required: boolean
+}
+
+/**
+ * The boundary a task declares before it modifies anything: what it expects to
+ * touch, what it may touch, what must survive it, and what it must not do. The
+ * declaration is durable — it rides the task contract the `task/created` event
+ * records — so the boundary a change was held to is reconstructable from the
+ * session log after the fact.
+ *
+ * Every list holds globs matched against the changed scopes the
+ * `workspace/changes` recorder published for the turn, in the same form the
+ * `diff` verifier family already compares: workspace-relative POSIX paths, with
+ * picomatch `dot: true` semantics (`**` spans `/`, `*` and `?` stop at `/`). A
+ * verifier a deployment claims the boundary criterion for does the comparison;
+ * this record only states the boundary, and a task that declares none is
+ * checked by nothing.
+ */
+export interface ChangeContract {
+  /** What the change is for; the statement its boundary is declared under. */
+  readonly goal: string
+  /**
+   * Globs the change is expected to touch. Each one must select at least one
+   * changed scope, so a change that skips an expected file fails its boundary.
+   */
+  readonly expectedFiles: readonly string[]
+  /**
+   * Globs the change may touch. Every changed scope must match one of them, so
+   * a change outside the declared boundary fails. An empty list allows any
+   * workspace-relative scope.
+   */
+  readonly allowedFiles: readonly string[]
+  /**
+   * Globs the change must leave unchanged: a changed scope matching one fails
+   * the boundary, so an artifact that has to survive the change is declared
+   * here rather than described in prose.
+   */
+  readonly mustPreserve: readonly string[]
+  /**
+   * Globs the change must not touch at all: a changed scope matching one fails
+   * the boundary. Unlike {@link mustPreserve}, which names what the change must
+   * leave as it is, this names the work the change is to stay out of.
+   */
+  readonly forbiddenChanges: readonly string[]
+  /**
+   * Globs of test files the change is expected to include. Each one must select
+   * at least one changed scope, so a change that adds behavior without touching
+   * the tests it declares fails its boundary.
+   */
+  readonly expectedTests: readonly string[]
 }
 
 /** Ceilings one task may spend. An absent field is unbounded. */
@@ -168,6 +248,27 @@ export interface ResourceBudget {
   readonly maxConcurrentActions?: number
 }
 
+/**
+ * What background work has spent, as the background budget owner reports it.
+ * The governor reads this and enforces nothing: `guard/budgets` still bounds
+ * what a session may spend, and the background owner still gates its own
+ * calls. The two are read together so one caller sees a session's own use and
+ * the background draw on the same deployment.
+ */
+export interface BackgroundSpend {
+  /** Tokens background work spent. */
+  readonly tokens: number
+  /** Wall-clock milliseconds background work spent. */
+  readonly wallMs: number
+  /**
+   * Billed cost in the background owner's own cost units, absent when it
+   * measured none. Absent is not zero, and these units are the owner's: a
+   * deployment that bills background work in USD states that, and one that
+   * bills in tokens does not make this figure comparable to `maxCostUsd`.
+   */
+  readonly cost?: number | undefined
+}
+
 /** Observed resource use of one task, plus what remains of its configured budget. */
 export interface BudgetSnapshot {
   /** `step/start` events observed for the task's session. */
@@ -180,6 +281,39 @@ export interface BudgetSnapshot {
   readonly wallMs: number
   /** Remaining allowance per configured ceiling; an unbounded ceiling is absent. */
   readonly remaining: ResourceBudget
+  /**
+   * What background work has spent, when a background budget owner is
+   * mounted. Absent in every deployment that runs no background evolution
+   * work, which is not a zero: no background budget recorded anything. It is
+   * reported beside the session's own use and debits nothing — the remaining
+   * allowance above is the session's alone, and `guard/budgets` is what
+   * enforces it.
+   */
+  readonly background?: BackgroundSpend
+}
+
+/**
+ * One hold a session placed on its own remaining allowance for work that is
+ * about to run: a child agent or workflow that spends before it settles. The
+ * hold is live process state — it bounds what the session can still promise
+ * while that work is in flight — and the durable record of the promise is the
+ * delegation receipt (`delegation/issued`).
+ */
+export interface BudgetReservation {
+  /** Identity of this hold; its settlement names it. */
+  readonly reservationId: BudgetReservationId
+  /** Session whose allowance is held. */
+  readonly sessionId: SessionId
+  /** Run the hold was placed for, when the caller knew it. */
+  readonly runId?: RunId
+  /**
+   * Ceilings held, per spend axis. A request is capped at what the session had
+   * available, and an axis the session does not bound is absent: an unbounded
+   * session promises unbounded allowances on it.
+   */
+  readonly amount: ResourceBudget
+  /** Unix epoch milliseconds the hold was placed. */
+  readonly at: number
 }
 
 /** The repository scope a task's writes are bounded to. */
@@ -205,6 +339,22 @@ export interface TaskContract {
   readonly constraints: readonly Constraint[]
   /** Criteria a completion decision must satisfy. */
   readonly acceptance: readonly AcceptanceCriterion[]
+  /**
+   * Boundary the task declared before it modified anything, when the caller
+   * declared one. Absent means the task states no bound, which is how every
+   * task that declares none keeps the behavior it had before this field
+   * existed.
+   */
+  readonly changeContract?: ChangeContract
+  /**
+   * Tasks this one starts after. A dependency may name a task this session
+   * never created — a delegated sibling's contract lives in the sibling's own
+   * session — so a dependency is an ordering statement, not a resolvable
+   * reference.
+   */
+  readonly dependencies: readonly TaskId[]
+  /** Observations recorded for this task, in log order; the records themselves are `Evidence`. */
+  readonly evidence: readonly EvidenceId[]
   /** Workspace the task's file policy is bounded to, when the session has one. */
   readonly workspace?: WorkspaceRef
   /** Enclosing task, when this task was delegated. */
@@ -226,6 +376,15 @@ export interface TaskContract {
   readonly revision: number
 }
 
+/**
+ * A task contract as a session log recorded it. The graph fields are absent on
+ * a contract written before they existed, and a reader takes that absence as a
+ * task that declares no dependency and holds no observation.
+ */
+export type RecordedTaskContract =
+  & Omit<TaskContract, 'dependencies' | 'evidence'>
+  & Partial<Pick<TaskContract, 'dependencies' | 'evidence'>>
+
 /** Caller-supplied intake for a new task. */
 export interface TaskInput {
   /** The human- or caller-stated objective; empty when none was stated yet. */
@@ -234,6 +393,17 @@ export interface TaskInput {
   readonly constraints?: readonly Constraint[]
   /** Criteria a completion decision must satisfy. */
   readonly acceptance?: readonly AcceptanceCriterion[]
+  /**
+   * Boundary the change is declared to stay inside. Intake resolves it: a
+   * blank glob or an empty goal is refused there, and absent means the task
+   * declares no bound.
+   */
+  readonly changeContract?: ChangeContract
+  /**
+   * Tasks this one starts after; a repeated identity or the task's own
+   * identity is refused. Absent means the task depends on nothing.
+   */
+  readonly dependencies?: readonly TaskId[]
   /** Workspace the task's file policy is bounded to. */
   readonly workspace?: WorkspaceRef
   /** Enclosing task, when this task was delegated. */
@@ -277,6 +447,7 @@ export type TransitionKind =
   | 'plan-recorded'
   | 'plan-mode-entered'
   | 'plan-mode-exited'
+  | 'approval-decided'
   | 'cancelled'
   | 'paused'
   | 'budget-exhausted'
@@ -319,11 +490,21 @@ export interface StateTransition {
   readonly preconditions: readonly Predicate[]
   /** Effects committed by this transition. */
   readonly effects: readonly StateEffect[]
+  /**
+   * Observations recorded for the task when the transition was evaluated, in
+   * log order. The refs answer which observations the contract held at that
+   * revision; a transition a task with no recorded observation made cites none.
+   */
+  readonly evidence: readonly EvidenceId[]
   /** Task revision the transition was evaluated against. */
   readonly taskRevision: number
   /** Task revision produced by the transition. */
   readonly revision: number
-  /** Policy decision that authorized the transition, when one did. */
+  /**
+   * Policy decision recorded for the action that caused the transition, when
+   * the transition follows one. A transition the kernel decides on its own —
+   * a step admission, a turn boundary, a budget stop — records none.
+   */
   readonly policyDecisionId?: PolicyDecisionId
   /** Who caused the transition. */
   readonly actor: ActorKind
@@ -341,6 +522,22 @@ export interface PlanRevision {
   readonly failureId?: FailureId
   /** Unix epoch milliseconds the revision was recorded. */
   readonly createdAt: number
+}
+
+/** Caller-supplied facts about one plan revision beyond its steps. */
+export interface PlanOptions {
+  /**
+   * Whether a human approved this revision. Approval is what makes an
+   * amendment legal without a failure reference, because the revision answers
+   * a review rather than the model's own rewrite.
+   */
+  readonly approvedBy?: 'user'
+  /**
+   * Tool call whose result recorded this plan. The transition that records the
+   * plan then cites the policy decision that admitted that call, when the log
+   * recorded one.
+   */
+  readonly callId?: ToolCallId
 }
 
 /**
@@ -730,6 +927,9 @@ export type FailureKind =
   | 'budget-exhausted'
   | 'stale-write'
   | 'verification-failed'
+  // §8.5: a repair passed its own targeted verification and broke a criterion
+  // that an earlier verification of the same task had passed.
+  | 'verification-regressed'
   | 'subagent-failed'
   | 'workflow-failed'
   | 'persistence-failed'
@@ -741,6 +941,9 @@ export type FailureKind =
   | 'no-progress'
   | 'stalled'
   | 'step-ceiling'
+  // Amendment §7.4: the observed action sequence stopped following the plan
+  // the task recorded.
+  | 'plan-drift'
   | 'unknown'
 
 /** One classified failure. */
@@ -809,6 +1012,150 @@ export interface RecoveryStartedRecord {
 }
 
 /**
+ * What the governor decided for one step. The six non-`stop` members ask for a
+ * different next action and are recorded only; the five `stop` members end the
+ * run at the next step boundary, which the kernel enforces by refusing
+ * `agent/pre-step` in `mode: 'enforce'`.
+ *
+ * `stop_success` and `stop_failure` name the task's own terminal status,
+ * `stop_budget` an exhausted ceiling, `stop_loop` a detector that found the run
+ * repeating itself, and `stop_timeout` a liveness window that elapsed with no
+ * progress.
+ */
+export type GovernorDecision =
+  | 'continue'
+  | 'retry'
+  | 'replan'
+  | 'compact'
+  | 'delegate'
+  | 'ask_user'
+  | 'stop_success'
+  | 'stop_failure'
+  | 'stop_budget'
+  | 'stop_loop'
+  | 'stop_timeout'
+
+/**
+ * The movement one step made, each axis normalized to `[0, 1]` from the
+ * events the step produced: 0 is a step that moved nothing on that axis.
+ *
+ * Counts of calls, transitions, observations, goal changes, resolved failures,
+ * and plan revisions all collapse onto these axes because a step's *movement*
+ * is what the governor reads, not how much of it there was: one new tool call
+ * and five new tool calls both mean the step left the state it started from.
+ */
+export interface StepDelta {
+  /**
+   * Share of the step's tool calls whose tool and arguments were unseen in the
+   * recent call history; 0 for a step that called no tool.
+   */
+  readonly toolNovelty: number
+  /** 1 when the task advanced a revision during the step. */
+  readonly stateDelta: number
+  /** 1 when the step recorded an observation or a claim. */
+  readonly evidenceGain: number
+  /** 1 when the session's goal moved during the step. */
+  readonly goalProgress: number
+  /** 1 when the step left fewer unresolved failures behind than it found. */
+  readonly errorReduction: number
+  /** 1 when the step recorded a plan revision. */
+  readonly planProgress: number
+}
+
+/**
+ * Which layer of a run went quiet when the liveness window elapsed with no
+ * progress. The distinction is what a reader acts on: a `tool` stall is one
+ * call that never settled, a `transport` stall is a request that produced no
+ * frame at all, a `stream` stall is a stream that started and stopped, an
+ * `agent` stall is a run with no work in flight, and a `child-agent` stall is a
+ * delegated child that stopped reporting.
+ */
+export type TimeoutKind = 'tool' | 'transport' | 'stream' | 'agent' | 'child-agent'
+
+/**
+ * One step's measured progress and the governor's decision for the next step,
+ * with the reasons behind it. The record is the durable form of a decision the
+ * kernel otherwise holds only in memory, so a replay reconstructs why a run
+ * stopped without the process that stopped it.
+ */
+export interface GovernorDecisionRecord {
+  /** Decision composed for the step that follows. */
+  readonly decision: GovernorDecision
+  /** Every fact that produced the decision, in evaluation order. */
+  readonly reasons: readonly string[]
+  /** Movement the step that just ended made. */
+  readonly delta: StepDelta
+  /** Mean of the delta's axes, in `[0, 1]`. */
+  readonly progressScore: number
+  /** Turn the decision was composed for. */
+  readonly turn: number
+  /** Step the decision was composed for. */
+  readonly step: number
+  /** Kind of timeout the decision answers, when it answers one. */
+  readonly timeout?: TimeoutKind
+  /** Unix epoch milliseconds the decision was recorded. */
+  readonly at: number
+}
+
+/**
+ * The family a failure belongs to. The category groups how many kinds there are
+ * into what a reader acts on: one model call, one tool call, one boundary
+ * refusal, one check that did not hold, one limit that ran out, one run that
+ * stopped moving, or one write that did not land.
+ */
+export type FailureCategory =
+  | 'model'
+  | 'tool'
+  | 'policy'
+  | 'approval'
+  | 'verification'
+  | 'budget'
+  | 'liveness'
+  | 'persistence'
+  | 'environment'
+
+/** How much one failure threatens the task it belongs to. */
+export type FailureSeverity = 'low' | 'medium' | 'high' | 'critical'
+
+/** What the task itself knew when a failure was diagnosed. */
+export interface DiagnosisFacts {
+  /** Observations recorded for the task at diagnosis time, in log order. */
+  readonly evidence: readonly EvidenceId[]
+  /** Questions the task is testing at diagnosis time, in log order. */
+  readonly hypotheses: readonly TaskHypothesisId[]
+}
+
+/**
+ * What the kernel understood about one classified failure before choosing a
+ * recovery: the family and severity, the task facts the failure is read
+ * against, and the recovery ladder the diagnosis recommends. The diagnosis
+ * never executes anything — it is the record the recovery decision and a later
+ * repair prompt are read from.
+ */
+export interface FailureDiagnosis {
+  /** Failure this diagnosis answers. */
+  readonly failureId: FailureId
+  /** Family the failure belongs to. */
+  readonly category: FailureCategory
+  /** How much the failure threatens the task. */
+  readonly severity: FailureSeverity
+  /**
+   * Observations recorded for the task when the failure was diagnosed. A
+   * failure carries no per-observation link, so a diagnosis cites the set the
+   * task had recorded rather than asserting which of them bear on the failure.
+   */
+  readonly evidence: readonly EvidenceId[]
+  /** Questions the task was testing when the failure was diagnosed. */
+  readonly hypotheses: readonly TaskHypothesisId[]
+  /** Recoveries this diagnosis recommends, in preference order. */
+  readonly recommendedActions: readonly RecoveryAction[]
+  /** Why the diagnosis reads this way. */
+  readonly detail: string
+  /** Unix epoch milliseconds the diagnosis was recorded. */
+  readonly at: number
+}
+
+/**
  * The authority one parent run delegates to one child run. The kernel writes
  * the receipt into the child's own log before its first step, so a replay
  * reconstructs the child's authority without the parent's session.
@@ -870,6 +1217,18 @@ export interface VerificationRequest {
   readonly criteria: readonly AcceptanceCriterion[]
   /** Scopes the task changed, for `diff` verifiers. */
   readonly changedScopes: readonly string[]
+  /**
+   * Digest of the repository state the criteria are verified against. A
+   * criterion result is retained by this digest, so a repeated pass over an
+   * unchanged repository reuses the decision while any change invalidates it.
+   */
+  readonly repositoryDigest: string
+  /**
+   * Boundary the task declared before it modified anything, when it declared
+   * one. A verifier that checks a change boundary reads it here rather than
+   * from live state, so a replayed log decides the same criterion.
+   */
+  readonly changeContract?: ChangeContract
 }
 
 /** Which family observed one piece of evidence. */
@@ -890,7 +1249,7 @@ export interface Evidence {
   /** Digest of the observed content, when the observer could compute one. */
   readonly digest?: string
   /** Source and locator of the observation itself. */
-  readonly provenance: Provenance
+  readonly sourceRef: SourceRef
   /** How far the observed content may be trusted. */
   readonly trust: TrustLabel
   /** Unix epoch milliseconds the content was observed. */
@@ -944,7 +1303,7 @@ export interface EvidenceInput {
   /** Digest of the observed content, when the observer could compute one. */
   readonly digest?: string
   /** Source and locator of the observation itself. */
-  readonly provenance: Provenance
+  readonly sourceRef: SourceRef
   /** How far the observed content may be trusted. */
   readonly trust: TrustLabel
 }
@@ -1102,6 +1461,8 @@ export interface KernelView {
   readonly claims: readonly TaskClaim[]
   /** Questions this task is testing, in log order. */
   readonly hypotheses: readonly TaskHypothesis[]
+  /** Diagnoses recorded for this task's failures, in log order. */
+  readonly diagnoses: readonly FailureDiagnosis[]
   /** Latest recorded plan revision, when the task has one. */
   readonly plan?: PlanRevision
   /** Latest recorded checkpoint, when the task has one. */
@@ -1118,6 +1479,82 @@ export interface KernelStateReader {
    * @returns the task view, or undefined when no `task/created` event exists.
    */
   view(session: Session): KernelView | undefined
+}
+
+/**
+ * One task in a session's task graph. A node exists for every contract the log
+ * records; a task delegated to a child agent is a node in the CHILD's graph,
+ * reached through that child's own `parentTaskId`, because its contract is
+ * written into the child's log.
+ */
+export interface TaskNode {
+  /** Stable task identity; the graph is keyed by it. */
+  readonly taskId: TaskId
+  /** Run that executes the task. */
+  readonly runId: RunId
+  /** Objective the contract stated. */
+  readonly objective: string
+  /** Enclosing task, when the contract names one. */
+  readonly parentTaskId?: TaskId
+  /** Tasks the contract declares it starts after. */
+  readonly dependencies: readonly TaskId[]
+  /** Tasks of this session that name this task as their parent, in creation order. */
+  readonly children: readonly TaskId[]
+  /** Kernel lifecycle status the log last recorded. */
+  readonly status: TaskStatus
+  /** The seven-state runtime projection of {@link status}. */
+  readonly state: TaskSpecState
+  /** Contract revision the log last recorded. */
+  readonly revision: number
+  /**
+   * Goal in force when the contract was created, absent when the session had
+   * none. The goal is a session-scoped record, so this is the Goal→Task link a
+   * task graph draws: revisions of the goal after creation are not this node's.
+   */
+  readonly goal?: GoalRef
+}
+
+/**
+ * The tasks one session's log holds and the edges between them, folded on
+ * demand. Nothing here is cached: the same log always produces the same graph.
+ */
+export interface TaskGraph {
+  /** Every task the log records, in creation order. */
+  readonly nodes: readonly TaskNode[]
+  /**
+   * One task's node.
+   * @param taskId - the task to read.
+   * @returns the node, or undefined when this log holds no such contract.
+   */
+  nodeOf(taskId: TaskId): TaskNode | undefined
+  /**
+   * The direct children of one task.
+   * @param taskId - the parent task.
+   * @returns the children in creation order; empty when the log holds none.
+   */
+  childrenOf(taskId: TaskId): readonly TaskId[]
+  /**
+   * The dependencies one task declared.
+   * @param taskId - the dependent task.
+   * @returns the dependencies in declaration order; empty when the task names none.
+   */
+  dependenciesOf(taskId: TaskId): readonly TaskId[]
+  /**
+   * Every task that descends from one task, breadth-first.
+   * @param taskId - the task whose subtree is walked.
+   * @returns the descendants in walk order; a task the log does not hold contributes none.
+   */
+  descendantsOf(taskId: TaskId): readonly TaskId[]
+}
+
+/** The task-graph read model over session logs. */
+export interface TaskGraphReader {
+  /**
+   * Fold one session's log into its task graph.
+   * @param session - the session whose `task/*` and `goal/change` events are folded.
+   * @returns the graph; it holds no node when the log records no contract.
+   */
+  graphOf(session: Session): TaskGraph
 }
 
 /** The registry of tool capability declarations. */
@@ -1177,9 +1614,10 @@ export interface VerificationGate {
    * Build the verification request for one task revision.
    * @param task - the task to verify.
    * @param changedScopes - scopes the task changed.
+   * @param repositoryDigest - digest of the repository state the criteria are verified against.
    * @returns the request to evaluate.
    */
-  request(task: TaskContract, changedScopes: readonly string[]): VerificationRequest
+  request(task: TaskContract, changedScopes: readonly string[], repositoryDigest: string): VerificationRequest
   /**
    * Aggregate per-criterion outcomes into one result.
    * @param request - the request the results answer.
@@ -1232,6 +1670,13 @@ export interface RecoveryInput {
 /** The failure classifier and recovery chooser. */
 export interface RecoveryEngine {
   /**
+   * Diagnose one failure from its classification and the task's own facts.
+   * @param input - the failure, its attempt count, and the configured cap.
+   * @param facts - the observations and hypotheses the task had recorded.
+   * @returns the diagnosis the recovery decision is made against.
+   */
+  diagnose(input: RecoveryInput, facts: DiagnosisFacts): FailureDiagnosis
+  /**
    * Classify one failure and choose its recovery.
    * @param input - the failure, its attempt count, and the configured cap.
    * @returns the decided recovery.
@@ -1239,15 +1684,58 @@ export interface RecoveryEngine {
   classify(input: RecoveryInput): RecoveryDecision
 }
 
-/** The task budget observer. */
+/**
+ * The task budget observer and reservation ledger. It reads both budget
+ * owners — a session's own use, and what background work has spent on the
+ * same deployment — and enforces neither: `guard/budgets` enforces the
+ * in-session ceilings and the background owner gates its own spend.
+ */
 export interface BudgetGovernor {
   /**
    * Measure one session's task budget use against its configured ceilings.
    * @param task - the task whose configured ceilings apply.
    * @param session - the session whose events are counted.
-   * @returns the observation and the remaining allowance.
+   * @returns the observation, the remaining allowance, and the background
+   * spend beside it when a background budget owner is mounted.
    */
   measure(task: TaskContract, session: Session): BudgetSnapshot
+  /**
+   * What one session can still promise: its measured remaining allowance less
+   * the holds its in-flight work placed and the spend its settled children
+   * reported, per axis. An axis the session does not bound is absent.
+   * @param session - the session whose allowance is read.
+   * @returns the still-uncommitted allowance, per bounded axis.
+   */
+  available(session: Session): ResourceBudget
+  /**
+   * Hold part of one session's allowance for work that is about to run, so a
+   * second reservation made before the first settles is not promised the same
+   * budget. The hold is capped at what the session has available; a caller asks
+   * for what its child may spend and hands the returned amount on as the
+   * child's grant.
+   * @param session - the session whose allowance is held.
+   * @param amount - the ceilings the work may spend.
+   * @param runId - the run the hold is placed for, when the caller knows it.
+   * @returns the hold, carrying the ceilings it placed.
+   */
+  reserve(session: Session, amount: ResourceBudget, runId?: RunId): BudgetReservation
+  /**
+   * Settle a hold: the work it covered finished, and `actual` is what that work
+   * reported spending. The hold ends and the reported spend is debited from the
+   * session's available allowance, so a child's consumption is never promised
+   * again to its siblings. The session's measured remaining allowance is
+   * unchanged, because the child's spend is its own session's. Settling a hold
+   * that already ended does nothing.
+   * @param reservationId - the hold being settled.
+   * @param actual - what the work spent, per axis, when the caller measured it.
+   */
+  commit(reservationId: BudgetReservationId, actual?: ResourceBudget): void
+  /**
+   * Release a hold: the work it covered never ran, so nothing was spent.
+   * Releasing a hold that already ended does nothing.
+   * @param reservationId - the hold being released.
+   */
+  release(reservationId: BudgetReservationId): void
 }
 
 /** The attachment one live agent holds to its kernel task. */
@@ -1273,6 +1761,8 @@ export interface KernelAttachment {
 export interface AgentKernel {
   /** Durable task state read model. */
   readonly state: KernelStateReader
+  /** Task-graph read model over the same session logs. */
+  readonly taskGraph: TaskGraphReader
   /** Permission-rule evaluator. */
   readonly policy: PolicyEngine
   /**
@@ -1286,6 +1776,13 @@ export interface AgentKernel {
   readonly capabilities: CapabilityRegistry
   /** Completion gate. */
   readonly verification: VerificationGate
+  /**
+   * The §10.5 coding lifecycle: the phases a task of class `coding` runs, the
+   * independent reviewer the REVIEW phase spawns, and the phase log a caller
+   * reads. A deployment supplies the reviewer through
+   * `lifecycle.registerReviewer`.
+   */
+  readonly lifecycle: CodingLifecycle
   /** Failure classifier and recovery chooser. */
   readonly recovery: RecoveryEngine
   /**
@@ -1293,7 +1790,7 @@ export interface AgentKernel {
    * @returns one recovery entry per non-terminal or unreadable stored session; rejects when listing fails.
    */
   readonly startupRecovery: Promise<readonly RecoveryScanEntry[]>
-  /** Task budget observer. */
+  /** Task budget observer and reservation ledger. */
   readonly budgets: BudgetGovernor
   /**
    * Attach one live agent to its durable task.
@@ -1313,9 +1810,10 @@ export interface AgentKernel {
    * @param agent - the live agent whose task owns the plan.
    * @param steps - ordered work items in the new plan revision.
    * @param failureId - unresolved failure that justifies an amendment.
+   * @param options - who approved the revision and which action recorded it.
    * @returns the durable plan revision.
    */
-  recordPlan(agent: Agent, steps: readonly string[], failureId?: FailureId): PlanRevision
+  recordPlan(agent: Agent, steps: readonly string[], failureId?: FailureId, options?: PlanOptions): PlanRevision
   /**
    * Record one observation a claim may cite.
    * @param agent - the live agent whose task observed it.
@@ -1429,6 +1927,21 @@ declare module '@deepseek-ai/dsh-session/types' {
      * is recorded here with its own kind rather than as a tool error.
      */
     'failure/recorded': KernelEventData<FailureRecord>
+    /**
+     * The kernel's diagnosis of one classified failure, recorded before its
+     * recovery is decided: the family and severity, the task facts the failure
+     * is read against, and the recovery ladder the diagnosis recommends.
+     * Log-only.
+     * @param failureId - failure the diagnosis answers.
+     * @param category - family the failure belongs to.
+     * @param severity - how much the failure threatens the task.
+     * @param evidence - observations the task had recorded at diagnosis time.
+     * @param hypotheses - questions the task was testing at diagnosis time.
+     * @param recommendedActions - recoveries the diagnosis recommends, in preference order.
+     * @param detail - why the diagnosis reads this way.
+     * @param at - Unix epoch milliseconds the diagnosis was recorded.
+     */
+    'failure/diagnosed': KernelEventData<FailureDiagnosis>
     /** Recovery began for a classified failure. Log-only. */
     'recovery/started': KernelEventData<RecoveryStartedRecord>
     /**
@@ -1436,6 +1949,13 @@ declare module '@deepseek-ai/dsh-session/types' {
      * retried under the same action id. Log-only.
      */
     'recovery/decided': KernelEventData<RecoveryDecision>
+    /**
+     * One step boundary's measured movement and the governor's decision for the
+     * step that follows, with the reasons behind it. Log-only: it never enters
+     * model context, and a step that moved something resolves the loop and
+     * liveness failures recorded against the step that did not.
+     */
+    'governor/decided': KernelEventData<GovernorDecisionRecord>
     /**
      * A checkpoint indexing one task's kernel state at a session sequence.
      * Log-only.

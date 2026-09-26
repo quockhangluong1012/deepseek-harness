@@ -161,6 +161,22 @@ export function defineCoverageCases(groups: CoverageGroup | readonly CoverageGro
   })
 
   if (selected.has('post-tool')) describe('hooks-codex coverage — post-tool and session context mapping', () => {
+    it('a PostToolUse {"continue":false} hook halts the run after the tool ran', async () => {
+      const d = dir()
+      hooks(d, { PostToolUse: [{ hooks: [{ type: 'command', command: 'echo \'{"continue":false,"stopReason":"enough"}\'' }] }] })
+      const adapter = new MockAdapter([toolCallResponse('c1', 'echo', {}), textResponse('should not run')])
+      const ctx = await harness(join(d, 'hooks.json'), adapter)
+      let ran = false
+      ctx.tools.register(defineContentToolFixture({ name: 'echo', description: 'e', parameters: {}, async execute() { ran = true; return [{ type: 'text', text: 'ok' }] } }))
+      const agent = await ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+      agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } })); await waitForIdle(ctx, agent)
+      expect(ran).toBe(true) // the call completed before the halt
+      expect(adapter.requests).toHaveLength(1) // and the halt stopped the run before the next step
+      const turnEnd = events(agent).findLast(e => e.type === 'turn/end')
+      expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason)
+        .toEqual({ kind: 'aborted', reason: { kind: 'hook', reason: 'enough' } })
+    })
+
     it('folds the bridge PostToolUse context onto a downstream canonical value replacement', async () => {
       const d = dir()
       hooks(d, { PostToolUse: [{ hooks: [{ type: 'command', command: sh(d, 'pc.sh', '#!/usr/bin/env bash\necho \'{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"bridge-note"}}\'\n') }] }] })
@@ -431,12 +447,11 @@ export function defineCoverageCases(groups: CoverageGroup | readonly CoverageGro
       expect(events(agent).some(e => e.type === 'hook/invoked')).toBe(false)
     })
 
-    it('a {"continue":false} hook is RECORDED as "stop" but does not halt the run (TODO(hook-continue-false))', async () => {
-    // Honoring `continue:false` is deferred — the extension points have no hard-halt
-    // primitive. Assert the LOG records the halt request AND that the run is not
-    // actually halted (the tool still runs, the turn completes).
+    it('a {"continue":false} hook HALTS the run: the tool never runs and the turn ends aborted with the hook reason', async () => {
+      // The hook command is inline rather than a script path so this case
+      // exercises the halt under any host bash.
       const d = dir()
-      hooks(d, { PreToolUse: [{ hooks: [{ type: 'command', command: sh(d, 's.sh', '#!/usr/bin/env bash\necho \'{"continue":false,"stopReason":"halt"}\'\n') }] }] })
+      hooks(d, { PreToolUse: [{ hooks: [{ type: 'command', command: 'echo \'{"continue":false,"stopReason":"halt"}\'' }] }] })
       const adapter = new MockAdapter([toolCallResponse('c1', 'Bash', { command: 'x' }), textResponse('done')])
       const ctx = await harness(join(d, 'hooks.json'), adapter)
       let ran = false
@@ -444,8 +459,37 @@ export function defineCoverageCases(groups: CoverageGroup | readonly CoverageGro
       const agent = await ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
       agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } })); await waitForIdle(ctx, agent)
       const res = events(agent).find(e => e.type === 'hook/result')
-      expect(res?.type === 'hook/result' && res.data.decision).toBe('stop') // recorded
-      expect(ran).toBe(true) // NOT honored: the tool still ran (halt is deferred)
+      expect(res?.type === 'hook/result' && res.data.decision).toBe('stop') // the request is recorded
+      expect(ran).toBe(false) // honored: the halt cancels the run before the tool dispatches
+      const turnEnd = events(agent).findLast(e => e.type === 'turn/end')
+      expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason)
+        .toEqual({ kind: 'aborted', reason: { kind: 'hook', reason: 'halt' } })
+    })
+
+    it('a UserPromptSubmit {"continue":false} hook halts the run before any model step', async () => {
+      const d = dir()
+      hooks(d, { UserPromptSubmit: [{ hooks: [{ type: 'command', command: 'echo \'{"continue":false,"stopReason":"stop the press"}\'' }] }] })
+      const adapter = new MockAdapter([textResponse('should not run')])
+      const ctx = await harness(join(d, 'hooks.json'), adapter)
+      const agent = await ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+      agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } })); await waitForIdle(ctx, agent)
+      expect(adapter.requests).toHaveLength(0)
+      const turnEnd = events(agent).findLast(e => e.type === 'turn/end')
+      expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason)
+        .toEqual({ kind: 'aborted', reason: { kind: 'hook', reason: 'stop the press' } })
+    })
+
+    it('a Stop {"continue":false} hook halts the run instead of forcing another step', async () => {
+      const d = dir()
+      hooks(d, { Stop: [{ hooks: [{ type: 'command', command: 'echo \'{"continue":false,"stopReason":"done for today"}\'' }] }] })
+      const adapter = new MockAdapter([textResponse('done')])
+      const ctx = await harness(join(d, 'hooks.json'), adapter)
+      const agent = await ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+      agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } })); await waitForIdle(ctx, agent)
+      expect(adapter.requests).toHaveLength(1) // no forced continuation step
+      const turnEnd = events(agent).findLast(e => e.type === 'turn/end')
+      expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason)
+        .toEqual({ kind: 'aborted', reason: { kind: 'hook', reason: 'done for today' } })
     })
 
     it('PreToolUse deny with EMPTY stderr uses the default reason (?? right arm)', async () => {

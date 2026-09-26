@@ -179,6 +179,66 @@ describe('agent-kernel real Loader composition through cordis.yml', () => {
     expect(events.find(event => event.type === 'action/committed')?.data).toMatchObject({ outcome: 'denied' })
   }, 30_000)
 
+  it('refuses an action past a concurrency ceiling configured through cordis.yml', async () => {
+    const ctx = await boot([
+      '    mode: enforce',
+      '    budgets:',
+      '      maxConcurrentActions: 1',
+      ...ALLOW_ALL,
+    ])
+    const owner = await agent(ctx)
+    const started = Promise.withResolvers<undefined>()
+    const release = Promise.withResolvers<undefined>()
+    ctx.tools.register(defineContentToolFixture({
+      name: 'probe',
+      description: 'probe',
+      parameters: {},
+      async execute() {
+        started.resolve(undefined)
+        await release.promise
+        return [{ type: 'text' as const, text: 'ok' }]
+      },
+    }))
+    ctx.agentKernel.capabilities.register({ tool: 'probe', capabilities: ['fs.read'], resources: () => '**' })
+
+    await ctx.waterfall(
+      'agent/pre-step',
+      {
+        agent: owner,
+        messages: [createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } })],
+        turn: 1,
+        step: 1,
+        signal: new AbortController().signal,
+      },
+      () => Promise.resolve({ kind: 'enter' as const, messages: [] }),
+    )
+    const inFlight = ctx.tools.execute({
+      signal: new AbortController().signal,
+      callId: ToolCallId('loader-in-flight'),
+      name: 'probe',
+      arguments: {},
+      agent: owner,
+    })
+    await started.promise
+    const overCeiling = await ctx.tools.execute({
+      signal: new AbortController().signal,
+      callId: ToolCallId('loader-over-ceiling'),
+      name: 'probe',
+      arguments: {},
+      agent: owner,
+    })
+
+    expect(overCeiling.isError).toBe(true)
+    const decisions = owner.session.snapshotEvents()
+      .filter(event => event.type === 'action/decided')
+      .map(event => event.data.decision)
+    expect(decisions.at(-1)).toMatchObject({ effect: 'deny', enforced: true })
+    expect(decisions.at(-1)?.reasons.join('; ')).toContain('the task already has 1 of 1 actions in flight')
+
+    release.resolve(undefined)
+    await expect(inFlight).resolves.toMatchObject({ isError: false })
+  }, 30_000)
+
   it('fails plugin activation for an empty resource selector', async () => {
     const ctx = await boot([
       '    policy:',

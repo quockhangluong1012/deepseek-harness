@@ -20,4 +20,4 @@ Primary source: `packages/evolution/evolution-reviewer/README.md` (background re
 
 Defaults: `enabled true`, `minTurnTextBytes 200`, `cooldownMs 60000`, `defer auto`, `deferMaxAgeMs 1800000`, `maxInputBytes 131072`, `maxOutputTokens 1024`, `timeoutMs 60000`, `rebuildSessionLimit 20`, `recallLimit 20`, `recallQueryChars 160`, `outputTools write,edit,str_replace_editor`, `writeApproval false`.
 
-Turn extraction writes the whole lessons document with `background_review` provenance; under `writeApproval` it stages a `setLessons` op instead; explicit rebuild keeps writing directly. Failed extraction warns and keeps the previous document. Ranked recall lands one `Recall:` context item, rendered last so it drops first under pressure.
+Turn extraction writes the whole lessons document recording `background_review` as its writer; under `writeApproval` it stages a `setLessons` op instead; explicit rebuild keeps writing directly. Failed extraction warns and keeps the previous document. Ranked recall lands one `Recall:` context item, rendered last so it drops first under pressure.

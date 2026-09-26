@@ -39,7 +39,7 @@ A rebuild never produces a critique: its material is admitted rows selected from
 
 ## Alternatives considered
 
-**A second model call for the critique.** It would keep the extraction protocol untouched and let the critique see its own prompt. Rejected because it doubles the cost of every gated turn to re-read a transcript already in the prompt, and because §5's refinement is one local pass over one draft: a second call would also need its own route, timeout, provenance, and failure story for the same turn.
+**A second model call for the critique.** It would keep the extraction protocol untouched and let the critique see its own prompt. Rejected because it doubles the cost of every gated turn to re-read a transcript already in the prompt, and because §5's refinement is one local pass over one draft: a second call would also need its own route, timeout, recorded writer, and failure story for the same turn.
 
 **A new store or domain for critiques.** A `evolution_critique` table keyed by session and turn would record the loop explicitly. Rejected because `evolution-memory` already holds the two things a critique needs to be: durable guidance (the lesson artifacts) and material the brief renders (`contextItems`). A second domain would also need its own digest participation, its own capacity accounting, and its own surface for a reader that does not yet exist.
 

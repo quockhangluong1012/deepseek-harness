@@ -9,7 +9,7 @@ kind: "package-group"
 
 ## 概述
 
-deliverables 系列把一轮交给用户的内容记录为只有客户端读取的持久 Session 事件：`present` 工具声明模型交付的最终文件，workspace-changes 记录器用 git 快照和整文件捕获记录一轮改动的文件及其行数，提供每个文件的对比，还能把工作目录代码回退到某轮的起始状态。`/rewind` 命令把这项回退能力直接暴露给用户，无需模型轮次。Web 的[交付插件](../client/ui-deliverables/README.zh.md)在轮次末尾渲染记录下的改动。需要展示交付文件和每轮改动的产品选择本系列；`present` 需要 `ctx.tools` 与 `ctx.fs`，记录器需要 `ctx.subprocess` 和 git 可执行文件。
+deliverables 系列把一轮交给用户的内容记录为持久 Session 事件：`present` 声明模型最终交付的文件，workspace-changes 记录器用 git 快照和整文件捕获记录每个轮次改动的文件及其行数，提供每个文件的对比，还能把工作目录代码回退到某轮的起始状态。`/rewind` 把这项回退能力直接暴露给用户，无需模型轮次，`tool-changes` 则把已记录的轮次读回给模型。Web 的[交付插件](../client/ui-deliverables/README.zh.md)在轮次之后渲染记录下的改动。需要展示交付文件和每轮改动的产品选择本系列。
 
 ## 目录
 
@@ -26,6 +26,7 @@ deliverables 系列把一轮交给用户的内容记录为只有客户端读取�
 |---|---|---|
 | [`tool-present`](tool-present/README.zh.md) | 通过 `present` 工具把已有文件声明为最终交付物 | 注册到 `ctx.tools` |
 | [`workspace-changes`](workspace-changes/README.zh.md) | 用 git 工作树快照和整文件捕获汇总每个顶层轮次改动的文件，提供其对比，并把代码回退到某轮的起始状态 | 提供 `ctx.workspaceChanges`；监听 `session/event`，追加 `workspace/changes` |
+| [`tool-changes`](tool-changes/README.zh.md) | 通过两个只读工具把一个已记录轮次改动的文件与某个已列出文件的对比报告给模型 | 注册到 `ctx.tools` |
 | [`command-rewind`](command-rewind/README.zh.md) | 提供 `/rewind`：把工作目录文件恢复为某轮起始时的内容 | 注册到 `ctx.commands` |
 
 -----

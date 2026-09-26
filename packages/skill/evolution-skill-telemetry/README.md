@@ -1,5 +1,5 @@
 ---
-description: "Durable per-skill use/view/patch telemetry with provenance, pin, and lifecycle state (ctx.evolutionSkillTelemetry), for hosts curating skills during use."
+description: "Durable per-skill use/view/patch telemetry with a creation record, pin, and lifecycle state (ctx.evolutionSkillTelemetry), for hosts curating skills during use."
 kind: "package-reference"
 ---
 
@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-evolution-skill-telemetry` owns the durable per-skill counters behind skill curation: successful model loads, human views, and management mutations, plus creation provenance, pinning, lifecycle state, evidence-backed trust, a body-revision chain, and the §40 utility reading from graded task outcomes. Hosts read it synchronously and mark mutations explicitly; a passive `tools/post-execute` observer counts successful `skill`-tool loads, and bundled and hub skills are excluded from every write. It counts repeated produced outputs as skill-creation evidence and records the cost of a consolidation-scale run before its fan-out. Choose it when curation (staleness, consolidation, deletion) should rest on observed use and outcomes, not guesses.
+`dsh-evolution-skill-telemetry` owns the durable per-skill counters behind skill curation: successful model loads, human views, and management mutations, plus a creation record, pinning, lifecycle state, evidence-backed trust, a body-revision chain, and the §40 utility reading from graded task outcomes. Hosts read it synchronously and mark mutations explicitly; a passive `tools/post-execute` observer counts successful `skill`-tool loads, and bundled and hub skills are excluded from every write. It counts repeated produced outputs as skill-creation evidence and records the cost of a consolidation-scale run before its fan-out. Choose it when curation (staleness, consolidation, deletion) should rest on observed use and outcomes, not guesses.
 
 ## Table of Contents
 
@@ -47,7 +47,7 @@ The specification's `incremental_gain` compares a skill against a no-skill basel
 
 ### Session correlation
 
-`markUsed(name, source, sessionId)` records the loading session beside the counter — newest first, deduplicated, capped by `maxSessionIds`. The passive observer supplies the session it ran for, so the correlation needs no extra wiring. This is what lets a consumer pull the failures recorded while a skill was in play, which is the evidence a consolidation verdict reflects on. Views and mutations record no session.
+`markUsed(name, source, sessionId)` and `markFailed(name, source, sessionId)` record the loading session beside the counter — newest first, deduplicated, capped by `maxSessionIds`. A failed load counts as the skill being in play, so a session that only ever failed to load the skill is still correlated with it. The passive observer supplies the session it ran for, so the correlation needs no extra wiring. This is what lets a consumer pull the failures recorded while a skill was in play, which is the evidence a consolidation verdict reflects on. Views and mutations record no session.
 
 ### Configuration
 
@@ -86,7 +86,7 @@ One durable record per skill name in storage domain `evolution_skill_usage`, ver
 | [`src/index.ts`](src/index.ts) | Plugin entry: `EvolutionSkillTelemetry` service, marks, session correlation, and the `tools/post-execute` observer |
 | [`src/utility.ts`](src/utility.ts) | Pure §40 utility derivation: uses, assisted and successful tasks, library-relative gain, recorded cost per success |
 | [`src/spec.ts`](src/spec.ts) | Domain declaration: record schema and `defineDomain` spec |
-| [`src/types.ts`](src/types.ts) | Public `SkillUsageRecord`, lifecycle state, provenance, trust state and failure, per-session outcomes, repeated-output evidence, and consolidation cost-row types |
+| [`src/types.ts`](src/types.ts) | Public `SkillUsageRecord`, lifecycle state, creation record, trust state and failure, per-session outcomes, repeated-output evidence, and consolidation cost-row types |
 
 ### Failure and recovery
 
