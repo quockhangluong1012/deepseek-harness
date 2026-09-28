@@ -217,7 +217,7 @@ export class McpSettingsController {
       return
     }
     this.patch({ busy: true })
-    const response = await this.ctx.remote.mcpServers.remove({ name, layer, sessionId })
+    const response = await this.ctx.remote.mcpServers.delete({ name, layer, sessionId })
     this.settle(response)
   }
 

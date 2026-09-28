@@ -156,6 +156,10 @@ export const evolutionMemoryDomainSpec = defineDomain({
   // first write stamps version 2.
   compatibleVersions: [1],
   layout: 'per-record',
+  // Every turn writes this scope's record several times; coalescing turns the
+  // three-to-five whole-file rewrites of §34.2 W7 into one batched publish per
+  // turn while still resolving each caller's promise after its own write lands.
+  coalesceWrites: true,
   tables: {
     records: domainTable<EvolutionScopeId, EvolutionMemoryRecord>(
       evolutionMemoryRecord as unknown as z.ZodType<EvolutionMemoryRecord>,

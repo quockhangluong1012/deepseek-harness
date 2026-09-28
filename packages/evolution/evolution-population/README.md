@@ -28,6 +28,11 @@ English | [中文](README.zh.md)
 Mount the plugin with the storage domain. Candidates arrive from the optimizer's staged writes whenever the store is mounted; operators read the population and decide standings.
 
 ```ts
+import type { Context } from '@deepseek-ai/cordis'
+import '@deepseek-ai/dsh-evolution-population'
+
+declare const ctx: Context
+
 await ctx.evolutionPopulation.record({
   skill: 'writer',
   candidateId: 'staged-0',

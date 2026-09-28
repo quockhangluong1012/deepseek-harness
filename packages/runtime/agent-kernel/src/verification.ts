@@ -298,6 +298,11 @@ function cacheKey(criterionId: string, repositoryDigest: string): string {
   return `${criterionId}\u0000${repositoryDigest}`
 }
 
+/**
+ * The verifiers a task's criteria can be checked against, in registration
+ * order, with retained results keyed by the repository state they were decided
+ * against.
+ */
 export class CriterionVerifierRegistry {
   /** Registered verifiers in registration order. */
   private readonly registered: CriterionVerifier[] = []

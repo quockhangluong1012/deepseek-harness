@@ -28,6 +28,14 @@ English | [中文](README.zh.md)
 Mount the plugin, then record relations or read them back. Every scope keeps its own graph.
 
 ```ts
+import type { Context } from '@deepseek-ai/cordis'
+import { EvolutionScopeId } from '@deepseek-ai/dsh-evolution-memory'
+import { EvolutionGraph } from '@deepseek-ai/dsh-evolution-graph'
+
+declare const ctx: Context
+declare const scope: EvolutionScopeId
+
+ctx.plugin(EvolutionGraph)
 await ctx.evolutionGraph.observe(scope, [
   { from: 'Project X', relation: 'worked_on', to: 'Alice', toKind: 'person' },
 ])

@@ -74,6 +74,7 @@ function sessionHasTaintedContent(session: Session | undefined): boolean {
   return session?.snapshotEvents().some(event => event.type === 'security/scan' && event.data.tainted) ?? false
 }
 
+/** User-facing reviewer settings; every field is optional and defaulted by {@link resolveConfig}. */
 export interface Config {
   /** Minimum gap between two extractions for one scope. */
   cooldownMs?: number

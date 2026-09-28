@@ -29,6 +29,11 @@ English | [中文](README.zh.md)
 Mount the plugin with the storage domain and address one learner by a stable id the deployment owns — a user id, an account id, anything that outlives a session.
 
 ```ts
+import type { Context } from '@deepseek-ai/cordis'
+import { ConceptId, LearnerId } from '@deepseek-ai/dsh-learner-model'
+
+declare const ctx: Context
+
 const learner = LearnerId('user-1')
 const concept = ConceptId('pd-array-pip')
 

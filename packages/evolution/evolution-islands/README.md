@@ -28,6 +28,11 @@ English | [中文](README.zh.md)
 Mount the plugin with the storage domain. An operator registers the lanes of a skill's evolution job, the optimizer advances ticks while the store is mounted, and migrations move strong candidates between islands on the schedule.
 
 ```ts
+import type { Context } from '@deepseek-ai/cordis'
+import '@deepseek-ai/dsh-evolution-islands'
+
+declare const ctx: Context
+
 await ctx.evolutionIslands.register({
   islandId: 'stable',
   name: 'Stable lane',

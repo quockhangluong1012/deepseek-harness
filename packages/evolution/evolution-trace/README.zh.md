@@ -28,6 +28,12 @@ kind: "package-reference"
 挂载插件即可，投影无需额外接线。用 `trace` 投影一个会话的日志，用 `summary` 把若干会话压缩成按决策排序的行，或用 `replay` 把一条已存储的轨迹针对两个产物修订做回放。
 
 ```ts
+import type { Context } from '@deepseek-ai/cordis'
+import '@deepseek-ai/dsh-evolution-trace'
+
+declare const ctx: Context
+declare const sessionId: string
+
 const record = await ctx.evolutionTrace.trace(sessionId)
 if (record === undefined) {
   console.log('storage holds no such session')
@@ -49,6 +55,12 @@ if (record === undefined) {
 ```
 
 ```ts
+import type { Context } from '@deepseek-ai/cordis'
+import '@deepseek-ai/dsh-evolution-trace'
+
+declare const ctx: Context
+declare const workspace: { sessionIds: readonly string[] }
+
 const rows = await ctx.evolutionTrace.summary(workspace.sessionIds, 10)
 for (const row of rows) {
   console.log(`${row.sessionId}: ${row.failures} failure(s), ${row.retries} retr(ies), ${row.tokens} tokens`)
@@ -56,6 +68,14 @@ for (const row of rows) {
 ```
 
 ```ts
+import type { Context } from '@deepseek-ai/cordis'
+import { type ReplayArtifact } from '@deepseek-ai/dsh-evolution-trace'
+
+declare const ctx: Context
+declare const sessionId: string
+declare const baselineArtifact: ReplayArtifact
+declare const candidateArtifact: ReplayArtifact
+
 const report = await ctx.evolutionTrace.replay(sessionId, baselineArtifact, candidateArtifact)
 if (report !== undefined) {
   console.log(`candidate ${report.candidate} changes ${report.changedSteps.join(', ') || 'nothing'}`)

@@ -50,7 +50,7 @@ The spec names a `lastExtractAt` watermark in a new `extract-state` domain table
 
 Append a new top-level `describe('heartbeat extraction')` to `packages/evolution/evolution-graph/tests/graph.spec.ts`, reusing the file's existing imports (`Context`, `Storage`, `DomainFacility`, `MemoryMediaPool`, `MemoryStorageBackend`, `EvolutionGraph`) — the storage wiring below copies the file's `harness()` lines 36-43 verbatim, and the `llm` provide is included because Step 3 adds `'llm'` to static inject (providing it early is harmless):
 
-```ts
+```ts ignore-check
 describe('heartbeat extraction', () => {
   it('registers the extract task on the heartbeat seam', async () => {
     const tasks: Array<{ name: string; intervalHours: number; run: (signal: AbortSignal) => Promise<void> | void }> = []
@@ -87,7 +87,7 @@ Run: `pnpm exec vitest run packages/evolution/evolution-graph --reporter=dot 2>&
 
 In `packages/evolution/evolution-graph/src/index.ts`: add `intervalHours?: number` (`z.number().step(1).min(1).default(6)`, resolve `?? 6`) and `profile?: string` (`z.string().default('default')`, resolve `?? 'default'`, comment: matches the `profile: default` rows in `packages/bundle/web-app/cordis.patch.yml`). Change `static inject` to `['storageDomain', 'llm']`. Export `export const EVOLUTION_GRAPH_EXTRACT_TASK = 'evolution-graph-extract'`. In `[Service.init]`, after `this.table = domain.table('records')`, declare the local `HeartbeatSeam` interface + `isHeartbeatSeam` guard (copy `packages/evolution/evolution-memory/src/index.ts:754-776`, renaming nothing) and register inside `ctx.effect`, mirroring lines 804-816 with effect name `'evolution-graph.heartbeatTask'`:
 
-```ts
+```ts ignore-check
 const heartbeat: unknown = this.ctx.get('evolutionHeartbeat')
 if (!isHeartbeatSeam(heartbeat)) return
 this.ctx.effect(
@@ -110,7 +110,7 @@ Run: `pnpm exec vitest run packages/evolution/evolution-graph --reporter=dot 2>&
 
 Append inside `describe('heartbeat extraction')` (reuse the Step 1 ctx setup; the file's `harness()` already provides a scripted `llm` stream via `answer('...')` chunks — new tests that need custom chunks replicate the harness with their own `chunks` argument shape, i.e. copy `harness()` adding a `chunks` parameter defaulting to `answer('{"triples":[]}')`):
 
-```ts
+```ts ignore-check
 it('extracts buffered scope text and clears the buffer on success', async () => {
   // ctx with workspaceRegistry fake: { list: () => [{ id: 'ws', sessionIds: [session.id] }] },
   // session with requestHeader() -> { config: { provider: 'p', model: 'm' } },
@@ -164,7 +164,7 @@ git commit -m "feat(evolution-graph): heartbeat extraction producer with consume
 
 In `packages/context/active-memory-context/tests/index.spec.ts` (or the render spec if one exists — check first, follow it):
 
-```ts
+```ts ignore-check
 it('renders fused hits that carry no vector score', () => {
   const hits = [{ header: { id: 's1' }, bestMatch: { time: 10, snippet: 'atlas launch' } }] as never
   const text = renderActiveMemoryBrief(hits, 4096)
@@ -181,7 +181,7 @@ Run: `pnpm exec vitest run packages/context/active-memory-context --reporter=dot
 
 Change `renderActiveMemoryBrief` param to `readonly (SemanticSessionSearchHit | SessionSearchHit)[]` (import type `SessionSearchHit` alongside the existing import) and `buildText` line to:
 
-```ts
+```ts ignore-check
 const similarity = 'score' in hit && typeof hit.score === 'number' ? `, similarity ${hit.score.toFixed(2)}` : ', via graph connections'
 return `${index + 1}. [session ${hit.header.id} @ ${when}${similarity}] ${escapeFrameBody(hit.bestMatch.snippet)}`
 ```
@@ -194,7 +194,7 @@ Same command. Expected: PASS (old + new).
 
 - [ ] **Step 5: Write the failing graph-leg tests**
 
-```ts
+```ts ignore-check
 it('merges graph-neighbor sessions into the brief', async () => {
   // harness with fake embeddings (existing fakeEmbeddings), workspace with sessions s1 (live) + s2, s3;
   // provide 'evolutionGraph' fake: find -> [{ id: 'atlas', label: 'Atlas' }], expand -> [{ node: { id: 'ava', label: 'Ava' }, path: ['worked_on'], depth: 1 }];
@@ -213,7 +213,7 @@ it('passes through when the graph is empty', async () => {
 
 Config additions (interface + zod + `resolveConfig`, following the existing `topK` pattern): `profile?: string` (zod `.default('default')`, comment: must match the profile the scope's graph was extracted under), `graphDepth?: number` (zod step/min/default 1), `graphLimit?: number` (zod step/min/default 5). Local `isGraphSeam` guard mirroring evolution-memory's `isHeartbeatSeam` (`find` and `expand` functions via `Reflect.get`). Inside `apply`, after the existing `search` closure, add:
 
-```ts
+```ts ignore-check
 const searchGraph = async (
   session: Session,
   scopeIds: readonly SessionId[],

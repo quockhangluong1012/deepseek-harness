@@ -30,6 +30,12 @@ English | [中文](README.zh.md)
 Mount the plugin and call `verify`, or call the pure `runVerifierLadder` where no host is needed.
 
 ```ts
+import type { Context } from '@deepseek-ai/cordis'
+import EvolutionVerifiers from '@deepseek-ai/dsh-evolution-verifiers'
+
+declare const ctx: Context
+declare const candidateSkillFileText: string
+
 const verdict = await ctx.evolutionVerifiers.verify({
   name: 'leaf',
   body: candidateSkillFileText,

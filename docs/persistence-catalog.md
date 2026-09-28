@@ -30,7 +30,7 @@ The [format references](persistence-changes/historical-formats/README.md) cover 
 | `event:assistant/attempt` | event | `15d5dfdd822aa35e115afd74a8982825a493880457774e6850bc1520b50875e4` | [`{ type: "assistant/attempt" }`](#persistence-type-sha256-15d5dfdd822aa35e115afd74a8982825a493880457774e6850bc1520b50875e4) |
 | `event:assistant/message` | event | `1033093edd0db80ff410e00830b523405e00bb0c7684948e531ff65095799625` | [`{ type: "assistant/message" }`](#persistence-type-sha256-1033093edd0db80ff410e00830b523405e00bb0c7684948e531ff65095799625) |
 | `event:budget/exceeded` | event | `7bfeba009193fd2e97e8e5e95186510ce52530c78f0a345ca1ae859fea15d1a0` | [`{ type: "budget/exceeded" }`](#persistence-type-sha256-7bfeba009193fd2e97e8e5e95186510ce52530c78f0a345ca1ae859fea15d1a0) |
-| `event:checkpoint/created` | event | `26cba28f734f5249eac9288fe1ea64aacbb315d0a7306369f990201ceae3d2c4` | [`{ type: "checkpoint/created" }`](#persistence-type-sha256-26cba28f734f5249eac9288fe1ea64aacbb315d0a7306369f990201ceae3d2c4) |
+| `event:checkpoint/created` | event | `7b15790f5053f26e149cd934c3d3d1d268349584d8418fa230b48ed0d743cd42` | [`{ type: "checkpoint/created" }`](#persistence-type-sha256-7b15790f5053f26e149cd934c3d3d1d268349584d8418fa230b48ed0d743cd42) |
 | `event:checkpoint/resumed` | event | `f2315a4fc9c732c99760eb1007ffac4464c20f6b63bff84ef5d326590a1c4e8b` | [`{ type: "checkpoint/resumed" }`](#persistence-type-sha256-f2315a4fc9c732c99760eb1007ffac4464c20f6b63bff84ef5d326590a1c4e8b) |
 | `event:claim/updated` | event | `7837be22b9ee7ae25cb9417ce34f9315fbdf07e68057c186bc2363b3e3cbb9de` | [`{ type: "claim/updated" }`](#persistence-type-sha256-7837be22b9ee7ae25cb9417ce34f9315fbdf07e68057c186bc2363b3e3cbb9de) |
 | `event:command/done` | event | `15196447222782e773eb943c92b18316ce96b9af0f0cfddb6e57ba8274ecc5ff` | [`{ type: "command/done" }`](#persistence-type-sha256-15196447222782e773eb943c92b18316ce96b9af0f0cfddb6e57ba8274ecc5ff) |
@@ -202,7 +202,7 @@ Sources: [`packages/core/session/src/types.ts:437`](../packages/core/session/src
 'action/committed': KernelEventData<ActionCommittedEvent>
 ```
 
-Source: [`packages/runtime/agent-kernel/src/types.ts:1863`](../packages/runtime/agent-kernel/src/types.ts)
+Source: [`packages/runtime/agent-kernel/src/types.ts:1899`](../packages/runtime/agent-kernel/src/types.ts)
 
 <a id="actiondecided--log-only"></a>
 
@@ -216,7 +216,7 @@ Source: [`packages/runtime/agent-kernel/src/types.ts:1863`](../packages/runtime/
 'action/decided': KernelEventData<ActionDecidedEvent>
 ```
 
-Source: [`packages/runtime/agent-kernel/src/types.ts:1856`](../packages/runtime/agent-kernel/src/types.ts)
+Source: [`packages/runtime/agent-kernel/src/types.ts:1892`](../packages/runtime/agent-kernel/src/types.ts)
 
 ### `agent/*`
 
@@ -406,7 +406,7 @@ Source: [`packages/guard/budgets/src/types.ts:85`](../packages/guard/budgets/src
 'checkpoint/created': KernelEventData<Checkpoint>
 ```
 
-Source: [`packages/runtime/agent-kernel/src/types.ts:1927`](../packages/runtime/agent-kernel/src/types.ts)
+Source: [`packages/runtime/agent-kernel/src/types.ts:1963`](../packages/runtime/agent-kernel/src/types.ts)
 
 <a id="checkpointresumed--log-only"></a>
 
@@ -417,7 +417,7 @@ Source: [`packages/runtime/agent-kernel/src/types.ts:1927`](../packages/runtime/
 'checkpoint/resumed': KernelEventData<CheckpointResumedRecord>
 ```
 
-Source: [`packages/runtime/agent-kernel/src/types.ts:1929`](../packages/runtime/agent-kernel/src/types.ts)
+Source: [`packages/runtime/agent-kernel/src/types.ts:1965`](../packages/runtime/agent-kernel/src/types.ts)
 
 ### `claim/*`
 
@@ -433,7 +433,7 @@ Source: [`packages/runtime/agent-kernel/src/types.ts:1929`](../packages/runtime/
 'claim/updated': KernelEventData<TaskClaim>
 ```
 
-Source: [`packages/runtime/agent-kernel/src/types.ts:1874`](../packages/runtime/agent-kernel/src/types.ts)
+Source: [`packages/runtime/agent-kernel/src/types.ts:1910`](../packages/runtime/agent-kernel/src/types.ts)
 
 ### `command/*`
 
@@ -629,7 +629,7 @@ Source: [`packages/runtime/agent-context/src/types.ts:183`](../packages/runtime/
 'delegation/issued': KernelEventData<DelegationReceipt>
 ```
 
-Source: [`packages/runtime/agent-kernel/src/types.ts:1942`](../packages/runtime/agent-kernel/src/types.ts)
+Source: [`packages/runtime/agent-kernel/src/types.ts:1978`](../packages/runtime/agent-kernel/src/types.ts)
 
 <a id="delegationreceived--log-only"></a>
 
@@ -645,7 +645,7 @@ Source: [`packages/runtime/agent-kernel/src/types.ts:1942`](../packages/runtime/
 'delegation/received': KernelEventData<DelegationReceipt>
 ```
 
-Source: [`packages/runtime/agent-kernel/src/types.ts:1936`](../packages/runtime/agent-kernel/src/types.ts)
+Source: [`packages/runtime/agent-kernel/src/types.ts:1972`](../packages/runtime/agent-kernel/src/types.ts)
 
 ### `deliverables/*`
 
@@ -696,7 +696,7 @@ Source: [`packages/core/session/src/types.ts:317`](../packages/core/session/src/
 'evidence/recorded': KernelEventData<Evidence>
 ```
 
-Source: [`packages/runtime/agent-kernel/src/types.ts:1869`](../packages/runtime/agent-kernel/src/types.ts)
+Source: [`packages/runtime/agent-kernel/src/types.ts:1905`](../packages/runtime/agent-kernel/src/types.ts)
 
 ### `failure/*`
 
@@ -722,7 +722,7 @@ Source: [`packages/runtime/agent-kernel/src/types.ts:1869`](../packages/runtime/
 'failure/diagnosed': KernelEventData<FailureDiagnosis>
 ```
 
-Source: [`packages/runtime/agent-kernel/src/types.ts:1908`](../packages/runtime/agent-kernel/src/types.ts)
+Source: [`packages/runtime/agent-kernel/src/types.ts:1944`](../packages/runtime/agent-kernel/src/types.ts)
 
 <a id="failurerecorded--log-only"></a>
 
@@ -736,7 +736,7 @@ Source: [`packages/runtime/agent-kernel/src/types.ts:1908`](../packages/runtime/
 'failure/recorded': KernelEventData<FailureRecord>
 ```
 
-Source: [`packages/runtime/agent-kernel/src/types.ts:1893`](../packages/runtime/agent-kernel/src/types.ts)
+Source: [`packages/runtime/agent-kernel/src/types.ts:1929`](../packages/runtime/agent-kernel/src/types.ts)
 
 ### `feedback/*`
 
@@ -807,7 +807,7 @@ Source: [`packages/goal/goal/src/domain.ts:73`](../packages/goal/goal/src/domain
 'governor/decided': KernelEventData<GovernorDecisionRecord>
 ```
 
-Source: [`packages/runtime/agent-kernel/src/types.ts:1922`](../packages/runtime/agent-kernel/src/types.ts)
+Source: [`packages/runtime/agent-kernel/src/types.ts:1958`](../packages/runtime/agent-kernel/src/types.ts)
 
 ### `hook/*`
 
@@ -875,7 +875,7 @@ Source: [`packages/hooks/hook-protocol/src/types.ts:33`](../packages/hooks/hook-
 'hypothesis/updated': KernelEventData<TaskHypothesis>
 ```
 
-Source: [`packages/runtime/agent-kernel/src/types.ts:1879`](../packages/runtime/agent-kernel/src/types.ts)
+Source: [`packages/runtime/agent-kernel/src/types.ts:1915`](../packages/runtime/agent-kernel/src/types.ts)
 
 ### `image/*`
 
@@ -1018,7 +1018,7 @@ Source: [`packages/plan/plan-mode/src/index.ts:57`](../packages/plan/plan-mode/s
 'recovery/decided': KernelEventData<RecoveryDecision>
 ```
 
-Source: [`packages/runtime/agent-kernel/src/types.ts:1915`](../packages/runtime/agent-kernel/src/types.ts)
+Source: [`packages/runtime/agent-kernel/src/types.ts:1951`](../packages/runtime/agent-kernel/src/types.ts)
 
 <a id="recoverystarted--log-only"></a>
 
@@ -1029,7 +1029,7 @@ Source: [`packages/runtime/agent-kernel/src/types.ts:1915`](../packages/runtime/
 'recovery/started': KernelEventData<RecoveryStartedRecord>
 ```
 
-Source: [`packages/runtime/agent-kernel/src/types.ts:1910`](../packages/runtime/agent-kernel/src/types.ts)
+Source: [`packages/runtime/agent-kernel/src/types.ts:1946`](../packages/runtime/agent-kernel/src/types.ts)
 
 ### `request/*`
 
@@ -1355,7 +1355,7 @@ Source: [`packages/core/session/src/types.ts:336`](../packages/core/session/src/
 'task/created': KernelEventData<TaskContract>
 ```
 
-Source: [`packages/runtime/agent-kernel/src/types.ts:1839`](../packages/runtime/agent-kernel/src/types.ts)
+Source: [`packages/runtime/agent-kernel/src/types.ts:1875`](../packages/runtime/agent-kernel/src/types.ts)
 
 <a id="taskphase--log-only"></a>
 
@@ -1385,7 +1385,7 @@ Source: [`packages/runtime/agent-kernel/src/coding-lifecycle.ts:658`](../package
 'task/plan': KernelEventData<PlanRevision>
 ```
 
-Source: [`packages/runtime/agent-kernel/src/types.ts:1851`](../packages/runtime/agent-kernel/src/types.ts)
+Source: [`packages/runtime/agent-kernel/src/types.ts:1887`](../packages/runtime/agent-kernel/src/types.ts)
 
 <a id="taskreview--log-only"></a>
 
@@ -1415,7 +1415,7 @@ Source: [`packages/runtime/agent-kernel/src/coding-lifecycle.ts:663`](../package
 'task/transitioned': KernelEventData<StateTransition>
 ```
 
-Source: [`packages/runtime/agent-kernel/src/types.ts:1846`](../packages/runtime/agent-kernel/src/types.ts)
+Source: [`packages/runtime/agent-kernel/src/types.ts:1882`](../packages/runtime/agent-kernel/src/types.ts)
 
 ### `team/*`
 
@@ -1719,7 +1719,7 @@ Source: [`packages/core/session/src/types.ts:315`](../packages/core/session/src/
 'verification/requested': KernelEventData<VerificationRequest>
 ```
 
-Source: [`packages/runtime/agent-kernel/src/types.ts:1883`](../packages/runtime/agent-kernel/src/types.ts)
+Source: [`packages/runtime/agent-kernel/src/types.ts:1919`](../packages/runtime/agent-kernel/src/types.ts)
 
 <a id="verificationresult--log-only"></a>
 
@@ -1733,7 +1733,7 @@ Source: [`packages/runtime/agent-kernel/src/types.ts:1883`](../packages/runtime/
 'verification/result': KernelEventData<VerificationResult>
 ```
 
-Source: [`packages/runtime/agent-kernel/src/types.ts:1888`](../packages/runtime/agent-kernel/src/types.ts)
+Source: [`packages/runtime/agent-kernel/src/types.ts:1924`](../packages/runtime/agent-kernel/src/types.ts)
 
 ### `web/*`
 
@@ -5364,7 +5364,7 @@ Array of [`AcceptanceCriterion`](#persistence-type-sha256-5961d8dcbf1f2cf828fcfd
 
 SHA-256: `92264e598ec8ea1bd43a4ee0cdb271a915d8d295df8daf7446e6ba1f2cef0e10`
 
-Sources: [`packages/runtime/agent-kernel/src/types.ts:575`](../packages/runtime/agent-kernel/src/types.ts)
+Sources: [`packages/runtime/agent-kernel/src/types.ts:605`](../packages/runtime/agent-kernel/src/types.ts)
 
 | Property | Presence | Type |
 |---|---|---|
@@ -5638,7 +5638,7 @@ Sources: [`packages/schedule/schedule/src/types.ts:29`](../packages/schedule/sch
 
 SHA-256: `2da4dab8fa2c9dc0d52485812851df5a740e690c016f531625e5e55f3234d49a`
 
-Sources: [`packages/runtime/agent-kernel/src/types.ts:773`](../packages/runtime/agent-kernel/src/types.ts)
+Sources: [`packages/runtime/agent-kernel/src/types.ts:803`](../packages/runtime/agent-kernel/src/types.ts)
 
 | Property | Presence | Type |
 |---|---|---|
@@ -5649,6 +5649,24 @@ Sources: [`packages/runtime/agent-kernel/src/types.ts:773`](../packages/runtime/
 | `enforced` | required | `boolean` |
 | `reasons` | required | [`string[]`](#persistence-type-sha256-93c33d9687613293f8c95d46c4d922fe9ceae83b84c384beff5c3315abe005f2) |
 | `sandbox` | required | [`SandboxExecutionPolicy`](#persistence-type-sha256-4f57aab1ffe7889f76269707cc11089fbe719716b2888d803ea8b025a6006a67) |
+
+<a id="persistence-type-sha256-9166ada9419944b8dee2e2e7d88f444dc8437d47d2718de1a0ccdd4436e60ddb"></a>
+
+<a id="persistence-type-backgroundspend"></a>
+
+<a id="persistence-type-packagesruntimeagent-kernelsrctypestsbackgroundspend"></a>
+
+### `BackgroundSpend`
+
+SHA-256: `9166ada9419944b8dee2e2e7d88f444dc8437d47d2718de1a0ccdd4436e60ddb`
+
+Sources: [`packages/runtime/agent-kernel/src/types.ts:258`](../packages/runtime/agent-kernel/src/types.ts)
+
+| Property | Presence | Type |
+|---|---|---|
+| `cost` | optional | `number` |
+| `tokens` | required | `number` |
+| `wallMs` | required | `number` |
 
 <a id="persistence-type-sha256-0c6ca2e0fa31ffbd56e74d91597568167ccfeafa3abd48a53af7d3194381aa80"></a>
 
@@ -5692,7 +5710,7 @@ One of:
 - `"session"`
 - `"turn"`
 
-<a id="persistence-type-sha256-afbdd545b538bd17f07a5b8f06686d8502d05bb758fbce8326f2f5a0361ee42b"></a>
+<a id="persistence-type-sha256-b57e0af72a7e45cc8527967535ff67c1efaf49153a188ff0111b3072116b7271"></a>
 
 <a id="persistence-type-budgetsnapshot"></a>
 
@@ -5700,12 +5718,13 @@ One of:
 
 ### `BudgetSnapshot`
 
-SHA-256: `afbdd545b538bd17f07a5b8f06686d8502d05bb758fbce8326f2f5a0361ee42b`
+SHA-256: `b57e0af72a7e45cc8527967535ff67c1efaf49153a188ff0111b3072116b7271`
 
-Sources: [`packages/runtime/agent-kernel/src/types.ts:252`](../packages/runtime/agent-kernel/src/types.ts)
+Sources: [`packages/runtime/agent-kernel/src/types.ts:273`](../packages/runtime/agent-kernel/src/types.ts)
 
 | Property | Presence | Type |
 |---|---|---|
+| `background` | optional | [`BackgroundSpend`](#persistence-type-sha256-9166ada9419944b8dee2e2e7d88f444dc8437d47d2718de1a0ccdd4436e60ddb) |
 | `remaining` | required | [`ResourceBudget`](#persistence-type-sha256-9e5ce2429b576636e738ed90c93c78d7ff7751ee1c7bd5fc10b48ed71d31f3f1) |
 | `steps` | required | `number` |
 | `tokens` | required | `number` |
@@ -5722,7 +5741,7 @@ Sources: [`packages/runtime/agent-kernel/src/types.ts:252`](../packages/runtime/
 
 SHA-256: `19f12f687c9dd21ca4237dfc0c59e54dd0c03e3d831f5ba06c96926fe35a0b78`
 
-Sources: [`packages/runtime/agent-kernel/src/types.ts:518`](../packages/runtime/agent-kernel/src/types.ts)
+Sources: [`packages/runtime/agent-kernel/src/types.ts:548`](../packages/runtime/agent-kernel/src/types.ts)
 
 One of:
 
@@ -5754,7 +5773,7 @@ One of:
 
 SHA-256: `2007a090dde7c8217a746dfb183c6579139b467d216a2efe3d80a5d1fc016717`
 
-Sources: [`packages/runtime/agent-kernel/src/types.ts:825`](../packages/runtime/agent-kernel/src/types.ts)
+Sources: [`packages/runtime/agent-kernel/src/types.ts:855`](../packages/runtime/agent-kernel/src/types.ts)
 
 | Property | Presence | Type |
 |---|---|---|
@@ -5779,7 +5798,7 @@ Array of [`CapabilityGrant`](#persistence-type-sha256-2007a090dde7c8217a746dfb18
 
 SHA-256: `789d687b8121b4f4bd50fa8e9568046b09408bdce519cb551e82c9e9640de12e`
 
-Sources: [`packages/runtime/agent-kernel/src/types.ts:537`](../packages/runtime/agent-kernel/src/types.ts)
+Sources: [`packages/runtime/agent-kernel/src/types.ts:567`](../packages/runtime/agent-kernel/src/types.ts)
 
 | Property | Presence | Type |
 |---|---|---|
@@ -5879,7 +5898,7 @@ Sources: [`packages/runtime/agent-kernel/src/types.ts:199`](../packages/runtime/
 
 SHA-256: `f610af9b83a745a9d067fbbfd7e2144113c62ebdb2a74455fd21791ca6781933`
 
-Sources: [`packages/runtime/agent-kernel/src/types.ts:1365`](../packages/runtime/agent-kernel/src/types.ts)
+Sources: [`packages/runtime/agent-kernel/src/types.ts:1395`](../packages/runtime/agent-kernel/src/types.ts)
 
 One of:
 
@@ -6372,7 +6391,7 @@ Sources: [`packages/subagent/subagent/src/descriptor.ts:72`](../packages/subagen
 
 SHA-256: `35bbba9e80fe877ce60a8b74a3ff92237934b366e9fb01106fa838bace6ba1dd`
 
-Sources: [`packages/runtime/agent-kernel/src/types.ts:1169`](../packages/runtime/agent-kernel/src/types.ts)
+Sources: [`packages/runtime/agent-kernel/src/types.ts:1199`](../packages/runtime/agent-kernel/src/types.ts)
 
 | Property | Presence | Type |
 |---|---|---|
@@ -6537,7 +6556,7 @@ Sources: [`packages/schedule/schedule/src/types.ts:41`](../packages/schedule/sch
 
 SHA-256: `651cf14a9b2c426b27b797defee488b1bdc60ac2465b5d260de125245c29c897`
 
-Sources: [`packages/runtime/agent-kernel/src/types.ts:1205`](../packages/runtime/agent-kernel/src/types.ts)
+Sources: [`packages/runtime/agent-kernel/src/types.ts:1235`](../packages/runtime/agent-kernel/src/types.ts)
 
 One of:
 
@@ -6580,7 +6599,7 @@ Sources: [`packages/context/evolution-memory-context/src/index.ts:110`](../packa
 
 SHA-256: `375a579c4d7f6fba1c5daaa1458f03d663cee76dac89fd203ab2f12e3bd8acee`
 
-Sources: [`packages/runtime/agent-kernel/src/types.ts:1076`](../packages/runtime/agent-kernel/src/types.ts)
+Sources: [`packages/runtime/agent-kernel/src/types.ts:1106`](../packages/runtime/agent-kernel/src/types.ts)
 
 One of:
 
@@ -6604,7 +6623,7 @@ One of:
 
 SHA-256: `5cdfd0052851d5eba2c85146ce80e2284cd2a8df7b6f314c59533db9c5a664ba`
 
-Sources: [`packages/runtime/agent-kernel/src/types.ts:887`](../packages/runtime/agent-kernel/src/types.ts)
+Sources: [`packages/runtime/agent-kernel/src/types.ts:917`](../packages/runtime/agent-kernel/src/types.ts)
 
 One of:
 
@@ -6643,7 +6662,7 @@ One of:
 
 SHA-256: `5bef8c1ba1b6ca40f768fe5c4112e4005f562de3d1422e7ce03cd2de4408a7ae`
 
-Sources: [`packages/runtime/agent-kernel/src/types.ts:936`](../packages/runtime/agent-kernel/src/types.ts)
+Sources: [`packages/runtime/agent-kernel/src/types.ts:966`](../packages/runtime/agent-kernel/src/types.ts)
 
 | Property | Presence | Type |
 |---|---|---|
@@ -6668,7 +6687,7 @@ Array of [`FailureRef`](#persistence-type-sha256-5bef8c1ba1b6ca40f768fe5c4112e40
 
 SHA-256: `2f9e09f2493377fce73dabe7180f05c97e05ef6cf4c7d356921c7624296245c1`
 
-Sources: [`packages/runtime/agent-kernel/src/types.ts:1088`](../packages/runtime/agent-kernel/src/types.ts)
+Sources: [`packages/runtime/agent-kernel/src/types.ts:1118`](../packages/runtime/agent-kernel/src/types.ts)
 
 One of:
 
@@ -6931,7 +6950,7 @@ Sources: [`packages/goal/goal/src/domain.ts:24`](../packages/goal/goal/src/domai
 
 SHA-256: `296bab1e26a606dec73a6b11ee921830d27bd584b6fc4b4b4c00b1c3f53838f5`
 
-Sources: [`packages/runtime/agent-kernel/src/types.ts:837`](../packages/runtime/agent-kernel/src/types.ts)
+Sources: [`packages/runtime/agent-kernel/src/types.ts:867`](../packages/runtime/agent-kernel/src/types.ts)
 
 | Property | Presence | Type |
 |---|---|---|
@@ -6953,7 +6972,7 @@ Sources: [`packages/runtime/agent-kernel/src/types.ts:837`](../packages/runtime/
 
 SHA-256: `048c2b0a678057ddc50e8b6fd7216d6948275a16b14bd6afd0efcefdf8b22d56`
 
-Sources: [`packages/runtime/agent-kernel/src/types.ts:995`](../packages/runtime/agent-kernel/src/types.ts)
+Sources: [`packages/runtime/agent-kernel/src/types.ts:1025`](../packages/runtime/agent-kernel/src/types.ts)
 
 One of:
 
@@ -7727,7 +7746,7 @@ One of:
 
 SHA-256: `02f79965d4939c27f83468d32c0efd2b9d799f4c7a1915fe077ed28edae24f33`
 
-Sources: [`packages/runtime/agent-kernel/src/types.ts:595`](../packages/runtime/agent-kernel/src/types.ts)
+Sources: [`packages/runtime/agent-kernel/src/types.ts:625`](../packages/runtime/agent-kernel/src/types.ts)
 
 One of:
 
@@ -7753,7 +7772,7 @@ One of:
 
 SHA-256: `c79611bcc5511316aaeafe84f9b5ddebc34fcdc56d4eacc53dfd3039cafdb3cb`
 
-Sources: [`packages/runtime/agent-kernel/src/types.ts:754`](../packages/runtime/agent-kernel/src/types.ts)
+Sources: [`packages/runtime/agent-kernel/src/types.ts:784`](../packages/runtime/agent-kernel/src/types.ts)
 
 | Property | Presence | Type |
 |---|---|---|
@@ -7774,7 +7793,7 @@ Sources: [`packages/runtime/agent-kernel/src/types.ts:754`](../packages/runtime/
 
 SHA-256: `389ae5e23e4439576a4c4bc3e52ab31550ac428927097e7c7e50969f96b26675`
 
-Sources: [`packages/runtime/agent-kernel/src/types.ts:609`](../packages/runtime/agent-kernel/src/types.ts)
+Sources: [`packages/runtime/agent-kernel/src/types.ts:639`](../packages/runtime/agent-kernel/src/types.ts)
 
 One of:
 
@@ -7792,7 +7811,7 @@ One of:
 
 SHA-256: `c088d833ad3c9c7fadc3ac292e1cb1e94209d4c7ee4a2b2857d8ad8d8709929d`
 
-Sources: [`packages/runtime/agent-kernel/src/types.ts:426`](../packages/runtime/agent-kernel/src/types.ts)
+Sources: [`packages/runtime/agent-kernel/src/types.ts:456`](../packages/runtime/agent-kernel/src/types.ts)
 
 | Property | Presence | Type |
 |---|---|---|
@@ -7903,7 +7922,7 @@ Sources: [`packages/llm/llm/src/types.ts:68`](../packages/llm/llm/src/types.ts)
 
 SHA-256: `e9e1df96d8f99e23351d0acc5b17e254a2246a1cec041aef088b9bef6e12afa5`
 
-Sources: [`packages/runtime/agent-kernel/src/types.ts:944`](../packages/runtime/agent-kernel/src/types.ts)
+Sources: [`packages/runtime/agent-kernel/src/types.ts:974`](../packages/runtime/agent-kernel/src/types.ts)
 
 One of:
 
@@ -8491,7 +8510,7 @@ Sources: [`packages/runtime/agent-kernel/src/types.ts:86`](../packages/runtime/a
 
 SHA-256: `c802474347f30f6b1466cd14782df0330501992e9d65913c84206f1cfba60d0f`
 
-Sources: [`packages/runtime/agent-kernel/src/types.ts:436`](../packages/runtime/agent-kernel/src/types.ts)
+Sources: [`packages/runtime/agent-kernel/src/types.ts:466`](../packages/runtime/agent-kernel/src/types.ts)
 
 | Property | Presence | Type |
 |---|---|---|
@@ -8516,7 +8535,7 @@ Array of [`StateEffect`](#persistence-type-sha256-c802474347f30f6b1466cd14782df0
 
 SHA-256: `ca663bb959bea272d97c93ae7b25e9aaa4654795379f3560a542932f3973d694`
 
-Sources: [`packages/runtime/agent-kernel/src/types.ts:1017`](../packages/runtime/agent-kernel/src/types.ts)
+Sources: [`packages/runtime/agent-kernel/src/types.ts:1047`](../packages/runtime/agent-kernel/src/types.ts)
 
 | Property | Presence | Type |
 |---|---|---|
@@ -8667,7 +8686,7 @@ Sources: [`packages/llm/llm/src/message.ts:35`](../packages/llm/llm/src/message.
 
 SHA-256: `6daab4c0a7637fc040fe296ebd0aa6b6c254e2a9dcffcfa49563e11853013a50`
 
-Sources: [`packages/runtime/agent-kernel/src/types.ts:1230`](../packages/runtime/agent-kernel/src/types.ts)
+Sources: [`packages/runtime/agent-kernel/src/types.ts:1260`](../packages/runtime/agent-kernel/src/types.ts)
 
 One of:
 
@@ -8706,7 +8725,7 @@ One of:
 
 SHA-256: `56ca742ff6d994369484277a40eec7cd24317fd44c8e243d7d4b4b79fdd1e7a1`
 
-Sources: [`packages/runtime/agent-kernel/src/types.ts:1251`](../packages/runtime/agent-kernel/src/types.ts)
+Sources: [`packages/runtime/agent-kernel/src/types.ts:1281`](../packages/runtime/agent-kernel/src/types.ts)
 
 One of:
 
@@ -9146,7 +9165,7 @@ Sources: [`packages/workflow/tool-workflow/src/types.ts:14`](../packages/workflo
 
 SHA-256: `5ca5c11dc380980dbb234f418b59afc58ac7f98eb201012ed8661c2c92633b2b`
 
-Sources: [`packages/runtime/agent-kernel/src/types.ts:408`](../packages/runtime/agent-kernel/src/types.ts)
+Sources: [`packages/runtime/agent-kernel/src/types.ts:438`](../packages/runtime/agent-kernel/src/types.ts)
 
 One of:
 
@@ -9176,7 +9195,7 @@ One of:
 
 SHA-256: `10159db6bb6e155c32803b91f1c6209d9aa7a28b81e21d0adb7b5312d267f981`
 
-Sources: [`packages/runtime/agent-kernel/src/types.ts:400`](../packages/runtime/agent-kernel/src/types.ts)
+Sources: [`packages/runtime/agent-kernel/src/types.ts:430`](../packages/runtime/agent-kernel/src/types.ts)
 
 | Property | Presence | Type |
 |---|---|---|
@@ -9311,7 +9330,7 @@ Array of [`UserMessage`](#persistence-type-sha256-dad818e1287d025d2f99dace6e3940
 
 SHA-256: `f4e16939a398c8ca5eab0f9e008fd6f984f113c6a7326240ea2feae198620632`
 
-Sources: [`packages/runtime/agent-kernel/src/types.ts:1181`](../packages/runtime/agent-kernel/src/types.ts)
+Sources: [`packages/runtime/agent-kernel/src/types.ts:1211`](../packages/runtime/agent-kernel/src/types.ts)
 
 | Property | Presence | Type |
 |---|---|---|
@@ -9395,7 +9414,7 @@ Sources: [`packages/context/workspace-memory-context/src/index.ts:34`](../packag
 
 SHA-256: `9666d0cf25f1bfc7d23cef91307c922d0bbdd63818355f7f664a4c11b63c386f`
 
-Sources: [`packages/runtime/agent-kernel/src/types.ts:290`](../packages/runtime/agent-kernel/src/types.ts)
+Sources: [`packages/runtime/agent-kernel/src/types.ts:320`](../packages/runtime/agent-kernel/src/types.ts)
 
 | Property | Presence | Type |
 |---|---|---|
@@ -10053,18 +10072,18 @@ Sources: [`packages/preset/agent-preset-registry/src/session.ts:28`](../packages
 |---|---|---|
 | `agentPreset` | required | `string` |
 
-<a id="persistence-type-sha256-2fbc25edf29e0b913260bf22c640eaf398d8877a5ce27e070bddc0466d0bf99a"></a>
+<a id="persistence-type-sha256-6affae17d226078ee557fd427f035b0c3ee6b051e7bd0f351175395c1a5c9986"></a>
 
 ### `{ agentSessionId, budgets, checkpointId, createdAt, … }`
 
-SHA-256: `2fbc25edf29e0b913260bf22c640eaf398d8877a5ce27e070bddc0466d0bf99a`
+SHA-256: `6affae17d226078ee557fd427f035b0c3ee6b051e7bd0f351175395c1a5c9986`
 
 Sources: [`packages/runtime/agent-kernel/src/types.ts:112`](../packages/runtime/agent-kernel/src/types.ts)
 
 | Property | Presence | Type |
 |---|---|---|
 | `agentSessionId` | required | `string` |
-| `budgets` | required | [`BudgetSnapshot`](#persistence-type-sha256-afbdd545b538bd17f07a5b8f06686d8502d05bb758fbce8326f2f5a0361ee42b) |
+| `budgets` | required | [`BudgetSnapshot`](#persistence-type-sha256-b57e0af72a7e45cc8527967535ff67c1efaf49153a188ff0111b3072116b7271) |
 | `checkpointId` | required | `string` |
 | `createdAt` | required | `number` |
 | `metadata` | optional | [`KernelEventMetadata`](#persistence-type-sha256-2740d3580ebc6b8acc39523f04e307d8d7ce3dcdf518eb60440a7f46ba4def9f) |
@@ -10972,7 +10991,7 @@ Sources: [`packages/core/session/src/types.ts:204`](../packages/core/session/src
 
 SHA-256: `7e38c4aa997bea5a682b169e6e18cc233d6d4c04c3225acb8da8cbffe0976aee`
 
-Sources: [`packages/runtime/agent-kernel/src/index.ts:500`](../packages/runtime/agent-kernel/src/index.ts)
+Sources: [`packages/runtime/agent-kernel/src/index.ts:506`](../packages/runtime/agent-kernel/src/index.ts)
 
 | Property | Presence | Type |
 |---|---|---|
@@ -13355,17 +13374,17 @@ SHA-256: `7bfeba009193fd2e97e8e5e95186510ce52530c78f0a345ca1ae859fea15d1a0`
 | `time` | required | `number` |
 | `type` | required | `"budget/exceeded"` |
 
-<a id="persistence-type-sha256-26cba28f734f5249eac9288fe1ea64aacbb315d0a7306369f990201ceae3d2c4"></a>
+<a id="persistence-type-sha256-7b15790f5053f26e149cd934c3d3d1d268349584d8418fa230b48ed0d743cd42"></a>
 
 <a id="persistence-type-eventcheckpointcreated"></a>
 
 ### `{ type: "checkpoint/created" }`
 
-SHA-256: `26cba28f734f5249eac9288fe1ea64aacbb315d0a7306369f990201ceae3d2c4`
+SHA-256: `7b15790f5053f26e149cd934c3d3d1d268349584d8418fa230b48ed0d743cd42`
 
 | Property | Presence | Type |
 |---|---|---|
-| `data` | required | [`{ agentSessionId, budgets, checkpointId, createdAt, … }`](#persistence-type-sha256-2fbc25edf29e0b913260bf22c640eaf398d8877a5ce27e070bddc0466d0bf99a) |
+| `data` | required | [`{ agentSessionId, budgets, checkpointId, createdAt, … }`](#persistence-type-sha256-6affae17d226078ee557fd427f035b0c3ee6b051e7bd0f351175395c1a5c9986) |
 | `ignorable` | optional | `true` |
 | `seq` | required | `number` |
 | `time` | required | `number` |

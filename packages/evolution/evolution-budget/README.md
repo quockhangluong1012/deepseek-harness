@@ -28,6 +28,11 @@ English | [中文](README.zh.md)
 Mount the plugin with the storage domain. A caller records the candidates a batch screens, allocates each one the class its evidence earned, records the spends, and reads the schedule and the objectives the records answer.
 
 ```ts
+import type { Context } from '@deepseek-ai/cordis'
+import { halvingRounds } from '@deepseek-ai/dsh-evolution-budget'
+
+declare const ctx: Context
+
 await ctx.evolutionBudget.recordPool({
   batchId: 'run-42',
   taskClass: 'writer',

@@ -28,6 +28,11 @@ English | [中文](README.zh.md)
 Mount the plugin with the storage domain. Operators record adversarial probes as they run them, repair the weaknesses the probes expose, and read the challenge for the next category to probe; the checklist shows which evaluator-gaming defenses still stand open.
 
 ```ts
+import type { Context } from '@deepseek-ai/cordis'
+import '@deepseek-ai/dsh-evolution-adversary'
+
+declare const ctx: Context
+
 await ctx.evolutionAdversary.probe({
   probeId: 'writer-injection-1',
   skill: 'writer',

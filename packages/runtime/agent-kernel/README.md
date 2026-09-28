@@ -117,6 +117,8 @@ Four decisions are separate on purpose. The rules decide `allow`, `ask`, or `den
 
 A budget is a pot the parent and its children share, not a copy each child receives. A delegation hands down what the parent can still promise — its measured remaining allowance less the holds its in-flight children placed and the spend its settled children reported — and the kernel holds that grant until the child settles: a child that ran is debited by the steps, tool calls, tokens, and wall-clock it used, and one that never opened a task releases its hold. A call that would put more actions in flight than `maxConcurrentActions` allows is composed as a denial naming the count, so the ceiling is recorded on the action rather than guessed from the model's behavior.
 
+The kernel also folds what the evolution plane did, from four §18.2 families another package appends: `evolution/candidate` names each mutation body by its digest before anything is scored, `evolution/evaluated` records every scoring pass with the per-scenario results and the fixture digest it ran against, and `evolution/promoted` and `evolution/rolled-back` record a committed body write and its revert with the digests of both bodies. The kernel emits none of them — the optimizer writes the first two, `/skills approve` and `/skills rollback` write the last two — but `readKernelRecord` and `state.view` rebuild them, so a reader holding only a session log knows which skill bodies the evolution layer changed and whether the change is still live.
+
 ### Reading a task
 
 The public surface is `ctx.agentKernel`:

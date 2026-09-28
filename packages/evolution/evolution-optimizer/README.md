@@ -28,12 +28,19 @@ Search for a better SKILL.md body offline: pass a skill, corpus scenarios, and a
 Call `optimize` with the skill, the corpus scenarios, and the staging identity:
 
 ```ts
+import type { Context } from '@deepseek-ai/cordis'
+import { EvolutionScopeId } from '@deepseek-ai/dsh-evolution-memory'
+import type { EvolutionOptimizer } from '@deepseek-ai/dsh-evolution-optimizer'
+
+// the optimizer registers its service without declaring it on Context
+declare const ctx: Context & { evolutionOptimizer: EvolutionOptimizer }
+
 const report = await ctx.evolutionOptimizer.optimize({
   skill: 'writer',
   scenarios: ['draft-turn', 'revise-turn'],
-  scopeId,
-  originSessionId: String(session.id),
-  signal: invocation.signal,
+  scopeId: EvolutionScopeId('acp', 'default'),
+  originSessionId: 'session-7',
+  signal: AbortSignal.timeout(30 * 60_000),
 })
 if (report.status === 'staged') console.log('staged as', report.stagedId)
 ```

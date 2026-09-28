@@ -199,6 +199,13 @@ export function deriveSessionTokenSpend(events: readonly SessionEvent[]): number
   return total
 }
 
+/**
+ * Total one turn's token usage, derived from its events.
+ * @param events - the session log events covering the turn, from `turn/start`
+ * through its `turn/end`.
+ * @returns the aggregated usage, or undefined when the events do not describe
+ * exactly one well-formed turn.
+ */
 export function deriveTurnTokenUsage(events: readonly SessionEvent[]): TurnTokenUsage | undefined {
   let state: AttemptState = { kind: 'idle' }
   const attempts: NormalizedAttempt[] = []

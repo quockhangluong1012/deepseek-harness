@@ -28,6 +28,11 @@ English | [中文](README.zh.md)
 Mount the plugin with the storage domain. Descriptors arrive from the optimizer's staged writes whenever the store is mounted; the optimizer also reads them back — one `entries(skill)` snapshot per run — to rank its candidates by distance from the archive, and operators read the archive and its novelty pressure.
 
 ```ts
+import type { Context } from '@deepseek-ai/cordis'
+import '@deepseek-ai/dsh-evolution-novelty-search'
+
+declare const ctx: Context
+
 await ctx.evolutionNovelty.record({
   candidateId: 'staged-0',
   skill: 'writer',

@@ -29,6 +29,11 @@ English | [中文](README.zh.md)
 Mount the plugin with the storage domain. Callers record each engine run with the configuration and the workflow it used; the recommendation answers which configuration and which sequence the next run on a task class should use.
 
 ```ts
+import type { Context } from '@deepseek-ai/cordis'
+import '@deepseek-ai/dsh-evolution-meta'
+
+declare const ctx: Context
+
 await ctx.evolutionMeta.record({
   runId: 'run-42',
   taskClass: 'writer',

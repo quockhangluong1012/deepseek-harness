@@ -28,6 +28,11 @@ kind: "package-reference"
 挂载插件并配合存储域。只要生产者记录信号，信号就来自评估器、裁判与检索诊断；操作者读取队列，并在重新评估后解决任务。
 
 ```ts
+import type { Context } from '@deepseek-ai/cordis'
+import EvolutionUncertainty from '@deepseek-ai/dsh-evolution-uncertainty'
+
+declare const ctx: Context
+
 await ctx.evolutionUncertainty.record({
   signalId: 'sig-0',
   skill: 'writer',

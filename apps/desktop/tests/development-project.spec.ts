@@ -52,6 +52,23 @@ describe('desktop development project', () => {
     expect(descriptor.sharedPackages).toContainEqual({ name: 'unhoisted', version: '1.2.3', path: 'node_modules/unhoisted' })
   })
 
+  it('omits a hoisted link whose target no longer exists from the runtime inventory', () => {
+    const root = temporaryRoot()
+    const cli = join(root, 'cli')
+    const host = join(root, 'host')
+    const hoisted = join(root, 'hoisted', '@deepseek-ai')
+    mkdirSync(join(cli, 'node_modules'), { recursive: true })
+    mkdirSync(join(host, 'lib'), { recursive: true })
+    mkdirSync(hoisted, { recursive: true })
+    writeFileSync(join(cli, 'package.json'), JSON.stringify({ name: '@deepseek-ai/dsh', version: '1.2.3' }))
+    writeFileSync(join(host, 'package.json'), JSON.stringify({ name: '@deepseek-ai/dsh-desktop-host', version: '1.2.3' }))
+    writeFileSync(join(host, 'lib/index.js'), '')
+    symlinkSync(join(root, 'removed-package'), join(hoisted, 'dsh-removed'), process.platform === 'win32' ? 'junction' : 'dir')
+    const project = prepareDevelopmentProject({ projectDir: join(root, 'runtime'), cliDir: cli, hostDir: host, dependencyDir: join(root, 'hoisted'), release: release() })
+    const descriptor = JSON.parse(readFileSync(join(project, 'desktop-runtime.json'), 'utf8')) as { sharedPackages: { name: string }[] }
+    expect(descriptor.sharedPackages.map(entry => entry.name)).not.toContain('@deepseek-ai/dsh-removed')
+  })
+
   it('manages development plugins without modifying the linked workspace packages', async () => {
     const root = temporaryRoot()
     const cli = join(root, 'apps', 'cli')

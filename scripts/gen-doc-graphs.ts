@@ -750,8 +750,8 @@ const SERVICE_ROLES: ServiceRole[] = [
     pkg: 'evolution-model-routes',
     title: 'Adaptive model-routing store',
     mode: 'core',
-    consumers: ['evolution-optimizer', 'command-evolution'],
-    note: 'The evolution-model-routes plugin keeps per-role route assignments over the evolutionary role topology with measured evidence and recommendation; evolution-optimizer records each candidate-generation route and outcome through the optional store, and command-evolution lists, pins, and recommends routes through /routes.',
+    consumers: ['evolution-optimizer', 'command-evolution', 'evolution-curator', 'evolution-evaluator-strategy'],
+    note: 'The evolution-model-routes plugin keeps per-role route assignments over the evolutionary role topology with measured evidence, and recommends the route a role should use from that evidence ranked per task class; evolution-optimizer records each candidate-generation and staged-write route through the optional store, evolution-curator and evolution-evaluator-strategy read the recommendation, and command-evolution lists, pins, and recommends routes through /routes.',
   },
   {
     key: 'evolutionCanary',
@@ -864,14 +864,6 @@ const SERVICE_ROLES: ServiceRole[] = [
     mode: 'core',
     consumers: ['evolution-optimizer', 'command-evolution'],
     note: 'The evolution-operators plugin accumulates per-operator and per-artifact-class attempts, acceptance, mean outcome delta, and regression rate, and ranks the operators by an exploration-adjusted score; evolution-optimizer records every staged write\'s operator and outcome through the optional store, and command-evolution reads the statistics and ranking through /operators.',
-  },
-  {
-    key: 'evolutionRouter',
-    pkg: 'evolution-router',
-    title: 'Routing self-optimization store',
-    mode: 'core',
-    consumers: ['evolution-optimizer', 'command-evolution'],
-    note: 'The evolution-router plugin measures route outcomes per task class and evolutionary role, derives each route\'s effectiveness, and ranks the routes a class and role should use; evolution-optimizer records the evaluation route of each staged write through the optional store, and command-evolution reads outcomes, effectiveness, and the recommendation through /router.',
   },
   {
     key: 'evolutionTrajectory',

@@ -6,7 +6,7 @@
  * test-owned.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context, Service } from '@deepseek-ai/cordis'
@@ -90,10 +90,10 @@ function answer(session: Session, turn: number, step: number, usage: TokenUsage 
 /** Total billed attempts in the stored ledger document, or undefined before the first write. */
 async function storedRequests(root: string): Promise<number | undefined> {
   try {
-    const document = JSON.parse(await readFile(join(root, 'usage_dashboard.json'), 'utf8')) as {
-      tables?: { ledger?: { state?: UsageLedgerState } }
+    const document = JSON.parse(await readFile(join(root, 'usage_dashboard', 'ledger', 'state.json'), 'utf8')) as {
+      record?: UsageLedgerState
     }
-    const state = document.tables?.ledger?.state
+    const state = document.record
     if (state === undefined) return undefined
     return Object.values(state.daily).reduce((total, row) => total + row.requests, 0)
   } catch {
@@ -422,6 +422,28 @@ describe('UsageLedger durability', () => {
     const second = await harness({ root })
     const summary = await second.ctx.usageLedger.summary('today', new AbortController().signal)
     expect(summary.totals.requests).toBe(1)
+  })
+
+  it('boots past a stored ledger an older schema wrote', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-usage-dash-'))
+    roots.push(root)
+    // The pre-`sessions` document a previous release left in the whole-unit
+    // file: the declared backup-and-skip policy has to reach it, or the boot
+    // fails on data the ledger can rebuild from the session logs.
+    const stale = {
+      unit: { name: 'usage_dashboard', version: 1 },
+      global: null,
+      tables: { ledger: { state: { cursors: { 'session-old': 2 }, daily: {}, models: {} } } },
+    }
+    await writeFile(join(root, 'usage_dashboard.json'), `${JSON.stringify(stale, null, 2)}\n`)
+
+    const { ctx } = await harness({ root })
+    const session = ctx.sessions.create(SessionId('after-stale'))
+    answer(session, 1, 1)
+    const summary = await ctx.usageLedger.summary('today', new AbortController().signal)
+    expect(summary.totals.requests).toBe(1)
+    const documents = await readdir(join(root, 'usage_dashboard', 'ledger'))
+    expect(documents.some(name => name.startsWith('state.json.bak.'))).toBe(true)
   })
 
   it('flushes on the interval timer without a turn boundary', async () => {

@@ -28,6 +28,11 @@ kind: "package-reference"
 挂载插件并携带存储域即可。只要存储已挂载，部署就来自优化器的暂存写入；运维者推进或退出它们。
 
 ```ts
+import type { Context } from '@deepseek-ai/cordis'
+import '@deepseek-ai/dsh-evolution-canary'
+
+declare const ctx: Context
+
 await ctx.evolutionCanary.enter({
   id: 'staged-0',
   skill: 'writer',
@@ -44,6 +49,8 @@ await ctx.evolutionCanary.advance('staged-0', 'promoted')
 `assessRisk(input)` 一次调用回答 §49 的两个问题：一次拟议变更有多危险，以及该风险准许哪一步。它读取关于该变更的四个事实，返回 `RiskClass` 及其 `RiskRoute`。
 
 ```ts
+import { assessRisk } from '@deepseek-ai/dsh-evolution-canary'
+
 const { risk, route } = assessRisk({
   // What the change mutates: a skill body, or a scope-wide memory entry.
   artifact: 'skill',

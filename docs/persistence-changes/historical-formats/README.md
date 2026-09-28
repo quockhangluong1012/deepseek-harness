@@ -33,7 +33,7 @@ The index is generated from validated snapshots and the current writer constant.
 | 2 | `dsh-v0.1.3-alpha.2` | [V2](v2.md) | [JSON](v2.schema.json) | 56 / 435 |
 | 3 | PR #4320 | [V3](v3.md) | [JSON](v3.schema.json) | 60 / 467 |
 | 4 | PR #4320 | [V4](v4.md) | [JSON](v4.schema.json) | 62 / 582 |
-| 5 | Current checkout | [Current catalog](../../persistence-catalog.md) | [JSON](../../persistence-schema.json) | 89 / 1048 |
+| 5 | Current checkout | [Current catalog](../../persistence-catalog.md) | [JSON](../../persistence-schema.json) | 89 / 1049 |
 
 <!-- persistence-format-index:end -->
 
@@ -42,7 +42,7 @@ The index is generated from validated snapshots and the current writer constant.
 
 Each `vN.md` / `vN.zh.md` pair has `kind: persistence-format`, an identical `yaml persistence-format` declaration binding every root key to its captured digest, a pairing sidecar, and a complete `vN.schema.json`. The [template](../../../.agents/skills/dsh-doc/templates/persistence-format.md) defines these records. Roots cover the logical Session header, physical JSONL header, event envelope, and all first-party events at the selected checkpoint; each root includes every reachable declared type. Packed physical body records have separate codec owners linked from each page.
 
-V0 and V2 use the latest matching tags in the [captured prerelease archive](../releases/README.md). V1 uses an intermediate source tree identified in its reference because the captured tags contain no V1 writer. V3 captures the verified inventory before the V4 writer change in PR #4320. Historical sources retain file paths without line numbers. Snapshots preserve historical optional fields and opaque values; they do not substitute current types into older formats. Historical identifiers remain intact only in schema JSON and the verified generated schema regions; authored prose follows current terminology rules.
+V0 and V2 use the latest matching tags in the [captured prerelease archive](../releases/README.md). V1 uses an intermediate source tree identified in its reference because the captured tags contain no V1 writer. V3 captures the verified inventory before the V4 writer change in PR #4320, and V4 captures that PR's final tree. V5 pins a single commit because no DSH tag and no pull request carry the V5 writer. Each source must name one tag, one pull request, or one full commit id; a commit is not a release. Historical sources retain file paths without line numbers. Snapshots preserve historical optional fields and opaque values; they do not substitute current types into older formats. Historical identifiers remain intact only in schema JSON and the verified generated schema regions; authored prose follows current terminology rules.
 
 These references describe selected schemas, not historical application replay or migration safety. Same-version event additions and optional payload changes can produce other valid inventories. The prerelease archive retains tag-by-tag differences; [change records](../README.md) retain current compatibility acknowledgements. Neither history is replaced by these format snapshots.
 

@@ -28,15 +28,25 @@ kind: "package-reference"
 在它所操作的存储被挂载之处挂载本插件。心跳是被注入的服务，因此调度器一旦存在插件就会应用；上下文拥有的注册注销函数会在销毁返回前排空活动任务。
 
 ```ts
+import type { Context } from '@deepseek-ai/cordis'
 import * as evolutionActuator from '@deepseek-ai/dsh-evolution-actuator'
+import '@deepseek-ai/dsh-evolution-heartbeat'
 
-await ctx.plugin(evolutionHeartbeat)
-await ctx.plugin(evolutionActuator)
+declare const ctx: Context
+
+await ctx.plugin(evolutionActuator, {})
+// the injected scheduler whose seven tasks the plugin just registered
+ctx.evolutionHeartbeat.state()
 ```
 
 每个回路在其轮次运行时读取自己的存储，因此未挂载的存储只会让那一个回路成为空操作，其余六个照常工作。无内容可操作的回路不改变任何东西。通过心跳寻址单个回路的轮次与其簿记：
 
 ```ts
+import type { Context } from '@deepseek-ai/cordis'
+import '@deepseek-ai/dsh-evolution-heartbeat'
+
+declare const ctx: Context
+
 await ctx.evolutionHeartbeat.runTask('evolution-rollout-monitor')
 ctx.evolutionHeartbeat.state('evolution-rollout-monitor')
 ```

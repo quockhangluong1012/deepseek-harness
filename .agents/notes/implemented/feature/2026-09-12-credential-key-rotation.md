@@ -12,7 +12,7 @@ English | [中文](2026-09-12-credential-key-rotation.zh.md)
 
 The credential Service Definition gains one abstract reference-write method:
 
-```ts
+```ts ignore-check
 abstract rotate(ref: CredentialRef, mutate: (current: string | undefined) => string): Promise<void>
 ```
 

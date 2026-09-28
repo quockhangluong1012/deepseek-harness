@@ -28,15 +28,25 @@ English | [中文](README.zh.md)
 Mount the plugin wherever the stores it acts on are mounted. The heartbeat is an injected service, so the plugin applies once the scheduler exists; its context-owned registrations drain active tasks before teardown returns.
 
 ```ts
+import type { Context } from '@deepseek-ai/cordis'
 import * as evolutionActuator from '@deepseek-ai/dsh-evolution-actuator'
+import '@deepseek-ai/dsh-evolution-heartbeat'
 
-await ctx.plugin(evolutionHeartbeat)
-await ctx.plugin(evolutionActuator)
+declare const ctx: Context
+
+await ctx.plugin(evolutionActuator, {})
+// the injected scheduler whose seven tasks the plugin just registered
+ctx.evolutionHeartbeat.state()
 ```
 
 Each loop reads its store when its pass runs, so a store left unmounted makes that one loop a no-op and leaves the other six working. A loop that has nothing to act on changes nothing. Address one loop's pass and its bookkeeping through the heartbeat:
 
 ```ts
+import type { Context } from '@deepseek-ai/cordis'
+import '@deepseek-ai/dsh-evolution-heartbeat'
+
+declare const ctx: Context
+
 await ctx.evolutionHeartbeat.runTask('evolution-rollout-monitor')
 ctx.evolutionHeartbeat.state('evolution-rollout-monitor')
 ```

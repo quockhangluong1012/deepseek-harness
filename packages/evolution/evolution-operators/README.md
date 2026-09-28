@@ -28,6 +28,11 @@ English | [中文](README.zh.md)
 Mount the plugin with the storage domain. Operators record each mutation's outcome through the store; the ranking answers which operator deserves the next attempt on a skill, and the recorded instruction answers what that operator should say.
 
 ```ts
+import type { Context } from '@deepseek-ai/cordis'
+import '@deepseek-ai/dsh-evolution-operators'
+
+declare const ctx: Context
+
 await ctx.evolutionOperators.record({
   operator: 'rewrite',
   artifactClass: 'writer',

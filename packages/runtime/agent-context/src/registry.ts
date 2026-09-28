@@ -59,7 +59,11 @@ export interface ContextSourceRegistry {
   register(descriptor: ContextSourceDescriptor, provide: ContextSourceProvider): () => void
 }
 
-/** Retention a placement class carries: only the producer's stable core resists a budget cut. */
+/**
+ * Retention a placement class carries: only the producer's stable core resists a budget cut.
+ * @param placement - the producer's placement class.
+ * @returns `required` for a stable core, `compressible` otherwise.
+ */
 export function retentionOfPlacement(placement: ContextPlacement): RetentionClass {
   return placement === 'stable-core' ? 'required' : 'compressible'
 }

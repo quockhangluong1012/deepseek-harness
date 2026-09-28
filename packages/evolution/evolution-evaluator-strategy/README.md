@@ -28,6 +28,11 @@ English | [中文](README.zh.md)
 Mount the plugin with the storage domain. Callers record each evaluator verdict paired with its later ground truth and the two models involved; the ranking and recommendation answer which evaluator a task class should trust.
 
 ```ts
+import type { Context } from '@deepseek-ai/cordis'
+import EvolutionEvaluatorStrategy from '@deepseek-ai/dsh-evolution-evaluator-strategy'
+
+declare const ctx: Context
+
 await ctx.evolutionEvaluatorStrategy.observe({
   evaluator: 'scorer-v1',
   taskClass: 'writer',

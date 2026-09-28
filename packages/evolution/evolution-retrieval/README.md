@@ -28,6 +28,11 @@ English | [中文](README.zh.md)
 Mount the plugin with the storage domain. [`dsh-active-memory-context`](../../context/active-memory-context/README.md) records the configuration it runs under, once per session, whenever this store is mounted beside it; any other recall implementation records its own configuration with the same call.
 
 ```ts
+import type { Context } from '@deepseek-ai/cordis'
+import '@deepseek-ai/dsh-evolution-retrieval'
+
+declare const ctx: Context
+
 await ctx.evolutionRetrieval.record({
   configuration: {
     source: 'hybrid',

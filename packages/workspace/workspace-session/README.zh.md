@@ -28,6 +28,17 @@ kind: "package-reference"
 从发布无人值守会话的插件调用 `startWorkspaceSession`——webhook 规则、定时 routine，或同类的新生产者。它是库而不是被挂载的插件：不拥有服务，也不需要 `cordis.yml` 行。
 
 ```ts
+import { randomUUID } from 'node:crypto'
+import type { Context } from '@deepseek-ai/cordis'
+import { brandString } from '@deepseek-ai/dsh-brand'
+import { boundContextSummary, createUserMessage } from '@deepseek-ai/dsh-llm'
+import type { SessionId } from '@deepseek-ai/dsh-session'
+import type {} from '@deepseek-ai/dsh-schedule-routines'
+import { startWorkspaceSession } from '@deepseek-ai/dsh-workspace-session'
+
+declare const ctx: Context
+declare const signal: AbortSignal
+
 await startWorkspaceSession(ctx, {
   workspacePath: '/srv/projects/app',
   sessionId: brandString<SessionId>(`routine-${randomUUID()}`),
@@ -37,7 +48,15 @@ await startWorkspaceSession(ctx, {
   modelSelection: { provider: 'deepseek', model: 'deepseek-chat' },
   agentOptions: { provider: 'deepseek', model: 'deepseek-chat' },
   owner: 'schedule-routines',
-}, createUserMessage({ content: [{ type: 'text', text: 'Sweep the tree.' }], source: { kind: 'routine', /* … */ } }), signal)
+}, createUserMessage({
+  content: [{ type: 'text', text: 'Sweep the tree.' }],
+  source: {
+    kind: 'routine',
+    routineId: 'routine-1',
+    form: 'notice',
+    summary: boundContextSummary('Scheduled routine "Nightly sweep" started this session'),
+  },
+}), signal)
 ```
 
 消息被投递即视为调用完成。此后所有权结束：Agent 的生命周期属于创建它的 context，调用方无需再安排其他事宜。

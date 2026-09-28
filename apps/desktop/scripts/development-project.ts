@@ -60,17 +60,21 @@ function removeOwnedPath(path: string): void {
   unlinkSync(path)
 }
 
-/** A hoisted entry whose target is gone is not a link this project needs. */
-function linkDirectory(source: string, destination: string): void {
+/**
+ * A hoisted entry whose target is gone is not a link this project needs.
+ * @returns whether the destination now links to the source.
+ */
+function linkDirectory(source: string, destination: string): boolean {
   let target: string
   try {
     target = realpathSync(source)
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false
     throw error
   }
   mkdirSync(dirname(destination), { recursive: true })
   symlinkSync(target, destination, process.platform === 'win32' ? 'junction' : 'dir')
+  return true
 }
 
 /** Scoped entries of one hoisted scope directory; a dangling scope links nothing. */
@@ -93,13 +97,14 @@ function mirrorDependencyLinks(sourceRoot: string, destinationRoot: string): str
     if (entry.name.startsWith('@') && (entry.isDirectory() || entry.isSymbolicLink())) {
       mkdirSync(join(destinationRoot, entry.name), { recursive: true })
       for (const name of scopedDependencyNames(source)) {
-        linkDirectory(join(source, name), join(destinationRoot, entry.name, name))
-        names.push(`${entry.name}/${name}`)
+        if (linkDirectory(join(source, name), join(destinationRoot, entry.name, name))) {
+          names.push(`${entry.name}/${name}`)
+        }
       }
       continue
     }
-    if (entry.isDirectory() || entry.isSymbolicLink()) {
-      linkDirectory(source, join(destinationRoot, entry.name))
+    if ((entry.isDirectory() || entry.isSymbolicLink())
+      && linkDirectory(source, join(destinationRoot, entry.name))) {
       names.push(entry.name)
     }
   }
@@ -123,8 +128,7 @@ function mirrorWorkspaceDependencies(roots: readonly string[], destinationRoot: 
       }
       const destination = join(destinationRoot, ...name.split('/'))
       removeOwnedPath(destination)
-      linkDirectory(dependency, destination)
-      names.push(name)
+      if (linkDirectory(dependency, destination)) names.push(name)
       visit(dependency)
     }
   }
@@ -174,7 +178,9 @@ export function prepareDevelopmentProject(options: DevelopmentProjectOptions): s
   removeOwnedPath(hostLink)
   linkDirectory(options.hostDir, hostLink)
   const sharedPackages = [...new Set([...names, '@deepseek-ai/dsh', '@deepseek-ai/dsh-desktop-host'])].flatMap((name) => {
-    const manifest = readManifest(join(destinationModules, name, 'package.json'))
+    const manifestPath = join(destinationModules, name, 'package.json')
+    if (!existsSync(manifestPath)) return []
+    const manifest = readManifest(manifestPath)
     return typeof manifest.version === 'string' ? [{ name, version: manifest.version, path: `node_modules/${name}` }] : []
   })
   const runtime: DesktopRuntimeDescriptor = { schemaVersion: 1, release: options.release,

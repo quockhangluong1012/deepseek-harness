@@ -8283,7 +8283,7 @@
       "kind": "event",
       "event": "checkpoint/created",
       "surface": false,
-      "digest": "26cba28f734f5249eac9288fe1ea64aacbb315d0a7306369f990201ceae3d2c4",
+      "digest": "7b15790f5053f26e149cd934c3d3d1d268349584d8418fa230b48ed0d743cd42",
       "schema": {
         "root": 0,
         "nodes": [
@@ -8297,7 +8297,7 @@
               },
               {
                 "name": "ignorable",
-                "type": 69,
+                "type": 70,
                 "optional": true
               },
               {
@@ -8312,7 +8312,7 @@
               },
               {
                 "name": "type",
-                "type": 70,
+                "type": 71,
                 "optional": false
               }
             ],
@@ -8343,17 +8343,17 @@
               },
               {
                 "name": "metadata",
-                "type": 6,
+                "type": 7,
                 "optional": true
               },
               {
                 "name": "openActionIds",
-                "type": 21,
+                "type": 22,
                 "optional": false
               },
               {
                 "name": "reason",
-                "type": 22,
+                "type": 23,
                 "optional": false
               },
               {
@@ -8373,7 +8373,7 @@
               },
               {
                 "name": "status",
-                "type": 28,
+                "type": 29,
                 "optional": false
               },
               {
@@ -8383,7 +8383,7 @@
               },
               {
                 "name": "unresolvedFailures",
-                "type": 42,
+                "type": 43,
                 "optional": false
               }
             ],
@@ -8397,8 +8397,13 @@
             "kind": "object",
             "properties": [
               {
-                "name": "remaining",
+                "name": "background",
                 "type": 4,
+                "optional": true
+              },
+              {
+                "name": "remaining",
+                "type": 6,
                 "optional": false
               },
               {
@@ -8423,6 +8428,31 @@
               }
             ],
             "indices": []
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "cost",
+                "type": 5,
+                "optional": true
+              },
+              {
+                "name": "tokens",
+                "type": 5,
+                "optional": false
+              },
+              {
+                "name": "wallMs",
+                "type": 5,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "primitive",
+            "type": "number"
           },
           {
             "kind": "object",
@@ -8466,15 +8496,11 @@
             "indices": []
           },
           {
-            "kind": "primitive",
-            "type": "number"
-          },
-          {
             "kind": "object",
             "properties": [
               {
                 "name": "actor",
-                "type": 7,
+                "type": 8,
                 "optional": false
               },
               {
@@ -8484,7 +8510,7 @@
               },
               {
                 "name": "sourceRef",
-                "type": 13,
+                "type": 14,
                 "optional": false
               },
               {
@@ -8499,7 +8525,7 @@
               },
               {
                 "name": "version",
-                "type": 20,
+                "type": 21,
                 "optional": false
               }
             ],
@@ -8508,11 +8534,11 @@
           {
             "kind": "union",
             "types": [
-              8,
               9,
               10,
               11,
-              12
+              12,
+              13
             ]
           },
           {
@@ -8550,7 +8576,7 @@
               },
               {
                 "name": "source",
-                "type": 14,
+                "type": 15,
                 "optional": false
               }
             ],
@@ -8559,15 +8585,15 @@
           {
             "kind": "union",
             "types": [
-              9,
               10,
               11,
               12,
-              15,
+              13,
               16,
               17,
               18,
-              19
+              19,
+              20
             ]
           },
           {
@@ -8601,11 +8627,11 @@
           {
             "kind": "union",
             "types": [
-              23,
               24,
               25,
               26,
-              27
+              27,
+              28
             ]
           },
           {
@@ -8631,7 +8657,6 @@
           {
             "kind": "union",
             "types": [
-              29,
               30,
               31,
               32,
@@ -8643,7 +8668,8 @@
               38,
               39,
               40,
-              41
+              41,
+              42
             ]
           },
           {
@@ -8700,7 +8726,7 @@
           },
           {
             "kind": "array",
-            "element": 43
+            "element": 44
           },
           {
             "kind": "object",
@@ -8712,7 +8738,7 @@
               },
               {
                 "name": "kind",
-                "type": 44,
+                "type": 45,
                 "optional": false
               }
             ],
@@ -8721,7 +8747,6 @@
           {
             "kind": "union",
             "types": [
-              45,
               46,
               47,
               48,
@@ -8744,7 +8769,8 @@
               65,
               66,
               67,
-              68
+              68,
+              69
             ]
           },
           {
@@ -37299,7 +37325,7 @@
         "packages/runtime/agent-kernel/src/types.ts#PolicyAction"
       ],
       "sources": [
-        "packages/runtime/agent-kernel/src/types.ts:595"
+        "packages/runtime/agent-kernel/src/types.ts:625"
       ]
     },
     {
@@ -37416,7 +37442,7 @@
         "packages/runtime/agent-kernel/src/types.ts#GovernorDecision"
       ],
       "sources": [
-        "packages/runtime/agent-kernel/src/types.ts:995"
+        "packages/runtime/agent-kernel/src/types.ts:1025"
       ]
     },
     {
@@ -40369,7 +40395,7 @@
         "packages/runtime/agent-kernel/src/types.ts#TransitionTrigger"
       ],
       "sources": [
-        "packages/runtime/agent-kernel/src/types.ts:400"
+        "packages/runtime/agent-kernel/src/types.ts:430"
       ]
     },
     {
@@ -45352,7 +45378,7 @@
         "packages/runtime/agent-kernel/src/types.ts#Capability"
       ],
       "sources": [
-        "packages/runtime/agent-kernel/src/types.ts:518"
+        "packages/runtime/agent-kernel/src/types.ts:548"
       ]
     },
     {
@@ -47966,7 +47992,7 @@
         "packages/runtime/agent-kernel/src/types.ts#CapabilityGrant"
       ],
       "sources": [
-        "packages/runtime/agent-kernel/src/types.ts:825"
+        "packages/runtime/agent-kernel/src/types.ts:855"
       ]
     },
     {
@@ -53528,580 +53554,6 @@
       "sources": []
     },
     {
-      "digest": "26cba28f734f5249eac9288fe1ea64aacbb315d0a7306369f990201ceae3d2c4",
-      "schema": {
-        "root": 0,
-        "nodes": [
-          {
-            "kind": "object",
-            "properties": [
-              {
-                "name": "data",
-                "type": 1,
-                "optional": false
-              },
-              {
-                "name": "ignorable",
-                "type": 69,
-                "optional": true
-              },
-              {
-                "name": "seq",
-                "type": 5,
-                "optional": false
-              },
-              {
-                "name": "time",
-                "type": 5,
-                "optional": false
-              },
-              {
-                "name": "type",
-                "type": 70,
-                "optional": false
-              }
-            ],
-            "indices": []
-          },
-          {
-            "kind": "object",
-            "properties": [
-              {
-                "name": "agentSessionId",
-                "type": 2,
-                "optional": false
-              },
-              {
-                "name": "budgets",
-                "type": 3,
-                "optional": false
-              },
-              {
-                "name": "checkpointId",
-                "type": 2,
-                "optional": false
-              },
-              {
-                "name": "createdAt",
-                "type": 5,
-                "optional": false
-              },
-              {
-                "name": "metadata",
-                "type": 6,
-                "optional": true
-              },
-              {
-                "name": "openActionIds",
-                "type": 21,
-                "optional": false
-              },
-              {
-                "name": "reason",
-                "type": 22,
-                "optional": false
-              },
-              {
-                "name": "revision",
-                "type": 5,
-                "optional": false
-              },
-              {
-                "name": "runId",
-                "type": 2,
-                "optional": false
-              },
-              {
-                "name": "sessionSeq",
-                "type": 5,
-                "optional": false
-              },
-              {
-                "name": "status",
-                "type": 28,
-                "optional": false
-              },
-              {
-                "name": "taskId",
-                "type": 2,
-                "optional": false
-              },
-              {
-                "name": "unresolvedFailures",
-                "type": 42,
-                "optional": false
-              }
-            ],
-            "indices": []
-          },
-          {
-            "kind": "primitive",
-            "type": "string"
-          },
-          {
-            "kind": "object",
-            "properties": [
-              {
-                "name": "remaining",
-                "type": 4,
-                "optional": false
-              },
-              {
-                "name": "steps",
-                "type": 5,
-                "optional": false
-              },
-              {
-                "name": "tokens",
-                "type": 5,
-                "optional": false
-              },
-              {
-                "name": "toolCalls",
-                "type": 5,
-                "optional": false
-              },
-              {
-                "name": "wallMs",
-                "type": 5,
-                "optional": false
-              }
-            ],
-            "indices": []
-          },
-          {
-            "kind": "object",
-            "properties": [
-              {
-                "name": "maxConcurrentActions",
-                "type": 5,
-                "optional": true
-              },
-              {
-                "name": "maxCostUsd",
-                "type": 5,
-                "optional": true
-              },
-              {
-                "name": "maxSteps",
-                "type": 5,
-                "optional": true
-              },
-              {
-                "name": "maxSubagentDepth",
-                "type": 5,
-                "optional": true
-              },
-              {
-                "name": "maxTokens",
-                "type": 5,
-                "optional": true
-              },
-              {
-                "name": "maxToolCalls",
-                "type": 5,
-                "optional": true
-              },
-              {
-                "name": "maxWallMs",
-                "type": 5,
-                "optional": true
-              }
-            ],
-            "indices": []
-          },
-          {
-            "kind": "primitive",
-            "type": "number"
-          },
-          {
-            "kind": "object",
-            "properties": [
-              {
-                "name": "actor",
-                "type": 7,
-                "optional": false
-              },
-              {
-                "name": "runId",
-                "type": 2,
-                "optional": false
-              },
-              {
-                "name": "sourceRef",
-                "type": 13,
-                "optional": false
-              },
-              {
-                "name": "taskId",
-                "type": 2,
-                "optional": true
-              },
-              {
-                "name": "timestamp",
-                "type": 5,
-                "optional": false
-              },
-              {
-                "name": "version",
-                "type": 20,
-                "optional": false
-              }
-            ],
-            "indices": []
-          },
-          {
-            "kind": "union",
-            "types": [
-              8,
-              9,
-              10,
-              11,
-              12
-            ]
-          },
-          {
-            "kind": "literal",
-            "value": "system"
-          },
-          {
-            "kind": "literal",
-            "value": "tool"
-          },
-          {
-            "kind": "literal",
-            "value": "user"
-          },
-          {
-            "kind": "literal",
-            "value": "kernel"
-          },
-          {
-            "kind": "literal",
-            "value": "model"
-          },
-          {
-            "kind": "object",
-            "properties": [
-              {
-                "name": "digest",
-                "type": 2,
-                "optional": true
-              },
-              {
-                "name": "locator",
-                "type": 2,
-                "optional": true
-              },
-              {
-                "name": "source",
-                "type": 14,
-                "optional": false
-              }
-            ],
-            "indices": []
-          },
-          {
-            "kind": "union",
-            "types": [
-              9,
-              10,
-              11,
-              12,
-              15,
-              16,
-              17,
-              18,
-              19
-            ]
-          },
-          {
-            "kind": "literal",
-            "value": "policy"
-          },
-          {
-            "kind": "literal",
-            "value": "repo"
-          },
-          {
-            "kind": "literal",
-            "value": "subagent"
-          },
-          {
-            "kind": "literal",
-            "value": "web"
-          },
-          {
-            "kind": "literal",
-            "value": "mcp"
-          },
-          {
-            "kind": "literal",
-            "value": 1
-          },
-          {
-            "kind": "array",
-            "element": 2
-          },
-          {
-            "kind": "union",
-            "types": [
-              23,
-              24,
-              25,
-              26,
-              27
-            ]
-          },
-          {
-            "kind": "literal",
-            "value": "before-compaction"
-          },
-          {
-            "kind": "literal",
-            "value": "turn-boundary"
-          },
-          {
-            "kind": "literal",
-            "value": "verification-failure"
-          },
-          {
-            "kind": "literal",
-            "value": "before-pause"
-          },
-          {
-            "kind": "literal",
-            "value": "before-suspension"
-          },
-          {
-            "kind": "union",
-            "types": [
-              29,
-              30,
-              31,
-              32,
-              33,
-              34,
-              35,
-              36,
-              37,
-              38,
-              39,
-              40,
-              41
-            ]
-          },
-          {
-            "kind": "literal",
-            "value": "awaiting-approval"
-          },
-          {
-            "kind": "literal",
-            "value": "observing"
-          },
-          {
-            "kind": "literal",
-            "value": "paused"
-          },
-          {
-            "kind": "literal",
-            "value": "planning"
-          },
-          {
-            "kind": "literal",
-            "value": "ready"
-          },
-          {
-            "kind": "literal",
-            "value": "awaiting-user"
-          },
-          {
-            "kind": "literal",
-            "value": "recovering"
-          },
-          {
-            "kind": "literal",
-            "value": "completed"
-          },
-          {
-            "kind": "literal",
-            "value": "executing"
-          },
-          {
-            "kind": "literal",
-            "value": "verifying"
-          },
-          {
-            "kind": "literal",
-            "value": "failed"
-          },
-          {
-            "kind": "literal",
-            "value": "intake"
-          },
-          {
-            "kind": "literal",
-            "value": "cancelled"
-          },
-          {
-            "kind": "array",
-            "element": 43
-          },
-          {
-            "kind": "object",
-            "properties": [
-              {
-                "name": "failureId",
-                "type": 2,
-                "optional": false
-              },
-              {
-                "name": "kind",
-                "type": 44,
-                "optional": false
-              }
-            ],
-            "indices": []
-          },
-          {
-            "kind": "union",
-            "types": [
-              45,
-              46,
-              47,
-              48,
-              49,
-              50,
-              51,
-              52,
-              53,
-              54,
-              55,
-              56,
-              57,
-              58,
-              59,
-              60,
-              61,
-              62,
-              63,
-              64,
-              65,
-              66,
-              67,
-              68
-            ]
-          },
-          {
-            "kind": "literal",
-            "value": "model-auth"
-          },
-          {
-            "kind": "literal",
-            "value": "model-context-overflow"
-          },
-          {
-            "kind": "literal",
-            "value": "model-rate-limit"
-          },
-          {
-            "kind": "literal",
-            "value": "no-progress"
-          },
-          {
-            "kind": "literal",
-            "value": "output-truncated"
-          },
-          {
-            "kind": "literal",
-            "value": "persistence-failed"
-          },
-          {
-            "kind": "literal",
-            "value": "plan-drift"
-          },
-          {
-            "kind": "literal",
-            "value": "approval-rejected"
-          },
-          {
-            "kind": "literal",
-            "value": "prompt-injection"
-          },
-          {
-            "kind": "literal",
-            "value": "sandbox-denied"
-          },
-          {
-            "kind": "literal",
-            "value": "stale-write"
-          },
-          {
-            "kind": "literal",
-            "value": "stalled"
-          },
-          {
-            "kind": "literal",
-            "value": "step-ceiling"
-          },
-          {
-            "kind": "literal",
-            "value": "subagent-failed"
-          },
-          {
-            "kind": "literal",
-            "value": "timeout"
-          },
-          {
-            "kind": "literal",
-            "value": "tool-args-malformed"
-          },
-          {
-            "kind": "literal",
-            "value": "tool-invalid-input"
-          },
-          {
-            "kind": "literal",
-            "value": "tool-policy-denied"
-          },
-          {
-            "kind": "literal",
-            "value": "tool-transient"
-          },
-          {
-            "kind": "literal",
-            "value": "unknown"
-          },
-          {
-            "kind": "literal",
-            "value": "verification-failed"
-          },
-          {
-            "kind": "literal",
-            "value": "verification-regressed"
-          },
-          {
-            "kind": "literal",
-            "value": "workflow-failed"
-          },
-          {
-            "kind": "literal",
-            "value": "budget-exhausted"
-          },
-          {
-            "kind": "literal",
-            "value": true
-          },
-          {
-            "kind": "literal",
-            "value": "checkpoint/created"
-          }
-        ]
-      },
-      "names": [],
-      "sources": []
-    },
-    {
       "digest": "26e13b593edc221a9c124145e6ff6ad725fb11001cd5d2e15750e27617595f1c",
       "schema": {
         "root": 0,
@@ -54659,7 +54111,7 @@
         "packages/runtime/agent-kernel/src/types.ts#GovernanceReceipt"
       ],
       "sources": [
-        "packages/runtime/agent-kernel/src/types.ts:837"
+        "packages/runtime/agent-kernel/src/types.ts:867"
       ]
     },
     {
@@ -55460,7 +54912,7 @@
         "packages/runtime/agent-kernel/src/types.ts#AuthorizationDecision"
       ],
       "sources": [
-        "packages/runtime/agent-kernel/src/types.ts:773"
+        "packages/runtime/agent-kernel/src/types.ts:803"
       ]
     },
     {
@@ -56061,546 +55513,7 @@
         "packages/runtime/agent-kernel/src/types.ts#FailureSeverity"
       ],
       "sources": [
-        "packages/runtime/agent-kernel/src/types.ts:1088"
-      ]
-    },
-    {
-      "digest": "2fbc25edf29e0b913260bf22c640eaf398d8877a5ce27e070bddc0466d0bf99a",
-      "schema": {
-        "root": 0,
-        "nodes": [
-          {
-            "kind": "object",
-            "properties": [
-              {
-                "name": "agentSessionId",
-                "type": 1,
-                "optional": false
-              },
-              {
-                "name": "budgets",
-                "type": 2,
-                "optional": false
-              },
-              {
-                "name": "checkpointId",
-                "type": 1,
-                "optional": false
-              },
-              {
-                "name": "createdAt",
-                "type": 4,
-                "optional": false
-              },
-              {
-                "name": "metadata",
-                "type": 5,
-                "optional": true
-              },
-              {
-                "name": "openActionIds",
-                "type": 20,
-                "optional": false
-              },
-              {
-                "name": "reason",
-                "type": 21,
-                "optional": false
-              },
-              {
-                "name": "revision",
-                "type": 4,
-                "optional": false
-              },
-              {
-                "name": "runId",
-                "type": 1,
-                "optional": false
-              },
-              {
-                "name": "sessionSeq",
-                "type": 4,
-                "optional": false
-              },
-              {
-                "name": "status",
-                "type": 27,
-                "optional": false
-              },
-              {
-                "name": "taskId",
-                "type": 1,
-                "optional": false
-              },
-              {
-                "name": "unresolvedFailures",
-                "type": 41,
-                "optional": false
-              }
-            ],
-            "indices": []
-          },
-          {
-            "kind": "primitive",
-            "type": "string"
-          },
-          {
-            "kind": "object",
-            "properties": [
-              {
-                "name": "remaining",
-                "type": 3,
-                "optional": false
-              },
-              {
-                "name": "steps",
-                "type": 4,
-                "optional": false
-              },
-              {
-                "name": "tokens",
-                "type": 4,
-                "optional": false
-              },
-              {
-                "name": "toolCalls",
-                "type": 4,
-                "optional": false
-              },
-              {
-                "name": "wallMs",
-                "type": 4,
-                "optional": false
-              }
-            ],
-            "indices": []
-          },
-          {
-            "kind": "object",
-            "properties": [
-              {
-                "name": "maxConcurrentActions",
-                "type": 4,
-                "optional": true
-              },
-              {
-                "name": "maxCostUsd",
-                "type": 4,
-                "optional": true
-              },
-              {
-                "name": "maxSteps",
-                "type": 4,
-                "optional": true
-              },
-              {
-                "name": "maxSubagentDepth",
-                "type": 4,
-                "optional": true
-              },
-              {
-                "name": "maxTokens",
-                "type": 4,
-                "optional": true
-              },
-              {
-                "name": "maxToolCalls",
-                "type": 4,
-                "optional": true
-              },
-              {
-                "name": "maxWallMs",
-                "type": 4,
-                "optional": true
-              }
-            ],
-            "indices": []
-          },
-          {
-            "kind": "primitive",
-            "type": "number"
-          },
-          {
-            "kind": "object",
-            "properties": [
-              {
-                "name": "actor",
-                "type": 6,
-                "optional": false
-              },
-              {
-                "name": "runId",
-                "type": 1,
-                "optional": false
-              },
-              {
-                "name": "sourceRef",
-                "type": 12,
-                "optional": false
-              },
-              {
-                "name": "taskId",
-                "type": 1,
-                "optional": true
-              },
-              {
-                "name": "timestamp",
-                "type": 4,
-                "optional": false
-              },
-              {
-                "name": "version",
-                "type": 19,
-                "optional": false
-              }
-            ],
-            "indices": []
-          },
-          {
-            "kind": "union",
-            "types": [
-              7,
-              8,
-              9,
-              10,
-              11
-            ]
-          },
-          {
-            "kind": "literal",
-            "value": "system"
-          },
-          {
-            "kind": "literal",
-            "value": "tool"
-          },
-          {
-            "kind": "literal",
-            "value": "user"
-          },
-          {
-            "kind": "literal",
-            "value": "kernel"
-          },
-          {
-            "kind": "literal",
-            "value": "model"
-          },
-          {
-            "kind": "object",
-            "properties": [
-              {
-                "name": "digest",
-                "type": 1,
-                "optional": true
-              },
-              {
-                "name": "locator",
-                "type": 1,
-                "optional": true
-              },
-              {
-                "name": "source",
-                "type": 13,
-                "optional": false
-              }
-            ],
-            "indices": []
-          },
-          {
-            "kind": "union",
-            "types": [
-              8,
-              9,
-              10,
-              11,
-              14,
-              15,
-              16,
-              17,
-              18
-            ]
-          },
-          {
-            "kind": "literal",
-            "value": "policy"
-          },
-          {
-            "kind": "literal",
-            "value": "repo"
-          },
-          {
-            "kind": "literal",
-            "value": "subagent"
-          },
-          {
-            "kind": "literal",
-            "value": "web"
-          },
-          {
-            "kind": "literal",
-            "value": "mcp"
-          },
-          {
-            "kind": "literal",
-            "value": 1
-          },
-          {
-            "kind": "array",
-            "element": 1
-          },
-          {
-            "kind": "union",
-            "types": [
-              22,
-              23,
-              24,
-              25,
-              26
-            ]
-          },
-          {
-            "kind": "literal",
-            "value": "before-compaction"
-          },
-          {
-            "kind": "literal",
-            "value": "turn-boundary"
-          },
-          {
-            "kind": "literal",
-            "value": "verification-failure"
-          },
-          {
-            "kind": "literal",
-            "value": "before-pause"
-          },
-          {
-            "kind": "literal",
-            "value": "before-suspension"
-          },
-          {
-            "kind": "union",
-            "types": [
-              28,
-              29,
-              30,
-              31,
-              32,
-              33,
-              34,
-              35,
-              36,
-              37,
-              38,
-              39,
-              40
-            ]
-          },
-          {
-            "kind": "literal",
-            "value": "awaiting-approval"
-          },
-          {
-            "kind": "literal",
-            "value": "observing"
-          },
-          {
-            "kind": "literal",
-            "value": "paused"
-          },
-          {
-            "kind": "literal",
-            "value": "planning"
-          },
-          {
-            "kind": "literal",
-            "value": "ready"
-          },
-          {
-            "kind": "literal",
-            "value": "recovering"
-          },
-          {
-            "kind": "literal",
-            "value": "awaiting-user"
-          },
-          {
-            "kind": "literal",
-            "value": "executing"
-          },
-          {
-            "kind": "literal",
-            "value": "failed"
-          },
-          {
-            "kind": "literal",
-            "value": "verifying"
-          },
-          {
-            "kind": "literal",
-            "value": "intake"
-          },
-          {
-            "kind": "literal",
-            "value": "cancelled"
-          },
-          {
-            "kind": "literal",
-            "value": "completed"
-          },
-          {
-            "kind": "array",
-            "element": 42
-          },
-          {
-            "kind": "object",
-            "properties": [
-              {
-                "name": "failureId",
-                "type": 1,
-                "optional": false
-              },
-              {
-                "name": "kind",
-                "type": 43,
-                "optional": false
-              }
-            ],
-            "indices": []
-          },
-          {
-            "kind": "union",
-            "types": [
-              44,
-              45,
-              46,
-              47,
-              48,
-              49,
-              50,
-              51,
-              52,
-              53,
-              54,
-              55,
-              56,
-              57,
-              58,
-              59,
-              60,
-              61,
-              62,
-              63,
-              64,
-              65,
-              66,
-              67
-            ]
-          },
-          {
-            "kind": "literal",
-            "value": "model-context-overflow"
-          },
-          {
-            "kind": "literal",
-            "value": "model-rate-limit"
-          },
-          {
-            "kind": "literal",
-            "value": "no-progress"
-          },
-          {
-            "kind": "literal",
-            "value": "output-truncated"
-          },
-          {
-            "kind": "literal",
-            "value": "persistence-failed"
-          },
-          {
-            "kind": "literal",
-            "value": "plan-drift"
-          },
-          {
-            "kind": "literal",
-            "value": "approval-rejected"
-          },
-          {
-            "kind": "literal",
-            "value": "prompt-injection"
-          },
-          {
-            "kind": "literal",
-            "value": "sandbox-denied"
-          },
-          {
-            "kind": "literal",
-            "value": "stale-write"
-          },
-          {
-            "kind": "literal",
-            "value": "stalled"
-          },
-          {
-            "kind": "literal",
-            "value": "step-ceiling"
-          },
-          {
-            "kind": "literal",
-            "value": "subagent-failed"
-          },
-          {
-            "kind": "literal",
-            "value": "timeout"
-          },
-          {
-            "kind": "literal",
-            "value": "tool-args-malformed"
-          },
-          {
-            "kind": "literal",
-            "value": "tool-invalid-input"
-          },
-          {
-            "kind": "literal",
-            "value": "tool-policy-denied"
-          },
-          {
-            "kind": "literal",
-            "value": "tool-transient"
-          },
-          {
-            "kind": "literal",
-            "value": "unknown"
-          },
-          {
-            "kind": "literal",
-            "value": "verification-failed"
-          },
-          {
-            "kind": "literal",
-            "value": "verification-regressed"
-          },
-          {
-            "kind": "literal",
-            "value": "workflow-failed"
-          },
-          {
-            "kind": "literal",
-            "value": "budget-exhausted"
-          },
-          {
-            "kind": "literal",
-            "value": "model-auth"
-          }
-        ]
-      },
-      "names": [
-        "packages/runtime/agent-kernel/src/types.ts#KernelEventData"
-      ],
-      "sources": [
-        "packages/runtime/agent-kernel/src/types.ts:112"
+        "packages/runtime/agent-kernel/src/types.ts:1118"
       ]
     },
     {
@@ -58620,7 +57533,7 @@
         "packages/runtime/agent-kernel/src/types.ts#CriterionResult"
       ],
       "sources": [
-        "packages/runtime/agent-kernel/src/types.ts:1169"
+        "packages/runtime/agent-kernel/src/types.ts:1199"
       ]
     },
     {
@@ -59295,7 +58208,7 @@
         "packages/runtime/agent-kernel/src/types.ts#FailureCategory"
       ],
       "sources": [
-        "packages/runtime/agent-kernel/src/types.ts:1076"
+        "packages/runtime/agent-kernel/src/types.ts:1106"
       ]
     },
     {
@@ -59586,7 +58499,7 @@
         "packages/runtime/agent-kernel/src/types.ts#PolicyEffect"
       ],
       "sources": [
-        "packages/runtime/agent-kernel/src/types.ts:609"
+        "packages/runtime/agent-kernel/src/types.ts:639"
       ]
     },
     {
@@ -73216,7 +72129,7 @@
         "packages/runtime/agent-kernel/src/types.ts#TaskHypothesisStatus"
       ],
       "sources": [
-        "packages/runtime/agent-kernel/src/types.ts:1251"
+        "packages/runtime/agent-kernel/src/types.ts:1281"
       ]
     },
     {
@@ -74756,7 +73669,7 @@
         "packages/runtime/agent-kernel/src/types.ts#FailureRef"
       ],
       "sources": [
-        "packages/runtime/agent-kernel/src/types.ts:936"
+        "packages/runtime/agent-kernel/src/types.ts:966"
       ]
     },
     {
@@ -74918,7 +73831,7 @@
         "packages/runtime/agent-kernel/src/types.ts#TransitionKind"
       ],
       "sources": [
-        "packages/runtime/agent-kernel/src/types.ts:408"
+        "packages/runtime/agent-kernel/src/types.ts:438"
       ]
     },
     {
@@ -75091,7 +74004,7 @@
         "packages/runtime/agent-kernel/src/types.ts#FailureKind"
       ],
       "sources": [
-        "packages/runtime/agent-kernel/src/types.ts:887"
+        "packages/runtime/agent-kernel/src/types.ts:917"
       ]
     },
     {
@@ -82121,7 +81034,7 @@
         "packages/runtime/agent-kernel/src/types.ts#EvidenceKind"
       ],
       "sources": [
-        "packages/runtime/agent-kernel/src/types.ts:1205"
+        "packages/runtime/agent-kernel/src/types.ts:1235"
       ]
     },
     {
@@ -84024,6 +82937,571 @@
       "sources": []
     },
     {
+      "digest": "6affae17d226078ee557fd427f035b0c3ee6b051e7bd0f351175395c1a5c9986",
+      "schema": {
+        "root": 0,
+        "nodes": [
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "agentSessionId",
+                "type": 1,
+                "optional": false
+              },
+              {
+                "name": "budgets",
+                "type": 2,
+                "optional": false
+              },
+              {
+                "name": "checkpointId",
+                "type": 1,
+                "optional": false
+              },
+              {
+                "name": "createdAt",
+                "type": 4,
+                "optional": false
+              },
+              {
+                "name": "metadata",
+                "type": 6,
+                "optional": true
+              },
+              {
+                "name": "openActionIds",
+                "type": 21,
+                "optional": false
+              },
+              {
+                "name": "reason",
+                "type": 22,
+                "optional": false
+              },
+              {
+                "name": "revision",
+                "type": 4,
+                "optional": false
+              },
+              {
+                "name": "runId",
+                "type": 1,
+                "optional": false
+              },
+              {
+                "name": "sessionSeq",
+                "type": 4,
+                "optional": false
+              },
+              {
+                "name": "status",
+                "type": 28,
+                "optional": false
+              },
+              {
+                "name": "taskId",
+                "type": 1,
+                "optional": false
+              },
+              {
+                "name": "unresolvedFailures",
+                "type": 42,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "primitive",
+            "type": "string"
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "background",
+                "type": 3,
+                "optional": true
+              },
+              {
+                "name": "remaining",
+                "type": 5,
+                "optional": false
+              },
+              {
+                "name": "steps",
+                "type": 4,
+                "optional": false
+              },
+              {
+                "name": "tokens",
+                "type": 4,
+                "optional": false
+              },
+              {
+                "name": "toolCalls",
+                "type": 4,
+                "optional": false
+              },
+              {
+                "name": "wallMs",
+                "type": 4,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "cost",
+                "type": 4,
+                "optional": true
+              },
+              {
+                "name": "tokens",
+                "type": 4,
+                "optional": false
+              },
+              {
+                "name": "wallMs",
+                "type": 4,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "primitive",
+            "type": "number"
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "maxConcurrentActions",
+                "type": 4,
+                "optional": true
+              },
+              {
+                "name": "maxCostUsd",
+                "type": 4,
+                "optional": true
+              },
+              {
+                "name": "maxSteps",
+                "type": 4,
+                "optional": true
+              },
+              {
+                "name": "maxSubagentDepth",
+                "type": 4,
+                "optional": true
+              },
+              {
+                "name": "maxTokens",
+                "type": 4,
+                "optional": true
+              },
+              {
+                "name": "maxToolCalls",
+                "type": 4,
+                "optional": true
+              },
+              {
+                "name": "maxWallMs",
+                "type": 4,
+                "optional": true
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "actor",
+                "type": 7,
+                "optional": false
+              },
+              {
+                "name": "runId",
+                "type": 1,
+                "optional": false
+              },
+              {
+                "name": "sourceRef",
+                "type": 13,
+                "optional": false
+              },
+              {
+                "name": "taskId",
+                "type": 1,
+                "optional": true
+              },
+              {
+                "name": "timestamp",
+                "type": 4,
+                "optional": false
+              },
+              {
+                "name": "version",
+                "type": 20,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "union",
+            "types": [
+              8,
+              9,
+              10,
+              11,
+              12
+            ]
+          },
+          {
+            "kind": "literal",
+            "value": "system"
+          },
+          {
+            "kind": "literal",
+            "value": "tool"
+          },
+          {
+            "kind": "literal",
+            "value": "user"
+          },
+          {
+            "kind": "literal",
+            "value": "kernel"
+          },
+          {
+            "kind": "literal",
+            "value": "model"
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "digest",
+                "type": 1,
+                "optional": true
+              },
+              {
+                "name": "locator",
+                "type": 1,
+                "optional": true
+              },
+              {
+                "name": "source",
+                "type": 14,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "union",
+            "types": [
+              9,
+              10,
+              11,
+              12,
+              15,
+              16,
+              17,
+              18,
+              19
+            ]
+          },
+          {
+            "kind": "literal",
+            "value": "policy"
+          },
+          {
+            "kind": "literal",
+            "value": "repo"
+          },
+          {
+            "kind": "literal",
+            "value": "subagent"
+          },
+          {
+            "kind": "literal",
+            "value": "web"
+          },
+          {
+            "kind": "literal",
+            "value": "mcp"
+          },
+          {
+            "kind": "literal",
+            "value": 1
+          },
+          {
+            "kind": "array",
+            "element": 1
+          },
+          {
+            "kind": "union",
+            "types": [
+              23,
+              24,
+              25,
+              26,
+              27
+            ]
+          },
+          {
+            "kind": "literal",
+            "value": "before-compaction"
+          },
+          {
+            "kind": "literal",
+            "value": "turn-boundary"
+          },
+          {
+            "kind": "literal",
+            "value": "verification-failure"
+          },
+          {
+            "kind": "literal",
+            "value": "before-pause"
+          },
+          {
+            "kind": "literal",
+            "value": "before-suspension"
+          },
+          {
+            "kind": "union",
+            "types": [
+              29,
+              30,
+              31,
+              32,
+              33,
+              34,
+              35,
+              36,
+              37,
+              38,
+              39,
+              40,
+              41
+            ]
+          },
+          {
+            "kind": "literal",
+            "value": "awaiting-approval"
+          },
+          {
+            "kind": "literal",
+            "value": "observing"
+          },
+          {
+            "kind": "literal",
+            "value": "paused"
+          },
+          {
+            "kind": "literal",
+            "value": "planning"
+          },
+          {
+            "kind": "literal",
+            "value": "ready"
+          },
+          {
+            "kind": "literal",
+            "value": "recovering"
+          },
+          {
+            "kind": "literal",
+            "value": "awaiting-user"
+          },
+          {
+            "kind": "literal",
+            "value": "executing"
+          },
+          {
+            "kind": "literal",
+            "value": "failed"
+          },
+          {
+            "kind": "literal",
+            "value": "verifying"
+          },
+          {
+            "kind": "literal",
+            "value": "intake"
+          },
+          {
+            "kind": "literal",
+            "value": "cancelled"
+          },
+          {
+            "kind": "literal",
+            "value": "completed"
+          },
+          {
+            "kind": "array",
+            "element": 43
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "failureId",
+                "type": 1,
+                "optional": false
+              },
+              {
+                "name": "kind",
+                "type": 44,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "union",
+            "types": [
+              45,
+              46,
+              47,
+              48,
+              49,
+              50,
+              51,
+              52,
+              53,
+              54,
+              55,
+              56,
+              57,
+              58,
+              59,
+              60,
+              61,
+              62,
+              63,
+              64,
+              65,
+              66,
+              67,
+              68
+            ]
+          },
+          {
+            "kind": "literal",
+            "value": "model-context-overflow"
+          },
+          {
+            "kind": "literal",
+            "value": "model-rate-limit"
+          },
+          {
+            "kind": "literal",
+            "value": "no-progress"
+          },
+          {
+            "kind": "literal",
+            "value": "output-truncated"
+          },
+          {
+            "kind": "literal",
+            "value": "persistence-failed"
+          },
+          {
+            "kind": "literal",
+            "value": "plan-drift"
+          },
+          {
+            "kind": "literal",
+            "value": "approval-rejected"
+          },
+          {
+            "kind": "literal",
+            "value": "prompt-injection"
+          },
+          {
+            "kind": "literal",
+            "value": "sandbox-denied"
+          },
+          {
+            "kind": "literal",
+            "value": "stale-write"
+          },
+          {
+            "kind": "literal",
+            "value": "stalled"
+          },
+          {
+            "kind": "literal",
+            "value": "step-ceiling"
+          },
+          {
+            "kind": "literal",
+            "value": "subagent-failed"
+          },
+          {
+            "kind": "literal",
+            "value": "timeout"
+          },
+          {
+            "kind": "literal",
+            "value": "tool-args-malformed"
+          },
+          {
+            "kind": "literal",
+            "value": "tool-invalid-input"
+          },
+          {
+            "kind": "literal",
+            "value": "tool-policy-denied"
+          },
+          {
+            "kind": "literal",
+            "value": "tool-transient"
+          },
+          {
+            "kind": "literal",
+            "value": "unknown"
+          },
+          {
+            "kind": "literal",
+            "value": "verification-failed"
+          },
+          {
+            "kind": "literal",
+            "value": "verification-regressed"
+          },
+          {
+            "kind": "literal",
+            "value": "workflow-failed"
+          },
+          {
+            "kind": "literal",
+            "value": "budget-exhausted"
+          },
+          {
+            "kind": "literal",
+            "value": "model-auth"
+          }
+        ]
+      },
+      "names": [
+        "packages/runtime/agent-kernel/src/types.ts#KernelEventData"
+      ],
+      "sources": [
+        "packages/runtime/agent-kernel/src/types.ts:112"
+      ]
+    },
+    {
       "digest": "6b23ed9ce1b397e602788dbe033693bf97642a69e23fcab1cc45bf6f13b6d619",
       "schema": {
         "root": 0,
@@ -84669,7 +84147,7 @@
         "packages/runtime/agent-kernel/src/types.ts#TaskClaimStatus"
       ],
       "sources": [
-        "packages/runtime/agent-kernel/src/types.ts:1230"
+        "packages/runtime/agent-kernel/src/types.ts:1260"
       ]
     },
     {
@@ -87420,7 +86898,7 @@
         "packages/runtime/agent-kernel/src/types.ts#CapabilityRequest"
       ],
       "sources": [
-        "packages/runtime/agent-kernel/src/types.ts:537"
+        "packages/runtime/agent-kernel/src/types.ts:567"
       ]
     },
     {
@@ -87917,6 +87395,606 @@
           {
             "kind": "primitive",
             "type": "string"
+          }
+        ]
+      },
+      "names": [],
+      "sources": []
+    },
+    {
+      "digest": "7b15790f5053f26e149cd934c3d3d1d268349584d8418fa230b48ed0d743cd42",
+      "schema": {
+        "root": 0,
+        "nodes": [
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "data",
+                "type": 1,
+                "optional": false
+              },
+              {
+                "name": "ignorable",
+                "type": 70,
+                "optional": true
+              },
+              {
+                "name": "seq",
+                "type": 5,
+                "optional": false
+              },
+              {
+                "name": "time",
+                "type": 5,
+                "optional": false
+              },
+              {
+                "name": "type",
+                "type": 71,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "agentSessionId",
+                "type": 2,
+                "optional": false
+              },
+              {
+                "name": "budgets",
+                "type": 3,
+                "optional": false
+              },
+              {
+                "name": "checkpointId",
+                "type": 2,
+                "optional": false
+              },
+              {
+                "name": "createdAt",
+                "type": 5,
+                "optional": false
+              },
+              {
+                "name": "metadata",
+                "type": 7,
+                "optional": true
+              },
+              {
+                "name": "openActionIds",
+                "type": 22,
+                "optional": false
+              },
+              {
+                "name": "reason",
+                "type": 23,
+                "optional": false
+              },
+              {
+                "name": "revision",
+                "type": 5,
+                "optional": false
+              },
+              {
+                "name": "runId",
+                "type": 2,
+                "optional": false
+              },
+              {
+                "name": "sessionSeq",
+                "type": 5,
+                "optional": false
+              },
+              {
+                "name": "status",
+                "type": 29,
+                "optional": false
+              },
+              {
+                "name": "taskId",
+                "type": 2,
+                "optional": false
+              },
+              {
+                "name": "unresolvedFailures",
+                "type": 43,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "primitive",
+            "type": "string"
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "background",
+                "type": 4,
+                "optional": true
+              },
+              {
+                "name": "remaining",
+                "type": 6,
+                "optional": false
+              },
+              {
+                "name": "steps",
+                "type": 5,
+                "optional": false
+              },
+              {
+                "name": "tokens",
+                "type": 5,
+                "optional": false
+              },
+              {
+                "name": "toolCalls",
+                "type": 5,
+                "optional": false
+              },
+              {
+                "name": "wallMs",
+                "type": 5,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "cost",
+                "type": 5,
+                "optional": true
+              },
+              {
+                "name": "tokens",
+                "type": 5,
+                "optional": false
+              },
+              {
+                "name": "wallMs",
+                "type": 5,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "primitive",
+            "type": "number"
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "maxConcurrentActions",
+                "type": 5,
+                "optional": true
+              },
+              {
+                "name": "maxCostUsd",
+                "type": 5,
+                "optional": true
+              },
+              {
+                "name": "maxSteps",
+                "type": 5,
+                "optional": true
+              },
+              {
+                "name": "maxSubagentDepth",
+                "type": 5,
+                "optional": true
+              },
+              {
+                "name": "maxTokens",
+                "type": 5,
+                "optional": true
+              },
+              {
+                "name": "maxToolCalls",
+                "type": 5,
+                "optional": true
+              },
+              {
+                "name": "maxWallMs",
+                "type": 5,
+                "optional": true
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "actor",
+                "type": 8,
+                "optional": false
+              },
+              {
+                "name": "runId",
+                "type": 2,
+                "optional": false
+              },
+              {
+                "name": "sourceRef",
+                "type": 14,
+                "optional": false
+              },
+              {
+                "name": "taskId",
+                "type": 2,
+                "optional": true
+              },
+              {
+                "name": "timestamp",
+                "type": 5,
+                "optional": false
+              },
+              {
+                "name": "version",
+                "type": 21,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "union",
+            "types": [
+              9,
+              10,
+              11,
+              12,
+              13
+            ]
+          },
+          {
+            "kind": "literal",
+            "value": "system"
+          },
+          {
+            "kind": "literal",
+            "value": "tool"
+          },
+          {
+            "kind": "literal",
+            "value": "user"
+          },
+          {
+            "kind": "literal",
+            "value": "kernel"
+          },
+          {
+            "kind": "literal",
+            "value": "model"
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "digest",
+                "type": 2,
+                "optional": true
+              },
+              {
+                "name": "locator",
+                "type": 2,
+                "optional": true
+              },
+              {
+                "name": "source",
+                "type": 15,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "union",
+            "types": [
+              10,
+              11,
+              12,
+              13,
+              16,
+              17,
+              18,
+              19,
+              20
+            ]
+          },
+          {
+            "kind": "literal",
+            "value": "policy"
+          },
+          {
+            "kind": "literal",
+            "value": "repo"
+          },
+          {
+            "kind": "literal",
+            "value": "subagent"
+          },
+          {
+            "kind": "literal",
+            "value": "web"
+          },
+          {
+            "kind": "literal",
+            "value": "mcp"
+          },
+          {
+            "kind": "literal",
+            "value": 1
+          },
+          {
+            "kind": "array",
+            "element": 2
+          },
+          {
+            "kind": "union",
+            "types": [
+              24,
+              25,
+              26,
+              27,
+              28
+            ]
+          },
+          {
+            "kind": "literal",
+            "value": "before-compaction"
+          },
+          {
+            "kind": "literal",
+            "value": "turn-boundary"
+          },
+          {
+            "kind": "literal",
+            "value": "verification-failure"
+          },
+          {
+            "kind": "literal",
+            "value": "before-pause"
+          },
+          {
+            "kind": "literal",
+            "value": "before-suspension"
+          },
+          {
+            "kind": "union",
+            "types": [
+              30,
+              31,
+              32,
+              33,
+              34,
+              35,
+              36,
+              37,
+              38,
+              39,
+              40,
+              41,
+              42
+            ]
+          },
+          {
+            "kind": "literal",
+            "value": "awaiting-approval"
+          },
+          {
+            "kind": "literal",
+            "value": "observing"
+          },
+          {
+            "kind": "literal",
+            "value": "paused"
+          },
+          {
+            "kind": "literal",
+            "value": "planning"
+          },
+          {
+            "kind": "literal",
+            "value": "ready"
+          },
+          {
+            "kind": "literal",
+            "value": "awaiting-user"
+          },
+          {
+            "kind": "literal",
+            "value": "recovering"
+          },
+          {
+            "kind": "literal",
+            "value": "completed"
+          },
+          {
+            "kind": "literal",
+            "value": "executing"
+          },
+          {
+            "kind": "literal",
+            "value": "verifying"
+          },
+          {
+            "kind": "literal",
+            "value": "failed"
+          },
+          {
+            "kind": "literal",
+            "value": "intake"
+          },
+          {
+            "kind": "literal",
+            "value": "cancelled"
+          },
+          {
+            "kind": "array",
+            "element": 44
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "failureId",
+                "type": 2,
+                "optional": false
+              },
+              {
+                "name": "kind",
+                "type": 45,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "union",
+            "types": [
+              46,
+              47,
+              48,
+              49,
+              50,
+              51,
+              52,
+              53,
+              54,
+              55,
+              56,
+              57,
+              58,
+              59,
+              60,
+              61,
+              62,
+              63,
+              64,
+              65,
+              66,
+              67,
+              68,
+              69
+            ]
+          },
+          {
+            "kind": "literal",
+            "value": "model-auth"
+          },
+          {
+            "kind": "literal",
+            "value": "model-context-overflow"
+          },
+          {
+            "kind": "literal",
+            "value": "model-rate-limit"
+          },
+          {
+            "kind": "literal",
+            "value": "no-progress"
+          },
+          {
+            "kind": "literal",
+            "value": "output-truncated"
+          },
+          {
+            "kind": "literal",
+            "value": "persistence-failed"
+          },
+          {
+            "kind": "literal",
+            "value": "plan-drift"
+          },
+          {
+            "kind": "literal",
+            "value": "approval-rejected"
+          },
+          {
+            "kind": "literal",
+            "value": "prompt-injection"
+          },
+          {
+            "kind": "literal",
+            "value": "sandbox-denied"
+          },
+          {
+            "kind": "literal",
+            "value": "stale-write"
+          },
+          {
+            "kind": "literal",
+            "value": "stalled"
+          },
+          {
+            "kind": "literal",
+            "value": "step-ceiling"
+          },
+          {
+            "kind": "literal",
+            "value": "subagent-failed"
+          },
+          {
+            "kind": "literal",
+            "value": "timeout"
+          },
+          {
+            "kind": "literal",
+            "value": "tool-args-malformed"
+          },
+          {
+            "kind": "literal",
+            "value": "tool-invalid-input"
+          },
+          {
+            "kind": "literal",
+            "value": "tool-policy-denied"
+          },
+          {
+            "kind": "literal",
+            "value": "tool-transient"
+          },
+          {
+            "kind": "literal",
+            "value": "unknown"
+          },
+          {
+            "kind": "literal",
+            "value": "verification-failed"
+          },
+          {
+            "kind": "literal",
+            "value": "verification-regressed"
+          },
+          {
+            "kind": "literal",
+            "value": "workflow-failed"
+          },
+          {
+            "kind": "literal",
+            "value": "budget-exhausted"
+          },
+          {
+            "kind": "literal",
+            "value": true
+          },
+          {
+            "kind": "literal",
+            "value": "checkpoint/created"
           }
         ]
       },
@@ -90384,7 +90462,7 @@
       },
       "names": [],
       "sources": [
-        "packages/runtime/agent-kernel/src/index.ts:500"
+        "packages/runtime/agent-kernel/src/index.ts:506"
       ]
     },
     {
@@ -95162,6 +95240,45 @@
       "sources": []
     },
     {
+      "digest": "9166ada9419944b8dee2e2e7d88f444dc8437d47d2718de1a0ccdd4436e60ddb",
+      "schema": {
+        "root": 0,
+        "nodes": [
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "cost",
+                "type": 1,
+                "optional": true
+              },
+              {
+                "name": "tokens",
+                "type": 1,
+                "optional": false
+              },
+              {
+                "name": "wallMs",
+                "type": 1,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "primitive",
+            "type": "number"
+          }
+        ]
+      },
+      "names": [
+        "packages/runtime/agent-kernel/src/types.ts#BackgroundSpend"
+      ],
+      "sources": [
+        "packages/runtime/agent-kernel/src/types.ts:258"
+      ]
+    },
+    {
       "digest": "92264e598ec8ea1bd43a4ee0cdb271a915d8d295df8daf7446e6ba1f2cef0e10",
       "schema": {
         "root": 0,
@@ -95304,7 +95421,7 @@
         "packages/runtime/agent-kernel/src/types.ts#ActionProposal"
       ],
       "sources": [
-        "packages/runtime/agent-kernel/src/types.ts:575"
+        "packages/runtime/agent-kernel/src/types.ts:605"
       ]
     },
     {
@@ -96207,7 +96324,7 @@
         "packages/runtime/agent-kernel/src/types.ts#WorkspaceRef"
       ],
       "sources": [
-        "packages/runtime/agent-kernel/src/types.ts:290"
+        "packages/runtime/agent-kernel/src/types.ts:320"
       ]
     },
     {
@@ -104966,96 +105083,6 @@
       ]
     },
     {
-      "digest": "afbdd545b538bd17f07a5b8f06686d8502d05bb758fbce8326f2f5a0361ee42b",
-      "schema": {
-        "root": 0,
-        "nodes": [
-          {
-            "kind": "object",
-            "properties": [
-              {
-                "name": "remaining",
-                "type": 1,
-                "optional": false
-              },
-              {
-                "name": "steps",
-                "type": 2,
-                "optional": false
-              },
-              {
-                "name": "tokens",
-                "type": 2,
-                "optional": false
-              },
-              {
-                "name": "toolCalls",
-                "type": 2,
-                "optional": false
-              },
-              {
-                "name": "wallMs",
-                "type": 2,
-                "optional": false
-              }
-            ],
-            "indices": []
-          },
-          {
-            "kind": "object",
-            "properties": [
-              {
-                "name": "maxConcurrentActions",
-                "type": 2,
-                "optional": true
-              },
-              {
-                "name": "maxCostUsd",
-                "type": 2,
-                "optional": true
-              },
-              {
-                "name": "maxSteps",
-                "type": 2,
-                "optional": true
-              },
-              {
-                "name": "maxSubagentDepth",
-                "type": 2,
-                "optional": true
-              },
-              {
-                "name": "maxTokens",
-                "type": 2,
-                "optional": true
-              },
-              {
-                "name": "maxToolCalls",
-                "type": 2,
-                "optional": true
-              },
-              {
-                "name": "maxWallMs",
-                "type": 2,
-                "optional": true
-              }
-            ],
-            "indices": []
-          },
-          {
-            "kind": "primitive",
-            "type": "number"
-          }
-        ]
-      },
-      "names": [
-        "packages/runtime/agent-kernel/src/types.ts#BudgetSnapshot"
-      ],
-      "sources": [
-        "packages/runtime/agent-kernel/src/types.ts:252"
-      ]
-    },
-    {
       "digest": "aff60ef947c18b012644852bdd0d5bfe72065e061dd563787c76c646b4a10f6b",
       "schema": {
         "root": 0,
@@ -113107,6 +113134,122 @@
       "sources": []
     },
     {
+      "digest": "b57e0af72a7e45cc8527967535ff67c1efaf49153a188ff0111b3072116b7271",
+      "schema": {
+        "root": 0,
+        "nodes": [
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "background",
+                "type": 1,
+                "optional": true
+              },
+              {
+                "name": "remaining",
+                "type": 3,
+                "optional": false
+              },
+              {
+                "name": "steps",
+                "type": 2,
+                "optional": false
+              },
+              {
+                "name": "tokens",
+                "type": 2,
+                "optional": false
+              },
+              {
+                "name": "toolCalls",
+                "type": 2,
+                "optional": false
+              },
+              {
+                "name": "wallMs",
+                "type": 2,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "cost",
+                "type": 2,
+                "optional": true
+              },
+              {
+                "name": "tokens",
+                "type": 2,
+                "optional": false
+              },
+              {
+                "name": "wallMs",
+                "type": 2,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "primitive",
+            "type": "number"
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "maxConcurrentActions",
+                "type": 2,
+                "optional": true
+              },
+              {
+                "name": "maxCostUsd",
+                "type": 2,
+                "optional": true
+              },
+              {
+                "name": "maxSteps",
+                "type": 2,
+                "optional": true
+              },
+              {
+                "name": "maxSubagentDepth",
+                "type": 2,
+                "optional": true
+              },
+              {
+                "name": "maxTokens",
+                "type": 2,
+                "optional": true
+              },
+              {
+                "name": "maxToolCalls",
+                "type": 2,
+                "optional": true
+              },
+              {
+                "name": "maxWallMs",
+                "type": 2,
+                "optional": true
+              }
+            ],
+            "indices": []
+          }
+        ]
+      },
+      "names": [
+        "packages/runtime/agent-kernel/src/types.ts#BudgetSnapshot"
+      ],
+      "sources": [
+        "packages/runtime/agent-kernel/src/types.ts:273"
+      ]
+    },
+    {
       "digest": "b5bd41ee90f80ef5b05008cebc95b5fbbb8f4f5424b45a7f4c3c613b137a4df7",
       "schema": {
         "root": 0,
@@ -118753,7 +118896,7 @@
         "packages/runtime/agent-kernel/src/types.ts#Predicate"
       ],
       "sources": [
-        "packages/runtime/agent-kernel/src/types.ts:426"
+        "packages/runtime/agent-kernel/src/types.ts:456"
       ]
     },
     {
@@ -124136,7 +124279,7 @@
         "packages/runtime/agent-kernel/src/types.ts#PolicyDecision"
       ],
       "sources": [
-        "packages/runtime/agent-kernel/src/types.ts:754"
+        "packages/runtime/agent-kernel/src/types.ts:784"
       ]
     },
     {
@@ -124518,7 +124661,7 @@
         "packages/runtime/agent-kernel/src/types.ts#StateEffect"
       ],
       "sources": [
-        "packages/runtime/agent-kernel/src/types.ts:436"
+        "packages/runtime/agent-kernel/src/types.ts:466"
       ]
     },
     {
@@ -126012,7 +126155,7 @@
         "packages/runtime/agent-kernel/src/types.ts#StepDelta"
       ],
       "sources": [
-        "packages/runtime/agent-kernel/src/types.ts:1017"
+        "packages/runtime/agent-kernel/src/types.ts:1047"
       ]
     },
     {
@@ -140704,7 +140847,7 @@
         "packages/runtime/agent-kernel/src/types.ts#RecoveryAction"
       ],
       "sources": [
-        "packages/runtime/agent-kernel/src/types.ts:944"
+        "packages/runtime/agent-kernel/src/types.ts:974"
       ]
     },
     {
@@ -155903,7 +156046,7 @@
         "packages/runtime/agent-kernel/src/types.ts#VerificationRequest"
       ],
       "sources": [
-        "packages/runtime/agent-kernel/src/types.ts:1181"
+        "packages/runtime/agent-kernel/src/types.ts:1211"
       ]
     },
     {
@@ -156087,7 +156230,7 @@
         "packages/runtime/agent-kernel/src/types.ts#CheckpointReason"
       ],
       "sources": [
-        "packages/runtime/agent-kernel/src/types.ts:1365"
+        "packages/runtime/agent-kernel/src/types.ts:1395"
       ]
     },
     {

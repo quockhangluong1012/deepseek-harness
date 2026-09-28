@@ -95,7 +95,11 @@ function stringField(value: unknown, key: string): string | undefined {
   return typeof field === 'string' && field.length > 0 ? field : undefined
 }
 
-/** MCP tools grouped by the server segment of their bridged tool name, in first-seen order. */
+/**
+ * MCP tools grouped by the server segment of their bridged tool name, in first-seen order.
+ * @param tools - the tool schemas visible to the Host, in any order.
+ * @returns bridged tool names keyed by MCP server id; tools without the MCP prefix are omitted.
+ */
 export function groupMcpServers(tools: readonly ToolSchema[]): Map<string, string[]> {
   const servers = new Map<string, string[]>()
   for (const tool of tools) {

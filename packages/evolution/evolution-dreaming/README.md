@@ -38,11 +38,20 @@ Mount it next to the feedback store and, for the automatic cycle, the heartbeat:
 ```
 
 ```ts
-await ctx.evolutionDreaming.dream(scope, sessionIds)   // light → REM → deep
-ctx.evolutionDreaming.read(scope)                      // narratives, promotions, ledger
-ctx.evolutionDreaming.promotions(scope)                // only the narratives that still answer
-ctx.evolutionDreaming.ledger(scope)                    // the passes a rollback can name
-await ctx.evolutionDreaming.rollback(scope, entryId)   // restore what one pass replaced
+import type { Context } from '@deepseek-ai/cordis'
+import type { EvolutionScopeId } from '@deepseek-ai/dsh-evolution-memory'
+import '@deepseek-ai/dsh-evolution-dreaming'
+
+declare const ctx: Context
+declare const scopeId: EvolutionScopeId
+declare const sessionIds: readonly string[]
+declare const entryId: string
+
+await ctx.evolutionDreaming.dream(scopeId, sessionIds)   // light → REM → deep
+ctx.evolutionDreaming.read(scopeId)                      // narratives, promotions, ledger
+ctx.evolutionDreaming.promotions(scopeId)                // only the narratives that still answer
+ctx.evolutionDreaming.ledger(scopeId)                    // the passes a rollback can name
+await ctx.evolutionDreaming.rollback(scopeId, entryId)   // restore what one pass replaced
 ```
 
 `run(phase, scope, sessionIds, now?)` runs one phase for diagnosis; `dream(…)` runs the whole cycle; `dreamAll()` walks every workspace the registry knows and is what the heartbeat task calls. `promotions(scope)` answers with the narratives a correction has not retired, and `rollback(scope, entryId)` restores the promotions array the ledger entry `entryId` replaced.

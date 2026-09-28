@@ -28,7 +28,12 @@ const DEPENDENCY_SECTIONS: readonly (readonly [RepoDependencyScope, string])[] =
   ['optional', 'optionalDependencies'],
 ]
 
-/** Whether one path is a test file under the configured name fragments. */
+/**
+ * Whether one path is a test file under the configured name fragments.
+ * @param path - repository-relative path whose file name is tested.
+ * @param suffixes - configured test name fragments, matched as substrings.
+ * @returns true when the file name contains one of the fragments.
+ */
 export function isTestPath(path: string, suffixes: readonly string[]): boolean {
   const name = path.slice(path.lastIndexOf('/') + 1)
   return suffixes.some(suffix => name.includes(suffix))

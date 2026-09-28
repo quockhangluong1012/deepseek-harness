@@ -44,6 +44,10 @@ import type {} from '@deepseek-ai/dsh-evolution-reviewer'
 import type {} from '@deepseek-ai/dsh-evolution-curator'
 import type { EvolutionCurator, PassSummary, PurgeReport, RollbackReport } from '@deepseek-ai/dsh-evolution-curator'
 import type { EvolutionOptimizer, ExperimentRecord, OptimizeReport } from '@deepseek-ai/dsh-evolution-optimizer'
+import { digestOf } from '@deepseek-ai/dsh-evolution-optimizer'
+// Type-only: declares the §18.2 `evolution/*` Session events and their payloads.
+import type {} from '@deepseek-ai/dsh-agent-kernel'
+import { recordPromotion, recordRollback } from './evolution-audit.ts'
 import { rankFrontier } from './frontier.ts'
 import type { FrontierInput } from './frontier.ts'
 import type {} from '@deepseek-ai/dsh-evolution-skill-telemetry'
@@ -931,13 +935,13 @@ async function executeSkills(
     return { kind: 'success', text: staged.length === 0 ? SKILLS_EMPTY : formatStagedList(staged, 'skill proposal', []) }
   }
   if (verb === 'rollback' && id !== undefined && rest.length === 0) {
-    return await rollbackSkillBody(ctx, id)
+    return await rollbackSkillBody(ctx, scope, invocation.agent.session, id)
   }
   if (verb === 'approve' && id !== undefined && rest.length === 0) {
     const entry = staged.find(candidate => candidate.id === id)
     if (entry === undefined) return { kind: 'error', text: `No staged skill '${id}'.` }
     const patch = stagedSkillPatch(entry)
-    if (patch !== undefined) return await promoteStagedSkill(ctx, entry, patch)
+    if (patch !== undefined) return await promoteStagedSkill(ctx, scope, invocation.agent.session, entry, patch)
     return await mutateStaged(
       ctx,
       entry,
@@ -987,7 +991,7 @@ function stagedSkillPatch(entry: StagedWrite): StagedSkillPatch | undefined {
 
 /** The slice of `ctx.evolutionLineage` a promotion writes: the body chain and its preimages. */
 interface PolicyChain {
-  recordRevision(input: { policy: string; body: string }): Promise<unknown>
+  recordRevision(input: { policy: string; body: string }): Promise<{ version: number }>
   revisions(policy: string): readonly { version: number; digest: string; parentDigest: string | null; body: string }[]
 }
 
@@ -999,12 +1003,16 @@ interface PolicyChain {
  * file and the chain never disagree: a promotion is either fully landed or not
  * landed at all.
  * @param ctx - plugin context carrying the skill catalog and lineage seams.
+ * @param scope - scope the staged write belongs to.
+ * @param session - the invoking session, which records the committed promotion (§18.2).
  * @param entry - the staged patch entry to promote.
  * @param patch - the skill and complete body the entry carries.
  * @returns the command result.
  */
 async function promoteStagedSkill(
   ctx: Context,
+  scope: EvolutionScopeIdBrand,
+  session: Session,
   entry: StagedWrite,
   patch: StagedSkillPatch,
 ): Promise<CommandResult> {
@@ -1039,6 +1047,15 @@ async function promoteStagedSkill(
     }
     await lineage.recordRevision({ policy, body: patch.body })
     await ctx.evolutionMemory.approveStaged(entry.id)
+    // §18.2: the write is committed, so the promotion and the preimage it
+    // replaced are recorded in the session that ran the command. The digests
+    // are the same sha256 the policy chain just stored for both bodies.
+    recordPromotion(ctx, session, scope, {
+      skill: patch.skill,
+      stagedId: entry.id,
+      bodySha: digestOf(patch.body),
+      replacedSha: digestOf(preimage),
+    })
   } catch (error) {
     await writeFile(resolved.file, preimage, 'utf8')
     return {
@@ -1060,10 +1077,17 @@ async function promoteStagedSkill(
  * the chain, and rolling it back would restore text nothing recorded, so the
  * command refuses instead of guessing.
  * @param ctx - plugin context carrying the skill catalog and lineage seams.
+ * @param scope - scope the skill's staged writes belong to.
+ * @param session - the invoking session, which records the committed revert (§18.2).
  * @param name - skill to restore.
  * @returns the command result.
  */
-async function rollbackSkillBody(ctx: Context, name: string): Promise<CommandResult> {
+async function rollbackSkillBody(
+  ctx: Context,
+  scope: EvolutionScopeIdBrand,
+  session: Session,
+  name: string,
+): Promise<CommandResult> {
   const catalog = ctx.get('skills') as { list(): Promise<readonly SkillSummary[]> } | undefined
   if (catalog === undefined) return { kind: 'error', text: `Cannot roll back '${name}': the skill catalog is not mounted.` }
   const lineage = ctx.get('evolutionLineage') as PolicyChain | undefined
@@ -1089,7 +1113,13 @@ async function rollbackSkillBody(ctx: Context, name: string): Promise<CommandRes
   }
   try {
     await writeFile(resolved.file, preimage.body, 'utf8')
-    await lineage.recordRevision({ policy: `skill:${name}`, body: preimage.body })
+    const committed = await lineage.recordRevision({ policy: `skill:${name}`, body: preimage.body })
+    recordRollback(ctx, session, scope, {
+      skill: name,
+      restoredSha: preimage.digest,
+      replacedSha: promoted.digest,
+      restoredVersion: committed.version,
+    })
   } catch (error) {
     return { kind: 'error', text: `Cannot roll back '${name}': ${error instanceof Error ? error.message : String(error)}` }
   }

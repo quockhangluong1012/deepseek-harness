@@ -46,7 +46,7 @@ function formatIndex(formats: PersistenceFormats, language: Language): string {
     '|---|---|---|---|---|',
     ...formats.entries.map((entry) => {
       const source = entry.source === undefined ? language === 'en' ? 'Current checkout' : '当前工作树'
-        : 'tag' in entry.source ? `\`${entry.source.tag}\`` : `PR #${entry.source.pullRequest}`
+        : 'tag' in entry.source ? `\`${entry.source.tag}\`` : 'commit' in entry.source ? `commit \`${entry.source.commit.slice(0, 9)}\`` : `PR #${entry.source.pullRequest}`
       const label = entry.version === formats.currentVersion ? language === 'en' ? 'Current catalog' : '当前目录' : `V${entry.version}`
       return `| ${entry.version} | ${source} | [${label}](${path(entry.document)}) | [JSON](${path(entry.schemaPath)}) | ${entry.inventory.roots.length} / ${entry.inventory.types.length} |`
     }),

@@ -81,6 +81,9 @@ export const workspaceMemoryDomainSpec = defineDomain({
   name: 'workspace_memory',
   version: 1,
   layout: 'per-record',
+  // Same §34.2 W7 reason as `evolution_memory`: one workspace record rewritten
+  // repeatedly per turn, batched into a single publish.
+  coalesceWrites: true,
   tables: {
     records: domainTable<WorkspaceId, WorkspaceMemoryRecord>(
       workspaceMemoryRecord as unknown as z.ZodType<WorkspaceMemoryRecord>,

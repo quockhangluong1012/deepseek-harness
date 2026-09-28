@@ -117,6 +117,8 @@ kind: "package-reference"
 
 预算是父级与其子级共享的一池额度，而不是每个子级各拿一份副本。委派交下去的是父级仍能承诺的部分——它的实测剩余额度，减去在飞子级已占的持有量与已结算子级已上报的花费——Kernel 一直持有这份授予直到子级结算：跑过的子级按它用掉的步数、工具调用、token 与墙钟时间被扣减，从未开启任务的子级则释放其持有量。会让在飞动作数超过 `maxConcurrentActions` 的调用会被组合为一条拒绝，并在理由中写明当前数量，因此该上限记录在动作上，而不是靠猜测模型的行为。
 
+Kernel 同时折叠演化平面做过什么，来自另一个包追加的四个 §18.2 族：`evolution/candidate` 在任何评分发生之前，按摘要为每个变异正文命名；`evolution/evaluated` 记录每一次评分轮次，连同逐场景结果与它所依据的 fixture 摘要；`evolution/promoted` 与 `evolution/rolled-back` 记录一次已提交的正文写入及其回滚，携带两个正文的摘要。Kernel 不发出其中任何一个——前两个由 optimizer 写入，后两个由 `/skills approve` 与 `/skills rollback` 写入——但 `readKernelRecord` 与 `state.view` 会重建它们，因此只持有会话日志的读者能知道演化层改动了哪些 skill 正文，以及该改动是否仍然有效。
+
 ### 读取一个任务
 
 公开界面是 `ctx.agentKernel`：

@@ -32,6 +32,11 @@ Six further read models cover what those runs left behind: `coding`, `research`,
 Mount the plugin; it needs no storage domain and injects nothing. One call returns the whole report, optionally restricted to one task class.
 
 ```ts
+import type { Context } from '@deepseek-ai/cordis'
+import '@deepseek-ai/dsh-evolution-metrics'
+
+declare const ctx: Context
+
 const report = ctx.evolutionMetrics.report({ taskClass: 'writer' })
 
 report.window        // runs, from, to, and the two half-rates the gain compares
@@ -60,6 +65,11 @@ Every entry is the same shape: `value` (a number, or `null` when it is not compu
 The §13.2 coding set is folded from recorded session logs, the same records the kernel counters and the trace projection are built from, and the §5.4 baseline readings come from that same window. The last seven rows are the §18.3 kernel counters, read from that same fold: the task, verification, run, policy, approval, and checkpoint families §18.3 asks for that no §13.2 or §5.4 reading expresses. `run.wall_ms` and `run.cost_usd` are the `latency` and `cost` rows above, `subagent.success_rate` is the complement of `subagent-waste`, `memory.recall_utility` and `skill.utility` are `memory-utility` and `skill-incremental-utility`, and `evolution.capability_gain_per_compute` is the north star. `context.compactions`, `sandbox.denied`, and `workflow.resume_success` are not kernel counters, so no reading here names them.
 
 ```ts
+import type { Context } from '@deepseek-ai/cordis'
+import '@deepseek-ai/dsh-evolution-metrics'
+
+declare const ctx: Context
+
 const coding = await ctx.evolutionMetrics.coding({ since: '2026-01-01T00:00:00.000Z' })
 
 coding.window     // sessions, from, to
@@ -91,6 +101,13 @@ coding.metrics    // verified success, false completion, regression, recovery, p
 The §13.3 research set reads the runs `ctx.research` recorded next to the claims and observations their sessions logged. Its window is a run window: `runs`, `sessions`, `from`, and `to`, narrowed by `sessionId`, `since`/`until` on the instant a run settled (else started), and `limit`. Every metric is a share.
 
 ```ts
+import type { Context } from '@deepseek-ai/cordis'
+import '@deepseek-ai/dsh-evolution-metrics'
+import type { SessionId } from '@deepseek-ai/dsh-session'
+
+declare const ctx: Context
+declare const sessionId: SessionId
+
 const research = await ctx.evolutionMetrics.research({ sessionId })
 
 research.window   // sessions, runs, from, to
@@ -110,6 +127,13 @@ research.metrics  // the seven §13.3 metrics, in spec order
 The §13.4 mentor set reads one learner's durable record (`ctx.learnerModel`) and the misconception cycles recorded for them (`ctx.misconception`). Its query names the learner, because neither store lists them.
 
 ```ts
+import type { Context } from '@deepseek-ai/cordis'
+import '@deepseek-ai/dsh-evolution-metrics'
+import type { LearnerId } from '@deepseek-ai/dsh-learner-model'
+
+declare const ctx: Context
+declare const learnerId: LearnerId
+
 const mentor = ctx.evolutionMetrics.mentor({ learnerId })
 
 mentor.learnerId  // the learner the report covers
@@ -128,6 +152,11 @@ mentor.metrics    // the six §13.4 metrics, in spec order
 The §13.5 long-horizon set reads the durable outcome `ctx.evolutionBenchmark.run()` records for every benchmark task it executes. Its window is an outcome window: `tasks`, `scored`, `failed`, `from`, and `to`, narrowed by `since`/`until` on the instant the outcome was recorded and capped by the newest `limit` (else `maxOutcomes`).
 
 ```ts
+import type { Context } from '@deepseek-ai/cordis'
+import '@deepseek-ai/dsh-evolution-metrics'
+
+declare const ctx: Context
+
 const horizon = ctx.evolutionMetrics.longHorizon()
 
 horizon.window   // tasks, scored, failed, from, to
@@ -150,6 +179,11 @@ The facts behind those readings are folded once, when a run is recorded: [`dsh-e
 The §43 uncertainty read model presents the evaluation-task queue [`dsh-evolution-uncertainty`](../evolution-uncertainty/README.md) derives from its durable signals. The query narrows the queue by `skill` and caps it with `limit`; the window reports `tasks`, `signals`, and the `topPriority` of the queue's first row. The store groups and ranks the queue, so this report never re-derives either.
 
 ```ts
+import type { Context } from '@deepseek-ai/cordis'
+import '@deepseek-ai/dsh-evolution-metrics'
+
+declare const ctx: Context
+
 const queued = ctx.evolutionMetrics.uncertainty({ skill: 'writer' })
 
 queued.window   // skill, tasks, signals, topPriority
@@ -164,10 +198,15 @@ queued.metrics  // queue depth and the corroborated share
 The §42 self-model read model presents the capability frontier [`dsh-evolution-self-model`](../evolution-self-model/README.md) ranks from its durable per-capability entries. The window reports `skills` (how many assessments the store holds) and `capabilities` (how many entries the frontier ranks); the store ranks, so this report never re-derives the order.
 
 ```ts
-const self = ctx.evolutionMetrics.selfModel()
+import type { Context } from '@deepseek-ai/cordis'
+import '@deepseek-ai/dsh-evolution-metrics'
 
-self.window   // skills, capabilities
-self.metrics  // the frontier's mean pass rate and its weakest entry's
+declare const ctx: Context
+
+const selfModel = ctx.evolutionMetrics.selfModel()
+
+selfModel.window   // skills, capabilities
+selfModel.metrics  // the frontier's mean pass rate and its weakest entry's
 ```
 
 | Metric | Measured from | Meaning |

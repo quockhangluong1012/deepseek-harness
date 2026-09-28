@@ -22,7 +22,12 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { SkillEvaluation } from '@deepseek-ai/dsh-evolution-scorer'
 import { scoreVariant, type ScoreVariantDeps } from './evaluate.ts'
 
-/** The skill's ceiling batch id for the UTC calendar day `at` falls in. */
+/**
+ * The skill's ceiling batch id for the UTC calendar day `at` falls in.
+ * @param skill - the skill whose ceiling batch is addressed.
+ * @param at - the moment placed in its UTC calendar day.
+ * @returns the evolution-budget batch id for that day.
+ */
 export function dailyBatchId(skill: string, at: Date): string {
   return budgetDailyBatchId('evolution-optimizer', skill, at)
 }
@@ -30,6 +35,9 @@ export function dailyBatchId(skill: string, at: Date): string {
 /**
  * The skill's ceiling batch id for the ISO-8601 week `at` falls in
  * (Monday-based, `YYYY-Www`).
+ * @param skill - the skill whose ceiling batch is addressed.
+ * @param at - the moment placed in its ISO-8601 week.
+ * @returns the evolution-budget batch id for that week.
  */
 export function weeklyBatchId(skill: string, at: Date): string {
   return budgetWeeklyBatchId('evolution-optimizer', skill, at)

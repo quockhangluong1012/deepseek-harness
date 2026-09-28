@@ -363,6 +363,10 @@
       // that the generated Remote client and the Desktop settings page reach by
       // subpath; the generated region maps bare package names only.
       "@deepseek-ai/dsh-mcp-project-config/types": ["./packages/mcp/mcp-project-config/src/types.ts"],
+      // The Desktop MCP settings client reaches this package under a name that
+      // differs from its directory (`client` vs `ui-settings-mcp`), so the
+      // generated region cannot derive it.
+      "@deepseek-ai/dsh-client-ui-settings-mcp": ["./packages/client/ui-settings-mcp/src"],
       // BEGIN generated package aliases — pnpm run gen-tsconfig-paths
       "@deepseek-ai/dsh-acp": ["./packages/acp/acp/src"],
       "@deepseek-ai/dsh-acp-app": ["./packages/bundle/acp-app/src"],
@@ -545,6 +549,7 @@
       "@deepseek-ai/dsh-session-format-v2-to-v3": ["./packages/session/session-format-v2-to-v3/src"],
       "@deepseek-ai/dsh-session-format-v3-to-v4": ["./packages/session/session-format-v3-to-v4/src"],
       "@deepseek-ai/dsh-session-format-v4-to-v5": ["./packages/session/session-format-v4-to-v5/src"],
+      "@deepseek-ai/dsh-session-format-v5-to-v6": ["./packages/session/session-format-v5-to-v6/src"],
       "@deepseek-ai/dsh-session-log-deepseek": ["./packages/session/session-log-deepseek/src"],
       "@deepseek-ai/dsh-session-log-deepseek/invariant": ["./packages/session/session-log-deepseek/src/invariant.ts"],
       "@deepseek-ai/dsh-session-log-export": ["./packages/session-query/session-log-export/src"],

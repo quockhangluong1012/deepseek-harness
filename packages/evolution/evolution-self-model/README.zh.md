@@ -28,6 +28,11 @@ kind: "package-reference"
 挂载插件并配合存储域。技能在自视变化时记录整体自视；评估结果以能力观测到达；操作者读取前沿，决定循环下一步该学什么。
 
 ```ts
+import type { Context } from '@deepseek-ai/cordis'
+import EvolutionSelfModel from '@deepseek-ai/dsh-evolution-self-model'
+
+declare const ctx: Context
+
 await ctx.evolutionSelfModel.record({
   skill: 'writer',
   strengths: ['draft'],

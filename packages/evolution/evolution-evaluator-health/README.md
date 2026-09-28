@@ -28,6 +28,11 @@ English | [中文](README.zh.md)
 Mount the plugin with the storage domain; verdicts arrive from the scorer's `evaluateBehavior` whenever the store is mounted.
 
 ```ts
+import type { Context } from '@deepseek-ai/cordis'
+import '@deepseek-ai/dsh-evolution-evaluator-health'
+
+declare const ctx: Context
+
 await ctx.evolutionEvaluatorHealth.observe({
   skill: 'polish',
   unanimous: false,

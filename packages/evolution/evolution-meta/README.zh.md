@@ -29,6 +29,11 @@ kind: "package-reference"
 挂载插件并配合存储域。调用者按实际使用的配置与工作流记录每次引擎运行；推荐回答的是某任务类别下一次该用哪套配置、哪种序列。
 
 ```ts
+import type { Context } from '@deepseek-ai/cordis'
+import '@deepseek-ai/dsh-evolution-meta'
+
+declare const ctx: Context
+
 await ctx.evolutionMeta.record({
   runId: 'run-42',
   taskClass: 'writer',

@@ -6,7 +6,7 @@ import { SESSION_FORMAT_VERSION, Session, SessionId, SessionLogOffset } from '@d
 import type { SessionEvent, SessionHeader } from '@deepseek-ai/dsh-session'
 import { buildForkSeed } from '@deepseek-ai/dsh-session/fork'
 import { createSessionFormatCatalog } from '@deepseek-ai/dsh-session-format'
-import { restoreReleasedV5Artifact } from '@deepseek-ai/dsh-session-format-v4-to-v5'
+import { restoreReleasedV6Artifact } from '@deepseek-ai/dsh-session-format-v5-to-v6'
 import { sessionFormatCatalogOptions } from '../src/generated.ts'
 import type { SessionFormatEvent } from '@deepseek-ai/dsh-session-format'
 import { sessionFormatCatalog } from '../src/index.ts'
@@ -65,7 +65,7 @@ describe('developer tool history', () => {
     if (!knowsDeveloper) known.delete('developer/message')
     const catalog = createSessionFormatCatalog({
       ...sessionFormatCatalogOptions,
-      restoreCurrent: candidate => restoreReleasedV5Artifact(candidate, known),
+      restoreCurrent: candidate => restoreReleasedV6Artifact(candidate, known),
     })
     const reader = catalog.createRestore(sessionFormatCatalog.encodeCurrentHeader(header, 0), { recovery: 'strict', validation: 'current' })
     for (const event of events) reader.decodeRow(event)

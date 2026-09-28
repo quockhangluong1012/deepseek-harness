@@ -18,6 +18,7 @@
     { "path": "../evolution-lineage" },
     { "path": "../evolution-self-model" },
     { "path": "../evolution-islands" },
+    { "path": "../../runtime/agent-kernel" },
     { "path": "../evolution-novelty-search" },
     { "path": "../evolution-stagnation" },
     { "path": "../evolution-operators" },

@@ -28,6 +28,11 @@ English | [中文](README.zh.md)
 Mount the plugin with the storage domain. Admit candidate tasks from any producer — the §5.3 datasets, the curriculum store's open proposals, or the actuator's mined failures — then walk each task along the learning ladder.
 
 ```ts
+import type { Context } from '@deepseek-ai/cordis'
+import '@deepseek-ai/dsh-evolution-benchmark'
+
+declare const ctx: Context
+
 const { admitted, duplicates } = await ctx.evolutionBenchmark.admit([{
   capability: 'writer',
   task: 'Recover from the recurring failure: boom',
@@ -52,6 +57,11 @@ Every task states the profile and the §5.3 scenario family it was authored for 
 The package ships `datasets/`, one JSON file per §5.3 scenario family, named by that family. A file states `runRequirement: 'live-model'` and lists its task definitions; each definition carries `profile`, `stepSpan`, `capability`, `task`, and `acceptance`.
 
 ```ts
+import type { Context } from '@deepseek-ai/cordis'
+import { datasetInputs, loadDatasets } from '@deepseek-ai/dsh-evolution-benchmark'
+
+declare const ctx: Context
+
 const datasets = await loadDatasets(new URL('../datasets/', import.meta.url).pathname)
 const { admitted } = await ctx.evolutionBenchmark.admit(datasetInputs(datasets))
 ```
@@ -73,6 +83,21 @@ A dataset task is a definition, not a run: it ships no expected output and no re
 `run(request)` turns each task into its own run and records one durable outcome per task. The task text becomes the run's input script; the attempts are reduced by `evolution-scorer`'s own `scoreRun`, so the verdict, the billed tokens, and the wall time mean exactly what they mean everywhere else; and the §13.5 facts are folded from the sessions each attempt harvested.
 
 ```ts
+import type { Context } from '@deepseek-ai/cordis'
+import { datasetInputs, loadDatasets } from '@deepseek-ai/dsh-evolution-benchmark'
+import { processScenarioRunner } from '@deepseek-ai/dsh-evolution-scorer'
+import type { AgentUnderTest, WorkspaceSnapshotEntry } from '@deepseek-ai/dsh-session-snapshot'
+
+declare const ctx: Context
+
+// The composition every run boots, its recorded fixture, and the workspace it starts from.
+const agent: AgentUnderTest = { binScript: 'apps/cli/src/bin.ts', configPath: 'apps/cli/cordis.yml', tsconfigPath: 'tsconfig.json' }
+const fixtureFile = 'fixtures/session.v1.jsonl'
+const workspaceDir = 'fixtures/workspace'
+
+// The expected observable each task is judged against, captured by the deployment.
+const captures = new Map<string, readonly WorkspaceSnapshotEntry[]>()
+
 const datasets = await loadDatasets(new URL('../datasets/', import.meta.url).pathname)
 const { admitted } = await ctx.evolutionBenchmark.admit(datasetInputs(datasets))
 
@@ -102,10 +127,16 @@ The runner is the caller's: pass `processScenarioRunner` (or any `ScenarioRunner
 `transition` moves a task wherever the caller says, which leaves the holdout partition a manual decision. `ladderAdvance(state, exposure)` is the pure rule that answers the same question from what the engine recorded, and it returns `undefined` when the evidence earns no rung.
 
 ```ts
+import type { Context } from '@deepseek-ai/cordis'
+import { ladderAdvance, type BenchmarkTask } from '@deepseek-ai/dsh-evolution-benchmark'
+
+declare const ctx: Context
+declare const task: BenchmarkTask
+
 // Exposure is the capability's recorded candidate evaluations.
 const next = ladderAdvance('search', { runs: 4, passes: 1 })
 // next === 'validation'
-await ctx.evolutionBenchmark.transition(task.id, next)
+if (next !== undefined) await ctx.evolutionBenchmark.transition(task.id, next)
 ```
 
 | Task state | Rung earned when | Why that evidence |

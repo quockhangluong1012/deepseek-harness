@@ -230,6 +230,7 @@ flowchart LR
   svc_evolutionPopulation["ctx.evolutionPopulation<br/>Population-based evolution store"]
   pkg_evolution_model_routes["evolution-model-routes"]
   svc_evolutionModelRoutes["ctx.evolutionModelRoutes<br/>Adaptive model-routing store"]
+  pkg_evolution_evaluator_strategy["evolution-evaluator-strategy"]
   pkg_evolution_canary["evolution-canary"]
   svc_evolutionCanary["ctx.evolutionCanary<br/>Shadow/canary deployment store"]
   pkg_evolution_novelty_search["evolution-novelty-search"]
@@ -250,15 +251,12 @@ flowchart LR
   svc_evolutionSleeptime["ctx.evolutionSleeptime<br/>Sleep-time compute store"]
   pkg_evolution_budget["evolution-budget"]
   svc_evolutionBudget["ctx.evolutionBudget<br/>Evolution budget store"]
-  pkg_evolution_evaluator_strategy["evolution-evaluator-strategy"]
   svc_evolutionEvaluatorStrategy["ctx.evolutionEvaluatorStrategy<br/>Evaluator-strategy store"]
   pkg_evolution_meta["evolution-meta"]
   svc_evolutionMeta["ctx.evolutionMeta<br/>Meta-evolution store"]
   svc_evolutionMetrics["ctx.evolutionMetrics<br/>Evolution metric layer"]
   pkg_evolution_operators["evolution-operators"]
   svc_evolutionOperators["ctx.evolutionOperators<br/>Mutation-operator store"]
-  pkg_evolution_router["evolution-router"]
-  svc_evolutionRouter["ctx.evolutionRouter<br/>Routing self-optimization store"]
   pkg_evolution_trajectory["evolution-trajectory"]
   svc_evolutionTrajectory["ctx.evolutionTrajectory<br/>ShareGPT trajectory export service"]
   pkg_evolution_trace["evolution-trace"]
@@ -459,7 +457,6 @@ flowchart LR
   pkg_evolution_population --> svc_evolutionPopulation
   pkg_evolution_retrieval --> svc_evolutionRetrieval
   pkg_evolution_reviewer --> svc_evolutionReviewer
-  pkg_evolution_router --> svc_evolutionRouter
   pkg_evolution_scorer --> svc_evolutionScorer
   pkg_evolution_self_model --> svc_evolutionSelfModel
   pkg_evolution_skill_telemetry --> svc_evolutionSkillTelemetry
@@ -647,6 +644,8 @@ flowchart LR
   svc_evolutionMeta --> pkg_evolution_optimizer
   svc_evolutionMetrics --> pkg_command_evolution
   svc_evolutionModelRoutes --> pkg_command_evolution
+  svc_evolutionModelRoutes --> pkg_evolution_curator
+  svc_evolutionModelRoutes --> pkg_evolution_evaluator_strategy
   svc_evolutionModelRoutes --> pkg_evolution_optimizer
   svc_evolutionNovelty --> pkg_command_evolution
   svc_evolutionNovelty --> pkg_evolution_optimizer
@@ -656,8 +655,6 @@ flowchart LR
   svc_evolutionPopulation --> pkg_evolution_optimizer
   svc_evolutionRetrieval --> pkg_command_evolution
   svc_evolutionReviewer --> pkg_command_evolution
-  svc_evolutionRouter --> pkg_command_evolution
-  svc_evolutionRouter --> pkg_evolution_optimizer
   svc_evolutionScorer --> pkg_evolution_optimizer
   svc_evolutionSelfModel --> pkg_command_evolution
   svc_evolutionSelfModel --> pkg_evolution_optimizer
@@ -882,7 +879,7 @@ flowchart LR
 | `ctx.evolutionBenchmark` | `core` | [`evolution-benchmark`](../packages/evolution/evolution-benchmark) | - | [`command-evolution`](../packages/evolution/command-evolution), [`evolution-metrics`](../packages/evolution/evolution-metrics) | - | evolution-benchmark 插件从生产失败中生长评估任务——内容去重的准入，以及带污染与退役状态的 fresh → search → validation → holdout 阶梯——并运行它们：运行过程经评分器的 runner seam 启动每个任务，并为每个任务记录一个持久化结果，evolution-metrics 将其读作基准鲁棒性和 §13.5 长时程报告；command-evolution 经 /benchmark 读取这些任务，这里不自行调用模型。 |
 | `ctx.evolutionEvaluatorHealth` | `core` | [`evolution-evaluator-health`](../packages/evolution/evolution-evaluator-health) | - | [`evolution-scorer`](../packages/evolution/evolution-scorer), [`command-evolution`](../packages/evolution/command-evolution) | - | evolution-evaluator-health 插件记录行为评估裁决，并汇总一致性、通过率漂移与误报；evolution-scorer 经可选存储记录每个裁决，command-evolution 经 /evaluators 报告它。 |
 | `ctx.evolutionPopulation` | `core` | [`evolution-population`](../packages/evolution/evolution-population) | - | [`evolution-optimizer`](../packages/evolution/evolution-optimizer), [`command-evolution`](../packages/evolution/command-evolution) | - | evolution-population 插件把每一次暂存的优化器写入记录为按技能的候选，带代数编号、父代谱系与 暂存 → 通过／拒绝 生命周期；evolution-optimizer 经可选存储记录候选，command-evolution 经 /population 查看世代、谱系与已通过的精英。 |
-| `ctx.evolutionModelRoutes` | `core` | [`evolution-model-routes`](../packages/evolution/evolution-model-routes) | - | [`evolution-optimizer`](../packages/evolution/evolution-optimizer), [`command-evolution`](../packages/evolution/command-evolution) | - | evolution-model-routes 插件在进化角色拓扑之上按角色保存路由指派，并带实测证据与推荐；evolution-optimizer 经可选存储记录每一次候选生成的路由与结果，command-evolution 经 /routes 列出、固定并推荐路由。 |
+| `ctx.evolutionModelRoutes` | `core` | [`evolution-model-routes`](../packages/evolution/evolution-model-routes) | - | [`evolution-optimizer`](../packages/evolution/evolution-optimizer), [`command-evolution`](../packages/evolution/command-evolution), [`evolution-curator`](../packages/evolution/evolution-curator), [`evolution-evaluator-strategy`](../packages/evolution/evolution-evaluator-strategy) | - | evolution-model-routes 插件在进化角色拓扑之上按角色保存路由指派，并带实测证据，据此按任务类别排序并推荐某个角色应使用的路由；evolution-optimizer 经可选存储记录每一次候选生成与暂存写入的路由，evolution-curator 与 evolution-evaluator-strategy 读取该推荐，command-evolution 经 /routes 列出、固定并推荐路由。 |
 | `ctx.evolutionCanary` | `core` | [`evolution-canary`](../packages/evolution/evolution-canary) | - | [`evolution-optimizer`](../packages/evolution/evolution-optimizer), [`command-evolution`](../packages/evolution/command-evolution) | - | evolution-canary 插件追踪暂存技能补丁的发布状态——shadow → canary → promoted，以及 rejected／rolled-back 两个退出；evolution-optimizer 经可选存储把每一次暂存写入记录为 shadow 部署，command-evolution 经 /canary 推进部署或将其退出。 |
 | `ctx.evolutionNovelty` | `core` | [`evolution-novelty-search`](../packages/evolution/evolution-novelty-search) | - | [`evolution-optimizer`](../packages/evolution/evolution-optimizer), [`command-evolution`](../packages/evolution/command-evolution) | - | evolution-novelty-search 插件按技能持久保存行为描述符档案，衡量每一次暂存写入相对该技能既往所见的新奇度；evolution-optimizer 经可选存储记录描述符，command-evolution 经 /novelty 读取档案新奇度及其压力。 |
 | `ctx.evolutionStagnation` | `core` | [`evolution-stagnation`](../packages/evolution/evolution-stagnation) | - | [`evolution-optimizer`](../packages/evolution/evolution-optimizer), [`command-evolution`](../packages/evolution/command-evolution) | - | evolution-stagnation 插件统计某技能无有意义改进的评估运行次数，并在前沿停滞时点出 §32 阶梯上的下一个策略；evolution-optimizer 经可选存储把每一次暂存写入记录为一次运行，command-evolution 经 /stagnation 读取状态、运行次数与重置。 |
@@ -897,7 +894,6 @@ flowchart LR
 | `ctx.evolutionMeta` | `core` | [`evolution-meta`](../packages/evolution/evolution-meta) | - | [`evolution-optimizer`](../packages/evolution/evolution-optimizer), [`command-evolution`](../packages/evolution/command-evolution) | - | evolution-meta 插件记录其算子、评估器、预算与路由选择所构成的配置下每一次引擎运行，推导各配置的通过率与平均 token 数，并推荐某任务类别下一次该采用的配置；evolution-optimizer 经可选存储记录每一次暂存写入的运行，command-evolution 经 /meta 读取运行、汇总与推荐。 |
 | `ctx.evolutionMetrics` | `core` | [`evolution-metrics`](../packages/evolution/evolution-metrics) | - | [`command-evolution`](../packages/evolution/command-evolution) | - | evolution-metrics 插件在已记录的引擎运行上测量单位算力换来的能力增益，并给出失败复发、回归债、晋级、回滚与评估器可靠性的支撑读数：每项都从已计算它的存储中读取，无法测量的指标会点名缺失的记录而不是报零；command-evolution 经 /metrics 渲染一份报告。 |
 | `ctx.evolutionOperators` | `core` | [`evolution-operators`](../packages/evolution/evolution-operators) | - | [`evolution-optimizer`](../packages/evolution/evolution-optimizer), [`command-evolution`](../packages/evolution/command-evolution) | - | evolution-operators 插件按算子与产物类别累计尝试次数、接受率、平均结果增量与回归率，并按探索校正后的得分给算子排序；evolution-optimizer 经可选存储记录每一次暂存写入的算子与结果，command-evolution 经 /operators 读取统计与排序。 |
-| `ctx.evolutionRouter` | `core` | [`evolution-router`](../packages/evolution/evolution-router) | - | [`evolution-optimizer`](../packages/evolution/evolution-optimizer), [`command-evolution`](../packages/evolution/command-evolution) | - | evolution-router 插件按任务类别与进化角色测量路由结果，推导各路由的有效性，并为某个类别与角色排序应当使用的路由；evolution-optimizer 经可选存储记录每一次暂存写入的评估路由，command-evolution 经 /router 读取结果、有效性与推荐。 |
 | `ctx.evolutionTrajectory` | `core` | [`evolution-trajectory`](../packages/evolution/evolution-trajectory) | - | - | - | evolution-trajectory 插件把一个 Session 或某个作用域的全部 Session 导出为 ShareGPT 轨迹，写入宿主路径。 |
 | `ctx.evolutionTrace` | `core` | [`evolution-trace`](../packages/evolution/evolution-trace) | - | [`command-evolution`](../packages/evolution/command-evolution) | - | evolution-trace 插件把已提交的会话日志投影为结构化学习轨迹，含每次失败工具调用的排序根因归因与压缩后的学习轨迹行；command-evolution 经 /trace 读取它，这里不写入任何领域，也不发起模型请求。 |
 | `ctx.evolutionRetrieval` | `core` | [`evolution-retrieval`](../packages/evolution/evolution-retrieval) | - | [`command-evolution`](../packages/evolution/command-evolution) | - | evolution-retrieval 插件记录某会话当时生效的检索配置，并以在该配置下运行过的会话的下游任务成功率为其评分，在证据门禁之上推荐每个任务类别的最佳配置；active-memory-context 记录当时生效的配置，这里既不重构检索，也不发起模型请求。 |

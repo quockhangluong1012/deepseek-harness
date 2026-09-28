@@ -28,6 +28,11 @@ kind: "package-reference"
 挂载插件并携带存储域即可；只要存储已挂载，裁决便来自 scorer 的 `evaluateBehavior`。
 
 ```ts
+import type { Context } from '@deepseek-ai/cordis'
+import '@deepseek-ai/dsh-evolution-evaluator-health'
+
+declare const ctx: Context
+
 await ctx.evolutionEvaluatorHealth.observe({
   skill: 'polish',
   unanimous: false,

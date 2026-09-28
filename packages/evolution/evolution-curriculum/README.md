@@ -28,6 +28,11 @@ English | [中文](README.zh.md)
 Mount the plugin with the storage domain; measuring gaps additionally needs the telemetry and trace stores, and without either `gaps()` measures nothing.
 
 ```ts
+import type { Context } from '@deepseek-ai/cordis'
+import '@deepseek-ai/dsh-evolution-curriculum'
+
+declare const ctx: Context
+
 const gaps = await ctx.evolutionCurriculum.gaps()
 const staged = await ctx.evolutionCurriculum.propose(gaps)
 for (const proposal of staged) {

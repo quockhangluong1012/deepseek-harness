@@ -28,6 +28,11 @@ kind: "package-reference"
 挂载插件并携带存储域即可。从任何产生方接纳候选任务——§5.3 数据集、curriculum 存储的 open 提案，或 actuator 挖出的失败——然后沿学习阶梯逐个推进任务。
 
 ```ts
+import type { Context } from '@deepseek-ai/cordis'
+import '@deepseek-ai/dsh-evolution-benchmark'
+
+declare const ctx: Context
+
 const { admitted, duplicates } = await ctx.evolutionBenchmark.admit([{
   capability: 'writer',
   task: 'Recover from the recurring failure: boom',
@@ -52,6 +57,11 @@ for (const task of admitted) {
 本包交付 `datasets/`，每个 §5.3 场景族一个 JSON 文件，文件以该族命名。文件声明 `runRequirement: 'live-model'` 并列出其任务定义；每个定义携带 `profile`、`stepSpan`、`capability`、`task` 与 `acceptance`。
 
 ```ts
+import type { Context } from '@deepseek-ai/cordis'
+import { datasetInputs, loadDatasets } from '@deepseek-ai/dsh-evolution-benchmark'
+
+declare const ctx: Context
+
 const datasets = await loadDatasets(new URL('../datasets/', import.meta.url).pathname)
 const { admitted } = await ctx.evolutionBenchmark.admit(datasetInputs(datasets))
 ```
@@ -73,6 +83,21 @@ const { admitted } = await ctx.evolutionBenchmark.admit(datasetInputs(datasets))
 `run(request)` 把每个任务变成它自己的一次运行，并为每个任务记录一条持久结果。任务文本成为运行的输入脚本；各次尝试由 `evolution-scorer` 自己的 `scoreRun` 归约，因此裁定、计费 token 与墙钟时间与其它任何地方的含义完全一致；§13.5 事实则从每次尝试所收获的会话折叠而来。
 
 ```ts
+import type { Context } from '@deepseek-ai/cordis'
+import { datasetInputs, loadDatasets } from '@deepseek-ai/dsh-evolution-benchmark'
+import { processScenarioRunner } from '@deepseek-ai/dsh-evolution-scorer'
+import type { AgentUnderTest, WorkspaceSnapshotEntry } from '@deepseek-ai/dsh-session-snapshot'
+
+declare const ctx: Context
+
+// The composition every run boots, its recorded fixture, and the workspace it starts from.
+const agent: AgentUnderTest = { binScript: 'apps/cli/src/bin.ts', configPath: 'apps/cli/cordis.yml', tsconfigPath: 'tsconfig.json' }
+const fixtureFile = 'fixtures/session.v1.jsonl'
+const workspaceDir = 'fixtures/workspace'
+
+// The expected observable each task is judged against, captured by the deployment.
+const captures = new Map<string, readonly WorkspaceSnapshotEntry[]>()
+
 const datasets = await loadDatasets(new URL('../datasets/', import.meta.url).pathname)
 const { admitted } = await ctx.evolutionBenchmark.admit(datasetInputs(datasets))
 
@@ -102,10 +127,16 @@ runner 由调用方提供：传入 `processScenarioRunner`（或任何 `Scenario
 `transition` 把任务移到调用者所说的任何地方，这就让留出划分成为手工决策。`ladderAdvance(state, exposure)` 是那条纯规则，用引擎已记录的内容回答同一个问题；当证据挣不到任何档位时它返回 `undefined`。
 
 ```ts
+import type { Context } from '@deepseek-ai/cordis'
+import { ladderAdvance, type BenchmarkTask } from '@deepseek-ai/dsh-evolution-benchmark'
+
+declare const ctx: Context
+declare const task: BenchmarkTask
+
 // Exposure is the capability's recorded candidate evaluations.
 const next = ladderAdvance('search', { runs: 4, passes: 1 })
 // next === 'validation'
-await ctx.evolutionBenchmark.transition(task.id, next)
+if (next !== undefined) await ctx.evolutionBenchmark.transition(task.id, next)
 ```
 
 | 任务状态 | 挣得档位的条件 | 为何是这条证据 |

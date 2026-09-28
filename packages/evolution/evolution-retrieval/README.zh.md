@@ -28,6 +28,11 @@ kind: "package-reference"
 挂载插件并携带存储域即可。[`dsh-active-memory-context`](../../context/active-memory-context/README.zh.md) 在本存储挂载于其旁边时，会按会话记录一次自己所运行的配置；其他任何召回实现都可用同一个调用记录自己的配置。
 
 ```ts
+import type { Context } from '@deepseek-ai/cordis'
+import '@deepseek-ai/dsh-evolution-retrieval'
+
+declare const ctx: Context
+
 await ctx.evolutionRetrieval.record({
   configuration: {
     source: 'hybrid',

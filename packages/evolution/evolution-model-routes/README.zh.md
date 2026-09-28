@@ -30,6 +30,12 @@ kind: "package-reference"
 挂载插件并携带存储域即可。只要存储已挂载，结果就来自优化器的暂存写入；运维者读取指派、固定路由并读取实测证据。承担晋升或裁决的调用者先记录该次运行各角色由谁填充，再在做出决定之前读取职责分离检查。
 
 ```ts
+import type { Context } from '@deepseek-ai/cordis'
+import '@deepseek-ai/dsh-evolution-model-routes'
+
+declare const ctx: Context
+declare const stagedId: string
+
 await ctx.evolutionModelRoutes.observe({
   taskClass: 'writer',
   role: 'evaluation',

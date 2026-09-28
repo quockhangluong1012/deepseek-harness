@@ -1443,6 +1443,161 @@ export interface CheckpointResumedRecord {
   readonly resumedAt: number
 }
 
+/**
+ * Which evolution package produced a §18.2 fact. The kernel's own
+ * {@link SourceRef} vocabulary names emitting subsystems of the agent loop
+ * (`user`, `model`, `repo`, `tool`, `web`, `mcp`, `subagent`, `policy`,
+ * `kernel`); the evolution plane is offline and is none of those, so these
+ * records carry their own closed source union rather than widening the
+ * kernel's, which is a persisted type.
+ */
+export type EvolutionSource = 'evolution-optimizer' | 'command-evolution'
+
+/**
+ * Versioned identity and source reference shared by every §18.2 evolution
+ * event.
+ *
+ * It mirrors {@link KernelEventMetadata} field for field, with one honest
+ * difference: `runId` names the optimization run, not a kernel run. The
+ * evolution plane runs offline, so a `/curator optimize` invocation has no
+ * kernel task to hang it from; `taskId` is filled only where one existed, so a
+ * reader can still join the two planes.
+ */
+export interface EvolutionEventMetadata {
+  /** Evolution event schema version. */
+  readonly version: 1
+  /** Optimization run that produced the fact. */
+  readonly runId: RunId
+  /** Kernel task the run belonged to, when the session had one open. */
+  readonly taskId?: TaskId
+  /** Actor that caused the fact. */
+  readonly actor: ActorKind
+  /** Unix epoch milliseconds when the fact occurred. */
+  readonly timestamp: number
+  /** Package that produced the fact, and what within it the fact is about. */
+  readonly source: EvolutionSource
+  /** Skill, staged write, or policy chain the fact is about. */
+  readonly locator: string
+}
+
+/** An evolution event payload; its metadata is required, never optional. */
+export type EvolutionEventData<T extends object> = T & { readonly metadata: EvolutionEventMetadata }
+
+/**
+ * One candidate body the evolution layer staged for evaluation (§18.2).
+ *
+ * The body never enters the log: it is a complete replacement `SKILL.md`, and
+ * §18.2 hashes sensitive content. `bodySha` is what the scored, promoted, and
+ * rolled-back records join on.
+ */
+export interface EvolutionCandidateRecord {
+  /** Skill the candidate body would replace. */
+  readonly skill: string
+  /** Evolution scope the run searched in. */
+  readonly scopeId: string
+  /** Digest of the candidate body. */
+  readonly bodySha: string
+  /** Mutation operator that produced the body. */
+  readonly operator: string
+  /** Share of the body's distinct instruction lines the starting body does not already state, in 0..1. */
+  readonly novelty: number
+  /** Distance from every body the skill's novelty archive already holds, in 0..1. */
+  readonly archiveNovelty: number
+  /** Corpus scenarios the candidate is searched on. */
+  readonly scenarios: readonly string[]
+  /** Provider and model the mutation request and every score ran under. */
+  readonly route: string
+}
+
+/** One scenario's measured result inside an evaluation. */
+export interface EvolutionScenarioScore {
+  /** Corpus scenario the result belongs to. */
+  readonly scenario: string
+  /** Whether every attempt's workspace matched the scenario's expected state. */
+  readonly pass: boolean
+  /** Median billed tokens across the scenario's attempts. */
+  readonly tokens: number
+  /** Median wall-clock milliseconds across the scenario's attempts. */
+  readonly wallTimeMs: number
+  /** Digest of the recorded fixture corpus this scenario ran against. */
+  readonly fixtureDigest: string
+  /** Harvested session the run's trajectory is exported from, when one was. */
+  readonly trajectory: string | null
+}
+
+/**
+ * One measured score for a candidate body (§18.2). A candidate is scored more
+ * than once — searched, screened, checked against the protected holdout, and
+ * confirmed over repeated paired comparisons — so every score is recorded and
+ * the scenario list is what tells a search score from a holdout score.
+ */
+export interface EvolutionEvaluationRecord {
+  /** Skill the scored body belongs to. */
+  readonly skill: string
+  /** Digest of the scored body; joins to the candidate and promotion records. */
+  readonly bodySha: string
+  /** Scenarios the body was scored on. */
+  readonly scenarios: readonly string[]
+  /** Whether every scenario matched its expected state. */
+  readonly pass: boolean
+  /** Billed tokens summed over the scenarios' medians. */
+  readonly tokens: number
+  /** Wall-clock milliseconds summed over the scenarios' medians. */
+  readonly wallTimeMs: number
+  /** Per-scenario results, in run order. */
+  readonly scores: readonly EvolutionScenarioScore[]
+}
+
+/** The three numbers one scoring run measured. */
+export interface EvolutionTriple {
+  /** Whether every scenario matched its expected state. */
+  readonly pass: boolean
+  /** Billed tokens summed over the scenarios' medians. */
+  readonly tokens: number
+  /** Wall-clock milliseconds summed over the scenarios' medians. */
+  readonly wallTimeMs: number
+}
+
+/**
+ * One promotion of a skill body, or the revert of one (§18.2). Both states
+ * share the record because a reader asks one question of it — which body is
+ * live for this skill, and what replaced it — and the answer is the same shape
+ * whichever way the body moved.
+ */
+export interface EvolutionPromotionRecord {
+  /** Skill whose body the record promoted or restored. */
+  readonly skill: string
+  /** Evolution scope the promotion belongs to. */
+  readonly scopeId: string
+  /** `promoted` when a body write committed; `rolled-back` when a recorded preimage was restored. */
+  readonly state: 'promoted' | 'rolled-back'
+  /** Digest of the body that is live after this record. */
+  readonly bodySha: string
+  /** Digest of the body this record replaced — the preimage a rollback restores (§28). */
+  readonly preimageSha: string
+  /** Failure evidence the promotion was argued from, when the run framed any. */
+  readonly evidence?: string
+  /** Staged write the promotion resolved, when it promoted one. */
+  readonly stagedId?: string
+  /** Measured triple of the live body, and of the baseline it had to beat. */
+  readonly measured?: { readonly body: EvolutionTriple; readonly baseline: EvolutionTriple }
+  /** Paired winner-versus-baseline comparisons the promotion won, out of those it made. */
+  readonly confidence?: { readonly wins: number; readonly runs: number }
+  /** Why the record exists; a revert names the revision it restored. */
+  readonly reason?: string
+}
+
+/** What one session's log says the evolution layer did to its skills (§18.2). */
+export interface EvolutionRecord {
+  /** Candidate bodies staged for evaluation, in log order. */
+  readonly candidates: readonly EvolutionCandidateRecord[]
+  /** Measured scores, in log order. */
+  readonly evaluations: readonly EvolutionEvaluationRecord[]
+  /** Current state of every skill this log promoted or reverted, keyed by skill. */
+  readonly promotions: ReadonlyMap<string, EvolutionPromotionRecord>
+}
+
+
 /** What the kernel knows about one session's task, derived from its log. */
 export interface KernelView {
   /** The current task contract. */
@@ -1463,6 +1618,8 @@ export interface KernelView {
   readonly hypotheses: readonly TaskHypothesis[]
   /** Diagnoses recorded for this task's failures, in log order. */
   readonly diagnoses: readonly FailureDiagnosis[]
+  /** What the evolution layer did to this session's skills, in log order. */
+  readonly evolution: EvolutionRecord
   /** Latest recorded plan revision, when the task has one. */
   readonly plan?: PlanRevision
   /** Latest recorded checkpoint, when the task has one. */
@@ -1976,5 +2133,31 @@ declare module '@deepseek-ai/dsh-session/types' {
      * Log-only.
      */
     'delegation/issued': KernelEventData<DelegationReceipt>
+    /**
+     * One candidate body the evolution layer staged for evaluation. The body
+     * itself stays in the store that holds it; §18.2 hashes it, and its
+     * digest is what the evaluated and promoted records join on. Log-only.
+     */
+    'evolution/candidate': EvolutionEventData<EvolutionCandidateRecord>
+    /**
+     * One measured score for a candidate body, with the per-scenario results
+     * and the fixture digest each ran against. A candidate is scored once per
+     * search, screen, holdout, and confirmation pass, so every score is
+     * recorded rather than only the last. Log-only.
+     */
+    'evolution/evaluated': EvolutionEventData<EvolutionEvaluationRecord>
+    /**
+     * One promotion committed: the body a run measured, the evidence and
+     * confidence it was argued from, the cost of the score that won, and the
+     * digest of the preimage it replaced (§28). Log-only.
+     */
+    'evolution/promoted': EvolutionEventData<EvolutionPromotionRecord>
+    /**
+     * One promotion reverted: the body that is live again, the promoted body
+     * it replaced, and the revision the restore was recorded as, so the revert
+     * lands as history instead of rewriting released generations (§28).
+     * Log-only.
+     */
+    'evolution/rolled-back': EvolutionEventData<EvolutionPromotionRecord>
   }
 }

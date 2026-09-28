@@ -29,6 +29,11 @@ kind: "package-reference"
 将插件与存储域一起挂载，并用部署方自己拥有的稳定 id 指向一个学习者——用户 id、账号 id，任何比会话活得更久的值。
 
 ```ts
+import type { Context } from '@deepseek-ai/cordis'
+import { ConceptId, LearnerId } from '@deepseek-ai/dsh-learner-model'
+
+declare const ctx: Context
+
 const learner = LearnerId('user-1')
 const concept = ConceptId('pd-array-pip')
 

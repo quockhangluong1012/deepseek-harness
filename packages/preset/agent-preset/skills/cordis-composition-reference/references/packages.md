@@ -91,6 +91,7 @@ Every package below exports a Cordis plugin that a bundle patch can name in a Lo
 | `@deepseek-ai/dsh-client-ui-progress` | no | Progress tab type for the right Sidebar: the session's task checklist and the files it produced, revealed at the first sign of work |
 | `@deepseek-ai/dsh-client-ui-reference` | no | Unified Web @file and @session reference source |
 | `@deepseek-ai/dsh-client-ui-renderer` | no | Browser UI renderer: React slot bindings, ctx.uiRenderer, and the assembled application root |
+| `@deepseek-ai/dsh-client-ui-review` | no | Independent review findings panel for dsh web: one keyed Chat node over the durable review/report a /review or /security-review run wrote |
 | `@deepseek-ai/dsh-client-ui-schedule` | no | Read-only active Schedule catalog in the Web Session header |
 | `@deepseek-ai/dsh-client-ui-session` | no | Session Controller adapter for React and session-scoped slots |
 | `@deepseek-ai/dsh-client-ui-settings` | no | Settings domain base plugin: shared configuration forms and the canonical settings slot-type contract |
@@ -98,6 +99,7 @@ Every package below exports a Cordis plugin that a bundle patch can name in a Lo
 | `@deepseek-ai/dsh-client-ui-settings-agent-loop` | no | Settings page of the agent loop on the dsh web client's Plugins page: the parallel tool-call cap of the agent-loop namespace |
 | `@deepseek-ai/dsh-client-ui-settings-authorization` | no | Sign-in companion for the Models page: OAuth and interactive provider logins over the authorization Remote namespace |
 | `@deepseek-ai/dsh-client-ui-settings-general` | no | Settings ownerless-copy and product onboarding plugin: the General section, shell trigger/header chrome content, settings dictionaries, and the versioned welcome notice |
+| `@deepseek-ai/dsh-client-ui-settings-mcp` | no | MCP settings page of the dsh web client: lists the servers configured in the project and user config files with their trust labels and live connection state, and adds, edits, or removes them through the Host's approval-gated management service |
 | `@deepseek-ai/dsh-client-ui-settings-models` | yes | Models settings and shared product-onboarding dialogs over existing settings and credential joins |
 | `@deepseek-ai/dsh-client-ui-settings-plugin-inventory` | no | Read-only Cordis Loader inventory tab in Web Plugins settings |
 | `@deepseek-ai/dsh-client-ui-settings-plugins` | no | Built-in plugins settings section for the dsh web client: the Settings navigation entry and the tab chrome feature-owned tabs register into |
@@ -145,9 +147,11 @@ Every package below exports a Cordis plugin that a bundle patch can name in a Lo
 | `@deepseek-ai/dsh-command-init` | no | Human /init command that asks the Agent to write the workspace AGENTS.md |
 | `@deepseek-ai/dsh-evolution-memory-context` | yes | Evolution memory brief injector: renders Instructions, Lessons, Profile, and Context into agent pre-step |
 | `@deepseek-ai/dsh-file-reference-local` | yes | Local-filesystem ctx.fileReferences provider with bounded fuzzy indexes |
+| `@deepseek-ai/dsh-repo-map` | yes | Ranked, byte-bounded repository map injected as a stable-core context source |
 | `@deepseek-ai/dsh-session-reference` | yes | Cross-session snapshot references and durable untrusted model context (ctx.sessionReferenceResolver) |
 | `@deepseek-ai/dsh-time-context` | yes | Opt-in durable per-step context with the current time and elapsed time |
 | `@deepseek-ai/dsh-tmux-context` | yes | Opt-in durable per-step context with this agent's tmux pane and window location |
+| `@deepseek-ai/dsh-working-set` | yes | Per-task working set: the primary, dependency, test, config, and documentation files one objective names, injected as a stable-core context source |
 | `@deepseek-ai/dsh-workspace-memory-context` | yes | Workspace memory brief injector: renders Instructions, Memory, and Context into agent pre-step |
 
 ## core
@@ -175,7 +179,8 @@ Every package below exports a Cordis plugin that a bundle patch can name in a Lo
 
 | Package | Config | Description |
 |---|---|---|
-| `@deepseek-ai/dsh-command-rewind` | no | Human-facing /rewind slash command: restores the working directory's code to its content at the start of a given turn |
+| `@deepseek-ai/dsh-command-rewind` | no | Human-facing /rewind slash command: returns to a turn by restoring code, branching the conversation, or both |
+| `@deepseek-ai/dsh-tool-changes` | no | Model-facing reads of a turn's recorded workspace changes for the DeepSeek Harness |
 | `@deepseek-ai/dsh-tool-present` | yes | Explicit workspace file delivery declarations for the DeepSeek Harness |
 | `@deepseek-ai/dsh-workspace-changes` | yes | Per-turn workspace file changes recorded from git working-tree snapshots and whole-file captures, with per-file comparisons, for the DeepSeek Harness |
 
@@ -209,14 +214,13 @@ Every package below exports a Cordis plugin that a bundle patch can name in a Lo
 | `@deepseek-ai/dsh-evolution-memory` | yes | Durable per-scope evolution memory record, lessons/profile writes, staged writes, and capacity accounting (ctx.evolutionMemory) |
 | `@deepseek-ai/dsh-evolution-meta` | yes | Meta-evolution: durable engine runs under their configurations with the next-configuration recommendation (ctx.evolutionMeta) |
 | `@deepseek-ai/dsh-evolution-metrics` | yes | Evolution metrics: capability gain per unit of compute and the supporting set, read from the evolution stores (ctx.evolutionMetrics) |
-| `@deepseek-ai/dsh-evolution-model-routes` | no | Adaptive model routing: durable per-role route assignments with measured evidence and recommendation, over the evolutionary role topology (ctx.evolutionModelRoutes) |
+| `@deepseek-ai/dsh-evolution-model-routes` | yes | Adaptive model routing: durable per-role route assignments with measured evidence and recommendation, over the evolutionary role topology (ctx.evolutionModelRoutes) |
 | `@deepseek-ai/dsh-evolution-novelty-search` | no | Novelty search: a durable per-skill archive of behavior descriptors whose Jaccard-based archive novelty rewards meaningfully different candidates (ctx.evolutionNovelty) |
 | `@deepseek-ai/dsh-evolution-operators` | yes | Mutation-operator evolution: durable per-operator mutation statistics with the exploration-adjusted next-operator ranking (ctx.evolutionOperators) |
 | `@deepseek-ai/dsh-evolution-optimizer` | yes | Minimal offline skill optimization: trigger-gated mutation over ctx.llm, scorer evaluation under a DSH_HOME overlay, Pareto pick, staged skill patch (ctx.evolutionOptimizer) |
 | `@deepseek-ai/dsh-evolution-population` | no | Population-based evolution: a durable cross-run candidate record with generations, parent lineage, and an approved elite archive per skill (ctx.evolutionPopulation) |
 | `@deepseek-ai/dsh-evolution-retrieval` | yes | Retrieval-aware evolution: recorded retrieval configurations per session, judged by downstream task success, with the configuration recommendation per task class (ctx.evolutionRetrieval) |
 | `@deepseek-ai/dsh-evolution-reviewer` | yes | Evolution background review: per-turn output indexing, gated lessons extraction, on-demand rebuild (ctx.evolutionReviewer) |
-| `@deepseek-ai/dsh-evolution-router` | yes | Routing self-optimization: per-task-class route outcomes with derived effectiveness and the route recommendation (ctx.evolutionRouter) |
 | `@deepseek-ai/dsh-evolution-scorer` | yes | Measured improvement scoring: pass/workspace-diff, metered billed tokens, and median-of-N wall time over the recorded-session corpus (ctx.evolutionScorer) |
 | `@deepseek-ai/dsh-evolution-self-model` | yes | Controlled self-model: a durable per-skill capability record feeding a weakest-first capability frontier that says what to learn next (ctx.evolutionSelfModel) |
 | `@deepseek-ai/dsh-evolution-sleeptime` | yes | Sleep-time compute: anticipated future tasks with precomputed reasoning artifacts under an offline-cost economic policy (ctx.evolutionSleeptime) |
@@ -232,7 +236,7 @@ Every package below exports a Cordis plugin that a bundle patch can name in a Lo
 |---|---|---|
 | `@deepseek-ai/dsh-experimental-agent-team` | yes | Implicit-root Agent Teams roster, durable peer mailbox, and shared task DAG |
 | `@deepseek-ai/dsh-experimental-api-speech-to-text` | yes | Authenticated experimental speech transcription for browser clients |
-| `@deepseek-ai/dsh-experimental-auto-review` | no | Per-tool LLM authorization review for the DeepSeek Harness Auto permission preset |
+| `@deepseek-ai/dsh-experimental-auto-review` | yes | Per-tool LLM authorization review for the DeepSeek Harness Auto permission preset |
 | `@deepseek-ai/dsh-experimental-browser-use-chrome-devtools-mcp` | yes | Experimental per-Session Chromium browser tools through chrome-devtools-mcp |
 | `@deepseek-ai/dsh-experimental-browser-use-playwright-mcp` | yes | Experimental per-Session Chromium browser tools through @playwright/mcp |
 | `@deepseek-ai/dsh-experimental-browser-use-stagehand-native` | yes | Experimental Stagehand browser tools with separately configured native models |
@@ -273,6 +277,12 @@ Every package below exports a Cordis plugin that a bundle patch can name in a Lo
 | `@deepseek-ai/dsh-tool-fs-search` | yes | Model-facing filesystem discovery tools (glob, grep) backed by the packaged ripgrep binary (@vscode/ripgrep) |
 | `@deepseek-ai/dsh-tool-str-replace-editor` | yes | Model-facing view, create, literal replace, and line insert tool over the Harness filesystem service |
 
+## git
+
+| Package | Config | Description |
+|---|---|---|
+| `@deepseek-ai/dsh-tool-git` | yes | Model-facing git tools: commit, branch switch, pull request through gh, and worktrees over the subprocess seam |
+
 ## goal
 
 | Package | Config | Description |
@@ -286,10 +296,10 @@ Every package below exports a Cordis plugin that a bundle patch can name in a Lo
 
 | Package | Config | Description |
 |---|---|---|
-| `@deepseek-ai/dsh-budgets` | yes | Per-turn budget guard: token, tool-call, and wall-clock ceilings enforced on agent/pre-step |
+| `@deepseek-ai/dsh-budgets` | yes | Budget guard: turn, session, run, and context ceilings enforced on agent/pre-step |
 | `@deepseek-ai/dsh-prompt-injection` | yes | Prompt-injection and credential guard: wraps external content in a tainted envelope, records what matched, and replaces credentials before content reaches model context |
 | `@deepseek-ai/dsh-repeat-tool-reminder` | yes | Repeat-tool-call guard plugin: advisory reminders when an agent loops on identical tool calls |
-| `@deepseek-ai/dsh-tool-call-timeout-policy` | yes | Tool-call timeout policy: a tools/execute wrapper that arms a per-tool deadline on exec.signal and returns TOOL_TIMEOUT when it wins |
+| `@deepseek-ai/dsh-tool-call-timeout-policy` | no | Tool-call timeout policy: a tools/execute wrapper that arms a per-tool deadline on exec.signal and returns TOOL_TIMEOUT when it wins |
 
 ## hooks
 
@@ -358,8 +368,16 @@ Every package below exports a Cordis plugin that a bundle patch can name in a Lo
 | Package | Config | Description |
 |---|---|---|
 | `@deepseek-ai/dsh-mcp-client` | yes | MCP client bridge: connects to MCP servers and registers their tools on ctx.tools |
-| `@deepseek-ai/dsh-mcp-project-config` | yes | Discovers project and user MCP server declarations from .mcp.json files and mounts one dsh-mcp-client instance per configured server |
+| `@deepseek-ai/dsh-mcp-project-config` | yes | Discovers project and user MCP server declarations from .mcp.json files, mounts one dsh-mcp-client instance per configured server, and serves the Remote management surface that lists, writes, and deletes those declarations |
 | `@deepseek-ai/dsh-mcp-resources` | no | Scoped MCP resource discovery and reading through shared model tools |
+
+## mentor
+
+| Package | Config | Description |
+|---|---|---|
+| `@deepseek-ai/dsh-learner-model` | no | Durable per-learner record of concept knowledge, application ability, misconceptions, recurring mistakes, confidence, case history, and next objectives (ctx.learnerModel) |
+| `@deepseek-ai/dsh-mentor-loop` | yes | The §20 mentor quality loop as a plugin over the agent loop, the kernel's claims and evidence, the misconception engine, and the learner record: derives the stage from those seams, records one evidence-backed detection, injects each stage's directive into the mentor agent's next request, and counts recurring mistakes (ctx.mentorLoop) |
+| `@deepseek-ai/dsh-misconception` | yes | Evidence-backed misconception engine: matches a learner's stated thesis against the deployment's misconception patterns, records the finding as a kernel claim contradicted by cited observations, and drives each learner's misconception through the explain → counterexample → exercise → new case → reassess pipeline over durable state (ctx.misconception) |
 
 ## plan
 
@@ -373,6 +391,7 @@ Every package below exports a Cordis plugin that a bundle patch can name in a Lo
 |---|---|---|
 | `@deepseek-ai/dsh-agent-preset` | yes | Declare an Agent capability composition in Cordis YAML |
 | `@deepseek-ai/dsh-agent-preset-registry` | yes | Declarative Agent preset registry and profile-backed editing |
+| `@deepseek-ai/dsh-analyst-profiles` | no | Declarative ICT analyst and devil-advocate answer contracts with a section validator |
 | `@deepseek-ai/dsh-persona` | yes | Composition-authored deployment persona section for the DeepSeek Harness |
 
 ## ptc-runtime
@@ -381,13 +400,26 @@ Every package below exports a Cordis plugin that a bundle patch can name in a Lo
 |---|---|---|
 | `@deepseek-ai/dsh-ptc-runtime-node` | yes | Sandboxed Node process implementation of the DeepSeek Harness PTC execution capability |
 
+## repo
+
+| Package | Config | Description |
+|---|---|---|
+| `@deepseek-ai/dsh-repo-index` | yes | Bounded, lazily built repository index of a workspace root |
+
+## research
+
+| Package | Config | Description |
+|---|---|---|
+| `@deepseek-ai/dsh-case-store` | no | Durable per-learner ICT case-study artifact store with the read paths its four consumers use (ctx.caseStore) |
+| `@deepseek-ai/dsh-research-controller` | yes | Staged research quality-control loop with durable per-stage state and a six-way answer contract (ctx.research) |
+
 ## runtime
 
 | Package | Config | Description |
 |---|---|---|
 | `@deepseek-ai/dsh-agent-context` | yes | Context compiler: source envelopes, deterministic ranking, conflict reports, token-budget fitting, and a replayable compiled-context digest over the existing prompt contributors |
 | `@deepseek-ai/dsh-agent-kernel` | yes | Agent kernel: durable task contract, action ledger, capability policy, and completion gate observed through the existing agent and tool seams |
-| `@deepseek-ai/dsh-agent-kernel-builtins` | no | Built-in tool capability declarations for the agent kernel: one declaration per shipped product tool so enforce mode governs real traffic |
+| `@deepseek-ai/dsh-agent-kernel-builtins` | yes | Built-in tool capability declarations for the agent kernel: one declaration per shipped product tool so enforce mode governs real traffic |
 | `@deepseek-ai/dsh-tool-evidence` | yes | Model-facing evidence and claim recording over the agent kernel's knowledge plane. |
 
 ## runtime-diagnostics
@@ -547,6 +579,13 @@ Every package below exports a Cordis plugin that a bundle patch can name in a Lo
 |---|---|---|
 | `@deepseek-ai/dsh-typert-loader` | yes | Loader integration for generated Typert package contributions |
 
+## verification
+
+| Package | Config | Description |
+|---|---|---|
+| `@deepseek-ai/dsh-agent-verifiers` | yes | Agent-backed acceptance-criterion verifiers for the agent kernel completion gate: an independent subagent decides the security, browser, and review families |
+| `@deepseek-ai/dsh-command-verifiers` | yes | Command-backed acceptance-criterion verifiers for the agent kernel completion gate: each configured criterion runs one shell command and reports pass, fail, or timeout |
+
 ## web
 
 | Package | Config | Description |
@@ -579,4 +618,3 @@ Every package below exports a Cordis plugin that a bundle patch can name in a Lo
 |---|---|---|
 | `@deepseek-ai/dsh-workspace` | no | Workspace entity registry (ctx.workspaceRegistry): durable workspace records with validated session attachment over the domain data form for the DeepSeek Harness |
 | `@deepseek-ai/dsh-workspace-memory` | yes | Durable per-workspace memory record, caps, and capacity accounting (ctx.workspaceMemory) |
-| `@deepseek-ai/dsh-workspace-memory-llm` | yes | Workspace memory extraction: per-turn output indexing, per-turn memory derivation, on-demand rebuild (ctx.workspaceMemoryExtractor) |

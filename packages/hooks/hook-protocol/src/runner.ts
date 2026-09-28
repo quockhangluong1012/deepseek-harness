@@ -79,7 +79,11 @@ export async function runHook(
     : await runCommandHook(bash, hook, options, started, now)
 }
 
-/** Whether a configured handler is the HTTP transport (`url`) rather than a command line. */
+/**
+ * Whether a configured handler is the HTTP transport (`url`) rather than a command line.
+ * @param hook - the configured handler.
+ * @returns true when the handler is the HTTP transport.
+ */
 export function isHttpHook(hook: HookHandler): hook is HttpHook {
   return 'url' in hook
 }

@@ -28,6 +28,11 @@ kind: "package-reference"
 挂载插件并配合存储域。只要存储已挂载，运行就来自优化器的暂存写入；操作者读取状态，并在任务制度变更时重置技能。
 
 ```ts
+import type { Context } from '@deepseek-ai/cordis'
+import '@deepseek-ai/dsh-evolution-stagnation'
+
+declare const ctx: Context
+
 await ctx.evolutionStagnation.recordRun({
   runId: 'staged-0',
   skill: 'writer',

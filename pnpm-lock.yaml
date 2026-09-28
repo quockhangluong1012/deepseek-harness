@@ -8219,6 +8219,9 @@ importers:
       '@deepseek-ai/dsh-agent':
         specifier: workspace:*
         version: link:../../core/agent
+      '@deepseek-ai/dsh-agent-kernel':
+        specifier: workspace:*
+        version: link:../../runtime/agent-kernel
       '@deepseek-ai/dsh-commands':
         specifier: workspace:*
         version: link:../../interaction/commands
@@ -8974,6 +8977,9 @@ importers:
       '@deepseek-ai/cordis':
         specifier: workspace:~
         version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-agent-kernel':
+        specifier: workspace:*
+        version: link:../../runtime/agent-kernel
       '@deepseek-ai/dsh-evolution-budget':
         specifier: workspace:*
         version: link:../evolution-budget
@@ -9016,6 +9022,9 @@ importers:
       '@deepseek-ai/dsh-llm':
         specifier: workspace:*
         version: link:../../llm/llm
+      '@deepseek-ai/dsh-session':
+        specifier: workspace:*
+        version: link:../../core/session
       '@deepseek-ai/dsh-session-snapshot':
         specifier: workspace:*
         version: link:../../test-support/session-snapshot
@@ -12347,6 +12356,9 @@ importers:
       '@deepseek-ai/dsh-typert-protocol':
         specifier: workspace:*
         version: link:../../typert/protocol
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
     devDependencies:
       '@deepseek-ai/cordis':
         specifier: workspace:~
@@ -13658,6 +13670,9 @@ importers:
       '@deepseek-ai/dsh-session-format-v4-to-v5':
         specifier: workspace:*
         version: link:../session-format-v4-to-v5
+      '@deepseek-ai/dsh-session-format-v5-to-v6':
+        specifier: workspace:*
+        version: link:../session-format-v5-to-v6
     devDependencies:
       '@deepseek-ai/cordis':
         specifier: workspace:~
@@ -13741,6 +13756,19 @@ importers:
       '@deepseek-ai/dsh-session-format-v3-to-v4':
         specifier: workspace:*
         version: link:../session-format-v3-to-v4
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:~
+        version: link:../../../vendor/cordis
+
+  packages/session/session-format-v5-to-v6:
+    dependencies:
+      '@deepseek-ai/dsh-session-format':
+        specifier: workspace:*
+        version: link:../session-format
+      '@deepseek-ai/dsh-session-format-v4-to-v5':
+        specifier: workspace:*
+        version: link:../session-format-v4-to-v5
     devDependencies:
       '@deepseek-ai/cordis':
         specifier: workspace:~

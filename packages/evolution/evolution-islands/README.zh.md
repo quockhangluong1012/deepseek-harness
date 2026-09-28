@@ -28,6 +28,11 @@ kind: "package-reference"
 挂载插件并配合存储域。操作者注册技能进化任务的轨道，只要存储已挂载优化器就推进刻度，迁移按调度将强候选移入移出岛屿。
 
 ```ts
+import type { Context } from '@deepseek-ai/cordis'
+import '@deepseek-ai/dsh-evolution-islands'
+
+declare const ctx: Context
+
 await ctx.evolutionIslands.register({
   islandId: 'stable',
   name: 'Stable lane',

@@ -28,6 +28,11 @@ English | [中文](README.zh.md)
 Mount the plugin with the storage domain. Skills record their whole self-view whenever it changes; evaluation outcomes arrive as capability observations; operators read the frontier to decide what the loop should learn next.
 
 ```ts
+import type { Context } from '@deepseek-ai/cordis'
+import EvolutionSelfModel from '@deepseek-ai/dsh-evolution-self-model'
+
+declare const ctx: Context
+
 await ctx.evolutionSelfModel.record({
   skill: 'writer',
   strengths: ['draft'],

@@ -31,6 +31,12 @@ English | [中文](README.zh.md)
 Mount the plugin with the storage domain, open a case for a learner, then amend it as the review progresses. The store mints the case id.
 
 ```ts
+import type { Context } from '@deepseek-ai/cordis'
+import { EvidenceKey, InterpretationId, ObservationId } from '@deepseek-ai/dsh-case-store'
+import { ConceptId, LearnerId } from '@deepseek-ai/dsh-learner-model'
+
+declare const ctx: Context
+
 const opened = await ctx.caseStore.createCase(LearnerId('user-1'), {
   symbol: 'EURUSD',
   timeframes: ['D1', 'H1', 'M5'],
@@ -91,7 +97,13 @@ An observation entry has no `basis` field and cannot acquire one: the artifact i
 `evidence` holds references, never content. An item observed inside a session carries the kernel's evidence id and nothing else, so the case cannot drift from the observation it cites:
 
 ```ts
-{ evidenceKey: EvidenceKey('ev-1'), kind: 'kernel', evidenceId: EvidenceId('ev-1') }
+import { EvidenceKey, evidenceIdSchema, type CaseEvidence } from '@deepseek-ai/dsh-case-store'
+
+const observed: CaseEvidence = {
+  evidenceKey: EvidenceKey('ev-1'),
+  kind: 'kernel',
+  evidenceId: evidenceIdSchema.parse('ev-1'),
+}
 ```
 
 A chart or backtest read outside a session has no kernel record, so it is located instead, and it carries the trust label of wherever that locator points: `{ evidenceKey, kind: 'external', locator: 'backtest-2024-03.csv', trust: 'untrusted' }`. Observations cite these keys through `evidence`, so a reader can tell which item an observation came from without the case storing the item.

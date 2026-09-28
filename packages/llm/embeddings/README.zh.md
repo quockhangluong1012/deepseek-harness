@@ -28,6 +28,12 @@ kind: "package-reference"
 挂载服务、注册提供方，然后调用批量嵌入。无论提供方以何种顺序作答，向量都按请求顺序返回。
 
 ```ts
+import type { Context } from '@deepseek-ai/cordis'
+import Embeddings, { EmbeddingsProvider } from '@deepseek-ai/dsh-embeddings'
+
+declare const ctx: Context
+declare const provider: EmbeddingsProvider
+
 ctx.plugin(Embeddings)
 ctx.embeddings.registerProvider(['http'], provider)
 

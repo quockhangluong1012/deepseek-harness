@@ -28,6 +28,11 @@ English | [中文](README.zh.md)
 Mount the plugin with the storage domain. Runs arrive from the optimizer's staged writes whenever the store is mounted; operators read the status and reset a skill whose task regime changed.
 
 ```ts
+import type { Context } from '@deepseek-ai/cordis'
+import '@deepseek-ai/dsh-evolution-stagnation'
+
+declare const ctx: Context
+
 await ctx.evolutionStagnation.recordRun({
   runId: 'staged-0',
   skill: 'writer',

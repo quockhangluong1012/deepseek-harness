@@ -12,7 +12,7 @@ Status: implemented
 
 凭据 Service Definition 新增一个抽象的引用写入方法：
 
-```ts
+```ts ignore-check
 abstract rotate(ref: CredentialRef, mutate: (current: string | undefined) => string): Promise<void>
 ```
 

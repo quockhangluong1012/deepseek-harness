@@ -28,6 +28,14 @@ kind: "package-reference"
 带上语料根目录挂载本插件，然后按名称评分：
 
 ```ts
+import type { Context } from '@deepseek-ai/cordis'
+import { processScenarioRunner } from '@deepseek-ai/dsh-evolution-scorer'
+
+declare const binScript: string
+declare const configPath: string
+declare const tsconfigPath: string
+declare const ctx: Context
+
 const outcome = await ctx.evolutionScorer.score({
   scenario: 'text-turn',
   agent: { binScript, configPath, tsconfigPath, profile: 'acp' },

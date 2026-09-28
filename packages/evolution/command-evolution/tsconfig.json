@@ -12,6 +12,7 @@
     { "path": "../../core/session" },
     { "path": "../../interaction/commands" },
     { "path": "../../llm/llm" },
+    { "path": "../../runtime/agent-kernel" },
     { "path": "../../session/session-format" },
     { "path": "../../session/usage-ledger" },
     { "path": "../../session-query/session-log-export/tsconfig.host.json" },

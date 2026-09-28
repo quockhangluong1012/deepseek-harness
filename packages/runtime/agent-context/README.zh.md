@@ -80,9 +80,18 @@ kind: "package-reference"
 `ctx.agentContext.tokenTotals(session)` 按来源类型汇总最新记录放置的 token 价格（`byKind`），并报告 `placementCount`——该会话已有多少次放置取代了前一次（S1）。汇总口径对所有已放置来源一视同仁——组装出的分节与上下文、Kernel 的持久任务事实，以及已注册的（S2）来源皆一样——因此已注册生产者的价格不会因为其内容是经由自身的注入路径而非 `PromptAssembly` 到达模型，就在统计中缺失。首次编译前 `byKind` 读作 `{}`，`placementCount` 为 `0`；压缩边界会清空增量/滞后追踪，但会保留上一次放置的汇总值，直到下一次编译覆盖它。
 
 ```ts
+import type { Context } from '@deepseek-ai/cordis'
+import '@deepseek-ai/dsh-agent-context'
+import '@deepseek-ai/dsh-agent-kernel'
+
+declare const ctx: Context
+
 const stop = ctx.agentContext.register(
   { producer: 'goal', kind: 'task', trust: 'trusted', placement: 'stable-core', maxBytes: 4000 },
-  async (agent, signal) => [{ id: 'objective', text: currentGoalText(agent), relevance: 1 }],
+  async agent => {
+    const view = ctx.agentKernel.state.view(agent.session)
+    return [{ id: 'objective', text: view?.task.objective ?? '', relevance: 1 }]
+  },
 )
 ```
 

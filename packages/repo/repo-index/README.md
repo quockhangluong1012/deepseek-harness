@@ -28,6 +28,12 @@ English | [中文](README.zh.md)
 Mount the plugin wherever a consumer needs repository facts; it injects `fs` and registers `ctx.repoIndex`, and its cache dies with the fiber it was mounted on.
 
 ```ts
+import type { Context } from '@deepseek-ai/cordis'
+import RepoIndex from '@deepseek-ai/dsh-repo-index'
+
+declare const ctx: Context
+declare const workspaceRoot: string
+
 const snapshot = await ctx.repoIndex.ensure(workspaceRoot)
 snapshot.symbols      // declaration lines, at most maxSymbols
 snapshot.imports      // one edge per distinct specifier, with how it resolved

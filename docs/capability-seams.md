@@ -228,6 +228,7 @@ flowchart LR
   svc_evolutionPopulation["ctx.evolutionPopulation<br/>Population-based evolution store"]
   pkg_evolution_model_routes["evolution-model-routes"]
   svc_evolutionModelRoutes["ctx.evolutionModelRoutes<br/>Adaptive model-routing store"]
+  pkg_evolution_evaluator_strategy["evolution-evaluator-strategy"]
   pkg_evolution_canary["evolution-canary"]
   svc_evolutionCanary["ctx.evolutionCanary<br/>Shadow/canary deployment store"]
   pkg_evolution_novelty_search["evolution-novelty-search"]
@@ -248,15 +249,12 @@ flowchart LR
   svc_evolutionSleeptime["ctx.evolutionSleeptime<br/>Sleep-time compute store"]
   pkg_evolution_budget["evolution-budget"]
   svc_evolutionBudget["ctx.evolutionBudget<br/>Evolution budget store"]
-  pkg_evolution_evaluator_strategy["evolution-evaluator-strategy"]
   svc_evolutionEvaluatorStrategy["ctx.evolutionEvaluatorStrategy<br/>Evaluator-strategy store"]
   pkg_evolution_meta["evolution-meta"]
   svc_evolutionMeta["ctx.evolutionMeta<br/>Meta-evolution store"]
   svc_evolutionMetrics["ctx.evolutionMetrics<br/>Evolution metric layer"]
   pkg_evolution_operators["evolution-operators"]
   svc_evolutionOperators["ctx.evolutionOperators<br/>Mutation-operator store"]
-  pkg_evolution_router["evolution-router"]
-  svc_evolutionRouter["ctx.evolutionRouter<br/>Routing self-optimization store"]
   pkg_evolution_trajectory["evolution-trajectory"]
   svc_evolutionTrajectory["ctx.evolutionTrajectory<br/>ShareGPT trajectory export service"]
   pkg_evolution_trace["evolution-trace"]
@@ -457,7 +455,6 @@ flowchart LR
   pkg_evolution_population --> svc_evolutionPopulation
   pkg_evolution_retrieval --> svc_evolutionRetrieval
   pkg_evolution_reviewer --> svc_evolutionReviewer
-  pkg_evolution_router --> svc_evolutionRouter
   pkg_evolution_scorer --> svc_evolutionScorer
   pkg_evolution_self_model --> svc_evolutionSelfModel
   pkg_evolution_skill_telemetry --> svc_evolutionSkillTelemetry
@@ -645,6 +642,8 @@ flowchart LR
   svc_evolutionMeta --> pkg_evolution_optimizer
   svc_evolutionMetrics --> pkg_command_evolution
   svc_evolutionModelRoutes --> pkg_command_evolution
+  svc_evolutionModelRoutes --> pkg_evolution_curator
+  svc_evolutionModelRoutes --> pkg_evolution_evaluator_strategy
   svc_evolutionModelRoutes --> pkg_evolution_optimizer
   svc_evolutionNovelty --> pkg_command_evolution
   svc_evolutionNovelty --> pkg_evolution_optimizer
@@ -654,8 +653,6 @@ flowchart LR
   svc_evolutionPopulation --> pkg_evolution_optimizer
   svc_evolutionRetrieval --> pkg_command_evolution
   svc_evolutionReviewer --> pkg_command_evolution
-  svc_evolutionRouter --> pkg_command_evolution
-  svc_evolutionRouter --> pkg_evolution_optimizer
   svc_evolutionScorer --> pkg_evolution_optimizer
   svc_evolutionSelfModel --> pkg_command_evolution
   svc_evolutionSelfModel --> pkg_evolution_optimizer
@@ -880,7 +877,7 @@ flowchart LR
 | `ctx.evolutionBenchmark` | `core` | [`evolution-benchmark`](../packages/evolution/evolution-benchmark) | - | [`command-evolution`](../packages/evolution/command-evolution), [`evolution-metrics`](../packages/evolution/evolution-metrics) | - | The evolution-benchmark plugin grows evaluation tasks from production failures — content-deduplicated admission and the fresh → search → validation → holdout ladder with contamination and retirement states — and runs them: the run pass boots each task through the scorer's runner seam and records one durable outcome per task, which evolution-metrics reads as benchmark-robustness and the §13.5 long-horizon report; command-evolution reads the tasks through /benchmark, and nothing here calls a model itself. |
 | `ctx.evolutionEvaluatorHealth` | `core` | [`evolution-evaluator-health`](../packages/evolution/evolution-evaluator-health) | - | [`evolution-scorer`](../packages/evolution/evolution-scorer), [`command-evolution`](../packages/evolution/command-evolution) | - | The evolution-evaluator-health plugin records behavior-evaluation verdicts and aggregates agreement, approval-rate drift, and false positives; evolution-scorer records each verdict through the optional store, and command-evolution reports it through /evaluators. |
 | `ctx.evolutionPopulation` | `core` | [`evolution-population`](../packages/evolution/evolution-population) | - | [`evolution-optimizer`](../packages/evolution/evolution-optimizer), [`command-evolution`](../packages/evolution/command-evolution) | - | The evolution-population plugin records every staged optimizer write as a per-skill candidate with generation numbering, parent lineage, and the stage → approve/reject lifecycle; evolution-optimizer records candidates through the optional store, and command-evolution inspects generations, lineages, and the approved elite through /population. |
-| `ctx.evolutionModelRoutes` | `core` | [`evolution-model-routes`](../packages/evolution/evolution-model-routes) | - | [`evolution-optimizer`](../packages/evolution/evolution-optimizer), [`command-evolution`](../packages/evolution/command-evolution) | - | The evolution-model-routes plugin keeps per-role route assignments over the evolutionary role topology with measured evidence and recommendation; evolution-optimizer records each candidate-generation route and outcome through the optional store, and command-evolution lists, pins, and recommends routes through /routes. |
+| `ctx.evolutionModelRoutes` | `core` | [`evolution-model-routes`](../packages/evolution/evolution-model-routes) | - | [`evolution-optimizer`](../packages/evolution/evolution-optimizer), [`command-evolution`](../packages/evolution/command-evolution), [`evolution-curator`](../packages/evolution/evolution-curator), [`evolution-evaluator-strategy`](../packages/evolution/evolution-evaluator-strategy) | - | The evolution-model-routes plugin keeps per-role route assignments over the evolutionary role topology with measured evidence, and recommends the route a role should use from that evidence ranked per task class; evolution-optimizer records each candidate-generation and staged-write route through the optional store, evolution-curator and evolution-evaluator-strategy read the recommendation, and command-evolution lists, pins, and recommends routes through /routes. |
 | `ctx.evolutionCanary` | `core` | [`evolution-canary`](../packages/evolution/evolution-canary) | - | [`evolution-optimizer`](../packages/evolution/evolution-optimizer), [`command-evolution`](../packages/evolution/command-evolution) | - | The evolution-canary plugin tracks the rollout states of staged skill patches — shadow → canary → promoted with the rejected/rolled-back exits; evolution-optimizer records every staged write as a shadow deployment through the optional store, and command-evolution rolls deployments forward or exits them through /canary. |
 | `ctx.evolutionNovelty` | `core` | [`evolution-novelty-search`](../packages/evolution/evolution-novelty-search) | - | [`evolution-optimizer`](../packages/evolution/evolution-optimizer), [`command-evolution`](../packages/evolution/command-evolution) | - | The evolution-novelty-search plugin keeps a durable per-skill archive of behavior descriptors, measuring each staged write's novelty against everything the skill has seen before; evolution-optimizer records descriptors through the optional store, and command-evolution reads archive novelty and its pressure through /novelty. |
 | `ctx.evolutionStagnation` | `core` | [`evolution-stagnation`](../packages/evolution/evolution-stagnation) | - | [`evolution-optimizer`](../packages/evolution/evolution-optimizer), [`command-evolution`](../packages/evolution/command-evolution) | - | The evolution-stagnation plugin counts a skill's evaluation runs without meaningful improvement and names the next strategy on §32's ladder when the frontier stalls; evolution-optimizer records each staged write as a run through the optional store, and command-evolution reads standing, runs, and resets through /stagnation. |
@@ -895,7 +892,6 @@ flowchart LR
 | `ctx.evolutionMeta` | `core` | [`evolution-meta`](../packages/evolution/evolution-meta) | - | [`evolution-optimizer`](../packages/evolution/evolution-optimizer), [`command-evolution`](../packages/evolution/command-evolution) | - | The evolution-meta plugin records each engine run under the configuration its operator, evaluator, budget, and routing choices produced, derives per-configuration pass rates and mean tokens, and recommends the configuration to run next on a task class; evolution-optimizer records each staged write's run through the optional store, and command-evolution reads runs, summaries, and the recommendation through /meta. |
 | `ctx.evolutionMetrics` | `core` | [`evolution-metrics`](../packages/evolution/evolution-metrics) | - | [`command-evolution`](../packages/evolution/command-evolution) | - | The evolution-metrics plugin measures capability gain per unit of compute over the recorded engine runs, with the supporting failure-recurrence, regression-debt, promotion, rollback, and evaluator-reliability readings, reads each of those from the store that already computes it, and reports a metric it cannot measure with the record that is missing rather than a zero; command-evolution renders one report through /metrics. |
 | `ctx.evolutionOperators` | `core` | [`evolution-operators`](../packages/evolution/evolution-operators) | - | [`evolution-optimizer`](../packages/evolution/evolution-optimizer), [`command-evolution`](../packages/evolution/command-evolution) | - | The evolution-operators plugin accumulates per-operator and per-artifact-class attempts, acceptance, mean outcome delta, and regression rate, and ranks the operators by an exploration-adjusted score; evolution-optimizer records every staged write's operator and outcome through the optional store, and command-evolution reads the statistics and ranking through /operators. |
-| `ctx.evolutionRouter` | `core` | [`evolution-router`](../packages/evolution/evolution-router) | - | [`evolution-optimizer`](../packages/evolution/evolution-optimizer), [`command-evolution`](../packages/evolution/command-evolution) | - | The evolution-router plugin measures route outcomes per task class and evolutionary role, derives each route's effectiveness, and ranks the routes a class and role should use; evolution-optimizer records the evaluation route of each staged write through the optional store, and command-evolution reads outcomes, effectiveness, and the recommendation through /router. |
 | `ctx.evolutionTrajectory` | `core` | [`evolution-trajectory`](../packages/evolution/evolution-trajectory) | - | - | - | The evolution-trajectory plugin exports one Session or every Session of a scope as ShareGPT trajectories, written on the Host path. |
 | `ctx.evolutionTrace` | `core` | [`evolution-trace`](../packages/evolution/evolution-trace) | - | [`command-evolution`](../packages/evolution/command-evolution) | - | The evolution-trace plugin projects the committed session log into structured learning traces with ranked root-cause attribution per failed tool call and compressed learning-trace rows; command-evolution reads it through /trace, and nothing here writes a domain or reaches a model request. |
 | `ctx.evolutionRetrieval` | `core` | [`evolution-retrieval`](../packages/evolution/evolution-retrieval) | - | [`command-evolution`](../packages/evolution/command-evolution) | - | The evolution-retrieval plugin records the retrieval configuration in force for a session and grades it by the downstream task success of the sessions that ran under it, recommending the best configuration per task class above an evidence gate; active-memory-context records the configuration in force, and nothing here restructures retrieval or reaches a model request. |

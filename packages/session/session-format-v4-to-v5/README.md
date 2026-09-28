@@ -34,6 +34,11 @@ The static session-format catalog uses this library when a stored V4 Session is 
 Catalog builders use `sessionFormatV4ToV5` for the adjacent header and body edge. Directly calling its header converter does not restore the event body:
 
 ```ts
+import { sessionFormatV4ToV5 } from '@deepseek-ai/dsh-session-format-v4-to-v5'
+import type { SessionFormatHeader } from '@deepseek-ai/dsh-session-format'
+
+declare const v4Header: SessionFormatHeader
+
 const v5Header = sessionFormatV4ToV5.migrateHeader(v4Header)
 ```
 

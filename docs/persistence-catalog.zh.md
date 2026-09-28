@@ -32,7 +32,7 @@
 | `event:assistant/attempt` | event | `15d5dfdd822aa35e115afd74a8982825a493880457774e6850bc1520b50875e4` | [`{ type: "assistant/attempt" }`](#persistence-type-sha256-15d5dfdd822aa35e115afd74a8982825a493880457774e6850bc1520b50875e4) |
 | `event:assistant/message` | event | `1033093edd0db80ff410e00830b523405e00bb0c7684948e531ff65095799625` | [`{ type: "assistant/message" }`](#persistence-type-sha256-1033093edd0db80ff410e00830b523405e00bb0c7684948e531ff65095799625) |
 | `event:budget/exceeded` | event | `7bfeba009193fd2e97e8e5e95186510ce52530c78f0a345ca1ae859fea15d1a0` | [`{ type: "budget/exceeded" }`](#persistence-type-sha256-7bfeba009193fd2e97e8e5e95186510ce52530c78f0a345ca1ae859fea15d1a0) |
-| `event:checkpoint/created` | event | `26cba28f734f5249eac9288fe1ea64aacbb315d0a7306369f990201ceae3d2c4` | [`{ type: "checkpoint/created" }`](#persistence-type-sha256-26cba28f734f5249eac9288fe1ea64aacbb315d0a7306369f990201ceae3d2c4) |
+| `event:checkpoint/created` | event | `7b15790f5053f26e149cd934c3d3d1d268349584d8418fa230b48ed0d743cd42` | [`{ type: "checkpoint/created" }`](#persistence-type-sha256-7b15790f5053f26e149cd934c3d3d1d268349584d8418fa230b48ed0d743cd42) |
 | `event:checkpoint/resumed` | event | `f2315a4fc9c732c99760eb1007ffac4464c20f6b63bff84ef5d326590a1c4e8b` | [`{ type: "checkpoint/resumed" }`](#persistence-type-sha256-f2315a4fc9c732c99760eb1007ffac4464c20f6b63bff84ef5d326590a1c4e8b) |
 | `event:claim/updated` | event | `7837be22b9ee7ae25cb9417ce34f9315fbdf07e68057c186bc2363b3e3cbb9de` | [`{ type: "claim/updated" }`](#persistence-type-sha256-7837be22b9ee7ae25cb9417ce34f9315fbdf07e68057c186bc2363b3e3cbb9de) |
 | `event:command/done` | event | `15196447222782e773eb943c92b18316ce96b9af0f0cfddb6e57ba8274ecc5ff` | [`{ type: "command/done" }`](#persistence-type-sha256-15196447222782e773eb943c92b18316ce96b9af0f0cfddb6e57ba8274ecc5ff) |
@@ -204,7 +204,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 'action/committed': KernelEventData<ActionCommittedEvent>
 ```
 
-来源：[`packages/runtime/agent-kernel/src/types.ts:1863`](../packages/runtime/agent-kernel/src/types.ts)
+来源：[`packages/runtime/agent-kernel/src/types.ts:1899`](../packages/runtime/agent-kernel/src/types.ts)
 
 <a id="actiondecided--log-only"></a>
 
@@ -218,7 +218,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 'action/decided': KernelEventData<ActionDecidedEvent>
 ```
 
-来源：[`packages/runtime/agent-kernel/src/types.ts:1856`](../packages/runtime/agent-kernel/src/types.ts)
+来源：[`packages/runtime/agent-kernel/src/types.ts:1892`](../packages/runtime/agent-kernel/src/types.ts)
 
 ### `agent/*`
 
@@ -408,7 +408,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 'checkpoint/created': KernelEventData<Checkpoint>
 ```
 
-来源：[`packages/runtime/agent-kernel/src/types.ts:1927`](../packages/runtime/agent-kernel/src/types.ts)
+来源：[`packages/runtime/agent-kernel/src/types.ts:1963`](../packages/runtime/agent-kernel/src/types.ts)
 
 <a id="checkpointresumed--log-only"></a>
 
@@ -419,7 +419,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 'checkpoint/resumed': KernelEventData<CheckpointResumedRecord>
 ```
 
-来源：[`packages/runtime/agent-kernel/src/types.ts:1929`](../packages/runtime/agent-kernel/src/types.ts)
+来源：[`packages/runtime/agent-kernel/src/types.ts:1965`](../packages/runtime/agent-kernel/src/types.ts)
 
 ### `claim/*`
 
@@ -435,7 +435,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 'claim/updated': KernelEventData<TaskClaim>
 ```
 
-来源：[`packages/runtime/agent-kernel/src/types.ts:1874`](../packages/runtime/agent-kernel/src/types.ts)
+来源：[`packages/runtime/agent-kernel/src/types.ts:1910`](../packages/runtime/agent-kernel/src/types.ts)
 
 ### `command/*`
 
@@ -631,7 +631,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 'delegation/issued': KernelEventData<DelegationReceipt>
 ```
 
-来源：[`packages/runtime/agent-kernel/src/types.ts:1942`](../packages/runtime/agent-kernel/src/types.ts)
+来源：[`packages/runtime/agent-kernel/src/types.ts:1978`](../packages/runtime/agent-kernel/src/types.ts)
 
 <a id="delegationreceived--log-only"></a>
 
@@ -647,7 +647,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 'delegation/received': KernelEventData<DelegationReceipt>
 ```
 
-来源：[`packages/runtime/agent-kernel/src/types.ts:1936`](../packages/runtime/agent-kernel/src/types.ts)
+来源：[`packages/runtime/agent-kernel/src/types.ts:1972`](../packages/runtime/agent-kernel/src/types.ts)
 
 ### `deliverables/*`
 
@@ -698,7 +698,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 'evidence/recorded': KernelEventData<Evidence>
 ```
 
-来源：[`packages/runtime/agent-kernel/src/types.ts:1869`](../packages/runtime/agent-kernel/src/types.ts)
+来源：[`packages/runtime/agent-kernel/src/types.ts:1905`](../packages/runtime/agent-kernel/src/types.ts)
 
 ### `failure/*`
 
@@ -724,7 +724,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 'failure/diagnosed': KernelEventData<FailureDiagnosis>
 ```
 
-来源：[`packages/runtime/agent-kernel/src/types.ts:1908`](../packages/runtime/agent-kernel/src/types.ts)
+来源：[`packages/runtime/agent-kernel/src/types.ts:1944`](../packages/runtime/agent-kernel/src/types.ts)
 
 <a id="failurerecorded--log-only"></a>
 
@@ -738,7 +738,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 'failure/recorded': KernelEventData<FailureRecord>
 ```
 
-来源：[`packages/runtime/agent-kernel/src/types.ts:1893`](../packages/runtime/agent-kernel/src/types.ts)
+来源：[`packages/runtime/agent-kernel/src/types.ts:1929`](../packages/runtime/agent-kernel/src/types.ts)
 
 ### `feedback/*`
 
@@ -809,7 +809,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 'governor/decided': KernelEventData<GovernorDecisionRecord>
 ```
 
-来源：[`packages/runtime/agent-kernel/src/types.ts:1922`](../packages/runtime/agent-kernel/src/types.ts)
+来源：[`packages/runtime/agent-kernel/src/types.ts:1958`](../packages/runtime/agent-kernel/src/types.ts)
 
 ### `hook/*`
 
@@ -877,7 +877,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 'hypothesis/updated': KernelEventData<TaskHypothesis>
 ```
 
-来源：[`packages/runtime/agent-kernel/src/types.ts:1879`](../packages/runtime/agent-kernel/src/types.ts)
+来源：[`packages/runtime/agent-kernel/src/types.ts:1915`](../packages/runtime/agent-kernel/src/types.ts)
 
 ### `image/*`
 
@@ -1020,7 +1020,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 'recovery/decided': KernelEventData<RecoveryDecision>
 ```
 
-来源：[`packages/runtime/agent-kernel/src/types.ts:1915`](../packages/runtime/agent-kernel/src/types.ts)
+来源：[`packages/runtime/agent-kernel/src/types.ts:1951`](../packages/runtime/agent-kernel/src/types.ts)
 
 <a id="recoverystarted--log-only"></a>
 
@@ -1031,7 +1031,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 'recovery/started': KernelEventData<RecoveryStartedRecord>
 ```
 
-来源：[`packages/runtime/agent-kernel/src/types.ts:1910`](../packages/runtime/agent-kernel/src/types.ts)
+来源：[`packages/runtime/agent-kernel/src/types.ts:1946`](../packages/runtime/agent-kernel/src/types.ts)
 
 ### `request/*`
 
@@ -1357,7 +1357,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 'task/created': KernelEventData<TaskContract>
 ```
 
-来源：[`packages/runtime/agent-kernel/src/types.ts:1839`](../packages/runtime/agent-kernel/src/types.ts)
+来源：[`packages/runtime/agent-kernel/src/types.ts:1875`](../packages/runtime/agent-kernel/src/types.ts)
 
 <a id="taskphase--log-only"></a>
 
@@ -1387,7 +1387,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 'task/plan': KernelEventData<PlanRevision>
 ```
 
-来源：[`packages/runtime/agent-kernel/src/types.ts:1851`](../packages/runtime/agent-kernel/src/types.ts)
+来源：[`packages/runtime/agent-kernel/src/types.ts:1887`](../packages/runtime/agent-kernel/src/types.ts)
 
 <a id="taskreview--log-only"></a>
 
@@ -1417,7 +1417,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 'task/transitioned': KernelEventData<StateTransition>
 ```
 
-来源：[`packages/runtime/agent-kernel/src/types.ts:1846`](../packages/runtime/agent-kernel/src/types.ts)
+来源：[`packages/runtime/agent-kernel/src/types.ts:1882`](../packages/runtime/agent-kernel/src/types.ts)
 
 ### `team/*`
 
@@ -1721,7 +1721,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 'verification/requested': KernelEventData<VerificationRequest>
 ```
 
-来源：[`packages/runtime/agent-kernel/src/types.ts:1883`](../packages/runtime/agent-kernel/src/types.ts)
+来源：[`packages/runtime/agent-kernel/src/types.ts:1919`](../packages/runtime/agent-kernel/src/types.ts)
 
 <a id="verificationresult--log-only"></a>
 
@@ -1735,7 +1735,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 'verification/result': KernelEventData<VerificationResult>
 ```
 
-来源：[`packages/runtime/agent-kernel/src/types.ts:1888`](../packages/runtime/agent-kernel/src/types.ts)
+来源：[`packages/runtime/agent-kernel/src/types.ts:1924`](../packages/runtime/agent-kernel/src/types.ts)
 
 ### `web/*`
 
@@ -5366,7 +5366,7 @@ SHA-256: `d21bb685072db5f78b77d0e5c0eb169b232f2e298ad4101dfeb8a1861663bcb6`
 
 SHA-256: `92264e598ec8ea1bd43a4ee0cdb271a915d8d295df8daf7446e6ba1f2cef0e10`
 
-来源：[`packages/runtime/agent-kernel/src/types.ts:575`](../packages/runtime/agent-kernel/src/types.ts)
+来源：[`packages/runtime/agent-kernel/src/types.ts:605`](../packages/runtime/agent-kernel/src/types.ts)
 
 | 属性 | 存在性 | 类型 |
 |---|---|---|
@@ -5640,7 +5640,7 @@ SHA-256: `658d895d187b26d83f3b53109a3bf77bbfba9f6f9a6d4bc4ee4315b4eb36239e`
 
 SHA-256: `2da4dab8fa2c9dc0d52485812851df5a740e690c016f531625e5e55f3234d49a`
 
-来源：[`packages/runtime/agent-kernel/src/types.ts:773`](../packages/runtime/agent-kernel/src/types.ts)
+来源：[`packages/runtime/agent-kernel/src/types.ts:803`](../packages/runtime/agent-kernel/src/types.ts)
 
 | 属性 | 存在性 | 类型 |
 |---|---|---|
@@ -5651,6 +5651,24 @@ SHA-256: `2da4dab8fa2c9dc0d52485812851df5a740e690c016f531625e5e55f3234d49a`
 | `enforced` | 必需 | `boolean` |
 | `reasons` | 必需 | [`string[]`](#persistence-type-sha256-93c33d9687613293f8c95d46c4d922fe9ceae83b84c384beff5c3315abe005f2) |
 | `sandbox` | 必需 | [`SandboxExecutionPolicy`](#persistence-type-sha256-4f57aab1ffe7889f76269707cc11089fbe719716b2888d803ea8b025a6006a67) |
+
+<a id="persistence-type-sha256-9166ada9419944b8dee2e2e7d88f444dc8437d47d2718de1a0ccdd4436e60ddb"></a>
+
+<a id="persistence-type-backgroundspend"></a>
+
+<a id="persistence-type-packagesruntimeagent-kernelsrctypestsbackgroundspend"></a>
+
+### `BackgroundSpend`
+
+SHA-256: `9166ada9419944b8dee2e2e7d88f444dc8437d47d2718de1a0ccdd4436e60ddb`
+
+来源：[`packages/runtime/agent-kernel/src/types.ts:258`](../packages/runtime/agent-kernel/src/types.ts)
+
+| 属性 | 存在性 | 类型 |
+|---|---|---|
+| `cost` | 可选 | `number` |
+| `tokens` | 必需 | `number` |
+| `wallMs` | 必需 | `number` |
 
 <a id="persistence-type-sha256-0c6ca2e0fa31ffbd56e74d91597568167ccfeafa3abd48a53af7d3194381aa80"></a>
 
@@ -5694,7 +5712,7 @@ SHA-256: `af45166cfe7d06e9b133c1b2974a89968d561a312946eafbc842ef14da4f4dae`
 - `"session"`
 - `"turn"`
 
-<a id="persistence-type-sha256-afbdd545b538bd17f07a5b8f06686d8502d05bb758fbce8326f2f5a0361ee42b"></a>
+<a id="persistence-type-sha256-b57e0af72a7e45cc8527967535ff67c1efaf49153a188ff0111b3072116b7271"></a>
 
 <a id="persistence-type-budgetsnapshot"></a>
 
@@ -5702,12 +5720,13 @@ SHA-256: `af45166cfe7d06e9b133c1b2974a89968d561a312946eafbc842ef14da4f4dae`
 
 ### `BudgetSnapshot`
 
-SHA-256: `afbdd545b538bd17f07a5b8f06686d8502d05bb758fbce8326f2f5a0361ee42b`
+SHA-256: `b57e0af72a7e45cc8527967535ff67c1efaf49153a188ff0111b3072116b7271`
 
-来源：[`packages/runtime/agent-kernel/src/types.ts:252`](../packages/runtime/agent-kernel/src/types.ts)
+来源：[`packages/runtime/agent-kernel/src/types.ts:273`](../packages/runtime/agent-kernel/src/types.ts)
 
 | 属性 | 存在性 | 类型 |
 |---|---|---|
+| `background` | 可选 | [`BackgroundSpend`](#persistence-type-sha256-9166ada9419944b8dee2e2e7d88f444dc8437d47d2718de1a0ccdd4436e60ddb) |
 | `remaining` | 必需 | [`ResourceBudget`](#persistence-type-sha256-9e5ce2429b576636e738ed90c93c78d7ff7751ee1c7bd5fc10b48ed71d31f3f1) |
 | `steps` | 必需 | `number` |
 | `tokens` | 必需 | `number` |
@@ -5724,7 +5743,7 @@ SHA-256: `afbdd545b538bd17f07a5b8f06686d8502d05bb758fbce8326f2f5a0361ee42b`
 
 SHA-256: `19f12f687c9dd21ca4237dfc0c59e54dd0c03e3d831f5ba06c96926fe35a0b78`
 
-来源：[`packages/runtime/agent-kernel/src/types.ts:518`](../packages/runtime/agent-kernel/src/types.ts)
+来源：[`packages/runtime/agent-kernel/src/types.ts:548`](../packages/runtime/agent-kernel/src/types.ts)
 
 以下类型之一：
 
@@ -5756,7 +5775,7 @@ SHA-256: `19f12f687c9dd21ca4237dfc0c59e54dd0c03e3d831f5ba06c96926fe35a0b78`
 
 SHA-256: `2007a090dde7c8217a746dfb183c6579139b467d216a2efe3d80a5d1fc016717`
 
-来源：[`packages/runtime/agent-kernel/src/types.ts:825`](../packages/runtime/agent-kernel/src/types.ts)
+来源：[`packages/runtime/agent-kernel/src/types.ts:855`](../packages/runtime/agent-kernel/src/types.ts)
 
 | 属性 | 存在性 | 类型 |
 |---|---|---|
@@ -5781,7 +5800,7 @@ SHA-256: `53e749118c26cc5fc5f6fdc2876d9231d9b2f8ce9f612c5cd16a18fd6aef54a4`
 
 SHA-256: `789d687b8121b4f4bd50fa8e9568046b09408bdce519cb551e82c9e9640de12e`
 
-来源：[`packages/runtime/agent-kernel/src/types.ts:537`](../packages/runtime/agent-kernel/src/types.ts)
+来源：[`packages/runtime/agent-kernel/src/types.ts:567`](../packages/runtime/agent-kernel/src/types.ts)
 
 | 属性 | 存在性 | 类型 |
 |---|---|---|
@@ -5881,7 +5900,7 @@ SHA-256: `d42029698c772ad4f38820d6ba2af38c0fc954f4f40e1800e42216f0cf98f17d`
 
 SHA-256: `f610af9b83a745a9d067fbbfd7e2144113c62ebdb2a74455fd21791ca6781933`
 
-来源：[`packages/runtime/agent-kernel/src/types.ts:1365`](../packages/runtime/agent-kernel/src/types.ts)
+来源：[`packages/runtime/agent-kernel/src/types.ts:1395`](../packages/runtime/agent-kernel/src/types.ts)
 
 以下类型之一：
 
@@ -6374,7 +6393,7 @@ SHA-256: `6487b10ba7542f3c447b1e41a1c6a590b7bfafe0b9b66b49f34028da85bb970f`
 
 SHA-256: `35bbba9e80fe877ce60a8b74a3ff92237934b366e9fb01106fa838bace6ba1dd`
 
-来源：[`packages/runtime/agent-kernel/src/types.ts:1169`](../packages/runtime/agent-kernel/src/types.ts)
+来源：[`packages/runtime/agent-kernel/src/types.ts:1199`](../packages/runtime/agent-kernel/src/types.ts)
 
 | 属性 | 存在性 | 类型 |
 |---|---|---|
@@ -6539,7 +6558,7 @@ SHA-256: `66ece68282d8c06330fb83329a24ae54c386d5ccfab296bbf18369da8beb7d14`
 
 SHA-256: `651cf14a9b2c426b27b797defee488b1bdc60ac2465b5d260de125245c29c897`
 
-来源：[`packages/runtime/agent-kernel/src/types.ts:1205`](../packages/runtime/agent-kernel/src/types.ts)
+来源：[`packages/runtime/agent-kernel/src/types.ts:1235`](../packages/runtime/agent-kernel/src/types.ts)
 
 以下类型之一：
 
@@ -6582,7 +6601,7 @@ SHA-256: `92ce883855b7e776c262555588a7649cd2f9f4e12fd1a7f2d23e8bc57070c34e`
 
 SHA-256: `375a579c4d7f6fba1c5daaa1458f03d663cee76dac89fd203ab2f12e3bd8acee`
 
-来源：[`packages/runtime/agent-kernel/src/types.ts:1076`](../packages/runtime/agent-kernel/src/types.ts)
+来源：[`packages/runtime/agent-kernel/src/types.ts:1106`](../packages/runtime/agent-kernel/src/types.ts)
 
 以下类型之一：
 
@@ -6606,7 +6625,7 @@ SHA-256: `375a579c4d7f6fba1c5daaa1458f03d663cee76dac89fd203ab2f12e3bd8acee`
 
 SHA-256: `5cdfd0052851d5eba2c85146ce80e2284cd2a8df7b6f314c59533db9c5a664ba`
 
-来源：[`packages/runtime/agent-kernel/src/types.ts:887`](../packages/runtime/agent-kernel/src/types.ts)
+来源：[`packages/runtime/agent-kernel/src/types.ts:917`](../packages/runtime/agent-kernel/src/types.ts)
 
 以下类型之一：
 
@@ -6645,7 +6664,7 @@ SHA-256: `5cdfd0052851d5eba2c85146ce80e2284cd2a8df7b6f314c59533db9c5a664ba`
 
 SHA-256: `5bef8c1ba1b6ca40f768fe5c4112e4005f562de3d1422e7ce03cd2de4408a7ae`
 
-来源：[`packages/runtime/agent-kernel/src/types.ts:936`](../packages/runtime/agent-kernel/src/types.ts)
+来源：[`packages/runtime/agent-kernel/src/types.ts:966`](../packages/runtime/agent-kernel/src/types.ts)
 
 | 属性 | 存在性 | 类型 |
 |---|---|---|
@@ -6670,7 +6689,7 @@ SHA-256: `b07f08ba87ff0d7f3a765233ea20aac04a6c15cb4b9cff7dde8f74c86d0953d0`
 
 SHA-256: `2f9e09f2493377fce73dabe7180f05c97e05ef6cf4c7d356921c7624296245c1`
 
-来源：[`packages/runtime/agent-kernel/src/types.ts:1088`](../packages/runtime/agent-kernel/src/types.ts)
+来源：[`packages/runtime/agent-kernel/src/types.ts:1118`](../packages/runtime/agent-kernel/src/types.ts)
 
 以下类型之一：
 
@@ -6933,7 +6952,7 @@ SHA-256: `93222440c8801990dee32e59f8ecd951565818e1630ae092558daf6edad46711`
 
 SHA-256: `296bab1e26a606dec73a6b11ee921830d27bd584b6fc4b4b4c00b1c3f53838f5`
 
-来源：[`packages/runtime/agent-kernel/src/types.ts:837`](../packages/runtime/agent-kernel/src/types.ts)
+来源：[`packages/runtime/agent-kernel/src/types.ts:867`](../packages/runtime/agent-kernel/src/types.ts)
 
 | 属性 | 存在性 | 类型 |
 |---|---|---|
@@ -6955,7 +6974,7 @@ SHA-256: `296bab1e26a606dec73a6b11ee921830d27bd584b6fc4b4b4c00b1c3f53838f5`
 
 SHA-256: `048c2b0a678057ddc50e8b6fd7216d6948275a16b14bd6afd0efcefdf8b22d56`
 
-来源：[`packages/runtime/agent-kernel/src/types.ts:995`](../packages/runtime/agent-kernel/src/types.ts)
+来源：[`packages/runtime/agent-kernel/src/types.ts:1025`](../packages/runtime/agent-kernel/src/types.ts)
 
 以下类型之一：
 
@@ -7729,7 +7748,7 @@ SHA-256: `3bd652ebfa8726b3ce3937a4f1bd2759e02f86b3a08a20f9e41a8513656fbc5f`
 
 SHA-256: `02f79965d4939c27f83468d32c0efd2b9d799f4c7a1915fe077ed28edae24f33`
 
-来源：[`packages/runtime/agent-kernel/src/types.ts:595`](../packages/runtime/agent-kernel/src/types.ts)
+来源：[`packages/runtime/agent-kernel/src/types.ts:625`](../packages/runtime/agent-kernel/src/types.ts)
 
 以下类型之一：
 
@@ -7755,7 +7774,7 @@ SHA-256: `02f79965d4939c27f83468d32c0efd2b9d799f4c7a1915fe077ed28edae24f33`
 
 SHA-256: `c79611bcc5511316aaeafe84f9b5ddebc34fcdc56d4eacc53dfd3039cafdb3cb`
 
-来源：[`packages/runtime/agent-kernel/src/types.ts:754`](../packages/runtime/agent-kernel/src/types.ts)
+来源：[`packages/runtime/agent-kernel/src/types.ts:784`](../packages/runtime/agent-kernel/src/types.ts)
 
 | 属性 | 存在性 | 类型 |
 |---|---|---|
@@ -7776,7 +7795,7 @@ SHA-256: `c79611bcc5511316aaeafe84f9b5ddebc34fcdc56d4eacc53dfd3039cafdb3cb`
 
 SHA-256: `389ae5e23e4439576a4c4bc3e52ab31550ac428927097e7c7e50969f96b26675`
 
-来源：[`packages/runtime/agent-kernel/src/types.ts:609`](../packages/runtime/agent-kernel/src/types.ts)
+来源：[`packages/runtime/agent-kernel/src/types.ts:639`](../packages/runtime/agent-kernel/src/types.ts)
 
 以下类型之一：
 
@@ -7794,7 +7813,7 @@ SHA-256: `389ae5e23e4439576a4c4bc3e52ab31550ac428927097e7c7e50969f96b26675`
 
 SHA-256: `c088d833ad3c9c7fadc3ac292e1cb1e94209d4c7ee4a2b2857d8ad8d8709929d`
 
-来源：[`packages/runtime/agent-kernel/src/types.ts:426`](../packages/runtime/agent-kernel/src/types.ts)
+来源：[`packages/runtime/agent-kernel/src/types.ts:456`](../packages/runtime/agent-kernel/src/types.ts)
 
 | 属性 | 存在性 | 类型 |
 |---|---|---|
@@ -7905,7 +7924,7 @@ SHA-256: `814d9434e1ddf9078612b3b34322f26e9363b469213335007f7e9ba7fee9464e`
 
 SHA-256: `e9e1df96d8f99e23351d0acc5b17e254a2246a1cec041aef088b9bef6e12afa5`
 
-来源：[`packages/runtime/agent-kernel/src/types.ts:944`](../packages/runtime/agent-kernel/src/types.ts)
+来源：[`packages/runtime/agent-kernel/src/types.ts:974`](../packages/runtime/agent-kernel/src/types.ts)
 
 以下类型之一：
 
@@ -8493,7 +8512,7 @@ SHA-256: `30f070791979c95939e5a45237145692908e3ae85774aa3a1ca3415f5461269c`
 
 SHA-256: `c802474347f30f6b1466cd14782df0330501992e9d65913c84206f1cfba60d0f`
 
-来源：[`packages/runtime/agent-kernel/src/types.ts:436`](../packages/runtime/agent-kernel/src/types.ts)
+来源：[`packages/runtime/agent-kernel/src/types.ts:466`](../packages/runtime/agent-kernel/src/types.ts)
 
 | 属性 | 存在性 | 类型 |
 |---|---|---|
@@ -8518,7 +8537,7 @@ SHA-256: `6deef192ed365c896d700d786d99a87b7e4ab37f133bc4e393de550091a400c6`
 
 SHA-256: `ca663bb959bea272d97c93ae7b25e9aaa4654795379f3560a542932f3973d694`
 
-来源：[`packages/runtime/agent-kernel/src/types.ts:1017`](../packages/runtime/agent-kernel/src/types.ts)
+来源：[`packages/runtime/agent-kernel/src/types.ts:1047`](../packages/runtime/agent-kernel/src/types.ts)
 
 | 属性 | 存在性 | 类型 |
 |---|---|---|
@@ -8669,7 +8688,7 @@ SHA-256: `65a8400e451e667e5b6e34df72ceb81fca8c12330330fa72083ad40279b189ad`
 
 SHA-256: `6daab4c0a7637fc040fe296ebd0aa6b6c254e2a9dcffcfa49563e11853013a50`
 
-来源：[`packages/runtime/agent-kernel/src/types.ts:1230`](../packages/runtime/agent-kernel/src/types.ts)
+来源：[`packages/runtime/agent-kernel/src/types.ts:1260`](../packages/runtime/agent-kernel/src/types.ts)
 
 以下类型之一：
 
@@ -8708,7 +8727,7 @@ SHA-256: `60c1556ea97c74a8b7a3d53203234dcae370763d7ad7318c20ae790eb80e6e68`
 
 SHA-256: `56ca742ff6d994369484277a40eec7cd24317fd44c8e243d7d4b4b79fdd1e7a1`
 
-来源：[`packages/runtime/agent-kernel/src/types.ts:1251`](../packages/runtime/agent-kernel/src/types.ts)
+来源：[`packages/runtime/agent-kernel/src/types.ts:1281`](../packages/runtime/agent-kernel/src/types.ts)
 
 以下类型之一：
 
@@ -9148,7 +9167,7 @@ SHA-256: `a6da9ad5d42ae83a6833a8288b076688e8e0801633ea36cbdd8a30a6d9f3160c`
 
 SHA-256: `5ca5c11dc380980dbb234f418b59afc58ac7f98eb201012ed8661c2c92633b2b`
 
-来源：[`packages/runtime/agent-kernel/src/types.ts:408`](../packages/runtime/agent-kernel/src/types.ts)
+来源：[`packages/runtime/agent-kernel/src/types.ts:438`](../packages/runtime/agent-kernel/src/types.ts)
 
 以下类型之一：
 
@@ -9178,7 +9197,7 @@ SHA-256: `5ca5c11dc380980dbb234f418b59afc58ac7f98eb201012ed8661c2c92633b2b`
 
 SHA-256: `10159db6bb6e155c32803b91f1c6209d9aa7a28b81e21d0adb7b5312d267f981`
 
-来源：[`packages/runtime/agent-kernel/src/types.ts:400`](../packages/runtime/agent-kernel/src/types.ts)
+来源：[`packages/runtime/agent-kernel/src/types.ts:430`](../packages/runtime/agent-kernel/src/types.ts)
 
 | 属性 | 存在性 | 类型 |
 |---|---|---|
@@ -9313,7 +9332,7 @@ SHA-256: `f18c7f976a904f2fd39798d03921d73df2c3190e52efa0f47bf40d518d0d999a`
 
 SHA-256: `f4e16939a398c8ca5eab0f9e008fd6f984f113c6a7326240ea2feae198620632`
 
-来源：[`packages/runtime/agent-kernel/src/types.ts:1181`](../packages/runtime/agent-kernel/src/types.ts)
+来源：[`packages/runtime/agent-kernel/src/types.ts:1211`](../packages/runtime/agent-kernel/src/types.ts)
 
 | 属性 | 存在性 | 类型 |
 |---|---|---|
@@ -9397,7 +9416,7 @@ SHA-256: `c02daf27b42aaf44b51da46daab4506eff8e14fc64bfc7cdfaacc541629eddb3`
 
 SHA-256: `9666d0cf25f1bfc7d23cef91307c922d0bbdd63818355f7f664a4c11b63c386f`
 
-来源：[`packages/runtime/agent-kernel/src/types.ts:290`](../packages/runtime/agent-kernel/src/types.ts)
+来源：[`packages/runtime/agent-kernel/src/types.ts:320`](../packages/runtime/agent-kernel/src/types.ts)
 
 | 属性 | 存在性 | 类型 |
 |---|---|---|
@@ -10055,18 +10074,18 @@ SHA-256: `6e52dd55a1d48954ed5464ec46fe34d9eb65f709baabc9561e7a279910b0c406`
 |---|---|---|
 | `agentPreset` | 必需 | `string` |
 
-<a id="persistence-type-sha256-2fbc25edf29e0b913260bf22c640eaf398d8877a5ce27e070bddc0466d0bf99a"></a>
+<a id="persistence-type-sha256-6affae17d226078ee557fd427f035b0c3ee6b051e7bd0f351175395c1a5c9986"></a>
 
 ### `{ agentSessionId, budgets, checkpointId, createdAt, … }`
 
-SHA-256: `2fbc25edf29e0b913260bf22c640eaf398d8877a5ce27e070bddc0466d0bf99a`
+SHA-256: `6affae17d226078ee557fd427f035b0c3ee6b051e7bd0f351175395c1a5c9986`
 
 来源：[`packages/runtime/agent-kernel/src/types.ts:112`](../packages/runtime/agent-kernel/src/types.ts)
 
 | 属性 | 存在性 | 类型 |
 |---|---|---|
 | `agentSessionId` | 必需 | `string` |
-| `budgets` | 必需 | [`BudgetSnapshot`](#persistence-type-sha256-afbdd545b538bd17f07a5b8f06686d8502d05bb758fbce8326f2f5a0361ee42b) |
+| `budgets` | 必需 | [`BudgetSnapshot`](#persistence-type-sha256-b57e0af72a7e45cc8527967535ff67c1efaf49153a188ff0111b3072116b7271) |
 | `checkpointId` | 必需 | `string` |
 | `createdAt` | 必需 | `number` |
 | `metadata` | 可选 | [`KernelEventMetadata`](#persistence-type-sha256-2740d3580ebc6b8acc39523f04e307d8d7ce3dcdf518eb60440a7f46ba4def9f) |
@@ -10974,7 +10993,7 @@ SHA-256: `0a30c3be336cdd4f8f34e66543a3d46d611c43986edd9b3ce6cbb9b721d3b5d3`
 
 SHA-256: `7e38c4aa997bea5a682b169e6e18cc233d6d4c04c3225acb8da8cbffe0976aee`
 
-来源：[`packages/runtime/agent-kernel/src/index.ts:500`](../packages/runtime/agent-kernel/src/index.ts)
+来源：[`packages/runtime/agent-kernel/src/index.ts:506`](../packages/runtime/agent-kernel/src/index.ts)
 
 | 属性 | 存在性 | 类型 |
 |---|---|---|
@@ -13357,17 +13376,17 @@ SHA-256: `7bfeba009193fd2e97e8e5e95186510ce52530c78f0a345ca1ae859fea15d1a0`
 | `time` | 必需 | `number` |
 | `type` | 必需 | `"budget/exceeded"` |
 
-<a id="persistence-type-sha256-26cba28f734f5249eac9288fe1ea64aacbb315d0a7306369f990201ceae3d2c4"></a>
+<a id="persistence-type-sha256-7b15790f5053f26e149cd934c3d3d1d268349584d8418fa230b48ed0d743cd42"></a>
 
 <a id="persistence-type-eventcheckpointcreated"></a>
 
 ### `{ type: "checkpoint/created" }`
 
-SHA-256: `26cba28f734f5249eac9288fe1ea64aacbb315d0a7306369f990201ceae3d2c4`
+SHA-256: `7b15790f5053f26e149cd934c3d3d1d268349584d8418fa230b48ed0d743cd42`
 
 | 属性 | 存在性 | 类型 |
 |---|---|---|
-| `data` | 必需 | [`{ agentSessionId, budgets, checkpointId, createdAt, … }`](#persistence-type-sha256-2fbc25edf29e0b913260bf22c640eaf398d8877a5ce27e070bddc0466d0bf99a) |
+| `data` | 必需 | [`{ agentSessionId, budgets, checkpointId, createdAt, … }`](#persistence-type-sha256-6affae17d226078ee557fd427f035b0c3ee6b051e7bd0f351175395c1a5c9986) |
 | `ignorable` | 可选 | `true` |
 | `seq` | 必需 | `number` |
 | `time` | 必需 | `number` |

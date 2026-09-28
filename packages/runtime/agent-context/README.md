@@ -81,9 +81,18 @@ A durable task fact read from `ctx.agentKernel.state.view(session)` is always `t
 `ctx.agentContext.tokenTotals(session)` sums the newest recorded placement's token prices by source kind (`byKind`) and reports `placementCount`, the number of placements that have superseded an earlier one for the session (S1). The totals cover every placed source uniformly — assembled sections and contexts, the kernel's durable task facts, and registered (S2) sources alike — so a registered producer's price is never missing from the accounting just because its content reaches the model through its own injection path rather than through `PromptAssembly`. Before any compile `byKind` reads `{}` and `placementCount` is `0`; a compaction boundary clears the delta/hysteresis tracking but leaves the last placement's totals in place until the next compile overwrites them.
 
 ```ts
+import type { Context } from '@deepseek-ai/cordis'
+import '@deepseek-ai/dsh-agent-context'
+import '@deepseek-ai/dsh-agent-kernel'
+
+declare const ctx: Context
+
 const stop = ctx.agentContext.register(
   { producer: 'goal', kind: 'task', trust: 'trusted', placement: 'stable-core', maxBytes: 4000 },
-  async (agent, signal) => [{ id: 'objective', text: currentGoalText(agent), relevance: 1 }],
+  async agent => {
+    const view = ctx.agentKernel.state.view(agent.session)
+    return [{ id: 'objective', text: view?.task.objective ?? '', relevance: 1 }]
+  },
 )
 ```
 

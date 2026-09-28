@@ -98,7 +98,7 @@ defenseGaps(): GamingDefense[]
 /**
  * The §46 checklist as the recorded stores show it, rather than as an
  * operator set it: each defense reads `observed-satisfied`, `observed-open`,
- * or `unobserved` from the evaluator-strategy, benchmark, and router stores
+ * or `unobserved` from the evaluator-strategy, benchmark, and model-routes stores
  * plus this store's own probes. A defense no store answers from is
  * `unobserved`, never reported open on nobody's evidence. Read-only: this
  * neither writes to those stores nor starts a run (§58.12).
@@ -257,6 +257,17 @@ batches(taskClass?: BudgetTaskClass): readonly BudgetAllocation[]
  * @returns the spend records, detached from the store.
  */
 spends(batchId?: string): readonly SpendRecord[]
+
+/**
+ * What background work has spent across every recorded batch: its tokens
+ * and wall time summed, and its billed cost when every spend stated one.
+ * This is the read side the kernel's `BudgetGovernor` reports beside a
+ * session's own use, so a caller reads both budget owners from one call
+ * without opening this store's durable domain. A store that has not opened
+ * its domain yet has recorded nothing, so it reads as nothing spent.
+ * @returns the recorded background spend.
+ */
+backgroundSpend(): RecordedBackgroundSpend
 
 /**
  * Whether a batch's cumulative recorded spend stays inside its allocation.
@@ -928,44 +939,6 @@ read(scopeId: EvolutionScopeId): GraphRecord | undefined
  * @returns what the batch added, reinforced, and dropped.
  */
 async observe( scopeId: EvolutionScopeId, triples: readonly GraphTriple[], now: string = new Date().toISOString(), ): Promise<GraphObserveResult>
-
-/**
- * Record assertions about the scope's claims. Each assertion creates the
- * claim the scope does not hold yet or merges into the one it does, adding
- * evidence, lineage edges, and observed traces; a `supersedes` marks the
- * claims it names `retired` so they stop answering {@link claims}.
- *
- * An assertion whose statement is blank once normalized is dropped and
- * counted, and so is a new claim once the scope holds `maxClaims` of them:
- * a saturated scope keeps answering from the claims it has instead of
- * failing its caller.
- * @param scopeId - scope identity.
- * @param assertions - claims to record, in input order.
- * @param now - ISO-8601 instant to stamp, defaulting to the wall clock.
- * @returns what the batch added, updated, retired, and dropped.
- */
-async recordClaims( scopeId: EvolutionScopeId, assertions: readonly ClaimAssertion[], now: string = new Date().toISOString(), ): Promise<ClaimObserveResult>
-
-/**
- * Answer one claim query: the active claims whose statement contains the
- * query, most believed first. A retired claim is never among them — it no
- * longer answers anything — and is reachable only by identity through
- * {@link claim}, which reports what retired it.
- * @param scopeId - scope identity.
- * @param query - case-insensitive statement substring; empty matches every active claim.
- * @param limit - maximum claims returned, capped by `maxQueryLimit`.
- * @returns the matching claims, best-supported first.
- */
-claims( scopeId: EvolutionScopeId, query: string = '', limit: number = this.resolved.maxQueryLimit, ): Claim[]
-
-/**
- * Read one claim by identity, retired or active, so a caller can tell a
- * claim that still stands from one a later claim replaced.
- * @param scopeId - scope identity.
- * @param statement - the claim's statement or its normalized identity.
- * @returns the claim, or undefined when the scope holds none under that identity.
- */
-claim(scopeId: EvolutionScopeId, statement: string): Claim | undefined
 
 /**
  * Answer one relation query by traversing outward from a subject.
@@ -1659,6 +1632,35 @@ async research(query: ResearchQuery = {}): Promise<ResearchReport>
  * @returns the learner and the six mentor metrics in spec order.
  */
 mentor(query: MentorQuery): MentorReport
+
+/**
+ * Measure the §43 uncertainty read model over the evaluation-task queue
+ * `ctx.evolutionUncertainty` derives from its durable signals: how deep that
+ * queue is, and how much of it more than one kind of evidence agrees on.
+ *
+ * The store groups the signals and ranks the queue; nothing here re-derives
+ * either, so this report only presents the read model the store already
+ * owns. A store that is not mounted leaves both readings unmeasurable with
+ * the store named, while a mounted store holding no signal is an empty
+ * queue: a measured zero tasks, not a missing record.
+ * @param query - which skill's signals the queue covers, and how many tasks it may hold.
+ * @returns the queue and the two uncertainty readings in spec order.
+ */
+uncertainty(query: UncertaintyQuery = {}): UncertaintyReport
+
+/**
+ * Measure the §42 self-model read model over the capability frontier
+ * `ctx.evolutionSelfModel` ranks from its durable per-capability entries: how
+ * weak the frontier stands overall, and how weak its weakest entry is.
+ *
+ * The store merges the assessments and ranks the frontier; nothing here
+ * re-derives either, so this report only presents the read model the store
+ * already owns. A store that is not mounted leaves both readings
+ * unmeasurable with the store named, and a mounted store holding no entry
+ * names the observation that would have ranked one.
+ * @returns the frontier and the two self-model readings in spec order.
+ */
+selfModel(): SelfModelReport
 ```
 
 Source: [`packages/evolution/evolution-metrics/src/index.ts`](../../packages/evolution/evolution-metrics/src/index.ts)
@@ -1667,20 +1669,24 @@ Source: [`packages/evolution/evolution-metrics/src/index.ts`](../../packages/evo
 
 ### `ctx.evolutionModelRoutes` — `EvolutionModelRoutes`
 
-Adaptive model-routing store over durable assignments, evidence, and the identities that filled a run's evolutionary roles. Opens the `evolution_model_routes` domain at init and closes it through `ctx.effect`.
+Model-routing store over durable assignments, evidence, and the identities that filled a run's evolutionary roles. Opens the `evolution_model_routes` domain at init and closes it through `ctx.effect`.
 
 ```ts cordis-catalog
 /**
  * Record one measured outcome of a route used in a role, upserting the route
  * as `observed` unless it is already pinned (a pin outlives its evidence).
- * @param input - the role, route, and measured triple.
+ * When the outcome leaves the best-measured routes of its task class and role
+ * strongly disagreeing, the §44 disagreement is recorded as an uncertainty
+ * signal through the optional store seam. A failing disagreement record must
+ * not fail the observation.
+ * @param input - the role, route, task class, and measured triple.
  * @returns the stored evidence row.
  */
 async observe(input: RouteEvidenceInput): Promise<RouteEvidence>
 
 /**
  * Pin one route for one role: the operator's explicit assignment outranks
- * every observed route in `recommend`. Pinning an existing route flips its
+ * every measured route in `recommend`. Pinning an existing route flips its
  * origin; pinning a fresh route creates the row.
  * @param role - the role to assign.
  * @param provider - provider half of the route.
@@ -1690,15 +1696,16 @@ async observe(input: RouteEvidenceInput): Promise<RouteEvidence>
 async pin(role: EvolutionRole, provider: string, model: string): Promise<RouteRow>
 
 /**
- * List route assignments merged with their evidence as per-route summaries,
- * optionally for one role, in role-topology order then provider/model order.
+ * List route assignments merged with their evidence as per-route summaries
+ * pooled over the role's task classes, optionally for one role, in
+ * role-topology order then provider/model order.
  * @param role - optional role filter.
  * @returns the summaries, detached from the store.
  */
 routes(role?: EvolutionRole): readonly RouteSummary[]
 
 /**
- * List recorded evidence, newest first, optionally filtered by role and
+ * List recorded outcomes, newest first, optionally filtered by role and
  * route.
  * @param role - optional role filter.
  * @param route - optional route filter.
@@ -1707,13 +1714,37 @@ routes(role?: EvolutionRole): readonly RouteSummary[]
 evidence(role?: EvolutionRole, route?: ModelRoute): readonly RouteEvidence[]
 
 /**
- * Recommend the route for one role: the pinned assignment when one exists,
- * otherwise the route with the strongest recorded evidence. Yields undefined
- * when the role has neither.
- * @param role - the role to recommend for.
- * @returns the recommended route, or undefined.
+ * The derived effectiveness of every route on a task class, optionally
+ * filtered by task class and role, in task-class then role-topology then
+ * provider/model order. Outcomes recorded without a task class measured the
+ * role as a whole and feed `routes` instead.
+ * @param taskClass - optional task-class filter.
+ * @param role - optional role filter.
+ * @returns the effectiveness rows, detached from the store.
  */
-recommend(role: EvolutionRole): ModelRoute | undefined
+effectiveness(taskClass?: RouteTaskClass, role?: EvolutionRole): readonly RouteEffectiveness[]
+
+/**
+ * The route one role should use: the pinned assignment when one exists,
+ * otherwise the best-ranked route with at least `minimumRuns` recorded runs.
+ * Without a `taskClass` the ranking pools the role's runs across its task
+ * classes; with one it ranks only that class's routes. Yields undefined while
+ * the role has neither a pin nor a route measured that well.
+ * @param role - the role to recommend for.
+ * @param taskClass - optional task class to rank within.
+ * @returns the recommended route with the numbers behind it, or undefined.
+ */
+recommend(role: EvolutionRole, taskClass?: RouteTaskClass): RouteRankingEntry | undefined
+
+/**
+ * The §44 route disagreements among the recorded outcomes: per task class and
+ * role, the two best-measured routes whose pass rates diverge by more than the
+ * configured threshold, strongest gap first.
+ * @param taskClass - optional task-class filter.
+ * @param role - optional role filter.
+ * @returns the disagreements, strongest first.
+ */
+disagreements(taskClass?: RouteTaskClass, role?: EvolutionRole): readonly RouteDisagreement[]
 
 /**
  * The §28 topology conflicts in the current assignment set: routes that both
@@ -2012,67 +2043,6 @@ async rebuild(scopeId: EvolutionScopeId, signal: AbortSignal): Promise<void>
 ```
 
 Source: [`packages/evolution/evolution-reviewer/src/index.ts`](../../packages/evolution/evolution-reviewer/src/index.ts)
-
-<a id="ctxevolutionrouter--evolutionrouter"></a>
-
-### `ctx.evolutionRouter` — `EvolutionRouter`
-
-Routing self-optimization store over durable outcomes. Opens the `evolution_router` domain at init and closes it through `ctx.effect`.
-
-```ts cordis-catalog
-/**
- * Record one measured outcome of a route serving one role on one task class.
- * The stored instant is now. When the outcome leaves the best-measured routes
- * of its task class and role strongly disagreeing, the §44 disagreement is
- * recorded as an uncertainty signal through the optional store seam — this is
- * the one producer of a `disagreement` signal that starts from route
- * outcomes. A failing record must not fail the observation.
- * @param outcome - the route, role, task class, and measured triple.
- * @returns the stored outcome.
- */
-async observe(outcome: RouteOutcomeInput): Promise<RouteOutcome>
-
-/**
- * List measured outcomes, optionally filtered by task class and role,
- * newest first with record-key ascending tie-break.
- * @param taskClass - optional task-class filter.
- * @param role - optional role filter.
- * @returns the outcomes, detached from the store.
- */
-outcomes(taskClass?: RouterTaskClass, role?: RoutingRole): readonly RouteOutcome[]
-
-/**
- * The derived effectiveness of every route, optionally filtered by task
- * class and role, in task-class then role-topology then provider/model
- * order.
- * @param taskClass - optional task-class filter.
- * @param role - optional role filter.
- * @returns the effectiveness rows, detached from the store.
- */
-effectiveness(taskClass?: RouterTaskClass, role?: RoutingRole): readonly RouteEffectiveness[]
-
-/**
- * The route to use for one task class and role: the best-ranked route with
- * at least `minimumSamples` measured outcomes, or undefined while no route
- * has that much evidence.
- * @param taskClass - the task class to recommend for.
- * @param role - the role to recommend for.
- * @returns the recommended route, or undefined.
- */
-recommend(taskClass: RouterTaskClass, role: RoutingRole): RouteRankingEntry | undefined
-
-/**
- * The §44 route disagreements among the recorded outcomes: per task class and
- * role, the two best-measured routes whose pass rates diverge by more than the
- * configured threshold, strongest gap first.
- * @param taskClass - optional task-class filter.
- * @param role - optional role filter.
- * @returns the disagreements, strongest first.
- */
-disagreements(taskClass?: RouterTaskClass, role?: RoutingRole): readonly RouteDisagreement[]
-```
-
-Source: [`packages/evolution/evolution-router/src/index.ts`](../../packages/evolution/evolution-router/src/index.ts)
 
 <a id="ctxevolutionscorer--evolutionscorer"></a>
 

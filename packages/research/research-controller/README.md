@@ -58,7 +58,10 @@ A research run also requires the session's kernel task to be class `research`: t
 ### Registering a stage provider
 
 ```ts
-import type { ResearchStageProvider } from '@deepseek-ai/dsh-research-controller'
+import type { Context } from '@deepseek-ai/cordis'
+import { type ResearchStageProvider } from '@deepseek-ai/dsh-research-controller'
+
+declare const ctx: Context
 
 const provider: ResearchStageProvider = {
   id: 'web-search',

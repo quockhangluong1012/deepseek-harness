@@ -33,7 +33,7 @@ export interface AcpConfig {
 
 依赖： `Stream` (`@agentclientprotocol/sdk`)
 
-来源： [`packages/acp/acp/src/index.ts:75`](../packages/acp/acp/src/index.ts)
+来源： [`packages/acp/acp/src/index.ts:79`](../packages/acp/acp/src/index.ts)
 
 <a id="deepseek-aidsh-active-memory-context"></a>
 
@@ -126,7 +126,7 @@ export interface Config {
 export type ContextTier = 'L0' | 'L1' | 'L2' | 'L3' | 'L4' | 'L5' | 'L6'
 ```
 
-来源： [`packages/runtime/agent-context/src/index.ts:51`](../packages/runtime/agent-context/src/index.ts)
+来源： [`packages/runtime/agent-context/src/index.ts:54`](../packages/runtime/agent-context/src/index.ts)
 
 <a id="deepseek-aidsh-agent-default-model"></a>
 
@@ -530,7 +530,7 @@ export type PolicyAction =
   | 'policy'
 ```
 
-来源： [`packages/runtime/agent-kernel/src/index.ts:121`](../packages/runtime/agent-kernel/src/index.ts)
+来源： [`packages/runtime/agent-kernel/src/index.ts:182`](../packages/runtime/agent-kernel/src/index.ts)
 
 <a id="deepseek-aidsh-agent-kernel-builtins"></a>
 
@@ -688,7 +688,7 @@ export interface Config {
 }
 ```
 
-Depends on: [`ReviewSeverity`](../packages/subagent/command-review/src/index.ts)
+依赖： [`ReviewSeverity`](../packages/subagent/command-review/src/index.ts)
 
 来源： [`packages/verification/agent-verifiers/src/index.ts:38`](../packages/verification/agent-verifiers/src/index.ts)
 
@@ -939,7 +939,7 @@ export type Config = LocalConfig
 
 ## `@deepseek-ai/dsh-budgets`
 
-需要： `tokenMeter`
+需要： `tokenMeter` · `sessionProjections`
 
 ```ts config-catalog
 /**
@@ -989,7 +989,7 @@ export interface Config {
 }
 ```
 
-来源： [`packages/guard/budgets/src/index.ts:35`](../packages/guard/budgets/src/index.ts)
+来源： [`packages/guard/budgets/src/index.ts:46`](../packages/guard/budgets/src/index.ts)
 
 <a id="deepseek-aidsh-client-connection"></a>
 
@@ -1168,7 +1168,7 @@ export interface Config {
 }
 ```
 
-来源： [`packages/evolution/command-evolution/src/index.ts:108`](../packages/evolution/command-evolution/src/index.ts)
+来源： [`packages/evolution/command-evolution/src/index.ts:107`](../packages/evolution/command-evolution/src/index.ts)
 
 <a id="deepseek-aidsh-command-review"></a>
 
@@ -1188,7 +1188,8 @@ export interface Config {
 }
 ```
 
-来源： [`packages/subagent/command-review/src/index.ts:20`](../packages/subagent/command-review/src/index.ts)
+来源： [`packages/subagent/command-review/src/index.ts:30`](../packages/subagent/command-review/src/index.ts)
+
 <a id="deepseek-aidsh-command-verifiers"></a>
 
 ## `@deepseek-ai/dsh-command-verifiers`
@@ -1406,7 +1407,7 @@ export interface Config {
 }
 ```
 
-来源： [`packages/llm/embeddings/src/index.ts:68`](../packages/llm/embeddings/src/index.ts)
+来源： [`packages/llm/embeddings/src/index.ts:69`](../packages/llm/embeddings/src/index.ts)
 
 <a id="deepseek-aidsh-embeddings-http"></a>
 
@@ -1496,7 +1497,7 @@ export type AutomationLoop =
   | 'adversary'
 ```
 
-来源： [`packages/evolution/evolution-actuator/src/index.ts:67`](../packages/evolution/evolution-actuator/src/index.ts)
+来源： [`packages/evolution/evolution-actuator/src/index.ts:68`](../packages/evolution/evolution-actuator/src/index.ts)
 
 <a id="deepseek-aidsh-evolution-adversary"></a>
 
@@ -1518,7 +1519,7 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-evolution-benchmark`
 
-需要： `storageDomain`
+需要： `storageDomain` · `tokenMeter`
 
 ```ts config-catalog
 /** Deployment choices for benchmark staging and execution. */
@@ -1532,7 +1533,7 @@ export interface Config {
 }
 ```
 
-来源： [`packages/evolution/evolution-benchmark/src/index.ts:38`](../packages/evolution/evolution-benchmark/src/index.ts)
+来源： [`packages/evolution/evolution-benchmark/src/index.ts:70`](../packages/evolution/evolution-benchmark/src/index.ts)
 
 <a id="deepseek-aidsh-evolution-budget"></a>
 
@@ -1573,7 +1574,7 @@ export interface Config {
 }
 ```
 
-来源： [`packages/evolution/evolution-budget/src/index.ts:55`](../packages/evolution/evolution-budget/src/index.ts)
+来源： [`packages/evolution/evolution-budget/src/index.ts:63`](../packages/evolution/evolution-budget/src/index.ts)
 
 <a id="deepseek-aidsh-evolution-controller"></a>
 
@@ -1675,7 +1676,7 @@ export interface Config {
 }
 ```
 
-来源： [`packages/evolution/evolution-curator/src/index.ts:161`](../packages/evolution/evolution-curator/src/index.ts)
+来源： [`packages/evolution/evolution-curator/src/index.ts:166`](../packages/evolution/evolution-curator/src/index.ts)
 
 <a id="deepseek-aidsh-evolution-curriculum"></a>
 
@@ -1810,8 +1811,6 @@ export interface Config {
   maxNodes?: number
   /** Relations retained per scope; further distinct relations are refused. */
   maxEdges?: number
-  /** Claims retained per scope; further distinct statements are refused. */
-  maxClaims?: number
   /** Results one answer, expansion, or lookup may return. */
   maxQueryLimit?: number
   /** Text budget for one extraction call in UTF-8 bytes. */
@@ -1835,7 +1834,7 @@ export interface Config {
 }
 ```
 
-来源： [`packages/evolution/evolution-graph/src/index.ts:81`](../packages/evolution/evolution-graph/src/index.ts)
+来源： [`packages/evolution/evolution-graph/src/index.ts:68`](../packages/evolution/evolution-graph/src/index.ts)
 
 <a id="deepseek-aidsh-evolution-heartbeat"></a>
 
@@ -1855,7 +1854,7 @@ export interface Config {
 }
 ```
 
-来源： [`packages/evolution/evolution-heartbeat/src/index.ts:50`](../packages/evolution/evolution-heartbeat/src/index.ts)
+来源： [`packages/evolution/evolution-heartbeat/src/index.ts:52`](../packages/evolution/evolution-heartbeat/src/index.ts)
 
 <a id="deepseek-aidsh-evolution-islands"></a>
 
@@ -1890,7 +1889,7 @@ export interface Config {
 export type DependencyKey = 'prompt' | 'skill' | 'retriever' | 'evaluator' | 'model' | 'tool' | 'env'
 ```
 
-来源： [`packages/evolution/evolution-lineage/src/index.ts:28`](../packages/evolution/evolution-lineage/src/index.ts)
+来源： [`packages/evolution/evolution-lineage/src/index.ts:39`](../packages/evolution/evolution-lineage/src/index.ts)
 
 <a id="deepseek-aidsh-evolution-memory"></a>
 
@@ -1966,7 +1965,7 @@ export interface Config {
 }
 ```
 
-来源： [`packages/evolution/evolution-memory/src/index.ts:190`](../packages/evolution/evolution-memory/src/index.ts)
+来源： [`packages/evolution/evolution-memory/src/index.ts:206`](../packages/evolution/evolution-memory/src/index.ts)
 
 <a id="deepseek-aidsh-evolution-memory-context"></a>
 
@@ -1998,7 +1997,7 @@ export interface Config {
 }
 ```
 
-来源： [`packages/context/evolution-memory-context/src/index.ts:125`](../packages/context/evolution-memory-context/src/index.ts)
+来源： [`packages/context/evolution-memory-context/src/index.ts:128`](../packages/context/evolution-memory-context/src/index.ts)
 
 <a id="deepseek-aidsh-evolution-meta"></a>
 
@@ -2065,7 +2064,34 @@ export interface Config {
 }
 ```
 
-来源： [`packages/evolution/evolution-metrics/src/index.ts:70`](../packages/evolution/evolution-metrics/src/index.ts)
+来源： [`packages/evolution/evolution-metrics/src/index.ts:142`](../packages/evolution/evolution-metrics/src/index.ts)
+
+<a id="deepseek-aidsh-evolution-model-routes"></a>
+
+## `@deepseek-ai/dsh-evolution-model-routes`
+
+需要： `storageDomain`
+
+```ts config-catalog
+/**
+ * Validated configuration of the model-routing store; an omitted field takes
+ * its default.
+ */
+export interface Config {
+  /**
+   * Runs a route needs before it may be recommended; defaults to 1, so a role
+   * with one observed run is still named. Raise it to demand a wider margin
+   * before an unmeasured deployment starts following thin evidence.
+   */
+  minimumRuns?: number
+  /** Runs a route needs before the disagreement comparison measures it; defaults to 3. */
+  disagreementMinimumRuns?: number
+  /** Pass-rate gap at which two routes disagree strongly; defaults to 0.5. */
+  disagreementThreshold?: number
+}
+```
+
+来源： [`packages/evolution/evolution-model-routes/src/index.ts:81`](../packages/evolution/evolution-model-routes/src/index.ts)
 
 <a id="deepseek-aidsh-evolution-operators"></a>
 
@@ -2083,7 +2109,7 @@ export interface Config {
 }
 ```
 
-来源： [`packages/evolution/evolution-operators/src/index.ts:39`](../packages/evolution/evolution-operators/src/index.ts)
+来源： [`packages/evolution/evolution-operators/src/index.ts:40`](../packages/evolution/evolution-operators/src/index.ts)
 
 <a id="deepseek-aidsh-evolution-optimizer"></a>
 
@@ -2204,7 +2230,7 @@ export interface Config {
 }
 ```
 
-来源： [`packages/evolution/evolution-optimizer/src/index.ts:112`](../packages/evolution/evolution-optimizer/src/index.ts)
+来源： [`packages/evolution/evolution-optimizer/src/index.ts:130`](../packages/evolution/evolution-optimizer/src/index.ts)
 
 <a id="deepseek-aidsh-evolution-retrieval"></a>
 
@@ -2238,6 +2264,7 @@ export interface Config {
 需要： `llm` · `sessions` · `evolutionMemory` · `workspaceRegistry`
 
 ```ts config-catalog
+/** User-facing reviewer settings; every field is optional and defaulted by {@link resolveConfig}. */
 export interface Config {
   /** Minimum gap between two extractions for one scope. */
   cooldownMs?: number
@@ -2281,30 +2308,7 @@ export interface Config {
 }
 ```
 
-来源： [`packages/evolution/evolution-reviewer/src/index.ts:75`](../packages/evolution/evolution-reviewer/src/index.ts)
-
-<a id="deepseek-aidsh-evolution-router"></a>
-
-## `@deepseek-ai/dsh-evolution-router`
-
-需要： `storageDomain`
-
-```ts config-catalog
-/**
- * Validated configuration of the routing self-optimization store; an omitted
- * field takes its default.
- */
-export interface Config {
-  /** Outcomes a route needs before it may be recommended; defaults to 3. */
-  minimumSamples?: number
-  /** Outcomes a route needs before the disagreement comparison measures it; defaults to 3. */
-  disagreementMinimumRuns?: number
-  /** Pass-rate gap at which two routes disagree strongly; defaults to 0.5. */
-  disagreementThreshold?: number
-}
-```
-
-来源： [`packages/evolution/evolution-router/src/index.ts:33`](../packages/evolution/evolution-router/src/index.ts)
+来源： [`packages/evolution/evolution-reviewer/src/index.ts:78`](../packages/evolution/evolution-reviewer/src/index.ts)
 
 <a id="deepseek-aidsh-evolution-scorer"></a>
 
@@ -2329,7 +2333,7 @@ export interface Config {
 }
 ```
 
-来源： [`packages/evolution/evolution-scorer/src/index.ts:86`](../packages/evolution/evolution-scorer/src/index.ts)
+来源： [`packages/evolution/evolution-scorer/src/index.ts:87`](../packages/evolution/evolution-scorer/src/index.ts)
 
 <a id="deepseek-aidsh-evolution-self-model"></a>
 
@@ -2444,7 +2448,7 @@ export interface Config {
 }
 ```
 
-来源： [`packages/evolution/evolution-trace/src/index.ts:40`](../packages/evolution/evolution-trace/src/index.ts)
+来源： [`packages/evolution/evolution-trace/src/index.ts:48`](../packages/evolution/evolution-trace/src/index.ts)
 
 <a id="deepseek-aidsh-evolution-trajectory"></a>
 
@@ -2526,7 +2530,7 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-experimental-auto-review`
 
-Requires: `llm` · `permissionPresets` · `sessions` · `tools`
+需要： `llm` · `permissionPresets` · `sessions` · `tools`
 
 ```ts config-catalog
 /** Deployment choices for the Auto reviewer's own model route. */
@@ -2547,7 +2551,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/experimental/auto-review/src/index.ts:131`](../packages/experimental/auto-review/src/index.ts)
+来源： [`packages/experimental/auto-review/src/index.ts:131`](../packages/experimental/auto-review/src/index.ts)
 
 <a id="deepseek-aidsh-experimental-browser-use-chrome-devtools-mcp"></a>
 
@@ -2976,7 +2980,7 @@ export interface Config {
 }
 ```
 
-Depends on: [`ObjectJsonSchema`](../packages/core/tools/src/index.ts)
+依赖： [`ObjectJsonSchema`](subsystems/tools.zh.md)
 
 来源： [`packages/bundle/headless/src/index.ts:55`](../packages/bundle/headless/src/index.ts)
 
@@ -3046,7 +3050,7 @@ export interface Config {
 }
 ```
 
-来源： [`packages/hooks/hooks-claude-code/src/index.ts:52`](../packages/hooks/hooks-claude-code/src/index.ts)
+来源： [`packages/hooks/hooks-claude-code/src/index.ts:63`](../packages/hooks/hooks-claude-code/src/index.ts)
 
 <a id="deepseek-aidsh-hooks-codex"></a>
 
@@ -3073,7 +3077,7 @@ export interface Config {
 }
 ```
 
-来源： [`packages/hooks/hooks-codex/src/index.ts:51`](../packages/hooks/hooks-codex/src/index.ts)
+来源： [`packages/hooks/hooks-codex/src/index.ts:52`](../packages/hooks/hooks-codex/src/index.ts)
 
 <a id="deepseek-aidsh-host-directory-picker-browse"></a>
 
@@ -3170,7 +3174,7 @@ export interface Config {
 }
 ```
 
-来源： [`packages/host/product-telemetry-otel/src/index.ts:37`](../packages/host/product-telemetry-otel/src/index.ts)
+来源： [`packages/host/product-telemetry-otel/src/index.ts:45`](../packages/host/product-telemetry-otel/src/index.ts)
 
 <a id="deepseek-aidsh-host-webserver"></a>
 
@@ -3331,7 +3335,7 @@ export interface DeepSeekCatalogModel {
 }
 ```
 
-依赖： [`LlmModelCost`](../packages/llm/llm/src/index.ts) · [`ModelModality`](../packages/llm/llm/src/index.ts) · [`RetryPolicyConfig`](../packages/llm/llm/src/index.ts) · [`SystemPromptUpdate`](../packages/llm/llm/src/index.ts) · `Volatile` (`@deepseek-ai/cordis`)
+依赖： [`LlmModelCost`](subsystems/llm-streaming.zh.md) · [`ModelModality`](../packages/llm/llm/src/index.ts) · [`RetryPolicyConfig`](../packages/llm/llm/src/index.ts) · [`SystemPromptUpdate`](../packages/llm/llm/src/index.ts) · `Volatile` (`@deepseek-ai/cordis`)
 
 来源： [`packages/llm/llm-deepseek/src/config.ts:28`](../packages/llm/llm-deepseek/src/config.ts)
 
@@ -3364,7 +3368,7 @@ export interface LlmRoute {
 }
 ```
 
-来源： [`packages/llm/llm-fallback/src/index.ts:57`](../packages/llm/llm-fallback/src/index.ts)
+来源： [`packages/llm/llm-fallback/src/index.ts:60`](../packages/llm/llm-fallback/src/index.ts)
 
 <a id="deepseek-aidsh-llm-pi-ai"></a>
 
@@ -3962,7 +3966,8 @@ export interface Config {
 }
 ```
 
-来源： [`packages/mcp/mcp-project-config/src/index.ts:24`](../packages/mcp/mcp-project-config/src/index.ts)
+来源： [`packages/mcp/mcp-project-config/src/index.ts:31`](../packages/mcp/mcp-project-config/src/index.ts)
+
 <a id="deepseek-aidsh-mentor-loop"></a>
 
 ## `@deepseek-ai/dsh-mentor-loop`
@@ -3996,6 +4001,7 @@ export interface Config {
 ```
 
 来源： [`packages/feedback/message-feedback/src/index.ts:40`](../packages/feedback/message-feedback/src/index.ts)
+
 <a id="deepseek-aidsh-misconception"></a>
 
 ## `@deepseek-ai/dsh-misconception`
@@ -4144,7 +4150,7 @@ export interface PresetSpec {
 
 依赖： [`ApprovalPolicy`](subsystems/approval.zh.md) · [`PolicyDocument`](../packages/runtime/agent-kernel/src/index.ts) · [`SandboxMode`](subsystems/sandbox.zh.md) · `Volatile` (`@deepseek-ai/cordis`)
 
-来源： [`packages/interaction/permission-presets/src/index.ts:205`](../packages/interaction/permission-presets/src/index.ts)
+来源： [`packages/interaction/permission-presets/src/index.ts:296`](../packages/interaction/permission-presets/src/index.ts)
 
 <a id="deepseek-aidsh-persona"></a>
 
@@ -4189,7 +4195,7 @@ export interface PlanModeConfig {
 }
 ```
 
-来源： [`packages/plan/plan-mode/src/index.ts:73`](../packages/plan/plan-mode/src/index.ts)
+来源： [`packages/plan/plan-mode/src/index.ts:74`](../packages/plan/plan-mode/src/index.ts)
 
 <a id="deepseek-aidsh-plugin-manager"></a>
 
@@ -4385,6 +4391,7 @@ export interface Config {
 ```
 
 来源： [`packages/guard/repeat-tool-reminder/src/index.ts:35`](../packages/guard/repeat-tool-reminder/src/index.ts)
+
 <a id="deepseek-aidsh-repo-index"></a>
 
 ## `@deepseek-ai/dsh-repo-index`
@@ -4460,6 +4467,7 @@ export interface Config {
 ```
 
 来源： [`packages/research/research-controller/src/index.ts:91`](../packages/research/research-controller/src/index.ts)
+
 <a id="deepseek-aidsh-sandbox-local"></a>
 
 ## `@deepseek-ai/dsh-sandbox-local`
@@ -4926,7 +4934,9 @@ export interface Config {
 }
 ```
 
-来源： [`packages/skill/skill-filesystem/src/index.ts:51`](../packages/skill/skill-filesystem/src/index.ts)
+依赖： `Volatile` (`@deepseek-ai/cordis`)
+
+来源： [`packages/skill/skill-filesystem/src/index.ts:64`](../packages/skill/skill-filesystem/src/index.ts)
 
 <a id="deepseek-aidsh-skill-office"></a>
 
@@ -4971,7 +4981,7 @@ export interface Config {
 }
 ```
 
-来源： [`packages/spill/spill-local/src/index.ts:31`](../packages/spill/spill-local/src/index.ts)
+来源： [`packages/spill/spill-local/src/index.ts:36`](../packages/spill/spill-local/src/index.ts)
 
 <a id="deepseek-aidsh-spill-policy"></a>
 
@@ -5123,7 +5133,7 @@ export interface Config {
 
 依赖： `Volatile` (`@deepseek-ai/cordis`)
 
-来源： [`packages/subagent/subagent/src/index.ts:192`](../packages/subagent/subagent/src/index.ts)
+来源： [`packages/subagent/subagent/src/index.ts:210`](../packages/subagent/subagent/src/index.ts)
 
 <a id="deepseek-aidsh-subagent-acp"></a>
 
@@ -5364,7 +5374,7 @@ export interface Config {
 }
 ```
 
-来源： [`packages/core/system-prompt/src/index.ts:249`](../packages/core/system-prompt/src/index.ts)
+来源： [`packages/core/system-prompt/src/index.ts:251`](../packages/core/system-prompt/src/index.ts)
 
 <a id="deepseek-aidsh-terminal-bash"></a>
 
@@ -5552,7 +5562,7 @@ export interface Config {
 }
 ```
 
-来源： [`packages/fs/tool-fs/src/index.ts:32`](../packages/fs/tool-fs/src/index.ts)
+来源： [`packages/fs/tool-fs/src/index.ts:34`](../packages/fs/tool-fs/src/index.ts)
 
 <a id="deepseek-aidsh-tool-fs-search"></a>
 
@@ -5588,6 +5598,7 @@ export interface Config {
 ```
 
 来源： [`packages/fs/tool-fs-search/src/index.ts:73`](../packages/fs/tool-fs-search/src/index.ts)
+
 <a id="deepseek-aidsh-tool-git"></a>
 
 ## `@deepseek-ai/dsh-tool-git`
@@ -5685,7 +5696,7 @@ export interface Config {
 }
 ```
 
-来源： [`packages/lsp/tool-lsp/src/index.ts:57`](../packages/lsp/tool-lsp/src/index.ts)
+来源： [`packages/lsp/tool-lsp/src/index.ts:59`](../packages/lsp/tool-lsp/src/index.ts)
 
 <a id="deepseek-aidsh-tool-present"></a>
 
@@ -6129,7 +6140,7 @@ export interface Config {
 export type ToolPresentationMode = 'native' | 'ptc' | 'both'
 ```
 
-来源： [`packages/core/tools/src/index.ts:796`](../packages/core/tools/src/index.ts)
+来源： [`packages/core/tools/src/index.ts:795`](../packages/core/tools/src/index.ts)
 
 <a id="deepseek-aidsh-typert-loader"></a>
 
@@ -6180,7 +6191,7 @@ export interface Config {
 }
 ```
 
-来源： [`packages/session/usage-ledger/src/index.ts:93`](../packages/session/usage-ledger/src/index.ts)
+来源： [`packages/session/usage-ledger/src/index.ts:104`](../packages/session/usage-ledger/src/index.ts)
 
 <a id="deepseek-aidsh-user-approval"></a>
 
@@ -6211,7 +6222,7 @@ export interface Config {
 export type ApprovalPolicy = 'ask' | 'never'
 ```
 
-来源： [`packages/interaction/user-approval/src/index.ts:135`](../packages/interaction/user-approval/src/index.ts)
+来源： [`packages/interaction/user-approval/src/index.ts:137`](../packages/interaction/user-approval/src/index.ts)
 
 <a id="deepseek-aidsh-web"></a>
 
@@ -6408,6 +6419,7 @@ export interface Config {
 ```
 
 来源： [`packages/workflow/workflow-ptc/src/index.ts:32`](../packages/workflow/workflow-ptc/src/index.ts)
+
 <a id="deepseek-aidsh-working-set"></a>
 
 ## `@deepseek-ai/dsh-working-set`
@@ -6459,7 +6471,7 @@ export interface Config {
 }
 ```
 
-来源： [`packages/deliverables/workspace-changes/src/index.ts:33`](../packages/deliverables/workspace-changes/src/index.ts)
+来源： [`packages/deliverables/workspace-changes/src/index.ts:34`](../packages/deliverables/workspace-changes/src/index.ts)
 
 <a id="deepseek-aidsh-workspace-memory"></a>
 
@@ -6590,7 +6602,6 @@ export interface Config {
 - `@deepseek-ai/dsh-cordis-client-runner`（[`packages/extensions/cordis-client-runner/src/index.ts`](../packages/extensions/cordis-client-runner/src/index.ts)）
 - `@deepseek-ai/dsh-deepseek-llm-api-extensions`（[`packages/llm/deepseek-llm-api-extensions/src/index.ts`](../packages/llm/deepseek-llm-api-extensions/src/index.ts)）
 - `@deepseek-ai/dsh-evolution-canary` — 需要 `storageDomain`（[`packages/evolution/evolution-canary/src/index.ts`](../packages/evolution/evolution-canary/src/index.ts)）
-- `@deepseek-ai/dsh-evolution-model-routes` — 需要 `storageDomain`（[`packages/evolution/evolution-model-routes/src/index.ts`](../packages/evolution/evolution-model-routes/src/index.ts)）
 - `@deepseek-ai/dsh-evolution-novelty-search` — 需要 `storageDomain`（[`packages/evolution/evolution-novelty-search/src/index.ts`](../packages/evolution/evolution-novelty-search/src/index.ts)）
 - `@deepseek-ai/dsh-evolution-population` — 需要 `storageDomain`（[`packages/evolution/evolution-population/src/index.ts`](../packages/evolution/evolution-population/src/index.ts)）
 - `@deepseek-ai/dsh-evolution-verifiers`（[`packages/evolution/evolution-verifiers/src/index.ts`](../packages/evolution/evolution-verifiers/src/index.ts)）

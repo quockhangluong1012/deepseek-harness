@@ -166,7 +166,7 @@ export class McpServers extends TypertRemoteService {
    * @returns the outcome, with the merged view in force afterwards.
    */
   @Remote
-  async remove(request: McpServerRemove): Promise<McpMutationOutcome> {
+  async delete(request: McpServerRemove): Promise<McpMutationOutcome> {
     const path = this.pathOf(request.layer)
     let document: McpConfigDocument
     try {

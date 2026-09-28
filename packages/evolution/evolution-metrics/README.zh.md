@@ -32,6 +32,11 @@ kind: "package-reference"
 挂载插件即可；它不需要存储域，也不注入任何服务。一次调用返回整份报告，可选地限定到某个任务类。
 
 ```ts
+import type { Context } from '@deepseek-ai/cordis'
+import '@deepseek-ai/dsh-evolution-metrics'
+
+declare const ctx: Context
+
 const report = ctx.evolutionMetrics.report({ taskClass: 'writer' })
 
 report.window        // runs, from, to, and the two half-rates the gain compares
@@ -60,6 +65,11 @@ report.supporting    // the ten supporting metrics
 §13.2 的编码指标集由已记录的会话日志折叠而成——与内核计数器、轨迹投影所依据的是同一批记录；§5.4 的基线读数也来自同一个窗口。表中最后七行是 §18.3 的内核计数器，同样读自这一次折叠：即 §18.3 要求、而 §13.2 与 §5.4 的任何读数都未表达的任务、验证、运行、策略、审批与检查点族。`run.wall_ms` 与 `run.cost_usd` 即上表的 `latency` 与 `cost`，`subagent.success_rate` 是 `subagent-waste` 的补，`memory.recall_utility` 与 `skill.utility` 是 `memory-utility` 与 `skill-incremental-utility`，而 `evolution.capability_gain_per_compute` 是北极星指标。`context.compactions`、`sandbox.denied` 与 `workflow.resume_success` 并非内核计数器，故此处不为它们命名任何读数。
 
 ```ts
+import type { Context } from '@deepseek-ai/cordis'
+import '@deepseek-ai/dsh-evolution-metrics'
+
+declare const ctx: Context
+
 const coding = await ctx.evolutionMetrics.coding({ since: '2026-01-01T00:00:00.000Z' })
 
 coding.window     // sessions, from, to
@@ -91,6 +101,13 @@ coding.metrics    // verified success, false completion, regression, recovery, p
 §13.3 的研究指标集读取 `ctx.research` 记录下来的运行，以及这些运行的会话所记录的主张与观察。它的窗口是运行窗口：`runs`、`sessions`、`from`、`to`，并由 `sessionId`、按运行定案时刻（尚未定案时为开始时刻）的 `since`/`until`，以及 `limit` 收窄。每一项指标都是占比。
 
 ```ts
+import type { Context } from '@deepseek-ai/cordis'
+import '@deepseek-ai/dsh-evolution-metrics'
+import type { SessionId } from '@deepseek-ai/dsh-session'
+
+declare const ctx: Context
+declare const sessionId: SessionId
+
 const research = await ctx.evolutionMetrics.research({ sessionId })
 
 research.window   // sessions, runs, from, to
@@ -110,6 +127,13 @@ research.metrics  // the seven §13.3 metrics, in spec order
 §13.4 的辅导指标集读取单个学习者的持久记录（`ctx.learnerModel`）与为其记录的误解循环（`ctx.misconception`）。它的查询必须点名学习者，因为两个存储都不提供学习者列表。
 
 ```ts
+import type { Context } from '@deepseek-ai/cordis'
+import '@deepseek-ai/dsh-evolution-metrics'
+import type { LearnerId } from '@deepseek-ai/dsh-learner-model'
+
+declare const ctx: Context
+declare const learnerId: LearnerId
+
 const mentor = ctx.evolutionMetrics.mentor({ learnerId })
 
 mentor.learnerId  // the learner the report covers
@@ -128,6 +152,11 @@ mentor.metrics    // the six §13.4 metrics, in spec order
 §13.5 长跨度指标集读取 `ctx.evolutionBenchmark.run()` 为每个它执行过的基准任务记录下来的持久结果。它的窗口是结果窗口：`tasks`、`scored`、`failed`、`from`、`to`，由 `since`/`until` 按结果记录时刻收窄，并由最新 `limit`（否则 `maxOutcomes`）设上限。
 
 ```ts
+import type { Context } from '@deepseek-ai/cordis'
+import '@deepseek-ai/dsh-evolution-metrics'
+
+declare const ctx: Context
+
 const horizon = ctx.evolutionMetrics.longHorizon()
 
 horizon.window   // tasks, scored, failed, from, to
@@ -150,6 +179,11 @@ horizon.tiers    // one entry per horizon tier: 10, 20, 50, and the open-ended 1
 §43 的不确定性只读模型呈现 [`dsh-evolution-uncertainty`](../evolution-uncertainty/README.zh.md) 从其持久信号推导出的评估任务队列。查询以 `skill` 收窄该队列，并以 `limit` 设上限；窗口报告 `tasks`、`signals` 与队列首行的 `topPriority`。分组与排序都由该存储完成，故本报告绝不重新推导其中任何一项。
 
 ```ts
+import type { Context } from '@deepseek-ai/cordis'
+import '@deepseek-ai/dsh-evolution-metrics'
+
+declare const ctx: Context
+
 const queued = ctx.evolutionMetrics.uncertainty({ skill: 'writer' })
 
 queued.window   // skill, tasks, signals, topPriority
@@ -164,10 +198,15 @@ queued.metrics  // queue depth and the corroborated share
 §42 的自我模型只读模型呈现 [`dsh-evolution-self-model`](../evolution-self-model/README.zh.md) 从其持久的单能力条目排序得出的能力前沿。窗口报告 `skills`（该存储持有多少份评估）与 `capabilities`（前沿排序了多少条目）；排序由该存储完成，故本报告绝不重新推导其顺序。
 
 ```ts
-const self = ctx.evolutionMetrics.selfModel()
+import type { Context } from '@deepseek-ai/cordis'
+import '@deepseek-ai/dsh-evolution-metrics'
 
-self.window   // skills, capabilities
-self.metrics  // the frontier's mean pass rate and its weakest entry's
+declare const ctx: Context
+
+const selfModel = ctx.evolutionMetrics.selfModel()
+
+selfModel.window   // skills, capabilities
+selfModel.metrics  // the frontier's mean pass rate and its weakest entry's
 ```
 
 | 指标 | 测量来源 | 含义 |

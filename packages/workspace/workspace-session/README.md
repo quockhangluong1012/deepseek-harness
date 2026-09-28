@@ -28,6 +28,17 @@ English | [中文](README.zh.md)
 Call `startWorkspaceSession` from a plugin that publishes an unattended Session — a webhook rule, a scheduled routine, or a new producer of the same kind. It is a library, not a mounted plugin: it owns no service and needs no `cordis.yml` row.
 
 ```ts
+import { randomUUID } from 'node:crypto'
+import type { Context } from '@deepseek-ai/cordis'
+import { brandString } from '@deepseek-ai/dsh-brand'
+import { boundContextSummary, createUserMessage } from '@deepseek-ai/dsh-llm'
+import type { SessionId } from '@deepseek-ai/dsh-session'
+import type {} from '@deepseek-ai/dsh-schedule-routines'
+import { startWorkspaceSession } from '@deepseek-ai/dsh-workspace-session'
+
+declare const ctx: Context
+declare const signal: AbortSignal
+
 await startWorkspaceSession(ctx, {
   workspacePath: '/srv/projects/app',
   sessionId: brandString<SessionId>(`routine-${randomUUID()}`),
@@ -37,7 +48,15 @@ await startWorkspaceSession(ctx, {
   modelSelection: { provider: 'deepseek', model: 'deepseek-chat' },
   agentOptions: { provider: 'deepseek', model: 'deepseek-chat' },
   owner: 'schedule-routines',
-}, createUserMessage({ content: [{ type: 'text', text: 'Sweep the tree.' }], source: { kind: 'routine', /* … */ } }), signal)
+}, createUserMessage({
+  content: [{ type: 'text', text: 'Sweep the tree.' }],
+  source: {
+    kind: 'routine',
+    routineId: 'routine-1',
+    form: 'notice',
+    summary: boundContextSummary('Scheduled routine "Nightly sweep" started this session'),
+  },
+}), signal)
 ```
 
 The call is complete when the message is admitted. Ownership then ends: the Agent is lifecycle-owned by the context it was created on, and the caller arranges nothing further.

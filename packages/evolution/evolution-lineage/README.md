@@ -28,6 +28,12 @@ English | [中文](README.zh.md)
 Mount the plugin with the storage domain. Envelopes arrive from the optimizer's evaluated candidates whenever the store is mounted; operators read envelopes, compare dependency versions before trusting a metric delta, and replay a run from its seeds.
 
 ```ts
+import type { Context } from '@deepseek-ai/cordis'
+import { EvolutionLineage } from '@deepseek-ai/dsh-evolution-lineage'
+
+declare const ctx: Context
+
+ctx.plugin(EvolutionLineage)
 await ctx.evolutionLineage.record({
   experimentId: 'exp-0',
   skill: 'writer',
@@ -48,6 +54,13 @@ if (verdict?.comparable) console.log('apples-to-apples')
 Policies are versioned in the same store. `recordRevision({ policy, body, benchmark? })` appends one revision, and the store owns the arithmetic: it assigns the next version number for that policy, hashes the body (sha256-hex), and diffs it against the revision it replaces, so a caller cannot record a version, a digest, or a diff that disagrees with the body. Recording the bytes the chain's head already carries is a no-op; recording an older revision's bytes is a real revision, so a revert lands as a new version instead of rewriting history. `revisions(policy)` lists the chain oldest first with every revision's body, which is what makes a policy diffable and restorable without reading the file the body was written from.
 
 ```ts
+import type { Context } from '@deepseek-ai/cordis'
+import { EvolutionLineage } from '@deepseek-ai/dsh-evolution-lineage'
+
+declare const ctx: Context
+declare const nextBody: string
+
+ctx.plugin(EvolutionLineage)
 await ctx.evolutionLineage.recordRevision({ policy: 'skill:writer', body: nextBody, benchmark: 'scorer-v1:…' })
 const chain = ctx.evolutionLineage.revisions('skill:writer')
 const last = chain.at(-1)

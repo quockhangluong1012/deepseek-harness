@@ -1410,7 +1410,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'observedDefenses(): readonly DefenseObservation[]',
-        description: 'The §46 checklist as the recorded stores show it, rather than as an operator set it: each defense reads `observed-satisfied`, `observed-open`, or `unobserved` from the evaluator-strategy, benchmark, and router stores plus this store\'s own probes. A defense no store answers from is `unobserved`, never reported open on nobody\'s evidence. Read-only: this neither writes to those stores nor starts a run (§58.12).',
+        description: 'The §46 checklist as the recorded stores show it, rather than as an operator set it: each defense reads `observed-satisfied`, `observed-open`, or `unobserved` from the evaluator-strategy, benchmark, and model-routes stores plus this store\'s own probes. A defense no store answers from is `unobserved`, never reported open on nobody\'s evidence. Read-only: this neither writes to those stores nor starts a run (§58.12).',
         parameters: [],
         returns: 'the observations, in canonical order.',
       },
@@ -1511,6 +1511,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'List spend records, optionally filtered by batch, newest first with record-key ascending tie-break.',
         parameters: [{ name: 'batchId', description: 'optional batch filter.' }],
         returns: 'the spend records, detached from the store.',
+      },
+      {
+        signature: 'backgroundSpend(): RecordedBackgroundSpend',
+        description: 'What background work has spent across every recorded batch: its tokens and wall time summed, and its billed cost when every spend stated one. This is the read side the kernel\'s `BudgetGovernor` reports beside a session\'s own use, so a caller reads both budget owners from one call without opening this store\'s durable domain. A store that has not opened its domain yet has recorded nothing, so it reads as nothing spent.',
+        parameters: [],
+        returns: 'the recorded background spend.',
       },
       {
         signature: 'withinBudget(batchId: string): boolean',
@@ -1958,24 +1964,6 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'what the batch added, reinforced, and dropped.',
       },
       {
-        signature: 'async recordClaims( scopeId: EvolutionScopeId, assertions: readonly ClaimAssertion[], now: string = new Date().toISOString(), ): Promise<ClaimObserveResult>',
-        description: 'Record assertions about the scope\'s claims. Each assertion creates the claim the scope does not hold yet or merges into the one it does, adding evidence, lineage edges, and observed traces; a `supersedes` marks the claims it names `retired` so they stop answering claims.\n\nAn assertion whose statement is blank once normalized is dropped and counted, and so is a new claim once the scope holds `maxClaims` of them: a saturated scope keeps answering from the claims it has instead of failing its caller.',
-        parameters: [{ name: 'scopeId', description: 'scope identity.' }, { name: 'assertions', description: 'claims to record, in input order.' }, { name: 'now', description: 'ISO-8601 instant to stamp, defaulting to the wall clock.' }],
-        returns: 'what the batch added, updated, retired, and dropped.',
-      },
-      {
-        signature: 'claims( scopeId: EvolutionScopeId, query: string = \'\', limit: number = this.resolved.maxQueryLimit, ): Claim[]',
-        description: 'Answer one claim query: the active claims whose statement contains the query, most believed first. A retired claim is never among them — it no longer answers anything — and is reachable only by identity through claim, which reports what retired it.',
-        parameters: [{ name: 'scopeId', description: 'scope identity.' }, { name: 'query', description: 'case-insensitive statement substring; empty matches every active claim.' }, { name: 'limit', description: 'maximum claims returned, capped by `maxQueryLimit`.' }],
-        returns: 'the matching claims, best-supported first.',
-      },
-      {
-        signature: 'claim(scopeId: EvolutionScopeId, statement: string): Claim | undefined',
-        description: 'Read one claim by identity, retired or active, so a caller can tell a claim that still stands from one a later claim replaced.',
-        parameters: [{ name: 'scopeId', description: 'scope identity.' }, { name: 'statement', description: 'the claim\'s statement or its normalized identity.' }],
-        returns: 'the claim, or undefined when the scope holds none under that identity.',
-      },
-      {
         signature: 'answer( scopeId: EvolutionScopeId, subject: string, relation: string, limit: number = this.resolved.maxQueryLimit, ): GraphAnswer | undefined',
         description: 'Answer one relation query by traversing outward from a subject.',
         parameters: [{ name: 'scopeId', description: 'scope identity.' }, { name: 'subject', description: 'subject label, matched by normalized identity.' }, { name: 'relation', description: 'relation name, matched by normalized identity.' }, { name: 'limit', description: 'maximum objects returned, capped by `maxQueryLimit`.' }],
@@ -2354,42 +2342,66 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         parameters: [{ name: 'query', description: 'the learner whose recorded work the report covers.' }],
         returns: 'the learner and the six mentor metrics in spec order.',
       },
+      {
+        signature: 'uncertainty(query: UncertaintyQuery = {}): UncertaintyReport',
+        description: 'Measure the §43 uncertainty read model over the evaluation-task queue `ctx.evolutionUncertainty` derives from its durable signals: how deep that queue is, and how much of it more than one kind of evidence agrees on.\n\nThe store groups the signals and ranks the queue; nothing here re-derives either, so this report only presents the read model the store already owns. A store that is not mounted leaves both readings unmeasurable with the store named, while a mounted store holding no signal is an empty queue: a measured zero tasks, not a missing record.',
+        parameters: [{ name: 'query', description: 'which skill\'s signals the queue covers, and how many tasks it may hold.' }],
+        returns: 'the queue and the two uncertainty readings in spec order.',
+      },
+      {
+        signature: 'selfModel(): SelfModelReport',
+        description: 'Measure the §42 self-model read model over the capability frontier `ctx.evolutionSelfModel` ranks from its durable per-capability entries: how weak the frontier stands overall, and how weak its weakest entry is.\n\nThe store merges the assessments and ranks the frontier; nothing here re-derives either, so this report only presents the read model the store already owns. A store that is not mounted leaves both readings unmeasurable with the store named, and a mounted store holding no entry names the observation that would have ranked one.',
+        parameters: [],
+        returns: 'the frontier and the two self-model readings in spec order.',
+      },
     ],
   },
   {
     key: 'evolutionModelRoutes',
-    summary: 'Adaptive model-routing store over durable assignments, evidence, and the identities that filled a run\'s evolutionary roles.',
-    description: 'Adaptive model-routing store over durable assignments, evidence, and the identities that filled a run\'s evolutionary roles. Opens the `evolution_model_routes` domain at init and closes it through `ctx.effect`.',
+    summary: 'Model-routing store over durable assignments, evidence, and the identities that filled a run\'s evolutionary roles.',
+    description: 'Model-routing store over durable assignments, evidence, and the identities that filled a run\'s evolutionary roles. Opens the `evolution_model_routes` domain at init and closes it through `ctx.effect`.',
     methods: [
       {
         signature: 'async observe(input: RouteEvidenceInput): Promise<RouteEvidence>',
-        description: 'Record one measured outcome of a route used in a role, upserting the route as `observed` unless it is already pinned (a pin outlives its evidence).',
-        parameters: [{ name: 'input', description: 'the role, route, and measured triple.' }],
+        description: 'Record one measured outcome of a route used in a role, upserting the route as `observed` unless it is already pinned (a pin outlives its evidence). When the outcome leaves the best-measured routes of its task class and role strongly disagreeing, the §44 disagreement is recorded as an uncertainty signal through the optional store seam. A failing disagreement record must not fail the observation.',
+        parameters: [{ name: 'input', description: 'the role, route, task class, and measured triple.' }],
         returns: 'the stored evidence row.',
       },
       {
         signature: 'async pin(role: EvolutionRole, provider: string, model: string): Promise<RouteRow>',
-        description: 'Pin one route for one role: the operator\'s explicit assignment outranks every observed route in `recommend`. Pinning an existing route flips its origin; pinning a fresh route creates the row.',
+        description: 'Pin one route for one role: the operator\'s explicit assignment outranks every measured route in `recommend`. Pinning an existing route flips its origin; pinning a fresh route creates the row.',
         parameters: [{ name: 'role', description: 'the role to assign.' }, { name: 'provider', description: 'provider half of the route.' }, { name: 'model', description: 'model half of the route.' }],
         returns: 'the stored assignment.',
       },
       {
         signature: 'routes(role?: EvolutionRole): readonly RouteSummary[]',
-        description: 'List route assignments merged with their evidence as per-route summaries, optionally for one role, in role-topology order then provider/model order.',
+        description: 'List route assignments merged with their evidence as per-route summaries pooled over the role\'s task classes, optionally for one role, in role-topology order then provider/model order.',
         parameters: [{ name: 'role', description: 'optional role filter.' }],
         returns: 'the summaries, detached from the store.',
       },
       {
         signature: 'evidence(role?: EvolutionRole, route?: ModelRoute): readonly RouteEvidence[]',
-        description: 'List recorded evidence, newest first, optionally filtered by role and route.',
+        description: 'List recorded outcomes, newest first, optionally filtered by role and route.',
         parameters: [{ name: 'role', description: 'optional role filter.' }, { name: 'route', description: 'optional route filter.' }],
         returns: 'the evidence rows, detached from the store.',
       },
       {
-        signature: 'recommend(role: EvolutionRole): ModelRoute | undefined',
-        description: 'Recommend the route for one role: the pinned assignment when one exists, otherwise the route with the strongest recorded evidence. Yields undefined when the role has neither.',
-        parameters: [{ name: 'role', description: 'the role to recommend for.' }],
-        returns: 'the recommended route, or undefined.',
+        signature: 'effectiveness(taskClass?: RouteTaskClass, role?: EvolutionRole): readonly RouteEffectiveness[]',
+        description: 'The derived effectiveness of every route on a task class, optionally filtered by task class and role, in task-class then role-topology then provider/model order. Outcomes recorded without a task class measured the role as a whole and feed `routes` instead.',
+        parameters: [{ name: 'taskClass', description: 'optional task-class filter.' }, { name: 'role', description: 'optional role filter.' }],
+        returns: 'the effectiveness rows, detached from the store.',
+      },
+      {
+        signature: 'recommend(role: EvolutionRole, taskClass?: RouteTaskClass): RouteRankingEntry | undefined',
+        description: 'The route one role should use: the pinned assignment when one exists, otherwise the best-ranked route with at least `minimumRuns` recorded runs. Without a `taskClass` the ranking pools the role\'s runs across its task classes; with one it ranks only that class\'s routes. Yields undefined while the role has neither a pin nor a route measured that well.',
+        parameters: [{ name: 'role', description: 'the role to recommend for.' }, { name: 'taskClass', description: 'optional task class to rank within.' }],
+        returns: 'the recommended route with the numbers behind it, or undefined.',
+      },
+      {
+        signature: 'disagreements(taskClass?: RouteTaskClass, role?: EvolutionRole): readonly RouteDisagreement[]',
+        description: 'The §44 route disagreements among the recorded outcomes: per task class and role, the two best-measured routes whose pass rates diverge by more than the configured threshold, strongest gap first.',
+        parameters: [{ name: 'taskClass', description: 'optional task-class filter.' }, { name: 'role', description: 'optional role filter.' }],
+        returns: 'the disagreements, strongest first.',
       },
       {
         signature: 'conflicts(): readonly RoleConflict[]',
@@ -2587,43 +2599,6 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Rebuild the scope\'s lessons from its chat history, read through the asynchronous session query seam: ranked recall selects candidate events first, and each one still passes the shared admission rule.\n\nA rebuild folds its findings into the artifacts already stored — the same relevance-bounded decision protocol a live turn uses, run against the whole selected history instead of one turn\'s buffer — so it confirms and corrects what it finds rather than wiping what is there. Rebuilds write directly even when background approval staging is on: the caller explicitly asked for them.',
         parameters: [{ name: 'scopeId', description: 'scope identity.' }, { name: 'signal', description: 'caller cancellation.' }],
         returns: 'resolution after the store write.',
-      },
-    ],
-  },
-  {
-    key: 'evolutionRouter',
-    summary: 'Routing self-optimization store over durable outcomes.',
-    description: 'Routing self-optimization store over durable outcomes. Opens the `evolution_router` domain at init and closes it through `ctx.effect`.',
-    methods: [
-      {
-        signature: 'async observe(outcome: RouteOutcomeInput): Promise<RouteOutcome>',
-        description: 'Record one measured outcome of a route serving one role on one task class. The stored instant is now. When the outcome leaves the best-measured routes of its task class and role strongly disagreeing, the §44 disagreement is recorded as an uncertainty signal through the optional store seam — this is the one producer of a `disagreement` signal that starts from route outcomes. A failing record must not fail the observation.',
-        parameters: [{ name: 'outcome', description: 'the route, role, task class, and measured triple.' }],
-        returns: 'the stored outcome.',
-      },
-      {
-        signature: 'outcomes(taskClass?: RouterTaskClass, role?: RoutingRole): readonly RouteOutcome[]',
-        description: 'List measured outcomes, optionally filtered by task class and role, newest first with record-key ascending tie-break.',
-        parameters: [{ name: 'taskClass', description: 'optional task-class filter.' }, { name: 'role', description: 'optional role filter.' }],
-        returns: 'the outcomes, detached from the store.',
-      },
-      {
-        signature: 'effectiveness(taskClass?: RouterTaskClass, role?: RoutingRole): readonly RouteEffectiveness[]',
-        description: 'The derived effectiveness of every route, optionally filtered by task class and role, in task-class then role-topology then provider/model order.',
-        parameters: [{ name: 'taskClass', description: 'optional task-class filter.' }, { name: 'role', description: 'optional role filter.' }],
-        returns: 'the effectiveness rows, detached from the store.',
-      },
-      {
-        signature: 'recommend(taskClass: RouterTaskClass, role: RoutingRole): RouteRankingEntry | undefined',
-        description: 'The route to use for one task class and role: the best-ranked route with at least `minimumSamples` measured outcomes, or undefined while no route has that much evidence.',
-        parameters: [{ name: 'taskClass', description: 'the task class to recommend for.' }, { name: 'role', description: 'the role to recommend for.' }],
-        returns: 'the recommended route, or undefined.',
-      },
-      {
-        signature: 'disagreements(taskClass?: RouterTaskClass, role?: RoutingRole): readonly RouteDisagreement[]',
-        description: 'The §44 route disagreements among the recorded outcomes: per task class and role, the two best-measured routes whose pass rates diverge by more than the configured threshold, strongest gap first.',
-        parameters: [{ name: 'taskClass', description: 'optional task-class filter.' }, { name: 'role', description: 'optional role filter.' }],
-        returns: 'the disagreements, strongest first.',
       },
     ],
   },
@@ -7159,6 +7134,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export class BackendRegistry {\n    register(name: string, backend: StorageBackend): () => void;\n    get(name: string): StorageBackend;\n    names(): string[];\n}',
   },
   {
+    name: 'BackgroundSpend',
+    declaration: 'export interface BackgroundSpend {\n    readonly tokens: number;\n    readonly wallMs: number;\n    readonly cost?: number | undefined;\n}',
+  },
+  {
     name: 'BashEnvContributor',
     declaration: 'export interface BashEnvContributor {\n    name: string;\n    variables: Readonly<Record<DshEnvironmentKey, BashEnvVariable>>;\n    resolve(execution: ToolExecution): Readonly<Partial<Record<DshEnvironmentKey, string>>>;\n}',
   },
@@ -7276,7 +7255,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'BudgetSnapshot',
-    declaration: 'export interface BudgetSnapshot {\n    readonly steps: number;\n    readonly toolCalls: number;\n    readonly tokens: number;\n    readonly wallMs: number;\n    readonly remaining: ResourceBudget;\n}',
+    declaration: 'export interface BudgetSnapshot {\n    readonly steps: number;\n    readonly toolCalls: number;\n    readonly tokens: number;\n    readonly wallMs: number;\n    readonly remaining: ResourceBudget;\n    readonly background?: BackgroundSpend;\n}',
   },
   {
     name: 'BudgetTaskClass',
@@ -7415,36 +7394,12 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type CheckpointReason = \'turn-boundary\' | \'before-compaction\' | \'before-pause\' | \'verification-failure\' | \'before-suspension\';',
   },
   {
-    name: 'Claim',
-    declaration: 'export interface Claim {\n    id: string;\n    statement: string;\n    status: ClaimStatus;\n    retiredBy: string | null;\n    confidence: number;\n    evidenceQuality: number;\n    sourceReliability: number;\n    independentSupport: number;\n    contradictionCount: number;\n    recency: string;\n    supportedBy: readonly ClaimEvidence[];\n    contradictedBy: readonly ClaimEvidence[];\n    observedIn: readonly string[];\n    supersedes: readonly string[];\n    derivedFrom: readonly string[];\n    usedBy: readonly string[];\n    createdAt: string;\n    updatedAt: string;\n}',
-  },
-  {
-    name: 'ClaimAssertion',
-    declaration: 'export interface ClaimAssertion {\n    statement: string;\n    supportedBy?: readonly ClaimEvidenceInput[];\n    contradictedBy?: readonly ClaimEvidenceInput[];\n    observedIn?: readonly string[];\n    supersedes?: readonly string[];\n    derivedFrom?: readonly string[];\n    usedBy?: readonly string[];\n}',
-  },
-  {
     name: 'ClaimBasis',
     declaration: 'export type ClaimBasis = \'observed\' | \'inferred\';',
   },
   {
-    name: 'ClaimEvidence',
-    declaration: 'export interface ClaimEvidence {\n    source: string;\n    quality: number;\n    reliability: number;\n    firstAt: string;\n    lastAt: string;\n    count: number;\n}',
-  },
-  {
-    name: 'ClaimEvidenceInput',
-    declaration: 'export interface ClaimEvidenceInput {\n    source: string;\n    quality?: number;\n    reliability?: number;\n}',
-  },
-  {
     name: 'ClaimInput',
     declaration: 'export interface ClaimInput {\n    readonly statement: string;\n    readonly evidence: readonly string[];\n    readonly confidence: number;\n}',
-  },
-  {
-    name: 'ClaimObserveResult',
-    declaration: 'export interface ClaimObserveResult {\n    added: number;\n    updated: number;\n    retired: number;\n    skipped: number;\n}',
-  },
-  {
-    name: 'ClaimStatus',
-    declaration: 'export type ClaimStatus = \'active\' | \'retired\';',
   },
   {
     name: 'ClientArtifactBaseline',
@@ -7476,7 +7431,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'CodingMetricId',
-    declaration: 'export type CodingMetricId = \'verified-success\' | \'false-completion\' | \'regression-rate\' | \'recovery-efficiency\' | \'planning-fidelity\' | \'verification-coverage\' | \'human-intervention\' | \'cost\' | \'latency\' | \'loop-rate\' | \'tool-failure-rate\' | \'subagent-waste\' | \'context-utilization\' | \'average-tokens\' | \'verified-success-per-usd\' | \'verified-success-per-million-tokens\' | \'verified-success-per-10-minutes\';',
+    declaration: 'export type CodingMetricId = \'verified-success\' | \'false-completion\' | \'regression-rate\' | \'recovery-efficiency\' | \'planning-fidelity\' | \'verification-coverage\' | \'human-intervention\' | \'cost\' | \'latency\' | \'loop-rate\' | \'tool-failure-rate\' | \'subagent-waste\' | \'context-utilization\' | \'average-tokens\' | \'verified-success-per-usd\' | \'verified-success-per-million-tokens\' | \'verified-success-per-10-minutes\' | \'task-success-rate\' | \'verification-pass-rate\' | \'steps\' | \'tool-calls\' | \'policy-denials\' | \'approval-rejections\' | \'checkpoint-resume-rate\';',
   },
   {
     name: 'CodingPhase',
@@ -8688,7 +8643,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'GraphRecord',
-    declaration: 'export interface GraphRecord {\n    nodes: readonly GraphNode[];\n    edges: readonly GraphEdge[];\n    claims: readonly Claim[];\n    updatedAt: string;\n}',
+    declaration: 'export interface GraphRecord {\n    nodes: readonly GraphNode[];\n    edges: readonly GraphEdge[];\n    updatedAt: string;\n}',
   },
   {
     name: 'GraphTriple',
@@ -8992,7 +8947,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'KernelLedger',
-    declaration: 'export class KernelLedger implements KernelStateReader, BudgetGovernor {\n    view(session: Session): KernelView | undefined;\n    entryOf(session: Session): LedgerEntry;\n    ledgerTask(session: Session): TaskContract;\n    measure(task: TaskContract, session: Session): BudgetSnapshot;\n    available(session: Session): ResourceBudget;\n    reserve(session: Session, amount: ResourceBudget, runId?: RunId): BudgetReservation;\n    commit(reservationId: BudgetReservationId, actual?: ResourceBudget): void;\n    release(reservationId: BudgetReservationId): void;\n}',
+    declaration: 'export class KernelLedger implements KernelStateReader, BudgetGovernor {\n    constructor(private readonly background: (() => BackgroundSpend | undefined) | undefined = undefined);\n    view(session: Session): KernelView | undefined;\n    entryOf(session: Session): LedgerEntry;\n    ledgerTask(session: Session): TaskContract;\n    measure(task: TaskContract, session: Session): BudgetSnapshot;\n    available(session: Session): ResourceBudget;\n    reserve(session: Session, amount: ResourceBudget, runId?: RunId): BudgetReservation;\n    commit(reservationId: BudgetReservationId, actual?: ResourceBudget): void;\n    release(reservationId: BudgetReservationId): void;\n}',
   },
   {
     name: 'KernelStateReader',
@@ -9400,7 +9355,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'MetricId',
-    declaration: 'export type MetricId = \'capability-gain-per-cost-unit\' | \'capability-gain-per-million-tokens\' | \'capability-gain-per-compute-hour\' | \'learning-velocity\' | \'compute-overhead-ratio\' | \'failure-recurrence\' | \'skill-incremental-utility\' | \'memory-utility\' | \'benchmark-robustness\' | \'regression-debt\' | \'promotion-quality\' | \'rollback-rate\' | \'evaluator-reliability\' | LongHorizonMetricId | CodingMetricId | ResearchMetricId | MentorMetricId;',
+    declaration: 'export type MetricId = \'capability-gain-per-cost-unit\' | \'capability-gain-per-million-tokens\' | \'capability-gain-per-compute-hour\' | \'learning-velocity\' | \'compute-overhead-ratio\' | \'failure-recurrence\' | \'skill-incremental-utility\' | \'memory-utility\' | \'benchmark-robustness\' | \'regression-debt\' | \'promotion-quality\' | \'rollback-rate\' | \'evaluator-reliability\' | LongHorizonMetricId | CodingMetricId | ResearchMetricId | MentorMetricId | UncertaintyMetricId | SelfModelMetricId;',
   },
   {
     name: 'MetricsQuery',
@@ -10023,6 +9978,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type RecallOutcome = \'ok\' | \'failed\' | null;',
   },
   {
+    name: 'RecordedBackgroundSpend',
+    declaration: 'export interface RecordedBackgroundSpend {\n    tokens: number;\n    wallMs: number;\n    cost?: number | undefined;\n}',
+  },
+  {
     name: 'RecordedRecall',
     declaration: 'export interface RecordedRecall extends MemoryRecall {\n    scopeId: EvolutionScopeId;\n}',
   },
@@ -10352,51 +10311,47 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'RouteDisagreement',
-    declaration: 'export interface RouteDisagreement {\n    taskClass: RouterTaskClass;\n    role: RoutingRole;\n    leader: RouteRef;\n    trailer: RouteRef;\n    leaderPassRate: number;\n    trailerPassRate: number;\n    gap: number;\n    samples: readonly [\n        number,\n        number\n    ];\n    detail: string;\n}',
+    declaration: 'export interface RouteDisagreement {\n    taskClass: RouteTaskClass;\n    role: EvolutionRole;\n    leader: ModelRoute;\n    trailer: ModelRoute;\n    leaderPassRate: number;\n    trailerPassRate: number;\n    gap: number;\n    runs: readonly [\n        number,\n        number\n    ];\n    detail: string;\n}',
   },
   {
     name: 'RouteEffectiveness',
-    declaration: 'export interface RouteEffectiveness {\n    taskClass: RouterTaskClass;\n    role: RoutingRole;\n    provider: string;\n    model: string;\n    samples: number;\n    passes: number;\n    passRate: number;\n    meanTokens: number;\n    meanWallTimeMs: number;\n    lastAt: string;\n}',
+    declaration: 'export interface RouteEffectiveness extends RouteMeasurement {\n    taskClass: RouteTaskClass;\n    role: EvolutionRole;\n    lastAt: string;\n}',
   },
   {
     name: 'RouteEvidence',
-    declaration: 'export interface RouteEvidence {\n    id: string;\n    role: EvolutionRole;\n    provider: string;\n    model: string;\n    pass: boolean;\n    tokens: number;\n    wallTimeMs: number;\n    at: string;\n}',
+    declaration: 'export interface RouteEvidence {\n    id: string;\n    role: EvolutionRole;\n    provider: string;\n    model: string;\n    pass: boolean;\n    tokens: number;\n    wallTimeMs: number;\n    at: string;\n    taskClass?: RouteTaskClass | undefined;\n}',
   },
   {
     name: 'RouteEvidenceInput',
-    declaration: 'export interface RouteEvidenceInput {\n    role: EvolutionRole;\n    route: ModelRoute;\n    triple: {\n        pass: boolean;\n        tokens: number;\n        wallTimeMs: number;\n    };\n}',
+    declaration: 'export interface RouteEvidenceInput {\n    role: EvolutionRole;\n    route: ModelRoute;\n    triple: RouteTriple;\n    taskClass?: RouteTaskClass | undefined;\n}',
+  },
+  {
+    name: 'RouteMeasurement',
+    declaration: 'export interface RouteMeasurement {\n    provider: string;\n    model: string;\n    origin: RouteOrigin;\n    runs: number;\n    passes: number;\n    passRate: number;\n    meanTokens: number;\n    meanWallTimeMs: number;\n}',
   },
   {
     name: 'RouteOrigin',
     declaration: 'export type RouteOrigin = \'observed\' | \'pinned\';',
   },
   {
-    name: 'RouteOutcome',
-    declaration: 'export interface RouteOutcome {\n    taskClass: RouterTaskClass;\n    role: RoutingRole;\n    provider: string;\n    model: string;\n    pass: boolean;\n    tokens: number;\n    wallTimeMs: number;\n    at: string;\n}',
-  },
-  {
-    name: 'RouteOutcomeInput',
-    declaration: 'export type RouteOutcomeInput = Omit<RouteOutcome, \'at\'>;',
-  },
-  {
     name: 'RouteRankingEntry',
-    declaration: 'export interface RouteRankingEntry {\n    provider: string;\n    model: string;\n    samples: number;\n    passRate: number;\n    meanTokens: number;\n    meanWallTimeMs: number;\n    score: number;\n    reason: string;\n}',
-  },
-  {
-    name: 'RouteRef',
-    declaration: 'export interface RouteRef {\n    provider: string;\n    model: string;\n}',
+    declaration: 'export interface RouteRankingEntry {\n    provider: string;\n    model: string;\n    origin: RouteOrigin;\n    runs: number;\n    passRate: number;\n    meanTokens: number;\n    meanWallTimeMs: number;\n    score: number;\n    reason: string;\n}',
   },
   {
     name: 'RouteRow',
     declaration: 'export interface RouteRow {\n    role: EvolutionRole;\n    provider: string;\n    model: string;\n    origin: RouteOrigin;\n    at: string;\n}',
   },
   {
-    name: 'RouterTaskClass',
-    declaration: 'export type RouterTaskClass = string;',
+    name: 'RouteSummary',
+    declaration: 'export interface RouteSummary extends RouteMeasurement {\n    role: EvolutionRole;\n    lastAt: string | null;\n}',
   },
   {
-    name: 'RouteSummary',
-    declaration: 'export interface RouteSummary {\n    role: EvolutionRole;\n    provider: string;\n    model: string;\n    origin: RouteOrigin;\n    runs: number;\n    passRate: number;\n    meanTokens: number;\n    lastAt: string | null;\n}',
+    name: 'RouteTaskClass',
+    declaration: 'export type RouteTaskClass = string;',
+  },
+  {
+    name: 'RouteTriple',
+    declaration: 'export interface RouteTriple {\n    pass: boolean;\n    tokens: number;\n    wallTimeMs: number;\n}',
   },
   {
     name: 'RoutineId',
@@ -10409,10 +10364,6 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'RoutineSpec',
     declaration: 'export interface RoutineSpec {\n    readonly title: string;\n    readonly workspacePath: string;\n    readonly prompt: string;\n    readonly everyMinutes: number;\n}',
-  },
-  {
-    name: 'RoutingRole',
-    declaration: 'export type RoutingRole = \'task-execution\' | \'reflection\' | \'candidate-generation\' | \'evaluation\' | \'promotion-review\';',
   },
   {
     name: 'RpcId',
@@ -10541,6 +10492,18 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SelfModelInput',
     declaration: 'export interface SelfModelInput {\n    skill: string;\n    strengths: string[];\n    weaknesses: string[];\n    uncertainAreas: string[];\n    failureModes: string[];\n    preferredTools: string[];\n    evaluatorBlindspots: string[];\n    confidence: number;\n}',
+  },
+  {
+    name: 'SelfModelMetricId',
+    declaration: 'export type SelfModelMetricId = \'self-model-frontier-pass-rate\' | \'self-model-weakest-pass-rate\';',
+  },
+  {
+    name: 'SelfModelReport',
+    declaration: 'export interface SelfModelReport {\n    window: SelfModelWindow;\n    metrics: readonly MetricValue[];\n}',
+  },
+  {
+    name: 'SelfModelWindow',
+    declaration: 'export interface SelfModelWindow {\n    skills: number;\n    capabilities: number;\n}',
   },
   {
     name: 'SemanticSessionSearchHit',
@@ -12259,12 +12222,28 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type UncertaintyKind = \'disagreement\' | \'low-confidence\' | \'instability\' | \'retrieval-ambiguity\' | \'conflicting-evidence\';',
   },
   {
+    name: 'UncertaintyMetricId',
+    declaration: 'export type UncertaintyMetricId = \'uncertainty-queue-depth\' | \'uncertainty-corroboration\';',
+  },
+  {
+    name: 'UncertaintyQuery',
+    declaration: 'export interface UncertaintyQuery {\n    skill?: string;\n    limit?: number;\n}',
+  },
+  {
+    name: 'UncertaintyReport',
+    declaration: 'export interface UncertaintyReport {\n    window: UncertaintyWindow;\n    metrics: readonly MetricValue[];\n}',
+  },
+  {
     name: 'UncertaintySignal',
     declaration: 'export interface UncertaintySignal {\n    signalId: string;\n    skill: string;\n    taskId: string | null;\n    kind: UncertaintyKind;\n    score: number;\n    detail: string;\n    at: string;\n}',
   },
   {
     name: 'UncertaintySignalInput',
     declaration: 'export interface UncertaintySignalInput {\n    signalId: string;\n    skill: string;\n    taskId: string | null;\n    kind: UncertaintyKind;\n    score: number;\n    detail: string;\n}',
+  },
+  {
+    name: 'UncertaintyWindow',
+    declaration: 'export interface UncertaintyWindow {\n    skill: string | null;\n    tasks: number;\n    signals: number;\n    topPriority: number | null;\n}',
   },
   {
     name: 'UpdateTeamTaskRequest',

@@ -28,6 +28,11 @@ kind: "package-reference"
 挂载插件并携带存储域即可。只要存储已挂载，候选就来自优化器的暂存写入；运维者读取种群并决定候选身份。
 
 ```ts
+import type { Context } from '@deepseek-ai/cordis'
+import '@deepseek-ai/dsh-evolution-population'
+
+declare const ctx: Context
+
 await ctx.evolutionPopulation.record({
   skill: 'writer',
   candidateId: 'staged-0',

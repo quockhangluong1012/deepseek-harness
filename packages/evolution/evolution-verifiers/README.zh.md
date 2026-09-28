@@ -30,6 +30,12 @@ kind: "package-reference"
 挂载插件后调用 `verify`，或在无需宿主时直接调用纯函数 `runVerifierLadder`。
 
 ```ts
+import type { Context } from '@deepseek-ai/cordis'
+import EvolutionVerifiers from '@deepseek-ai/dsh-evolution-verifiers'
+
+declare const ctx: Context
+declare const candidateSkillFileText: string
+
 const verdict = await ctx.evolutionVerifiers.verify({
   name: 'leaf',
   body: candidateSkillFileText,

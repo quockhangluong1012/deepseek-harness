@@ -1384,33 +1384,35 @@ The evolution succeeds when the repository can truthfully answer:
 
 That is an incremental extension of the audited DeepSeek Harness, not a rewrite disguised as a feature list.
 
-## 32. Implementation status (2026-09-23) [CONFIRMED]
+## 32. Implementation status (2026-09-27)
 
-Audited tree: `main` plus the uncommitted working tree of 2026-09-23. The working tree adds the kernel evidence, claim, and hypothesis API with lifecycle tests; MCP capability declarations; the permission-presets policy-profile provider; and the new `packages/guard/prompt-injection`. Line numbers refer to that tree and drift with later edits.
+This table audits the working tree at commit `21428638de` plus the uncommitted tree of 2026-09-27. It supersedes the 2026-09-23 edition, whose mount-status line and nine of its eighteen rows were wrong in the optimistic direction. Where the two disagree, the amendments in [§33](#33-amendments-proposed) (S1–S12) and the plan in [§35.2](#352-tracks) are the deciding artifacts; several §6–§31 rows were written before those amendments and no longer describe the tree.
 
-| Section | Status | Observation |
+| Section | Status | Deciding evidence |
 |---|---|---|
-| §6 Task contract, state machine | Implemented | `task/*` events and `applyTransition()` exist. The kernel drives `intake → ready → executing → observing` and, at turn end, `verifying`, `recovering`, or a terminal status. One task per session: `completed`, `failed`, and `cancelled` have no outgoing edges (`packages/runtime/agent-kernel/src/state-machine.ts:52-54`). |
-| §7 Loop adapter, action ledger | Implemented | Listeners on `agent/inbox/claimed`, `agent/created`, `agent/pre-step`, `agent/turn-stopping`, `tools/pre-execute`, `tools/post-execute` (`packages/runtime/agent-kernel/src/index.ts:291-302`). |
-| §8.1 Context compiler | Partial, shadow | `packages/runtime/agent-context` observes only `system-prompt/assemble` (`packages/runtime/agent-context/src/index.ts:83-86`). Memory briefs and runtime readings enter through `agent/pre-step`, outside the compiler: `packages/context/evolution-memory-context/src/index.ts:479`, `packages/context/active-memory-context/src/index.ts:654`, `packages/context/workspace-memory-context/src/index.ts:137`, `packages/context/time-context/src/index.ts:188`, `packages/context/agent-instructions/src/index.ts:323`, `packages/goal/goal-round-driver/src/index.ts:362`. Tool-result retention (pruner, spill) is also outside it. `apply` mode only drops the sections and contexts the token ceiling cut. |
-| §8.2 Compaction checkpoint | Not implemented | `packages/compaction/compaction/src/checkpoint.ts` (upstream) records compaction checkpoints. It holds no retained facts, open work, or unresolved failures. |
-| §9.2 Memory admission | Not implemented | A lesson artifact's only source reference is the id of the session that extracted it. |
-| §10 Capability vocabulary, policy DSL | Implemented | `compilePolicy()` (`packages/runtime/agent-kernel/src/policy.ts`) and the built-in tool declarations (`packages/runtime/agent-kernel-builtins`) are implemented. MCP declarations and `PolicyProfileProvider` are in the working tree. |
+| §6 Task contract, state machine | Implemented | `task/*` events and `applyTransition()`; `packages/runtime/agent-kernel/src/state-machine.ts:53-67` carries the legal-edge graph. |
+| §7 Loop adapter, action ledger | Implemented | Listeners on `agent/inbox/claimed`, `agent/created`, `agent/pre-step`, `agent/turn-stopping`, `tools/pre-execute`, `tools/post-execute` (`packages/runtime/agent-kernel/src/index.ts:291-302`); plan drift is wired from plan mode (S, §7.4). |
+| §8.1 Context compiler | Implemented, shadow | `packages/runtime/agent-context` is mounted in `web-app:94` and `agent-governance:82`. Both profiles set `mode: shadow`, so the compiler records and does not yet change behaviour. The `compress` pipeline step and the exact contract shapes still differ from the §8.1 text. |
+| §8.2 Compaction checkpoint | Not implemented | `packages/compaction/compaction/src/checkpoint.ts` records the marker, but no kernel `Checkpoint` carries a `contextCheckpoint` member and nothing joins the two. |
+| §9.2 Memory admission | Implemented (S8) | `packages/evolution/evolution-memory/src/lesson-artifact.ts:284,305` — `assertDirectlyAdmissible` / `admissionIssues`, with `utilityValue` / `rememberOutcome` / `demotable`. |
+| §10 Capability vocabulary, policy DSL | Implemented | `compilePolicy()` (`packages/runtime/agent-kernel/src/policy.ts:170`) and the built-in declarations (`packages/runtime/agent-kernel-builtins`). |
 | §11.1 Governance receipt | Implemented | Part of `ActionReceipt`. |
-| §11.2 Prompt-injection guard | Partial, shadow | `packages/guard/prompt-injection` scans tool proposals and results. It appends `security/scan` only when a rule matched (`src/index.ts:180,200`). It does not cover long-term memory writes or retrieval indexes (see S11). |
-| §11.3 Typed hook outputs | Not implemented | `hooks-claude-code` and `hooks-codex` are not mounted in any bundle. |
-| §12.1 Skill admission | Partial | Skill metadata carries capabilities, version, and test scenarios. There are no admission states and no quarantine. |
+| §11.2 Prompt-injection guard | Implemented (S11) | `packages/guard/prompt-injection`; taint now propagates to derived artifacts and is scrubbed before durable memory writes. |
+| §11.3 Typed hook outputs | Implemented | `hooks-claude-code` and `hooks-codex` are mounted and wired, including layered config, model-level hooks, and `continue: false` run-halt. |
+| §12.1 Skill admission | Implemented | `packages/skill/skill/src/admission.ts:2,36-39,62` — an `AdmissionResult` refusing admission unless the provider names the review that admitted it. |
 | §13.2 Delegation receipt | Implemented | `packages/runtime/agent-kernel/src/delegation.ts`. |
-| §13.3 Workflow checkpoint | Not implemented | |
-| §14.2 Model router | Not implemented | `evolution-model-routes` records and ranks the routes the optimizer ran, absorbing the retired `evolution-router` outcomes. It still selects no runtime route. |
-| §15.1 Evidence, claims, hypotheses | Partial | `recordEvidence()`, `recordClaim()`, and `recordHypothesis()` are in the working tree. No model-facing tool exposes them. |
-| §15.2 Verification gate | Partial | `DefaultVerificationGate` and `CriterionVerifierRegistry` exist, but no production code calls `register()` (`packages/runtime/agent-kernel/src/verification.ts:184`). With empty acceptance the gate never runs. `closeTurn` records statuses but never steers, so the gate cannot keep a turn open. |
-| §16 Failure, recovery | Partial | Only `verification-failed` is produced. Nothing reads `recovery/decided`. |
-| §17 Checkpoint, resume | Partial | `checkpoint()` and `checkpoint/resumed` exist. There is no boot-time recovery scanner. |
-| §18.1 Unified budget | Partial, observe-only | The kernel reports token and cost ceilings as unbounded (`packages/runtime/agent-kernel/src/ledger.ts:361-365`). `guard/budgets` measures context pressure, not spend (§34.1 #3). |
-| §18.3 Metrics, §22 CLI/Web/SDK, §24.3 benchmarks, §25 Phase 6 | Not implemented | |
+| §13.3 Workflow checkpoint | Deferred | §35.2 places it in Wave C, after this specification. |
+| §14.2 Model router | Not implemented | `evolution-model-routes` records and ranks the routes the optimizer ran, and now also holds the retired `evolution-router` history. It still selects no runtime route; §35.2 defers the router to Wave C. |
+| §15.1 Evidence, claims, hypotheses | Implemented | `packages/runtime/tool-evidence` registers three model-facing tools. They mount in `agent-governance` only, so a kernel-governed product profile has no evidence tool surface. |
+| §15.2 Verification gate | Implemented | `CriterionVerifierRegistry` has real callers — `packages/verification/command-verifiers` mounts in `web-app`, `headless`, and `agent-governance` — and the gate steers a failing turn (`packages/runtime/agent-kernel/src/index.ts:2330`). `VerificationResult` no longer carries an `evidence` array, so §15.1 linkage is dropped at the result level. |
+| §16 Failure, recovery | Implemented | The full 16-member `FailureKind` taxonomy plus S4's detectors and §8.5's `verification-regressed`; `packages/runtime/agent-kernel/src/recovery.ts:28-63` maps every §16.2 row. |
+| §17 Checkpoint, resume | Implemented | `checkpoint()` / `checkpoint/resumed` plus the boot-time recovery scanner (`ctx.agentKernel.startupRecovery`). The kernel `Checkpoint` is a different shape from the §17 text: plan and evidence live on `KernelView`. |
+| §18.1 Unified budget | Implemented | Spend-based reading at `packages/guard/budgets/src/index.ts:175-178` (§34.1 #3), a final wrap-up step granting one tool-free step before a pause, and `BudgetGovernor` now reading both the in-session and the background owner. |
+| §18.3 Metrics | Implemented at the read surface | The metric layer presents evaluator-health, uncertainty, and self-model, and reads the kernel counters rather than re-folding. The three owning packages keep their durable domains and writers by deliberate decision. Six of the seventeen named counters have no reading; the layer documents which. |
+| §34.2 W7 write coalescing | Implemented | `evolution_memory` and `workspace_memory` opt into `coalesceWrites`, so the three-to-five whole-file rewrites per turn are batched. |
+| §22 CLI, §24 benchmarks, §25 Phase 6 | Partial | `scripts/measure-turn-economics.ts` and the long-horizon benchmark harness exist. `dsh task pause` and `dsh task resume` are still absent. |
 
-Mount status: no bundle under `packages/bundle/*/cordis.patch.yml` mounts `agent-kernel`, `agent-kernel-builtins`, `agent-context`, or `prompt-injection`. The shipped product runs none of §6–§18.
+Mount status: `agent-kernel`, `agent-kernel-builtins`, and `prompt-injection` mount in `web-app:54`, `headless:25`, `acp-app:17`, `sdk-app:17`, and `agent-governance:18`; `agent-context` mounts in `web-app:94` and `agent-governance:82`. Every kernel-mounted profile sets `mode: shadow`, so the kernel records its decisions and admits the step without changing behaviour. The release gate has not been pulled: governing, constraining, and authorising in the shipped product is still carried by the pre-existing `sandboxPolicy` and `ApprovalService`. That is what §33 B0 and §35.2 B1 call for, but it is the single fact that most changes how the rest of this table should be read.
 
 ## 33. Amendments [PROPOSED]
 

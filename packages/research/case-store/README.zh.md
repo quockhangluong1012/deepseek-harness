@@ -31,6 +31,12 @@ kind: "package-reference"
 将插件与存储域一起挂载，为某个学习者打开一个案例，随后在评审过程中不断修订。案例 id 由存储生成。
 
 ```ts
+import type { Context } from '@deepseek-ai/cordis'
+import { EvidenceKey, InterpretationId, ObservationId } from '@deepseek-ai/dsh-case-store'
+import { ConceptId, LearnerId } from '@deepseek-ai/dsh-learner-model'
+
+declare const ctx: Context
+
 const opened = await ctx.caseStore.createCase(LearnerId('user-1'), {
   symbol: 'EURUSD',
   timeframes: ['D1', 'H1', 'M5'],
@@ -91,7 +97,13 @@ const record = ctx.caseStore.get(LearnerId('user-1'), opened.caseId)
 `evidence` 保存引用，从不保存内容。在会话内观察到的条目只携带内核的证据 id，别无其他，因此案例不会与它所引用的观察发生偏移：
 
 ```ts
-{ evidenceKey: EvidenceKey('ev-1'), kind: 'kernel', evidenceId: EvidenceId('ev-1') }
+import { EvidenceKey, evidenceIdSchema, type CaseEvidence } from '@deepseek-ai/dsh-case-store'
+
+const observed: CaseEvidence = {
+  evidenceKey: EvidenceKey('ev-1'),
+  kind: 'kernel',
+  evidenceId: evidenceIdSchema.parse('ev-1'),
+}
 ```
 
 会话之外阅读的图表或回测没有内核记录，因此改为记录位置，并带上该位置所指内容的信任标签：`{ evidenceKey, kind: 'external', locator: 'backtest-2024-03.csv', trust: 'untrusted' }`。观察通过 `evidence` 引用这些键，因此读者能分辨某条观察来自哪个条目，而案例本身并不保存该条目。

@@ -36,6 +36,10 @@ import type {
   EvidenceId,
   FailureDiagnosis,
   FailureId,
+  EvolutionCandidateRecord,
+  EvolutionEvaluationRecord,
+  EvolutionPromotionRecord,
+  EvolutionRecord,
   FailureRef,
   TaskHypothesis,
   TaskHypothesisId,
@@ -128,6 +132,21 @@ export interface LedgerEntry {
   checkpoint: Checkpoint | undefined
   /** The delegation this session's agent acts under, when it is a child. */
   delegation: DelegationReceipt | undefined
+  /** What the §18.2 evolution events folded: what the evolution layer did. */
+  evolution: EvolutionFold
+}
+
+/**
+ * Fold state for the §18.2 evolution events. {@link EvolutionRecord} is its
+ * read projection: the fold appends into these, a reader only iterates them.
+ */
+interface EvolutionFold {
+  /** Candidate bodies staged for evaluation, in log order. */
+  candidates: EvolutionCandidateRecord[]
+  /** Measured scores, in log order. */
+  evaluations: EvolutionEvaluationRecord[]
+  /** Current state per skill this log promoted or reverted. */
+  promotions: Map<string, EvolutionPromotionRecord>
 }
 
 /**
@@ -155,6 +174,8 @@ export interface KernelRecord {
   readonly hypotheses: readonly TaskHypothesis[]
   /** Diagnoses recorded for the task's failures, in log order. */
   readonly diagnoses: readonly FailureDiagnosis[]
+  /** What the evolution layer did, folded from the §18.2 evolution events. */
+  readonly evolution: EvolutionRecord
   /** Actions proposed and not yet committed. */
   readonly openActionIds: readonly ActionId[]
   /** Failures with no accepted resolution. */
@@ -204,6 +225,7 @@ export function readKernelRecord(events: Iterable<SessionEvent>): KernelRecord |
     unresolvedFailures: [...entry.failures.values()],
     proposals: entry.proposals,
     attempts: entry.attempts,
+    evolution: entry.evolution,
     authorizations: entry.authorizations,
     approvals: entry.approvals,
     ...entry.plan === undefined ? {} : { plan: entry.plan },
@@ -239,6 +261,7 @@ function emptyEntry(): LedgerEntry {
     claims: new Map(),
     hypotheses: new Map(),
     diagnoses: [],
+    evolution: { candidates: [], evaluations: [], promotions: new Map() },
     checkpoint: undefined,
     delegation: undefined,
   }
@@ -289,6 +312,7 @@ export class KernelLedger implements KernelStateReader, BudgetGovernor {
       claims: [...entry.claims.values()],
       hypotheses: [...entry.hypotheses.values()],
       diagnoses: entry.diagnoses,
+      evolution: entry.evolution,
       ...entry.plan === undefined ? {} : { plan: entry.plan },
       ...entry.checkpoint === undefined ? {} : { checkpoint: entry.checkpoint },
       ...entry.delegation === undefined ? {} : { delegation: entry.delegation },
@@ -603,6 +627,27 @@ function fold(entry: LedgerEntry, event: SessionEvent): void {
       const { metadata: _metadata, ...delegation } = event.data
       void _metadata
       entry.delegation = delegation
+      return
+    }
+    case 'evolution/candidate': {
+      const { metadata: _metadata, ...candidate } = event.data
+      void _metadata
+      entry.evolution.candidates.push(candidate)
+      return
+    }
+    case 'evolution/evaluated': {
+      const { metadata: _metadata, ...evaluation } = event.data
+      void _metadata
+      entry.evolution.evaluations.push(evaluation)
+      return
+    }
+    case 'evolution/promoted':
+    case 'evolution/rolled-back': {
+      const { metadata: _metadata, ...promotion } = event.data
+      void _metadata
+      // The last record for a skill is its current state: a revert supersedes
+      // the promotion it undoes, while the log still holds the whole history.
+      entry.evolution.promotions.set(promotion.skill, promotion)
       return
     }
     case 'step/start':

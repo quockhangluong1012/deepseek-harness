@@ -43,7 +43,7 @@ kind: "package-reference"
 
 Host 半边是空的 `apply`，仅为让该包持有一行 Loader 记录，使客户端模块系统为其提供浏览器半边。浏览器半边向设置外壳的账本注册一个 `settings.section` 条目，`id` 为 `'mcp'`，外壳因此把它投影为导航行，并在其被选中时渲染该分区；同时通过 `ctx.locale.register` 注册它自己的 `settings.mcp` 词典。
 
-`McpSettingsController` 在快照存储中保存页面状态：合并后的视图、是否有写入正在进行，以及最近一次提示。它通过 `remote.mcpServers.list` 读取视图，通过 `remote.mcpServers.upsert` 与 `remote.mcpServers.remove` 写入，并把拒绝当作数据发布——拒绝结果携带未改变的视图，因此被拒绝的改动会让列表与 Host 报告的完全一致。审批请求所指向的会话在写入那一刻读取，从不缓存，因此会跟随当前选择。
+`McpSettingsController` 在快照存储中保存页面状态：合并后的视图、是否有写入正在进行，以及最近一次提示。它通过 `remote.mcpServers.list` 读取视图，通过 `remote.mcpServers.upsert` 与 `remote.mcpServers.delete` 写入，并把拒绝当作数据发布——拒绝结果携带未改变的视图，因此被拒绝的改动会让列表与 Host 报告的完全一致。审批请求所指向的会话在写入那一刻读取，从不缓存，因此会跟随当前选择。
 
 `McpServersSection` 渲染列表与唯一的打开编辑器；`draftDeclaration` 把编辑器中的文本转换为 Host 要写入的声明，并指出第一个无法读取的字段。所有产品文案都放在 `locales.ts`，并通过 `t` 座位传给组件；组件不渲染任何已保存的值，只渲染声明所设置的名称。
 

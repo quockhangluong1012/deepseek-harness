@@ -191,6 +191,7 @@ export class AcpClient extends Service {
    * Write one text file through the connected client (`fs/write_text_file`).
    * @param params - the ACP session, absolute path, and full content to store.
    * @throws {@link AcpClientUnboundError} before `initialize` ran.
+   * @returns the client's response for the write.
    */
   writeTextFile(params: WriteTextFileRequest): Promise<WriteTextFileResponse> {
     return this.requireConnection().request(methods.client.fs.writeTextFile, params)

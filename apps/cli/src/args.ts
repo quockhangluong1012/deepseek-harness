@@ -150,11 +150,14 @@ function resolveBoot(program: Command, profile: string, options: BootOptions, ar
  */
 export function parseDshArgs(argv: readonly string[], version: string): DshInvocation {
   const first = argv[0]
-  // `dsh task` and `dsh policy` name an app command line, not a profile: they
-  // boot the profile that mounts the kernel-ops commands with the invocation
-  // verbatim, the way `dsh plugin` manages profile packages. `dsh --profile
-  // kernel-ops task show <id>` selects the same profile explicitly.
-  if (first === 'task' || first === 'policy') {
+  // `dsh task`, `dsh policy` and `dsh evolution` name an app command line, not
+  // a profile: they boot the profile that mounts the kernel-ops commands with
+  // the invocation verbatim, the way `dsh plugin` manages profile packages.
+  // `dsh --profile kernel-ops task show <id>` selects the same profile
+  // explicitly. `evolution` is listed here because the command is registered
+  // on the same program; without it, `dsh evolution replay <run-id>` expanded
+  // to `--profile evolution` and tried to boot a profile that does not exist.
+  if (first === 'task' || first === 'policy' || first === 'evolution') {
     return { mode: 'profile', profile: KERNEL_OPS_PROFILE, patches: [], args: [...argv] }
   }
   let resolved: DshInvocation | undefined

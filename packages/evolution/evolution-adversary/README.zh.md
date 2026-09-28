@@ -28,6 +28,11 @@ kind: "package-reference"
 挂载插件并配合存储域。操作者在运行对抗探针时逐条记录，修复探针暴露的弱点，并读取挑战以获知下一个待探针的类别；清单显示还有哪些评估器博弈防御尚未落实。
 
 ```ts
+import type { Context } from '@deepseek-ai/cordis'
+import '@deepseek-ai/dsh-evolution-adversary'
+
+declare const ctx: Context
+
 await ctx.evolutionAdversary.probe({
   probeId: 'writer-injection-1',
   skill: 'writer',

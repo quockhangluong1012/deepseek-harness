@@ -28,6 +28,11 @@ English | [中文](README.zh.md)
 Mount the plugin with the storage domain. Signals arrive from evaluators, judges, and retrieval diagnostics whenever producers record them; operators read the queue and resolve tasks once re-evaluated.
 
 ```ts
+import type { Context } from '@deepseek-ai/cordis'
+import EvolutionUncertainty from '@deepseek-ai/dsh-evolution-uncertainty'
+
+declare const ctx: Context
+
 await ctx.evolutionUncertainty.record({
   signalId: 'sig-0',
   skill: 'writer',

@@ -28,6 +28,11 @@ English | [中文](README.zh.md)
 Mount the plugin with the storage domain. Where a router or skill-telemetry store is also mounted, the heartbeat's idle ticks run the anticipation pass on their own; operators can also anticipate a task, precompute an artifact, and drive a pass by hand.
 
 ```ts
+import type { Context } from '@deepseek-ai/cordis'
+import '@deepseek-ai/dsh-evolution-sleeptime'
+
+declare const ctx: Context
+
 // The automatic pass: what the source stores recorded is what it anticipates.
 await ctx.evolutionSleeptime.anticipateAll()
 

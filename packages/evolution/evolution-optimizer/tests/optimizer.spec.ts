@@ -15,6 +15,7 @@ import EvolutionLineage from '@deepseek-ai/dsh-evolution-lineage'
 import type { NoveltyArchiveEntry } from '@deepseek-ai/dsh-evolution-novelty-search'
 import { MemoryMediaPool, MemoryStorageBackend } from '../../../storage/storage-domain/tests/helpers/memory-backend.ts'
 import type { EvaluateSkillRequest } from '@deepseek-ai/dsh-evolution-scorer'
+import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import EvolutionOptimizer, { descriptorOf } from '../src/index.ts'
 
 const roots: Context[] = []
@@ -148,6 +149,8 @@ interface BenchSeams {
    * the package's own store over the harness storage domain instead of a fake.
    */
   lineage?: { error?: Error; real?: boolean } | undefined
+  /** Mount a live agent registry so the run's §18.2 audit trail has a session. */
+  auditSession?: boolean | undefined
 }
 
 /** A storage domain whose only table refuses every write. */
@@ -197,6 +200,12 @@ async function bench(seams: BenchSeams = {}) {
         return textTurn(JSON.stringify(perCall ?? bodies))
       },
     } as never)
+  }
+  // The optimizer resolves the session it writes its §18.2 audit events to
+  // through the live agent registry; without one a run records nothing.
+  const auditLog = seams.auditSession === true ? Session.create(SessionId('session-1')) : undefined
+  if (auditLog !== undefined) {
+    ctx.provide('agents', { get: (id: string) => id === 'session-1' ? { session: auditLog } : undefined } as never)
   }
   ctx.provide('evolutionSkillTelemetry', {
     entries: () => seams.record === undefined ? [] : [seams.record],
@@ -385,7 +394,7 @@ async function bench(seams: BenchSeams = {}) {
   return {
     ctx, optimizer, staged, populationRows, routeRows, canaryRows, noveltyRows,
     stagnationRows, islandTicks, selfModelObservations, lineageEnvelopes, lineageRevisions,
-    scoreCalls, scorer: fakeScorer, llmCalls: () => llmCalls, budgetSpends,
+    scoreCalls, scorer: fakeScorer, llmCalls: () => llmCalls, budgetSpends, auditLog,
   }
 }
 
@@ -600,7 +609,7 @@ describe('EvolutionOptimizer', () => {
     // the checked scenario leads the corpus it was drawn from.
     const corpus = await optimizer.mine(request.scopeId, 'writer')
     const scenarios = corpus.map(entry => entry.scenario)
-    expect(scenarios).toEqual(expect.arrayContaining(row?.holdout ?? []))
+    expect(scenarios).toEqual(expect.arrayContaining([...(row?.holdout ?? [])]))
     expect(scenarios[0]).toBe(row?.holdout[0])
     // Re-mining the same signals reinforces the patterns the corpus already
     // holds instead of duplicating them.
@@ -2128,5 +2137,66 @@ describe('EvolutionOptimizer', () => {
     expect(report.status).toBe('skipped')
     expect(report.reason).toBe('holdout scenario gone')
     expect(staged).toHaveLength(0)
+  })
+})
+
+describe('§18.2 audit trail', () => {
+  /** A run whose candidates beat the baseline and clear their holdout. */
+  const winning = {
+    record: { name: 'writer', usage: usage(12, 10) },
+    body: BASE,
+    mutations: [V2, V3],
+    scoresFor: (_scenarios: readonly string[], call: number) => ({ pass: true, tokens: call === 1 ? 4 : 10, wallTimeMs: 5 }),
+    auditSession: true,
+  }
+
+  it('records each candidate body the mutation produced, by digest', async () => {
+    const { optimizer, auditLog } = await bench(winning)
+
+    await optimizer.optimize(request)
+
+    const candidates = auditLog?.snapshotEvents().filter(event => event.type === 'evolution/candidate') ?? []
+    expect(candidates.map(event => event.data.bodySha)).toEqual([
+      createHash('sha256').update(V2, 'utf8').digest('hex'),
+      createHash('sha256').update(V3, 'utf8').digest('hex'),
+    ])
+    expect(candidates[0]?.data).toMatchObject({
+      skill: 'writer',
+      scopeId: 'profile/scope',
+      operator: 'rewrite',
+      scenarios: ['s1'],
+      route: 'deepseek/deepseek-chat',
+      metadata: { version: 1, actor: 'model', source: 'evolution-optimizer', locator: 'writer' },
+    })
+  })
+
+  it('records every measured score the run bought, with the scenarios behind it', async () => {
+    const { optimizer, auditLog, scoreCalls } = await bench(winning)
+
+    await optimizer.optimize(request)
+
+    const evaluations = auditLog?.snapshotEvents().filter(event => event.type === 'evolution/evaluated') ?? []
+    // One per scoring pass the run actually paid for: the baseline, each
+    // survivor, the holdout arms, and the confirmation repeat.
+    expect(evaluations).toHaveLength(scoreCalls.length)
+    expect(evaluations.map(event => event.data.scenarios.join(','))).toEqual(
+      scoreCalls.map(scenarios => scenarios.join(',')),
+    )
+    expect(evaluations[0]?.data).toMatchObject({
+      skill: 'writer',
+      bodySha: createHash('sha256').update(BASE, 'utf8').digest('hex'),
+      pass: true,
+      scores: [expect.objectContaining({ scenario: 's1', fixtureDigest: 'digest', trajectory: null })],
+      metadata: { version: 1, actor: 'tool', source: 'evolution-optimizer' },
+    })
+  })
+
+  it('records nothing when the requesting session is no longer live', async () => {
+    const { optimizer, auditLog } = await bench({ ...winning, auditSession: false })
+
+    const report = await optimizer.optimize(request)
+
+    expect(report.status).toBe('staged')
+    expect(auditLog).toBeUndefined()
   })
 })

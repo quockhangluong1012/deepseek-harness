@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/evolution/evolution-operators/README.md
-README.md: 27d89f963d58854ebdb43b1900263e0e2640ff83
-README.zh.md: 425435b557489a326cc7dea5d377ec136c055372
+README.md: 74a3c91b83a7b757da8f677dd3b3d170ccabf934
+README.zh.md: 8a7eaebe29773f6d1606c79c8d8b2a69d0f06b5b

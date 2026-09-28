@@ -528,7 +528,7 @@ export type PolicyAction =
   | 'policy'
 ```
 
-Source: [`packages/runtime/agent-kernel/src/index.ts:176`](../packages/runtime/agent-kernel/src/index.ts)
+Source: [`packages/runtime/agent-kernel/src/index.ts:182`](../packages/runtime/agent-kernel/src/index.ts)
 
 <a id="deepseek-aidsh-agent-kernel-builtins"></a>
 
@@ -1166,7 +1166,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/evolution/command-evolution/src/index.ts:109`](../packages/evolution/command-evolution/src/index.ts)
+Source: [`packages/evolution/command-evolution/src/index.ts:107`](../packages/evolution/command-evolution/src/index.ts)
 
 <a id="deepseek-aidsh-command-review"></a>
 
@@ -1572,7 +1572,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/evolution/evolution-budget/src/index.ts:60`](../packages/evolution/evolution-budget/src/index.ts)
+Source: [`packages/evolution/evolution-budget/src/index.ts:63`](../packages/evolution/evolution-budget/src/index.ts)
 
 <a id="deepseek-aidsh-evolution-controller"></a>
 
@@ -1809,8 +1809,6 @@ export interface Config {
   maxNodes?: number
   /** Relations retained per scope; further distinct relations are refused. */
   maxEdges?: number
-  /** Claims retained per scope; further distinct statements are refused. */
-  maxClaims?: number
   /** Results one answer, expansion, or lookup may return. */
   maxQueryLimit?: number
   /** Text budget for one extraction call in UTF-8 bytes. */
@@ -1834,7 +1832,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/evolution/evolution-graph/src/index.ts:83`](../packages/evolution/evolution-graph/src/index.ts)
+Source: [`packages/evolution/evolution-graph/src/index.ts:68`](../packages/evolution/evolution-graph/src/index.ts)
 
 <a id="deepseek-aidsh-evolution-heartbeat"></a>
 
@@ -2064,7 +2062,34 @@ export interface Config {
 }
 ```
 
-Source: [`packages/evolution/evolution-metrics/src/index.ts:119`](../packages/evolution/evolution-metrics/src/index.ts)
+Source: [`packages/evolution/evolution-metrics/src/index.ts:142`](../packages/evolution/evolution-metrics/src/index.ts)
+
+<a id="deepseek-aidsh-evolution-model-routes"></a>
+
+## `@deepseek-ai/dsh-evolution-model-routes`
+
+Requires: `storageDomain`
+
+```ts config-catalog
+/**
+ * Validated configuration of the model-routing store; an omitted field takes
+ * its default.
+ */
+export interface Config {
+  /**
+   * Runs a route needs before it may be recommended; defaults to 1, so a role
+   * with one observed run is still named. Raise it to demand a wider margin
+   * before an unmeasured deployment starts following thin evidence.
+   */
+  minimumRuns?: number
+  /** Runs a route needs before the disagreement comparison measures it; defaults to 3. */
+  disagreementMinimumRuns?: number
+  /** Pass-rate gap at which two routes disagree strongly; defaults to 0.5. */
+  disagreementThreshold?: number
+}
+```
+
+Source: [`packages/evolution/evolution-model-routes/src/index.ts:81`](../packages/evolution/evolution-model-routes/src/index.ts)
 
 <a id="deepseek-aidsh-evolution-operators"></a>
 
@@ -2203,7 +2228,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/evolution/evolution-optimizer/src/index.ts:131`](../packages/evolution/evolution-optimizer/src/index.ts)
+Source: [`packages/evolution/evolution-optimizer/src/index.ts:130`](../packages/evolution/evolution-optimizer/src/index.ts)
 
 <a id="deepseek-aidsh-evolution-retrieval"></a>
 
@@ -2237,6 +2262,7 @@ Source: [`packages/evolution/evolution-retrieval/src/index.ts:55`](../packages/e
 Requires: `llm` · `sessions` · `evolutionMemory` · `workspaceRegistry`
 
 ```ts config-catalog
+/** User-facing reviewer settings; every field is optional and defaulted by {@link resolveConfig}. */
 export interface Config {
   /** Minimum gap between two extractions for one scope. */
   cooldownMs?: number
@@ -2280,30 +2306,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/evolution/evolution-reviewer/src/index.ts:77`](../packages/evolution/evolution-reviewer/src/index.ts)
-
-<a id="deepseek-aidsh-evolution-router"></a>
-
-## `@deepseek-ai/dsh-evolution-router`
-
-Requires: `storageDomain`
-
-```ts config-catalog
-/**
- * Validated configuration of the routing self-optimization store; an omitted
- * field takes its default.
- */
-export interface Config {
-  /** Outcomes a route needs before it may be recommended; defaults to 3. */
-  minimumSamples?: number
-  /** Outcomes a route needs before the disagreement comparison measures it; defaults to 3. */
-  disagreementMinimumRuns?: number
-  /** Pass-rate gap at which two routes disagree strongly; defaults to 0.5. */
-  disagreementThreshold?: number
-}
-```
-
-Source: [`packages/evolution/evolution-router/src/index.ts:33`](../packages/evolution/evolution-router/src/index.ts)
+Source: [`packages/evolution/evolution-reviewer/src/index.ts:78`](../packages/evolution/evolution-reviewer/src/index.ts)
 
 <a id="deepseek-aidsh-evolution-scorer"></a>
 
@@ -2975,7 +2978,7 @@ export interface Config {
 }
 ```
 
-Depends on: [`ObjectJsonSchema`](../packages/core/tools/src/index.ts)
+Depends on: [`ObjectJsonSchema`](subsystems/tools.md)
 
 Source: [`packages/bundle/headless/src/index.ts:55`](../packages/bundle/headless/src/index.ts)
 
@@ -3330,7 +3333,7 @@ export interface DeepSeekCatalogModel {
 }
 ```
 
-Depends on: [`LlmModelCost`](../packages/llm/llm/src/index.ts) · [`ModelModality`](../packages/llm/llm/src/index.ts) · [`RetryPolicyConfig`](../packages/llm/llm/src/index.ts) · [`SystemPromptUpdate`](../packages/llm/llm/src/index.ts) · `Volatile` (`@deepseek-ai/cordis`)
+Depends on: [`LlmModelCost`](subsystems/llm-streaming.md) · [`ModelModality`](../packages/llm/llm/src/index.ts) · [`RetryPolicyConfig`](../packages/llm/llm/src/index.ts) · [`SystemPromptUpdate`](../packages/llm/llm/src/index.ts) · `Volatile` (`@deepseek-ai/cordis`)
 
 Source: [`packages/llm/llm-deepseek/src/config.ts:28`](../packages/llm/llm-deepseek/src/config.ts)
 
@@ -6597,7 +6600,6 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-cordis-client-runner` ([`packages/extensions/cordis-client-runner/src/index.ts`](../packages/extensions/cordis-client-runner/src/index.ts))
 - `@deepseek-ai/dsh-deepseek-llm-api-extensions` ([`packages/llm/deepseek-llm-api-extensions/src/index.ts`](../packages/llm/deepseek-llm-api-extensions/src/index.ts))
 - `@deepseek-ai/dsh-evolution-canary` — requires `storageDomain` ([`packages/evolution/evolution-canary/src/index.ts`](../packages/evolution/evolution-canary/src/index.ts))
-- `@deepseek-ai/dsh-evolution-model-routes` — requires `storageDomain` ([`packages/evolution/evolution-model-routes/src/index.ts`](../packages/evolution/evolution-model-routes/src/index.ts))
 - `@deepseek-ai/dsh-evolution-novelty-search` — requires `storageDomain` ([`packages/evolution/evolution-novelty-search/src/index.ts`](../packages/evolution/evolution-novelty-search/src/index.ts))
 - `@deepseek-ai/dsh-evolution-population` — requires `storageDomain` ([`packages/evolution/evolution-population/src/index.ts`](../packages/evolution/evolution-population/src/index.ts))
 - `@deepseek-ai/dsh-evolution-verifiers` ([`packages/evolution/evolution-verifiers/src/index.ts`](../packages/evolution/evolution-verifiers/src/index.ts))

@@ -37,6 +37,11 @@ describe('parseDshArgs', () => {
       .toEqual({ mode: 'profile', profile: 'kernel-ops', patches: [], args: ['task', 'show', 'session-1'] })
     expect(parse(['policy', 'explain', 'session-1', 'call-3', '--json']))
       .toEqual({ mode: 'profile', profile: 'kernel-ops', patches: [], args: ['policy', 'explain', 'session-1', 'call-3', '--json'] })
+    // `evolution` is registered on the same program in the kernel-ops bundle.
+    // Without it in the intercepted verbs, this expanded to `--profile
+    // evolution` and tried to boot a profile that does not exist.
+    expect(parse(['evolution', 'replay', 'run-7']))
+      .toEqual({ mode: 'profile', profile: 'kernel-ops', patches: [], args: ['evolution', 'replay', 'run-7'] })
     // An explicit profile selection reaches the same app unchanged.
     expect(parse(['--profile', 'kernel-ops', 'task', 'verify', 'session-1']))
       .toEqual({ mode: 'profile', profile: 'kernel-ops', patches: [], args: ['task', 'verify', 'session-1'] })

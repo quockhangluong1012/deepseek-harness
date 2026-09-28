@@ -28,6 +28,12 @@ kind: "package-reference"
 在需要仓库事实的消费方处挂载本插件：它注入 `fs`、注册 `ctx.repoIndex`，其缓存随挂载它的 fiber 一同销毁。
 
 ```ts
+import type { Context } from '@deepseek-ai/cordis'
+import RepoIndex from '@deepseek-ai/dsh-repo-index'
+
+declare const ctx: Context
+declare const workspaceRoot: string
+
 const snapshot = await ctx.repoIndex.ensure(workspaceRoot)
 snapshot.symbols      // declaration lines, at most maxSymbols
 snapshot.imports      // one edge per distinct specifier, with how it resolved

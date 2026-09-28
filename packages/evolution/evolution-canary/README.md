@@ -28,6 +28,11 @@ English | [中文](README.zh.md)
 Mount the plugin with the storage domain. Deployments arrive from the optimizer's staged writes whenever the store is mounted; operators advance or exit them.
 
 ```ts
+import type { Context } from '@deepseek-ai/cordis'
+import '@deepseek-ai/dsh-evolution-canary'
+
+declare const ctx: Context
+
 await ctx.evolutionCanary.enter({
   id: 'staged-0',
   skill: 'writer',
@@ -44,6 +49,8 @@ await ctx.evolutionCanary.advance('staged-0', 'promoted')
 `assessRisk(input)` answers §49's two questions in one call: how risky a proposed change is, and which step that risk licenses. It reads four facts about the change and returns a `RiskClass` with its `RiskRoute`.
 
 ```ts
+import { assessRisk } from '@deepseek-ai/dsh-evolution-canary'
+
 const { risk, route } = assessRisk({
   // What the change mutates: a skill body, or a scope-wide memory entry.
   artifact: 'skill',

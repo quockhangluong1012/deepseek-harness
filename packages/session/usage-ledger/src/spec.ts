@@ -84,15 +84,16 @@ export const LEDGER_KEY = 'state'
 export const EMPTY_LEDGER: UsageLedgerState = { cursors: {}, daily: {}, models: {}, sessions: {} }
 
 /**
- * The usage-dashboard domain spec. `single` layout is irrelevant at one
- * record; what matters is the one atomic document. `backup-and-skip` keeps
- * a corrupt ledger from failing the boot: the document moves aside and the
- * next backfill rebuilds it from the session logs.
+ * The usage-dashboard domain spec. `per-record` is what makes the
+ * `backup-and-skip` policy effective: only a per-record backend unit can move
+ * one record's document aside, so a ledger written by an older schema is
+ * discarded and the next backfill rebuilds it from the session logs instead of
+ * failing the boot. One record keeps the single atomic document the spec needs.
  */
 export const usageDashboardDomainSpec = defineDomain({
   name: 'usage_dashboard',
   version: 1,
   invalidRecords: 'backup-and-skip',
-  layout: 'single',
+  layout: 'per-record',
   tables: { ledger: domainTable<string, UsageLedgerState>(usageLedgerState) },
 })

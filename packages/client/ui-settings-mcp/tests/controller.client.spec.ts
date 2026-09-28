@@ -56,7 +56,7 @@ type MutationSpy<Request> = Mock<(request: Request) => Promise<RemoteResult<McpM
 interface ScriptedFace {
   list: () => Promise<RemoteResult<McpServersView>>
   upsert: (request: McpServerUpsert) => Promise<RemoteResult<McpMutationOutcome>>
-  remove: (request: McpServerRemove) => Promise<RemoteResult<McpMutationOutcome>>
+  delete: (request: McpServerRemove) => Promise<RemoteResult<McpMutationOutcome>>
 }
 
 /** Mount one controller over a scripted Remote face. */
@@ -67,8 +67,8 @@ function bench(face: ScriptedFace, session: () => SessionId | undefined = () => 
 } {
   const ctx = new Context()
   const upsert = vi.fn(face.upsert)
-  const remove = vi.fn(face.remove)
-  new TestRemote(ctx, { mcpServers: { list: vi.fn(face.list), upsert, remove } })
+  const remove = vi.fn(face.delete)
+  new TestRemote(ctx, { mcpServers: { list: vi.fn(face.list), upsert, delete: remove } })
   return { controller: new McpSettingsController(ctx, session), upsert, remove }
 }
 
@@ -119,7 +119,7 @@ describe('McpSettingsController', () => {
     const { controller } = bench({
       list: () => Promise.resolve({ ok: true, value: ONE_VIEW }),
       upsert: () => granted(ONE_VIEW),
-      remove: () => granted(ONE_VIEW),
+      delete: () => granted(ONE_VIEW),
     })
     await controller.load()
     const state = controller.inject(key => key).hooks.mcpSettings.getSnapshot()
@@ -135,7 +135,7 @@ describe('McpSettingsController', () => {
     const { controller } = bench({
       list: () => Promise.resolve({ ok: false, error: new RemoteError('gateway/internal', 'no host', {}) }),
       upsert: () => granted(EMPTY_VIEW),
-      remove: () => granted(EMPTY_VIEW),
+      delete: () => granted(EMPTY_VIEW),
     })
     await controller.load()
     expect(controller.inject(key => key).hooks.mcpSettings.getSnapshot()).toMatchObject({ status: 'failed', notice: { kind: 'transport' } })
@@ -145,7 +145,7 @@ describe('McpSettingsController', () => {
     const { controller, upsert } = bench({
       list: () => Promise.resolve({ ok: true, value: EMPTY_VIEW }),
       upsert: () => granted(ONE_VIEW),
-      remove: () => granted(ONE_VIEW),
+      delete: () => granted(ONE_VIEW),
     })
     await controller.load()
     await controller.save(draft())
@@ -161,7 +161,7 @@ describe('McpSettingsController', () => {
     const { controller, upsert } = bench({
       list: () => Promise.resolve({ ok: true, value: ONE_VIEW }),
       upsert: () => granted(ONE_VIEW),
-      remove: () => granted(ONE_VIEW),
+      delete: () => granted(ONE_VIEW),
     })
     await controller.load()
     await controller.save(draft({ existing: true, env: '' }))
@@ -173,7 +173,7 @@ describe('McpSettingsController', () => {
     const { controller, upsert } = bench({
       list: () => Promise.resolve({ ok: true, value: EMPTY_VIEW }),
       upsert: () => granted(EMPTY_VIEW),
-      remove: () => granted(EMPTY_VIEW),
+      delete: () => granted(EMPTY_VIEW),
     }, () => undefined)
     await controller.load()
     await controller.save(draft())
@@ -187,7 +187,7 @@ describe('McpSettingsController', () => {
     const { controller, remove } = bench({
       list: () => Promise.resolve({ ok: true, value: ONE_VIEW }),
       upsert: () => granted(ONE_VIEW),
-      remove: () => granted(ONE_VIEW),
+      delete: () => granted(ONE_VIEW),
     }, () => undefined)
     await controller.load()
     await controller.remove('github', 'project')
@@ -204,7 +204,7 @@ describe('McpSettingsController', () => {
         ok: true,
         value: { ok: false, refusal: 'approval-refused', detail: 'the approval ask resolved "rejected"', view: ONE_VIEW },
       }),
-      remove: () => granted(ONE_VIEW),
+      delete: () => granted(ONE_VIEW),
     })
     await controller.load()
     await controller.save(draft())
@@ -218,7 +218,7 @@ describe('McpSettingsController', () => {
     const { controller, upsert } = bench({
       list: () => Promise.resolve({ ok: true, value: EMPTY_VIEW }),
       upsert: () => granted(EMPTY_VIEW),
-      remove: () => granted(EMPTY_VIEW),
+      delete: () => granted(EMPTY_VIEW),
     })
     await controller.save(draft({ name: '' }))
 
@@ -230,7 +230,7 @@ describe('McpSettingsController', () => {
     const { controller, remove } = bench({
       list: () => Promise.resolve({ ok: true, value: ONE_VIEW }),
       upsert: () => granted(ONE_VIEW),
-      remove: () => Promise.resolve({
+      delete: () => Promise.resolve({
         ok: true,
         value: { ok: false, refusal: 'unknown-server', detail: null, view: ONE_VIEW },
       }),

@@ -28,6 +28,12 @@ Read one session's committed log as a structured learning trajectory: turns, ste
 Mount the plugin; projection needs no further wiring. Project one session's log with `trace`, compress several sessions into decision-ordered rows with `summary`, or replay one stored trace against two artifact revisions with `replay`.
 
 ```ts
+import type { Context } from '@deepseek-ai/cordis'
+import '@deepseek-ai/dsh-evolution-trace'
+
+declare const ctx: Context
+declare const sessionId: string
+
 const record = await ctx.evolutionTrace.trace(sessionId)
 if (record === undefined) {
   console.log('storage holds no such session')
@@ -49,6 +55,12 @@ if (record === undefined) {
 ```
 
 ```ts
+import type { Context } from '@deepseek-ai/cordis'
+import '@deepseek-ai/dsh-evolution-trace'
+
+declare const ctx: Context
+declare const workspace: { sessionIds: readonly string[] }
+
 const rows = await ctx.evolutionTrace.summary(workspace.sessionIds, 10)
 for (const row of rows) {
   console.log(`${row.sessionId}: ${row.failures} failure(s), ${row.retries} retr(ies), ${row.tokens} tokens`)
@@ -56,6 +68,14 @@ for (const row of rows) {
 ```
 
 ```ts
+import type { Context } from '@deepseek-ai/cordis'
+import { type ReplayArtifact } from '@deepseek-ai/dsh-evolution-trace'
+
+declare const ctx: Context
+declare const sessionId: string
+declare const baselineArtifact: ReplayArtifact
+declare const candidateArtifact: ReplayArtifact
+
 const report = await ctx.evolutionTrace.replay(sessionId, baselineArtifact, candidateArtifact)
 if (report !== undefined) {
   console.log(`candidate ${report.candidate} changes ${report.changedSteps.join(', ') || 'nothing'}`)

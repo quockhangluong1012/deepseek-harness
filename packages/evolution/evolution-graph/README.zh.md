@@ -28,6 +28,14 @@ kind: "package-reference"
 挂载本插件，然后记录或读回关系。每个作用域各自持有一张图。
 
 ```ts
+import type { Context } from '@deepseek-ai/cordis'
+import { EvolutionScopeId } from '@deepseek-ai/dsh-evolution-memory'
+import { EvolutionGraph } from '@deepseek-ai/dsh-evolution-graph'
+
+declare const ctx: Context
+declare const scope: EvolutionScopeId
+
+ctx.plugin(EvolutionGraph)
 await ctx.evolutionGraph.observe(scope, [
   { from: 'Project X', relation: 'worked_on', to: 'Alice', toKind: 'person' },
 ])

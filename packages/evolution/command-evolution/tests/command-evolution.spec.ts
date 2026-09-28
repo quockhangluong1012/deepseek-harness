@@ -40,6 +40,7 @@ import { dayKeyUTC7 } from '@deepseek-ai/dsh-usage-ledger'
 import { unzipSync, strFromU8 } from 'fflate'
 import { WorkspaceId } from '@deepseek-ai/dsh-workspace'
 import { MemoryMediaPool, MemoryStorageBackend } from '../../../storage/storage-domain/tests/helpers/memory-backend.ts'
+import { digestOf } from '@deepseek-ai/dsh-evolution-optimizer'
 import * as commandEvolution from '../src/index.ts'
 import { buildLearnPrompt, stagedFailureText } from '../src/index.ts'
 
@@ -2104,6 +2105,19 @@ describe('/skills human command', () => {
       // The chain holds the body that was replaced, then the promoted body.
       expect(test.ctx.evolutionLineage.revisions('skill:writer').map(revision => revision.body)).toEqual([before, after])
       expect(test.ctx.evolutionMemory.read(id)?.staged).toEqual([])
+      // §18.2: the committed write and the preimage it replaced are recorded in
+      // the session that ran the command, so the log reconstructs the promotion
+      // even though the file no longer holds the body it replaced.
+      const promoted = session.snapshotEvents().filter(event => event.type === 'evolution/promoted')
+      expect(promoted).toHaveLength(1)
+      expect(promoted[0]?.data).toMatchObject({
+        skill: 'writer',
+        state: 'promoted',
+        stagedId: staged.id,
+        bodySha: digestOf(after),
+        preimageSha: digestOf(before),
+        metadata: { version: 1, actor: 'user', source: 'command-evolution', locator: 'writer' },
+      })
     } finally {
       await shutdown(test)
     }
@@ -2138,6 +2152,15 @@ describe('/skills human command', () => {
       expect(await readFile(file, 'utf8')).toBe(before)
       // The revert lands as a new revision rather than rewriting history.
       expect(test.ctx.evolutionLineage.revisions('skill:writer').map(revision => revision.body)).toEqual([before, after, before])
+      const rolledBack = session.snapshotEvents().filter(event => event.type === 'evolution/rolled-back')
+      expect(rolledBack).toHaveLength(1)
+      expect(rolledBack[0]?.data).toMatchObject({
+        skill: 'writer',
+        state: 'rolled-back',
+        bodySha: digestOf(before),
+        preimageSha: digestOf(after),
+        reason: 'restored the preimage, recorded as revision 3',
+      })
     } finally {
       await shutdown(test)
     }

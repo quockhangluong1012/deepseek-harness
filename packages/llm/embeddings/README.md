@@ -28,6 +28,12 @@ English | [中文](README.zh.md)
 Mount the service, register a provider, then embed batches. Vectors return in request order whatever order the provider answered in.
 
 ```ts
+import type { Context } from '@deepseek-ai/cordis'
+import Embeddings, { EmbeddingsProvider } from '@deepseek-ai/dsh-embeddings'
+
+declare const ctx: Context
+declare const provider: EmbeddingsProvider
+
 ctx.plugin(Embeddings)
 ctx.embeddings.registerProvider(['http'], provider)
 

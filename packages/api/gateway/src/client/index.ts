@@ -626,6 +626,15 @@ class RemoteNamespaceService extends Service {
   private readonly methods = new Map<string, RemoteMethodRecord>()
   private readonly namespace: string
 
+  /**
+   * Refuse a Remote method whose name belongs to the namespace service it
+   * would be installed on: the service's own members (from Cordis `Service`
+   * and from this class) win over an inherited method, so the call would
+   * resolve to the service instead of the Host. A Host owner names its
+   * methods around that surface — `delete`, not `remove`.
+   * @param namespace - Remote namespace the method belongs to.
+   * @param method - Method name the generated contribution declares.
+   */
   static assertMethodAvailable(namespace: string, method: string): void {
     if (REMOTE_NAMESPACE_FIELDS.has(method) || method in RemoteNamespaceService.prototype) {
       throw new Error(`client api: method ${JSON.stringify(`${namespace}/${method}`)} conflicts with its namespace service`)

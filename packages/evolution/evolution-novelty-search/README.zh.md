@@ -28,6 +28,11 @@ kind: "package-reference"
 挂载插件并配合存储域。只要存储已挂载，描述符就来自优化器的暂存写入；优化器还会读回它们——每次运行取一次 `entries(skill)` 快照——按与档案的距离给候选排序，操作者则读取档案及其新奇度压力。
 
 ```ts
+import type { Context } from '@deepseek-ai/cordis'
+import '@deepseek-ai/dsh-evolution-novelty-search'
+
+declare const ctx: Context
+
 await ctx.evolutionNovelty.record({
   candidateId: 'staged-0',
   skill: 'writer',

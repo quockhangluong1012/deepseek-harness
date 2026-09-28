@@ -28,6 +28,11 @@ kind: "package-reference"
 挂载插件并携带存储域即可；测量差距额外需要 telemetry 与 trace 存储，缺任一个时 `gaps()` 什么都测不到。
 
 ```ts
+import type { Context } from '@deepseek-ai/cordis'
+import '@deepseek-ai/dsh-evolution-curriculum'
+
+declare const ctx: Context
+
 const gaps = await ctx.evolutionCurriculum.gaps()
 const staged = await ctx.evolutionCurriculum.propose(gaps)
 for (const proposal of staged) {

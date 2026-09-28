@@ -38,11 +38,20 @@ kind: "package-reference"
 ```
 
 ```ts
-await ctx.evolutionDreaming.dream(scope, sessionIds)   // light → REM → deep
-ctx.evolutionDreaming.read(scope)                      // narratives, promotions, ledger
-ctx.evolutionDreaming.promotions(scope)                // only the narratives that still answer
-ctx.evolutionDreaming.ledger(scope)                    // the passes a rollback can name
-await ctx.evolutionDreaming.rollback(scope, entryId)   // restore what one pass replaced
+import type { Context } from '@deepseek-ai/cordis'
+import type { EvolutionScopeId } from '@deepseek-ai/dsh-evolution-memory'
+import '@deepseek-ai/dsh-evolution-dreaming'
+
+declare const ctx: Context
+declare const scopeId: EvolutionScopeId
+declare const sessionIds: readonly string[]
+declare const entryId: string
+
+await ctx.evolutionDreaming.dream(scopeId, sessionIds)   // light → REM → deep
+ctx.evolutionDreaming.read(scopeId)                      // narratives, promotions, ledger
+ctx.evolutionDreaming.promotions(scopeId)                // only the narratives that still answer
+ctx.evolutionDreaming.ledger(scopeId)                    // the passes a rollback can name
+await ctx.evolutionDreaming.rollback(scopeId, entryId)   // restore what one pass replaced
 ```
 
 `run(phase, scope, sessionIds, now?)` 运行单个阶段以便诊断；`dream(…)` 运行整个周期；`dreamAll()` 遍历注册表已知的每个工作区，heartbeat 任务调用的正是它。`promotions(scope)` 只回答未被更正退役的叙事，`rollback(scope, entryId)` 恢复账本条目 `entryId` 所替换的那份提升数组。

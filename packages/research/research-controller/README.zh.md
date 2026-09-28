@@ -58,7 +58,10 @@ kind: "package-reference"
 ### 注册阶段提供者
 
 ```ts
-import type { ResearchStageProvider } from '@deepseek-ai/dsh-research-controller'
+import type { Context } from '@deepseek-ai/cordis'
+import { type ResearchStageProvider } from '@deepseek-ai/dsh-research-controller'
+
+declare const ctx: Context
 
 const provider: ResearchStageProvider = {
   id: 'web-search',

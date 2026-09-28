@@ -28,6 +28,13 @@ kind: "package-reference"
 挂载本插件即可，观测无需额外接线。用 `entries` 读取单个会话的失败，用 `summary` 读取多个会话合并后的失败，用 `signals` 读取决策所消费的分级信号。
 
 ```ts
+import type { Context } from '@deepseek-ai/cordis'
+import type { Workspace } from '@deepseek-ai/dsh-workspace'
+import '@deepseek-ai/dsh-evolution-feedback'
+
+declare const ctx: Context
+declare const workspace: Workspace
+
 const failures = ctx.evolutionFeedback.summary(workspace.sessionIds, 10)
 for (const failure of failures) {
   console.log(`${failure.tool ?? 'unknown'} ×${failure.count} (${failure.sessions} sessions): ${failure.message}`)
@@ -35,11 +42,25 @@ for (const failure of failures) {
 ```
 
 ```ts
+import type { Context } from '@deepseek-ai/cordis'
+import type { Workspace } from '@deepseek-ai/dsh-workspace'
+import { type FeedbackSignal } from '@deepseek-ai/dsh-evolution-feedback'
+
+declare const ctx: Context
+declare const workspace: Workspace
+
 const signals = ctx.evolutionFeedback.signals(workspace.sessionIds, 10)
-const decisive = signals.find(signal => signal.actionability === 'trigger_review')
+const decisive = signals.find((signal: FeedbackSignal) => signal.actionability === 'trigger_review')
 ```
 
 ```ts
+import type { Context } from '@deepseek-ai/cordis'
+import type { Workspace } from '@deepseek-ai/dsh-workspace'
+import '@deepseek-ai/dsh-evolution-feedback'
+
+declare const ctx: Context
+declare const workspace: Workspace
+
 const reflections = ctx.evolutionFeedback.reflect(workspace.sessionIds, 10)
 for (const reflection of reflections) {
   console.log(`${reflection.symptom}: expected ${reflection.violatedExpectation} (confidence ${reflection.confidence})`)
@@ -51,6 +72,13 @@ await ctx.evolutionFeedback.recordReflection(reflections[0]!.failureId, {
 ```
 
 ```ts
+import type { Context } from '@deepseek-ai/cordis'
+import type { Workspace } from '@deepseek-ai/dsh-workspace'
+import '@deepseek-ai/dsh-evolution-feedback'
+
+declare const ctx: Context
+declare const workspace: Workspace
+
 const written = await ctx.evolutionFeedback.reflectSignals(10, new Date().toISOString())
 const remembered = await ctx.evolutionFeedback.reflections(workspace.sessionIds, 10)
 console.log(`${written.length} authored, ${remembered.length} retrievable: ${remembered[0]?.antiPattern ?? 'nothing stored'}`)

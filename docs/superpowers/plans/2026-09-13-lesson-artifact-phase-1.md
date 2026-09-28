@@ -61,7 +61,7 @@
 
 - [ ] **Step 1: Write the failing test**
 
-```ts
+```ts ignore-check
 // packages/evolution/evolution-memory/tests/lesson-artifact.spec.ts
 import { describe, expect, it } from 'vitest'
 import { artifactKey, lessonArtifact, wrapLegacyLessons } from '../src/lesson-artifact.ts'
@@ -117,7 +117,7 @@ Run: `pnpm exec vitest run packages/evolution/evolution-memory/tests/lesson-arti
 
 - [ ] **Step 3: Write minimal implementation**
 
-```ts
+```ts ignore-check
 /**
  * Durable extracted-fact vocabulary for a scope's lessons: one artifact per
  * fact, with the source and quality metadata the evolutionary-harness
@@ -283,7 +283,7 @@ git commit -m "feat(evolution-memory): add the lesson artifact vocabulary"
 
 Add to `packages/evolution/evolution-memory/tests/store.spec.ts` (replace the existing `accepts a record stored before the family stamps existed` case at line 994 with this extended version — it is the same test, now also asserting the migration):
 
-```ts
+```ts ignore-check
   it('admits a record stored as a legacy lessons string as one coarse artifact', () => {
     const legacy = {
       instructions: 'rules',
@@ -330,20 +330,20 @@ Run: `pnpm exec vitest run packages/evolution/evolution-memory/tests/store.spec.
 
 In `types.ts`, replace the `agentLessons` field declaration:
 
-```ts
+```ts ignore-check
   /** Model-maintained lessons: one structured artifact per extracted fact. */
   agentLessons: readonly LessonArtifact[]
 ```
 
 and add to the same file's imports:
 
-```ts
+```ts ignore-check
 import type { LessonArtifact } from './lesson-artifact.ts'
 ```
 
 In `spec.ts`, replace the `agentLessons: z.string(),` line (88) with a union whose transform always yields the array:
 
-```ts
+```ts ignore-check
   /**
    * Legacy records stored this as a markdown string. The transform admits them
    * as one coarse artifact so a domain written before the artifact model opens
@@ -357,13 +357,13 @@ In `spec.ts`, replace the `agentLessons: z.string(),` line (88) with a union who
 
 and add to `spec.ts`'s imports:
 
-```ts
+```ts ignore-check
 import { lessonArtifact, wrapLegacyLessons } from './lesson-artifact.ts'
 ```
 
 In `spec.ts`, replace the domain spec (111-119) with:
 
-```ts
+```ts ignore-check
 export const evolutionMemoryDomainSpec = defineDomain({
   name: 'evolution_memory',
   version: 2,
@@ -382,7 +382,7 @@ export const evolutionMemoryDomainSpec = defineDomain({
 
 In `digest.ts`, replace `usedBytesOf`'s body:
 
-```ts
+```ts ignore-check
 export function usedBytesOf(record: EvolutionMemoryRecord | undefined): number {
   if (record === undefined) return 0
   let used = utf8Bytes(record.instructions) + utf8Bytes(record.userProfile)
@@ -422,7 +422,7 @@ git commit -m "feat(evolution-memory): store lessons as artifacts, admitting leg
 
 Replace `tests/store.spec.ts:591-621` with:
 
-```ts
+```ts ignore-check
   it('approveStaged applies artifact add, update, and remove ops', async () => {
     const { fiber, store } = await harness()
     const id = scope()
@@ -479,7 +479,7 @@ Run: `pnpm exec vitest run packages/evolution/evolution-memory/tests/store.spec.
 
 In `types.ts`, replace the three payload interfaces (75-95) with:
 
-```ts
+```ts ignore-check
 /** Payload for the `addArtifact` staged op. */
 export interface MemoryStagedAddArtifactPayload {
   candidate: LessonArtifactInput
@@ -502,7 +502,7 @@ Update the re-export block in `index.ts:35-50` to export the three new names ins
 
 In `index.ts`, delete `applySetLessons` (376-388) and replace `applyMemoryStagedOp`'s three lesson cases (466-493) with:
 
-```ts
+```ts ignore-check
     case 'addArtifact': {
       const candidate = lessonArtifactInput.parse(fields.candidate)
       const strategy = mergeStrategyField(fields.strategy)
@@ -533,7 +533,7 @@ interface StagedPayloadFields {
 }
 ```
 
-```ts
+```ts ignore-check
 /**
  * Read a required `id` field from an artifact staged payload.
  * @param fields - payload fields.
@@ -574,7 +574,7 @@ function mergeStrategyField(value: unknown): LessonMergeStrategy {
 
 Add the three record-level helpers next to `checkCapacity` (they are the shared implementation both the staged path and the direct methods call; Task 4 replaces the `keep_both`-only body of `addArtifactTo` with the real merge decision):
 
-```ts
+```ts ignore-check
 /**
  * Add one candidate to a record's artifacts, applying the requested merge
  * strategy against an existing artifact with the same identity.
@@ -639,7 +639,7 @@ function removeArtifactFrom(record: EvolutionMemoryRecord, id: string): Evolutio
 
 `replaceArtifact` is the Task 4 helper; give it a `keep_both`-free definition now so this task compiles and its tests pass:
 
-```ts
+```ts ignore-check
 function replaceArtifact(
   record: EvolutionMemoryRecord,
   id: string,
@@ -655,7 +655,7 @@ function replaceArtifact(
 
 Replace the four service methods (613-676) with:
 
-```ts
+```ts ignore-check
   async addArtifact(
     id: EvolutionScopeId,
     candidate: LessonArtifactInput,
@@ -713,7 +713,7 @@ git commit -m "feat(evolution-memory): address lesson artifacts by id instead of
 
 - [ ] **Step 1: Write the failing test**
 
-```ts
+```ts ignore-check
 // packages/evolution/evolution-memory/tests/merge.spec.ts
 import { describe, expect, it } from 'vitest'
 import { artifactKey, type LessonArtifact, type LessonArtifactInput } from '../src/lesson-artifact.ts'
@@ -766,7 +766,7 @@ Run: `pnpm exec vitest run packages/evolution/evolution-memory/tests/merge.spec.
 
 - [ ] **Step 3: Write minimal implementation**
 
-```ts
+```ts ignore-check
 /**
  * Merge decision for a candidate that matched an existing artifact. Pure: the
  * caller supplies the similarity that selected the match.
@@ -847,7 +847,7 @@ export function pickMergeTarget(
 
 Wire it in `index.ts`. Add the Config field in all four places, mirroring `maxAgentBytesField`:
 
-```ts
+```ts ignore-check
 /** Minimum cosine similarity that justifies merging a candidate into an existing artifact. */
 const mergeSimilarityFloorField = z.number().min(0).max(1).default(0.87)
 ```
@@ -856,7 +856,7 @@ add `mergeSimilarityFloor?: number` to `Config`, `mergeSimilarityFloor: number` 
 
 Give the store an optional-embeddings similarity lookup:
 
-```ts
+```ts ignore-check
   /**
    * Measure each existing artifact's similarity to a candidate statement.
    * Without `ctx.embeddings` this measures exact normalized equality only,
@@ -891,7 +891,7 @@ Give the store an optional-embeddings similarity lookup:
 
 Then `addArtifact` becomes async-aware of the match:
 
-```ts
+```ts ignore-check
   async addArtifact(
     id: EvolutionScopeId,
     candidate: LessonArtifactInput,
@@ -945,7 +945,7 @@ git commit -m "feat(evolution-memory): merge lesson artifacts by meaning when em
 
 - [ ] **Step 1: Write the failing test**
 
-```ts
+```ts ignore-check
 // packages/evolution/evolution-memory/tests/maintenance.spec.ts
 import { describe, expect, it } from 'vitest'
 import { artifactKey, type LessonArtifact } from '../src/lesson-artifact.ts'
@@ -985,7 +985,7 @@ Run: `pnpm exec vitest run packages/evolution/evolution-memory/tests/maintenance
 
 - [ ] **Step 3: Write minimal implementation**
 
-```ts
+```ts ignore-check
 /**
  * Artifact maintenance: the pure decay predicate and the per-scope sweep the
  * heartbeat task drives. The sweep also refines artifacts the reader admitted
@@ -1022,7 +1022,7 @@ export function prunable(artifact: LessonArtifact, now: number, refutationFloor:
 
 Wire the sweep into the store. Add the three Config fields in all four places (interface, schemastery field consts with `.default()`, `ResolvedConfig`, `resolveConfig`), then:
 
-```ts
+```ts ignore-check
   /**
    * Drop decayed artifacts and refine any coarse migrated one.
    * Refinement is best-effort: an absent reviewer or a failed split leaves the
@@ -1044,7 +1044,7 @@ Wire the sweep into the store. Add the three Config fields in all four places (i
 
 Register the task in `[Service.init]`, immediately after the table handle is published, mirroring `evolution-dreaming/src/index.ts:164-174`:
 
-```ts
+```ts ignore-check
     const heartbeat = this.ctx.get('evolutionHeartbeat')
     if (heartbeat === undefined) return
     this.ctx.effect(
@@ -1088,7 +1088,7 @@ git commit -m "feat(evolution-memory): prune decayed artifacts on a heartbeat ta
 
 - [ ] **Step 1: Write the failing test**
 
-```ts
+```ts ignore-check
 // add to packages/context/evolution-memory-context/tests/render.spec.ts
 import { artifactKey, type LessonArtifact } from '@deepseek-ai/dsh-evolution-memory'
 
@@ -1117,7 +1117,7 @@ Run: `pnpm exec vitest run packages/context/evolution-memory-context/tests/rende
 
 Add to `render.ts`:
 
-```ts
+```ts ignore-check
 /**
  * Render lesson artifacts best-first, dropping the lowest-confidence ones
  * until the block fits its byte budget.
@@ -1169,7 +1169,7 @@ git commit -m "feat(evolution-memory-context): render lesson artifacts best-firs
 
 - [ ] **Step 1: Write the failing test**
 
-```ts
+```ts ignore-check
 // add to packages/evolution/evolution-dreaming/tests/ (the file exercising `score` via a cycle)
 it('scores relevance against the scope artifacts, not a stringified record', async () => {
   const h = await harness()
@@ -1190,7 +1190,7 @@ Run: `pnpm exec vitest run packages/evolution/evolution-dreaming` Expected: FAIL
 
 In `evolution-dreaming/src/index.ts`, replace lines 370-373's `known` computation:
 
-```ts
+```ts ignore-check
     const memory = this.ctx.get('evolutionMemory')?.read(scopeId)
     const known = memory === undefined
       ? ''

@@ -16,7 +16,7 @@ const CURRENT_DOCUMENT = 'docs/persistence-catalog.md'
 const CURRENT_SCHEMA = 'docs/persistence-schema.json'
 
 /** Historical checkout that supplies a format's complete declared persistence inventory. */
-export type PersistenceFormatSource = { readonly tag: string } | { readonly pullRequest: number }
+export type PersistenceFormatSource = { readonly tag: string } | { readonly pullRequest: number } | { readonly commit: string }
 
 /** One complete format reference; the current catalog follows the historical entries. */
 export interface PersistenceFormatEntry {
@@ -66,6 +66,11 @@ function parseSource(source: unknown, label: string): PersistenceFormatSource {
     const tag = fields(source, ['tag'], `${label} source`).tag
     if (typeof tag !== 'string' || !/^dsh-[A-Za-z0-9][A-Za-z0-9._-]*$/u.test(tag)) throw new Error(`${label}: invalid source tag`)
     return { tag }
+  }
+  if (source !== null && typeof source === 'object' && 'commit' in source) {
+    const commit = fields(source, ['commit'], `${label} source`).commit
+    if (typeof commit !== 'string' || !/^[0-9a-f]{40}$/u.test(commit)) throw new Error(`${label}: source commit must be a full 40-character lowercase commit id`)
+    return { commit }
   }
   const pullRequest = fields(source, ['pullRequest'], `${label} source`).pullRequest
   if (!Number.isSafeInteger(pullRequest) || (pullRequest as number) <= 0) throw new Error(`${label}: source pullRequest must be a positive integer`)

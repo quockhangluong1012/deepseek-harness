@@ -28,6 +28,11 @@ kind: "package-reference"
 挂载插件并配合存储域。调用者记录某批次筛选的候选，为每个候选按其证据赢得的类别分配预算，记录支出，并读取这些记录所回答的调度与目标。
 
 ```ts
+import type { Context } from '@deepseek-ai/cordis'
+import { halvingRounds } from '@deepseek-ai/dsh-evolution-budget'
+
+declare const ctx: Context
+
 await ctx.evolutionBudget.recordPool({
   batchId: 'run-42',
   taskClass: 'writer',

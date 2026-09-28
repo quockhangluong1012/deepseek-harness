@@ -28,6 +28,11 @@ kind: "package-reference"
 挂载插件并配合存储域。操作者通过存储记录每次突变的结果；排序回答某个技能下一次尝试该归谁，记录在案的指令则回答该算子应当怎么说。
 
 ```ts
+import type { Context } from '@deepseek-ai/cordis'
+import '@deepseek-ai/dsh-evolution-operators'
+
+declare const ctx: Context
+
 await ctx.evolutionOperators.record({
   operator: 'rewrite',
   artifactClass: 'writer',

@@ -59,10 +59,18 @@ const TEXT_CHUNKS: StreamChunk[] = [
 
 const COMPACTION_ID = CompactionId('replay-compaction')
 
+/** One synthetic session-JSONL header option: every released format version, current one included. */
+type JsonlHeader = {
+  id?: string
+  createdAt?: number
+  seedLength?: number
+  version?: 0 | 1 | 2 | 3 | 4 | 5 | typeof SESSION_FORMAT_VERSION
+}
+
 /** Build a minimal session-JSONL string: a header line + the given events. */
 function sessionJsonl(
   events: SessionEvent[],
-  header?: { id?: string; createdAt?: number; seedLength?: number; version?: 0 | 1 | 2 | 3 | 4 | 5 },
+  header?: JsonlHeader,
 ): string {
   const version = header?.version ?? 0
   const headerLine = JSON.stringify({
@@ -99,7 +107,7 @@ function releasedV2ResultMessage(callId: ToolCallId): ToolResultMessage {
 /** Build a valid one-turn Session around recorded model calls. */
 function replaySessionJsonl(
   calls: readonly StreamChunk[][],
-  header?: { id?: string; createdAt?: number; seedLength?: number; version?: 0 | 1 | 2 | 3 | 4 | 5 },
+  header?: JsonlHeader,
 ): string {
   const version = header?.version ?? SESSION_FORMAT_VERSION
   const events: SessionEvent[] = []

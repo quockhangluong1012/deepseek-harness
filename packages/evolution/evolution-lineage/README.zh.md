@@ -28,6 +28,12 @@ kind: "package-reference"
 挂载插件并配合存储域。只要存储已挂载，信封就来自优化器受评的候选人；操作者读取信封，在信任指标差异前先比较依赖版本，并用种子重放一次运行。
 
 ```ts
+import type { Context } from '@deepseek-ai/cordis'
+import { EvolutionLineage } from '@deepseek-ai/dsh-evolution-lineage'
+
+declare const ctx: Context
+
+ctx.plugin(EvolutionLineage)
 await ctx.evolutionLineage.record({
   experimentId: 'exp-0',
   skill: 'writer',
@@ -48,6 +54,13 @@ if (verdict?.comparable) console.log('apples-to-apples')
 策略在同一存储中做版本化。`recordRevision({ policy, body, benchmark? })` 追加一个修订，算术由存储负责：它为该策略分配下一个版本号、对正文取哈希（sha256 十六进制），并与它所替换的修订做 diff，因此调用者无法记录出与正文不符的版本、摘要或 diff。记录与链头相同的字节是空操作；记录旧修订的字节是一次真实修订，因此回退会作为新版本落地，而不会改写历史。`revisions(policy)` 按从旧到新列出整条链，并带上每个修订的正文，这正是策略无需重读正文所写入的文件即可做 diff、可恢复的原因。
 
 ```ts
+import type { Context } from '@deepseek-ai/cordis'
+import { EvolutionLineage } from '@deepseek-ai/dsh-evolution-lineage'
+
+declare const ctx: Context
+declare const nextBody: string
+
+ctx.plugin(EvolutionLineage)
 await ctx.evolutionLineage.recordRevision({ policy: 'skill:writer', body: nextBody, benchmark: 'scorer-v1:…' })
 const chain = ctx.evolutionLineage.revisions('skill:writer')
 const last = chain.at(-1)

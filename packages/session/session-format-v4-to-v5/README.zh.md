@@ -34,6 +34,11 @@ kind: "package-library"
 目录构建器使用 `sessionFormatV4ToV5` 取得相邻的头部和正文迁移。直接调用头部转换器不会恢复事件正文：
 
 ```ts
+import { sessionFormatV4ToV5 } from '@deepseek-ai/dsh-session-format-v4-to-v5'
+import type { SessionFormatHeader } from '@deepseek-ai/dsh-session-format'
+
+declare const v4Header: SessionFormatHeader
+
 const v5Header = sessionFormatV4ToV5.migrateHeader(v4Header)
 ```
 

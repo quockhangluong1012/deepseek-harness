@@ -107,7 +107,7 @@ Không viết `PromptBuilder` mới. Thay đổi cụ thể:
 
 Không thêm cron 6h/3AM song song với curator hiện tại (168h/2h idle) — hai lịch chạy song song trên cùng dữ liệu là nguồn double-maintenance-timer, trái nguyên tắc "một plugin, một timer host-wide" mà curator đã tuân theo (`evolution-curator/src/index.ts:311-321`, một `setInterval` duy nhất, `unref()`'d). Thay vào đó, thêm MỘT bước "staging" nhẹ ở đầu quy trình curator hiện có — tái dùng đúng timer, chỉ thêm state:
 
-```ts
+```ts ignore-check
 // packages/evolution/evolution-curator/src/index.ts — mở rộng maybeRun(), không thêm timer mới
 async function maybeRun(ctx: CuratorContext): Promise<void> {
   if (!dueForPass(ctx)) return
@@ -137,7 +137,7 @@ interface SkillUsageRecord {
 
 **Bước 2 — trigger, đọc từ dữ liệu thật (không phải `should_trigger_gepa` mù trong prompt gốc):**
 
-```ts
+```ts ignore-check
 function shouldOptimize(usage: SkillUsageRecord): boolean {
   if (usage.failureCount === undefined || usage.useCount < 20) return false // chưa đủ mẫu
   const failureRate = usage.failureCount / usage.useCount
@@ -149,7 +149,7 @@ function shouldOptimize(usage: SkillUsageRecord): boolean {
 
 **Bước 4 — optimize: mutation loop tối giản, tái dùng pattern LLM-loop 2-tool của curator, KHÔNG DSPy:**
 
-```ts
+```ts ignore-check
 // package mới, nhỏ: packages/evolution/evolution-optimizer (tên tạm)
 // Config theo đúng quy tắc AGENTS.md "No hardcoded tunables": maxCandidates, maxSteps là Config field, không const.
 async function optimizeSkill(skillId: string, ctx: OptimizerContext): Promise<void> {

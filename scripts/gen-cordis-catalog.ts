@@ -1306,6 +1306,8 @@ export const TYPE_LINK_EXEMPTIONS: Readonly<Record<string, string>> = {
   OperatorRanking: 'operator ranking is owned by packages/evolution/evolution-operators/README.md',
   RouteEffectiveness: 'route effectiveness is owned by packages/evolution/evolution-model-routes/README.md',
   RouteRankingEntry: 'route ranking entry is owned by packages/evolution/evolution-model-routes/README.md',
+  RouteTaskClass: 'route task class is owned by packages/evolution/evolution-model-routes/README.md',
+  RecordedBackgroundSpend: 'recorded background spend is owned by packages/evolution/evolution-budget/README.md',
   TerminalShell: 'Browser terminal shell profiles are owned by packages/api/terminal-controller/README.md',
   TerminalEnvironment: 'Browser terminal environment fields are owned by packages/api/terminal-controller/README.md',
   WebTerminalInfo: 'Browser terminal metadata is owned by packages/api/terminal-controller/README.md',

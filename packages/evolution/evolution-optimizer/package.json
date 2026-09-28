@@ -32,6 +32,7 @@
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "workspace:~",
+    "@deepseek-ai/dsh-agent-kernel": "workspace:*",
     "@deepseek-ai/dsh-evolution-budget": "workspace:*",
     "@deepseek-ai/dsh-evolution-canary": "workspace:*",
     "@deepseek-ai/dsh-evolution-memory": "workspace:*",
@@ -46,12 +47,14 @@
     "@deepseek-ai/dsh-evolution-self-model": "workspace:*",
     "@deepseek-ai/dsh-evolution-skill-telemetry": "workspace:*",
     "@deepseek-ai/dsh-llm": "workspace:*",
+    "@deepseek-ai/dsh-session": "workspace:*",
     "@deepseek-ai/dsh-session-snapshot": "workspace:*",
     "@deepseek-ai/dsh-skill": "workspace:*",
     "@deepseek-ai/dsh-storage-domain": "workspace:*"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "workspace:~",
+    "@deepseek-ai/dsh-agent-kernel": "workspace:*",
     "@deepseek-ai/dsh-evolution-budget": "workspace:*",
     "@deepseek-ai/dsh-evolution-canary": "workspace:*",
     "@deepseek-ai/dsh-evolution-memory": "workspace:*",
@@ -66,6 +69,7 @@
     "@deepseek-ai/dsh-evolution-self-model": "workspace:*",
     "@deepseek-ai/dsh-evolution-skill-telemetry": "workspace:*",
     "@deepseek-ai/dsh-llm": "workspace:*",
+    "@deepseek-ai/dsh-session": "workspace:*",
     "@deepseek-ai/dsh-session-snapshot": "workspace:*",
     "@deepseek-ai/dsh-skill": "workspace:*",
     "@deepseek-ai/dsh-storage-domain": "workspace:*"

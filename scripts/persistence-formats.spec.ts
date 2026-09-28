@@ -279,6 +279,20 @@ describe('complete persistence format references', () => {
     expect(() => loadPersistenceFormats(root)).toThrow('invalid source tag')
   })
 
+  it('accepts a full commit pin as the source of an unpublished checkpoint', () => {
+    const root = fixture()
+    editPair(root, 1, 'pullRequest: 3349', 'commit: 05219c58127d26b2bd719cfc17a865d758df337f')
+    expect(loadPersistenceFormats(root).entries[1]?.source).toEqual({ commit: '05219c58127d26b2bd719cfc17a865d758df337f' })
+  })
+
+  it.each(['05219c5812', '05219C58127D26B2BD719CFC17A865D758DF337F', '05219c58127d26b2bd719cfc17a865d758df337', 'main'])(
+    'rejects a source commit that is not a full lowercase commit id: %s',
+    (commit) => {
+      const root = fixture()
+      editPair(root, 1, 'pullRequest: 3349', `commit: ${commit}`)
+      expect(() => loadPersistenceFormats(root)).toThrow('source commit must be a full 40-character lowercase commit id')
+    })
+
   it.each(['missing', 'extra', 'wrong-digest'])('rejects a %s recorded root', (variant) => {
     const root = fixture()
     const digest = inventory(1).roots[0]!.digest

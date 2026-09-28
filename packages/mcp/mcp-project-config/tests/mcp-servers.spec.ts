@@ -284,13 +284,13 @@ describe('McpServers upsert', () => {
   })
 })
 
-describe('McpServers remove', () => {
+describe('McpServers delete', () => {
   it('deletes a declaration that hides nothing without asking for approval', async () => {
     await writeDoc(projectPath, { server: { command: 'server' } })
     const { channel, asks } = approvalOf('allowed-once')
     const { servers, mounts } = await start({ approval: channel })
 
-    const outcome = await servers.remove({ name: 'server', layer: 'project', sessionId: SESSION })
+    const outcome = await servers.delete({ name: 'server', layer: 'project', sessionId: SESSION })
 
     expect(outcome.ok).toBe(true)
     expect(outcome.refusal).toBeNull()
@@ -307,7 +307,7 @@ describe('McpServers remove', () => {
     const { channel, asks } = approvalOf('rejected')
     const { servers } = await start({ approval: channel })
 
-    const outcome = await servers.remove({ name: 'shared', layer: 'project', sessionId: SESSION })
+    const outcome = await servers.delete({ name: 'shared', layer: 'project', sessionId: SESSION })
 
     expect(outcome.refusal).toBe('approval-refused')
     expect(asks).toHaveLength(1)
@@ -318,7 +318,7 @@ describe('McpServers remove', () => {
     const { channel } = approvalOf('allowed-once')
     const { servers } = await start({ approval: channel })
 
-    const outcome = await servers.remove({ name: 'missing', layer: 'user', sessionId: SESSION })
+    const outcome = await servers.delete({ name: 'missing', layer: 'user', sessionId: SESSION })
 
     expect(outcome.refusal).toBe('unknown-server')
   })

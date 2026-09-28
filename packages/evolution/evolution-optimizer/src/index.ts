@@ -43,6 +43,7 @@ import type {} from '@deepseek-ai/dsh-storage-domain'
 import type { KvTable } from '@deepseek-ai/dsh-storage-domain'
 import type {} from '@deepseek-ai/dsh-skill'
 import type { AgentUnderTest } from '@deepseek-ai/dsh-session-snapshot'
+import { EvolutionAudit, auditSession } from './audit.ts'
 import { distributeCandidates, frameMutationInput, mutateOnce, resolveOperators } from './mutate.ts'
 import { dominates, pickWinner, screenSurvivors } from './pareto.ts'
 import { scoreVariantTiered } from './tiers.ts'
@@ -699,6 +700,9 @@ export class EvolutionOptimizer extends Service {
    * @returns the run report plus what the run must record about itself.
    */
   private async execute(request: OptimizeRequest): Promise<{ report: OptimizeReport; draft?: ExperimentDraft }> {
+    // §18.2: the run's audit trail into the session that requested it, minted
+    // once so every event it writes names the same optimization run.
+    const audit = new EvolutionAudit(auditSession(this.ctx, request.originSessionId))
     const holdout = await this.resolveHoldout(request)
     const overlap = request.scenarios.filter(scenario => holdout.includes(scenario))
     if (overlap.length > 0) {
@@ -870,6 +874,9 @@ export class EvolutionOptimizer extends Service {
       const spend = { tokens: mutationTokens, wallTimeMs: Date.now() - mutationStartedAt, rollouts: 0 }
       for (const batchId of ceiling.batchIds) await ceiling.budget.spend(batchId, spend)
     }
+    // §18.2: the candidate bodies exist from here on, whether or not any of
+    // them survives scoring, so the log names them before the run pays for it.
+    audit.candidates(request.skill, String(request.scopeId), request.scenarios, `${provider}/${model}`, mutated)
     if (mutated.length === 0) {
       const detail = unusable === 0 ? '' : `; ${unusable} refused for breaking the skill frontmatter`
       return {
@@ -911,13 +918,22 @@ export class EvolutionOptimizer extends Service {
     const withinBudget = (): boolean =>
       (this.resolved.budgetTokens === 0 || spent.tokens < this.resolved.budgetTokens)
       && (this.resolved.budgetWallTimeMs === 0 || spent.wallTimeMs < this.resolved.budgetWallTimeMs)
-    const baseline = await scoreVariantTiered(this.ctx, deps, body, body)
+    // One funnel for every scoring pass, so each measured triple reaches the
+    // session log exactly once: the baseline, the screen, every survivor, the
+    // holdout arms, and each confirmation repeat.
+    const evaluate = async (variant: string, startingBody: string, over: readonly string[] = request.scenarios) => {
+      const scored = await scoreVariantTiered(this.ctx, { ...deps, scenarios: over }, variant, startingBody)
+      if (scored.status === 'evaluated') audit.evaluated(variant, over, scored.score)
+      return scored
+    }
+    const baseline = await evaluate(body, body)
     if (baseline.status !== 'evaluated') {
       return { report: report('skipped', { reason: baseline.reason }), draft: draft(null) }
     }
     spend(baseline.score)
     samples = attemptsPerScenario(baseline.score)
     const screenCount = this.resolved.screenScenarioCount
+    const screenScenarios = request.scenarios.slice(0, screenCount)
     let pool: readonly { index: number; body: string; operator: string; novelty: number; archiveNovelty: number }[] =
       mutated.map((variant, index) => ({
         index,
@@ -931,8 +947,7 @@ export class EvolutionOptimizer extends Service {
     if (screenCount > 0 && mutated.length > 1 && screenCount < request.scenarios.length) {
       const screened: EvaluatedVariant[] = []
       for (const [index, variant] of mutated.entries()) {
-        const screenDeps = { ...deps, scenarios: request.scenarios.slice(0, screenCount) }
-        const scored = await scoreVariantTiered(this.ctx, screenDeps, variant.body, body)
+        const scored = await evaluate(variant.body, body, screenScenarios)
         if (scored.status !== 'evaluated') {
           return {
             report: report('skipped', { baseline: baseline.score, candidates: screened, reason: scored.reason }),
@@ -958,7 +973,7 @@ export class EvolutionOptimizer extends Service {
         truncated = true
         break
       }
-      const evaluated = await scoreVariantTiered(this.ctx, deps, survivor.body, body)
+      const evaluated = await evaluate(survivor.body, body)
       if (evaluated.status !== 'evaluated') {
         return {
           report: report('skipped', { baseline: baseline.score, candidates, truncated, reason: evaluated.reason }),
@@ -1062,15 +1077,14 @@ export class EvolutionOptimizer extends Service {
         `evolution-optimizer: promotion requires holdoutScenarios or mined holdout scenarios to stage a skill patch for '${request.skill}'`,
       )
     }
-    const privateDeps = { ...deps, scenarios: holdout }
-    const baselineHoldout = await scoreVariantTiered(this.ctx, privateDeps, body, body)
+    const baselineHoldout = await evaluate(body, body, holdout)
     if (baselineHoldout.status !== 'evaluated') {
       return {
         report: report('skipped', { baseline: baseline.score, candidates, reason: baselineHoldout.reason }),
         draft: draft(winner),
       }
     }
-    const winnerHoldout = await scoreVariantTiered(this.ctx, privateDeps, winner.body, body)
+    const winnerHoldout = await evaluate(winner.body, body, holdout)
     if (winnerHoldout.status !== 'evaluated') {
       return {
         report: report('skipped', { baseline: baseline.score, candidates, reason: winnerHoldout.reason }),
@@ -1106,7 +1120,7 @@ export class EvolutionOptimizer extends Service {
           draft: draft(winner),
         }
       }
-      const repeatBaseline = await scoreVariantTiered(this.ctx, deps, body, body)
+      const repeatBaseline = await evaluate(body, body)
       if (repeatBaseline.status !== 'evaluated') {
         return {
           report: report('skipped', { baseline: baseline.score, candidates, reason: repeatBaseline.reason }),
@@ -1114,7 +1128,7 @@ export class EvolutionOptimizer extends Service {
         }
       }
       spend(repeatBaseline.score)
-      const repeatWinner = await scoreVariantTiered(this.ctx, deps, winner.body, body)
+      const repeatWinner = await evaluate(winner.body, body)
       if (repeatWinner.status !== 'evaluated') {
         return {
           report: report('skipped', { baseline: baseline.score, candidates, reason: repeatWinner.reason }),

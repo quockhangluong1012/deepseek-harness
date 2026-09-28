@@ -67,7 +67,11 @@ function declareProbe(
 
 /** A minimal kernel view naming the given task facts. */
 function viewOf(overrides: Partial<KernelView> & Pick<KernelView, 'task' | 'sessionId' | 'budgets'>): KernelView {
-  return { openActionIds: [], unresolvedFailures: [], evidence: [], claims: [], hypotheses: [], diagnoses: [], ...overrides }
+  return {
+    openActionIds: [], unresolvedFailures: [], evidence: [], claims: [], hypotheses: [], diagnoses: [],
+    evolution: { candidates: [], evaluations: [], promotions: new Map() },
+    ...overrides,
+  }
 }
 
 describe('receipt issuance', () => {

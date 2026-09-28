@@ -29,6 +29,9 @@ kind: "package-reference"
 
 ```ts
 import type { Context } from '@deepseek-ai/cordis'
+import '@deepseek-ai/dsh-evolution-heartbeat'
+
+declare const consolidate: (signal: AbortSignal) => Promise<void>
 
 export function apply(ctx: Context): void {
   ctx.effect(() => ctx.evolutionHeartbeat.register({

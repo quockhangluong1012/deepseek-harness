@@ -544,6 +544,18 @@ function clientConfig(id: string, entry: string, clientBanner?: (fileName: strin
           + '(type-only imports are erased and never reach this gate)',
         )
       },
+    }, {
+      // A bare specifier rolldown cannot resolve is emitted as an external
+      // require, and the Client module table answers none of them: the boot
+      // throws before the package activates. The usual cause is an undeclared
+      // dependency in a package whose generated `/remote` artifact imports it.
+      name: 'dsh-client-bundle-resolution',
+      onLog(_logLevel, log) {
+        if (log.code === 'UNRESOLVED_IMPORT') {
+          throw new Error(`client bundle: ${id} has an unresolved import: ${log.message}`)
+        }
+        return true
+      },
     }, tscSourceMapPlugin(), asyncChunkRequirePlugin(), isolation.plugin, {
       name: 'dsh-css-modules-inline',
       resolveId(source: string, importer: string | undefined) {

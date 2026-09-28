@@ -130,7 +130,7 @@ export function viewOf(overrides: Partial<KernelView> = {}): KernelView {
     status: 'executing',
     revision: 3,
   }
-  return { task, sessionId: SessionId('context-agent-view'), budgets: BUDGET, openActionIds: [], unresolvedFailures: [], evidence: [], claims: [], hypotheses: [], diagnoses: [], ...overrides }
+  return { task, sessionId: SessionId('context-agent-view'), budgets: BUDGET, openActionIds: [], unresolvedFailures: [], evidence: [], claims: [], hypotheses: [], diagnoses: [], evolution: { candidates: [], evaluations: [], promotions: new Map() }, ...overrides }
 }
 
 /**

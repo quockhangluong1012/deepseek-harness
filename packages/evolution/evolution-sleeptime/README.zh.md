@@ -28,6 +28,11 @@ kind: "package-reference"
 挂载插件并配合存储域。当路由存储或技能遥测存储也已挂载时，心跳的空闲节拍会自行运行预期遍历；操作者也可以手工预期任务、预计算产物并驱动一次遍历。
 
 ```ts
+import type { Context } from '@deepseek-ai/cordis'
+import '@deepseek-ai/dsh-evolution-sleeptime'
+
+declare const ctx: Context
+
 // The automatic pass: what the source stores recorded is what it anticipates.
 await ctx.evolutionSleeptime.anticipateAll()
 

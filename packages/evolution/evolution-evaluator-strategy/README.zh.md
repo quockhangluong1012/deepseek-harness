@@ -28,6 +28,11 @@ kind: "package-reference"
 挂载插件并配合存储域。调用者记录每个评估器判定、其后的地面真值，以及涉及的两个模型；排序与推荐回答某个任务类该信任哪个评估器。
 
 ```ts
+import type { Context } from '@deepseek-ai/cordis'
+import EvolutionEvaluatorStrategy from '@deepseek-ai/dsh-evolution-evaluator-strategy'
+
+declare const ctx: Context
+
 await ctx.evolutionEvaluatorStrategy.observe({
   evaluator: 'scorer-v1',
   taskClass: 'writer',

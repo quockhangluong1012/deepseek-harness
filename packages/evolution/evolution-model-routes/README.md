@@ -9,9 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-evolution-model-routes` is the single owner of runtime model routing. It records which provider/model each evolutionary role — task execution, reflection, candidate generation, evaluation, promotion review — used, how each route measured per task class, and which identity filled each role of a run. Optimizer outcomes arrive through the optional store seam and operators pin routes with `/routes`; `recommend` answers which route a role should use, `effectiveness` and `/router` expose the per-task-class numbers behind it, and `conflicts` names routes that both produce and judge work. The same store answers §44's route disagreement as an uncertainty signal and §53's separation of duties: a promotion or verdict signed by the candidate's own generator is refused, with both roles named. Nothing here calls a model.
-
-This package absorbed `dsh-evolution-router` (retired). Its per-task-class route outcomes, its effectiveness derivation, its ranking, and its §44 disagreement now live here; the recorded `evolution_router` domain is imported on startup so that history is not lost.
+`dsh-evolution-model-routes` is the single owner of runtime model routing. It records which provider/model each evolutionary role ran on, how each route measured per task class, and which identity filled each role of a run. Operators pin routes with `/routes`; `recommend` answers which route a role should use, and `conflicts` names routes that both produce and judge work. It also reports §44's route disagreement as an uncertainty signal and refuses a promotion signed by the candidate's own generator (§53). It absorbed the retired `dsh-evolution-router`, whose recorded domain is imported on startup. Nothing here calls a model.
 
 ## Table of Contents
 
@@ -30,6 +28,12 @@ This package absorbed `dsh-evolution-router` (retired). Its per-task-class route
 Mount the plugin with the storage domain. Outcomes arrive from the optimizer's staged writes whenever the store is mounted; operators read assignments, pin routes, and read the measured evidence. A caller that takes a promotion or a verdict records who filled each role of the run and reads the separation-of-duties check before it decides.
 
 ```ts
+import type { Context } from '@deepseek-ai/cordis'
+import '@deepseek-ai/dsh-evolution-model-routes'
+
+declare const ctx: Context
+declare const stagedId: string
+
 await ctx.evolutionModelRoutes.observe({
   taskClass: 'writer',
   role: 'evaluation',
